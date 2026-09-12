@@ -16,7 +16,8 @@ use vibe_strategy_factory::{
     RepairActionResolutionLocatorV1,
     iteration_decision::{
         IterationDecisionEvidenceCutV1, IterationDecisionOutcomeV1, IterationRepairCategoryV1,
-        RepairInputIterationDecisionReadbackV1, is_valid_iteration_decision_locator_v1,
+        RepairInputIterationDecisionReadbackV1, TrialBudgetTerminalStopDecisionReadbackV1,
+        is_valid_iteration_decision_locator_v1,
     },
     product_edge_postgres::PostgresResearchGoalOwnerV1,
     repair_action::RepairActionRequestReadbackV1,
@@ -55,6 +56,41 @@ impl RepairInputDecisionActionPort for PostgresResearchGoalOwnerV1 {
         self.resolve_repair_input_iteration_decision_v1(locator)
             .await
             .map(|readback| readback.map(RepairInputDecisionActionResponseV1::from))
+    }
+}
+
+#[async_trait::async_trait]
+trait TrialBudgetTerminalStopActionPort: Send + Sync {
+    async fn compose_trial_budget_stop(
+        &self,
+        request: DecisionCompositionRequestV1,
+    ) -> Result<TrialBudgetTerminalStopActionResponseV1, IterationDecisionPostgresErrorV1>;
+
+    async fn resolve_trial_budget_stop(
+        &self,
+        locator: IterationDecisionResolutionLocatorV1,
+    ) -> Result<Option<TrialBudgetTerminalStopActionResponseV1>, IterationDecisionPostgresErrorV1>;
+}
+
+#[async_trait::async_trait]
+impl TrialBudgetTerminalStopActionPort for PostgresResearchGoalOwnerV1 {
+    async fn compose_trial_budget_stop(
+        &self,
+        request: DecisionCompositionRequestV1,
+    ) -> Result<TrialBudgetTerminalStopActionResponseV1, IterationDecisionPostgresErrorV1> {
+        self.compose_trial_budget_terminal_stop_decision_v1(request)
+            .await
+            .map(TrialBudgetTerminalStopActionResponseV1::from)
+    }
+
+    async fn resolve_trial_budget_stop(
+        &self,
+        locator: IterationDecisionResolutionLocatorV1,
+    ) -> Result<Option<TrialBudgetTerminalStopActionResponseV1>, IterationDecisionPostgresErrorV1>
+    {
+        self.resolve_trial_budget_terminal_stop_decision_v1(locator)
+            .await
+            .map(|readback| readback.map(TrialBudgetTerminalStopActionResponseV1::from))
     }
 }
 
@@ -99,6 +135,12 @@ struct RepairInputDecisionApiState {
 }
 
 #[derive(Clone)]
+struct TrialBudgetTerminalStopApiState {
+    owner: Arc<dyn TrialBudgetTerminalStopActionPort>,
+    token_digest: [u8; 32],
+}
+
+#[derive(Clone)]
 struct RepairActionRequestApiState {
     owner: Arc<dyn RepairActionRequestActionPort>,
     token_digest: [u8; 32],
@@ -129,6 +171,40 @@ impl From<RepairInputIterationDecisionReadbackV1> for RepairInputDecisionActionR
             evidence_cut: decision.evidence_cut().clone(),
             outcome: decision.outcome().clone(),
             supported_defects: decision.supported_defects().to_vec(),
+            receipt_identity: receipt.receipt_identity().to_string(),
+            result_identity: receipt.result_identity().to_string(),
+            committed_at_epoch_ms: receipt.committed_at_epoch_ms(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+struct TrialBudgetTerminalStopActionResponseV1 {
+    schema_version: u16,
+    decision_identity: String,
+    decision_digest: String,
+    evidence_cut: IterationDecisionEvidenceCutV1,
+    outcome: IterationDecisionOutcomeV1,
+    consumed_trial_budget: u32,
+    trial_budget: u32,
+    receipt_identity: String,
+    result_identity: String,
+    committed_at_epoch_ms: u64,
+}
+
+impl From<TrialBudgetTerminalStopDecisionReadbackV1> for TrialBudgetTerminalStopActionResponseV1 {
+    fn from(readback: TrialBudgetTerminalStopDecisionReadbackV1) -> Self {
+        let decision = readback.decision();
+        let receipt = readback.receipt();
+        Self {
+            schema_version: 1,
+            decision_identity: decision.decision_identity().to_string(),
+            decision_digest: decision.decision_digest().to_string(),
+            evidence_cut: decision.evidence_cut().clone(),
+            outcome: decision.outcome().clone(),
+            consumed_trial_budget: decision.consumed_trial_budget(),
+            trial_budget: decision.trial_budget(),
             receipt_identity: receipt.receipt_identity().to_string(),
             result_identity: receipt.result_identity().to_string(),
             committed_at_epoch_ms: receipt.committed_at_epoch_ms(),
@@ -173,7 +249,31 @@ impl From<RepairActionRequestReadbackV1> for RepairActionRequestActionResponseV1
 }
 
 pub(super) fn router(owner: Arc<PostgresResearchGoalOwnerV1>, token_digest: [u8; 32]) -> Router {
-    action_router(owner.clone(), token_digest).merge(repair_action_router(owner, token_digest))
+    action_router(owner.clone(), token_digest)
+        .merge(trial_budget_terminal_stop_router(
+            owner.clone(),
+            token_digest,
+        ))
+        .merge(repair_action_router(owner, token_digest))
+}
+
+fn trial_budget_terminal_stop_router(
+    owner: Arc<dyn TrialBudgetTerminalStopActionPort>,
+    token_digest: [u8; 32],
+) -> Router {
+    Router::new()
+        .route(
+            "/v1/iteration-decisions/trial-budget-terminal-stop",
+            post(compose_trial_budget_terminal_stop),
+        )
+        .route(
+            "/v1/iteration-decisions/trial-budget-terminal-stop/resolve",
+            post(resolve_trial_budget_terminal_stop),
+        )
+        .with_state(TrialBudgetTerminalStopApiState {
+            owner,
+            token_digest,
+        })
 }
 
 fn repair_action_router(
@@ -298,6 +398,93 @@ async fn compose_repair_input_decision(
     }
 }
 
+async fn compose_trial_budget_terminal_stop(
+    State(state): State<TrialBudgetTerminalStopApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            "unbound",
+        );
+    }
+    let request: DecisionCompositionRequestV1 = match serde_json::from_slice(&body) {
+        Ok(request) => request,
+        Err(_) => {
+            return rejection(
+                StatusCode::BAD_REQUEST,
+                "MALFORMED_TYPED_REQUEST",
+                "unbound",
+            );
+        }
+    };
+    let request_identity = request.request_identity.clone();
+    if [
+        request.trial_family_identity.as_str(),
+        request.result_identity.as_str(),
+        request.request_identity.as_str(),
+        request.attempt_identity.as_str(),
+    ]
+    .into_iter()
+    .any(|identity| !is_valid_iteration_decision_locator_v1(identity))
+    {
+        return rejection(
+            StatusCode::BAD_REQUEST,
+            "INVALID_ITERATION_DECISION_LOCATORS",
+            &request_identity,
+        );
+    }
+    match state.owner.compose_trial_budget_stop(request).await {
+        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
+        Err(error) => trial_budget_terminal_stop_owner_error(&error, &request_identity),
+    }
+}
+
+async fn resolve_trial_budget_terminal_stop(
+    State(state): State<TrialBudgetTerminalStopApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return decision_resolution_rejection(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            "unbound",
+        );
+    }
+    let locator: IterationDecisionResolutionLocatorV1 = match serde_json::from_slice(&body) {
+        Ok(locator) => locator,
+        Err(_) => {
+            return decision_resolution_rejection(
+                StatusCode::BAD_REQUEST,
+                "MALFORMED_TYPED_REQUEST",
+                "unbound",
+            );
+        }
+    };
+    let decision_identity = locator.decision_identity.clone();
+    if !is_valid_iteration_decision_locator_v1(&locator.decision_identity)
+        || !is_valid_iteration_decision_locator_v1(&locator.result_identity)
+    {
+        return decision_resolution_rejection(
+            StatusCode::BAD_REQUEST,
+            "INVALID_ITERATION_DECISION_LOCATORS",
+            &decision_identity,
+        );
+    }
+    match state.owner.resolve_trial_budget_stop(locator).await {
+        Ok(Some(result)) => (StatusCode::OK, Json(result)).into_response(),
+        Ok(None) => decision_resolution_rejection(
+            StatusCode::NOT_FOUND,
+            "ITERATION_DECISION_NOT_FOUND",
+            &decision_identity,
+        ),
+        Err(error) => trial_budget_terminal_stop_resolution_owner_error(&error, &decision_identity),
+    }
+}
+
 async fn compose_repair_action_request(
     State(state): State<RepairActionRequestApiState>,
     headers: HeaderMap,
@@ -400,6 +587,30 @@ fn repair_action_owner_error(
     )
 }
 
+fn trial_budget_terminal_stop_owner_error(
+    error: &IterationDecisionPostgresErrorV1,
+    request_identity: &str,
+) -> Response {
+    owner_error_with(
+        error,
+        request_identity,
+        "INVALID_ITERATION_DECISION_LOCATORS",
+        rejection,
+    )
+}
+
+fn trial_budget_terminal_stop_resolution_owner_error(
+    error: &IterationDecisionPostgresErrorV1,
+    decision_identity: &str,
+) -> Response {
+    owner_error_with(
+        error,
+        decision_identity,
+        "INVALID_ITERATION_DECISION_LOCATORS",
+        decision_resolution_rejection,
+    )
+}
+
 fn decision_resolution_owner_error(
     error: &IterationDecisionPostgresErrorV1,
     decision_identity: &str,
@@ -444,6 +655,11 @@ fn owner_error_with(
         IterationDecisionPostgresErrorV1::InterpretationRequired => reject(
             StatusCode::CONFLICT,
             "ITERATION_INTERPRETATION_REQUIRED",
+            correlation_identity,
+        ),
+        IterationDecisionPostgresErrorV1::TrialBudgetStopNotApplicable => reject(
+            StatusCode::CONFLICT,
+            "TRIAL_BUDGET_TERMINAL_STOP_NOT_APPLICABLE",
             correlation_identity,
         ),
         IterationDecisionPostgresErrorV1::TrialFamily(_)
@@ -510,7 +726,7 @@ mod tests {
     use sha2::Digest as _;
     use tower::ServiceExt;
     use vibe_strategy_factory::iteration_decision::{
-        IterationNoDecisionReasonV1, IterationRepairTargetV1,
+        IterationNoDecisionReasonV1, IterationRepairTargetV1, IterationTerminalStopReasonV1,
     };
 
     struct DecisionOwnerStub {
@@ -523,6 +739,35 @@ mod tests {
         calls: AtomicUsize,
         resolve_calls: AtomicUsize,
         response: Option<RepairActionRequestActionResponseV1>,
+    }
+
+    struct TrialBudgetStopOwnerStub {
+        calls: AtomicUsize,
+        resolve_calls: AtomicUsize,
+        response: Option<TrialBudgetTerminalStopActionResponseV1>,
+    }
+
+    #[async_trait::async_trait]
+    impl TrialBudgetTerminalStopActionPort for TrialBudgetStopOwnerStub {
+        async fn compose_trial_budget_stop(
+            &self,
+            _request: DecisionCompositionRequestV1,
+        ) -> Result<TrialBudgetTerminalStopActionResponseV1, IterationDecisionPostgresErrorV1>
+        {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.response
+                .clone()
+                .ok_or(IterationDecisionPostgresErrorV1::TrialBudgetStopNotApplicable)
+        }
+
+        async fn resolve_trial_budget_stop(
+            &self,
+            _locator: IterationDecisionResolutionLocatorV1,
+        ) -> Result<Option<TrialBudgetTerminalStopActionResponseV1>, IterationDecisionPostgresErrorV1>
+        {
+            self.resolve_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(self.response.clone())
+        }
     }
 
     #[async_trait::async_trait]
@@ -649,6 +894,24 @@ mod tests {
             receipt_identity: "repair-action-receipt-1".into(),
             receipt_digest: format!("sha256:{}", "c".repeat(64)),
             committed_at_epoch_ms: 19,
+        }
+    }
+
+    fn trial_budget_stop_response() -> TrialBudgetTerminalStopActionResponseV1 {
+        let repair_response = response();
+        TrialBudgetTerminalStopActionResponseV1 {
+            schema_version: 1,
+            decision_identity: "decision-budget-stop-1".into(),
+            decision_digest: format!("sha256:{}", "d".repeat(64)),
+            evidence_cut: repair_response.evidence_cut,
+            outcome: IterationDecisionOutcomeV1::TerminalStop {
+                reason: IterationTerminalStopReasonV1::TrialBudgetExhausted,
+            },
+            consumed_trial_budget: 3,
+            trial_budget: 3,
+            receipt_identity: "decision-budget-stop-receipt-1".into(),
+            result_identity: "result-1".into(),
+            committed_at_epoch_ms: 23,
         }
     }
 
@@ -1026,5 +1289,102 @@ mod tests {
         );
         assert_eq!(missing.calls.load(Ordering::SeqCst), 0);
         assert_eq!(missing.resolve_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn trial_budget_stop_rejections_stop_before_owner_and_preserve_correlation() {
+        let token = "trial-budget-stop-test";
+        let token_digest: [u8; 32] = sha2::Sha256::digest(token.as_bytes()).into();
+        let owner = Arc::new(TrialBudgetStopOwnerStub {
+            calls: AtomicUsize::new(0),
+            resolve_calls: AtomicUsize::new(0),
+            response: None,
+        });
+        let unauthorized = trial_budget_terminal_stop_router(owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/iteration-decisions/trial-budget-terminal-stop",
+                request(),
+                None,
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(unauthorized.status(), StatusCode::FORBIDDEN);
+        assert_eq!(owner.calls.load(Ordering::SeqCst), 0);
+
+        let mut injected = request();
+        injected["outcome"] = json!({"terminal_stop": "caller-controlled"});
+        let rejected = trial_budget_terminal_stop_router(owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/iteration-decisions/trial-budget-terminal-stop",
+                injected,
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(rejected.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(owner.calls.load(Ordering::SeqCst), 0);
+
+        let not_applicable = trial_budget_terminal_stop_router(owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/iteration-decisions/trial-budget-terminal-stop",
+                request(),
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(not_applicable.status(), StatusCode::CONFLICT);
+        assert_eq!(
+            response_json(not_applicable).await,
+            json!({
+                "request_identity": "request-1",
+                "error": "TRIAL_BUDGET_TERMINAL_STOP_NOT_APPLICABLE",
+            })
+        );
+        assert_eq!(owner.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn trial_budget_stop_retry_and_resolve_return_exact_owner_custody() {
+        let token = "trial-budget-stop-success-test";
+        let token_digest: [u8; 32] = sha2::Sha256::digest(token.as_bytes()).into();
+        let expected = trial_budget_stop_response();
+        let owner = Arc::new(TrialBudgetStopOwnerStub {
+            calls: AtomicUsize::new(0),
+            resolve_calls: AtomicUsize::new(0),
+            response: Some(expected.clone()),
+        });
+        let mut bodies = Vec::new();
+        for _ in 0..2 {
+            let response = trial_budget_terminal_stop_router(owner.clone(), token_digest)
+                .oneshot(send_to(
+                    "/v1/iteration-decisions/trial-budget-terminal-stop",
+                    request(),
+                    Some(&format!("Bearer {token}")),
+                ))
+                .await
+                .expect("router response");
+            assert_eq!(response.status(), StatusCode::OK);
+            bodies.push(response_json(response).await);
+        }
+        assert_eq!(bodies, vec![serde_json::to_value(&expected).unwrap(); 2]);
+        assert_eq!(owner.calls.load(Ordering::SeqCst), 2);
+
+        let resolved = trial_budget_terminal_stop_router(owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/iteration-decisions/trial-budget-terminal-stop/resolve",
+                json!({
+                    "decision_identity": "decision-budget-stop-1",
+                    "result_identity": "result-1",
+                }),
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(resolved.status(), StatusCode::OK);
+        assert_eq!(
+            response_json(resolved).await,
+            serde_json::to_value(expected).unwrap()
+        );
+        assert_eq!(owner.resolve_calls.load(Ordering::SeqCst), 1);
     }
 }

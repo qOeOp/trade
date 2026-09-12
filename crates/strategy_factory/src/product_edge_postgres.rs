@@ -1308,6 +1308,34 @@ impl PostgresResearchGoalOwnerV1 {
             .await
     }
 
+    /// Commits the budget-exhausted terminal Decision from the exact locked R&D cut.
+    pub async fn compose_trial_budget_terminal_stop_decision_v1(
+        &self,
+        request: crate::DecisionCompositionRequestV1,
+    ) -> Result<
+        crate::iteration_decision::TrialBudgetTerminalStopDecisionReadbackV1,
+        crate::IterationDecisionPostgresErrorV1,
+    > {
+        crate::iteration_decision_postgres::compose_trial_budget_terminal_stop_decision_v1(
+            &self.pool, request,
+        )
+        .await
+    }
+
+    /// Resolves existing budget-exhausted terminal Decision custody without creating it.
+    pub async fn resolve_trial_budget_terminal_stop_decision_v1(
+        &self,
+        locator: crate::IterationDecisionResolutionLocatorV1,
+    ) -> Result<
+        Option<crate::iteration_decision::TrialBudgetTerminalStopDecisionReadbackV1>,
+        crate::IterationDecisionPostgresErrorV1,
+    > {
+        crate::iteration_decision_postgres::resolve_trial_budget_terminal_stop_decision_v1(
+            &self.pool, locator,
+        )
+        .await
+    }
+
     /// Commits an effect-free repair request from exact stored Decision custody.
     pub async fn compose_repair_action_request_v1(
         &self,

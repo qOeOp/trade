@@ -891,13 +891,6 @@ impl TrialFamilyCensusFrontierV2 {
     }
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 impl TrialFamilyCensusReadbackV2 {
     pub(crate) fn decision_policy_v1(
         &self,

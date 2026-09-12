@@ -270,6 +270,32 @@ pub struct RepairInputIterationDecisionReadbackV1 {
     receipt: IterationDecisionReceiptV1,
 }
 
+/// R&D-owned immutable budget-exhausted terminal Decision.
+///
+/// The embedded interpretation is derived from locked Owner facts and is intentionally not
+/// caller-constructible. Unresolved interpretation dimensions remain visible evidence; they do not
+/// override the independently frozen TrialFamily budget hard stop.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrialBudgetTerminalStopDecisionV1 {
+    schema_version: u16,
+    decision_identity: String,
+    decision_digest: String,
+    evidence_cut: IterationDecisionEvidenceCutV1,
+    outcome: IterationDecisionOutcomeV1,
+    consumed_trial_budget: u32,
+    trial_budget: u32,
+    interpretation: IterationInterpretationContextV1,
+}
+
+/// Move-only positive custody for a budget-exhausted terminal Decision.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrialBudgetTerminalStopDecisionReadbackV1 {
+    decision: TrialBudgetTerminalStopDecisionV1,
+    receipt: IterationDecisionReceiptV1,
+}
+
 impl RepairInputIterationDecisionV1 {
     pub fn decision_identity(&self) -> &str {
         &self.decision_identity
@@ -324,6 +350,42 @@ impl RepairInputIterationDecisionReadbackV1 {
     }
 }
 
+impl TrialBudgetTerminalStopDecisionV1 {
+    pub fn decision_identity(&self) -> &str {
+        &self.decision_identity
+    }
+
+    pub fn decision_digest(&self) -> &str {
+        &self.decision_digest
+    }
+
+    pub fn evidence_cut(&self) -> &IterationDecisionEvidenceCutV1 {
+        &self.evidence_cut
+    }
+
+    pub fn outcome(&self) -> &IterationDecisionOutcomeV1 {
+        &self.outcome
+    }
+
+    pub const fn consumed_trial_budget(&self) -> u32 {
+        self.consumed_trial_budget
+    }
+
+    pub const fn trial_budget(&self) -> u32 {
+        self.trial_budget
+    }
+}
+
+impl TrialBudgetTerminalStopDecisionReadbackV1 {
+    pub fn decision(&self) -> &TrialBudgetTerminalStopDecisionV1 {
+        &self.decision
+    }
+
+    pub fn receipt(&self) -> &IterationDecisionReceiptV1 {
+        &self.receipt
+    }
+}
+
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct StoredRepairInputIterationDecisionV1 {
@@ -333,6 +395,19 @@ struct StoredRepairInputIterationDecisionV1 {
     evidence_cut: IterationDecisionEvidenceCutV1,
     outcome: IterationDecisionOutcomeV1,
     supported_defects: Vec<IterationRepairCategoryV1>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredTrialBudgetTerminalStopDecisionV1 {
+    schema_version: u16,
+    decision_identity: String,
+    decision_digest: String,
+    evidence_cut: IterationDecisionEvidenceCutV1,
+    outcome: IterationDecisionOutcomeV1,
+    consumed_trial_budget: u32,
+    trial_budget: u32,
+    interpretation: IterationInterpretationContextV1,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -367,7 +442,7 @@ pub enum IterationDecisionGateV1 {
 }
 
 /// One exact requested-to-consumed Replay binding admitted for R&D interpretation.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct IterationInterpretationOwnerBindingV1 {
     component: ObservationComponentV2,
@@ -378,7 +453,7 @@ pub(crate) struct IterationInterpretationOwnerBindingV1 {
 }
 
 /// Exact canonical aggregate bytes that established Backtest Owner custody for interpretation.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct IterationInterpretationResultCustodyV1 {
     result_storage_digest: String,
@@ -388,7 +463,7 @@ pub(crate) struct IterationInterpretationResultCustodyV1 {
 }
 
 /// Backtest-owned native outcome bytes admitted for R&D interpretation.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct IterationInterpretationOutcomeEvidenceV1 {
     evidence_identity: String,
@@ -405,7 +480,7 @@ pub(crate) struct IterationInterpretationOutcomeEvidenceV1 {
 }
 
 /// Owner-sealed decisive diagnostic evidence carried by the locked Result aggregate.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct IterationInterpretationDiagnosticEvidenceV1 {
     component: ObservationComponentV2,
@@ -414,7 +489,7 @@ pub(crate) struct IterationInterpretationDiagnosticEvidenceV1 {
 }
 
 /// One exact canonical fact referenced by a derived diagnosis dimension.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct IterationDiagnosisEvidenceReferenceV1 {
     identity: String,
@@ -422,7 +497,7 @@ pub(crate) struct IterationDiagnosisEvidenceReferenceV1 {
 }
 
 /// Finite result of interpreting one required R&D diagnosis dimension.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub(crate) enum IterationDiagnosisDispositionV1 {
     EvidenceEstablished,
@@ -432,7 +507,7 @@ pub(crate) enum IterationDiagnosisDispositionV1 {
 }
 
 /// One R&D-owned dimension derived from the exact frozen evidence cut.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct IterationDiagnosisFindingV1 {
     dimension: IterationDiagnosisDimensionV1,
@@ -444,7 +519,7 @@ pub(crate) struct IterationDiagnosisFindingV1 {
 ///
 /// It is serialize-only and has no caller-facing constructor. The later Decision composer may
 /// consume it only while retaining the transaction that produced `locked_result`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct IterationInterpretationContextV1 {
     evidence_cut: IterationDecisionEvidenceCutV1,
@@ -465,7 +540,7 @@ impl IterationInterpretationContextV1 {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum IterationInterpretationDiagnosticV1 {
     NoExecutionDefect,
@@ -1089,12 +1164,192 @@ pub(crate) fn admit_stored_repair_input_decision_v1(
     Ok(expected)
 }
 
+pub(crate) fn issue_trial_budget_terminal_stop_decision_v1(
+    census: &TrialFamilyCensusReadbackV2,
+    interpretation: IterationInterpretationContextV1,
+    committed_at_epoch_ms: u64,
+) -> Result<TrialBudgetTerminalStopDecisionReadbackV1, IterationDecisionErrorV1> {
+    let policy = census.legacy_family.root().policy();
+    let consumed_trial_budget = census.consumed_trial_budget();
+    if consumed_trial_budget != policy.trial_budget {
+        return Err(IterationDecisionErrorV1::InvalidStoredDecision(
+            "TrialFamily budget is not exhausted",
+        ));
+    }
+    validate_interpretation_cut_against_census_v1(census, &interpretation)?;
+    issue_trial_budget_terminal_stop_from_parts_v1(
+        interpretation,
+        consumed_trial_budget,
+        policy.trial_budget,
+        committed_at_epoch_ms,
+    )
+}
+
+pub(crate) fn admit_stored_trial_budget_terminal_stop_decision_v1(
+    decision_bytes: &[u8],
+    receipt_bytes: &[u8],
+) -> Result<TrialBudgetTerminalStopDecisionReadbackV1, IterationDecisionErrorV1> {
+    let stored_decision: StoredTrialBudgetTerminalStopDecisionV1 =
+        serde_json::from_slice(decision_bytes)
+            .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+    let stored_receipt: StoredIterationDecisionReceiptV1 = serde_json::from_slice(receipt_bytes)
+        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+    let expected = issue_trial_budget_terminal_stop_from_parts_v1(
+        stored_decision.interpretation,
+        stored_decision.consumed_trial_budget,
+        stored_decision.trial_budget,
+        stored_receipt.committed_at_epoch_ms,
+    )?;
+    let canonical_decision = serde_json::to_vec(expected.decision())
+        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+    let canonical_receipt = serde_json::to_vec(expected.receipt())
+        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+    if canonical_decision != decision_bytes || canonical_receipt != receipt_bytes {
+        return Err(IterationDecisionErrorV1::InvalidStoredDecision(
+            "stored canonical bytes or digest mismatch",
+        ));
+    }
+    Ok(expected)
+}
+
+fn issue_trial_budget_terminal_stop_from_parts_v1(
+    interpretation: IterationInterpretationContextV1,
+    consumed_trial_budget: u32,
+    trial_budget: u32,
+    committed_at_epoch_ms: u64,
+) -> Result<TrialBudgetTerminalStopDecisionReadbackV1, IterationDecisionErrorV1> {
+    if trial_budget == 0 || consumed_trial_budget != trial_budget {
+        return Err(IterationDecisionErrorV1::InvalidStoredDecision(
+            "TrialFamily budget is not exhausted",
+        ));
+    }
+    validate_complete_interpretation_v1(&interpretation)?;
+    let evidence_cut = interpretation.evidence_cut.clone();
+    let outcome = IterationDecisionOutcomeV1::TerminalStop {
+        reason: IterationTerminalStopReasonV1::TrialBudgetExhausted,
+    };
+    let decision_digest = canonical_digest(
+        "rd.iteration-decision.trial-budget-terminal-stop.v1",
+        &TrialBudgetTerminalStopDecisionMeaningV1 {
+            schema_version: 1,
+            evidence_cut: &evidence_cut,
+            outcome: &outcome,
+            consumed_trial_budget,
+            trial_budget,
+            interpretation: &interpretation,
+        },
+    )?;
+    let decision_identity = format!(
+        "rd-iteration-decision-v1-{}",
+        decision_digest.trim_start_matches("sha256:")
+    );
+    let decision = TrialBudgetTerminalStopDecisionV1 {
+        schema_version: 1,
+        decision_identity: decision_identity.clone(),
+        decision_digest: decision_digest.clone(),
+        evidence_cut,
+        outcome,
+        consumed_trial_budget,
+        trial_budget,
+        interpretation,
+    };
+    let receipt_digest = canonical_digest(
+        "rd.iteration-decision-receipt.v1",
+        &DecisionReceiptMeaningV1 {
+            schema_version: 1,
+            decision_identity: &decision_identity,
+            decision_digest: &decision_digest,
+            result_identity: &decision.evidence_cut.result_identity,
+            committed_at_epoch_ms,
+        },
+    )?;
+    let receipt = IterationDecisionReceiptV1 {
+        schema_version: 1,
+        receipt_identity: format!(
+            "rd-iteration-decision-receipt-v1-{}",
+            receipt_digest.trim_start_matches("sha256:")
+        ),
+        decision_identity,
+        decision_digest,
+        result_identity: decision.evidence_cut.result_identity.clone(),
+        committed_at_epoch_ms,
+    };
+    Ok(TrialBudgetTerminalStopDecisionReadbackV1 { decision, receipt })
+}
+
+fn validate_complete_interpretation_v1(
+    interpretation: &IterationInterpretationContextV1,
+) -> Result<(), IterationDecisionErrorV1> {
+    let dimensions = [
+        IterationDiagnosisDimensionV1::EvidenceIntegrity,
+        IterationDiagnosisDimensionV1::MechanismValidity,
+        IterationDiagnosisDimensionV1::EconomicViability,
+        IterationDiagnosisDimensionV1::Robustness,
+        IterationDiagnosisDimensionV1::FailureAttribution,
+        IterationDiagnosisDimensionV1::InformationValue,
+    ];
+    if interpretation.required_dimensions.as_slice() != dimensions
+        || interpretation.diagnosis_findings.len() != dimensions.len()
+        || interpretation
+            .diagnosis_findings
+            .iter()
+            .zip(dimensions.iter())
+            .any(|(finding, dimension)| {
+                &finding.dimension != dimension || finding.evidence.is_empty()
+            })
+    {
+        return Err(IterationDecisionErrorV1::InvalidStoredDecision(
+            "complete six-dimension interpretation is missing",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_interpretation_cut_against_census_v1(
+    census: &TrialFamilyCensusReadbackV2,
+    interpretation: &IterationInterpretationContextV1,
+) -> Result<(), IterationDecisionErrorV1> {
+    let evidence = &interpretation.evidence_cut;
+    if evidence.trial_family_identity != census.census_frontier.trial_family_identity()
+        || evidence.census_frontier_identity != census.census_frontier.frontier_identity()
+        || evidence.census_frontier_digest != census.census_frontier.frontier_digest()
+        || evidence.attempt_frontier_identity != census.attempt_frontier.frontier_identity()
+        || evidence.attempt_frontier_digest != census.attempt_frontier.frontier_digest()
+        || evidence.candidate_set_frontier_identity
+            != census.candidate_set_frontier.frontier_identity()
+        || evidence.candidate_set_frontier_digest != census.candidate_set_frontier.frontier_digest()
+    {
+        return Err(IterationDecisionErrorV1::ResultBindingMismatch);
+    }
+    let decision_policy = census
+        .decision_policy_v1()
+        .ok_or(IterationDecisionErrorV1::DecisionPolicyUnavailable)?;
+    if evidence.decision_policy_identity != decision_policy.policy_identity()
+        || evidence.decision_policy_version != decision_policy.policy_version()
+        || evidence.decision_policy_digest != decision_policy.policy_digest()
+        || evidence.decision_policy_binding_digest != decision_policy.binding_digest()
+    {
+        return Err(IterationDecisionErrorV1::ResultBindingMismatch);
+    }
+    Ok(())
+}
+
 #[derive(Serialize)]
 struct RepairDecisionMeaningV1<'a> {
     schema_version: u16,
     evidence_cut: &'a IterationDecisionEvidenceCutV1,
     outcome: &'a IterationDecisionOutcomeV1,
     supported_defects: &'a [IterationRepairCategoryV1],
+}
+
+#[derive(Serialize)]
+struct TrialBudgetTerminalStopDecisionMeaningV1<'a> {
+    schema_version: u16,
+    evidence_cut: &'a IterationDecisionEvidenceCutV1,
+    outcome: &'a IterationDecisionOutcomeV1,
+    consumed_trial_budget: u32,
+    trial_budget: u32,
+    interpretation: &'a IterationInterpretationContextV1,
 }
 
 #[derive(Serialize)]
@@ -1364,10 +1619,20 @@ mod tests {
     }
 
     fn census(disposition: TrialFamilyAttemptTerminalDispositionV2) -> TrialFamilyCensusReadbackV2 {
+        census_with_budget(disposition, 2, 1)
+    }
+
+    fn census_with_budget(
+        disposition: TrialFamilyAttemptTerminalDispositionV2,
+        trial_budget: u32,
+        consumed_trial_budget: u32,
+    ) -> TrialFamilyCensusReadbackV2 {
+        let mut family_policy = policy();
+        family_policy.trial_budget = trial_budget;
         let family = form_initial_family(
             "intent-v2",
             &format!("sha256:{}", "1".repeat(64)),
-            policy(),
+            family_policy,
             1,
         )
         .expect("valid family");
@@ -1382,7 +1647,7 @@ mod tests {
                 result_identity: "result-v2".to_string(),
                 result_digest: format!("blake3:{}", "3".repeat(64)),
                 terminal_disposition: disposition,
-                consumed_trial_budget: 1,
+                consumed_trial_budget,
                 candidate_set: TrialFamilyCandidateSetProposalV2 {
                     generation_rule_identity: "candidate-rule-v1".to_string(),
                     generation_rule_digest: format!("sha256:{}", "4".repeat(64)),
@@ -1731,6 +1996,82 @@ mod tests {
                 .canonical_result_storage_digest
                 .starts_with("sha256:")
         );
+    }
+
+    #[test]
+    fn exhausted_budget_issues_canonical_terminal_stop_with_complete_diagnosis() {
+        let census = census_with_budget(
+            TrialFamilyAttemptTerminalDispositionV2::TerminalResult,
+            1,
+            1,
+        );
+        let result = interpretation_result(DiagnosticCategoryV2::NoExecutionDefect);
+        let gate = gate_result(&census, &result, &decision_policy()).expect("interpretation gate");
+        let context = interpretation_context(&census, gate, &result).expect("complete context");
+
+        let readback = issue_trial_budget_terminal_stop_from_parts_v1(context, 1, 1, 3)
+            .expect("budget terminal Decision");
+
+        assert_eq!(
+            readback.decision().outcome(),
+            &IterationDecisionOutcomeV1::TerminalStop {
+                reason: IterationTerminalStopReasonV1::TrialBudgetExhausted,
+            }
+        );
+        assert_eq!(readback.decision().consumed_trial_budget(), 1);
+        assert_eq!(readback.decision().trial_budget(), 1);
+        assert_eq!(
+            readback
+                .decision()
+                .interpretation
+                .diagnosis_findings
+                .iter()
+                .filter(|finding| {
+                    finding.disposition == IterationDiagnosisDispositionV1::Unresolved
+                })
+                .count(),
+            4
+        );
+
+        let decision_bytes = serde_json::to_vec(readback.decision()).expect("decision bytes");
+        let receipt_bytes = serde_json::to_vec(readback.receipt()).expect("receipt bytes");
+        let admitted =
+            admit_stored_trial_budget_terminal_stop_decision_v1(&decision_bytes, &receipt_bytes)
+                .expect("stored terminal Decision");
+        assert_eq!(admitted, readback);
+    }
+
+    #[test]
+    fn remaining_budget_creates_no_terminal_stop() {
+        let census = census(TrialFamilyAttemptTerminalDispositionV2::TerminalResult);
+        let result = interpretation_result(DiagnosticCategoryV2::ValidEconomicFailure);
+        let gate = gate_result(&census, &result, &decision_policy()).expect("interpretation gate");
+        let context = interpretation_context(&census, gate, &result).expect("complete context");
+
+        assert!(matches!(
+            issue_trial_budget_terminal_stop_decision_v1(&census, context, 3),
+            Err(IterationDecisionErrorV1::InvalidStoredDecision(
+                "TrialFamily budget is not exhausted"
+            ))
+        ));
+    }
+
+    #[test]
+    fn cross_spliced_interpretation_cut_creates_no_terminal_stop() {
+        let census = census_with_budget(
+            TrialFamilyAttemptTerminalDispositionV2::TerminalResult,
+            1,
+            1,
+        );
+        let result = interpretation_result(DiagnosticCategoryV2::NoExecutionDefect);
+        let gate = gate_result(&census, &result, &decision_policy()).expect("interpretation gate");
+        let mut context = interpretation_context(&census, gate, &result).expect("complete context");
+        context.evidence_cut.census_frontier_identity = "other-frontier".to_string();
+
+        assert!(matches!(
+            issue_trial_budget_terminal_stop_decision_v1(&census, context, 3),
+            Err(IterationDecisionErrorV1::ResultBindingMismatch)
+        ));
     }
 
     #[test]

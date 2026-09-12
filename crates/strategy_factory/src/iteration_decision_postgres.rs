@@ -11,9 +11,11 @@ use crate::{
     BacktestResultCustodyErrorV2, ExploratoryReplayResultLocatorV2,
     iteration_decision::{
         IterationDecisionErrorV1, IterationDecisionGateV1, IterationNoDecisionReasonV1,
-        RepairInputIterationDecisionReadbackV1, admit_stored_repair_input_decision_v1,
+        RepairInputIterationDecisionReadbackV1, TrialBudgetTerminalStopDecisionReadbackV1,
+        admit_stored_repair_input_decision_v1, admit_stored_trial_budget_terminal_stop_decision_v1,
         gate_locked_exploratory_result_v1, is_valid_iteration_decision_locator_v1,
         issue_interpretation_context_v1, issue_repair_input_decision_v1,
+        issue_trial_budget_terminal_stop_decision_v1,
     },
     product_edge::ResearchGoalOwnerError,
     rd_owner_postgres_custody::{ResearchCustodyLookupV1, admit_research_custody_in_transaction},
@@ -141,6 +143,8 @@ pub enum IterationDecisionPostgresErrorV1 {
     NoDecision(IterationNoDecisionReasonV1),
     #[error("the locked Result requires policy interpretation rather than REPAIR_INPUTS")]
     InterpretationRequired,
+    #[error("the locked Result does not admit a trial-budget terminal stop")]
+    TrialBudgetStopNotApplicable,
     #[error("R&D Iteration Decision storage is unavailable: {0}")]
     Storage(String),
 }
@@ -277,6 +281,130 @@ pub(crate) async fn resolve_repair_input_decision_v1(
     let mut transaction = pool.begin().await.map_err(storage)?;
     let readback =
         load_by_result_in_transaction(&mut transaction, &locator.result_identity, None).await?;
+    if let Some(value) = readback.as_ref()
+        && value.decision().decision_identity() != locator.decision_identity
+    {
+        return Err(storage("Decision resolution locator mismatch"));
+    }
+    transaction.commit().await.map_err(storage)?;
+    Ok(readback)
+}
+
+/// Composes the first mechanically provable non-repair Decision from the same locked R&D cut.
+///
+/// The caller supplies locators only. R&D derives both the six-dimension interpretation and the
+/// budget stop from canonical Owner custody in this transaction.
+pub(crate) async fn compose_trial_budget_terminal_stop_decision_v1(
+    pool: &PgPool,
+    request: DecisionCompositionRequestV1,
+) -> Result<TrialBudgetTerminalStopDecisionReadbackV1, IterationDecisionPostgresErrorV1> {
+    validate_composition_request(&request)?;
+    let mut transaction = pool.begin().await.map_err(storage)?;
+    lock_composition_key(&mut transaction, &request.result_identity).await?;
+    if let Some(existing) = load_trial_budget_terminal_stop_by_result_in_transaction(
+        &mut transaction,
+        &request.result_identity,
+        Some(&request),
+    )
+    .await?
+    {
+        transaction.commit().await.map_err(storage)?;
+        return Ok(existing);
+    }
+
+    let census = load_trial_family_census_v2_by_family_in_transaction(
+        &mut transaction,
+        &request.trial_family_identity,
+    )
+    .await?;
+    let locked_result = crate::resolve_exploratory_replay_result_for_rd_in_transaction(
+        &mut transaction,
+        ExploratoryReplayResultLocatorV2 {
+            result_identity: &request.result_identity,
+            request_identity: &request.request_identity,
+            attempt_identity: &request.attempt_identity,
+        },
+    )
+    .await?
+    .ok_or(BacktestResultCustodyErrorV2::Unavailable)?;
+    match gate_locked_exploratory_result_v1(&census, &locked_result)? {
+        IterationDecisionGateV1::NoDecision { reason } => {
+            transaction.rollback().await.map_err(storage)?;
+            return Err(IterationDecisionPostgresErrorV1::NoDecision(reason));
+        }
+        IterationDecisionGateV1::RepairInputs { .. } => {
+            transaction.rollback().await.map_err(storage)?;
+            return Err(IterationDecisionPostgresErrorV1::TrialBudgetStopNotApplicable);
+        }
+        IterationDecisionGateV1::InterpretationRequired { .. } => {}
+    }
+    let locked_outcome =
+        crate::rd_owner_postgres_custody::resolve_exploratory_replay_outcome_for_rd_in_transaction(
+            &mut transaction,
+            ExploratoryReplayResultLocatorV2 {
+                result_identity: &request.result_identity,
+                request_identity: &request.request_identity,
+                attempt_identity: &request.attempt_identity,
+            },
+        )
+        .await?
+        .ok_or(BacktestResultCustodyErrorV2::Unavailable)?;
+    let intent_identity = census
+        .legacy_family
+        .initial_intent_member()
+        .fact_identity()
+        .to_string();
+    let research_custody = admit_research_custody_in_transaction(
+        &mut transaction,
+        ResearchCustodyLookupV1::Intent(&intent_identity),
+    )
+    .await?
+    .ok_or(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+        "frozen Research Intent custody is missing",
+    ))?;
+    let interpretation =
+        issue_interpretation_context_v1(&census, &research_custody, &locked_outcome)?;
+    let issued =
+        issue_trial_budget_terminal_stop_decision_v1(&census, interpretation, current_epoch_ms()?)
+            .map_err(|error| match error {
+                IterationDecisionErrorV1::InvalidStoredDecision(
+                    "TrialFamily budget is not exhausted",
+                ) => IterationDecisionPostgresErrorV1::TrialBudgetStopNotApplicable,
+                other => IterationDecisionPostgresErrorV1::Decision(other),
+            })?;
+    persist_trial_budget_terminal_stop_decision(&mut transaction, &issued).await?;
+    let readback = load_trial_budget_terminal_stop_by_result_in_transaction(
+        &mut transaction,
+        &request.result_identity,
+        Some(&request),
+    )
+    .await?
+    .ok_or_else(|| storage("committed budget terminal Decision readback is missing"))?;
+    if readback != issued {
+        return Err(storage(
+            "committed budget terminal Decision readback changed",
+        ));
+    }
+    transaction.commit().await.map_err(storage)?;
+    Ok(readback)
+}
+
+pub(crate) async fn resolve_trial_budget_terminal_stop_decision_v1(
+    pool: &PgPool,
+    locator: IterationDecisionResolutionLocatorV1,
+) -> Result<Option<TrialBudgetTerminalStopDecisionReadbackV1>, IterationDecisionPostgresErrorV1> {
+    if !is_valid_iteration_decision_locator_v1(&locator.decision_identity)
+        || !is_valid_iteration_decision_locator_v1(&locator.result_identity)
+    {
+        return Err(IterationDecisionPostgresErrorV1::InvalidLocator);
+    }
+    let mut transaction = pool.begin().await.map_err(storage)?;
+    let readback = load_trial_budget_terminal_stop_by_result_in_transaction(
+        &mut transaction,
+        &locator.result_identity,
+        None,
+    )
+    .await?;
     if let Some(value) = readback.as_ref()
         && value.decision().decision_identity() != locator.decision_identity
     {
@@ -579,8 +707,41 @@ async fn persist_decision(
     readback: &RepairInputIterationDecisionReadbackV1,
 ) -> Result<(), IterationDecisionPostgresErrorV1> {
     let decision = readback.decision();
-    let receipt = readback.receipt();
-    let evidence = decision.evidence_cut();
+    persist_decision_record(
+        transaction,
+        decision,
+        decision.decision_identity(),
+        decision.decision_digest(),
+        decision.evidence_cut(),
+        readback.receipt(),
+    )
+    .await
+}
+
+async fn persist_trial_budget_terminal_stop_decision(
+    transaction: &mut Transaction<'_, Postgres>,
+    readback: &TrialBudgetTerminalStopDecisionReadbackV1,
+) -> Result<(), IterationDecisionPostgresErrorV1> {
+    let decision = readback.decision();
+    persist_decision_record(
+        transaction,
+        decision,
+        decision.decision_identity(),
+        decision.decision_digest(),
+        decision.evidence_cut(),
+        readback.receipt(),
+    )
+    .await
+}
+
+async fn persist_decision_record<T: Serialize>(
+    transaction: &mut Transaction<'_, Postgres>,
+    decision: &T,
+    decision_identity: &str,
+    decision_digest: &str,
+    evidence: &crate::iteration_decision::IterationDecisionEvidenceCutV1,
+    receipt: &crate::iteration_decision::IterationDecisionReceiptV1,
+) -> Result<(), IterationDecisionPostgresErrorV1> {
     let decision_bytes = serde_json::to_vec(decision).map_err(storage)?;
     let receipt_bytes = serde_json::to_vec(receipt).map_err(storage)?;
     let decision_json =
@@ -596,12 +757,12 @@ async fn persist_decision(
         &receipt_bytes,
     );
     sqlx::query("INSERT INTO rd_iteration_decisions_v1 (decision_identity,trial_family_identity,request_identity,result_identity,attempt_identity,decision_digest,decision_json,receipt_json,decision_storage_bytes,decision_storage_digest,receipt_storage_bytes,receipt_storage_digest,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)")
-        .bind(decision.decision_identity())
+        .bind(decision_identity)
         .bind(&evidence.trial_family_identity)
         .bind(&evidence.request_identity)
         .bind(&evidence.result_identity)
         .bind(&evidence.attempt_identity)
-        .bind(decision.decision_digest())
+        .bind(decision_digest)
         .bind(decision_json)
         .bind(receipt_json)
         .bind(decision_bytes)
@@ -615,8 +776,8 @@ async fn persist_decision(
 
     let payload = DecisionCommittedOutboxV1 {
         schema_version: 1,
-        decision_identity: decision.decision_identity().to_string(),
-        decision_digest: decision.decision_digest().to_string(),
+        decision_identity: decision_identity.to_string(),
+        decision_digest: decision_digest.to_string(),
         receipt_identity: receipt.receipt_identity().to_string(),
         trial_family_identity: evidence.trial_family_identity.clone(),
         census_frontier_identity: evidence.census_frontier_identity.clone(),
@@ -631,7 +792,7 @@ async fn persist_decision(
     );
     sqlx::query("INSERT INTO rd_owner_outbox_v1 (event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6)")
         .bind(event_identity)
-        .bind(decision.decision_identity())
+        .bind(decision_identity)
         .bind(DECISION_COMMITTED_EVENT_V1)
         .bind(payload_digest)
         .bind(payload_json)
@@ -729,9 +890,147 @@ pub(crate) async fn load_by_result_in_transaction(
     Ok(Some(readback))
 }
 
+async fn load_trial_budget_terminal_stop_by_result_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    result_identity: &str,
+    composition: Option<&DecisionCompositionRequestV1>,
+) -> Result<Option<TrialBudgetTerminalStopDecisionReadbackV1>, IterationDecisionPostgresErrorV1> {
+    let rows = sqlx::query("SELECT decision_identity,trial_family_identity,request_identity,result_identity,attempt_identity,decision_digest,decision_json,receipt_json,decision_storage_bytes,decision_storage_digest,receipt_storage_bytes,receipt_storage_digest,committed_at_epoch_ms FROM rd_iteration_decisions_v1 WHERE result_identity=$1 FOR SHARE")
+        .bind(result_identity)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    if rows.is_empty() {
+        return Ok(None);
+    }
+    if rows.len() != 1 {
+        return Err(storage("Decision result identity is not unique"));
+    }
+    let row = &rows[0];
+    let decision_bytes: Vec<u8> = row.try_get("decision_storage_bytes").map_err(storage)?;
+    let receipt_bytes: Vec<u8> = row.try_get("receipt_storage_bytes").map_err(storage)?;
+    if row
+        .try_get::<String, _>("decision_storage_digest")
+        .map_err(storage)?
+        != crate::native_replay_rd_sources_v2::owner_storage_digest(
+            "rd.iteration-decision.storage.v1",
+            &decision_bytes,
+        )
+        || row
+            .try_get::<String, _>("receipt_storage_digest")
+            .map_err(storage)?
+            != crate::native_replay_rd_sources_v2::owner_storage_digest(
+                "rd.iteration-decision-receipt.storage.v1",
+                &receipt_bytes,
+            )
+    {
+        return Err(storage("Decision storage digest mismatch"));
+    }
+    let readback =
+        admit_stored_trial_budget_terminal_stop_decision_v1(&decision_bytes, &receipt_bytes)?;
+    let decision = readback.decision();
+    let receipt = readback.receipt();
+    let evidence = decision.evidence_cut();
+    let decision_json: serde_json::Value = row.try_get("decision_json").map_err(storage)?;
+    let receipt_json: serde_json::Value = row.try_get("receipt_json").map_err(storage)?;
+    if decision_json != serde_json::to_value(decision).map_err(storage)?
+        || receipt_json != serde_json::to_value(receipt).map_err(storage)?
+        || row
+            .try_get::<String, _>("decision_identity")
+            .map_err(storage)?
+            != decision.decision_identity()
+        || row
+            .try_get::<String, _>("decision_digest")
+            .map_err(storage)?
+            != decision.decision_digest()
+        || row
+            .try_get::<String, _>("trial_family_identity")
+            .map_err(storage)?
+            != evidence.trial_family_identity
+        || row
+            .try_get::<String, _>("request_identity")
+            .map_err(storage)?
+            != evidence.request_identity
+        || row
+            .try_get::<String, _>("result_identity")
+            .map_err(storage)?
+            != evidence.result_identity
+        || row
+            .try_get::<String, _>("attempt_identity")
+            .map_err(storage)?
+            != evidence.attempt_identity
+        || row
+            .try_get::<i64, _>("committed_at_epoch_ms")
+            .map_err(storage)?
+            != i64::try_from(receipt.committed_at_epoch_ms()).map_err(storage)?
+    {
+        return Err(storage("Decision row/readback mismatch"));
+    }
+    if let Some(request) = composition
+        && (request.trial_family_identity != evidence.trial_family_identity
+            || request.request_identity != evidence.request_identity
+            || request.result_identity != evidence.result_identity
+            || request.attempt_identity != evidence.attempt_identity)
+    {
+        return Err(storage("Decision composition locator mismatch"));
+    }
+    verify_trial_budget_terminal_stop_outbox_in_transaction(transaction, &readback).await?;
+    Ok(Some(readback))
+}
+
 async fn verify_outbox_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     readback: &RepairInputIterationDecisionReadbackV1,
+) -> Result<(), IterationDecisionPostgresErrorV1> {
+    let rows = sqlx::query("SELECT aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms FROM rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2 FOR SHARE")
+        .bind(readback.decision().decision_identity())
+        .bind(DECISION_COMMITTED_EVENT_V1)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    if rows.len() != 1 {
+        return Err(storage("Decision outbox custody is incomplete"));
+    }
+    let evidence = readback.decision().evidence_cut();
+    let expected = DecisionCommittedOutboxV1 {
+        schema_version: 1,
+        decision_identity: readback.decision().decision_identity().to_string(),
+        decision_digest: readback.decision().decision_digest().to_string(),
+        receipt_identity: readback.receipt().receipt_identity().to_string(),
+        trial_family_identity: evidence.trial_family_identity.clone(),
+        census_frontier_identity: evidence.census_frontier_identity.clone(),
+        result_identity: evidence.result_identity.clone(),
+        decision_policy_binding_digest: evidence.decision_policy_binding_digest,
+    };
+    let payload: DecisionCommittedOutboxV1 =
+        serde_json::from_value(rows[0].try_get("payload_json").map_err(storage)?)
+            .map_err(storage)?;
+    if payload != expected
+        || rows[0]
+            .try_get::<String, _>("aggregate_identity")
+            .map_err(storage)?
+            != expected.decision_identity
+        || rows[0]
+            .try_get::<String, _>("event_kind")
+            .map_err(storage)?
+            != DECISION_COMMITTED_EVENT_V1
+        || rows[0]
+            .try_get::<String, _>("payload_digest")
+            .map_err(storage)?
+            != canonical_digest("rd.owner-outbox.iteration-decision.v1", &expected)?
+        || rows[0]
+            .try_get::<i64, _>("committed_at_epoch_ms")
+            .map_err(storage)?
+            != i64::try_from(readback.receipt().committed_at_epoch_ms()).map_err(storage)?
+    {
+        return Err(storage("Decision outbox/readback mismatch"));
+    }
+    Ok(())
+}
+
+async fn verify_trial_budget_terminal_stop_outbox_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    readback: &TrialBudgetTerminalStopDecisionReadbackV1,
 ) -> Result<(), IterationDecisionPostgresErrorV1> {
     let rows = sqlx::query("SELECT aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms FROM rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2 FOR SHARE")
         .bind(readback.decision().decision_identity())
