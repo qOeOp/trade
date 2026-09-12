@@ -508,7 +508,7 @@ readback shape for EVENT components, and Native Replay preparation consumes it o
 joined-cut receipt and the complete Plan binding set. This does not make the future BFP coordinate port executable
 and does not establish a Native Replay run, production startup, durable product composition, or Backtest closure.
 
-**TARGET / NOT_ADMITTED, request-bound Native Replay execution inputs:** the R&D Owner issues and persists one
+**CURRENT/PARTIAL, request-bound Native Replay execution inputs:** the R&D Owner issues and persists one
 immutable `NativeReplayExecutionInputBindingV1` for one exact sealed Exploratory Replay request. Strategy Factory
 owns the pure structural validator and preparation boundary; it has no independent storage authority and cannot
 mint, replace, or reinterpret any constituent Owner fact. The binding is a cross-Owner composition locator rather
@@ -537,8 +537,10 @@ state changes.
 Native Replay preparation and Backtest consume only the R&D Owner's move-only binding readback and independently
 re-resolve every embedded exact Owner locator before native materialization. A caller may supply the sealed Replay
 request locator only; it cannot supply the constituent list, facts, values, symbols, ordering, resolver, store, or
-fallback. This target does not claim the persistence implementation, disposable PostgreSQL acceptance, registered
-product composition, Native Replay execution, production startup/write, deployment, result closure, or trading.
+fallback. The current slice implements the immutable PostgreSQL ledger, exact-locator recovery, typed Owner-readback
+validator, and atomic binding/receipt/outbox issuance. It does not yet claim the locator-only service composition,
+independent consumer re-resolution, disposable PostgreSQL acceptance, registered product composition, Native Replay
+execution, production startup/write, deployment, result closure, or trading.
 
 **TARGET / NOT_ADMITTED, BAR FRAME and JOINED_CUT composition:** the additive
 `StrategyInputSampleProjectionV4` is the only projection that may compose BAR components across a complete

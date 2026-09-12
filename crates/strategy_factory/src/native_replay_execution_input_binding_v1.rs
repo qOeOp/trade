@@ -1,15 +1,25 @@
 //! R&D-owned custody for one request-bound Native Replay execution-input binding.
 //!
 //! The binding contains only exact Owner locators and digests. Its constituent token is private so
-//! callers cannot splice otherwise valid facts; the future typed Owner-readback adapter must mint it
-//! in this module before this persistence boundary can be reached.
+//! callers cannot splice otherwise valid facts; the typed Owner-readback adapter mints it in this
+//! module before this persistence boundary can be reached.
 
 use sha2::{Digest, Sha256};
 use sqlx::{Postgres, Row, Transaction};
 use thiserror::Error;
+use vibe_data::owner::{
+    bar_schedule::BarScheduleReadbackV1,
+    instrument_economic_terms_v1::InstrumentEconomicTermsReadbackV1,
+    instrument_master_v2::InstrumentMasterReadbackV2,
+    strategy_input_binding::StrategyInputUniverseFrameReceipt,
+};
 
-use crate::exploratory_replay::{
-    ExploratoryReplayRequestLocatorV2, SealedExploratoryReplayReadbackV2,
+use crate::{
+    artifact_v2::StrategyArtifactV2,
+    exploratory_replay::{ExploratoryReplayRequestLocatorV2, SealedExploratoryReplayReadbackV2},
+    native_replay_preparation_inputs_v2::NativeReplayPreparationInputsV2,
+    replay_execution_profile_binding_v1::OwnerIssuedReplayExecutionProfileBindingV1,
+    strategy_plan_v2::StrategyPlanV2,
 };
 
 const SCHEMA_VERSION: u16 = 1;
@@ -209,6 +219,41 @@ pub(crate) struct VerifiedNativeReplayExecutionInputConstituentsV1 {
     public_instrument_master_cut: InstrumentMasterCutLocatorBindingV1,
     universe_frame_receipt: ExactOwnerLocatorV1,
     members: [NativeReplayExecutionInputMemberV1; MEMBER_COUNT],
+}
+
+/// Verifies the complete typed Owner readback set and atomically persists its R&D binding.
+///
+/// This is crate-private so an application caller cannot replace any constituent with locator
+/// fields or reconstructed bytes. The service composition root must first resolve every Owner
+/// capability and may then transfer those move-only/read-only values through this boundary.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn issue_native_replay_execution_input_binding_from_owner_readbacks_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    preparation: &NativeReplayPreparationInputsV2,
+    profile: &OwnerIssuedReplayExecutionProfileBindingV1,
+    plan: &StrategyPlanV2,
+    artifact: &StrategyArtifactV2,
+    instrument_master: &InstrumentMasterReadbackV2,
+    instrument_terms: [&InstrumentEconomicTermsReadbackV1; MEMBER_COUNT],
+    universe_frame: &StrategyInputUniverseFrameReceipt,
+    schedules: [&BarScheduleReadbackV1; MEMBER_COUNT],
+) -> Result<NativeReplayExecutionInputBindingReadbackV1, NativeReplayExecutionInputBindingErrorV1> {
+    let verified = verify_owner_readbacks(
+        preparation,
+        profile,
+        plan,
+        artifact,
+        instrument_master,
+        instrument_terms,
+        universe_frame,
+        schedules,
+    )?;
+    issue_native_replay_execution_input_binding_v1_in_transaction(
+        transaction,
+        preparation.replay(),
+        verified,
+    )
+    .await
 }
 
 /// Atomically appends one binding, receipt, and outbox row under an already sealed Replay request.
@@ -619,6 +664,193 @@ fn validate_verified(
         return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
     }
     Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn verify_owner_readbacks(
+    preparation: &NativeReplayPreparationInputsV2,
+    profile: &OwnerIssuedReplayExecutionProfileBindingV1,
+    plan: &StrategyPlanV2,
+    artifact: &StrategyArtifactV2,
+    instrument_master: &InstrumentMasterReadbackV2,
+    instrument_terms: [&InstrumentEconomicTermsReadbackV1; MEMBER_COUNT],
+    universe_frame: &StrategyInputUniverseFrameReceipt,
+    schedules: [&BarScheduleReadbackV1; MEMBER_COUNT],
+) -> Result<
+    VerifiedNativeReplayExecutionInputConstituentsV1,
+    NativeReplayExecutionInputBindingErrorV1,
+> {
+    let replay = preparation.replay();
+    let request = replay.request().as_dto();
+    let composer = preparation.composer();
+    let selection = universe_frame.selection();
+    let plan_selection = plan
+        .universe_selection()
+        .ok_or(NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+    let seal = replay
+        .execution_profile_seal()
+        .ok_or(NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+    let request_plan_digest = parse_sha256(request.strategy_plan.digest.as_str())?;
+    let request_artifact_digest = parse_sha256(request.artifact.digest.as_str())?;
+    let request_universe_identity = parse_sha256(request.universe_selection.identity.as_str())?;
+    let request_universe_digest = parse_sha256(request.universe_selection.digest.as_str())?;
+    let artifact_modules = artifact.private_module_bytes();
+
+    if !profile.matches_request_locator(&replay.locator())
+        || profile.trial_family_identity() != preparation.family().root().trial_family_identity()
+        || profile.trial_family_digest() != parse_sha256(preparation.family().root().root_digest())?
+        || request.strategy_plan.identity.as_str() != profile.request_strategy_plan_identity()
+        || request_plan_digest != profile.request_strategy_plan_digest()
+        || request_plan_digest != *plan.canonical_plan_digest().as_bytes()
+        || request.artifact.identity.as_str() != profile.request_artifact_identity()
+        || request_artifact_digest != profile.request_artifact_digest()
+        || request_artifact_digest != *artifact.identity().as_bytes()
+        || request.universe_selection.identity.as_str()
+            != profile.request_universe_selection_identity()
+        || request_universe_digest != profile.request_universe_selection_digest()
+        || !profile.matches_instrument_terms_readbacks(instrument_terms)
+        || composer.plan_bytes() != plan.durable_bytes()
+        || composer.artifact_package_bytes() != artifact.durable_package_bytes()
+        || !composer
+            .module_bytes()
+            .eq(artifact_modules.iter().map(|bytes| bytes.as_ref()))
+        || artifact.validate_for_plan(plan).is_err()
+        || selection.members().len() != MEMBER_COUNT
+        || selection.members()[0].member_key() >= selection.members()[1].member_key()
+        || plan_selection.selection_identity().as_bytes() != &request_universe_identity
+        || plan_selection.selection_digest().as_bytes() != &request_universe_digest
+        || selection.selection_identity() != plan_selection.selection_identity()
+        || selection.selection_digest() != plan_selection.selection_digest()
+        || selection.members().len() != plan_selection.members().len()
+        || !selection
+            .members()
+            .iter()
+            .zip(plan_selection.members())
+            .all(|(owner, planned)| {
+                owner.member_key() == planned.member_key()
+                    && owner.instrument() == planned.instrument()
+            })
+    {
+        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+    }
+
+    let cut_members = instrument_master.cut().members();
+    if cut_members.len() != MEMBER_COUNT {
+        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+    }
+    let mut members = Vec::with_capacity(MEMBER_COUNT);
+    for index in 0..MEMBER_COUNT {
+        let selected = &selection.members()[index];
+        let public_fact = cut_members[index].fact();
+        let economic = instrument_terms[index];
+        let economic_input = economic.fact().input();
+        let schedule = schedules[index];
+        let public_terms = public_fact
+            .validate_native_crypto_perpetual_public_terms()
+            .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+        let event_time = i128::from(request.window.start_event_ns);
+        if selected.instrument() != public_fact.canonical_identity()
+            || economic_input.instrument_identity != public_fact.canonical_identity()
+            || economic_input.instrument_public_fact_digest != *public_fact.identity().as_bytes()
+            || economic_input.venue_identity != public_fact.venue_identity()
+            || economic_input.quote_currency != public_terms.quote_currency()
+            || economic_input.valid_from_ns > event_time
+            || event_time >= economic_input.valid_until_ns_exclusive
+            || !economic.verify()
+            || schedule.fact().canonical_instrument() != public_fact.canonical_identity()
+            || schedule.fact().cut_effective_instant() != event_time
+        {
+            return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+        }
+        let economic_locator = economic.locator();
+        members.push(NativeReplayExecutionInputMemberV1 {
+            member_key: selected.member_key().to_owned(),
+            public_instrument_identity: public_fact.canonical_identity().to_owned(),
+            public_instrument_digest: *public_fact.identity().as_bytes(),
+            venue_identity: public_fact.venue_identity().to_owned(),
+            account_scope_identity: economic_input.account_scope_identity.clone(),
+            schedule_identity: *schedule.fact().identity().as_bytes(),
+            instrument_economic_terms_fact: ExactOwnerLocatorV1 {
+                identity: economic_locator.fact_identity(),
+                digest: economic.fact().meaning_identity(),
+            },
+            instrument_economic_terms_receipt: ExactOwnerLocatorV1 {
+                identity: economic_locator.receipt_identity(),
+                digest: economic_locator.receipt_identity(),
+            },
+            bar_schedule_cut: ExactOwnerLocatorV1 {
+                identity: *schedule.cut_identity().as_bytes(),
+                digest: *schedule.identity().as_bytes(),
+            },
+            bar_schedule_receipt: ExactOwnerLocatorV1 {
+                identity: *schedule.receipt_identity().as_bytes(),
+                digest: *schedule.receipt_identity().as_bytes(),
+            },
+        });
+    }
+    if members[0].account_scope_identity != members[1].account_scope_identity {
+        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+    }
+    let members: [NativeReplayExecutionInputMemberV1; MEMBER_COUNT] = members
+        .try_into()
+        .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+    let master_locator = instrument_master.locator();
+    Ok(VerifiedNativeReplayExecutionInputConstituentsV1 {
+        request_locator: replay.locator(),
+        trial_family: NamedLocatorV1 {
+            identity: profile.trial_family_identity().to_owned(),
+            digest: profile.trial_family_digest(),
+        },
+        artifact: NamedLocatorV1 {
+            identity: request.artifact.identity.as_str().to_owned(),
+            digest: *artifact.identity().as_bytes(),
+        },
+        strategy_plan: NamedLocatorV1 {
+            identity: request.strategy_plan.identity.as_str().to_owned(),
+            digest: *plan.canonical_plan_digest().as_bytes(),
+        },
+        execution_profile_seals: ExecutionProfileSealLocatorsV1 {
+            catalog_binding_digest: seal.catalog_binding_digest(),
+            family_binding_digest: seal.family_binding_digest(),
+            request_binding_digest: seal.request_binding_digest(),
+            economic_configuration_digest: profile.economic_configuration_digest(),
+            runner_operational_profile_digest: profile.runner_operational_profile_digest(),
+        },
+        public_instrument_master_cut: InstrumentMasterCutLocatorBindingV1 {
+            request_identity: *master_locator.request_identity().as_bytes(),
+            request_binding_digest: *master_locator.request_binding_digest().as_bytes(),
+            cut_identity: *master_locator.cut_identity().as_bytes(),
+            receipt_identity: *master_locator.receipt_identity().as_bytes(),
+        },
+        universe_frame_receipt: ExactOwnerLocatorV1 {
+            identity: *universe_frame.digest().as_bytes(),
+            digest: *universe_frame.digest().as_bytes(),
+        },
+        members,
+    })
+}
+
+fn parse_sha256(value: &str) -> Result<[u8; 32], NativeReplayExecutionInputBindingErrorV1> {
+    let hex = value
+        .strip_prefix("sha256:")
+        .ok_or(NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+    if hex.len() != 64
+        || !hex
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+    {
+        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+    }
+    let mut bytes = [0_u8; 32];
+    for (output, pair) in bytes.iter_mut().zip(hex.as_bytes().chunks_exact(2)) {
+        let nibble = |byte| match byte {
+            b'0'..=b'9' => byte - b'0',
+            b'a'..=b'f' => byte - b'a' + 10,
+            _ => unreachable!("canonical hexadecimal was checked above"),
+        };
+        *output = (nibble(pair[0]) << 4) | nibble(pair[1]);
+    }
+    Ok(bytes)
 }
 
 fn valid_named(value: &NamedLocatorV1) -> bool {

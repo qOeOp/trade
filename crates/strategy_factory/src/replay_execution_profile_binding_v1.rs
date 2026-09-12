@@ -129,6 +129,18 @@ impl ReplayExecutionProfileRequestSealV1 {
         }
         Ok(())
     }
+
+    pub(crate) const fn catalog_binding_digest(&self) -> [u8; 32] {
+        self.catalog_v3_binding_digest
+    }
+
+    pub(crate) const fn family_binding_digest(&self) -> [u8; 32] {
+        self.family_profile_binding_digest
+    }
+
+    pub(crate) const fn request_binding_digest(&self) -> [u8; 32] {
+        self.request_profile_binding_digest
+    }
 }
 
 /// Move-only proof issued by a future Strategy Factory-private adapter from sealed Instrument
@@ -422,6 +434,30 @@ impl OwnerIssuedReplayExecutionProfileBindingV1 {
 
     pub(crate) const fn execution_profile_binding(&self) -> &ReplayExecutionProfileBindingV1 {
         &self.execution_profile_binding
+    }
+
+    pub(crate) fn matches_instrument_terms_readbacks(
+        &self,
+        readbacks: [&InstrumentEconomicTermsReadbackV1; TARGET_SET_MEMBER_COUNT],
+    ) -> bool {
+        readbacks.iter().all(|readback| readback.verify())
+            && self
+                .execution_profile_binding
+                .instrument_terms
+                .iter()
+                .all(|bound| {
+                    readbacks
+                        .iter()
+                        .filter(|readback| {
+                            let input = readback.fact().input();
+                            input.instrument_identity == bound.instrument_identity
+                                && input.instrument_public_fact_digest
+                                    == bound.instrument_fact_digest
+                                && readback.receipt_identity() == bound.instrument_receipt_digest
+                        })
+                        .count()
+                        == 1
+                })
     }
 }
 

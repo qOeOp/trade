@@ -481,7 +481,7 @@ readback shape；Native Replay preparation 仅在同时持有准确 V1 joined-cu
 它。这不会使未来 BFP coordinate port 可执行，也不证明 Native Replay run、production startup、durable product
 composition 或 Backtest 闭合。
 
-**TARGET / NOT_ADMITTED，请求绑定的 Native Replay execution input：** R&D Owner 为一份准确、已密封的
+**CURRENT/PARTIAL，请求绑定的 Native Replay execution input：** R&D Owner 为一份准确、已密封的
 Exploratory Replay request 签发并持久化唯一、不可变的 `NativeReplayExecutionInputBindingV1`。Strategy
 Factory 拥有纯结构 validator 与 preparation boundary；它没有独立 storage authority，也不能铸造、替换或
 重新解释任何 constituent Owner fact。该 binding 是跨 Owner composition locator，不是 market、instrument、
@@ -508,9 +508,11 @@ ACL-drifted constituent 都必须在 binding、ProgramHost、Backtest 或 result
 
 Native Replay preparation 与 Backtest 只能消费 R&D Owner 的 move-only binding readback，并在 native
 materialization 前独立重新解析每个嵌入的准确 Owner locator。Caller 只能提交 sealed Replay request locator；
-不能提交 constituent list、fact、value、symbol、order、resolver、store 或 fallback。该 target 不声称
-persistence implementation、disposable PostgreSQL acceptance、registered product composition、Native Replay
-execution、production startup/write、deployment、result closure 或 trading。
+不能提交 constituent list、fact、value、symbol、order、resolver、store 或 fallback。当前切面已经实现不可变
+PostgreSQL ledger、exact-locator recovery、typed Owner-readback validator，以及 binding/receipt/outbox 的原子
+签发；尚不声称 locator-only service composition、consumer 独立重新解析、disposable PostgreSQL acceptance、
+registered product composition、Native Replay execution、production startup/write、deployment、result closure
+或 trading。
 
 **TARGET / NOT_ADMITTED，BAR FRAME 与 JOINED_CUT composition：** additive
 `StrategyInputSampleProjectionV4` 是唯一可在完整 native join 中组合 BAR component 的 projection。
