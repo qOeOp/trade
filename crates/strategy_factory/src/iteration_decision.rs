@@ -375,6 +375,24 @@ pub(crate) struct IterationInterpretationOwnerBindingV1 {
     evidence_digest: String,
 }
 
+/// Exact canonical aggregate bytes that established Backtest Owner custody for interpretation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct IterationInterpretationResultCustodyV1 {
+    result_storage_digest: String,
+    receipt_storage_digest: String,
+    outbox_storage_digest: String,
+}
+
+/// Owner-sealed decisive diagnostic evidence carried by the locked Result aggregate.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct IterationInterpretationDiagnosticEvidenceV1 {
+    component: ObservationComponentV2,
+    evidence_identity: String,
+    evidence_digest: String,
+}
+
 /// Complete Owner-locked input boundary for the six R&D interpretation dimensions.
 ///
 /// It is serialize-only and has no caller-facing constructor. The later Decision composer may
@@ -385,8 +403,9 @@ pub(crate) struct IterationInterpretationContextV1 {
     evidence_cut: IterationDecisionEvidenceCutV1,
     diagnostic: IterationInterpretationDiagnosticV1,
     required_dimensions: Vec<IterationDiagnosisDimensionV1>,
+    result_custody: IterationInterpretationResultCustodyV1,
     owner_bindings: Vec<IterationInterpretationOwnerBindingV1>,
-    diagnostic_evidence: IterationInterpretationOwnerBindingV1,
+    diagnostic_evidence: IterationInterpretationDiagnosticEvidenceV1,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -435,12 +454,18 @@ pub(crate) fn issue_interpretation_context_v1(
     locked_result: &LockedExploratoryReplayResultV2,
 ) -> Result<IterationInterpretationContextV1, IterationDecisionErrorV1> {
     let gate = gate_locked_exploratory_result_v1(census, locked_result)?;
-    issue_interpretation_context_from_result_v1(gate, locked_result.result())
+    let result_custody = interpretation_result_custody_v1(
+        locked_result.result_canonical_bytes(),
+        locked_result.receipt_canonical_bytes(),
+        locked_result.outbox_canonical_bytes(),
+    );
+    issue_interpretation_context_from_result_v1(gate, locked_result.result(), result_custody)
 }
 
 fn issue_interpretation_context_from_result_v1(
     gate: IterationDecisionGateV1,
     result: &ReplayResultDtoV2,
+    result_custody: IterationInterpretationResultCustodyV1,
 ) -> Result<IterationInterpretationContextV1, IterationDecisionErrorV1> {
     let IterationDecisionGateV1::InterpretationRequired {
         evidence_cut,
@@ -564,19 +589,8 @@ fn issue_interpretation_context_from_result_v1(
         evidence_digest: semantic_trace.locator.digest.as_str().to_string(),
     });
     let diagnostic_locator = &diagnostic_fact.decisive_evidence;
-    if !owner_bindings.iter().any(|binding| {
-        binding.component == diagnostic_locator.component
-            && binding.evidence_identity == diagnostic_locator.reference.as_str()
-            && binding.evidence_digest == diagnostic_locator.digest.as_str()
-    }) {
-        return Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
-            "diagnostic evidence is not an admitted component observation",
-        ));
-    }
-    let diagnostic_evidence = IterationInterpretationOwnerBindingV1 {
+    let diagnostic_evidence = IterationInterpretationDiagnosticEvidenceV1 {
         component: diagnostic_locator.component,
-        meaning_identity: result.result_identity.as_str().to_string(),
-        meaning_digest: result.result_digest.as_str().to_string(),
         evidence_identity: diagnostic_locator.reference.as_str().to_string(),
         evidence_digest: diagnostic_locator.digest.as_str().to_string(),
     };
@@ -585,9 +599,41 @@ fn issue_interpretation_context_from_result_v1(
         evidence_cut,
         diagnostic,
         required_dimensions,
+        result_custody,
         owner_bindings,
         diagnostic_evidence,
     })
+}
+
+fn interpretation_result_custody_v1(
+    result_bytes: &[u8],
+    receipt_bytes: &[u8],
+    outbox_bytes: &[u8],
+) -> IterationInterpretationResultCustodyV1 {
+    IterationInterpretationResultCustodyV1 {
+        result_storage_digest: interpretation_storage_digest_v1(
+            "vibe.rd.iteration-interpretation.result-storage.v1",
+            result_bytes,
+        ),
+        receipt_storage_digest: interpretation_storage_digest_v1(
+            "vibe.rd.iteration-interpretation.result-receipt-storage.v1",
+            receipt_bytes,
+        ),
+        outbox_storage_digest: interpretation_storage_digest_v1(
+            "vibe.rd.iteration-interpretation.result-outbox-storage.v1",
+            outbox_bytes,
+        ),
+    }
+}
+
+fn interpretation_storage_digest_v1(domain: &str, bytes: &[u8]) -> String {
+    let mut digest = Sha256::new();
+    digest.update(domain.as_bytes());
+    digest.update([0]);
+    digest.update(bytes.len().to_string().as_bytes());
+    digest.update([0]);
+    digest.update(bytes);
+    format!("sha256:{:x}", digest.finalize())
 }
 
 pub(crate) fn issue_repair_input_decision_v1(
@@ -1074,13 +1120,19 @@ mod tests {
             observed_meaning_identity: identity("semantic-trace-meaning"),
             observed_meaning_digest: digest("blake3", '9'),
         });
-        result.diagnostic_census[0].decisive_evidence = result
-            .semantic_trace
-            .as_ref()
-            .expect("semantic trace")
-            .locator
-            .clone();
         result
+    }
+
+    fn interpretation_context(
+        gate: IterationDecisionGateV1,
+        result: &ReplayResultDtoV2,
+    ) -> Result<IterationInterpretationContextV1, IterationDecisionErrorV1> {
+        let result_bytes = serde_json::to_vec(result).expect("result bytes");
+        issue_interpretation_context_from_result_v1(
+            gate,
+            result,
+            interpretation_result_custody_v1(&result_bytes, b"receipt-bytes", b"outbox-bytes"),
+        )
     }
 
     #[test]
@@ -1142,13 +1194,12 @@ mod tests {
     }
 
     #[test]
-    fn interpretation_context_binds_the_complete_owner_locked_result_cut() {
+    fn interpretation_context_binds_complete_custody_with_distinct_diagnostic_evidence() {
         let census = census(TrialFamilyAttemptTerminalDispositionV2::TerminalResult);
         let result = interpretation_result(DiagnosticCategoryV2::NoExecutionDefect);
         let gate = gate_result(&census, &result, &decision_policy()).expect("interpretation gate");
 
-        let context =
-            issue_interpretation_context_from_result_v1(gate, &result).expect("complete context");
+        let context = interpretation_context(gate, &result).expect("complete context");
 
         assert_eq!(context.required_dimensions.len(), 6);
         assert_eq!(
@@ -1166,6 +1217,20 @@ mod tests {
             context.diagnostic_evidence.component,
             ObservationComponentV2::SemanticTrace
         );
+        assert_ne!(
+            context.diagnostic_evidence.evidence_identity,
+            context
+                .owner_bindings
+                .last()
+                .expect("semantic trace binding")
+                .evidence_identity
+        );
+        assert!(
+            context
+                .result_custody
+                .result_storage_digest
+                .starts_with("sha256:")
+        );
     }
 
     #[test]
@@ -1176,7 +1241,7 @@ mod tests {
         result.reconciliation[1].component = result.reconciliation[0].component;
 
         assert!(matches!(
-            issue_interpretation_context_from_result_v1(gate, &result),
+            interpretation_context(gate, &result),
             Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
                 _
             ))
@@ -1195,7 +1260,7 @@ mod tests {
             .request_identity = identity("another-request");
 
         assert!(matches!(
-            issue_interpretation_context_from_result_v1(gate, &result),
+            interpretation_context(gate, &result),
             Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
                 _
             ))
@@ -1203,19 +1268,22 @@ mod tests {
     }
 
     #[test]
-    fn unbound_diagnostic_evidence_creates_no_interpretation_context() {
+    fn changed_diagnostic_evidence_changes_the_bound_result_custody() {
         let census = census(TrialFamilyAttemptTerminalDispositionV2::TerminalResult);
         let mut result = interpretation_result(DiagnosticCategoryV2::NoExecutionDefect);
-        let gate = gate_result(&census, &result, &decision_policy()).expect("interpretation gate");
+        let first_gate =
+            gate_result(&census, &result, &decision_policy()).expect("interpretation gate");
+        let first = interpretation_context(first_gate, &result).expect("first context");
         result.diagnostic_census[0].decisive_evidence.reference =
-            identity("unbound-diagnostic-evidence");
+            identity("different-owner-diagnostic-evidence");
+        let changed_gate =
+            gate_result(&census, &result, &decision_policy()).expect("changed interpretation gate");
+        let changed = interpretation_context(changed_gate, &result).expect("changed context");
 
-        assert!(matches!(
-            issue_interpretation_context_from_result_v1(gate, &result),
-            Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
-                _
-            ))
-        ));
+        assert_ne!(
+            first.result_custody.result_storage_digest,
+            changed.result_custody.result_storage_digest
+        );
     }
 
     #[test]
