@@ -72,6 +72,21 @@ impl MarketDataRepairResolutionReadbackV1 {
     pub const fn committed_at_epoch_ms(&self) -> u64 {
         self.committed_at_epoch_ms
     }
+
+    pub(crate) fn into_resolution(self) -> MarketDataRepairResearchTerminalV1 {
+        self.resolution
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn for_test(
+        resolution: MarketDataRepairResearchTerminalV1,
+        committed_at_epoch_ms: u64,
+    ) -> Self {
+        Self {
+            resolution,
+            committed_at_epoch_ms,
+        }
+    }
 }
 
 #[derive(Debug, Error, Eq, PartialEq)]

@@ -92,8 +92,18 @@ impl MarketDataRepairResearchTerminalV1 {
     }
 
     #[must_use]
+    pub const fn decision_evidence_cut(&self) -> &IterationDecisionEvidenceCutV1 {
+        &self.decision_evidence_cut
+    }
+
+    #[must_use]
     pub fn repair_request_identity(&self) -> &str {
         &self.repair_request_identity
+    }
+
+    #[must_use]
+    pub fn repair_request_digest(&self) -> &str {
+        &self.repair_request_digest
     }
 
     #[must_use]
@@ -104,6 +114,11 @@ impl MarketDataRepairResearchTerminalV1 {
     #[must_use]
     pub fn market_data_terminal_digest(&self) -> &str {
         &self.market_data_terminal_digest
+    }
+
+    #[must_use]
+    pub const fn correlation_identity(&self) -> BindingDigest {
+        self.correlation_identity
     }
 
     #[must_use]
@@ -645,6 +660,10 @@ pub(crate) mod tests {
     }
 
     fn decision() -> Decision {
+        decision_for_replay("replay-request", "sha256:replay-request")
+    }
+
+    fn decision_for_replay(request_identity: &str, request_digest: &str) -> Decision {
         Decision {
             target: true,
             cut: IterationDecisionEvidenceCutV1 {
@@ -659,8 +678,8 @@ pub(crate) mod tests {
                 attempt_frontier_digest: "sha256:attempt-frontier".into(),
                 candidate_set_frontier_identity: "candidate-frontier".into(),
                 candidate_set_frontier_digest: "sha256:candidate-frontier".into(),
-                request_identity: "replay-request".into(),
-                request_digest: "sha256:replay-request".into(),
+                request_identity: request_identity.into(),
+                request_digest: request_digest.into(),
                 result_identity: "result".into(),
                 result_digest: "sha256:result".into(),
                 attempt_identity: "attempt".into(),
@@ -689,6 +708,21 @@ pub(crate) mod tests {
             &available_terminal(),
         )
         .expect("repaired resolution fixture")
+    }
+
+    pub(crate) fn repaired_resolution_for_replay_fixture(
+        request_identity: &str,
+        request_digest: &str,
+    ) -> MarketDataRepairResearchTerminalV1 {
+        issue_from_evidence(
+            &decision_for_replay(request_identity, request_digest),
+            &Action {
+                decision_digest: "sha256:decision",
+            },
+            &Request,
+            &available_terminal(),
+        )
+        .expect("request-bound repaired resolution fixture")
     }
 
     pub(crate) fn unavailable_resolution_fixture() -> MarketDataRepairResearchTerminalV1 {

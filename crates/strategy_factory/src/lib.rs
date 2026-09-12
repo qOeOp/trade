@@ -73,6 +73,7 @@ mod holdout;
 pub mod intent;
 pub mod iteration_decision;
 mod iteration_decision_postgres;
+pub mod market_data_repair_reentry;
 #[allow(
     dead_code,
     reason = "the effect-free Market Data repair request issuer awaits T153 PostgreSQL custody"
