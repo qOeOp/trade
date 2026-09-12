@@ -50,6 +50,16 @@ impl NativeReplayPreparationInputsV2 {
     pub const fn family(&self) -> &TrialFamilyReadbackV1 {
         &self.family
     }
+
+    pub(crate) fn into_owner_evidence_parts(
+        self,
+    ) -> (
+        SealedExploratoryReplayReadbackV2,
+        NativeReplayRdSourcesV2,
+        SealedDevelopComposerReadbackV2,
+    ) {
+        (self.replay, self.rd_sources, self.composer)
+    }
 }
 
 #[derive(Debug, Error)]

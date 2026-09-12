@@ -470,6 +470,10 @@ const RD_CORE_TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
 ];
 
 impl PostgresResearchGoalOwnerV1 {
+    pub(crate) const fn native_replay_pool_v2(&self) -> &PgPool {
+        &self.pool
+    }
+
     fn verify_admission_v2(
         &self,
         admission: &ProductEdgeAdmissionReadbackV1,
@@ -1461,7 +1465,8 @@ impl PostgresResearchGoalOwnerV1 {
             run_id,
         )
         .await
-        .map_err(|_| crate::NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+        .map_err(|_| crate::NativeReplayExecutionInputBindingErrorV1::Unavailable)?
+        .into_execution();
         transaction
             .commit()
             .await

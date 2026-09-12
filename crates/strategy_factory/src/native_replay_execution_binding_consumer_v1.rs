@@ -25,6 +25,22 @@ use crate::{
     strategy_plan_v2::StrategyPlanV2,
 };
 
+pub(crate) struct ResolvedNativeReplayExecutionBundleV1 {
+    pub(crate) request: crate::exploratory_replay::SealedExploratoryReplayReadbackV2,
+    pub(crate) rd_sources: crate::native_replay_rd_sources_v2::NativeReplayRdSourcesV2,
+    pub(crate) design_bytes: Vec<u8>,
+    pub(crate) plan_bytes: Vec<u8>,
+    pub(crate) artifact_bytes: Vec<u8>,
+    pub(crate) binding_bytes: Vec<u8>,
+    pub(crate) execution: ReplayTargetSetExecutionBundleV1,
+}
+
+impl ResolvedNativeReplayExecutionBundleV1 {
+    pub(crate) fn into_execution(self) -> ReplayTargetSetExecutionBundleV1 {
+        self.execution
+    }
+}
+
 #[derive(Debug, Error)]
 #[error("Native Replay execution bundle is unavailable")]
 pub(crate) struct NativeReplayExecutionBindingConsumerErrorV1;
@@ -39,7 +55,7 @@ pub(crate) async fn resolve_native_replay_execution_bundle_v1_in_transaction<P, 
     market_data: &R,
     strategy_id: StrategyId,
     run_id: String,
-) -> Result<ReplayTargetSetExecutionBundleV1, NativeReplayExecutionBindingConsumerErrorV1>
+) -> Result<ResolvedNativeReplayExecutionBundleV1, NativeReplayExecutionBindingConsumerErrorV1>
 where
     P: DevelopComposerSealedReadPortV2 + ?Sized,
     R: NativeReplaySchedulingResolverV1 + ?Sized,
@@ -51,6 +67,7 @@ where
     .await
     .map_err(|_| NativeReplayExecutionBindingConsumerErrorV1)?
     .ok_or(NativeReplayExecutionBindingConsumerErrorV1)?;
+    let binding_bytes = stored.binding().canonical_bytes().to_vec();
     let preparation =
         resolve_native_replay_preparation_inputs_v2_in_transaction(transaction, locator, composer)
             .await
@@ -131,7 +148,7 @@ where
     let (universe_frame, scheduling) = market
         .into_execution_parts()
         .map_err(|_| NativeReplayExecutionBindingConsumerErrorV1)?;
-    ReplayTargetSetExecutionBundleV1::new(
+    let execution = ReplayTargetSetExecutionBundleV1::new(
         profile,
         plan,
         artifact,
@@ -141,5 +158,18 @@ where
         public_terms,
         scheduling,
     )
-    .map_err(|_| NativeReplayExecutionBindingConsumerErrorV1)
+    .map_err(|_| NativeReplayExecutionBindingConsumerErrorV1)?;
+    let design_bytes = preparation.composer().design_bytes().to_vec();
+    let plan_bytes = preparation.composer().plan_bytes().to_vec();
+    let artifact_bytes = preparation.composer().artifact_package_bytes().to_vec();
+    let (request, rd_sources, _) = preparation.into_owner_evidence_parts();
+    Ok(ResolvedNativeReplayExecutionBundleV1 {
+        request,
+        rd_sources,
+        design_bytes,
+        plan_bytes,
+        artifact_bytes,
+        binding_bytes,
+        execution,
+    })
 }

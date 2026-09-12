@@ -521,8 +521,14 @@ locator：签发操作先解析 sealed preparation、Composer Plan 与 Artifact�
 唯一同账户 economic pair、universe frame 和两份 BAR schedule，再通过一笔 R&D transaction 提交 binding；
 读取操作只返回已签发 binding 的 projection。独立 consumer composition 会先读取该 durable binding，再重新
 解析准确 Composer、Instrument Master V2、economic、universe 与 schedule input，逐字节复现持久 binding 后才
-materialize 现有 native execution bundle。尚不声称 disposable PostgreSQL acceptance、已注册 Native Replay
-execution service、execution/result closure、production startup/write、deployment 或 trading。
+materialize 现有 native execution bundle。现有 sealed production Strategy Factory resolver 会在一笔
+repeatable-read R&D transaction 内完成该重建，派生绑定 attempt 的 runtime identity，并向 Backtest 交付
+move-only bundle 与按固定顺序排列的完整 28-component observation package。Research、TrialFamily 与 Replay
+authority bytes 来自 R&D source record；Design、Plan 与 Artifact bytes 来自已接受的 Composer custody；其余
+resolved-input evidence 来自独立逐字节复现的 durable binding。现有 Backtest preparation Owner 直接接受该
+sealed resolver，并在进入 ProgramHost 前再次校验 request、component 与 execution locator。尚不声称
+disposable PostgreSQL acceptance、已注册 Native Replay execution service、execution/result closure、
+production startup/write、deployment 或 trading。
 
 **TARGET / NOT_ADMITTED，BAR FRAME 与 JOINED_CUT composition：** additive
 `StrategyInputSampleProjectionV4` 是唯一可在完整 native join 中组合 BAR component 的 projection。

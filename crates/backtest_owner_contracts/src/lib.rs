@@ -395,6 +395,23 @@ impl ReplayRequestV2 {
         hasher.update(&bytes);
         CanonicalDigestV2::try_from(format!("blake3:{}", hasher.finalize().to_hex()))
     }
+
+    /// Returns the canonical requested meaning for every required Replay observation.
+    ///
+    /// The order is fixed by [`ObservationComponentV2::REQUESTED_MEANING`]. Producers use this
+    /// projection when they attach independently resolved Owner evidence to the request.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a structured request component cannot be canonically encoded.
+    pub fn requested_component_meanings(
+        &self,
+    ) -> Result<
+        Vec<(ObservationComponentV2, OpaqueIdentityV2, CanonicalDigestV2)>,
+        ReplayContractErrorV2,
+    > {
+        requested_component_meanings(self)
+    }
 }
 
 impl TryFrom<ReplayRequestDtoV2> for ReplayRequestV2 {

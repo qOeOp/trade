@@ -83,6 +83,7 @@ pub mod native_replay_execution_bundle_owner_v2;
     reason = "T139 binding issuer awaits the T140 typed Owner-readback adapter"
 )]
 pub mod native_replay_execution_input_binding_v1;
+pub mod native_replay_execution_preparation_resolver_v2;
 #[allow(
     dead_code,
     reason = "the initial issuance operation is called by the R&D Owner API feature composition"

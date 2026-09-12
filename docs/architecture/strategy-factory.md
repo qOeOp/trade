@@ -553,8 +553,14 @@ economic pair, universe frame, and two BAR schedules before committing the bindi
 its read operation returns only an already issued binding projection. A separate consumer composition first reads
 that durable binding, independently re-resolves the exact Composer, Instrument Master V2, economic, universe, and
 schedule inputs, reproduces the stored binding byte-for-byte, and only then materializes the existing native
-execution bundle. This does not yet claim disposable PostgreSQL acceptance, a registered Native Replay execution
-service, execution/result closure, production startup/write, deployment, or trading.
+execution bundle. A sealed production Strategy Factory resolver now performs that reconstruction inside one
+repeatable-read R&D transaction, derives attempt-bound runtime identities, and hands Backtest the move-only bundle
+with the complete ordered 28-component observation package. R&D source records provide Research, TrialFamily and
+Replay-authority bytes; accepted Composer custody provides Design, Plan and Artifact bytes; the independently
+reproduced durable binding provides the remaining resolved-input evidence. The existing Backtest preparation Owner
+accepts this sealed resolver directly and still performs its own request, component and execution-locator
+reconciliation before entering ProgramHost. This does not yet claim disposable PostgreSQL acceptance, a registered
+Native Replay execution service, execution/result closure, production startup/write, deployment, or trading.
 
 **TARGET / NOT_ADMITTED, BAR FRAME and JOINED_CUT composition:** the additive
 `StrategyInputSampleProjectionV4` is the only projection that may compose BAR components across a complete
