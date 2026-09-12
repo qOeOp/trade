@@ -6,7 +6,7 @@ use axum::{
     extract::{Path, Query, State, rejection::QueryRejection},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -19,14 +19,14 @@ use vibe_strategy_factory::{
     exploratory_replay::{
         EXPLORATORY_REPLAY_MUTATION_EFFECT_V2, EXPLORATORY_REPLAY_OPERATION_V2,
         EXPLORATORY_REPLAY_SCHEMA_V2, ExploratoryReplayOwnerError,
-        ExploratoryReplayRecoverySelectorV2, ExploratoryReplayRequestProposalV2,
-        ExploratoryReplaySealedReadPortV2,
+        ExploratoryReplayRecoverySelectorV2, ExploratoryReplayRequestLocatorV2,
+        ExploratoryReplayRequestProposalV2, ExploratoryReplaySealedReadPortV2,
     },
     product_edge::RESEARCH_OWNER_V1,
     product_edge_postgres::PostgresResearchGoalOwnerV1,
 };
 
-use super::{ApiState, authorized, insert_rejection_code};
+use super::{ApiState, authorized, hex_digest, insert_rejection_code};
 
 #[derive(Clone)]
 struct ExploratoryReplayResultApiState {
@@ -56,10 +56,93 @@ pub(super) fn result_router(
             "/v2/exploratory-replay-results/{result_identity}",
             get(read_result),
         )
+        .route(
+            "/v2/exploratory-replay/execution-input-bindings/resolve",
+            post(resolve_execution_input_binding),
+        )
         .with_state(ExploratoryReplayResultApiState {
             owner,
             token_digest,
         })
+}
+
+#[derive(Debug, Serialize)]
+#[serde(deny_unknown_fields)]
+struct NativeReplayExecutionInputBindingProjectionV1 {
+    schema_version: u16,
+    request_identity: String,
+    binding_identity: String,
+    binding_digest: String,
+    receipt_identity: String,
+}
+
+async fn resolve_execution_input_binding(
+    State(state): State<ExploratoryReplayResultApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            "unbound",
+        );
+    }
+    let locator: ExploratoryReplayRequestLocatorV2 = match serde_json::from_slice(&body) {
+        Ok(locator) => locator,
+        Err(_) => {
+            return rejection(
+                StatusCode::BAD_REQUEST,
+                "INVALID_EXPLORATORY_REPLAY_REQUEST_LOCATOR",
+                "unbound",
+            );
+        }
+    };
+    let request_identity = locator.request_identity.clone();
+    if OpaqueIdentityV2::try_from(locator.request_identity.clone()).is_err()
+        || CanonicalDigestV2::try_from(locator.meaning_digest.clone()).is_err()
+        || OpaqueIdentityV2::try_from(locator.receipt_identity.clone()).is_err()
+        || CanonicalDigestV2::try_from(locator.seal_digest.clone()).is_err()
+    {
+        return rejection(
+            StatusCode::BAD_REQUEST,
+            "INVALID_EXPLORATORY_REPLAY_REQUEST_LOCATOR",
+            &request_identity,
+        );
+    }
+    match state
+        .owner
+        .resolve_native_replay_execution_input_binding_v1(&locator)
+        .await
+    {
+        Ok(Some(readback)) => {
+            let binding = readback.binding();
+            (
+                StatusCode::OK,
+                Json(NativeReplayExecutionInputBindingProjectionV1 {
+                    schema_version: 1,
+                    request_identity,
+                    binding_identity: format!("sha256:{}", hex_digest(&binding.binding_identity())),
+                    binding_digest: format!("sha256:{}", hex_digest(&binding.binding_digest())),
+                    receipt_identity: format!(
+                        "sha256:{}",
+                        hex_digest(&readback.receipt().receipt_identity())
+                    ),
+                }),
+            )
+                .into_response()
+        }
+        Ok(None) => rejection(
+            StatusCode::NOT_FOUND,
+            "NATIVE_REPLAY_EXECUTION_INPUT_BINDING_UNAVAILABLE",
+            &request_identity,
+        ),
+        Err(_) => rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "NATIVE_REPLAY_EXECUTION_INPUT_BINDING_UNAVAILABLE",
+            &request_identity,
+        ),
+    }
 }
 
 async fn read_result(

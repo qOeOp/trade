@@ -350,6 +350,28 @@ pub async fn resolve_native_replay_execution_input_binding_v1_in_transaction(
     Ok(Some(readback))
 }
 
+/// Recovers the unique binding already issued for one complete sealed Replay locator.
+///
+/// This service-facing path accepts no binding identity or constituent locator from the caller.
+/// It does not issue a missing binding and never falls back to another request or a latest row.
+pub(crate) async fn resolve_native_replay_execution_input_binding_for_request_v1_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    request_locator: &ExploratoryReplayRequestLocatorV2,
+) -> Result<
+    Option<NativeReplayExecutionInputBindingReadbackV1>,
+    NativeReplayExecutionInputBindingErrorV1,
+> {
+    validate_storage_boundary(transaction).await?;
+    let Some(rows) = load_rows(transaction, &request_locator.request_identity).await? else {
+        return Ok(None);
+    };
+    let readback = recover_rows(rows)?;
+    if &readback.binding.request_locator != request_locator {
+        return Ok(None);
+    }
+    Ok(Some(readback))
+}
+
 #[derive(Debug, Eq, PartialEq)]
 struct StoredRowsV1 {
     request_identity: String,

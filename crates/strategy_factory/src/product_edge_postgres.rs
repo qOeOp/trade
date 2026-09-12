@@ -1340,6 +1340,38 @@ impl PostgresResearchGoalOwnerV1 {
         result
     }
 
+    /// Resolves an already issued Native Replay execution-input binding from one sealed request.
+    ///
+    /// The R&D pool remains inside this Owner. A caller cannot provide the binding identity,
+    /// constituent locators, resolver, store, or fallback selection.
+    pub async fn resolve_native_replay_execution_input_binding_v1(
+        &self,
+        locator: &ExploratoryReplayRequestLocatorV2,
+    ) -> Result<
+        Option<crate::NativeReplayExecutionInputBindingReadbackV1>,
+        crate::NativeReplayExecutionInputBindingErrorV1,
+    > {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            .execute(&mut *transaction)
+            .await
+            .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
+        let result = crate::native_replay_execution_input_binding_v1::resolve_native_replay_execution_input_binding_for_request_v1_in_transaction(
+            &mut transaction,
+            locator,
+        )
+        .await;
+        transaction
+            .rollback()
+            .await
+            .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
+        result
+    }
+
     pub async fn preflight_request_identity(
         &self,
         request_identity: &str,
