@@ -877,6 +877,28 @@ mod tests {
             resolve_calls: AtomicUsize::new(0),
             response: Some(expected.clone()),
         });
+        let unauthorized = action_router(owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/iteration-decisions/repair-inputs/resolve",
+                decision_resolution_locator(),
+                None,
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(unauthorized.status(), StatusCode::FORBIDDEN);
+        let mut invalid = decision_resolution_locator();
+        invalid["decision_identity"] = json!("decision/1");
+        let invalid = action_router(owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/iteration-decisions/repair-inputs/resolve",
+                invalid,
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(owner.calls.load(Ordering::SeqCst), 0);
+        assert_eq!(owner.resolve_calls.load(Ordering::SeqCst), 0);
         let resolved = action_router(owner.clone(), token_digest)
             .oneshot(send_to(
                 "/v1/iteration-decisions/repair-inputs/resolve",
@@ -928,8 +950,30 @@ mod tests {
             resolve_calls: AtomicUsize::new(0),
             response: Some(expected.clone()),
         });
+        let unauthorized = repair_action_router(owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/repair-action-requests/resolve",
+                repair_action_resolution_locator(),
+                None,
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(unauthorized.status(), StatusCode::FORBIDDEN);
         let mut invalid = repair_action_resolution_locator();
         invalid["execution"] = json!({"provider": "caller-selected"});
+        let rejected = repair_action_router(owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/repair-action-requests/resolve",
+                invalid,
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(rejected.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(owner.calls.load(Ordering::SeqCst), 0);
+        assert_eq!(owner.resolve_calls.load(Ordering::SeqCst), 0);
+        let mut invalid = repair_action_resolution_locator();
+        invalid["action_request_identity"] = json!("repair/action");
         let rejected = repair_action_router(owner.clone(), token_digest)
             .oneshot(send_to(
                 "/v1/repair-action-requests/resolve",
