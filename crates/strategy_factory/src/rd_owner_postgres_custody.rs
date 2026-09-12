@@ -74,6 +74,11 @@ pub(crate) async fn resolve_native_replay_rd_cut_v2_in_transaction(
                 "partial Native Replay source custody is corrupt",
             ));
         }
+        "PROJECTION_ONLY" => {
+            return Err(native_source_unavailable(
+                "non-available Replay has no Native Replay source custody",
+            ));
+        }
         "AVAILABLE" => {}
         _ => {
             return Err(native_source_unavailable(
@@ -209,7 +214,7 @@ fn native_source_storage(
 
 pub(crate) const NATIVE_SOURCE_STORAGE_FUNCTION_V2: &str =
     "rd_owner_api.resolve_native_replay_source_storage_v2(text,text,text,text)";
-pub(crate) const NATIVE_SOURCE_STORAGE_SOURCE_MD5_V2: &str = "45bc491c00b98a0be6b2131c63bfc5d4";
+pub(crate) const NATIVE_SOURCE_STORAGE_SOURCE_MD5_V2: &str = "ab58d40fc76843f1b35d91f197c79c5e";
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -435,7 +440,20 @@ async fn native_research_custody_from_boundary(
             .ok_or_else(|| native_source_unavailable("Research view missing"))?,
     )
     .map_err(|error| native_source_unavailable(format!("Research view decode: {error}")))?;
-    if view.schema_version != 1
+    let view_identity_is_valid =
+        if view.phase == crate::product_edge::ResearchViewPhase::ExplorationActive {
+            view.schema_version == 2
+                && view.exploration.as_ref().is_some_and(|exploration| {
+                    exploration.trial_family_identity == intent_v2.trial_family_identity
+                })
+                && canonical_research_view_identity_v3(&view).as_deref()
+                    == Some(view.projection_identity.as_str())
+        } else {
+            view.schema_version == 1
+                && view.exploration.is_none()
+                && view.projection_identity == canonical_research_view_identity_v2(&view)
+        };
+    if !view_identity_is_valid
         || view.request_identity != receipt.request_identity
         || view.trusted_principal != research_admission.effective_principal()
         || view.authorized_scope != research_admission.authorized_scope()
@@ -447,7 +465,6 @@ async fn native_research_custody_from_boundary(
         || view.source_owner != RESEARCH_OWNER_V1
         || view.intent_identity != intent_v2.intent_identity
         || view.source_frontier != intent_v2.source_frontier
-        || view.projection_identity != canonical_research_view_identity_v2(&view)
     {
         return Err(native_source_unavailable("Research view custody mismatch"));
     }
@@ -561,10 +578,11 @@ use crate::{
         ResearchRequestDisposition, ResearchRequestReceiptV1, ResearchViewV1,
         SourcedResearchGoalV2, StoredAdmittedResearchRequestV2, StoredIndependenceBasisV1,
         StoredProtectedFeedbackProjectionV1, StoredRejectedResearchRequestV2,
-        TrialFamilyProposalV1, canonical_research_view_identity_v2, canonical_v2_intent_identity,
-        decide_commit, decide_commit_v2, decide_rejected_commit_v2, semantic_digest,
-        semantic_digest_v2, terminal_research_view_identity, validate_goal_request_v2,
-        validate_legacy_goal_meaning, verify_research_admission_v1, verify_research_admission_v2,
+        TrialFamilyProposalV1, canonical_research_view_identity_v2,
+        canonical_research_view_identity_v3, canonical_v2_intent_identity, decide_commit,
+        decide_commit_v2, decide_rejected_commit_v2, semantic_digest, semantic_digest_v2,
+        terminal_research_view_identity, validate_goal_request_v2, validate_legacy_goal_meaning,
+        verify_research_admission_v1, verify_research_admission_v2,
         verify_source_bound_research_admission_v2,
     },
     trial_family::{
@@ -2381,7 +2399,11 @@ async fn resolve_research_admission_hints(
             .map_err(|e| storage(&e))?;
         if let Some(view_json) = view_json {
             let view: ResearchViewV1 = decode_exact(&view_json)?;
-            if view.phase == crate::product_edge::ResearchViewPhase::ArtifactAvailable {
+            if matches!(
+                view.phase,
+                crate::product_edge::ResearchViewPhase::ArtifactAvailable
+                    | crate::product_edge::ResearchViewPhase::ExplorationActive
+            ) {
                 let attempt_identity = view.attempt_identity.as_deref().ok_or_else(|| {
                     ResearchGoalOwnerError::Storage(
                         "terminal research view attempt identity missing".into(),
@@ -2468,24 +2490,39 @@ async fn complete_research_custody_in_transaction(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     mut custody: VerifiedResearchCustodyV1,
 ) -> Result<VerifiedResearchCustodyV1, ResearchGoalOwnerError> {
-    if custody
-        .view()
-        .is_some_and(|view| view.phase == crate::product_edge::ResearchViewPhase::ArtifactAvailable)
-    {
+    if custody.view().is_some_and(|view| {
+        matches!(
+            view.phase,
+            crate::product_edge::ResearchViewPhase::ArtifactAvailable
+                | crate::product_edge::ResearchViewPhase::ExplorationActive
+        )
+    }) {
         let product_edge_admission =
             custody.terminal_attempt_admission.take().ok_or_else(|| {
                 ResearchGoalOwnerError::Storage(
                     "terminal attempt Product Edge authority was not preadmitted".into(),
                 )
             })?;
-        return Box::pin(attempt::admit_terminal_attempt_for_research_view(
+        let verified = Box::pin(attempt::admit_terminal_attempt_for_research_view(
             transaction,
             custody,
             *product_edge_admission,
         ))
         .await
-        .map(|verified| verified.research)
-        .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()));
+        .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
+        if let Some(exploration) = verified
+            .research
+            .view()
+            .and_then(|view| view.exploration.as_ref())
+        {
+            crate::exploratory_replay::postgres::verify_research_exploration_view_in_transaction(
+                transaction,
+                exploration,
+            )
+            .await
+            .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
+        }
+        return Ok(verified.research);
     }
     load_research_family_in_transaction(transaction, &mut custody).await?;
     Ok(custody)
@@ -2526,8 +2563,7 @@ fn validate_historical_view(
     view: &ResearchViewV1,
     initial: &ResearchViewV1,
 ) -> Result<(), ResearchGoalOwnerError> {
-    let fixed = view.schema_version == initial.schema_version
-        && view.request_identity == initial.request_identity
+    let fixed = view.request_identity == initial.request_identity
         && view.trusted_principal == initial.trusted_principal
         && view.authorized_scope == initial.authorized_scope
         && view.authorization_policy_cut == initial.authorization_policy_cut
@@ -2535,7 +2571,11 @@ fn validate_historical_view(
         && view.intent_identity == initial.intent_identity
         && view.source_frontier == initial.source_frontier;
     let phase = match view.phase {
-        crate::product_edge::ResearchViewPhase::IntentFrozen => view == initial,
+        crate::product_edge::ResearchViewPhase::IntentFrozen => {
+            view.schema_version == initial.schema_version
+                && view.exploration.is_none()
+                && view == initial
+        }
         crate::product_edge::ResearchViewPhase::ArtifactAvailable => {
             if view.attempt_identity.is_none() {
                 return Err(ResearchGoalOwnerError::Storage(
@@ -2559,10 +2599,38 @@ fn validate_historical_view(
                     "terminal research review identity missing".to_string(),
                 ));
             }
-            view.availability == crate::product_edge::ResearchViewAvailability::Available
+            view.schema_version == initial.schema_version
+                && view.exploration.is_none()
+                && view.availability == crate::product_edge::ResearchViewAvailability::Available
                 && view.projection_identity == canonical_research_view_identity_v2(view)
                 && view.next_legal_action == ResearchNextLegalAction::ReviewArtifact
                 && view.source_cut == format!("rd-artifact-cut-v1-{artifact_identity}")
+                && view.observed_at_epoch_ms == view.projection_at_epoch_ms
+                && view.valid_through_epoch_ms
+                    == view.projection_at_epoch_ms.saturating_add(600_000)
+        }
+        crate::product_edge::ResearchViewPhase::ExplorationActive => {
+            let Some(exploration) = view.exploration.as_ref() else {
+                return Err(ResearchGoalOwnerError::Storage(
+                    "active research exploration reference missing".to_string(),
+                ));
+            };
+            view.schema_version == 2
+                && view.attempt_identity.is_some()
+                && view.artifact_identity.is_some()
+                && view.build_receipt_identity.is_some()
+                && view.artifact_review_identity.is_some()
+                && view.availability == crate::product_edge::ResearchViewAvailability::Available
+                && canonical_research_view_identity_v3(view).as_deref()
+                    == Some(view.projection_identity.as_str())
+                && view.next_legal_action == ResearchNextLegalAction::ViewExploratoryRun
+                && view.source_cut
+                    == format!(
+                        "rd-exploration-cut-v1-{}",
+                        exploration
+                            .replay_request_seal_digest
+                            .trim_start_matches("sha256:")
+                    )
                 && view.observed_at_epoch_ms == view.projection_at_epoch_ms
                 && view.valid_through_epoch_ms
                     == view.projection_at_epoch_ms.saturating_add(600_000)

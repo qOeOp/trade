@@ -35,7 +35,9 @@ use crate::{
         MarketDataRepairResolutionLocatorV1, MarketDataRepairResolutionReadbackV1,
     },
     product_edge::{
-        FrozenResearchGoalIntent, RESEARCH_OWNER_V1, RESEARCH_SCOPE_V1, ResearchRequestDisposition,
+        FrozenResearchGoalIntent, RESEARCH_OWNER_V1, RESEARCH_SCOPE_V1, ResearchExplorationViewV1,
+        ResearchNextLegalAction, ResearchRequestDisposition, ResearchViewAvailability,
+        ResearchViewPhase, canonical_research_view_identity_v3,
     },
     rd_owner_postgres_custody::{AttemptState, VerifiedAttemptCustodyV1},
     replay_execution_profile_binding_v1::ReplayExecutionProfileRequestSealV1,
@@ -207,11 +209,35 @@ const INTERNAL_VERIFY_SOURCE_V1: &str = r#"
                AND research.receipt_json->>'receipt_identity'=sealed.frozen_json->>'research_receipt_identity'
                AND research.receipt_json->>'disposition'='ACCEPTED'
                AND research.view_json->>'availability'='AVAILABLE'
-               AND research.view_json->>'phase'='ARTIFACT_AVAILABLE'
                AND research.view_json->>'attempt_identity'=sealed.attempt_identity
                AND research.view_json->>'artifact_identity'=sealed.artifact_identity
                AND research.view_json->>'build_receipt_identity'=sealed.build_receipt_identity
                AND research.view_json->>'artifact_review_identity'=sealed.frozen_json->>'artifact_review_identity'
+               AND (
+                 (research.view_json->>'schema_version'='1'
+                  AND research.view_json->>'phase'='ARTIFACT_AVAILABLE'
+                  AND NOT (research.view_json ? 'exploration'))
+                 OR
+                 (research.view_json->>'schema_version'='2'
+                  AND research.view_json->>'phase'='EXPLORATION_ACTIVE'
+                  AND EXISTS (
+                    SELECT 1
+                      FROM public.rd_sealed_exploratory_replay_requests_v1 active
+                     WHERE active.request_identity=research.view_json->'exploration'->>'replay_request_identity'
+                       AND active.request_schema_version=2
+                       AND active.lifecycle_state IN ('FROZEN','REVOKED')
+                       AND active.trial_family_identity=sealed.trial_family_identity
+                       AND active.census_frontier_identity=sealed.census_frontier_identity
+                       AND active.artifact_identity=sealed.artifact_identity
+                       AND active.v2_meaning_digest=research.view_json->'exploration'->>'replay_request_meaning_digest'
+                       AND active.v2_seal_digest=research.view_json->'exploration'->>'replay_request_seal_digest'
+                       AND active.v2_receipt_json->>'receipt_identity'=research.view_json->'exploration'->>'replay_receipt_identity'
+                       AND active.frozen_json->>'census_frontier_digest'=research.view_json->'exploration'->>'census_frontier_digest'
+                       AND active.trial_family_identity=research.view_json->'exploration'->>'trial_family_identity'
+                       AND active.census_frontier_identity=research.view_json->'exploration'->>'census_frontier_identity'
+                       AND research.view_json->>'source_cut'='rd-exploration-cut-v1-' || pg_catalog.substring(active.v2_seal_digest,8)
+                  ))
+               )
           ) OR NOT EXISTS (
             SELECT 1 FROM public.rd_trial_families_v1 family
             JOIN public.rd_trial_family_heads_v1 head USING (trial_family_identity)
@@ -392,8 +418,8 @@ const INTERNAL_VERIFY_SOURCE_V2: &str = r#"
 
           base := rd_owner_api.verify_exploratory_replay_request_internal_v1(
             requested_request_identity,
-            sealed.request_digest,
-            sealed.receipt_json->>'receipt_identity'
+            '',
+            ''
           );
           IF base IS NULL
              OR base->>'availability' NOT IN ('AVAILABLE','STALE')
@@ -478,8 +504,8 @@ const INTERNAL_VERIFY_SOURCE_V3: &str = r#"
 
           base := rd_owner_api.verify_exploratory_replay_request_internal_v1(
             requested_request_identity,
-            sealed.request_digest,
-            sealed.receipt_json->>'receipt_identity'
+            '',
+            ''
           );
           IF base IS NULL
              OR base->>'availability' NOT IN ('AVAILABLE','STALE')
@@ -752,7 +778,12 @@ pub(crate) const NATIVE_SOURCE_STORAGE_SOURCE_V2: &str = r#"
               requested_receipt_identity,requested_seal_digest
             );
           END IF;
-          IF base IS NULL OR base->>'availability'<>'AVAILABLE' THEN RETURN NULL; END IF;
+          IF base IS NULL THEN RETURN NULL; END IF;
+          IF base->>'availability'<>'AVAILABLE' THEN
+            RETURN pg_catalog.jsonb_build_object(
+              'schema_version',1,'custody_state','PROJECTION_ONLY','replay',base
+            );
+          END IF;
 
           SELECT * INTO STRICT sealed
             FROM public.rd_sealed_exploratory_replay_requests_v1
@@ -2288,6 +2319,67 @@ async fn commit_inner(
             Ok::<_, ExploratoryReplayOwnerError>((json, bytes, digest))
         })
         .transpose()?;
+    let research_view_update = stored_v2
+        .as_ref()
+        .map(|(_, replay_receipt)| {
+            let old_view = custody.research.view().cloned().ok_or_else(|| {
+                ExploratoryReplayOwnerError::Unavailable("research view missing".into())
+            })?;
+            let first_replay_ready = frozen.market_data_repair_reentry.is_none()
+                && old_view.phase == ResearchViewPhase::ArtifactAvailable
+                && old_view.exploration.is_none();
+            let repaired_replay_ready = frozen
+                .market_data_repair_reentry
+                .as_ref()
+                .and_then(|binding| {
+                    old_view
+                        .exploration
+                        .as_ref()
+                        .map(|exploration| (binding.predecessor_replay(), exploration))
+                })
+                .is_some_and(|(predecessor, exploration)| {
+                    old_view.phase == ResearchViewPhase::ExplorationActive
+                        && exploration.replay_request_identity == predecessor.request_identity
+                        && exploration.replay_request_meaning_digest == predecessor.meaning_digest
+                        && exploration.replay_request_seal_digest == predecessor.seal_digest
+                        && exploration.replay_receipt_identity == predecessor.receipt_identity
+                });
+            if old_view.availability != ResearchViewAvailability::Available
+                || (!first_replay_ready && !repaired_replay_ready)
+            {
+                return Err(ExploratoryReplayOwnerError::Unavailable(
+                    "Research View is not ready for exploratory replay".into(),
+                ));
+            }
+            let mut new_view = old_view.clone();
+            new_view.schema_version = 2;
+            new_view.phase = ResearchViewPhase::ExplorationActive;
+            new_view.source_cut = format!(
+                "rd-exploration-cut-v1-{}",
+                replay_receipt.seal_digest.trim_start_matches("sha256:")
+            );
+            new_view.observed_at_epoch_ms = final_cut;
+            new_view.projection_at_epoch_ms = final_cut;
+            new_view.valid_through_epoch_ms = final_cut.saturating_add(600_000);
+            new_view.exploration = Some(ResearchExplorationViewV1 {
+                trial_family_identity: proposal.trial_family_identity.clone(),
+                census_frontier_identity: proposal.census_frontier_identity.clone(),
+                census_frontier_digest: frontier.frontier_digest().to_string(),
+                replay_request_identity: proposal.request_identity.clone(),
+                replay_request_meaning_digest: replay_receipt.meaning_digest.clone(),
+                replay_request_seal_digest: replay_receipt.seal_digest.clone(),
+                replay_receipt_identity: replay_receipt.receipt_identity.clone(),
+            });
+            new_view.next_legal_action = ResearchNextLegalAction::ViewExploratoryRun;
+            new_view.projection_identity = canonical_research_view_identity_v3(&new_view)
+                .ok_or_else(|| {
+                    ExploratoryReplayOwnerError::Unavailable(
+                        "active Research View identity is unavailable".into(),
+                    )
+                })?;
+            Ok::<_, ExploratoryReplayOwnerError>((old_view, new_view))
+        })
+        .transpose()?;
     sqlx::query("INSERT INTO public.rd_sealed_exploratory_replay_requests_v1 (request_identity,request_digest,build_request_identity,attempt_identity,intent_identity,trial_family_identity,artifact_identity,build_receipt_identity,artifact_family_binding_identity,census_frontier_identity,frozen_json,receipt_json,lifecycle_state,committed_at_epoch_ms,v2_canonical_request_bytes,v2_request_storage_digest,v2_meaning_digest,v2_seal_digest,v2_receipt_json,v2_receipt_storage_bytes,v2_receipt_storage_digest,request_schema_version) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'FROZEN',$13,$14,$15,$16,$17,$18,$19,$20,$21)")
         .bind(&frozen.proposal.request_identity)
         .bind(&frozen.request_digest)
@@ -2311,6 +2403,20 @@ async fn commit_inner(
         .bind(replay_receipt_storage.as_ref().map(|(_, _, digest)| digest.as_str()))
         .bind(if stored_v2.is_some() { 2_i16 } else { 1_i16 })
         .execute(&mut *transaction).await.map_err(storage)?;
+    if let Some((old_view, new_view)) = research_view_update {
+        let updated = sqlx::query("UPDATE public.rd_research_request_receipts_v1 SET view_json=$1 WHERE request_identity=$2 AND view_json=$3")
+            .bind(serde_json::to_value(&new_view).map_err(unavailable)?)
+            .bind(&research_receipt.request_identity)
+            .bind(serde_json::to_value(&old_view).map_err(unavailable)?)
+            .execute(&mut *transaction)
+            .await
+            .map_err(storage)?;
+        if updated.rows_affected() != 1 {
+            return Err(ExploratoryReplayOwnerError::Unavailable(
+                "Research View changed before exploratory replay commit".into(),
+            ));
+        }
+    }
     sqlx::query("INSERT INTO public.rd_owner_outbox_v1 (event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6)")
         .bind(event_identity)
         .bind(&frozen.proposal.request_identity)
@@ -2636,6 +2742,52 @@ async fn resolve_existing(
         receipt: validated.receipt,
         v2: stored_v2,
     }))
+}
+
+pub(crate) async fn verify_research_exploration_view_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    exploration: &ResearchExplorationViewV1,
+) -> Result<(), ExploratoryReplayOwnerError> {
+    let locator = ExploratoryReplayRequestLocatorV2 {
+        request_identity: exploration.replay_request_identity.clone(),
+        meaning_digest: exploration.replay_request_meaning_digest.clone(),
+        receipt_identity: exploration.replay_receipt_identity.clone(),
+        seal_digest: exploration.replay_request_seal_digest.clone(),
+    };
+    let value: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT rd_owner_api.resolve_native_replay_source_storage_v2($1,$2,$3,$4)",
+    )
+    .bind(&locator.request_identity)
+    .bind(&locator.meaning_digest)
+    .bind(&locator.receipt_identity)
+    .bind(&locator.seal_digest)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    decode_exact_replay_storage_v2(&locator, value)?.ok_or_else(|| {
+        ExploratoryReplayOwnerError::Unavailable(
+            "active Research View Replay custody is unavailable".into(),
+        )
+    })?;
+    let frozen_json: serde_json::Value = sqlx::query_scalar(
+        "SELECT frozen_json FROM public.rd_sealed_exploratory_replay_requests_v1 WHERE request_identity=$1 FOR SHARE",
+    )
+        .bind(&locator.request_identity)
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    let frozen = decode_frozen(&frozen_json)?;
+    verify_frozen(&frozen)?;
+    if frozen.request_schema_version != Some(2)
+        || frozen.proposal.trial_family_identity != exploration.trial_family_identity
+        || frozen.proposal.census_frontier_identity != exploration.census_frontier_identity
+        || frozen.census_frontier_digest != exploration.census_frontier_digest
+    {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "active Research View Replay custody mismatch".into(),
+        ));
+    }
+    Ok(())
 }
 
 pub(crate) async fn bind_backtest_read(

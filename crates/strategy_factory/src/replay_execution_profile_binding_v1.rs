@@ -1586,7 +1586,7 @@ mod tests {
             instrument_identity: "ETHUSDT-PERP".into(),
             instrument_public_fact_digest: [1; 32],
             venue_identity: "SIM".into(),
-            account_scope_identity: "RDQ-MARGIN".into(),
+            account_scope_identity: "SIM-001".into(),
             account_applicability: InstrumentEconomicAccountApplicabilityV1::MarginAccount,
             valid_from_ns: 100,
             valid_until_ns_exclusive: 200,
@@ -1638,7 +1638,7 @@ mod tests {
         };
         let context = InstrumentEconomicTermsConsumptionContextV1 {
             venue_identity: "SIM",
-            account_scope_identity: "RDQ-MARGIN",
+            account_scope_identity: "SIM-001",
             event_time_ns: 150,
         };
         let provenance =

@@ -11,6 +11,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+use crate::{
+    replay_economic_configuration_v1::{ReplayEconomicConfigurationV1, economic_fixture},
+    replay_runner_operational_profile_v1::{ReplayRunnerOperationalProfileV1, runner_fixture},
+};
 use crate::{
     replay_execution_policy_v2::ReplayExecutionPolicyV2,
     replay_policy_catalog_v2::{
@@ -289,6 +294,110 @@ pub(crate) fn authenticated_sealed_acceptance_fixture_v1() -> Result<
             verifier_public_key_hex: verifier_key,
         },
     )
+}
+
+/// Creates or exact-resolves the V3 Catalog binding required by current sealed acceptance
+/// consumers. The fixed fixture still crosses the authenticated administrator boundary; it does
+/// not write Catalog tables directly.
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+pub(crate) async fn ensure_authenticated_sealed_acceptance_fixture_v3(
+    pool: &PgPool,
+) -> Result<ReplayPolicyCatalogBindingV3, ReplayPolicyCatalogErrorV2> {
+    const VERIFIER_IDENTITY: &str = "rd-catalog-sealed-acceptance-verifier-v3";
+
+    let signing_key = SigningKey::from_bytes(&[11_u8; 32]);
+    let verifier_public_key_hex = bytes_hex(signing_key.verifying_key().as_bytes());
+    let create = sealed_acceptance_catalog_command_v3(
+        &signing_key,
+        CatalogAdminCommandKindV3::Create,
+        "rd-catalog-sealed-acceptance-create-v3",
+    )?;
+    let expected = create_authenticated_replay_policy_catalog_v3(
+        pool,
+        &create,
+        VERIFIER_IDENTITY,
+        &verifier_public_key_hex,
+    )
+    .await?;
+    let advance = sealed_acceptance_catalog_command_v3(
+        &signing_key,
+        CatalogAdminCommandKindV3::Advance,
+        "rd-catalog-sealed-acceptance-advance-v3",
+    )?;
+    let current = advance_authenticated_replay_policy_catalog_head_v3(
+        pool,
+        &advance,
+        VERIFIER_IDENTITY,
+        &verifier_public_key_hex,
+    )
+    .await?;
+    if current != expected {
+        return Err(ReplayPolicyCatalogErrorV2::Unavailable(
+            "sealed acceptance Catalog V3 head mismatch".to_owned(),
+        ));
+    }
+    Ok(current)
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+fn sealed_acceptance_catalog_command_v3(
+    signing_key: &SigningKey,
+    command_kind: CatalogAdminCommandKindV3,
+    command_identity: &str,
+) -> Result<Vec<u8>, ReplayPolicyCatalogErrorV2> {
+    const VERIFIER_IDENTITY: &str = "rd-catalog-sealed-acceptance-verifier-v3";
+
+    let economic = ReplayEconomicConfigurationV1::seal(economic_fixture())
+        .map_err(|error| ReplayPolicyCatalogErrorV2::InvalidPolicy(error.to_string()))?;
+    let mut policy = sealed_acceptance_policy()?;
+    policy.replay_configuration.digest =
+        vibe_backtest_owner_contracts::CanonicalDigestV2::try_from(format!(
+            "sha256:{}",
+            bytes_hex(&economic.digest())
+        ))
+        .map_err(|error| ReplayPolicyCatalogErrorV2::InvalidPolicy(error.to_string()))?;
+    let v2 = ReplayPolicyCatalogBindingV2::from_policy(
+        "sealed-acceptance-replay-policy-v3",
+        1,
+        &policy,
+    )?;
+    let runner = ReplayRunnerOperationalProfileV1::seal(runner_fixture())
+        .map_err(|error| ReplayPolicyCatalogErrorV2::InvalidPolicy(error.to_string()))?;
+    let binding = ReplayPolicyCatalogBindingV3::issue(v2, &economic, &runner)?;
+    let v2 = binding.replay_policy_v2();
+    let profiles = binding.execution_profiles_v1();
+    let mut request = SealedReplayPolicyCatalogAdminCommandV3 {
+        schema_version: 3,
+        command_identity: command_identity.to_owned(),
+        command_kind,
+        administrator_identity: "rd-catalog-sealed-acceptance-administrator-v3".to_owned(),
+        verifier_identity: VERIFIER_IDENTITY.to_owned(),
+        expected_predecessor_record_id: None,
+        expected_head_record_id: None,
+        catalog_record_id: v2.catalog_record_id().to_owned(),
+        catalog_version: v2.catalog_version(),
+        policy_grammar_parser_id: v2.policy_grammar_parser_id().to_owned(),
+        policy_grammar_parser_digest_hex: bytes_hex(v2.policy_grammar_parser_digest()),
+        policy_canonical_bytes_base64: BASE64_STANDARD.encode(v2.policy_canonical_bytes()),
+        policy_digest_hex: bytes_hex(v2.policy_digest()),
+        catalog_record_digest_hex: bytes_hex(v2.catalog_record_digest()),
+        economic_configuration_canonical_bytes_base64: BASE64_STANDARD
+            .encode(profiles.economic_configuration_canonical_bytes()),
+        economic_configuration_digest_hex: bytes_hex(&profiles.economic_configuration_digest()),
+        runner_operational_profile_canonical_bytes_base64: BASE64_STANDARD
+            .encode(profiles.runner_operational_profile_canonical_bytes()),
+        runner_operational_profile_digest_hex: bytes_hex(
+            &profiles.runner_operational_profile_digest(),
+        ),
+        execution_profiles_binding_digest_hex: bytes_hex(&profiles.binding_digest()),
+        catalog_binding_v3_digest_hex: bytes_hex(&binding.binding_digest()),
+        now_epoch_ms: 1,
+        signature_base64: String::new(),
+    };
+    let canonical = admin_command_canonical_bytes_v3(&request, &binding)?;
+    request.signature_base64 = BASE64_STANDARD.encode(signing_key.sign(&canonical).to_bytes());
+    serde_json::to_vec(&request)
+        .map_err(|error| ReplayPolicyCatalogErrorV2::InvalidPolicy(error.to_string()))
 }
 
 #[cfg(feature = "sealed-develop-composer-acceptance")]
@@ -1303,7 +1412,7 @@ async fn verify_catalog_storage_authority(pool: &PgPool) -> Result<(), ReplayPol
             "Catalog column shape readback mismatch".to_owned(),
         ));
     }
-    let dependency_shape_is_exact: bool = sqlx::query_scalar("WITH family AS (SELECT relation.oid,relation.relname FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relname=ANY($1)) SELECT (SELECT count(*)=10 AND NOT bool_or((family.relname,constraint_fact.contype::text,pg_catalog.array_to_string(constraint_fact.conkey,' ')) NOT IN (VALUES ('rd_replay_policy_catalog_records_v2','p','1'),('rd_replay_policy_catalog_records_v2','u','2'),('rd_replay_policy_catalog_records_v2','u','4'),('rd_replay_policy_catalog_records_v2','u','9'),('rd_replay_policy_catalog_head_v2','p','1'),('rd_replay_policy_catalog_head_v2','u','2'),('rd_replay_policy_catalog_head_v2','u','3'),('rd_replay_policy_catalog_revocations_v2','p','1'),('rd_replay_policy_catalog_revocations_v2','u','2'),('rd_replay_policy_catalog_audit_v2','p','1'))) FROM pg_catalog.pg_constraint constraint_fact JOIN family ON family.oid=constraint_fact.conrelid WHERE constraint_fact.contype IN ('p','u')) AND (SELECT count(*)=3 AND NOT bool_or((source.relname,pg_catalog.array_to_string(constraint_fact.conkey,' '),target.relname,pg_catalog.array_to_string(constraint_fact.confkey,' ')) NOT IN (VALUES ('rd_replay_policy_catalog_records_v2','4','rd_replay_policy_catalog_records_v2','1'),('rd_replay_policy_catalog_head_v2','2','rd_replay_policy_catalog_records_v2','1'),('rd_replay_policy_catalog_revocations_v2','1','rd_replay_policy_catalog_records_v2','1'))) FROM pg_catalog.pg_constraint constraint_fact JOIN family source ON source.oid=constraint_fact.conrelid JOIN family target ON target.oid=constraint_fact.confrelid WHERE constraint_fact.contype='f') AND (SELECT count(*)=5 AND bool_and(pg_catalog.pg_get_expr(constraint_fact.conbin,constraint_fact.conrelid) IN ('singleton','(octet_length(policy_grammar_parser_digest) = 32)','(octet_length(policy_digest) = 32)','(octet_length(catalog_record_digest) = 32)','((catalog_version > (0)::numeric) AND (catalog_version <= ''18446744073709551615''::numeric))')) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid IN (SELECT oid FROM family) AND constraint_fact.contype='c') AND (SELECT count(*)=10 AND bool_and(index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND index_fact.indisunique AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL AND EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conindid=index_fact.indexrelid)) FROM pg_catalog.pg_index index_fact WHERE index_fact.indrelid IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint inbound WHERE inbound.confrelid IN (SELECT oid FROM family) AND inbound.conrelid NOT IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint outbound WHERE outbound.conrelid IN (SELECT oid FROM family) AND outbound.contype='f' AND outbound.confrelid NOT IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_publication_rel publication WHERE publication.prrelid IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite WHERE rewrite.ev_class IN (SELECT oid FROM family))")
+    let dependency_shape_is_exact: bool = sqlx::query_scalar("WITH family AS (SELECT relation.oid,relation.relname FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relname=ANY($1)) SELECT (SELECT count(*)=10 AND NOT bool_or((family.relname,constraint_fact.contype::text,pg_catalog.array_to_string(constraint_fact.conkey,' ')) NOT IN (VALUES ('rd_replay_policy_catalog_records_v2','p','1'),('rd_replay_policy_catalog_records_v2','u','2'),('rd_replay_policy_catalog_records_v2','u','4'),('rd_replay_policy_catalog_records_v2','u','9'),('rd_replay_policy_catalog_head_v2','p','1'),('rd_replay_policy_catalog_head_v2','u','2'),('rd_replay_policy_catalog_head_v2','u','3'),('rd_replay_policy_catalog_revocations_v2','p','1'),('rd_replay_policy_catalog_revocations_v2','u','2'),('rd_replay_policy_catalog_audit_v2','p','1'))) FROM pg_catalog.pg_constraint constraint_fact JOIN family ON family.oid=constraint_fact.conrelid WHERE constraint_fact.contype IN ('p','u')) AND (SELECT count(*)=3 AND NOT bool_or((source.relname,pg_catalog.array_to_string(constraint_fact.conkey,' '),target.relname,pg_catalog.array_to_string(constraint_fact.confkey,' ')) NOT IN (VALUES ('rd_replay_policy_catalog_records_v2','4','rd_replay_policy_catalog_records_v2','1'),('rd_replay_policy_catalog_head_v2','2','rd_replay_policy_catalog_records_v2','1'),('rd_replay_policy_catalog_revocations_v2','1','rd_replay_policy_catalog_records_v2','1'))) FROM pg_catalog.pg_constraint constraint_fact JOIN family source ON source.oid=constraint_fact.conrelid JOIN family target ON target.oid=constraint_fact.confrelid WHERE constraint_fact.contype='f') AND (SELECT count(*)=5 AND bool_and(pg_catalog.pg_get_expr(constraint_fact.conbin,constraint_fact.conrelid) IN ('singleton','(octet_length(policy_grammar_parser_digest) = 32)','(octet_length(policy_digest) = 32)','(octet_length(catalog_record_digest) = 32)','((catalog_version > (0)::numeric) AND (catalog_version <= ''18446744073709551615''::numeric))')) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid IN (SELECT oid FROM family) AND constraint_fact.contype='c') AND (SELECT count(*)=10 AND bool_and(index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND index_fact.indisunique AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL AND EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conindid=index_fact.indexrelid)) FROM pg_catalog.pg_index index_fact WHERE index_fact.indrelid IN (SELECT oid FROM family)) AND (SELECT count(*)=2 AND bool_and(source_namespace.nspname='replay_policy_catalog_private' AND ((source.relname='rd_replay_policy_catalog_execution_profiles_v3' AND pg_catalog.array_to_string(inbound.conkey,' ')='1') OR (source.relname='rd_replay_policy_catalog_audit_v3' AND pg_catalog.array_to_string(inbound.conkey,' ')='5')) AND target.relname='rd_replay_policy_catalog_records_v2' AND pg_catalog.array_to_string(inbound.confkey,' ')='1') FROM pg_catalog.pg_constraint inbound JOIN pg_catalog.pg_class source ON source.oid=inbound.conrelid JOIN pg_catalog.pg_namespace source_namespace ON source_namespace.oid=source.relnamespace JOIN family target ON target.oid=inbound.confrelid WHERE inbound.contype='f' AND inbound.conrelid NOT IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint outbound WHERE outbound.conrelid IN (SELECT oid FROM family) AND outbound.contype='f' AND outbound.confrelid NOT IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_publication_rel publication WHERE publication.prrelid IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite WHERE rewrite.ev_class IN (SELECT oid FROM family))")
         .bind(CATALOG_TABLES_V2.as_slice()).fetch_one(pool).await.map_err(unavailable)?;
 
     if !dependency_shape_is_exact {
@@ -2154,7 +2263,7 @@ async fn verify_catalog_storage_authority_v3(
 ) -> Result<(), ReplayPolicyCatalogErrorV2> {
     verify_catalog_storage_authority(pool).await?;
     let exact: bool = sqlx::query_scalar(
-        "WITH owner AS (SELECT oid FROM pg_catalog.pg_roles WHERE rolname='replay_policy_catalog_owner'), relations AS (SELECT relation.oid,relation.relowner,relation.relacl,relation.relpersistence FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relname=ANY($1) AND relation.relkind='r'), routines AS (SELECT procedure.proname,procedure.proowner,procedure.prosecdef,procedure.provolatile,procedure.proparallel,procedure.proconfig,procedure.proacl FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace WHERE namespace.nspname='replay_policy_catalog_api' AND procedure.proname=ANY($2)) SELECT (SELECT count(*)=2 AND bool_and(relpersistence='p' AND relowner=(SELECT oid FROM owner) AND NOT EXISTS(SELECT 1 FROM pg_catalog.aclexplode(COALESCE(relacl,pg_catalog.acldefault('r',relowner))) acl WHERE acl.grantee<>relowner)) FROM relations) AND (SELECT count(*)=5 AND bool_and(proowner=(SELECT oid FROM owner) AND prosecdef AND provolatile='v' AND proparallel='u' AND proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[] AND NOT EXISTS(SELECT 1 FROM pg_catalog.aclexplode(COALESCE(proacl,pg_catalog.acldefault('f',proowner))) acl WHERE acl.privilege_type<>'EXECUTE' OR acl.is_grantable OR (acl.grantee<>proowner AND ((proname='apply_replay_policy_catalog_command_v3' AND acl.grantee<>(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='replay_policy_catalog_admin_writer')) OR (proname<>'apply_replay_policy_catalog_command_v3' AND acl.grantee NOT IN (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN ('rd_owner','replay_policy_catalog_admin_writer')))))) FROM routines)",
+        "WITH owner AS (SELECT oid FROM pg_catalog.pg_roles WHERE rolname='replay_policy_catalog_owner'), relations AS (SELECT relation.oid,relation.relowner,relation.relacl,relation.relpersistence FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relname=ANY($1) AND relation.relkind='r'), routines AS (SELECT procedure.proname,procedure.proowner,procedure.prosecdef,procedure.provolatile,procedure.proparallel,procedure.proconfig,procedure.proacl FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace WHERE namespace.nspname='replay_policy_catalog_api' AND procedure.proname=ANY($2)) SELECT (SELECT count(*)=2 AND bool_and(relpersistence='p' AND relowner=(SELECT oid FROM owner) AND NOT EXISTS(SELECT 1 FROM pg_catalog.aclexplode(COALESCE(relacl,pg_catalog.acldefault('r',relowner))) acl WHERE acl.grantee<>relowner)) FROM relations) AND (SELECT count(*)=5 AND bool_and(proowner=(SELECT oid FROM owner) AND prosecdef AND provolatile='v' AND proparallel='u' AND proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[] AND NOT EXISTS(SELECT 1 FROM pg_catalog.aclexplode(COALESCE(proacl,pg_catalog.acldefault('f',proowner))) acl WHERE acl.privilege_type<>'EXECUTE' OR acl.is_grantable OR (acl.grantee<>proowner AND ((proname='apply_replay_policy_catalog_command_v3' AND acl.grantee<>(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='replay_policy_catalog_admin_writer')) OR (proname<>'apply_replay_policy_catalog_command_v3' AND acl.grantee NOT IN (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN ('rd_owner','replay_policy_catalog_admin_writer'))))))) FROM routines)",
     )
     .bind(["rd_replay_policy_catalog_execution_profiles_v3", "rd_replay_policy_catalog_audit_v3"])
     .bind(["apply_replay_policy_catalog_command_v3", "lock_current_replay_policy_catalog_v3", "lock_replay_policy_catalog_census_v3", "lock_replay_policy_catalog_record_v3", "read_replay_policy_catalog_audit_v3"])

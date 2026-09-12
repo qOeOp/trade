@@ -5,7 +5,9 @@
 
 use sqlx::PgPool;
 
-use crate::{ReplayPolicyCatalogBootstrapReceiptV1, ReplayPolicyCatalogErrorV2};
+use crate::{
+    ReplayPolicyCatalogBindingV3, ReplayPolicyCatalogBootstrapReceiptV1, ReplayPolicyCatalogErrorV2,
+};
 
 /// Fixed signed setup inputs; contains no database authority or private key.
 pub struct SealedCatalogFixtureV1 {
@@ -24,6 +26,16 @@ pub async fn ensure_replay_policy_catalog_fixture_v2(
     pool: &PgPool,
 ) -> Result<ReplayPolicyCatalogBootstrapReceiptV1, ReplayPolicyCatalogErrorV2> {
     crate::replay_policy_catalog_postgres_v2::ensure_authenticated_sealed_acceptance_fixture_v1(
+        pool,
+    )
+    .await
+}
+
+/// Creates or exact-resolves the fixed current V3 Catalog binding used by sealed consumers.
+pub async fn ensure_replay_policy_catalog_fixture_v3(
+    pool: &PgPool,
+) -> Result<ReplayPolicyCatalogBindingV3, ReplayPolicyCatalogErrorV2> {
+    crate::replay_policy_catalog_postgres_v2::ensure_authenticated_sealed_acceptance_fixture_v3(
         pool,
     )
     .await

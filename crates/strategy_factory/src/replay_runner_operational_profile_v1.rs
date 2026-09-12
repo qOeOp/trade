@@ -2,7 +2,7 @@
 
 pub use vibe_rd_exploratory_replay_custody::replay_runner_operational_profile_v1::*;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "sealed-develop-composer-acceptance"))]
 pub(crate) fn runner_fixture() -> ReplayRunnerOperationalProfileInputV1 {
     ReplayRunnerOperationalProfileInputV1 {
         schema_version: 1,
