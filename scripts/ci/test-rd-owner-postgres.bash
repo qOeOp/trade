@@ -48,6 +48,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-product-edge|vibe_product_edge|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation'
   'vibe-data|instrument_economic_terms_postgres_v1|atomic_exact_replay_restart_tamper_and_acl_fail_closed'
   'vibe-strategy-factory|vibe_strategy_factory|program_host_bar_joined_cut_postgres_acceptance_tests::owner_postgres_v4_moves_through_program_host_and_real_backtest'
+  'vibe-strategy-factory|vibe_strategy_factory|iteration_decision_postgres::postgres_acceptance_tests::repair_decision_commit_retry_resolve_and_rejection_are_atomic'
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed'
 )
 readonly nextest_graph_args=(
@@ -71,8 +72,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 31 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all thirty-one ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 32 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all thirty-two ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -98,7 +99,8 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[27]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]] ||
     [[ "${rd_owner_postgres_tests[28]}" != *'|atomic_exact_replay_restart_tamper_and_acl_fail_closed' ]] ||
     [[ "${rd_owner_postgres_tests[29]}" != *'|program_host_bar_joined_cut_postgres_acceptance_tests::owner_postgres_v4_moves_through_program_host_and_real_backtest' ]] ||
-    [[ "${rd_owner_postgres_tests[30]}" != *'|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed' ]]; then
+    [[ "${rd_owner_postgres_tests[30]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::repair_decision_commit_retry_resolve_and_rejection_are_atomic' ]] ||
+    [[ "${rd_owner_postgres_tests[31]}" != *'|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
     return 1
   fi

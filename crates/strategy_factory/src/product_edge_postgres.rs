@@ -832,13 +832,17 @@ impl PostgresResearchGoalOwnerV1 {
                 receipt_json JSONB NOT NULL,
                 intent_json JSONB,
                 view_json JSONB,
+                committed_at_epoch_ms BIGINT NOT NULL,
+                artifact_evidence_digest TEXT,
+                artifact_evidence_json JSONB,
+                source_ancestry_locator_json JSONB,
+                source_ancestry_evidence_digest TEXT,
                 request_storage_bytes BYTEA,
                 request_storage_digest TEXT,
                 receipt_storage_bytes BYTEA,
                 receipt_storage_digest TEXT,
                 intent_storage_bytes BYTEA,
-                intent_storage_digest TEXT,
-                committed_at_epoch_ms BIGINT NOT NULL
+                intent_storage_digest TEXT
             )
             ",
         )

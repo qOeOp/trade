@@ -567,6 +567,10 @@ impl ReplayTargetSetExecutionBundleV1 {
 
     #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
+    #[expect(
+        dead_code,
+        reason = "acceptance helpers are selected by focused test targets"
+    )]
     pub(crate) fn new_with_native_instruments_for_test(
         authority: OwnerIssuedReplayExecutionProfileBindingV1,
         plan: StrategyPlanV2,

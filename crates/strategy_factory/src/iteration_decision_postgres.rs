@@ -465,3 +465,541 @@ fn canonical_digest(
 fn storage(error: impl Display) -> IterationDecisionPostgresErrorV1 {
     IterationDecisionPostgresErrorV1::Storage(error.to_string())
 }
+
+#[cfg(test)]
+mod postgres_acceptance_tests {
+    use super::*;
+    use serde::Serialize;
+    use vibe_backtest_owner_contracts::{
+        CanonicalDigestV2, ComponentObservationLocatorV2, ContentIdentityV2, DiagnosticCategoryV2,
+        DiagnosticEvidenceDtoV2, ObservationComponentV2, OpaqueIdentityV2, ReconciliationAtomDtoV2,
+        ReconciliationStatusV2, ReplayAuthorityClaimV2, ReplayNamespaceV2, ReplayResultDtoV2,
+        ReplayTerminalV2, ReplayWindowV2, VersionedIdentityV2,
+    };
+    use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+
+    use crate::{
+        product_edge::{ResearchRequestDisposition, ResearchRequestReceiptV1},
+        replay_economic_configuration_v1::{ReplayEconomicConfigurationV1, economic_fixture},
+        replay_execution_policy_v2::ReplayExecutionPolicyV2,
+        replay_policy_catalog_v2::{ReplayPolicyCatalogBindingV2, ReplayPolicyCatalogBindingV3},
+        replay_runner_operational_profile_v1::{ReplayRunnerOperationalProfileV1, runner_fixture},
+        trial_family::{
+            TrialFamilyAttemptAppendV2, TrialFamilyAttemptTerminalDispositionV2,
+            TrialFamilyCandidateSetProposalV2, TrialFamilyIndependenceDispositionV1,
+            TrialFamilyPolicyV1, form_initial_family,
+        },
+        trial_family_postgres::{
+            append_trial_family_attempt_in_transaction, persist_initial_family,
+        },
+    };
+
+    const RESULT_STORAGE_DOMAIN: &str = "vibe.backtest.replay-result-storage.v2";
+    const RECEIPT_STORAGE_DOMAIN: &str = "vibe.backtest.result-receipt-storage.v1";
+    const OUTBOX_STORAGE_DOMAIN: &str = "vibe.backtest.result-outbox-storage.v1";
+    const RECEIPT_DIGEST_DOMAIN: &str = "vibe.backtest.result-receipt.v1";
+    const OUTBOX_PAYLOAD_DIGEST_DOMAIN: &str = "vibe.backtest.result-outbox-payload.v1";
+    const OUTBOX_EVENT_DIGEST_DOMAIN: &str = "vibe.backtest.result-outbox-event.v1";
+    const RESULT_EVENT_KIND: &str = "EXPLORATORY_BACKTEST_RESULT_COMMITTED_V1";
+
+    #[derive(Serialize)]
+    struct ResultDigestPreimageV2<'a> {
+        schema_version: u16,
+        request_identity: &'a OpaqueIdentityV2,
+        request_meaning_digest: &'a CanonicalDigestV2,
+        namespace: ReplayNamespaceV2,
+        replay_authority: &'a ReplayAuthorityClaimV2,
+        attempt_identity: &'a OpaqueIdentityV2,
+        terminal: ReplayTerminalV2,
+        reconciliation: &'a [ReconciliationAtomDtoV2],
+        semantic_trace:
+            Option<&'a vibe_backtest_owner_contracts::ConsumedComponentObservationDtoV2>,
+        diagnostic_census: &'a [DiagnosticEvidenceDtoV2],
+    }
+
+    #[derive(Serialize)]
+    struct ResultReceiptV1 {
+        schema_version: u16,
+        receipt_identity: OpaqueIdentityV2,
+        receipt_digest: CanonicalDigestV2,
+        request_identity: OpaqueIdentityV2,
+        request_meaning_digest: CanonicalDigestV2,
+        result_identity: OpaqueIdentityV2,
+        result_digest: CanonicalDigestV2,
+        namespace: ReplayNamespaceV2,
+        outbox_event_identity: OpaqueIdentityV2,
+        committed_at_epoch_ms: u64,
+    }
+
+    #[derive(Serialize)]
+    struct ResultReceiptPreimageV1<'a> {
+        schema_version: u16,
+        receipt_identity: &'a OpaqueIdentityV2,
+        request_identity: &'a OpaqueIdentityV2,
+        request_meaning_digest: &'a CanonicalDigestV2,
+        result_identity: &'a OpaqueIdentityV2,
+        result_digest: &'a CanonicalDigestV2,
+        namespace: ReplayNamespaceV2,
+        outbox_event_identity: &'a OpaqueIdentityV2,
+        committed_at_epoch_ms: u64,
+    }
+
+    #[derive(Serialize)]
+    struct ResultOutboxPayloadV1 {
+        schema_version: u16,
+        receipt_identity: OpaqueIdentityV2,
+        receipt_digest: CanonicalDigestV2,
+        request_identity: OpaqueIdentityV2,
+        request_meaning_digest: CanonicalDigestV2,
+        result_identity: OpaqueIdentityV2,
+        result_digest: CanonicalDigestV2,
+        namespace: ReplayNamespaceV2,
+        committed_at_epoch_ms: u64,
+    }
+
+    #[derive(Serialize)]
+    struct ResultOutboxV1 {
+        schema_version: u16,
+        event_identity: OpaqueIdentityV2,
+        event_digest: CanonicalDigestV2,
+        aggregate_identity: OpaqueIdentityV2,
+        event_kind: OpaqueIdentityV2,
+        payload_digest: CanonicalDigestV2,
+        payload: ResultOutboxPayloadV1,
+        committed_at_epoch_ms: u64,
+    }
+
+    #[derive(Serialize)]
+    struct ResultOutboxPreimageV1<'a> {
+        schema_version: u16,
+        event_identity: &'a OpaqueIdentityV2,
+        aggregate_identity: &'a OpaqueIdentityV2,
+        event_kind: &'a OpaqueIdentityV2,
+        payload_digest: &'a CanonicalDigestV2,
+        payload: &'a ResultOutboxPayloadV1,
+        committed_at_epoch_ms: u64,
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the canonical disposable R&D and Backtest Owner PostgreSQL topology"]
+    async fn repair_decision_commit_retry_resolve_and_rejection_are_atomic() {
+        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+            .await
+            .expect("canonical disposable topology");
+        let mutation = database.mutation();
+        let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+        let backtest_pool = mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner);
+        let suffix = unique_suffix();
+        let committed_at = current_epoch_ms().expect("test clock");
+        let intent_identity = format!("rd-research-intent-decision-{suffix}");
+        let intent_digest = digest('a');
+        let policy = decision_family_policy();
+        let family = form_initial_family(&intent_identity, &intent_digest, policy, committed_at)
+            .expect("sealed Decision family");
+        let family_identity = family.root().trial_family_identity().to_string();
+        let research_receipt = ResearchRequestReceiptV1 {
+            schema_version: 1,
+            receipt_identity: format!("rd-research-request-receipt-decision-{suffix}"),
+            request_identity: format!("rd-research-request-decision-{suffix}"),
+            semantic_digest: intent_digest.clone(),
+            disposition: ResearchRequestDisposition::Accepted,
+            resulting_research_intent_identity: Some(intent_identity.clone()),
+            committed_at_epoch_ms: committed_at,
+            rejection_code: None,
+        };
+
+        let request_identity = format!("rd-replay-request-decision-{suffix}");
+        let request_digest = digest('b');
+        let attempt_identity = format!("backtest-attempt-decision-{suffix}");
+        let result = repair_result(
+            &request_identity,
+            &request_digest,
+            &attempt_identity,
+            &suffix,
+        );
+        let result_bytes = result.to_canonical_bytes().expect("canonical Result");
+        let result_identity = result.result_identity.as_str().to_string();
+        let result_digest = result.result_digest.as_str().to_string();
+
+        let mut family_transaction = rd_pool.begin().await.expect("family transaction");
+        persist_initial_family(&mut family_transaction, &family, &research_receipt)
+            .await
+            .expect("family custody");
+        append_trial_family_attempt_in_transaction(
+            &mut family_transaction,
+            &intent_identity,
+            &research_receipt.receipt_identity,
+            TrialFamilyAttemptAppendV2 {
+                intent_identity: intent_identity.clone(),
+                intent_digest: intent_digest.clone(),
+                request_identity: request_identity.clone(),
+                request_digest: request_digest.clone(),
+                result_identity: result_identity.clone(),
+                result_digest: result_digest.clone(),
+                terminal_disposition: TrialFamilyAttemptTerminalDispositionV2::Invalid,
+                consumed_trial_budget: 1,
+                candidate_set: TrialFamilyCandidateSetProposalV2 {
+                    generation_rule_identity: format!("rd-candidate-generation-decision-{suffix}"),
+                    generation_rule_digest: digest('c'),
+                    expected_cardinality: 0,
+                    candidates: Vec::new(),
+                },
+            },
+            committed_at + 1,
+        )
+        .await
+        .expect("attempt census");
+        family_transaction.commit().await.expect("family commit");
+
+        persist_backtest_result(backtest_pool, &result, &result_bytes, committed_at + 2).await;
+
+        let request = DecisionCompositionRequestV1 {
+            trial_family_identity: family_identity,
+            result_identity: result_identity.clone(),
+            request_identity,
+            attempt_identity,
+        };
+        let first = compose_repair_input_decision_v1(rd_pool, request.clone())
+            .await
+            .expect("first Decision commit");
+        let retried = compose_repair_input_decision_v1(rd_pool, request)
+            .await
+            .expect("same-meaning retry");
+        assert_eq!(
+            serde_json::to_vec(&retried).unwrap(),
+            serde_json::to_vec(&first).unwrap()
+        );
+
+        let resolved = resolve_repair_input_decision_v1(
+            rd_pool,
+            IterationDecisionResolutionLocatorV1 {
+                decision_identity: first.decision().decision_identity().to_string(),
+                result_identity: result_identity.clone(),
+            },
+        )
+        .await
+        .expect("Decision resolve")
+        .expect("stored Decision");
+        assert_eq!(
+            serde_json::to_vec(&resolved).unwrap(),
+            serde_json::to_vec(&first).unwrap()
+        );
+
+        let counts_before: (i64, i64) = sqlx::query_as(
+            "SELECT (SELECT COUNT(*) FROM rd_iteration_decisions_v1 WHERE result_identity=$1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE aggregate_identity=$2 AND event_kind='ITERATION_DECISION_COMMITTED_V1')",
+        )
+        .bind(&result_identity)
+        .bind(first.decision().decision_identity())
+        .fetch_one(rd_pool)
+        .await
+        .expect("Decision counts");
+        assert_eq!(counts_before, (1, 1));
+
+        let rejected = compose_repair_input_decision_v1(
+            rd_pool,
+            DecisionCompositionRequestV1 {
+                trial_family_identity: "bad locator with spaces".to_string(),
+                result_identity: result_identity.clone(),
+                request_identity: "bad".to_string(),
+                attempt_identity: "bad".to_string(),
+            },
+        )
+        .await;
+        assert!(matches!(
+            rejected,
+            Err(IterationDecisionPostgresErrorV1::InvalidLocator)
+        ));
+        let mismatched_resolve = resolve_repair_input_decision_v1(
+            rd_pool,
+            IterationDecisionResolutionLocatorV1 {
+                decision_identity: "rd-iteration-decision-v1-mismatch".to_string(),
+                result_identity,
+            },
+        )
+        .await;
+        assert!(mismatched_resolve.is_err());
+        let counts_after: (i64, i64) = sqlx::query_as(
+            "SELECT (SELECT COUNT(*) FROM rd_iteration_decisions_v1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind='ITERATION_DECISION_COMMITTED_V1')",
+        )
+        .fetch_one(rd_pool)
+        .await
+        .expect("post-rejection counts");
+        assert_eq!(counts_after, (1, 1));
+    }
+
+    fn decision_family_policy() -> TrialFamilyPolicyV1 {
+        let economic = ReplayEconomicConfigurationV1::seal(economic_fixture()).unwrap();
+        let runner = ReplayRunnerOperationalProfileV1::seal(runner_fixture()).unwrap();
+        let versioned = |value: &str| VersionedIdentityV2 {
+            identity: identity(value),
+            version: identity("v1"),
+        };
+        let content = |value: &str, digest: CanonicalDigestV2| ContentIdentityV2 {
+            identity: identity(value),
+            digest,
+        };
+        let execution = ReplayExecutionPolicyV2 {
+            runtime_kernel: versioned("runtime-kernel-v2"),
+            simulator: versioned("simulator-v2"),
+            cost: versioned("cost-model-v1"),
+            slippage: versioned("slippage-model-v1"),
+            capacity: versioned("capacity-model-v1"),
+            runner_operational_profile: versioned("runner-profile-v1"),
+            diagnostic_policy: versioned("diagnostic-policy-v1"),
+            deterministic_seed: 17,
+            window: ReplayWindowV2 {
+                start_event_ns: 1,
+                end_event_ns_exclusive: 2,
+            },
+            calendar: versioned("calendar-v1"),
+            session: versioned("session-v1"),
+            time_zone: versioned("time-zone-v1"),
+            correction_rule: versioned("correction-rule-v1"),
+            market_semantics: versioned("market-semantics-v1"),
+            replay_configuration: content(
+                "economic-profile-v1",
+                CanonicalDigestV2::try_from(format!("sha256:{}", hex(&economic.digest()))).unwrap(),
+            ),
+            corporate_action_cut: content("corporate-action-cut-v1", canonical_digest_value('d')),
+            historical_membership_cut: content("membership-cut-v1", canonical_digest_value('e')),
+        };
+        let catalog_v2 = ReplayPolicyCatalogBindingV2::from_policy(
+            "replay-policy-catalog-decision-v2",
+            1,
+            &execution,
+        )
+        .unwrap();
+        let catalog_v3 =
+            ReplayPolicyCatalogBindingV3::issue(catalog_v2.clone(), &economic, &runner).unwrap();
+        TrialFamilyPolicyV1 {
+            trial_budget: 2,
+            stop_rule: "stop on falsifier or bounded budget".to_string(),
+            pit_rule_identity: "pit-rule-v1".to_string(),
+            cost_model_identity: "cost-model-v1".to_string(),
+            slippage_model_identity: "slippage-model-v1".to_string(),
+            capacity_model_identity: "capacity-model-v1".to_string(),
+            semantic_predecessor_frontier: Vec::new(),
+            protected_feedback_frontier: "protected-feedback-frontier-v1".to_string(),
+            independence_disposition: TrialFamilyIndependenceDispositionV1::Independent,
+            independence_basis_identity: "independence-basis-v1".to_string(),
+            frozen_falsifier_binding: digest('f'),
+            replay_execution_policy_v2: Some(catalog_v2),
+            replay_policy_catalog_v3: Some(catalog_v3.clone()),
+            decision_policy_v1: Some(
+                crate::iteration_decision::IterationDecisionPolicyBindingV1::seal(&catalog_v3)
+                    .unwrap(),
+            ),
+        }
+    }
+
+    fn repair_result(
+        request_identity: &str,
+        request_digest: &str,
+        attempt_identity: &str,
+        suffix: &str,
+    ) -> ReplayResultDtoV2 {
+        let request_identity = identity(request_identity);
+        let request_meaning_digest =
+            CanonicalDigestV2::try_from(request_digest.to_string()).unwrap();
+        let attempt_identity = identity(attempt_identity);
+        let reconciliation = ObservationComponentV2::REQUESTED_MEANING
+            .into_iter()
+            .map(|component| {
+                let meaning_identity = identity(format!("meaning-{suffix}-{component:?}"));
+                let meaning_digest = canonical_digest_value('1');
+                ReconciliationAtomDtoV2 {
+                    component,
+                    requested_meaning_identity: meaning_identity.clone(),
+                    requested_meaning_digest: meaning_digest.clone(),
+                    observed_meaning_identity: Some(meaning_identity),
+                    observed_meaning_digest: Some(meaning_digest),
+                    observation_locator: Some(ComponentObservationLocatorV2 {
+                        component,
+                        reference: identity(format!("observation-{suffix}-{component:?}")),
+                        digest: canonical_digest_value('2'),
+                    }),
+                    status: ReconciliationStatusV2::Exact,
+                }
+            })
+            .collect::<Vec<_>>();
+        let diagnostic_census = vec![DiagnosticEvidenceDtoV2 {
+            request_identity: request_identity.clone(),
+            request_meaning_digest: request_meaning_digest.clone(),
+            attempt_identity: attempt_identity.clone(),
+            category: DiagnosticCategoryV2::MarketData,
+            decisive_evidence: ComponentObservationLocatorV2 {
+                component: ObservationComponentV2::PitSnapshot,
+                reference: identity(format!("diagnostic-{suffix}")),
+                digest: canonical_digest_value('3'),
+            },
+        }];
+        let mut result = ReplayResultDtoV2 {
+            schema_version: 2,
+            result_identity: identity("placeholder-result"),
+            result_digest: canonical_digest_value('0'),
+            request_identity,
+            request_meaning_digest,
+            namespace: ReplayNamespaceV2::Exploratory,
+            replay_authority: ReplayAuthorityClaimV2::Exploratory,
+            attempt_identity,
+            terminal: ReplayTerminalV2::InvalidReplayEvidence,
+            reconciliation,
+            semantic_trace: None,
+            diagnostic_census,
+        };
+        let preimage = ResultDigestPreimageV2 {
+            schema_version: result.schema_version,
+            request_identity: &result.request_identity,
+            request_meaning_digest: &result.request_meaning_digest,
+            namespace: result.namespace,
+            replay_authority: &result.replay_authority,
+            attempt_identity: &result.attempt_identity,
+            terminal: result.terminal,
+            reconciliation: &result.reconciliation,
+            semantic_trace: result.semantic_trace.as_ref(),
+            diagnostic_census: &result.diagnostic_census,
+        };
+        result.result_digest = digest_value("vibe.backtest.replay-result.v2", &preimage);
+        result.result_identity = identity(format!(
+            "backtest-replay-result-v2-{}",
+            result.result_digest.as_str().trim_start_matches("blake3:")
+        ));
+        result
+    }
+
+    async fn persist_backtest_result(
+        pool: &PgPool,
+        result: &ReplayResultDtoV2,
+        result_bytes: &[u8],
+        committed_at: u64,
+    ) {
+        let suffix = result.result_digest.as_str().trim_start_matches("blake3:");
+        let receipt_identity = identity(format!("backtest-result-receipt-v1-{suffix}"));
+        let event_identity = identity(format!("backtest-result-outbox-v1-{suffix}"));
+        let mut receipt = ResultReceiptV1 {
+            schema_version: 1,
+            receipt_identity: receipt_identity.clone(),
+            receipt_digest: canonical_digest_value('0'),
+            request_identity: result.request_identity.clone(),
+            request_meaning_digest: result.request_meaning_digest.clone(),
+            result_identity: result.result_identity.clone(),
+            result_digest: result.result_digest.clone(),
+            namespace: ReplayNamespaceV2::Exploratory,
+            outbox_event_identity: event_identity.clone(),
+            committed_at_epoch_ms: committed_at,
+        };
+        receipt.receipt_digest = digest_value(
+            RECEIPT_DIGEST_DOMAIN,
+            &ResultReceiptPreimageV1 {
+                schema_version: receipt.schema_version,
+                receipt_identity: &receipt.receipt_identity,
+                request_identity: &receipt.request_identity,
+                request_meaning_digest: &receipt.request_meaning_digest,
+                result_identity: &receipt.result_identity,
+                result_digest: &receipt.result_digest,
+                namespace: receipt.namespace,
+                outbox_event_identity: &receipt.outbox_event_identity,
+                committed_at_epoch_ms: receipt.committed_at_epoch_ms,
+            },
+        );
+        let payload = ResultOutboxPayloadV1 {
+            schema_version: 1,
+            receipt_identity,
+            receipt_digest: receipt.receipt_digest.clone(),
+            request_identity: result.request_identity.clone(),
+            request_meaning_digest: result.request_meaning_digest.clone(),
+            result_identity: result.result_identity.clone(),
+            result_digest: result.result_digest.clone(),
+            namespace: ReplayNamespaceV2::Exploratory,
+            committed_at_epoch_ms: committed_at,
+        };
+        let mut outbox = ResultOutboxV1 {
+            schema_version: 1,
+            event_identity,
+            event_digest: canonical_digest_value('0'),
+            aggregate_identity: result.result_identity.clone(),
+            event_kind: identity(RESULT_EVENT_KIND),
+            payload_digest: canonical_digest_value('0'),
+            payload,
+            committed_at_epoch_ms: committed_at,
+        };
+        outbox.payload_digest = digest_value(OUTBOX_PAYLOAD_DIGEST_DOMAIN, &outbox.payload);
+        outbox.event_digest = digest_value(
+            OUTBOX_EVENT_DIGEST_DOMAIN,
+            &ResultOutboxPreimageV1 {
+                schema_version: outbox.schema_version,
+                event_identity: &outbox.event_identity,
+                aggregate_identity: &outbox.aggregate_identity,
+                event_kind: &outbox.event_kind,
+                payload_digest: &outbox.payload_digest,
+                payload: &outbox.payload,
+                committed_at_epoch_ms: outbox.committed_at_epoch_ms,
+            },
+        );
+        let receipt_bytes = serde_json::to_vec(&receipt).unwrap();
+        let outbox_bytes = serde_json::to_vec(&outbox).unwrap();
+        let mut transaction = pool.begin().await.unwrap();
+        sqlx::query("INSERT INTO backtest_replay_results_v2 (result_identity,result_digest,request_identity,request_meaning_digest,attempt_identity,terminal,canonical_bytes,canonical_bytes_blake3) VALUES ($1,$2,$3,$4,$5,'INVALID_REPLAY_EVIDENCE',$6,$7)")
+            .bind(result.result_identity.as_str()).bind(result.result_digest.as_str())
+            .bind(result.request_identity.as_str()).bind(result.request_meaning_digest.as_str())
+            .bind(result.attempt_identity.as_str()).bind(result_bytes)
+            .bind(storage_digest(RESULT_STORAGE_DOMAIN, result_bytes))
+            .execute(&mut *transaction).await.unwrap();
+        sqlx::query("INSERT INTO backtest_replay_result_receipts_v1 (result_identity,receipt_identity,receipt_digest,request_identity,request_meaning_digest,result_digest,namespace,outbox_event_identity,committed_at_epoch_ms,canonical_bytes,canonical_bytes_blake3) VALUES ($1,$2,$3,$4,$5,$6,'EXPLORATORY',$7,$8,$9,$10)")
+            .bind(result.result_identity.as_str()).bind(receipt.receipt_identity.as_str())
+            .bind(receipt.receipt_digest.as_str()).bind(result.request_identity.as_str())
+            .bind(result.request_meaning_digest.as_str()).bind(result.result_digest.as_str())
+            .bind(receipt.outbox_event_identity.as_str()).bind(i64::try_from(committed_at).unwrap())
+            .bind(&receipt_bytes).bind(storage_digest(RECEIPT_STORAGE_DOMAIN, &receipt_bytes))
+            .execute(&mut *transaction).await.unwrap();
+        sqlx::query("INSERT INTO backtest_replay_result_outbox_v1 (result_identity,event_identity,event_digest,receipt_identity,request_identity,request_meaning_digest,result_digest,namespace,payload_digest,committed_at_epoch_ms,canonical_bytes,canonical_bytes_blake3) VALUES ($1,$2,$3,$4,$5,$6,$7,'EXPLORATORY',$8,$9,$10,$11)")
+            .bind(result.result_identity.as_str()).bind(outbox.event_identity.as_str())
+            .bind(outbox.event_digest.as_str()).bind(receipt.receipt_identity.as_str())
+            .bind(result.request_identity.as_str()).bind(result.request_meaning_digest.as_str())
+            .bind(result.result_digest.as_str()).bind(outbox.payload_digest.as_str())
+            .bind(i64::try_from(committed_at).unwrap()).bind(&outbox_bytes)
+            .bind(storage_digest(OUTBOX_STORAGE_DOMAIN, &outbox_bytes))
+            .execute(&mut *transaction).await.unwrap();
+        transaction.commit().await.unwrap();
+    }
+
+    fn identity(value: impl Into<String>) -> OpaqueIdentityV2 {
+        OpaqueIdentityV2::try_from(value.into()).unwrap()
+    }
+
+    fn canonical_digest_value(byte: char) -> CanonicalDigestV2 {
+        CanonicalDigestV2::try_from(digest(byte)).unwrap()
+    }
+
+    fn digest(byte: char) -> String {
+        format!("sha256:{}", byte.to_string().repeat(64))
+    }
+
+    fn digest_value(domain: &str, value: &impl Serialize) -> CanonicalDigestV2 {
+        let bytes = serde_json::to_vec(value).unwrap();
+        CanonicalDigestV2::try_from(storage_digest(domain, &bytes)).unwrap()
+    }
+
+    fn storage_digest(domain: &str, bytes: &[u8]) -> String {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(domain.as_bytes());
+        hasher.update(b"\0");
+        hasher.update(bytes);
+        format!("blake3:{}", hasher.finalize().to_hex())
+    }
+
+    fn hex(bytes: &[u8]) -> String {
+        bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+
+    fn unique_suffix() -> String {
+        format!(
+            "{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        )
+    }
+}
