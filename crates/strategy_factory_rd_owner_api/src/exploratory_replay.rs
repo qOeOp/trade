@@ -314,7 +314,9 @@ pub(super) async fn run_native_replay(
         request.attempt_identity,
     ));
     match run.await {
-        Ok(disposition) => native_replay_execution_response(service, disposition).await,
+        Ok(disposition) => {
+            native_replay_execution_response(service, disposition, &request_identity).await
+        }
         Err(_) => rejection(
             StatusCode::SERVICE_UNAVAILABLE,
             "NATIVE_REPLAY_EXECUTION_UNAVAILABLE",
@@ -332,6 +334,7 @@ fn require_send_future<F: std::future::Future + Send>(future: F) -> F {
 async fn native_replay_execution_response(
     service: &NativeReplayExecutionServiceV2,
     disposition: NativeReplayCommitDispositionV2,
+    request_identity: &str,
 ) -> Response {
     let disposition = match disposition {
         NativeReplayCommitDispositionV2::Committed { result, .. } => {
@@ -345,12 +348,17 @@ async fn native_replay_execution_response(
         Ok(Some(NativeReplayCommitDispositionV2::Committed { result, .. })) => {
             canonical_result_response(result.result_canonical_bytes())
         }
-        _ => rejection(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "NATIVE_REPLAY_RESULT_SUBMITTED_OR_UNKNOWN",
-            "unbound",
-        ),
+        _ => native_replay_submitted_or_unknown_response(request_identity),
     }
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+fn native_replay_submitted_or_unknown_response(request_identity: &str) -> Response {
+    rejection(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "NATIVE_REPLAY_RESULT_SUBMITTED_OR_UNKNOWN",
+        request_identity,
+    )
 }
 
 #[cfg(feature = "sealed-develop-composer-acceptance")]
@@ -858,6 +866,23 @@ mod tests {
         assert!(
             serde_json::from_value::<NativeReplayExecutionRequestV2>(with_caller_execution)
                 .is_err()
+        );
+    }
+
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[tokio::test]
+    async fn native_replay_unknown_result_preserves_request_correlation() {
+        let response = native_replay_submitted_or_unknown_response("request-1");
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("bounded rejection body");
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).expect("JSON rejection"),
+            json!({
+                "error": "NATIVE_REPLAY_RESULT_SUBMITTED_OR_UNKNOWN",
+                "request_identity": "request-1",
+            })
         );
     }
 
