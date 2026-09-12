@@ -637,7 +637,7 @@ Strategy Factory 只能从该 verified Owner readback 铸造其 move-only econom
 venue、account scope、event time、currency 与全部可见 economic profile value。Market Data public-fact
 module 仍不 import Strategy Factory，也不 validate、copy、select 或 issue replay economic value。
 
-**TARGET / NOT_ADMITTED，持久 public V2 custody 与固定 Native Replay resolution：** Market Data 拥有
+**CURRENT/PARTIAL，持久 public V2 custody 与固定 Native Replay resolution：** Market Data 拥有
 additive `InstrumentMasterFactV2` store、不可变 content-addressed cut、原子 receipt/outbox，以及 move-only
 exact-locator readback。首个 consumer 是准确 `BACKTEST_OWNER_V1` Native Replay 纵向切片；其 cut 按规范
 instrument-identity 顺序准确包含两个不同的 canonical crypto-perpetual instrument。每个 entry 绑定完整 V2
@@ -648,7 +648,9 @@ resolver 行为保持逐字节独立。
 Cut issuance 只接受固定 consumer role、R&D-owned request identity 与 decision cut，以及准确 Owner-sealed
 双成员 universe-selection readback。Market Data 在该 cut 内部解析两条 public fact chain，并返回新的准确
 V2 cut locator/readback。Request 不能携带 fact bytes、fact digest、symbol、member order、store/pool 或 latest
-selector。后续 exact resolution 只有在该 cut locator 已封存进同一 R&D request binding 时才接受它。
+selector。仅在首次 composition 时，固定 resolver 从规范 sealed R&D Replay request identity 派生域分隔 request
+key，并解析该 key 下唯一的 cut。R&D 将返回的四坐标 cut locator 封存进其 request binding 后，后续 exact
+resolution 只接受该 locator。
 Resolver 必须在一个固定 Owner snapshot 中 decode 并 rehash cut 与两份 fact，证明准确 membership/order，
 沿每条 direct-predecessor link 无 gap、无 branch 地回到绑定 baseline，重新校验当前 store admission 与 reader
 ACL，然后返回一份 move-only readback。任一 missing、extra、duplicate、reordered、noncanonical、
@@ -660,8 +662,8 @@ public V2 custody；固定 consumer 只能获得准确 resolver 的 `EXECUTE`，
 不解析 private `InstrumentEconomicTermsFactV1`、Strategy Input universe frame、BAR schedule、replay profile
 或 R&D request binding，也不组装跨 Owner execution-input aggregate。
 
-**NOT_ADMITTED：** 本契约仍不声称 provider parser/call、authenticated ingestion、已完成 migration 或
-implementation、已准入 default/production database write、registered product composition、deployment、
+**NOT_ADMITTED：** 本契约仍不声称 provider parser/call、authenticated ingestion、已完成 migration、
+已准入 default/production database write、registered product composition、deployment、
 runtime execution、production effect 或 trading。private economic 路径不会提升这些 public-fact 声称，也不
 构造原生 instrument。
 

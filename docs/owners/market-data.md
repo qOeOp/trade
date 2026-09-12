@@ -657,7 +657,7 @@ must additionally match venue, account scope, event time, currencies and all vis
 values. Market Data's public-fact module still neither imports Strategy Factory nor validates, copies,
 selects, or issues replay economic values.
 
-**TARGET / NOT_ADMITTED, durable public V2 custody and fixed Native Replay resolution:** Market Data owns
+**CURRENT/PARTIAL, durable public V2 custody and fixed Native Replay resolution:** Market Data owns
 the additive `InstrumentMasterFactV2` store, immutable content-addressed cut, atomic receipt/outbox, and
 move-only exact-locator readback. The first consumer is the exact `BACKTEST_OWNER_V1` Native Replay vertical and
 its cut contains exactly two distinct canonical crypto-perpetual instruments in canonical instrument-identity
@@ -669,8 +669,10 @@ independent.
 Cut issuance accepts only the fixed consumer role, the R&D-owned request identity and decision cut, and the exact
 Owner-sealed two-member universe-selection readback. Market Data resolves the two public fact chains internally at
 that cut and returns the new exact V2 cut locator/readback. The request cannot carry fact bytes, fact digests,
-symbols, member order, a store/pool, or a latest selector. Later exact resolution accepts that cut locator only when
-it is sealed into the same R&D request binding. In one fixed Owner snapshot, the resolver must decode and rehash the
+symbols, member order, a store/pool, or a latest selector. For initial composition only, the fixed resolver derives a
+domain-separated request key from the canonical sealed R&D Replay request identity and resolves the unique cut under
+that key. After R&D seals the returned four-coordinate cut locator into its request binding, later exact resolution
+accepts that locator only. In one fixed Owner snapshot, the resolver must decode and rehash the
 cut and both facts, prove exact membership and order, walk every direct-predecessor link back to the bound baseline
 without a gap or branch, revalidate current store admission and reader ACL, and return one move-only readback. A
 missing, extra, duplicate, reordered, noncanonical, cross-spliced, tampered, or ACL-drifted row returns no
@@ -684,7 +686,7 @@ BAR schedules, replay profiles, or the R&D request binding, and it does not asse
 aggregate.
 
 **NOT_ADMITTED:** this contract still claims no provider parser or call, authenticated ingestion, completed
-migration or implementation, admitted default/production database write, registered product composition,
+migration, admitted default/production database write, registered product composition,
 deployment, runtime execution, production effect, or trading. The private economic path does not elevate those
 public-fact claims or construct a native instrument.
 

@@ -46,6 +46,9 @@ const RECEIPT_DOMAIN_V2: &[u8] = b"VIBE_INSTRUMENT_MASTER_PUBLIC_RECEIPT_V2";
 const OUTBOX_DOMAIN_V2: &[u8] = b"VIBE_INSTRUMENT_MASTER_PUBLIC_OUTBOX_V2";
 const REQUEST_BINDING_DOMAIN_V2: &[u8] = b"VIBE_INSTRUMENT_MASTER_PUBLIC_REQUEST_BINDING_V2";
 pub const BACKTEST_OWNER_ROLE_V1: &str = "BACKTEST_OWNER_V1";
+const NATIVE_REPLAY_REQUEST_DOMAIN_V2: &[u8] =
+    b"market-data.instrument-master-v2.native-replay-request.v1\0";
+const MAX_R_AND_D_REQUEST_IDENTITY_BYTES_V2: usize = 512;
 const MAX_CANONICAL_BYTES_V2: usize = 64 * 1024;
 const MAX_TEXT_BYTES_V2: usize = 1024;
 
@@ -643,6 +646,19 @@ impl InstrumentMasterCutRequestV2 {
         }
     }
 
+    /// Derives the fixed Market Data request coordinate from one sealed R&D Replay identity.
+    ///
+    /// The operation caller supplies no digest, symbol, member order, or latest selector.
+    pub fn for_native_replay_request(
+        request_identity: &str,
+        decision_cut: u64,
+    ) -> Result<Self, InstrumentMasterCustodyErrorV2> {
+        Ok(Self::new(
+            native_replay_request_identity_v2(request_identity)?,
+            decision_cut,
+        ))
+    }
+
     #[must_use]
     pub const fn request_identity(&self) -> BindingDigest {
         self.request_identity
@@ -660,6 +676,26 @@ impl InstrumentMasterCutRequestV2 {
             Ok(())
         }
     }
+}
+
+/// Maps one canonical sealed R&D Replay identity into the fixed Market Data V2 request key.
+pub fn native_replay_request_identity_v2(
+    request_identity: &str,
+) -> Result<BindingDigest, InstrumentMasterCustodyErrorV2> {
+    if request_identity.is_empty()
+        || request_identity.trim() != request_identity
+        || request_identity.len() > MAX_R_AND_D_REQUEST_IDENTITY_BYTES_V2
+    {
+        return Err(InstrumentMasterCustodyErrorV2::InvalidRequest);
+    }
+    let mut bytes = Vec::with_capacity(4 + request_identity.len());
+    bytes.extend_from_slice(
+        &u32::try_from(request_identity.len())
+            .map_err(|_| InstrumentMasterCustodyErrorV2::InvalidRequest)?
+            .to_be_bytes(),
+    );
+    bytes.extend_from_slice(request_identity.as_bytes());
+    Ok(digest(NATIVE_REPLAY_REQUEST_DOMAIN_V2, &bytes))
 }
 
 /// One canonical member of the fixed two-instrument cut.
@@ -1023,6 +1059,12 @@ pub(crate) mod resolver_seal_v2 {
 #[async_trait::async_trait]
 #[allow(private_bounds)]
 pub trait InstrumentMasterResolverV2: resolver_seal_v2::Sealed + Send + Sync {
+    /// Resolves the unique initial-composition cut bound to one sealed R&D Replay identity.
+    async fn resolve_instrument_master_v2_for_native_replay_request(
+        &self,
+        request_identity: &str,
+    ) -> Result<InstrumentMasterReadbackV2, InstrumentMasterCustodyErrorV2>;
+
     /// Resolves one exact historical cut; there is no symbol or latest lookup.
     async fn resolve_instrument_master_v2(
         &self,

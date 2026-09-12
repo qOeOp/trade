@@ -10,7 +10,7 @@ use thiserror::Error;
 use vibe_data::owner::{
     bar_schedule::BarScheduleReadbackV1,
     instrument_economic_terms_v1::InstrumentEconomicTermsReadbackV1,
-    instrument_master_v2::InstrumentMasterReadbackV2,
+    instrument_master_v2::{InstrumentMasterReadbackV2, native_replay_request_identity_v2},
     strategy_input_binding::StrategyInputUniverseFrameReceipt,
 };
 
@@ -757,7 +757,11 @@ fn verify_owner_readbacks(
     }
 
     let cut_members = instrument_master.cut().members();
-    if cut_members.len() != MEMBER_COUNT {
+    if instrument_master.cut().request_identity()
+        != native_replay_request_identity_v2(request.request_identity.as_str())
+            .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)?
+        || cut_members.len() != MEMBER_COUNT
+    {
         return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
     }
     let mut members = Vec::with_capacity(MEMBER_COUNT);

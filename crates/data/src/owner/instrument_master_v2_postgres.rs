@@ -7,7 +7,8 @@ use super::{
     instrument_master_v2::{
         InstrumentMasterCustodyErrorV2, InstrumentMasterCutLocatorV2, InstrumentMasterCutReceiptV2,
         InstrumentMasterCutRequestV2, InstrumentMasterCutV2, InstrumentMasterFactV2,
-        InstrumentMasterReadbackV2, InstrumentMasterResolverV2, resolver_seal_v2,
+        InstrumentMasterReadbackV2, InstrumentMasterResolverV2, native_replay_request_identity_v2,
+        resolver_seal_v2,
     },
     source_binding::BindingDigest,
     universe_selection::{UniverseSelectionReadbackV1, verify_universe_selection_readback_v1},
@@ -222,6 +223,28 @@ impl InstrumentMasterV2PostgresOwner {
         Ok(readback)
     }
 
+    /// Resolves the one V2 cut whose request key is derived from a sealed R&D Replay identity.
+    pub async fn resolve_for_native_replay_request(
+        &self,
+        request_identity: &str,
+    ) -> Result<InstrumentMasterReadbackV2, InstrumentMasterCustodyErrorV2> {
+        let request_identity = native_replay_request_identity_v2(request_identity)?;
+        let mut tx = self.pool.begin().await.map_err(store_error)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            .execute(&mut *tx)
+            .await
+            .map_err(store_error)?;
+        lock_all(&mut tx).await?;
+        assert_acl_in_transaction(&mut tx).await?;
+        assert_complete_ledger(&mut tx).await?;
+        let row = load_cut_by_request(&mut tx, request_identity)
+            .await?
+            .ok_or(InstrumentMasterCustodyErrorV2::UnknownLocator)?;
+        let readback = decode_cut_row(&mut tx, row).await?;
+        tx.commit().await.map_err(store_error)?;
+        Ok(readback)
+    }
+
     async fn serializable(
         &self,
     ) -> Result<Transaction<'_, Postgres>, InstrumentMasterCustodyErrorV2> {
@@ -249,6 +272,14 @@ impl resolver_seal_v2::Sealed for InstrumentMasterV2PostgresOwner {}
 
 #[async_trait::async_trait]
 impl InstrumentMasterResolverV2 for InstrumentMasterV2PostgresOwner {
+    async fn resolve_instrument_master_v2_for_native_replay_request(
+        &self,
+        request_identity: &str,
+    ) -> Result<InstrumentMasterReadbackV2, InstrumentMasterCustodyErrorV2> {
+        self.resolve_for_native_replay_request(request_identity)
+            .await
+    }
+
     async fn resolve_instrument_master_v2(
         &self,
         locator: InstrumentMasterCutLocatorV2,
