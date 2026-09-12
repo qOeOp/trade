@@ -652,6 +652,15 @@ revalidates canonical bytes, custody and ACL closure, and rejects missing, parti
 cross-spliced or tampered storage before returning a move-only readback. This private fact is not generic
 public Instrument Master truth and does not alter any V1 or public V2 bytes.
 
+For initial Native Replay composition, Instrument Owner also maintains an Owner-private derived selection
+index beside those canonical facts. One fixed read-only operation consumes the unforgeable
+`InstrumentMasterReadbackV2`, the Replay profile's venue and common quote currency, and the sealed request
+start event time. Instrument Owner derives both canonical member identities and public fact digests from
+the Master V2 readback and derives the account scope from its own matching facts. It returns one exact
+readback per member only when exactly one complete pair is valid under one shared account scope. Missing,
+overlapping, corrupt, or multiple complete pairs are unavailable. The caller supplies no account scope,
+economic-terms locator, latest selector, pool, or replacement store.
+
 Strategy Factory may mint its move-only economic provenance only from that verified Owner readback and
 must additionally match venue, account scope, event time, currencies and all visible economic profile
 values. Market Data's public-fact module still neither imports Strategy Factory nor validates, copies,

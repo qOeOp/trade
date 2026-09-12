@@ -633,6 +633,14 @@ bytes。恢复只接受准确 fact-and-receipt locator，重新校验 canonical 
 missing、partial、conflicting、cross-spliced 或 tampered storage 都在返回 move-only readback 前失败。该
 private fact 不是通用 public Instrument Master truth，也不改变任何 V1 或 public V2 bytes。
 
+对于 Native Replay 初始组合，Instrument Owner 还在 canonical fact 旁维护 Owner-private derived selection
+index。一个固定只读操作消费不可伪造的 `InstrumentMasterReadbackV2`、Replay profile 的 venue 与 common quote
+currency，以及封存 request 的 start event time。Instrument Owner 从 Master V2 readback 派生两个 canonical
+member identity 与 public fact digest，并从自身匹配 fact 派生 account scope。只有在同一 shared account scope
+下恰好存在一个完整且有效的 pair 时，才为每个 member 返回一个准确 readback。missing、overlapping、corrupt
+或多个完整 pair 全部 unavailable。调用方不提供 account scope、economic-terms locator、latest selector、
+pool 或 replacement store。
+
 Strategy Factory 只能从该 verified Owner readback 铸造其 move-only economic provenance，并且还必须匹配
 venue、account scope、event time、currency 与全部可见 economic profile value。Market Data public-fact
 module 仍不 import Strategy Factory，也不 validate、copy、select 或 issue replay economic value。
