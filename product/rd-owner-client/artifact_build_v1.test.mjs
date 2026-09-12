@@ -1,7 +1,11 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-const { executeArtifactBuildV1, invocationStateDigestV1 } = await import("./artifact_build_v1.ts")
+const {
+  deriveGeneratedArtifactIdentitiesV1,
+  executeArtifactBuildV1,
+  invocationStateDigestV1,
+} = await import("./artifact_build_v1.ts")
 const { projectArtifactOwnerResultWithEvidenceV1 } = await import("./consumer_projection_v1.ts")
 const {
   providerInvocationClaimDigestV1,
@@ -279,6 +283,87 @@ test("execution gate rejects a canonical-looking but cross-bound claim before in
   assert.equal(calls.some((url) => url === "https://provider.example.test"), false)
   assert.equal(result.next_legal_action, "RESOLVE_SAME_ATTEMPT_IDENTITY")
   assert.equal(result.provider_invocation, null)
+})
+
+test("Dashboard recovers an existing sealed claim after preparation authority becomes stale", async () => {
+  const generated = await deriveGeneratedArtifactIdentitiesV1(
+    "build-seed-1",
+    "attempt-seed-1",
+    request.research_request_identity,
+  )
+  assert.ok(generated)
+  const admissionIdentity = `product-edge-request-admission-v1-${"9".repeat(64)}`
+  const invocationAdmissionReceiptIdentity =
+    `product-edge-provider-invocation-admission-receipt-v1-${"a".repeat(64)}`
+  const claim = {
+    schema_version: 1,
+    request_identity: generated.build_request_identity,
+    claim_identity: await providerInvocationClaimIdentityV1(
+      admissionIdentity,
+      generated.attempt_identity,
+      invocationAdmissionReceiptIdentity,
+    ),
+    admission_identity: admissionIdentity,
+    attempt_identity: generated.attempt_identity,
+    invocation_admission_receipt_identity: invocationAdmissionReceiptIdentity,
+    invocation_admission_receipt_digest: `sha256:${"b".repeat(64)}`,
+    claim_digest: "",
+    state_digest: "",
+    committed_at_epoch_ms: 10,
+    disposition: "ALREADY_CLAIMED",
+    state: "CLAIMED",
+    next_legal_action: "RUN_BOUNDED_EXECUTION_AGENT",
+  }
+  claim.claim_digest = await providerInvocationClaimDigestV1(claim)
+  claim.state_digest = await providerInvocationStateDigestV1({
+    ...claim,
+    updated_at_epoch_ms: claim.committed_at_epoch_ms,
+  })
+  const calls = []
+  const result = await executeArtifactBuildV1({
+    action: "RUN",
+    build_request_identity: "build-seed-1",
+    attempt_identity: "attempt-seed-1",
+    research_request_identity: request.research_request_identity,
+    identity_mode: "GENERATE",
+  }, {
+    ...runtime("TRADE_DASHBOARD", async (url) => {
+      const value = String(url)
+      calls.push(value)
+      if (value.endsWith("/v1/artifact-builds/prepare")) {
+        return Response.json({
+          resolution: "SUBMITTED_OR_UNKNOWN",
+          next_legal_action: "RESOLVE_SAME_ATTEMPT_IDENTITY",
+        })
+      }
+      if (value.endsWith("/v1/artifact-builds/claim-provider-invocation")) {
+        return Response.json(claim)
+      }
+      if (value.endsWith("/v1/artifact-builds/start-provider-invocation")) return Response.json({})
+      throw new Error(`unexpected fetch ${value}`)
+    }),
+    verified_s1_context: {
+      schema_version: 1,
+      request_identity: request.research_request_identity,
+      intent_identity: "intent-1",
+      intent_semantic_digest: "sha256:intent",
+      trial_family_identity: "family-1",
+      trial_family_root_digest: "sha256:family-root",
+      census_frontier_identity: "frontier-1",
+      census_frontier_digest: "sha256:frontier",
+      valid_through_epoch_ms: 1_000,
+    },
+  })
+
+  assert.deepEqual(calls.map((value) => new URL(value).pathname), [
+    "/v1/artifact-builds/prepare",
+    "/v1/artifact-builds/claim-provider-invocation",
+    "/v1/artifact-builds/start-provider-invocation",
+  ])
+  assert.equal(calls.some((value) => value === "https://provider.example.test"), false)
+  assert.equal(result.build_request_identity, generated.build_request_identity)
+  assert.equal(result.attempt_identity, generated.attempt_identity)
+  assert.equal(result.next_legal_action, "RESOLVE_SAME_ATTEMPT_IDENTITY")
 })
 
 test("canonical Owner CLAIMED wire projects verified invocation custody", async () => {

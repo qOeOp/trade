@@ -665,15 +665,6 @@ async function runOwnerOperation(
     } catch {
       return finish(unknown(build_request_identity, attempt_identity))
     }
-    if (!validArtifactPreparationV1(
-      preparation, build_request_identity, attempt_identity, context.intent_identity,
-    )) {
-      try {
-        return finish(await resolve(runtime, build_request_identity, attempt_identity))
-      } catch {
-        return finish(unknown(build_request_identity, attempt_identity))
-      }
-    }
     try {
       invocationClaim = await ownerPost(
         runtime,
@@ -701,6 +692,15 @@ async function runOwnerOperation(
     }
     if (!await validProviderInvocationClaimV1(invocationClaim, build_request_identity, attempt_identity)) {
       return finish(unknown(build_request_identity, attempt_identity))
+    }
+    if (invocationClaim.disposition === "CLAIMED_NEW" && !validArtifactPreparationV1(
+      preparation, build_request_identity, attempt_identity, context.intent_identity,
+    )) {
+      try {
+        return finish(await resolve(runtime, build_request_identity, attempt_identity))
+      } catch {
+        return finish(unknown(build_request_identity, attempt_identity))
+      }
     }
   }
 
