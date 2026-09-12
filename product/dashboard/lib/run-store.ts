@@ -37,6 +37,13 @@ import {
   type SourceResearchRoutingAdmissionV1,
 } from "./source-research-run-contract.ts";
 import {
+  readSourceResearchRunInputCustodyV1,
+  sourceResearchRunInputCustodyV1,
+  type SourceResearchRunInputCustodyStateV1,
+  type SourceResearchRunInputReadbackV1,
+} from "./source-research-run-input-custody.ts";
+import type { SourceResearchRunRequestV1 } from "./source-research-input-contract.ts";
+import {
   operationalCacheDeletionReceiptIdentityV1,
   parseOperationalCacheDeletionReceiptV1,
   type OperationalCacheDeletionReceiptV1,
@@ -213,6 +220,7 @@ export type SourceResearchRunStartV1 = {
   schema_version: 1;
   run: OperationRunV1;
   execution_mode: "FRESH_RUN" | "RESOLVE_ONLY";
+  input_custody: SourceResearchRunInputReadbackV1;
 };
 
 export type SourceResearchRecoverySnapshotV1 = {
@@ -220,6 +228,7 @@ export type SourceResearchRecoverySnapshotV1 = {
   run: OperationRunV1;
   requested_action: "RUN" | "RESOLVE";
   routing: SourceResearchRoutingAdmissionV1;
+  input_custody: SourceResearchRunInputReadbackV1;
   observed_phases: readonly ("SOURCE_OWNER_AVAILABLE" | "RESEARCH_OWNER_AVAILABLE")[];
 };
 
@@ -1190,11 +1199,13 @@ export class PostgresRunStoreV1 {
           AND table_name = 'dashboard_source_research_run_bindings_v1'
           AND column_name IN (
             'source_registry_entry_digest', 'source_compatibility_envelope_digest',
-            'research_registry_entry_digest', 'research_compatibility_envelope_digest'
+            'research_registry_entry_digest', 'research_compatibility_envelope_digest',
+            'input_custody_state', 'run_request_schema_version',
+            'run_request_json', 'run_request_digest'
           )) AS custody_columns`,
     );
     if (!result.rows[0]?.source_research_bindings
-      || Number(result.rows[0]?.custody_columns) !== 4) {
+      || Number(result.rows[0]?.custody_columns) !== 8) {
       throw new Error("RUN_STORE_SCHEMA_UNAVAILABLE");
     }
   }
@@ -1242,6 +1253,10 @@ export class PostgresRunStoreV1 {
         research_routing_binding_identity: string | null;
         research_routing_binding_digest: string | null;
         research_routing_generation: string | number | null;
+        input_custody_state: SourceResearchRunInputCustodyStateV1;
+        run_request_schema_version: string | number | null;
+        run_request_json: unknown;
+        run_request_digest: string | null;
       }>(
         `SELECT r.*, b.requested_action,
                 b.source_registry_entry_digest, b.source_compatibility_envelope_digest,
@@ -1251,7 +1266,9 @@ export class PostgresRunStoreV1 {
                 b.source_routing_generation,
                 b.research_routing_state, b.research_routing_dispatcher,
                 b.research_routing_binding_identity, b.research_routing_binding_digest,
-                b.research_routing_generation
+                b.research_routing_generation,
+                b.input_custody_state, b.run_request_schema_version,
+                b.run_request_json, b.run_request_digest
           FROM dashboard_operation_runs_v1 r
            JOIN dashboard_source_research_run_bindings_v1 b USING (run_identity)
           WHERE r.operation_id = $1 AND r.recovery_identity_digest = $2
@@ -1313,11 +1330,19 @@ export class PostgresRunStoreV1 {
       if (!validSourceResearchExecutionAdmissionV1(row.requested_action, storedAdmission)) {
         throw new Error("SOURCE_RESEARCH_RECOVERY_INVALID");
       }
+      const inputCustody = readSourceResearchRunInputCustodyV1({
+        state: row.input_custody_state,
+        requestSchemaVersion: row.run_request_schema_version === null
+          ? null : Number(row.run_request_schema_version),
+        request: row.run_request_json,
+        requestDigest: row.run_request_digest,
+      });
       return {
         schema_version: 1,
         run: record(row),
         requested_action: row.requested_action,
         routing,
+        input_custody: inputCustody,
         observed_phases: logs.rows.map(({ event_code }) => event_code) as
           SourceResearchRecoverySnapshotV1["observed_phases"],
       };
@@ -1333,17 +1358,25 @@ export class PostgresRunStoreV1 {
     action,
     recoveryIdentity,
     admission,
+    runRequest = null,
     existingRecoveryOnly = false,
   }: {
     action: "RUN" | "RESOLVE";
     recoveryIdentity: Record<string, string>;
     admission: SourceResearchExecutionAdmissionV1;
+    runRequest?: SourceResearchRunRequestV1 | null;
     existingRecoveryOnly?: boolean;
   }): Promise<SourceResearchRunStartV1> {
     const canonical = canonicalSourceResearchRecoveryIdentityV1(recoveryIdentity);
     const recoveryDigest = sourceResearchRecoveryIdentityDigestV1(recoveryIdentity);
+    const suppliedInputCustody = runRequest
+      ? sourceResearchRunInputCustodyV1(runRequest) : null;
     if (!canonical || !recoveryDigest
-      || !validSourceResearchExecutionAdmissionV1(action, admission)) {
+      || !validSourceResearchExecutionAdmissionV1(action, admission)
+      || (action === "RUN" && !suppliedInputCustody)
+      || (action === "RESOLVE" && runRequest && !existingRecoveryOnly)
+      || (runRequest && (runRequest.source.request_identity !== canonical.source_request_identity
+        || runRequest.research.request_identity !== canonical.research_request_identity))) {
       throw new Error("SOURCE_RESEARCH_SUBMISSION_INVALID");
     }
     const routing = admission.routing;
@@ -1351,8 +1384,15 @@ export class PostgresRunStoreV1 {
     try {
       await client.query("BEGIN");
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [recoveryDigest]);
-      const prior = await client.query<RunRow>(
-        `SELECT r.* FROM dashboard_operation_runs_v1 r
+      const prior = await client.query<RunRow & {
+        input_custody_state: SourceResearchRunInputCustodyStateV1;
+        run_request_schema_version: string | number | null;
+        run_request_json: unknown;
+        run_request_digest: string | null;
+      }>(
+        `SELECT r.*, b.input_custody_state, b.run_request_schema_version,
+                b.run_request_json, b.run_request_digest
+           FROM dashboard_operation_runs_v1 r
            JOIN dashboard_source_research_run_bindings_v1 b USING (run_identity)
           WHERE r.operation_id = $1 AND r.recovery_identity_digest = $2
           ORDER BY r.created_at DESC, r.run_identity DESC
@@ -1361,8 +1401,27 @@ export class PostgresRunStoreV1 {
       );
       const current = prior.rows[0];
       if (current && ["queued", "running"].includes(current.state)) {
+        const retainedInputCustody = readSourceResearchRunInputCustodyV1({
+          state: current.input_custody_state,
+          requestSchemaVersion: current.run_request_schema_version === null
+            ? null : Number(current.run_request_schema_version),
+          request: current.run_request_json,
+          requestDigest: current.run_request_digest,
+        });
+        if (runRequest && retainedInputCustody.availability !== "available") {
+          throw new Error("SOURCE_RESEARCH_INPUT_CUSTODY_UNAVAILABLE");
+        }
+        if (suppliedInputCustody && retainedInputCustody.availability === "available"
+          && suppliedInputCustody.request_digest !== retainedInputCustody.request_digest) {
+          throw new Error("SOURCE_RESEARCH_INPUT_CUSTODY_CONFLICT");
+        }
         await client.query("COMMIT");
-        return { schema_version: 1, run: record(current), execution_mode: "RESOLVE_ONLY" };
+        return {
+          schema_version: 1,
+          run: record(current),
+          execution_mode: "RESOLVE_ONLY",
+          input_custody: retainedInputCustody,
+        };
       }
       if (current && (existingRecoveryOnly || action === "RUN")) {
         throw new Error("SOURCE_RESEARCH_IDENTITY_REUSED");
@@ -1389,8 +1448,10 @@ export class PostgresRunStoreV1 {
             source_routing_state, source_routing_dispatcher, source_routing_binding_identity,
             source_routing_binding_digest, source_routing_generation,
             research_routing_state, research_routing_dispatcher, research_routing_binding_identity,
-            research_routing_binding_digest, research_routing_generation)
-         VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+            research_routing_binding_digest, research_routing_generation,
+            input_custody_state, run_request_schema_version, run_request_json, run_request_digest)
+         VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+                 $18, $19, $20::jsonb, $21)`,
         [runIdentity, action, sourceResearchOperationManifestDigestV1(),
           admission.source_registry_entry_digest,
           admission.source_compatibility_envelope_digest,
@@ -1398,11 +1459,25 @@ export class PostgresRunStoreV1 {
           admission.research_compatibility_envelope_digest,
           source.state, source.dispatcher, source.binding_identity, source.binding_digest,
           source.generation, research.state, research.dispatcher, research.binding_identity,
-          research.binding_digest, research.generation],
+          research.binding_digest, research.generation,
+          suppliedInputCustody ? "AVAILABLE" : "NOT_APPLICABLE",
+          suppliedInputCustody?.request_schema_version ?? null,
+          suppliedInputCustody ? JSON.stringify(suppliedInputCustody.request) : null,
+          suppliedInputCustody?.request_digest ?? null],
       );
       await appendLog(client, runIdentity, "info", "source_research_orchestrator", "RUN_STARTED");
       await client.query("COMMIT");
-      return { schema_version: 1, run: record(inserted.rows[0]), execution_mode: "FRESH_RUN" };
+      return {
+        schema_version: 1,
+        run: record(inserted.rows[0]),
+        execution_mode: "FRESH_RUN",
+        input_custody: suppliedInputCustody ?? readSourceResearchRunInputCustodyV1({
+          state: "NOT_APPLICABLE",
+          requestSchemaVersion: null,
+          request: null,
+          requestDigest: null,
+        }),
+      };
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;

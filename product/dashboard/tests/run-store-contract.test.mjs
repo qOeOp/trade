@@ -116,6 +116,10 @@ test("RunStore migration owns only operational Dashboard tables", async () => {
     new URL("../migrations/0010_source_research_compatibility_custody.sql", import.meta.url),
     "utf8",
   );
+  const sourceResearchInputCustody = await readFile(
+    new URL("../migrations/0011_source_research_input_custody.sql", import.meta.url),
+    "utf8",
+  );
   assert.match(sql, /dashboard_operation_runs_v1/);
   assert.match(sql, /dashboard_operation_run_logs_v1/);
   assert.match(sql, /dashboard_shadow_workers_v1/);
@@ -176,6 +180,14 @@ test("RunStore migration owns only operational Dashboard tables", async () => {
   assert.match(sourceResearchCustody, /SOURCE_RESEARCH_COMPATIBILITY_CUSTODY_BACKFILL_REQUIRED/);
   assert.equal(/windmill|rd_owner|rd_research|rd_artifact/i.test(sourceResearchCustody), false);
   assert.equal(/DELETE\s+FROM|DROP\s+TABLE|TRUNCATE/i.test(sourceResearchCustody), false);
+  assert.match(sourceResearchInputCustody, /input_custody_state TEXT NOT NULL/);
+  assert.match(sourceResearchInputCustody, /run_request_schema_version SMALLINT/);
+  assert.match(sourceResearchInputCustody, /run_request_json JSONB/);
+  assert.match(sourceResearchInputCustody, /run_request_digest TEXT/);
+  assert.match(sourceResearchInputCustody, /LEGACY_UNAVAILABLE/);
+  assert.match(sourceResearchInputCustody, /ALTER COLUMN input_custody_state DROP DEFAULT/);
+  assert.equal(/windmill|rd_owner|rd_research|rd_artifact/i.test(sourceResearchInputCustody), false);
+  assert.equal(/DELETE\s+FROM|DROP\s+TABLE|TRUNCATE/i.test(sourceResearchInputCustody), false);
 });
 
 test("durable enqueue stays capability protected and zero-effect bound", async () => {

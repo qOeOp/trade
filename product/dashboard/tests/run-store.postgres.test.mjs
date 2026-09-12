@@ -99,6 +99,61 @@ async function ensureSourceResearchCompatibilityCustody(admin) {
   ));
 }
 
+async function ensureSourceResearchInputCustody(admin) {
+  const result = await admin.query(
+    `SELECT count(*)::int AS custody_columns
+       FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'dashboard_source_research_run_bindings_v1'
+        AND column_name IN (
+          'input_custody_state', 'run_request_schema_version',
+          'run_request_json', 'run_request_digest'
+        )`,
+  );
+  const custodyColumns = Number(result.rows[0]?.custody_columns ?? 0);
+  if (custodyColumns === 4) return;
+  assert.equal(custodyColumns, 0, "source/research input custody must be all-or-nothing");
+  await admin.query(await readFile(
+    new URL("../migrations/0011_source_research_input_custody.sql", import.meta.url),
+    "utf8",
+  ));
+}
+
+const sourceResearchRunRequest = {
+  action: "RUN",
+  source: {
+    request_identity: "source-request-1",
+    normalized_doi: "10.5555/dashboard-postgres-test",
+    interpretation: {
+      bounded_explanation: "One bounded source interpretation.",
+      plausible_alternatives: ["One bounded alternative."],
+      differentiating_prediction: "One differentiating prediction.",
+      falsifier: "One falsifier.",
+    },
+  },
+  research: {
+    request_identity: "request-1",
+    goal: {
+      hypothesis: "One bounded hypothesis.",
+      mechanism: "One bounded mechanism.",
+      falsification_question: "One bounded falsification question.",
+      expected_observation: "One bounded expected observation.",
+      required_data: ["One bounded dataset."],
+      cost_assumption: "One bounded cost assumption.",
+      capacity_assumption: "One bounded capacity assumption.",
+    },
+    trial_family_proposal: {
+      trial_budget: 1,
+      stop_rule: "Stop after one admitted trial.",
+      pit_rule_identity: "pit-rule-v1",
+      cost_model_identity: "cost-model-v1",
+      slippage_model_identity: "slippage-model-v1",
+      capacity_model_identity: "capacity-model-v1",
+      independence_rationale: "One bounded independence rationale.",
+    },
+  },
+};
+
 function digest(value) {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
 }
@@ -1173,7 +1228,7 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
   await admin.end();
 });
 
-test("PostgreSQL Source-to-Research custody survives response loss without replaying RUN", {
+test("PostgreSQL Source-to-Research custody resumes only the missing Research stage after restart", {
   skip: !connectionString || !cursorKey,
 }, async () => {
   const admin = new pg.Pool({ connectionString, max: 1 });
@@ -1189,6 +1244,68 @@ test("PostgreSQL Source-to-Research custody survives response loss without repla
     await admin.query(await readFile(new URL(`../migrations/${name}`, import.meta.url), "utf8"));
   }
   await ensureSourceResearchCompatibilityCustody(admin);
+  const inputCustodyBefore = await admin.query(
+    `SELECT count(*)::int AS custody_columns
+       FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'dashboard_source_research_run_bindings_v1'
+        AND column_name IN (
+          'input_custody_state', 'run_request_schema_version',
+          'run_request_json', 'run_request_digest'
+        )`,
+  );
+  if (Number(inputCustodyBefore.rows[0]?.custody_columns ?? 0) === 0) {
+    const legacyRunIdentity = "dashboard-run-v1-00000000-0000-4000-8000-000000000099";
+    const legacyBindingIdentity = `product-edge-operation-routing-binding-v1-${"9".repeat(64)}`;
+    await admin.query(
+      `INSERT INTO dashboard_operation_runs_v1
+         (run_identity, schema_version, operation_id, channel, run_kind, trigger_kind, state,
+          owner_outcome_state, recovery_identity_json, recovery_identity_digest,
+          transition_version, started_at)
+       VALUES ($1, 1, 'source_intake.research.submit_or_resolve.v1',
+               'DASHBOARD_DISPOSABLE_EXECUTION', 'owner_effect', 'dashboard_bff', 'running',
+               'unknown', $2::jsonb, $3, 1, clock_timestamp())`,
+      [legacyRunIdentity, JSON.stringify({
+        source_request_identity: "legacy-source-request-1",
+        research_request_identity: "legacy-research-request-1",
+      }), `sha256:${"8".repeat(64)}`],
+    );
+    await admin.query(
+      `INSERT INTO dashboard_source_research_run_bindings_v1
+         (run_identity, schema_version, requested_action, operation_manifest_digest,
+          source_registry_entry_digest, source_compatibility_envelope_digest,
+          research_registry_entry_digest, research_compatibility_envelope_digest,
+          source_routing_state, source_routing_dispatcher, source_routing_binding_identity,
+          source_routing_binding_digest, source_routing_generation,
+          research_routing_state, research_routing_dispatcher, research_routing_binding_identity,
+          research_routing_binding_digest, research_routing_generation)
+       VALUES ($1, 1, 'RUN', $2, $3, $4, $5, $6,
+               'ACTIVE', 'TRADE_DASHBOARD', $7, $8, 1,
+               'ACTIVE', 'TRADE_DASHBOARD', $7, $8, 1)`,
+      [legacyRunIdentity, `sha256:${"1".repeat(64)}`, `sha256:${"2".repeat(64)}`,
+        `sha256:${"3".repeat(64)}`, `sha256:${"4".repeat(64)}`,
+        `sha256:${"5".repeat(64)}`, legacyBindingIdentity, `sha256:${"6".repeat(64)}`],
+    );
+    await ensureSourceResearchInputCustody(admin);
+    const legacyCustody = await admin.query(
+      `SELECT input_custody_state, run_request_schema_version,
+              run_request_json, run_request_digest
+         FROM dashboard_source_research_run_bindings_v1 WHERE run_identity = $1`,
+      [legacyRunIdentity],
+    );
+    assert.deepEqual(legacyCustody.rows, [{
+      input_custody_state: "LEGACY_UNAVAILABLE",
+      run_request_schema_version: null,
+      run_request_json: null,
+      run_request_digest: null,
+    }]);
+    await admin.query(
+      "DELETE FROM dashboard_source_research_run_bindings_v1 WHERE run_identity = $1",
+      [legacyRunIdentity],
+    );
+    await admin.query("DELETE FROM dashboard_operation_runs_v1 WHERE run_identity = $1", [legacyRunIdentity]);
+  }
+  await ensureSourceResearchInputCustody(admin);
   const recoveryIdentity = {
     source_request_identity: "source-request-1",
     research_request_identity: "request-1",
@@ -1214,6 +1331,7 @@ test("PostgreSQL Source-to-Research custody survives response loss without repla
     action: "RUN",
     recoveryIdentity,
     admission: activeAdmission,
+    runRequest: sourceResearchRunRequest,
   });
   assert.equal(started.execution_mode, "FRESH_RUN");
   assert.equal(started.run.transition_version, 1);
@@ -1236,6 +1354,8 @@ test("PostgreSQL Source-to-Research custody survives response loss without repla
   const recoverySnapshot = await store.readSourceResearchRecovery(recoveryIdentity);
   assert.equal(recoverySnapshot?.run.run_identity, started.run.run_identity);
   assert.equal(recoverySnapshot?.requested_action, "RUN");
+  assert.equal(recoverySnapshot?.input_custody.availability, "available");
+  assert.deepEqual(recoverySnapshot?.input_custody.request, sourceResearchRunRequest);
   assert.deepEqual(recoverySnapshot?.routing, {
     source: {
       state: "ACTIVE", dispatcher: "TRADE_DASHBOARD",
@@ -1273,8 +1393,14 @@ test("PostgreSQL Source-to-Research custody survives response loss without repla
     routingResolver: async () => { throw new Error("identity-only recovery must not read routing"); },
     fetcher: async (input, init) => {
       calls.push({ url: String(input), init });
-      return Response.json(String(input).includes("/v1/source-intakes/")
-        ? sourceTerminal : acceptedResearchOwnerResult);
+      const path = new URL(String(input)).pathname;
+      if (path === "/v1/source-intakes/source-request-1/readback") {
+        return Response.json(sourceTerminal);
+      }
+      if (path === "/v2/research-goals/request-1/resolve") {
+        return new Response(null, { status: 404 });
+      }
+      return Response.json(acceptedResearchOwnerResult);
     },
   });
   assert.equal(recoveredResult.status, 200);
@@ -1282,9 +1408,14 @@ test("PostgreSQL Source-to-Research custody survives response loss without repla
   assert.deepEqual(calls.map(({ url }) => new URL(url).pathname), [
     "/v1/source-intakes/source-request-1/readback",
     "/v2/research-goals/request-1/resolve",
+    "/v1/source-intake-research",
   ]);
-  assert.ok(calls.every(({ init }) => init.body === undefined));
-  assert.ok(calls.every(({ init }) => init.headers["x-trade-effect-dispatcher"] === undefined));
+  assert.equal(calls[0].init.body, undefined);
+  assert.equal(calls[1].init.body, undefined);
+  assert.ok(calls[2].init.body);
+  assert.equal(calls[0].init.headers["x-trade-effect-dispatcher"], undefined);
+  assert.equal(calls[1].init.headers["x-trade-effect-dispatcher"], undefined);
+  assert.equal(calls[2].init.headers["x-trade-effect-dispatcher"], "TRADE_DASHBOARD");
   const completedRecovery = await store.readSourceResearchRecovery(recoveryIdentity);
   assert.ok(completedRecovery);
   const completed = completedRecovery.run;
@@ -1297,12 +1428,15 @@ test("PostgreSQL Source-to-Research custody survives response loss without repla
     action: "RUN",
     recoveryIdentity,
     admission: activeAdmission,
+    runRequest: sourceResearchRunRequest,
   }), { message: "SOURCE_RESEARCH_IDENTITY_REUSED" });
   const binding = await admin.query(
     `SELECT requested_action, source_registry_entry_digest,
             source_compatibility_envelope_digest, research_registry_entry_digest,
             research_compatibility_envelope_digest,
-            source_routing_dispatcher, research_routing_dispatcher
+            source_routing_dispatcher, research_routing_dispatcher,
+            input_custody_state, run_request_schema_version, run_request_json,
+            run_request_digest
        FROM dashboard_source_research_run_bindings_v1 WHERE run_identity = $1`,
     [completed.run_identity],
   );
@@ -1314,6 +1448,10 @@ test("PostgreSQL Source-to-Research custody survives response loss without repla
     research_compatibility_envelope_digest: activeAdmission.research_compatibility_envelope_digest,
     source_routing_dispatcher: "TRADE_DASHBOARD",
     research_routing_dispatcher: "TRADE_DASHBOARD",
+    input_custody_state: "AVAILABLE",
+    run_request_schema_version: 1,
+    run_request_json: sourceResearchRunRequest,
+    run_request_digest: recoverySnapshot.input_custody.request_digest,
   }]);
   await store.close();
   await admin.end();

@@ -13,8 +13,10 @@ import {
 } from "./source-intake-operation.ts";
 import {
   validSourceResearchOperationRequestV1,
+  type SourceResearchRunRequestV1,
   type SourceResearchOperationRequestV1,
 } from "./source-research-input-contract.ts";
+import { sourceResearchRunInputCustodyV1 } from "./source-research-run-input-custody.ts";
 import {
   operationalRunAvailableV1,
   operationalRunUnavailableV1,
@@ -131,6 +133,17 @@ export async function executeSourceResearchOperationV1({
     return unavailable("EXECUTION_RECOVERY_NOT_FOUND", 404);
   }
 
+  if (recovery && request.action === "RUN") {
+    const submittedCustody = sourceResearchRunInputCustodyV1(request);
+    if (recovery.input_custody.availability !== "available") {
+      return unavailable("EXECUTION_INPUT_CUSTODY_UNAVAILABLE", 409, recovery.run);
+    }
+    if (!submittedCustody
+      || submittedCustody.request_digest !== recovery.input_custody.request_digest) {
+      return unavailable("EXECUTION_REQUEST_CONFLICT", 409, recovery.run);
+    }
+  }
+
   if (recovery && !["queued", "running"].includes(recovery.run.state)) {
     const terminalOwnerOutcome = recovery.run.state === "succeeded"
       && recovery.run.owner_outcome_state === "available"
@@ -160,7 +173,6 @@ export async function executeSourceResearchOperationV1({
     );
   }
   const routing = admission.routing;
-  const retainedRouting = recovery?.routing ?? routing;
 
   let started;
   try {
@@ -168,15 +180,41 @@ export async function executeSourceResearchOperationV1({
       action: effectiveAction,
       recoveryIdentity,
       admission,
+      runRequest: request.action === "RUN" ? request : null,
       existingRecoveryOnly: recovery !== null,
     });
-  } catch {
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "";
+    if (reason === "SOURCE_RESEARCH_INPUT_CUSTODY_UNAVAILABLE") {
+      return unavailable("EXECUTION_INPUT_CUSTODY_UNAVAILABLE", 409, recovery?.run ?? null);
+    }
+    if (reason === "SOURCE_RESEARCH_INPUT_CUSTODY_CONFLICT") {
+      return unavailable("EXECUTION_REQUEST_CONFLICT", 409, recovery?.run ?? null);
+    }
     return unavailable("EXECUTION_RUN_STORE_UNAVAILABLE", 503);
   }
   let currentRun = started.run;
+  if (!recovery && started.execution_mode === "RESOLVE_ONLY") {
+    try {
+      recovery = await store.readSourceResearchRecovery(recoveryIdentity);
+    } catch {
+      return unavailable("EXECUTION_RUN_STORE_UNAVAILABLE", 503, currentRun);
+    }
+    if (!recovery) return unavailable("EXECUTION_RUN_STORE_UNAVAILABLE", 503, currentRun);
+  }
   const recoveryPhases = new Set(recovery?.observed_phases ?? []);
-  const canResumeMissingStage = request.action === "RUN"
-    && recovery?.requested_action === "RUN";
+  const retainedInput = started.input_custody.availability === "available"
+    ? started.input_custody.request
+    : recovery?.input_custody.availability === "available"
+      ? recovery.input_custody.request
+      : null;
+  const runInput: SourceResearchRunRequestV1 | null = started.execution_mode === "FRESH_RUN"
+    && request.action === "RUN" ? request : retainedInput;
+  const priorRunWithoutInput = started.execution_mode === "RESOLVE_ONLY"
+    && recovery?.requested_action === "RUN" && !runInput;
+  const canResumeMissingStage = started.execution_mode === "RESOLVE_ONLY"
+    && recovery?.requested_action === "RUN" && runInput !== null;
+  const retainedRouting = recovery?.routing ?? routing;
 
   let sourceResult = request.action === "RESOLVE"
     ? await resolveSourceIntakeOperationV1({
@@ -185,7 +223,7 @@ export async function executeSourceResearchOperationV1({
     })
     : await executeSourceIntakeOperationV1({
       action: started.execution_mode === "FRESH_RUN" ? effectiveAction : "RESOLVE",
-      input: request.source,
+      input: runInput?.source ?? request.source,
       transport: ownerTransport,
       routing: routing.source,
     });
@@ -197,18 +235,26 @@ export async function executeSourceResearchOperationV1({
     && canResumeMissingStage) {
     sourceResult = await executeSourceIntakeOperationV1({
       action: "RUN",
-      input: request.source,
+      input: runInput.source,
       transport: ownerTransport,
       routing: retainedRouting.source,
     });
     if (sourceResult.unavailable_reason === "SOURCE_OWNER_UNKNOWN") {
       sourceResult = await executeSourceIntakeOperationV1({
         action: "RESOLVE",
-        input: request.source,
+        input: runInput.source,
         transport: ownerTransport,
         routing: unavailableSourceResearchRoutingAdmissionV1().source,
       });
     }
+  }
+  if (started.execution_mode === "RESOLVE_ONLY"
+    && !recoveryPhases.has("SOURCE_OWNER_AVAILABLE")
+    && ["SOURCE_OWNER_ABSENT", "SOURCE_OWNER_UNKNOWN"].includes(
+      sourceResult.unavailable_reason ?? "",
+    )
+    && priorRunWithoutInput) {
+    return unavailable("EXECUTION_INPUT_CUSTODY_UNAVAILABLE", 409, currentRun);
   }
   if (sourceResult.availability !== "available" || !sourceResult.owner_response
     || !sourceResult.ancestry) {
@@ -235,7 +281,7 @@ export async function executeSourceResearchOperationV1({
     })
     : await executeResearchGoalOperationV2({
       action: started.execution_mode === "FRESH_RUN" ? effectiveAction : "RESOLVE",
-      input: request.research,
+      input: runInput?.research ?? request.research,
       ancestry: sourceResult.ancestry,
       transport: ownerTransport,
       routing: routing.research,
@@ -248,7 +294,7 @@ export async function executeSourceResearchOperationV1({
     && canResumeMissingStage) {
     researchResult = await executeResearchGoalOperationV2({
       action: "RUN",
-      input: request.research,
+      input: runInput.research,
       ancestry: sourceResult.ancestry,
       transport: ownerTransport,
       routing: retainedRouting.research,
@@ -256,12 +302,20 @@ export async function executeSourceResearchOperationV1({
     if (researchResult.unavailable_reason === "RESEARCH_OWNER_UNKNOWN") {
       researchResult = await executeResearchGoalOperationV2({
         action: "RESOLVE",
-        input: request.research,
+        input: runInput.research,
         ancestry: sourceResult.ancestry,
         transport: ownerTransport,
         routing: unavailableSourceResearchRoutingAdmissionV1().research,
       });
     }
+  }
+  if (started.execution_mode === "RESOLVE_ONLY"
+    && !recoveryPhases.has("RESEARCH_OWNER_AVAILABLE")
+    && ["RESEARCH_OWNER_ABSENT", "RESEARCH_OWNER_UNKNOWN"].includes(
+      researchResult.unavailable_reason ?? "",
+    )
+    && priorRunWithoutInput) {
+    return unavailable("EXECUTION_INPUT_CUSTODY_UNAVAILABLE", 409, currentRun);
   }
   if (researchResult.availability !== "available" || !researchResult.owner_response) {
     return unavailable(

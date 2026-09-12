@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { executeSourceResearchOperationV1 } from "../lib/source-research-operation.ts";
+import { sourceResearchRunInputCustodyV1 } from "../lib/source-research-run-input-custody.ts";
 import { researchGoalOperationV2 } from "../lib/research-goal-operation.ts";
 import { sourceIntakeOperationV1 } from "../lib/source-intake-operation.ts";
 import {
@@ -139,7 +140,13 @@ function runStore(events = [], recovery = null) {
     async readSourceResearchRecovery() { events.push("read"); return recovery; },
     async beginSourceResearch(input) {
       events.push(`begin:${input.action}`);
-      return { schema_version: 1, run: recovery?.run ?? run(), execution_mode: recovery ? "RESOLVE_ONLY" : "FRESH_RUN" };
+      return {
+        schema_version: 1,
+        run: recovery?.run ?? run(),
+        execution_mode: recovery ? "RESOLVE_ONLY" : "FRESH_RUN",
+        input_custody: recovery?.input_custody
+          ?? sourceResearchRunInputCustodyV1(input.runRequest),
+      };
     },
     async recordSourceResearchPhase({ expectedTransitionVersion, phase }) {
       events.push(`phase:${phase}`);
@@ -237,6 +244,7 @@ test("same-identity recovery resolves Owner custody without consulting current r
     run: recoveryRun,
     requested_action: "RUN",
     routing: { source: dashboardRoute, research: dashboardRoute },
+    input_custody: sourceResearchRunInputCustodyV1(request),
     observed_phases: [],
   };
   const result = await executeSourceResearchOperationV1({
@@ -262,13 +270,57 @@ test("same-identity recovery resolves Owner custody without consulting current r
   assert.equal(events.includes("begin:RESOLVE"), true);
 });
 
-test("explicit RESOLVE never resumes a missing RUN stage", async () => {
+test("identity-only RESOLVE resumes a missing Source stage from retained input", async () => {
   const calls = [];
   const recovery = {
     schema_version: 1,
     run: run(),
     requested_action: "RUN",
     routing: { source: dashboardRoute, research: dashboardRoute },
+    input_custody: sourceResearchRunInputCustodyV1(request),
+    observed_phases: [],
+  };
+  const result = await executeSourceResearchOperationV1({
+    request: resolveRequest,
+    environment,
+    store: runStore([], recovery),
+    routingResolver: async () => { throw new Error("resolve must not reread routing"); },
+    fetcher: async (input, init) => {
+      calls.push({ url: String(input), init });
+      const path = new URL(String(input)).pathname;
+      if (path === "/v1/source-intakes/source-request-1/readback") {
+        return new Response(null, { status: 404 });
+      }
+      return Response.json(path === "/v1/source-intakes" ? sourceTerminal : acceptedResearch);
+    },
+  });
+  assert.equal(result.status, 200);
+  assert.deepEqual(calls.map(({ url }) => new URL(url).pathname), [
+    "/v1/source-intakes/source-request-1/readback",
+    "/v1/source-intakes",
+    "/v2/research-goals/request-1/resolve",
+  ]);
+  assert.equal(calls[0].init.headers["x-trade-effect-dispatcher"], undefined);
+  assert.equal(calls[1].init.headers["x-trade-effect-dispatcher"], "TRADE_DASHBOARD");
+  assert.ok(calls[1].init.body);
+  assert.equal(calls[2].init.body, undefined);
+});
+
+test("legacy recovery without retained input fails closed when a stage is absent", async () => {
+  const calls = [];
+  const recovery = {
+    schema_version: 1,
+    run: run(),
+    requested_action: "RUN",
+    routing: { source: dashboardRoute, research: dashboardRoute },
+    input_custody: {
+      schema_version: 1,
+      availability: "unavailable",
+      unavailable_reason: "LEGACY_UNAVAILABLE",
+      request_schema_version: null,
+      request: null,
+      request_digest: null,
+    },
     observed_phases: [],
   };
   const result = await executeSourceResearchOperationV1({
@@ -281,12 +333,40 @@ test("explicit RESOLVE never resumes a missing RUN stage", async () => {
       return new Response(null, { status: 404 });
     },
   });
-  assert.equal(result.status, 503);
-  assert.equal(result.envelope.unavailable_reason, "SOURCE_OWNER_ABSENT");
+  assert.equal(result.status, 409);
+  assert.equal(result.envelope.unavailable_reason, "EXECUTION_INPUT_CUSTODY_UNAVAILABLE");
   assert.deepEqual(calls.map(({ url }) => new URL(url).pathname), [
     "/v1/source-intakes/source-request-1/readback",
   ]);
-  assert.equal(calls[0].init.headers["x-trade-effect-dispatcher"], undefined);
+  assert.equal(calls[0].init.body, undefined);
+});
+
+test("same identity with changed RUN meaning conflicts before routing or Owner effects", async () => {
+  let calls = 0;
+  const recovery = {
+    schema_version: 1,
+    run: run(),
+    requested_action: "RUN",
+    routing: { source: dashboardRoute, research: dashboardRoute },
+    input_custody: sourceResearchRunInputCustodyV1(request),
+    observed_phases: [],
+  };
+  const result = await executeSourceResearchOperationV1({
+    request: {
+      ...request,
+      research: {
+        ...request.research,
+        goal: { ...request.research.goal, hypothesis: "Changed bounded hypothesis." },
+      },
+    },
+    environment,
+    store: runStore([], recovery),
+    routingResolver: async () => { calls += 1; return dashboardRoute; },
+    fetcher: async () => { calls += 1; throw new Error("must not fetch"); },
+  });
+  assert.equal(result.status, 409);
+  assert.equal(result.envelope.unavailable_reason, "EXECUTION_REQUEST_CONFLICT");
+  assert.equal(calls, 0);
 });
 
 test("identity-only recovery resolves both terminal Owner routes without routing or bodies", async () => {
@@ -297,6 +377,7 @@ test("identity-only recovery resolves both terminal Owner routes without routing
     run: run(),
     requested_action: "RUN",
     routing: { source: dashboardRoute, research: dashboardRoute },
+    input_custody: sourceResearchRunInputCustodyV1(request),
     observed_phases: [],
   };
   const result = await executeSourceResearchOperationV1({
@@ -352,6 +433,7 @@ test("terminal rejected recovery remains an exact zero-effect readback", async (
     run: terminalRun,
     requested_action: "RUN",
     routing: { source: dashboardRoute, research: dashboardRoute },
+    input_custody: sourceResearchRunInputCustodyV1(request),
     observed_phases: ["SOURCE_OWNER_AVAILABLE", "RESEARCH_OWNER_AVAILABLE"],
   };
   const result = await executeSourceResearchOperationV1({
