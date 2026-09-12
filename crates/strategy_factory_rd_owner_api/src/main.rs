@@ -2479,7 +2479,7 @@ mod tests {
         ArtifactInvocationReservationMeaningV1, seal_invocation_reservation,
     };
     #[cfg(feature = "sealed-source-intake-acceptance")]
-    use vibe_strategy_factory::replay_policy_catalog_sealed_acceptance_v2::ensure_replay_policy_catalog_fixture_v2;
+    use vibe_strategy_factory::replay_policy_catalog_sealed_acceptance_v2::ensure_replay_policy_catalog_fixture_v3;
     use vibe_strategy_factory::{
         ExploratoryReplayResultLocatorV2,
         artifact_build::{ARTIFACT_BUILD_SCOPE_V1, ReservedArtifactBuildInvocationV1},
@@ -2831,7 +2831,7 @@ mod tests {
             )
             .await
             .unwrap();
-            ensure_replay_policy_catalog_fixture_v2(&catalog_admin_pool)
+            ensure_replay_policy_catalog_fixture_v3(&catalog_admin_pool)
                 .await
                 .unwrap();
         }
@@ -2963,14 +2963,14 @@ mod tests {
         let research_json = response_json(research_response).await;
         let readback_response = read_research_v2(
             State(state.clone()),
-            Path(research_request_identity.clone()),
+            Path(research.request_identity.clone()),
             headers.clone(),
         )
         .await;
         assert_eq!(readback_response.status(), StatusCode::OK);
         assert_eq!(
             response_json(readback_response).await["request_identity"],
-            research_request_identity
+            research.request_identity
         );
         let intent_identity = research_json["owner_receipt"]["resulting_research_intent_identity"]
             .as_str()
@@ -3118,7 +3118,7 @@ mod tests {
             )
             .await
             .unwrap();
-            ensure_replay_policy_catalog_fixture_v2(&catalog_admin_pool)
+            ensure_replay_policy_catalog_fixture_v3(&catalog_admin_pool)
                 .await
                 .unwrap();
         }

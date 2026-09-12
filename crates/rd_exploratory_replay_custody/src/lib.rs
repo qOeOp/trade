@@ -32,11 +32,11 @@ const INTERNAL_VERIFY_FUNCTION_V3: &str =
 const INTERNAL_VERIFY_FUNCTION_V1: &str =
     "rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text)";
 const INTERNAL_VERIFY_FUNCTION_SOURCE_SHA256_V2: &str =
-    "b92432129e4c799407c66295146cd77367b98a260c26d51283cf0edd27ffe5b4";
+    "d4187f151e8e63439ffd72e3160445dc93eee2ee057df3216bfc5c4f6a59e5b9";
 const INTERNAL_VERIFY_FUNCTION_SOURCE_SHA256_V3: &str =
-    "ff658b932610b1c611198e80aaf55e99a23d84a34d6ea1e81a6c2b8e575d2d63";
+    "f43248e47ed56e7623c627d9239f674a863606759ecabb41743209004081f4b8";
 const INTERNAL_VERIFY_FUNCTION_SOURCE_SHA256_V1: &str =
-    "6e3d4c06c1887590cc236aa34922e05dc74d0a45677ec8279b0944af06dc55b5";
+    "04edbcd8e900abb5baa636c5611126dcc97d992ce07fb93d2d393a9e1cfffa2b";
 const MARKET_DATA_LOCK_FUNCTION_V1: &str =
     "rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text)";
 const MARKET_DATA_LOCK_FUNCTION_SOURCE_V1: &str = "DECLARE result jsonb; BEGIN IF session_user <> 'market_data_owner' OR current_user <> 'rd_exploratory_replay_api_owner' OR pg_catalog.current_setting('transaction_isolation') <> 'serializable' THEN RETURN NULL; END IF; result := rd_owner_api.verify_exploratory_replay_request_internal_v3(requested_request_identity,requested_meaning_digest,requested_receipt_identity,requested_seal_digest); IF result IS NOT NULL THEN RETURN result; END IF; RETURN rd_owner_api.verify_exploratory_replay_request_internal_v2(requested_request_identity,requested_meaning_digest,requested_receipt_identity,requested_seal_digest); END";

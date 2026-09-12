@@ -796,10 +796,11 @@ async fn verify_terminal_success_in_transaction(
                 || view.artifact_identity.as_deref() != Some(artifact_identity)
                 || view.build_receipt_identity.as_deref() != Some(build_receipt_identity)
                 || view.artifact_review_identity.as_deref() != Some(review.review_identity.as_str())
-                || view.observed_at_epoch_ms != receipt.committed_at_epoch_ms
-                || view.projection_at_epoch_ms != receipt.committed_at_epoch_ms
-                || view.valid_through_epoch_ms
-                    != receipt.committed_at_epoch_ms.saturating_add(600_000)
+                || (view.phase == crate::product_edge::ResearchViewPhase::ArtifactAvailable
+                    && (view.observed_at_epoch_ms != receipt.committed_at_epoch_ms
+                        || view.projection_at_epoch_ms != receipt.committed_at_epoch_ms
+                        || view.valid_through_epoch_ms
+                            != receipt.committed_at_epoch_ms.saturating_add(600_000)))
         })
     {
         return Err(ArtifactBuildError::Storage(

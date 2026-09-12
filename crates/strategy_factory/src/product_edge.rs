@@ -405,7 +405,25 @@ pub struct ResearchViewV1 {
     pub build_receipt_identity: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifact_review_identity: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exploration: Option<ResearchExplorationViewV1>,
     pub next_legal_action: ResearchNextLegalAction,
+}
+
+/// Bounded R&D-owned facts proving that one exact exploratory request is active.
+///
+/// Result, diagnosis, Decision, Selection, and protected evidence are deliberately absent. They
+/// require later Owner custody and a successor Research View.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResearchExplorationViewV1 {
+    pub trial_family_identity: String,
+    pub census_frontier_identity: String,
+    pub census_frontier_digest: String,
+    pub replay_request_identity: String,
+    pub replay_request_meaning_digest: String,
+    pub replay_request_seal_digest: String,
+    pub replay_receipt_identity: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -422,6 +440,7 @@ pub enum ResearchViewPhase {
     RequestUnresolved,
     IntentFrozen,
     ArtifactAvailable,
+    ExplorationActive,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -431,6 +450,7 @@ pub enum ResearchNextLegalAction {
     WaitForRAndDExecution,
     CorrectInputAndCreateSuccessorRequest,
     ReviewArtifact,
+    ViewExploratoryRun,
 }
 
 pub use crate::exploratory_replay::{
@@ -984,6 +1004,7 @@ pub(crate) fn decide_commit_v2(
         artifact_identity: None,
         build_receipt_identity: None,
         artifact_review_identity: None,
+        exploration: None,
         next_legal_action: ResearchNextLegalAction::WaitForRAndDExecution,
     };
     view.projection_identity = canonical_research_view_identity_v2(&view);
@@ -1152,6 +1173,7 @@ pub(crate) fn decide_commit(
         artifact_identity: None,
         build_receipt_identity: None,
         artifact_review_identity: None,
+        exploration: None,
         next_legal_action: ResearchNextLegalAction::WaitForRAndDExecution,
     };
     ResearchGoalCommitV1 {
@@ -1477,6 +1499,61 @@ pub(crate) fn canonical_research_view_identity_v2(view: &ResearchViewV1) -> Stri
     format!("{prefix}-{:x}", Sha256::digest(bytes))
 }
 
+#[derive(Serialize)]
+struct ResearchViewIdentityEnvelopeV3<'a> {
+    domain: &'static str,
+    value: ResearchViewIdentityMeaningV3<'a>,
+}
+
+#[derive(Serialize)]
+struct ResearchViewIdentityMeaningV3<'a> {
+    schema_version: u32,
+    request_identity: &'a str,
+    trusted_principal: &'a str,
+    authorized_scope: &'a [String],
+    authorization_policy_cut: &'a str,
+    source_owner: &'a str,
+    source_cut: &'a str,
+    observed_at_epoch_ms: u64,
+    valid_through_epoch_ms: u64,
+    phase: &'a ResearchViewPhase,
+    intent_identity: &'a str,
+    source_frontier: &'a [ResearchSourceV1],
+    attempt_identity: Option<&'a str>,
+    artifact_identity: Option<&'a str>,
+    build_receipt_identity: Option<&'a str>,
+    artifact_review_identity: Option<&'a str>,
+    exploration: &'a ResearchExplorationViewV1,
+}
+
+pub(crate) fn canonical_research_view_identity_v3(view: &ResearchViewV1) -> Option<String> {
+    let exploration = view.exploration.as_ref()?;
+    let bytes = serde_json::to_vec(&ResearchViewIdentityEnvelopeV3 {
+        domain: "rd.research-view.identity.v3",
+        value: ResearchViewIdentityMeaningV3 {
+            schema_version: view.schema_version,
+            request_identity: &view.request_identity,
+            trusted_principal: &view.trusted_principal,
+            authorized_scope: &view.authorized_scope,
+            authorization_policy_cut: &view.authorization_policy_cut,
+            source_owner: &view.source_owner,
+            source_cut: &view.source_cut,
+            observed_at_epoch_ms: view.observed_at_epoch_ms,
+            valid_through_epoch_ms: view.valid_through_epoch_ms,
+            phase: &view.phase,
+            intent_identity: &view.intent_identity,
+            source_frontier: &view.source_frontier,
+            attempt_identity: view.attempt_identity.as_deref(),
+            artifact_identity: view.artifact_identity.as_deref(),
+            build_receipt_identity: view.build_receipt_identity.as_deref(),
+            artifact_review_identity: view.artifact_review_identity.as_deref(),
+            exploration,
+        },
+    })
+    .ok()?;
+    Some(format!("rd-research-view-v3-{:x}", Sha256::digest(bytes)))
+}
+
 fn trial_family_storage(error: &TrialFamilyError) -> ResearchGoalOwnerError {
     ResearchGoalOwnerError::Storage(error.to_string())
 }
@@ -1587,6 +1664,50 @@ mod v2_sealing_tests {
         assert_eq!(
             view.next_legal_action,
             ResearchNextLegalAction::ResolveSameRequestIdentity
+        );
+    }
+
+    #[test]
+    fn legacy_research_view_wire_and_v2_identity_do_not_gain_empty_exploration() {
+        let mut view = research_view(1_000, 601_000);
+        view.projection_identity = canonical_research_view_identity_v2(&view);
+        let value = serde_json::to_value(&view).unwrap();
+
+        assert!(value.get("exploration").is_none());
+        assert_eq!(
+            view.projection_identity,
+            "rd-research-view-v2-dd8f227ef037506e347b084cfba08a9dc50153af377515d018ba8e360cb0d647"
+        );
+        let stale = project_research_view_at(&view, view.valid_through_epoch_ms);
+        assert_eq!(stale.projection_identity, view.projection_identity);
+    }
+
+    #[test]
+    fn active_research_view_identity_binds_exact_replay_custody() {
+        let mut view = research_view(2_000, 602_000);
+        view.schema_version = 2;
+        view.phase = ResearchViewPhase::ExplorationActive;
+        view.source_cut = format!("rd-exploration-cut-v1-{}", "c".repeat(64));
+        view.exploration = Some(ResearchExplorationViewV1 {
+            trial_family_identity: "rd-trial-family-v1-test".into(),
+            census_frontier_identity: "rd-trial-family-census-frontier-v1-test".into(),
+            census_frontier_digest: format!("sha256:{}", "a".repeat(64)),
+            replay_request_identity: "rd-exploratory-replay-request-v2-test".into(),
+            replay_request_meaning_digest: format!("sha256:{}", "b".repeat(64)),
+            replay_request_seal_digest: format!("sha256:{}", "c".repeat(64)),
+            replay_receipt_identity: "rd-exploratory-replay-receipt-v2-test".into(),
+        });
+        view.next_legal_action = ResearchNextLegalAction::ViewExploratoryRun;
+        let identity = canonical_research_view_identity_v3(&view).unwrap();
+
+        view.exploration
+            .as_mut()
+            .unwrap()
+            .replay_receipt_identity
+            .push_str("-changed");
+        assert_ne!(
+            canonical_research_view_identity_v3(&view).unwrap(),
+            identity
         );
     }
 
@@ -1800,6 +1921,7 @@ mod v2_sealing_tests {
             artifact_identity: None,
             build_receipt_identity: None,
             artifact_review_identity: None,
+            exploration: None,
             next_legal_action: ResearchNextLegalAction::WaitForRAndDExecution,
         }
     }

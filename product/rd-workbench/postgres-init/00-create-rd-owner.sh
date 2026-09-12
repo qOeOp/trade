@@ -21,6 +21,9 @@ CREATE ROLE rd_exploratory_replay_api_owner NOLOGIN;
 CREATE ROLE market_data_owner NOLOGIN;
 CREATE ROLE market_data_reader NOLOGIN;
 CREATE ROLE rd_owner LOGIN PASSWORD :'rd_password';
+-- The Rust materializer creates the replay API functions before the authority
+-- migration transfers ownership and removes every cross-role membership.
+GRANT rd_exploratory_replay_api_owner TO rd_owner;
 CREATE ROLE rd_fact_writer LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'fact_writer_password';
 CREATE ROLE replay_policy_catalog_admin_writer LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'catalog_admin_password';
 CREATE DATABASE :"rd_owner_database_name" OWNER rd_owner;
@@ -28,6 +31,7 @@ CREATE ROLE operator_authorization_owner NOLOGIN;
 CREATE ROLE operator_authorization_writer LOGIN PASSWORD :'issuer_password';
 GRANT operator_authorization_owner TO operator_authorization_writer;
 CREATE ROLE product_edge_owner LOGIN PASSWORD :'edge_password';
+CREATE ROLE portfolio_owner NOLOGIN;
 CREATE ROLE qualification_owner NOLOGIN;
 CREATE ROLE qualification_writer LOGIN PASSWORD :'qualification_password';
 CREATE ROLE backtest_owner LOGIN PASSWORD :'backtest_password';
@@ -44,6 +48,7 @@ GRANT USAGE ON SCHEMA product_edge_api TO rd_owner;
 CREATE SCHEMA rd_owner_api AUTHORIZATION rd_owner;
 REVOKE ALL ON SCHEMA rd_owner_api FROM PUBLIC;
 GRANT USAGE ON SCHEMA rd_owner_api TO product_edge_owner;
+GRANT USAGE, CREATE ON SCHEMA rd_owner_api TO rd_exploratory_replay_api_owner;
 -- The bounded Rust materializer runs before the custody cutover. Pre-create the
 -- Market Data namespace under its temporary bootstrap owner; the idempotent
 -- authority migration later transfers it to market_data_owner.

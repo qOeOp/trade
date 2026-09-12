@@ -2,7 +2,7 @@
 
 pub use vibe_rd_exploratory_replay_custody::replay_economic_configuration_v1::*;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "sealed-develop-composer-acceptance"))]
 pub(crate) fn economic_fixture() -> ReplayEconomicConfigurationInputV1 {
     ReplayEconomicConfigurationInputV1 {
         schema_version: 1,

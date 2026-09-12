@@ -1113,13 +1113,25 @@ async fn validate_topology(
                    'pg_catalog.text'::pg_catalog.regtype,
                    'pg_catalog.text'::pg_catalog.regtype
                  ]::pg_catalog.oidvector
+        ), expected_sibling_function AS (
+          SELECT procedure.oid
+            FROM pg_catalog.pg_proc procedure
+            JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
+           WHERE namespace.nspname='backtest_owner_api'
+             AND procedure.proname=$4
+             AND procedure.proargtypes=ARRAY[
+                   'pg_catalog.text'::pg_catalog.regtype,
+                   'pg_catalog.text'::pg_catalog.regtype,
+                   'pg_catalog.text'::pg_catalog.regtype
+                 ]::pg_catalog.oidvector
         )
         SELECT session_user=$3 AND current_user=$3
         AND (SELECT pg_catalog.pg_get_userbyid(namespace.nspowner)='backtest_custodian'
                FROM pg_catalog.pg_namespace namespace WHERE namespace.nspname='backtest_owner_api')
         AND (SELECT pg_catalog.count(*)=2 AND pg_catalog.bool_and(procedure.oid IN (
-                  (SELECT oid FROM expected_function),
-                  pg_catalog.to_regprocedure('backtest_owner_api.resolve_exploratory_replay_result_v3(text,text,text)')
+                  SELECT oid FROM expected_function
+                  UNION ALL
+                  SELECT oid FROM expected_sibling_function
                 ))
                FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
               WHERE namespace.nspname='backtest_owner_api')
@@ -1163,6 +1175,7 @@ async fn validate_topology(
     .bind(FUNCTION_SOURCE)
     .bind(RESOLVE_FUNCTION_NAME)
     .bind(expected_principal)
+    .bind(RESOLVE_V3_FUNCTION_NAME)
     .fetch_one(&mut **transaction)
     .await
     .map_err(|e| storage(&e))?;

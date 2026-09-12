@@ -4228,9 +4228,25 @@ mod tests {
             .unwrap();
     }
 
-    #[tokio::test]
+    #[test]
     #[ignore = "requires admitted OA/PE/R&D test database URLs"]
-    async fn bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed() {
+    fn bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed() {
+        std::thread::Builder::new()
+            .name("bounded-feature-joint-freeze-test".into())
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(run_bounded_feature_program_joint_freeze());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    async fn run_bounded_feature_program_joint_freeze() {
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
         let _mutation = test_database.mutation();
         let operator_authorization_database_url = test_database

@@ -3071,9 +3071,25 @@ mod postgres_freshness_tests {
         );
     }
 
-    #[tokio::test]
+    #[test]
     #[ignore = "requires admitted OA/PE/R&D test database URLs"]
-    async fn legacy_prepared_drain_is_atomic_idempotent_and_read_only() {
+    fn legacy_prepared_drain_is_atomic_idempotent_and_read_only() {
+        std::thread::Builder::new()
+            .name("legacy-prepared-artifact-drain-test".into())
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(run_legacy_prepared_drain_is_atomic_idempotent_and_read_only());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    async fn run_legacy_prepared_drain_is_atomic_idempotent_and_read_only() {
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
         let mutation = test_database.mutation();
         #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
@@ -3112,7 +3128,7 @@ mod postgres_freshness_tests {
         {
             let catalog_admin_pool =
                 mutation.pool(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter);
-            crate::replay_policy_catalog_postgres_v2::ensure_authenticated_sealed_acceptance_fixture_v1(
+            crate::replay_policy_catalog_postgres_v2::ensure_authenticated_sealed_acceptance_fixture_v3(
                 catalog_admin_pool,
             )
             .await
@@ -4223,9 +4239,25 @@ mod postgres_freshness_tests {
         cleanup_research(&mutation, &research_request_identity, &family_identity).await;
     }
 
-    #[tokio::test]
+    #[test]
     #[ignore = "requires the disposable canonical OA/PE/R&D/Qualification PostgreSQL topology"]
-    async fn specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut() {
+    fn specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut() {
+        std::thread::Builder::new()
+            .name("specialized-artifact-final-cut-test".into())
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(run_specialized_artifact_admission_rechecks_locked_rd_view());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    async fn run_specialized_artifact_admission_rechecks_locked_rd_view() {
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
         let mutation = test_database.mutation();
         let suffix = unique_suffix();

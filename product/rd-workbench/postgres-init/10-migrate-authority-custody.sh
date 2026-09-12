@@ -132,7 +132,7 @@ REVOKE ALL ON SCHEMA product_edge_api FROM PUBLIC, operator_authorization_writer
 GRANT USAGE ON SCHEMA product_edge_api TO rd_owner, portfolio_owner, backtest_owner;
 CREATE SCHEMA IF NOT EXISTS rd_owner_api AUTHORIZATION rd_owner;
 ALTER SCHEMA rd_owner_api OWNER TO rd_owner;
-REVOKE ALL ON SCHEMA rd_owner_api FROM PUBLIC, operator_authorization_writer, qualification_writer;
+REVOKE ALL ON SCHEMA rd_owner_api FROM PUBLIC, operator_authorization_writer, qualification_writer, rd_exploratory_replay_api_owner;
 GRANT USAGE ON SCHEMA rd_owner_api TO product_edge_owner, qualification_writer, backtest_owner;
 GRANT USAGE ON SCHEMA public, rd_owner_api TO rd_exploratory_replay_api_owner;
 GRANT USAGE ON SCHEMA rd_owner_api TO market_data_owner;
@@ -243,11 +243,35 @@ AS $function$
                AND research.receipt_json->>'receipt_identity'=sealed.frozen_json->>'research_receipt_identity'
                AND research.receipt_json->>'disposition'='ACCEPTED'
                AND research.view_json->>'availability'='AVAILABLE'
-               AND research.view_json->>'phase'='ARTIFACT_AVAILABLE'
                AND research.view_json->>'attempt_identity'=sealed.attempt_identity
                AND research.view_json->>'artifact_identity'=sealed.artifact_identity
                AND research.view_json->>'build_receipt_identity'=sealed.build_receipt_identity
                AND research.view_json->>'artifact_review_identity'=sealed.frozen_json->>'artifact_review_identity'
+               AND (
+                 (research.view_json->>'schema_version'='1'
+                  AND research.view_json->>'phase'='ARTIFACT_AVAILABLE'
+                  AND NOT (research.view_json ? 'exploration'))
+                 OR
+                 (research.view_json->>'schema_version'='2'
+                  AND research.view_json->>'phase'='EXPLORATION_ACTIVE'
+                  AND EXISTS (
+                    SELECT 1
+                      FROM public.rd_sealed_exploratory_replay_requests_v1 active
+                     WHERE active.request_identity=research.view_json->'exploration'->>'replay_request_identity'
+                       AND active.request_schema_version=2
+                       AND active.lifecycle_state IN ('FROZEN','REVOKED')
+                       AND active.trial_family_identity=sealed.trial_family_identity
+                       AND active.census_frontier_identity=sealed.census_frontier_identity
+                       AND active.artifact_identity=sealed.artifact_identity
+                       AND active.v2_meaning_digest=research.view_json->'exploration'->>'replay_request_meaning_digest'
+                       AND active.v2_seal_digest=research.view_json->'exploration'->>'replay_request_seal_digest'
+                       AND active.v2_receipt_json->>'receipt_identity'=research.view_json->'exploration'->>'replay_receipt_identity'
+                       AND active.frozen_json->>'census_frontier_digest'=research.view_json->'exploration'->>'census_frontier_digest'
+                       AND active.trial_family_identity=research.view_json->'exploration'->>'trial_family_identity'
+                       AND active.census_frontier_identity=research.view_json->'exploration'->>'census_frontier_identity'
+                       AND research.view_json->>'source_cut'='rd-exploration-cut-v1-' || pg_catalog.substring(active.v2_seal_digest,8)
+                  ))
+               )
           ) OR NOT EXISTS (
             SELECT 1 FROM public.rd_trial_families_v1 family
             JOIN public.rd_trial_family_heads_v1 head USING (trial_family_identity)
@@ -434,8 +458,8 @@ AS $function$
 
           base := rd_owner_api.verify_exploratory_replay_request_internal_v1(
             requested_request_identity,
-            sealed.request_digest,
-            sealed.receipt_json->>'receipt_identity'
+            '',
+            ''
           );
           IF base IS NULL
              OR base->>'availability' NOT IN ('AVAILABLE','STALE')
@@ -525,8 +549,8 @@ AS $function$
 
           base := rd_owner_api.verify_exploratory_replay_request_internal_v1(
             requested_request_identity,
-            sealed.request_digest,
-            sealed.receipt_json->>'receipt_identity'
+            '',
+            ''
           );
           IF base IS NULL
              OR base->>'availability' NOT IN ('AVAILABLE','STALE')
@@ -608,7 +632,12 @@ AS $function$
               requested_receipt_identity,requested_seal_digest
             );
           END IF;
-          IF base IS NULL OR base->>'availability'<>'AVAILABLE' THEN RETURN NULL; END IF;
+          IF base IS NULL THEN RETURN NULL; END IF;
+          IF base->>'availability'<>'AVAILABLE' THEN
+            RETURN pg_catalog.jsonb_build_object(
+              'schema_version',1,'custody_state','PROJECTION_ONLY','replay',base
+            );
+          END IF;
 
           SELECT * INTO STRICT sealed
             FROM public.rd_sealed_exploratory_replay_requests_v1

@@ -302,17 +302,22 @@ runtime_census = (
 if any(required not in rust for required in runtime_census):
     raise SystemExit("ERROR: Backtest Result runtime namespace census is unavailable")
 materializer_owner_api_routine_census = (
-    "pg_catalog.count(*)=1 AND pg_catalog.bool_and("
-    "procedure.oid=pg_catalog.to_regprocedure("
+    "pg_catalog.count(*) BETWEEN 1 AND 2",
+    "procedure.oid IN (",
+    "backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text)",
+    "backtest_owner_api.resolve_exploratory_replay_result_v3(text,text,text)",
 )
 runtime_owner_api_routine_census = (
     "WITH expected_function AS (",
+    "expected_sibling_function AS (",
     "namespace.nspname='backtest_owner_api'",
     "procedure.proname=$2",
+    "procedure.proname=$4",
     "procedure.proargtypes=ARRAY[",
     "procedure.oid=(SELECT oid FROM expected_function)",
+    "SELECT oid FROM expected_sibling_function",
 )
-if materializer_owner_api_routine_census not in migration or any(
+if any(required not in migration for required in materializer_owner_api_routine_census) or any(
     required not in rust for required in runtime_owner_api_routine_census
 ):
     raise SystemExit("ERROR: Backtest Owner API routine census is unavailable")
@@ -394,8 +399,9 @@ shared_lock = (
     "          );"
 )
 for helper in helper_signatures:
+    version = helper.rsplit("_v", 1)[1]
     match = re.search(
-        rf"CREATE FUNCTION rd_owner_api\.{helper}\(.*?AS \$function\$(.*?)\$function\$",
+        rf'const INTERNAL_VERIFY_SOURCE_V{version}: &str = r#"(.*?)"#;',
         postgres,
         re.DOTALL,
     )
@@ -435,6 +441,12 @@ check_market_data_principal_bootstrap_order() {
   migration="$repository_root/product/rd-workbench/postgres-init/10-migrate-authority-custody.sh"
   test "$(rg -Fxc 'CREATE ROLE market_data_owner NOLOGIN;' "$bootstrap")" -eq 1
   test "$(rg -Fxc 'CREATE ROLE market_data_reader NOLOGIN;' "$bootstrap")" -eq 1
+  test "$(rg -Fxc 'GRANT rd_exploratory_replay_api_owner TO rd_owner;' "$bootstrap")" -eq 1
+  test "$(rg -Fxc 'GRANT USAGE, CREATE ON SCHEMA rd_owner_api TO rd_exploratory_replay_api_owner;' "$bootstrap")" -eq 1
+  rg -Fq 'REVOKE ALL ON SCHEMA rd_owner_api FROM PUBLIC, operator_authorization_writer, qualification_writer, rd_exploratory_replay_api_owner;' "$migration"
+  rg -Fq 'REVOKE ALL ON FUNCTION rd_owner_api.lock_market_data_repair_request_v1(text,text,text,text) FROM PUBLIC, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner' \
+    "$repository_root/crates/strategy_factory/src/market_data_repair_request_postgres.rs"
+  rg -Fq 'REVOKE replay_policy_catalog_owner, replay_policy_catalog_admin_writer, composer_owner, rd_exploratory_replay_api_owner, market_data_owner, rd_database_owner FROM rd_owner, rd_fact_writer, market_data_reader;' "$migration"
   if rg -n 'CREATE ROLE market_data_(owner|reader) LOGIN|market_data_(owner|reader).*PASSWORD|GRANT .*market_data_(owner|reader)|GRANT market_data_(owner|reader)' "$bootstrap"; then
     echo "ERROR: bootstrap must not admit Market Data login, password, membership, or grants" >&2
     return 1
@@ -1250,7 +1262,7 @@ BEGIN
      AND relation.relpersistence='p'
      AND owner.rolname='rd_owner'
      AND (
-       SELECT pg_catalog.count(*)=19
+       SELECT pg_catalog.count(*)=22
           AND pg_catalog.bool_and(CASE attribute.attname
             WHEN 'request_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
             WHEN 'request_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
@@ -1271,6 +1283,9 @@ BEGIN
             WHEN 'v2_meaning_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
             WHEN 'v2_seal_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
             WHEN 'v2_receipt_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
+            WHEN 'v2_request_storage_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+            WHEN 'v2_receipt_storage_bytes' THEN attribute.atttypid='pg_catalog.bytea'::pg_catalog.regtype AND NOT attribute.attnotnull
+            WHEN 'v2_receipt_storage_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
             ELSE false
           END)
          FROM pg_catalog.pg_attribute attribute
@@ -1365,7 +1380,8 @@ BEGIN
          'intent_identity','trial_family_identity','artifact_identity','build_receipt_identity',
          'artifact_family_binding_identity','census_frontier_identity','frozen_json','receipt_json',
          'lifecycle_state','committed_at_epoch_ms','request_schema_version',
-         'v2_canonical_request_bytes','v2_meaning_digest','v2_seal_digest','v2_receipt_json'
+         'v2_canonical_request_bytes','v2_meaning_digest','v2_seal_digest','v2_receipt_json',
+         'v2_request_storage_digest','v2_receipt_storage_bytes','v2_receipt_storage_digest'
        ]::name[]
        AND pg_catalog.array_agg(attribute.atttypid ORDER BY attribute.attnum)=ARRAY[
          'pg_catalog.text'::pg_catalog.regtype,'pg_catalog.text'::pg_catalog.regtype,
@@ -1377,11 +1393,12 @@ BEGIN
          'pg_catalog.text'::pg_catalog.regtype,'pg_catalog.int8'::pg_catalog.regtype,
          'pg_catalog.int2'::pg_catalog.regtype,'pg_catalog.bytea'::pg_catalog.regtype,
          'pg_catalog.text'::pg_catalog.regtype,'pg_catalog.text'::pg_catalog.regtype,
-         'pg_catalog.jsonb'::pg_catalog.regtype
+         'pg_catalog.jsonb'::pg_catalog.regtype,'pg_catalog.text'::pg_catalog.regtype,
+         'pg_catalog.bytea'::pg_catalog.regtype,'pg_catalog.text'::pg_catalog.regtype
        ]::oid[]
        AND pg_catalog.array_agg(attribute.attnotnull ORDER BY attribute.attnum)=ARRAY[
          true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,
-         false,false,false,false
+         false,false,false,false,false,false,false
        ]
          FROM pg_catalog.pg_attribute attribute
         WHERE attribute.attrelid=source_oid
@@ -1474,7 +1491,8 @@ BEGIN
          'intent_identity','trial_family_identity','artifact_identity','build_receipt_identity',
          'artifact_family_binding_identity','census_frontier_identity','frozen_json','receipt_json',
          'lifecycle_state','committed_at_epoch_ms','request_schema_version',
-         'v2_canonical_request_bytes','v2_meaning_digest','v2_seal_digest','v2_receipt_json'
+         'v2_canonical_request_bytes','v2_meaning_digest','v2_seal_digest','v2_receipt_json',
+         'v2_request_storage_digest','v2_receipt_storage_bytes','v2_receipt_storage_digest'
        ]::name[]
        AND pg_catalog.array_agg(attribute.atttypid ORDER BY attribute.attnum)=ARRAY[
          'pg_catalog.text'::pg_catalog.regtype,'pg_catalog.text'::pg_catalog.regtype,
@@ -1486,11 +1504,12 @@ BEGIN
          'pg_catalog.text'::pg_catalog.regtype,'pg_catalog.int8'::pg_catalog.regtype,
          'pg_catalog.int2'::pg_catalog.regtype,'pg_catalog.bytea'::pg_catalog.regtype,
          'pg_catalog.text'::pg_catalog.regtype,'pg_catalog.text'::pg_catalog.regtype,
-         'pg_catalog.jsonb'::pg_catalog.regtype
+         'pg_catalog.jsonb'::pg_catalog.regtype,'pg_catalog.text'::pg_catalog.regtype,
+         'pg_catalog.bytea'::pg_catalog.regtype,'pg_catalog.text'::pg_catalog.regtype
        ]::oid[]
        AND pg_catalog.array_agg(attribute.attnotnull ORDER BY attribute.attnum)=ARRAY[
          true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,
-         false,false,false,false
+         false,false,false,false,false,false,false
        ]
          FROM pg_catalog.pg_attribute attribute
         WHERE attribute.attrelid=target_oid

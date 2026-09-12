@@ -122,7 +122,7 @@ async fn publish_market_data_read_port(
     .map_err(unavailable)?;
     for statement in [
         "ALTER FUNCTION rd_owner_api.lock_market_data_repair_request_v1(text,text,text,text) OWNER TO rd_owner",
-        "REVOKE ALL ON FUNCTION rd_owner_api.lock_market_data_repair_request_v1(text,text,text,text) FROM PUBLIC, rd_owner, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner",
+        "REVOKE ALL ON FUNCTION rd_owner_api.lock_market_data_repair_request_v1(text,text,text,text) FROM PUBLIC, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner",
         "GRANT EXECUTE ON FUNCTION rd_owner_api.lock_market_data_repair_request_v1(text,text,text,text) TO market_data_owner",
         "REVOKE ALL ON TABLE rd_market_data_repair_requests_v1, rd_owner_outbox_v1 FROM market_data_owner, market_data_reader",
     ] {

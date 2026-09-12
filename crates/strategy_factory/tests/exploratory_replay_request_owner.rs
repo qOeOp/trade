@@ -11,9 +11,10 @@ use tokio::{
 };
 use vibe_backtest_owner_contracts::{
     CanonicalDigestV2, ContentIdentityV2, OpaqueIdentityV2, ReplayAuthorityClaimV2,
-    ReplayModelProfilesV2, ReplayRequestDtoV2, ReplayRequestV2, ReplayWindowV2,
-    VersionedIdentityV2,
+    ReplayModelProfilesV2, ReplayRequestDtoV2, ReplayRequestV2,
 };
+#[cfg(not(feature = "sealed-develop-composer-acceptance"))]
+use vibe_backtest_owner_contracts::{ReplayWindowV2, VersionedIdentityV2};
 use vibe_operator_authorization::{
     OperationManifestBindingV1, OperatorAuthorizationIssuanceProposalV1,
     OperatorAuthorizationIssuerPostgresV1, OperatorAuthorizationLocatorV1,
@@ -48,15 +49,18 @@ use vibe_strategy_factory::{
     },
     product_edge::{
         ProductEdgeChannel, ProductEdgeResearchGoalRequestV2, RESEARCH_GOAL_OPERATION_V2,
-        RESEARCH_GOAL_SCHEMA_V2, RESEARCH_OWNER_V1, ResearchGoalOwnerPortV2, ResearchSourceV1,
+        RESEARCH_GOAL_SCHEMA_V2, RESEARCH_OWNER_V1, ResearchGoalOwnerPortV2,
+        ResearchNextLegalAction, ResearchReadbackOwnerPortV1, ResearchSourceV1, ResearchViewPhase,
         SourcedResearchGoalV2, TrialFamilyProposalV1,
     },
     product_edge_postgres::PostgresResearchGoalOwnerV1,
 };
 use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
+#[cfg(not(feature = "sealed-develop-composer-acceptance"))]
+use vibe_strategy_factory::replay_execution_policy_v2::ReplayExecutionPolicyV2;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
-use vibe_strategy_factory::replay_policy_catalog_sealed_acceptance_v2::ensure_replay_policy_catalog_fixture_v2;
+use vibe_strategy_factory::replay_policy_catalog_sealed_acceptance_v2::ensure_replay_policy_catalog_fixture_v3;
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -71,6 +75,8 @@ struct TestFamilyFrozenOutboxV1 {
     census_frontier_digest: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     replay_execution_policy_v2: Option<vibe_strategy_factory::ReplayPolicyCatalogBindingV2>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    replay_policy_catalog_v3: Option<vibe_strategy_factory::ReplayPolicyCatalogBindingV3>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -94,6 +100,7 @@ struct ReplayFixture {
     edge_url: String,
     proposal: ExploratoryReplayRequestProposalV1,
     proposal_v2: ExploratoryReplayRequestProposalV2,
+    research_request_identity: String,
     valid_through_epoch_ms: u64,
 }
 
@@ -185,9 +192,25 @@ async fn remove_duplicate_exploratory_replay_fixture(
         .expect("duplicate internal Replay fixture removed");
 }
 
-#[tokio::test]
+#[rstest]
 #[ignore = "requires the canonical disposable five-role PostgreSQL route with legacy Replay custody"]
-async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back() {
+fn legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back() {
+    std::thread::Builder::new()
+        .name("legacy-exploratory-replay-custody-test".into())
+        .stack_size(16 * 1024 * 1024)
+        .spawn(|| {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(run_legacy_replay_table_is_preserved_while_current_custody_commits());
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+async fn run_legacy_replay_table_is_preserved_while_current_custody_commits() {
     type LegacyReplayCatalogRow = (
         String,
         Option<String>,
@@ -556,9 +579,27 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
     .await;
 }
 
-#[tokio::test]
+#[rstest]
 #[ignore = "requires the canonical disposable Origin-current PostgreSQL route"]
-async fn origin_current_replay_table_renames_with_exact_v1_v2_read_continuity() {
+fn origin_current_replay_table_renames_with_exact_v1_v2_read_continuity() {
+    std::thread::Builder::new()
+        .name("origin-current-exploratory-replay-custody-test".into())
+        .stack_size(16 * 1024 * 1024)
+        .spawn(|| {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(
+                    run_origin_current_replay_table_renames_with_exact_v1_v2_read_continuity(),
+                );
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+async fn run_origin_current_replay_table_renames_with_exact_v1_v2_read_continuity() {
     let fixture = Box::pin(prepare_replay_fixture(3_600_000)).await;
     let mutation = fixture.database.mutation();
     let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
@@ -706,9 +747,25 @@ async fn origin_current_replay_table_renames_with_exact_v1_v2_read_continuity() 
     );
 }
 
-#[tokio::test]
+#[rstest]
 #[ignore = "requires the canonical disposable five-role PostgreSQL route"]
-async fn replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox() {
+fn replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox() {
+    std::thread::Builder::new()
+        .name("expired-exploratory-replay-custody-test".into())
+        .stack_size(16 * 1024 * 1024)
+        .spawn(|| {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(run_replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox());
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+async fn run_replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox() {
     let fixture = Box::pin(prepare_replay_fixture(60_000)).await;
     let blocker_pool = PgPool::connect(&fixture.edge_url)
         .await
@@ -774,7 +831,7 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
              AND facade.proparallel='u'
              AND facade.proisstrict
              AND facade.proconfig=ARRAY['search_path=pg_catalog']::text[]
-             AND pg_catalog.strpos(facade.prosrc,'verify_exploratory_replay_request_internal_v2') > 0
+             AND pg_catalog.strpos(facade.prosrc,'resolve_native_replay_source_storage_v2') > 0
              AND pg_catalog.has_function_privilege('backtest_owner',facade.oid,'EXECUTE')
              AND NOT pg_catalog.has_function_privilege('rd_owner',facade.oid,'EXECUTE')
              AND helper_owner.rolname='rd_exploratory_replay_api_owner'
@@ -799,7 +856,7 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
              AND recovery.proparallel='u'
              AND recovery.proisstrict
              AND recovery.proconfig=ARRAY['search_path=pg_catalog']::text[]
-             AND pg_catalog.strpos(recovery.prosrc,'verify_exploratory_replay_request_internal_v2') > 0
+             AND pg_catalog.strpos(recovery.prosrc,'resolve_native_replay_source_storage_v2') > 0
              AND pg_catalog.has_function_privilege('rd_owner',recovery.oid,'EXECUTE')
              AND NOT pg_catalog.has_function_privilege('backtest_owner',recovery.oid,'EXECUTE')
              AND NOT EXISTS (
@@ -887,6 +944,52 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
     );
     drop(pre_run_owner);
 
+    let research_view_before_failed_commit: serde_json::Value = sqlx::query_scalar(
+        "SELECT view_json FROM public.rd_research_request_receipts_v1 WHERE request_identity=$1",
+    )
+    .bind(&fixture.research_request_identity)
+    .fetch_one(rd_pool)
+    .await
+    .expect("Research View before forced late outbox failure");
+    sqlx::query(
+        "INSERT INTO public.rd_owner_outbox_v1 (event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms) VALUES ($1,$2,'EXPLORATORY_REPLAY_REQUEST_FROZEN_V2',$3,'{}'::jsonb,0)",
+    )
+    .bind(format!("forced-late-outbox-conflict-{request_identity}"))
+    .bind(&request_identity)
+    .bind(format!("sha256:{}", "0".repeat(64)))
+    .execute(rd_pool)
+    .await
+    .expect("forced late V2 outbox conflict");
+    assert!(
+        fixture
+            .owner
+            .commit_exploratory_replay_request_v2(fixture.proposal_v2.clone())
+            .await
+            .is_err()
+    );
+    sqlx::query(
+        "DELETE FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V2'",
+    )
+    .bind(&request_identity)
+    .execute(rd_pool)
+    .await
+    .expect("forced late V2 outbox conflict removed");
+    assert_eq!(
+        request_counts_v2(rd_pool, &request_identity).await,
+        [0, 0, 0]
+    );
+    let research_view_after_failed_commit: serde_json::Value = sqlx::query_scalar(
+        "SELECT view_json FROM public.rd_research_request_receipts_v1 WHERE request_identity=$1",
+    )
+    .bind(&fixture.research_request_identity)
+    .fetch_one(rd_pool)
+    .await
+    .expect("Research View after forced late outbox failure");
+    assert_eq!(
+        research_view_after_failed_commit, research_view_before_failed_commit,
+        "Research View CAS must roll back with the failed V2 outbox insert"
+    );
+
     let lost_response = fixture
         .owner
         .commit_exploratory_replay_request_v2(fixture.proposal_v2.clone())
@@ -901,6 +1004,140 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
         PostgresResearchGoalOwnerV1::connect(&fixture.rd_url, &fixture.qualification_url)
             .await
             .expect("reconnected R&D Owner without Backtest capability");
+    let research = rd_only_owner
+        .read_research_v2(&fixture.research_request_identity)
+        .await
+        .expect("active Research View readback");
+    let view = research.research_view().expect("active Research View");
+    let exploration = view.exploration.as_ref().expect("exploration references");
+    assert_eq!(view.schema_version, 2);
+    assert_eq!(view.phase, ResearchViewPhase::ExplorationActive);
+    assert_eq!(
+        view.next_legal_action,
+        ResearchNextLegalAction::ViewExploratoryRun
+    );
+    assert_eq!(
+        exploration.trial_family_identity,
+        fixture.proposal.trial_family_identity
+    );
+    assert_eq!(
+        exploration.census_frontier_identity,
+        fixture.proposal.census_frontier_identity
+    );
+    assert_eq!(
+        exploration.replay_request_identity,
+        expected_locator.request_identity
+    );
+    assert_eq!(
+        exploration.replay_request_meaning_digest,
+        expected_locator.meaning_digest
+    );
+    assert_eq!(
+        exploration.replay_request_seal_digest,
+        expected_locator.seal_digest
+    );
+    assert_eq!(
+        exploration.replay_receipt_identity,
+        expected_locator.receipt_identity
+    );
+
+    let (
+        canonical_request_bytes,
+        request_storage_digest,
+        canonical_receipt_bytes,
+        receipt_storage_digest,
+    ): (Vec<u8>, String, Vec<u8>, String) = sqlx::query_as(
+        "SELECT v2_canonical_request_bytes,v2_request_storage_digest,v2_receipt_storage_bytes,v2_receipt_storage_digest FROM public.rd_sealed_exploratory_replay_requests_v1 WHERE request_identity=$1",
+    )
+    .bind(&request_identity)
+    .fetch_one(rd_pool)
+    .await
+    .expect("canonical Replay V2 request and receipt storage");
+    let (
+        canonical_outbox_payload_bytes,
+        outbox_payload_storage_digest,
+        canonical_outbox_envelope_bytes,
+        outbox_envelope_storage_digest,
+    ): (Vec<u8>, String, Vec<u8>, String) = sqlx::query_as(
+        "SELECT canonical_payload_bytes,canonical_payload_storage_digest,canonical_envelope_bytes,canonical_envelope_storage_digest FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V2'",
+    )
+    .bind(&request_identity)
+    .fetch_one(rd_pool)
+    .await
+    .expect("canonical Replay V2 outbox storage");
+
+    macro_rules! assert_research_read_fails_closed_after_storage_tamper {
+        ($break_sql:literal, $restore_sql:literal, $original:expr, $label:literal) => {{
+            sqlx::query($break_sql)
+                .bind(&request_identity)
+                .execute(rd_pool)
+                .await
+                .expect(concat!("tamper ", $label));
+            assert!(
+                rd_only_owner
+                    .read_research_v2(&fixture.research_request_identity)
+                    .await
+                    .is_err(),
+                concat!("Research readback must fail closed for tampered ", $label)
+            );
+            sqlx::query($restore_sql)
+                .bind(&request_identity)
+                .bind($original)
+                .execute(rd_pool)
+                .await
+                .expect(concat!("restore ", $label));
+        }};
+    }
+
+    assert_research_read_fails_closed_after_storage_tamper!(
+        "UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=v2_canonical_request_bytes||decode('00','hex') WHERE request_identity=$1",
+        "UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=$2 WHERE request_identity=$1",
+        canonical_request_bytes,
+        "canonical request bytes"
+    );
+    assert_research_read_fails_closed_after_storage_tamper!(
+        "UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET v2_request_storage_digest=v2_request_storage_digest||'-tampered' WHERE request_identity=$1",
+        "UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET v2_request_storage_digest=$2 WHERE request_identity=$1",
+        request_storage_digest,
+        "request storage digest"
+    );
+    assert_research_read_fails_closed_after_storage_tamper!(
+        "UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET v2_receipt_storage_bytes=v2_receipt_storage_bytes||decode('00','hex') WHERE request_identity=$1",
+        "UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET v2_receipt_storage_bytes=$2 WHERE request_identity=$1",
+        canonical_receipt_bytes,
+        "canonical receipt bytes"
+    );
+    assert_research_read_fails_closed_after_storage_tamper!(
+        "UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET v2_receipt_storage_digest=v2_receipt_storage_digest||'-tampered' WHERE request_identity=$1",
+        "UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET v2_receipt_storage_digest=$2 WHERE request_identity=$1",
+        receipt_storage_digest,
+        "receipt storage digest"
+    );
+    assert_research_read_fails_closed_after_storage_tamper!(
+        "UPDATE public.rd_owner_outbox_v1 SET canonical_payload_bytes=canonical_payload_bytes||decode('00','hex') WHERE aggregate_identity=$1 AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V2'",
+        "UPDATE public.rd_owner_outbox_v1 SET canonical_payload_bytes=$2 WHERE aggregate_identity=$1 AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V2'",
+        canonical_outbox_payload_bytes,
+        "canonical outbox payload bytes"
+    );
+    assert_research_read_fails_closed_after_storage_tamper!(
+        "UPDATE public.rd_owner_outbox_v1 SET canonical_payload_storage_digest=canonical_payload_storage_digest||'-tampered' WHERE aggregate_identity=$1 AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V2'",
+        "UPDATE public.rd_owner_outbox_v1 SET canonical_payload_storage_digest=$2 WHERE aggregate_identity=$1 AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V2'",
+        outbox_payload_storage_digest,
+        "outbox payload storage digest"
+    );
+    assert_research_read_fails_closed_after_storage_tamper!(
+        "UPDATE public.rd_owner_outbox_v1 SET canonical_envelope_bytes=canonical_envelope_bytes||decode('00','hex') WHERE aggregate_identity=$1 AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V2'",
+        "UPDATE public.rd_owner_outbox_v1 SET canonical_envelope_bytes=$2 WHERE aggregate_identity=$1 AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V2'",
+        canonical_outbox_envelope_bytes,
+        "canonical outbox envelope bytes"
+    );
+    assert_research_read_fails_closed_after_storage_tamper!(
+        "UPDATE public.rd_owner_outbox_v1 SET canonical_envelope_storage_digest=canonical_envelope_storage_digest||'-tampered' WHERE aggregate_identity=$1 AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V2'",
+        "UPDATE public.rd_owner_outbox_v1 SET canonical_envelope_storage_digest=$2 WHERE aggregate_identity=$1 AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V2'",
+        outbox_envelope_storage_digest,
+        "outbox envelope storage digest"
+    );
+
     let resolved = rd_only_owner
         .resolve_sealed_exploratory_replay_request_v2(&selector)
         .await
@@ -2349,16 +2586,45 @@ async fn prepare_replay_fixture(validity_ms: u64) -> ReplayFixture {
         .await
         .expect("canonical disposable topology");
     #[cfg(feature = "sealed-develop-composer-acceptance")]
-    {
+    let catalog_v3 = {
         let catalog_admin_url = std::env::var("REPLAY_POLICY_CATALOG_ADMIN_TEST_DATABASE_URL")
             .expect("explicit Catalog admin test database URL");
         let catalog_admin_pool = PgPool::connect(&catalog_admin_url)
             .await
             .expect("Catalog admin test connection");
-        ensure_replay_policy_catalog_fixture_v2(&catalog_admin_pool)
+        let catalog_v3 = ensure_replay_policy_catalog_fixture_v3(&catalog_admin_pool)
             .await
-            .expect("signed sealed-acceptance Replay Policy Catalog genesis");
-    }
+            .expect("signed sealed-acceptance Replay Policy Catalog V3 genesis");
+        catalog_v3
+    };
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    let replay_policy = catalog_v3
+        .replay_policy_v2()
+        .verify()
+        .expect("verified sealed-acceptance Replay execution policy");
+    #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
+    let replay_policy = ReplayExecutionPolicyV2 {
+        runtime_kernel: version_v2("runtime-kernel", "1.0.0"),
+        simulator: version_v2("simulator", "1.0.0"),
+        cost: version_v2("cost-model-v1", "v1"),
+        slippage: version_v2("slippage-model-v1", "v1"),
+        capacity: version_v2("capacity-model-v1", "v1"),
+        runner_operational_profile: version_v2("backtest-engine", "1.0.0"),
+        diagnostic_policy: version_v2("diagnostic-policy-v2", "v1"),
+        deterministic_seed: 42,
+        window: ReplayWindowV2 {
+            start_event_ns: 1_704_067_200_000_000_000,
+            end_event_ns_exclusive: 1_735_689_600_000_000_000,
+        },
+        calendar: version_v2("calendar-utc-continuous-v1", "v1"),
+        session: version_v2("continuous-session-v1", "v1"),
+        time_zone: version_v2("UTC", "iana-2026a"),
+        correction_rule: version_v2("correction-rule-v2", "v1"),
+        market_semantics: version_v2("market-semantics-v2", "v1"),
+        replay_configuration: content_v2_hex("replay-configuration-v2", '7'),
+        corporate_action_cut: content_v2_hex("corporate-action-cut-v2", '8'),
+        historical_membership_cut: content_v2_hex("historical-membership-cut-v2", '9'),
+    };
     let rd_url = database
         .database_url(CanonicalOwnerTestRoleV1::RdOwner)
         .to_string();
@@ -2390,6 +2656,7 @@ async fn prepare_replay_fixture(validity_ms: u64) -> ReplayFixture {
         .admit_research(research_request(&format!("research-{suffix}")))
         .await;
     let accepted = owner.submit_v2(research).await.expect("frozen Research");
+    let research_request_identity = accepted.request_identity().to_string();
     let research_receipt = accepted.owner_receipt().expect("research receipt");
     let intent_identity = research_receipt
         .resulting_research_intent_identity
@@ -2573,28 +2840,25 @@ async fn prepare_replay_fixture(validity_ms: u64) -> ReplayFixture {
                 pit_scope: content_v2_hex("pit-scope-v2", '4'),
                 pit_snapshot: content_v2_hex("pit-snapshot-v2", '5'),
                 universe_selection: content_v2_hex("universe-selection-v2", '6'),
-                correction_rule: version_v2("correction-rule-v2", "v1"),
-                market_semantics: version_v2("market-semantics-v2", "v1"),
-                replay_configuration: content_v2_hex("replay-configuration-v2", '7'),
+                correction_rule: replay_policy.correction_rule.clone(),
+                market_semantics: replay_policy.market_semantics.clone(),
+                replay_configuration: replay_policy.replay_configuration.clone(),
                 models: ReplayModelProfilesV2 {
-                    runtime_kernel: version_v2("runtime-kernel", "1.0.0"),
-                    simulator: version_v2("simulator", "1.0.0"),
-                    cost: version_v2("cost-model-v1", "v1"),
-                    slippage: version_v2("slippage-model-v1", "v1"),
-                    capacity: version_v2("capacity-model-v1", "v1"),
+                    runtime_kernel: replay_policy.runtime_kernel.clone(),
+                    simulator: replay_policy.simulator.clone(),
+                    cost: replay_policy.cost.clone(),
+                    slippage: replay_policy.slippage.clone(),
+                    capacity: replay_policy.capacity.clone(),
                 },
-                runner_operational_profile: version_v2("backtest-engine", "1.0.0"),
-                diagnostic_policy: version_v2("diagnostic-policy-v2", "v1"),
-                deterministic_seed: 42,
-                window: ReplayWindowV2 {
-                    start_event_ns: 1_704_067_200_000_000_000,
-                    end_event_ns_exclusive: 1_735_689_600_000_000_000,
-                },
-                calendar: version_v2("calendar-utc-continuous-v1", "v1"),
-                session: version_v2("continuous-session-v1", "v1"),
-                time_zone: version_v2("UTC", "iana-2026a"),
-                corporate_action_cut: content_v2_hex("corporate-action-cut-v2", '8'),
-                historical_membership_cut: content_v2_hex("historical-membership-cut-v2", '9'),
+                runner_operational_profile: replay_policy.runner_operational_profile.clone(),
+                diagnostic_policy: replay_policy.diagnostic_policy.clone(),
+                deterministic_seed: replay_policy.deterministic_seed,
+                window: replay_policy.window,
+                calendar: replay_policy.calendar.clone(),
+                session: replay_policy.session.clone(),
+                time_zone: replay_policy.time_zone.clone(),
+                corporate_action_cut: replay_policy.corporate_action_cut.clone(),
+                historical_membership_cut: replay_policy.historical_membership_cut.clone(),
             },
         })
         .await;
@@ -2610,6 +2874,7 @@ async fn prepare_replay_fixture(validity_ms: u64) -> ReplayFixture {
         edge_url,
         proposal,
         proposal_v2,
+        research_request_identity,
         valid_through_epoch_ms,
     }
 }
@@ -3180,6 +3445,7 @@ fn content_v2_hex(identity: &str, digit: char) -> ContentIdentityV2 {
         &format!("sha256:{}", digit.to_string().repeat(64)),
     )
 }
+#[cfg(not(feature = "sealed-develop-composer-acceptance"))]
 fn version_v2(identity: &str, version: &str) -> VersionedIdentityV2 {
     VersionedIdentityV2 {
         identity: opaque(identity),
