@@ -98,6 +98,15 @@ fn owner_bound_profile_drives_bar_signal_then_real_event_fills() {
     .unwrap();
     let readback = run_program_host_sim_event_consumer_v1(capability).unwrap();
     assert_eq!(readback.execution_route(), "EVENT");
+    vibe_backtest::result::CanonicalBacktestResult::from_slice(readback.canonical_result())
+        .expect("EVENT readback must retain the exact canonical Backtest result");
+    assert!(
+        serde_json::to_value(&readback)
+            .expect("EVENT readback must serialize")
+            .get("canonical_result")
+            .is_none(),
+        "canonical result belongs to separate Backtest outcome evidence"
+    );
     assert_eq!(readback.target_set_count(), 1);
     assert!(readback.position_submit_count() >= 2);
     assert!(

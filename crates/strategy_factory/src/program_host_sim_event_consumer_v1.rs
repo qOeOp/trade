@@ -102,6 +102,8 @@ impl From<TargetSetActualFillConsumptionV1> for ProgramHostSimEventFillReadbackV
 pub struct ProgramHostSimEventReadbackV1 {
     execution_route: String,
     consumption_census: ReplayTargetSetExecutionCensusV1,
+    #[serde(skip_serializing)]
+    canonical_result: Vec<u8>,
     canonical_result_digest: [u8; 32],
     target_set_count: usize,
     position_submit_count: usize,
@@ -138,6 +140,16 @@ impl ProgramHostSimEventReadbackV1 {
     #[must_use]
     pub const fn canonical_result_digest(&self) -> [u8; 32] {
         self.canonical_result_digest
+    }
+
+    /// Returns the exact canonical Backtest result produced by this EVENT run.
+    ///
+    /// The Backtest Owner consumes these bytes to create its separate outcome-evidence aggregate.
+    /// They are intentionally omitted from this readback's semantic-trace serialization so the
+    /// existing trace and Replay Result V2 identities remain unchanged.
+    #[must_use]
+    pub fn canonical_result(&self) -> &[u8] {
+        &self.canonical_result
     }
 
     #[must_use]
@@ -222,6 +234,7 @@ pub fn run_program_host_sim_event_consumer_v1(
     Ok(ProgramHostSimEventReadbackV1 {
         execution_route: "EVENT".to_owned(),
         consumption_census: census,
+        canonical_result,
         canonical_result_digest,
         target_set_count: observed.canonical_target_sets.len(),
         position_submit_count: observed.successful_position_submits.len(),
