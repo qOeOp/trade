@@ -143,6 +143,7 @@ struct DevelopComposerA0ExecutionsV1 {
 }
 
 mod exploratory_replay;
+mod iteration_decision;
 mod source_intake;
 mod source_intake_research;
 
@@ -548,6 +549,7 @@ async fn main() -> anyhow::Result<()> {
             owner.clone(),
             token_digest,
         ))
+        .merge(iteration_decision::router(owner.clone(), token_digest))
         .merge(source_intake_research::router(
             product_edge,
             owner,
