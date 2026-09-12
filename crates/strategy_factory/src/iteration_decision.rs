@@ -2,7 +2,6 @@
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use strategy_factory_program_sdk::lifecycle_v1::SemanticTraceV1;
 use thiserror::Error;
 use vibe_backtest_owner_contracts::{
     DiagnosticCategoryV2, ObservationComponentV2, ReconciliationStatusV2, ReplayNamespaceV2,
@@ -424,18 +423,6 @@ pub(crate) struct IterationDiagnosisFindingV1 {
     evidence: Vec<IterationDiagnosisEvidenceReferenceV1>,
 }
 
-/// Typed semantic trace facts admitted by the SDK canonical decoder.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct IterationSemanticTraceFactV1 {
-    schema_version: u16,
-    has_order_key: bool,
-    position_before_units: i64,
-    position_after_units: i64,
-    cumulative_filled_units: u64,
-    has_terminal_fill_disposition: bool,
-}
-
 /// Complete Owner-locked input boundary for the six R&D interpretation dimensions.
 ///
 /// It is serialize-only and has no caller-facing constructor. The later Decision composer may
@@ -449,7 +436,6 @@ pub(crate) struct IterationInterpretationContextV1 {
     result_custody: IterationInterpretationResultCustodyV1,
     owner_bindings: Vec<IterationInterpretationOwnerBindingV1>,
     diagnostic_evidence: IterationInterpretationDiagnosticEvidenceV1,
-    semantic_trace: IterationSemanticTraceFactV1,
     diagnosis_findings: Vec<IterationDiagnosisFindingV1>,
 }
 
@@ -510,11 +496,6 @@ pub(crate) fn issue_interpretation_context_v1(
             "canonical semantic trace is missing",
         ),
     )?;
-    let semantic_trace = SemanticTraceV1::decode(semantic_trace_bytes).map_err(|_| {
-        IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
-            "canonical semantic trace cannot be decoded",
-        )
-    })?;
     let result_custody = interpretation_result_custody_v1(
         locked_result.result_canonical_bytes(),
         locked_result.receipt_canonical_bytes(),
@@ -527,7 +508,6 @@ pub(crate) fn issue_interpretation_context_v1(
         gate,
         locked_result.result(),
         result_custody,
-        semantic_trace,
     )
 }
 
@@ -537,7 +517,6 @@ fn issue_interpretation_context_from_result_v1(
     gate: IterationDecisionGateV1,
     result: &ReplayResultDtoV2,
     result_custody: IterationInterpretationResultCustodyV1,
-    semantic_trace: SemanticTraceV1,
 ) -> Result<IterationInterpretationContextV1, IterationDecisionErrorV1> {
     let IterationDecisionGateV1::InterpretationRequired {
         evidence_cut,
@@ -685,15 +664,6 @@ fn issue_interpretation_context_from_result_v1(
         &owner_bindings,
         &diagnostic_evidence,
     )?;
-    let semantic_trace = IterationSemanticTraceFactV1 {
-        schema_version: semantic_trace.schema_version,
-        has_order_key: semantic_trace.order_key.is_some(),
-        position_before_units: semantic_trace.position_before_units,
-        position_after_units: semantic_trace.position_after_units,
-        cumulative_filled_units: semantic_trace.fill_frontier.cumulative_filled_units,
-        has_terminal_fill_disposition: semantic_trace.fill_frontier.terminal_disposition.is_some(),
-    };
-
     Ok(IterationInterpretationContextV1 {
         evidence_cut,
         diagnostic,
@@ -701,7 +671,6 @@ fn issue_interpretation_context_from_result_v1(
         result_custody,
         owner_bindings,
         diagnostic_evidence,
-        semantic_trace,
         diagnosis_findings,
     })
 }
@@ -1366,7 +1335,7 @@ mod tests {
         result: &ReplayResultDtoV2,
     ) -> Result<IterationInterpretationContextV1, IterationDecisionErrorV1> {
         let result_bytes = serde_json::to_vec(result).expect("result bytes");
-        let semantic_trace_bytes = SemanticTraceV1::default().encode();
+        let semantic_trace_bytes = b"canonical-backtest-semantic-trace-envelope";
         let intent = FrozenResearchGoalIntent::V2(FrozenResearchGoalIntentV2 {
             schema_version: 2,
             intent_identity: census
@@ -1408,9 +1377,8 @@ mod tests {
                 &result_bytes,
                 b"receipt-bytes",
                 b"outbox-bytes",
-                &semantic_trace_bytes,
+                semantic_trace_bytes,
             ),
-            SemanticTraceV1::decode(&semantic_trace_bytes).expect("canonical trace"),
         )
     }
 
@@ -1529,7 +1497,6 @@ mod tests {
                 .count(),
             4
         );
-        assert_eq!(context.semantic_trace.schema_version, 1);
         assert!(
             context
                 .result_custody
