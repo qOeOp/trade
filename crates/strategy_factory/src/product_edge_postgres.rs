@@ -1306,6 +1306,30 @@ impl PostgresResearchGoalOwnerV1 {
             .await
     }
 
+    /// Commits an effect-free repair request from exact stored Decision custody.
+    pub async fn compose_repair_action_request_v1(
+        &self,
+        request: crate::RepairActionCompositionRequestV1,
+    ) -> Result<
+        crate::repair_action::RepairActionRequestReadbackV1,
+        crate::IterationDecisionPostgresErrorV1,
+    > {
+        crate::iteration_decision_postgres::compose_repair_action_request_v1(&self.pool, request)
+            .await
+    }
+
+    /// Resolves existing repair-request custody without executing the repair.
+    pub async fn resolve_repair_action_request_v1(
+        &self,
+        locator: crate::RepairActionResolutionLocatorV1,
+    ) -> Result<
+        Option<crate::repair_action::RepairActionRequestReadbackV1>,
+        crate::IterationDecisionPostgresErrorV1,
+    > {
+        crate::iteration_decision_postgres::resolve_repair_action_request_v1(&self.pool, locator)
+            .await
+    }
+
     /// Uses a canonical `backtest_owner` session to consume only the sealed R&D lock API.
     pub async fn lock_exploratory_replay_request_for_backtest_v1(
         &self,

@@ -14,11 +14,16 @@ use crate::{
         RepairInputIterationDecisionReadbackV1, admit_stored_repair_input_decision_v1,
         gate_locked_exploratory_result_v1, issue_repair_input_decision_v1,
     },
+    repair_action::{
+        RepairActionErrorV1, RepairActionRequestReadbackV1, admit_stored_repair_action_request_v1,
+        issue_repair_action_request_v1,
+    },
     trial_family::TrialFamilyError,
     trial_family_postgres::load_trial_family_census_v2_by_family_in_transaction,
 };
 
 const DECISION_COMMITTED_EVENT_V1: &str = "ITERATION_DECISION_COMMITTED_V1";
+const REPAIR_ACTION_REQUESTED_EVENT_V1: &str = "REPAIR_ACTION_REQUESTED_V1";
 
 pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
     crate::schema_materialization::PublicTableSpec {
@@ -53,6 +58,34 @@ pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
             crate::schema_materialization::unique_index("attempt_identity"),
         ],
     },
+    crate::schema_materialization::PublicTableSpec {
+        name: "rd_repair_action_requests_v1",
+        runtime_read_grantees: &[],
+        columns: &[
+            crate::schema_materialization::required("action_request_identity", "text"),
+            crate::schema_materialization::required("decision_identity", "text"),
+            crate::schema_materialization::required("result_identity", "text"),
+            crate::schema_materialization::required("action_request_digest", "text"),
+            crate::schema_materialization::required("request_json", "jsonb"),
+            crate::schema_materialization::required("receipt_json", "jsonb"),
+            crate::schema_materialization::required("request_storage_bytes", "bytea"),
+            crate::schema_materialization::required("request_storage_digest", "text"),
+            crate::schema_materialization::required("receipt_storage_bytes", "bytea"),
+            crate::schema_materialization::required("receipt_storage_digest", "text"),
+            crate::schema_materialization::required("committed_at_epoch_ms", "bigint"),
+        ],
+        constraints: &[
+            "f:decision_identity:public.rd_iteration_decisions_v1(decision_identity):a:a:s:false:false:true:",
+            "p:action_request_identity:::false:false:true:",
+            "u:decision_identity:::false:false:true:",
+            "u:result_identity:::false:false:true:",
+        ],
+        indexes: &[
+            crate::schema_materialization::primary_index("action_request_identity"),
+            crate::schema_materialization::unique_index("decision_identity"),
+            crate::schema_materialization::unique_index("result_identity"),
+        ],
+    },
 ];
 
 /// Caller-owned locators. They carry no Result, diagnosis, outcome, or Decision authority.
@@ -73,6 +106,20 @@ pub struct IterationDecisionResolutionLocatorV1 {
     pub result_identity: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RepairActionCompositionRequestV1 {
+    pub decision_identity: String,
+    pub result_identity: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RepairActionResolutionLocatorV1 {
+    pub action_request_identity: String,
+    pub decision_identity: String,
+}
+
 #[derive(Debug, Error)]
 pub enum IterationDecisionPostgresErrorV1 {
     #[error("Iteration Decision locator is invalid")]
@@ -83,6 +130,8 @@ pub enum IterationDecisionPostgresErrorV1 {
     Backtest(#[from] BacktestResultCustodyErrorV2),
     #[error("R&D Iteration Decision is unavailable: {0}")]
     Decision(#[from] IterationDecisionErrorV1),
+    #[error("R&D repair action request is unavailable: {0}")]
+    RepairAction(#[from] RepairActionErrorV1),
     #[error("R&D Iteration Decision is intentionally absent: {0:?}")]
     NoDecision(IterationNoDecisionReasonV1),
     #[error("the locked Result requires policy interpretation rather than REPAIR_INPUTS")]
@@ -96,6 +145,13 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), IterationDecisionPostgr
         pool,
         "rd_iteration_decisions_v1",
         "CREATE TABLE IF NOT EXISTS rd_iteration_decisions_v1 (decision_identity TEXT PRIMARY KEY, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), request_identity TEXT NOT NULL UNIQUE, result_identity TEXT NOT NULL UNIQUE, attempt_identity TEXT NOT NULL UNIQUE, decision_digest TEXT NOT NULL, decision_json JSONB NOT NULL, receipt_json JSONB NOT NULL, decision_storage_bytes BYTEA NOT NULL, decision_storage_digest TEXT NOT NULL, receipt_storage_bytes BYTEA NOT NULL, receipt_storage_digest TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
+    )
+    .await
+    .map_err(storage)?;
+    crate::schema_materialization::materialize_public_table(
+        pool,
+        "rd_repair_action_requests_v1",
+        "CREATE TABLE IF NOT EXISTS rd_repair_action_requests_v1 (action_request_identity TEXT PRIMARY KEY, decision_identity TEXT NOT NULL UNIQUE REFERENCES rd_iteration_decisions_v1(decision_identity), result_identity TEXT NOT NULL UNIQUE, action_request_digest TEXT NOT NULL, request_json JSONB NOT NULL, receipt_json JSONB NOT NULL, request_storage_bytes BYTEA NOT NULL, request_storage_digest TEXT NOT NULL, receipt_storage_bytes BYTEA NOT NULL, receipt_storage_digest TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
     )
     .await
     .map_err(storage)
@@ -184,6 +240,280 @@ pub(crate) async fn resolve_repair_input_decision_v1(
     }
     transaction.commit().await.map_err(storage)?;
     Ok(readback)
+}
+
+pub(crate) async fn compose_repair_action_request_v1(
+    pool: &PgPool,
+    request: RepairActionCompositionRequestV1,
+) -> Result<RepairActionRequestReadbackV1, IterationDecisionPostgresErrorV1> {
+    validate_repair_action_composition(&request)?;
+    let mut transaction = pool.begin().await.map_err(storage)?;
+    lock_composition_key(&mut transaction, &request.decision_identity).await?;
+    if let Some(existing) =
+        load_repair_action_in_transaction(&mut transaction, &request.decision_identity, None)
+            .await?
+    {
+        if existing.request().result_identity() != request.result_identity {
+            return Err(storage("repair action retry locator mismatch"));
+        }
+        transaction.commit().await.map_err(storage)?;
+        return Ok(existing);
+    }
+    let decision = load_by_result_in_transaction(&mut transaction, &request.result_identity, None)
+        .await?
+        .ok_or_else(|| storage("Iteration Decision custody is missing"))?;
+    if decision.decision().decision_identity() != request.decision_identity {
+        return Err(storage("repair action Decision locator mismatch"));
+    }
+    let issued = issue_repair_action_request_v1(&decision, current_epoch_ms()?)?;
+    persist_repair_action(&mut transaction, &issued).await?;
+    let readback = load_repair_action_in_transaction(
+        &mut transaction,
+        &request.decision_identity,
+        Some(&decision),
+    )
+    .await?
+    .ok_or_else(|| storage("committed repair action readback is missing"))?;
+    if readback != issued {
+        return Err(storage("committed repair action readback changed"));
+    }
+    transaction.commit().await.map_err(storage)?;
+    Ok(readback)
+}
+
+pub(crate) async fn resolve_repair_action_request_v1(
+    pool: &PgPool,
+    locator: RepairActionResolutionLocatorV1,
+) -> Result<Option<RepairActionRequestReadbackV1>, IterationDecisionPostgresErrorV1> {
+    if !valid_locator(&locator.action_request_identity)
+        || !valid_locator(&locator.decision_identity)
+    {
+        return Err(IterationDecisionPostgresErrorV1::InvalidLocator);
+    }
+    let mut transaction = pool.begin().await.map_err(storage)?;
+    let readback =
+        load_repair_action_in_transaction(&mut transaction, &locator.decision_identity, None)
+            .await?;
+    if let Some(value) = readback.as_ref()
+        && value.request().action_request_identity() != locator.action_request_identity
+    {
+        return Err(storage("repair action resolution locator mismatch"));
+    }
+    transaction.commit().await.map_err(storage)?;
+    Ok(readback)
+}
+
+async fn persist_repair_action(
+    transaction: &mut Transaction<'_, Postgres>,
+    readback: &RepairActionRequestReadbackV1,
+) -> Result<(), IterationDecisionPostgresErrorV1> {
+    let request = readback.request();
+    let receipt = readback.receipt();
+    let request_bytes = serde_json::to_vec(request).map_err(storage)?;
+    let receipt_bytes = serde_json::to_vec(receipt).map_err(storage)?;
+    let request_storage_digest = crate::native_replay_rd_sources_v2::owner_storage_digest(
+        "rd.repair-action-request.storage.v1",
+        &request_bytes,
+    );
+    let receipt_storage_digest = crate::native_replay_rd_sources_v2::owner_storage_digest(
+        "rd.repair-action-request-receipt.storage.v1",
+        &receipt_bytes,
+    );
+    sqlx::query("INSERT INTO rd_repair_action_requests_v1 (action_request_identity,decision_identity,result_identity,action_request_digest,request_json,receipt_json,request_storage_bytes,request_storage_digest,receipt_storage_bytes,receipt_storage_digest,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)")
+        .bind(request.action_request_identity())
+        .bind(request.decision_identity())
+        .bind(request.result_identity())
+        .bind(request.action_request_digest())
+        .bind(serde_json::to_value(request).map_err(storage)?)
+        .bind(serde_json::to_value(receipt).map_err(storage)?)
+        .bind(request_bytes)
+        .bind(request_storage_digest)
+        .bind(receipt_bytes)
+        .bind(receipt_storage_digest)
+        .bind(i64::try_from(receipt.committed_at_epoch_ms()).map_err(storage)?)
+        .execute(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    let payload = RepairActionRequestedOutboxV1 {
+        schema_version: 1,
+        action_request_identity: request.action_request_identity().to_string(),
+        action_request_digest: request.action_request_digest().to_string(),
+        receipt_identity: receipt.receipt_identity().to_string(),
+        decision_identity: request.decision_identity().to_string(),
+        decision_digest: request.decision_digest().to_string(),
+        result_identity: request.result_identity().to_string(),
+        category: request.category(),
+        target: request.target(),
+    };
+    let payload_digest = canonical_digest("rd.owner-outbox.repair-action-request.v1", &payload)?;
+    sqlx::query("INSERT INTO rd_owner_outbox_v1 (event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6)")
+        .bind(format!("rd-owner-outbox-repair-action-v1-{}", payload_digest.trim_start_matches("sha256:")))
+        .bind(request.action_request_identity())
+        .bind(REPAIR_ACTION_REQUESTED_EVENT_V1)
+        .bind(payload_digest)
+        .bind(serde_json::to_value(payload).map_err(storage)?)
+        .bind(i64::try_from(receipt.committed_at_epoch_ms()).map_err(storage)?)
+        .execute(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    Ok(())
+}
+
+async fn load_repair_action_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    decision_identity: &str,
+    known_decision: Option<&RepairInputIterationDecisionReadbackV1>,
+) -> Result<Option<RepairActionRequestReadbackV1>, IterationDecisionPostgresErrorV1> {
+    let rows = sqlx::query("SELECT action_request_identity,decision_identity,result_identity,action_request_digest,request_json,receipt_json,request_storage_bytes,request_storage_digest,receipt_storage_bytes,receipt_storage_digest,committed_at_epoch_ms FROM rd_repair_action_requests_v1 WHERE decision_identity=$1 FOR SHARE")
+        .bind(decision_identity)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    if rows.is_empty() {
+        return Ok(None);
+    }
+    if rows.len() != 1 {
+        return Err(storage("repair action Decision identity is not unique"));
+    }
+    let row = &rows[0];
+    let result_identity: String = row.try_get("result_identity").map_err(storage)?;
+    let decision = match known_decision {
+        Some(value) => value.clone(),
+        None => load_by_result_in_transaction(transaction, &result_identity, None)
+            .await?
+            .ok_or_else(|| storage("repair action predecessor Decision is missing"))?,
+    };
+    if decision.decision().decision_identity() != decision_identity {
+        return Err(storage("repair action predecessor Decision mismatch"));
+    }
+    let request_bytes: Vec<u8> = row.try_get("request_storage_bytes").map_err(storage)?;
+    let receipt_bytes: Vec<u8> = row.try_get("receipt_storage_bytes").map_err(storage)?;
+    if row
+        .try_get::<String, _>("request_storage_digest")
+        .map_err(storage)?
+        != crate::native_replay_rd_sources_v2::owner_storage_digest(
+            "rd.repair-action-request.storage.v1",
+            &request_bytes,
+        )
+        || row
+            .try_get::<String, _>("receipt_storage_digest")
+            .map_err(storage)?
+            != crate::native_replay_rd_sources_v2::owner_storage_digest(
+                "rd.repair-action-request-receipt.storage.v1",
+                &receipt_bytes,
+            )
+    {
+        return Err(storage("repair action storage digest mismatch"));
+    }
+    let readback =
+        admit_stored_repair_action_request_v1(&request_bytes, &receipt_bytes, &decision)?;
+    let request = readback.request();
+    let receipt = readback.receipt();
+    if row
+        .try_get::<String, _>("action_request_identity")
+        .map_err(storage)?
+        != request.action_request_identity()
+        || row
+            .try_get::<String, _>("decision_identity")
+            .map_err(storage)?
+            != request.decision_identity()
+        || result_identity != request.result_identity()
+        || row
+            .try_get::<String, _>("action_request_digest")
+            .map_err(storage)?
+            != request.action_request_digest()
+        || row
+            .try_get::<serde_json::Value, _>("request_json")
+            .map_err(storage)?
+            != serde_json::to_value(request).map_err(storage)?
+        || row
+            .try_get::<serde_json::Value, _>("receipt_json")
+            .map_err(storage)?
+            != serde_json::to_value(receipt).map_err(storage)?
+        || row
+            .try_get::<i64, _>("committed_at_epoch_ms")
+            .map_err(storage)?
+            != i64::try_from(receipt.committed_at_epoch_ms()).map_err(storage)?
+    {
+        return Err(storage("repair action row/readback mismatch"));
+    }
+    verify_repair_action_outbox(transaction, &readback).await?;
+    Ok(Some(readback))
+}
+
+async fn verify_repair_action_outbox(
+    transaction: &mut Transaction<'_, Postgres>,
+    readback: &RepairActionRequestReadbackV1,
+) -> Result<(), IterationDecisionPostgresErrorV1> {
+    let request = readback.request();
+    let rows = sqlx::query("SELECT aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms FROM rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2 FOR SHARE")
+        .bind(request.action_request_identity())
+        .bind(REPAIR_ACTION_REQUESTED_EVENT_V1)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    if rows.len() != 1 {
+        return Err(storage("repair action outbox custody is incomplete"));
+    }
+    let expected = RepairActionRequestedOutboxV1 {
+        schema_version: 1,
+        action_request_identity: request.action_request_identity().to_string(),
+        action_request_digest: request.action_request_digest().to_string(),
+        receipt_identity: readback.receipt().receipt_identity().to_string(),
+        decision_identity: request.decision_identity().to_string(),
+        decision_digest: request.decision_digest().to_string(),
+        result_identity: request.result_identity().to_string(),
+        category: request.category(),
+        target: request.target(),
+    };
+    if rows[0]
+        .try_get::<String, _>("aggregate_identity")
+        .map_err(storage)?
+        != expected.action_request_identity
+        || rows[0]
+            .try_get::<String, _>("event_kind")
+            .map_err(storage)?
+            != REPAIR_ACTION_REQUESTED_EVENT_V1
+        || rows[0]
+            .try_get::<String, _>("payload_digest")
+            .map_err(storage)?
+            != canonical_digest("rd.owner-outbox.repair-action-request.v1", &expected)?
+        || rows[0]
+            .try_get::<serde_json::Value, _>("payload_json")
+            .map_err(storage)?
+            != serde_json::to_value(&expected).map_err(storage)?
+        || rows[0]
+            .try_get::<i64, _>("committed_at_epoch_ms")
+            .map_err(storage)?
+            != i64::try_from(readback.receipt().committed_at_epoch_ms()).map_err(storage)?
+    {
+        return Err(storage("repair action outbox/readback mismatch"));
+    }
+    Ok(())
+}
+
+#[derive(Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+struct RepairActionRequestedOutboxV1 {
+    schema_version: u16,
+    action_request_identity: String,
+    action_request_digest: String,
+    receipt_identity: String,
+    decision_identity: String,
+    decision_digest: String,
+    result_identity: String,
+    category: crate::iteration_decision::IterationRepairCategoryV1,
+    target: crate::iteration_decision::IterationRepairTargetV1,
+}
+
+fn validate_repair_action_composition(
+    request: &RepairActionCompositionRequestV1,
+) -> Result<(), IterationDecisionPostgresErrorV1> {
+    if valid_locator(&request.decision_identity) && valid_locator(&request.result_identity) {
+        Ok(())
+    } else {
+        Err(IterationDecisionPostgresErrorV1::InvalidLocator)
+    }
 }
 
 async fn lock_composition_key(

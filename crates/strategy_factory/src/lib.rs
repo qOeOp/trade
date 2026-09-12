@@ -75,7 +75,8 @@ pub mod iteration_decision;
 mod iteration_decision_postgres;
 pub use iteration_decision_postgres::{
     DecisionCompositionRequestV1, IterationDecisionPostgresErrorV1,
-    IterationDecisionResolutionLocatorV1,
+    IterationDecisionResolutionLocatorV1, RepairActionCompositionRequestV1,
+    RepairActionResolutionLocatorV1,
 };
 mod legacy_prepared_attempt_drain;
 #[allow(
@@ -128,6 +129,7 @@ mod program_host_backtest_target_set_v2;
 #[allow(dead_code)]
 mod program_host_backtest_v2;
 mod program_host_bar_joined_cut_backtest_v1;
+pub mod repair_action;
 pub use program_host_bar_joined_cut_backtest_v1::{
     OwnerBarJoinedCutBacktestReadbackV1, run_prepared_owner_bar_joined_cut_backtest_v1,
 };
