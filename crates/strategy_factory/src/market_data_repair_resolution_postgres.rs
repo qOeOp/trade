@@ -5,12 +5,16 @@ use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use thiserror::Error;
 
+use crate::iteration_decision::IterationDecisionEvidenceCutV1;
 use crate::market_data_repair_resolution::{
     MarketDataRepairResearchTerminalV1, MarketDataRepairResolutionDispositionV1,
     MarketDataRepairResolutionErrorV1,
 };
+use vibe_data::owner::pit_snapshot::UntrustedPitSnapshotTimeEvidence;
+use vibe_data::owner::source_binding::BindingDigest;
 
 const RESOLVED_EVENT_V1: &str = "MARKET_DATA_REPAIR_RESOLVED_V1";
+const RESOLUTION_DOMAIN_V1: &str = "rd.market-data-repair-resolution.v1";
 const STORAGE_DOMAIN_V1: &str = "rd.market-data-repair-resolution.storage.v1";
 const OUTBOX_DOMAIN_V1: &str = "rd.owner-outbox.market-data-repair-resolution.v1";
 
@@ -60,6 +64,125 @@ pub struct MarketDataRepairResolutionLocatorV1 {
 pub struct MarketDataRepairResolutionReadbackV1 {
     resolution: MarketDataRepairResearchTerminalV1,
     committed_at_epoch_ms: u64,
+}
+
+/// Move-only positive projection reconstructed exclusively from verified R&D Owner storage.
+///
+/// It intentionally cannot be deserialized by a caller. The canonical bytes are retained so the
+/// successor write transaction can re-admit the same resolution before it appends Replay custody.
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) struct MarketDataRepairResolutionReentryReadbackV1 {
+    resolution_identity: String,
+    resolution_digest: String,
+    decision_identity: String,
+    decision_evidence_cut: IterationDecisionEvidenceCutV1,
+    repair_request_identity: String,
+    repair_request_digest: String,
+    market_data_terminal_identity: String,
+    market_data_terminal_digest: String,
+    correlation_identity: BindingDigest,
+    repaired_snapshot_identity: BindingDigest,
+    repaired_normalized_records_digest: BindingDigest,
+    canonical_resolution_bytes: Vec<u8>,
+    committed_at_epoch_ms: u64,
+}
+
+impl MarketDataRepairResolutionReentryReadbackV1 {
+    pub(crate) fn resolution_identity(&self) -> &str {
+        &self.resolution_identity
+    }
+    pub(crate) fn resolution_digest(&self) -> &str {
+        &self.resolution_digest
+    }
+    pub(crate) fn decision_identity(&self) -> &str {
+        &self.decision_identity
+    }
+    pub(crate) const fn decision_evidence_cut(&self) -> &IterationDecisionEvidenceCutV1 {
+        &self.decision_evidence_cut
+    }
+    pub(crate) fn repair_request_identity(&self) -> &str {
+        &self.repair_request_identity
+    }
+    pub(crate) fn repair_request_digest(&self) -> &str {
+        &self.repair_request_digest
+    }
+    pub(crate) fn market_data_terminal_identity(&self) -> &str {
+        &self.market_data_terminal_identity
+    }
+    pub(crate) fn market_data_terminal_digest(&self) -> &str {
+        &self.market_data_terminal_digest
+    }
+    pub(crate) const fn correlation_identity(&self) -> BindingDigest {
+        self.correlation_identity
+    }
+    pub(crate) const fn repaired_snapshot_identity(&self) -> BindingDigest {
+        self.repaired_snapshot_identity
+    }
+    pub(crate) const fn repaired_normalized_records_digest(&self) -> BindingDigest {
+        self.repaired_normalized_records_digest
+    }
+    pub(crate) fn canonical_resolution_bytes(&self) -> &[u8] {
+        &self.canonical_resolution_bytes
+    }
+    pub(crate) const fn committed_at_epoch_ms(&self) -> u64 {
+        self.committed_at_epoch_ms
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredResolutionProjectionV1 {
+    schema_version: u16,
+    resolution_identity: String,
+    resolution_digest: String,
+    disposition: String,
+    decision_identity: String,
+    decision_digest: String,
+    decision_evidence_cut: IterationDecisionEvidenceCutV1,
+    action_request_identity: String,
+    action_request_digest: String,
+    repair_request_identity: String,
+    repair_request_digest: String,
+    repair_request_receipt_identity: String,
+    repair_request_receipt_digest: String,
+    market_data_terminal_identity: String,
+    market_data_terminal_digest: String,
+    correlation_identity: BindingDigest,
+    result_time_evidence: UntrustedPitSnapshotTimeEvidence,
+    repaired: Option<StoredRepairedSnapshotV1>,
+    unavailable_basis: Option<String>,
+    blockers: Vec<String>,
+    stop_reason: Option<String>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredRepairedSnapshotV1 {
+    snapshot_identity: BindingDigest,
+    normalized_records_digest: BindingDigest,
+}
+
+#[derive(Serialize)]
+struct StoredResolutionMeaningV1<'a> {
+    schema_version: u16,
+    disposition: &'a str,
+    decision_identity: &'a str,
+    decision_digest: &'a str,
+    decision_evidence_cut: &'a IterationDecisionEvidenceCutV1,
+    action_request_identity: &'a str,
+    action_request_digest: &'a str,
+    repair_request_identity: &'a str,
+    repair_request_digest: &'a str,
+    repair_request_receipt_identity: &'a str,
+    repair_request_receipt_digest: &'a str,
+    market_data_terminal_identity: &'a str,
+    market_data_terminal_digest: &'a str,
+    correlation_identity: BindingDigest,
+    result_time_evidence: &'a UntrustedPitSnapshotTimeEvidence,
+    repaired: Option<&'a StoredRepairedSnapshotV1>,
+    unavailable_basis: Option<&'a str>,
+    blockers: &'a [String],
+    stop_reason: Option<&'a str>,
 }
 
 impl MarketDataRepairResolutionReadbackV1 {
@@ -169,6 +292,48 @@ pub(crate) async fn resolve(
         return Ok(None);
     };
     verify_outbox(&mut transaction, &readback).await?;
+    transaction.commit().await.map_err(unavailable)?;
+    Ok(Some(readback))
+}
+
+/// Resolves only an exact persisted `REPAIRED` resolution locator for Replay re-entry.
+///
+/// The caller supplies no terminal body. Positive custody is reconstructed from canonical R&D
+/// storage, its self-authenticating resolution digest, scalar mirrors, and the exact Owner outbox.
+pub(crate) async fn resolve_repaired_for_reentry(
+    pool: &PgPool,
+    locator: &MarketDataRepairResolutionLocatorV1,
+) -> Result<
+    Option<MarketDataRepairResolutionReentryReadbackV1>,
+    MarketDataRepairResolutionPostgresErrorV1,
+> {
+    validate_identity(&locator.resolution_identity)?;
+    validate_identity(&locator.repair_request_identity)?;
+    let mut transaction = pool.begin().await.map_err(unavailable)?;
+    let rows = load_rows(&mut transaction, &locator.repair_request_identity).await?;
+    let Some(readback) = (!rows.is_empty())
+        .then(|| admit_reentry_row(&rows, locator))
+        .transpose()?
+    else {
+        transaction.commit().await.map_err(unavailable)?;
+        return Ok(None);
+    };
+    verify_outbox_payload(
+        &mut transaction,
+        readback.resolution_identity(),
+        &ResolvedOutboxV1 {
+            schema_version: 1,
+            resolution_identity: readback.resolution_identity().to_owned(),
+            resolution_digest: readback.resolution_digest().to_owned(),
+            repair_request_identity: readback.repair_request_identity().to_owned(),
+            decision_identity: readback.decision_identity().to_owned(),
+            market_data_terminal_identity: readback.market_data_terminal_identity().to_owned(),
+            market_data_terminal_digest: readback.market_data_terminal_digest().to_owned(),
+            disposition: MarketDataRepairResolutionDispositionV1::Repaired,
+        },
+        readback.committed_at_epoch_ms(),
+    )
+    .await?;
     transaction.commit().await.map_err(unavailable)?;
     Ok(Some(readback))
 }
@@ -394,6 +559,153 @@ fn admit_row(
     })
 }
 
+fn admit_reentry_row(
+    rows: &[sqlx::postgres::PgRow],
+    locator: &MarketDataRepairResolutionLocatorV1,
+) -> Result<MarketDataRepairResolutionReentryReadbackV1, MarketDataRepairResolutionPostgresErrorV1>
+{
+    if rows.len() != 1 {
+        return Err(unavailable("resolution request identity is not unique"));
+    }
+    let row = &rows[0];
+    let stored_bytes: Vec<u8> = row
+        .try_get("resolution_storage_bytes")
+        .map_err(unavailable)?;
+    let stored_json: serde_json::Value = row.try_get("resolution_json").map_err(unavailable)?;
+    let decoded_json: serde_json::Value =
+        serde_json::from_slice(&stored_bytes).map_err(unavailable)?;
+    let projection = decode_canonical_resolution_projection(&stored_bytes)?;
+    let committed_at_epoch_ms = u64::try_from(
+        row.try_get::<i64, _>("committed_at_epoch_ms")
+            .map_err(unavailable)?,
+    )
+    .map_err(unavailable)?;
+
+    let exact_storage = stored_json == decoded_json
+        && serde_json::to_value(&projection).map_err(unavailable)? == stored_json
+        && row
+            .try_get::<String, _>("resolution_storage_digest")
+            .map_err(unavailable)?
+            == bytes_digest(STORAGE_DOMAIN_V1, &stored_bytes)
+        && row
+            .try_get::<String, _>("resolution_identity")
+            .map_err(unavailable)?
+            == projection.resolution_identity
+        && row
+            .try_get::<String, _>("repair_request_identity")
+            .map_err(unavailable)?
+            == projection.repair_request_identity
+        && row
+            .try_get::<String, _>("decision_identity")
+            .map_err(unavailable)?
+            == projection.decision_identity
+        && row
+            .try_get::<String, _>("market_data_terminal_identity")
+            .map_err(unavailable)?
+            == projection.market_data_terminal_identity
+        && row
+            .try_get::<String, _>("market_data_terminal_digest")
+            .map_err(unavailable)?
+            == projection.market_data_terminal_digest
+        && row
+            .try_get::<String, _>("resolution_digest")
+            .map_err(unavailable)?
+            == projection.resolution_digest
+        && row
+            .try_get::<String, _>("disposition")
+            .map_err(unavailable)?
+            == projection.disposition;
+    if !exact_storage {
+        return Err(unavailable("resolution row storage is inconsistent"));
+    }
+    if projection.schema_version != 1
+        || projection.disposition != "REPAIRED"
+        || projection.stop_reason.is_some()
+        || projection.unavailable_basis.is_some()
+        || !projection.blockers.is_empty()
+        || projection.resolution_identity != locator.resolution_identity
+        || projection.repair_request_identity != locator.repair_request_identity
+    {
+        return Err(MarketDataRepairResolutionPostgresErrorV1::Conflict);
+    }
+    let expected_digest = stored_resolution_digest(&projection)?;
+    let expected_identity = format!(
+        "rd-market-data-repair-resolution-v1-{}",
+        expected_digest.trim_start_matches("sha256:")
+    );
+    if projection.resolution_digest != expected_digest
+        || projection.resolution_identity != expected_identity
+    {
+        return Err(unavailable("resolution digest custody mismatch"));
+    }
+    let repaired = projection
+        .repaired
+        .ok_or_else(|| unavailable("repaired resolution snapshot is unavailable"))?;
+    Ok(MarketDataRepairResolutionReentryReadbackV1 {
+        resolution_identity: projection.resolution_identity,
+        resolution_digest: projection.resolution_digest,
+        decision_identity: projection.decision_identity,
+        decision_evidence_cut: projection.decision_evidence_cut,
+        repair_request_identity: projection.repair_request_identity,
+        repair_request_digest: projection.repair_request_digest,
+        market_data_terminal_identity: projection.market_data_terminal_identity,
+        market_data_terminal_digest: projection.market_data_terminal_digest,
+        correlation_identity: projection.correlation_identity,
+        repaired_snapshot_identity: repaired.snapshot_identity,
+        repaired_normalized_records_digest: repaired.normalized_records_digest,
+        canonical_resolution_bytes: stored_bytes,
+        committed_at_epoch_ms,
+    })
+}
+
+fn decode_canonical_resolution_projection(
+    bytes: &[u8],
+) -> Result<StoredResolutionProjectionV1, MarketDataRepairResolutionPostgresErrorV1> {
+    let projection: StoredResolutionProjectionV1 =
+        serde_json::from_slice(bytes).map_err(unavailable)?;
+    if serde_json::to_vec(&projection).map_err(unavailable)? != bytes {
+        return Err(unavailable("resolution storage bytes are not canonical"));
+    }
+    Ok(projection)
+}
+
+fn stored_resolution_digest(
+    projection: &StoredResolutionProjectionV1,
+) -> Result<String, MarketDataRepairResolutionPostgresErrorV1> {
+    #[derive(Serialize)]
+    struct Envelope<'a, T> {
+        domain: &'a str,
+        value: &'a T,
+    }
+    let meaning = StoredResolutionMeaningV1 {
+        schema_version: projection.schema_version,
+        disposition: &projection.disposition,
+        decision_identity: &projection.decision_identity,
+        decision_digest: &projection.decision_digest,
+        decision_evidence_cut: &projection.decision_evidence_cut,
+        action_request_identity: &projection.action_request_identity,
+        action_request_digest: &projection.action_request_digest,
+        repair_request_identity: &projection.repair_request_identity,
+        repair_request_digest: &projection.repair_request_digest,
+        repair_request_receipt_identity: &projection.repair_request_receipt_identity,
+        repair_request_receipt_digest: &projection.repair_request_receipt_digest,
+        market_data_terminal_identity: &projection.market_data_terminal_identity,
+        market_data_terminal_digest: &projection.market_data_terminal_digest,
+        correlation_identity: projection.correlation_identity,
+        result_time_evidence: &projection.result_time_evidence,
+        repaired: projection.repaired.as_ref(),
+        unavailable_basis: projection.unavailable_basis.as_deref(),
+        blockers: &projection.blockers,
+        stop_reason: projection.stop_reason.as_deref(),
+    };
+    serde_json::to_vec(&Envelope {
+        domain: RESOLUTION_DOMAIN_V1,
+        value: &meaning,
+    })
+    .map(|bytes| format!("sha256:{:x}", Sha256::digest(bytes)))
+    .map_err(unavailable)
+}
+
 async fn load_rows(
     transaction: &mut Transaction<'_, Postgres>,
     request_identity: &str,
@@ -548,6 +860,29 @@ mod tests {
     use super::*;
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
+    #[test]
+    fn repaired_projection_recomputes_the_owner_resolution_digest() {
+        let resolution = crate::market_data_repair_resolution::tests::repaired_resolution_fixture();
+        let bytes = resolution
+            .to_canonical_bytes()
+            .expect("canonical resolution");
+        let mut projection: StoredResolutionProjectionV1 =
+            serde_json::from_slice(&bytes).expect("stored projection");
+        assert_eq!(
+            stored_resolution_digest(&projection).expect("resolution digest"),
+            resolution.resolution_digest()
+        );
+        let mut noncanonical = bytes.clone();
+        noncanonical.push(b' ');
+        assert!(decode_canonical_resolution_projection(&noncanonical).is_err());
+
+        projection.decision_evidence_cut.request_digest = format!("sha256:{}", "0".repeat(64));
+        assert_ne!(
+            stored_resolution_digest(&projection).expect("tampered digest"),
+            resolution.resolution_digest()
+        );
+    }
+
     async fn prepare_resolution_custody() -> (CanonicalOwnerPostgresTestDatabaseV1, PgPool) {
         let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
             .await
@@ -591,6 +926,15 @@ mod tests {
             .resolution()
             .to_canonical_bytes()
             .expect("canonical resolution");
+        let locator = MarketDataRepairResolutionLocatorV1 {
+            resolution_identity: readback.resolution().resolution_identity().to_owned(),
+            repair_request_identity: readback.resolution().repair_request_identity().to_owned(),
+        };
+        let locator_readback = resolve_repaired_for_reentry(&pool, &locator)
+            .await
+            .expect("locator-only resolution")
+            .expect("repaired resolution available");
+        assert_eq!(locator_readback.canonical_resolution_bytes(), bytes);
 
         let mut transaction = pool.begin().await.expect("successor transaction");
         verify_repaired_readback_in_transaction(&mut transaction, &bytes, 1_000)

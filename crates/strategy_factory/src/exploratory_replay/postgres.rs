@@ -26,10 +26,14 @@ use crate::{
         exploratory_replay_admission_payload_v1, exploratory_replay_admission_payload_v2,
     },
     market_data_repair_reentry::{
-        MarketDataRepairReplayReentryBindingV1, authorize_market_data_repair_replay_reentry_v1,
+        MarketDataRepairReplayReentryAuthorityV1, MarketDataRepairReplayReentryBindingV1,
+        authorize_market_data_repair_replay_reentry_from_locator_v1,
+        authorize_market_data_repair_replay_reentry_v1,
         form_market_data_repaired_replay_request_v1,
     },
-    market_data_repair_resolution_postgres::MarketDataRepairResolutionReadbackV1,
+    market_data_repair_resolution_postgres::{
+        MarketDataRepairResolutionLocatorV1, MarketDataRepairResolutionReadbackV1,
+    },
     product_edge::{
         FrozenResearchGoalIntent, RESEARCH_OWNER_V1, RESEARCH_SCOPE_V1, ResearchRequestDisposition,
     },
@@ -703,6 +707,25 @@ struct LockedOutboxRowV1 {
     payload_digest: String,
     payload_json: serde_json::Value,
     committed_at_epoch_ms: u64,
+}
+
+#[derive(Deserialize)]
+struct ReplayStorageProjectionV2 {
+    schema_version: u16,
+    custody_state: String,
+    replay: Option<serde_json::Value>,
+    replay_request: Option<CanonicalStorageRecordV2>,
+    replay_receipt: Option<CanonicalStorageRecordV2>,
+    replay_outbox_payload: Option<CanonicalStorageRecordV2>,
+    replay_outbox: Option<CanonicalStorageRecordV2>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CanonicalStorageRecordV2 {
+    bytes_base64: String,
+    digest: String,
+    mirror: serde_json::Value,
 }
 
 pub(crate) const NATIVE_SOURCE_STORAGE_SOURCE_V2: &str = r#"
@@ -1808,6 +1831,54 @@ pub(crate) async fn commit_market_data_repaired_v2(
     let resolution_committed_at_epoch_ms = resolution.committed_at_epoch_ms();
     let authority = authorize_market_data_repair_replay_reentry_v1(&predecessor, resolution)
         .map_err(unavailable)?;
+    commit_market_data_repaired_with_authority_v2(
+        pool,
+        predecessor,
+        authority,
+        resolution_canonical_bytes,
+        resolution_committed_at_epoch_ms,
+    )
+    .await
+}
+
+/// Resolves the exact predecessor and repaired resolution locators before forming the successor.
+pub(crate) async fn commit_market_data_repaired_by_locator_v2(
+    pool: &PgPool,
+    predecessor_locator: &ExploratoryReplayRequestLocatorV2,
+    resolution_locator: &MarketDataRepairResolutionLocatorV1,
+) -> Result<ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError> {
+    let predecessor = resolve_exact_replay_v2(pool, predecessor_locator)
+        .await?
+        .ok_or_else(|| unavailable("repaired Replay predecessor is unavailable"))?;
+    let resolution = crate::market_data_repair_resolution_postgres::resolve_repaired_for_reentry(
+        pool,
+        resolution_locator,
+    )
+    .await
+    .map_err(unavailable)?
+    .ok_or_else(|| unavailable("repaired Market Data resolution is unavailable"))?;
+    let resolution_canonical_bytes = resolution.canonical_resolution_bytes().to_vec();
+    let resolution_committed_at_epoch_ms = resolution.committed_at_epoch_ms();
+    let authority =
+        authorize_market_data_repair_replay_reentry_from_locator_v1(&predecessor, resolution)
+            .map_err(unavailable)?;
+    commit_market_data_repaired_with_authority_v2(
+        pool,
+        predecessor,
+        authority,
+        resolution_canonical_bytes,
+        resolution_committed_at_epoch_ms,
+    )
+    .await
+}
+
+async fn commit_market_data_repaired_with_authority_v2(
+    pool: &PgPool,
+    predecessor: SealedExploratoryReplayReadbackV2,
+    authority: MarketDataRepairReplayReentryAuthorityV1,
+    resolution_canonical_bytes: Vec<u8>,
+    resolution_committed_at_epoch_ms: u64,
+) -> Result<ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError> {
     let repaired = form_market_data_repaired_replay_request_v1(&predecessor, authority)
         .map_err(unavailable)?;
     let (binding, request) = repaired.into_parts();
@@ -2319,7 +2390,7 @@ async fn verify_market_data_repair_sources_in_transaction(
 
     let predecessor_locator = sources.predecessor.locator();
     let value: Option<serde_json::Value> = sqlx::query_scalar(
-        "SELECT rd_owner_api.resolve_native_replay_source_storage_v2($1,$2,$3,$4)->'replay'",
+        "SELECT rd_owner_api.resolve_native_replay_source_storage_v2($1,$2,$3,$4)",
     )
     .bind(&predecessor_locator.request_identity)
     .bind(&predecessor_locator.meaning_digest)
@@ -2328,17 +2399,12 @@ async fn verify_market_data_repair_sources_in_transaction(
     .fetch_one(&mut **transaction)
     .await
     .map_err(storage)?;
-    let verified = decode_v2_read_result(
-        sources.predecessor.request_identity(),
-        sources.predecessor.meaning_digest(),
-        Some(&predecessor_locator),
-        value,
-    )?;
-    let verified = verified.readback.ok_or_else(|| {
-        ExploratoryReplayOwnerError::Unavailable(
-            "repaired Replay predecessor is no longer available".into(),
-        )
-    })?;
+    let verified =
+        decode_exact_replay_storage_v2(&predecessor_locator, value)?.ok_or_else(|| {
+            ExploratoryReplayOwnerError::Unavailable(
+                "repaired Replay predecessor is no longer available".into(),
+            )
+        })?;
     if verified.request() != sources.predecessor.request()
         || verified.canonical_request_bytes() != sources.predecessor.canonical_request_bytes()
         || verified.locator() != sources.predecessor.locator()
@@ -2356,6 +2422,96 @@ async fn verify_market_data_repair_sources_in_transaction(
     )
     .await
     .map_err(unavailable)
+}
+
+async fn resolve_exact_replay_v2(
+    pool: &PgPool,
+    locator: &ExploratoryReplayRequestLocatorV2,
+) -> Result<Option<SealedExploratoryReplayReadbackV2>, ExploratoryReplayOwnerError> {
+    let value: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT rd_owner_api.resolve_native_replay_source_storage_v2($1,$2,$3,$4)",
+    )
+    .bind(&locator.request_identity)
+    .bind(&locator.meaning_digest)
+    .bind(&locator.receipt_identity)
+    .bind(&locator.seal_digest)
+    .fetch_one(pool)
+    .await
+    .map_err(storage)?;
+    decode_exact_replay_storage_v2(locator, value)
+}
+
+fn decode_exact_replay_storage_v2(
+    locator: &ExploratoryReplayRequestLocatorV2,
+    value: Option<serde_json::Value>,
+) -> Result<Option<SealedExploratoryReplayReadbackV2>, ExploratoryReplayOwnerError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let storage: ReplayStorageProjectionV2 = serde_json::from_value(value).map_err(unavailable)?;
+    if storage.schema_version != 1 || storage.custody_state != "AVAILABLE" {
+        return Ok(None);
+    }
+    let (Some(replay), Some(request), Some(receipt), Some(outbox_payload), Some(outbox)) = (
+        storage.replay,
+        storage.replay_request,
+        storage.replay_receipt,
+        storage.replay_outbox_payload,
+        storage.replay_outbox,
+    ) else {
+        return Ok(None);
+    };
+    let result = decode_v2_read_result(
+        &locator.request_identity,
+        &locator.meaning_digest,
+        Some(locator),
+        Some(replay),
+    )?;
+    let Some(mut readback) = result.readback else {
+        return Ok(None);
+    };
+    let decoded_outbox: LockedOutboxRowV1 =
+        serde_json::from_slice(readback.canonical_outbox_bytes()).map_err(unavailable)?;
+    let decoded_outbox_payload: StoredOutboxV2 = decode_exact(&decoded_outbox.payload_json)?;
+    let canonical_outbox_payload_bytes =
+        serde_json::to_vec(&decoded_outbox_payload).map_err(unavailable)?;
+    if !canonical_storage_record_matches(
+        &request,
+        crate::native_replay_rd_sources_v2::REPLAY_REQUEST_STORAGE_DOMAIN_V1,
+        readback.canonical_request_bytes(),
+    ) || !canonical_storage_record_matches(
+        &receipt,
+        crate::native_replay_rd_sources_v2::REPLAY_RECEIPT_STORAGE_DOMAIN_V1,
+        readback.canonical_receipt_bytes(),
+    ) || !canonical_storage_record_matches(
+        &outbox_payload,
+        crate::native_replay_rd_sources_v2::REPLAY_OUTBOX_STORAGE_DOMAIN_V1,
+        &canonical_outbox_payload_bytes,
+    ) || !canonical_storage_record_matches(
+        &outbox,
+        crate::native_replay_rd_sources_v2::REPLAY_OUTBOX_ENVELOPE_STORAGE_DOMAIN_V1,
+        readback.canonical_outbox_bytes(),
+    ) {
+        return Ok(None);
+    }
+    readback.canonical_request_storage_digest = request.digest;
+    readback.canonical_receipt_storage_digest = receipt.digest;
+    readback.canonical_outbox_storage_digest = outbox.digest;
+    Ok(Some(readback))
+}
+
+fn canonical_storage_record_matches(
+    record: &CanonicalStorageRecordV2,
+    domain: &str,
+    expected_bytes: &[u8],
+) -> bool {
+    let Ok(bytes) = BASE64.decode(&record.bytes_base64) else {
+        return false;
+    };
+    bytes == expected_bytes
+        && serde_json::from_slice::<serde_json::Value>(&bytes)
+            .is_ok_and(|decoded| decoded == record.mirror)
+        && crate::native_replay_rd_sources_v2::owner_storage_digest(domain, &bytes) == record.digest
 }
 
 async fn resolve_existing(
@@ -2635,7 +2791,7 @@ pub(crate) fn decode_v2_read_result(
     let Ok(receipt) = decode_exact::<StoredReceiptV2>(&receipt_json) else {
         return Ok(unavailable_result_v2(expected_request_identity));
     };
-    let Ok(canonical_receipt_bytes) = serde_json::to_vec(&receipt_json) else {
+    let Ok(canonical_receipt_bytes) = serde_json::to_vec(&receipt) else {
         return Ok(unavailable_result_v2(expected_request_identity));
     };
     let Ok(canonical_outbox_bytes) = serde_json::to_vec(&outbox) else {
@@ -4050,9 +4206,12 @@ fn unavailable(error: impl Display) -> ExploratoryReplayOwnerError {
 
 #[cfg(test)]
 mod source_tests {
+    use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+
     use super::{
-        INTERNAL_VERIFY_SOURCE_V1, INTERNAL_VERIFY_SOURCE_V2, INTERNAL_VERIFY_SOURCE_V3,
-        NATIVE_SOURCE_STORAGE_SOURCE_V2,
+        CanonicalStorageRecordV2, INTERNAL_VERIFY_SOURCE_V1, INTERNAL_VERIFY_SOURCE_V2,
+        INTERNAL_VERIFY_SOURCE_V3, NATIVE_SOURCE_STORAGE_SOURCE_V2, StoredReceiptV2,
+        canonical_storage_record_matches,
     };
 
     const AUTHORITY_MIGRATION: &str = include_str!(
@@ -4072,6 +4231,50 @@ mod source_tests {
         ] {
             assert_eq!(migration_prosrc(marker), source, "{marker} drifted");
         }
+    }
+
+    #[test]
+    fn replay_storage_digest_is_recomputed_from_exact_bytes() {
+        let bytes = br#"{"request_identity":"replay"}"#;
+        let domain = crate::native_replay_rd_sources_v2::REPLAY_REQUEST_STORAGE_DOMAIN_V1;
+        let mut record = CanonicalStorageRecordV2 {
+            bytes_base64: BASE64.encode(bytes),
+            digest: crate::native_replay_rd_sources_v2::owner_storage_digest(domain, bytes),
+            mirror: serde_json::from_slice(bytes).expect("request mirror"),
+        };
+        assert!(canonical_storage_record_matches(&record, domain, bytes));
+
+        record.digest = format!("blake3:{}", "0".repeat(64));
+        assert!(!canonical_storage_record_matches(&record, domain, bytes));
+    }
+
+    #[test]
+    fn replay_receipt_uses_the_writer_typed_canonical_order() {
+        let receipt = StoredReceiptV2 {
+            schema_version: 2,
+            receipt_identity: "receipt".into(),
+            request_identity: "request".into(),
+            meaning_digest: format!("sha256:{}", "1".repeat(64)),
+            seal_digest: format!("sha256:{}", "2".repeat(64)),
+            execution_profile_seal: None,
+            committed_at_epoch_ms: 7,
+        };
+        let bytes = serde_json::to_vec(&receipt).expect("typed receipt bytes");
+        let mirror = serde_json::to_value(&receipt).expect("receipt mirror");
+        let value_bytes = serde_json::to_vec(&mirror).expect("map-ordered bytes");
+        assert_ne!(bytes, value_bytes);
+        let domain = crate::native_replay_rd_sources_v2::REPLAY_RECEIPT_STORAGE_DOMAIN_V1;
+        let record = CanonicalStorageRecordV2 {
+            bytes_base64: BASE64.encode(&bytes),
+            digest: crate::native_replay_rd_sources_v2::owner_storage_digest(domain, &bytes),
+            mirror,
+        };
+        assert!(canonical_storage_record_matches(&record, domain, &bytes));
+        assert!(!canonical_storage_record_matches(
+            &record,
+            domain,
+            &value_bytes
+        ));
     }
 
     fn migration_prosrc(marker: &str) -> &'static str {

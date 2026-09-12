@@ -1455,6 +1455,23 @@ impl PostgresResearchGoalOwnerV1 {
         .await
     }
 
+    /// Resolves exact existing Owner custody by locator and freezes its sole repaired Replay V2
+    /// successor. Callers cannot supply or deserialize a positive repair-resolution terminal.
+    pub async fn commit_market_data_repaired_replay_request_by_locator_v2(
+        &self,
+        predecessor: &crate::exploratory_replay::ExploratoryReplayRequestLocatorV2,
+        resolution: &crate::MarketDataRepairResolutionLocatorV1,
+    ) -> Result<ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError> {
+        Box::pin(
+            crate::exploratory_replay::postgres::commit_market_data_repaired_by_locator_v2(
+                &self.pool,
+                predecessor,
+                resolution,
+            ),
+        )
+        .await
+    }
+
     /// Re-reads only already committed Replay V2 custody through the R&D Owner session.
     /// Missing or mismatched custody remains unavailable and this path performs no admission.
     pub async fn resolve_exploratory_replay_request_v2(

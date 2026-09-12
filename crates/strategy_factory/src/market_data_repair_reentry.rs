@@ -16,9 +16,8 @@ use vibe_data::owner::source_binding::BindingDigest;
 use crate::{
     MarketDataRepairResolutionReadbackV1,
     exploratory_replay::{ExploratoryReplayRequestLocatorV2, SealedExploratoryReplayReadbackV2},
-    market_data_repair_resolution::{
-        MarketDataRepairResolutionDispositionV1, RepairedMarketDataSnapshotV1,
-    },
+    market_data_repair_resolution::MarketDataRepairResolutionDispositionV1,
+    market_data_repair_resolution_postgres::MarketDataRepairResolutionReentryReadbackV1,
 };
 
 const AUTHORITY_DOMAIN_V1: &str = "rd.market-data-repair-replay-reentry-authority.v1";
@@ -272,47 +271,146 @@ pub fn authorize_market_data_repair_replay_reentry_v1(
                 && resolution.stop_reason().is_none()
         })
         .ok_or(MarketDataRepairReplayReentryErrorV1::NotRepaired)?;
-    validate_predecessor(predecessor, &resolution)?;
-    let predecessor_snapshot = &predecessor.request().as_dto().pit_snapshot;
-    let repaired_identity = repaired.snapshot_identity();
-    let repaired_digest = repaired.normalized_records_digest();
-    if predecessor_snapshot.identity.as_str() == binding_identity(repaired_identity)
-        && predecessor_snapshot.digest.as_str() == binding_digest(repaired_digest)
-    {
-        return Err(MarketDataRepairReplayReentryErrorV1::SnapshotNotAdvanced);
-    }
-    issue_authority(
-        predecessor.locator(),
+    authorize_from_evidence(
+        predecessor,
         &resolution,
-        repaired,
+        repaired.snapshot_identity(),
+        repaired.normalized_records_digest(),
         committed_at_epoch_ms,
     )
 }
 
-fn validate_predecessor(
+/// Issues re-entry authority from the move-only projection produced by the locator-only Owner read.
+pub(crate) fn authorize_market_data_repair_replay_reentry_from_locator_v1(
     predecessor: &SealedExploratoryReplayReadbackV2,
-    resolution: &crate::market_data_repair_resolution::MarketDataRepairResearchTerminalV1,
-) -> Result<(), MarketDataRepairReplayReentryErrorV1> {
+    resolution: MarketDataRepairResolutionReentryReadbackV1,
+) -> Result<MarketDataRepairReplayReentryAuthorityV1, MarketDataRepairReplayReentryErrorV1> {
+    let committed_at_epoch_ms = resolution.committed_at_epoch_ms();
+    let repaired_snapshot_identity = resolution.repaired_snapshot_identity();
+    let repaired_normalized_records_digest = resolution.repaired_normalized_records_digest();
+    authorize_from_evidence(
+        predecessor,
+        &resolution,
+        repaired_snapshot_identity,
+        repaired_normalized_records_digest,
+        committed_at_epoch_ms,
+    )
+}
+
+trait ResolutionAuthorityEvidenceV1 {
+    fn resolution_identity(&self) -> &str;
+    fn resolution_digest(&self) -> &str;
+    fn decision_identity(&self) -> &str;
+    fn decision_evidence_cut(&self) -> &crate::iteration_decision::IterationDecisionEvidenceCutV1;
+    fn repair_request_identity(&self) -> &str;
+    fn repair_request_digest(&self) -> &str;
+    fn market_data_terminal_identity(&self) -> &str;
+    fn market_data_terminal_digest(&self) -> &str;
+    fn correlation_identity(&self) -> BindingDigest;
+}
+
+impl ResolutionAuthorityEvidenceV1
+    for crate::market_data_repair_resolution::MarketDataRepairResearchTerminalV1
+{
+    fn resolution_identity(&self) -> &str {
+        self.resolution_identity()
+    }
+    fn resolution_digest(&self) -> &str {
+        self.resolution_digest()
+    }
+    fn decision_identity(&self) -> &str {
+        self.decision_identity()
+    }
+    fn decision_evidence_cut(&self) -> &crate::iteration_decision::IterationDecisionEvidenceCutV1 {
+        self.decision_evidence_cut()
+    }
+    fn repair_request_identity(&self) -> &str {
+        self.repair_request_identity()
+    }
+    fn repair_request_digest(&self) -> &str {
+        self.repair_request_digest()
+    }
+    fn market_data_terminal_identity(&self) -> &str {
+        self.market_data_terminal_identity()
+    }
+    fn market_data_terminal_digest(&self) -> &str {
+        self.market_data_terminal_digest()
+    }
+    fn correlation_identity(&self) -> BindingDigest {
+        self.correlation_identity()
+    }
+}
+
+impl ResolutionAuthorityEvidenceV1 for MarketDataRepairResolutionReentryReadbackV1 {
+    fn resolution_identity(&self) -> &str {
+        self.resolution_identity()
+    }
+    fn resolution_digest(&self) -> &str {
+        self.resolution_digest()
+    }
+    fn decision_identity(&self) -> &str {
+        self.decision_identity()
+    }
+    fn decision_evidence_cut(&self) -> &crate::iteration_decision::IterationDecisionEvidenceCutV1 {
+        self.decision_evidence_cut()
+    }
+    fn repair_request_identity(&self) -> &str {
+        self.repair_request_identity()
+    }
+    fn repair_request_digest(&self) -> &str {
+        self.repair_request_digest()
+    }
+    fn market_data_terminal_identity(&self) -> &str {
+        self.market_data_terminal_identity()
+    }
+    fn market_data_terminal_digest(&self) -> &str {
+        self.market_data_terminal_digest()
+    }
+    fn correlation_identity(&self) -> BindingDigest {
+        self.correlation_identity()
+    }
+}
+
+fn authorize_from_evidence(
+    predecessor: &SealedExploratoryReplayReadbackV2,
+    resolution: &impl ResolutionAuthorityEvidenceV1,
+    repaired_snapshot_identity: BindingDigest,
+    repaired_normalized_records_digest: BindingDigest,
+    committed_at_epoch_ms: u64,
+) -> Result<MarketDataRepairReplayReentryAuthorityV1, MarketDataRepairReplayReentryErrorV1> {
     let reproduced_bytes = predecessor
         .request()
         .to_canonical_bytes()
         .map_err(encoding)?;
     let reproduced_digest = predecessor.request().meaning_digest().map_err(encoding)?;
-    let decision_cut = resolution.decision_evidence_cut();
     if reproduced_bytes != predecessor.canonical_request_bytes()
         || reproduced_digest.as_str() != predecessor.meaning_digest()
-        || decision_cut.request_identity != predecessor.request_identity()
-        || decision_cut.request_digest != predecessor.meaning_digest()
+        || resolution.decision_evidence_cut().request_identity != predecessor.request_identity()
+        || resolution.decision_evidence_cut().request_digest != predecessor.meaning_digest()
     {
         return Err(MarketDataRepairReplayReentryErrorV1::CustodyMismatch);
     }
-    Ok(())
+    let predecessor_snapshot = &predecessor.request().as_dto().pit_snapshot;
+    if predecessor_snapshot.identity.as_str() == binding_identity(repaired_snapshot_identity)
+        && predecessor_snapshot.digest.as_str()
+            == binding_digest(repaired_normalized_records_digest)
+    {
+        return Err(MarketDataRepairReplayReentryErrorV1::SnapshotNotAdvanced);
+    }
+    issue_authority(
+        predecessor.locator(),
+        resolution,
+        repaired_snapshot_identity,
+        repaired_normalized_records_digest,
+        committed_at_epoch_ms,
+    )
 }
 
 fn issue_authority(
     predecessor_replay: ExploratoryReplayRequestLocatorV2,
-    resolution: &crate::market_data_repair_resolution::MarketDataRepairResearchTerminalV1,
-    repaired: &RepairedMarketDataSnapshotV1,
+    resolution: &impl ResolutionAuthorityEvidenceV1,
+    repaired_snapshot_identity: BindingDigest,
+    repaired_normalized_records_digest: BindingDigest,
     resolution_committed_at_epoch_ms: u64,
 ) -> Result<MarketDataRepairReplayReentryAuthorityV1, MarketDataRepairReplayReentryErrorV1> {
     let meaning = AuthorityMeaningV1 {
@@ -327,8 +425,8 @@ fn issue_authority(
         resolution_digest: resolution.resolution_digest(),
         resolution_committed_at_epoch_ms,
         correlation_identity: resolution.correlation_identity(),
-        repaired_snapshot_identity: repaired.snapshot_identity(),
-        repaired_normalized_records_digest: repaired.normalized_records_digest(),
+        repaired_snapshot_identity,
+        repaired_normalized_records_digest,
     };
     let authority_digest = digest(&meaning)?;
     Ok(MarketDataRepairReplayReentryAuthorityV1 {
@@ -348,8 +446,8 @@ fn issue_authority(
         resolution_digest: resolution.resolution_digest().to_owned(),
         resolution_committed_at_epoch_ms,
         correlation_identity: resolution.correlation_identity(),
-        repaired_snapshot_identity: repaired.snapshot_identity(),
-        repaired_normalized_records_digest: repaired.normalized_records_digest(),
+        repaired_snapshot_identity,
+        repaired_normalized_records_digest,
     })
 }
 
