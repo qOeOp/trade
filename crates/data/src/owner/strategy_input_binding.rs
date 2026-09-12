@@ -1023,7 +1023,7 @@ pub fn bind_strategy_input_universe_frame(
     })
 }
 
-fn derive_universe_selection(
+pub(crate) fn derive_universe_selection(
     batch: &VerifiedPitObservationBatch,
 ) -> Result<StrategyInputUniverseSelectionReceipt, StrategyInputBindingUnavailable> {
     let mut by_member = BTreeMap::<String, String>::new();
@@ -1857,9 +1857,12 @@ mod tests {
         VerifiedPitObservationBatch {
             request_identity: d(1),
             request_digest: d(2),
+            correlation_identity: d(21),
+            scope_digest: d(20),
             snapshot_identity: d(3),
             fact_digest: d(4),
             source_binding_identity: d(6),
+            source_binding_fact_digest: d(22),
             source_binding_lineage_root: d(16),
             source_binding_lineage_version: 1,
             source_frontier_digest: d(7),

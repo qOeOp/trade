@@ -73,10 +73,23 @@ mod holdout;
 pub mod intent;
 pub mod iteration_decision;
 mod iteration_decision_postgres;
+#[allow(
+    dead_code,
+    reason = "the effect-free Market Data repair request issuer awaits T153 PostgreSQL custody"
+)]
+pub mod market_data_repair_request;
+#[allow(
+    dead_code,
+    reason = "T153 PostgreSQL custody is reached through the R&D Owner composition"
+)]
+mod market_data_repair_request_postgres;
 pub use iteration_decision_postgres::{
     DecisionCompositionRequestV1, IterationDecisionPostgresErrorV1,
     IterationDecisionResolutionLocatorV1, RepairActionCompositionRequestV1,
     RepairActionResolutionLocatorV1,
+};
+pub use market_data_repair_request_postgres::{
+    MarketDataRepairCompositionRequestV1, MarketDataRepairPostgresErrorV1,
 };
 mod legacy_prepared_attempt_drain;
 #[allow(

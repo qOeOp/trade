@@ -1322,9 +1322,12 @@ pub(crate) fn verify_observation_batch(
     Ok(VerifiedPitObservationBatch {
         request_identity: fact.request_identity(),
         request_digest: fact.request_digest(),
+        correlation_identity: fact.request().correlation_identity,
+        scope_digest: fact.request().scope_digest,
         snapshot_identity: fact.snapshot_identity(),
         fact_digest: fact.digest(),
         source_binding_identity: fact.source_binding_identity(),
+        source_binding_fact_digest: fact.request().source_binding.fact_digest(),
         source_binding_lineage_root: fact.source_binding_lineage_root(),
         source_binding_lineage_version: fact.source_binding_lineage_version(),
         source_frontier_digest: fact.evidence().source_frontier.digest,

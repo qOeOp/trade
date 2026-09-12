@@ -1253,6 +1253,7 @@ impl PostgresResearchGoalOwnerV1 {
             RD_CORE_TABLES,
             crate::trial_family_postgres::TABLES,
             crate::iteration_decision_postgres::TABLES,
+            crate::market_data_repair_request_postgres::TABLES,
             crate::complex_strategy_develop_evaluation::TABLES,
         ] {
             if materialization {
@@ -1328,6 +1329,64 @@ impl PostgresResearchGoalOwnerV1 {
     > {
         crate::iteration_decision_postgres::resolve_repair_action_request_v1(&self.pool, locator)
             .await
+    }
+
+    /// Commits one effect-free Market Data repair request from exact Owner readbacks.
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    pub async fn compose_market_data_repair_request_v1<P, M, T>(
+        &self,
+        request: crate::MarketDataRepairCompositionRequestV1,
+        composer: &P,
+        instrument_master_owner: &InstrumentMasterV2PostgresOwner,
+        market_data: &M,
+        shared_time: &T,
+    ) -> Result<
+        crate::market_data_repair_request::MarketDataRepairRequestReadbackV1,
+        crate::MarketDataRepairPostgresErrorV1,
+    >
+    where
+        P: crate::develop_composer_postgres_v2::DevelopComposerSealedReadPortV2 + ?Sized,
+        M: NativeReplaySchedulingResolverV1 + ?Sized,
+        T: vibe_data::owner::shared_time_evidence::SharedTimeEvidenceResolver + ?Sized,
+    {
+        crate::market_data_repair_request_postgres::compose_market_data_repair_request_v1(
+            &self.pool,
+            request,
+            composer,
+            instrument_master_owner,
+            market_data,
+            shared_time,
+        )
+        .await
+    }
+
+    /// Re-resolves existing Market Data repair request custody without creating a replacement.
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    pub async fn resolve_market_data_repair_request_v1<P, M, T>(
+        &self,
+        request: crate::MarketDataRepairCompositionRequestV1,
+        composer: &P,
+        instrument_master_owner: &InstrumentMasterV2PostgresOwner,
+        market_data: &M,
+        shared_time: &T,
+    ) -> Result<
+        Option<crate::market_data_repair_request::MarketDataRepairRequestReadbackV1>,
+        crate::MarketDataRepairPostgresErrorV1,
+    >
+    where
+        P: crate::develop_composer_postgres_v2::DevelopComposerSealedReadPortV2 + ?Sized,
+        M: NativeReplaySchedulingResolverV1 + ?Sized,
+        T: vibe_data::owner::shared_time_evidence::SharedTimeEvidenceResolver + ?Sized,
+    {
+        crate::market_data_repair_request_postgres::resolve_market_data_repair_request_v1(
+            &self.pool,
+            request,
+            composer,
+            instrument_master_owner,
+            market_data,
+            shared_time,
+        )
+        .await
     }
 
     /// Uses a canonical `backtest_owner` session to consume only the sealed R&D lock API.

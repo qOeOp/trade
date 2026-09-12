@@ -154,7 +154,10 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), IterationDecisionPostgr
         "CREATE TABLE IF NOT EXISTS rd_repair_action_requests_v1 (action_request_identity TEXT PRIMARY KEY, decision_identity TEXT NOT NULL UNIQUE REFERENCES rd_iteration_decisions_v1(decision_identity), result_identity TEXT NOT NULL UNIQUE, action_request_digest TEXT NOT NULL, request_json JSONB NOT NULL, receipt_json JSONB NOT NULL, request_storage_bytes BYTEA NOT NULL, request_storage_digest TEXT NOT NULL, receipt_storage_bytes BYTEA NOT NULL, receipt_storage_digest TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
     )
     .await
-    .map_err(storage)
+    .map_err(storage)?;
+    crate::market_data_repair_request_postgres::migrate(pool)
+        .await
+        .map_err(|error| storage(error.to_string()))
 }
 
 pub(crate) async fn compose_repair_input_decision_v1(
@@ -359,7 +362,7 @@ async fn persist_repair_action(
     Ok(())
 }
 
-async fn load_repair_action_in_transaction(
+pub(crate) async fn load_repair_action_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     decision_identity: &str,
     known_decision: Option<&RepairInputIterationDecisionReadbackV1>,
@@ -596,7 +599,7 @@ async fn persist_decision(
     Ok(())
 }
 
-async fn load_by_result_in_transaction(
+pub(crate) async fn load_by_result_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     result_identity: &str,
     composition: Option<&DecisionCompositionRequestV1>,

@@ -6,6 +6,7 @@
 
 use std::collections::BTreeMap;
 
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use vibe_model::{
@@ -25,7 +26,8 @@ use super::{
         BarScheduleUnitV1, UntrustedBarScheduleLocatorV1,
     },
     pit_snapshot::{
-        UntrustedPitSnapshotLocator, VerifiedPitObservation, VerifiedPitObservationBatch,
+        UntrustedPitSnapshotLocator, UntrustedPitSnapshotTimeEvidence, VerifiedPitObservation,
+        VerifiedPitObservationBatch,
     },
     source_binding::BindingDigest,
     strategy_input_binding::{
@@ -254,6 +256,112 @@ pub struct NativeReplayInitialMarketReadbackV1 {
     window_end_ns_exclusive: u64,
 }
 
+/// Move-only Market Data evidence for one category-exact repair request.
+///
+/// This projection contains only immutable Owner coordinates. It exposes neither normalized
+/// observation rows nor a Market Data mutation port.
+#[derive(Debug, Eq, PartialEq, Serialize)]
+pub struct MarketDataRepairSourceV1 {
+    pit_request_identity: BindingDigest,
+    pit_request_digest: BindingDigest,
+    correlation_identity: BindingDigest,
+    pit_snapshot_identity: BindingDigest,
+    pit_snapshot_fact_digest: BindingDigest,
+    instrument_scope_digest: BindingDigest,
+    source_binding_identity: BindingDigest,
+    source_binding_fact_digest: BindingDigest,
+    source_binding_lineage_root: BindingDigest,
+    source_binding_lineage_version: u64,
+    source_frontier_digest: BindingDigest,
+    correction_frontier_digest: BindingDigest,
+    instrument_master_digest: BindingDigest,
+    universe_selection_digest: BindingDigest,
+    market_semantics_identity: BindingDigest,
+    time_evidence: UntrustedPitSnapshotTimeEvidence,
+}
+
+impl MarketDataRepairSourceV1 {
+    #[must_use]
+    pub const fn pit_request_identity(&self) -> BindingDigest {
+        self.pit_request_identity
+    }
+
+    #[must_use]
+    pub const fn pit_request_digest(&self) -> BindingDigest {
+        self.pit_request_digest
+    }
+
+    #[must_use]
+    pub const fn correlation_identity(&self) -> BindingDigest {
+        self.correlation_identity
+    }
+
+    #[must_use]
+    pub const fn pit_snapshot_identity(&self) -> BindingDigest {
+        self.pit_snapshot_identity
+    }
+
+    #[must_use]
+    pub const fn pit_snapshot_fact_digest(&self) -> BindingDigest {
+        self.pit_snapshot_fact_digest
+    }
+
+    #[must_use]
+    pub const fn instrument_scope_digest(&self) -> BindingDigest {
+        self.instrument_scope_digest
+    }
+
+    #[must_use]
+    pub const fn source_binding_identity(&self) -> BindingDigest {
+        self.source_binding_identity
+    }
+
+    #[must_use]
+    pub const fn source_binding_fact_digest(&self) -> BindingDigest {
+        self.source_binding_fact_digest
+    }
+
+    #[must_use]
+    pub const fn source_binding_lineage_root(&self) -> BindingDigest {
+        self.source_binding_lineage_root
+    }
+
+    #[must_use]
+    pub const fn source_binding_lineage_version(&self) -> u64 {
+        self.source_binding_lineage_version
+    }
+
+    #[must_use]
+    pub const fn source_frontier_digest(&self) -> BindingDigest {
+        self.source_frontier_digest
+    }
+
+    #[must_use]
+    pub const fn correction_frontier_digest(&self) -> BindingDigest {
+        self.correction_frontier_digest
+    }
+
+    #[must_use]
+    pub const fn instrument_master_digest(&self) -> BindingDigest {
+        self.instrument_master_digest
+    }
+
+    #[must_use]
+    pub const fn universe_selection_digest(&self) -> BindingDigest {
+        self.universe_selection_digest
+    }
+
+    #[must_use]
+    pub const fn market_semantics_identity(&self) -> BindingDigest {
+        self.market_semantics_identity
+    }
+
+    #[must_use]
+    pub const fn time_evidence(&self) -> &UntrustedPitSnapshotTimeEvidence {
+        &self.time_evidence
+    }
+}
+
 impl NativeReplayInitialMarketReadbackV1 {
     #[must_use]
     pub const fn universe_frame(&self) -> &StrategyInputUniverseFrameReceipt {
@@ -263,6 +371,30 @@ impl NativeReplayInitialMarketReadbackV1 {
     #[must_use]
     pub const fn schedules(&self) -> &[BarScheduleReadbackV1; TARGET_SET_MEMBER_COUNT] {
         &self.schedules
+    }
+
+    /// Consumes the initial replay readback into the exact evidence needed for a Market Data
+    /// repair request. The original observations and executable schedules are not returned.
+    #[must_use]
+    pub fn into_market_data_repair_source(self) -> MarketDataRepairSourceV1 {
+        MarketDataRepairSourceV1 {
+            pit_request_identity: self.batch.request_identity(),
+            pit_request_digest: self.batch.request_digest(),
+            correlation_identity: self.batch.correlation_identity(),
+            pit_snapshot_identity: self.batch.snapshot_identity(),
+            pit_snapshot_fact_digest: self.batch.fact_digest(),
+            instrument_scope_digest: self.batch.scope_digest(),
+            source_binding_identity: self.batch.source_binding_identity(),
+            source_binding_fact_digest: self.batch.source_binding_fact_digest(),
+            source_binding_lineage_root: self.batch.source_binding_lineage_root(),
+            source_binding_lineage_version: self.batch.source_binding_lineage_version(),
+            source_frontier_digest: self.batch.source_frontier_digest(),
+            correction_frontier_digest: self.batch.correction_frontier_digest(),
+            instrument_master_digest: self.batch.instrument_master_digest(),
+            universe_selection_digest: self.batch.universe_selection_digest(),
+            market_semantics_identity: self.batch.market_semantics_identity(),
+            time_evidence: self.batch.time_evidence().clone(),
+        }
     }
 
     #[must_use]
@@ -916,9 +1048,12 @@ mod tests {
         VerifiedPitObservationBatch {
             request_identity: digest(10),
             request_digest: digest(11),
+            correlation_identity: digest(18),
+            scope_digest: digest(17),
             snapshot_identity: digest(12),
             fact_digest: digest(13),
             source_binding_identity: digest(3),
+            source_binding_fact_digest: digest(19),
             source_binding_lineage_root: digest(14),
             source_binding_lineage_version: 1,
             source_frontier_digest: digest(4),
@@ -1029,6 +1164,61 @@ mod tests {
             data.as_slice(),
             [Data::Bar(_), Data::Bar(_), Data::Quote(_), Data::Quote(_)]
         ));
+    }
+
+    #[test]
+    fn initial_market_readback_projects_exact_repair_scope_and_correlation() {
+        let first = InstrumentId::from("AAA-PERP.SIM");
+        let second = InstrumentId::from("BBB-PERP.SIM");
+        let mut rows = rows_for("AAA-PERP.SIM", 101);
+        rows.extend(rows_for("BBB-PERP.SIM", 102));
+        let mut batch = batch(rows);
+        let selection = crate::owner::strategy_input_binding::derive_universe_selection(&batch)
+            .expect("derived Owner selection");
+        let selection_identity = selection.selection_identity();
+        let selection_digest = selection.selection_digest();
+        batch.universe_selection_digest = selection_digest;
+        for row in &mut batch.observations {
+            row.universe_selection_digest = selection_digest;
+        }
+        let request = NativeReplayInitialMarketRequestV1::new(
+            digest(12),
+            digest(13),
+            digest(20),
+            digest(21),
+            selection_identity,
+            selection_digest,
+            digest(5),
+            digest(14),
+            digest(7),
+            vec![NativeReplayInitialUniverseRoleV1::new(
+                digest(23),
+                MarketDataFieldSemantic::BarClosePrice,
+                StrategyInputChannel::Market,
+                "1M".to_string(),
+                StrategyInputUnit::Price,
+                2,
+            )],
+            [first, second],
+            100,
+            200,
+        );
+        let readback = issue_native_replay_initial_market_readback_v1(
+            batch,
+            [schedule("AAA-PERP.SIM", 40), schedule("BBB-PERP.SIM", 41)],
+            &request,
+        )
+        .expect("exact initial Market Data readback");
+
+        let source = readback.into_market_data_repair_source();
+        assert_eq!(source.pit_request_identity(), digest(10));
+        assert_eq!(source.pit_request_digest(), digest(11));
+        assert_eq!(source.correlation_identity(), digest(18));
+        assert_eq!(source.instrument_scope_digest(), digest(17));
+        assert_eq!(source.universe_selection_digest(), selection_digest);
+        assert_eq!(source.source_binding_fact_digest(), digest(19));
+        assert_eq!(source.pit_snapshot_identity(), digest(12));
+        assert_eq!(source.pit_snapshot_fact_digest(), digest(13));
     }
 
     #[test]

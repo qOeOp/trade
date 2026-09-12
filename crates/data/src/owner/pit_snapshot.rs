@@ -331,7 +331,6 @@ impl PitSnapshotOwnerReadback {
     pub const fn source_binding_identity(&self) -> BindingDigest {
         self.source_binding_identity
     }
-
     /// Returns the immutable correction lineage root.
     pub const fn lineage_root(&self) -> BindingDigest {
         self.lineage_root
@@ -506,9 +505,12 @@ impl VerifiedPitObservation {
 pub struct VerifiedPitObservationBatch {
     pub(crate) request_identity: BindingDigest,
     pub(crate) request_digest: BindingDigest,
+    pub(crate) correlation_identity: BindingDigest,
+    pub(crate) scope_digest: BindingDigest,
     pub(crate) snapshot_identity: BindingDigest,
     pub(crate) fact_digest: BindingDigest,
     pub(crate) source_binding_identity: BindingDigest,
+    pub(crate) source_binding_fact_digest: BindingDigest,
     pub(crate) source_binding_lineage_root: BindingDigest,
     pub(crate) source_binding_lineage_version: u64,
     pub(crate) source_frontier_digest: BindingDigest,
@@ -528,6 +530,12 @@ impl VerifiedPitObservationBatch {
     pub const fn request_digest(&self) -> BindingDigest {
         self.request_digest
     }
+    pub const fn correlation_identity(&self) -> BindingDigest {
+        self.correlation_identity
+    }
+    pub const fn scope_digest(&self) -> BindingDigest {
+        self.scope_digest
+    }
     pub const fn snapshot_identity(&self) -> BindingDigest {
         self.snapshot_identity
     }
@@ -536,6 +544,9 @@ impl VerifiedPitObservationBatch {
     }
     pub const fn source_binding_identity(&self) -> BindingDigest {
         self.source_binding_identity
+    }
+    pub const fn source_binding_fact_digest(&self) -> BindingDigest {
+        self.source_binding_fact_digest
     }
     pub const fn source_binding_lineage_root(&self) -> BindingDigest {
         self.source_binding_lineage_root
