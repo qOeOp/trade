@@ -17,6 +17,9 @@ use vibe_rd_market_data_repair_custody::{
 
 const RESULT_DOMAIN_V1: &str = "market-data.repair-terminal.v1";
 
+#[cfg(test)]
+mod postgres;
+
 /// Closed terminal vocabulary of the R&D Market Data repair protocol.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -98,6 +101,21 @@ impl MarketDataRepairTerminalV1 {
     #[must_use]
     pub fn repair_request_identity(&self) -> &str {
         &self.repair_request_identity
+    }
+
+    #[must_use]
+    pub fn repair_request_digest(&self) -> &str {
+        &self.repair_request_digest
+    }
+
+    #[must_use]
+    pub fn repair_request_receipt_identity(&self) -> &str {
+        &self.repair_request_receipt_identity
+    }
+
+    #[must_use]
+    pub fn repair_request_receipt_digest(&self) -> &str {
+        &self.repair_request_receipt_digest
     }
 
     #[must_use]
@@ -748,11 +766,18 @@ mod tests {
         )
     }
 
+    pub(crate) fn available_terminal_fixture(result_value: u8) -> MarketDataRepairTerminalV1 {
+        let (request, mut pit) = fixtures();
+        pit.snapshot_identity = d(result_value);
+        pit.fact_digest = d(result_value.wrapping_add(1));
+        pit.available = Some((d(result_value), d(result_value.wrapping_add(2))));
+        issue_from_evidence(&request, &pit).expect("available repair terminal fixture")
+    }
+
     #[test]
     fn exact_available_terminal_is_deterministic() {
-        let (request, pit) = fixtures();
-        let first = issue_from_evidence(&request, &pit).expect("available repair terminal");
-        let second = issue_from_evidence(&request, &pit).expect("same terminal");
+        let first = available_terminal_fixture(20);
+        let second = available_terminal_fixture(20);
         assert_eq!(
             first.disposition(),
             MarketDataRepairDispositionV1::Available
