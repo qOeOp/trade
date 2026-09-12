@@ -947,6 +947,7 @@ fn validate_envelope(
         semantic_trace_bytes.as_deref(),
     ) {
         (None, None, None) => true,
+        (Some(_), None, None) => true,
         (Some(observation), Some(stored), Some(bytes)) => {
             stored.result_identity == result.result_identity.as_str()
                 && observation.component == ObservationComponentV2::SemanticTrace
@@ -1579,17 +1580,18 @@ mod tests {
             &semantic_trace_a,
         );
         missing_trace["semantic_trace"] = serde_json::Value::Null;
-        assert!(matches!(
-            validate_envelope(
-                missing_trace,
-                ExploratoryReplayResultLocatorV2 {
-                    result_identity: result_a.result_identity.as_str(),
-                    request_identity: result_a.request_identity.as_str(),
-                    attempt_identity: result_a.attempt_identity.as_str(),
-                },
-            ),
-            Err(BacktestResultCustodyErrorV2::Unavailable)
-        ));
+        let locked_without_native_trace = validate_envelope(
+            missing_trace,
+            ExploratoryReplayResultLocatorV2 {
+                result_identity: result_a.result_identity.as_str(),
+                request_identity: result_a.request_identity.as_str(),
+                attempt_identity: result_a.attempt_identity.as_str(),
+            },
+        )
+        .expect("generic custody remains available without a native trace row");
+        assert!(locked_without_native_trace
+            .semantic_trace_canonical_bytes()
+            .is_none());
 
         let mut changed_trace = envelope(
             &result_a,
