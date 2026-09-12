@@ -208,6 +208,17 @@ pub(crate) async fn compose_repair_input_decision_v1(
             return Err(IterationDecisionPostgresErrorV1::NoDecision(reason));
         }
         IterationDecisionGateV1::InterpretationRequired { .. } => {
+            let locked_outcome = crate::rd_owner_postgres_custody::
+                resolve_exploratory_replay_outcome_for_rd_in_transaction(
+                    &mut transaction,
+                    ExploratoryReplayResultLocatorV2 {
+                        result_identity: &request.result_identity,
+                        request_identity: &request.request_identity,
+                        attempt_identity: &request.attempt_identity,
+                    },
+                )
+                .await?
+                .ok_or(BacktestResultCustodyErrorV2::Unavailable)?;
             let intent_identity = census
                 .legacy_family
                 .initial_intent_member()
@@ -222,7 +233,7 @@ pub(crate) async fn compose_repair_input_decision_v1(
                 "frozen Research Intent custody is missing",
             ))?;
             let interpretation =
-                issue_interpretation_context_v1(&census, &research_custody, &locked_result)?;
+                issue_interpretation_context_v1(&census, &research_custody, &locked_outcome)?;
             if !interpretation.has_unresolved_diagnosis() {
                 transaction.rollback().await.map_err(storage)?;
                 return Err(IterationDecisionPostgresErrorV1::Decision(
@@ -947,7 +958,8 @@ mod postgres_acceptance_tests {
 
     #[tokio::test]
     #[ignore = "requires the canonical disposable R&D and Backtest Owner PostgreSQL topology"]
-    async fn repair_decision_action_and_market_data_request_commit_retry_resolve_and_rejection_are_atomic() {
+    async fn repair_decision_action_and_market_data_request_commit_retry_resolve_and_rejection_are_atomic()
+     {
         let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
             .await
             .expect("canonical disposable topology");

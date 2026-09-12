@@ -4,6 +4,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row, postgres::PgRow};
+pub(crate) use vibe_backtest_result_custody::LockedExploratoryReplayResultV3;
 pub use vibe_backtest_result_custody::{
     BacktestResultCustodyErrorV2, ExploratoryReplayResultLocatorV2, LockedExploratoryReplayResultV2,
 };
@@ -21,6 +22,14 @@ pub async fn resolve_exploratory_replay_result_for_rd_in_transaction(
     locator: ExploratoryReplayResultLocatorV2<'_>,
 ) -> Result<Option<LockedExploratoryReplayResultV2>, BacktestResultCustodyErrorV2> {
     vibe_backtest_result_custody::resolve_exploratory_replay_result_v2(transaction, locator).await
+}
+
+/// Resolves the same Result with Backtest-owned native outcome evidence for R&D interpretation.
+pub(crate) async fn resolve_exploratory_replay_outcome_for_rd_in_transaction(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    locator: ExploratoryReplayResultLocatorV2<'_>,
+) -> Result<Option<LockedExploratoryReplayResultV3>, BacktestResultCustodyErrorV2> {
+    vibe_backtest_result_custody::resolve_exploratory_replay_result_v3(transaction, locator).await
 }
 
 /// Resolves the exact R&D-produced Native Replay source records under one read-only transaction.

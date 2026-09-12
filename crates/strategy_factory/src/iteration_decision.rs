@@ -11,7 +11,7 @@ use vibe_backtest_owner_contracts::{
 use crate::{
     LockedExploratoryReplayResultV2, ReplayPolicyCatalogBindingV3,
     product_edge::FrozenResearchGoalIntent,
-    rd_owner_postgres_custody::VerifiedResearchCustodyV1,
+    rd_owner_postgres_custody::{LockedExploratoryReplayResultV3, VerifiedResearchCustodyV1},
     trial_family::{
         TrialFamilyAttemptTerminalDispositionV2, TrialFamilyCensusReadbackV2, TrialFamilyError,
     },
@@ -387,6 +387,23 @@ pub(crate) struct IterationInterpretationResultCustodyV1 {
     semantic_trace_storage_digest: String,
 }
 
+/// Backtest-owned native outcome bytes admitted for R&D interpretation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct IterationInterpretationOutcomeEvidenceV1 {
+    evidence_identity: String,
+    evidence_digest: String,
+    frozen_research_intent: IterationDiagnosisEvidenceReferenceV1,
+    trial_family_census_frontier: IterationDiagnosisEvidenceReferenceV1,
+    canonical_result_schema_identity: String,
+    canonical_result_binding_digest: String,
+    canonical_result_bytes_length: u64,
+    evidence_storage_digest: String,
+    canonical_result_storage_digest: String,
+    receipt_storage_digest: String,
+    outbox_storage_digest: String,
+}
+
 /// Owner-sealed decisive diagnostic evidence carried by the locked Result aggregate.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -434,6 +451,7 @@ pub(crate) struct IterationInterpretationContextV1 {
     diagnostic: IterationInterpretationDiagnosticV1,
     required_dimensions: Vec<IterationDiagnosisDimensionV1>,
     result_custody: IterationInterpretationResultCustodyV1,
+    outcome_evidence: IterationInterpretationOutcomeEvidenceV1,
     owner_bindings: Vec<IterationInterpretationOwnerBindingV1>,
     diagnostic_evidence: IterationInterpretationDiagnosticEvidenceV1,
     diagnosis_findings: Vec<IterationDiagnosisFindingV1>,
@@ -487,13 +505,14 @@ pub enum IterationDecisionErrorV1 {
 pub(crate) fn issue_interpretation_context_v1(
     census: &TrialFamilyCensusReadbackV2,
     research_custody: &VerifiedResearchCustodyV1,
-    locked_result: &LockedExploratoryReplayResultV2,
+    locked_outcome: &LockedExploratoryReplayResultV3,
 ) -> Result<IterationInterpretationContextV1, IterationDecisionErrorV1> {
     let intent = research_custody.intent().ok_or(
         IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
             "frozen Research Intent custody is missing",
         ),
     )?;
+    let locked_result = locked_outcome.replay();
     let gate = gate_locked_exploratory_result_v1(census, locked_result)?;
     let semantic_trace_bytes = locked_result.semantic_trace_canonical_bytes().ok_or(
         IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
@@ -506,12 +525,14 @@ pub(crate) fn issue_interpretation_context_v1(
         locked_result.outbox_canonical_bytes(),
         semantic_trace_bytes,
     );
+    let outcome_evidence = interpretation_outcome_evidence_v1(locked_outcome)?;
     issue_interpretation_context_from_result_v1(
         census,
         intent,
         gate,
         locked_result.result(),
         result_custody,
+        outcome_evidence,
     )
 }
 
@@ -521,6 +542,7 @@ fn issue_interpretation_context_from_result_v1(
     gate: IterationDecisionGateV1,
     result: &ReplayResultDtoV2,
     result_custody: IterationInterpretationResultCustodyV1,
+    outcome_evidence: IterationInterpretationOutcomeEvidenceV1,
 ) -> Result<IterationInterpretationContextV1, IterationDecisionErrorV1> {
     let IterationDecisionGateV1::InterpretationRequired {
         evidence_cut,
@@ -660,6 +682,7 @@ fn issue_interpretation_context_from_result_v1(
         evidence_identity: diagnostic_locator.reference.as_str().to_string(),
         evidence_digest: diagnostic_locator.digest.as_str().to_string(),
     };
+    validate_outcome_evidence_cut_v1(intent, &owner_bindings, &outcome_evidence)?;
     let diagnosis_findings = derive_six_dimension_diagnosis_v1(
         census,
         intent,
@@ -667,12 +690,14 @@ fn issue_interpretation_context_from_result_v1(
         &evidence_cut,
         &owner_bindings,
         &diagnostic_evidence,
+        &outcome_evidence,
     )?;
     Ok(IterationInterpretationContextV1 {
         evidence_cut,
         diagnostic,
         required_dimensions,
         result_custody,
+        outcome_evidence,
         owner_bindings,
         diagnostic_evidence,
         diagnosis_findings,
@@ -686,6 +711,7 @@ fn derive_six_dimension_diagnosis_v1(
     evidence_cut: &IterationDecisionEvidenceCutV1,
     owner_bindings: &[IterationInterpretationOwnerBindingV1],
     diagnostic_evidence: &IterationInterpretationDiagnosticEvidenceV1,
+    outcome_evidence: &IterationInterpretationOutcomeEvidenceV1,
 ) -> Result<Vec<IterationDiagnosisFindingV1>, IterationDecisionErrorV1> {
     let FrozenResearchGoalIntent::V2(intent) = intent else {
         return Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
@@ -729,6 +755,10 @@ fn derive_six_dimension_diagnosis_v1(
         identity: diagnostic_evidence.evidence_identity.clone(),
         digest: diagnostic_evidence.evidence_digest.clone(),
     };
+    let outcome_reference = IterationDiagnosisEvidenceReferenceV1 {
+        identity: outcome_evidence.evidence_identity.clone(),
+        digest: outcome_evidence.evidence_digest.clone(),
+    };
     let failure_disposition = match diagnostic {
         IterationInterpretationDiagnosticV1::NoExecutionDefect => {
             IterationDiagnosisDispositionV1::NoExecutionDefect
@@ -745,12 +775,17 @@ fn derive_six_dimension_diagnosis_v1(
                 result_reference,
                 census_reference.clone(),
                 trace_reference.clone(),
+                outcome_reference.clone(),
             ],
         ),
         diagnosis_finding_v1(
             IterationDiagnosisDimensionV1::MechanismValidity,
             IterationDiagnosisDispositionV1::Unresolved,
-            vec![intent_reference.clone(), trace_reference.clone()],
+            vec![
+                intent_reference.clone(),
+                trace_reference.clone(),
+                outcome_reference.clone(),
+            ],
         ),
         diagnosis_finding_v1(
             IterationDiagnosisDimensionV1::EconomicViability,
@@ -761,24 +796,124 @@ fn derive_six_dimension_diagnosis_v1(
                 slippage_reference,
                 capacity_reference,
                 trace_reference.clone(),
+                outcome_reference.clone(),
             ],
         ),
         diagnosis_finding_v1(
             IterationDiagnosisDimensionV1::Robustness,
             IterationDiagnosisDispositionV1::Unresolved,
-            vec![census_reference.clone(), trace_reference],
+            vec![
+                census_reference.clone(),
+                trace_reference,
+                outcome_reference.clone(),
+            ],
         ),
         diagnosis_finding_v1(
             IterationDiagnosisDimensionV1::FailureAttribution,
             failure_disposition,
-            vec![failure_reference],
+            vec![failure_reference, outcome_reference.clone()],
         ),
         diagnosis_finding_v1(
             IterationDiagnosisDimensionV1::InformationValue,
             IterationDiagnosisDispositionV1::Unresolved,
-            vec![candidate_reference, census_reference],
+            vec![candidate_reference, census_reference, outcome_reference],
         ),
     ])
+}
+
+fn validate_outcome_evidence_cut_v1(
+    intent: &FrozenResearchGoalIntent,
+    owner_bindings: &[IterationInterpretationOwnerBindingV1],
+    outcome: &IterationInterpretationOutcomeEvidenceV1,
+) -> Result<(), IterationDecisionErrorV1> {
+    let FrozenResearchGoalIntent::V2(intent) = intent else {
+        return Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+            "frozen Research Intent V2 is missing",
+        ));
+    };
+    let intent_binding =
+        owner_binding_reference_v1(owner_bindings, ObservationComponentV2::FrozenResearchIntent)?;
+    let census_binding = owner_binding_reference_v1(
+        owner_bindings,
+        ObservationComponentV2::TrialFamilyCensusFrontier,
+    )?;
+    if outcome.frozen_research_intent.identity != intent.intent_identity
+        || outcome.frozen_research_intent.digest != intent.semantic_digest
+        || outcome.frozen_research_intent != intent_binding
+        || outcome.trial_family_census_frontier != census_binding
+        || outcome.canonical_result_schema_identity != "vibe-backtest-result/v1"
+        || outcome.canonical_result_bytes_length == 0
+    {
+        return Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+            "Backtest outcome evidence does not share the R&D interpretation cut",
+        ));
+    }
+    Ok(())
+}
+
+fn interpretation_outcome_evidence_v1(
+    locked: &LockedExploratoryReplayResultV3,
+) -> Result<IterationInterpretationOutcomeEvidenceV1, IterationDecisionErrorV1> {
+    vibe_backtest::result::CanonicalBacktestResult::from_slice(
+        locked.engine_canonical_result_bytes(),
+    )
+    .map_err(|_| {
+        IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+            "canonical Backtest result bytes are invalid",
+        )
+    })?;
+    let evidence = locked.outcome_evidence();
+    Ok(IterationInterpretationOutcomeEvidenceV1 {
+        evidence_identity: evidence.evidence_identity.as_str().to_string(),
+        evidence_digest: evidence.evidence_digest.as_str().to_string(),
+        frozen_research_intent: IterationDiagnosisEvidenceReferenceV1 {
+            identity: evidence
+                .frozen_research_intent
+                .identity
+                .as_str()
+                .to_string(),
+            digest: evidence.frozen_research_intent.digest.as_str().to_string(),
+        },
+        trial_family_census_frontier: IterationDiagnosisEvidenceReferenceV1 {
+            identity: evidence
+                .trial_family_census_frontier
+                .identity
+                .as_str()
+                .to_string(),
+            digest: evidence
+                .trial_family_census_frontier
+                .digest
+                .as_str()
+                .to_string(),
+        },
+        canonical_result_schema_identity: evidence
+            .canonical_result
+            .schema_identity
+            .as_str()
+            .to_string(),
+        canonical_result_binding_digest: evidence
+            .canonical_result
+            .canonical_bytes_digest
+            .as_str()
+            .to_string(),
+        canonical_result_bytes_length: evidence.canonical_result.canonical_bytes_length,
+        evidence_storage_digest: interpretation_storage_digest_v1(
+            "vibe.rd.iteration-interpretation.outcome-evidence-storage.v1",
+            locked.outcome_evidence_canonical_bytes(),
+        ),
+        canonical_result_storage_digest: interpretation_storage_digest_v1(
+            "vibe.rd.iteration-interpretation.canonical-result-storage.v1",
+            locked.engine_canonical_result_bytes(),
+        ),
+        receipt_storage_digest: interpretation_storage_digest_v1(
+            "vibe.rd.iteration-interpretation.outcome-evidence-receipt-storage.v1",
+            locked.outcome_evidence_receipt_canonical_bytes(),
+        ),
+        outbox_storage_digest: interpretation_storage_digest_v1(
+            "vibe.rd.iteration-interpretation.outcome-evidence-outbox-storage.v1",
+            locked.outcome_evidence_outbox_canonical_bytes(),
+        ),
+    })
 }
 
 fn owner_binding_reference_v1(
@@ -1338,8 +1473,15 @@ mod tests {
         gate: IterationDecisionGateV1,
         result: &ReplayResultDtoV2,
     ) -> Result<IterationInterpretationContextV1, IterationDecisionErrorV1> {
-        let result_bytes = serde_json::to_vec(result).expect("result bytes");
-        let semantic_trace_bytes = b"canonical-backtest-semantic-trace-envelope";
+        interpretation_context_with_outcome(census, gate, result, |_| {})
+    }
+
+    fn interpretation_context_with_outcome(
+        census: &TrialFamilyCensusReadbackV2,
+        gate: IterationDecisionGateV1,
+        result: &ReplayResultDtoV2,
+        mutate_outcome: impl FnOnce(&mut IterationInterpretationOutcomeEvidenceV1),
+    ) -> Result<IterationInterpretationContextV1, IterationDecisionErrorV1> {
         let intent = FrozenResearchGoalIntent::V2(FrozenResearchGoalIntentV2 {
             schema_version: 2,
             intent_identity: census
@@ -1372,18 +1514,81 @@ mod tests {
             trial_family_policy_digest: format!("sha256:{}", "c".repeat(64)),
             frozen_at_epoch_ms: 1,
         });
+        let FrozenResearchGoalIntent::V2(intent_v2) = &intent else {
+            unreachable!("fixture uses V2 intent")
+        };
+        let mut result = result.clone();
+        bind_interpretation_component(
+            &mut result,
+            ObservationComponentV2::FrozenResearchIntent,
+            &intent_v2.intent_identity,
+            &intent_v2.semantic_digest,
+        );
+        let replay_census_binding = result
+            .reconciliation
+            .iter()
+            .find(|atom| atom.component == ObservationComponentV2::TrialFamilyCensusFrontier)
+            .expect("Replay census binding");
+        let result_bytes = serde_json::to_vec(&result).expect("result bytes");
+        let semantic_trace_bytes = b"canonical-backtest-semantic-trace-envelope";
+        let mut outcome = IterationInterpretationOutcomeEvidenceV1 {
+            evidence_identity: "backtest-outcome-evidence-v1-fixture".to_string(),
+            evidence_digest: format!("blake3:{}", "d".repeat(64)),
+            frozen_research_intent: IterationDiagnosisEvidenceReferenceV1 {
+                identity: intent_v2.intent_identity.clone(),
+                digest: intent_v2.semantic_digest.clone(),
+            },
+            trial_family_census_frontier: IterationDiagnosisEvidenceReferenceV1 {
+                identity: replay_census_binding
+                    .requested_meaning_identity
+                    .as_str()
+                    .to_string(),
+                digest: replay_census_binding
+                    .requested_meaning_digest
+                    .as_str()
+                    .to_string(),
+            },
+            canonical_result_schema_identity: "vibe-backtest-result/v1".to_string(),
+            canonical_result_binding_digest: format!("blake3:{}", "e".repeat(64)),
+            canonical_result_bytes_length: 1,
+            evidence_storage_digest: format!("sha256:{}", "1".repeat(64)),
+            canonical_result_storage_digest: format!("sha256:{}", "2".repeat(64)),
+            receipt_storage_digest: format!("sha256:{}", "3".repeat(64)),
+            outbox_storage_digest: format!("sha256:{}", "4".repeat(64)),
+        };
+        mutate_outcome(&mut outcome);
         issue_interpretation_context_from_result_v1(
             census,
             &intent,
             gate,
-            result,
+            &result,
             interpretation_result_custody_v1(
                 &result_bytes,
                 b"receipt-bytes",
                 b"outbox-bytes",
                 semantic_trace_bytes,
             ),
+            outcome,
         )
+    }
+
+    fn bind_interpretation_component(
+        result: &mut ReplayResultDtoV2,
+        component: ObservationComponentV2,
+        identity: &str,
+        digest: &str,
+    ) {
+        if let Some(atom) = result
+            .reconciliation
+            .iter_mut()
+            .find(|atom| atom.component == component)
+        {
+            atom.requested_meaning_identity = self::identity(identity);
+            atom.requested_meaning_digest =
+                CanonicalDigestV2::try_from(digest.to_string()).expect("fixture digest");
+            atom.observed_meaning_identity = Some(atom.requested_meaning_identity.clone());
+            atom.observed_meaning_digest = Some(atom.requested_meaning_digest.clone());
+        }
     }
 
     #[test]
@@ -1482,6 +1687,14 @@ mod tests {
                 .result_storage_digest
                 .starts_with("sha256:")
         );
+        assert_ne!(
+            context
+                .outcome_evidence
+                .trial_family_census_frontier
+                .identity,
+            context.evidence_cut.census_frontier_identity,
+            "Replay-time and post-Result Decision frontiers are distinct lineage cuts"
+        );
         assert_eq!(context.diagnosis_findings.len(), 6);
         assert_eq!(
             context.diagnosis_findings[0].disposition,
@@ -1508,6 +1721,32 @@ mod tests {
                 .semantic_trace_storage_digest
                 .starts_with("sha256:")
         );
+        assert_eq!(
+            context.outcome_evidence.canonical_result_schema_identity,
+            "vibe-backtest-result/v1"
+        );
+        assert!(
+            context
+                .outcome_evidence
+                .canonical_result_storage_digest
+                .starts_with("sha256:")
+        );
+    }
+
+    #[test]
+    fn cross_spliced_outcome_evidence_creates_no_interpretation_context() {
+        let census = census(TrialFamilyAttemptTerminalDispositionV2::TerminalResult);
+        let result = interpretation_result(DiagnosticCategoryV2::NoExecutionDefect);
+        let gate = gate_result(&census, &result, &decision_policy()).expect("interpretation gate");
+
+        assert!(matches!(
+            interpretation_context_with_outcome(&census, gate, &result, |outcome| {
+                outcome.trial_family_census_frontier.identity = "other-frontier".to_string();
+            }),
+            Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+                "Backtest outcome evidence does not share the R&D interpretation cut"
+            ))
+        ));
     }
 
     #[test]
