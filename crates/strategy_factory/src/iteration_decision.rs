@@ -439,6 +439,14 @@ pub(crate) struct IterationInterpretationContextV1 {
     diagnosis_findings: Vec<IterationDiagnosisFindingV1>,
 }
 
+impl IterationInterpretationContextV1 {
+    pub(crate) fn has_unresolved_diagnosis(&self) -> bool {
+        self.diagnosis_findings
+            .iter()
+            .any(|finding| finding.disposition == IterationDiagnosisDispositionV1::Unresolved)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum IterationInterpretationDiagnosticV1 {
@@ -476,10 +484,6 @@ pub enum IterationDecisionErrorV1 {
     Encoding(String),
 }
 
-#[expect(
-    dead_code,
-    reason = "the same-transaction Decision interpreter is the immediate consumer"
-)]
 pub(crate) fn issue_interpretation_context_v1(
     census: &TrialFamilyCensusReadbackV2,
     research_custody: &VerifiedResearchCustodyV1,
@@ -1497,6 +1501,7 @@ mod tests {
                 .count(),
             4
         );
+        assert!(context.has_unresolved_diagnosis());
         assert!(
             context
                 .result_custody

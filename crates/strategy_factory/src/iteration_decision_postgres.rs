@@ -13,8 +13,10 @@ use crate::{
         IterationDecisionErrorV1, IterationDecisionGateV1, IterationNoDecisionReasonV1,
         RepairInputIterationDecisionReadbackV1, admit_stored_repair_input_decision_v1,
         gate_locked_exploratory_result_v1, is_valid_iteration_decision_locator_v1,
-        issue_repair_input_decision_v1,
+        issue_interpretation_context_v1, issue_repair_input_decision_v1,
     },
+    product_edge::ResearchGoalOwnerError,
+    rd_owner_postgres_custody::{ResearchCustodyLookupV1, admit_research_custody_in_transaction},
     repair_action::{
         RepairActionErrorV1, RepairActionRequestReadbackV1, admit_stored_repair_action_request_v1,
         issue_repair_action_request_v1,
@@ -129,6 +131,8 @@ pub enum IterationDecisionPostgresErrorV1 {
     TrialFamily(#[from] TrialFamilyError),
     #[error("Backtest Result custody is unavailable: {0}")]
     Backtest(#[from] BacktestResultCustodyErrorV2),
+    #[error("R&D Research Intent custody is unavailable: {0}")]
+    ResearchCustody(#[from] ResearchGoalOwnerError),
     #[error("R&D Iteration Decision is unavailable: {0}")]
     Decision(#[from] IterationDecisionErrorV1),
     #[error("R&D repair action request is unavailable: {0}")]
@@ -204,6 +208,29 @@ pub(crate) async fn compose_repair_input_decision_v1(
             return Err(IterationDecisionPostgresErrorV1::NoDecision(reason));
         }
         IterationDecisionGateV1::InterpretationRequired { .. } => {
+            let intent_identity = census
+                .legacy_family
+                .initial_intent_member()
+                .fact_identity()
+                .to_string();
+            let research_custody = admit_research_custody_in_transaction(
+                &mut transaction,
+                ResearchCustodyLookupV1::Intent(&intent_identity),
+            )
+            .await?
+            .ok_or(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+                "frozen Research Intent custody is missing",
+            ))?;
+            let interpretation =
+                issue_interpretation_context_v1(&census, &research_custody, &locked_result)?;
+            if !interpretation.has_unresolved_diagnosis() {
+                transaction.rollback().await.map_err(storage)?;
+                return Err(IterationDecisionPostgresErrorV1::Decision(
+                    IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+                        "resolved interpretation has no admitted Decision composer",
+                    ),
+                ));
+            }
             transaction.rollback().await.map_err(storage)?;
             return Err(IterationDecisionPostgresErrorV1::InterpretationRequired);
         }
