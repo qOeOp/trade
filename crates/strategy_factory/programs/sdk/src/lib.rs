@@ -1943,6 +1943,17 @@ pub mod lifecycle_v1 {
             output[280..312].copy_from_slice(&self.plugin_state_digest);
             output
         }
+
+        pub fn decode(bytes: &[u8]) -> Result<Self, CheckpointCodecFaultV1> {
+            if bytes.len() != TRACE_BYTES {
+                return Err(CheckpointCodecFaultV1::InvalidLength);
+            }
+            let trace = decode_checkpoint_trace(bytes)?;
+            if trace.encode().as_slice() != bytes {
+                return Err(CheckpointCodecFaultV1::NonCanonicalEncoding);
+            }
+            Ok(trace)
+        }
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -4847,6 +4858,24 @@ mod tests {
             assert_eq!(
                 LifecycleKernelV1::restore(identities(), malformed),
                 Err(KernelFaultV1::InvalidCheckpoint)
+            );
+        }
+
+        #[rstest]
+        fn semantic_trace_codec_round_trips_and_rejects_noncanonical_bytes() {
+            let trace = SemanticTraceV1::default();
+            let bytes = trace.encode();
+            assert_eq!(SemanticTraceV1::decode(&bytes), Ok(trace));
+            assert_eq!(
+                SemanticTraceV1::decode(&bytes[..TRACE_BYTES - 1]),
+                Err(CheckpointCodecFaultV1::InvalidLength)
+            );
+
+            let mut noncanonical = bytes;
+            noncanonical[2] = 1;
+            assert_eq!(
+                SemanticTraceV1::decode(&noncanonical),
+                Err(CheckpointCodecFaultV1::NonZeroReserved)
             );
         }
 
