@@ -34,8 +34,13 @@ function unavailable(reason: string, status: number) {
 
 function exactRequest(value: unknown): value is SourceResearchOperationRequestV1 {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
   const keys = Object.keys(value).sort();
-  return keys.length === 3 && keys.join(",") === "action,research,source";
+  return record.action === "RUN"
+    ? keys.length === 3 && keys.join(",") === "action,research,source"
+    : record.action === "RESOLVE"
+      && keys.length === 3
+      && keys.join(",") === "action,research_request_identity,source_request_identity";
 }
 
 export async function POST(request: Request) {
@@ -66,10 +71,14 @@ export async function POST(request: Request) {
     return unavailable("EXECUTION_REQUEST_INVALID", 400);
   }
   const result = await executeSourceResearchOperationV1({ request: body });
+  const sourceRequestIdentity = body.action === "RUN"
+    ? body.source.request_identity : body.source_request_identity;
+  const researchRequestIdentity = body.action === "RUN"
+    ? body.research.request_identity : body.research_request_identity;
   const envelope = await projectSourceResearchBrowserEnvelopeV1({
     result,
-    sourceRequestIdentity: body.source.request_identity,
-    researchRequestIdentity: body.research.request_identity,
+    sourceRequestIdentity,
+    researchRequestIdentity,
   });
   return NextResponse.json(envelope, {
     status: result.status === 200 && envelope.availability === "unavailable" ? 502 : result.status,

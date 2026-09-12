@@ -80,6 +80,11 @@ const request = {
     },
   },
 };
+const resolveRequest = {
+  action: "RESOLVE",
+  source_request_identity: request.source.request_identity,
+  research_request_identity: request.research.request_identity,
+};
 
 const compatibility = compatibleEnvironmentV1({
   extraManifests: [sourceIntakeOperationV1, researchGoalOperationV2],
@@ -174,7 +179,7 @@ test("fresh RUN binds both active Dashboard routes before ordered Owner effects"
     PRODUCT_EDGE_RESEARCH_GOAL_ROUTING_KEY_V2,
   ]);
   assert.deepEqual(calls.map(({ url }) => new URL(url).pathname), [
-    "/v1/source-intakes", "/v2/source-intake-research",
+    "/v1/source-intakes", "/v1/source-intake-research",
   ]);
   assert.ok(calls.every(({ init }) => (
     init.headers["x-trade-effect-dispatcher"] === "TRADE_DASHBOARD"
@@ -248,7 +253,7 @@ test("same-identity recovery resolves Owner custody without consulting current r
   assert.equal(result.status, 200);
   assert.deepEqual(calls.map(({ url }) => new URL(url).pathname), [
     "/v1/source-intakes/source-request-1/readback",
-    "/v2/source-intake-research/request-1/resolve",
+    "/v1/source-intake-research/request-1/resolve",
   ]);
   assert.ok(calls.every(({ init }) => (
     init.headers["x-trade-effect-dispatcher"] === undefined
@@ -267,7 +272,7 @@ test("explicit RESOLVE never resumes a missing RUN stage", async () => {
     observed_phases: [],
   };
   const result = await executeSourceResearchOperationV1({
-    request: { ...request, action: "RESOLVE" },
+    request: resolveRequest,
     environment,
     store: runStore([], recovery),
     routingResolver: async () => { throw new Error("resolve must not reread routing"); },
@@ -282,6 +287,56 @@ test("explicit RESOLVE never resumes a missing RUN stage", async () => {
     "/v1/source-intakes/source-request-1/readback",
   ]);
   assert.equal(calls[0].init.headers["x-trade-effect-dispatcher"], undefined);
+});
+
+test("identity-only recovery resolves both terminal Owner routes without routing or bodies", async () => {
+  const calls = [];
+  const events = [];
+  const recovery = {
+    schema_version: 1,
+    run: run(),
+    requested_action: "RUN",
+    routing: { source: dashboardRoute, research: dashboardRoute },
+    observed_phases: [],
+  };
+  const result = await executeSourceResearchOperationV1({
+    request: resolveRequest,
+    environment,
+    store: runStore(events, recovery),
+    routingResolver: async () => { throw new Error("resolve must not read routing"); },
+    fetcher: async (input, init) => {
+      calls.push({ url: String(input), init });
+      return Response.json(String(input).includes("/v1/source-intakes/")
+        ? sourceTerminal : acceptedResearch);
+    },
+  });
+  assert.equal(result.status, 200);
+  assert.deepEqual(calls.map(({ url }) => new URL(url).pathname), [
+    "/v1/source-intakes/source-request-1/readback",
+    "/v2/research-goals/request-1/resolve",
+  ]);
+  assert.ok(calls.every(({ init }) => init.body === undefined));
+  assert.ok(calls.every(({ init }) => init.headers["x-trade-effect-dispatcher"] === undefined));
+  assert.deepEqual(events, [
+    "schema", "read", "begin:RESOLVE", "phase:SOURCE_OWNER_AVAILABLE",
+    "phase:RESEARCH_OWNER_AVAILABLE", "complete:available",
+  ]);
+});
+
+test("identity-only recovery without retained RunStore custody fails closed", async () => {
+  const events = [];
+  let calls = 0;
+  const result = await executeSourceResearchOperationV1({
+    request: resolveRequest,
+    environment,
+    store: runStore(events),
+    routingResolver: async () => { calls += 1; throw new Error("must not read routing"); },
+    fetcher: async () => { calls += 1; throw new Error("must not fetch"); },
+  });
+  assert.equal(result.status, 404);
+  assert.equal(result.envelope.unavailable_reason, "EXECUTION_RECOVERY_NOT_FOUND");
+  assert.equal(calls, 0);
+  assert.deepEqual(events, ["schema", "read"]);
 });
 
 test("terminal rejected recovery remains an exact zero-effect readback", async () => {
@@ -300,7 +355,7 @@ test("terminal rejected recovery remains an exact zero-effect readback", async (
     observed_phases: ["SOURCE_OWNER_AVAILABLE", "RESEARCH_OWNER_AVAILABLE"],
   };
   const result = await executeSourceResearchOperationV1({
-    request: { ...request, action: "RESOLVE" },
+    request: resolveRequest,
     environment,
     store: runStore([], recovery),
     routingResolver: async () => { throw new Error("terminal resolve must not reread routing"); },
@@ -316,8 +371,9 @@ test("terminal rejected recovery remains an exact zero-effect readback", async (
   assert.equal(result.envelope.operational_run.owner_outcome_state, "rejected");
   assert.deepEqual(calls.map(({ url }) => new URL(url).pathname), [
     "/v1/source-intakes/source-request-1/readback",
-    "/v2/source-intake-research/request-1/resolve",
+    "/v2/research-goals/request-1/resolve",
   ]);
+  assert.ok(calls.every(({ init }) => init.body === undefined));
   assert.ok(calls.every(({ init }) => (
     init.headers["x-trade-effect-dispatcher"] === undefined
   )));

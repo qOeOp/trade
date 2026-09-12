@@ -37,11 +37,21 @@ export type ResearchGoalExecutionInputV2 = {
   trial_family_proposal: DashboardTrialFamilyProposalV1;
 };
 
-export type SourceResearchOperationRequestV1 = {
-  action: "RUN" | "RESOLVE";
+export type SourceResearchRunRequestV1 = {
+  action: "RUN";
   source: SourceIntakeExecutionInputV1;
   research: ResearchGoalExecutionInputV2;
 };
+
+export type SourceResearchResolveRequestV1 = {
+  action: "RESOLVE";
+  source_request_identity: string;
+  research_request_identity: string;
+};
+
+export type SourceResearchOperationRequestV1 =
+  | SourceResearchRunRequestV1
+  | SourceResearchResolveRequestV1;
 
 const IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/;
 const DOI = /^10\.[a-z0-9./\-_;():]{1,252}$/;
@@ -121,7 +131,15 @@ export function validResearchGoalExecutionInputV2(value: ResearchGoalExecutionIn
 export function validSourceResearchOperationRequestV1(
   value: SourceResearchOperationRequestV1,
 ): boolean {
-  return (value.action === "RUN" || value.action === "RESOLVE")
+  if (!object(value)) return false;
+  if (value.action === "RESOLVE") {
+    return exactKeys(value, [
+      "action", "source_request_identity", "research_request_identity",
+    ]) && IDENTITY.test(value.source_request_identity)
+      && IDENTITY.test(value.research_request_identity);
+  }
+  return value.action === "RUN"
+    && exactKeys(value, ["action", "source", "research"])
     && validSourceIntakeExecutionInputV1(value.source)
     && validResearchGoalExecutionInputV2(value.research);
 }

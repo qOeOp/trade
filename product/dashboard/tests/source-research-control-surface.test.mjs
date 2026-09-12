@@ -19,7 +19,9 @@ test("Source to Research has an independent admitted typed control route", async
   assert.match(shell, /sourceResearchControl \? <SourceResearchControl/u);
   assert.match(component, /validSourceResearchOperationRequestV1/u);
   assert.match(component, /parseSourceResearchActionEnvelopeV1/u);
-  assert.match(component, /action: "RESOLVE" as const/u);
+  assert.match(component, /function recoveryForDraft/u);
+  assert.match(component, /source_request_identity: draft\.sourceRequestIdentity\.trim\(\)/u);
+  assert.match(component, /Recover existing/u);
   assert.match(component, /setCapability\(""\)/u);
   assert.match(component, /SUBMITTED_OR_UNKNOWN/u);
   assert.match(component, /<FormField/u);

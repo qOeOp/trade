@@ -38,9 +38,18 @@ const request = {
   },
 };
 
-test("the shared browser/server input contract accepts one exact public proposal", () => {
+const resolveRequest = {
+  action: "RESOLVE",
+  source_request_identity: request.source.request_identity,
+  research_request_identity: request.research.request_identity,
+};
+
+test("the shared browser/server input contract accepts exact run and identity-only recovery shapes", () => {
   assert.equal(validSourceResearchOperationRequestV1(request), true);
-  assert.equal(validSourceResearchOperationRequestV1({ ...request, action: "RESOLVE" }), true);
+  assert.equal(validSourceResearchOperationRequestV1(resolveRequest), true);
+  assert.equal(validSourceResearchOperationRequestV1({ ...request, action: "RESOLVE" }), false);
+  assert.equal(validSourceResearchOperationRequestV1({ ...resolveRequest, source: request.source }), false);
+  assert.equal(validSourceResearchOperationRequestV1({ ...resolveRequest, source_request_identity: "" }), false);
 });
 
 test("the shared input contract rejects unordered alternatives and incomplete authority fields", () => {

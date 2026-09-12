@@ -26,6 +26,7 @@ import { PostgresRunStoreV1 } from "../lib/run-store.ts";
 import {
   admitSourceResearchExecutionV1,
 } from "../lib/source-research-run-contract.ts";
+import { executeSourceResearchOperationV1 } from "../lib/source-research-operation.ts";
 import { sourceIntakeOperationV1 } from "../lib/source-intake-operation.ts";
 import { PostgresServiceLogGatewayV1 } from "../lib/service-log-gateway.ts";
 import { PostgresOperationAuditGatewayV1 } from "../lib/operation-audit-gateway.ts";
@@ -1188,10 +1189,9 @@ test("PostgreSQL Source-to-Research custody survives response loss without repla
     await admin.query(await readFile(new URL(`../migrations/${name}`, import.meta.url), "utf8"));
   }
   await ensureSourceResearchCompatibilityCustody(admin);
-  const suffix = randomUUID();
   const recoveryIdentity = {
-    source_request_identity: `source-response-loss-${suffix}`,
-    research_request_identity: `research-response-loss-${suffix}`,
+    source_request_identity: "source-request-1",
+    research_request_identity: "request-1",
   };
   const activeRouting = {
     state: "ACTIVE",
@@ -1208,8 +1208,6 @@ test("PostgreSQL Source-to-Research custody survives response loss without repla
     routingResolver: async () => activeRouting,
   });
   assert.equal(activeAdmission.availability, "available");
-  const resolveAdmission = await admitSourceResearchExecutionV1({ action: "RESOLVE" });
-  assert.equal(resolveAdmission.availability, "available");
   let store = new PostgresRunStoreV1(connectionString, cursorKey);
   await store.assertSourceResearchSchema();
   const started = await store.beginSourceResearch({
@@ -1253,29 +1251,43 @@ test("PostgreSQL Source-to-Research custody survives response loss without repla
     },
   });
   assert.deepEqual(recoverySnapshot?.observed_phases, ["SOURCE_OWNER_AVAILABLE"]);
-  const resumed = await store.beginSourceResearch({
-    action: "RESOLVE",
-    recoveryIdentity,
-    admission: resolveAdmission,
-    existingRecoveryOnly: true,
+  const sourceTerminal = JSON.parse(await readFile(
+    new URL("../../rd-workbench/tests/fixtures/source_intake_terminal_v1.json", import.meta.url),
+    "utf8",
+  ));
+  const calls = [];
+  const recoveredResult = await executeSourceResearchOperationV1({
+    request: {
+      action: "RESOLVE",
+      source_request_identity: recoveryIdentity.source_request_identity,
+      research_request_identity: recoveryIdentity.research_request_identity,
+    },
+    environment: {
+      ...sourceResearchCompatibility.environment,
+      DASHBOARD_DEPLOYMENT_CLASS: "DISPOSABLE_LOCAL",
+      DASHBOARD_DISPOSABLE_SOURCE_RESEARCH_EXECUTION: "ENABLED",
+      RD_OWNER_API_URL: "http://127.0.0.1:18080",
+      RD_OWNER_API_TOKEN: "postgres-source-research-owner-token",
+    },
+    store,
+    routingResolver: async () => { throw new Error("identity-only recovery must not read routing"); },
+    fetcher: async (input, init) => {
+      calls.push({ url: String(input), init });
+      return Response.json(String(input).includes("/v1/source-intakes/")
+        ? sourceTerminal : acceptedResearchOwnerResult);
+    },
   });
-  assert.equal(resumed.execution_mode, "RESOLVE_ONLY");
-  const sourceIdempotent = await store.recordSourceResearchPhase({
-    runIdentity: resumed.run.run_identity,
-    expectedTransitionVersion: resumed.run.transition_version,
-    phase: "SOURCE_OWNER_AVAILABLE",
-  });
-  assert.equal(sourceIdempotent.transition_version, 2);
-  const researchObserved = await store.recordSourceResearchPhase({
-    runIdentity: resumed.run.run_identity,
-    expectedTransitionVersion: sourceIdempotent.transition_version,
-    phase: "RESEARCH_OWNER_AVAILABLE",
-  });
-  const completed = await store.completeSourceResearch({
-    runIdentity: resumed.run.run_identity,
-    expectedTransitionVersion: researchObserved.transition_version,
-    ownerOutcomeState: "available",
-  });
+  assert.equal(recoveredResult.status, 200);
+  assert.equal(recoveredResult.envelope.operational_run.run_identity, started.run.run_identity);
+  assert.deepEqual(calls.map(({ url }) => new URL(url).pathname), [
+    "/v1/source-intakes/source-request-1/readback",
+    "/v2/research-goals/request-1/resolve",
+  ]);
+  assert.ok(calls.every(({ init }) => init.body === undefined));
+  assert.ok(calls.every(({ init }) => init.headers["x-trade-effect-dispatcher"] === undefined));
+  const completedRecovery = await store.readSourceResearchRecovery(recoveryIdentity);
+  assert.ok(completedRecovery);
+  const completed = completedRecovery.run;
   assert.equal(completed.state, "succeeded");
   assert.equal(completed.transition_version, 4);
   assert.deepEqual((await store.getRunLogs(completed.run_identity)).map(({ event_code }) => event_code), [

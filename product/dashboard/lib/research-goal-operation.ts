@@ -45,8 +45,8 @@ export const researchGoalOperationV2 = {
   routing_dependency_keys: [PRODUCT_EDGE_RESEARCH_GOAL_ROUTING_KEY_V2],
   orchestration_contract: {
     identity: "dashboard-sourced-research-goal-orchestrator-v2",
-    run_owner_route: "POST /v2/source-intake-research",
-    resolve_owner_route: "POST /v2/source-intake-research/{request_identity}/resolve",
+    run_owner_route: "POST /v1/source-intake-research",
+    resolve_owner_route: "POST /v2/research-goals/{request_identity}/resolve",
     source_ancestry_required: true,
     resolve_identity_mode: "EXACT",
   },
@@ -84,6 +84,31 @@ function unavailable(reason: string) {
   };
 }
 
+async function availableTerminalResearch(
+  ownerResponse: Record<string, unknown>,
+  requestIdentity: string,
+) {
+  const projected = await projectResearchOwnerResultWithEvidenceV1(
+    ownerResponse,
+    requestIdentity,
+  );
+  const projection = projected.projection as Record<string, unknown>;
+  if (projected.verified && projection.resolution === "SUBMITTED_OR_UNKNOWN") {
+    return unavailable("RESEARCH_OWNER_UNKNOWN");
+  }
+  if (!projected.verified || !["ACCEPTED", "REJECTED_NO_WRITE"].includes(String(projection.resolution))) {
+    return unavailable("RESEARCH_OWNER_PROJECTION_UNAVAILABLE");
+  }
+  return {
+    availability: "available" as const,
+    unavailable_reason: null,
+    owner_response: ownerResponse,
+    owner_outcome_state: projection.resolution === "ACCEPTED"
+      ? "available" as const
+      : "rejected" as const,
+  };
+}
+
 export async function executeResearchGoalOperationV2({
   action,
   input,
@@ -107,8 +132,8 @@ export async function executeResearchGoalOperationV2({
   const ownerOutcome = await rdOwnerJsonOutcomeV1({
     transport,
     path: action === "RUN"
-      ? "/v2/source-intake-research"
-      : `/v2/source-intake-research/${encodeURIComponent(input.request_identity)}/resolve`,
+      ? "/v1/source-intake-research"
+      : `/v1/source-intake-research/${encodeURIComponent(input.request_identity)}/resolve`,
     method: "POST",
     body: {
       proposal: {
@@ -132,24 +157,24 @@ export async function executeResearchGoalOperationV2({
   if (ownerOutcome.state !== "AVAILABLE") {
     return unavailable("RESEARCH_OWNER_RESPONSE_UNAVAILABLE");
   }
-  const ownerResponse = ownerOutcome.value;
-  const projected = await projectResearchOwnerResultWithEvidenceV1(
-    ownerResponse,
-    input.request_identity,
-  );
-  const projection = projected.projection as Record<string, unknown>;
-  if (projected.verified && projection.resolution === "SUBMITTED_OR_UNKNOWN") {
-    return unavailable("RESEARCH_OWNER_UNKNOWN");
-  }
-  if (!projected.verified || !["ACCEPTED", "REJECTED_NO_WRITE"].includes(String(projection.resolution))) {
-    return unavailable("RESEARCH_OWNER_PROJECTION_UNAVAILABLE");
-  }
-  return {
-    availability: "available" as const,
-    unavailable_reason: null,
-    owner_response: ownerResponse,
-    owner_outcome_state: projection.resolution === "ACCEPTED"
-      ? "available" as const
-      : "rejected" as const,
-  };
+  return availableTerminalResearch(ownerOutcome.value, input.request_identity);
+}
+
+export async function resolveResearchGoalOperationV2({
+  requestIdentity,
+  transport,
+}: {
+  requestIdentity: string;
+  transport: RdOwnerHttpTransportV1;
+}) {
+  if (!IDENTITY.test(requestIdentity)) return unavailable("RESEARCH_EXECUTION_REQUEST_INVALID");
+  const ownerOutcome = await rdOwnerJsonOutcomeV1({
+    transport,
+    path: `/v2/research-goals/${encodeURIComponent(requestIdentity)}/resolve`,
+    method: "POST",
+  });
+  if (ownerOutcome.state === "ABSENT") return unavailable("RESEARCH_OWNER_ABSENT");
+  if (ownerOutcome.state === "UNKNOWN") return unavailable("RESEARCH_OWNER_UNKNOWN");
+  if (ownerOutcome.state !== "AVAILABLE") return unavailable("RESEARCH_OWNER_RESPONSE_UNAVAILABLE");
+  return availableTerminalResearch(ownerOutcome.value, requestIdentity);
 }

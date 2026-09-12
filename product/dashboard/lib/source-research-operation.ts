@@ -5,9 +5,11 @@ import {
 import { configuredDisposableOwnerTransportV1 } from "./rd-owner-http.ts";
 import {
   executeResearchGoalOperationV2,
+  resolveResearchGoalOperationV2,
 } from "./research-goal-operation.ts";
 import {
   executeSourceIntakeOperationV1,
+  resolveSourceIntakeOperationV1,
 } from "./source-intake-operation.ts";
 import {
   validSourceResearchOperationRequestV1,
@@ -110,9 +112,12 @@ export async function executeSourceResearchOperationV1({
   if (!ownerTransport) return unavailable("EXECUTION_CONFIGURATION_UNAVAILABLE", 503);
   if (!store) return unavailable("EXECUTION_RUN_STORE_UNAVAILABLE", 503);
 
-  const recoveryIdentity = {
+  const recoveryIdentity = request.action === "RUN" ? {
     source_request_identity: request.source.request_identity,
     research_request_identity: request.research.request_identity,
+  } : {
+    source_request_identity: request.source_request_identity,
+    research_request_identity: request.research_request_identity,
   };
   let recovery: SourceResearchRecoverySnapshotV1 | null;
   try {
@@ -120,6 +125,10 @@ export async function executeSourceResearchOperationV1({
     recovery = await store.readSourceResearchRecovery(recoveryIdentity);
   } catch {
     return unavailable("EXECUTION_RUN_STORE_UNAVAILABLE", 503);
+  }
+
+  if (!recovery && request.action === "RESOLVE") {
+    return unavailable("EXECUTION_RECOVERY_NOT_FOUND", 404);
   }
 
   if (recovery && !["queued", "running"].includes(recovery.run.state)) {
@@ -169,12 +178,17 @@ export async function executeSourceResearchOperationV1({
   const canResumeMissingStage = request.action === "RUN"
     && recovery?.requested_action === "RUN";
 
-  let sourceResult = await executeSourceIntakeOperationV1({
-    action: started.execution_mode === "FRESH_RUN" ? effectiveAction : "RESOLVE",
-    input: request.source,
-    transport: ownerTransport,
-    routing: routing.source,
-  });
+  let sourceResult = request.action === "RESOLVE"
+    ? await resolveSourceIntakeOperationV1({
+      requestIdentity: request.source_request_identity,
+      transport: ownerTransport,
+    })
+    : await executeSourceIntakeOperationV1({
+      action: started.execution_mode === "FRESH_RUN" ? effectiveAction : "RESOLVE",
+      input: request.source,
+      transport: ownerTransport,
+      routing: routing.source,
+    });
   if (started.execution_mode === "RESOLVE_ONLY"
     && !recoveryPhases.has("SOURCE_OWNER_AVAILABLE")
     && ["SOURCE_OWNER_ABSENT", "SOURCE_OWNER_UNKNOWN"].includes(
@@ -214,13 +228,18 @@ export async function executeSourceResearchOperationV1({
     return unavailable("EXECUTION_RUN_STORE_TRANSITION_UNAVAILABLE", 503, currentRun);
   }
 
-  let researchResult = await executeResearchGoalOperationV2({
-    action: started.execution_mode === "FRESH_RUN" ? effectiveAction : "RESOLVE",
-    input: request.research,
-    ancestry: sourceResult.ancestry,
-    transport: ownerTransport,
-    routing: routing.research,
-  });
+  let researchResult = request.action === "RESOLVE"
+    ? await resolveResearchGoalOperationV2({
+      requestIdentity: request.research_request_identity,
+      transport: ownerTransport,
+    })
+    : await executeResearchGoalOperationV2({
+      action: started.execution_mode === "FRESH_RUN" ? effectiveAction : "RESOLVE",
+      input: request.research,
+      ancestry: sourceResult.ancestry,
+      transport: ownerTransport,
+      routing: routing.research,
+    });
   if (started.execution_mode === "RESOLVE_ONLY"
     && !recoveryPhases.has("RESEARCH_OWNER_AVAILABLE")
     && ["RESEARCH_OWNER_ABSENT", "RESEARCH_OWNER_UNKNOWN"].includes(
@@ -277,12 +296,13 @@ async function resolveCompletedRun({
   storeRun: OperationRunV1;
   ownerTransport: NonNullable<ReturnType<typeof configuredDisposableOwnerTransportV1>>;
 }): Promise<SourceResearchOperationResponseV1> {
-  const noRouting = unavailableSourceResearchRoutingAdmissionV1();
-  const sourceResult = await executeSourceIntakeOperationV1({
-    action: "RESOLVE",
-    input: request.source,
+  const sourceIdentity = request.action === "RUN"
+    ? request.source.request_identity : request.source_request_identity;
+  const researchIdentity = request.action === "RUN"
+    ? request.research.request_identity : request.research_request_identity;
+  const sourceResult = await resolveSourceIntakeOperationV1({
+    requestIdentity: sourceIdentity,
     transport: ownerTransport,
-    routing: noRouting.source,
   });
   if (sourceResult.availability !== "available" || !sourceResult.owner_response
     || !sourceResult.ancestry) {
@@ -292,12 +312,9 @@ async function resolveCompletedRun({
       storeRun,
     );
   }
-  const researchResult = await executeResearchGoalOperationV2({
-    action: "RESOLVE",
-    input: request.research,
-    ancestry: sourceResult.ancestry,
+  const researchResult = await resolveResearchGoalOperationV2({
+    requestIdentity: researchIdentity,
     transport: ownerTransport,
-    routing: noRouting.research,
   });
   if (researchResult.availability !== "available" || !researchResult.owner_response
     || !["available", "rejected"].includes(researchResult.owner_outcome_state ?? "")) {

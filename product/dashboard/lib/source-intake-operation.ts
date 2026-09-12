@@ -60,6 +60,30 @@ function unavailable(reason: string): SourceIntakeExecutionResultV1 {
   };
 }
 
+function availableReadback(
+  ownerResponse: Record<string, unknown>,
+  requestIdentity: string,
+): SourceIntakeExecutionResultV1 {
+  const projection = projectOwnerReadbackV1(ownerResponse, requestIdentity) as Record<string, unknown>;
+  const receipt = projection.receipt;
+  if (projection.resolution !== "RETRIEVED"
+    || typeof projection.binding_identity !== "string"
+    || receipt === null || typeof receipt !== "object" || Array.isArray(receipt)
+    || typeof (receipt as Record<string, unknown>).receipt_identity !== "string") {
+    return unavailable("SOURCE_TERMINAL_UNAVAILABLE");
+  }
+  return {
+    availability: "available",
+    unavailable_reason: null,
+    owner_response: ownerResponse,
+    ancestry: {
+      request_identity: requestIdentity,
+      attempt_identity: projection.binding_identity,
+      terminal_receipt_identity: (receipt as Record<string, unknown>).receipt_identity as string,
+    },
+  };
+}
+
 export async function executeSourceIntakeOperationV1({
   action,
   input,
@@ -101,23 +125,26 @@ export async function executeSourceIntakeOperationV1({
     return unavailable("SOURCE_OWNER_UNKNOWN");
   }
   if (ownerOutcome.state !== "AVAILABLE") return unavailable("SOURCE_OWNER_RESPONSE_UNAVAILABLE");
-  const ownerResponse = ownerOutcome.value;
-  const projection = projectOwnerReadbackV1(ownerResponse, input.request_identity) as Record<string, unknown>;
-  const receipt = projection.receipt;
-  if (projection.resolution !== "RETRIEVED"
-    || typeof projection.binding_identity !== "string"
-    || receipt === null || typeof receipt !== "object" || Array.isArray(receipt)
-    || typeof (receipt as Record<string, unknown>).receipt_identity !== "string") {
-    return unavailable("SOURCE_TERMINAL_UNAVAILABLE");
+  return availableReadback(ownerOutcome.value, input.request_identity);
+}
+
+export async function resolveSourceIntakeOperationV1({
+  requestIdentity,
+  transport,
+}: {
+  requestIdentity: string;
+  transport: RdOwnerHttpTransportV1;
+}): Promise<SourceIntakeExecutionResultV1> {
+  if (!/^[A-Za-z0-9._:/-]{1,192}$/.test(requestIdentity)) {
+    return unavailable("SOURCE_EXECUTION_REQUEST_INVALID");
   }
-  return {
-    availability: "available",
-    unavailable_reason: null,
-    owner_response: ownerResponse,
-    ancestry: {
-      request_identity: input.request_identity,
-      attempt_identity: projection.binding_identity,
-      terminal_receipt_identity: (receipt as Record<string, unknown>).receipt_identity as string,
-    },
-  };
+  const ownerOutcome = await rdOwnerJsonOutcomeV1({
+    transport,
+    path: `/v1/source-intakes/${encodeURIComponent(requestIdentity)}/readback`,
+    method: "GET",
+  });
+  if (ownerOutcome.state === "ABSENT") return unavailable("SOURCE_OWNER_ABSENT");
+  if (ownerOutcome.state === "UNKNOWN") return unavailable("SOURCE_OWNER_UNKNOWN");
+  if (ownerOutcome.state !== "AVAILABLE") return unavailable("SOURCE_OWNER_RESPONSE_UNAVAILABLE");
+  return availableReadback(ownerOutcome.value, requestIdentity);
 }

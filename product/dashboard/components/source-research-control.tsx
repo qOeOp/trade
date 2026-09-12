@@ -5,6 +5,8 @@ import { useEffect, useState, type ChangeEvent } from "react";
 import {
   validSourceResearchOperationRequestV1,
   type SourceResearchOperationRequestV1,
+  type SourceResearchResolveRequestV1,
+  type SourceResearchRunRequestV1,
 } from "../lib/source-research-input-contract";
 import {
   parseSourceResearchActionEnvelopeV1,
@@ -86,9 +88,9 @@ function lines(value: string, canonical = false) {
   return canonical ? [...new Set(parsed)].sort(compareUtf8) : parsed;
 }
 
-function requestFor(draft: Draft, action: "RUN" | "RESOLVE"): SourceResearchOperationRequestV1 {
+function requestFor(draft: Draft): SourceResearchRunRequestV1 {
   return {
-    action,
+    action: "RUN",
     source: {
       request_identity: draft.sourceRequestIdentity,
       normalized_doi: draft.normalizedDoi.trim().toLowerCase(),
@@ -120,6 +122,22 @@ function requestFor(draft: Draft, action: "RUN" | "RESOLVE"): SourceResearchOper
         independence_rationale: draft.independenceRationale.trim(),
       },
     },
+  };
+}
+
+function recoveryFor(request: SourceResearchOperationRequestV1): SourceResearchResolveRequestV1 {
+  return request.action === "RUN" ? {
+    action: "RESOLVE",
+    source_request_identity: request.source.request_identity,
+    research_request_identity: request.research.request_identity,
+  } : request;
+}
+
+function recoveryForDraft(draft: Draft): SourceResearchResolveRequestV1 {
+  return {
+    action: "RESOLVE",
+    source_request_identity: draft.sourceRequestIdentity.trim(),
+    research_request_identity: draft.researchRequestIdentity.trim(),
   };
 }
 
@@ -167,15 +185,16 @@ export function SourceResearchControl() {
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify(request),
     });
+    const recovery = recoveryFor(request);
     return parseSourceResearchActionEnvelopeV1(
       await response.json(),
-      request.source.request_identity,
-      request.research.request_identity,
+      recovery.source_request_identity,
+      recovery.research_request_identity,
     );
   }
 
   async function submit() {
-    const request = requestFor(draft, "RUN");
+    const request = requestFor(draft);
     if (!validSourceResearchOperationRequestV1(request)) {
       setValidation("Complete every field with a valid DOI, 1-64 trial budget, and one item per line where requested.");
       return;
@@ -204,16 +223,28 @@ export function SourceResearchControl() {
     }
   }
 
-  async function resolve() {
-    if (!locked || capability.length < 32 || busy) return;
+  async function resolveExisting() {
+    const request = locked ? recoveryFor(locked) : recoveryForDraft(draft);
+    if (!validSourceResearchOperationRequestV1(request)
+      || capability.length < 32 || busy) return;
     const token = capability;
-    const request = { ...locked, action: "RESOLVE" as const };
+    setLocked(request);
+    setResult(null);
     setCapability("");
     setState("SUBMITTING");
     try {
       const parsed = await post(request, token);
       setResult(parsed);
-      setState(parsed?.availability === "available" ? "TERMINAL" : "SUBMITTED_OR_UNKNOWN");
+      if (!parsed) {
+        setState("SUBMITTED_OR_UNKNOWN");
+      } else if (parsed.availability === "available") {
+        setState("TERMINAL");
+      } else if (parsed.operational_run.run_identity) {
+        setState("SUBMITTED_OR_UNKNOWN");
+      } else {
+        setLocked(null);
+        setState("REVALIDATION_REQUIRED");
+      }
     } catch {
       setState("SUBMITTED_OR_UNKNOWN");
     }
@@ -305,8 +336,14 @@ export function SourceResearchControl() {
             capabilityDisabled={busy}
             actions={<>
               {needsResolve ? <FilterButton density="compact" variant="secondary" type="button"
-                disabled={capability.length < 32 || busy} onClick={() => void resolve()}>
+                disabled={capability.length < 32 || busy} onClick={() => void resolveExisting()}>
                 <InterfaceIcons.refresh aria-hidden="true" size={13} /> Resolve
+              </FilterButton> : null}
+              {!needsResolve && !accepted ? <FilterButton density="compact" variant="secondary" type="button"
+                disabled={capability.length < 32 || busy
+                  || !validSourceResearchOperationRequestV1(recoveryForDraft(draft))}
+                onClick={() => void resolveExisting()}>
+                <InterfaceIcons.refresh aria-hidden="true" size={13} /> Recover existing
               </FilterButton> : null}
               {!needsResolve && !accepted ? <FilterButton density="compact" variant="primary" type="submit"
                 disabled={capability.length < 32 || busy || frozen}>
