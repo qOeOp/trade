@@ -36,6 +36,11 @@ trait MarketDataRepairRequestActionPort: Send + Sync {
         &self,
         request: MarketDataRepairCompositionRequestV1,
     ) -> Result<MarketDataRepairRequestActionResponseV1, MarketDataRepairPostgresErrorV1>;
+
+    async fn resolve(
+        &self,
+        request: MarketDataRepairCompositionRequestV1,
+    ) -> Result<Option<MarketDataRepairRequestActionResponseV1>, MarketDataRepairPostgresErrorV1>;
 }
 
 struct MarketDataRepairRequestServiceV1 {
@@ -64,12 +69,36 @@ impl MarketDataRepairRequestActionPort for MarketDataRepairRequestServiceV1 {
             .await?;
         MarketDataRepairRequestActionResponseV1::try_from(readback)
     }
+
+    async fn resolve(
+        &self,
+        request: MarketDataRepairCompositionRequestV1,
+    ) -> Result<Option<MarketDataRepairRequestActionResponseV1>, MarketDataRepairPostgresErrorV1>
+    {
+        self.owner
+            .resolve_market_data_repair_request_v1(
+                request,
+                self.composer.as_ref(),
+                &self.instrument_master,
+                self.market_data.as_ref(),
+                self.shared_time.as_ref(),
+            )
+            .await?
+            .map(MarketDataRepairRequestActionResponseV1::try_from)
+            .transpose()
+    }
 }
 
 #[derive(Clone)]
 struct MarketDataRepairRequestApiStateV1 {
     service: Option<Arc<dyn MarketDataRepairRequestActionPort>>,
     token_digest: [u8; 32],
+}
+
+#[derive(Clone, Copy)]
+enum MarketDataRepairRequestActionV1 {
+    Compose,
+    Resolve,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -150,16 +179,49 @@ fn router(
             "/v1/market-data-repair-requests",
             post(compose_market_data_repair_request),
         )
+        .route(
+            "/v1/market-data-repair-requests/resolve",
+            post(resolve_market_data_repair_request),
+        )
         .with_state(MarketDataRepairRequestApiStateV1 {
             service,
             token_digest,
         })
 }
 
+async fn resolve_market_data_repair_request(
+    State(state): State<MarketDataRepairRequestApiStateV1>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    handle_market_data_repair_request(
+        state,
+        headers,
+        body,
+        MarketDataRepairRequestActionV1::Resolve,
+    )
+    .await
+}
+
 async fn compose_market_data_repair_request(
     State(state): State<MarketDataRepairRequestApiStateV1>,
     headers: HeaderMap,
     body: Bytes,
+) -> Response {
+    handle_market_data_repair_request(
+        state,
+        headers,
+        body,
+        MarketDataRepairRequestActionV1::Compose,
+    )
+    .await
+}
+
+async fn handle_market_data_repair_request(
+    state: MarketDataRepairRequestApiStateV1,
+    headers: HeaderMap,
+    body: Bytes,
+    action: MarketDataRepairRequestActionV1,
 ) -> Response {
     if !authorized(&headers, &state.token_digest) {
         return rejection(
@@ -193,8 +255,17 @@ async fn compose_market_data_repair_request(
             &action_request_identity,
         );
     };
-    match service.compose(request).await {
-        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
+    let result = match action {
+        MarketDataRepairRequestActionV1::Compose => service.compose(request).await.map(Some),
+        MarketDataRepairRequestActionV1::Resolve => service.resolve(request).await,
+    };
+    match result {
+        Ok(Some(result)) => (StatusCode::OK, Json(result)).into_response(),
+        Ok(None) => rejection(
+            StatusCode::NOT_FOUND,
+            "MARKET_DATA_REPAIR_REQUEST_NOT_FOUND",
+            &action_request_identity,
+        ),
         Err(error) => owner_error(&error, &action_request_identity),
     }
 }
@@ -271,7 +342,8 @@ mod tests {
     use tower::ServiceExt;
 
     struct Stub {
-        calls: AtomicUsize,
+        compose_calls: AtomicUsize,
+        resolve_calls: AtomicUsize,
         response: Option<MarketDataRepairRequestActionResponseV1>,
     }
 
@@ -282,10 +354,19 @@ mod tests {
             _request: MarketDataRepairCompositionRequestV1,
         ) -> Result<MarketDataRepairRequestActionResponseV1, MarketDataRepairPostgresErrorV1>
         {
-            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.compose_calls.fetch_add(1, Ordering::SeqCst);
             self.response.clone().ok_or_else(|| {
                 MarketDataRepairPostgresErrorV1::Unavailable("test owner unavailable".into())
             })
+        }
+
+        async fn resolve(
+            &self,
+            _request: MarketDataRepairCompositionRequestV1,
+        ) -> Result<Option<MarketDataRepairRequestActionResponseV1>, MarketDataRepairPostgresErrorV1>
+        {
+            self.resolve_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(self.response.clone())
         }
     }
 
@@ -328,10 +409,14 @@ mod tests {
         }
     }
 
-    fn send(body: serde_json::Value, token: Option<&str>) -> axum::http::Request<axum::body::Body> {
+    fn send_to(
+        uri: &str,
+        body: serde_json::Value,
+        token: Option<&str>,
+    ) -> axum::http::Request<axum::body::Body> {
         let mut request = axum::http::Request::builder()
             .method(axum::http::Method::POST)
-            .uri("/v1/market-data-repair-requests")
+            .uri(uri)
             .header(axum::http::header::CONTENT_TYPE, "application/json");
         if let Some(token) = token {
             request = request.header(axum::http::header::AUTHORIZATION, token);
@@ -339,6 +424,10 @@ mod tests {
         request
             .body(axum::body::Body::from(body.to_string()))
             .unwrap()
+    }
+
+    fn send(body: serde_json::Value, token: Option<&str>) -> axum::http::Request<axum::body::Body> {
+        send_to("/v1/market-data-repair-requests", body, token)
     }
 
     #[test]
@@ -357,7 +446,8 @@ mod tests {
         let token = "market-data-repair-test";
         let token_digest: [u8; 32] = sha2::Sha256::digest(token.as_bytes()).into();
         let service = Arc::new(Stub {
-            calls: AtomicUsize::new(0),
+            compose_calls: AtomicUsize::new(0),
+            resolve_calls: AtomicUsize::new(0),
             response: None,
         });
         let unauthorized = router(Some(service.clone()), token_digest)
@@ -379,7 +469,29 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(nested.status(), StatusCode::BAD_REQUEST);
-        assert_eq!(service.calls.load(Ordering::SeqCst), 0);
+
+        let unauthorized_resolve = router(Some(service.clone()), token_digest)
+            .oneshot(send_to(
+                "/v1/market-data-repair-requests/resolve",
+                request(),
+                None,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(unauthorized_resolve.status(), StatusCode::FORBIDDEN);
+        let mut invalid_resolve = request();
+        invalid_resolve["shared_time_head"]["provider"] = json!("caller-selected");
+        let invalid_resolve = router(Some(service.clone()), token_digest)
+            .oneshot(send_to(
+                "/v1/market-data-repair-requests/resolve",
+                invalid_resolve,
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(invalid_resolve.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(service.compose_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(service.resolve_calls.load(Ordering::SeqCst), 0);
 
         let unavailable = router(None, token_digest)
             .oneshot(send(request(), Some(&format!("Bearer {token}"))))
@@ -394,7 +506,8 @@ mod tests {
         let token_digest: [u8; 32] = sha2::Sha256::digest(token.as_bytes()).into();
         let expected = expected();
         let service = Arc::new(Stub {
-            calls: AtomicUsize::new(0),
+            compose_calls: AtomicUsize::new(0),
+            resolve_calls: AtomicUsize::new(0),
             response: Some(expected.clone()),
         });
         let mut bodies = Vec::new();
@@ -410,11 +523,58 @@ mod tests {
                     .unwrap(),
             );
         }
-        assert_eq!(service.calls.load(Ordering::SeqCst), 2);
+        assert_eq!(service.compose_calls.load(Ordering::SeqCst), 2);
         assert_eq!(bodies[0], bodies[1]);
         assert_eq!(
             serde_json::from_slice::<serde_json::Value>(&bodies[0]).unwrap(),
             serde_json::to_value(expected).unwrap()
         );
+    }
+
+    #[tokio::test]
+    async fn resolve_returns_only_existing_byte_identical_owner_custody() {
+        let token = "market-data-repair-resolve-test";
+        let token_digest: [u8; 32] = sha2::Sha256::digest(token.as_bytes()).into();
+        let expected = expected();
+        let service = Arc::new(Stub {
+            compose_calls: AtomicUsize::new(0),
+            resolve_calls: AtomicUsize::new(0),
+            response: Some(expected.clone()),
+        });
+        let response = router(Some(service.clone()), token_digest)
+            .oneshot(send_to(
+                "/v1/market-data-repair-requests/resolve",
+                request(),
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(service.compose_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(service.resolve_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+            serde_json::to_value(expected).unwrap()
+        );
+
+        let missing = Arc::new(Stub {
+            compose_calls: AtomicUsize::new(0),
+            resolve_calls: AtomicUsize::new(0),
+            response: None,
+        });
+        let response = router(Some(missing.clone()), token_digest)
+            .oneshot(send_to(
+                "/v1/market-data-repair-requests/resolve",
+                request(),
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(missing.compose_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(missing.resolve_calls.load(Ordering::SeqCst), 1);
     }
 }
