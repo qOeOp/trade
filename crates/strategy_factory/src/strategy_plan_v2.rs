@@ -6,10 +6,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 use strategy_factory_program_sdk::{ABI_VERSION, lifecycle_v1, lifecycle_v2};
 #[cfg(feature = "sealed-strategy-input-acceptance")]
-use vibe_data::owner::{
-    sealed_acceptance::SealedAcceptanceStrategyInputUniverseFrame,
-    strategy_input_binding::StrategyInputUniverseSelectionReceipt,
-};
+use vibe_data::owner::sealed_acceptance::SealedAcceptanceStrategyInputUniverseFrame;
 use vibe_data::owner::{
     source_binding::BindingDigest,
     strategy_design_role_set::{
@@ -17,7 +14,10 @@ use vibe_data::owner::{
         StrategyDesignRoleSetErrorV1, StrategyDesignRoleSetLocatorV1,
         StrategyDesignRoleSetReceiptV1,
     },
-    strategy_input_binding::StrategyInputBindingReceipt,
+    strategy_input_binding::{
+        StrategyInputBindingReceipt, StrategyInputUniverseFrameReceipt,
+        StrategyInputUniverseSelectionReceipt,
+    },
     strategy_input_joined_cut::derive_strategy_input_join_identity_v2,
 };
 
@@ -294,7 +294,6 @@ pub(crate) struct UniverseSelectionProjectionV2 {
 }
 
 impl UniverseSelectionProjectionV2 {
-    #[cfg(feature = "sealed-strategy-input-acceptance")]
     fn from_owner_receipt(receipt: &StrategyInputUniverseSelectionReceipt) -> Self {
         Self {
             selection_identity: receipt.selection_identity(),
@@ -474,6 +473,44 @@ impl VerifiedStrategyInputBindingsV2 {
             projections: receipts.iter().map(project_receipt).collect(),
             universe_selection: None,
             universe_bindings: vec![],
+        }
+    }
+
+    fn from_owner_universe(
+        authority: &StrategyInputUniverseFrameReceipt,
+        research_request_identity: BindingDigest,
+        strategy_design_identity: BindingDigest,
+    ) -> Self {
+        let mut by_role = BTreeMap::<BindingDigest, Vec<UniverseMemberBindingProjectionV2>>::new();
+        for value in authority.values() {
+            by_role
+                .entry(value.input_role_identity())
+                .or_default()
+                .push(UniverseMemberBindingProjectionV2 {
+                    member_key: value.member_key().to_owned(),
+                    instrument: value.instrument().to_owned(),
+                    binding_digest: value.binding_digest(),
+                });
+        }
+        let mut universe_bindings = by_role
+            .into_iter()
+            .map(|(input_role_identity, mut members)| {
+                members.sort();
+                UniverseRoleBindingProjectionV2 {
+                    research_request_identity,
+                    strategy_design_identity,
+                    input_role_identity,
+                    members,
+                }
+            })
+            .collect::<Vec<_>>();
+        universe_bindings.sort();
+        Self {
+            projections: vec![],
+            universe_selection: Some(UniverseSelectionProjectionV2::from_owner_receipt(
+                authority.selection(),
+            )),
+            universe_bindings,
         }
     }
 
@@ -788,6 +825,33 @@ impl StrategyPlanV2 {
             return Err("canonical Plan derived fields do not match recompilation".to_owned());
         }
         Ok(decoded)
+    }
+
+    pub(crate) fn decode_owner_resolution_projection(bytes: &[u8]) -> Result<Self, String> {
+        let decoded = durable_decode_plan(bytes)?;
+        if decoded.durable_bytes() != bytes
+            || decoded.universe_selection.is_none()
+            || decoded.input_roles().is_empty()
+        {
+            return Err("durable Plan cannot project initial Owner coordinates".to_owned());
+        }
+        Ok(decoded)
+    }
+
+    pub(crate) fn parse_and_revalidate_durable_with_owner_universe(
+        bytes: &[u8],
+        authority: &StrategyInputUniverseFrameReceipt,
+        research_request_identity: BindingDigest,
+        strategy_design_identity: BindingDigest,
+    ) -> Result<Self, String> {
+        Self::parse_and_revalidate_durable(
+            bytes,
+            VerifiedStrategyInputBindingsV2::from_owner_universe(
+                authority,
+                research_request_identity,
+                strategy_design_identity,
+            ),
+        )
     }
 
     pub(crate) fn canonical_design_durable_bytes(&self) -> Vec<u8> {

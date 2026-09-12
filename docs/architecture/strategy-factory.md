@@ -546,9 +546,11 @@ Native Replay preparation and Backtest consume only the R&D Owner's move-only bi
 re-resolve every embedded exact Owner locator before native materialization. A caller may supply the sealed Replay
 request locator only; it cannot supply the constituent list, facts, values, symbols, ordering, resolver, store, or
 fallback. The current slice implements the immutable PostgreSQL ledger, exact-locator recovery, typed Owner-readback
-validator, atomic binding/receipt/outbox issuance, the fixed initial universe/schedule resolution bridge, and an
-authenticated R&D service read that accepts only the complete sealed Replay locator and returns the already issued
-binding projection. It does not yet claim atomic multi-Owner issuance orchestration, independent consumer
+validator, atomic binding/receipt/outbox issuance, and the fixed initial universe/schedule resolution bridge. The
+authenticated R&D service accepts only the complete sealed Replay locator: its issuance operation resolves the
+sealed preparation, Composer Plan and Artifact, request-bound Instrument Master V2 cut, unique same-account
+economic pair, universe frame, and two BAR schedules before committing the binding through one R&D transaction;
+its read operation returns only an already issued binding projection. This does not yet claim independent consumer
 re-resolution, disposable PostgreSQL acceptance, registered product
 composition, Native Replay execution, production startup/write, deployment, result closure, or trading.
 

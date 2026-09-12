@@ -162,7 +162,7 @@ pub fn prepare_native_replay_execution_prerequisites_v2(
     let profile_authority = issue_owner_replay_execution_profile_binding_from_readbacks_v1(
         preparation.family(),
         preparation.replay(),
-        instrument_terms,
+        [&instrument_terms[0], &instrument_terms[1]],
     )
     .map_err(|_| NativeReplayExecutionPrerequisitesErrorV2::ProfileAuthorityUnavailable)?;
     Ok(NativeReplayExecutionPrerequisitesV2 {

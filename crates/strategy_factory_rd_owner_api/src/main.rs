@@ -21,6 +21,15 @@ use vibe_data::owner::{
     ResearchPitTerminalBootstrapError, ResearchPitTerminalBootstrapFailure,
     research_pit_terminal_resolver_from_store_admission_lookup,
 };
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+use vibe_data::owner::{
+    instrument_economic_terms_postgres_owner_from_environment_v1,
+    instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresOwnerV1,
+    instrument_master_v2_postgres::InstrumentMasterV2PostgresOwner,
+    instrument_master_v2_postgres_owner_from_environment,
+    native_replay_scheduling_resolver_v1_from_store_admission_environment,
+    native_replay_scheduling_v1::NativeReplaySchedulingResolverV1,
+};
 use vibe_data::owner::{
     research_pit_terminal::ResearchPitTerminalResolver,
     research_pit_terminal_resolver_from_store_admission_environment,
@@ -61,9 +70,14 @@ use vibe_strategy_factory::develop_composer_operation_v2::DevelopComposerOperati
 #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
 use vibe_strategy_factory::develop_composer_operation_v2::DevelopComposerRunRequestV2;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
-use vibe_strategy_factory::develop_composer_postgres_v2::{
-    DevelopComposerSealedReadLocatorV2, DevelopComposerSealedReadPortV2,
-};
+use vibe_strategy_factory::develop_composer_postgres_v2::DevelopComposerSealedReadLocatorV2;
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+use vibe_strategy_factory::develop_composer_postgres_v2::DevelopComposerSealedReadPortV2;
+#[cfg(all(
+    feature = "sealed-develop-composer-acceptance",
+    not(feature = "sealed-source-intake-composer-acceptance")
+))]
+use vibe_strategy_factory::develop_composer_postgres_v2::SealedDevelopComposerAcceptanceReadPortV2;
 #[cfg(all(
     feature = "sealed-develop-composer-acceptance",
     any(test, not(feature = "sealed-source-intake-composer-acceptance"))
@@ -145,6 +159,14 @@ struct ApiState {
     request_proof_digest: String,
     allow_acceptance_faults: bool,
     _market_data_research_pit: Option<Arc<dyn ResearchPitTerminalResolver>>,
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    native_replay_scheduling: Option<Arc<dyn NativeReplaySchedulingResolverV1>>,
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    instrument_master_v2: Option<Arc<InstrumentMasterV2PostgresOwner>>,
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    instrument_economic_terms: Option<Arc<InstrumentEconomicTermsPostgresOwnerV1>>,
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    develop_composer_read: Option<Arc<dyn DevelopComposerSealedReadPortV2>>,
     #[cfg(all(
         feature = "sealed-develop-composer-acceptance",
         not(feature = "sealed-source-intake-composer-acceptance")
@@ -256,6 +278,15 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
     let market_data_research_pit = bootstrap_deployment_store_admission().await?;
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    let native_replay_scheduling =
+        native_replay_scheduling_resolver_v1_from_store_admission_environment().await?;
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    let instrument_master_v2 =
+        Arc::new(instrument_master_v2_postgres_owner_from_environment().await?);
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    let instrument_economic_terms =
+        Arc::new(instrument_economic_terms_postgres_owner_from_environment_v1().await?);
     let database_url = required_env("RD_OWNER_DATABASE_URL")?;
     #[cfg(feature = "sealed-develop-composer-acceptance")]
     let composer_writer_database_url = required_env("RD_FACT_WRITER_DATABASE_URL")?;
@@ -310,6 +341,17 @@ async fn main() -> anyhow::Result<()> {
         )
         .await?,
     );
+    #[cfg(all(
+        feature = "sealed-develop-composer-acceptance",
+        not(feature = "sealed-source-intake-composer-acceptance")
+    ))]
+    let develop_composer_read: Arc<dyn DevelopComposerSealedReadPortV2> = Arc::new(
+        SealedDevelopComposerAcceptanceReadPortV2::connect_with_writer(
+            &database_url,
+            &composer_writer_database_url,
+        )
+        .await?,
+    );
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     let develop_composer = Arc::new(
         SealedPostgresSourceResearchComposerV2::connect(
@@ -318,6 +360,8 @@ async fn main() -> anyhow::Result<()> {
         )
         .await?,
     );
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    let develop_composer_read: Arc<dyn DevelopComposerSealedReadPortV2> = develop_composer.clone();
     let allow_acceptance_faults =
         env::var("RD_OWNER_ENABLE_ACCEPTANCE_FAULTS").as_deref() == Ok("1");
     let state = ApiState {
@@ -332,6 +376,14 @@ async fn main() -> anyhow::Result<()> {
         request_proof_digest: request_proof_digest.clone(),
         allow_acceptance_faults,
         _market_data_research_pit: market_data_research_pit,
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        native_replay_scheduling,
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        instrument_master_v2: Some(instrument_master_v2),
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        instrument_economic_terms: Some(instrument_economic_terms),
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        develop_composer_read: Some(develop_composer_read),
         #[cfg(feature = "sealed-develop-composer-acceptance")]
         develop_composer,
         #[cfg(feature = "sealed-develop-composer-acceptance")]
@@ -434,6 +486,11 @@ async fn main() -> anyhow::Result<()> {
             "/v2/develop-composer/runs/{request_identity}/resolve",
             post(resolve_develop_composer),
         );
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    let app = app.route(
+        "/v2/exploratory-replay/execution-input-bindings",
+        post(exploratory_replay::issue_execution_input_binding),
+    );
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     let app = app
         .route(
@@ -2733,6 +2790,14 @@ mod tests {
             request_proof_digest,
             allow_acceptance_faults: false,
             _market_data_research_pit: None,
+            #[cfg(feature = "sealed-develop-composer-acceptance")]
+            native_replay_scheduling: None,
+            #[cfg(feature = "sealed-develop-composer-acceptance")]
+            instrument_master_v2: None,
+            #[cfg(feature = "sealed-develop-composer-acceptance")]
+            instrument_economic_terms: None,
+            #[cfg(feature = "sealed-develop-composer-acceptance")]
+            develop_composer_read: None,
             #[cfg(all(
                 feature = "sealed-develop-composer-acceptance",
                 not(feature = "sealed-source-intake-composer-acceptance")
@@ -2999,6 +3064,14 @@ mod tests {
             request_proof_digest,
             allow_acceptance_faults: false,
             _market_data_research_pit: None,
+            #[cfg(feature = "sealed-develop-composer-acceptance")]
+            native_replay_scheduling: None,
+            #[cfg(feature = "sealed-develop-composer-acceptance")]
+            instrument_master_v2: None,
+            #[cfg(feature = "sealed-develop-composer-acceptance")]
+            instrument_economic_terms: None,
+            #[cfg(feature = "sealed-develop-composer-acceptance")]
+            develop_composer_read: None,
             #[cfg(all(
                 feature = "sealed-develop-composer-acceptance",
                 not(feature = "sealed-source-intake-composer-acceptance")

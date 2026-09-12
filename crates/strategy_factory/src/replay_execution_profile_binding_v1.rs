@@ -593,7 +593,7 @@ pub(crate) fn issue_owner_replay_execution_profile_binding_v1(
 pub(crate) fn issue_owner_replay_execution_profile_binding_from_readbacks_v1(
     family: &TrialFamilyReadbackV1,
     request: &SealedExploratoryReplayReadbackV2,
-    instrument_terms: [InstrumentEconomicTermsReadbackV1; TARGET_SET_MEMBER_COUNT],
+    instrument_terms: [&InstrumentEconomicTermsReadbackV1; TARGET_SET_MEMBER_COUNT],
 ) -> Result<OwnerIssuedReplayExecutionProfileBindingV1, ReplayExecutionProfileBindingErrorV1> {
     let catalog = family
         .root()
@@ -613,11 +613,16 @@ pub(crate) fn issue_owner_replay_execution_profile_binding_from_readbacks_v1(
         account_scope_identity: &account_scope_identity,
         event_time_ns: i128::from(request.request().as_dto().window.start_event_ns),
     };
-    let [first, second] = instrument_terms;
     let provenance = [
-        seal_target_set_member_instrument_economic_terms_provenance_v1(&first, &economic, context)?,
         seal_target_set_member_instrument_economic_terms_provenance_v1(
-            &second, &economic, context,
+            instrument_terms[0],
+            &economic,
+            context,
+        )?,
+        seal_target_set_member_instrument_economic_terms_provenance_v1(
+            instrument_terms[1],
+            &economic,
+            context,
         )?,
     ];
     issue_owner_replay_execution_profile_binding_v1(family, request, provenance)

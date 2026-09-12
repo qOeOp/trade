@@ -145,6 +145,95 @@ async fn resolve_execution_input_binding(
     }
 }
 
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+pub(super) async fn issue_execution_input_binding(
+    State(state): State<super::ApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !super::authorized(&headers, &state.token_digest) {
+        return rejection(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            "unbound",
+        );
+    }
+    let locator: ExploratoryReplayRequestLocatorV2 = match serde_json::from_slice(&body) {
+        Ok(locator) => locator,
+        Err(_) => {
+            return rejection(
+                StatusCode::BAD_REQUEST,
+                "INVALID_EXPLORATORY_REPLAY_REQUEST_LOCATOR",
+                "unbound",
+            );
+        }
+    };
+    let request_identity = locator.request_identity.clone();
+    if OpaqueIdentityV2::try_from(locator.request_identity.clone()).is_err()
+        || CanonicalDigestV2::try_from(locator.meaning_digest.clone()).is_err()
+        || OpaqueIdentityV2::try_from(locator.receipt_identity.clone()).is_err()
+        || CanonicalDigestV2::try_from(locator.seal_digest.clone()).is_err()
+    {
+        return rejection(
+            StatusCode::BAD_REQUEST,
+            "INVALID_EXPLORATORY_REPLAY_REQUEST_LOCATOR",
+            &request_identity,
+        );
+    }
+    let (
+        Some(market_data),
+        Some(composer),
+        Some(instrument_master),
+        Some(instrument_economic_terms),
+    ) = (
+        state.native_replay_scheduling.as_deref(),
+        state.develop_composer_read.as_deref(),
+        state.instrument_master_v2.as_deref(),
+        state.instrument_economic_terms.as_deref(),
+    )
+    else {
+        return rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "NATIVE_REPLAY_EXECUTION_INPUT_BINDING_UNAVAILABLE",
+            &request_identity,
+        );
+    };
+    match state
+        .owner
+        .issue_native_replay_execution_input_binding_v1(
+            &locator,
+            composer,
+            instrument_master,
+            instrument_economic_terms,
+            market_data,
+        )
+        .await
+    {
+        Ok(readback) => {
+            let binding = readback.binding();
+            (
+                StatusCode::OK,
+                Json(NativeReplayExecutionInputBindingProjectionV1 {
+                    schema_version: 1,
+                    request_identity,
+                    binding_identity: format!("sha256:{}", hex_digest(&binding.binding_identity())),
+                    binding_digest: format!("sha256:{}", hex_digest(&binding.binding_digest())),
+                    receipt_identity: format!(
+                        "sha256:{}",
+                        hex_digest(&readback.receipt().receipt_identity())
+                    ),
+                }),
+            )
+                .into_response()
+        }
+        Err(_) => rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "NATIVE_REPLAY_EXECUTION_INPUT_BINDING_UNAVAILABLE",
+            &request_identity,
+        ),
+    }
+}
+
 async fn read_result(
     State(state): State<ExploratoryReplayResultApiState>,
     path: Result<Path<ExploratoryReplayResultPathV2>, axum::extract::rejection::PathRejection>,

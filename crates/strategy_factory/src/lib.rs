@@ -80,6 +80,11 @@ pub mod native_replay_execution_bundle_owner_v2;
 pub mod native_replay_execution_input_binding_v1;
 #[allow(
     dead_code,
+    reason = "the initial issuance operation is called by the R&D Owner API feature composition"
+)]
+mod native_replay_initial_binding_issuance_v1;
+#[allow(
+    dead_code,
     reason = "the fixed initial Owner-input adapter is consumed by the T145 atomic service composition"
 )]
 mod native_replay_initial_owner_inputs_v1;

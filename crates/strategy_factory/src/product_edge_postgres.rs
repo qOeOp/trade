@@ -53,6 +53,12 @@ use crate::{
     trial_family_postgres::{migrate as migrate_trial_family, persist_initial_family},
 };
 use vibe_data::owner::pit_snapshot::PitSnapshotOwnerReadback;
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+use vibe_data::owner::{
+    instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresOwnerV1,
+    instrument_master_v2_postgres::InstrumentMasterV2PostgresOwner,
+    native_replay_scheduling_v1::NativeReplaySchedulingResolverV1,
+};
 
 use crate::source_intake::{
     SOURCE_INTAKE_IDENTITY_PREREQUISITE_SQL_V1, SourceIntakePolicyEvidencePort,
@@ -1370,6 +1376,49 @@ impl PostgresResearchGoalOwnerV1 {
             .await
             .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
         result
+    }
+
+    /// Resolves every request-bound Owner input and atomically issues the R&D binding.
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    pub async fn issue_native_replay_execution_input_binding_v1<P, R>(
+        &self,
+        locator: &ExploratoryReplayRequestLocatorV2,
+        composer: &P,
+        instrument_master_owner: &InstrumentMasterV2PostgresOwner,
+        instrument_terms_owner: &InstrumentEconomicTermsPostgresOwnerV1,
+        market_data: &R,
+    ) -> Result<
+        crate::NativeReplayExecutionInputBindingReadbackV1,
+        crate::NativeReplayExecutionInputBindingErrorV1,
+    >
+    where
+        P: crate::develop_composer_postgres_v2::DevelopComposerSealedReadPortV2 + ?Sized,
+        R: NativeReplaySchedulingResolverV1 + ?Sized,
+    {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            .execute(&mut *transaction)
+            .await
+            .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
+        let readback = crate::native_replay_initial_binding_issuance_v1::issue_native_replay_initial_binding_v1_in_transaction(
+            &mut transaction,
+            locator,
+            composer,
+            instrument_master_owner,
+            instrument_terms_owner,
+            market_data,
+        )
+        .await
+        .map_err(|_| crate::NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+        transaction
+            .commit()
+            .await
+            .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
+        Ok(readback)
     }
 
     pub async fn preflight_request_identity(

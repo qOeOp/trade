@@ -516,9 +516,11 @@ Native Replay preparation 与 Backtest 只能消费 R&D Owner 的 move-only bind
 materialization 前独立重新解析每个嵌入的准确 Owner locator。Caller 只能提交 sealed Replay request locator；
 不能提交 constituent list、fact、value、symbol、order、resolver、store 或 fallback。当前切面已经实现不可变
 PostgreSQL ledger、exact-locator recovery、typed Owner-readback validator、binding/receipt/outbox 的原子签发，
-以及固定的初始 universe/schedule resolution bridge；authenticated R&D service read 也只接受完整 sealed Replay
-locator，并返回已签发 binding 的 projection。尚不声称原子 multi-Owner 签发编排、consumer 独立重新解析、
-disposable PostgreSQL acceptance、registered
+以及固定的初始 universe/schedule resolution bridge。Authenticated R&D service 只接受完整 sealed Replay
+locator：签发操作先解析 sealed preparation、Composer Plan 与 Artifact、请求绑定的 Instrument Master V2 cut、
+唯一同账户 economic pair、universe frame 和两份 BAR schedule，再通过一笔 R&D transaction 提交 binding；
+读取操作只返回已签发 binding 的 projection。尚不声称 consumer 独立重新解析、disposable PostgreSQL
+acceptance、registered
 product composition、Native Replay execution、production startup/write、deployment、result closure 或 trading。
 
 **TARGET / NOT_ADMITTED，BAR FRAME 与 JOINED_CUT composition：** additive
