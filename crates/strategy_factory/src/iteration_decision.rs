@@ -134,7 +134,7 @@ fn update_len_prefixed(digest: &mut Sha256, value: &[u8]) -> Result<(), TrialFam
 }
 
 /// The six R&D-owned diagnosis dimensions required before policy interpretation.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum IterationDiagnosisDimensionV1 {
     EvidenceIntegrity,
@@ -148,7 +148,7 @@ pub enum IterationDiagnosisDimensionV1 {
 /// Forgeable vocabulary for the four mutually exclusive Iteration Decision outcomes.
 ///
 /// This type is never accepted by the composition request and carries no R&D authority by itself.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(tag = "outcome", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum IterationDecisionOutcomeV1 {
     RepairInputs {
@@ -169,7 +169,7 @@ pub enum IterationDecisionOutcomeV1 {
 }
 
 /// Typed R&D repair categories in their frozen total-precedence order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum IterationRepairCategoryV1 {
     MarketData,
@@ -181,7 +181,7 @@ pub enum IterationRepairCategoryV1 {
 }
 
 /// Native boundary that owns the repaired input.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum IterationRepairTargetV1 {
     MarketData,
@@ -193,7 +193,7 @@ pub enum IterationRepairTargetV1 {
 }
 
 /// Named terminal stop vocabulary. A stop never creates Selection.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum IterationTerminalStopReasonV1 {
     FalsifierSatisfied,
@@ -205,7 +205,7 @@ pub enum IterationTerminalStopReasonV1 {
 }
 
 /// Exact Owner facts that every eventual Decision and Selection must repeat.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct IterationDecisionEvidenceCutV1 {
     pub decision_policy_identity: String,
@@ -224,6 +224,114 @@ pub struct IterationDecisionEvidenceCutV1 {
     pub result_identity: String,
     pub result_digest: String,
     pub attempt_identity: String,
+}
+
+/// R&D-owned immutable `REPAIR_INPUTS` Decision.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RepairInputIterationDecisionV1 {
+    schema_version: u16,
+    decision_identity: String,
+    decision_digest: String,
+    evidence_cut: IterationDecisionEvidenceCutV1,
+    outcome: IterationDecisionOutcomeV1,
+    supported_defects: Vec<IterationRepairCategoryV1>,
+}
+
+/// Commit receipt for one immutable R&D Decision.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct IterationDecisionReceiptV1 {
+    schema_version: u16,
+    receipt_identity: String,
+    decision_identity: String,
+    decision_digest: String,
+    result_identity: String,
+    committed_at_epoch_ms: u64,
+}
+
+/// Move-only positive Decision custody returned by the PostgreSQL Owner.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RepairInputIterationDecisionReadbackV1 {
+    decision: RepairInputIterationDecisionV1,
+    receipt: IterationDecisionReceiptV1,
+}
+
+impl RepairInputIterationDecisionV1 {
+    pub fn decision_identity(&self) -> &str {
+        &self.decision_identity
+    }
+
+    pub fn decision_digest(&self) -> &str {
+        &self.decision_digest
+    }
+
+    pub fn evidence_cut(&self) -> &IterationDecisionEvidenceCutV1 {
+        &self.evidence_cut
+    }
+
+    pub fn outcome(&self) -> &IterationDecisionOutcomeV1 {
+        &self.outcome
+    }
+
+    pub fn supported_defects(&self) -> &[IterationRepairCategoryV1] {
+        &self.supported_defects
+    }
+}
+
+impl IterationDecisionReceiptV1 {
+    pub fn receipt_identity(&self) -> &str {
+        &self.receipt_identity
+    }
+
+    pub fn decision_identity(&self) -> &str {
+        &self.decision_identity
+    }
+
+    pub fn decision_digest(&self) -> &str {
+        &self.decision_digest
+    }
+
+    pub fn result_identity(&self) -> &str {
+        &self.result_identity
+    }
+
+    pub const fn committed_at_epoch_ms(&self) -> u64 {
+        self.committed_at_epoch_ms
+    }
+}
+
+impl RepairInputIterationDecisionReadbackV1 {
+    pub fn decision(&self) -> &RepairInputIterationDecisionV1 {
+        &self.decision
+    }
+
+    pub fn receipt(&self) -> &IterationDecisionReceiptV1 {
+        &self.receipt
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredRepairInputIterationDecisionV1 {
+    schema_version: u16,
+    decision_identity: String,
+    decision_digest: String,
+    evidence_cut: IterationDecisionEvidenceCutV1,
+    outcome: IterationDecisionOutcomeV1,
+    supported_defects: Vec<IterationRepairCategoryV1>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredIterationDecisionReceiptV1 {
+    schema_version: u16,
+    receipt_identity: String,
+    decision_identity: String,
+    decision_digest: String,
+    result_identity: String,
+    committed_at_epoch_ms: u64,
 }
 
 /// Result of the mandatory Backtest diagnosis gate.
@@ -273,6 +381,150 @@ pub enum IterationDecisionErrorV1 {
     ProtectedResultForbidden,
     #[error("locked Result diagnostic census has no admissible R&D interpretation")]
     InvalidDiagnosticCensus,
+    #[error("stored R&D Iteration Decision is invalid: {0}")]
+    InvalidStoredDecision(&'static str),
+    #[error("R&D Iteration Decision encoding is unavailable: {0}")]
+    Encoding(String),
+}
+
+pub(crate) fn issue_repair_input_decision_v1(
+    evidence_cut: IterationDecisionEvidenceCutV1,
+    supported_defects: Vec<IterationRepairCategoryV1>,
+    selected_category: IterationRepairCategoryV1,
+    target: IterationRepairTargetV1,
+    committed_at_epoch_ms: u64,
+) -> Result<RepairInputIterationDecisionReadbackV1, IterationDecisionErrorV1> {
+    if supported_defects.first().copied() != Some(selected_category)
+        || repair_target(selected_category) != target
+    {
+        return Err(IterationDecisionErrorV1::InvalidStoredDecision(
+            "repair precedence mismatch",
+        ));
+    }
+    let expected_supported = repair_categories(
+        &supported_defects
+            .iter()
+            .copied()
+            .map(repair_diagnostic_category)
+            .collect::<Vec<_>>(),
+    );
+    if supported_defects.is_empty() || supported_defects != expected_supported {
+        return Err(IterationDecisionErrorV1::InvalidStoredDecision(
+            "repair category set mismatch",
+        ));
+    }
+    let outcome = IterationDecisionOutcomeV1::RepairInputs {
+        category: selected_category,
+        target,
+    };
+    let decision_digest = canonical_digest(
+        "rd.iteration-decision.repair-inputs.v1",
+        &RepairDecisionMeaningV1 {
+            schema_version: 1,
+            evidence_cut: &evidence_cut,
+            outcome: &outcome,
+            supported_defects: &supported_defects,
+        },
+    )?;
+    let decision_identity = format!(
+        "rd-iteration-decision-v1-{}",
+        decision_digest.trim_start_matches("sha256:")
+    );
+    let decision = RepairInputIterationDecisionV1 {
+        schema_version: 1,
+        decision_identity: decision_identity.clone(),
+        decision_digest: decision_digest.clone(),
+        evidence_cut,
+        outcome,
+        supported_defects,
+    };
+    let receipt_digest = canonical_digest(
+        "rd.iteration-decision-receipt.v1",
+        &DecisionReceiptMeaningV1 {
+            schema_version: 1,
+            decision_identity: &decision_identity,
+            decision_digest: &decision_digest,
+            result_identity: &decision.evidence_cut.result_identity,
+            committed_at_epoch_ms,
+        },
+    )?;
+    let receipt = IterationDecisionReceiptV1 {
+        schema_version: 1,
+        receipt_identity: format!(
+            "rd-iteration-decision-receipt-v1-{}",
+            receipt_digest.trim_start_matches("sha256:")
+        ),
+        decision_identity,
+        decision_digest,
+        result_identity: decision.evidence_cut.result_identity.clone(),
+        committed_at_epoch_ms,
+    };
+    Ok(RepairInputIterationDecisionReadbackV1 { decision, receipt })
+}
+
+pub(crate) fn admit_stored_repair_input_decision_v1(
+    decision_bytes: &[u8],
+    receipt_bytes: &[u8],
+) -> Result<RepairInputIterationDecisionReadbackV1, IterationDecisionErrorV1> {
+    let stored_decision: StoredRepairInputIterationDecisionV1 =
+        serde_json::from_slice(decision_bytes)
+            .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+    let stored_receipt: StoredIterationDecisionReceiptV1 = serde_json::from_slice(receipt_bytes)
+        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+    let IterationDecisionOutcomeV1::RepairInputs { category, target } = stored_decision.outcome
+    else {
+        return Err(IterationDecisionErrorV1::InvalidStoredDecision(
+            "stored outcome is not REPAIR_INPUTS",
+        ));
+    };
+    let expected = issue_repair_input_decision_v1(
+        stored_decision.evidence_cut,
+        stored_decision.supported_defects,
+        category,
+        target,
+        stored_receipt.committed_at_epoch_ms,
+    )?;
+    let canonical_decision = serde_json::to_vec(expected.decision())
+        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+    let canonical_receipt = serde_json::to_vec(expected.receipt())
+        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+    if canonical_decision != decision_bytes || canonical_receipt != receipt_bytes {
+        return Err(IterationDecisionErrorV1::InvalidStoredDecision(
+            "stored canonical bytes or digest mismatch",
+        ));
+    }
+    Ok(expected)
+}
+
+#[derive(Serialize)]
+struct RepairDecisionMeaningV1<'a> {
+    schema_version: u16,
+    evidence_cut: &'a IterationDecisionEvidenceCutV1,
+    outcome: &'a IterationDecisionOutcomeV1,
+    supported_defects: &'a [IterationRepairCategoryV1],
+}
+
+#[derive(Serialize)]
+struct DecisionReceiptMeaningV1<'a> {
+    schema_version: u16,
+    decision_identity: &'a str,
+    decision_digest: &'a str,
+    result_identity: &'a str,
+    committed_at_epoch_ms: u64,
+}
+
+fn canonical_digest(
+    domain: &str,
+    value: &impl Serialize,
+) -> Result<String, IterationDecisionErrorV1> {
+    #[derive(Serialize)]
+    struct Envelope<'a, T> {
+        domain: &'a str,
+        value: &'a T,
+    }
+    serde_json::to_vec(&Envelope { domain, value })
+        .map(|bytes| format!("sha256:{:x}", Sha256::digest(bytes)))
+        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))
 }
 
 /// Applies R&D's mandatory diagnosis precedence to one Owner-locked exploratory Result.
@@ -427,6 +679,17 @@ fn repair_categories(categories: &[DiagnosticCategoryV2]) -> Vec<IterationRepair
     .into_iter()
     .filter_map(|(diagnostic, repair)| categories.contains(&diagnostic).then_some(repair))
     .collect()
+}
+
+fn repair_diagnostic_category(category: IterationRepairCategoryV1) -> DiagnosticCategoryV2 {
+    match category {
+        IterationRepairCategoryV1::MarketData => DiagnosticCategoryV2::MarketData,
+        IterationRepairCategoryV1::Artifact => DiagnosticCategoryV2::Artifact,
+        IterationRepairCategoryV1::RuntimeKernel => DiagnosticCategoryV2::RuntimeKernel,
+        IterationRepairCategoryV1::BacktestOperational => DiagnosticCategoryV2::BacktestOperational,
+        IterationRepairCategoryV1::Simulator => DiagnosticCategoryV2::Simulator,
+        IterationRepairCategoryV1::ReplayConfiguration => DiagnosticCategoryV2::ReplayConfiguration,
+    }
 }
 
 const fn repair_target(category: IterationRepairCategoryV1) -> IterationRepairTargetV1 {

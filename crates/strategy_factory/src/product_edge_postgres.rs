@@ -1248,6 +1248,7 @@ impl PostgresResearchGoalOwnerV1 {
         for tables in [
             RD_CORE_TABLES,
             crate::trial_family_postgres::TABLES,
+            crate::iteration_decision_postgres::TABLES,
             crate::complex_strategy_develop_evaluation::TABLES,
         ] {
             if materialization {
@@ -1275,6 +1276,30 @@ impl PostgresResearchGoalOwnerV1 {
             &self.pool, proposal,
         ))
         .await
+    }
+
+    /// Commits only the deterministic `REPAIR_INPUTS` branch from locked Owner custody.
+    pub async fn compose_repair_input_iteration_decision_v1(
+        &self,
+        request: crate::DecisionCompositionRequestV1,
+    ) -> Result<
+        crate::iteration_decision::RepairInputIterationDecisionReadbackV1,
+        crate::IterationDecisionPostgresErrorV1,
+    > {
+        crate::iteration_decision_postgres::compose_repair_input_decision_v1(&self.pool, request)
+            .await
+    }
+
+    /// Resolves existing Decision custody without creating a replacement.
+    pub async fn resolve_repair_input_iteration_decision_v1(
+        &self,
+        locator: crate::IterationDecisionResolutionLocatorV1,
+    ) -> Result<
+        Option<crate::iteration_decision::RepairInputIterationDecisionReadbackV1>,
+        crate::IterationDecisionPostgresErrorV1,
+    > {
+        crate::iteration_decision_postgres::resolve_repair_input_decision_v1(&self.pool, locator)
+            .await
     }
 
     /// Uses a canonical `backtest_owner` session to consume only the sealed R&D lock API.

@@ -72,6 +72,11 @@ mod formation_adapters;
 mod holdout;
 pub mod intent;
 pub mod iteration_decision;
+mod iteration_decision_postgres;
+pub use iteration_decision_postgres::{
+    DecisionCompositionRequestV1, IterationDecisionPostgresErrorV1,
+    IterationDecisionResolutionLocatorV1,
+};
 mod legacy_prepared_attempt_drain;
 #[allow(
     dead_code,

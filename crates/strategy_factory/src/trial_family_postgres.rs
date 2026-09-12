@@ -163,6 +163,9 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), TrialFamilyError> {
     crate::replay_policy_catalog_postgres_v2::migrate(pool)
         .await
         .map_err(|e| TrialFamilyError::Unavailable(e.to_string()))?;
+    crate::iteration_decision_postgres::migrate(pool)
+        .await
+        .map_err(|e| TrialFamilyError::Unavailable(e.to_string()))?;
     Ok(())
 }
 
@@ -799,6 +802,62 @@ pub(crate) async fn load_trial_family_census_v2_in_transaction(
         ));
     }
     Ok(latest)
+}
+
+pub(crate) async fn load_trial_family_census_v2_by_family_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    trial_family_identity: &str,
+) -> Result<TrialFamilyCensusReadbackV2, TrialFamilyError> {
+    let family_rows = sqlx::query(
+        "SELECT intent_identity FROM rd_trial_families_v1 WHERE trial_family_identity = $1 FOR SHARE",
+    )
+    .bind(trial_family_identity)
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    let outbox_rows = sqlx::query(
+        "SELECT aggregate_identity,event_kind,payload_json FROM rd_owner_outbox_v1 WHERE aggregate_identity = $1 AND event_kind = $2 FOR SHARE",
+    )
+    .bind(trial_family_identity)
+    .bind(FAMILY_FROZEN_EVENT)
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    if family_rows.len() != 1 || outbox_rows.len() != 1 {
+        return Err(TrialFamilyError::Unavailable(
+            "TrialFamily locator custody is incomplete".to_string(),
+        ));
+    }
+    let intent_identity: String = family_rows[0].try_get("intent_identity").map_err(storage)?;
+    let payload: FamilyFrozenOutboxV1 =
+        decode(&outbox_rows[0].try_get("payload_json").map_err(storage)?)?;
+    if outbox_rows[0]
+        .try_get::<String, _>("aggregate_identity")
+        .map_err(storage)?
+        != trial_family_identity
+        || outbox_rows[0]
+            .try_get::<String, _>("event_kind")
+            .map_err(storage)?
+            != FAMILY_FROZEN_EVENT
+        || payload.trial_family_identity != trial_family_identity
+        || payload.intent_identity != intent_identity
+    {
+        return Err(TrialFamilyError::Unavailable(
+            "TrialFamily locator/outbox cross-binding mismatch".to_string(),
+        ));
+    }
+    let census = load_trial_family_census_v2_in_transaction(
+        transaction,
+        &intent_identity,
+        &payload.research_receipt_identity,
+    )
+    .await?;
+    if census.census_frontier.trial_family_identity() != trial_family_identity {
+        return Err(TrialFamilyError::Unavailable(
+            "TrialFamily locator resolved a different family".to_string(),
+        ));
+    }
+    Ok(census)
 }
 
 fn verify_row_bindings(
