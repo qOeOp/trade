@@ -89,7 +89,7 @@ where
     )
     .await
     .map_err(|_| NativeReplayInitialBindingIssuanceErrorV1)?;
-    let (universe_frame, schedules) = market.into_parts();
+    let (universe_frame, schedules) = market.into_binding_parts();
     let plan = StrategyPlanV2::parse_and_revalidate_durable_with_owner_universe(
         preparation.composer().plan_bytes(),
         &universe_frame,

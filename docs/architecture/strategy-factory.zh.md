@@ -519,9 +519,10 @@ PostgreSQL ledger、exact-locator recovery、typed Owner-readback validator、bi
 以及固定的初始 universe/schedule resolution bridge。Authenticated R&D service 只接受完整 sealed Replay
 locator：签发操作先解析 sealed preparation、Composer Plan 与 Artifact、请求绑定的 Instrument Master V2 cut、
 唯一同账户 economic pair、universe frame 和两份 BAR schedule，再通过一笔 R&D transaction 提交 binding；
-读取操作只返回已签发 binding 的 projection。尚不声称 consumer 独立重新解析、disposable PostgreSQL
-acceptance、registered
-product composition、Native Replay execution、production startup/write、deployment、result closure 或 trading。
+读取操作只返回已签发 binding 的 projection。独立 consumer composition 会先读取该 durable binding，再重新
+解析准确 Composer、Instrument Master V2、economic、universe 与 schedule input，逐字节复现持久 binding 后才
+materialize 现有 native execution bundle。尚不声称 disposable PostgreSQL acceptance、已注册 Native Replay
+execution service、execution/result closure、production startup/write、deployment 或 trading。
 
 **TARGET / NOT_ADMITTED，BAR FRAME 与 JOINED_CUT composition：** additive
 `StrategyInputSampleProjectionV4` 是唯一可在完整 native join 中组合 BAR component 的 projection。

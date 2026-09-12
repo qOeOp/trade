@@ -550,9 +550,11 @@ validator, atomic binding/receipt/outbox issuance, and the fixed initial univers
 authenticated R&D service accepts only the complete sealed Replay locator: its issuance operation resolves the
 sealed preparation, Composer Plan and Artifact, request-bound Instrument Master V2 cut, unique same-account
 economic pair, universe frame, and two BAR schedules before committing the binding through one R&D transaction;
-its read operation returns only an already issued binding projection. This does not yet claim independent consumer
-re-resolution, disposable PostgreSQL acceptance, registered product
-composition, Native Replay execution, production startup/write, deployment, result closure, or trading.
+its read operation returns only an already issued binding projection. A separate consumer composition first reads
+that durable binding, independently re-resolves the exact Composer, Instrument Master V2, economic, universe, and
+schedule inputs, reproduces the stored binding byte-for-byte, and only then materializes the existing native
+execution bundle. This does not yet claim disposable PostgreSQL acceptance, a registered Native Replay execution
+service, execution/result closure, production startup/write, deployment, or trading.
 
 **TARGET / NOT_ADMITTED, BAR FRAME and JOINED_CUT composition:** the additive
 `StrategyInputSampleProjectionV4` is the only projection that may compose BAR components across a complete

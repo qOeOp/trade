@@ -243,11 +243,15 @@ impl NativeReplayInitialMarketRequestV1 {
     }
 }
 
-/// Move-only initial Market Data readback retained until the R&D binding transaction commits.
+/// Move-only Market Data readback retained through binding or consumer-side native materialization.
 #[derive(Debug)]
 pub struct NativeReplayInitialMarketReadbackV1 {
+    batch: VerifiedPitObservationBatch,
     universe_frame: StrategyInputUniverseFrameReceipt,
     schedules: [BarScheduleReadbackV1; TARGET_SET_MEMBER_COUNT],
+    member_instruments: [InstrumentId; TARGET_SET_MEMBER_COUNT],
+    frame_time_ns: u64,
+    window_end_ns_exclusive: u64,
 }
 
 impl NativeReplayInitialMarketReadbackV1 {
@@ -262,13 +266,33 @@ impl NativeReplayInitialMarketReadbackV1 {
     }
 
     #[must_use]
-    pub fn into_parts(
+    pub fn into_binding_parts(
         self,
     ) -> (
         StrategyInputUniverseFrameReceipt,
         [BarScheduleReadbackV1; TARGET_SET_MEMBER_COUNT],
     ) {
         (self.universe_frame, self.schedules)
+    }
+
+    /// Converts the same freshly resolved Owner cut into the native scheduling capability.
+    pub fn into_execution_parts(
+        self,
+    ) -> Result<
+        (
+            StrategyInputUniverseFrameReceipt,
+            NativeReplaySchedulingReadbackV1,
+        ),
+        NativeReplaySchedulingErrorV1,
+    > {
+        let scheduling = seal_native_replay_scheduling_v1(
+            self.batch,
+            self.schedules,
+            self.member_instruments,
+            self.frame_time_ns,
+            self.window_end_ns_exclusive,
+        )?;
+        Ok((self.universe_frame, scheduling))
     }
 }
 
@@ -338,7 +362,10 @@ pub trait NativeReplaySchedulingResolverV1: resolver_seal::Sealed + Send + Sync 
 
 #[cfg_attr(
     test,
-    allow(dead_code, reason = "the production PostgreSQL resolver is disabled in unit tests")
+    allow(
+        dead_code,
+        reason = "the production PostgreSQL resolver is disabled in unit tests"
+    )
 )]
 pub(crate) fn issue_native_replay_initial_market_readback_v1(
     batch: VerifiedPitObservationBatch,
@@ -414,14 +441,21 @@ pub(crate) fn issue_native_replay_initial_market_readback_v1(
         return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
     }
     Ok(NativeReplayInitialMarketReadbackV1 {
+        batch,
         universe_frame,
         schedules,
+        member_instruments: request.member_instruments,
+        frame_time_ns: request.frame_time_ns,
+        window_end_ns_exclusive: request.window_end_ns_exclusive,
     })
 }
 
 #[cfg_attr(
     test,
-    allow(dead_code, reason = "the production PostgreSQL resolver is disabled in unit tests")
+    allow(
+        dead_code,
+        reason = "the production PostgreSQL resolver is disabled in unit tests"
+    )
 )]
 pub(crate) fn native_replay_schedule_matches_request_v1(
     schedule: &BarScheduleReadbackV1,

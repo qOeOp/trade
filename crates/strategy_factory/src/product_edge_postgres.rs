@@ -1421,6 +1421,54 @@ impl PostgresResearchGoalOwnerV1 {
         Ok(readback)
     }
 
+    /// Re-resolves one issued binding into the existing native execution capability.
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[allow(clippy::too_many_arguments)]
+    pub async fn resolve_native_replay_execution_bundle_v1<P, R>(
+        &self,
+        locator: &ExploratoryReplayRequestLocatorV2,
+        composer: &P,
+        instrument_master_owner: &InstrumentMasterV2PostgresOwner,
+        instrument_terms_owner: &InstrumentEconomicTermsPostgresOwnerV1,
+        market_data: &R,
+        strategy_id: vibe_model::identifiers::StrategyId,
+        run_id: String,
+    ) -> Result<
+        crate::replay_target_set_execution_bundle_v1::ReplayTargetSetExecutionBundleV1,
+        crate::NativeReplayExecutionInputBindingErrorV1,
+    >
+    where
+        P: crate::develop_composer_postgres_v2::DevelopComposerSealedReadPortV2 + ?Sized,
+        R: NativeReplaySchedulingResolverV1 + ?Sized,
+    {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            .execute(&mut *transaction)
+            .await
+            .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
+        let execution = crate::native_replay_execution_binding_consumer_v1::resolve_native_replay_execution_bundle_v1_in_transaction(
+            &mut transaction,
+            locator,
+            composer,
+            instrument_master_owner,
+            instrument_terms_owner,
+            market_data,
+            strategy_id,
+            run_id,
+        )
+        .await
+        .map_err(|_| crate::NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+        transaction
+            .commit()
+            .await
+            .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
+        Ok(execution)
+    }
+
     pub async fn preflight_request_identity(
         &self,
         request_identity: &str,

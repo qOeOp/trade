@@ -9,7 +9,9 @@ use sqlx::{Postgres, Row, Transaction};
 use thiserror::Error;
 use vibe_data::owner::{
     bar_schedule::BarScheduleReadbackV1,
-    instrument_economic_terms_v1::InstrumentEconomicTermsReadbackV1,
+    instrument_economic_terms_v1::{
+        InstrumentEconomicTermsLocatorV1, InstrumentEconomicTermsReadbackV1,
+    },
     instrument_master_v2::{InstrumentMasterReadbackV2, native_replay_request_identity_v2},
     strategy_input_binding::StrategyInputUniverseFrameReceipt,
 };
@@ -193,6 +195,25 @@ impl NativeReplayExecutionInputBindingReadbackV1 {
             binding_identity: self.binding.binding_identity,
         }
     }
+
+    pub(crate) fn instrument_economic_terms_locators(
+        &self,
+    ) -> Result<
+        [InstrumentEconomicTermsLocatorV1; MEMBER_COUNT],
+        NativeReplayExecutionInputBindingErrorV1,
+    > {
+        let locator = |member: &NativeReplayExecutionInputMemberV1| {
+            InstrumentEconomicTermsLocatorV1::from_identities(
+                member.instrument_economic_terms_fact.identity,
+                member.instrument_economic_terms_receipt.identity,
+            )
+            .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)
+        };
+        Ok([
+            locator(&self.binding.members[0])?,
+            locator(&self.binding.members[1])?,
+        ])
+    }
 }
 
 /// Redacted fail-closed outcome for issuance and recovery.
@@ -254,6 +275,36 @@ pub(crate) async fn issue_native_replay_execution_input_binding_from_owner_readb
         verified,
     )
     .await
+}
+
+/// Proves that a fresh consumer-side Owner resolution reproduces the stored binding exactly.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn verify_re_resolved_native_replay_execution_inputs_v1(
+    stored: &NativeReplayExecutionInputBindingReadbackV1,
+    preparation: &NativeReplayPreparationInputsV2,
+    profile: &OwnerIssuedReplayExecutionProfileBindingV1,
+    plan: &StrategyPlanV2,
+    artifact: &StrategyArtifactV2,
+    instrument_master: &InstrumentMasterReadbackV2,
+    instrument_terms: [&InstrumentEconomicTermsReadbackV1; MEMBER_COUNT],
+    universe_frame: &StrategyInputUniverseFrameReceipt,
+    schedules: [&BarScheduleReadbackV1; MEMBER_COUNT],
+) -> Result<(), NativeReplayExecutionInputBindingErrorV1> {
+    let verified = verify_owner_readbacks(
+        preparation,
+        profile,
+        plan,
+        artifact,
+        instrument_master,
+        instrument_terms,
+        universe_frame,
+        schedules,
+    )?;
+    let expected = prepare_rows(verified, stored.receipt.committed_at_epoch_ms)?;
+    if &expected != stored {
+        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+    }
+    Ok(())
 }
 
 /// Atomically appends one binding, receipt, and outbox row under an already sealed Replay request.
@@ -1200,6 +1251,13 @@ mod tests {
         let recovered = recover_rows(stored(&prepared)).expect("recovered");
         assert_eq!(prepared, recovered);
         assert_eq!(recovered.binding.member_keys(), ["AAPL", "MSFT"]);
+        let locators = recovered
+            .instrument_economic_terms_locators()
+            .expect("exact economic locators");
+        assert_eq!(locators[0].fact_identity(), d(22));
+        assert_eq!(locators[0].receipt_identity(), d(24));
+        assert_eq!(locators[1].fact_identity(), d(42));
+        assert_eq!(locators[1].receipt_identity(), d(44));
     }
 
     #[test]

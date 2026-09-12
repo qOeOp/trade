@@ -72,6 +72,11 @@ mod formation_adapters;
 mod holdout;
 pub mod intent;
 mod legacy_prepared_attempt_drain;
+#[allow(
+    dead_code,
+    reason = "the binding-governed execution bundle is consumed by the next Native Replay service slice"
+)]
+mod native_replay_execution_binding_consumer_v1;
 pub mod native_replay_execution_bundle_owner_v2;
 #[allow(
     dead_code,
