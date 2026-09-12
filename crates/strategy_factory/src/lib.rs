@@ -71,6 +71,7 @@ mod family_adapters;
 mod formation_adapters;
 mod holdout;
 pub mod intent;
+pub mod iteration_decision;
 mod legacy_prepared_attempt_drain;
 #[allow(
     dead_code,

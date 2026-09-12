@@ -113,6 +113,14 @@ pub(crate) enum TrialFamilyAttemptTerminalDispositionV2 {
     Unknown,
 }
 
+pub(crate) struct TrialFamilyLatestAttemptBindingV2<'a> {
+    pub(crate) request_identity: &'a str,
+    pub(crate) request_digest: &'a str,
+    pub(crate) result_identity: &'a str,
+    pub(crate) result_digest: &'a str,
+    pub(crate) terminal_disposition: TrialFamilyAttemptTerminalDispositionV2,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct TrialFamilyCensusMemberV2 {
@@ -210,7 +218,7 @@ pub(crate) struct TrialFamilyCandidateSetProposalV2 {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct TrialFamilyCensusReadbackV2 {
+pub struct TrialFamilyCensusReadbackV2 {
     pub(crate) legacy_family: TrialFamilyReadbackV1,
     pub(crate) members: Vec<TrialFamilyCensusMemberV2>,
     pub(crate) membership_receipts: Vec<TrialFamilyMembershipReceiptV1>,
@@ -857,6 +865,31 @@ impl TrialFamilyCensusReadbackV2 {
     pub(crate) fn consumed_trial_budget(&self) -> u32 {
         self.census_frontier.consumed_trial_budget
     }
+
+    pub(crate) fn latest_attempt_binding(
+        &self,
+    ) -> Result<TrialFamilyLatestAttemptBindingV2<'_>, TrialFamilyError> {
+        verify_census_v2(self)?;
+        let [_, request, result] = self
+            .members
+            .get(self.members.len().saturating_sub(3)..)
+            .ok_or_else(|| TrialFamilyError::Unavailable("latest attempt missing".to_string()))?
+        else {
+            return Err(TrialFamilyError::Unavailable(
+                "latest attempt shape mismatch".to_string(),
+            ));
+        };
+        let terminal_disposition = result.terminal_disposition.ok_or_else(|| {
+            TrialFamilyError::Unavailable("latest terminal disposition missing".to_string())
+        })?;
+        Ok(TrialFamilyLatestAttemptBindingV2 {
+            request_identity: &request.fact_identity,
+            request_digest: &request.fact_digest,
+            result_identity: &result.fact_identity,
+            result_digest: &result.fact_digest,
+            terminal_disposition,
+        })
+    }
 }
 
 impl ArtifactTrialFamilyReadbackV1 {
@@ -1158,13 +1191,16 @@ pub(crate) fn append_attempt_to_census_v2(
         ));
     }
 
-    for (identity, digest) in [
-        (&append.intent_identity, &append.intent_digest),
-        (&append.request_identity, &append.request_digest),
-        (&append.result_identity, &append.result_digest),
+    for identity in [
+        &append.intent_identity,
+        &append.request_identity,
+        &append.result_identity,
     ] {
         require_identity(identity, "CENSUS_FACT_IDENTITY_INVALID")?;
-        require_sha256(digest, "CENSUS_FACT_DIGEST_INVALID")?;
+    }
+    require_sha256(&append.intent_digest, "CENSUS_INTENT_DIGEST_INVALID")?;
+    for digest in [&append.request_digest, &append.result_digest] {
+        require_content_digest(digest, "CENSUS_REPLAY_DIGEST_INVALID")?;
     }
 
     if attempt_ordinal == 0 {
@@ -1596,7 +1632,6 @@ pub(crate) fn verify_census_v2(
     {
         let ordinal = u32::try_from(index).map_err(unavailable)?;
         require_identity(&member.fact_identity, "CENSUS_FACT_IDENTITY_INVALID")?;
-        require_sha256(&member.fact_digest, "CENSUS_FACT_DIGEST_INVALID")?;
         let attempt_ordinal = if ordinal <= 2 {
             0
         } else {
@@ -1616,6 +1651,14 @@ pub(crate) fn verify_census_v2(
                 _ => TrialFamilyCensusMemberKindV2::Result,
             },
         };
+        match expected_kind {
+            TrialFamilyCensusMemberKindV2::Intent => {
+                require_sha256(&member.fact_digest, "CENSUS_INTENT_DIGEST_INVALID")?;
+            }
+            TrialFamilyCensusMemberKindV2::Request | TrialFamilyCensusMemberKindV2::Result => {
+                require_content_digest(&member.fact_digest, "CENSUS_REPLAY_DIGEST_INVALID")?;
+            }
+        }
         let expected_terminal = expected_kind == TrialFamilyCensusMemberKindV2::Result;
 
         if member.schema_version != 2
@@ -2077,6 +2120,22 @@ fn require_sha256(value: &str, code: &'static str) -> Result<(), TrialFamilyErro
     if digest.is_some_and(|digest| {
         digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
     }) {
+        Ok(())
+    } else {
+        Err(TrialFamilyError::InvalidPolicy(code))
+    }
+}
+
+fn require_content_digest(value: &str, code: &'static str) -> Result<(), TrialFamilyError> {
+    let Some((algorithm, hex)) = value.split_once(':') else {
+        return Err(TrialFamilyError::InvalidPolicy(code));
+    };
+    if matches!(algorithm, "sha256" | "blake3")
+        && hex.len() == 64
+        && hex
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
         Ok(())
     } else {
         Err(TrialFamilyError::InvalidPolicy(code))
