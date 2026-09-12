@@ -11,7 +11,9 @@ UI atoms together with the currently admitted first-party read surfaces.
   Develop Composer readback. Backtest ships the sealed Replay request readback.
 - Market Data, Runtime, and Portfolio ship only their documented fail-closed foundation surfaces. Their visible
   unavailable or not-ready states do not prove a backend, provider, Owner consumer, or effect path exists.
-- Event Rail, Telemetry, Alerts, Settings Access, and every other route below the bilingual `DRAWABLE_EXACT` gate
+- Settings Access ships only the local browser-session read/re-authentication shell. Operator Authorization,
+  Product Edge binding, successor, and transport-token mutation remain explicitly unavailable. Event Rail,
+  Telemetry, Alerts, and every other route below the bilingual `DRAWABLE_EXACT` gate
   remain navigation-only placeholders. A route name or retained source is not implementation authority.
 
 The Operations APIs read only Trade-owned operational RunStore data. Typed R&D and Backtest reads use their exact
@@ -40,6 +42,12 @@ the current executor for every effect; the Dashboard shadow roles perform typed 
 own operational RunStore records. They have no provider execution, business-write, or trading authority.
 Missing PostgreSQL or Owner configuration fails closed as an unavailable projection or an unhealthy runtime role.
 
+Browser access uses an HttpOnly, SameSite=Strict local session cookie signed by `DASHBOARD_SESSION_HMAC_KEY` after
+proof of `DASHBOARD_LOCAL_OPERATOR_LOGIN_TOKEN`. Both values must be opaque secrets of at least 32 bytes and are
+provided only to `dashboard-web`. This browser session is not an effect capability:
+`DASHBOARD_OPERATOR_API_TOKEN` remains independently required by admitted operational actions. The public
+`/api/health` endpoint returns no business data and is the Compose liveness target.
+
 ## Local checks
 
 ```bash
@@ -55,5 +63,5 @@ For a local production preview after the build:
 npm start -- --hostname 127.0.0.1 --port 3100
 ```
 
-The default route redirects through the source-pinned login presentation. The exact route and component contracts
+The default route redirects to Operations through the local operator session gate. The exact route and component contracts
 remain governed by `docs/guide/dashboard.md` and `docs/guide/dashboard.zh.md`.

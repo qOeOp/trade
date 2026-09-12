@@ -30,7 +30,12 @@ test("gateway performs one authenticated GET and exposes only the bounded Compos
   const calls = [];
   const result = await readDevelopComposerGatewayV1({
     requestIdentity: "composer-request-1",
-    environment: { RD_OWNER_API_URL: "http://rd-owner-api:8080/", RD_OWNER_API_TOKEN: "secret" },
+    environment: {
+      RD_DASHBOARD_OWNER_READ_API_URL: "http://rd-dashboard-owner-read-api:8082/",
+      RD_DASHBOARD_OWNER_READ_API_TOKEN: "read-secret",
+      RD_OWNER_API_URL: "http://rd-owner-api:8080/",
+      RD_OWNER_API_TOKEN: "write-secret",
+    },
     clock: () => Date.parse("2026-09-06T12:00:00.000Z"),
     fetcher: async (url, init) => {
       calls.push({ url: String(url), init });
@@ -39,11 +44,11 @@ test("gateway performs one authenticated GET and exposes only the bounded Compos
   });
 
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].url, "http://rd-owner-api:8080/v2/develop-composer/runs/composer-request-1/readback");
+  assert.equal(calls[0].url, "http://rd-dashboard-owner-read-api:8082/v2/develop-composer/runs/composer-request-1/readback");
   assert.equal(calls[0].init.method, "GET");
   assert.equal(calls[0].init.body, undefined);
   assert.equal(calls[0].init.cache, "no-store");
-  assert.deepEqual(calls[0].init.headers, { authorization: "Bearer secret" });
+  assert.deepEqual(calls[0].init.headers, { authorization: "Bearer read-secret" });
   assert.equal(result.status, 200);
   assert.equal(result.projection.readback.receiptIdentity, hex(1));
   assert.deepEqual(result.projection.readback.artifact, {
@@ -95,6 +100,22 @@ test("invalid identity and missing configuration make zero Owner calls", async (
   assert.equal(invalid.projection.reason, "INVALID_REQUEST_IDENTITY");
   assert.equal(missing.status, 503);
   assert.equal(missing.projection.reason, "OWNER_CONFIGURATION_UNAVAILABLE");
+});
+
+test("a partial Dashboard reader target fails closed instead of borrowing write credentials", async () => {
+  let calls = 0;
+  const result = await readDevelopComposerGatewayV1({
+    requestIdentity: "composer-request-1",
+    environment: {
+      RD_DASHBOARD_OWNER_READ_API_URL: "http://rd-dashboard-owner-read-api:8082",
+      RD_OWNER_API_URL: "http://rd-owner-api:8080",
+      RD_OWNER_API_TOKEN: "write-secret",
+    },
+    fetcher: async () => { calls += 1; throw new Error("must not fetch"); },
+  });
+  assert.equal(calls, 0);
+  assert.equal(result.status, 503);
+  assert.equal(result.projection.reason, "OWNER_CONFIGURATION_UNAVAILABLE");
 });
 
 test("identity drift, contradictory success, unknown keys and oversized responses fail closed", async () => {

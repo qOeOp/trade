@@ -4,14 +4,16 @@ const IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/;
 const PRINCIPAL = /^[A-Za-z0-9._:/-]{1,96}$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
 const AUDIT_IDENTITY = /^dashboard-operation-audit-v1-[0-9a-f]{64}$/;
-const RECEIPT_IDENTITY = /^dashboard-operational-(?:cancellation|cache-deletion)-v1-[0-9a-f]{64}$/;
+const RECEIPT_IDENTITY = /^dashboard-(?:operational-(?:cancellation|cache-deletion)|control-plane-admission)-v1-[0-9a-f]{64}$/;
 const SEARCH = /^[^\u0000-\u001f\u007f]{0,128}$/;
 
 export const operationAuditRangesV1 = ["24h", "7d", "30d", "all"] as const;
 export type OperationAuditRangeV1 = typeof operationAuditRangesV1[number];
 export const operationAuditOperationsV1 = [
+  "artifact_build.formation_execute.v1",
   "dashboard.dependency.cancel.queued.v1",
   "dashboard.operational_cache.delete.v1",
+  "source_intake.research.submit_or_resolve.v1",
 ] as const;
 export type OperationAuditOperationV1 = typeof operationAuditOperationsV1[number];
 export const operationAuditOutcomesV1 = ["succeeded", "failed", "denied", "unknown"] as const;
@@ -25,7 +27,7 @@ export type OperationAuditEntryV1 = {
   observed_at: string;
   principal_ref: string;
   operation: OperationAuditOperationV1;
-  action_kind: "update" | "delete";
+  action_kind: "execute" | "update" | "delete";
   outcome: OperationAuditOutcomeV1;
   target_kind: "operation_run";
   target_identity: string;
@@ -193,7 +195,9 @@ export function parseOperationAuditEntryV1(value: unknown): OperationAuditEntryV
     || !AUDIT_IDENTITY.test(value.audit_identity) || !timestamp(value.observed_at)
     || typeof value.principal_ref !== "string" || !PRINCIPAL.test(value.principal_ref)
     || !operationAuditOperationsV1.includes(value.operation as OperationAuditOperationV1)
-    || !["update", "delete"].includes(String(value.action_kind))
+    || !["execute", "update", "delete"].includes(String(value.action_kind))
+    || (value.operation === "artifact_build.formation_execute.v1" && value.action_kind !== "execute")
+    || (value.operation === "source_intake.research.submit_or_resolve.v1" && value.action_kind !== "execute")
     || (value.operation === "dashboard.dependency.cancel.queued.v1" && value.action_kind !== "update")
     || (value.operation === "dashboard.operational_cache.delete.v1" && value.action_kind !== "delete")
     || !operationAuditOutcomesV1.includes(value.outcome as OperationAuditOutcomeV1)

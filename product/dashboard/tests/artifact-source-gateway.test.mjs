@@ -85,6 +85,42 @@ test("gateway binds one GET with bearer custody and preserves no-store", async (
   assert.equal(calls[0].init.body, undefined);
 });
 
+test("gateway uses one atomic consolidated Dashboard read target", async () => {
+  const calls = [];
+  const result = await readArtifactSourceGatewayV1({
+    buildRequestIdentity: "artifact-build-1",
+    attemptIdentity: "artifact-attempt-1",
+    environment: {
+      RD_DASHBOARD_OWNER_READ_API_URL: "http://dashboard-read:8082/",
+      RD_DASHBOARD_OWNER_READ_API_TOKEN: "read-secret",
+      RD_OWNER_API_URL: "http://owner-write:8080/",
+      RD_OWNER_API_TOKEN: "write-secret",
+    },
+    fetcher: async (url, init) => {
+      calls.push({ url: String(url), authorization: init.headers.authorization });
+      return new Response(JSON.stringify(ownerReadback), { status: 200 });
+    },
+  });
+  assert.equal(result.status, 200);
+  assert.deepEqual(calls, [{
+    url: "http://dashboard-read:8082/v1/artifact-builds/artifact-build-1/attempts/artifact-attempt-1/source",
+    authorization: "Bearer read-secret",
+  }]);
+
+  const partial = await readArtifactSourceGatewayV1({
+    buildRequestIdentity: "artifact-build-1",
+    attemptIdentity: "artifact-attempt-1",
+    environment: {
+      RD_DASHBOARD_OWNER_READ_API_URL: "http://dashboard-read:8082/",
+      RD_OWNER_API_URL: "http://owner-write:8080/",
+      RD_OWNER_API_TOKEN: "write-secret",
+    },
+    fetcher: async () => { throw new Error("partial target must not dispatch"); },
+  });
+  assert.equal(partial.status, 503);
+  assert.equal(partial.projection.reason, "OWNER_CONFIGURATION_UNAVAILABLE");
+});
+
 test("invalid identity and missing configuration make zero Owner calls", async () => {
   let calls = 0;
   const fetcher = async () => { calls += 1; throw new Error("must not fetch"); };

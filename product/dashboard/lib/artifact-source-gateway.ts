@@ -4,6 +4,7 @@ import {
   unavailableStrategyCodeViewer,
   type StrategyCodeViewerProjection,
 } from "./strategy-code-viewer-contract.ts";
+import { dashboardReadApiTargetV1 } from "./owner-api-target.ts";
 
 const IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/u;
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
@@ -23,6 +24,7 @@ const OWNER_KEYS = [
 ];
 
 type Fetcher = typeof fetch;
+type ArtifactSourceEnvironmentV1 = Record<string, string | undefined>;
 
 export type ArtifactSourceGatewayResultV1 = Readonly<{
   status: 200 | 400 | 404 | 502 | 503;
@@ -117,25 +119,34 @@ export function projectArtifactSourceOwnerReadbackV1(
 export async function readArtifactSourceGatewayV1({
   buildRequestIdentity,
   attemptIdentity,
-  baseUrl = process.env.RD_OWNER_API_URL,
-  token = process.env.RD_OWNER_API_TOKEN,
+  baseUrl,
+  token,
+  environment = process.env,
   fetcher = fetch,
 }: {
   buildRequestIdentity: string;
   attemptIdentity: string;
   baseUrl?: string;
   token?: string;
+  environment?: ArtifactSourceEnvironmentV1;
   fetcher?: Fetcher;
 }): Promise<ArtifactSourceGatewayResultV1> {
   if (!identity(buildRequestIdentity) || !identity(attemptIdentity)) {
     return unavailable(400, "ARTIFACT_SOURCE_IDENTITY_INVALID");
   }
-  const endpoint = baseUrl ? ownerEndpoint(baseUrl, buildRequestIdentity, attemptIdentity) : null;
-  if (!endpoint || !token) return unavailable(503, "OWNER_CONFIGURATION_UNAVAILABLE");
+  const configuredTarget = baseUrl !== undefined || token !== undefined
+    ? { baseUrl, token }
+    : dashboardReadApiTargetV1(environment);
+  const endpoint = configuredTarget.baseUrl
+    ? ownerEndpoint(configuredTarget.baseUrl, buildRequestIdentity, attemptIdentity)
+    : null;
+  if (!endpoint || !configuredTarget.token) {
+    return unavailable(503, "OWNER_CONFIGURATION_UNAVAILABLE");
+  }
   try {
     const response = await fetcher(endpoint, {
       method: "GET",
-      headers: { authorization: `Bearer ${token}` },
+      headers: { authorization: `Bearer ${configuredTarget.token}` },
       cache: "no-store",
       signal: AbortSignal.timeout(8_000),
     });

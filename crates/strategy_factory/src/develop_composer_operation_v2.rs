@@ -6,6 +6,7 @@
 
 use std::{cell::RefCell, collections::BTreeMap, sync::Mutex};
 
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use vibe_data::owner::{
@@ -85,6 +86,22 @@ pub struct DevelopComposerOperationResponseV2 {
     pub artifact: Option<DevelopComposerArtifactProjectionV2>,
     pub coordinate: Option<String>,
     pub reason: Option<String>,
+}
+
+/// Query-only Owner boundary for one exact durable Composer operation.
+///
+/// Implementations may verify existing custody but cannot start, resolve, or mutate an operation.
+#[async_trait]
+pub trait DevelopComposerReadbackOwnerPortV2: Send + Sync {
+    async fn read_develop_composer(
+        &self,
+        request_identity: &str,
+    ) -> Result<DevelopComposerOperationResponseV2, DevelopComposerReadbackOwnerErrorV2>;
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DevelopComposerReadbackOwnerErrorV2 {
+    Unavailable,
 }
 
 impl DevelopComposerOperationResponseV2 {

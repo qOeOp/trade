@@ -31,9 +31,18 @@ import {
   sourceResearchRecoveryIdentityDigestV1,
   sourceResearchRunOperationV1,
   unavailableSourceResearchRoutingAdmissionV1,
+  validSourceResearchExecutionAdmissionV1,
   validSourceResearchRoutingAdmissionV1,
+  type SourceResearchExecutionAdmissionV1,
   type SourceResearchRoutingAdmissionV1,
 } from "./source-research-run-contract.ts";
+import {
+  readSourceResearchRunInputCustodyV1,
+  sourceResearchRunInputCustodyV1,
+  type SourceResearchRunInputCustodyStateV1,
+  type SourceResearchRunInputReadbackV1,
+} from "./source-research-run-input-custody.ts";
+import type { SourceResearchRunRequestV1 } from "./source-research-input-contract.ts";
 import {
   operationalCacheDeletionReceiptIdentityV1,
   parseOperationalCacheDeletionReceiptV1,
@@ -52,6 +61,14 @@ import {
   operationAuditIdentityForReceiptV1,
   type OperationAuditOperationV1,
 } from "./operation-audit-contract.ts";
+import {
+  controlPlaneAdmissionReceiptIdentityV1,
+  parseControlPlaneAdmissionReceiptV1,
+  validControlPlaneAdmissionContextV1,
+  type ControlPlaneAdmissionContextV1,
+  type ControlPlaneAdmissionExecutionModeV1,
+  type ControlPlaneAdmissionOperationV1,
+} from "./control-plane-admission-contract.ts";
 
 const IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
@@ -211,6 +228,7 @@ export type SourceResearchRunStartV1 = {
   schema_version: 1;
   run: OperationRunV1;
   execution_mode: "FRESH_RUN" | "RESOLVE_ONLY";
+  input_custody: SourceResearchRunInputReadbackV1;
 };
 
 export type SourceResearchRecoverySnapshotV1 = {
@@ -218,6 +236,7 @@ export type SourceResearchRecoverySnapshotV1 = {
   run: OperationRunV1;
   requested_action: "RUN" | "RESOLVE";
   routing: SourceResearchRoutingAdmissionV1;
+  input_custody: SourceResearchRunInputReadbackV1;
   observed_phases: readonly ("SOURCE_OWNER_AVAILABLE" | "RESEARCH_OWNER_AVAILABLE")[];
 };
 
@@ -792,7 +811,7 @@ async function appendOperationAuditV1(
     observedAt: Date;
     principalRef: string;
     operation: OperationAuditOperationV1;
-    actionKind: "update" | "delete";
+    actionKind: "execute" | "update" | "delete";
     runIdentity: string;
     receiptIdentity: string;
     authorizationDigest: string;
@@ -838,6 +857,77 @@ async function appendOperationAuditV1(
     || row.authorization_digest !== value.authorizationDigest) {
     throw new Error("OPERATION_AUDIT_CONFLICT");
   }
+}
+
+async function appendControlPlaneAdmissionV1(
+  client: PoolClient,
+  value: {
+    operation: ControlPlaneAdmissionOperationV1;
+    executionMode: ControlPlaneAdmissionExecutionModeV1;
+    runIdentity: string;
+    context: ControlPlaneAdmissionContextV1;
+  },
+) {
+  const receiptIdentity = controlPlaneAdmissionReceiptIdentityV1({
+    principalRef: value.context.principalRef,
+    operation: value.operation,
+    requestedAction: value.context.requestedAction,
+    executionMode: value.executionMode,
+    runIdentity: value.runIdentity,
+    authorizationDigest: value.context.authorizationDigest,
+  });
+  const inserted = await client.query<{
+    receipt_identity: string;
+    admitted_at: Date;
+    principal_ref: string;
+    operation: ControlPlaneAdmissionOperationV1;
+    requested_action: "RUN" | "RESOLVE";
+    execution_mode: ControlPlaneAdmissionExecutionModeV1;
+    run_identity: string;
+    authorization_digest: string;
+  }>(
+    `INSERT INTO dashboard_control_plane_admission_receipts_v1
+       (receipt_identity, schema_version, admitted_at, principal_ref, operation,
+        requested_action, execution_mode, run_identity, authorization_digest)
+     VALUES ($1, 1, clock_timestamp(), $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (receipt_identity) DO NOTHING
+     RETURNING receipt_identity, admitted_at, principal_ref, operation, requested_action,
+               execution_mode, run_identity, authorization_digest`,
+    [receiptIdentity, value.context.principalRef, value.operation,
+      value.context.requestedAction, value.executionMode, value.runIdentity,
+      value.context.authorizationDigest],
+  );
+  const selected = inserted.rows[0] ? inserted : await client.query<typeof inserted.rows[number]>(
+    `SELECT receipt_identity, admitted_at, principal_ref, operation, requested_action,
+            execution_mode, run_identity, authorization_digest
+       FROM dashboard_control_plane_admission_receipts_v1
+      WHERE receipt_identity = $1`,
+    [receiptIdentity],
+  );
+  const row = selected.rows[0];
+  const receipt = row && parseControlPlaneAdmissionReceiptV1({
+    schema_version: 1,
+    receipt_identity: row.receipt_identity,
+    admitted_at: row.admitted_at.toISOString(),
+    principal_ref: row.principal_ref,
+    operation: row.operation,
+    requested_action: row.requested_action,
+    execution_mode: row.execution_mode,
+    run_identity: row.run_identity,
+    authorization_digest: row.authorization_digest,
+  });
+  if (!receipt || receipt.receipt_identity !== receiptIdentity) {
+    throw new Error("CONTROL_PLANE_ADMISSION_CONFLICT");
+  }
+  await appendOperationAuditV1(client, {
+    observedAt: row.admitted_at,
+    principalRef: receipt.principal_ref,
+    operation: receipt.operation,
+    actionKind: "execute",
+    runIdentity: receipt.run_identity,
+    receiptIdentity: receipt.receipt_identity,
+    authorizationDigest: receipt.authorization_digest,
+  });
 }
 
 async function recoverExpiredClaims(client: PoolClient) {
@@ -944,23 +1034,33 @@ export class PostgresRunStoreV1 {
 
   async assertArtifactFormationSchema() {
     await this.assertSchema();
-    const result = await this.#pool.query<{ artifact_bindings: string | null }>(
+    const result = await this.#pool.query<{
+      artifact_bindings: string | null;
+      admission_receipts: string | null;
+    }>(
       `SELECT to_regclass(
         'public.dashboard_artifact_formation_run_bindings_v1'
-      )::text AS artifact_bindings`,
+      )::text AS artifact_bindings,
+      to_regclass(
+        'public.dashboard_control_plane_admission_receipts_v1'
+      )::text AS admission_receipts`,
     );
-    if (!result.rows[0]?.artifact_bindings) throw new Error("RUN_STORE_SCHEMA_UNAVAILABLE");
+    if (!result.rows[0]?.artifact_bindings || !result.rows[0]?.admission_receipts) {
+      throw new Error("RUN_STORE_SCHEMA_UNAVAILABLE");
+    }
   }
 
   async beginArtifactFormation({
     action,
     recoveryIdentity,
     admission,
+    actionContext,
     existingRecoveryOnly = false,
   }: {
     action: "RUN" | "RESOLVE";
     recoveryIdentity: Record<string, string>;
     admission: Extract<ArtifactFormationExecutionAdmissionV1, { availability: "available" }>;
+    actionContext: ControlPlaneAdmissionContextV1;
     existingRecoveryOnly?: boolean;
   }): Promise<ArtifactFormationRunStartV1> {
     const canonical = canonicalArtifactFormationRecoveryIdentityV1(recoveryIdentity);
@@ -976,7 +1076,8 @@ export class PostgresRunStoreV1 {
         && Number.isSafeInteger(routing.generation) && routing.generation > 0)
       || ((action === "RESOLVE" || existingRecoveryOnly) && routing.state === "UNAVAILABLE"
         && routing.dispatcher === "NONE"));
-    if (!canonical || !recoveryDigest || !validAdmission) {
+    if (!canonical || !recoveryDigest || !validAdmission
+      || !validControlPlaneAdmissionContextV1(actionContext)) {
       throw new Error("ARTIFACT_FORMATION_SUBMISSION_INVALID");
     }
     const client = await this.#pool.connect();
@@ -1004,11 +1105,18 @@ export class PostgresRunStoreV1 {
           );
           if (continued.rowCount !== 1) throw new Error("ARTIFACT_FORMATION_RECOVERY_CONFLICT");
         }
+        const executionMode = continueOnce ? "CONTINUE_CLAIMED_ONCE" : "RESOLVE_ONLY";
+        await appendControlPlaneAdmissionV1(client, {
+          operation: ARTIFACT_FORMATION_EXECUTE_OPERATION,
+          executionMode,
+          runIdentity: current.run_identity,
+          context: actionContext,
+        });
         await client.query("COMMIT");
         return {
           schema_version: 1,
           run: record(current),
-          execution_mode: continueOnce ? "CONTINUE_CLAIMED_ONCE" : "RESOLVE_ONLY",
+          execution_mode: executionMode,
         };
       }
       if (existingRecoveryOnly) throw new Error("ARTIFACT_FORMATION_RECOVERY_CONFLICT");
@@ -1034,6 +1142,12 @@ export class PostgresRunStoreV1 {
           routing.binding_identity, routing.binding_digest, routing.generation],
       );
       await appendLog(client, runIdentity, "info", "artifact_orchestrator", "RUN_STARTED");
+      await appendControlPlaneAdmissionV1(client, {
+        operation: ARTIFACT_FORMATION_EXECUTE_OPERATION,
+        executionMode: "FRESH_RUN",
+        runIdentity,
+        context: actionContext,
+      });
       await client.query("COMMIT");
       return { schema_version: 1, run: record(inserted.rows[0]), execution_mode: "FRESH_RUN" };
     } catch (error) {
@@ -1175,12 +1289,30 @@ export class PostgresRunStoreV1 {
 
   async assertSourceResearchSchema() {
     await this.assertSchema();
-    const result = await this.#pool.query<{ source_research_bindings: string | null }>(
+    const result = await this.#pool.query<{
+      source_research_bindings: string | null;
+      admission_receipts: string | null;
+      custody_columns: string | number;
+    }>(
       `SELECT to_regclass(
         'public.dashboard_source_research_run_bindings_v1'
-      )::text AS source_research_bindings`,
+      )::text AS source_research_bindings,
+      to_regclass(
+        'public.dashboard_control_plane_admission_receipts_v1'
+      )::text AS admission_receipts,
+      (SELECT count(*)
+         FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'dashboard_source_research_run_bindings_v1'
+          AND column_name IN (
+            'source_registry_entry_digest', 'source_compatibility_envelope_digest',
+            'research_registry_entry_digest', 'research_compatibility_envelope_digest',
+            'input_custody_state', 'run_request_schema_version',
+            'run_request_json', 'run_request_digest'
+          )) AS custody_columns`,
     );
-    if (!result.rows[0]?.source_research_bindings) {
+    if (!result.rows[0]?.source_research_bindings || !result.rows[0]?.admission_receipts
+      || Number(result.rows[0]?.custody_columns) !== 8) {
       throw new Error("RUN_STORE_SCHEMA_UNAVAILABLE");
     }
   }
@@ -1214,6 +1346,10 @@ export class PostgresRunStoreV1 {
       await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
       const result = await client.query<RunRow & {
         requested_action: "RUN" | "RESOLVE";
+        source_registry_entry_digest: string;
+        source_compatibility_envelope_digest: string | null;
+        research_registry_entry_digest: string;
+        research_compatibility_envelope_digest: string | null;
         source_routing_state: "ACTIVE" | "UNAVAILABLE";
         source_routing_dispatcher: "TRADE_DASHBOARD" | "NONE";
         source_routing_binding_identity: string | null;
@@ -1224,14 +1360,22 @@ export class PostgresRunStoreV1 {
         research_routing_binding_identity: string | null;
         research_routing_binding_digest: string | null;
         research_routing_generation: string | number | null;
+        input_custody_state: SourceResearchRunInputCustodyStateV1;
+        run_request_schema_version: string | number | null;
+        run_request_json: unknown;
+        run_request_digest: string | null;
       }>(
         `SELECT r.*, b.requested_action,
+                b.source_registry_entry_digest, b.source_compatibility_envelope_digest,
+                b.research_registry_entry_digest, b.research_compatibility_envelope_digest,
                 b.source_routing_state, b.source_routing_dispatcher,
                 b.source_routing_binding_identity, b.source_routing_binding_digest,
                 b.source_routing_generation,
                 b.research_routing_state, b.research_routing_dispatcher,
                 b.research_routing_binding_identity, b.research_routing_binding_digest,
-                b.research_routing_generation
+                b.research_routing_generation,
+                b.input_custody_state, b.run_request_schema_version,
+                b.run_request_json, b.run_request_digest
           FROM dashboard_operation_runs_v1 r
            JOIN dashboard_source_research_run_bindings_v1 b USING (run_identity)
           WHERE r.operation_id = $1 AND r.recovery_identity_digest = $2
@@ -1281,11 +1425,31 @@ export class PostgresRunStoreV1 {
       if (!validSourceResearchRoutingAdmissionV1(row.requested_action, routing)) {
         throw new Error("SOURCE_RESEARCH_RECOVERY_INVALID");
       }
+      const storedAdmission: SourceResearchExecutionAdmissionV1 = {
+        availability: "available",
+        unavailable_reason: null,
+        source_registry_entry_digest: row.source_registry_entry_digest,
+        source_compatibility_envelope_digest: row.source_compatibility_envelope_digest,
+        research_registry_entry_digest: row.research_registry_entry_digest,
+        research_compatibility_envelope_digest: row.research_compatibility_envelope_digest,
+        routing,
+      };
+      if (!validSourceResearchExecutionAdmissionV1(row.requested_action, storedAdmission)) {
+        throw new Error("SOURCE_RESEARCH_RECOVERY_INVALID");
+      }
+      const inputCustody = readSourceResearchRunInputCustodyV1({
+        state: row.input_custody_state,
+        requestSchemaVersion: row.run_request_schema_version === null
+          ? null : Number(row.run_request_schema_version),
+        request: row.run_request_json,
+        requestDigest: row.run_request_digest,
+      });
       return {
         schema_version: 1,
         run: record(row),
         requested_action: row.requested_action,
         routing,
+        input_custody: inputCustody,
         observed_phases: logs.rows.map(({ event_code }) => event_code) as
           SourceResearchRecoverySnapshotV1["observed_phases"],
       };
@@ -1300,25 +1464,45 @@ export class PostgresRunStoreV1 {
   async beginSourceResearch({
     action,
     recoveryIdentity,
-    routing,
+    admission,
+    actionContext,
+    runRequest = null,
     existingRecoveryOnly = false,
   }: {
     action: "RUN" | "RESOLVE";
     recoveryIdentity: Record<string, string>;
-    routing: SourceResearchRoutingAdmissionV1;
+    admission: SourceResearchExecutionAdmissionV1;
+    actionContext: ControlPlaneAdmissionContextV1;
+    runRequest?: SourceResearchRunRequestV1 | null;
     existingRecoveryOnly?: boolean;
   }): Promise<SourceResearchRunStartV1> {
     const canonical = canonicalSourceResearchRecoveryIdentityV1(recoveryIdentity);
     const recoveryDigest = sourceResearchRecoveryIdentityDigestV1(recoveryIdentity);
-    if (!canonical || !recoveryDigest || !validSourceResearchRoutingAdmissionV1(action, routing)) {
+    const suppliedInputCustody = runRequest
+      ? sourceResearchRunInputCustodyV1(runRequest) : null;
+    if (!canonical || !recoveryDigest
+      || !validControlPlaneAdmissionContextV1(actionContext)
+      || !validSourceResearchExecutionAdmissionV1(action, admission)
+      || (action === "RUN" && !suppliedInputCustody)
+      || (action === "RESOLVE" && runRequest && !existingRecoveryOnly)
+      || (runRequest && (runRequest.source.request_identity !== canonical.source_request_identity
+        || runRequest.research.request_identity !== canonical.research_request_identity))) {
       throw new Error("SOURCE_RESEARCH_SUBMISSION_INVALID");
     }
+    const routing = admission.routing;
     const client = await this.#pool.connect();
     try {
       await client.query("BEGIN");
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [recoveryDigest]);
-      const prior = await client.query<RunRow>(
-        `SELECT r.* FROM dashboard_operation_runs_v1 r
+      const prior = await client.query<RunRow & {
+        input_custody_state: SourceResearchRunInputCustodyStateV1;
+        run_request_schema_version: string | number | null;
+        run_request_json: unknown;
+        run_request_digest: string | null;
+      }>(
+        `SELECT r.*, b.input_custody_state, b.run_request_schema_version,
+                b.run_request_json, b.run_request_digest
+           FROM dashboard_operation_runs_v1 r
            JOIN dashboard_source_research_run_bindings_v1 b USING (run_identity)
           WHERE r.operation_id = $1 AND r.recovery_identity_digest = $2
           ORDER BY r.created_at DESC, r.run_identity DESC
@@ -1327,8 +1511,33 @@ export class PostgresRunStoreV1 {
       );
       const current = prior.rows[0];
       if (current && ["queued", "running"].includes(current.state)) {
+        const retainedInputCustody = readSourceResearchRunInputCustodyV1({
+          state: current.input_custody_state,
+          requestSchemaVersion: current.run_request_schema_version === null
+            ? null : Number(current.run_request_schema_version),
+          request: current.run_request_json,
+          requestDigest: current.run_request_digest,
+        });
+        if (runRequest && retainedInputCustody.availability !== "available") {
+          throw new Error("SOURCE_RESEARCH_INPUT_CUSTODY_UNAVAILABLE");
+        }
+        if (suppliedInputCustody && retainedInputCustody.availability === "available"
+          && suppliedInputCustody.request_digest !== retainedInputCustody.request_digest) {
+          throw new Error("SOURCE_RESEARCH_INPUT_CUSTODY_CONFLICT");
+        }
+        await appendControlPlaneAdmissionV1(client, {
+          operation: SOURCE_RESEARCH_EXECUTE_OPERATION,
+          executionMode: "RESOLVE_ONLY",
+          runIdentity: current.run_identity,
+          context: actionContext,
+        });
         await client.query("COMMIT");
-        return { schema_version: 1, run: record(current), execution_mode: "RESOLVE_ONLY" };
+        return {
+          schema_version: 1,
+          run: record(current),
+          execution_mode: "RESOLVE_ONLY",
+          input_custody: retainedInputCustody,
+        };
       }
       if (current && (existingRecoveryOnly || action === "RUN")) {
         throw new Error("SOURCE_RESEARCH_IDENTITY_REUSED");
@@ -1350,19 +1559,47 @@ export class PostgresRunStoreV1 {
       await client.query(
         `INSERT INTO dashboard_source_research_run_bindings_v1
            (run_identity, schema_version, requested_action, operation_manifest_digest,
+            source_registry_entry_digest, source_compatibility_envelope_digest,
+            research_registry_entry_digest, research_compatibility_envelope_digest,
             source_routing_state, source_routing_dispatcher, source_routing_binding_identity,
             source_routing_binding_digest, source_routing_generation,
             research_routing_state, research_routing_dispatcher, research_routing_binding_identity,
-            research_routing_binding_digest, research_routing_generation)
-         VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+            research_routing_binding_digest, research_routing_generation,
+            input_custody_state, run_request_schema_version, run_request_json, run_request_digest)
+         VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+                 $18, $19, $20::jsonb, $21)`,
         [runIdentity, action, sourceResearchOperationManifestDigestV1(),
+          admission.source_registry_entry_digest,
+          admission.source_compatibility_envelope_digest,
+          admission.research_registry_entry_digest,
+          admission.research_compatibility_envelope_digest,
           source.state, source.dispatcher, source.binding_identity, source.binding_digest,
           source.generation, research.state, research.dispatcher, research.binding_identity,
-          research.binding_digest, research.generation],
+          research.binding_digest, research.generation,
+          suppliedInputCustody ? "AVAILABLE" : "NOT_APPLICABLE",
+          suppliedInputCustody?.request_schema_version ?? null,
+          suppliedInputCustody ? JSON.stringify(suppliedInputCustody.request) : null,
+          suppliedInputCustody?.request_digest ?? null],
       );
       await appendLog(client, runIdentity, "info", "source_research_orchestrator", "RUN_STARTED");
+      await appendControlPlaneAdmissionV1(client, {
+        operation: SOURCE_RESEARCH_EXECUTE_OPERATION,
+        executionMode: "FRESH_RUN",
+        runIdentity,
+        context: actionContext,
+      });
       await client.query("COMMIT");
-      return { schema_version: 1, run: record(inserted.rows[0]), execution_mode: "FRESH_RUN" };
+      return {
+        schema_version: 1,
+        run: record(inserted.rows[0]),
+        execution_mode: "FRESH_RUN",
+        input_custody: suppliedInputCustody ?? readSourceResearchRunInputCustodyV1({
+          state: "NOT_APPLICABLE",
+          requestSchemaVersion: null,
+          request: null,
+          requestDigest: null,
+        }),
+      };
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;

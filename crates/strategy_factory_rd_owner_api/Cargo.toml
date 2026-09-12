@@ -28,6 +28,9 @@ sealed-source-intake-composer-acceptance = [
 sealed-develop-composer-acceptance = [
   "vibe-strategy-factory/sealed-develop-composer-acceptance",
 ]
+dashboard-composer-readback = [
+  "vibe-strategy-factory/sealed-source-intake-composer-acceptance",
+]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -60,6 +63,12 @@ doc = false
 test = false
 
 [[bin]]
+name = "strategy-factory-rd-dashboard-read-api"
+path = "src/bin/dashboard_read_api.rs"
+doc = false
+test = false
+
+[[bin]]
 name = "replay-policy-catalog-authority-bootstrap"
 path = "src/bin/replay_policy_catalog_authority_bootstrap.rs"
 doc = false
@@ -74,3 +83,7 @@ test = false
 [[test]]
 name = "rd_owner_api_main"
 path = "src/main.rs"
+
+[[test]]
+name = "dashboard_read_api"
+path = "src/bin/dashboard_read_api.rs"

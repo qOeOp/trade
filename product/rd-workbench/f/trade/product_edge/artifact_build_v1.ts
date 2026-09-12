@@ -9,6 +9,7 @@ import {
   deriveVerifiedArtifactS1ContextV1,
   deriveVerifiedS1ConsumerContextV1,
   verifyArtifactConsumerProjectionV1,
+  verifyProviderInvocationCustodyV1,
   type VerifiedS1ConsumerContextV1,
 } from "./consumer_projection_v1.ts"
 
@@ -70,14 +71,33 @@ function validProviderInvocationClaimEnvelopeV1(
     && (claim.state !== "INVOCATION_STARTED" || claim.disposition === "ALREADY_CLAIMED")
 }
 
-export function validProviderInvocationClaimV1(
+async function validProviderInvocationCustodyEnvelopeV1(
   claim: Record<string, unknown>,
   buildRequestIdentity: string,
   attemptIdentity: string,
-): boolean {
-  return validProviderInvocationClaimEnvelopeV1(claim, buildRequestIdentity, attemptIdentity)
-    && claim.state === "CLAIMED"
+): Promise<boolean> {
+  if (!validProviderInvocationClaimEnvelopeV1(claim, buildRequestIdentity, attemptIdentity)) return false
+  return verifyProviderInvocationCustodyV1(claim)
+}
+
+export async function validProviderInvocationClaimV1(
+  claim: Record<string, unknown>,
+  buildRequestIdentity: string,
+  attemptIdentity: string,
+): Promise<boolean> {
+  return claim.state === "CLAIMED"
     && claim.next_legal_action === "RUN_BOUNDED_EXECUTION_AGENT"
+    && await validProviderInvocationCustodyEnvelopeV1(claim, buildRequestIdentity, attemptIdentity)
+}
+
+async function validProviderInvocationStartedV1(
+  claim: Record<string, unknown>,
+  buildRequestIdentity: string,
+  attemptIdentity: string,
+): Promise<boolean> {
+  return claim.state === "INVOCATION_STARTED"
+    && claim.next_legal_action === "MANUALLY_RECONCILE_PROVIDER_INVOCATION"
+    && await validProviderInvocationCustodyEnvelopeV1(claim, buildRequestIdentity, attemptIdentity)
 }
 
 export async function validProviderInvocationStartV1(
@@ -103,7 +123,7 @@ export async function validProviderInvocationStartV1(
   } catch {
     return false
   }
-  const structurallyValid = validProviderInvocationClaimV1(claim, buildRequestIdentity, attemptIdentity)
+  const structurallyValid = await validProviderInvocationClaimV1(claim, buildRequestIdentity, attemptIdentity)
     && exactKeys(start, [
       "admission_identity", "attempt_identity", "claim_digest", "claim_identity",
       "disposition", "request_identity", "schema_version", "started_at_epoch_ms", "state_digest",
@@ -399,13 +419,22 @@ export function projectOwnerResolution(
   return result
 }
 
+function ownerArtifactOperationRequest(request: Record<string, unknown>) {
+  return {
+    build_request_identity: request.build_request_identity,
+    attempt_identity: request.attempt_identity,
+    intent_identity: request.intent_identity,
+    channel: request.channel,
+  }
+}
+
 async function fail(
   token: string,
   request: Record<string, unknown>,
   failureCode: string,
 ) {
   return ownerPost("/v1/artifact-builds/fail", token, {
-    request,
+    request: ownerArtifactOperationRequest(request),
     failure_code: failureCode,
   })
 }
@@ -529,7 +558,15 @@ async function runOwnerOperation(
   let existing: Record<string, any>
   try {
     existing = await resolve(token, build_request_identity, attempt_identity)
-    if (existing?.owner_receipt != null || existing?.provider_invocation?.state === "INVOCATION_STARTED") {
+    if (existing?.owner_receipt != null) {
+      return finish(existing)
+    }
+    if (existing?.provider_invocation?.state === "INVOCATION_STARTED") {
+      if (!await validProviderInvocationStartedV1(
+        existing.provider_invocation,
+        build_request_identity,
+        attempt_identity,
+      )) return finish(unknown(build_request_identity, attempt_identity))
       return finish(existing)
     }
   } catch {
@@ -540,7 +577,7 @@ async function runOwnerOperation(
   let request: Record<string, any>
   if (existing?.provider_invocation?.state === "CLAIMED") {
     invocationClaim = existing.provider_invocation
-    if (!validProviderInvocationClaimV1(invocationClaim, build_request_identity, attempt_identity)) {
+    if (!await validProviderInvocationClaimV1(invocationClaim, build_request_identity, attempt_identity)) {
       return finish(unknown(build_request_identity, attempt_identity))
     }
     request = {}
@@ -576,12 +613,16 @@ async function runOwnerOperation(
       return finish(unknown(build_request_identity, attempt_identity))
     }
     if (invocationClaim.state === "INVOCATION_STARTED") {
-      if (invocationClaim.next_legal_action !== "MANUALLY_RECONCILE_PROVIDER_INVOCATION") {
+      if (!await validProviderInvocationStartedV1(
+        invocationClaim,
+        build_request_identity,
+        attempt_identity,
+      )) {
         return finish(unknown(build_request_identity, attempt_identity))
       }
       return finish(unknown(build_request_identity, attempt_identity, invocationClaim))
     }
-    if (!validProviderInvocationClaimV1(invocationClaim, build_request_identity, attempt_identity)) {
+    if (!await validProviderInvocationClaimV1(invocationClaim, build_request_identity, attempt_identity)) {
       return finish(unknown(build_request_identity, attempt_identity))
     }
     if (invocationClaim.disposition === "CLAIMED_NEW" && !validArtifactPreparationV1(
@@ -670,7 +711,10 @@ async function runOwnerOperation(
     agent_change_explanation: generated.agent_change_explanation,
   }
   try {
-    return finish(await ownerPost("/v1/artifact-builds/candidate", token, { request, candidate }))
+    return finish(await ownerPost("/v1/artifact-builds/candidate", token, {
+      request: ownerArtifactOperationRequest(request),
+      candidate,
+    }))
   } catch {
     return finish(unknown(build_request_identity, attempt_identity))
   }

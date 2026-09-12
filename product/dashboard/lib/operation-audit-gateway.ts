@@ -176,7 +176,7 @@ export class PostgresOperationAuditGatewayV1 {
       const entries = pageRows.map(rowToEntry);
       const allEntries = eligible.map(rowToEntry);
       const summary: OperationAuditSummaryV1 = {
-        execute: 0,
+        execute: allEntries.filter(({ action_kind }) => action_kind === "execute").length,
         create_update: allEntries.filter(({ action_kind }) => action_kind === "update").length,
         delete: allEntries.filter(({ action_kind }) => action_kind === "delete").length,
         succeeded: allEntries.filter(({ outcome }) => outcome === "succeeded").length,
@@ -282,7 +282,7 @@ let configuredGateway: PostgresOperationAuditGatewayV1 | null | undefined;
 export function configuredOperationAuditGatewayV1() {
   if (configuredGateway !== undefined) return configuredGateway;
   const databaseUrl = process.env.DASHBOARD_DATABASE_URL;
-  const cursorKey = process.env.DASHBOARD_RUN_CURSOR_HMAC_KEY;
+  const cursorKey = process.env.DASHBOARD_CURSOR_HMAC_KEY;
   configuredGateway = databaseUrl && cursorKey
     ? new PostgresOperationAuditGatewayV1(databaseUrl, cursorKey)
     : null;

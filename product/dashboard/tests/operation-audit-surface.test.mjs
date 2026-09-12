@@ -7,6 +7,7 @@ const shell = await readFile(new URL("../components/dashboard-route-content.tsx"
 const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 const listRoute = await readFile(new URL("../app/api/operations/audit/route.ts", import.meta.url), "utf8");
 const detailRoute = await readFile(new URL("../app/api/operations/audit/[auditIdentity]/route.ts", import.meta.url), "utf8");
+const gateway = await readFile(new URL("../lib/operation-audit-gateway.ts", import.meta.url), "utf8");
 
 test("Operations Audit composes shared card, status, table and detail atoms", () => {
   for (const atom of [
@@ -38,4 +39,9 @@ test("Operations Audit API remains GET-only and no-store", () => {
     assert.match(route, /["']cache-control["']:\s*["']no-store["']/iu);
     assert.doesNotMatch(route, /export async function (?:POST|PUT|PATCH|DELETE)/u);
   }
+});
+
+test("Operations Audit uses the shared Dashboard cursor authority", () => {
+  assert.match(gateway, /process\.env\.DASHBOARD_CURSOR_HMAC_KEY/u);
+  assert.doesNotMatch(gateway, /DASHBOARD_RUN_CURSOR_HMAC_KEY/u);
 });

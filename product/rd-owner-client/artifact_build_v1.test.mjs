@@ -1,7 +1,11 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-const { executeArtifactBuildV1, invocationStateDigestV1 } = await import("./artifact_build_v1.ts")
+const {
+  deriveGeneratedArtifactIdentitiesV1,
+  executeArtifactBuildV1,
+  invocationStateDigestV1,
+} = await import("./artifact_build_v1.ts")
 const { projectArtifactOwnerResultWithEvidenceV1 } = await import("./consumer_projection_v1.ts")
 const {
   providerInvocationClaimDigestV1,
@@ -71,23 +75,6 @@ const request = {
   identity_mode: "EXACT",
 }
 
-const dashboardUnavailable = {
-  schema_version: 1,
-  resolution: "UNAVAILABLE",
-  unavailable_reason: "DASHBOARD_EFFECT_DISPATCH_NOT_ADMITTED",
-  effect_boundary_crossed: false,
-  build_request_identity: null,
-  attempt_identity: null,
-  owner_receipt: null,
-  research_view: null,
-  artifact_review: null,
-  artifact_review_actions: null,
-  trial_family_resolution: null,
-  artifact_trial_family: null,
-  next_legal_action: null,
-  provider_invocation: null,
-}
-
 const unknown = {
   schema_version: 1,
   resolution: "SUBMITTED_OR_UNKNOWN",
@@ -113,38 +100,45 @@ const runtime = (dispatcher, fetcher) => ({
   fetcher,
 })
 
-for (const dashboardRequest of [
-  request,
-  { ...request, action: "RUN", identity_mode: "GENERATE" },
-]) {
-  test(`Dashboard ${dashboardRequest.action} artifact execution fails closed without any fetch`, async () => {
-    let fetchCalls = 0
-    const result = await executeArtifactBuildV1(dashboardRequest, runtime("TRADE_DASHBOARD", async () => {
-      fetchCalls += 1
-      throw new Error("Dashboard must not call Owner or provider")
-    }))
+test("Dashboard same-identity resolve uses no effect-dispatch header", async () => {
+  const calls = []
+  const result = await executeArtifactBuildV1(request, runtime("TRADE_DASHBOARD", async (url, init) => {
+    calls.push({ url: String(url), init })
+    return new Response(JSON.stringify(unknown))
+  }))
 
-    assert.equal(fetchCalls, 0)
-    assert.deepEqual(result, dashboardUnavailable)
-  })
-}
+  assert.equal(result.resolution, "SUBMITTED_OR_UNKNOWN")
+  assert.equal(calls.length, 1)
+  assert.match(calls[0].url, /\/v1\/artifact-builds\/build-1\/attempts\/attempt-1\/resolve$/)
+  assert.equal(calls[0].init.headers["x-trade-effect-dispatcher"], undefined)
+})
 
 test("Windmill RUN accepts the canonical Owner claim wire set and reaches invocation start", async () => {
+  const admissionIdentity = `product-edge-request-admission-v1-${"1".repeat(64)}`
+  const invocationAdmissionReceiptIdentity =
+    `product-edge-provider-invocation-admission-receipt-v1-${"2".repeat(64)}`
+  const invocationAdmissionReceiptDigest = `sha256:${"3".repeat(64)}`
+  const claimIdentity = await providerInvocationClaimIdentityV1(
+    admissionIdentity,
+    request.attempt_identity,
+    invocationAdmissionReceiptIdentity,
+  )
   const claim = {
     schema_version: 1,
     request_identity: "build-1",
-    claim_identity: "claim-1",
-    admission_identity: "admission-1",
+    claim_identity: claimIdentity,
+    admission_identity: admissionIdentity,
     attempt_identity: "attempt-1",
-    invocation_admission_receipt_identity: "invocation-admission-receipt-1",
-    invocation_admission_receipt_digest: "sha256:invocation-admission-receipt",
-    claim_digest: "sha256:claim",
+    invocation_admission_receipt_identity: invocationAdmissionReceiptIdentity,
+    invocation_admission_receipt_digest: invocationAdmissionReceiptDigest,
+    claim_digest: "",
     state_digest: "",
     committed_at_epoch_ms: 10,
     disposition: "CLAIMED_NEW",
     state: "CLAIMED",
     next_legal_action: "RUN_BOUNDED_EXECUTION_AGENT",
   }
+  claim.claim_digest = await providerInvocationClaimDigestV1(claim)
   claim.state_digest = await invocationStateDigestV1({
     ...claim,
     updated_at_epoch_ms: claim.committed_at_epoch_ms,
@@ -152,10 +146,10 @@ test("Windmill RUN accepts the canonical Owner claim wire set and reaches invoca
   const start = {
     schema_version: 1,
     request_identity: "build-1",
-    claim_identity: "claim-1",
-    admission_identity: "admission-1",
+    claim_identity: claimIdentity,
+    admission_identity: admissionIdentity,
     attempt_identity: "attempt-1",
-    claim_digest: "sha256:claim",
+    claim_digest: claim.claim_digest,
     state_digest: "",
     started_at_epoch_ms: 11,
     disposition: "STARTED_NEW",
@@ -174,8 +168,8 @@ test("Windmill RUN accepts the canonical Owner claim wire set and reaches invoca
       channel: "WINDMILL_PRODUCT_EDGE",
       admission: {
         request_identity: "build-1",
-        admission_identity: "admission-1",
-        admission_digest: "sha256:admission",
+        admission_identity: admissionIdentity,
+        admission_digest: `sha256:${"4".repeat(64)}`,
       },
     },
     request_semantic_digest: "",
@@ -192,10 +186,10 @@ test("Windmill RUN accepts the canonical Owner claim wire set and reaches invoca
     trial_family_root_digest: "sha256:family-root",
     census_frontier_identity: "frontier-1",
     census_frontier_digest: "sha256:frontier",
-    claim_identity: "claim-1",
-    claim_digest: "sha256:claim",
-    invocation_admission_receipt_identity: "invocation-admission-receipt-1",
-    invocation_admission_receipt_digest: "sha256:invocation-admission-receipt",
+    claim_identity: claimIdentity,
+    claim_digest: claim.claim_digest,
+    invocation_admission_receipt_identity: invocationAdmissionReceiptIdentity,
+    invocation_admission_receipt_digest: invocationAdmissionReceiptDigest,
     claimed_state_digest: claim.state_digest,
     reservation_identity: "",
     reservation_digest: "",
@@ -237,6 +231,186 @@ test("Windmill RUN accepts the canonical Owner claim wire set and reaches invoca
   assert.equal(calls.length, 3)
   assert.equal(Object.hasOwn(claim, "state_updated_at_epoch_ms"), false)
   assert.equal(calls.some((url) => url === "https://provider.example.test"), false)
+})
+
+test("execution gate rejects a canonical-looking but cross-bound claim before invocation start", async () => {
+  const admissionIdentity = `product-edge-request-admission-v1-${"5".repeat(64)}`
+  const invocationAdmissionReceiptIdentity =
+    `product-edge-provider-invocation-admission-receipt-v1-${"6".repeat(64)}`
+  const claimIdentity = await providerInvocationClaimIdentityV1(
+    admissionIdentity,
+    request.attempt_identity,
+    invocationAdmissionReceiptIdentity,
+  )
+  const claim = {
+    schema_version: 1,
+    request_identity: request.build_request_identity,
+    claim_identity: claimIdentity,
+    admission_identity: admissionIdentity,
+    attempt_identity: request.attempt_identity,
+    invocation_admission_receipt_identity: invocationAdmissionReceiptIdentity,
+    invocation_admission_receipt_digest: `sha256:${"7".repeat(64)}`,
+    claim_digest: "",
+    state_digest: "",
+    committed_at_epoch_ms: 10,
+    disposition: "ALREADY_CLAIMED",
+    state: "CLAIMED",
+    next_legal_action: "RUN_BOUNDED_EXECUTION_AGENT",
+  }
+  claim.claim_digest = await providerInvocationClaimDigestV1(claim)
+  claim.state_digest = await providerInvocationStateDigestV1({
+    ...claim,
+    updated_at_epoch_ms: claim.committed_at_epoch_ms,
+  })
+  claim.claim_identity = `product-edge-provider-invocation-claim-v1-${"8".repeat(64)}`
+  const calls = []
+
+  const result = await executeArtifactBuildV1({ ...request, action: "RUN" }, runtime(
+    "WINDMILL",
+    async (url) => {
+      const value = String(url)
+      calls.push(value)
+      if (value.endsWith("/v2/research-goals/research-1/resolve")) return new Response("{}")
+      if (value.endsWith("/v1/artifact-builds/build-1/attempts/attempt-1/resolve")) {
+        return Response.json({ ...unknown, provider_invocation: claim })
+      }
+      throw new Error(`unexpected fetch ${value}`)
+    },
+  ))
+
+  assert.equal(calls.length, 2)
+  assert.equal(calls.some((url) => url.includes("start-provider-invocation")), false)
+  assert.equal(calls.some((url) => url === "https://provider.example.test"), false)
+  assert.equal(result.next_legal_action, "RESOLVE_SAME_ATTEMPT_IDENTITY")
+  assert.equal(result.provider_invocation, null)
+})
+
+test("forged started custody is rejected before operational phase observation", async () => {
+  const admissionIdentity = `product-edge-request-admission-v1-${"c".repeat(64)}`
+  const invocationAdmissionReceiptIdentity =
+    `product-edge-provider-invocation-admission-receipt-v1-${"d".repeat(64)}`
+  const claim = {
+    schema_version: 1,
+    request_identity: request.build_request_identity,
+    claim_identity: await providerInvocationClaimIdentityV1(
+      admissionIdentity,
+      request.attempt_identity,
+      invocationAdmissionReceiptIdentity,
+    ),
+    admission_identity: admissionIdentity,
+    attempt_identity: request.attempt_identity,
+    invocation_admission_receipt_identity: invocationAdmissionReceiptIdentity,
+    invocation_admission_receipt_digest: `sha256:${"e".repeat(64)}`,
+    claim_digest: "",
+    state_digest: `sha256:${"f".repeat(64)}`,
+    committed_at_epoch_ms: 10,
+    disposition: "ALREADY_CLAIMED",
+    state: "INVOCATION_STARTED",
+    next_legal_action: "MANUALLY_RECONCILE_PROVIDER_INVOCATION",
+  }
+  claim.claim_digest = await providerInvocationClaimDigestV1(claim)
+  claim.claim_identity = `product-edge-provider-invocation-claim-v1-${"0".repeat(64)}`
+  const phases = []
+  const calls = []
+  const result = await executeArtifactBuildV1({ ...request, action: "RUN" }, {
+    ...runtime("WINDMILL", async (url) => {
+      const value = String(url)
+      calls.push(value)
+      if (value.endsWith("/v2/research-goals/research-1/resolve")) return Response.json({})
+      if (value.endsWith("/v1/artifact-builds/build-1/attempts/attempt-1/resolve")) {
+        return Response.json({ ...unknown, provider_invocation: claim })
+      }
+      throw new Error(`unexpected fetch ${value}`)
+    }),
+    observe_phase: async (phase) => phases.push(phase),
+  })
+
+  assert.deepEqual(phases, [])
+  assert.equal(calls.length, 2)
+  assert.equal(calls.some((value) => value === "https://provider.example.test"), false)
+  assert.equal(result.next_legal_action, "RESOLVE_SAME_ATTEMPT_IDENTITY")
+  assert.equal(result.provider_invocation, null)
+})
+
+test("Dashboard recovers an existing sealed claim after preparation authority becomes stale", async () => {
+  const generated = await deriveGeneratedArtifactIdentitiesV1(
+    "build-seed-1",
+    "attempt-seed-1",
+    request.research_request_identity,
+  )
+  assert.ok(generated)
+  const admissionIdentity = `product-edge-request-admission-v1-${"9".repeat(64)}`
+  const invocationAdmissionReceiptIdentity =
+    `product-edge-provider-invocation-admission-receipt-v1-${"a".repeat(64)}`
+  const claim = {
+    schema_version: 1,
+    request_identity: generated.build_request_identity,
+    claim_identity: await providerInvocationClaimIdentityV1(
+      admissionIdentity,
+      generated.attempt_identity,
+      invocationAdmissionReceiptIdentity,
+    ),
+    admission_identity: admissionIdentity,
+    attempt_identity: generated.attempt_identity,
+    invocation_admission_receipt_identity: invocationAdmissionReceiptIdentity,
+    invocation_admission_receipt_digest: `sha256:${"b".repeat(64)}`,
+    claim_digest: "",
+    state_digest: "",
+    committed_at_epoch_ms: 10,
+    disposition: "ALREADY_CLAIMED",
+    state: "CLAIMED",
+    next_legal_action: "RUN_BOUNDED_EXECUTION_AGENT",
+  }
+  claim.claim_digest = await providerInvocationClaimDigestV1(claim)
+  claim.state_digest = await providerInvocationStateDigestV1({
+    ...claim,
+    updated_at_epoch_ms: claim.committed_at_epoch_ms,
+  })
+  const calls = []
+  const result = await executeArtifactBuildV1({
+    action: "RUN",
+    build_request_identity: "build-seed-1",
+    attempt_identity: "attempt-seed-1",
+    research_request_identity: request.research_request_identity,
+    identity_mode: "GENERATE",
+  }, {
+    ...runtime("TRADE_DASHBOARD", async (url) => {
+      const value = String(url)
+      calls.push(value)
+      if (value.endsWith("/v1/artifact-builds/prepare")) {
+        return Response.json({
+          resolution: "SUBMITTED_OR_UNKNOWN",
+          next_legal_action: "RESOLVE_SAME_ATTEMPT_IDENTITY",
+        })
+      }
+      if (value.endsWith("/v1/artifact-builds/claim-provider-invocation")) {
+        return Response.json(claim)
+      }
+      if (value.endsWith("/v1/artifact-builds/start-provider-invocation")) return Response.json({})
+      throw new Error(`unexpected fetch ${value}`)
+    }),
+    verified_s1_context: {
+      schema_version: 1,
+      request_identity: request.research_request_identity,
+      intent_identity: "intent-1",
+      intent_semantic_digest: "sha256:intent",
+      trial_family_identity: "family-1",
+      trial_family_root_digest: "sha256:family-root",
+      census_frontier_identity: "frontier-1",
+      census_frontier_digest: "sha256:frontier",
+      valid_through_epoch_ms: 1_000,
+    },
+  })
+
+  assert.deepEqual(calls.map((value) => new URL(value).pathname), [
+    "/v1/artifact-builds/prepare",
+    "/v1/artifact-builds/claim-provider-invocation",
+    "/v1/artifact-builds/start-provider-invocation",
+  ])
+  assert.equal(calls.some((value) => value === "https://provider.example.test"), false)
+  assert.equal(result.build_request_identity, generated.build_request_identity)
+  assert.equal(result.attempt_identity, generated.attempt_identity)
+  assert.equal(result.next_legal_action, "RESOLVE_SAME_ATTEMPT_IDENTITY")
 })
 
 test("canonical Owner CLAIMED wire projects verified invocation custody", async () => {
@@ -285,6 +459,53 @@ test("canonical Owner CLAIMED wire projects verified invocation custody", async 
   assert.equal(result.verified, true)
   assert.deepEqual(result.projection.provider_invocation, claim)
   assert.equal(result.projection.next_legal_action, "RUN_BOUNDED_EXECUTION_AGENT")
+})
+
+test("canonical Owner INVOCATION_STARTED wire retains its opaque later state digest", async () => {
+  const admissionIdentity = `product-edge-request-admission-v1-${"d".repeat(64)}`
+  const invocationAdmissionReceiptIdentity =
+    `product-edge-provider-invocation-admission-receipt-v1-${"e".repeat(64)}`
+  const claimIdentity = await providerInvocationClaimIdentityV1(
+    admissionIdentity,
+    request.attempt_identity,
+    invocationAdmissionReceiptIdentity,
+  )
+  const claim = {
+    schema_version: 1,
+    request_identity: request.build_request_identity,
+    claim_identity: claimIdentity,
+    admission_identity: admissionIdentity,
+    attempt_identity: request.attempt_identity,
+    invocation_admission_receipt_identity: invocationAdmissionReceiptIdentity,
+    invocation_admission_receipt_digest: `sha256:${"f".repeat(64)}`,
+    claim_digest: "",
+    state_digest: "",
+    committed_at_epoch_ms: 10,
+    disposition: "ALREADY_CLAIMED",
+    state: "INVOCATION_STARTED",
+    next_legal_action: "MANUALLY_RECONCILE_PROVIDER_INVOCATION",
+  }
+  claim.claim_digest = await providerInvocationClaimDigestV1(claim)
+  claim.state_digest = await providerInvocationStateDigestV1({
+    ...claim,
+    updated_at_epoch_ms: claim.committed_at_epoch_ms + 1,
+  })
+
+  const result = await projectArtifactOwnerResultWithEvidenceV1(
+    {
+      ...unknown,
+      provider_invocation: claim,
+      next_legal_action: "MANUALLY_RECONCILE_PROVIDER_INVOCATION",
+    },
+    request.build_request_identity,
+    request.attempt_identity,
+    null,
+  )
+
+  assert.equal(Object.hasOwn(claim, "state_updated_at_epoch_ms"), false)
+  assert.equal(result.verified, true)
+  assert.deepEqual(result.projection.provider_invocation, claim)
+  assert.equal(result.projection.next_legal_action, "MANUALLY_RECONCILE_PROVIDER_INVOCATION")
 })
 
 test("Windmill artifact resolution keeps the existing Owner flow", async () => {

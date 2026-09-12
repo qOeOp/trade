@@ -1,12 +1,25 @@
 import { createHash } from "node:crypto";
 
 import {
+  operationDeploymentStateV1,
+  registryEntryDigestV1,
+} from "./compatibility-envelope.ts";
+import {
   PRODUCT_EDGE_RESEARCH_GOAL_ROUTING_KEY_V2,
   PRODUCT_EDGE_SOURCE_INTAKE_ROUTING_KEY_V1,
+  resolveProductEdgeRoutingV1,
   type ProductEdgeExecutionRoutingV1,
+  type ProductEdgeRoutingLookupKeyV1,
+  type ProductEdgeRoutingObservationV1,
 } from "./product-edge-routing-client.ts";
-import { RESEARCH_GOAL_EFFECT_SET_V2 } from "./research-goal-operation.ts";
-import { SOURCE_INTAKE_EFFECT_SET_V1 } from "./source-intake-operation.ts";
+import {
+  RESEARCH_GOAL_EFFECT_SET_V2,
+  researchGoalOperationV2,
+} from "./research-goal-operation.ts";
+import {
+  SOURCE_INTAKE_EFFECT_SET_V1,
+  sourceIntakeOperationV1,
+} from "./source-intake-operation.ts";
 
 export const SOURCE_RESEARCH_EXECUTE_OPERATION =
   "source_intake.research.submit_or_resolve.v1" as const;
@@ -48,7 +61,28 @@ export type SourceResearchRoutingAdmissionV1 = {
   research: ProductEdgeExecutionRoutingV1;
 };
 
+export type SourceResearchExecutionAdmissionV1 =
+  | {
+      availability: "available";
+      unavailable_reason: null;
+      source_registry_entry_digest: string;
+      source_compatibility_envelope_digest: string | null;
+      research_registry_entry_digest: string;
+      research_compatibility_envelope_digest: string | null;
+      routing: SourceResearchRoutingAdmissionV1;
+    }
+  | {
+      availability: "unavailable";
+      unavailable_reason: "COMPATIBILITY_UNAVAILABLE" | "DASHBOARD_ROUTING_UNAVAILABLE";
+      source_registry_entry_digest: null;
+      source_compatibility_envelope_digest: null;
+      research_registry_entry_digest: null;
+      research_compatibility_envelope_digest: null;
+      routing: SourceResearchRoutingAdmissionV1;
+    };
+
 const IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/;
+const DIGEST = /^sha256:[0-9a-f]{64}$/;
 
 export function sourceResearchOperationManifestDigestV1(): string {
   return `sha256:${createHash("sha256")
@@ -106,4 +140,100 @@ export function validSourceResearchRoutingAdmissionV1(
   }
   return observations.every((entry) => entry.state === "UNAVAILABLE"
     && entry.dispatcher === "NONE");
+}
+
+export function validSourceResearchExecutionAdmissionV1(
+  action: "RUN" | "RESOLVE",
+  admission: SourceResearchExecutionAdmissionV1,
+): admission is Extract<SourceResearchExecutionAdmissionV1, { availability: "available" }> {
+  if (admission.availability !== "available"
+    || admission.source_registry_entry_digest !== registryEntryDigestV1(sourceIntakeOperationV1)
+    || admission.research_registry_entry_digest !== registryEntryDigestV1(researchGoalOperationV2)
+    || !validSourceResearchRoutingAdmissionV1(action, admission.routing)) return false;
+  return action === "RUN"
+    ? DIGEST.test(admission.source_compatibility_envelope_digest ?? "")
+      && DIGEST.test(admission.research_compatibility_envelope_digest ?? "")
+    : admission.source_compatibility_envelope_digest === null
+      && admission.research_compatibility_envelope_digest === null;
+}
+
+export async function admitSourceResearchExecutionV1({
+  action,
+  environment = process.env,
+  nowEpochMs = Date.now(),
+  routingResolver = (key) => resolveProductEdgeRoutingV1(key, { environment }),
+}: {
+  action: "RUN" | "RESOLVE";
+  environment?: Record<string, string | undefined>;
+  nowEpochMs?: number;
+  routingResolver?: (
+    key: ProductEdgeRoutingLookupKeyV1,
+  ) => Promise<ProductEdgeRoutingObservationV1>;
+}): Promise<SourceResearchExecutionAdmissionV1> {
+  const unavailableRouting = unavailableSourceResearchRoutingAdmissionV1();
+  const sourceRegistryDigest = registryEntryDigestV1(sourceIntakeOperationV1);
+  const researchRegistryDigest = registryEntryDigestV1(researchGoalOperationV2);
+  if (action === "RESOLVE") {
+    return {
+      availability: "available",
+      unavailable_reason: null,
+      source_registry_entry_digest: sourceRegistryDigest,
+      source_compatibility_envelope_digest: null,
+      research_registry_entry_digest: researchRegistryDigest,
+      research_compatibility_envelope_digest: null,
+      routing: unavailableRouting,
+    };
+  }
+  const sourceDeployment = operationDeploymentStateV1(
+    sourceIntakeOperationV1,
+    environment,
+    nowEpochMs,
+  );
+  const researchDeployment = operationDeploymentStateV1(
+    researchGoalOperationV2,
+    environment,
+    nowEpochMs,
+  );
+  if (sourceDeployment.deployment_state !== "available"
+    || researchDeployment.deployment_state !== "available") {
+    return {
+      availability: "unavailable",
+      unavailable_reason: "COMPATIBILITY_UNAVAILABLE",
+      source_registry_entry_digest: null,
+      source_compatibility_envelope_digest: null,
+      research_registry_entry_digest: null,
+      research_compatibility_envelope_digest: null,
+      routing: unavailableRouting,
+    };
+  }
+  let routing: SourceResearchRoutingAdmissionV1;
+  try {
+    const [source, research] = await Promise.all([
+      routingResolver(PRODUCT_EDGE_SOURCE_INTAKE_ROUTING_KEY_V1),
+      routingResolver(PRODUCT_EDGE_RESEARCH_GOAL_ROUTING_KEY_V2),
+    ]);
+    routing = { source, research };
+  } catch {
+    routing = unavailableRouting;
+  }
+  if (!validSourceResearchRoutingAdmissionV1("RUN", routing)) {
+    return {
+      availability: "unavailable",
+      unavailable_reason: "DASHBOARD_ROUTING_UNAVAILABLE",
+      source_registry_entry_digest: null,
+      source_compatibility_envelope_digest: null,
+      research_registry_entry_digest: null,
+      research_compatibility_envelope_digest: null,
+      routing,
+    };
+  }
+  return {
+    availability: "available",
+    unavailable_reason: null,
+    source_registry_entry_digest: sourceRegistryDigest,
+    source_compatibility_envelope_digest: sourceDeployment.compatibility_envelope_digest,
+    research_registry_entry_digest: researchRegistryDigest,
+    research_compatibility_envelope_digest: researchDeployment.compatibility_envelope_digest,
+    routing,
+  };
 }

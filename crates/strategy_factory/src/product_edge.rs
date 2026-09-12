@@ -694,6 +694,14 @@ pub trait ResearchGoalOwnerPortV2: Send + Sync {
     ) -> Result<ResearchGoalOwnerResultV2, ResearchGoalOwnerError>;
 }
 
+#[async_trait]
+pub trait ResearchReadbackOwnerPortV1: Send + Sync {
+    async fn read_research_v2(
+        &self,
+        request_identity: &str,
+    ) -> Result<ResearchGoalOwnerResultV2, ResearchGoalOwnerError>;
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResearchDirectoryCursorV1 {

@@ -9,35 +9,22 @@ import {
   rdOwnerJsonOutcomeV1,
   type RdOwnerHttpTransportV1,
 } from "./rd-owner-http.ts";
+import {
+  validResearchGoalExecutionInputV2,
+  type DashboardSourcedResearchGoalV2,
+  type DashboardTrialFamilyProposalV1,
+  type ResearchGoalExecutionInputV2,
+} from "./source-research-input-contract.ts";
+
+export { validResearchGoalExecutionInputV2 } from "./source-research-input-contract.ts";
+export type {
+  DashboardSourcedResearchGoalV2,
+  DashboardTrialFamilyProposalV1,
+  ResearchGoalExecutionInputV2,
+} from "./source-research-input-contract.ts";
 
 export const RESEARCH_GOAL_EXECUTE_OPERATION = "research_goal.execute.v2" as const;
 export const RESEARCH_GOAL_EFFECT_SET_V2 = ["R_AND_D_RESEARCH_MUTATION_V1"] as const;
-
-export type DashboardSourcedResearchGoalV2 = {
-  hypothesis: string;
-  mechanism: string;
-  falsification_question: string;
-  expected_observation: string;
-  required_data: string[];
-  cost_assumption: string;
-  capacity_assumption: string;
-};
-
-export type DashboardTrialFamilyProposalV1 = {
-  trial_budget: number;
-  stop_rule: string;
-  pit_rule_identity: string;
-  cost_model_identity: string;
-  slippage_model_identity: string;
-  capacity_model_identity: string;
-  independence_rationale: string;
-};
-
-export type ResearchGoalExecutionInputV2 = {
-  request_identity: string;
-  goal: DashboardSourcedResearchGoalV2;
-  trial_family_proposal: DashboardTrialFamilyProposalV1;
-};
 
 export type SourceIntakeAncestryV1 = {
   request_identity: string;
@@ -52,13 +39,14 @@ export const researchGoalOperationV2 = {
   owner_schema: "sourced-research-goal-v2",
   capability: "rd.research_goal.execute",
   effect_set: RESEARCH_GOAL_EFFECT_SET_V2,
+  dependency_operation_ids: [],
   execution_boundary: "DISPOSABLE_LOCAL",
   recovery_identity_fields: ["request_identity"],
   routing_dependency_keys: [PRODUCT_EDGE_RESEARCH_GOAL_ROUTING_KEY_V2],
   orchestration_contract: {
     identity: "dashboard-sourced-research-goal-orchestrator-v2",
-    run_owner_route: "POST /v2/source-intake-research",
-    resolve_owner_route: "POST /v2/source-intake-research/{request_identity}/resolve",
+    run_owner_route: "POST /v1/source-intake-research",
+    resolve_owner_route: "POST /v2/research-goals/{request_identity}/resolve",
     source_ancestry_required: true,
     resolve_identity_mode: "EXACT",
   },
@@ -77,43 +65,6 @@ function exactKeys(value: Record<string, unknown>, expected: readonly string[]) 
   return keys.length === wanted.length && keys.every((key, index) => key === wanted[index]);
 }
 
-function validText(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0
-    && new TextEncoder().encode(value).byteLength <= 8_192 && !/\p{Cc}/u.test(value);
-}
-
-export function validResearchGoalExecutionInputV2(value: ResearchGoalExecutionInputV2): boolean {
-  if (!IDENTITY.test(value?.request_identity ?? "") || !object(value?.goal)
-    || !exactKeys(value.goal, [
-      "hypothesis", "mechanism", "falsification_question", "expected_observation",
-      "required_data", "cost_assumption", "capacity_assumption",
-    ]) || ![
-      value.goal.hypothesis,
-      value.goal.mechanism,
-      value.goal.falsification_question,
-      value.goal.expected_observation,
-      value.goal.cost_assumption,
-      value.goal.capacity_assumption,
-    ].every(validText) || !Array.isArray(value.goal.required_data)
-    || value.goal.required_data.length < 1 || value.goal.required_data.length > 64
-    || !value.goal.required_data.every(validText) || !object(value?.trial_family_proposal)
-    || !exactKeys(value.trial_family_proposal, [
-      "trial_budget", "stop_rule", "pit_rule_identity", "cost_model_identity",
-      "slippage_model_identity", "capacity_model_identity", "independence_rationale",
-    ])) return false;
-  const proposal = value.trial_family_proposal;
-  return Number.isSafeInteger(proposal.trial_budget)
-    && proposal.trial_budget >= 1 && proposal.trial_budget <= 64
-    && [
-      proposal.stop_rule,
-      proposal.pit_rule_identity,
-      proposal.cost_model_identity,
-      proposal.slippage_model_identity,
-      proposal.capacity_model_identity,
-      proposal.independence_rationale,
-    ].every(validText);
-}
-
 function validAncestry(value: SourceIntakeAncestryV1): boolean {
   return object(value) && exactKeys(value, [
     "request_identity", "attempt_identity", "terminal_receipt_identity",
@@ -130,6 +81,31 @@ function unavailable(reason: string) {
     unavailable_reason: reason,
     owner_response: null,
     owner_outcome_state: null,
+  };
+}
+
+async function availableTerminalResearch(
+  ownerResponse: Record<string, unknown>,
+  requestIdentity: string,
+) {
+  const projected = await projectResearchOwnerResultWithEvidenceV1(
+    ownerResponse,
+    requestIdentity,
+  );
+  const projection = projected.projection as Record<string, unknown>;
+  if (projected.verified && projection.resolution === "SUBMITTED_OR_UNKNOWN") {
+    return unavailable("RESEARCH_OWNER_UNKNOWN");
+  }
+  if (!projected.verified || !["ACCEPTED", "REJECTED_NO_WRITE"].includes(String(projection.resolution))) {
+    return unavailable("RESEARCH_OWNER_PROJECTION_UNAVAILABLE");
+  }
+  return {
+    availability: "available" as const,
+    unavailable_reason: null,
+    owner_response: ownerResponse,
+    owner_outcome_state: projection.resolution === "ACCEPTED"
+      ? "available" as const
+      : "rejected" as const,
   };
 }
 
@@ -156,8 +132,8 @@ export async function executeResearchGoalOperationV2({
   const ownerOutcome = await rdOwnerJsonOutcomeV1({
     transport,
     path: action === "RUN"
-      ? "/v2/source-intake-research"
-      : `/v2/source-intake-research/${encodeURIComponent(input.request_identity)}/resolve`,
+      ? "/v1/source-intake-research"
+      : `/v1/source-intake-research/${encodeURIComponent(input.request_identity)}/resolve`,
     method: "POST",
     body: {
       proposal: {
@@ -181,24 +157,24 @@ export async function executeResearchGoalOperationV2({
   if (ownerOutcome.state !== "AVAILABLE") {
     return unavailable("RESEARCH_OWNER_RESPONSE_UNAVAILABLE");
   }
-  const ownerResponse = ownerOutcome.value;
-  const projected = await projectResearchOwnerResultWithEvidenceV1(
-    ownerResponse,
-    input.request_identity,
-  );
-  const projection = projected.projection as Record<string, unknown>;
-  if (projected.verified && projection.resolution === "SUBMITTED_OR_UNKNOWN") {
-    return unavailable("RESEARCH_OWNER_UNKNOWN");
-  }
-  if (!projected.verified || !["ACCEPTED", "REJECTED_NO_WRITE"].includes(String(projection.resolution))) {
-    return unavailable("RESEARCH_OWNER_PROJECTION_UNAVAILABLE");
-  }
-  return {
-    availability: "available" as const,
-    unavailable_reason: null,
-    owner_response: ownerResponse,
-    owner_outcome_state: projection.resolution === "ACCEPTED"
-      ? "available" as const
-      : "rejected" as const,
-  };
+  return availableTerminalResearch(ownerOutcome.value, input.request_identity);
+}
+
+export async function resolveResearchGoalOperationV2({
+  requestIdentity,
+  transport,
+}: {
+  requestIdentity: string;
+  transport: RdOwnerHttpTransportV1;
+}) {
+  if (!IDENTITY.test(requestIdentity)) return unavailable("RESEARCH_EXECUTION_REQUEST_INVALID");
+  const ownerOutcome = await rdOwnerJsonOutcomeV1({
+    transport,
+    path: `/v2/research-goals/${encodeURIComponent(requestIdentity)}/resolve`,
+    method: "POST",
+  });
+  if (ownerOutcome.state === "ABSENT") return unavailable("RESEARCH_OWNER_ABSENT");
+  if (ownerOutcome.state === "UNKNOWN") return unavailable("RESEARCH_OWNER_UNKNOWN");
+  if (ownerOutcome.state !== "AVAILABLE") return unavailable("RESEARCH_OWNER_RESPONSE_UNAVAILABLE");
+  return availableTerminalResearch(ownerOutcome.value, requestIdentity);
 }

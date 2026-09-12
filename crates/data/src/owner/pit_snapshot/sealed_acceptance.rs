@@ -286,6 +286,11 @@ pub fn issue_source_intake_composer_universe_frame()
 ///
 /// Only typed canonical digests cross this boundary. Market facts, clock, provider, selection, and
 /// role identities remain compile-time owned by this module and cannot be supplied by an API DTO.
+///
+/// # Errors
+///
+/// Fails closed when the supplied Owner lineage is not the admitted A2 corpus lineage or when any
+/// fixed Source Binding, PIT, or universe-frame invariant is unavailable.
 pub fn issue_source_intake_composer_universe_frame_for_owner_lineage(
     research_request_identity: BindingDigest,
     strategy_design_identity: BindingDigest,

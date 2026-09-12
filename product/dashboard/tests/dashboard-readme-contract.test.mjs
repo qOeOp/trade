@@ -11,7 +11,8 @@ test("Dashboard README names the shipped first-party surfaces without promoting 
     "Market Data", "Runtime", "Portfolio",
   ]) assert.match(readme, new RegExp(`\\b${surface}\\b`, "u"));
 
-  assert.match(readme, /Event Rail, Telemetry, Alerts, Settings Access[\s\S]{1,160}?remain navigation-only placeholders/u);
+  assert.match(readme, /Settings Access ships only the local browser-session read\/re-authentication shell/u);
+  assert.match(readme, /Event Rail,[\s\S]{1,80}?Telemetry, Alerts,[\s\S]{1,160}?remain navigation-only placeholders/u);
   assert.doesNotMatch(readme, /does not ship the local R&D/u);
 });
 
