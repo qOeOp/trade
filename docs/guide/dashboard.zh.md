@@ -1,5 +1,31 @@
 # Trade Dashboard
 
+## 有界准入：本地 Operator 浏览器会话
+
+用户准入一个第一方本地 Operator 会话壳与只读 `/settings/access` surface，状态为
+`DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED`。此窄切片只替换无行为的登录展示，不准入 OAuth、账号创建、
+密码导入、transport token 签发、Operator Authorization 或 Product Edge binding 修改、authorization
+successor 选择、通用角色管理产品以及任何 Owner/provider effect。Windmill routing 与
+`DASHBOARD_OPERATOR_API_TOKEN` 保持不变。
+
+`DASHBOARD_LOCAL_OPERATOR_LOGIN_TOKEN` 只用于证明可以创建或续期浏览器会话；
+`DASHBOARD_SESSION_HMAC_KEY` 为版本化 cookie 签名。cookie 只包含固定 `local_operator` principal、随机
+session identity、登录凭据摘要、签发时间与过期时间。两项 secret 都必须为 32-4096 UTF-8 bytes。cookie
+固定 HttpOnly、SameSite=Strict、path `/`、八小时有限有效期，并在 HTTPS 请求下启用 Secure；不得写入
+local/session storage，也不得由 API 暴露。轮换任一 secret 都会使旧会话失效。登录凭据不能满足 effect
+endpoint；已准入 effect 仍独立要求自己的 bearer capability。
+
+Next proxy 保护所有 Dashboard 页面与 API，只排除 `/login`、`/api/auth/session`、静态资源及不返回业务
+数据的 `/api/health` 存活端点；Dashboard layout 再执行一次页面防护。配置缺失时 fail closed 为
+`configuration_unavailable`；会话缺失、非法或过期分别为 `required`、`invalid`、`expired`，且不保留旧正向
+状态。页面请求跳转登录页并只携带已清洗的本地 return path；API 返回 401，配置不可用时返回 503。会话创建
+仅接受 same-origin JSON，删除同样要求 same-origin；非法、过期与已删除 cookie 必须清除。
+
+`/settings/access` 只读取当前 principal、session identity、上次重新认证与过期时间。Transport token、
+Operator Authorization、Product Edge readiness 与 successor 区域保持可见 unavailable，不提供修改控件或
+secret value。动态验收覆盖配置不可用、无 cookie 的页面/API、错误凭据、cookie 属性、认证后页面/API、
+篡改、过期与登出。固定本地预览端口只有在隔离验收通过且两个 session secret 已配置后才可替换监听。
+
 ## 有界准入：只读影子调度日历
 
 用户准入 `/operations/schedules` 为 `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED`，仅覆盖第一方
@@ -1549,11 +1575,20 @@ trading effect。Log 不能升级 Owner health、business success、未绑定 ru
 `/operations/audit` 只对本节定义的第一方 append-only control-plane evidence 标记为
 `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED`。它绝不把 Windmill partitioned table 作为第一方 positive source：
 当前已观察 Windmill row 只暴露 principal、time 与 action kind，operation 和 resource 都是 `redacted`。
-它们可以继续作为外部 migration evidence，但不能伪造 target、outcome 或 Dashboard audit identity。第一批
-准入 producer 严格限定为成功的 `dashboard.dependency.cancel.queued.v1` 与
-`dashboard.operational_cache.delete.v1` transition。每条 audit event 必须与 immutable action receipt 在同一
-serializable PostgreSQL transaction 中插入；audit insert 缺失或被拒绝时整个 action rollback。本切面不推断、
-不写入 Owner、provider、deployment、scheduler、Windmill 或 trading event。
+它们可以继续作为外部 migration evidence，但不能伪造 target、outcome 或 Dashboard audit identity。准入
+producer 严格限定为成功的 `dashboard.dependency.cancel.queued.v1`、
+`dashboard.operational_cache.delete.v1` transition，以及经过认证的
+`source_intake.research.submit_or_resolve.v1` 与 `artifact_build.formation_execute.v1` 控制面准入。
+Cancellation/deletion 的 audit event 必须与 immutable action receipt 在同一 serializable PostgreSQL
+transaction 中插入。Source-to-Research/Artifact request 则必须在任何 Owner/provider call 之前，于同一个
+RunStore begin transaction 中同时插入 typed `dashboard-control-plane-admission-v1-*` receipt 与 audit event；
+receipt 或 audit insert 缺失、冲突、被拒绝时，run/binding transition 整体 rollback，下游 effect 不开始。
+Receipt 精确绑定 authenticated principal、authorization digest、用户原始 requested action、解析后的
+execution mode、operation 与 run identity；重复的同一准入读回同一个 immutable receipt，不同 action 或
+execution mode 使用不同 receipt。Audit outcome `succeeded` 只表示控制面准入已提交，绝不表示 Owner 接受、
+provider 成功或 business terminal outcome。历史 run 不回填虚构的 principal 或 authorization digest。本切面
+不推断、不改变 deployment、scheduler、Windmill、effect routing、production、trading、Owner outcome 或
+provider outcome event。
 
 ```text
 H  Operations / Audit · one-line purpose                         [info] [Refresh]

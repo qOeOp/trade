@@ -4,6 +4,10 @@ import {
 } from "./product-edge-routing-client.ts";
 import { configuredDisposableOwnerTransportV1 } from "./rd-owner-http.ts";
 import {
+  validControlPlaneAdmissionContextV1,
+  type ControlPlaneAdmissionContextV1,
+} from "./control-plane-admission-contract.ts";
+import {
   executeResearchGoalOperationV2,
   resolveResearchGoalOperationV2,
 } from "./research-goal-operation.ts";
@@ -89,6 +93,7 @@ function validRequest(request: SourceResearchOperationRequestV1): boolean {
 
 export async function executeSourceResearchOperationV1({
   request,
+  actionContext,
   environment = process.env,
   fetcher = fetch,
   routingResolver,
@@ -96,6 +101,7 @@ export async function executeSourceResearchOperationV1({
   store = configuredRunStoreV1(),
 }: {
   request: SourceResearchOperationRequestV1;
+  actionContext: ControlPlaneAdmissionContextV1;
   environment?: Environment;
   fetcher?: Fetcher;
   routingResolver?: (
@@ -105,6 +111,10 @@ export async function executeSourceResearchOperationV1({
   store?: SourceResearchStoreV1 | null;
 }): Promise<SourceResearchOperationResponseV1> {
   if (!validRequest(request)) return unavailable("EXECUTION_REQUEST_INVALID", 400);
+  if (!validControlPlaneAdmissionContextV1(actionContext)
+    || actionContext.requestedAction !== request.action) {
+    return unavailable("EXECUTION_AUTHORIZATION_UNAVAILABLE", 503);
+  }
   const ownerTransport = configuredDisposableOwnerTransportV1({
     environment,
     enablementKey: "DASHBOARD_DISPOSABLE_SOURCE_RESEARCH_EXECUTION",
@@ -179,6 +189,7 @@ export async function executeSourceResearchOperationV1({
       action: effectiveAction,
       recoveryIdentity,
       admission,
+      actionContext,
       runRequest: request.action === "RUN" ? request : null,
       existingRecoveryOnly: recovery !== null,
     });

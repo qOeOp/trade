@@ -61,6 +61,14 @@ import {
   operationAuditIdentityForReceiptV1,
   type OperationAuditOperationV1,
 } from "./operation-audit-contract.ts";
+import {
+  controlPlaneAdmissionReceiptIdentityV1,
+  parseControlPlaneAdmissionReceiptV1,
+  validControlPlaneAdmissionContextV1,
+  type ControlPlaneAdmissionContextV1,
+  type ControlPlaneAdmissionExecutionModeV1,
+  type ControlPlaneAdmissionOperationV1,
+} from "./control-plane-admission-contract.ts";
 
 const IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
@@ -803,7 +811,7 @@ async function appendOperationAuditV1(
     observedAt: Date;
     principalRef: string;
     operation: OperationAuditOperationV1;
-    actionKind: "update" | "delete";
+    actionKind: "execute" | "update" | "delete";
     runIdentity: string;
     receiptIdentity: string;
     authorizationDigest: string;
@@ -849,6 +857,77 @@ async function appendOperationAuditV1(
     || row.authorization_digest !== value.authorizationDigest) {
     throw new Error("OPERATION_AUDIT_CONFLICT");
   }
+}
+
+async function appendControlPlaneAdmissionV1(
+  client: PoolClient,
+  value: {
+    operation: ControlPlaneAdmissionOperationV1;
+    executionMode: ControlPlaneAdmissionExecutionModeV1;
+    runIdentity: string;
+    context: ControlPlaneAdmissionContextV1;
+  },
+) {
+  const receiptIdentity = controlPlaneAdmissionReceiptIdentityV1({
+    principalRef: value.context.principalRef,
+    operation: value.operation,
+    requestedAction: value.context.requestedAction,
+    executionMode: value.executionMode,
+    runIdentity: value.runIdentity,
+    authorizationDigest: value.context.authorizationDigest,
+  });
+  const inserted = await client.query<{
+    receipt_identity: string;
+    admitted_at: Date;
+    principal_ref: string;
+    operation: ControlPlaneAdmissionOperationV1;
+    requested_action: "RUN" | "RESOLVE";
+    execution_mode: ControlPlaneAdmissionExecutionModeV1;
+    run_identity: string;
+    authorization_digest: string;
+  }>(
+    `INSERT INTO dashboard_control_plane_admission_receipts_v1
+       (receipt_identity, schema_version, admitted_at, principal_ref, operation,
+        requested_action, execution_mode, run_identity, authorization_digest)
+     VALUES ($1, 1, clock_timestamp(), $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (receipt_identity) DO NOTHING
+     RETURNING receipt_identity, admitted_at, principal_ref, operation, requested_action,
+               execution_mode, run_identity, authorization_digest`,
+    [receiptIdentity, value.context.principalRef, value.operation,
+      value.context.requestedAction, value.executionMode, value.runIdentity,
+      value.context.authorizationDigest],
+  );
+  const selected = inserted.rows[0] ? inserted : await client.query<typeof inserted.rows[number]>(
+    `SELECT receipt_identity, admitted_at, principal_ref, operation, requested_action,
+            execution_mode, run_identity, authorization_digest
+       FROM dashboard_control_plane_admission_receipts_v1
+      WHERE receipt_identity = $1`,
+    [receiptIdentity],
+  );
+  const row = selected.rows[0];
+  const receipt = row && parseControlPlaneAdmissionReceiptV1({
+    schema_version: 1,
+    receipt_identity: row.receipt_identity,
+    admitted_at: row.admitted_at.toISOString(),
+    principal_ref: row.principal_ref,
+    operation: row.operation,
+    requested_action: row.requested_action,
+    execution_mode: row.execution_mode,
+    run_identity: row.run_identity,
+    authorization_digest: row.authorization_digest,
+  });
+  if (!receipt || receipt.receipt_identity !== receiptIdentity) {
+    throw new Error("CONTROL_PLANE_ADMISSION_CONFLICT");
+  }
+  await appendOperationAuditV1(client, {
+    observedAt: row.admitted_at,
+    principalRef: receipt.principal_ref,
+    operation: receipt.operation,
+    actionKind: "execute",
+    runIdentity: receipt.run_identity,
+    receiptIdentity: receipt.receipt_identity,
+    authorizationDigest: receipt.authorization_digest,
+  });
 }
 
 async function recoverExpiredClaims(client: PoolClient) {
@@ -955,23 +1034,33 @@ export class PostgresRunStoreV1 {
 
   async assertArtifactFormationSchema() {
     await this.assertSchema();
-    const result = await this.#pool.query<{ artifact_bindings: string | null }>(
+    const result = await this.#pool.query<{
+      artifact_bindings: string | null;
+      admission_receipts: string | null;
+    }>(
       `SELECT to_regclass(
         'public.dashboard_artifact_formation_run_bindings_v1'
-      )::text AS artifact_bindings`,
+      )::text AS artifact_bindings,
+      to_regclass(
+        'public.dashboard_control_plane_admission_receipts_v1'
+      )::text AS admission_receipts`,
     );
-    if (!result.rows[0]?.artifact_bindings) throw new Error("RUN_STORE_SCHEMA_UNAVAILABLE");
+    if (!result.rows[0]?.artifact_bindings || !result.rows[0]?.admission_receipts) {
+      throw new Error("RUN_STORE_SCHEMA_UNAVAILABLE");
+    }
   }
 
   async beginArtifactFormation({
     action,
     recoveryIdentity,
     admission,
+    actionContext,
     existingRecoveryOnly = false,
   }: {
     action: "RUN" | "RESOLVE";
     recoveryIdentity: Record<string, string>;
     admission: Extract<ArtifactFormationExecutionAdmissionV1, { availability: "available" }>;
+    actionContext: ControlPlaneAdmissionContextV1;
     existingRecoveryOnly?: boolean;
   }): Promise<ArtifactFormationRunStartV1> {
     const canonical = canonicalArtifactFormationRecoveryIdentityV1(recoveryIdentity);
@@ -987,7 +1076,8 @@ export class PostgresRunStoreV1 {
         && Number.isSafeInteger(routing.generation) && routing.generation > 0)
       || ((action === "RESOLVE" || existingRecoveryOnly) && routing.state === "UNAVAILABLE"
         && routing.dispatcher === "NONE"));
-    if (!canonical || !recoveryDigest || !validAdmission) {
+    if (!canonical || !recoveryDigest || !validAdmission
+      || !validControlPlaneAdmissionContextV1(actionContext)) {
       throw new Error("ARTIFACT_FORMATION_SUBMISSION_INVALID");
     }
     const client = await this.#pool.connect();
@@ -1015,11 +1105,18 @@ export class PostgresRunStoreV1 {
           );
           if (continued.rowCount !== 1) throw new Error("ARTIFACT_FORMATION_RECOVERY_CONFLICT");
         }
+        const executionMode = continueOnce ? "CONTINUE_CLAIMED_ONCE" : "RESOLVE_ONLY";
+        await appendControlPlaneAdmissionV1(client, {
+          operation: ARTIFACT_FORMATION_EXECUTE_OPERATION,
+          executionMode,
+          runIdentity: current.run_identity,
+          context: actionContext,
+        });
         await client.query("COMMIT");
         return {
           schema_version: 1,
           run: record(current),
-          execution_mode: continueOnce ? "CONTINUE_CLAIMED_ONCE" : "RESOLVE_ONLY",
+          execution_mode: executionMode,
         };
       }
       if (existingRecoveryOnly) throw new Error("ARTIFACT_FORMATION_RECOVERY_CONFLICT");
@@ -1045,6 +1142,12 @@ export class PostgresRunStoreV1 {
           routing.binding_identity, routing.binding_digest, routing.generation],
       );
       await appendLog(client, runIdentity, "info", "artifact_orchestrator", "RUN_STARTED");
+      await appendControlPlaneAdmissionV1(client, {
+        operation: ARTIFACT_FORMATION_EXECUTE_OPERATION,
+        executionMode: "FRESH_RUN",
+        runIdentity,
+        context: actionContext,
+      });
       await client.query("COMMIT");
       return { schema_version: 1, run: record(inserted.rows[0]), execution_mode: "FRESH_RUN" };
     } catch (error) {
@@ -1188,11 +1291,15 @@ export class PostgresRunStoreV1 {
     await this.assertSchema();
     const result = await this.#pool.query<{
       source_research_bindings: string | null;
+      admission_receipts: string | null;
       custody_columns: string | number;
     }>(
       `SELECT to_regclass(
         'public.dashboard_source_research_run_bindings_v1'
       )::text AS source_research_bindings,
+      to_regclass(
+        'public.dashboard_control_plane_admission_receipts_v1'
+      )::text AS admission_receipts,
       (SELECT count(*)
          FROM information_schema.columns
         WHERE table_schema = 'public'
@@ -1204,7 +1311,7 @@ export class PostgresRunStoreV1 {
             'run_request_json', 'run_request_digest'
           )) AS custody_columns`,
     );
-    if (!result.rows[0]?.source_research_bindings
+    if (!result.rows[0]?.source_research_bindings || !result.rows[0]?.admission_receipts
       || Number(result.rows[0]?.custody_columns) !== 8) {
       throw new Error("RUN_STORE_SCHEMA_UNAVAILABLE");
     }
@@ -1358,12 +1465,14 @@ export class PostgresRunStoreV1 {
     action,
     recoveryIdentity,
     admission,
+    actionContext,
     runRequest = null,
     existingRecoveryOnly = false,
   }: {
     action: "RUN" | "RESOLVE";
     recoveryIdentity: Record<string, string>;
     admission: SourceResearchExecutionAdmissionV1;
+    actionContext: ControlPlaneAdmissionContextV1;
     runRequest?: SourceResearchRunRequestV1 | null;
     existingRecoveryOnly?: boolean;
   }): Promise<SourceResearchRunStartV1> {
@@ -1372,6 +1481,7 @@ export class PostgresRunStoreV1 {
     const suppliedInputCustody = runRequest
       ? sourceResearchRunInputCustodyV1(runRequest) : null;
     if (!canonical || !recoveryDigest
+      || !validControlPlaneAdmissionContextV1(actionContext)
       || !validSourceResearchExecutionAdmissionV1(action, admission)
       || (action === "RUN" && !suppliedInputCustody)
       || (action === "RESOLVE" && runRequest && !existingRecoveryOnly)
@@ -1415,6 +1525,12 @@ export class PostgresRunStoreV1 {
           && suppliedInputCustody.request_digest !== retainedInputCustody.request_digest) {
           throw new Error("SOURCE_RESEARCH_INPUT_CUSTODY_CONFLICT");
         }
+        await appendControlPlaneAdmissionV1(client, {
+          operation: SOURCE_RESEARCH_EXECUTE_OPERATION,
+          executionMode: "RESOLVE_ONLY",
+          runIdentity: current.run_identity,
+          context: actionContext,
+        });
         await client.query("COMMIT");
         return {
           schema_version: 1,
@@ -1466,6 +1582,12 @@ export class PostgresRunStoreV1 {
           suppliedInputCustody?.request_digest ?? null],
       );
       await appendLog(client, runIdentity, "info", "source_research_orchestrator", "RUN_STARTED");
+      await appendControlPlaneAdmissionV1(client, {
+        operation: SOURCE_RESEARCH_EXECUTE_OPERATION,
+        executionMode: "FRESH_RUN",
+        runIdentity,
+        context: actionContext,
+      });
       await client.query("COMMIT");
       return {
         schema_version: 1,

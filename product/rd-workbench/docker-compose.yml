@@ -315,6 +315,8 @@ services:
       DASHBOARD_DATABASE_URL: ${DASHBOARD_DATABASE_URL:-}
       DASHBOARD_CURSOR_HMAC_KEY: ${DASHBOARD_CURSOR_HMAC_KEY:-}
       DASHBOARD_OPERATOR_API_TOKEN: ${DASHBOARD_OPERATOR_API_TOKEN:-}
+      DASHBOARD_LOCAL_OPERATOR_LOGIN_TOKEN: ${DASHBOARD_LOCAL_OPERATOR_LOGIN_TOKEN:-}
+      DASHBOARD_SESSION_HMAC_KEY: ${DASHBOARD_SESSION_HMAC_KEY:-}
       DASHBOARD_SERVER_INSTANCE_IDENTITY: ${DASHBOARD_SERVER_INSTANCE_IDENTITY:-dashboard-web}
       DASHBOARD_COMPATIBILITY_ENVELOPES_JSON: ${DASHBOARD_COMPATIBILITY_ENVELOPES_JSON:-}
       DASHBOARD_COMPATIBILITY_ENVELOPES_DIGEST: ${DASHBOARD_COMPATIBILITY_ENVELOPES_DIGEST:-}
@@ -343,7 +345,7 @@ services:
       test:
         - CMD-SHELL
         - >-
-          node -e "fetch('http://127.0.0.1:3100/operations/').then((response) =>
+          node -e "fetch('http://127.0.0.1:3100/api/health/').then((response) =>
           process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
       interval: 5s
       timeout: 3s

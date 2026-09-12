@@ -1,5 +1,34 @@
 # Trade Dashboard
 
+## Bounded admission: local operator browser session
+
+The user admits one first-party local operator session shell and the read-only `/settings/access` surface as
+`DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED`. This narrow slice replaces the inert login presentation only. It does
+not admit OAuth, account creation, password import, transport-token issuance, Operator Authorization or Product
+Edge binding mutation, authorization successor selection, a role-administration product, or any Owner/provider
+effect. Windmill routing and `DASHBOARD_OPERATOR_API_TOKEN` remain unchanged.
+
+`DASHBOARD_LOCAL_OPERATOR_LOGIN_TOKEN` is proof for creating or renewing the browser session only.
+`DASHBOARD_SESSION_HMAC_KEY` signs a versioned cookie containing the fixed `local_operator` principal, a random
+session identity, login-credential digest, issue time and expiry. Both secrets must be 32-4096 UTF-8 bytes. The
+cookie is HttpOnly, SameSite=Strict, path `/`, finite-lived for eight hours, and Secure whenever the request is
+HTTPS. It is never placed in local/session storage or exposed by an API. Rotating either secret invalidates prior
+sessions. The login credential never satisfies an effect endpoint; admitted effects continue to require their
+independent bearer capability.
+
+The Next proxy guards all Dashboard pages and APIs except `/login`, `/api/auth/session`, static assets and the
+zero-business-data `/api/health` liveness endpoint. The Dashboard layout repeats the page guard as defense in
+depth. Missing configuration fails closed as `configuration_unavailable`; absent, invalid and expired sessions
+become `required`, `invalid` and `expired` without retaining positive state. Page requests redirect to login with
+one sanitized local return path; API requests return 401, or 503 for unavailable configuration. Session creation
+accepts same-origin JSON and deletion also requires same origin. Invalid, expired and deleted cookies are cleared.
+
+`/settings/access` reads only current principal, session identity, last re-authentication and expiry. Transport
+token, Operator Authorization, Product Edge readiness and successor areas remain visibly unavailable with no
+mutation control or secret value. Dynamic acceptance covers unavailable configuration, no-cookie page/API,
+wrong credential, cookie attributes, authenticated page/API, tampering, expiry and logout. The fixed local preview
+port must not replace its listener until isolated acceptance passes and both session secrets are provisioned.
+
 ## Bounded admission: read-only shadow schedule calendar
 
 The user admits `/operations/schedules` as `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED` for the
@@ -1676,10 +1705,19 @@ readiness.
 control-plane evidence defined here. It never reads Windmill's partitioned table as a positive first-party source:
 the currently observed Windmill rows expose only principal, time and action kind while operation and resource are
 `redacted`. They may remain external migration evidence, but cannot fabricate a target, outcome or Dashboard audit
-identity. The first admitted producers are exactly successful `dashboard.dependency.cancel.queued.v1` and
-`dashboard.operational_cache.delete.v1` transitions. Each inserts its audit event in the same serializable
-PostgreSQL transaction as its immutable action receipt; a missing or rejected audit insert rolls back that action.
-No Owner, provider, deployment, scheduler, Windmill or trading event is inferred or written by this slice.
+identity. The admitted producers are exactly successful `dashboard.dependency.cancel.queued.v1` and
+`dashboard.operational_cache.delete.v1` transitions plus authenticated control-plane admissions for
+`source_intake.research.submit_or_resolve.v1` and `artifact_build.formation_execute.v1`. Each cancellation or
+deletion inserts its audit event in the same serializable PostgreSQL transaction as its immutable action receipt.
+Each Source-to-Research or Artifact request inserts a typed `dashboard-control-plane-admission-v1-*` receipt and
+its audit event in the same RunStore begin transaction before any Owner or provider call; a missing, conflicting,
+or rejected receipt/audit insert rolls back the run/binding transition and no downstream effect begins. The
+receipt binds the authenticated principal and authorization digest, original requested action, resolved execution
+mode, operation, and exact run identity. Repeating the same admission reads the same immutable receipt; a distinct
+action or execution mode gets a distinct receipt. The audit outcome `succeeded` means only that control-plane
+admission committed; it never claims Owner acceptance, provider success, or a business terminal outcome. Historical
+runs are not backfilled with invented principals or authorization digests. No deployment, scheduler, Windmill,
+effect-routing, production, trading, Owner-outcome, or provider-outcome event is inferred or changed by this slice.
 
 ```text
 H  Operations / Audit · one-line purpose                         [info] [Refresh]

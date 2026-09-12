@@ -7,6 +7,10 @@ import {
 } from "../../rd-owner-client/artifact_build_v1.ts";
 import { admitArtifactFormationExecutionV1 } from "./artifact-formation-operation.ts";
 import {
+  validControlPlaneAdmissionContextV1,
+  type ControlPlaneAdmissionContextV1,
+} from "./control-plane-admission-contract.ts";
+import {
   operationalRunAvailableV1,
   operationalRunUnavailableV1,
   type OperationalRunReferenceV1,
@@ -39,6 +43,7 @@ export type ArtifactFormationUnavailableV1 = {
     | "EXECUTION_COMPATIBILITY_UNAVAILABLE"
     | "EXECUTION_PREFLIGHT_UNAVAILABLE"
     | "EXECUTION_ROUTING_UNAVAILABLE"
+    | "EXECUTION_AUTHORIZATION_UNAVAILABLE"
     | "EXECUTION_RUN_STORE_UNAVAILABLE"
     | "EXECUTION_RUN_STORE_TRANSITION_UNAVAILABLE"
     | "EXECUTION_REQUEST_INVALID";
@@ -238,6 +243,7 @@ function validRequest(request: ArtifactFormationRequestV1): boolean {
 
 export async function executeDisposableArtifactFormationV1({
   request,
+  actionContext,
   environment = process.env,
   fetcher = fetch,
   routingResolver,
@@ -245,6 +251,7 @@ export async function executeDisposableArtifactFormationV1({
   store = configuredRunStoreV1(),
 }: {
   request: ArtifactFormationRequestV1;
+  actionContext: ControlPlaneAdmissionContextV1;
   environment?: Environment;
   fetcher?: Fetcher;
   routingResolver?: (
@@ -259,6 +266,10 @@ export async function executeDisposableArtifactFormationV1({
     | "completeArtifactFormation"> | null;
 }): Promise<ArtifactFormationResponseV1> {
   if (!validRequest(request)) return unavailable("EXECUTION_REQUEST_INVALID", 400);
+  if (!validControlPlaneAdmissionContextV1(actionContext)
+    || actionContext.requestedAction !== request.action) {
+    return unavailable("EXECUTION_AUTHORIZATION_UNAVAILABLE", 503);
+  }
   const runtime = executionRuntime(request, environment, fetcher);
   if (!runtime) return unavailable("EXECUTION_CONFIGURATION_UNAVAILABLE", 503);
   if (!store) return unavailable("EXECUTION_RUN_STORE_UNAVAILABLE", 503);
@@ -315,6 +326,7 @@ export async function executeDisposableArtifactFormationV1({
       action: request.action,
       recoveryIdentity,
       admission,
+      actionContext,
       existingRecoveryOnly: active !== null,
     });
   } catch {

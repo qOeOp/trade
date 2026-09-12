@@ -3,7 +3,9 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { executeSourceResearchOperationV1 } from "../lib/source-research-operation.ts";
+import {
+  executeSourceResearchOperationV1 as executeSourceResearchOperationImplV1,
+} from "../lib/source-research-operation.ts";
 import { sourceResearchRunInputCustodyV1 } from "../lib/source-research-run-input-custody.ts";
 import { researchGoalOperationV2 } from "../lib/research-goal-operation.ts";
 import { sourceIntakeOperationV1 } from "../lib/source-intake-operation.ts";
@@ -103,6 +105,17 @@ const resolveRequest = {
   source_request_identity: request.source.request_identity,
   research_request_identity: request.research.request_identity,
 };
+
+function executeSourceResearchOperationV1(input) {
+  return executeSourceResearchOperationImplV1({
+    ...input,
+    actionContext: {
+      authorizationDigest: `sha256:${"e".repeat(64)}`,
+      principalRef: "local_operator",
+      requestedAction: input.request.action,
+    },
+  });
+}
 
 const compatibility = compatibleEnvironmentV1({
   extraManifests: [sourceIntakeOperationV1, researchGoalOperationV2],

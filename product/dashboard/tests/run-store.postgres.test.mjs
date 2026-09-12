@@ -11,7 +11,9 @@ import {
   admitArtifactFormationExecutionV1,
   artifactFormationOperationManifestV1,
 } from "../lib/artifact-formation-operation.ts";
-import { executeDisposableArtifactFormationV1 } from "../lib/artifact-formation-client.ts";
+import {
+  executeDisposableArtifactFormationV1 as executeDisposableArtifactFormationImplV1,
+} from "../lib/artifact-formation-client.ts";
 import { researchGoalOperationV2 } from "../lib/research-goal-operation.ts";
 import { projectRunDetailEnvelopeV1 } from "../lib/run-detail-projection.ts";
 import {
@@ -26,7 +28,9 @@ import { PostgresRunStoreV1 } from "../lib/run-store.ts";
 import {
   admitSourceResearchExecutionV1,
 } from "../lib/source-research-run-contract.ts";
-import { executeSourceResearchOperationV1 } from "../lib/source-research-operation.ts";
+import {
+  executeSourceResearchOperationV1 as executeSourceResearchOperationImplV1,
+} from "../lib/source-research-operation.ts";
 import { sourceIntakeOperationV1 } from "../lib/source-intake-operation.ts";
 import { PostgresServiceLogGatewayV1 } from "../lib/service-log-gateway.ts";
 import { PostgresOperationAuditGatewayV1 } from "../lib/operation-audit-gateway.ts";
@@ -80,6 +84,35 @@ const dispatchCompatibility = compatibleEnvironmentV1();
 const sourceResearchCompatibility = compatibleEnvironmentV1({
   extraManifests: [sourceIntakeOperationV1, researchGoalOperationV2],
 });
+
+function actionContext(requestedAction) {
+  return {
+    authorizationDigest: `sha256:${"e".repeat(64)}`,
+    principalRef: "local_operator",
+    requestedAction,
+  };
+}
+
+function executeDisposableArtifactFormationV1(input) {
+  return executeDisposableArtifactFormationImplV1({
+    ...input,
+    actionContext: actionContext(input.request.action),
+  });
+}
+
+function executeSourceResearchOperationV1(input) {
+  return executeSourceResearchOperationImplV1({
+    ...input,
+    actionContext: actionContext(input.request.action),
+  });
+}
+
+async function ensureControlPlaneAdmissionAudit(admin) {
+  await admin.query(await readFile(
+    new URL("../migrations/0012_control_plane_admission_audit.sql", import.meta.url),
+    "utf8",
+  ));
+}
 
 function bindingFor(operationId, fixture = dispatchCompatibility) {
   const binding = operationDispatchBindingForIdV1(
@@ -237,7 +270,9 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
   await admin.query(cacheDeletionMigration);
   await admin.query(cancellationMigration);
   await admin.query(operationAuditMigration);
+  await ensureControlPlaneAdmissionAudit(admin);
   await admin.query(`TRUNCATE dashboard_operation_audit_v1,
+    dashboard_control_plane_admission_receipts_v1,
     dashboard_operation_run_cancellations_v1,
     dashboard_operation_run_cache_deletions_v1,
     dashboard_source_research_run_bindings_v1,
@@ -259,6 +294,7 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
   await admin.query(cacheDeletionMigration);
   await admin.query(cancellationMigration);
   await admin.query(operationAuditMigration);
+  await ensureControlPlaneAdmissionAudit(admin);
   const predecessorUpgrade = await admin.query(
     `SELECT column_name, is_nullable
        FROM information_schema.columns
@@ -309,6 +345,43 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
     routingResolver: async () => activeRouting,
   });
   assert.equal(effectAdmission.availability, "available");
+  const rejectedBuildIdentity = "artifact-build-request-audit-rollback-1";
+  await admin.query(`CREATE OR REPLACE FUNCTION dashboard_test_reject_execute_audit()
+    RETURNS trigger LANGUAGE plpgsql AS $function$
+    BEGIN
+      IF NEW.action_kind = 'execute' THEN
+        RAISE EXCEPTION 'TEST_EXECUTE_AUDIT_REJECTED' USING ERRCODE = '55000';
+      END IF;
+      RETURN NEW;
+    END $function$`);
+  await admin.query(`CREATE TRIGGER dashboard_test_reject_execute_audit
+    BEFORE INSERT ON dashboard_operation_audit_v1
+    FOR EACH ROW EXECUTE FUNCTION dashboard_test_reject_execute_audit()`);
+  await assert.rejects(() => store.beginArtifactFormation({
+    action: "RUN",
+    recoveryIdentity: {
+      research_request_identity: "research-request-audit-rollback-1",
+      build_request_identity: rejectedBuildIdentity,
+      attempt_identity: "artifact-attempt-audit-rollback-1",
+    },
+    admission: effectAdmission,
+    actionContext: actionContext("RUN"),
+  }), (error) => error?.code === "55000");
+  assert.equal((await admin.query(
+    `SELECT COUNT(*)::int AS count FROM dashboard_operation_runs_v1
+      WHERE recovery_identity_json->>'build_request_identity' = $1`,
+    [rejectedBuildIdentity],
+  )).rows[0].count, 0);
+  assert.equal((await admin.query(
+    `SELECT COUNT(*)::int AS count FROM dashboard_control_plane_admission_receipts_v1
+      WHERE run_identity IN (
+        SELECT run_identity FROM dashboard_operation_runs_v1
+         WHERE recovery_identity_json->>'build_request_identity' = $1
+      )`,
+    [rejectedBuildIdentity],
+  )).rows[0].count, 0);
+  await admin.query("DROP TRIGGER dashboard_test_reject_execute_audit ON dashboard_operation_audit_v1");
+  await admin.query("DROP FUNCTION dashboard_test_reject_execute_audit()");
   const effectRecovery = {
     research_request_identity: "research-request-effect-store-1",
     build_request_identity: "artifact-build-request-effect-store-1",
@@ -318,6 +391,7 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
     action: "RUN",
     recoveryIdentity: effectRecovery,
     admission: effectAdmission,
+    actionContext: actionContext("RUN"),
   });
   assert.equal(effectStart.execution_mode, "FRESH_RUN");
   assert.equal(effectStart.run.channel, "DASHBOARD_DISPOSABLE_EXECUTION");
@@ -361,6 +435,7 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
     action: "RUN",
     recoveryIdentity: effectRecovery,
     admission: recoveryAdmission,
+    actionContext: actionContext("RUN"),
     existingRecoveryOnly: true,
   });
   assert.equal(continued.execution_mode, "CONTINUE_CLAIMED_ONCE");
@@ -368,6 +443,7 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
     action: "RUN",
     recoveryIdentity: effectRecovery,
     admission: recoveryAdmission,
+    actionContext: actionContext("RUN"),
     existingRecoveryOnly: true,
   });
   assert.equal(resolveOnly.execution_mode, "RESOLVE_ONLY");
@@ -1081,7 +1157,9 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
   });
   await serviceLogGateway.close();
   const operationAuditGateway = new PostgresOperationAuditGatewayV1(connectionString, cursorKey);
-  const operationAuditCut = await operationAuditGateway.read();
+  const operationAuditCut = await operationAuditGateway.read({
+    operation: "dashboard.dependency.cancel.queued.v1",
+  });
   assert.equal(operationAuditCut.availability, "available");
   assert.equal(operationAuditCut.entries.length, 1);
   assert.equal(operationAuditCut.entries[0].receipt_identity, cancellationReceipt.receipt_identity);
@@ -1094,6 +1172,19 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
   assert.deepEqual(operationAuditCut.summary, {
     execute: 0, create_update: 1, delete: 0, succeeded: 1, failed_denied: 0,
   });
+  const artifactAdmissionAudit = await operationAuditGateway.read({
+    operation: "artifact_build.formation_execute.v1",
+    range: "all",
+  });
+  assert.equal(artifactAdmissionAudit.entries.length, 5);
+  assert.deepEqual(artifactAdmissionAudit.summary, {
+    execute: 5, create_update: 0, delete: 0, succeeded: 5, failed_denied: 0,
+  });
+  assert.equal(artifactAdmissionAudit.entries.every((entry) => (
+    entry.action_kind === "execute"
+      && entry.receipt_identity.startsWith("dashboard-control-plane-admission-v1-")
+      && entry.principal_ref === "local_operator"
+  )), true);
   const cancellationAuditDetail = await operationAuditGateway.readDetail(operationAuditCut.entries[0].audit_identity);
   assert.equal(cancellationAuditDetail.entry?.receipt_identity, cancellationReceipt.receipt_identity);
   assert.deepEqual(cancellationAuditDetail.timeline.map(({ receipt_identity }) => receipt_identity), [
@@ -1182,13 +1273,15 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
   )).rows[0].count, 2);
   const auditAfterDeletion = new PostgresOperationAuditGatewayV1(connectionString, cursorKey);
   const auditCutAfterDeletion = await auditAfterDeletion.read({ pageSize: 20 });
-  assert.equal(auditCutAfterDeletion.entries.length, 2);
-  assert.deepEqual(new Set(auditCutAfterDeletion.entries.map(({ receipt_identity }) => receipt_identity)), new Set([
-    cancellationReceipt.receipt_identity,
-    deletion.receipt_identity,
-  ]));
+  assert.equal(auditCutAfterDeletion.entries.length, 7);
+  assert.equal(auditCutAfterDeletion.entries.some(({ receipt_identity }) => (
+    receipt_identity === cancellationReceipt.receipt_identity
+  )), true);
+  assert.equal(auditCutAfterDeletion.entries.some(({ receipt_identity }) => (
+    receipt_identity === deletion.receipt_identity
+  )), true);
   assert.deepEqual(auditCutAfterDeletion.summary, {
-    execute: 0, create_update: 1, delete: 1, succeeded: 2, failed_denied: 0,
+    execute: 5, create_update: 1, delete: 1, succeeded: 7, failed_denied: 0,
   });
   const deletionAudit = auditCutAfterDeletion.entries.find(({ receipt_identity }) => receipt_identity === deletion.receipt_identity);
   assert.ok(deletionAudit);
@@ -1229,6 +1322,7 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
   }), { message: "OPERATIONAL_DATA_EXPIRED" });
   await restarted.close();
   await admin.query(`TRUNCATE dashboard_operation_audit_v1,
+    dashboard_control_plane_admission_receipts_v1,
     dashboard_operation_run_cancellations_v1,
     dashboard_operation_run_cache_deletions_v1,
     dashboard_source_research_run_bindings_v1,
@@ -1256,6 +1350,7 @@ test("PostgreSQL Source-to-Research custody resumes only the missing Research st
     await admin.query(await readFile(new URL(`../migrations/${name}`, import.meta.url), "utf8"));
   }
   await ensureSourceResearchCompatibilityCustody(admin);
+  await ensureControlPlaneAdmissionAudit(admin);
   const inputCustodyBefore = await admin.query(
     `SELECT count(*)::int AS custody_columns
        FROM information_schema.columns
@@ -1343,6 +1438,7 @@ test("PostgreSQL Source-to-Research custody resumes only the missing Research st
     action: "RUN",
     recoveryIdentity,
     admission: activeAdmission,
+    actionContext: actionContext("RUN"),
     runRequest: sourceResearchRunRequest,
   });
   assert.equal(started.execution_mode, "FRESH_RUN");
@@ -1447,6 +1543,7 @@ test("PostgreSQL Source-to-Research custody resumes only the missing Research st
     action: "RUN",
     recoveryIdentity,
     admission: activeAdmission,
+    actionContext: actionContext("RUN"),
     runRequest: sourceResearchRunRequest,
   }), { message: "SOURCE_RESEARCH_IDENTITY_REUSED" });
   const binding = await admin.query(
@@ -1472,6 +1569,34 @@ test("PostgreSQL Source-to-Research custody resumes only the missing Research st
     run_request_json: sourceResearchRunRequest,
     run_request_digest: recoverySnapshot.input_custody.request_digest,
   }]);
+  const auditGateway = new PostgresOperationAuditGatewayV1(connectionString, cursorKey);
+  const sourceAdmissionAudit = await auditGateway.read({
+    operation: "source_intake.research.submit_or_resolve.v1",
+    range: "all",
+  });
+  assert.deepEqual(sourceAdmissionAudit.summary, {
+    execute: 2, create_update: 0, delete: 0, succeeded: 2, failed_denied: 0,
+  });
+  assert.deepEqual(new Set(sourceAdmissionAudit.entries.map((entry) => entry.target_identity)),
+    new Set([started.run.run_identity]));
+  assert.deepEqual(new Set(sourceAdmissionAudit.entries.map((entry) => entry.action_kind)),
+    new Set(["execute"]));
+  const admissionRows = await admin.query(
+    `SELECT requested_action, execution_mode
+       FROM dashboard_control_plane_admission_receipts_v1
+      WHERE run_identity = $1 ORDER BY requested_action, execution_mode`,
+    [started.run.run_identity],
+  );
+  assert.deepEqual(admissionRows.rows, [
+    { requested_action: "RESOLVE", execution_mode: "RESOLVE_ONLY" },
+    { requested_action: "RUN", execution_mode: "FRESH_RUN" },
+  ]);
+  await assert.rejects(() => admin.query(
+    `UPDATE dashboard_control_plane_admission_receipts_v1
+        SET requested_action = 'RESOLVE' WHERE run_identity = $1`,
+    [started.run.run_identity],
+  ), (error) => error?.code === "55000");
+  await auditGateway.close();
   await store.close();
   await admin.end();
 });

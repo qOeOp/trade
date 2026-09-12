@@ -4,7 +4,10 @@ import {
   executeDisposableArtifactFormationV1,
   type ArtifactFormationRequestV1,
 } from "@/lib/artifact-formation-client";
-import { verifyOperatorCapabilityV1 } from "@/lib/operator-capability";
+import {
+  operatorCapabilityAuthorizationDigestV1,
+  verifyOperatorCapabilityV1,
+} from "@/lib/operator-capability";
 
 export const dynamic = "force-dynamic";
 
@@ -43,12 +46,13 @@ function exactRequest(value: unknown): value is ArtifactFormationRequestV1 {
 
 export async function POST(request: Request) {
   const capability = verifyOperatorCapabilityV1(request.headers.get("authorization"));
-  if (capability !== "available") {
+  const authorizationDigest = operatorCapabilityAuthorizationDigestV1();
+  if (capability !== "available" || !authorizationDigest) {
     return unavailable(
-      capability === "configuration_unavailable"
+      capability === "configuration_unavailable" || !authorizationDigest
         ? "OPERATOR_CAPABILITY_CONFIGURATION_UNAVAILABLE"
         : "OPERATOR_CAPABILITY_DENIED",
-      capability === "configuration_unavailable" ? 503 : 401,
+      capability === "configuration_unavailable" || !authorizationDigest ? 503 : 401,
     );
   }
   const declaredLength = Number(request.headers.get("content-length") ?? "0");
@@ -68,7 +72,14 @@ export async function POST(request: Request) {
   } catch {
     return unavailable("EXECUTION_REQUEST_INVALID", 400);
   }
-  const result = await executeDisposableArtifactFormationV1({ request: body });
+  const result = await executeDisposableArtifactFormationV1({
+    request: body,
+    actionContext: {
+      authorizationDigest,
+      principalRef: "local_operator",
+      requestedAction: body.action,
+    },
+  });
   return NextResponse.json(result.envelope, {
     status: result.status,
     headers: { "cache-control": "no-store" },

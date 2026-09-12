@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
-  executeDisposableArtifactFormationV1,
+  executeDisposableArtifactFormationV1 as executeDisposableArtifactFormationImplV1,
   preflightDisposableArtifactFormationV1,
 } from "../lib/artifact-formation-client.ts";
 import { artifactFormationOperationManifestV1 } from "../lib/artifact-formation-operation.ts";
@@ -22,6 +22,17 @@ const exactResolve = {
   research_request_identity: acceptedResearch.request_identity,
   identity_mode: "EXACT",
 };
+
+function executeDisposableArtifactFormationV1(input) {
+  return executeDisposableArtifactFormationImplV1({
+    ...input,
+    actionContext: {
+      authorizationDigest: `sha256:${"e".repeat(64)}`,
+      principalRef: "local_operator",
+      requestedAction: input.request.action,
+    },
+  });
+}
 
 function disposableEnvironment(overrides = {}) {
   const compatibility = compatibleEnvironmentV1({

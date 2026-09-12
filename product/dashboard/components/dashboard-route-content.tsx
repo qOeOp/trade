@@ -23,6 +23,7 @@ import { ExploratoryReplayReadbackWorkbench } from "./exploratory-replay-readbac
 import { MarketDataOwnerFoundationCard } from "./market-data-owner-foundation-card";
 import { RuntimeFoundationNotReadyCard } from "./runtime-foundation-not-ready-card";
 import { PortfolioViewUnavailableCard } from "./portfolio-view-unavailable-card";
+import { LocalOperatorAccess } from "./local-operator-access";
 import { InterfaceIcons } from "./ui/iconography";
 import { PanelFrame, PanelFrameBody, PanelFrameFooter, PanelFrameHeader } from "./ui/panel-frame";
 
@@ -135,16 +136,17 @@ export function DashboardRouteContent({
   const marketDataFoundation = current === "/data" || current === "/data/pit-catalog";
   const runtimeFoundation = current === "/runtime" || current.startsWith("/runtime/");
   const portfolioUnavailable = current === "/portfolio" || current.startsWith("/portfolio/");
+  const settingsAccess = current === "/settings/access";
   const operationsConnected = operationsRuns || operationsRunDetail || operationsWorkers
     || operationsSchedules || operationsServiceLogs || operationsAudit;
   const embedsRouteChrome = sourceIntakeReadback || sourceResearchControl || composerReadback || researchDirectory || researchReadback
     || artifactDirectory || artifactSourceDetail;
   const rdPlaceholderRoute = current === "/rd/hypotheses" || current === "/rd/decisions";
-  const ownsRouteChrome = embedsRouteChrome || rdPlaceholderRoute;
+  const ownsRouteChrome = embedsRouteChrome || rdPlaceholderRoute || settingsAccess;
   const suppressShellPageHeader = operationsSchedules || operationsServiceLogs || operationsAudit || ownsRouteChrome;
   const connected = operationsConnected || sourceIntakeReadback || sourceResearchControl || composerReadback
     || exploratoryReplayReadback || researchDirectory || researchReadback || artifactDirectory || artifactSourceDetail
-    || marketDataFoundation || runtimeFoundation || portfolioUnavailable;
+    || marketDataFoundation || runtimeFoundation || portfolioUnavailable || settingsAccess;
   const drawableExact = maturity === "DRAWABLE_EXACT";
 
   return (
@@ -225,6 +227,7 @@ export function DashboardRouteContent({
               : marketDataFoundation ? <MarketDataOwnerFoundationCard />
               : runtimeFoundation ? <RuntimeFoundationNotReadyCard />
               : portfolioUnavailable ? <PortfolioViewUnavailableCard />
+              : settingsAccess ? <LocalOperatorAccess />
               : drawableExact && exactBlueprint ? <ExactRouteGrid blueprint={exactBlueprint} />
                 : <UnavailableBlueprint maturity={maturity as "DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY" | "BLUEPRINT_ONLY_NOT_IMPLEMENTABLE"}
                   routeLabel={rdPlaceholderRoute ? page.label : undefined} />}

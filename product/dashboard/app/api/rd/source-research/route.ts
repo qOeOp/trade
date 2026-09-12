@@ -4,7 +4,10 @@ import {
   executeSourceResearchOperationV1,
 } from "@/lib/source-research-operation";
 import type { SourceResearchOperationRequestV1 } from "@/lib/source-research-input-contract";
-import { verifyOperatorCapabilityV1 } from "@/lib/operator-capability";
+import {
+  operatorCapabilityAuthorizationDigestV1,
+  verifyOperatorCapabilityV1,
+} from "@/lib/operator-capability";
 import { projectSourceResearchBrowserEnvelopeV1 } from "@/lib/source-research-browser-projection";
 
 export const dynamic = "force-dynamic";
@@ -45,12 +48,13 @@ function exactRequest(value: unknown): value is SourceResearchOperationRequestV1
 
 export async function POST(request: Request) {
   const capability = verifyOperatorCapabilityV1(request.headers.get("authorization"));
-  if (capability !== "available") {
+  const authorizationDigest = operatorCapabilityAuthorizationDigestV1();
+  if (capability !== "available" || !authorizationDigest) {
     return unavailable(
-      capability === "configuration_unavailable"
+      capability === "configuration_unavailable" || !authorizationDigest
         ? "OPERATOR_CAPABILITY_CONFIGURATION_UNAVAILABLE"
         : "OPERATOR_CAPABILITY_DENIED",
-      capability === "configuration_unavailable" ? 503 : 401,
+      capability === "configuration_unavailable" || !authorizationDigest ? 503 : 401,
     );
   }
   const declaredLength = Number(request.headers.get("content-length") ?? "0");
@@ -70,7 +74,14 @@ export async function POST(request: Request) {
   } catch {
     return unavailable("EXECUTION_REQUEST_INVALID", 400);
   }
-  const result = await executeSourceResearchOperationV1({ request: body });
+  const result = await executeSourceResearchOperationV1({
+    request: body,
+    actionContext: {
+      authorizationDigest,
+      principalRef: "local_operator",
+      requestedAction: body.action,
+    },
+  });
   const sourceRequestIdentity = body.action === "RUN"
     ? body.source.request_identity : body.source_request_identity;
   const researchRequestIdentity = body.action === "RUN"
