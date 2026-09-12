@@ -595,6 +595,18 @@ WITH family AS (
   ('backtest_native_replay_outcome_evidence_outbox_v1','u','2'),
   ('backtest_native_replay_outcome_evidence_outbox_v1','u','4'),
   ('backtest_native_replay_outcome_evidence_outbox_v1','u','5')
+), expected_indexes(relname,indisprimary,indkey) AS (VALUES
+  ('backtest_native_replay_outcome_evidence_v1',true,'1'),
+  ('backtest_native_replay_outcome_evidence_v1',false,'2'),
+  ('backtest_native_replay_outcome_evidence_v1',false,'5 7'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',true,'1'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',false,'2'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',false,'4'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',false,'10'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',true,'1'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',false,'2'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',false,'4'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',false,'5')
 )
 SELECT
   (SELECT pg_catalog.count(*)=3 AND pg_catalog.bool_and(
@@ -617,20 +629,30 @@ SELECT
        expected_columns.relname IS NULL OR NOT attribute.attnotnull
        OR pg_catalog.format_type(attribute.atttypid,attribute.atttypmod)<>expected_columns.typename
        OR attribute.atthasdef OR attribute.attidentity<>'' OR attribute.attgenerated<>''
-       OR attribute.attacl IS NOT NULL OR attribute.attndims<>0 OR NOT attribute.attislocal
-       OR attribute.attinhcount<>0)
+       OR attribute.attacl IS NOT NULL
+       OR attribute.attcollation<>attribute_type.typcollation
+       OR attribute.attndims<>0 OR NOT attribute.attislocal OR attribute.attinhcount<>0)
      FROM family JOIN pg_catalog.pg_attribute attribute
        ON attribute.attrelid=family.oid AND attribute.attnum>0 AND NOT attribute.attisdropped
+     JOIN pg_catalog.pg_type attribute_type ON attribute_type.oid=attribute.atttypid
      LEFT JOIN expected_columns ON expected_columns.relname=family.relname
        AND expected_columns.attnum=attribute.attnum AND expected_columns.attname=attribute.attname)
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute attribute
+       WHERE attribute.attrelid IN (SELECT oid FROM family)
+         AND attribute.attnum>0 AND attribute.attisdropped)
   AND NOT EXISTS (SELECT 1 FROM expected_columns
        WHERE NOT EXISTS (SELECT 1 FROM family JOIN pg_catalog.pg_attribute attribute
           ON attribute.attrelid=family.oid AND attribute.attnum=expected_columns.attnum
          WHERE family.relname=expected_columns.relname AND attribute.attname=expected_columns.attname
            AND NOT attribute.attisdropped))
-  AND (SELECT pg_catalog.count(*)=11 AND pg_catalog.bool_and(
-       expected_constraints.relname IS NOT NULL AND constraint_fact.convalidated
-       AND NOT constraint_fact.condeferrable AND NOT constraint_fact.condeferred)
+  AND (SELECT pg_catalog.count(*)=11
+       AND pg_catalog.count(DISTINCT (family.relname,constraint_fact.contype::pg_catalog.text,
+            pg_catalog.array_to_string(constraint_fact.conkey,' ')))=11
+       AND NOT pg_catalog.bool_or(
+         expected_constraints.relname IS NULL
+         OR constraint_fact.condeferrable OR constraint_fact.condeferred
+         OR NOT constraint_fact.convalidated OR NOT constraint_fact.connoinherit
+         OR NOT constraint_fact.conislocal OR constraint_fact.coninhcount<>0)
      FROM family JOIN pg_catalog.pg_constraint constraint_fact ON constraint_fact.conrelid=family.oid
      LEFT JOIN expected_constraints ON expected_constraints.relname=family.relname
        AND expected_constraints.contype=constraint_fact.contype::pg_catalog.text
@@ -644,7 +666,10 @@ SELECT
            AND pg_catalog.array_to_string(constraint_fact.conkey,' ')=expected_constraints.conkey))
   AND (SELECT pg_catalog.count(*)=2 AND pg_catalog.bool_and(
        pg_catalog.pg_get_expr(constraint_fact.conbin,constraint_fact.conrelid,false)=
-       '(committed_at_epoch_ms >= 0)' AND constraint_fact.convalidated)
+       '(committed_at_epoch_ms >= 0)'
+       AND NOT constraint_fact.condeferrable AND NOT constraint_fact.condeferred
+       AND constraint_fact.convalidated AND NOT constraint_fact.connoinherit
+       AND constraint_fact.conislocal AND constraint_fact.coninhcount=0)
      FROM family JOIN pg_catalog.pg_constraint constraint_fact ON constraint_fact.conrelid=family.oid
     WHERE constraint_fact.contype='c')
   AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint constraint_fact
@@ -652,18 +677,41 @@ SELECT
          AND constraint_fact.contype NOT IN ('p','u','c'))
   AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint constraint_fact
        WHERE constraint_fact.confrelid IN (SELECT oid FROM family))
-  AND (SELECT pg_catalog.count(*)=11 AND pg_catalog.bool_and(
-       index_fact.indisunique AND NOT index_fact.indisexclusion AND index_fact.indimmediate
-       AND index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive
-       AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL
-       AND index_fact.indnkeyatts=index_fact.indnatts AND index_relation.relkind='i'
-       AND index_method.amname='btree' AND pg_catalog.pg_get_userbyid(index_relation.relowner)='backtest_custodian'
-       AND EXISTS (SELECT 1 FROM pg_catalog.pg_constraint constraint_fact
-                    WHERE constraint_fact.conindid=index_fact.indexrelid
-                      AND constraint_fact.contype IN ('p','u')))
+  AND (SELECT pg_catalog.count(*)=11
+       AND pg_catalog.count(DISTINCT (family.relname,index_fact.indisprimary,
+            pg_catalog.array_to_string(index_fact.indkey::smallint[],' ')))=11
+       AND NOT pg_catalog.bool_or(
+         expected_indexes.relname IS NULL OR NOT index_fact.indisunique
+         OR index_fact.indisexclusion OR NOT index_fact.indimmediate
+         OR index_fact.indisclustered OR NOT index_fact.indisvalid
+         OR NOT index_fact.indisready OR NOT index_fact.indislive
+         OR index_fact.indisreplident OR index_fact.indnullsnotdistinct
+         OR index_fact.indexprs IS NOT NULL OR index_fact.indpred IS NOT NULL
+         OR index_fact.indnkeyatts<>index_fact.indnatts OR index_relation.relkind<>'i'
+         OR index_relation.relpersistence<>'p' OR index_relation.reltablespace<>0
+         OR index_relation.reloptions IS NOT NULL
+         OR index_method.amname<>'btree'
+         OR pg_catalog.pg_get_userbyid(index_relation.relowner)<>'backtest_custodian'
+         OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint constraint_fact
+              WHERE constraint_fact.conindid=index_fact.indexrelid
+                AND constraint_fact.contype IN ('p','u'))
+         OR EXISTS (SELECT 1 FROM pg_catalog.unnest(index_fact.indoption::smallint[]) option_value
+              WHERE option_value<>0)
+         OR EXISTS (SELECT 1 FROM pg_catalog.unnest(index_fact.indclass::oid[]) class_oid
+              JOIN pg_catalog.pg_opclass operator_class ON operator_class.oid=class_oid
+             WHERE NOT operator_class.opcdefault)
+         OR EXISTS (SELECT 1
+              FROM pg_catalog.unnest(index_fact.indkey::smallint[]) WITH ORDINALITY key_fact(attnum,ordinality)
+              JOIN pg_catalog.unnest(index_fact.indcollation::oid[]) WITH ORDINALITY collation_fact(collation_oid,ordinality) USING(ordinality)
+              JOIN pg_catalog.pg_attribute attribute
+                ON attribute.attrelid=index_fact.indrelid AND attribute.attnum=key_fact.attnum
+             WHERE collation_fact.collation_oid<>attribute.attcollation))
      FROM family JOIN pg_catalog.pg_index index_fact ON index_fact.indrelid=family.oid
      JOIN pg_catalog.pg_class index_relation ON index_relation.oid=index_fact.indexrelid
-     JOIN pg_catalog.pg_am index_method ON index_method.oid=index_relation.relam)
+     JOIN pg_catalog.pg_am index_method ON index_method.oid=index_relation.relam
+     LEFT JOIN expected_indexes ON expected_indexes.relname=family.relname
+       AND expected_indexes.indisprimary=index_fact.indisprimary
+       AND expected_indexes.indkey=pg_catalog.array_to_string(index_fact.indkey::smallint[],' '))
   AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact
        WHERE trigger_fact.tgrelid IN (SELECT oid FROM family) AND NOT trigger_fact.tgisinternal)
   AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy
@@ -681,15 +729,24 @@ SELECT
       WHERE namespace.nspname='public')
   AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_statistic_ext statistic
        WHERE statistic.stxrelid IN (SELECT oid FROM family))
-  AND (SELECT pg_catalog.count(*) FILTER (WHERE acl.privilege_type='SELECT')=3
+  AND (SELECT pg_catalog.count(*)=6
+       AND pg_catalog.count(*) FILTER (WHERE acl.privilege_type='SELECT')=3
        AND pg_catalog.count(*) FILTER (WHERE acl.privilege_type='INSERT')=3
-       AND NOT pg_catalog.bool_or(acl.grantee=0 OR role.oid IS NULL
-         OR role.rolname IS DISTINCT FROM 'backtest_owner'
-         OR acl.privilege_type NOT IN ('SELECT','INSERT') OR acl.is_grantable
-         OR pg_catalog.pg_get_userbyid(acl.grantor)<>'backtest_custodian')
      FROM family JOIN pg_catalog.pg_class relation ON relation.oid=family.oid
      CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl
-     LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee WHERE acl.grantee<>relation.relowner)
+     JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+    WHERE acl.grantee<>relation.relowner AND acl.grantee<>0
+      AND role.rolname='backtest_owner' AND acl.privilege_type IN ('SELECT','INSERT')
+      AND NOT acl.is_grantable
+      AND pg_catalog.pg_get_userbyid(acl.grantor)='backtest_custodian')
+  AND NOT EXISTS (SELECT 1
+     FROM family JOIN pg_catalog.pg_class relation ON relation.oid=family.oid
+     CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl
+     LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+    WHERE acl.grantee<>relation.relowner AND (
+      acl.grantee=0 OR role.oid IS NULL OR role.rolname IS DISTINCT FROM 'backtest_owner'
+      OR acl.privilege_type NOT IN ('SELECT','INSERT') OR acl.is_grantable
+      OR pg_catalog.pg_get_userbyid(acl.grantor) IS DISTINCT FROM 'backtest_custodian'))
   AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute attribute
        CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
       WHERE attribute.attrelid IN (SELECT oid FROM family)
@@ -1926,6 +1983,70 @@ mod tests {
             assert!(
                 NATIVE_REPLAY_EVIDENCE_TABLE_CENSUS_QUERY.contains(required),
                 "missing {required}"
+            );
+        }
+    }
+
+    #[rstest]
+    fn outcome_evidence_topology_requires_exact_columns_constraints_and_indexes() {
+        for required in [
+            "attribute.attcollation<>attribute_type.typcollation",
+            "attribute.attnum>0 AND attribute.attisdropped",
+            "constraint_fact.connoinherit",
+            "constraint_fact.conislocal",
+            "constraint_fact.coninhcount<>0",
+            "index_fact.indisclustered",
+            "index_fact.indisreplident",
+            "index_fact.indnullsnotdistinct",
+            "index_relation.relpersistence<>'p'",
+            "index_relation.reltablespace<>0",
+            "index_relation.reloptions IS NOT NULL",
+            "pg_catalog.unnest(index_fact.indoption::smallint[])",
+            "pg_catalog.unnest(index_fact.indclass::oid[])",
+            "WHERE NOT operator_class.opcdefault",
+            "pg_catalog.unnest(index_fact.indcollation::oid[])",
+            "collation_fact.collation_oid<>attribute.attcollation",
+        ] {
+            assert!(
+                OUTCOME_EVIDENCE_TABLE_CENSUS_QUERY.contains(required),
+                "missing outcome evidence topology guard {required}"
+            );
+        }
+    }
+
+    #[rstest]
+    fn outcome_evidence_migration_repeats_runtime_topology_guards() {
+        const MIGRATION: &str = include_str!(
+            "../../../product/rd-workbench/postgres-init/10-migrate-authority-custody.sh"
+        );
+        let start = MIGRATION
+            .find("DO $backtest_outcome_evidence_topology_readback$")
+            .expect("outcome evidence migration readback start");
+        let tail = &MIGRATION[start..];
+        let end = tail
+            .find("$backtest_outcome_evidence_topology_readback$;")
+            .expect("outcome evidence migration readback end")
+            + "$backtest_outcome_evidence_topology_readback$;".len();
+        let readback = &tail[..end];
+        assert!(
+            readback.contains(OUTCOME_EVIDENCE_TABLE_CENSUS_QUERY.trim()),
+            "migration readback must embed the runtime outcome topology census"
+        );
+        for required in [
+            "pg_catalog.count(*)=38",
+            "attribute.attcollation<>attribute_type.typcollation",
+            "attribute.attnum>0 AND attribute.attisdropped",
+            "pg_catalog.count(*)=11",
+            "constraint_fact.connoinherit",
+            "index_fact.indnullsnotdistinct",
+            "pg_catalog.unnest(index_fact.indoption::smallint[])",
+            "WHERE NOT operator_class.opcdefault",
+            "collation_fact.collation_oid<>attribute.attcollation",
+            "pg_catalog.count(*)=6",
+        ] {
+            assert!(
+                readback.contains(required),
+                "migration readback is missing outcome topology guard {required}"
             );
         }
     }
