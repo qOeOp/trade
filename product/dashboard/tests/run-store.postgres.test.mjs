@@ -47,6 +47,18 @@ const acceptedResearchOwnerResult = JSON.parse(await readFile(
   new URL("./fixtures/research_accepted_v2.json", import.meta.url),
   "utf8",
 ));
+const unknownResearchOwnerResult = {
+  schema_version: 2,
+  resolution: "SUBMITTED_OR_UNKNOWN",
+  request_identity: "request-1",
+  owner_receipt: null,
+  research_view: null,
+  independence_basis: null,
+  protected_feedback: null,
+  trial_family_resolution: "UNAVAILABLE",
+  trial_family: null,
+  next_legal_action: "RESOLVE_SAME_REQUEST_IDENTITY",
+};
 const dispatchBuildRequestIdentity = "artifact-build-request-v1-dispatch-e2e-1";
 const dispatchAttemptIdentity = "artifact-build-attempt-v1-dispatch-e2e-1";
 const dispatchTrialFamilyIdentity = "trial-family-v1-dispatch-e2e-1";
@@ -1376,6 +1388,7 @@ test("PostgreSQL Source-to-Research custody resumes only the missing Research st
     "utf8",
   ));
   const calls = [];
+  let researchResolveCount = 0;
   const recoveredResult = await executeSourceResearchOperationV1({
     request: {
       action: "RESOLVE",
@@ -1398,9 +1411,12 @@ test("PostgreSQL Source-to-Research custody resumes only the missing Research st
         return Response.json(sourceTerminal);
       }
       if (path === "/v2/research-goals/request-1/resolve") {
-        return new Response(null, { status: 404 });
+        researchResolveCount += 1;
+        return researchResolveCount === 1
+          ? new Response(null, { status: 404 })
+          : Response.json(acceptedResearchOwnerResult);
       }
-      return Response.json(acceptedResearchOwnerResult);
+      return Response.json(unknownResearchOwnerResult, { status: 202 });
     },
   });
   assert.equal(recoveredResult.status, 200);
@@ -1409,13 +1425,16 @@ test("PostgreSQL Source-to-Research custody resumes only the missing Research st
     "/v1/source-intakes/source-request-1/readback",
     "/v2/research-goals/request-1/resolve",
     "/v1/source-intake-research",
+    "/v2/research-goals/request-1/resolve",
   ]);
   assert.equal(calls[0].init.body, undefined);
   assert.equal(calls[1].init.body, undefined);
   assert.ok(calls[2].init.body);
+  assert.equal(calls[3].init.body, undefined);
   assert.equal(calls[0].init.headers["x-trade-effect-dispatcher"], undefined);
   assert.equal(calls[1].init.headers["x-trade-effect-dispatcher"], undefined);
   assert.equal(calls[2].init.headers["x-trade-effect-dispatcher"], "TRADE_DASHBOARD");
+  assert.equal(calls[3].init.headers["x-trade-effect-dispatcher"], undefined);
   const completedRecovery = await store.readSourceResearchRecovery(recoveryIdentity);
   assert.ok(completedRecovery);
   const completed = completedRecovery.run;

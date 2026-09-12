@@ -31,7 +31,6 @@ import {
 import {
   SOURCE_RESEARCH_EXECUTE_OPERATION,
   admitSourceResearchExecutionV1,
-  unavailableSourceResearchRoutingAdmissionV1,
 } from "./source-research-run-contract.ts";
 
 export type { SourceResearchOperationRequestV1 } from "./source-research-input-contract.ts";
@@ -240,11 +239,9 @@ export async function executeSourceResearchOperationV1({
       routing: retainedRouting.source,
     });
     if (sourceResult.unavailable_reason === "SOURCE_OWNER_UNKNOWN") {
-      sourceResult = await executeSourceIntakeOperationV1({
-        action: "RESOLVE",
-        input: runInput.source,
+      sourceResult = await resolveSourceIntakeOperationV1({
+        requestIdentity: runInput.source.request_identity,
         transport: ownerTransport,
-        routing: unavailableSourceResearchRoutingAdmissionV1().source,
       });
     }
   }
@@ -300,12 +297,9 @@ export async function executeSourceResearchOperationV1({
       routing: retainedRouting.research,
     });
     if (researchResult.unavailable_reason === "RESEARCH_OWNER_UNKNOWN") {
-      researchResult = await executeResearchGoalOperationV2({
-        action: "RESOLVE",
-        input: runInput.research,
-        ancestry: sourceResult.ancestry,
+      researchResult = await resolveResearchGoalOperationV2({
+        requestIdentity: runInput.research.request_identity,
         transport: ownerTransport,
-        routing: unavailableSourceResearchRoutingAdmissionV1().research,
       });
     }
   }

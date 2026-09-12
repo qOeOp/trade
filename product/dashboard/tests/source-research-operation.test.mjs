@@ -46,6 +46,23 @@ const rejectedResearch = {
   trial_family: null,
   next_legal_action: "CORRECT_INPUT_AND_CREATE_SUCCESSOR_REQUEST",
 };
+const unknownSource = {
+  resolution: "SUBMITTED_OR_UNKNOWN",
+  request_identity: "source-request-1",
+  next_legal_action: "RESOLVE_SAME_REQUEST",
+};
+const unknownResearch = {
+  schema_version: 2,
+  resolution: "SUBMITTED_OR_UNKNOWN",
+  request_identity: "request-1",
+  owner_receipt: null,
+  research_view: null,
+  independence_basis: null,
+  protected_feedback: null,
+  trial_family_resolution: "UNAVAILABLE",
+  trial_family: null,
+  next_legal_action: "RESOLVE_SAME_REQUEST_IDENTITY",
+};
 
 const request = {
   action: "RUN",
@@ -304,6 +321,96 @@ test("identity-only RESOLVE resumes a missing Source stage from retained input",
   assert.equal(calls[1].init.headers["x-trade-effect-dispatcher"], "TRADE_DASHBOARD");
   assert.ok(calls[1].init.body);
   assert.equal(calls[2].init.body, undefined);
+});
+
+test("a resumed Source RUN with unknown outcome returns to body-free identity resolution", async () => {
+  const calls = [];
+  let sourceReadCount = 0;
+  const recovery = {
+    schema_version: 1,
+    run: run(),
+    requested_action: "RUN",
+    routing: { source: dashboardRoute, research: dashboardRoute },
+    input_custody: sourceResearchRunInputCustodyV1(request),
+    observed_phases: [],
+  };
+  const result = await executeSourceResearchOperationV1({
+    request: resolveRequest,
+    environment,
+    store: runStore([], recovery),
+    routingResolver: async () => { throw new Error("resolve must not reread routing"); },
+    fetcher: async (input, init) => {
+      const path = new URL(String(input)).pathname;
+      calls.push({ path, init });
+      if (path === "/v1/source-intakes/source-request-1/readback") {
+        sourceReadCount += 1;
+        return sourceReadCount === 1
+          ? new Response(null, { status: 404 })
+          : Response.json(sourceTerminal);
+      }
+      if (path === "/v1/source-intakes") {
+        return Response.json(unknownSource, { status: 202 });
+      }
+      return Response.json(acceptedResearch);
+    },
+  });
+  assert.equal(result.status, 200);
+  assert.deepEqual(calls.map(({ path }) => path), [
+    "/v1/source-intakes/source-request-1/readback",
+    "/v1/source-intakes",
+    "/v1/source-intakes/source-request-1/readback",
+    "/v2/research-goals/request-1/resolve",
+  ]);
+  assert.equal(calls[0].init.body, undefined);
+  assert.ok(calls[1].init.body);
+  assert.equal(calls[1].init.headers["x-trade-effect-dispatcher"], "TRADE_DASHBOARD");
+  assert.equal(calls[2].init.body, undefined);
+  assert.equal(calls[2].init.headers["x-trade-effect-dispatcher"], undefined);
+});
+
+test("a resumed Research RUN with unknown outcome returns to body-free identity resolution", async () => {
+  const calls = [];
+  let researchResolveCount = 0;
+  const recovery = {
+    schema_version: 1,
+    run: run(),
+    requested_action: "RUN",
+    routing: { source: dashboardRoute, research: dashboardRoute },
+    input_custody: sourceResearchRunInputCustodyV1(request),
+    observed_phases: ["SOURCE_OWNER_AVAILABLE"],
+  };
+  const result = await executeSourceResearchOperationV1({
+    request: resolveRequest,
+    environment,
+    store: runStore([], recovery),
+    routingResolver: async () => { throw new Error("resolve must not reread routing"); },
+    fetcher: async (input, init) => {
+      const path = new URL(String(input)).pathname;
+      calls.push({ path, init });
+      if (path === "/v1/source-intakes/source-request-1/readback") {
+        return Response.json(sourceTerminal);
+      }
+      if (path === "/v2/research-goals/request-1/resolve") {
+        researchResolveCount += 1;
+        return researchResolveCount === 1
+          ? new Response(null, { status: 404 })
+          : Response.json(acceptedResearch);
+      }
+      return Response.json(unknownResearch, { status: 202 });
+    },
+  });
+  assert.equal(result.status, 200);
+  assert.deepEqual(calls.map(({ path }) => path), [
+    "/v1/source-intakes/source-request-1/readback",
+    "/v2/research-goals/request-1/resolve",
+    "/v1/source-intake-research",
+    "/v2/research-goals/request-1/resolve",
+  ]);
+  assert.equal(calls[1].init.body, undefined);
+  assert.ok(calls[2].init.body);
+  assert.equal(calls[2].init.headers["x-trade-effect-dispatcher"], "TRADE_DASHBOARD");
+  assert.equal(calls[3].init.body, undefined);
+  assert.equal(calls[3].init.headers["x-trade-effect-dispatcher"], undefined);
 });
 
 test("legacy recovery without retained input fails closed when a stage is absent", async () => {
