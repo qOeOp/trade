@@ -912,7 +912,7 @@ mod postgres_acceptance_tests {
 
     #[tokio::test]
     #[ignore = "requires the canonical disposable R&D and Backtest Owner PostgreSQL topology"]
-    async fn repair_decision_commit_retry_resolve_and_rejection_are_atomic() {
+    async fn repair_decision_and_action_request_commit_retry_resolve_and_rejection_are_atomic() {
         let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
             .await
             .expect("canonical disposable topology");
@@ -1024,6 +1024,87 @@ mod postgres_acceptance_tests {
         .await
         .expect("Decision counts");
         assert_eq!(counts_before, (1, 1));
+
+        let action_composition = RepairActionCompositionRequestV1 {
+            decision_identity: first.decision().decision_identity().to_string(),
+            result_identity: result_identity.clone(),
+        };
+        let first_action = compose_repair_action_request_v1(rd_pool, action_composition.clone())
+            .await
+            .expect("first repair action request commit");
+        let retried_action = compose_repair_action_request_v1(rd_pool, action_composition)
+            .await
+            .expect("same-meaning repair action retry");
+        assert_eq!(
+            serde_json::to_vec(&retried_action).unwrap(),
+            serde_json::to_vec(&first_action).unwrap()
+        );
+
+        let resolved_action = resolve_repair_action_request_v1(
+            rd_pool,
+            RepairActionResolutionLocatorV1 {
+                action_request_identity: first_action
+                    .request()
+                    .action_request_identity()
+                    .to_string(),
+                decision_identity: first.decision().decision_identity().to_string(),
+            },
+        )
+        .await
+        .expect("repair action request resolve")
+        .expect("stored repair action request");
+        assert_eq!(
+            serde_json::to_vec(&resolved_action).unwrap(),
+            serde_json::to_vec(&first_action).unwrap()
+        );
+
+        let action_counts_before: (i64, i64) = sqlx::query_as(
+            "SELECT (SELECT COUNT(*) FROM rd_repair_action_requests_v1 WHERE decision_identity=$1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE aggregate_identity=$2 AND event_kind='REPAIR_ACTION_REQUESTED_V1')",
+        )
+        .bind(first.decision().decision_identity())
+        .bind(first_action.request().action_request_identity())
+        .fetch_one(rd_pool)
+        .await
+        .expect("repair action custody counts");
+        assert_eq!(action_counts_before, (1, 1));
+
+        let mismatched_action_retry = compose_repair_action_request_v1(
+            rd_pool,
+            RepairActionCompositionRequestV1 {
+                decision_identity: first.decision().decision_identity().to_string(),
+                result_identity: "backtest-replay-result-v2-mismatch".to_string(),
+            },
+        )
+        .await;
+        assert!(mismatched_action_retry.is_err());
+        let invalid_action = compose_repair_action_request_v1(
+            rd_pool,
+            RepairActionCompositionRequestV1 {
+                decision_identity: "bad locator with spaces".to_string(),
+                result_identity: result_identity.clone(),
+            },
+        )
+        .await;
+        assert!(matches!(
+            invalid_action,
+            Err(IterationDecisionPostgresErrorV1::InvalidLocator)
+        ));
+        let mismatched_action_resolve = resolve_repair_action_request_v1(
+            rd_pool,
+            RepairActionResolutionLocatorV1 {
+                action_request_identity: "rd-repair-action-request-v1-mismatch".to_string(),
+                decision_identity: first.decision().decision_identity().to_string(),
+            },
+        )
+        .await;
+        assert!(mismatched_action_resolve.is_err());
+        let action_counts_after: (i64, i64) = sqlx::query_as(
+            "SELECT (SELECT COUNT(*) FROM rd_repair_action_requests_v1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind='REPAIR_ACTION_REQUESTED_V1')",
+        )
+        .fetch_one(rd_pool)
+        .await
+        .expect("post-rejection repair action counts");
+        assert_eq!(action_counts_after, (1, 1));
 
         let rejected = compose_repair_input_decision_v1(
             rd_pool,
