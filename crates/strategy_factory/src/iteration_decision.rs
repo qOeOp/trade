@@ -431,9 +431,10 @@ pub enum IterationDecisionErrorV1 {
     reason = "the same-transaction Decision interpreter is the immediate consumer"
 )]
 pub(crate) fn issue_interpretation_context_v1(
-    gate: IterationDecisionGateV1,
+    census: &TrialFamilyCensusReadbackV2,
     locked_result: &LockedExploratoryReplayResultV2,
 ) -> Result<IterationInterpretationContextV1, IterationDecisionErrorV1> {
+    let gate = gate_locked_exploratory_result_v1(census, locked_result)?;
     issue_interpretation_context_from_result_v1(gate, locked_result.result())
 }
 
@@ -562,20 +563,22 @@ fn issue_interpretation_context_from_result_v1(
         evidence_identity: semantic_trace.locator.reference.as_str().to_string(),
         evidence_digest: semantic_trace.locator.digest.as_str().to_string(),
     });
+    let diagnostic_locator = &diagnostic_fact.decisive_evidence;
+    if !owner_bindings.iter().any(|binding| {
+        binding.component == diagnostic_locator.component
+            && binding.evidence_identity == diagnostic_locator.reference.as_str()
+            && binding.evidence_digest == diagnostic_locator.digest.as_str()
+    }) {
+        return Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+            "diagnostic evidence is not an admitted component observation",
+        ));
+    }
     let diagnostic_evidence = IterationInterpretationOwnerBindingV1 {
-        component: diagnostic_fact.decisive_evidence.component,
+        component: diagnostic_locator.component,
         meaning_identity: result.result_identity.as_str().to_string(),
         meaning_digest: result.result_digest.as_str().to_string(),
-        evidence_identity: diagnostic_fact
-            .decisive_evidence
-            .reference
-            .as_str()
-            .to_string(),
-        evidence_digest: diagnostic_fact
-            .decisive_evidence
-            .digest
-            .as_str()
-            .to_string(),
+        evidence_identity: diagnostic_locator.reference.as_str().to_string(),
+        evidence_digest: diagnostic_locator.digest.as_str().to_string(),
     };
 
     Ok(IterationInterpretationContextV1 {
@@ -1071,6 +1074,12 @@ mod tests {
             observed_meaning_identity: identity("semantic-trace-meaning"),
             observed_meaning_digest: digest("blake3", '9'),
         });
+        result.diagnostic_census[0].decisive_evidence = result
+            .semantic_trace
+            .as_ref()
+            .expect("semantic trace")
+            .locator
+            .clone();
         result
     }
 
@@ -1184,6 +1193,22 @@ mod tests {
             .as_mut()
             .expect("semantic trace")
             .request_identity = identity("another-request");
+
+        assert!(matches!(
+            issue_interpretation_context_from_result_v1(gate, &result),
+            Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+                _
+            ))
+        ));
+    }
+
+    #[test]
+    fn unbound_diagnostic_evidence_creates_no_interpretation_context() {
+        let census = census(TrialFamilyAttemptTerminalDispositionV2::TerminalResult);
+        let mut result = interpretation_result(DiagnosticCategoryV2::NoExecutionDefect);
+        let gate = gate_result(&census, &result, &decision_policy()).expect("interpretation gate");
+        result.diagnostic_census[0].decisive_evidence.reference =
+            identity("unbound-diagnostic-evidence");
 
         assert!(matches!(
             issue_interpretation_context_from_result_v1(gate, &result),
