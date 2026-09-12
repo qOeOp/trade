@@ -1,9 +1,12 @@
+use std::sync::Arc;
+
 use axum::{
-    Json,
+    Json, Router,
     body::Bytes,
-    extract::{Path, Query, State},
+    extract::{Path, Query, State, rejection::QueryRejection},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
+    routing::get,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -12,6 +15,7 @@ use vibe_backtest_owner_contracts::{
 };
 use vibe_product_edge::{ProductEdgeAdmissionRequestV1, ProductEdgeError};
 use vibe_strategy_factory::{
+    ExploratoryReplayResultLocatorV2,
     exploratory_replay::{
         EXPLORATORY_REPLAY_MUTATION_EFFECT_V2, EXPLORATORY_REPLAY_OPERATION_V2,
         EXPLORATORY_REPLAY_SCHEMA_V2, ExploratoryReplayOwnerError,
@@ -19,9 +23,115 @@ use vibe_strategy_factory::{
         ExploratoryReplaySealedReadPortV2,
     },
     product_edge::RESEARCH_OWNER_V1,
+    product_edge_postgres::PostgresResearchGoalOwnerV1,
 };
 
 use super::{ApiState, authorized, insert_rejection_code};
+
+#[derive(Clone)]
+struct ExploratoryReplayResultApiState {
+    owner: Arc<PostgresResearchGoalOwnerV1>,
+    token_digest: [u8; 32],
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExploratoryReplayResultPathV2 {
+    result_identity: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExploratoryReplayResultQueryV2 {
+    request_identity: String,
+    attempt_identity: String,
+}
+
+pub(super) fn result_router(
+    owner: Arc<PostgresResearchGoalOwnerV1>,
+    token_digest: [u8; 32],
+) -> Router {
+    Router::new()
+        .route(
+            "/v2/exploratory-replay-results/{result_identity}",
+            get(read_result),
+        )
+        .with_state(ExploratoryReplayResultApiState {
+            owner,
+            token_digest,
+        })
+}
+
+async fn read_result(
+    State(state): State<ExploratoryReplayResultApiState>,
+    path: Result<Path<ExploratoryReplayResultPathV2>, axum::extract::rejection::PathRejection>,
+    query: Result<Query<ExploratoryReplayResultQueryV2>, QueryRejection>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            "unbound",
+        );
+    }
+
+    let (Path(path), Query(query)) = match (path, query) {
+        (Ok(path), Ok(query)) => (path, query),
+        _ => {
+            return rejection(
+                StatusCode::BAD_REQUEST,
+                "INVALID_EXPLORATORY_REPLAY_RESULT_LOCATOR",
+                "unbound",
+            );
+        }
+    };
+    let request_identity = query.request_identity;
+
+    if [
+        path.result_identity.as_str(),
+        request_identity.as_str(),
+        query.attempt_identity.as_str(),
+    ]
+    .into_iter()
+    .any(|value| OpaqueIdentityV2::try_from(value.to_string()).is_err())
+    {
+        return rejection(
+            StatusCode::BAD_REQUEST,
+            "INVALID_EXPLORATORY_REPLAY_RESULT_LOCATOR",
+            &request_identity,
+        );
+    }
+
+    let locator = ExploratoryReplayResultLocatorV2 {
+        result_identity: &path.result_identity,
+        request_identity: &request_identity,
+        attempt_identity: &query.attempt_identity,
+    };
+
+    match state
+        .owner
+        .resolve_exploratory_replay_result_v2(locator)
+        .await
+    {
+        Ok(Some(result)) => (
+            StatusCode::OK,
+            [(axum::http::header::CONTENT_TYPE, "application/json")],
+            result.result_canonical_bytes().to_vec(),
+        )
+            .into_response(),
+        Ok(None) => rejection(
+            StatusCode::NOT_FOUND,
+            "EXPLORATORY_REPLAY_RESULT_UNAVAILABLE",
+            &request_identity,
+        ),
+        Err(_) => rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "EXPLORATORY_REPLAY_RESULT_UNAVAILABLE",
+            &request_identity,
+        ),
+    }
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -458,6 +568,37 @@ mod tests {
         assert_eq!(
             selector.meaning_digest,
             format!("sha256:{}", "a".repeat(64))
+        );
+    }
+
+    #[rstest]
+    fn result_locator_wire_shape_is_exact_and_carries_no_result_evidence() {
+        let path = serde_json::from_value::<ExploratoryReplayResultPathV2>(json!({
+            "result_identity": "result-1",
+        }))
+        .expect("exact result path");
+        let query = serde_json::from_value::<ExploratoryReplayResultQueryV2>(json!({
+            "request_identity": "request-1",
+            "attempt_identity": "attempt-1",
+        }))
+        .expect("exact result query");
+        assert_eq!(path.result_identity, "result-1");
+        assert_eq!(query.request_identity, "request-1");
+        assert_eq!(query.attempt_identity, "attempt-1");
+        assert!(
+            serde_json::from_value::<ExploratoryReplayResultQueryV2>(json!({
+                "request_identity": "request-1",
+                "attempt_identity": "attempt-1",
+                "result_bytes": [],
+            }))
+            .is_err()
+        );
+        assert!(
+            serde_json::from_value::<ExploratoryReplayResultPathV2>(json!({
+                "result_identity": "result-1",
+                "diagnosis": "caller-controlled",
+            }))
+            .is_err()
         );
     }
 
