@@ -120,8 +120,6 @@ pub enum MarketDataRepairReplayReentryErrorV1 {
     CustodyMismatch,
     #[error("the repaired snapshot does not advance the predecessor PIT snapshot")]
     SnapshotNotAdvanced,
-    #[error("the repaired Replay owner-input projection does not advance the predecessor")]
-    OwnerInputsNotAdvanced,
     #[error("the repaired Replay request cannot be formed: {0}")]
     Request(String),
     #[error("Market Data repair Replay re-entry encoding is unavailable: {0}")]
@@ -131,24 +129,19 @@ pub enum MarketDataRepairReplayReentryErrorV1 {
 /// Forms the only Replay V2 request admitted by one repaired-result authority.
 ///
 /// All predecessor semantics are copied byte-for-byte. The function derives a new request
-/// identity and replaces only the Market Data PIT snapshot and its complete resolved-owner-input
-/// projection. The crate-private caller must first resolve that projection from its Owners.
+/// identity and replaces only the Market Data PIT snapshot. The additive authority carries the
+/// repair binding; generic `resolved_owner_inputs` content addressing remains unchanged.
 pub(crate) fn form_market_data_repaired_replay_request_v1(
     predecessor: &SealedExploratoryReplayReadbackV2,
     authority: MarketDataRepairReplayReentryAuthorityV1,
-    repaired_owner_inputs: ContentIdentityV2,
 ) -> Result<MarketDataRepairedReplayRequestV1, MarketDataRepairReplayReentryErrorV1> {
     if authority.predecessor_replay != predecessor.locator() {
         return Err(MarketDataRepairReplayReentryErrorV1::CustodyMismatch);
     }
     let predecessor_request = predecessor.request().as_dto();
-    if repaired_owner_inputs == predecessor_request.resolved_owner_inputs {
-        return Err(MarketDataRepairReplayReentryErrorV1::OwnerInputsNotAdvanced);
-    }
 
     let mut successor = predecessor_request.clone();
-    successor.request_identity = repaired_request_identity(&authority, &repaired_owner_inputs)?;
-    successor.resolved_owner_inputs = repaired_owner_inputs;
+    successor.request_identity = repaired_request_identity(&authority)?;
     successor.pit_snapshot = ContentIdentityV2 {
         identity: opaque_binding(authority.repaired_snapshot_identity)?,
         digest: canonical_binding(authority.repaired_normalized_records_digest)?,
@@ -300,16 +293,13 @@ fn binding_digest(value: BindingDigest) -> String {
 
 fn repaired_request_identity(
     authority: &MarketDataRepairReplayReentryAuthorityV1,
-    repaired_owner_inputs: &ContentIdentityV2,
 ) -> Result<OpaqueIdentityV2, MarketDataRepairReplayReentryErrorV1> {
     #[derive(Serialize)]
     struct Meaning<'a> {
         authority_digest: &'a str,
-        repaired_owner_inputs: &'a ContentIdentityV2,
     }
     let bytes = serde_json::to_vec(&Meaning {
         authority_digest: authority.authority_digest(),
-        repaired_owner_inputs,
     })
     .map_err(encoding)?;
     let mut hasher = Sha256::new();
@@ -486,21 +476,14 @@ mod tests {
     }
 
     #[test]
-    fn repaired_request_changes_only_identity_snapshot_and_owner_inputs() {
+    fn repaired_request_changes_only_identity_and_snapshot() {
         let predecessor = predecessor("replay-request");
-        let repaired_owner_inputs = content("repaired-owner-inputs", 27);
-        let first = form_market_data_repaired_replay_request_v1(
-            &predecessor,
-            authority(&predecessor),
-            repaired_owner_inputs.clone(),
-        )
-        .unwrap();
-        let second = form_market_data_repaired_replay_request_v1(
-            &predecessor,
-            authority(&predecessor),
-            repaired_owner_inputs.clone(),
-        )
-        .unwrap();
+        let first =
+            form_market_data_repaired_replay_request_v1(&predecessor, authority(&predecessor))
+                .unwrap();
+        let second =
+            form_market_data_repaired_replay_request_v1(&predecessor, authority(&predecessor))
+                .unwrap();
         assert_eq!(first.to_canonical_bytes(), second.to_canonical_bytes());
         assert_ne!(
             first.request().request_identity(),
@@ -509,7 +492,6 @@ mod tests {
 
         let mut expected = predecessor.request().as_dto().clone();
         expected.request_identity = first.request().as_dto().request_identity.clone();
-        expected.resolved_owner_inputs = repaired_owner_inputs;
         expected.pit_snapshot = first.request().as_dto().pit_snapshot.clone();
         assert_eq!(first.request().as_dto(), &expected);
         assert_eq!(
@@ -519,19 +501,6 @@ mod tests {
         assert_eq!(
             first.request().as_dto().pit_snapshot.digest.as_str(),
             binding_digest(first.authority().repaired_normalized_records_digest())
-        );
-    }
-
-    #[test]
-    fn unchanged_owner_inputs_create_no_repaired_request() {
-        let predecessor = predecessor("replay-request");
-        assert_eq!(
-            form_market_data_repaired_replay_request_v1(
-                &predecessor,
-                authority(&predecessor),
-                predecessor.request().as_dto().resolved_owner_inputs.clone(),
-            ),
-            Err(MarketDataRepairReplayReentryErrorV1::OwnerInputsNotAdvanced)
         );
     }
 }
