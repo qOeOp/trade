@@ -7,7 +7,7 @@ test("Artifact directory uses the shared compact read-only table surface", async
     readFile(new URL("../components/artifact-directory.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/owner-directory-state.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/rd/artifacts/directory/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../components/dashboard-shell.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/dashboard-route-content.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/owner-directory.module.css", import.meta.url), "utf8"),
   ]);
   assert.match(component, /<DataWorkspaceTable<ArtifactDirectoryItemV1>/u);

@@ -13,6 +13,7 @@ import {
   type ServiceLogSummaryV1,
 } from "../lib/service-log-contract";
 import { BoundedLogViewport } from "./ui/bounded-log-viewport";
+import { Button } from "./ui/button";
 import { CompactStatusBar, CompactStatusGroup, CompactStatusItem } from "./ui/compact-status-bar";
 import { DataTableHeaderLabel } from "./ui/data-table";
 import { DataWorkspaceEmpty } from "./ui/data-workspace-empty";
@@ -28,9 +29,11 @@ import {
   DetailNotice,
 } from "./ui/detail-inspector";
 import { EmptyState, UnavailableState } from "./ui/evidence-strip";
+import { FilterButton } from "./ui/filter-toolbar";
 import { InterfaceIcons, ModuleIcons, RunIcons } from "./ui/iconography";
 import { PageStack } from "./ui/page-stack";
 import { PanelFrame, PanelFrameBody, PanelFrameHeader, PanelFrameInfo } from "./ui/panel-frame";
+import { SelectionList, SelectionListItem } from "./ui/selection-list";
 import { SplitBento } from "./ui/split-bento";
 import { StatusBadge } from "./ui/status-badge";
 import { emptyServiceLogPresentation } from "../lib/operations-presentation";
@@ -119,21 +122,19 @@ function ServiceInstanceList({
   onSelect: (identity: string) => void;
 }) {
   return (
-    <section className="selection-list service-instance-list" aria-label="Service instances">
-      <header><span>Instances</span><span>{instances.length}</span></header>
+    <SelectionList aria-label="Service instances" count={instances.length} label="Instances">
       {instances.map((instance) => (
-        <button
-          type="button"
+        <SelectionListItem
           key={instance.instance_identity}
-          data-selected={instance.instance_identity === selectedIdentity || undefined}
+          detail={<>{instance.services.join(" · ")} · {displayTime(instance.last_observed_at)}</>}
+          meta={<>{instance.instance_kind} · {instance.readiness}</>}
           onClick={() => onSelect(instance.instance_identity)}
-        >
-          <b title={instance.instance_identity}>{instance.instance_identity}</b>
-          <span>{instance.instance_kind} · {instance.readiness}</span>
-          <small>{instance.services.join(" · ")} · {displayTime(instance.last_observed_at)}</small>
-        </button>
+          primary={instance.instance_identity}
+          primaryTitle={instance.instance_identity}
+          selected={instance.instance_identity === selectedIdentity}
+        />
       ))}
-    </section>
+    </SelectionList>
   );
 }
 
@@ -396,15 +397,15 @@ export function OperationsServiceLogs() {
           titleId="service-logs-title"
           description="Inspect recent events by severity, service, and time."
           actions={<><PanelFrameInfo><b>Data scope</b><p>This is a read-only snapshot. Administrative controls and effect actions are not available here.</p></PanelFrameInfo><div className="service-logs-actions">
-            <button type="button" onClick={refresh} disabled={pending}>
+            <FilterButton density="compact" variant="secondary" type="button" onClick={refresh} disabled={pending}>
               <InterfaceIcons.refresh aria-hidden="true" size={12} /> {pending ? "Reading" : "Refresh"}
-            </button>
-            <button type="button" data-action-variant="secondary" aria-pressed={autoRefresh} onClick={() => setAutoRefresh((value) => !value)}>
+            </FilterButton>
+            <FilterButton density="compact" variant="secondary" type="button" aria-pressed={autoRefresh} onClick={() => setAutoRefresh((value) => !value)}>
               <InterfaceIcons.autoRefresh aria-hidden="true" size={12} /> Auto-refresh {autoRefresh ? "on" : "off"}
-            </button>
-            {page && !pending ? <button type="button" data-action-variant="secondary" onClick={() => void download()}>
+            </FilterButton>
+            {page && !pending ? <FilterButton density="compact" variant="secondary" type="button" onClick={() => void download()}>
               <InterfaceIcons.download aria-hidden="true" size={12} /> Download
-            </button> : null}
+            </FilterButton> : null}
           </div></>}
         />
         <PanelFrameBody className="service-logs-body">
@@ -496,11 +497,11 @@ export function OperationsServiceLogs() {
                         setPageSize(next);
                         void load({ cut: { ...filterCut, observed_at: new Date().toISOString() }, requestedPageSize: next });
                       }}>{pageSizes.map((size) => <option key={size} value={size}>{size}</option>)}</select></label>
-                      <button type="button" aria-label="Previous service-log page" disabled={pending || pageIndex === 0} onClick={() => setPageIndex((value) => Math.max(0, value - 1))}><InterfaceIcons.previous aria-hidden="true" /></button>
-                      <button type="button" aria-label="Next service-log page" disabled={pending || (!pages[pageIndex + 1] && !page.next_cursor)} onClick={() => {
+                      <Button type="button" variant="outline" size="icon-sm" aria-label="Previous service-log page" disabled={pending || pageIndex === 0} onClick={() => setPageIndex((value) => Math.max(0, value - 1))}><InterfaceIcons.previous aria-hidden="true" /></Button>
+                      <Button type="button" variant="outline" size="icon-sm" aria-label="Next service-log page" disabled={pending || (!pages[pageIndex + 1] && !page.next_cursor)} onClick={() => {
                         if (pages[pageIndex + 1]) setPageIndex((value) => value + 1);
                         else void load({ cut: page.filter_cut, cursor: page.next_cursor, append: true });
-                      }}><InterfaceIcons.next aria-hidden="true" /></button>
+                      }}><InterfaceIcons.next aria-hidden="true" /></Button>
                     </div>
                   </>}
                 >

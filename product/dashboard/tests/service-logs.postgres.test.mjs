@@ -416,6 +416,9 @@ test(testName, { skip: !url }, async () => {
       const cells = [...(table?.querySelectorAll('tbody td') ?? [])];
       const separator = cells[1] ? getComputedStyle(cells[1], '::before') : null;
       const layout = document.querySelector('.service-logs-layout');
+      const selection = document.querySelector('[data-ui="selection-list"]');
+      const selectionBounds = selection?.getBoundingClientRect();
+      const selectionItems = [...(selection?.querySelectorAll('button') ?? [])];
       return {
         directHeader: Boolean(header),
         directBody: Boolean(body),
@@ -428,6 +431,16 @@ test(testName, { skip: !url }, async () => {
         separatorWidth: separator?.width,
         separatorTop: separator?.top,
         separatorBottom: separator?.bottom,
+        selectionDisplay: selection ? getComputedStyle(selection).display : null,
+        selectionOverflow: selection ? getComputedStyle(selection).overflow : null,
+        selectionItemCount: selectionItems.length,
+        selectionSelectedCount: selection?.querySelectorAll('button[data-selected="true"]').length ?? 0,
+        selectionWidthContained: selection ? selection.scrollWidth <= selection.clientWidth : false,
+        selectionItemsContained: Boolean(selectionBounds) && selectionItems.every((item) => {
+          const bounds = item.getBoundingClientRect();
+          return bounds.left >= selectionBounds.left - 1 && bounds.right <= selectionBounds.right + 1;
+        }),
+        documentWidthContained: document.documentElement.scrollWidth <= document.documentElement.clientWidth,
         summary: document.querySelector('[aria-label="Service log summary"]')?.innerText ?? '',
       };
     })()`);
@@ -442,10 +455,17 @@ test(testName, { skip: !url }, async () => {
     assert.equal(surface.separatorWidth, "0.5px");
     assert.equal(surface.separatorTop, "10px");
     assert.equal(surface.separatorBottom, "10px");
-    assert.match(surface.summary, /Warning\s+1/);
-    assert.match(surface.summary, /Info\s+92/);
-    assert.match(surface.summary, /Worker\s+1/);
-    assert.match(surface.summary, /Server\s+1/);
+    assert.equal(surface.selectionDisplay, "grid");
+    assert.equal(surface.selectionOverflow, "hidden");
+    assert.equal(surface.selectionItemCount, 2);
+    assert.equal(surface.selectionSelectedCount, 1);
+    assert.equal(surface.selectionWidthContained, true);
+    assert.equal(surface.selectionItemsContained, true);
+    assert.equal(surface.documentWidthContained, true);
+    assert.match(surface.summary, /warning\s+1/);
+    assert.match(surface.summary, /info\s+92/);
+    assert.match(surface.summary, /worker\s+1/);
+    assert.match(surface.summary, /server\s+1/);
 
     const navigatePage = async (label, settledExpression) => {
       const changedPage = await readBrowserValue(browser, `(() => {
@@ -538,7 +558,7 @@ test(testName, { skip: !url }, async () => {
       const viewport = document.querySelector('.page-viewport');
       const table = document.querySelector('table[aria-label="Service log events"]');
       const firstRow = document.querySelector('table[aria-label="Service log events"] tbody tr');
-      const cut = document.querySelector('.bounded-log-viewport-footer > code');
+      const cut = document.querySelector('.bounded-log-viewport-footer .panel-info-popover code');
       if (!viewport || !table || !firstRow || !cut || viewport.scrollHeight <= viewport.clientHeight + 320) return null;
       const tableTop = table.getBoundingClientRect().top - viewport.getBoundingClientRect().top + viewport.scrollTop;
       viewport.scrollTop = Math.min(viewport.scrollHeight - viewport.clientHeight, tableTop + 240);
@@ -558,7 +578,7 @@ test(testName, { skip: !url }, async () => {
     assert.deepEqual(await readBrowserValue(browser, `(() => {
       const viewport = document.querySelector('.page-viewport');
       const firstRow = document.querySelector('table[aria-label="Service log events"] tbody tr');
-      const cut = document.querySelector('.bounded-log-viewport-footer > code');
+      const cut = document.querySelector('.bounded-log-viewport-footer .panel-info-popover code');
       return viewport && firstRow && cut
         ? { firstRow: firstRow.innerText, cut: cut.textContent, scrollTop: viewport.scrollTop }
         : null;
@@ -618,7 +638,7 @@ test(testName, { skip: !url }, async () => {
         HTMLAnchorElement.prototype.click = original;
       };
     })()`);
-    await clickButton(browser, "Download bounded");
+    await clickButton(browser, "Download");
     await waitForBrowserExpression(browser,
       `Boolean(window.__serviceLogDownload?.download)
         && document.body?.innerText.includes('rows · complete · not truncated')`);
@@ -632,17 +652,31 @@ test(testName, { skip: !url }, async () => {
     await clickButton(browser, "Refresh");
     await waitForBrowserExpression(browser,
       `document.body?.innerText.includes('Service logs unavailable')
-        && document.body?.innerText.includes('SERVICE_LOG_STORE_UNAVAILABLE')
+        && [...document.querySelectorAll('.panel-info-popover code')]
+          .some((code) => code.textContent === 'SERVICE_LOG_STORE_UNAVAILABLE')
         && !document.body?.innerText.includes(${JSON.stringify(workerIdentity)})
         && !document.body?.innerText.includes(${JSON.stringify(serverIdentity)})
         && document.querySelectorAll('table[aria-label="Service log events"] tbody tr').length === 0`);
+    const unavailableInfo = await readBrowserValue(browser, `(() => {
+      const code = [...document.querySelectorAll('.panel-info-popover code')]
+        .find((candidate) => candidate.textContent === 'SERVICE_LOG_STORE_UNAVAILABLE');
+      const popover = code?.closest('.panel-info-popover');
+      return {
+        code: code?.textContent ?? null,
+        display: popover ? getComputedStyle(popover).display : null,
+        open: popover?.matches(':popover-open') ?? false,
+      };
+    })()`);
+    assert.equal(unavailableInfo.code, "SERVICE_LOG_STORE_UNAVAILABLE");
+    assert.equal(unavailableInfo.display, "none");
+    assert.equal(unavailableInfo.open, false);
     const unavailableSummary = await readBrowserValue(browser,
       "document.querySelector('[aria-label=\"Service log summary\"]')?.innerText ?? ''");
-    assert.match(unavailableSummary, /Error\s+-/);
-    assert.match(unavailableSummary, /Warning\s+-/);
-    assert.match(unavailableSummary, /Info\s+-/);
-    assert.match(unavailableSummary, /Worker\s+-/);
-    assert.match(unavailableSummary, /Server\s+-/);
+    assert.match(unavailableSummary, /error\s+-/);
+    assert.match(unavailableSummary, /warning\s+-/);
+    assert.match(unavailableSummary, /info\s+-/);
+    assert.match(unavailableSummary, /worker\s+-/);
+    assert.match(unavailableSummary, /server\s+-/);
   } finally {
     browser?.close();
     await stopProcess(browser?.child);

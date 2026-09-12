@@ -8,13 +8,15 @@ import {
   type SourceIntakeTerminalReadbackV1,
 } from "../lib/source-intake-readback-gateway";
 import { EmptyState, UnavailableState } from "./ui/evidence-strip";
-import { FactGroup, FactGroupSkeleton, FactItem } from "./ui/fact-group";
+import { FactGroup, FactGroupGrid, FactGroupSkeletonGrid, FactItem } from "./ui/fact-group";
+import { FilterButton } from "./ui/filter-toolbar";
 import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
 import {
   PanelFrame,
   PanelFrameBody,
   PanelFrameHeader,
 } from "./ui/panel-frame";
+import { ReadbackLookup, ReadbackLookupAction, ReadbackLookupField, ReadbackLookupInput } from "./ui/readback-lookup";
 import { StatusBadge } from "./ui/status-badge";
 import styles from "./source-intake-readback-workbench.module.css";
 
@@ -22,7 +24,7 @@ const REQUEST_IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/;
 
 function TerminalReadback({ terminal }: { terminal: SourceIntakeTerminalReadbackV1 }) {
   return (
-    <div className={styles.groups}>
+    <FactGroupGrid>
       <FactGroup title="Intake">
         <FactItem label="Request" mono title={terminal.requestIdentity}>{terminal.requestIdentity}</FactItem>
         <FactItem label="Resolution"><StatusBadge tone={terminal.resolution === "RETRIEVED" ? "success" : "neutral"}>{terminal.resolution}</StatusBadge></FactItem>
@@ -37,17 +39,7 @@ function TerminalReadback({ terminal }: { terminal: SourceIntakeTerminalReadback
         <FactItem label="Content">{terminal.content ? "Retained" : "No payload"}</FactItem>
         {terminal.content ? <FactItem label="Digest" mono title={terminal.content.digest}>{terminal.content.digest}</FactItem> : null}
       </FactGroup>
-    </div>
-  );
-}
-
-function LoadingGroups() {
-  return (
-    <div className={styles.groups} aria-label="Loading Source Intake readback">
-      {["Intake", "Custody", "Evidence"].map((title) => (
-        <FactGroupSkeleton key={title} title={title} />
-      ))}
-    </div>
+    </FactGroupGrid>
   );
 }
 
@@ -114,30 +106,32 @@ export function SourceIntakeReadbackWorkbench({
         meta="Owner point read · No submit or resolve"
         description="Open one exact Owner readback without submitting, resolving, or exposing source payload."
         actions={(
-          <button
+          <FilterButton
+            density="compact"
+            variant="secondary"
             disabled={!openedIdentity || status === "loading"}
             onClick={() => openedIdentity && void read(openedIdentity)}
             type="button"
           >
             <InterfaceIcons.refresh aria-hidden="true" size={14} /> Refresh
-          </button>
+          </FilterButton>
         )}
       />
       <PanelFrameBody className={styles.body}>
-        <form
-          className={styles.lookupRail}
+        <ReadbackLookup
+          validation={validation}
+          validationId="source-intake-validation"
           onSubmit={(event) => {
             event.preventDefault();
             void read(input);
           }}
         >
-          <label className={styles.inputShell}>
-            <span className="sr-only">Request identity</span>
-            <InterfaceIcons.search aria-hidden="true" size={16} />
-            <input
+          <ReadbackLookupField label="Request identity" labelHidden>
+            <ReadbackLookupInput
               aria-describedby={validation ? "source-intake-validation" : undefined}
               aria-invalid={Boolean(validation)}
               autoComplete="off"
+              icon={<InterfaceIcons.search aria-hidden="true" size={16} />}
               onChange={(event) => {
                 setInput(event.target.value);
                 setValidation(null);
@@ -146,14 +140,18 @@ export function SourceIntakeReadbackWorkbench({
               spellCheck={false}
               value={input}
             />
-          </label>
-          <button className={styles.openButton} disabled={status === "loading"} type="submit">
+          </ReadbackLookupField>
+          <ReadbackLookupAction disabled={status === "loading"}>
             Open readback <EvidenceIcons.next aria-hidden="true" size={14} />
-          </button>
-        </form>
-        {validation ? <p className={styles.validation} id="source-intake-validation">{validation}</p> : null}
+          </ReadbackLookupAction>
+        </ReadbackLookup>
         <div className={styles.result} aria-live="polite">
-          {status === "loading" ? <LoadingGroups />
+          {status === "loading" ? (
+            <FactGroupSkeletonGrid
+              aria-label="Loading Source Intake readback"
+              titles={["Intake", "Custody", "Evidence"]}
+            />
+          )
             : status === "available" && projection?.state === "terminal" && projection.terminal
               ? <TerminalReadback terminal={projection.terminal} />
               : status === "available" && projection?.state === "no_verified_terminal"

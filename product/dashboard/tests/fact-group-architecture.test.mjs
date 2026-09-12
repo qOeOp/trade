@@ -17,14 +17,18 @@ test("FactGroup is the domain-neutral readback fact composition", async () => {
   ]);
 
   for (const source of sources) {
-    assert.match(source, /import \{ FactGroup, FactGroupSkeleton, FactItem \} from "\.\/ui\/fact-group"/u);
+    assert.match(source, /import \{ FactGroup, FactGroupGrid, FactGroupSkeletonGrid, FactItem \} from "\.\/ui\/fact-group"/u);
     assert.match(source, /<FactGroup title=/u);
     assert.match(source, /<FactItem label=/u);
-    assert.match(source, /<FactGroupSkeleton/u);
+    assert.match(source, /<FactGroupSkeletonGrid/u);
+    assert.doesNotMatch(source, /className=\{styles\.groups\}|function LoadingGroups/u);
     assert.doesNotMatch(source, /function (?:Fact|Group|ReadbackGroup)\(/u);
   }
 
   assert.doesNotMatch(atom, /Source Intake|Develop Composer|Exploratory Replay|Owner|\.\.\/lib/iu);
+  assert.match(atom, /export function FactGroupGrid/u);
+  assert.match(atom, /data-ui="fact-group-grid"/u);
+  assert.match(atom, /export function FactGroupSkeletonGrid/u);
   assert.match(atom, /<section \{\.\.\.props\}/u);
   assert.match(atom, /<dl>\{children\}<\/dl>/u);
   assert.match(atom, /<dt>\{label\}<\/dt>/u);
@@ -39,6 +43,10 @@ test("FactGroup exclusively owns reusable fact and skeleton geometry", async () 
     read("components/exploratory-replay-readback-workbench.module.css"),
   ]);
 
+  assert.match(atomCss, /\.grid \{[\s\S]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/u);
+  assert.match(atomCss, /\.grid\[data-layout="weighted"\] \{[\s\S]*\.82fr[\s\S]*1\.28fr/u);
+  assert.match(atomCss, /@media \(max-width: 980px\)[\s\S]*\.grid\[data-layout="weighted"\][\s\S]*grid-template-columns: 1fr/u);
+  assert.match(atomCss, /@media \(max-width: 900px\)[\s\S]*\.grid\[data-layout="equal"\][\s\S]*grid-template-columns: 1fr/u);
   assert.match(atomCss, /\.group \{[\s\S]*border-radius: var\(--panel-inner-radius\)/u);
   assert.match(atomCss, /\.item \{[\s\S]*grid-template-columns:/u);
   assert.match(atomCss, /\.item \+ \.item \{[\s\S]*border-top:/u);
@@ -46,7 +54,7 @@ test("FactGroup exclusively owns reusable fact and skeleton geometry", async () 
   assert.doesNotMatch(atomCss, /#[\da-f]{3,8}\b|\brgb\(|\bhsl\(/iu);
 
   for (const css of [sourceCss, replayCss]) {
-    assert.match(css, /\.groups \{/u);
+    assert.doesNotMatch(css, /\.groups \{/u);
     assert.doesNotMatch(css, /\.(?:group|fact|mono|skeletonLines)(?:\s|[.:{])/u);
   }
 });

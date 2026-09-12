@@ -262,8 +262,8 @@ output value 之前紧接一个规范 availability byte：`0 = READY`、`1 = WAR
 warm-up invocation 仍必须返回一份按 manifest 顺序排列的完整 output frame：position intent 是
 `kernel.position.hold.v1`，target variant 是
 `kernel.target.keep.v1`，protection variant 是 `kernel.protection.keep.v1`；在这两个 Keep variant 下被忽略的
-八个 scalar field——target position units、target weight micros、rebalance sequence、reconciliation target
-units、stop-loss ticks、take-profit ticks、trailing-distance ticks 与 trailing-stop ticks——必须是各自准确宽度的
+八个 scalar field-target position units、target weight micros、rebalance sequence、reconciliation target
+units、stop-loss ticks、take-profit ticks、trailing-distance ticks 与 trailing-stop ticks-必须是各自准确宽度的
 规范零值。post-state 是本次已接纳 coordinate 推进所有适用 primitive 与 BFP state cell 后的规范 state。对于
 绑定 BFP V1 的 ABI 3 manifest，`ProgramHostV2` 必须在提交 scratch bundle 前复核 `WARMING` tag、三个
 lifecycle value、八个 scalar 零值与规范 post-state；tag 缺失或矛盾、非零 ignored scalar 或不完整 warm-up

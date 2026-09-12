@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 
 import {
   allRoutes,
+  dashboardRouteForPathname,
   exactBlueprints,
   foundationRoutes,
   maturityFor,
@@ -16,6 +17,30 @@ test("side navigation preserves the documented workflow order", () => {
     "Overview", "R&D", "Backtest", "Qualification", "Scanner", "Strategy", "Runtime",
     "Portfolio", "Risk", "Execution", "Data", "Operations", "Settings",
   ]);
+});
+
+test("Operations exposes only the documented first-party tab order", () => {
+  const operations = modules.find(({ id }) => id === "operations");
+  assert.deepEqual(operations?.tabs, [
+    { label: "Runs", href: "/operations" },
+    { label: "Workers", href: "/operations/workers" },
+    { label: "Schedules", href: "/operations/schedules" },
+    { label: "Service Logs", href: "/operations/service-logs" },
+    { label: "Audit", href: "/operations/audit" },
+    { label: "Event Rail", href: "/operations/event-rail" },
+    { label: "Telemetry", href: "/operations/telemetry" },
+    { label: "Alerts", href: "/operations/alerts" },
+  ]);
+});
+
+test("bilingual Operations matrices and skeletons publish the same first-party tab order", async () => {
+  const matrix = "| Operations    | Runs, Workers, Schedules, Service Logs, Audit, Event Rail, Telemetry, Alerts |";
+  const skeleton = "N  [Runs] [Workers] [Schedules] [Service Logs] [Audit] [Event Rail] [Telemetry] [Alerts]";
+  for (const suffix of ["", ".zh"]) {
+    const doc = await readFile(new URL(`../../../docs/guide/dashboard${suffix}.md`, import.meta.url), "utf8");
+    assert.ok(doc.includes(matrix), `${suffix || "en"} Operations matrix has drifted`);
+    assert.ok(doc.includes(skeleton), `${suffix || "en"} Operations skeleton has drifted`);
+  }
 });
 
 test("every routed page has a unique absolute path", () => {
@@ -33,7 +58,7 @@ test("only the current bilingual completeness closure is drawable exact", () => 
     "/backtest",
     "/runtime", "/runtime/generations", "/runtime/checkpoints", "/runtime/incidents",
     "/portfolio", "/portfolio/exposure", "/portfolio/capacity", "/portfolio/attribution",
-    "/data", "/data/pit-catalog", "/operations", "/operations/workers", "/operations/schedules", "/operations/service-logs", "/operations/runs/example", "/operations/workers/example",
+    "/data", "/data/pit-catalog", "/operations", "/operations/workers", "/operations/schedules", "/operations/service-logs", "/operations/audit", "/operations/runs/example", "/operations/workers/example",
   ]);
   assert.deepEqual(Object.keys(exactBlueprints).sort(), exact.toSorted());
 });
@@ -41,11 +66,21 @@ test("only the current bilingual completeness closure is drawable exact", () => 
 test("all remaining pages fail closed", () => {
   for (const href of [
     "/dashboard", "/rd/hypotheses", "/rd/decisions",
-    "/operations/audit",
     "/operations/event-rail", "/operations/telemetry", "/operations/alerts",
   ]) {
     assert.equal(maturityFor(href), "BLUEPRINT_ONLY_NOT_IMPLEMENTABLE");
   }
+});
+
+test("Operations Audit exposes only the admitted first-party control-plane read surface", () => {
+  assert.equal(maturityFor("/operations/audit"), "DRAWABLE_EXACT");
+  assert.deepEqual(exactBlueprints["/operations/audit"].summaries, [
+    "Execute", "Create / update", "Delete", "Succeeded", "Failed / denied",
+  ]);
+  assert.equal(exactBlueprints["/operations/audit"].primary, "OperationAuditTable");
+  assert.equal(exactBlueprints["/operations/audit"].context, "AuditEventDetail");
+  assert.equal(exactBlueprints["/operations/audit"].terminal, "CorrelationTimeline");
+  assert.match(exactBlueprints["/operations/audit"].state, /FIRST_PARTY_CONTROL_PLANE_GET_ONLY - NO_AUDIT_MUTATION_OR_WINDMILL_INFERENCE/);
 });
 
 test("Service Logs exposes only the admitted bounded RunStore read surface", () => {
@@ -72,6 +107,14 @@ test("Portfolio routes expose only the fixed fail-closed contract blueprint", ()
 test("the run detail route binds to the Runs top tab", () => {
   assert.equal(parentTabFor("/operations/runs/example"), "/operations");
   assert.deepEqual(foundationRoutes, ["/market"]);
+});
+
+test("detail URLs retain the correct persistent Dashboard chrome identity", () => {
+  assert.equal(dashboardRouteForPathname("/operations/runs/run-123/"), "/operations/runs/example");
+  assert.equal(dashboardRouteForPathname("/operations/workers/worker-123/"), "/operations/workers");
+  assert.equal(dashboardRouteForPathname("/rd/artifacts/build-1/attempts/attempt-1/"), "/rd/artifacts");
+  assert.equal(dashboardRouteForPathname("/operations/audit/"), "/operations/audit");
+  assert.equal(dashboardRouteForPathname("/market/"), "/dashboard");
 });
 
 test("Workers list and exact detail share only their admitted read-only navigation", () => {
@@ -103,4 +146,28 @@ test("Workers bilingual completeness includes geometry, failure states and actio
     specs.push(spec.match(/```text\n([\s\S]*?)```/)[1]);
   }
   assert.equal(specs[0], specs[1]);
+});
+
+test("Operations Audit bilingual completeness closes source, geometry and mutation boundaries", async () => {
+  const skeletons = [];
+  for (const suffix of ["", ".zh"]) {
+    const doc = await readFile(new URL(`../../../docs/guide/dashboard${suffix}.md`, import.meta.url), "utf8");
+    const start = doc.indexOf(suffix ? "#### Operations Audit 精确只读 skeleton" : "#### Exact Operations Audit read-only skeleton");
+    assert.ok(start >= 0);
+    const endHeading = suffix ? "#### 精确 Run Detail 骨架" : "#### Exact Run Detail skeleton";
+    const spec = doc.slice(start, doc.indexOf(endHeading, start));
+    for (const token of [
+      "DRAWABLE_EXACT", "IMPLEMENTATION_ADMITTED", "dashboard.dependency.cancel.queued.v1",
+      "dashboard.operational_cache.delete.v1", "OperationAuditTable",
+      "Correlation timeline", "24h", "7d", "30d", "20 / 50 / 100", "512", "GET /api/operations/audit",
+      "UPDATE", "DELETE", "H -> S -> F -> P -> Q -> B",
+    ]) assert.ok(spec.includes(token), `${suffix || "en"} missing ${token}`);
+    assert.ok(spec.includes(suffix ? "同一\nserializable" : "same serializable"));
+    const blueprintOnly = doc.split("\n").find((line) => line.startsWith("| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`"));
+    assert.doesNotMatch(blueprintOnly, /Operations \/ Audit/);
+    const drawable = doc.split("\n").find((line) => line.startsWith("| `DRAWABLE_EXACT`"));
+    assert.match(drawable, /\/operations\/audit/);
+    skeletons.push(spec.match(/```text\n([\s\S]*?)```/)[1]);
+  }
+  assert.equal(skeletons[0], skeletons[1]);
 });

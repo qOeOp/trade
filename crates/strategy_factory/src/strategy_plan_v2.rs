@@ -2048,6 +2048,7 @@ fn validate_plugin_manifest(plugin: &PluginManifestV2) -> Result<(), StrategyCom
         PLUGIN_ABI_V3 => plugin.failure_semantic_id == BFP_NUMERIC_FAILURE_V1,
         _ => false,
     };
+
     if plugin.semantic_id.is_empty()
         || !supported_failure
         || plugin.input_ports.is_empty()
@@ -2675,12 +2676,14 @@ fn resolve_reference(
                     "Owner sample coordinate is legal only as an exact plugin input binding",
                 ));
             }
+
             if reaction == LifecycleKindV2::Timer {
                 return Err(unsupported(
                     coordinate,
                     "TIMER input authority is unavailable until a Time/Scheduler Owner contract exists",
                 ));
             }
+
             if !matches!(reaction, LifecycleKindV2::Bar | LifecycleKindV2::Event)
                 || validation.input_fact_classes.get(input_id.as_str())
                     != Some(&InputFactClassV2::MarketData)
@@ -2806,6 +2809,7 @@ fn owner_sample_coordinate_source_semantic(input_role_id: &str) -> String {
 fn owner_sample_coordinate_port_id(input_role_identity: BindingDigest) -> String {
     let mut value = String::with_capacity(OWNER_SAMPLE_COORDINATE_PORT_PREFIX_V1.len() + 64);
     value.push_str(OWNER_SAMPLE_COORDINATE_PORT_PREFIX_V1);
+
     for byte in input_role_identity.as_bytes() {
         use std::fmt::Write as _;
         write!(&mut value, "{byte:02x}").expect("writing lowercase hex to String is infallible");
@@ -2853,6 +2857,7 @@ fn project_bfp_role_bindings(
 
             let mut values = BTreeMap::<&str, (&PortContractV2, u16)>::new();
             let mut coordinates = BTreeMap::<&str, (&PortContractV2, u16, &str)>::new();
+
             for (ordinal, (binding, port)) in node
                 .input_bindings
                 .iter()
@@ -2865,6 +2870,7 @@ fn project_bfp_role_bindings(
                         "manifest input ordinal exceeds the bounded Plan representation",
                     )
                 })?;
+
                 match &binding.source {
                     ValueRefV2::Input { input_id } => {
                         if values.insert(input_id, (port, ordinal)).is_some() {
@@ -2897,6 +2903,7 @@ fn project_bfp_role_bindings(
                     "every bounded ABI 3 invocation requires a Market Owner value-coordinate role",
                 ));
             }
+
             if values.keys().copied().collect::<BTreeSet<_>>()
                 != coordinates.keys().copied().collect::<BTreeSet<_>>()
             {
@@ -2969,6 +2976,7 @@ fn project_bfp_role_bindings(
                             .to_owned(),
                         update_clock_source_semantic_id: expected_source.clone(),
                     };
+
                     match table.insert((input_role_identity, kind), projection.clone()) {
                         None => {}
                         Some(existing) if existing == projection => {}

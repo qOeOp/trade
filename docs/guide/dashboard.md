@@ -924,7 +924,7 @@ implementation, provider/network execution, production write or trading authorit
 | Service Logs / server and worker logs       | Auto‑refresh page lists worker group and server hosts, time range, error‑only filter, service/host selector                                                          | Operations / Service Logs: time range, service, instance, severity, search, auto‑refresh, bounded log viewport                                                                                                                                             | `ServiceLogGateway`; read‑only, redacted, retention‑bounded. It is operational evidence, not Owner health or a telemetry backend                                                                                                                                                                                      |
 | Audit Logs / partitioned audit tables       | Authenticated execute/update/create/delete records exist; CE exposes ID, time, principal, operation and redacts resource detail                                      | Operations / Audit: time/principal/operation/outcome filters, audit table, selected correlation panel; no mutation buttons                                                                                                                                 | `OperationAuditStore`; append‑only Dashboard/Product Edge control‑plane events with exact target/correlation/outcome. Owner business events remain in Owner/Event Rail custody                                                                                                                                        |
 | Workspace/folder/auth                       | Folder `trade` contains three scripts and one App owned by `u/admin`; workspace and scoped tokens delimit access                                                     | Installation profile and Access settings only; no workspace/folder administration route                                                                                                                                                                    | `LocalSession` + `CapabilityManifest` + narrow token issuer; one installation, one operator profile, exact operation scopes                                                                                                                                                                                           |
-| Variables, Resources, Assets, Schedules     | `trade-rd` counts are 0/0/0/0. Compose injects an allowlisted environment into the worker; Data Tables and frontend SDK access are forbidden                         | No product tabs. Settings accepts opaque runtime references; Scanner shows schedule unavailable/deferred                                                                                                                                                   | Exclude Windmill generic stores. Add a typed service only when a real Owner consumer and custody contract exist                                                                                                                                                                                                       |
+| Variables, Resources, global Assets, generic Schedules | `trade-rd` counts are 0/0/0/0. Compose injects an allowlisted environment into the worker; Data Tables and frontend SDK access are forbidden                | No product tabs for these Windmill stores. Settings accepts opaque runtime references; the separately admitted first-party bounded shadow schedules live at Operations / Schedules                                                                           | Exclude Windmill generic stores. `/operations/schedules` uses only the typed zero-effect `configuredShadowScheduleSetV1` + RunStore contract defined above                                                                                                                      |
 
 The native `bun` runtime is an implementation detail of the three pinned scripts, not a user-selectable runtime
 catalog. PostgreSQL persists Windmill operational state; separate R&D and Backtest Owner databases/APIs persist
@@ -1068,7 +1068,7 @@ The top bar has four zones in order:
 | Risk          | Decisions, Reservations, Claims & Admission, Fences               |
 | Execution     | Attempts, Orders, Fills, Reconciliation, Recovery                 |
 | Data          | Sources, PIT Catalog, Quality, Freshness                          |
-| Operations    | Runs, Workers, Service Logs, Audit, Event Rail, Telemetry, Alerts |
+| Operations    | Runs, Workers, Schedules, Service Logs, Audit, Event Rail, Telemetry, Alerts |
 | Settings      | Data Sources, Agents, Notifications, Access                       |
 
 On narrow screens the tape collapses to a status button, tabs scroll horizontally, and the rail becomes a drawer.
@@ -1338,17 +1338,18 @@ business journey. Settings is not the authority for deployment configuration, Ca
 
 #### Exact Operations navigation and list-page skeletons
 
-The fixed `ModuleTabs` order under Operations is `Runs`, `Workers`, `Service Logs`, `Audit`, `Event Rail`,
-`Telemetry`, and `Alerts`. The first four come from real Windmill screens; the last three come from Trade
+The fixed `ModuleTabs` order under Operations is `Runs`, `Workers`, `Schedules`, `Service Logs`, `Audit`,
+`Event Rail`, `Telemetry`, and `Alerts`. Runs, Workers, Service Logs, and Audit come from real Windmill screens;
+Schedules is the separately admitted first-party bounded shadow-read surface; the last three come from Trade
 architecture. On narrow screens they become a horizontally scrollable tab row in the same order, never a generic
-More menu. Windmill Home, Variables, Resources, global Assets, and Schedules are absent from this row. Run Detail
+More menu. Windmill Home, Variables, Resources, global Assets, and generic Schedules are absent from this row. Run Detail
 Metrics, Traces, and Assets remain run-scoped tabs and never become global routes.
 
 `/operations` is the canonical Runs route. Desktop keeps filters, columns, date groups, and row actions stable:
 
 ```text
 H  Operations / Runs                        [Refresh] [Auto-refresh: Off v]
-N  [Runs] [Workers] [Service Logs] [Audit] [Event Rail] [Telemetry] [Alerts]
+N  [Runs] [Workers] [Schedules] [Service Logs] [Audit] [Event Rail] [Telemetry] [Alerts]
 F  [Runs|Dependencies] [All|Queued|Running|Succeeded|Failed|Unknown]
    [Search path / run ID] [Duration v] [Concurrency v] [More filters]
 S  Queued | Running | Unknown | Completed/Failed
@@ -1578,26 +1579,68 @@ proving zero Windmill, Owner, provider, scheduler, dispatcher, production, and t
 Owner health, business success, worker readiness for an unbound run, Telemetry availability, or replacement
 readiness.
 
-`/operations/audit` preserves append-only control-plane semantics:
+#### Exact Operations Audit read-only skeleton
+
+`/operations/audit` is `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED` only for the first-party, append-only
+control-plane evidence defined here. It never reads Windmill's partitioned table as a positive first-party source:
+the currently observed Windmill rows expose only principal, time and action kind while operation and resource are
+`redacted`. They may remain external migration evidence, but cannot fabricate a target, outcome or Dashboard audit
+identity. The first admitted producers are exactly successful `dashboard.dependency.cancel.queued.v1` and
+`dashboard.operational_cache.delete.v1` transitions. Each inserts its audit event in the same serializable
+PostgreSQL transaction as its immutable action receipt; a missing or rejected audit insert rolls back that action.
+No Owner, provider, deployment, scheduler, Windmill or trading event is inferred or written by this slice.
 
 ```text
-H  Operations / Audit                                           [Refresh]
-N  Operations tabs in the fixed order above
-F  [Time range] [Principal] [Operation] [Outcome] [Target/correlation search]
-S  Execute | Create/Update | Delete | Failed/Denied
-P  OperationAuditTable: Time | audit ID | principal | operation | outcome | target | correlation
-Q  Fixed selected-correlation stack, in order:
-   AuditCorrelationCard -> InvocationAdmissionReceipt -> InvocationClaimReceipt -> ProviderInvocationStateCard
-   exact target/correlation, request/run locator, redaction reason, receipt/state stops
-T  Timeline: selected operation events in canonical order; no replay action
-B  Retention / redaction disclosure                 [Copy audit locator]
+H  Operations / Audit · one-line purpose                         [info] [Refresh]
+S  activity: execute | create / update | delete
+   outcome: succeeded | failed / denied
+F  [24h|7d|30d|all] [principal] [operation] [outcome] [target or correlation search]
+P  OperationAuditTable: Time | principal | operation | outcome | target
+Q  Selected event: outcome; operation; principal; target; correlation;
+   receipt; audit identity; authorization cut; observed time
+T  Correlation timeline: Time | operation | outcome | receipt; canonical ascending order
+B  count / completeness / retention                            [Copy audit locator]
 ```
 
-Windmill CE hides resource detail, so current migration evidence displays `redacted` and never fabricates a target.
-The first-party `OperationAuditStore` later records exact target/correlation; the page still has no edit, delete,
-dismiss, or replay action. On mobile the split pages preserve `H -> N -> F -> S -> P -> Q -> T -> B`; Runs and
-Workers omit `P/Q`. Runs retain full-width `T` and open `D` as a full-screen overlay with route-local filter
-drawer; Workers instead retain the inline filters and stacked T/D geometry of their exact skeleton above.
+`H` is the transparent `PanelFrameHeader`, 72-96 px high. The title and short product purpose remain left aligned;
+the circular info control precedes the secondary Refresh button at the right. Technical scope, source-cut and
+retention prose live only in that info popover or `B`, never as loose page copy. `S` is one compact
+`CompactStatusBar` with two groups and the labels above; values are integers, missing data renders `-`, and zero is
+shown only from an available source cut. The body inset begins with `S`, then `F`, then the `P/Q` split.
+
+`F` is a single 40 px control row at `>=1024px` in the exact order above. Range values are `24h / 7d / 30d / all`;
+principal and operation options come only from the current available cut; outcome is
+`all / succeeded / failed / denied / unknown`; normalized search is at most 128 UTF-8 bytes and matches only exact
+display-safe target/correlation text. At `768-1023px` controls wrap into two rows without reordering. Below 768 px
+each control is full width and search remains last. Every filter is server-owned and replaces the observation cut;
+no client-only filtering may reinterpret a page.
+
+At `>=1024px`, `P/Q` is a `minmax(660px, 1.55fr) minmax(340px, .75fr)` split with a 12 px gap and a 420 px minimum
+height. `P` uses `DataWorkspaceTable`, 44 px rows and these widths: Time 190, principal 160, operation min 260,
+outcome 120, target min 240. Default order is `(observed_at, audit_identity)` descending; Time is the only sortable
+column. A row click selects its exact audit identity and performs `GET /api/operations/audit/{audit_id}`. `Q` uses
+one `DetailInspector` and the field order shown above; long identities are visually compacted but retain full title
+and copy value. `T` is inside the same inspector body below the selected-event facts and is limited to 256 events
+for that exact correlation at the detail observation cut. At `768-1023px`, `P` precedes `Q`; below 768 px `P` is a
+horizontally scrollable table and `Q` becomes a full-width block below it. Selection never changes the URL or
+offers a mutation.
+
+Pagination is server-side with opaque filter-bound cursors and page sizes `20 / 50 / 100`; changing page size or
+any filter returns to page one. Loading preserves six 44 px table rows and the selected-card footprint. The
+unfiltered empty state says no first-party audit events exist. Filtered empty says no events match. A partial cut
+keeps verified rows and an amber completeness notice. Store/configuration unavailable and permission-denied retain
+the `S/F/P/Q/B` geometry, use `-` summaries and expose the machine reason only behind info. Unknown audit identity
+returns the same `Q` footprint with `AUDIT_EVENT_NOT_FOUND`; malformed/cursor-expired inputs fail closed with no
+rows. `B` shows displayed count, `complete|partial_unavailable`, the fixed 512-event retention bound, and only when
+one verified event is selected the secondary Copy audit locator action. There is no edit, delete, dismiss, replay,
+retry, Owner resolution, provider claim, download or generic Windmill action.
+
+The list API is `GET /api/operations/audit`; detail is
+`GET /api/operations/audit/{audit_id}`. Both are `no-store`, consume `OperationAuditStore`, echo an immutable
+observation cut and fail closed on malformed rows, duplicate audit/receipt identity, invalid correlation ordering,
+filter/cursor mismatch or unreadable storage. The table is append-only: runtime `UPDATE` and `DELETE` are rejected.
+The browser parser accepts exact keys only and recomputes the filter-cut digest before rendering a positive page.
+On mobile this page preserves `H -> S -> F -> P -> Q -> B`.
 
 #### Exact Run Detail skeleton
 
@@ -1720,11 +1763,11 @@ A route name, an `S/P/Q/T` slot assignment, or a PascalCase label is not by itse
 contract. The following status is normative and prevents the experimental chapter from overstating how much of the
 Dashboard can already be drawn:
 
-| Completeness status                   | Current pages or surfaces                                                                                                                                                                                                                                                                                                                                                                                                                             | Admission meaning                                                                                                                                                                                                                                                                                      |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `DRAWABLE_EXACT`                      | Operations Runs `/operations`, Run Detail `/operations/runs/:runId`, Workers `/operations/workers` and `/operations/workers/:workerId`, Service Logs `/operations/service-logs`; R&D Intake `/rd` and Develop Composer `/rd/composer` exact‑readback workbenches, Research `/rd/research` directory and Artifacts `/rd/artifacts`; Backtest Replay request readback `/backtest`; Market Data `/data` and `/data/pit-catalog`; all four Runtime routes | The chapter fixes route slots, internal field/column order, dimensions or responsive transformation, state geometry, and button order. Fail‑closed routes are drawable with fixed unavailable/not‑ready values; this status does not make their backend or Dashboard consumer available                |
-| `DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` | R&D Intake `/rd` composer and authority‑resolution panels beyond the admitted exact‑readback workbench; R&D Research `/rd/research` selected‑request detail beyond the admitted directory                                                                                                                                                                                                                                                             | The named content/detail region is exact, but its enclosing route list still lacks one or more of summary labels, table columns, row actions, sort, pagination or loading‑row geometry; the broader surface is not drawable or implementable                                                           |
-| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`    | Every other complete route in the registry, explicitly including Audit, Event Rail, Telemetry, and Alerts, plus all four Portfolio routes                                                                                                                                                                                                                                                                                                             | The registry fixes navigation position, route slots, named page‑local composites, and button intent only. An unattended agent must not infer missing list behavior, timeline rows, responsive table transformation, or internal geometry from a component‑like name or excluded Windmill/native layout |
+| Completeness status                   | Current pages or surfaces                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Admission meaning                                                                                                                                                                                                                                                                                      |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `DRAWABLE_EXACT`                      | Operations Runs `/operations`, Run Detail `/operations/runs/:runId`, Workers `/operations/workers` and `/operations/workers/:workerId`, Schedules `/operations/schedules`, Service Logs `/operations/service-logs`, Audit `/operations/audit`; R&D Intake `/rd` and Develop Composer `/rd/composer` exact‑readback workbenches, Research `/rd/research` directory and Artifacts `/rd/artifacts`; Backtest Replay request readback `/backtest`; Market Data `/data` and `/data/pit-catalog`; all four Runtime routes | The chapter fixes route slots, internal field/column order, dimensions or responsive transformation, state geometry, and button order. Fail‑closed routes are drawable with fixed unavailable/not‑ready values; this status does not make their backend or Dashboard consumer available                |
+| `DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` | R&D Intake `/rd` composer and authority‑resolution panels beyond the admitted exact‑readback workbench; R&D Research `/rd/research` selected‑request detail beyond the admitted directory                                                                                                                                                                                                                                                                                        | The named content/detail region is exact, but its enclosing route list still lacks one or more of summary labels, table columns, row actions, sort, pagination or loading‑row geometry; the broader surface is not drawable or implementable                                                           |
+| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`    | Every other complete route in the registry, explicitly including Event Rail, Telemetry, and Alerts                                                                                                                                                                                                                                                                                                                                                                               | The registry fixes navigation position, route slots, named page‑local composites, and button intent only. An unattended agent must not infer missing list behavior, timeline rows, responsive table transformation, or internal geometry from a component‑like name or excluded Windmill/native layout |
 
 Names referenced by a route but absent from the reusable component inventory are page-local composite labels, not
 hidden reusable atoms. Promoting one blueprint to `DRAWABLE_EXACT` requires this chapter to specify, in both

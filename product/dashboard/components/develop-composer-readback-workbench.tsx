@@ -9,9 +9,11 @@ import {
 } from "../lib/develop-composer-readback-gateway";
 import styles from "./source-intake-readback-workbench.module.css";
 import { EmptyState, UnavailableState } from "./ui/evidence-strip";
-import { FactGroup, FactGroupSkeleton, FactItem } from "./ui/fact-group";
+import { FactGroup, FactGroupGrid, FactGroupSkeletonGrid, FactItem } from "./ui/fact-group";
+import { FilterButton } from "./ui/filter-toolbar";
 import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
 import { PanelFrame, PanelFrameBody, PanelFrameHeader } from "./ui/panel-frame";
+import { ReadbackLookup, ReadbackLookupAction, ReadbackLookupField, ReadbackLookupInput } from "./ui/readback-lookup";
 import { StatusBadge, type StatusBadgeTone } from "./ui/status-badge";
 
 const REQUEST_IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/;
@@ -29,7 +31,7 @@ function Readback({ requestIdentity, readback }: {
   readback: DevelopComposerReadbackV1;
 }) {
   return (
-    <div className={styles.groups}>
+    <FactGroupGrid>
       <FactGroup title="Request">
         <FactItem label="Identity" mono title={requestIdentity}>{requestIdentity}</FactItem>
         <FactItem label="Disposition"><StatusBadge tone={tone(readback.disposition)}>{readback.disposition}</StatusBadge></FactItem>
@@ -54,17 +56,7 @@ function Readback({ requestIdentity, readback }: {
           </>
         )}
       </FactGroup>
-    </div>
-  );
-}
-
-function LoadingGroups() {
-  return (
-    <div className={styles.groups} aria-label="Loading Develop Composer readback">
-      {["Request", "Custody", "Artifact"].map((title) => (
-        <FactGroupSkeleton key={title} title={title} />
-      ))}
-    </div>
+    </FactGroupGrid>
   );
 }
 
@@ -131,30 +123,32 @@ export function DevelopComposerReadbackWorkbench({
         meta="Owner point read · No run, resolve, or edit"
         description="Inspect one exact sealed result without running, resolving, editing, or exposing source bytes."
         actions={(
-          <button
+          <FilterButton
+            density="compact"
+            variant="secondary"
             disabled={!openedIdentity || status === "loading"}
             onClick={() => openedIdentity && void read(openedIdentity)}
             type="button"
           >
             <InterfaceIcons.refresh aria-hidden="true" size={14} /> Refresh
-          </button>
+          </FilterButton>
         )}
       />
       <PanelFrameBody className={styles.body}>
-        <form
-          className={styles.lookupRail}
+        <ReadbackLookup
+          validation={validation}
+          validationId="develop-composer-validation"
           onSubmit={(event) => {
             event.preventDefault();
             void read(input);
           }}
         >
-          <label className={styles.inputShell}>
-            <span className="sr-only">Request identity</span>
-            <InterfaceIcons.search aria-hidden="true" size={16} />
-            <input
+          <ReadbackLookupField label="Request identity" labelHidden>
+            <ReadbackLookupInput
               aria-describedby={validation ? "develop-composer-validation" : undefined}
               aria-invalid={Boolean(validation)}
               autoComplete="off"
+              icon={<InterfaceIcons.search aria-hidden="true" size={16} />}
               onChange={(event) => {
                 setInput(event.target.value);
                 setValidation(null);
@@ -163,14 +157,18 @@ export function DevelopComposerReadbackWorkbench({
               spellCheck={false}
               value={input}
             />
-          </label>
-          <button className={styles.openButton} disabled={status === "loading"} type="submit">
+          </ReadbackLookupField>
+          <ReadbackLookupAction disabled={status === "loading"}>
             Open readback <EvidenceIcons.next aria-hidden="true" size={14} />
-          </button>
-        </form>
-        {validation ? <p className={styles.validation} id="develop-composer-validation">{validation}</p> : null}
+          </ReadbackLookupAction>
+        </ReadbackLookup>
         <div className={styles.result} aria-live="polite">
-          {status === "loading" ? <LoadingGroups />
+          {status === "loading" ? (
+            <FactGroupSkeletonGrid
+              aria-label="Loading Develop Composer readback"
+              titles={["Request", "Custody", "Artifact"]}
+            />
+          )
             : status === "available" && projection?.state === "readback" && projection.readback
               ? <Readback requestIdentity={projection.requestIdentity} readback={projection.readback} />
               : status === "unavailable"

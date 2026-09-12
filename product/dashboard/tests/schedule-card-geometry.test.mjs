@@ -5,14 +5,22 @@ import test from "node:test";
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("schedule surfaces keep rounded containment without stealing the calendar scroll", async () => {
-  const css = await read("components/ui/schedule-calendar.module.css");
+  const [component, css] = await Promise.all([
+    read("components/operations-schedules-preview.tsx"),
+    read("components/ui/schedule-calendar.module.css"),
+  ]);
 
-  assert.match(css, /\.primary, \.detail \{[^}]*border-radius:\s*var\(--panel-inner-radius\)[^}]*\}/u);
-  assert.match(css, /\.primary \{\s*overflow:\s*clip;\s*\}/u);
-  assert.match(css, /\.detail \{\s*overflow:\s*auto;\s*\}/u);
+  assert.match(css, /\.primary \{[^}]*border-radius:\s*var\(--panel-inner-radius\)[^}]*\}/u);
+  assert.match(css, /\.primary \{[^}]*overflow:\s*clip;/u);
+  assert.match(css, /\.detail \{[^}]*overflow-y:\s*auto;/u);
   assert.match(css, /\.calendarBody \{[^}]*overflow:\s*auto;/u);
   assert.match(css, /\.weekdayHeader \{[^}]*position:\s*sticky;[^}]*top:\s*0;/u);
   assert.doesNotMatch(css, /\.primary \{\s*overflow:\s*(?:auto|scroll|hidden)/u);
+  assert.match(component, /<DetailInspector className=\{styles\.detail\}/u);
+  assert.match(component, /<DetailInspectorHeader[\s\S]*<PanelFrameInfo label="View schedule technical details">/u);
+  assert.match(component, /<PanelFrameInfoList>[\s\S]*<PanelFrameInfoFact key=\{key\} label=\{key\}>/u);
+  assert.match(component, /<DetailInspectorBody>[\s\S]*<DetailFactGrid>[\s\S]*<DetailSection label="last observed run">/u);
+  assert.doesNotMatch(component, /<aside className=\{styles\.detail\}|<details><summary>Technical identity/u);
 });
 
 test("responsive schedule controls wrap as a grid and leave popovers unclipped", async () => {
@@ -51,9 +59,11 @@ test("schedule unavailable and filtered-empty states are compact and truth prese
 
   assert.match(component, /data-availability="unavailable"/u);
   assert.match(component, /scheduleAvailabilityPresentationV1\(error\)\.title/u);
-  assert.match(component, /!schedules\.length \? <div className=\{styles\.emptyResult\} role="status">/u);
+  assert.match(component, /!schedules\.length \? <InlineNotice className=\{styles\.scheduleNotice\}/u);
   assert.doesNotMatch(component, /<ScheduleCalendar schedules=\{\[\]\}/u);
   assert.doesNotMatch(component, /CALENDAR_ITEMS_MOCK|Add Event/u);
-  assert.match(css, /\.unavailableCalendar, \.emptyResult \{[^}]*min-height:\s*144px;/u);
-  assert.doesNotMatch(css, /\.unavailableCalendar[^{}]*(?:height|min-height):\s*clamp\((?:500|760)px/u);
+  assert.match(component, /className=\{styles\.scheduleNotice\} data-availability="unavailable" density="spacious"/u);
+  assert.match(css, /\.scheduleNotice \{[^}]*margin:\s*16px;/u);
+  assert.doesNotMatch(css, /\.scheduleNotice \{[^}]*min-height:/u);
+  assert.doesNotMatch(css, /\.unavailableCalendar|\.emptyResult|\.availabilityNotice/u);
 });

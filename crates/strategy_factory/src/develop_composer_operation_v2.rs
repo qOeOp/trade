@@ -1039,6 +1039,7 @@ pub(crate) fn resolve_positive_record_with_v3_restart_v2(
                 "Build Receipt tag does not match the canonical plugin manifest ABI",
             ));
         }
+
         match *tag {
             BUILD_RECEIPT_TAG_V2 => validate_v2_build_receipt(
                 bytes,
@@ -1056,6 +1057,7 @@ pub(crate) fn resolve_positive_record_with_v3_restart_v2(
                     bytes,
                     module.wasm(),
                 )?;
+
                 if build.plugin_semantic_id() != manifest.semantic_id
                     || build.manifest_digest()
                         != crate::strategy_plan_v2::plugin_manifest_digest(manifest)
@@ -1551,6 +1553,7 @@ fn validate_v2_build_receipt(
 ) -> Result<(), DevelopComposerTerminalV2> {
     let receipt = DevelopPluginBuildReceiptV2::parse_canonical(bytes)
         .ok_or_else(|| unavailable("build_receipt", "canonical V2 Build Receipt is invalid"))?;
+
     if !receipt.validates_for_restart(manifest, expected_identity, expected_module_digest)
         || receipt.receipt_digest() != expected_identity
         || receipt.receipt_digest() != artifact_receipt_identity
@@ -1638,12 +1641,14 @@ fn versioned_build_receipt_set_digest(tags: &[u16], values: &[Vec<u8>]) -> Optio
     if tags.len() != values.len() || tags.is_empty() {
         return None;
     }
+
     if tags.iter().all(|tag| *tag == BUILD_RECEIPT_TAG_V2) {
         return Some(ordered_private_bytes_digest(
             b"rd.develop.build-receipt-set.v2\0",
             values.iter().map(Vec::as_slice),
         ));
     }
+
     if !tags.iter().all(|tag| *tag == BUILD_RECEIPT_TAG_V3) {
         return None;
     }

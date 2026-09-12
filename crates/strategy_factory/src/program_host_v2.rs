@@ -1219,6 +1219,7 @@ fn attach_owner_sample_coordinates_v4(
                 binding.input_role_identity() == input.owner_event.input_role_identity
             })
             .collect::<Vec<_>>();
+
         if role_rows.len() != 2
             || !role_rows
                 .iter()
@@ -2522,7 +2523,7 @@ impl ProgramHostV2 {
                     })
                     .ok_or_else(|| ProgramHostV2Error::Graph(input_id.clone()))?;
                 TypedValueV2::new(ValueTypeV2::Bytes, coordinate.canonical.as_slice())
-                    .map_err(|error| ProgramHostV2Error::Type(error.to_string()))
+                    .map_err(|e| ProgramHostV2Error::Type(e.to_string()))
             }
             ValueRefV2::UniverseMemberInput {
                 input_id,
@@ -2991,6 +2992,7 @@ pub(crate) fn validate_bfp_output_availability(
     if !is_bounded_feature_manifest(manifest) {
         return Ok(false);
     }
+
     match output.output_availability {
         Some(PluginOutputAvailabilityV3::Ready) => Ok(false),
         Some(PluginOutputAvailabilityV3::Warming) => Ok(true),
@@ -3023,6 +3025,7 @@ fn resolve_bfp_warming_fields(
         )
     };
     let mut fields = BTreeMap::new();
+
     for (name, reference) in [
         ("position", &wiring.position_intent),
         ("target_variant", &wiring.target_variant),
@@ -3060,6 +3063,7 @@ pub(crate) fn validate_bfp_warming_fields(
         && exact_i64(get("take_profit")?)? == 0
         && exact_u64(get("trailing_distance")?)? == 0
         && exact_i64(get("trailing_stop")?)? == 0;
+
     if !valid {
         return Err(ProgramHostV2Error::Graph("proposal.warming".into()));
     }
@@ -3469,6 +3473,7 @@ fn admitted_event_identity(
             bytes.extend(coordinate.sample_receipt_digest.as_bytes());
             bytes.extend(coordinate.canonical);
         }
+
         if input_join_identity.is_some() {
             bytes.extend(input.owner_event.component_envelope_digest.as_bytes());
         }

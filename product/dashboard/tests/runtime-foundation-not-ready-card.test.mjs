@@ -3,7 +3,7 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 
 const componentUrl = new URL("../components/runtime-foundation-not-ready-card.tsx", import.meta.url);
-const shellUrl = new URL("../components/dashboard-shell.tsx", import.meta.url);
+const shellUrl = new URL("../components/dashboard-route-content.tsx", import.meta.url);
 
 test("Runtime surface keeps fixed evidence but presents a compact business state", async () => {
   const source = await readFile(componentUrl, "utf8");
@@ -37,12 +37,17 @@ test("all Runtime routes render the admitted not-ready foundation card", async (
   assert.match(shell, /!marketDataFoundation[\s\S]*&& !runtimeFoundation && !portfolioUnavailable \? <footer/);
 });
 
-test("Runtime composes shared unavailable and summary-list atoms", async () => {
+test("Runtime composes shared unavailable and data-workspace table atoms", async () => {
   const source = await readFile(componentUrl, "utf8");
   assert.equal(source.match(/<PanelFrameBody/g)?.length, 1);
   assert.match(source, /<UnavailableState/);
-  assert.match(source, /<SummaryList aria-label="Required Runtime services">/);
-  assert.match(source, /<SummaryItem/);
+  assert.match(source, /<DataWorkspaceTable<RuntimePrerequisite>/);
+  assert.match(source, /ariaLabel="Required Runtime services"/);
+  for (const column of ["Owner", "Requirement", "Canonical dependency", "State"]) {
+    assert.match(source, new RegExp(`name: "${column}"`));
+  }
+  assert.doesNotMatch(source, /SummaryList|SummaryItem/);
+  assert.doesNotMatch(source, /onRowClicked|pointerOnHover|pagination|sortable|filterable/);
   assert.doesNotMatch(source, /className=\{styles\.|\.module\.css/);
 });
 

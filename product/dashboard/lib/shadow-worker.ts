@@ -1,10 +1,19 @@
+import { createHash } from "node:crypto";
+
 import {
-  operationDeploymentForIdV1,
+  operationDispatchBindingForIdV1,
   operationRegistryV1,
   type RegisteredOperationId,
 } from "./operation-registry.ts";
 import type { PostgresRunStoreV1 } from "./run-store.ts";
-import { executeClaimedShadowReadV1 } from "./shadow-dispatcher.ts";
+import {
+  ownerApiTargetAvailableV1,
+  ownerApiTargetForOperationV1,
+} from "./owner-api-target.ts";
+import {
+  executeClaimedShadowReadV1,
+  shadowDispatchOperationIdsV1,
+} from "./shadow-dispatcher.ts";
 
 type WorkerEnvironment = Record<string, string | undefined>;
 type Fetcher = typeof fetch;
@@ -50,10 +59,11 @@ export function availableShadowWorkerOperationsV1(
   environment: WorkerEnvironment = process.env,
   nowEpochMs = Date.now(),
 ): RegisteredOperationId[] {
+  const dispatchable = new Set<RegisteredOperationId>(shadowDispatchOperationIdsV1);
   return operationRegistryV1
-    .filter((operation) => operation.effect_set.length === 0
-      && operationDeploymentForIdV1(operation.operation_id, environment, nowEpochMs)
-        .deployment_state === "available")
+    .filter((operation) => dispatchable.has(operation.operation_id)
+      && operation.effect_set.length === 0
+      && operationDispatchBindingForIdV1(operation.operation_id, environment, nowEpochMs) !== null)
     .map(({ operation_id }) => operation_id);
 }
 
@@ -90,6 +100,16 @@ export async function runShadowWorkerTickV1({
       schema_version: 1,
       state: "unavailable",
       unavailable_reason: "WORKER_COMPATIBILITY_UNAVAILABLE",
+      run_identity: null,
+    };
+  }
+  if (operationIds.some((operationId) => !ownerApiTargetAvailableV1(
+    ownerApiTargetForOperationV1(operationId, environment),
+  ))) {
+    return {
+      schema_version: 1,
+      state: "unavailable",
+      unavailable_reason: "WORKER_CONFIGURATION_UNAVAILABLE",
       run_identity: null,
     };
   }
@@ -138,4 +158,3 @@ export async function runShadowWorkerTickV1({
     run_identity: execution.run.run_identity,
   };
 }
-import { createHash } from "node:crypto";

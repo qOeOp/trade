@@ -4144,7 +4144,7 @@ mod tests {
         .unwrap();
         let mut failed = owner.pool.begin().await.unwrap();
         assert_eq!(
-            crate::rd_bounded_feature_program_v1::commit_research_bounded_feature_program_in_transaction_v1(
+            Box::pin(crate::rd_bounded_feature_program_v1::commit_research_bounded_feature_program_in_transaction_v1(
                 &mut failed,
                 &request_identity,
                 read_cut,
@@ -4152,7 +4152,7 @@ mod tests {
                 &design,
                 proposal.clone(),
                 catalog,
-            )
+            ))
             .await,
             Err(crate::rd_bounded_feature_program_v1::ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)
         );
@@ -4173,7 +4173,7 @@ mod tests {
             .unwrap();
 
         let mut first = owner.pool.begin().await.unwrap();
-        let committed = crate::rd_bounded_feature_program_v1::commit_research_bounded_feature_program_in_transaction_v1(
+        let committed = Box::pin(crate::rd_bounded_feature_program_v1::commit_research_bounded_feature_program_in_transaction_v1(
             &mut first,
             &request_identity,
             read_cut,
@@ -4181,13 +4181,13 @@ mod tests {
             &design,
             proposal.clone(),
             catalog,
-        )
+        ))
         .await
         .unwrap();
         first.commit().await.unwrap();
 
         let mut retry = owner.pool.begin().await.unwrap();
-        let retried = crate::rd_bounded_feature_program_v1::commit_research_bounded_feature_program_in_transaction_v1(
+        let retried = Box::pin(crate::rd_bounded_feature_program_v1::commit_research_bounded_feature_program_in_transaction_v1(
             &mut retry,
             &request_identity,
             read_cut,
@@ -4195,19 +4195,19 @@ mod tests {
             &design,
             proposal,
             catalog,
-        )
+        ))
         .await
         .unwrap();
         assert_eq!(retried, committed);
         retry.commit().await.unwrap();
 
         let mut readback = owner.pool.begin().await.unwrap();
-        let resolved = crate::rd_bounded_feature_program_v1::read_research_bounded_feature_program_in_transaction_v1(
+        let resolved = Box::pin(crate::rd_bounded_feature_program_v1::read_research_bounded_feature_program_in_transaction_v1(
             &mut readback,
             &request_identity,
             read_cut,
             catalog,
-        )
+        ))
         .await
         .unwrap();
         assert_eq!(resolved, committed);
@@ -4224,12 +4224,12 @@ mod tests {
         .unwrap();
         let mut tampered = owner.pool.begin().await.unwrap();
         assert_eq!(
-            crate::rd_bounded_feature_program_v1::read_research_bounded_feature_program_in_transaction_v1(
+            Box::pin(crate::rd_bounded_feature_program_v1::read_research_bounded_feature_program_in_transaction_v1(
                 &mut tampered,
                 &request_identity,
                 read_cut,
                 catalog,
-            )
+            ))
             .await,
             Err(crate::rd_bounded_feature_program_v1::ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)
         );

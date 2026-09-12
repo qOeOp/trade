@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 
 const componentUrl = new URL("../components/operations-service-logs.tsx", import.meta.url);
 const viewportUrl = new URL("../components/ui/bounded-log-viewport.tsx", import.meta.url);
-const shellUrl = new URL("../components/dashboard-shell.tsx", import.meta.url);
+const shellUrl = new URL("../components/dashboard-route-content.tsx", import.meta.url);
 const cssUrl = new URL("../app/globals.css", import.meta.url);
 
 test("Service Logs composes the fixed frame, status, filters, split, detail, and bounded table", async () => {
@@ -101,7 +101,7 @@ test("Service Logs suppresses duplicate shell chrome and BoundedLogViewport owns
     readFile(shellUrl, "utf8"), readFile(viewportUrl, "utf8"), readFile(cssUrl, "utf8"),
   ]);
   assert.match(shell, /operationsServiceLogs = current === "\/operations\/service-logs"/u);
-  assert.match(shell, /suppressShellPageHeader = operationsSchedules \|\| operationsServiceLogs \|\| ownsRouteChrome/u);
+  assert.match(shell, /suppressShellPageHeader = operationsSchedules \|\| operationsServiceLogs \|\| operationsAudit \|\| ownsRouteChrome/u);
   assert.match(viewport, /data-state=\{state\}/u);
   assert.match(viewport, /bounded-log-viewport-body/u);
   assert.match(viewport, /bounded-log-viewport-footer/u);

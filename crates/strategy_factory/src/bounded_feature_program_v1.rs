@@ -543,6 +543,7 @@ fn validate_identity(
     {
         return Err(BoundedFeatureProgramErrorV1::Identity);
     }
+
     match prepare_strategy_design_v2(design) {
         StrategyDesignPreparationV2::Prepared {
             design_identity,
@@ -598,6 +599,7 @@ fn canonicalize_collections(
                 .cmp(b.manifest_port_id.as_bytes())
         });
     };
+
     for branch in &mut proposal.proposal_decision_table.branches {
         sort_frame(&mut branch.frame);
     }
@@ -620,6 +622,7 @@ fn canonical_topological_nodes(
     nodes: &[BoundedFeatureNodeV1],
 ) -> Result<Vec<BoundedFeatureNodeV1>, BoundedFeatureProgramErrorV1> {
     let mut by_id = BTreeMap::new();
+
     for node in nodes {
         valid_id(&node.node_id)?;
         if by_id.insert(node.node_id.as_str(), node).is_some() {
@@ -628,6 +631,7 @@ fn canonical_topological_nodes(
     }
     let mut dependencies: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
     let mut consumers: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+
     for node in nodes {
         let deps = dependencies.entry(&node.node_id).or_default();
         for input in &node.input_bindings {
@@ -657,6 +661,7 @@ fn canonical_topological_nodes(
             }
         }
     }
+
     if ordered.len() != nodes.len() {
         return Err(BoundedFeatureProgramErrorV1::Graph);
     }
@@ -725,6 +730,7 @@ impl AtomicCoordinatePairs {
     fn record(&mut self, node_id: &str) -> Result<(), BoundedFeatureProgramErrorV1> {
         let coordinate = format!("n:{node_id}:coordinate");
         let value = format!("n:{node_id}:value");
+
         if self
             .coordinate_by_value
             .insert(value, coordinate.clone())
@@ -781,12 +787,14 @@ fn validate_inputs_and_constants(
         .flat_map(|reaction| &reaction.nodes)
         .filter(|node| node.plugin_semantic_id == proposal.plugin_semantic_id)
         .collect::<Vec<_>>();
+
     if design_invocations.is_empty() {
         return Err(BoundedFeatureProgramErrorV1::Input);
     }
     let mut values = BTreeMap::new();
     let mut used_manifest_ports = BTreeSet::new();
     let mut role_ids = BTreeSet::new();
+
     for input in &proposal.inputs {
         for text in [
             &input.owner_semantic_id,
@@ -798,12 +806,14 @@ fn validate_inputs_and_constants(
         ] {
             valid_text(text)?;
         }
+
         if input.scale > 38
             || input.update_clock.role() != input.input_role_id
             || !role_ids.insert(input.input_role_id.as_str())
         {
             return Err(BoundedFeatureProgramErrorV1::Input);
         }
+
         match &input.update_clock {
             BoundedFeatureClockV1::Trigger { .. } => {}
             BoundedFeatureClockV1::Sample {
@@ -813,6 +823,7 @@ fn validate_inputs_and_constants(
                     "{OWNER_SAMPLE_COORDINATE_SOURCE_V1}({})",
                     input.input_role_id
                 );
+
                 if source_semantic_id != &expected {
                     return Err(BoundedFeatureProgramErrorV1::Input);
                 }
@@ -823,6 +834,7 @@ fn validate_inputs_and_constants(
             .iter()
             .find(|v| v.semantic_id == input.input_role_id)
             .ok_or(BoundedFeatureProgramErrorV1::Input)?;
+
         if strategy_input_role_identity_v2(role) != input.input_role_identity
             || role.timeframe != input.timeframe
             || role.unit != input.unit
@@ -836,6 +848,7 @@ fn validate_inputs_and_constants(
         let port = manifest_ports
             .get(input.value_port_semantic_id.as_str())
             .ok_or(BoundedFeatureProgramErrorV1::Input)?;
+
         if port.value_type != ValueTypeV2::I128
             || port.max_bytes != 16
             || !used_manifest_ports.insert(port.semantic_id.as_str())
@@ -865,6 +878,7 @@ fn validate_inputs_and_constants(
         let port = manifest_ports
             .get(expected.as_str())
             .ok_or(BoundedFeatureProgramErrorV1::Input)?;
+
         if port.value_type != ValueTypeV2::Bytes
             || port.max_bytes != 308
             || !used_manifest_ports.insert(port.semantic_id.as_str())
@@ -881,6 +895,7 @@ fn validate_inputs_and_constants(
             },
         );
     }
+
     if used_manifest_ports.len() != manifest.input_ports.len() {
         return Err(BoundedFeatureProgramErrorV1::Input);
     }
@@ -893,6 +908,7 @@ fn validate_inputs_and_constants(
         let value_type = match &constant.value {
             BoundedFeatureConstantValueV1::FixedI128 { unit, scale, .. } => {
                 valid_text(unit)?;
+
                 if *scale > 38 {
                     return Err(BoundedFeatureProgramErrorV1::Constant);
                 }
@@ -942,6 +958,7 @@ fn validate_lifecycle_constant(
     let row = catalog
         .row(semantic_id)
         .ok_or(BoundedFeatureProgramErrorV1::Constant)?;
+
     if row.kind != CatalogRowKindV1::LifecycleReference
         || lifecycle_value_type(semantic_id) != Some(value_type)
         || !is_lifecycle_variant_value(semantic_id, value_type)
@@ -1007,6 +1024,7 @@ fn validate_graph(
 ) -> Result<ValidatedGraph, BoundedFeatureProgramErrorV1> {
     let mut states = BTreeMap::new();
     let mut total_state_bytes = 0_u32;
+
     for state in &proposal.state_cells {
         valid_id(&state.state_id)?;
         valid_id(&state.writer_node_id)?;
@@ -1016,6 +1034,7 @@ fn validate_graph(
         total_state_bytes = total_state_bytes
             .checked_add(state.max_bytes)
             .ok_or(BoundedFeatureProgramErrorV1::Bounds)?;
+
         if let BoundedFeatureStateKindV1::Strategy { value_type, .. } = &state.state_kind {
             let width =
                 strategy_state_width(value_type).ok_or(BoundedFeatureProgramErrorV1::State)?;
@@ -1025,6 +1044,7 @@ fn validate_graph(
             let initial = values
                 .get(&format!("c:{constant_id}"))
                 .ok_or(BoundedFeatureProgramErrorV1::State)?;
+
             if state.max_bytes != width
                 || &initial.value_type != value_type
                 || initial.availability != BoundedFeatureAvailabilityV1::Ready
@@ -1042,6 +1062,7 @@ fn validate_graph(
             return Err(BoundedFeatureProgramErrorV1::State);
         }
     }
+
     if total_state_bytes > proposal.bounds.max_state_bytes {
         return Err(BoundedFeatureProgramErrorV1::Bounds);
     }
@@ -1092,6 +1113,7 @@ fn validate_graph(
 
         let mut input_values = Vec::with_capacity(node.input_bindings.len());
         let mut node_depth = 1_u16;
+
         for binding in &node.input_bindings {
             valid_id(&binding.port_id)?;
             if let BoundedFeatureValueRefV1::NodeOutput { node_id, .. } = &binding.source {
@@ -1124,6 +1146,7 @@ fn validate_graph(
             consume_graph_value(&mut consumed, &key, &atomic_coordinate_pairs)?;
             input_values.push(value.clone());
         }
+
         if node_depth > proposal.bounds.max_depth {
             return Err(BoundedFeatureProgramErrorV1::Bounds);
         }
@@ -1156,6 +1179,7 @@ fn validate_graph(
         {
             return Err(BoundedFeatureProgramErrorV1::Type);
         }
+
         for (port, expected) in node.output_ports.iter().zip(output_types) {
             valid_id(&port.port_id)?;
             if port.value_type != expected.value_type || port.availability != expected.availability
@@ -1164,6 +1188,7 @@ fn validate_graph(
             }
             values.insert(format!("n:{}:{}", node.node_id, port.port_id), expected);
         }
+
         if contract.output == CatalogOutputRuleV1::AvailableFixedAndCoordinate {
             atomic_coordinate_pairs.record(&node.node_id)?;
         }
@@ -1190,11 +1215,13 @@ fn validate_graph(
                 let value = values
                     .get(&format!("n:{}:{}", state.writer_node_id, source_port_id))
                     .ok_or(BoundedFeatureProgramErrorV1::State)?;
+
                 if atomic_coordinate_pairs
                     .is_coordinate(&format!("n:{}:{}", state.writer_node_id, source_port_id))
                 {
                     return Err(BoundedFeatureProgramErrorV1::State);
                 }
+
                 if &value.value_type != value_type
                     || value.availability != BoundedFeatureAvailabilityV1::Ready
                     || !written_states.insert(state.state_id.clone())
@@ -1220,12 +1247,14 @@ fn validate_graph(
             .ok_or(BoundedFeatureProgramErrorV1::Bounds)?;
         Ok::<_, BoundedFeatureProgramErrorV1>(())
     };
+
     for branch in &proposal.proposal_decision_table.branches {
         consume_decision_ref(&branch.predicate)?;
         for terminal in &branch.frame.terminal_outputs {
             consume_decision_ref(&terminal.source)?;
         }
     }
+
     for terminal in &proposal
         .proposal_decision_table
         .default_frame
@@ -1233,11 +1262,13 @@ fn validate_graph(
     {
         consume_decision_ref(&terminal.source)?;
     }
+
     for state in &proposal.state_cells {
         if let BoundedFeatureInitialStateV1::Constant { constant_id } = &state.initial {
             *consumed.entry(format!("c:{constant_id}")).or_default() += 1;
         }
     }
+
     for key in values
         .keys()
         .filter(|key| key.starts_with("i:") || key.starts_with("c:"))
@@ -1246,9 +1277,11 @@ fn validate_graph(
             return Err(BoundedFeatureProgramErrorV1::State);
         }
     }
+
     if edge_count > proposal.bounds.max_edges || port_count > proposal.bounds.max_ports {
         return Err(BoundedFeatureProgramErrorV1::Bounds);
     }
+
     if consumed
         .values()
         .any(|count| *count > proposal.bounds.max_fan_out)
@@ -1274,11 +1307,13 @@ fn validate_terminals(
         .map(|port| (port.semantic_id.as_str(), port))
         .collect();
     let mut consumers = BTreeSet::new();
+
     for node in &proposal.nodes {
         for binding in &node.input_bindings {
             consumers.insert(value_ref_key(&binding.source));
         }
     }
+
     for state in &proposal.state_cells {
         if let BoundedFeatureStateKindV1::Strategy { source_port_id, .. } = &state.state_kind {
             consumers.insert(format!("n:{}:{}", state.writer_node_id, source_port_id));
@@ -1293,6 +1328,7 @@ fn validate_terminals(
         let predicate = values
             .get(&predicate_key)
             .ok_or(BoundedFeatureProgramErrorV1::Terminal)?;
+
         if predicate.value_type != BoundedFeatureValueTypeV1::Boolean
             || predicate.availability != BoundedFeatureAvailabilityV1::Ready
         {
@@ -1338,6 +1374,7 @@ fn validate_terminals(
         ValueTypeV2::ProtectionVariantV1,
         catalog,
     )?;
+
     if warmup.position_intent_semantic_id != "kernel.position.hold.v1"
         || warmup.target_variant_semantic_id != "kernel.target.keep.v1"
         || warmup.protection_variant_semantic_id != "kernel.protection.keep.v1"
@@ -1353,6 +1390,7 @@ fn validate_terminals(
     {
         return Err(BoundedFeatureProgramErrorV1::Terminal);
     }
+
     for node in &proposal.nodes {
         for output in &node.output_ports {
             if !consumers.contains(&format!("n:{}:{}", node.node_id, output.port_id)) {
@@ -1372,6 +1410,7 @@ fn validate_proposal_frame(
     consumers: &mut BTreeSet<String>,
 ) -> Result<(), BoundedFeatureProgramErrorV1> {
     let mut used_ports = BTreeSet::new();
+
     for terminal in &frame.terminal_outputs {
         valid_id(&terminal.manifest_port_id)?;
         valid_id(&terminal.lifecycle_semantic_id)?;
@@ -1398,6 +1437,7 @@ fn validate_proposal_frame(
             }
             _ => false,
         };
+
         if row.kind != CatalogRowKindV1::LifecycleReference
             || !semantic_matches_type
             || value.availability != BoundedFeatureAvailabilityV1::Ready
@@ -1413,6 +1453,7 @@ fn validate_proposal_frame(
         }
         consumers.insert(source_key);
     }
+
     if used_ports.len() != manifest_output_count {
         return Err(BoundedFeatureProgramErrorV1::Terminal);
     }
@@ -1476,6 +1517,7 @@ fn validate_input_types(
             inputs.len() == 4 && inputs.iter().all(fixed)
         }
     };
+
     if valid {
         Ok(())
     } else {
@@ -1507,6 +1549,7 @@ fn derive_output_types(
                 .first()
                 .ok_or(BoundedFeatureProgramErrorV1::Type)?
                 .0;
+
             if fixed_inputs.iter().any(|(unit, _)| unit != &first) {
                 return Err(BoundedFeatureProgramErrorV1::Type);
             }
@@ -1519,6 +1562,7 @@ fn derive_output_types(
             return Err(BoundedFeatureProgramErrorV1::Primitive);
         }
     };
+
     match contract.scale {
         CatalogScaleRuleV1::EqualInputsDeclaredOutput
         | CatalogScaleRuleV1::EqualInputsBooleanOutput
@@ -1527,6 +1571,7 @@ fn derive_output_types(
                 .first()
                 .ok_or(BoundedFeatureProgramErrorV1::Type)?
                 .1;
+
             if fixed_inputs.iter().any(|(_, scale)| *scale != first) {
                 return Err(BoundedFeatureProgramErrorV1::Type);
             }
@@ -1555,6 +1600,7 @@ fn derive_output_types(
         },
         availability,
     };
+
     match contract.output {
         CatalogOutputRuleV1::Fixed | CatalogOutputRuleV1::AvailableFixed => Ok(vec![fixed]),
         CatalogOutputRuleV1::Boolean => Ok(vec![ValueInfo {
@@ -1683,6 +1729,7 @@ fn validate_parameters(
         }
         _ => false,
     };
+
     if valid {
         Ok(())
     } else {
@@ -1703,6 +1750,7 @@ fn validate_clock_and_state<'a>(
         CatalogClockRuleV1::OneDeclaredTriggerOrSample if node.update_clock.is_some() => {}
         _ => return Err(BoundedFeatureProgramErrorV1::State),
     }
+
     match state_rule {
         CatalogStateRuleV1::None if node.state_id.is_none() => Ok(()),
         CatalogStateRuleV1::Smoothing
@@ -1716,6 +1764,7 @@ fn validate_clock_and_state<'a>(
             let state = states
                 .get(state_id)
                 .ok_or(BoundedFeatureProgramErrorV1::State)?;
+
             if state.writer_node_id != node.node_id
                 || !matches!(state.state_kind, BoundedFeatureStateKindV1::Primitive)
                 || !written_states.insert(state_id.to_owned())
@@ -1787,6 +1836,7 @@ fn canonical_state_layout(
         .collect();
     let mut slots = Vec::with_capacity(proposal.state_cells.len());
     let mut offset = 0_u32;
+
     for state in &proposal.state_cells {
         let initial_bytes = match &state.state_kind {
             BoundedFeatureStateKindV1::Primitive => None,
@@ -1844,6 +1894,7 @@ fn validate_canonical_state_layout(
             .checked_add(slot.width())
             .ok_or(BoundedFeatureProgramErrorV1::Bounds)?;
     }
+
     if expected_offset != layout.total_bytes() {
         return Err(BoundedFeatureProgramErrorV1::State);
     }
@@ -1933,6 +1984,7 @@ fn terminal_conversion_matches(
             if source_unit == unit && *source_scale == scale && scale == 0),
         )
     };
+
     match conversion {
         BoundedFeatureTerminalConversionV1::Exact => {
             Ok(bfp_type_to_manifest(source) == Some(target))
@@ -2000,6 +2052,7 @@ const fn gcd(mut a: u32, mut b: u32) -> u32 {
 fn coordinate_port_id(identity: BindingDigest) -> String {
     let mut value = String::with_capacity(100);
     value.push_str("strategy.input.sample-coordinate.v1.");
+
     for byte in identity.as_bytes() {
         use std::fmt::Write as _;
         let _ = write!(value, "{byte:02x}");
@@ -2207,6 +2260,7 @@ impl CanonicalWriter {
     fn clock(&mut self, value: &BoundedFeatureClockV1) -> Result<(), BoundedFeatureProgramErrorV1> {
         self.u8(value.tag());
         self.text(value.role())?;
+
         if let BoundedFeatureClockV1::Sample {
             source_semantic_id, ..
         } = value
@@ -2388,6 +2442,7 @@ impl CanonicalWriter {
                 writer.u8(value.tag());
             }
         };
+
         match value {
             BoundedFeatureParametersV1::None => self.u8(0),
             BoundedFeatureParametersV1::OutputScale {
@@ -2481,6 +2536,7 @@ impl CanonicalWriter {
         ] {
             self.u16(field);
         }
+
         for field in [
             value.max_lag,
             value.max_window,
@@ -2616,6 +2672,7 @@ impl<'a> Decoder<'a> {
             },
         };
         let bounds = self.bounds()?;
+
         if self.cursor != self.bytes.len() {
             return Err(BoundedFeatureProgramErrorV1::NonCanonical);
         }
@@ -3097,7 +3154,7 @@ pub(crate) mod tests {
                     max_bytes: 16,
                 },
                 PortContractV2 {
-                    semantic_id: coordinate_port.clone(),
+                    semantic_id: coordinate_port,
                     value_type: ValueTypeV2::Bytes,
                     max_bytes: 308,
                 },
@@ -3555,7 +3612,7 @@ pub(crate) mod tests {
         (design, proposal, catalog)
     }
 
-    #[test]
+    #[rstest::rstest]
     fn canonical_program_round_trips_and_reorders_schema_collections() {
         let (design, proposal, catalog) = candidate();
         let prepared = prepare_bounded_feature_program_v1(proposal, &design, catalog).unwrap();
@@ -3578,7 +3635,7 @@ pub(crate) mod tests {
         assert_eq!(parsed.canonical_bytes(), prepared.canonical_bytes());
     }
 
-    #[test]
+    #[rstest::rstest]
     fn canonical_decoder_rejects_trailing_bytes_and_tampered_manifest_binding() {
         let (design, proposal, catalog) = candidate();
         let prepared =
@@ -3597,7 +3654,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn decision_branches_canonicalize_by_priority_and_priority_is_meaning() {
         let (design, proposal, catalog) = candidate();
         let mut reordered = proposal.clone();
@@ -3613,7 +3670,7 @@ pub(crate) mod tests {
         assert_ne!(canonical.canonical_bytes(), changed.canonical_bytes());
     }
 
-    #[test]
+    #[rstest::rstest]
     fn decision_table_rejects_duplicate_priority_bad_predicate_and_partial_frame() {
         let (design, mut proposal, catalog) = candidate();
         proposal.proposal_decision_table.branches[1].priority = 20;
@@ -3644,7 +3701,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn state_layout_is_sorted_fixed_width_and_encodes_initial_constants() {
         let (design, mut proposal, catalog) = candidate();
         proposal.constants.push(constant(
@@ -3700,7 +3757,7 @@ pub(crate) mod tests {
         assert!(empty.state_layout().slots().is_empty());
     }
 
-    #[test]
+    #[rstest::rstest]
     fn decision_sources_count_toward_edges_and_fanout() {
         let (design, mut proposal, catalog) = candidate();
         proposal.bounds.max_edges = 36;
@@ -3717,7 +3774,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn caller_cannot_forge_sample_clock_source_or_lifecycle_constant() {
         let (design, mut proposal, catalog) = candidate();
         proposal.inputs[0].update_clock = BoundedFeatureClockV1::Sample {
@@ -3746,7 +3803,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn terminal_integer_conversion_is_explicit_exact_and_unit_bound() {
         let (design, mut proposal, catalog) = candidate();
         proposal
@@ -3759,6 +3816,7 @@ pub(crate) mod tests {
             unit: "TICKS".into(),
             scale: 0,
         };
+
         for branch in &mut proposal.proposal_decision_table.branches {
             let terminal = branch
                 .frame
@@ -3801,7 +3859,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn every_input_role_requires_exact_owner_coordinate_even_when_it_is_the_trigger() {
         let (mut design, proposal, catalog) = candidate();
         assert!(matches!(
@@ -3817,7 +3875,7 @@ pub(crate) mod tests {
         ));
     }
 
-    #[test]
+    #[rstest::rstest]
     fn value_ports_cannot_be_permuted_across_owner_input_roles() {
         let (mut design, mut proposal, catalog) = candidate();
         let mut second_role = design.inputs[0].clone();
@@ -3845,6 +3903,7 @@ pub(crate) mod tests {
         manifest
             .input_ports
             .sort_by(|left, right| left.semantic_id.cmp(&right.semantic_id));
+
         for reaction in &mut design.reactions {
             for node in &mut reaction.nodes {
                 if node.plugin_semantic_id != proposal.plugin_semantic_id {
@@ -3899,7 +3958,7 @@ pub(crate) mod tests {
         ));
     }
 
-    #[test]
+    #[rstest::rstest]
     fn warmup_contract_is_the_complete_zeroed_keep_frame_with_advanced_state() {
         let (design, mut proposal, catalog) = candidate();
         proposal.warmup.stop_loss_ticks = 1;
@@ -3916,7 +3975,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn lifecycle_variants_are_closed_and_manifest_widths_cover_ascii_semantics() {
         let (design, mut proposal, catalog) = candidate();
         let BoundedFeatureConstantValueV1::ProtectionVariantV1 { semantic_id } = &mut proposal
@@ -3948,7 +4007,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn swing_value_consumes_its_coordinate_sidecar_as_one_ready_gated_pair() {
         for primitive in [
             "bfp.swing-high.trailing-full-window.latest-coordinate-tie.v1",
@@ -3976,7 +4035,7 @@ pub(crate) mod tests {
         }
     }
 
-    #[test]
+    #[rstest::rstest]
     fn swing_pair_rejects_unguarded_value_and_independent_coordinate_references() {
         let (design, mut proposal, catalog) =
             swing_candidate("bfp.swing-high.trailing-full-window.latest-coordinate-tie.v1");
@@ -4043,7 +4102,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn swing_pair_rejects_availability_mismatch_state_sink_and_unconsumed_value() {
         let (design, mut proposal, catalog) =
             swing_candidate("bfp.swing-low.trailing-full-window.latest-coordinate-tie.v1");
@@ -4100,7 +4159,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn graph_rejects_cycles_and_unconsumed_outputs_before_encoding() {
         let (design, mut proposal, catalog) = candidate();
         proposal.nodes[0].input_bindings[0].source = BoundedFeatureValueRefV1::NodeOutput {

@@ -39,8 +39,8 @@ export const modules = [
   { id: "data", label: "Data", href: "/data", purpose: "Sources, PIT catalog, quality, freshness", icon: "database", tabs: [
     { label: "Sources", href: "/data" }, { label: "PIT Catalog", href: "/data/pit-catalog" }, { label: "Quality", href: "/data/quality" }, { label: "Freshness", href: "/data/freshness" },
   ] },
-  { id: "operations", label: "Operations", href: "/operations", purpose: "Runs, workers, logs, audit, telemetry, alerts", icon: "terminal", tabs: [
-    { label: "Runs", href: "/operations" }, { label: "Legacy Jobs", href: "/operations/legacy-jobs" }, { label: "Legacy Scripts", href: "/operations/legacy-scripts" }, { label: "Legacy Apps", href: "/operations/legacy-apps" }, { label: "Legacy Workers", href: "/operations/legacy-workers" }, { label: "Workers", href: "/operations/workers" }, { label: "Schedules", href: "/operations/schedules" }, { label: "Service Logs", href: "/operations/service-logs" }, { label: "Audit", href: "/operations/audit" }, { label: "Event Rail", href: "/operations/event-rail" }, { label: "Telemetry", href: "/operations/telemetry" }, { label: "Alerts", href: "/operations/alerts" },
+  { id: "operations", label: "Operations", href: "/operations", purpose: "Runs, workers, schedules, logs, audit, telemetry, alerts", icon: "terminal", tabs: [
+    { label: "Runs", href: "/operations" }, { label: "Workers", href: "/operations/workers" }, { label: "Schedules", href: "/operations/schedules" }, { label: "Service Logs", href: "/operations/service-logs" }, { label: "Audit", href: "/operations/audit" }, { label: "Event Rail", href: "/operations/event-rail" }, { label: "Telemetry", href: "/operations/telemetry" }, { label: "Alerts", href: "/operations/alerts" },
   ] },
   { id: "settings", label: "Settings", href: "/settings", purpose: "Opaque references, agents, notifications, access", icon: "settings", tabs: [
     { label: "Data Sources", href: "/settings" }, { label: "Agents", href: "/settings/agents" }, { label: "Notifications", href: "/settings/notifications" }, { label: "Access", href: "/settings/access" },
@@ -60,7 +60,7 @@ export const allRoutes = [
 
 const exactRoutes = new Set([
   "/operations", "/operations/runs/example", "/data", "/data/pit-catalog",
-  "/operations/workers", "/operations/workers/example", "/operations/schedules", "/operations/service-logs",
+  "/operations/workers", "/operations/workers/example", "/operations/schedules", "/operations/service-logs", "/operations/audit",
   "/runtime", "/runtime/generations", "/runtime/checkpoints", "/runtime/incidents",
   "/portfolio", "/portfolio/exposure", "/portfolio/capacity", "/portfolio/attribution",
   "/rd", "/rd/composer", "/rd/research", "/rd/artifacts", "/backtest",
@@ -79,6 +79,16 @@ export function maturityFor(href) {
 export function parentTabFor(href) {
   const route = allRoutes.find((candidate) => candidate.href === href);
   return route && "parentHref" in route && typeof route.parentHref === "string" ? route.parentHref : href;
+}
+
+/** @param {string} pathname */
+export function dashboardRouteForPathname(pathname) {
+  const current = pathname.length > 1 ? pathname.replace(/\/$/, "") : pathname;
+  if (/^\/operations\/runs\/[^/]+$/.test(current)) return "/operations/runs/example";
+  if (/^\/operations\/workers\/[^/]+$/.test(current)) return "/operations/workers";
+  if (/^\/rd\/artifacts\/[^/]+\/attempts\/[^/]+$/.test(current)) return "/rd/artifacts";
+  if (current === "/market") return "/dashboard";
+  return current;
 }
 
 /** @param {string} href */
@@ -100,6 +110,7 @@ export const exactBlueprints = {
   "/rd/artifacts": { summaries: [], primary: "VerifiedArtifactDirectory", context: null, terminal: "OwnerUnavailable", state: "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_BUILD_OR_EXECUTION" },
   "/operations/schedules": { summaries: ["Configured", "Due at observation", "Observed runs"], primary: "ShadowScheduleCalendarOrTable", context: "ReadOnlyScheduleDetail", terminal: "ScheduleUnavailable", state: "IMPLEMENTATION_ADMITTED - BOUND_SCHEDULE_READ_ONLY - NO_SCHEDULE_ACTIONS" },
   "/operations/service-logs": { summaries: ["Error", "Warning", "Info", "Worker", "Server"], primary: "ServiceInstanceList", context: "ServiceInstanceCard", terminal: "ServiceLogPanel", state: "IMPLEMENTATION_ADMITTED - FIRST_PARTY_RUN_STORE_GET_ONLY - NO_ADMIN_OR_EFFECT_ACTIONS" },
+  "/operations/audit": { summaries: ["Execute", "Create / update", "Delete", "Succeeded", "Failed / denied"], primary: "OperationAuditTable", context: "AuditEventDetail", terminal: "CorrelationTimeline", state: "IMPLEMENTATION_ADMITTED - FIRST_PARTY_CONTROL_PLANE_GET_ONLY - NO_AUDIT_MUTATION_OR_WINDMILL_INFERENCE" },
   "/operations/workers": { summaries: ["Online", "Expired", "Claimed", "Active"], primary: "ShadowWorkerTable", context: "Independent identity-bound WorkerDetail", terminal: "WorkerStoreUnavailable", state: "IMPLEMENTATION_ADMITTED - RUN_STORE_WORKER_READ_ONLY - NO_WORKER_ADMIN" },
   "/operations/workers/example": { summaries: ["Online", "Expired", "Claimed", "Active"], primary: "ShadowWorkerTable", context: "ExactWorkerDetail", terminal: "ExactWorkerUnavailable", state: "IMPLEMENTATION_ADMITTED - RUN_STORE_WORKER_READ_ONLY - NO_WORKER_ADMIN" },
   "/operations": { summaries: ["Loaded", "Active loaded", "Unknown loaded", "Terminal loaded"], primary: "CursorBoundRunTable", context: "Exact state segments + source-cut pagination", terminal: "ExactRunDetailLink or RunStoreUnavailable", state: "IMPLEMENTATION_ADMITTED - ZERO_EFFECT_DISPATCHER - WINDMILL_EFFECTS_CURRENT" },

@@ -11,9 +11,12 @@ import {
   validExploratoryReplayOpaqueIdentityV2,
 } from "../lib/exploratory-replay-identity";
 import { EmptyState, UnavailableState } from "./ui/evidence-strip";
-import { FactGroup, FactGroupSkeleton, FactItem } from "./ui/fact-group";
+import { FactGroup, FactGroupGrid, FactGroupSkeletonGrid, FactItem } from "./ui/fact-group";
+import { FilterButton } from "./ui/filter-toolbar";
 import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
+import { InlineNotice } from "./ui/inline-notice";
 import { PanelFrame, PanelFrameBody, PanelFrameHeader } from "./ui/panel-frame";
+import { ReadbackLookup, ReadbackLookupAction, ReadbackLookupField, ReadbackLookupInput } from "./ui/readback-lookup";
 import { StatusBadge } from "./ui/status-badge";
 import styles from "./exploratory-replay-readback-workbench.module.css";
 
@@ -23,7 +26,7 @@ function AvailableReadback({ projection }: { projection: ExploratoryReplayBrowse
   if (!projection.request || !projection.custody || !projection.replayBasis) return null;
   return (
     <>
-      <div className={styles.groups}>
+      <FactGroupGrid layout="weighted">
         <FactGroup title="Request">
           <FactItem label="Identity" mono title={projection.requestIdentity}>{projection.requestIdentity}</FactItem>
           <FactItem label="Availability"><StatusBadge tone="success">Available</StatusBadge></FactItem>
@@ -48,22 +51,18 @@ function AvailableReadback({ projection }: { projection: ExploratoryReplayBrowse
           <FactItem label="Runtime kernel" mono title={projection.replayBasis.runtimeKernelIdentity}>{projection.replayBasis.runtimeKernelIdentity}</FactItem>
           <FactItem label="Simulator" mono title={projection.replayBasis.simulatorIdentity}>{projection.replayBasis.simulatorIdentity}</FactItem>
         </FactGroup>
-      </div>
-      <div className={styles.resultRail} role="status">
-        <EvidenceIcons.warning aria-hidden="true" size={15} />
-        <div><b>Result projection unavailable</b><span>No admitted Owner result readback is connected.</span></div>
-      </div>
+      </FactGroupGrid>
+      <InlineNotice
+        className={styles.resultNotice}
+        density="compact"
+        icon={<EvidenceIcons.warning size={15} />}
+        role="status"
+        title="Result projection unavailable"
+        tone="warning"
+      >
+        No admitted Owner result readback is connected.
+      </InlineNotice>
     </>
-  );
-}
-
-function LoadingGroups() {
-  return (
-    <div className={styles.groups} aria-label="Loading Replay request readback">
-      {["Request", "Custody", "Replay basis"].map((title) => (
-        <FactGroupSkeleton key={title} title={title} />
-      ))}
-    </div>
   );
 }
 
@@ -134,27 +133,30 @@ export function ExploratoryReplayReadbackWorkbench({
         titleId="exploratory-replay-title"
         description="Inspect one sealed Owner request without composing, running, resolving, or inferring a result."
         actions={(
-          <button
+          <FilterButton
+            density="compact"
+            variant="secondary"
             disabled={!openedSelector || status === "loading"}
             onClick={() => openedSelector
               && void read(openedSelector.requestIdentity, openedSelector.meaningDigest)}
             type="button"
           >
             <InterfaceIcons.refresh aria-hidden="true" size={14} /> Refresh
-          </button>
+          </FilterButton>
         )}
       />
       <PanelFrameBody className={styles.body}>
-        <form
-          className={styles.lookupRail}
+        <ReadbackLookup
+          columns="double"
+          validation={validation}
+          validationId="exploratory-replay-validation"
           onSubmit={(event) => {
             event.preventDefault();
             void read(requestInput, meaningInput);
           }}
         >
-          <label className={styles.lookupField}>
-            <span>Request identity</span>
-            <input
+          <ReadbackLookupField label="Request identity">
+            <ReadbackLookupInput
               aria-describedby={validation ? "exploratory-replay-validation" : undefined}
               aria-invalid={Boolean(validation)}
               autoComplete="off"
@@ -164,12 +166,12 @@ export function ExploratoryReplayReadbackWorkbench({
               }}
               placeholder="request identity"
               spellCheck={false}
+              typography="mono"
               value={requestInput}
             />
-          </label>
-          <label className={`${styles.lookupField} ${styles.digestField}`}>
-            <span>Meaning digest</span>
-            <input
+          </ReadbackLookupField>
+          <ReadbackLookupField label="Meaning digest">
+            <ReadbackLookupInput
               aria-describedby={validation ? "exploratory-replay-validation" : undefined}
               aria-invalid={Boolean(validation)}
               autoComplete="off"
@@ -179,16 +181,22 @@ export function ExploratoryReplayReadbackWorkbench({
               }}
               placeholder="blake3:…"
               spellCheck={false}
+              typography="mono"
               value={meaningInput}
             />
-          </label>
-          <button className={styles.openButton} disabled={status === "loading"} type="submit">
+          </ReadbackLookupField>
+          <ReadbackLookupAction disabled={status === "loading"}>
             Open readback <EvidenceIcons.next aria-hidden="true" size={14} />
-          </button>
-        </form>
-        {validation ? <p className={styles.validation} id="exploratory-replay-validation">{validation}</p> : null}
+          </ReadbackLookupAction>
+        </ReadbackLookup>
         <div className={styles.result} aria-live="polite">
-          {status === "loading" ? <LoadingGroups />
+          {status === "loading" ? (
+            <FactGroupSkeletonGrid
+              aria-label="Loading Replay request readback"
+              layout="weighted"
+              titles={["Request", "Custody", "Replay basis"]}
+            />
+          )
             : status === "available" && projection
               ? <AvailableReadback projection={projection} />
               : status === "unavailable"

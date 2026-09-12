@@ -41,7 +41,7 @@ test("calendar colors resolve from the current shared theme instead of undefined
 test("schedule controls retain the Vibe calendar hierarchy without editable actions", async () => {
   const [component, shell] = await Promise.all([
     readFile(new URL("../components/operations-schedules-preview.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../components/dashboard-shell.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/dashboard-route-content.tsx", import.meta.url), "utf8"),
   ]);
   const sourceFiles = await Promise.all([
     "calendar-header.tsx",
@@ -72,7 +72,7 @@ test("schedule controls retain the Vibe calendar hierarchy without editable acti
   assert.match(component, /<CalendarHeader/);
   assert.match(component, /return <PanelFrame[^>]*>\s*<CalendarHeader[\s\S]*?\/>\s*<PanelFrameBody>/u);
   assert.match(component, /<\/PanelFrameBody>\s*<PanelFrameFooter className=\{styles\.foot\}>/u);
-  assert.match(shell, /const suppressShellPageHeader = operationsSchedules \|\| operationsServiceLogs \|\| ownsRouteChrome;/u);
+  assert.match(shell, /const suppressShellPageHeader = operationsSchedules \|\| operationsServiceLogs \|\| operationsAudit \|\| ownsRouteChrome;/u);
   assert.match(shell, /\{suppressShellPageHeader \? <h1 className="sr-only">\{page\.label\}<\/h1> : <header className="page-header">/u);
   assert.doesNotMatch(component, /<PanelFrameHeader/u);
   assert.doesNotMatch(component, /Shadow-read schedules[^\n]+Expected triggers and observed runs/u);
@@ -136,20 +136,19 @@ test("calendar body retains the source view, cell, badge, and inspection hierarc
 test("unavailable schedule data preserves the source controls without inventing an empty calendar", async () => {
   const component = await readFile(new URL("../components/operations-schedules-preview.tsx", import.meta.url), "utf8");
   const css = await readFile(new URL("../components/ui/schedule-calendar.module.css", import.meta.url), "utf8");
-  assert.match(component, /error \? <div className=\{styles\.unavailableCalendar\}/);
+  assert.match(component, /error \? <InlineNotice className=\{styles\.scheduleNotice\}/);
   assert.match(component, /data-availability="unavailable"/);
   assert.doesNotMatch(component, /<ScheduleCalendar schedules=\{\[\]\}/);
-  assert.doesNotMatch(css, /\.unavailableCalendar[^{}]*height:\s*clamp\(500px/u);
-  assert.match(css, /\.unavailableCalendar, \.emptyResult \{[^}]*min-height:\s*144px/u);
-  assert.match(css, /\.unavailableCalendar, \.emptyResult \{[^}]*border-radius: var\(--panel-inner-radius\)/u);
-  assert.match(css, /\.availabilityNotice \{/);
-  assert.doesNotMatch(css, /\.availabilityNotice \{[^}]*border-radius:/u);
+  assert.match(component, /data-availability="unavailable" density="spacious"/u);
+  assert.match(css, /\.scheduleNotice \{[^}]*margin:\s*16px/u);
+  assert.doesNotMatch(css, /\.scheduleNotice \{[^}]*min-height:/u);
+  assert.doesNotMatch(css, /\.unavailableCalendar|\.emptyResult|\.availabilityNotice/u);
   assert.match(css, /\.dialog \{[^}]*border-radius: var\(--panel-radius\)/u);
 });
 
 test("filtered schedule data uses a compact content-aware state outside the split inspector", async () => {
   const component = await readFile(new URL("../components/operations-schedules-preview.tsx", import.meta.url), "utf8");
-  assert.match(component, /!schedules\.length \? <div className=\{styles\.emptyResult\} role="status">/u);
+  assert.match(component, /!schedules\.length \? <InlineNotice className=\{styles\.scheduleNotice\} density="spacious"/u);
   assert.match(component, /No matching schedules/u);
   assert.ok(component.indexOf("!schedules.length") < component.indexOf("className={styles.split}"));
 });

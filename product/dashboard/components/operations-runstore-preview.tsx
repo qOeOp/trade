@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -99,6 +100,7 @@ function matchesQuery(run: RunListItemV1, query: string) {
 }
 
 export function OperationsRunStorePreview() {
+  const router = useRouter();
   const [result, setResult] = useState<RunListBrowserEnvelopeV1 | null>(null);
   const [stateFilter, setStateFilter] = useState<RunStateFilter>("all");
   const [query, setQuery] = useState("");
@@ -296,16 +298,16 @@ export function OperationsRunStorePreview() {
             noDataComponent={<DataWorkspaceEmpty icon={<RunIcons.loaded aria-hidden="true" size={18} />}>
               {runs.length ? "No loaded run matches this search." : "No Dashboard operation run is retained."}
             </DataWorkspaceEmpty>}
-            onRowClicked={(run) => { window.location.assign(`/operations/runs/${encodeURIComponent(run.run_identity)}`); }}
+            onRowClicked={(run) => router.push(`/operations/runs/${encodeURIComponent(run.run_identity)}`)}
             pointerOnHover
           />
           {result.next_cursor || pageError ? <PanelFrameFooter layout="split">
             <PanelFrameFooterSummary primary={`${visibleRuns.length} ${visibleRuns.length === 1 ? "run" : "runs"} shown`} />
             {pageError ? <PanelFrameFooterMeta>Older runs are temporarily unavailable.</PanelFrameFooterMeta> : null}
             {result.next_cursor ? <PanelFrameFooterActions>
-              <button type="button" disabled={loadingOlder} onClick={() => void load(result.next_cursor!)}>
+              <FilterButton density="compact" variant="secondary" type="button" disabled={loadingOlder} onClick={() => void load(result.next_cursor!)}>
                 {loadingOlder ? "Reading older…" : "Load older"}
-              </button>
+              </FilterButton>
             </PanelFrameFooterActions> : null}
           </PanelFrameFooter> : null}
           </DataTableSurface>

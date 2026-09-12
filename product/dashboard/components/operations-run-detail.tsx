@@ -20,11 +20,7 @@ import {
   parseOperationalCancellationEnvelopeV1,
   type OperationalCancellationEnvelopeV1,
 } from "../lib/run-cancellation-contract";
-import {
-  AggregateSummary,
-  AggregateSummaryFact,
-  AggregateSummaryGroup,
-} from "./ui/aggregate-summary";
+import { CompactStatusBar, CompactStatusGroup, CompactStatusItem } from "./ui/compact-status-bar";
 import {
   DetailFact,
   DetailFactGrid,
@@ -35,10 +31,10 @@ import {
   DetailNotice,
   DetailSection,
 } from "./ui/detail-inspector";
-import { EmptyState, EvidenceActions, EvidenceField, EvidenceStrip, UnavailableState } from "./ui/evidence-strip";
+import { EmptyState, UnavailableState } from "./ui/evidence-strip";
 import { FilterButton, FilterLink, FilterTabs } from "./ui/filter-toolbar";
 import { InterfaceIcons, ModuleIcons, RunIcons } from "./ui/iconography";
-import { PanelFrame, PanelFrameBody, PanelFrameFooter, PanelFrameHeader } from "./ui/panel-frame";
+import { PanelFrame, PanelFrameBody, PanelFrameFooter, PanelFrameHeader, PanelFrameInfo } from "./ui/panel-frame";
 import { PageStack } from "./ui/page-stack";
 import { SplitBento } from "./ui/split-bento";
 import { StatusBadge } from "./ui/status-badge";
@@ -263,9 +259,9 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
     return (
       <PanelFrame className="run-detail-panel" aria-labelledby="run-detail-title">
         <PanelFrameHeader eyebrow="Exact operational readback" title="Run detail" titleId="run-detail-title" actions={
-          <button type="button" onClick={() => void refresh()} disabled={pending}>
+          <FilterButton density="compact" variant="secondary" type="button" onClick={() => void refresh()} disabled={pending}>
             <InterfaceIcons.refresh aria-hidden="true" size={12} /> {pending ? "Reading…" : "Refresh"}
-          </button>
+          </FilterButton>
         } />
         <PanelFrameBody>
           <UnavailableState density="compact" icon={<RunIcons.loaded aria-hidden="true" size={17} />}
@@ -289,61 +285,57 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
         title={run.operation_id}
         titleId="run-detail-title"
         actions={<>
-          <details className="panel-info-disclosure">
-            <summary aria-label="View run information" title="Run information">
-              <InterfaceIcons.info aria-hidden="true" size={14} />
-            </summary>
-            <div>
-              <span>Observed</span>
-              <b>{new Date(result.observed_at).toLocaleString()}</b>
-              <span>Run identity</span>
-              <code title={run.run_identity}>{compactIdentity(run.run_identity)}</code>
-              <p>Owner outcome and operational timing are reported independently.</p>
-            </div>
-          </details>
-          <button type="button" data-action-variant="secondary" onClick={() => void copyLocator()}>
+          <PanelFrameInfo label="View run information">
+            <span>Observed</span>
+            <b>{new Date(result.observed_at).toLocaleString()}</b>
+            <span>Run identity</span>
+            <code title={run.run_identity}>{compactIdentity(run.run_identity)}</code>
+            <p>Owner outcome and operational timing are reported independently.</p>
+          </PanelFrameInfo>
+          <FilterButton density="compact" variant="secondary" type="button" onClick={() => void copyLocator()}>
             <InterfaceIcons.copy aria-hidden="true" size={12} /> {copied ? "Copied" : "Copy locator"}
-          </button>
-          <button type="button" data-action-variant="secondary" onClick={() => void refresh()} disabled={pending}>
+          </FilterButton>
+          <FilterButton density="compact" variant="secondary" type="button" onClick={() => void refresh()} disabled={pending}>
             <InterfaceIcons.refresh aria-hidden="true" size={12} /> {pending ? "Reading…" : "Refresh"}
-          </button>
-          {operationalCancellation.state === "pending" ? <a data-action-variant="warning" href="#dependency-cancellation-panel">
+          </FilterButton>
+          {operationalCancellation.state === "pending" ? <FilterLink density="compact" variant="warning" href="#dependency-cancellation-panel">
             <RunIcons.cancelled aria-hidden="true" size={12} /> Cancel queued dependency
-          </a> : null}
-          {run.owner_view.action_label === "Resolve same identity" ? <button
+          </FilterLink> : null}
+          {run.owner_view.action_label === "Resolve same identity" ? <FilterButton
+            density="compact"
+            variant="primary"
             type="button"
-            data-action-variant="primary"
             onClick={() => void resolveOwnerOutcome()}
             disabled={resolvingOwner}
           >
             <InterfaceIcons.autoRefresh aria-hidden="true" size={12} />
             {resolvingOwner ? "Resolving…" : "Resolve same identity"}
-          </button> : null}
-          <Link data-action-variant="secondary" href={run.owner_view.href}>
+          </FilterButton> : null}
+          <FilterLink density="compact" variant="secondary" href={run.owner_view.href}>
             Open Owner view <InterfaceIcons.open aria-hidden="true" size={12} />
-          </Link>
+          </FilterLink>
         </>}
       />
       <PanelFrameBody>
-      <AggregateSummary className="run-detail-summaries" aria-label="Run summary">
-        <AggregateSummaryGroup eyebrow="Outcome" label="Owner outcome"
-          value={run.owner_outcome_state}
-          tone={ownerOutcomeTone(run.owner_outcome_state)}>
-          <AggregateSummaryFact label="Execution" value={run.state} tone={executionStateTone(run.state)} />
-          <AggregateSummaryFact label="Terminal state" value={terminalPresentation.terminalState}
+      <CompactStatusBar className="run-detail-summaries" aria-label="Run summary">
+        <CompactStatusGroup label="outcome">
+          <CompactStatusItem label="owner outcome" value={run.owner_outcome_state}
+            tone={ownerOutcomeTone(run.owner_outcome_state)} />
+          <CompactStatusItem label="execution" value={run.state} tone={executionStateTone(run.state)} />
+          <CompactStatusItem label="terminal state" value={terminalPresentation.terminalState}
             tone={run.terminal_code ? executionStateTone(run.state) : terminalPresentation.terminalTone} />
-          <AggregateSummaryFact label="Transition" value={run.transition_version} />
-        </AggregateSummaryGroup>
-        <AggregateSummaryGroup eyebrow="Timing" label="Duration"
-          value={terminalPresentation.duration}
-          tone={run.duration_ms === null ? terminalPresentation.durationTone : executionStateTone(run.state)}>
-          <AggregateSummaryFact label="Received" value={displayTime(run.received_at)} />
-          <AggregateSummaryFact label="Started" value={displayTime(run.started_at)} />
-          <AggregateSummaryFact label="Completed"
+          <CompactStatusItem label="transition" value={run.transition_version} />
+        </CompactStatusGroup>
+        <CompactStatusGroup label="timing">
+          <CompactStatusItem label="duration" value={terminalPresentation.duration}
+            tone={run.duration_ms === null ? terminalPresentation.durationTone : executionStateTone(run.state)} />
+          <CompactStatusItem label="received" value={displayTime(run.received_at)} />
+          <CompactStatusItem label="started" value={displayTime(run.started_at)} />
+          <CompactStatusItem label="completed"
             value={run.completed_at ? displayTime(run.completed_at) : "In progress"}
             tone={run.completed_at ? executionStateTone(run.state) : "info"} />
-        </AggregateSummaryGroup>
-      </AggregateSummary>
+        </CompactStatusGroup>
+      </CompactStatusBar>
 
       {operationalCancellation.state !== "none" ? <DetailInspector
         as="section" id="dependency-cancellation-panel" className="dependency-cancellation-panel"
@@ -534,29 +526,36 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
               result.operational_cache.deletion_receipt?.deleted_at ?? null,
             )}. Run tombstone and Owner locator remain available.`
             : `Retention ended ${displayTime(run.retained_until)}. Run tombstone and Owner locator remain available; no deletion receipt is invented.`}
-        </EmptyState> : boundedResult ? <><EvidenceStrip layout="result" aria-label="Bounded run result">
-          <EvidenceField label="Allowlisted operational result"><b>{boundedResult.operational_state}</b>
-            <small>Owner outcome · {boundedResult.owner_outcome_state}</small></EvidenceField>
-          <EvidenceField label="Terminal code"><b>{boundedResult.terminal_code ?? "Not terminal"}</b></EvidenceField>
-          <EvidenceField label="Transition"><b>{boundedResult.transition_version}</b></EvidenceField>
-          <EvidenceField label="Completed"><b>{displayTime(boundedResult.completed_at)}</b></EvidenceField>
-          <EvidenceField label="Retention"><b>{displayTime(boundedResult.retained_until)}</b></EvidenceField>
-          <EvidenceActions>
-            <button type="button" onClick={() => void copyResult()}>
+        </EmptyState> : boundedResult ? <><CompactStatusBar className="run-result-status" aria-label="Bounded run result">
+          <CompactStatusGroup label="result">
+            <CompactStatusItem label="operational result" value={boundedResult.operational_state}
+              tone={executionStateTone(boundedResult.operational_state)} />
+            <CompactStatusItem label="owner outcome" value={boundedResult.owner_outcome_state}
+              tone={ownerOutcomeTone(boundedResult.owner_outcome_state)} />
+            <CompactStatusItem label="terminal code" value={boundedResult.terminal_code ?? "Not terminal"} />
+            <CompactStatusItem label="transition" value={boundedResult.transition_version} />
+          </CompactStatusGroup>
+          <CompactStatusGroup label="timing">
+            <CompactStatusItem label="completed" value={displayTime(boundedResult.completed_at)} />
+            <CompactStatusItem label="retained until" value={displayTime(boundedResult.retained_until)} />
+          </CompactStatusGroup>
+        </CompactStatusBar>
+        <PanelFrameFooter className="run-result-footer" layout="split">
+          <span>{boundedResult.withheld_fields.length} fields withheld · {boundedResult.withheld_fields
+            .map(({ field, reason }) => `${field}: ${reason}`).join(" · ")}</span>
+          <div className="run-result-actions">
+            <FilterButton density="compact" variant="secondary" type="button" onClick={() => void copyResult()}>
               <InterfaceIcons.copy aria-hidden="true" size={12} /> {copiedResult ? "Copied JSON" : "Copy result JSON"}
-            </button>
-            <a href={`/api/operations/runs/${encodeURIComponent(runIdentity)}/result/download/`} download>
+            </FilterButton>
+            <FilterLink density="compact" href={`/api/operations/runs/${encodeURIComponent(runIdentity)}/result/download/`} download>
               <InterfaceIcons.download aria-hidden="true" size={12} /> Download bounded result
-            </a>
-            {["succeeded", "failed", "cancelled", "unknown"].includes(run.state) ? <button
-              type="button" onClick={() => setDeleteOpen((open) => !open)}
-            >
+            </FilterLink>
+            {["succeeded", "failed", "cancelled", "unknown"].includes(run.state) ? <FilterButton
+              density="compact" variant="danger" type="button" onClick={() => setDeleteOpen((open) => !open)}>
               <InterfaceIcons.delete aria-hidden="true" size={12} /> Delete cache
-            </button> : null}
-          </EvidenceActions>
-        </EvidenceStrip>
-        <PanelFrameFooter>{boundedResult.withheld_fields.length} fields withheld · {boundedResult.withheld_fields
-          .map(({ field, reason }) => `${field}: ${reason}`).join(" · ")}</PanelFrameFooter>
+            </FilterButton> : null}
+          </div>
+        </PanelFrameFooter>
         {activeTab === "Logs" ? <OperationsRunLogs runIdentity={runIdentity} refreshVersion={logRefreshVersion} />
           : <OperationsRunAuxiliaryEvidence runIdentity={runIdentity}
               evidenceKind={activeTab === "Metrics" ? "metrics" : activeTab === "Traces" ? "traces" : "assets"} />}</>

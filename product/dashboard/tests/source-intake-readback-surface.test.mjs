@@ -8,8 +8,8 @@ test("Source Intake route renders one compact exact-readback workbench", async (
   const [component, route, shell, page, css] = await Promise.all([
     readFile(new URL("../components/source-intake-readback-workbench.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/rd/source-intakes/[requestIdentity]/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../components/dashboard-shell.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/[[...route]]/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/dashboard-route-content.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/(dashboard)/[...route]/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/source-intake-readback-workbench.module.css", import.meta.url), "utf8"),
   ]);
   assert.equal(maturityFor("/rd"), "DRAWABLE_EXACT");

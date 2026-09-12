@@ -11,7 +11,7 @@ const runtimeFoundation = await readFile(new URL("../components/runtime-foundati
 const dataFoundation = await readFile(new URL("../components/market-data-owner-foundation-card.tsx", import.meta.url), "utf8");
 const runDetail = await readFile(new URL("../components/operations-run-detail.tsx", import.meta.url), "utf8");
 const runStorePreview = await readFile(new URL("../components/operations-runstore-preview.tsx", import.meta.url), "utf8");
-const dashboardShell = await readFile(new URL("../components/dashboard-shell.tsx", import.meta.url), "utf8");
+const dashboardShell = await readFile(new URL("../components/dashboard-route-content.tsx", import.meta.url), "utf8");
 const frameChromeModules = await Promise.all([
   "market-data-owner-foundation-card.module.css",
   "ui/market-heatmap.module.css",
@@ -99,46 +99,59 @@ test("operational summaries preserve a legible metric hierarchy across viewports
   for (const label of ["loaded runs", "active", "failed", "result ready", "result pending"]) {
     assert.match(runStorePreview, new RegExp(`<CompactStatusItem label="${label}"`, "u"));
   }
-  assert.match(css, /\.compact-status-bar \{[^}]+display: grid;[^}]+align-items: stretch;[^}]+gap: 12px;/u);
+  assert.match(css, /\.compact-status-bar \{[^}]+container: compact-status \/ inline-size;[^}]+width: 100%;/u);
+  assert.match(css, /\.compact-status-bar-layout \{[^}]+display: grid;[^}]+grid-template-columns: repeat\(auto-fit, minmax\(min\(100%, 420px\), 1fr\)\);[^}]+align-items: stretch;[^}]+gap: 12px;/u);
   assert.doesNotMatch(css, /\.compact-status-bar \{[^}]*(?:border|border-radius|background):/u);
   assert.match(css, /\.compact-status-item dt, \.compact-status-item dd \{ font-size: 13px; line-height: 20px; \}/u);
+  assert.match(css, /\.compact-status-item \{[^}]+border: 1px solid color-mix\(in srgb, var\(--text-primary\) 5%, transparent\);[^}]+border-radius: 8px;[^}]+background: var\(--surface-card\);/u);
+  assert.match(css, /\.compact-status-item:nth-child\(even\) \{ background: var\(--panel-chrome-bg\); \}/u);
+  assert.match(css, /\.compact-status-group dl \{[^}]+padding: 8px;[^}]+gap: 8px;[^}]+border-radius: 0 12px 12px 12px;[^}]+background: var\(--compact-status-shell\);/u);
   assert.match(css, /\.compact-status-group-label::after \{[^}]+radial-gradient\(circle at 100% 0, transparent 13\.25px, var\(--compact-status-shell\) 13\.75px\)/u);
-  assert.match(css, /@container compact-status \(max-width: 767px\)[\s\S]+\.compact-status-group dl \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/u);
-  assert.match(css, /@container compact-status \(max-width: 380px\)[\s\S]+\.compact-status-group dl \{ grid-template-columns: minmax\(0, 1fr\); \}/u);
+  assert.match(css, /\.compact-status-group \{[^}]+container: compact-status-group \/ inline-size;[^}]+min-width: 0;[^}]+padding-top: 20px;/u);
+  assert.match(css, /\.compact-status-bar-layout\[data-layout="bento"\] \.compact-status-group\[data-bento-columns="2"\] \.compact-status-item:last-child:nth-child\(odd\) \{ grid-column: 1 \/ -1; \}/u);
+  assert.match(css, /@container compact-status \(min-width: 1320px\)[\s\S]+\.compact-status-bar-layout \{[^}]+display: flex;[^}]+flex-wrap: nowrap;[^}]+\}[\s\S]*\.compact-status-group \{[^}]+min-width: min\(100%, 260px\);[^}]+flex: var\(--compact-status-weight, 1\) 1 0;/u);
+  assert.match(css, /\.compact-status-bar-layout\[data-layout="bento"\] \.compact-status-item \{[^}]+flex-direction: row;[^}]+justify-content: space-between;[^}]+text-align: left;/u);
+  assert.match(css, /@container compact-status-group \(max-width: 767px\)[\s\S]+\.compact-status-group dl \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/u);
+  assert.match(css, /@container compact-status-group \(max-width: 520px\)[\s\S]+\.compact-status-item \{[^}]+flex-direction: row;[^}]+justify-content: space-between;[^}]+text-align: left;/u);
+  assert.match(css, /@container compact-status-group \(max-width: 380px\)[\s\S]+\.compact-status-group dl \{ grid-template-columns: minmax\(0, 1fr\); \}/u);
+  assert.match(css, /@container compact-status-group \(max-width: 380px\)[\s\S]+\.compact-status-item \{[^}]+flex-direction: row;[^}]+text-align: left;/u);
   assert.doesNotMatch(css, /\.operations-run-summaries\[data-variant="flow"\]|\.insight-summary-flow/u);
-  assert.match(css, /\.run-detail-summaries \.aggregate-summary-eyebrow \{[^}]+position: absolute;[^}]+top: 21px;/u);
-  assert.match(css, /\.run-detail-summaries \.aggregate-summary-group \{[^}]+grid-template-columns: minmax\(0, 1fr\) minmax\(0, 3fr\);/u);
-  assert.match(css, /\.run-detail-summaries \.aggregate-summary-lead > strong,[\s\S]*?\.run-detail-summaries \.aggregate-summary-fact dd \{[^}]+font-size: 14px;[^}]+text-align: left;[^}]+white-space: nowrap;/u);
-  assert.match(css, /\.run-detail-summaries \.aggregate-summary-facts \{ grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/u);
-  assert.match(css, /\.run-detail-summaries \.aggregate-summary-fact \{[^}]+align-items: flex-start;[^}]+justify-content: flex-start;[^}]+text-align: left;/u);
-  assert.match(css, /\.run-detail-summaries \.aggregate-summary-group:nth-child\(2\) \.aggregate-summary-fact dd \{ font-variant-numeric: tabular-nums; \}/u);
-  assert.match(css, /@media \(max-width: 1279px\)[\s\S]+\.aggregate-summary\.run-detail-summaries \{ grid-template-columns: 1fr; \}/u);
-  assert.match(css, /@media \(max-width: 767px\)[\s\S]+\.run-detail-summaries \.aggregate-summary-facts \{ grid-template-columns: 1fr; \}/u);
+  assert.match(runDetail, /<CompactStatusBar className="run-detail-summaries" aria-label="Run summary">/u);
+  assert.match(runDetail, /<CompactStatusGroup label="outcome">[\s\S]+?<CompactStatusGroup label="timing">/u);
+  for (const label of ["owner outcome", "execution", "terminal state", "transition", "duration", "received", "started", "completed"]) {
+    assert.match(runDetail, new RegExp(`<CompactStatusItem label="${label}"`, "u"));
+  }
+  assert.doesNotMatch(runDetail, /AggregateSummary/u);
+  assert.doesNotMatch(css, /\.run-detail-summaries \.aggregate-summary/u);
   assert.match(css, /\.compact-status-item\[data-tone="danger"\] dd \{ color: var\(--status-negative\); \}/u);
 });
 
 test("run detail actions, technical disclosure, and state values expose deliberate hierarchy", () => {
-  assert.match(css, /\.panel-frame-actions :is\(button, a\)\[data-action-variant="ghost"\][^}]+background: transparent;/u);
-  assert.match(css, /\.panel-frame-actions :is\(button, a\)\[data-action-variant="secondary"\][^}]+var\(--border-default\)/u);
-  assert.match(css, /\.run-detail-summaries \.aggregate-summary-group\[data-tone="warning"\] > \.aggregate-summary-lead > strong/u);
-  assert.match(css, /\.panel-info-disclosure > div \{[^}]+position: absolute;[^}]+background: var\(--surface-elevated\);/u);
+  assert.match(css, /\.filter-action\[data-variant="ghost"\][^}]+background: transparent;/u);
+  assert.match(css, /\.filter-action:is\(\[data-variant="outline"\], \[data-variant="secondary"\]\)[^}]+var\(--border-default\)/u);
+  assert.match(runDetail, /label="owner outcome"[\s\S]+?ownerOutcomeTone\(run\.owner_outcome_state\)/u);
   assert.match(css, /\.panel-info-popover \{[^}]+position: fixed;[^}]+max-height:[^}]+overflow-y: auto;[^}]+background: var\(--surface-elevated\);/u);
   assert.match(css, /\.panel-frame-actions \.panel-info-popover a \{[^}]+border-radius: 0;[^}]+background: transparent;[^}]+text-decoration: underline;/u);
   assert.match(panel, /popoverTarget=\{popoverId\}/u);
   assert.match(panel, /className="panel-info-popover" popover="auto"/u);
-  assert.match(css, /\.panel-frame-actions \.panel-info-disclosure a \{[^}]+min-height: 0;[^}]+background: transparent;[^}]+box-shadow: none;/u);
-  assert.match(runDetail, /data-action-variant="secondary"[\s\S]+?Copy locator/u);
-  assert.match(runDetail, /data-action-variant="secondary"[\s\S]+?Refresh/u);
-  assert.match(runDetail, /data-action-variant="primary"[\s\S]+Resolve same identity/u);
-  assert.match(runDetail, /<Link data-action-variant="secondary"[^>]+>[\s\S]*?Open Owner view/u);
-  assert.match(runDetail, /<details className="panel-info-disclosure">[\s\S]+?compactIdentity\(run\.run_identity\)/u);
+  assert.match(panel, /export function PanelFrameInfoList[\s\S]*className="panel-info-facts"/u);
+  assert.match(panel, /export function PanelFrameInfoFact[\s\S]*<dt>\{label\}<\/dt><dd>\{children\}<\/dd>/u);
+  assert.match(css, /\.panel-info-facts > div \{[^}]+grid-template-columns: 76px minmax\(0, 1fr\);[^}]+border-bottom:/u);
+  assert.match(css, /\.panel-info-facts dd code \{[^}]+overflow-wrap: anywhere;[^}]+text-overflow: clip;[^}]+white-space: normal;/u);
+  assert.doesNotMatch(css, /\.panel-info-facts dd code \{[^}]+text-overflow: ellipsis;/u);
+  assert.match(runDetail, /<FilterButton density="compact" variant="secondary"[\s\S]+?Copy locator/u);
+  assert.match(runDetail, /<FilterButton density="compact" variant="secondary"[\s\S]+?Refresh/u);
+  assert.match(runDetail, /<FilterButton[\s\S]+?density="compact"[\s\S]+?variant="primary"[\s\S]+Resolve same identity/u);
+  assert.match(runDetail, /<FilterLink density="compact" variant="secondary"[^>]+>[\s\S]*?Open Owner view/u);
+  assert.doesNotMatch(runDetail, /data-action-variant=/u);
+  assert.match(runDetail, /<PanelFrameInfo label="View run information">[\s\S]+?compactIdentity\(run\.run_identity\)[\s\S]+?<\/PanelFrameInfo>/u);
+  assert.doesNotMatch(runDetail, /panel-info-disclosure/u);
   assert.match(dashboardShell, /<details className="authority-disclosure">[\s\S]+?IMPLEMENTATION_ADMITTED[\s\S]+?<\/details>/u);
   assert.doesNotMatch(runDetail, /meta=\{<code title=\{run\.run_identity\}/u);
   assert.doesNotMatch(runDetail, /detail="Owner state is never inferred from execution"/u);
   assert.doesNotMatch(runDetail, /detail="Operational clock, independent of Owner state"/u);
-  assert.match(runDetail, /AggregateSummaryFact label="Received"/u);
+  assert.match(runDetail, /CompactStatusItem label="received"/u);
   assert.doesNotMatch(runDetail, /Timing \/ received/u);
-  assert.match(css, /@media \(max-width: 767px\)[\s\S]+\.panel-info-disclosure > div \{[^}]+right: auto;[^}]+left: 0;/u);
   for (const token of ["positive", "warning", "info", "negative"]) {
     assert.match(theme, new RegExp(`--semantic-${token}:`, "u"));
     assert.match(css, new RegExp(`--status-${token}: var\\(--semantic-${token}\\)`, "u"));
@@ -168,7 +181,7 @@ test("operational surfaces keep implementation language behind information contr
   assert.match(runs, /return `#\$\{tail\.slice\(-8\)\}`/u);
   assert.match(runs, /<CompactStatusGroup label="current view">[\s\S]+?<CompactStatusItem label="loaded runs"/u);
   assert.doesNotMatch(runs, /label="(?:Active|Failed|Result ready|Result pending)"/u);
-  assert.match(logs, /data-action-variant="secondary"[\s\S]+?Auto-refresh/u);
+  assert.match(logs, /<FilterButton density="compact" variant="secondary"[\s\S]+?Auto-refresh/u);
   assert.match(logs, /<PanelFrameInfo><b>Technical reason<\/b><code>/u);
   assert.match(logs, /<PanelFrameInfo><b>Data details<\/b><code/u);
   assert.match(css, /button\.panel-info-trigger \{[^}]+width: 32px;[^}]+flex: 0 0 32px;[^}]+display: grid;[^}]+border-radius: 999px;/u);

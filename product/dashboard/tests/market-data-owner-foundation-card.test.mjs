@@ -3,7 +3,7 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 
 const componentUrl = new URL("../components/market-data-owner-foundation-card.tsx", import.meta.url);
-const shellUrl = new URL("../components/dashboard-shell.tsx", import.meta.url);
+const shellUrl = new URL("../components/dashboard-route-content.tsx", import.meta.url);
 const heatmapUrl = new URL("../components/ui/market-heatmap.tsx", import.meta.url);
 const cssUrl = new URL("../components/ui/market-heatmap.module.css", import.meta.url);
 
