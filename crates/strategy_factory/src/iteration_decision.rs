@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use vibe_backtest_owner_contracts::{
-    DiagnosticCategoryV2, ReplayNamespaceV2, ReplayResultDtoV2, ReplayTerminalV2,
+    DiagnosticCategoryV2, ObservationComponentV2, ReconciliationStatusV2, ReplayNamespaceV2,
+    ReplayResultDtoV2, ReplayTerminalV2,
 };
 
 use crate::{
@@ -363,6 +364,31 @@ pub enum IterationDecisionGateV1 {
     },
 }
 
+/// One exact requested-to-consumed Replay binding admitted for R&D interpretation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct IterationInterpretationOwnerBindingV1 {
+    component: ObservationComponentV2,
+    meaning_identity: String,
+    meaning_digest: String,
+    evidence_identity: String,
+    evidence_digest: String,
+}
+
+/// Complete Owner-locked input boundary for the six R&D interpretation dimensions.
+///
+/// It is serialize-only and has no caller-facing constructor. The later Decision composer may
+/// consume it only while retaining the transaction that produced `locked_result`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct IterationInterpretationContextV1 {
+    evidence_cut: IterationDecisionEvidenceCutV1,
+    diagnostic: IterationInterpretationDiagnosticV1,
+    required_dimensions: Vec<IterationDiagnosisDimensionV1>,
+    owner_bindings: Vec<IterationInterpretationOwnerBindingV1>,
+    diagnostic_evidence: IterationInterpretationOwnerBindingV1,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum IterationInterpretationDiagnosticV1 {
@@ -390,10 +416,175 @@ pub enum IterationDecisionErrorV1 {
     ProtectedResultForbidden,
     #[error("locked Result diagnostic census has no admissible R&D interpretation")]
     InvalidDiagnosticCensus,
+    #[error("locked Result did not produce an interpretation-required gate")]
+    InterpretationGateRequired,
+    #[error("locked Result interpretation evidence is unavailable: {0}")]
+    InterpretationEvidenceUnavailable(&'static str),
     #[error("stored R&D Iteration Decision is invalid: {0}")]
     InvalidStoredDecision(&'static str),
     #[error("R&D Iteration Decision encoding is unavailable: {0}")]
     Encoding(String),
+}
+
+#[expect(
+    dead_code,
+    reason = "the same-transaction Decision interpreter is the immediate consumer"
+)]
+pub(crate) fn issue_interpretation_context_v1(
+    gate: IterationDecisionGateV1,
+    locked_result: &LockedExploratoryReplayResultV2,
+) -> Result<IterationInterpretationContextV1, IterationDecisionErrorV1> {
+    issue_interpretation_context_from_result_v1(gate, locked_result.result())
+}
+
+fn issue_interpretation_context_from_result_v1(
+    gate: IterationDecisionGateV1,
+    result: &ReplayResultDtoV2,
+) -> Result<IterationInterpretationContextV1, IterationDecisionErrorV1> {
+    let IterationDecisionGateV1::InterpretationRequired {
+        evidence_cut,
+        diagnostic,
+        required_dimensions,
+    } = gate
+    else {
+        return Err(IterationDecisionErrorV1::InterpretationGateRequired);
+    };
+    let canonical_dimensions = vec![
+        IterationDiagnosisDimensionV1::EvidenceIntegrity,
+        IterationDiagnosisDimensionV1::MechanismValidity,
+        IterationDiagnosisDimensionV1::EconomicViability,
+        IterationDiagnosisDimensionV1::Robustness,
+        IterationDiagnosisDimensionV1::FailureAttribution,
+        IterationDiagnosisDimensionV1::InformationValue,
+    ];
+    if required_dimensions != canonical_dimensions
+        || result.namespace != ReplayNamespaceV2::Exploratory
+        || result.terminal != ReplayTerminalV2::TerminalResult
+        || result.request_identity.as_str() != evidence_cut.request_identity
+        || result.request_meaning_digest.as_str() != evidence_cut.request_digest
+        || result.result_identity.as_str() != evidence_cut.result_identity
+        || result.result_digest.as_str() != evidence_cut.result_digest
+        || result.attempt_identity.as_str() != evidence_cut.attempt_identity
+    {
+        return Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+            "gate and Result do not share one exact evidence cut",
+        ));
+    }
+    let expected_diagnostic = match diagnostic {
+        IterationInterpretationDiagnosticV1::NoExecutionDefect => {
+            DiagnosticCategoryV2::NoExecutionDefect
+        }
+        IterationInterpretationDiagnosticV1::ValidEconomicFailure => {
+            DiagnosticCategoryV2::ValidEconomicFailure
+        }
+    };
+    let [diagnostic_fact] = result.diagnostic_census.as_slice() else {
+        return Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+            "diagnostic census is not the exact singleton selected by the gate",
+        ));
+    };
+    if diagnostic_fact.category != expected_diagnostic
+        || diagnostic_fact.request_identity != result.request_identity
+        || diagnostic_fact.request_meaning_digest != result.request_meaning_digest
+        || diagnostic_fact.attempt_identity != result.attempt_identity
+    {
+        return Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+            "diagnostic evidence is cross-spliced",
+        ));
+    }
+
+    if result.reconciliation.len() != ObservationComponentV2::REQUESTED_MEANING.len() {
+        return Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+            "requested-to-consumed component census is incomplete",
+        ));
+    }
+    let mut owner_bindings =
+        Vec::with_capacity(ObservationComponentV2::REQUESTED_MEANING.len() + 1);
+    for component in ObservationComponentV2::REQUESTED_MEANING {
+        let mut matching = result
+            .reconciliation
+            .iter()
+            .filter(|atom| atom.component == component);
+        let atom =
+            matching
+                .next()
+                .ok_or(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+                    "requested Replay component is missing",
+                ))?;
+        if matching.next().is_some()
+            || atom.status != ReconciliationStatusV2::Exact
+            || atom.observed_meaning_identity.as_ref() != Some(&atom.requested_meaning_identity)
+            || atom.observed_meaning_digest.as_ref() != Some(&atom.requested_meaning_digest)
+        {
+            return Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+                "requested Replay component did not reconcile exactly once",
+            ));
+        }
+        let locator = atom.observation_locator.as_ref().ok_or(
+            IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+                "requested Replay component evidence is missing",
+            ),
+        )?;
+        if locator.component != component {
+            return Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+                "requested Replay component evidence is cross-spliced",
+            ));
+        }
+        owner_bindings.push(IterationInterpretationOwnerBindingV1 {
+            component,
+            meaning_identity: atom.requested_meaning_identity.as_str().to_string(),
+            meaning_digest: atom.requested_meaning_digest.as_str().to_string(),
+            evidence_identity: locator.reference.as_str().to_string(),
+            evidence_digest: locator.digest.as_str().to_string(),
+        });
+    }
+
+    let semantic_trace = result.semantic_trace.as_ref().ok_or(
+        IterationDecisionErrorV1::InterpretationEvidenceUnavailable("semantic trace is missing"),
+    )?;
+    if semantic_trace.component != ObservationComponentV2::SemanticTrace
+        || semantic_trace.locator.component != ObservationComponentV2::SemanticTrace
+        || semantic_trace.request_identity != result.request_identity
+        || semantic_trace.request_meaning_digest != result.request_meaning_digest
+        || semantic_trace.attempt_identity != result.attempt_identity
+    {
+        return Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+            "semantic trace is cross-spliced",
+        ));
+    }
+    owner_bindings.push(IterationInterpretationOwnerBindingV1 {
+        component: ObservationComponentV2::SemanticTrace,
+        meaning_identity: semantic_trace
+            .observed_meaning_identity
+            .as_str()
+            .to_string(),
+        meaning_digest: semantic_trace.observed_meaning_digest.as_str().to_string(),
+        evidence_identity: semantic_trace.locator.reference.as_str().to_string(),
+        evidence_digest: semantic_trace.locator.digest.as_str().to_string(),
+    });
+    let diagnostic_evidence = IterationInterpretationOwnerBindingV1 {
+        component: diagnostic_fact.decisive_evidence.component,
+        meaning_identity: result.result_identity.as_str().to_string(),
+        meaning_digest: result.result_digest.as_str().to_string(),
+        evidence_identity: diagnostic_fact
+            .decisive_evidence
+            .reference
+            .as_str()
+            .to_string(),
+        evidence_digest: diagnostic_fact
+            .decisive_evidence
+            .digest
+            .as_str()
+            .to_string(),
+    };
+
+    Ok(IterationInterpretationContextV1 {
+        evidence_cut,
+        diagnostic,
+        required_dimensions,
+        owner_bindings,
+        diagnostic_evidence,
+    })
 }
 
 pub(crate) fn issue_repair_input_decision_v1(
@@ -719,8 +910,9 @@ const fn repair_target(category: IterationRepairCategoryV1) -> IterationRepairTa
 #[cfg(test)]
 mod tests {
     use vibe_backtest_owner_contracts::{
-        CanonicalDigestV2, ComponentObservationLocatorV2, DiagnosticEvidenceDtoV2,
-        ObservationComponentV2, OpaqueIdentityV2, ReplayAuthorityClaimV2,
+        CanonicalDigestV2, ComponentObservationLocatorV2, ConsumedComponentObservationDtoV2,
+        DiagnosticEvidenceDtoV2, ObservationComponentV2, OpaqueIdentityV2, ReconciliationAtomDtoV2,
+        ReconciliationStatusV2, ReplayAuthorityClaimV2,
     };
 
     use super::*;
@@ -843,6 +1035,45 @@ mod tests {
         }
     }
 
+    fn interpretation_result(category: DiagnosticCategoryV2) -> ReplayResultDtoV2 {
+        let mut result = result(ReplayTerminalV2::TerminalResult, &[category]);
+        result.reconciliation = ObservationComponentV2::REQUESTED_MEANING
+            .into_iter()
+            .enumerate()
+            .map(|(index, component)| {
+                let meaning_identity = identity(&format!("meaning-{index}"));
+                let meaning_digest = digest("blake3", '6');
+                ReconciliationAtomDtoV2 {
+                    component,
+                    requested_meaning_identity: meaning_identity.clone(),
+                    requested_meaning_digest: meaning_digest.clone(),
+                    observed_meaning_identity: Some(meaning_identity),
+                    observed_meaning_digest: Some(meaning_digest),
+                    observation_locator: Some(ComponentObservationLocatorV2 {
+                        component,
+                        reference: identity(&format!("evidence-{index}")),
+                        digest: digest("blake3", '7'),
+                    }),
+                    status: ReconciliationStatusV2::Exact,
+                }
+            })
+            .collect();
+        result.semantic_trace = Some(ConsumedComponentObservationDtoV2 {
+            request_identity: result.request_identity.clone(),
+            request_meaning_digest: result.request_meaning_digest.clone(),
+            attempt_identity: result.attempt_identity.clone(),
+            component: ObservationComponentV2::SemanticTrace,
+            locator: ComponentObservationLocatorV2 {
+                component: ObservationComponentV2::SemanticTrace,
+                reference: identity("semantic-trace-evidence"),
+                digest: digest("blake3", '8'),
+            },
+            observed_meaning_identity: identity("semantic-trace-meaning"),
+            observed_meaning_digest: digest("blake3", '9'),
+        });
+        result
+    }
+
     #[test]
     fn defect_diagnosis_preserves_all_categories_and_applies_frozen_precedence() {
         let census = census(TrialFamilyAttemptTerminalDispositionV2::TerminalResult);
@@ -899,6 +1130,67 @@ mod tests {
             IterationInterpretationDiagnosticV1::ValidEconomicFailure
         );
         assert_eq!(required_dimensions.len(), 6);
+    }
+
+    #[test]
+    fn interpretation_context_binds_the_complete_owner_locked_result_cut() {
+        let census = census(TrialFamilyAttemptTerminalDispositionV2::TerminalResult);
+        let result = interpretation_result(DiagnosticCategoryV2::NoExecutionDefect);
+        let gate = gate_result(&census, &result, &decision_policy()).expect("interpretation gate");
+
+        let context =
+            issue_interpretation_context_from_result_v1(gate, &result).expect("complete context");
+
+        assert_eq!(context.required_dimensions.len(), 6);
+        assert_eq!(
+            context.owner_bindings.len(),
+            ObservationComponentV2::REQUESTED_MEANING.len() + 1
+        );
+        assert_eq!(
+            context
+                .owner_bindings
+                .last()
+                .map(|binding| binding.component),
+            Some(ObservationComponentV2::SemanticTrace)
+        );
+        assert_eq!(
+            context.diagnostic_evidence.component,
+            ObservationComponentV2::SemanticTrace
+        );
+    }
+
+    #[test]
+    fn duplicate_or_missing_replay_component_creates_no_interpretation_context() {
+        let census = census(TrialFamilyAttemptTerminalDispositionV2::TerminalResult);
+        let mut result = interpretation_result(DiagnosticCategoryV2::ValidEconomicFailure);
+        let gate = gate_result(&census, &result, &decision_policy()).expect("interpretation gate");
+        result.reconciliation[1].component = result.reconciliation[0].component;
+
+        assert!(matches!(
+            issue_interpretation_context_from_result_v1(gate, &result),
+            Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+                _
+            ))
+        ));
+    }
+
+    #[test]
+    fn cross_spliced_semantic_trace_creates_no_interpretation_context() {
+        let census = census(TrialFamilyAttemptTerminalDispositionV2::TerminalResult);
+        let mut result = interpretation_result(DiagnosticCategoryV2::NoExecutionDefect);
+        let gate = gate_result(&census, &result, &decision_policy()).expect("interpretation gate");
+        result
+            .semantic_trace
+            .as_mut()
+            .expect("semantic trace")
+            .request_identity = identity("another-request");
+
+        assert!(matches!(
+            issue_interpretation_context_from_result_v1(gate, &result),
+            Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+                _
+            ))
+        ));
     }
 
     #[test]
