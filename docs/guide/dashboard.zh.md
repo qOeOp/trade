@@ -1,5 +1,31 @@
 # Trade Dashboard
 
+## 有界准入：本地 Operator 浏览器会话
+
+用户准入一个第一方本地 Operator 会话壳与只读 `/settings/access` surface，状态为
+`DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED`。此窄切片只替换无行为的登录展示，不准入 OAuth、账号创建、
+密码导入、transport token 签发、Operator Authorization 或 Product Edge binding 修改、authorization
+successor 选择、通用角色管理产品以及任何 Owner/provider effect。Windmill routing 与
+`DASHBOARD_OPERATOR_API_TOKEN` 保持不变。
+
+`DASHBOARD_LOCAL_OPERATOR_LOGIN_TOKEN` 只用于证明可以创建或续期浏览器会话；
+`DASHBOARD_SESSION_HMAC_KEY` 为版本化 cookie 签名。cookie 只包含固定 `local_operator` principal、随机
+session identity、登录凭据摘要、签发时间与过期时间。两项 secret 都必须为 32-4096 UTF-8 bytes。cookie
+固定 HttpOnly、SameSite=Strict、path `/`、八小时有限有效期，并在 HTTPS 请求下启用 Secure；不得写入
+local/session storage，也不得由 API 暴露。轮换任一 secret 都会使旧会话失效。登录凭据不能满足 effect
+endpoint；已准入 effect 仍独立要求自己的 bearer capability。
+
+Next proxy 保护所有 Dashboard 页面与 API，只排除 `/login`、`/api/auth/session`、静态资源及不返回业务
+数据的 `/api/health` 存活端点；Dashboard layout 再执行一次页面防护。配置缺失时 fail closed 为
+`configuration_unavailable`；会话缺失、非法或过期分别为 `required`、`invalid`、`expired`，且不保留旧正向
+状态。页面请求跳转登录页并只携带已清洗的本地 return path；API 返回 401，配置不可用时返回 503。会话创建
+仅接受 same-origin JSON，删除同样要求 same-origin；非法、过期与已删除 cookie 必须清除。
+
+`/settings/access` 只读取当前 principal、session identity、上次重新认证与过期时间。Transport token、
+Operator Authorization、Product Edge readiness 与 successor 区域保持可见 unavailable，不提供修改控件或
+secret value。动态验收覆盖配置不可用、无 cookie 的页面/API、错误凭据、cookie 属性、认证后页面/API、
+篡改、过期与登出。固定本地预览端口只有在隔离验收通过且两个 session secret 已配置后才可替换监听。
+
 ## 有界准入：只读影子调度日历
 
 用户准入 `/operations/schedules` 为 `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED`，仅覆盖第一方
@@ -171,6 +197,29 @@ Intake、创建 successor、获取 source content、调用 provider、mutate Win
 交易。route registry 中更广的 composer、TrialFamily policy、authority-resolution、draft-source 与正向
 action panel 仍是未来 blueprint，不能被推断进本工作台。
 
+## 有界准入：Source 到 Research typed control
+
+`SourceResearchControl` 是 `/rd/intake/new` 的独立 mutation surface；`/rd` 继续保持上文精确 zero-effect
+回读工作台。该 control 只接受公开 `SourceIntakeExecutionInputV1` 与 `ResearchGoalExecutionInputV2` 字段：
+两个生成后不可变的 request identity、normalized DOI、有界 interpretation、可证伪 goal、required-data list、
+cost/capacity assumption 与完整 TrialFamily proposal。它不从 Source custody 反向拼装这些字段，不暴露 Owner
+内部字段，也不接收 raw JSON。三个内容区复用 `DetailInspector`、`FormField`、`Input` 与 `Textarea` 原子；
+action 区复用 `ActionAdmissionGate` 和标准 compact button variant。
+
+client 与 server 导入同一份 pure input validator。plausible alternatives 在校验前规范成唯一 UTF-8 byte order；
+required data 保留输入顺序。`RUN` 在 dispatch 开始时冻结完整 request 并清空 operator access。terminal bounded
+Owner projection 链接到精确 Research 与 Run 回读。malformed response、transport loss 或 nonterminal
+operational run 统一变成 `SUBMITTED_OR_UNKNOWN`，且只开放携带冻结 Source/Research identity 与 payload 的
+`RESOLVE`；不存在 retry 或 replacement identity。只有 server 明确返回无 RunStore identity 的 unavailable
+响应才会释放 draft 供修正与 revalidation，因为它证明 run 尚未开始。operator access 只保存在 React state，
+绝不持久化、进入 URL、写 log 或在 dispatch 后渲染。
+
+该 route 在授权 B 下是 `IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`。它只调用现有精确
+`POST /api/rd/source-research` BFF；availability 仍必须同时满足 disposable enablement、content-addressed
+compatibility、RunStore 与两个唯一 `ACTIVE / TRADE_DASHBOARD` Product Edge binding。该 route 不修改任何
+binding，不调用 production Owner/provider，不修改 Windmill，不授权交易，也不建立 publication 或 production
+cutover。
+
 ## 有界准入：Develop Composer 精确回读工作台
 
 `DevelopComposerReadbackWorkbench` 是 `/rd/composer` 的精确 `P` surface。它只对一个已提交的 Develop
@@ -203,7 +252,7 @@ viewer。Artifact source 仍只能通过已单独准入、带精确 Artifact sou
 Artifact locator 转换成这些 identities。本切片不能 mutate Windmill、写 business state、调用 provider 或
 授权交易。更广的 Intake composer 与 authority-resolution panel 仍是未来 blueprint。
 
-## 有界准入：已验证 Research 目录
+## 有界准入：已验证 Research 目录与精确回读
 
 `ResearchDirectory` 是 `/rd/research` 的精确 `P` surface。route 使用一个全宽 `PanelFrame`，不为无内容的
 detail column 预留空间。frame header 包含 eyebrow、title、单行 purpose 与一个 `Refresh` action。body
@@ -226,6 +275,23 @@ cut 明确标为 partial。任何 malformed 或跨读变化的 candidate 都使�
 request identity、custody time 与精确的 `POINT_READ_REQUIRED` state，不暴露 request meaning、disposition、
 availability、receipt、authority，也不判断 current/legacy；超限必须显式 truncated。
 
+verified Research directory、Research exact readback、Artifact exact readback、Source Intake exact readback、
+Develop Composer exact readback 与 Exploratory Replay V2 exact point-read GET 由统一的
+`strategy-factory-rd-dashboard-read-api` 打包。这个第一方 Dashboard reader 还承载 Artifact directory 与 source
+GET，但其 state 仍按域分别持有 typed `ResearchDirectoryOwnerPort`、`ResearchReadbackOwnerPortV1`、
+`ArtifactDirectoryOwnerPort`、`ArtifactReadbackOwnerPortV1`、`ArtifactSourceOwnerPort`、
+`SourceIntakeReadbackOwnerPort` 与
+`DevelopComposerReadbackOwnerPortV2`、`ExploratoryReplayReadbackOwnerPortV2`，不把业务边界合并为一个通用
+repository。router 只暴露 `/health` 及这八个已准入 GET。Dashboard 通过必须原子成对配置的
+`RD_DASHBOARD_OWNER_READ_API_URL` 与 `RD_DASHBOARD_OWNER_READ_API_TOKEN` 绑定；只配置一半时必须 fail closed，
+不能借用 write API credential。adapter 复用 canonical locking verifier，不暴露 submit、resolve、sandbox 或
+mutation port。Source Intake adapter 还必须绑定只读 Product Edge admission port 与现有 request-proof digest，
+才能投影 terminal custody；内部配置缺失或不兼容时只禁用这一条 route。Composer 通过自己的 typed read port
+接入同一 reader，不增加按域容器；其 adapter 只持有 `rd_owner` read pool，复用现有 sealed routine 与当前
+Research/Market evidence 校验，不持有 fact-writer pool 或任何 mutation method。
+Replay 通过独立的 Dashboard typed point-read port 委托既有 sealed Replay V2 read port；其 adapter 只持有同一
+`rd_owner` read pool，不装配旧 write Owner composition root，也不暴露 identify、submit、resolve、run 或 result。
+
 browser 只接收 request identity、可选 intent identity、accepted 或 rejected-no-write disposition、accepted
 时的当前 Research-view availability/phase，以及 committed time。rejected-no-write row 不会编造 intent 或
 view。Research goal 正文、sources、principal、policy、authorization、raw receipt、TrialFamily payload、
@@ -233,10 +299,35 @@ ancestry 与 storage 字段全部隐藏。未知 wire key、矛盾 disposition/v
 错误 completeness/count、超限 response、transport failure 或缺失 configuration 全部 fail closed 为
 `unavailable`。
 
-唯一 action 是 `Refresh`、切换本地 directory view、local search/sort/pagination 与 `Load older`。本切片没有
-detail link，且不能
-Submit 或 Resolve Research request、创建 successor、build/run Artifact、调用 provider、mutate Windmill、
-写 business state 或授权交易。route registry 中更广的 selected-request detail 与 action panel 仍属于未来蓝图。
+已验证目录 row 链接到 identity-bound `/rd/research/{requestIdentity}` route。详情 route 使用一个
+`PanelFrame`：heading 与右对齐的 `Back to requests`、`Refresh` 和技术信息控件直接位于 frame surface，
+其后只有一个 inset body。accepted 与 rejected outcome 复用共享 `FactGroup` 原子，并固定按 `Outcome`、
+`Intent`、`Timing` 排列。label 与 value 全部左对齐，value 只使用一套排版比例，状态语义只由
+`StatusBadge` 承担；长 identity 仅在视觉上截断，同时保留完整可选择内容和 title。receipt identity、
+projection identity、source cut 与 TrialFamily identity 收进技术信息控件，不散落为解释短句。已验证的
+`SUBMITTED_OR_UNKNOWN` 回读保留同一 frame，但用一个有界 empty state 替代 fact group；identity 无效、
+configuration failure、permission denied、Owner response malformed/oversized、identity drift 或 transport
+failure 都会清除旧内容并展示一个保持形状的 unavailable state。
+
+在下文"第一方 effect custody 准入（授权 B）"闭合 disposable runtime 动态 gate 后，accepted Research
+详情只在 Owner 投影精确为 `AVAILABLE / INTENT_FROZEN / WAIT_FOR_R_AND_D_EXECUTION` 时，于同一 inset body
+追加共享 `ActionAdmissionGate`。该紧凑控件复用 `DetailInspector`、`Input`、`Button` 与 `StatusBadge` 原子；
+operator access 只保存在当前 browser state，不进入 URL、HTML、日志或持久化存储。`Check & Run` 先调用
+`POST /api/rd/artifacts/formations/preflight` 并进入可取消的 `PREFLIGHTING`；只有精确 `READY` 才生成并保留
+同一组 deterministic build/attempt recovery identity，随后调用 `POST /api/rd/artifacts/formations` 并进入
+不可取消的 `ADMITTING`。preflight 的取消、transport failure、malformed response 或 non-ready 结果进入
+`REVALIDATION_REQUIRED`，且不展示 attempt Resolve。dispatch 后任何 unavailable、malformed response 或
+transport ambiguity 都进入 `SUBMITTED_OR_UNKNOWN`，只允许用保留的 exact build/attempt identity 执行
+`RESOLVE`；绝不创建 replacement identity 或提供裸 retry。
+
+Dashboard GET `/api/rd/research/{requestIdentity}` 绑定 path identity，并复用已注册的
+`research_goal.shadow_resolve.v1` Owner GET `/v2/research-goals/{request_identity}/readback`。BFF 只返回已验证
+outcome、可选 current Research view、committed/observed/valid-through 时间，以及上述有界技术 identity；
+它不接受 request body，也不排入 RunStore read。除上一段由 Authorization B 单独准入的 disposable Artifact
+formation control 外，`Refresh`、目录 view/search/sort/pagination、`Load older`、`Open detail` 与本地返回是
+唯一 action。该例外不改变 Windmill binding，不授权 production Owner/provider write、production cutover、
+Windmill removal 或 trading，也不增加通用 Submit 或 create-successor；route registry 中更广的 Research admission、outcome action、receipt timeline
+与 S1 custody panel 仍属于未来蓝图。
 
 ## 有界准入：已验证 Artifact 目录
 
@@ -264,11 +355,26 @@ custody time 及唯一 state `POINT_READ_REQUIRED`。count 只是 custody index 
 valid binding 数量；不得推断 Artifact outcome、binding validity、current authority，也不暴露 raw receipt、
 payload 或 storage 字段。
 
+verified directory、精确 readback 与精确 source GET 由上述统一的 `strategy-factory-rd-dashboard-read-api`
+打包；Artifact state 只持有 typed `ArtifactDirectoryOwnerPort`、`ArtifactReadbackOwnerPortV1` 与
+`ArtifactSourceOwnerPort`，不持有 sandbox 或任何 Artifact mutation port。精确 readback GET 复用 verified
+attempt custody 投影当前结果，但绝不调用 `ArtifactBuildOwnerPort::resolve`；它不能终态化过期 attempt、提交
+Building candidate、drain legacy custody、调用 provider 或写入业务状态。PostgreSQL adapter 保持普通
+read-committed locking reader，因为 canonical verifier 需要 `FOR SHARE`；若
+改成 read-only transaction，PostgreSQL 会直接拒绝 verifier 本身。Dashboard 通过同一个必须成对配置的
+`RD_DASHBOARD_OWNER_READ_API_URL` 与 `RD_DASHBOARD_OWNER_READ_API_TOKEN` 绑定；只配置其中一项时必须 fail closed，
+绝不能借用 write API 的另一半 credential。
+
 唯一 action 是 `Refresh`、切换本地 directory/kind view、local search/sort/pagination、`Load older` 与打开一个
 精确 verified Artifact。目录不 submit
 或 resolve attempt，不 build source，不运行 sandbox/Wasm module，不调用 provider，不 mutate Windmill，不写
 business state，也不授权交易。关联 source viewer 的 `WASM_PREVIEW_NOT_RUN` 保持不变，直到另一个真实
 Owner-backed preview contract 被单独准入。
+
+认证 GET `/v1/artifact-builds/{build_request_identity}/attempts/{attempt_identity}/readback` 只作为无 effect 的
+`artifact_build.shadow_resolve.v1` operational read 的精确 Owner-outcome 来源而获准。RunStore 记录 replacement
+read 前，它保留既有严格 Research dependency 与 Artifact result verification。它不准入下方更广泛的 Artifact
+detail outcome、action、review、binding、replay 或 security panel。
 
 本章是 Trade 自有 Dashboard 的滚动实现与分阶段准入合同，定义产品外壳、信息架构、可复用 UI 系统，
 以及当前有证据支持的 Windmill 最小替代能力假设。用户已显式准入严格受本章精确合同约束的 Dashboard
@@ -830,20 +936,20 @@ capability 或业务 container bridge attachment 时一律 fail close。隔离�
 只是设计证据：不证明 default deployment、Dashboard implementation、provider/network execution、production
 write 或 trading authority。
 
-| 原生表面 / 当前 backend                    | 精确已观察状态                                                                                                                                            | Dashboard route 与固定 UI                                                                                                                                                                                                                | 替代 service/store 与 disposition                                                                                                                                                                                                                                                                           |
-| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Home / App 与 script catalog               | 一个 Raw App `f/trade/rd_workbench`；当前 TrialFamily sync 部署 S1 V2 research 与 S2 Artifact operation，但已归档 remote S3 replay entry                  | Domain route 拥有四阶段 journey；Backtest route 保留但渲染 `DEPLOYMENT_UNAVAILABLE`；没有通用 Home catalog                                                                                                                               | Versioned `OperationRegistry` 加 `available/archived/unavailable` deployment state 与内建 frontend route；archive 禁止派发但不删除 Owner history。`KEEP_SEMANTICS`，排除任意 catalog                                                                                                                        |
-| Runs / `v2_job*`                           | UI 显示 53 个用户可见 job；数据库有 88 行，其中 34 个是 App dependency job。真实 path 使用 App/webhook trigger 与 `rd-product-edge` tag                   | Operations / Runs：status segment；schedule/future toggle 只有准入后才显示；search、duration/concurrency filter、auto‑refresh、path/trigger/tag column、date group、pagination                                                           | `RunStore` + `DispatcherReadModel`；带 TTL 的 durable operational metadata、显式 dependency kind，只按 identity join Owner outcome                                                                                                                                                                          |
-| Run Detail / completed job 加 result API   | 成功 replay 显示 received/started time、duration、worker、run ID、5 MB peak、script hash/language、App trigger、exact input、JSON result 与 Owner receipt | `/operations/runs/:runId`；breadcrumb 为 Back to Runs，header action 依次是 Copy locator、Refresh、条件式 Cancel queued dependency、Resolve same identity、Download bounded result/log。排除 `Run again`、Share、Edit 与任意 script link | `RunDetailProjection`；schema allowlist 限定的 immutable input 与 bounded result projection、exact‑run worker compatibility、固定 operational cancellation receipt readback、显式 withheld/redacted disclosure、timing/resource metadata 与 Owner receipt reference；无 raw payload fallback 或业务 custody |
-| Run Logs / `job_logs` 加 worker log volume | 86 行 log；精确 run 提供 download endpoint、auto‑scroll、job/tag/worker/host/isolation header 与有界 text                                                 | Run Detail `Logs` tab：search、level/source chip、auto‑scroll switch、download bounded log、line viewport、truncation/retention notice                                                                                                   | `BoundedRunLogStore`；append‑only chunk、byte/age limit、redaction、correlation、TTL；MCP read scope 只能暴露 exact admitted run                                                                                                                                                                            |
-| Run Metrics                                | 已观察 74 ms run 明示无 metric，因为 500 ms 后才采集                                                                                                      | Run Detail `Metrics` tab 固定几何；显示 `NotCollected`、`Unavailable` 或 time‑series，绝不伪造零值                                                                                                                                       | 延后 `RunMetricProjection`；出现 non‑empty consumer evidence 前为 `CURRENTLY_EXCLUDE_BACKEND`                                                                                                                                                                                                               |
-| Run Traces                                 | 已观察 run 明示没有 HTTP request capture，或 tracing 未启用                                                                                               | Run Detail `Traces` tab：显式 not‑captured reason，不显示空成功图                                                                                                                                                                        | 延后 `RunTraceProjection`；`CURRENTLY_EXCLUDE_BACKEND`                                                                                                                                                                                                                                                      |
-| Run Assets                                 | 已观察 run 显示 `No assets found`；workspace asset count 为零                                                                                             | Run Detail `Assets` tab：只显示显式 empty state；无全局 Assets route                                                                                                                                                                     | 当前无 store。未来 entry 只能是可丢弃 operational attachment，指向但不替代 Owner Artifact custody                                                                                                                                                                                                           |
-| Workers / `worker_ping`                    | 一个 live `rd-product-edge` worker，version `1.791.0`，可见 job count、last‑job link、memory、status、tag；其他 group 为零                                | Operations / Workers：group chip、search、worker table、selected‑worker panel、last‑run link。只读 action 为 Refresh 与 Open last run                                                                                                    | `WorkerLeaseStore` + heartbeat；保留 identity/group/tag/version/start/last‑run/occupancy/memory、lease liveness 与 registered capability。Exact‑run readiness 只存在于 Run Detail。分别准入前排除 create config、cache clean、restart、REPL、autoscaling UI                                                 |
-| Service Logs / server 与 worker log        | Auto‑refresh 页面列出 worker group 与 server host、time range、error‑only filter、service/host selector                                                   | Operations / Service Logs：time range、service、instance、severity、search、auto‑refresh、有界 log viewport                                                                                                                              | `ServiceLogGateway`；只读、redacted、retention‑bounded。它是 operational evidence，不是 Owner health 或 telemetry backend                                                                                                                                                                                   |
-| Audit Logs / partitioned audit table       | 已存在认证 execute/update/create/delete record；CE 暴露 ID、time、principal、operation，隐藏 resource detail                                              | Operations / Audit：time/principal/operation/outcome filter、audit table、selected correlation panel；无修改按钮                                                                                                                         | `OperationAuditStore`；append‑only Dashboard/Product Edge control‑plane event，含 exact target/correlation/outcome。Owner business event 仍由 Owner/Event Rail custody                                                                                                                                      |
-| Workspace/folder/auth                      | `trade` folder 包含三个 script 与一个 App，owner 为 `u/admin`；workspace 与 scoped token 限定 access                                                      | 只保留 installation profile 与 Access settings；无 workspace/folder administration route                                                                                                                                                 | `LocalSession` + `CapabilityManifest` + narrow token issuer；单 installation、单 operator profile、exact operation scope                                                                                                                                                                                    |
-| Variables、Resources、全局 Assets、通用 Schedules | `trade-rd` count 为 0/0/0/0。Compose 向 worker 注入 allowlisted environment；禁止 Data Table 与 frontend SDK access                              | 这些 Windmill store 不设产品 tab。Settings 接收 opaque runtime reference；另行准入的第一方有界影子调度位于 Operations / Schedules                                                                                                          | 排除 Windmill 通用 store。`/operations/schedules` 只使用上文定义的 typed zero-effect `configuredShadowScheduleSetV1` + RunStore contract                                                                                                                              |
+| 原生表面 / 当前 backend                           | 精确已观察状态                                                                                                                                            | Dashboard route 与固定 UI                                                                                                                                                                                                                | 替代 service/store 与 disposition                                                                                                                                                                                                                                                                           |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Home / App 与 script catalog                      | 一个 Raw App `f/trade/rd_workbench`；当前 TrialFamily sync 部署 S1 V2 research 与 S2 Artifact operation，但已归档 remote S3 replay entry                  | Domain route 拥有四阶段 journey；Backtest route 保留但渲染 `DEPLOYMENT_UNAVAILABLE`；没有通用 Home catalog                                                                                                                               | Versioned `OperationRegistry` 加 `available/archived/unavailable` deployment state 与内建 frontend route；archive 禁止派发但不删除 Owner history。`KEEP_SEMANTICS`，排除任意 catalog                                                                                                                        |
+| Runs / `v2_job*`                                  | UI 显示 53 个用户可见 job；数据库有 88 行，其中 34 个是 App dependency job。真实 path 使用 App/webhook trigger 与 `rd-product-edge` tag                   | Operations / Runs：status segment；schedule/future toggle 只有准入后才显示；search、duration/concurrency filter、auto‑refresh、path/trigger/tag column、date group、pagination                                                           | `RunStore` + `DispatcherReadModel`；带 TTL 的 durable operational metadata、显式 dependency kind，只按 identity join Owner outcome                                                                                                                                                                          |
+| Run Detail / completed job 加 result API          | 成功 replay 显示 received/started time、duration、worker、run ID、5 MB peak、script hash/language、App trigger、exact input、JSON result 与 Owner receipt | `/operations/runs/:runId`；breadcrumb 为 Back to Runs，header action 依次是 Copy locator、Refresh、条件式 Cancel queued dependency、Resolve same identity、Download bounded result/log。排除 `Run again`、Share、Edit 与任意 script link | `RunDetailProjection`；schema allowlist 限定的 immutable input 与 bounded result projection、exact‑run worker compatibility、固定 operational cancellation receipt readback、显式 withheld/redacted disclosure、timing/resource metadata 与 Owner receipt reference；无 raw payload fallback 或业务 custody |
+| Run Logs / `job_logs` 加 worker log volume        | 86 行 log；精确 run 提供 download endpoint、auto‑scroll、job/tag/worker/host/isolation header 与有界 text                                                 | Run Detail `Logs` tab：search、level/source chip、auto‑scroll switch、download bounded log、line viewport、truncation/retention notice                                                                                                   | `BoundedRunLogStore`；append‑only chunk、byte/age limit、redaction、correlation、TTL；MCP read scope 只能暴露 exact admitted run                                                                                                                                                                            |
+| Run Metrics                                       | 已观察 74 ms run 明示无 metric，因为 500 ms 后才采集                                                                                                      | Run Detail `Metrics` tab 固定几何；显示 `NotCollected`、`Unavailable` 或 time‑series，绝不伪造零值                                                                                                                                       | 延后 `RunMetricProjection`；出现 non‑empty consumer evidence 前为 `CURRENTLY_EXCLUDE_BACKEND`                                                                                                                                                                                                               |
+| Run Traces                                        | 已观察 run 明示没有 HTTP request capture，或 tracing 未启用                                                                                               | Run Detail `Traces` tab：显式 not‑captured reason，不显示空成功图                                                                                                                                                                        | 延后 `RunTraceProjection`；`CURRENTLY_EXCLUDE_BACKEND`                                                                                                                                                                                                                                                      |
+| Run Assets                                        | 已观察 run 显示 `No assets found`；workspace asset count 为零                                                                                             | Run Detail `Assets` tab：只显示显式 empty state；无全局 Assets route                                                                                                                                                                     | 当前无 store。未来 entry 只能是可丢弃 operational attachment，指向但不替代 Owner Artifact custody                                                                                                                                                                                                           |
+| Workers / `worker_ping`                           | 一个 live `rd-product-edge` worker，version `1.791.0`，可见 job count、last‑job link、memory、status、tag；其他 group 为零                                | Operations / Workers：group chip、search、worker table、selected‑worker panel、last‑run link。只读 action 为 Refresh 与 Open last run                                                                                                    | `WorkerLeaseStore` + heartbeat；保留 identity/group/tag/version/start/last‑run/occupancy/memory、lease liveness 与 registered capability。Exact‑run readiness 只存在于 Run Detail。分别准入前排除 create config、cache clean、restart、REPL、autoscaling UI                                                 |
+| Service Logs / server 与 worker log               | Auto‑refresh 页面列出 worker group 与 server host、time range、error‑only filter、service/host selector                                                   | Operations / Service Logs：time range、service、instance、severity、search、auto‑refresh、有界 log viewport                                                                                                                              | `ServiceLogGateway`；只读、redacted、retention‑bounded。它是 operational evidence，不是 Owner health 或 telemetry backend                                                                                                                                                                                   |
+| Audit Logs / partitioned audit table              | 已存在认证 execute/update/create/delete record；CE 暴露 ID、time、principal、operation，隐藏 resource detail                                              | Operations / Audit：time/principal/operation/outcome filter、audit table、selected correlation panel；无修改按钮                                                                                                                         | `OperationAuditStore`；append‑only Dashboard/Product Edge control‑plane event，含 exact target/correlation/outcome。Owner business event 仍由 Owner/Event Rail custody                                                                                                                                      |
+| Workspace/folder/auth                             | `trade` folder 包含三个 script 与一个 App，owner 为 `u/admin`；workspace 与 scoped token 限定 access                                                      | 只保留 installation profile 与 Access settings；无 workspace/folder administration route                                                                                                                                                 | `LocalSession` + `CapabilityManifest` + narrow token issuer；单 installation、单 operator profile、exact operation scope                                                                                                                                                                                    |
+| Variables、Resources、全局 Assets、通用 Schedules | `trade-rd` count 为 0/0/0/0。Compose 向 worker 注入 allowlisted environment；禁止 Data Table 与 frontend SDK access                                       | 这些 Windmill store 不设产品 tab。Settings 接收 opaque runtime reference；另行准入的第一方有界影子调度位于 Operations / Schedules                                                                                                        | 排除 Windmill 通用 store。`/operations/schedules` 只使用上文定义的 typed zero‑effect `configuredShadowScheduleSetV1` + RunStore contract                                                                                                                                                                    |
 
 原生 `bun` runtime 只是三个 pinned script 的实现细节，不是用户可选 runtime catalog。PostgreSQL 保存
 Windmill operational state；独立 R&D/Backtest Owner database/API 保存业务事实。即使所有服务随同一 image set
@@ -970,21 +1076,21 @@ Top bar 按顺序分成四区：
    打开 route 或准备已准入类型化请求。
 4. **Notifications** - unread count 与 alert drawer。Delivery 不是 Owner outcome 或 acknowledgement。
 
-| 模块          | Tab 顺序                                                          |
-| ------------- | ----------------------------------------------------------------- |
-| Overview      | Status, Attention, Recent, Evidence                               |
-| R&D           | Intake, Research, Hypotheses, Artifacts, Decisions                |
-| Backtest      | Exploratory, Compare, Diagnostics                                 |
-| Qualification | Intake, Outcomes, Eligibility                                     |
-| Scanner       | Schedules, Runs, Proposals                                        |
-| Strategy      | Registry, Lifecycle, Allocations                                  |
-| Runtime       | Instances, Generations, Checkpoints, Incidents                    |
-| Portfolio     | Performance, Exposure, Capacity, Attribution                      |
-| Risk          | Decisions, Reservations, Claims & Admission, Fences               |
-| Execution     | Attempts, Orders, Fills, Reconciliation, Recovery                 |
-| Data          | Sources, PIT Catalog, Quality, Freshness                          |
+| 模块          | Tab 顺序                                                                     |
+| ------------- | ---------------------------------------------------------------------------- |
+| Overview      | Status, Attention, Recent, Evidence                                          |
+| R&D           | Intake, Research, Hypotheses, Artifacts, Decisions                           |
+| Backtest      | Exploratory, Compare, Diagnostics                                            |
+| Qualification | Intake, Outcomes, Eligibility                                                |
+| Scanner       | Schedules, Runs, Proposals                                                   |
+| Strategy      | Registry, Lifecycle, Allocations                                             |
+| Runtime       | Instances, Generations, Checkpoints, Incidents                               |
+| Portfolio     | Performance, Exposure, Capacity, Attribution                                 |
+| Risk          | Decisions, Reservations, Claims & Admission, Fences                          |
+| Execution     | Attempts, Orders, Fills, Reconciliation, Recovery                            |
+| Data          | Sources, PIT Catalog, Quality, Freshness                                     |
 | Operations    | Runs, Workers, Schedules, Service Logs, Audit, Event Rail, Telemetry, Alerts |
-| Settings      | Data Sources, Agents, Notifications, Access                       |
+| Settings      | Data Sources, Agents, Notifications, Access                                  |
 
 窄屏中 tape 收缩为 status button，tab 横向滚动，rail 变 drawer。顺序、route identity 与 authority label 不变。
 
@@ -1469,11 +1575,20 @@ trading effect。Log 不能升级 Owner health、business success、未绑定 ru
 `/operations/audit` 只对本节定义的第一方 append-only control-plane evidence 标记为
 `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED`。它绝不把 Windmill partitioned table 作为第一方 positive source：
 当前已观察 Windmill row 只暴露 principal、time 与 action kind，operation 和 resource 都是 `redacted`。
-它们可以继续作为外部 migration evidence，但不能伪造 target、outcome 或 Dashboard audit identity。第一批
-准入 producer 严格限定为成功的 `dashboard.dependency.cancel.queued.v1` 与
-`dashboard.operational_cache.delete.v1` transition。每条 audit event 必须与 immutable action receipt 在同一
-serializable PostgreSQL transaction 中插入；audit insert 缺失或被拒绝时整个 action rollback。本切面不推断、
-不写入 Owner、provider、deployment、scheduler、Windmill 或 trading event。
+它们可以继续作为外部 migration evidence，但不能伪造 target、outcome 或 Dashboard audit identity。准入
+producer 严格限定为成功的 `dashboard.dependency.cancel.queued.v1`、
+`dashboard.operational_cache.delete.v1` transition，以及经过认证的
+`source_intake.research.submit_or_resolve.v1` 与 `artifact_build.formation_execute.v1` 控制面准入。
+Cancellation/deletion 的 audit event 必须与 immutable action receipt 在同一 serializable PostgreSQL
+transaction 中插入。Source-to-Research/Artifact request 则必须在任何 Owner/provider call 之前，于同一个
+RunStore begin transaction 中同时插入 typed `dashboard-control-plane-admission-v1-*` receipt 与 audit event；
+receipt 或 audit insert 缺失、冲突、被拒绝时，run/binding transition 整体 rollback，下游 effect 不开始。
+Receipt 精确绑定 authenticated principal、authorization digest、用户原始 requested action、解析后的
+execution mode、operation 与 run identity；重复的同一准入读回同一个 immutable receipt，不同 action 或
+execution mode 使用不同 receipt。Audit outcome `succeeded` 只表示控制面准入已提交，绝不表示 Owner 接受、
+provider 成功或 business terminal outcome。历史 run 不回填虚构的 principal 或 authorization digest。本切面
+不推断、不改变 deployment、scheduler、Windmill、effect routing、production、trading、Owner outcome 或
+provider outcome event。
 
 ```text
 H  Operations / Audit · one-line purpose                         [info] [Refresh]
@@ -1641,11 +1756,11 @@ span；绝不能改变 route order 或 drawer behavior。
 Route name、`S/P/Q/T` slot assignment 或 PascalCase label 本身都不是可实现的 component contract。以下状态
 具有规范性，防止 experimental chapter 高估当前 Dashboard 已经可以被绘制的程度：
 
-| 完整度状态                            | 当前 page 或 surface                                                                                                                                                                                                                                                                                                                                                                                                                              | 准入含义                                                                                                                                                                                                                                                         |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DRAWABLE_EXACT`                      | Operations Runs `/operations`、Run Detail `/operations/runs/:runId`、Workers `/operations/workers` 与 `/operations/workers/:workerId`、Schedules `/operations/schedules`、Service Logs `/operations/service-logs`、Audit `/operations/audit`；R&D Intake `/rd` 与 Develop Composer `/rd/composer` 精确回读工作台、Research `/rd/research` 目录与 Artifacts `/rd/artifacts`；Backtest Replay 请求回读 `/backtest`；Market Data `/data` 与 `/data/pit-catalog`；全部四个 Runtime route | 本章固定 route slot、内部 field/column 顺序、尺寸或 responsive transformation、state geometry 与 button 顺序。Fail‑closed route 可以用固定 unavailable/not‑ready value 绘制；该状态不代表其 backend 或 Dashboard consumer available                              |
-| `DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` | R&D Intake `/rd` 已准入精确回读工作台之外的 composer 与 authority‑resolution panel；R&D Research `/rd/research` 已准入目录之外的 selected‑request detail                                                                                                                                                                                                                                                                                          | 具名 content/detail region 已精确，但其外围 route list 仍缺少 summary label、table column、row action、sort、pagination 或 loading‑row geometry 中的一项或多项；更广 surface 不可绘制、不可实现                                                                  |
-| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`    | Registry 中其他全部完整 route，明确包括 Event Rail、Telemetry 与 Alerts                                                                                                                                                                                                                                                                                                                                                                           | Registry 只固定 navigation position、route slot、具名 page‑local composite 与 button intent。无人值守 Agent 不得从 component‑like name 或已排除的 Windmill/native layout 推断缺失的 list behavior、timeline row、responsive table transformation 或内部 geometry |
+| 完整度状态                            | 当前 page 或 surface                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | 准入含义                                                                                                                                                                                                                                                         |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DRAWABLE_EXACT`                      | Operations Runs `/operations`、Run Detail `/operations/runs/:runId`、Workers `/operations/workers` 与 `/operations/workers/:workerId`、Schedules `/operations/schedules`、Service Logs `/operations/service-logs`、Audit `/operations/audit`；R&D Intake `/rd` 与 Develop Composer `/rd/composer` 精确回读工作台、Research directory `/rd/research` 与精确回读 `/rd/research/:requestIdentity`、Artifacts `/rd/artifacts`；Backtest Replay 请求回读 `/backtest`；Market Data `/data` 与 `/data/pit-catalog`；全部四个 Runtime route | 本章固定 route slot、内部 field/column 顺序、尺寸或 responsive transformation、state geometry 与 button 顺序。Fail‑closed route 可以用固定 unavailable/not‑ready value 绘制；该状态不代表其 backend 或 Dashboard consumer available                              |
+| `DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` | R&D Intake `/rd` 已准入精确回读工作台之外的 composer 与 authority‑resolution panel                                                                                                                                                                                                                                                                                                                                                                                                                                                  | 具名 content/detail region 已精确，但其外围 route list 仍缺少 summary label、table column、row action、sort、pagination 或 loading‑row geometry 中的一项或多项；更广 surface 不可绘制、不可实现                                                                  |
+| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`    | Registry 中其他全部完整 route，明确包括 Event Rail、Telemetry 与 Alerts                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Registry 只固定 navigation position、route slot、具名 page‑local composite 与 button intent。无人值守 Agent 不得从 component‑like name 或已排除的 Windmill/native layout 推断缺失的 list behavior、timeline row、responsive table transformation 或内部 geometry |
 
 Route 引用但 reusable component inventory 中缺席的名称只是 page-local composite label，不是隐藏的 reusable
 atom。将一个 blueprint 晋升为 `DRAWABLE_EXACT`，要求本章以双语指定：全部 summary label 与 value state；有序且带
@@ -1670,11 +1785,15 @@ deployment 仍未验证；`ArtifactRequestAdmissionPanel` 在 bounded server pro
 固定 unavailable；actual provider execution 仍为 `NOT_ADMITTED`。该规则只解析 status，不改变 registry 中
 固定的 panel、button 或 state geometry。
 
-当前准入的 `/rd`、`/rd/composer`、`/rd/research` 与 `/rd/artifacts` 都是有界只读 surface；在实现层面，它们覆盖下方更宽泛的
-未来 Intake、Research 与 Artifacts registry 行。四者都没有 summary strip 或分栏 detail pane，唯一 `P`
-surface 分别是 `SourceIntakeReadbackWorkbench`、`DevelopComposerReadbackWorkbench`、`ResearchDirectory` 与
-`ArtifactDirectory`。Intake 本切片没有 directory、editable composer 或正向 action；Research 本切片没有 detail link；Artifact 精确详情仍使用独立的
-identity-bound URL。registry 行中更广的 composer、Research detail、admission、outcome、review、binding、
+当前准入的 `/rd`、`/rd/composer`、`/rd/research`、`/rd/research/:requestIdentity` 与 `/rd/artifacts` route，
+以及 Artifact operational exact-readback，都是有界只读 surface；在实现层面，它们覆盖下方更宽泛的未来
+Intake、Research 与 Artifacts registry 行。五个 route 都没有
+summary strip 或分栏 detail pane，唯一 `P` surface 分别是 `SourceIntakeReadbackWorkbench`、
+`DevelopComposerReadbackWorkbench`、`ResearchDirectory`、`ResearchReadbackWorkspace` 与
+`ArtifactDirectory`。Intake 本切片没有 directory、editable composer 或正向
+action；Research detail 使用独立 identity-bound URL 且没有正向 action；Artifact 精确详情也继续使用独立的
+identity-bound URL。registry 行中更广的 composer、Research admission/outcome action、receipt timeline、
+S1 custody、review、binding、
 replay 与 security-evidence panel 仍是未来 blueprint，不能被推断进这些切片。
 
 #### Overview 与 R&D
@@ -2173,6 +2292,36 @@ asset manifest、provenance、compatibility declaration 与 route smoke test。
 迁移中 Windmill 与 Dashboard 可以共存，但禁止双 business writer。Cutover 以消费者为准：每条已准入
 Windmill Web/MCP journey 都要通过新 Dashboard/registry，得到相同 Owner receipt 与 fail-close 行为。只有
 parity、cache-loss recovery 与 artifact custody 证明后，才能在独立可逆 cleanup 中移除 Windmill。
+
+### 第一方 effect custody 准入（授权 B）
+
+`IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`。第一方 Dashboard 可以在 `DASHBOARD_DISPOSABLE_EXECUTION`
+边界内实现当前实际使用的两个 Product Edge journey：有序的 Source Intake -> Research Goal V2，以及
+Artifact Build V1 formation。该准入允许源码、测试、打包与 disposable 动态验证；它不激活 routing、不修改
+现有 Windmill binding、不调用真实 provider、不写共享或生产 Owner 数据库，也不授权交易。上述 runtime
+effect 仍需分别通过独立 gate。
+
+Product Edge 继续是唯一 routing authority。新的 Dashboard `RUN` 只有在精确 content-addressed compatibility
+envelope 当前有效，且每个 operation-specific routing key 都解析到唯一 `ACTIVE` history head、dispatcher 为
+`TRADE_DASHBOARD` 时才可达。`WINDMILL`、zero-active、dual/ambiguous、stale、malformed、unavailable 或
+mismatch 都必须在 Owner call 前 fail closed。deployment flag 与 credential 只是必要 transport 配置，不能成为
+routing authority。因此同一 operation identity 不可能同时由 Windmill 和 Dashboard 作为 fresh business writer。
+
+Dashboard RunStore 必须在第一个 Owner effect 前记录 canonical recovery identity、operation manifest、
+compatibility envelope 与精确 routing binding。Source Intake 必须先达到 canonical readable，随后才能把同一
+ancestry 交给 Research Goal V2。Artifact formation 保留既有 `Check & Run` preflight、claim-before-provider、
+start-before-provider、provider at-most-once custody，以及 started invocation 出现歧义后的 manual reconciliation。
+response-loss 或 restart 只能使用 retained operation 与精确 request/attempt identity：先 Resolve Owner custody，
+只允许继续一次 Owner 明确声明但尚未 start 的 claim，不重新选择 Windmill/Dashboard，不创建 replacement
+identity，也不进行 naked retry。精确 identity 的 `RESOLVE` 保持 zero-effect，不要求当前 Dashboard routing
+binding。
+
+已准入 HTTP surface 仅包括 `POST /api/rd/source-research`、
+`POST /api/rd/artifacts/formations/preflight` 与 `POST /api/rd/artifacts/formations`。每个 route 只接受精确
+allowlisted body，拒绝 unknown field，并返回同一个 bounded Owner projection 加 operational run reference，
+或明确 unavailable state。在 disposable runtime 动态证明这些 gate 之前，浏览器不启用 mutation control。
+把任何 Product Edge binding 切到 `TRADE_DASHBOARD`、执行真实 Owner/provider effect、production cutover、
+Windmill removal 与 publication 都仍是独立的显式 effect。
 
 ## 无人值守实现顺序
 

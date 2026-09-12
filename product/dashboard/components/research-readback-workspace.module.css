@@ -1,0 +1,21 @@
+.panel {
+  align-self: start;
+}
+
+.body {
+  padding: var(--panel-content-padding);
+}
+
+.result {
+  min-height: 144px;
+  display: grid;
+  gap: 10px;
+}
+
+.result :global(.empty-state),
+.result :global(.unavailable-state) {
+  min-height: 144px;
+  border: 1px solid color-mix(in srgb, var(--border-default) 72%, transparent);
+  border-radius: var(--panel-inner-radius);
+  background: var(--surface-panel);
+}

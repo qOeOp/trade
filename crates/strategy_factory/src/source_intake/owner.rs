@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use vibe_product_edge::{
     ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionRequestV1, ProductEdgeError,
-    ProductEdgePostgresOwnerV1, ProductEdgeSourceInvocationStartRequestV1,
-    SOURCE_INTAKE_OPERATION_SCHEMA_V1, SOURCE_INTAKE_OPERATION_V1,
-    SOURCE_INTAKE_REQUIRED_EFFECTS_V1, SOURCE_INTAKE_TARGET_OWNER_V1,
+    ProductEdgePostgresAdmissionPointReadPortV1, ProductEdgePostgresOwnerV1,
+    ProductEdgeSourceInvocationStartRequestV1, SOURCE_INTAKE_OPERATION_SCHEMA_V1,
+    SOURCE_INTAKE_OPERATION_V1, SOURCE_INTAKE_REQUIRED_EFFECTS_V1, SOURCE_INTAKE_TARGET_OWNER_V1,
 };
 
 use super::{
@@ -84,6 +84,14 @@ pub enum SourceIntakeOwnerErrorV1 {
     Unavailable,
 }
 
+#[async_trait]
+pub trait SourceIntakeReadbackOwnerPort: Send + Sync {
+    async fn read_source_intake(
+        &self,
+        request_identity: &str,
+    ) -> Result<Option<SourceIntakeTerminalAtomV1>, SourceIntakeOwnerErrorV1>;
+}
+
 pub struct SourceIntakeOwnerV1 {
     workflow: SourceIntakeWorkflowV1,
 }
@@ -126,6 +134,80 @@ impl SourceIntakeOwnerV1 {
     ) -> Result<Option<SourceIntakeTerminalAtomV1>, SourceIntakeOwnerErrorV1> {
         validate_identity(request_identity)?;
         self.workflow.resolve(request_identity).await
+    }
+}
+
+#[async_trait]
+impl SourceIntakeReadbackOwnerPort for SourceIntakeOwnerV1 {
+    async fn read_source_intake(
+        &self,
+        request_identity: &str,
+    ) -> Result<Option<SourceIntakeTerminalAtomV1>, SourceIntakeOwnerErrorV1> {
+        self.resolve(request_identity).await
+    }
+}
+
+#[derive(Clone)]
+pub struct PostgresSourceIntakeReadbackOwnerV1 {
+    product_edge: ProductEdgePostgresAdmissionPointReadPortV1,
+    owner_pool: PgPool,
+    request_proof_digest: String,
+}
+
+impl PostgresSourceIntakeReadbackOwnerV1 {
+    pub async fn connect(
+        owner_database_url: &str,
+        product_edge_database_url: &str,
+        request_proof_digest: String,
+    ) -> Result<Self, SourceIntakeOwnerErrorV1> {
+        if request_proof_digest.len() != 71
+            || !request_proof_digest.starts_with("sha256:")
+            || !request_proof_digest[7..]
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+        {
+            return Err(SourceIntakeOwnerErrorV1::Invalid);
+        }
+        let product_edge =
+            ProductEdgePostgresAdmissionPointReadPortV1::connect(product_edge_database_url)
+                .await
+                .map_err(|e| product_edge_error(&e))?;
+        let owner_pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(4)
+            .connect(owner_database_url)
+            .await
+            .map_err(|_| SourceIntakeOwnerErrorV1::Unavailable)?;
+        Ok(Self {
+            product_edge,
+            owner_pool,
+            request_proof_digest,
+        })
+    }
+}
+
+#[async_trait]
+impl SourceIntakeReadbackOwnerPort for PostgresSourceIntakeReadbackOwnerV1 {
+    async fn read_source_intake(
+        &self,
+        request_identity: &str,
+    ) -> Result<Option<SourceIntakeTerminalAtomV1>, SourceIntakeOwnerErrorV1> {
+        validate_identity(request_identity)?;
+
+        if self
+            .product_edge
+            .resolve_admission(request_identity, &self.request_proof_digest)
+            .await
+            .map_err(|e| product_edge_error(&e))?
+            .is_none()
+        {
+            return Ok(None);
+        }
+        read_terminal(
+            &self.owner_pool,
+            request_identity,
+            &live_external_authority(),
+        )
+        .await
     }
 }
 

@@ -88,6 +88,8 @@ function compactIdentity(value: string) {
 }
 
 function operationLabel(value: OperationAuditOperationV1) {
+  if (value === "artifact_build.formation_execute.v1") return "Admit artifact formation";
+  if (value === "source_intake.research.submit_or_resolve.v1") return "Admit source research";
   return value === "dashboard.dependency.cancel.queued.v1"
     ? "Cancel queued dependency" : "Delete operational cache";
 }

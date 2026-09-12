@@ -2477,10 +2477,67 @@ pub struct PostgresDevelopComposerStoreV2 {
     database_fingerprint: ComposerDatabaseFingerprintV2,
 }
 
+/// Query-only Composer store used by the Dashboard read composition.
+///
+/// This type owns no fact-writer pool and exposes no mutation method.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+pub(crate) struct PostgresDevelopComposerReadStoreV2 {
+    read_pool: PgPool,
+    database_fingerprint: ComposerDatabaseFingerprintV2,
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+impl PostgresDevelopComposerReadStoreV2 {
+    pub(crate) async fn connect(rd_owner_database_url: &str) -> Result<Self, sqlx::Error> {
+        let read_pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(8)
+            .connect(rd_owner_database_url)
+            .await?;
+        verify_pool_role(&read_pool, "rd_owner").await?;
+        verify_composer_read_pool(&read_pool).await?;
+        let database_fingerprint = database_fingerprint(&read_pool).await?;
+        Ok(Self {
+            read_pool,
+            database_fingerprint,
+        })
+    }
+
+    pub(crate) async fn begin_read_transaction(
+        &self,
+    ) -> Result<Transaction<'_, Postgres>, sqlx::Error> {
+        let mut transaction = self.read_pool.begin().await?;
+        verify_transaction_database(&mut transaction, &self.database_fingerprint).await?;
+        Ok(transaction)
+    }
+
+    pub(crate) async fn load_record_in_transaction(
+        &self,
+        transaction: &mut Transaction<'_, Postgres>,
+        request_identity: &str,
+    ) -> Result<Option<StoredDevelopComposerPositiveV2>, sqlx::Error> {
+        verify_transaction_database(transaction, &self.database_fingerprint).await?;
+        load_record_via_sealed_routine_in_transaction(transaction, request_identity)
+            .await
+            .map_err(|_| sqlx::Error::Protocol(SEALED_READ_UNAVAILABLE_PROTOCOL_V2.to_owned()))
+    }
+}
+
+async fn verify_composer_read_pool(pool: &PgPool) -> Result<(), sqlx::Error> {
+    let database_fingerprint = database_fingerprint(pool).await?;
+    let mut transaction = pool.begin().await?;
+    verify_transaction_database(&mut transaction, &database_fingerprint).await?;
+    verify_composer_read_authority_in_transaction(&mut transaction)
+        .await
+        .map_err(|_| {
+            sqlx::Error::Protocol("Composer authority topology is unavailable".to_owned())
+        })?;
+    transaction.rollback().await
+}
+
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 pub(crate) enum PreparedDevelopComposerRunInTransactionV2 {
-    Complete(DevelopComposerOperationResponseV2),
-    Prepared(PreparedPostgresDevelopComposerRunV2),
+    Complete(Box<DevelopComposerOperationResponseV2>),
+    Prepared(Box<PreparedPostgresDevelopComposerRunV2>),
 }
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
@@ -2643,15 +2700,7 @@ impl PostgresDevelopComposerStoreV2 {
     }
 
     pub async fn migrate(pool: &PgPool) -> Result<(), sqlx::Error> {
-        let database_fingerprint = database_fingerprint(pool).await?;
-        let mut transaction = pool.begin().await?;
-        verify_transaction_database(&mut transaction, &database_fingerprint).await?;
-        verify_composer_read_authority_in_transaction(&mut transaction)
-            .await
-            .map_err(|_| {
-                sqlx::Error::Protocol("Composer authority topology is unavailable".to_owned())
-            })?;
-        transaction.rollback().await
+        verify_composer_read_pool(pool).await
     }
 
     pub async fn resolve(
@@ -2797,7 +2846,7 @@ impl PostgresDevelopComposerStoreV2 {
             .prepare_run_in_transaction(transaction, builder, evidence, request, read_cut_epoch_ms)
             .await?
         {
-            PreparedDevelopComposerRunInTransactionV2::Complete(response) => Ok(response),
+            PreparedDevelopComposerRunInTransactionV2::Complete(response) => Ok(*response),
             PreparedDevelopComposerRunInTransactionV2::Prepared(prepared) => {
                 let final_locked = match evidence.lock_and_reread(
                     request,
@@ -2810,7 +2859,7 @@ impl PostgresDevelopComposerStoreV2 {
                 self.commit_prepared_run_in_transaction_with_fault_for_test(
                     transaction,
                     request,
-                    prepared,
+                    *prepared,
                     final_locked,
                     fail_after_boundary.and_then(|index| {
                         DevelopComposerAcceptanceWriteBoundaryV2::ALL
@@ -2842,10 +2891,10 @@ impl PostgresDevelopComposerStoreV2 {
                 Ok(existing) => existing,
                 Err(e) if is_record_integrity_error(&e) => {
                     return Ok(PreparedDevelopComposerRunInTransactionV2::Complete(
-                        unavailable_response(
+                        Box::new(unavailable_response(
                             &request.request_identity,
                             "stored terminal custody is incomplete or malformed",
-                        ),
+                        )),
                     ));
                 }
                 Err(e) => return Err(e),
@@ -2853,7 +2902,7 @@ impl PostgresDevelopComposerStoreV2 {
 
         if let Some(existing) = existing {
             return Ok(PreparedDevelopComposerRunInTransactionV2::Complete(
-                if existing.request_digest == request_digest(request) {
+                Box::new(if existing.request_digest == request_digest(request) {
                     evidence
                         .lock_and_reread(request, existing.design_identity, read_cut_epoch_ms)
                         .and_then(|current| resolve_positive_record_v2(&existing, current))
@@ -2870,7 +2919,7 @@ impl PostgresDevelopComposerStoreV2 {
                             "identity is already bound to different canonical meaning".to_owned(),
                         ),
                     }
-                },
+                }),
             ));
         }
 
@@ -2878,7 +2927,7 @@ impl PostgresDevelopComposerStoreV2 {
             Ok(preflight) => preflight,
             Err(terminal) => {
                 return Ok(PreparedDevelopComposerRunInTransactionV2::Complete(
-                    terminal_response(request, terminal),
+                    Box::new(terminal_response(request, terminal)),
                 ));
             }
         };
@@ -2887,18 +2936,18 @@ impl PostgresDevelopComposerStoreV2 {
             Ok(prepared) => prepared,
             Err(terminal) => {
                 return Ok(PreparedDevelopComposerRunInTransactionV2::Complete(
-                    terminal_response(request, terminal),
+                    Box::new(terminal_response(request, terminal)),
                 ));
             }
         };
         Ok(PreparedDevelopComposerRunInTransactionV2::Prepared(
-            PreparedPostgresDevelopComposerRunV2 {
+            Box::new(PreparedPostgresDevelopComposerRunV2 {
                 database_fingerprint: self.database_fingerprint.clone(),
                 transaction_identity: prepared_transaction_identity,
                 request_identity: request.request_identity.clone(),
                 request_digest: request_digest(request),
                 a0,
-            },
+            }),
         ))
     }
 

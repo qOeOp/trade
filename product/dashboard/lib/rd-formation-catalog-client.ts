@@ -414,7 +414,10 @@ export async function resolveRdFormationCatalogShadowV1({
       return unavailable("OWNER_RESPONSE_UNAVAILABLE", 502, responseObservedAtEpochMs);
     }
     const projection = parseRdFormationCatalogOwnerV1(raw, {
-      requestStartedAtEpochMs,
+      requestStartedAtEpochMs: Math.max(
+        0,
+        requestStartedAtEpochMs - operation.timeout_class.milliseconds,
+      ),
       responseObservedAtEpochMs,
     });
     if (!projection) return unavailable("OWNER_RESPONSE_UNAVAILABLE", 502, responseObservedAtEpochMs);

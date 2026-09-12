@@ -20,6 +20,7 @@ POSTGRES_PASSWORD=check-only \
   PRODUCT_EDGE_DB_PASSWORD=check-only \
   BACKTEST_OWNER_DB_PASSWORD=check-only \
   RD_OWNER_API_TOKEN=check-only \
+  RD_DASHBOARD_OWNER_READ_API_TOKEN=check-only \
   WINDMILL_DATABASE_URL=check-only \
   RD_OWNER_DATABASE_URL=check-only \
   RD_FACT_WRITER_DATABASE_URL=check-only \

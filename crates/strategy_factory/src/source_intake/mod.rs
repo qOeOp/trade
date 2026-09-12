@@ -27,8 +27,8 @@ mod openalex_executor_tests;
 
 pub use openalex_executor::{OpenAlexExecutionV1, execute_openalex};
 pub use owner::{
-    SourceIntakeOperationRequestV1, SourceIntakeOwnerErrorV1, SourceIntakeOwnerV1,
-    SourceIntakeTerminalAtomV1,
+    PostgresSourceIntakeReadbackOwnerV1, SourceIntakeOperationRequestV1, SourceIntakeOwnerErrorV1,
+    SourceIntakeOwnerV1, SourceIntakeReadbackOwnerPort, SourceIntakeTerminalAtomV1,
 };
 pub use policy_evidence::{
     SharedTimeEvidenceBindingV1, SourceIntakeInvocationPolicyEvidenceV1,

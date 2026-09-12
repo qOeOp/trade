@@ -58,7 +58,7 @@ test("only the current bilingual completeness closure is drawable exact", () => 
     "/backtest",
     "/runtime", "/runtime/generations", "/runtime/checkpoints", "/runtime/incidents",
     "/portfolio", "/portfolio/exposure", "/portfolio/capacity", "/portfolio/attribution",
-    "/data", "/data/pit-catalog", "/operations", "/operations/workers", "/operations/schedules", "/operations/service-logs", "/operations/audit", "/operations/runs/example", "/operations/workers/example",
+    "/data", "/data/pit-catalog", "/operations", "/operations/workers", "/operations/schedules", "/operations/service-logs", "/operations/audit", "/settings/access", "/rd/intake/new", "/operations/runs/example", "/operations/workers/example",
   ]);
   assert.deepEqual(Object.keys(exactBlueprints).sort(), exact.toSorted());
 });
@@ -107,6 +107,11 @@ test("Portfolio routes expose only the fixed fail-closed contract blueprint", ()
 test("the run detail route binds to the Runs top tab", () => {
   assert.equal(parentTabFor("/operations/runs/example"), "/operations");
   assert.deepEqual(foundationRoutes, ["/market"]);
+});
+
+test("the Source Research composer remains under the Intake top tab", () => {
+  assert.equal(parentTabFor("/rd/intake/new"), "/rd");
+  assert.equal(maturityFor("/rd/intake/new"), "DRAWABLE_EXACT");
 });
 
 test("detail URLs retain the correct persistent Dashboard chrome identity", () => {
@@ -158,11 +163,16 @@ test("Operations Audit bilingual completeness closes source, geometry and mutati
     const spec = doc.slice(start, doc.indexOf(endHeading, start));
     for (const token of [
       "DRAWABLE_EXACT", "IMPLEMENTATION_ADMITTED", "dashboard.dependency.cancel.queued.v1",
-      "dashboard.operational_cache.delete.v1", "OperationAuditTable",
+      "dashboard.operational_cache.delete.v1", "source_intake.research.submit_or_resolve.v1",
+      "artifact_build.formation_execute.v1", "dashboard-control-plane-admission-v1-*",
+      "OperationAuditTable",
       "Correlation timeline", "24h", "7d", "30d", "20 / 50 / 100", "512", "GET /api/operations/audit",
       "UPDATE", "DELETE", "H -> S -> F -> P -> Q -> B",
     ]) assert.ok(spec.includes(token), `${suffix || "en"} missing ${token}`);
-    assert.ok(spec.includes(suffix ? "同一\nserializable" : "same serializable"));
+    const normalized = spec.replace(/\s+/gu, " ");
+    assert.ok(normalized.includes(suffix
+      ? "同一个 RunStore begin transaction"
+      : "same RunStore begin transaction"));
     const blueprintOnly = doc.split("\n").find((line) => line.startsWith("| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`"));
     assert.doesNotMatch(blueprintOnly, /Operations \/ Audit/);
     const drawable = doc.split("\n").find((line) => line.startsWith("| `DRAWABLE_EXACT`"));

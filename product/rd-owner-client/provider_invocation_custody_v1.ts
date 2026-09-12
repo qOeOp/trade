@@ -115,13 +115,19 @@ export async function verifyProviderInvocationCustodyV1(value: {
   if (value.claim_identity !== claimIdentity) return false
   const claimDigest = await providerInvocationClaimDigestV1(value)
   if (value.claim_digest !== claimDigest) return false
-  return value.state_digest === await providerInvocationStateDigestV1({
+  const claimedStateDigest = await providerInvocationStateDigestV1({
     schema_version: value.schema_version,
     claim_identity: value.claim_identity,
     admission_identity: value.admission_identity,
     attempt_identity: value.attempt_identity,
     claim_digest: value.claim_digest,
-    state: value.state,
+    state: "CLAIMED",
     updated_at_epoch_ms: value.committed_at_epoch_ms,
   })
+  // A resolved INVOCATION_STARTED claim exposes the immutable claim commit
+  // time, while its state digest is sealed with the later start time. The
+  // public wire omits that state timestamp, so the started digest is opaque;
+  // it must still differ from the recomputable CLAIMED state.
+  if (value.state === "INVOCATION_STARTED") return value.state_digest !== claimedStateDigest
+  return value.state === "CLAIMED" && value.state_digest === claimedStateDigest
 }

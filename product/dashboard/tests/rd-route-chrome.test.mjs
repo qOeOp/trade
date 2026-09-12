@@ -14,14 +14,16 @@ test("only admitted R&D surfaces embed their route chrome", async () => {
     new Set(predicate.match(/[A-Za-z][A-Za-z]+/gu)),
     new Set([
       "sourceIntakeReadback",
+      "sourceResearchControl",
       "composerReadback",
       "researchDirectory",
+      "researchReadback",
       "artifactDirectory",
       "artifactSourceDetail",
     ]),
   );
   assert.match(shell, /const rdPlaceholderRoute = current === "\/rd\/hypotheses" \|\| current === "\/rd\/decisions";/u);
-  assert.match(shell, /const ownsRouteChrome = embedsRouteChrome \|\| rdPlaceholderRoute;/u);
+  assert.match(shell, /const ownsRouteChrome = embedsRouteChrome \|\| rdPlaceholderRoute \|\| settingsAccess;/u);
   assert.match(shell, /const suppressShellPageHeader = operationsSchedules \|\| operationsServiceLogs \|\| operationsAudit \|\| ownsRouteChrome;/u);
   assert.match(
     shell,
@@ -36,10 +38,11 @@ test("only admitted R&D surfaces embed their route chrome", async () => {
 });
 
 test("each embedded R&D panel owns an exact read-only boundary", async () => {
-  const [source, composer, research, artifact, viewer] = await Promise.all([
+  const [source, composer, research, researchReadback, artifact, viewer] = await Promise.all([
     readFile(new URL("../components/source-intake-readback-workbench.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/develop-composer-readback-workbench.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/research-directory.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/research-readback-workspace.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/artifact-directory.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/ui/strategy-code-viewer.tsx", import.meta.url), "utf8"),
   ]);
@@ -54,5 +57,9 @@ test("each embedded R&D panel owns an exact read-only boundary", async () => {
     assert.ok(surface.includes(`meta="${framedBoundaries[index]}"`), `${framedBoundaries[index]} is missing`);
   });
   assert.match(research, /<OwnerDirectoryInfo>[\s\S]+No research payloads, submission controls, or resolution actions are exposed here\./u);
+  assert.match(researchReadback, /title="Research outcome"/u);
+  assert.match(researchReadback, /<PanelFrameInfoFact label="Request"><code>\{requestIdentity\}<\/code><\/PanelFrameInfoFact>/u);
+  assert.doesNotMatch(researchReadback, /description=/u);
+  assert.match(researchReadback, /<ArtifactFormationControl researchRequestIdentity=\{requestIdentity\}/u);
   assert.match(artifact, /<OwnerDirectoryInfo>[\s\S]+No build, execution, or binding action is exposed here\./u);
 });

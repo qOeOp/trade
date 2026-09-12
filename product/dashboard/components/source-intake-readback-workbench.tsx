@@ -9,7 +9,7 @@ import {
 } from "../lib/source-intake-readback-gateway";
 import { EmptyState, UnavailableState } from "./ui/evidence-strip";
 import { FactGroup, FactGroupGrid, FactGroupSkeletonGrid, FactItem } from "./ui/fact-group";
-import { FilterButton } from "./ui/filter-toolbar";
+import { FilterButton, FilterLink } from "./ui/filter-toolbar";
 import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
 import {
   PanelFrame,
@@ -105,7 +105,10 @@ export function SourceIntakeReadbackWorkbench({
         titleId="source-intake-title"
         meta="Owner point read · No submit or resolve"
         description="Open one exact Owner readback without submitting, resolving, or exposing source payload."
-        actions={(
+        actions={<>
+          <FilterLink density="compact" variant="primary" href="/rd/intake/new">
+            <EvidenceIcons.add aria-hidden="true" size={14} /> New intake
+          </FilterLink>
           <FilterButton
             density="compact"
             variant="secondary"
@@ -115,7 +118,7 @@ export function SourceIntakeReadbackWorkbench({
           >
             <InterfaceIcons.refresh aria-hidden="true" size={14} /> Refresh
           </FilterButton>
-        )}
+        </>}
       />
       <PanelFrameBody className={styles.body}>
         <ReadbackLookup

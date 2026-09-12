@@ -10,7 +10,7 @@ import { InterfaceIcons, ModuleIcons } from "./ui/iconography";
 const iconByName = ModuleIcons;
 
 function BrandMark() {
-  return <Link className="launcher-brand" href="/login" title="Local operator access" aria-label="Local operator access">VX</Link>;
+  return <Link className="launcher-brand" href="/settings/access" title="Local operator access" aria-label="Local operator access">VX</Link>;
 }
 
 function ModuleRail({ current, id, onNavigate }: { current: string; id?: string; onNavigate?: () => void }) {

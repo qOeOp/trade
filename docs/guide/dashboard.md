@@ -1,5 +1,34 @@
 # Trade Dashboard
 
+## Bounded admission: local operator browser session
+
+The user admits one first-party local operator session shell and the read-only `/settings/access` surface as
+`DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED`. This narrow slice replaces the inert login presentation only. It does
+not admit OAuth, account creation, password import, transport-token issuance, Operator Authorization or Product
+Edge binding mutation, authorization successor selection, a role-administration product, or any Owner/provider
+effect. Windmill routing and `DASHBOARD_OPERATOR_API_TOKEN` remain unchanged.
+
+`DASHBOARD_LOCAL_OPERATOR_LOGIN_TOKEN` is proof for creating or renewing the browser session only.
+`DASHBOARD_SESSION_HMAC_KEY` signs a versioned cookie containing the fixed `local_operator` principal, a random
+session identity, login-credential digest, issue time and expiry. Both secrets must be 32-4096 UTF-8 bytes. The
+cookie is HttpOnly, SameSite=Strict, path `/`, finite-lived for eight hours, and Secure whenever the request is
+HTTPS. It is never placed in local/session storage or exposed by an API. Rotating either secret invalidates prior
+sessions. The login credential never satisfies an effect endpoint; admitted effects continue to require their
+independent bearer capability.
+
+The Next proxy guards all Dashboard pages and APIs except `/login`, `/api/auth/session`, static assets and the
+zero-business-data `/api/health` liveness endpoint. The Dashboard layout repeats the page guard as defense in
+depth. Missing configuration fails closed as `configuration_unavailable`; absent, invalid and expired sessions
+become `required`, `invalid` and `expired` without retaining positive state. Page requests redirect to login with
+one sanitized local return path; API requests return 401, or 503 for unavailable configuration. Session creation
+accepts same-origin JSON and deletion also requires same origin. Invalid, expired and deleted cookies are cleared.
+
+`/settings/access` reads only current principal, session identity, last re-authentication and expiry. Transport
+token, Operator Authorization, Product Edge readiness and successor areas remain visibly unavailable with no
+mutation control or secret value. Dynamic acceptance covers unavailable configuration, no-cookie page/API,
+wrong credential, cookie attributes, authenticated page/API, tampering, expiry and logout. The fixed local preview
+port must not replace its listener until isolated acceptance passes and both session secrets are provisioned.
+
 ## Bounded admission: read-only shadow schedule calendar
 
 The user admits `/operations/schedules` as `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED` for the
@@ -204,6 +233,31 @@ invoke a provider, mutate Windmill, write business state, or authorize trading. 
 TrialFamily policy, authority-resolution, draft-source, and positive-action panels in the route registry remain
 future blueprint content and are not inferred into this workbench.
 
+## Bounded admission: Source to Research typed control
+
+`SourceResearchControl` is the independent mutation surface at `/rd/intake/new`; `/rd` remains the exact
+zero-effect readback workbench above. The control accepts only the public `SourceIntakeExecutionInputV1` and
+`ResearchGoalExecutionInputV2` fields: two generated immutable request identities, normalized DOI, bounded
+interpretation, falsifiable goal, required-data list, cost and capacity assumptions, and the complete TrialFamily
+proposal. It does not reconstruct these fields from Source custody, expose Owner internals, or accept raw JSON.
+The three content regions reuse shared `DetailInspector`, `FormField`, `Input`, and `Textarea` atoms; the action
+region reuses `ActionAdmissionGate` and the standard compact button variants.
+
+Client and server import the same pure input validator. Plausible alternatives are canonicalized into unique
+UTF-8 byte order before validation; required data preserves the entered order. `RUN` freezes the complete request
+and clears operator access as dispatch begins. A terminal bounded Owner projection links to the exact Research and
+Run readbacks. A malformed response, transport loss, or nonterminal operational run becomes
+`SUBMITTED_OR_UNKNOWN` and exposes only `RESOLVE` with the frozen Source and Research identities and payload;
+there is no retry or replacement identity. An unavailable response with no RunStore identity releases the draft
+for correction and revalidation because the server proves that no run began. Operator access is held only in
+React state and is never persisted, placed in a URL, logged, or rendered after dispatch.
+
+This route is `IMPLEMENTATION_ADMITTED / NOT_CUT_OVER` under Authorization B. It calls only the existing exact
+`POST /api/rd/source-research` BFF, and availability still requires the disposable enablement, content-addressed
+compatibility, RunStore, and two unique `ACTIVE / TRADE_DASHBOARD` Product Edge bindings. The route does not
+change either binding, call a production Owner or provider, modify Windmill, authorize trading, or establish
+publication or production cutover.
+
 ## Bounded admission: Develop Composer exact-readback workbench
 
 `DevelopComposerReadbackWorkbench` is the exact `P` surface for `/rd/composer`. It is a bounded point-read of one
@@ -240,7 +294,7 @@ its separately admitted exact Artifact source route and identities; an Artifact 
 into those identities. This slice cannot mutate Windmill, write business state, invoke a provider, or authorize
 trading. The broader Intake composer and authority-resolution panels remain future blueprint content.
 
-## Bounded admission: verified Research directory
+## Bounded admission: verified Research directory and exact readback
 
 `ResearchDirectory` is the exact `P` surface for `/rd/research`. The route uses one full-width `PanelFrame` and
 does not reserve an empty detail column. Its frame header contains an eyebrow, title, one-line purpose, and one
@@ -265,6 +319,27 @@ candidate view uses authenticated GET `/v1/historical-custodies`. Its dedicated 
 200 request identities with their custody time and the exact state `POINT_READ_REQUIRED`; it exposes no request
 meaning, disposition, availability, receipt, authority, or current/legacy classification. Truncation is explicit.
 
+The verified Research directory, Research exact-readback, Artifact exact-readback, Source Intake exact-readback,
+Develop Composer exact-readback, and Exploratory Replay V2 exact point-read GETs are packaged in the consolidated
+`strategy-factory-rd-dashboard-read-api`. This first-party Dashboard reader also serves the Artifact directory and
+source GETs, while its state retains separate typed `ResearchDirectoryOwnerPort`, `ResearchReadbackOwnerPortV1`,
+`ArtifactDirectoryOwnerPort`, `ArtifactReadbackOwnerPortV1`, `ArtifactSourceOwnerPort`,
+`SourceIntakeReadbackOwnerPort`, and
+`DevelopComposerReadbackOwnerPortV2` and `ExploratoryReplayReadbackOwnerPortV2` capabilities rather than collapsing
+domain boundaries into a generic repository. Its router exposes only `/health` and those eight
+admitted GETs. Dashboard binds them
+through the atomically configured `RD_DASHBOARD_OWNER_READ_API_URL` and
+`RD_DASHBOARD_OWNER_READ_API_TOKEN` pair. A partial pair fails closed and never borrows the write API's credential.
+The adapters reuse the canonical locking verifiers and expose no submit, resolve, sandbox, or mutation port.
+The Source Intake adapter additionally binds a read-only Product Edge admission port and the existing request-proof
+digest before projecting terminal custody; missing or incompatible internal configuration disables only this route.
+Composer joins this same process through its own typed read port and adds no per-domain container. Its adapter owns
+only an `rd_owner` read pool, reuses the existing sealed routine and current Research/Market evidence verification,
+and carries no fact-writer pool or mutation method.
+Replay delegates through an independent Dashboard typed point-read port to the existing sealed Replay V2 read port.
+Its adapter owns only the same `rd_owner` read pool, never assembles the legacy write-Owner composition root, and
+exposes no identify, submit, resolve, run, or result operation.
+
 The browser receives only request identity, optional intent identity, accepted or rejected-no-write disposition,
 current Research-view availability and phase when accepted, and committed time. Rejected-no-write rows carry no
 invented intent or view. Research goal text, sources, principals, policy, authorization, raw receipts, TrialFamily
@@ -272,11 +347,38 @@ payloads, ancestry, and storage fields remain withheld. Unknown wire keys, contr
 duplicate identities, future or malformed time, invalid completeness/count, oversized response, transport failure,
 or missing configuration all fail closed to `unavailable`.
 
-`Refresh`, switching the local directory view, local search/sort/pagination, and `Load older` are the only actions.
-There is no detail link in this
-slice, and it cannot Submit or Resolve a Research request, create a successor, build or run an Artifact, invoke a
-provider, mutate Windmill, write business state, or authorize trading. The broader selected-request detail and
-action panels in the route registry remain future blueprint content.
+Verified directory rows link to the identity-bound `/rd/research/{requestIdentity}` route. The detail route uses
+one `PanelFrame` with its heading and right-aligned `Back to requests`, `Refresh`, and technical-info controls on
+the frame surface, followed by one inset body. Accepted and rejected outcomes use the shared `FactGroup` atom in
+the fixed order `Outcome`, `Intent`, `Timing`. Labels and values are left aligned; values share one typography
+scale, status meaning is carried by `StatusBadge`, and long identities truncate visually while retaining their
+complete selectable value and title. Receipt identity, projection identity, source cut, and TrialFamily identity
+remain behind the technical-info control instead of appearing as loose explanatory copy. A verified
+`SUBMITTED_OR_UNKNOWN` readback keeps the same frame but replaces the groups with one bounded empty state; an
+invalid identity, configuration failure, permission denial, malformed or oversized Owner response, identity
+drift, or transport failure clears prior content and renders one shape-preserving unavailable state.
+
+After the disposable-runtime dynamic gates in "First-party effect-custody admission (Authorization B)" are
+closed, an accepted Research detail appends the shared `ActionAdmissionGate` inside that same inset body only
+when the Owner projection is exactly `AVAILABLE / INTENT_FROZEN / WAIT_FOR_R_AND_D_EXECUTION`. The compact
+control reuses the `DetailInspector`, `Input`, `Button`, and `StatusBadge` atoms. Operator access remains only in
+current browser state and never enters a URL, HTML, log, or persistent store. `Check & Run` first calls
+`POST /api/rd/artifacts/formations/preflight` in cancellable `PREFLIGHTING`; only exact `READY` creates and retains
+one deterministic build/attempt recovery-identity pair, then calls `POST /api/rd/artifacts/formations` in
+non-cancellable `ADMITTING`. A cancelled preflight, transport failure, malformed response, or non-ready result
+enters `REVALIDATION_REQUIRED` and exposes no attempt Resolve. After dispatch, every unavailable or malformed
+response and every transport ambiguity enters `SUBMITTED_OR_UNKNOWN`; only `RESOLVE` with the retained exact
+build/attempt identities is available, with no replacement identity or naked retry.
+
+The Dashboard GET `/api/rd/research/{requestIdentity}` path-binds the identity and reuses the registered
+`research_goal.shadow_resolve.v1` Owner GET `/v2/research-goals/{request_identity}/readback`. The BFF returns only
+the verified outcome, optional current Research view, committed/observed/valid-through times, and the bounded
+technical identities named above. It accepts no request body and does not enqueue a RunStore read. Apart from the
+disposable Artifact-formation control separately admitted above by Authorization B, `Refresh`, directory
+view/search/sort/pagination, `Load older`, `Open detail`, and local back navigation are the only actions. That
+exception does not change the Windmill binding and does not authorize a production Owner/provider write,
+production cutover, Windmill removal, trading, generic Submit, or create-successor. The broader Research admission, outcome-action, receipt timeline,
+and S1 custody panels in the route registry remain future blueprint content.
 
 ## Bounded admission: verified Artifact directory
 
@@ -307,11 +409,29 @@ Owner cut as Research. It exposes at most 200 attempt and 200 TrialFamily-bindin
 and only `POINT_READ_REQUIRED`. Counts are custody-index counts, never verified Artifact or valid-binding counts.
 No Artifact outcome, binding validity, current authority, raw receipt, payload, or storage field is inferred.
 
+The verified-directory, exact-readback, and exact-source GETs are packaged in the consolidated
+`strategy-factory-rd-dashboard-read-api` described above. Its Artifact state holds only the typed
+`ArtifactDirectoryOwnerPort`, `ArtifactReadbackOwnerPortV1`, and `ArtifactSourceOwnerPort`, never a sandbox or an
+Artifact mutation port. The exact readback GET reuses verified attempt custody to project the current result but never
+calls `ArtifactBuildOwnerPort::resolve`; it cannot terminalize an expired attempt, submit a Building candidate, drain
+legacy custody, invoke a provider, or otherwise write business state. The
+PostgreSQL adapter remains a normal read-committed locking reader because the canonical verifier requires
+`FOR SHARE`; changing it to a read-only transaction would reject the verifier itself. Dashboard binds these
+endpoints through the same atomically configured `RD_DASHBOARD_OWNER_READ_API_URL` and
+`RD_DASHBOARD_OWNER_READ_API_TOKEN` pair. If either value is present without the other, the read fails closed and
+never borrows the other credential from the write API.
+
 `Refresh`, switching the local directory/kind views, local search/sort/pagination, `Load older`, and opening one
 exact verified Artifact are the only actions. This
 directory does not submit or resolve an attempt, build source, run a sandbox/Wasm module, invoke a provider, mutate
 Windmill, write business state, or authorize trading. `WASM_PREVIEW_NOT_RUN` in the linked source viewer remains
 unchanged until a separate real Owner-backed preview contract is admitted.
+
+The authenticated GET
+`/v1/artifact-builds/{build_request_identity}/attempts/{attempt_identity}/readback` is admitted only as the exact
+Owner-outcome source for the effect-free `artifact_build.shadow_resolve.v1` operational read. It preserves the
+existing strict Research dependency and Artifact result verification before RunStore records a replacement read.
+It does not admit the broader Artifact detail outcome, action, review, binding, replay, or security panels below.
 
 This chapter is the living implementation and phased-admission contract for the Trade-owned Dashboard. It defines
 the product shell, information architecture, reusable UI system, and the current evidence-backed hypothesis for the
@@ -911,20 +1031,20 @@ capability or business-container bridge attachment fails closed. The isolated to
 boundary, but it remains design evidence only: it does not establish a default deployment, Dashboard
 implementation, provider/network execution, production write or trading authority.
 
-| Native surface / current backend            | Exact observed state                                                                                                                                                 | Dashboard route and fixed UI                                                                                                                                                                                                                               | Replacement service/store and disposition                                                                                                                                                                                                                                                                             |
-| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Home / App and script catalog               | One Raw App `f/trade/rd_workbench`; the current TrialFamily sync deploys S1 V2 research and S2 Artifact operations but archived the remote S3 replay entry           | Domain routes own the four‑stage journey. Backtest remains routed but renders `DEPLOYMENT_UNAVAILABLE`; no generic Home catalog                                                                                                                            | Versioned `OperationRegistry` with `available/archived/unavailable` deployment state plus built frontend routes; archive disables dispatch without deleting Owner history. `KEEP_SEMANTICS`, exclude arbitrary catalogs                                                                                               |
-| Runs / `v2_job*`                            | UI shows 53 user‑facing jobs; database has 88 rows including 34 App dependency jobs. Real paths use App and webhook triggers and tag `rd-product-edge`               | Operations / Runs: status segments, schedule/future toggles only when admitted, search, duration/concurrency filters, auto‑refresh, path/trigger/tag columns, date groups, pagination                                                                      | `RunStore` + `DispatcherReadModel`; durable operational metadata with TTL, explicit dependency kind, Owner‑outcome join by identity only                                                                                                                                                                              |
-| Run Detail / completed job + result API     | Successful replay shows received/started time, duration, worker, run ID, 5 MB peak, script hash/language, App trigger, exact inputs, JSON result, and Owner receipts | `/operations/runs/:runId`; breadcrumb Back to Runs, then header actions Copy locator, Refresh, conditional Cancel queued dependency, Resolve same identity, Download bounded result/log. `Run again`, Share, Edit, and arbitrary script links are excluded | `RunDetailProjection`; schema‑allowlisted immutable input and bounded result projections, exact‑run worker compatibility, fixed operational cancellation receipt readback, explicit withheld/redacted disclosure, timing/resource metadata, and Owner receipt references; no raw payload fallback or business custody |
-| Run Logs / `job_logs` and worker log volume | 86 log rows; exact run exposes download endpoint, auto‑scroll, job/tag/worker/host/isolation header, and bounded text                                                | Run Detail `Logs` tab: search, level/source chips, auto‑scroll switch, download bounded log, line viewport, truncation/retention notice                                                                                                                    | `BoundedRunLogStore`; append‑only chunks, byte/age limits, redaction, correlation, TTL; MCP read scope may expose only exact admitted runs                                                                                                                                                                            |
-| Run Metrics                                 | Observed 74 ms run says no metrics because collection begins above 500 ms                                                                                            | Run Detail `Metrics` tab always has fixed geometry; render `NotCollected`, `Unavailable`, or time‑series, never a fabricated zero                                                                                                                          | Deferred `RunMetricProjection`; `CURRENTLY_EXCLUDE_BACKEND` until non‑empty consumer evidence                                                                                                                                                                                                                         |
-| Run Traces                                  | Observed run says no HTTP request captured or tracing disabled                                                                                                       | Run Detail `Traces` tab: explicit not‑captured reason and no empty success graph                                                                                                                                                                           | Deferred `RunTraceProjection`; `CURRENTLY_EXCLUDE_BACKEND`                                                                                                                                                                                                                                                            |
-| Run Assets                                  | Observed run says `No assets found`; workspace asset count is zero                                                                                                   | Run Detail `Assets` tab: explicit empty state only. No global Assets route                                                                                                                                                                                 | No store now. Future entries must be disposable operational attachments that point to, never replace, Owner artifact custody                                                                                                                                                                                          |
-| Workers / `worker_ping`                     | One live `rd-product-edge` worker, version `1.791.0`, job count, last‑job link, memory, status, tags; other groups have zero workers                                 | Operations / Workers: group chips, search, worker table, selected‑worker panel, last‑run link. Read actions are Refresh and Open last run                                                                                                                  | `WorkerLeaseStore` + heartbeats; retain identity/group/tags/version/start/last‑run/occupancy/memory, lease liveness and registered capabilities. Exact‑run readiness exists only in Run Detail. Exclude create config, cache clean, restart, REPL, autoscaling UI until separately admitted                           |
-| Service Logs / server and worker logs       | Auto‑refresh page lists worker group and server hosts, time range, error‑only filter, service/host selector                                                          | Operations / Service Logs: time range, service, instance, severity, search, auto‑refresh, bounded log viewport                                                                                                                                             | `ServiceLogGateway`; read‑only, redacted, retention‑bounded. It is operational evidence, not Owner health or a telemetry backend                                                                                                                                                                                      |
-| Audit Logs / partitioned audit tables       | Authenticated execute/update/create/delete records exist; CE exposes ID, time, principal, operation and redacts resource detail                                      | Operations / Audit: time/principal/operation/outcome filters, audit table, selected correlation panel; no mutation buttons                                                                                                                                 | `OperationAuditStore`; append‑only Dashboard/Product Edge control‑plane events with exact target/correlation/outcome. Owner business events remain in Owner/Event Rail custody                                                                                                                                        |
-| Workspace/folder/auth                       | Folder `trade` contains three scripts and one App owned by `u/admin`; workspace and scoped tokens delimit access                                                     | Installation profile and Access settings only; no workspace/folder administration route                                                                                                                                                                    | `LocalSession` + `CapabilityManifest` + narrow token issuer; one installation, one operator profile, exact operation scopes                                                                                                                                                                                           |
-| Variables, Resources, global Assets, generic Schedules | `trade-rd` counts are 0/0/0/0. Compose injects an allowlisted environment into the worker; Data Tables and frontend SDK access are forbidden                | No product tabs for these Windmill stores. Settings accepts opaque runtime references; the separately admitted first-party bounded shadow schedules live at Operations / Schedules                                                                           | Exclude Windmill generic stores. `/operations/schedules` uses only the typed zero-effect `configuredShadowScheduleSetV1` + RunStore contract defined above                                                                                                                      |
+| Native surface / current backend                       | Exact observed state                                                                                                                                                 | Dashboard route and fixed UI                                                                                                                                                                                                                               | Replacement service/store and disposition                                                                                                                                                                                                                                                                             |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Home / App and script catalog                          | One Raw App `f/trade/rd_workbench`; the current TrialFamily sync deploys S1 V2 research and S2 Artifact operations but archived the remote S3 replay entry           | Domain routes own the four‑stage journey. Backtest remains routed but renders `DEPLOYMENT_UNAVAILABLE`; no generic Home catalog                                                                                                                            | Versioned `OperationRegistry` with `available/archived/unavailable` deployment state plus built frontend routes; archive disables dispatch without deleting Owner history. `KEEP_SEMANTICS`, exclude arbitrary catalogs                                                                                               |
+| Runs / `v2_job*`                                       | UI shows 53 user‑facing jobs; database has 88 rows including 34 App dependency jobs. Real paths use App and webhook triggers and tag `rd-product-edge`               | Operations / Runs: status segments, schedule/future toggles only when admitted, search, duration/concurrency filters, auto‑refresh, path/trigger/tag columns, date groups, pagination                                                                      | `RunStore` + `DispatcherReadModel`; durable operational metadata with TTL, explicit dependency kind, Owner‑outcome join by identity only                                                                                                                                                                              |
+| Run Detail / completed job + result API                | Successful replay shows received/started time, duration, worker, run ID, 5 MB peak, script hash/language, App trigger, exact inputs, JSON result, and Owner receipts | `/operations/runs/:runId`; breadcrumb Back to Runs, then header actions Copy locator, Refresh, conditional Cancel queued dependency, Resolve same identity, Download bounded result/log. `Run again`, Share, Edit, and arbitrary script links are excluded | `RunDetailProjection`; schema‑allowlisted immutable input and bounded result projections, exact‑run worker compatibility, fixed operational cancellation receipt readback, explicit withheld/redacted disclosure, timing/resource metadata, and Owner receipt references; no raw payload fallback or business custody |
+| Run Logs / `job_logs` and worker log volume            | 86 log rows; exact run exposes download endpoint, auto‑scroll, job/tag/worker/host/isolation header, and bounded text                                                | Run Detail `Logs` tab: search, level/source chips, auto‑scroll switch, download bounded log, line viewport, truncation/retention notice                                                                                                                    | `BoundedRunLogStore`; append‑only chunks, byte/age limits, redaction, correlation, TTL; MCP read scope may expose only exact admitted runs                                                                                                                                                                            |
+| Run Metrics                                            | Observed 74 ms run says no metrics because collection begins above 500 ms                                                                                            | Run Detail `Metrics` tab always has fixed geometry; render `NotCollected`, `Unavailable`, or time‑series, never a fabricated zero                                                                                                                          | Deferred `RunMetricProjection`; `CURRENTLY_EXCLUDE_BACKEND` until non‑empty consumer evidence                                                                                                                                                                                                                         |
+| Run Traces                                             | Observed run says no HTTP request captured or tracing disabled                                                                                                       | Run Detail `Traces` tab: explicit not‑captured reason and no empty success graph                                                                                                                                                                           | Deferred `RunTraceProjection`; `CURRENTLY_EXCLUDE_BACKEND`                                                                                                                                                                                                                                                            |
+| Run Assets                                             | Observed run says `No assets found`; workspace asset count is zero                                                                                                   | Run Detail `Assets` tab: explicit empty state only. No global Assets route                                                                                                                                                                                 | No store now. Future entries must be disposable operational attachments that point to, never replace, Owner artifact custody                                                                                                                                                                                          |
+| Workers / `worker_ping`                                | One live `rd-product-edge` worker, version `1.791.0`, job count, last‑job link, memory, status, tags; other groups have zero workers                                 | Operations / Workers: group chips, search, worker table, selected‑worker panel, last‑run link. Read actions are Refresh and Open last run                                                                                                                  | `WorkerLeaseStore` + heartbeats; retain identity/group/tags/version/start/last‑run/occupancy/memory, lease liveness and registered capabilities. Exact‑run readiness exists only in Run Detail. Exclude create config, cache clean, restart, REPL, autoscaling UI until separately admitted                           |
+| Service Logs / server and worker logs                  | Auto‑refresh page lists worker group and server hosts, time range, error‑only filter, service/host selector                                                          | Operations / Service Logs: time range, service, instance, severity, search, auto‑refresh, bounded log viewport                                                                                                                                             | `ServiceLogGateway`; read‑only, redacted, retention‑bounded. It is operational evidence, not Owner health or a telemetry backend                                                                                                                                                                                      |
+| Audit Logs / partitioned audit tables                  | Authenticated execute/update/create/delete records exist; CE exposes ID, time, principal, operation and redacts resource detail                                      | Operations / Audit: time/principal/operation/outcome filters, audit table, selected correlation panel; no mutation buttons                                                                                                                                 | `OperationAuditStore`; append‑only Dashboard/Product Edge control‑plane events with exact target/correlation/outcome. Owner business events remain in Owner/Event Rail custody                                                                                                                                        |
+| Workspace/folder/auth                                  | Folder `trade` contains three scripts and one App owned by `u/admin`; workspace and scoped tokens delimit access                                                     | Installation profile and Access settings only; no workspace/folder administration route                                                                                                                                                                    | `LocalSession` + `CapabilityManifest` + narrow token issuer; one installation, one operator profile, exact operation scopes                                                                                                                                                                                           |
+| Variables, Resources, global Assets, generic Schedules | `trade-rd` counts are 0/0/0/0. Compose injects an allowlisted environment into the worker; Data Tables and frontend SDK access are forbidden                         | No product tabs for these Windmill stores. Settings accepts opaque runtime references; the separately admitted first‑party bounded shadow schedules live at Operations / Schedules                                                                         | Exclude Windmill generic stores. `/operations/schedules` uses only the typed zero‑effect `configuredShadowScheduleSetV1` + RunStore contract defined above                                                                                                                                                            |
 
 The native `bun` runtime is an implementation detail of the three pinned scripts, not a user-selectable runtime
 catalog. PostgreSQL persists Windmill operational state; separate R&D and Backtest Owner databases/APIs persist
@@ -1055,21 +1175,21 @@ The top bar has four zones in order:
    command may only open a route or prepare an admitted typed request.
 4. **Notifications** - unread count and alert drawer. Delivery is not an Owner outcome or acknowledgement.
 
-| Module        | Tabs in order                                                     |
-| ------------- | ----------------------------------------------------------------- |
-| Overview      | Status, Attention, Recent, Evidence                               |
-| R&D           | Intake, Research, Hypotheses, Artifacts, Decisions                |
-| Backtest      | Exploratory, Compare, Diagnostics                                 |
-| Qualification | Intake, Outcomes, Eligibility                                     |
-| Scanner       | Schedules, Runs, Proposals                                        |
-| Strategy      | Registry, Lifecycle, Allocations                                  |
-| Runtime       | Instances, Generations, Checkpoints, Incidents                    |
-| Portfolio     | Performance, Exposure, Capacity, Attribution                      |
-| Risk          | Decisions, Reservations, Claims & Admission, Fences               |
-| Execution     | Attempts, Orders, Fills, Reconciliation, Recovery                 |
-| Data          | Sources, PIT Catalog, Quality, Freshness                          |
+| Module        | Tabs in order                                                                |
+| ------------- | ---------------------------------------------------------------------------- |
+| Overview      | Status, Attention, Recent, Evidence                                          |
+| R&D           | Intake, Research, Hypotheses, Artifacts, Decisions                           |
+| Backtest      | Exploratory, Compare, Diagnostics                                            |
+| Qualification | Intake, Outcomes, Eligibility                                                |
+| Scanner       | Schedules, Runs, Proposals                                                   |
+| Strategy      | Registry, Lifecycle, Allocations                                             |
+| Runtime       | Instances, Generations, Checkpoints, Incidents                               |
+| Portfolio     | Performance, Exposure, Capacity, Attribution                                 |
+| Risk          | Decisions, Reservations, Claims & Admission, Fences                          |
+| Execution     | Attempts, Orders, Fills, Reconciliation, Recovery                            |
+| Data          | Sources, PIT Catalog, Quality, Freshness                                     |
 | Operations    | Runs, Workers, Schedules, Service Logs, Audit, Event Rail, Telemetry, Alerts |
-| Settings      | Data Sources, Agents, Notifications, Access                       |
+| Settings      | Data Sources, Agents, Notifications, Access                                  |
 
 On narrow screens the tape collapses to a status button, tabs scroll horizontally, and the rail becomes a drawer.
 Order, route identity, and authority labels remain unchanged.
@@ -1585,10 +1705,19 @@ readiness.
 control-plane evidence defined here. It never reads Windmill's partitioned table as a positive first-party source:
 the currently observed Windmill rows expose only principal, time and action kind while operation and resource are
 `redacted`. They may remain external migration evidence, but cannot fabricate a target, outcome or Dashboard audit
-identity. The first admitted producers are exactly successful `dashboard.dependency.cancel.queued.v1` and
-`dashboard.operational_cache.delete.v1` transitions. Each inserts its audit event in the same serializable
-PostgreSQL transaction as its immutable action receipt; a missing or rejected audit insert rolls back that action.
-No Owner, provider, deployment, scheduler, Windmill or trading event is inferred or written by this slice.
+identity. The admitted producers are exactly successful `dashboard.dependency.cancel.queued.v1` and
+`dashboard.operational_cache.delete.v1` transitions plus authenticated control-plane admissions for
+`source_intake.research.submit_or_resolve.v1` and `artifact_build.formation_execute.v1`. Each cancellation or
+deletion inserts its audit event in the same serializable PostgreSQL transaction as its immutable action receipt.
+Each Source-to-Research or Artifact request inserts a typed `dashboard-control-plane-admission-v1-*` receipt and
+its audit event in the same RunStore begin transaction before any Owner or provider call; a missing, conflicting,
+or rejected receipt/audit insert rolls back the run/binding transition and no downstream effect begins. The
+receipt binds the authenticated principal and authorization digest, original requested action, resolved execution
+mode, operation, and exact run identity. Repeating the same admission reads the same immutable receipt; a distinct
+action or execution mode gets a distinct receipt. The audit outcome `succeeded` means only that control-plane
+admission committed; it never claims Owner acceptance, provider success, or a business terminal outcome. Historical
+runs are not backfilled with invented principals or authorization digests. No deployment, scheduler, Windmill,
+effect-routing, production, trading, Owner-outcome, or provider-outcome event is inferred or changed by this slice.
 
 ```text
 H  Operations / Audit · one-line purpose                         [info] [Refresh]
@@ -1763,11 +1892,11 @@ A route name, an `S/P/Q/T` slot assignment, or a PascalCase label is not by itse
 contract. The following status is normative and prevents the experimental chapter from overstating how much of the
 Dashboard can already be drawn:
 
-| Completeness status                   | Current pages or surfaces                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Admission meaning                                                                                                                                                                                                                                                                                      |
-| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `DRAWABLE_EXACT`                      | Operations Runs `/operations`, Run Detail `/operations/runs/:runId`, Workers `/operations/workers` and `/operations/workers/:workerId`, Schedules `/operations/schedules`, Service Logs `/operations/service-logs`, Audit `/operations/audit`; R&D Intake `/rd` and Develop Composer `/rd/composer` exact‑readback workbenches, Research `/rd/research` directory and Artifacts `/rd/artifacts`; Backtest Replay request readback `/backtest`; Market Data `/data` and `/data/pit-catalog`; all four Runtime routes | The chapter fixes route slots, internal field/column order, dimensions or responsive transformation, state geometry, and button order. Fail‑closed routes are drawable with fixed unavailable/not‑ready values; this status does not make their backend or Dashboard consumer available                |
-| `DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` | R&D Intake `/rd` composer and authority‑resolution panels beyond the admitted exact‑readback workbench; R&D Research `/rd/research` selected‑request detail beyond the admitted directory                                                                                                                                                                                                                                                                                        | The named content/detail region is exact, but its enclosing route list still lacks one or more of summary labels, table columns, row actions, sort, pagination or loading‑row geometry; the broader surface is not drawable or implementable                                                           |
-| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`    | Every other complete route in the registry, explicitly including Event Rail, Telemetry, and Alerts                                                                                                                                                                                                                                                                                                                                                                               | The registry fixes navigation position, route slots, named page‑local composites, and button intent only. An unattended agent must not infer missing list behavior, timeline rows, responsive table transformation, or internal geometry from a component‑like name or excluded Windmill/native layout |
+| Completeness status                   | Current pages or surfaces                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Admission meaning                                                                                                                                                                                                                                                                                      |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `DRAWABLE_EXACT`                      | Operations Runs `/operations`, Run Detail `/operations/runs/:runId`, Workers `/operations/workers` and `/operations/workers/:workerId`, Schedules `/operations/schedules`, Service Logs `/operations/service-logs`, Audit `/operations/audit`; R&D Intake `/rd` and Develop Composer `/rd/composer` exact‑readback workbenches, Research directory `/rd/research` and exact readback `/rd/research/:requestIdentity`, and Artifacts `/rd/artifacts`; Backtest Replay request readback `/backtest`; Market Data `/data` and `/data/pit-catalog`; all four Runtime routes | The chapter fixes route slots, internal field/column order, dimensions or responsive transformation, state geometry, and button order. Fail‑closed routes are drawable with fixed unavailable/not‑ready values; this status does not make their backend or Dashboard consumer available                |
+| `DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` | R&D Intake `/rd` composer and authority‑resolution panels beyond the admitted exact‑readback workbench                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | The named content/detail region is exact, but its enclosing route list still lacks one or more of summary labels, table columns, row actions, sort, pagination or loading‑row geometry; the broader surface is not drawable or implementable                                                           |
+| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`    | Every other complete route in the registry, explicitly including Event Rail, Telemetry, and Alerts                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | The registry fixes navigation position, route slots, named page‑local composites, and button intent only. An unattended agent must not infer missing list behavior, timeline rows, responsive table transformation, or internal geometry from a component‑like name or excluded Windmill/native layout |
 
 Names referenced by a route but absent from the reusable component inventory are page-local composite labels, not
 hidden reusable atoms. Promoting one blueprint to `DRAWABLE_EXACT` requires this chapter to specify, in both
@@ -1794,14 +1923,16 @@ source contracts are `CURRENT/PARTIAL`, their exact default-Web deployment remai
 custody, and actual provider execution remains `NOT_ADMITTED`. This rule resolves status only; it does not change
 the fixed panel, button, or state geometry in the registry.
 
-The currently admitted `/rd`, `/rd/composer`, `/rd/research`, and `/rd/artifacts` routes are bounded read-only surfaces and
+The currently admitted `/rd`, `/rd/composer`, `/rd/research`, `/rd/research/:requestIdentity`, and
+`/rd/artifacts` routes and the Artifact operational exact-readback are bounded read-only surfaces and
 supersede the broader future Intake, Research, and Artifacts registry rows below for implementation. None has a
 summary strip or split detail pane. Their only `P` surfaces are `SourceIntakeReadbackWorkbench`,
-`DevelopComposerReadbackWorkbench`, `ResearchDirectory`, and `ArtifactDirectory`. Intake has no directory,
-editable composer, or positive action in its admitted slice; Research has no detail link; Artifact detail remains
-a separate identity-bound URL. The broader
-composer, Research detail, admission, outcome, review, binding, replay, and security-evidence panels in the
-registry stay future blueprint content and are not inferred into these slices.
+`DevelopComposerReadbackWorkbench`, `ResearchDirectory`, `ResearchReadbackWorkspace`, and `ArtifactDirectory`.
+Intake has no directory, editable composer, or positive action in its admitted slice; Research detail remains a
+separate identity-bound URL and has no positive action; Artifact detail also remains a separate identity-bound
+URL. The broader composer, Research admission/outcome actions, receipt timeline, S1 custody, review, binding,
+replay, and security-evidence panels in the registry stay future blueprint content and are not inferred into
+these slices.
 
 #### Overview and R&D
 
@@ -2313,6 +2444,38 @@ Windmill and Dashboard may coexist during migration without dual business writer
 every admitted Windmill Web/MCP journey passes through the new Dashboard/registry with the same Owner receipts and
 fail-close behavior. Windmill removal is a separate reversible cleanup after parity, cache-loss recovery, and
 artifact custody are proven.
+
+### First-party effect custody admission (authorization B)
+
+`IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`. The first-party Dashboard may implement the two currently consumed
+Product Edge journeys behind `DASHBOARD_DISPOSABLE_EXECUTION`: the ordered Source Intake -> Research Goal V2
+journey and Artifact Build V1 formation. This admission permits source, tests, packaging, and disposable dynamic
+verification. It does not activate a route, change an existing Windmill binding, call a live provider, write a
+shared or production Owner database, or authorize trading. Those runtime effects remain separately gated.
+
+Product Edge remains the sole routing authority. A fresh Dashboard `RUN` is reachable only when the exact
+content-addressed compatibility envelope is current and every operation-specific routing key resolves to the one
+`ACTIVE` history head with dispatcher `TRADE_DASHBOARD`. `WINDMILL`, zero-active, dual/ambiguous, stale, malformed,
+unavailable, or mismatched observations fail closed before an Owner call. Deployment flags and credentials are
+necessary transport configuration, never routing authority. Consequently Windmill and Dashboard cannot both be
+fresh business writers for the same operation identity.
+
+The Dashboard RunStore records the canonical recovery identity, operation manifest, compatibility envelope, and
+the exact routing binding before the first Owner effect. Source Intake must become canonically readable before the
+same ancestry is handed to Research Goal V2. Artifact formation preserves the existing `Check & Run` preflight,
+claim-before-provider and start-before-provider ordering, at-most-once provider custody, and manual reconciliation
+after an ambiguous started invocation. A response-loss or restart path uses only the retained operation and exact
+request/attempt identities: it first resolves Owner custody, may continue only the one Owner-declared unstarted
+claim, never re-evaluates a fresh Windmill/Dashboard choice, and never creates a replacement identity or naked
+retry. Exact-identity `RESOLVE` remains effect-free and does not require a current Dashboard routing binding.
+
+The admitted HTTP surface is limited to `POST /api/rd/source-research`,
+`POST /api/rd/artifacts/formations/preflight`, and `POST /api/rd/artifacts/formations`. Each route accepts one
+exact allowlisted body, rejects unknown fields, and returns the same bounded Owner projection plus an operational
+run reference or an explicit unavailable state. No mutating control is enabled in the browser until disposable
+runtime verification proves these gates. Moving either Product Edge binding to `TRADE_DASHBOARD`, exercising a
+real Owner/provider effect, production cutover, Windmill removal, and publication remain separate explicit
+effects.
 
 ## Unattended implementation sequence
 

@@ -15,6 +15,7 @@ export type ArtifactBuildExecutionRuntimeV1 = {
   provider_model: string
   dispatcher: "WINDMILL" | "TRADE_DASHBOARD"
   fetcher: Fetcher
+  verified_s1_context?: VerifiedS1ConsumerContextV1
   observe_phase?: (phase: "OWNER_CLAIMED" | "INVOCATION_STARTED") => Promise<void>
 }
 
@@ -26,23 +27,6 @@ export type ArtifactBuildExecutionRequestV1 = {
   identity_mode: IdentityMode
 }
 
-export type DashboardArtifactBuildUnavailableV1 = {
-  schema_version: 1
-  resolution: "UNAVAILABLE"
-  unavailable_reason: "DASHBOARD_EFFECT_DISPATCH_NOT_ADMITTED"
-  effect_boundary_crossed: false
-  build_request_identity: null
-  attempt_identity: null
-  owner_receipt: null
-  research_view: null
-  artifact_review: null
-  artifact_review_actions: null
-  trial_family_resolution: null
-  artifact_trial_family: null
-  next_legal_action: null
-  provider_invocation: null
-}
-
 import {
   deriveArtifactConsumerProjectionV1,
   deriveResearchConsumerProjectionV1,
@@ -51,7 +35,10 @@ import {
   verifyArtifactConsumerProjectionV1,
   type VerifiedS1ConsumerContextV1,
 } from "./consumer_projection_v1.ts"
-import { providerInvocationStateDigestV1 } from "./provider_invocation_custody_v1.ts"
+import {
+  providerInvocationStateDigestV1,
+  verifyProviderInvocationCustodyV1,
+} from "./provider_invocation_custody_v1.ts"
 
 type AgentCandidate = {
   logic: {
@@ -111,14 +98,35 @@ function validProviderInvocationClaimEnvelopeV1(
     && (claim.state !== "INVOCATION_STARTED" || claim.disposition === "ALREADY_CLAIMED")
 }
 
-export function validProviderInvocationClaimV1(
+async function validProviderInvocationCustodyEnvelopeV1(
   claim: Record<string, unknown>,
   buildRequestIdentity: string,
   attemptIdentity: string,
-): boolean {
-  return validProviderInvocationClaimEnvelopeV1(claim, buildRequestIdentity, attemptIdentity)
-    && claim.state === "CLAIMED"
+): Promise<boolean> {
+  if (!validProviderInvocationClaimEnvelopeV1(claim, buildRequestIdentity, attemptIdentity)) return false
+  return verifyProviderInvocationCustodyV1(claim as Parameters<
+    typeof verifyProviderInvocationCustodyV1
+  >[0])
+}
+
+export async function validProviderInvocationClaimV1(
+  claim: Record<string, unknown>,
+  buildRequestIdentity: string,
+  attemptIdentity: string,
+): Promise<boolean> {
+  return claim.state === "CLAIMED"
     && claim.next_legal_action === "RUN_BOUNDED_EXECUTION_AGENT"
+    && await validProviderInvocationCustodyEnvelopeV1(claim, buildRequestIdentity, attemptIdentity)
+}
+
+async function validProviderInvocationStartedV1(
+  claim: Record<string, unknown>,
+  buildRequestIdentity: string,
+  attemptIdentity: string,
+): Promise<boolean> {
+  return claim.state === "INVOCATION_STARTED"
+    && claim.next_legal_action === "MANUALLY_RECONCILE_PROVIDER_INVOCATION"
+    && await validProviderInvocationCustodyEnvelopeV1(claim, buildRequestIdentity, attemptIdentity)
 }
 
 export async function validProviderInvocationStartV1(
@@ -144,7 +152,7 @@ export async function validProviderInvocationStartV1(
   } catch {
     return false
   }
-  const structurallyValid = validProviderInvocationClaimV1(claim, buildRequestIdentity, attemptIdentity)
+  const structurallyValid = await validProviderInvocationClaimV1(claim, buildRequestIdentity, attemptIdentity)
     && exactKeys(start, [
       "admission_identity", "attempt_identity", "claim_digest", "claim_identity",
       "disposition", "request_identity", "schema_version", "started_at_epoch_ms", "state_digest",
@@ -390,36 +398,18 @@ function unknown(
   }
 }
 
-function dashboardUnavailable(): DashboardArtifactBuildUnavailableV1 {
-  return {
-    schema_version: 1,
-    resolution: "UNAVAILABLE",
-    unavailable_reason: "DASHBOARD_EFFECT_DISPATCH_NOT_ADMITTED",
-    effect_boundary_crossed: false,
-    build_request_identity: null,
-    attempt_identity: null,
-    owner_receipt: null,
-    research_view: null,
-    artifact_review: null,
-    artifact_review_actions: null,
-    trial_family_resolution: null,
-    artifact_trial_family: null,
-    next_legal_action: null,
-    provider_invocation: null,
-  }
-}
-
 async function ownerPost(
   runtime: ArtifactBuildExecutionRuntimeV1,
   path: string,
   body: unknown,
+  dashboardEffect = false,
 ) {
   const response = await runtime.fetcher(`${runtime.owner_url}${path}`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${runtime.owner_token}`,
       "content-type": "application/json",
-      ...(runtime.dispatcher === "TRADE_DASHBOARD"
+      ...(runtime.dispatcher === "TRADE_DASHBOARD" && dashboardEffect
         ? { "x-trade-effect-dispatcher": "TRADE_DASHBOARD" }
         : {}),
     },
@@ -534,7 +524,7 @@ async function fail(
   return ownerPost(runtime, "/v1/artifact-builds/fail", {
     request: ownerArtifactOperationRequest(request),
     failure_code: failureCode,
-  })
+  }, true)
 }
 
 function validAgentCandidate(value: unknown): value is AgentCandidate {
@@ -658,6 +648,11 @@ async function runOwnerOperation(
     try {
       existing = await resolve(runtime, build_request_identity, attempt_identity)
       if (existing?.provider_invocation?.state === "INVOCATION_STARTED") {
+        if (!await validProviderInvocationStartedV1(
+          existing.provider_invocation,
+          build_request_identity,
+          attempt_identity,
+        )) return finish(unknown(build_request_identity, attempt_identity))
         await runtime.observe_phase?.("OWNER_CLAIMED")
         await runtime.observe_phase?.("INVOCATION_STARTED")
         return finish(existing)
@@ -674,7 +669,7 @@ async function runOwnerOperation(
   let request: Record<string, any>
   if (existing?.provider_invocation?.state === "CLAIMED") {
     invocationClaim = existing.provider_invocation
-    if (!validProviderInvocationClaimV1(invocationClaim, build_request_identity, attempt_identity)) {
+    if (!await validProviderInvocationClaimV1(invocationClaim, build_request_identity, attempt_identity)) {
       return finish(unknown(build_request_identity, attempt_identity))
     }
     request = {}
@@ -689,24 +684,16 @@ async function runOwnerOperation(
     }
     let preparation: Record<string, unknown>
     try {
-      preparation = await ownerPost(runtime, "/v1/artifact-builds/prepare", request)
+      preparation = await ownerPost(runtime, "/v1/artifact-builds/prepare", request, true)
     } catch {
       return finish(unknown(build_request_identity, attempt_identity))
-    }
-    if (!validArtifactPreparationV1(
-      preparation, build_request_identity, attempt_identity, context.intent_identity,
-    )) {
-      try {
-        return finish(await resolve(runtime, build_request_identity, attempt_identity))
-      } catch {
-        return finish(unknown(build_request_identity, attempt_identity))
-      }
     }
     try {
       invocationClaim = await ownerPost(
         runtime,
         "/v1/artifact-builds/claim-provider-invocation",
         request,
+        true,
       )
     } catch {
       return finish(unknown(build_request_identity, attempt_identity))
@@ -719,15 +706,28 @@ async function runOwnerOperation(
       return finish(unknown(build_request_identity, attempt_identity))
     }
     if (invocationClaim.state === "INVOCATION_STARTED") {
-      if (invocationClaim.next_legal_action !== "MANUALLY_RECONCILE_PROVIDER_INVOCATION") {
+      if (!await validProviderInvocationStartedV1(
+        invocationClaim,
+        build_request_identity,
+        attempt_identity,
+      )) {
         return finish(unknown(build_request_identity, attempt_identity))
       }
       await runtime.observe_phase?.("OWNER_CLAIMED")
       await runtime.observe_phase?.("INVOCATION_STARTED")
       return finish(unknown(build_request_identity, attempt_identity, invocationClaim))
     }
-    if (!validProviderInvocationClaimV1(invocationClaim, build_request_identity, attempt_identity)) {
+    if (!await validProviderInvocationClaimV1(invocationClaim, build_request_identity, attempt_identity)) {
       return finish(unknown(build_request_identity, attempt_identity))
+    }
+    if (invocationClaim.disposition === "CLAIMED_NEW" && !validArtifactPreparationV1(
+      preparation, build_request_identity, attempt_identity, context.intent_identity,
+    )) {
+      try {
+        return finish(await resolve(runtime, build_request_identity, attempt_identity))
+      } catch {
+        return finish(unknown(build_request_identity, attempt_identity))
+      }
     }
   }
 
@@ -747,6 +747,7 @@ async function runOwnerOperation(
         attempt_identity,
         research_request_identity,
       },
+      true,
     )
   } catch {
     try {
@@ -810,7 +811,7 @@ async function runOwnerOperation(
     return finish(await ownerPost(runtime, "/v1/artifact-builds/candidate", {
       request: ownerArtifactOperationRequest(request),
       candidate,
-    }))
+    }, true))
   } catch {
     return finish(unknown(build_request_identity, attempt_identity))
   }
@@ -854,9 +855,6 @@ export async function executeArtifactBuildV1(
     research_request_identity,
     identity_mode,
   } = request
-  if (runtime.dispatcher === "TRADE_DASHBOARD") {
-    return dashboardUnavailable()
-  }
   let effectiveBuildRequestIdentity = build_request_identity
   let effectiveAttemptIdentity = attempt_identity
   if (action === "RUN" && identity_mode === "GENERATE") {
@@ -872,7 +870,15 @@ export async function executeArtifactBuildV1(
     return unknown(build_request_identity, attempt_identity)
   }
   if (!runtime.owner_token) return unknown(effectiveBuildRequestIdentity, effectiveAttemptIdentity)
-  const preflight = await preflightArtifactBuildV1(research_request_identity, runtime)
+  const suppliedContext = runtime.dispatcher === "TRADE_DASHBOARD"
+    && runtime.verified_s1_context?.request_identity === research_request_identity
+    ? runtime.verified_s1_context
+    : null
+  const preflight = runtime.dispatcher === "WINDMILL"
+    ? await preflightArtifactBuildV1(research_request_identity, runtime)
+    : action === "RUN" && identity_mode === "GENERATE" && suppliedContext
+      ? { availability: "available" as const, unavailable_reason: null, context: suppliedContext }
+      : { availability: "available" as const, unavailable_reason: null, context: null }
   const s1Context = preflight.context
   const operation = await runOwnerOperation(
     runtime,

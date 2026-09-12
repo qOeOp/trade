@@ -154,6 +154,17 @@ docker compose \
 
 The sole default browser entry is `http://127.0.0.1:18000`. On a fresh volume, complete Windmill's authenticated first-user setup in that browser and create the local `trade-rd` workspace. Create a workspace token for deployment, keep it outside the repository, and deploy the repository projection:
 
+The opt-in `dashboard-preview` profile additionally starts the consolidated
+`rd-dashboard-owner-read-api` reader. It exposes only the authenticated Artifact
+directory/source, Research directory/exact-readback, Source Intake exact-readback,
+and Develop Composer exact-readback GETs plus its health check. Its state keeps
+separate typed domain ports and owns no sandbox, fact-writer pool, or mutation
+port. Configure `RD_DASHBOARD_OWNER_READ_API_TOKEN`; Dashboard consumes the
+matching internal URL/token pair and fails closed when either half is missing.
+Starting the default Workbench without the profile does not start this reader or
+change any Windmill route. Source Intake and Composer are typed-port additions to
+this same process, not additional containers.
+
 ```bash
 WINDMILL_TOKEN_FILE=/absolute/path/to/private-deployment-token \
 WINDMILL_WORKSPACE_ID=trade-rd \
@@ -222,5 +233,11 @@ custody and the composed Source Intake-to-Research-to-Composer path remain the
 documented TARGET/SEALED_ACCEPTANCE work. Complex-strategy production readiness,
 ATR/RSI behavior, joined or multi-timeframe data, Backtest, Paper, Live,
 deployment, and trading effects are NOT_ADMITTED by this script or MCP scope.
+
+The optional Dashboard preview packages the admitted Replay V2 exact point-read in the
+existing `strategy-factory-rd-dashboard-read-api`. It delegates only to the sealed
+Replay read port through an `rd_owner` read pool; it does not add a service, identify
+or submit a request, resolve custody, execute a replay, expose results, or alter the
+Windmill transport.
 
 Legacy V1 receipts, Intents, and Artifacts are not backfilled; direct family resolution returns `TRIAL_FAMILY_UNAVAILABLE_LEGACY`. This slice creates and resolves Owner-sealed Exploratory Replay V2 requests; it does not implement Backtest, Selection, Candidate, Qualification, Scanner, Runtime, Portfolio, Recovery, capital, Risk, Execution, orders, or real trading. The candidate is not `PRODUCT_CURRENT` until its exact-head dynamic default-Web evidence and repository gates pass and the PR is merged and accepted.

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  artifactDirectoryOwnerTargetV1,
   createArtifactDirectoryRequestGuardV1,
   mergeArtifactDirectoryItemsV1,
   parseArtifactDirectoryBrowserProjectionV1,
@@ -91,6 +92,67 @@ test("gateway binds one authenticated no-store GET and a strictly advancing curs
   assert.equal(calls[0].init.cache, "no-store");
   assert.deepEqual(calls[0].init.headers, { authorization: "Bearer secret" });
   assert.equal(calls[0].init.body, undefined);
+});
+
+test("consolidated Dashboard read target is atomic and falls back only when entirely absent", () => {
+  assert.deepEqual(artifactDirectoryOwnerTargetV1({
+    RD_DASHBOARD_OWNER_READ_API_URL: "http://dashboard-read:8082",
+    RD_DASHBOARD_OWNER_READ_API_TOKEN: "read-token",
+    RD_OWNER_API_URL: "http://owner-write:8080",
+    RD_OWNER_API_TOKEN: "write-token",
+  }), {
+    baseUrl: "http://dashboard-read:8082",
+    token: "read-token",
+  });
+  assert.deepEqual(artifactDirectoryOwnerTargetV1({
+    RD_DASHBOARD_OWNER_READ_API_URL: "http://dashboard-read:8082",
+    RD_OWNER_API_URL: "http://owner-write:8080",
+    RD_OWNER_API_TOKEN: "write-token",
+  }), {
+    baseUrl: "http://dashboard-read:8082",
+    token: undefined,
+  });
+  assert.deepEqual(artifactDirectoryOwnerTargetV1({
+    RD_OWNER_API_URL: "http://owner-write:8080",
+    RD_OWNER_API_TOKEN: "write-token",
+  }), {
+    baseUrl: "http://owner-write:8080",
+    token: "write-token",
+  });
+});
+
+test("gateway uses only the complete consolidated Dashboard read target", async () => {
+  const calls = [];
+  const dedicated = await readArtifactDirectoryGatewayV1({
+    environment: {
+      RD_DASHBOARD_OWNER_READ_API_URL: "http://dashboard-read:8082",
+      RD_DASHBOARD_OWNER_READ_API_TOKEN: "read-token",
+      RD_OWNER_API_URL: "http://owner-write:8080",
+      RD_OWNER_API_TOKEN: "write-token",
+    },
+    fetcher: async (url, init) => {
+      calls.push({ url: String(url), authorization: init.headers.authorization });
+      return new Response(JSON.stringify(ownerReadback), { status: 200 });
+    },
+  });
+  assert.equal(dedicated.status, 200);
+  assert.deepEqual(calls, [{
+    url: "http://dashboard-read:8082/v1/artifact-builds/directory?limit=20",
+    authorization: "Bearer read-token",
+  }]);
+
+  const incomplete = await readArtifactDirectoryGatewayV1({
+    environment: {
+      RD_DASHBOARD_OWNER_READ_API_URL: "http://dashboard-read:8082",
+      RD_OWNER_API_URL: "http://owner-write:8080",
+      RD_OWNER_API_TOKEN: "write-token",
+    },
+    fetcher: async () => {
+      throw new Error("an incomplete dedicated target must make zero Owner calls");
+    },
+  });
+  assert.equal(incomplete.status, 503);
+  assert.equal(incomplete.projection.reason, "OWNER_CONFIGURATION_UNAVAILABLE");
 });
 
 test("request ordering and accumulated identity checks reject stale or repeated pages", () => {

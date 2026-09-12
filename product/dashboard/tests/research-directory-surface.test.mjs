@@ -21,6 +21,7 @@ test("Research directory uses the shared compact read-only table surface", async
   assert.match(component, /requestGuard\.current\.isCurrent\(requestIdentity\)/u);
   assert.match(component, /RESEARCH_DIRECTORY_PAGE_IDENTITY_CONFLICT/u);
   assert.match(component, /researchAvailabilityTone\(item\.availability\)/u);
+  assert.match(component, /href=\{`\/rd\/research\/\$\{encodeURIComponent\(item\.requestIdentity\)\}`\}/u);
   assert.match(route, /readResearchDirectoryGatewayV1/u);
   assert.match(route, /search\.getAll\(key\)\.length !== 1/u);
   assert.match(shell, /<ResearchDirectory \/>/u);
@@ -38,14 +39,14 @@ test("Research directory uses the shared compact read-only table surface", async
   assert.match(css, /\.pendingQuiet \{\s*visibility: hidden;/u);
   assert.match(css, /overflow-y: auto/u);
   assert.doesNotMatch(css, /min-height:\s*min\(620px/u);
-  assert.doesNotMatch(component, /href=|column chooser|registered|visible count|>Submit<|>Resolve<|>Run<|>Save<|textarea|contentEditable/u);
+  assert.doesNotMatch(component, /column chooser|registered|visible count|>Submit<|>Resolve<|>Run<|>Save<|textarea|contentEditable/u);
   assert.doesNotMatch(css, /#[0-9a-f]{3,8}|rgba?\(|hsla?\(/iu);
 });
 
 test("bilingual Research directory contract fixes layout, fields and no-effect boundary", async () => {
   for (const suffix of ["", ".zh"]) {
     const doc = await readFile(new URL(`../../../docs/guide/dashboard${suffix}.md`, import.meta.url), "utf8");
-    const heading = suffix ? "## 有界准入：已验证 Research 目录" : "## Bounded admission: verified Research directory";
+    const heading = suffix ? "## 有界准入：已验证 Research 目录与精确回读" : "## Bounded admission: verified Research directory and exact readback";
     const start = doc.indexOf(heading);
     assert.ok(start >= 0);
     const specification = doc.slice(start, doc.indexOf("\n## ", start + heading.length));

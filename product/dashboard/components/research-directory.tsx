@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 
 import {
   createResearchDirectoryRequestGuardV1,
@@ -152,7 +153,10 @@ export function ResearchDirectory() {
       minWidth: "300px",
       grow: 1.4,
       cell: (item) => <div className={styles.identityCell}>
-        <strong title={item.requestIdentity}>{displayIdentity(item.requestIdentity)}</strong>
+        <Link className={styles.identityLink} href={`/rd/research/${encodeURIComponent(item.requestIdentity)}`}
+          title={`Open ${item.requestIdentity}`}>
+          <strong>{displayIdentity(item.requestIdentity)}</strong>
+        </Link>
         <span>Owner-verified custody</span>
       </div>,
     },

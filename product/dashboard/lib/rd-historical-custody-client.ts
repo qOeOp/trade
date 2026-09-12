@@ -144,6 +144,7 @@ function unavailable(reason: string, status: number, now: number) {
 export async function resolveHistoricalCustodyShadowV1({ baseUrl, token, fetcher = fetch, now = Date.now }: {
   baseUrl: string | undefined; token: string | undefined; fetcher?: Fetcher; now?: () => number;
 }) {
+  const operation = operationByIdV1(RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION);
   const endpoint = baseUrl ? ownerOperationUrlV1({ operationId: RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION, baseUrl, identities: {} }) : null;
   if (!endpoint || !token) return unavailable("OWNER_CONFIGURATION_UNAVAILABLE", 503, now());
   const startedAt = now();
@@ -156,7 +157,11 @@ export async function resolveHistoricalCustodyShadowV1({ baseUrl, token, fetcher
     if (!response.ok) return unavailable("OWNER_RESPONSE_UNAVAILABLE", 502, observedAt);
     let raw: unknown;
     try { raw = JSON.parse(body); } catch { return unavailable("OWNER_RESPONSE_UNAVAILABLE", 502, observedAt); }
-    const projection = parseHistoricalCustodyOwnerV1(raw, startedAt, observedAt);
+    const projection = parseHistoricalCustodyOwnerV1(
+      raw,
+      Math.max(0, startedAt - operation.timeout_class.milliseconds),
+      observedAt,
+    );
     if (!projection) return unavailable("OWNER_RESPONSE_UNAVAILABLE", 502, observedAt);
     return { status: 200, envelope: { schema_version: 1 as const, operation: RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION, channel: "DASHBOARD_SHADOW_READ" as const, transport_observed_at: new Date(observedAt).toISOString(), availability: "available" as const, unavailable_reason: null, projection } };
   } catch { return unavailable("OWNER_TRANSPORT_UNAVAILABLE", 503, now()); }

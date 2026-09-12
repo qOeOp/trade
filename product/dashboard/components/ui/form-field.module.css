@@ -1,0 +1,24 @@
+.field {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+
+.field[data-span="full"] {
+  grid-column: 1 / -1;
+}
+
+.label {
+  color: var(--text-muted);
+  font: 650 10px/1.25 var(--font-sans);
+  letter-spacing: 0.01em;
+}
+
+.hint,
+.error {
+  font: 500 9px/1.35 var(--font-sans);
+}
+
+.hint { color: var(--text-muted); }
+.error { color: var(--status-negative); }
