@@ -382,6 +382,7 @@ pub(crate) struct IterationInterpretationResultCustodyV1 {
     result_storage_digest: String,
     receipt_storage_digest: String,
     outbox_storage_digest: String,
+    semantic_trace_storage_digest: String,
 }
 
 /// Owner-sealed decisive diagnostic evidence carried by the locked Result aggregate.
@@ -458,6 +459,11 @@ pub(crate) fn issue_interpretation_context_v1(
         locked_result.result_canonical_bytes(),
         locked_result.receipt_canonical_bytes(),
         locked_result.outbox_canonical_bytes(),
+        locked_result.semantic_trace_canonical_bytes().ok_or(
+            IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+                "canonical semantic trace is missing",
+            ),
+        )?,
     );
     issue_interpretation_context_from_result_v1(gate, locked_result.result(), result_custody)
 }
@@ -609,6 +615,7 @@ fn interpretation_result_custody_v1(
     result_bytes: &[u8],
     receipt_bytes: &[u8],
     outbox_bytes: &[u8],
+    semantic_trace_bytes: &[u8],
 ) -> IterationInterpretationResultCustodyV1 {
     IterationInterpretationResultCustodyV1 {
         result_storage_digest: interpretation_storage_digest_v1(
@@ -622,6 +629,10 @@ fn interpretation_result_custody_v1(
         outbox_storage_digest: interpretation_storage_digest_v1(
             "vibe.rd.iteration-interpretation.result-outbox-storage.v1",
             outbox_bytes,
+        ),
+        semantic_trace_storage_digest: interpretation_storage_digest_v1(
+            "vibe.rd.iteration-interpretation.semantic-trace-storage.v1",
+            semantic_trace_bytes,
         ),
     }
 }
@@ -1131,7 +1142,12 @@ mod tests {
         issue_interpretation_context_from_result_v1(
             gate,
             result,
-            interpretation_result_custody_v1(&result_bytes, b"receipt-bytes", b"outbox-bytes"),
+            interpretation_result_custody_v1(
+                &result_bytes,
+                b"receipt-bytes",
+                b"outbox-bytes",
+                b"semantic-trace-bytes",
+            ),
         )
     }
 
@@ -1229,6 +1245,12 @@ mod tests {
             context
                 .result_custody
                 .result_storage_digest
+                .starts_with("sha256:")
+        );
+        assert!(
+            context
+                .result_custody
+                .semantic_trace_storage_digest
                 .starts_with("sha256:")
         );
     }

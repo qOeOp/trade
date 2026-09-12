@@ -9,20 +9,22 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
 use thiserror::Error;
 use vibe_backtest_owner_contracts::{
-    CanonicalDigestV2, OpaqueIdentityV2, ReplayNamespaceV2, ReplayResultDtoV2, ReplayTerminalV2,
+    CanonicalDigestV2, ObservationComponentV2, OpaqueIdentityV2, ReplayNamespaceV2,
+    ReplayResultDtoV2, ReplayTerminalV2,
 };
 
 const RESOLVE_FUNCTION_NAME: &str = "resolve_exploratory_replay_result_v2";
 const AUTHORITY_LOCK_FUNCTION: &str = "backtest_authority_lock_api.lock_authority_catalogs_v1()";
 const TOPOLOGY_FENCE: &str = "vibe.backtest.result-topology.v2";
 const AUTHORITY_LOCK_FUNCTION_SOURCE: &str = "BEGIN LOCK TABLE pg_catalog.pg_authid, pg_catalog.pg_auth_members IN SHARE MODE; RETURN true; END";
-const FUNCTION_SOURCE: &str = "DECLARE locked_result public.backtest_replay_results_v2%ROWTYPE; locked_receipt public.backtest_replay_result_receipts_v1%ROWTYPE; locked_outbox public.backtest_replay_result_outbox_v1%ROWTYPE; BEGIN SELECT result.* INTO locked_result FROM public.backtest_replay_results_v2 result WHERE result.result_identity=p_result_identity AND result.request_identity=p_request_identity AND result.attempt_identity=p_attempt_identity; IF NOT FOUND THEN RETURN NULL; END IF; SELECT receipt.* INTO locked_receipt FROM public.backtest_replay_result_receipts_v1 receipt WHERE receipt.result_identity=p_result_identity; IF NOT FOUND THEN RETURN NULL; END IF; SELECT outbox.* INTO locked_outbox FROM public.backtest_replay_result_outbox_v1 outbox WHERE outbox.result_identity=p_result_identity; IF NOT FOUND THEN RETURN NULL; END IF; RETURN pg_catalog.jsonb_build_object('schema_version',2,'result',pg_catalog.jsonb_build_object('result_identity',locked_result.result_identity,'result_digest',locked_result.result_digest,'request_identity',locked_result.request_identity,'request_meaning_digest',locked_result.request_meaning_digest,'attempt_identity',locked_result.attempt_identity,'terminal',locked_result.terminal,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_result.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_result.canonical_bytes_blake3),'receipt',pg_catalog.jsonb_build_object('result_identity',locked_receipt.result_identity,'receipt_identity',locked_receipt.receipt_identity,'receipt_digest',locked_receipt.receipt_digest,'request_identity',locked_receipt.request_identity,'request_meaning_digest',locked_receipt.request_meaning_digest,'result_digest',locked_receipt.result_digest,'namespace',locked_receipt.namespace,'outbox_event_identity',locked_receipt.outbox_event_identity,'committed_at_epoch_ms',locked_receipt.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_receipt.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_receipt.canonical_bytes_blake3),'outbox',pg_catalog.jsonb_build_object('result_identity',locked_outbox.result_identity,'event_identity',locked_outbox.event_identity,'event_digest',locked_outbox.event_digest,'receipt_identity',locked_outbox.receipt_identity,'request_identity',locked_outbox.request_identity,'request_meaning_digest',locked_outbox.request_meaning_digest,'result_digest',locked_outbox.result_digest,'namespace',locked_outbox.namespace,'payload_digest',locked_outbox.payload_digest,'committed_at_epoch_ms',locked_outbox.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_outbox.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_outbox.canonical_bytes_blake3)); END";
+const FUNCTION_SOURCE: &str = "DECLARE locked_result public.backtest_replay_results_v2%ROWTYPE; locked_receipt public.backtest_replay_result_receipts_v1%ROWTYPE; locked_outbox public.backtest_replay_result_outbox_v1%ROWTYPE; locked_trace public.backtest_native_replay_semantic_traces_v2%ROWTYPE; BEGIN SELECT result.* INTO locked_result FROM public.backtest_replay_results_v2 result WHERE result.result_identity=p_result_identity AND result.request_identity=p_request_identity AND result.attempt_identity=p_attempt_identity; IF NOT FOUND THEN RETURN NULL; END IF; SELECT receipt.* INTO locked_receipt FROM public.backtest_replay_result_receipts_v1 receipt WHERE receipt.result_identity=p_result_identity; IF NOT FOUND THEN RETURN NULL; END IF; SELECT outbox.* INTO locked_outbox FROM public.backtest_replay_result_outbox_v1 outbox WHERE outbox.result_identity=p_result_identity; IF NOT FOUND THEN RETURN NULL; END IF; SELECT trace.* INTO locked_trace FROM public.backtest_native_replay_semantic_traces_v2 trace WHERE trace.result_identity=p_result_identity; RETURN pg_catalog.jsonb_build_object('schema_version',3,'result',pg_catalog.jsonb_build_object('result_identity',locked_result.result_identity,'result_digest',locked_result.result_digest,'request_identity',locked_result.request_identity,'request_meaning_digest',locked_result.request_meaning_digest,'attempt_identity',locked_result.attempt_identity,'terminal',locked_result.terminal,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_result.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_result.canonical_bytes_blake3),'receipt',pg_catalog.jsonb_build_object('result_identity',locked_receipt.result_identity,'receipt_identity',locked_receipt.receipt_identity,'receipt_digest',locked_receipt.receipt_digest,'request_identity',locked_receipt.request_identity,'request_meaning_digest',locked_receipt.request_meaning_digest,'result_digest',locked_receipt.result_digest,'namespace',locked_receipt.namespace,'outbox_event_identity',locked_receipt.outbox_event_identity,'committed_at_epoch_ms',locked_receipt.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_receipt.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_receipt.canonical_bytes_blake3),'outbox',pg_catalog.jsonb_build_object('result_identity',locked_outbox.result_identity,'event_identity',locked_outbox.event_identity,'event_digest',locked_outbox.event_digest,'receipt_identity',locked_outbox.receipt_identity,'request_identity',locked_outbox.request_identity,'request_meaning_digest',locked_outbox.request_meaning_digest,'result_digest',locked_outbox.result_digest,'namespace',locked_outbox.namespace,'payload_digest',locked_outbox.payload_digest,'committed_at_epoch_ms',locked_outbox.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_outbox.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_outbox.canonical_bytes_blake3),'semantic_trace',CASE WHEN locked_trace.result_identity IS NULL THEN NULL ELSE pg_catalog.jsonb_build_object('result_identity',locked_trace.result_identity,'locator_reference',locked_trace.locator_reference,'locator_digest',locked_trace.locator_digest,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_trace.canonical_bytes,'base64'),pg_catalog.chr(10),'')) END); END";
 const RESULT_STORAGE_DOMAIN: &str = "vibe.backtest.replay-result-storage.v2";
 const RECEIPT_STORAGE_DOMAIN: &str = "vibe.backtest.result-receipt-storage.v1";
 const OUTBOX_STORAGE_DOMAIN: &str = "vibe.backtest.result-outbox-storage.v1";
 const RECEIPT_DIGEST_DOMAIN: &str = "vibe.backtest.result-receipt.v1";
 const OUTBOX_PAYLOAD_DIGEST_DOMAIN: &str = "vibe.backtest.result-outbox-payload.v1";
 const OUTBOX_EVENT_DIGEST_DOMAIN: &str = "vibe.backtest.result-outbox-event.v1";
+const SEMANTIC_TRACE_BYTES_DOMAIN_V2: &str = "vibe.backtest.native-semantic-trace.v2";
 const EVENT_KIND: &str = "EXPLORATORY_BACKTEST_RESULT_COMMITTED_V1";
 const RESULT_TABLE_CENSUS_QUERY: &str = "
 WITH family AS (
@@ -542,6 +544,7 @@ pub struct LockedExploratoryReplayResultV2 {
     result_canonical_bytes: Vec<u8>,
     receipt_canonical_bytes: Vec<u8>,
     outbox_canonical_bytes: Vec<u8>,
+    semantic_trace_canonical_bytes: Option<Vec<u8>>,
 }
 
 impl LockedExploratoryReplayResultV2 {
@@ -564,6 +567,11 @@ impl LockedExploratoryReplayResultV2 {
     pub fn outbox_canonical_bytes(&self) -> &[u8] {
         &self.outbox_canonical_bytes
     }
+
+    #[must_use]
+    pub fn semantic_trace_canonical_bytes(&self) -> Option<&[u8]> {
+        self.semantic_trace_canonical_bytes.as_deref()
+    }
 }
 
 /// Resolves one complete aggregate under locks held by the caller's existing R&D transaction.
@@ -579,6 +587,7 @@ pub async fn resolve_exploratory_replay_result_v2(
     }
     acquire_topology_fence(transaction).await?;
     validate_topology(transaction, "rd_owner").await?;
+    validate_native_replay_evidence_topology(transaction).await?;
     let envelope: Option<serde_json::Value> = sqlx::query_scalar(
         "SELECT backtest_owner_api.resolve_exploratory_replay_result_v2($1,$2,$3)",
     )
@@ -615,6 +624,12 @@ pub async fn validate_backtest_native_replay_evidence_writer_topology_v2(
     acquire_topology_fence(transaction).await?;
     sqlx::query("LOCK TABLE public.backtest_native_replay_source_blobs_v2, public.backtest_native_replay_observations_v2, public.backtest_native_replay_semantic_traces_v2 IN ROW EXCLUSIVE MODE")
         .execute(&mut **transaction).await.map_err(|e| storage(&e))?;
+    validate_native_replay_evidence_topology(transaction).await
+}
+
+async fn validate_native_replay_evidence_topology(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), BacktestResultCustodyErrorV2> {
     let exact: bool = sqlx::query_scalar(NATIVE_REPLAY_EVIDENCE_TABLE_CENSUS_QUERY)
         .fetch_one(&mut **transaction)
         .await
@@ -778,11 +793,12 @@ async fn validate_topology(
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct LockedEnvelopeV2 {
+struct LockedEnvelopeV3 {
     schema_version: u16,
     result: StoredResultV2,
     receipt: StoredReceiptV1,
     outbox: StoredOutboxV1,
+    semantic_trace: Option<StoredSemanticTraceV2>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -829,6 +845,15 @@ struct StoredOutboxV1 {
     committed_at_epoch_ms: u64,
     canonical_bytes_base64: String,
     canonical_bytes_blake3: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredSemanticTraceV2 {
+    result_identity: String,
+    locator_reference: String,
+    locator_digest: String,
+    canonical_bytes_base64: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -901,17 +926,40 @@ fn validate_envelope(
     value: serde_json::Value,
     locator: ExploratoryReplayResultLocatorV2<'_>,
 ) -> Result<LockedExploratoryReplayResultV2, BacktestResultCustodyErrorV2> {
-    let envelope: LockedEnvelopeV2 =
+    let envelope: LockedEnvelopeV3 =
         serde_json::from_value(value).map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
     let result_bytes = decode_bytes(&envelope.result.canonical_bytes_base64)?;
     let receipt_bytes = decode_bytes(&envelope.receipt.canonical_bytes_base64)?;
     let outbox_bytes = decode_bytes(&envelope.outbox.canonical_bytes_base64)?;
+    let semantic_trace_bytes = envelope
+        .semantic_trace
+        .as_ref()
+        .map(|trace| decode_bytes(&trace.canonical_bytes_base64))
+        .transpose()?;
     let result = ReplayResultDtoV2::from_canonical_bytes(&result_bytes)
         .map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
     let receipt: ResultReceiptV1 = decode_canonical(&receipt_bytes)?;
     let outbox: ResultOutboxV1 = decode_canonical(&outbox_bytes)?;
 
-    let exact = envelope.schema_version == 2
+    let semantic_trace_exact = match (
+        result.semantic_trace.as_ref(),
+        envelope.semantic_trace.as_ref(),
+        semantic_trace_bytes.as_deref(),
+    ) {
+        (None, None, None) => true,
+        (Some(observation), Some(stored), Some(bytes)) => {
+            stored.result_identity == result.result_identity.as_str()
+                && observation.component == ObservationComponentV2::SemanticTrace
+                && observation.locator.component == ObservationComponentV2::SemanticTrace
+                && stored.locator_reference == observation.locator.reference.as_str()
+                && stored.locator_digest == observation.locator.digest.as_str()
+                && storage_digest(SEMANTIC_TRACE_BYTES_DOMAIN_V2, bytes)
+                    == observation.locator.digest.as_str()
+        }
+        _ => false,
+    };
+    let exact = envelope.schema_version == 3
+        && semantic_trace_exact
         && result.namespace == ReplayNamespaceV2::Exploratory
         && result.terminal != ReplayTerminalV2::InProgressOrUnknown
         && result.result_identity.as_str() == locator.result_identity
@@ -1006,6 +1054,7 @@ fn validate_envelope(
         result_canonical_bytes: result_bytes,
         receipt_canonical_bytes: receipt_bytes,
         outbox_canonical_bytes: outbox_bytes,
+        semantic_trace_canonical_bytes: semantic_trace_bytes,
     })
 }
 
@@ -1206,6 +1255,7 @@ mod tests {
     #[rstest]
     fn rd_readback_function_requires_no_row_write_privilege() {
         assert!(!FUNCTION_SOURCE.contains("FOR SHARE"));
+        assert!(FUNCTION_SOURCE.contains("backtest_native_replay_semantic_traces_v2"));
     }
 
     fn identity(value: impl Into<String>) -> OpaqueIdentityV2 {
@@ -1217,7 +1267,7 @@ mod tests {
             .expect("fixture digest")
     }
 
-    fn result_fixture(label: &str, byte: char) -> (ReplayResultDtoV2, Vec<u8>) {
+    fn result_fixture(label: &str, byte: char) -> (ReplayResultDtoV2, Vec<u8>, Vec<u8>) {
         let request_identity = identity(format!("request-{label}"));
         let request_meaning_digest = digest(byte);
         let attempt_identity = identity(format!("attempt-{label}"));
@@ -1241,11 +1291,22 @@ mod tests {
                 }
             })
             .collect::<Vec<_>>();
+        let semantic_trace_bytes = format!("canonical-semantic-trace-{label}").into_bytes();
+        let semantic_trace_digest = CanonicalDigestV2::try_from(storage_digest(
+            SEMANTIC_TRACE_BYTES_DOMAIN_V2,
+            &semantic_trace_bytes,
+        ))
+        .expect("semantic trace digest");
+        let semantic_trace_locator = ComponentObservationLocatorV2 {
+            component: ObservationComponentV2::SemanticTrace,
+            reference: identity(format!("semantic-trace-{label}")),
+            digest: semantic_trace_digest,
+        };
         let diagnostic_census = vec![DiagnosticEvidenceDtoV2 {
             request_identity: request_identity.clone(),
             request_meaning_digest: request_meaning_digest.clone(),
             attempt_identity: attempt_identity.clone(),
-            category: DiagnosticCategoryV2::UnresolvedFailure,
+            category: DiagnosticCategoryV2::NoExecutionDefect,
             decisive_evidence: ComponentObservationLocatorV2 {
                 component: ObservationComponentV2::SemanticTrace,
                 reference: identity(format!("diagnostic-{label}")),
@@ -1256,14 +1317,24 @@ mod tests {
             schema_version: 2,
             result_identity: identity("placeholder-result"),
             result_digest: digest('0'),
-            request_identity,
-            request_meaning_digest,
+            request_identity: request_identity.clone(),
+            request_meaning_digest: request_meaning_digest.clone(),
             namespace: ReplayNamespaceV2::Exploratory,
             replay_authority: ReplayAuthorityClaimV2::Exploratory,
-            attempt_identity,
-            terminal: ReplayTerminalV2::InvalidReplayEvidence,
+            attempt_identity: attempt_identity.clone(),
+            terminal: ReplayTerminalV2::TerminalResult,
             reconciliation,
-            semantic_trace: None,
+            semantic_trace: Some(
+                vibe_backtest_owner_contracts::ConsumedComponentObservationDtoV2 {
+                    request_identity: request_identity.clone(),
+                    request_meaning_digest: request_meaning_digest.clone(),
+                    attempt_identity: attempt_identity.clone(),
+                    component: ObservationComponentV2::SemanticTrace,
+                    locator: semantic_trace_locator,
+                    observed_meaning_identity: identity(format!("semantic-meaning-{label}")),
+                    observed_meaning_digest: digest(byte),
+                },
+            ),
             diagnostic_census,
         };
 
@@ -1290,7 +1361,7 @@ mod tests {
                 .expect("blake3 result digest")
         ));
         let bytes = result.to_canonical_bytes().expect("canonical result wire");
-        (result, bytes)
+        (result, bytes, semantic_trace_bytes)
     }
 
     fn custody_fixture(
@@ -1380,9 +1451,11 @@ mod tests {
         receipt_bytes: &[u8],
         outbox: &ResultOutboxV1,
         outbox_bytes: &[u8],
+        semantic_trace_bytes: &[u8],
     ) -> serde_json::Value {
+        let semantic_trace = result.semantic_trace.as_ref().expect("semantic trace");
         serde_json::json!({
-            "schema_version": 2,
+            "schema_version": 3,
             "result": {
                 "result_identity": result.result_identity.as_str(),
                 "result_digest": result.result_digest.as_str(),
@@ -1420,17 +1493,23 @@ mod tests {
                 "canonical_bytes_base64": BASE64.encode(outbox_bytes),
                 "canonical_bytes_blake3": storage_digest(OUTBOX_STORAGE_DOMAIN, outbox_bytes),
             },
+            "semantic_trace": {
+                "result_identity": result.result_identity.as_str(),
+                "locator_reference": semantic_trace.locator.reference.as_str(),
+                "locator_digest": semantic_trace.locator.digest.as_str(),
+                "canonical_bytes_base64": BASE64.encode(semantic_trace_bytes),
+            },
         })
     }
 
     #[rstest]
     fn valid_canonical_aggregates_cannot_be_cross_spliced() {
-        let (result_a, result_bytes_a) = result_fixture("a", 'a');
+        let (result_a, result_bytes_a, semantic_trace_a) = result_fixture("a", 'a');
         let (receipt_a, receipt_bytes_a, outbox_a, outbox_bytes_a) = custody_fixture(&result_a, 1);
-        let (result_b, result_bytes_b) = result_fixture("b", 'b');
+        let (result_b, result_bytes_b, semantic_trace_b) = result_fixture("b", 'b');
         let (receipt_b, receipt_bytes_b, outbox_b, outbox_bytes_b) = custody_fixture(&result_b, 2);
 
-        for (result, result_bytes, receipt, receipt_bytes, outbox, outbox_bytes) in [
+        for (result, result_bytes, receipt, receipt_bytes, outbox, outbox_bytes, trace) in [
             (
                 &result_a,
                 &result_bytes_a,
@@ -1438,6 +1517,7 @@ mod tests {
                 &receipt_bytes_a,
                 &outbox_a,
                 &outbox_bytes_a,
+                &semantic_trace_a,
             ),
             (
                 &result_b,
@@ -1446,6 +1526,7 @@ mod tests {
                 &receipt_bytes_b,
                 &outbox_b,
                 &outbox_bytes_b,
+                &semantic_trace_b,
             ),
         ] {
             validate_envelope(
@@ -1456,6 +1537,7 @@ mod tests {
                     receipt_bytes,
                     outbox,
                     outbox_bytes,
+                    trace,
                 ),
                 ExploratoryReplayResultLocatorV2 {
                     result_identity: result.result_identity.as_str(),
@@ -1473,10 +1555,56 @@ mod tests {
             &receipt_bytes_b,
             &outbox_b,
             &outbox_bytes_b,
+            &semantic_trace_a,
         );
         assert!(matches!(
             validate_envelope(
                 cross_spliced,
+                ExploratoryReplayResultLocatorV2 {
+                    result_identity: result_a.result_identity.as_str(),
+                    request_identity: result_a.request_identity.as_str(),
+                    attempt_identity: result_a.attempt_identity.as_str(),
+                },
+            ),
+            Err(BacktestResultCustodyErrorV2::Unavailable)
+        ));
+
+        let mut missing_trace = envelope(
+            &result_a,
+            &result_bytes_a,
+            &receipt_a,
+            &receipt_bytes_a,
+            &outbox_a,
+            &outbox_bytes_a,
+            &semantic_trace_a,
+        );
+        missing_trace["semantic_trace"] = serde_json::Value::Null;
+        assert!(matches!(
+            validate_envelope(
+                missing_trace,
+                ExploratoryReplayResultLocatorV2 {
+                    result_identity: result_a.result_identity.as_str(),
+                    request_identity: result_a.request_identity.as_str(),
+                    attempt_identity: result_a.attempt_identity.as_str(),
+                },
+            ),
+            Err(BacktestResultCustodyErrorV2::Unavailable)
+        ));
+
+        let mut changed_trace = envelope(
+            &result_a,
+            &result_bytes_a,
+            &receipt_a,
+            &receipt_bytes_a,
+            &outbox_a,
+            &outbox_bytes_a,
+            &semantic_trace_a,
+        );
+        changed_trace["semantic_trace"]["canonical_bytes_base64"] =
+            serde_json::Value::String(BASE64.encode(b"changed-semantic-trace"));
+        assert!(matches!(
+            validate_envelope(
+                changed_trace,
                 ExploratoryReplayResultLocatorV2 {
                     result_identity: result_a.result_identity.as_str(),
                     request_identity: result_a.request_identity.as_str(),
