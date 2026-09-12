@@ -481,6 +481,37 @@ readback shape；Native Replay preparation 仅在同时持有准确 V1 joined-cu
 它。这不会使未来 BFP coordinate port 可执行，也不证明 Native Replay run、production startup、durable product
 composition 或 Backtest 闭合。
 
+**TARGET / NOT_ADMITTED，请求绑定的 Native Replay execution input：** R&D Owner 为一份准确、已密封的
+Exploratory Replay request 签发并持久化唯一、不可变的 `NativeReplayExecutionInputBindingV1`。Strategy
+Factory 拥有纯结构 validator 与 preparation boundary；它没有独立 storage authority，也不能铸造、替换或
+重新解释任何 constituent Owner fact。该 binding 是跨 Owner composition locator，不是 market、instrument、
+schedule、universe 或 economic truth 的新来源。
+
+Canonical binding 交叉绑定 R&D request、TrialFamily、Artifact、Strategy Plan、Replay execution-profile seal，
+并按 Owner-sealed universe selection 固定的规范双成员顺序准确绑定以下 constituent：一份准确 Market Data
+V2 public Instrument Master cut/readback，其中包含两份 public fact；两份准确 Instrument Owner
+`InstrumentEconomicTermsFactV1` receipt/readback locator；一份准确双成员
+`StrategyInputUniverseFrameReceipt`；以及两份准确 Market Data BAR schedule cut/receipt readback locator。
+每个 member entry 重复 canonical member key、public instrument identity/digest、venue、account scope、schedule
+identity，以及证明相等所需的每个 constituent locator/digest。Binding 持久化 locator 与 digest，move-only
+typed readback 保留其原 Owner authority；它不会把 private economic term 复制进 Market Data，也不会把
+universe/schedule receipt 变成 Instrument Master truth。
+
+R&D 提交 binding 前，Strategy Factory 必须消费全部 exact-locator Owner readback，并证明：准确两个不同
+member 且没有 extra；universe member 顺序与 identity 等于 Plan；每份 public fact 等于对应 Instrument
+Economic Terms 的 public-fact reference；venue、account scope、currency、半开 validity 与 event time 均符合
+Replay profile；每个 member 的 BAR timeframe 等于其准确 schedule readback。随后 R&D 在已经密封的 request
+下原子持久化 canonical binding、deterministic receipt 与 outbox。按准确 request/binding locator 的 replay
+或 response-loss recovery 以零 append 返回相同 bytes。任一 missing、duplicate、reordered、latest-selected、
+caller-reconstructed、V1-to-V2-synthesized、cross-request、cross-member、cross-venue、stale、tampered 或
+ACL-drifted constituent 都必须在 binding、ProgramHost、Backtest 或 result state 改变前失败。
+
+Native Replay preparation 与 Backtest 只能消费 R&D Owner 的 move-only binding readback，并在 native
+materialization 前独立重新解析每个嵌入的准确 Owner locator。Caller 只能提交 sealed Replay request locator；
+不能提交 constituent list、fact、value、symbol、order、resolver、store 或 fallback。该 target 不声称
+persistence implementation、disposable PostgreSQL acceptance、registered product composition、Native Replay
+execution、production startup/write、deployment、result closure 或 trading。
+
 **TARGET / NOT_ADMITTED，BAR FRAME 与 JOINED_CUT composition：** additive
 `StrategyInputSampleProjectionV4` 是唯一可在完整 native join 中组合 BAR component 的 projection。
 它的 projection kind 闭集为 `FRAME|JOINED_CUT`，lifecycle 闭集为 `BAR`；V2 EVENT/FRAME/JOINED_CUT 与 V3
