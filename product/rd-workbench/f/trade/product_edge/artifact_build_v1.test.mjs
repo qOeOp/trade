@@ -319,6 +319,11 @@ for (const [name, mutate] of [
   ["non-string invocation admission receipt digest", (value) => ({ ...value, invocation_admission_receipt_digest: 1 })],
   ["missing invocation admission receipt identity", ({ invocation_admission_receipt_identity: _, ...value }) => value],
   ["missing invocation admission receipt digest", ({ invocation_admission_receipt_digest: _, ...value }) => value],
+  ["non-canonical claim identity binding", (value) => ({
+    ...value, claim_identity: `product-edge-provider-invocation-claim-v1-${"88".repeat(32)}`,
+  })],
+  ["non-canonical claim digest binding", (value) => ({ ...value, claim_digest: `sha256:${"99".repeat(32)}` })],
+  ["non-canonical claimed state digest", (value) => ({ ...value, state_digest: `sha256:${"aa".repeat(32)}` })],
   ["extra claim field", (value) => ({ ...value, extra: true })],
   ["started-new existing claim", (value) => ({
     ...value, disposition: "CLAIMED_NEW", state: "INVOCATION_STARTED",
@@ -381,6 +386,34 @@ test("GENERATE derives canonical identities and performs one fresh admission", a
   const originalKey = process.env.DEEPSEEK_API_KEY
   const generated = await deriveGeneratedArtifactIdentitiesV1("build-seed-1", "attempt-seed-1", "request-1")
   assert.ok(generated)
+  const generatedAdmissionIdentity = `product-edge-request-admission-v1-${"55".repeat(32)}`
+  const generatedReceiptIdentity =
+    `product-edge-provider-invocation-admission-receipt-v1-${"66".repeat(32)}`
+  const generatedClaimIdentity = await providerInvocationClaimIdentityV1(
+    generatedAdmissionIdentity, generated.attempt_identity, generatedReceiptIdentity,
+  )
+  const generatedClaim = {
+    ...claim,
+    request_identity: generated.build_request_identity,
+    attempt_identity: generated.attempt_identity,
+    admission_identity: generatedAdmissionIdentity,
+    invocation_admission_receipt_identity: generatedReceiptIdentity,
+    invocation_admission_receipt_digest: `sha256:${"77".repeat(32)}`,
+    claim_identity: generatedClaimIdentity,
+    claim_digest: "",
+    state_digest: "",
+  }
+  generatedClaim.claim_digest = await providerInvocationClaimDigestV1(generatedClaim)
+  generatedClaim.state_digest = await invocationStateDigestV1({
+    schema_version: generatedClaim.schema_version,
+    claim_identity: generatedClaim.claim_identity,
+    admission_identity: generatedClaim.admission_identity,
+    attempt_identity: generatedClaim.attempt_identity,
+    claim_digest: generatedClaim.claim_digest,
+    state: generatedClaim.state,
+    state_digest: "",
+    updated_at_epoch_ms: generatedClaim.committed_at_epoch_ms,
+  })
   let prepareCalls = 0
   let claimCalls = 0
   let failCalls = 0
@@ -402,11 +435,7 @@ test("GENERATE derives canonical identities and performs one fresh admission", a
     }
     if (value.includes("/claim-provider-invocation")) {
       claimCalls += 1
-      return new Response(JSON.stringify({
-        ...claim,
-        request_identity: generated.build_request_identity,
-        attempt_identity: generated.attempt_identity,
-      }))
+      return new Response(JSON.stringify(generatedClaim))
     }
     if (value.includes("/fail")) {
       failCalls += 1

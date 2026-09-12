@@ -35,7 +35,10 @@ import {
   verifyArtifactConsumerProjectionV1,
   type VerifiedS1ConsumerContextV1,
 } from "./consumer_projection_v1.ts"
-import { providerInvocationStateDigestV1 } from "./provider_invocation_custody_v1.ts"
+import {
+  providerInvocationStateDigestV1,
+  verifyProviderInvocationCustodyV1,
+} from "./provider_invocation_custody_v1.ts"
 
 type AgentCandidate = {
   logic: {
@@ -95,14 +98,17 @@ function validProviderInvocationClaimEnvelopeV1(
     && (claim.state !== "INVOCATION_STARTED" || claim.disposition === "ALREADY_CLAIMED")
 }
 
-export function validProviderInvocationClaimV1(
+export async function validProviderInvocationClaimV1(
   claim: Record<string, unknown>,
   buildRequestIdentity: string,
   attemptIdentity: string,
-): boolean {
-  return validProviderInvocationClaimEnvelopeV1(claim, buildRequestIdentity, attemptIdentity)
-    && claim.state === "CLAIMED"
-    && claim.next_legal_action === "RUN_BOUNDED_EXECUTION_AGENT"
+): Promise<boolean> {
+  if (!validProviderInvocationClaimEnvelopeV1(claim, buildRequestIdentity, attemptIdentity)
+    || claim.state !== "CLAIMED"
+    || claim.next_legal_action !== "RUN_BOUNDED_EXECUTION_AGENT") return false
+  return verifyProviderInvocationCustodyV1(claim as Parameters<
+    typeof verifyProviderInvocationCustodyV1
+  >[0])
 }
 
 export async function validProviderInvocationStartV1(
@@ -128,7 +134,7 @@ export async function validProviderInvocationStartV1(
   } catch {
     return false
   }
-  const structurallyValid = validProviderInvocationClaimV1(claim, buildRequestIdentity, attemptIdentity)
+  const structurallyValid = await validProviderInvocationClaimV1(claim, buildRequestIdentity, attemptIdentity)
     && exactKeys(start, [
       "admission_identity", "attempt_identity", "claim_digest", "claim_identity",
       "disposition", "request_identity", "schema_version", "started_at_epoch_ms", "state_digest",
@@ -640,7 +646,7 @@ async function runOwnerOperation(
   let request: Record<string, any>
   if (existing?.provider_invocation?.state === "CLAIMED") {
     invocationClaim = existing.provider_invocation
-    if (!validProviderInvocationClaimV1(invocationClaim, build_request_identity, attempt_identity)) {
+    if (!await validProviderInvocationClaimV1(invocationClaim, build_request_identity, attempt_identity)) {
       return finish(unknown(build_request_identity, attempt_identity))
     }
     request = {}
@@ -693,7 +699,7 @@ async function runOwnerOperation(
       await runtime.observe_phase?.("INVOCATION_STARTED")
       return finish(unknown(build_request_identity, attempt_identity, invocationClaim))
     }
-    if (!validProviderInvocationClaimV1(invocationClaim, build_request_identity, attempt_identity)) {
+    if (!await validProviderInvocationClaimV1(invocationClaim, build_request_identity, attempt_identity)) {
       return finish(unknown(build_request_identity, attempt_identity))
     }
   }

@@ -55,7 +55,7 @@ async function providerCanonicalDigest(domain: string, value: unknown): Promise<
   return `sha256:${await providerFramedSha256(domain, [providerEncoder.encode(JSON.stringify(value))])}`
 }
 
-async function verifyProviderInvocationCustodyV1(value: Json): Promise<boolean> {
+export async function verifyProviderInvocationCustodyV1(value: Json): Promise<boolean> {
   if (!PROVIDER_ADMISSION_IDENTITY.test(value.admission_identity)
     || !PROVIDER_INVOCATION_RECEIPT_IDENTITY.test(value.invocation_admission_receipt_identity)
     || !PROVIDER_CLAIM_IDENTITY.test(value.claim_identity)
