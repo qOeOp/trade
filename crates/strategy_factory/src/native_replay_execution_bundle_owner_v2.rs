@@ -149,10 +149,9 @@ where
 pub fn prepare_native_replay_execution_prerequisites_v2(
     preparation: NativeReplayPreparationInputsV2,
     replay_cut: ResolvedReplayCompositionCutV1,
-    instrument_master: InstrumentMasterReadbackV1,
     instrument_terms: [InstrumentEconomicTermsReadbackV1; TARGET_SET_MEMBER_COUNT],
 ) -> Result<NativeReplayExecutionPrerequisitesV2, NativeReplayExecutionPrerequisitesErrorV2> {
-    let (composition, market_facts) = replay_cut.into_parts();
+    let (composition, market_facts, instrument_master) = replay_cut.into_parts();
     validate_available_owner_bindings(
         &preparation,
         &market_facts,

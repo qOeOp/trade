@@ -27,7 +27,10 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::sample_projection_v4::UntrustedStrategyInputSampleProjectionLocatorV4;
-use super::{pit_snapshot::UntrustedPitSnapshotLocator, source_binding::BindingDigest};
+use super::{
+    instrument_master::InstrumentMasterReadbackV1, pit_snapshot::UntrustedPitSnapshotLocator,
+    source_binding::BindingDigest,
+};
 
 pub(super) mod authority;
 mod codec;
@@ -57,21 +60,24 @@ pub struct ReplayCompositionOwnerV1 {
     pub(in crate::owner) rd_role_set_pool: sqlx::PgPool,
 }
 
-/// Move-only exact binding plus its byte-verified Replay Market Facts readback.
+/// Move-only exact binding plus its byte-verified Replay facts and Instrument Master cut.
 #[derive(Debug, Eq, PartialEq)]
 pub struct ResolvedReplayCompositionCutV1 {
     binding: ReplayCompositionBindingReadbackV1,
     market_facts: ReplayMarketFactsReadbackV2,
+    instrument_master: InstrumentMasterReadbackV1,
 }
 
 impl ResolvedReplayCompositionCutV1 {
     pub(in crate::owner) const fn from_owner_resolution(
         binding: ReplayCompositionBindingReadbackV1,
         market_facts: ReplayMarketFactsReadbackV2,
+        instrument_master: InstrumentMasterReadbackV1,
     ) -> Self {
         Self {
             binding,
             market_facts,
+            instrument_master,
         }
     }
 
@@ -86,13 +92,19 @@ impl ResolvedReplayCompositionCutV1 {
     }
 
     #[must_use]
+    pub const fn instrument_master(&self) -> &InstrumentMasterReadbackV1 {
+        &self.instrument_master
+    }
+
+    #[must_use]
     pub fn into_parts(
         self,
     ) -> (
         ReplayCompositionBindingReadbackV1,
         ReplayMarketFactsReadbackV2,
+        InstrumentMasterReadbackV1,
     ) {
-        (self.binding, self.market_facts)
+        (self.binding, self.market_facts, self.instrument_master)
     }
 }
 

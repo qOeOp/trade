@@ -1088,7 +1088,7 @@ impl ReplayCompositionOwnerV1 {
         ))
     }
 
-    /// Recovers one exact binding and its typed Replay facts without caller-supplied PIT fields.
+    /// Recovers one exact binding, typed Replay facts, and Instrument Master cut from Owner custody.
     ///
     /// The binding identity is the only lookup coordinate. Market Data recovers the bound PIT
     /// aggregate, reuses its original complete locator, and reissues the typed readback from the
@@ -1110,6 +1110,9 @@ impl ReplayCompositionOwnerV1 {
         let record = binding.record();
         let pit = record
             .native_locator(ReplayCompositionNativeLocatorKindV1::PitSnapshot)
+            .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
+        let instrument = record
+            .native_locator(ReplayCompositionNativeLocatorKindV1::InstrumentMaster)
             .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
         let aggregate = super::load_pit_for_update(&mut transaction, pit.identity, false)
             .await
@@ -1135,6 +1138,28 @@ impl ReplayCompositionOwnerV1 {
         )
         .await
         .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+        let instrument_row = sqlx::query(
+            "SELECT request_identity FROM market_data_private.instrument_master_cuts_v1 WHERE cut_identity=$1",
+        )
+        .bind(instrument.identity.as_bytes().as_slice())
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?
+        .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
+        let instrument_request_identity = digest_column(&instrument_row, "request_identity")?;
+        let instrument_master = super::load_durable_instrument_readback(
+            &mut transaction,
+            instrument_request_identity,
+            false,
+        )
+        .await
+        .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?
+        .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
+        if instrument_master.cut().identity() != instrument.identity
+            || instrument_master.cut().digest() != instrument.digest
+        {
+            return Err(ReplayCompositionBindingErrorV1::DigestMismatch);
+        }
         transaction
             .commit()
             .await
@@ -1142,6 +1167,7 @@ impl ReplayCompositionOwnerV1 {
         Ok(ResolvedReplayCompositionCutV1::from_owner_resolution(
             binding,
             market_facts,
+            instrument_master,
         ))
     }
 
