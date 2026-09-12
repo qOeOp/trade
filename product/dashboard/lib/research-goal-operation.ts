@@ -9,35 +9,22 @@ import {
   rdOwnerJsonOutcomeV1,
   type RdOwnerHttpTransportV1,
 } from "./rd-owner-http.ts";
+import {
+  validResearchGoalExecutionInputV2,
+  type DashboardSourcedResearchGoalV2,
+  type DashboardTrialFamilyProposalV1,
+  type ResearchGoalExecutionInputV2,
+} from "./source-research-input-contract.ts";
+
+export { validResearchGoalExecutionInputV2 } from "./source-research-input-contract.ts";
+export type {
+  DashboardSourcedResearchGoalV2,
+  DashboardTrialFamilyProposalV1,
+  ResearchGoalExecutionInputV2,
+} from "./source-research-input-contract.ts";
 
 export const RESEARCH_GOAL_EXECUTE_OPERATION = "research_goal.execute.v2" as const;
 export const RESEARCH_GOAL_EFFECT_SET_V2 = ["R_AND_D_RESEARCH_MUTATION_V1"] as const;
-
-export type DashboardSourcedResearchGoalV2 = {
-  hypothesis: string;
-  mechanism: string;
-  falsification_question: string;
-  expected_observation: string;
-  required_data: string[];
-  cost_assumption: string;
-  capacity_assumption: string;
-};
-
-export type DashboardTrialFamilyProposalV1 = {
-  trial_budget: number;
-  stop_rule: string;
-  pit_rule_identity: string;
-  cost_model_identity: string;
-  slippage_model_identity: string;
-  capacity_model_identity: string;
-  independence_rationale: string;
-};
-
-export type ResearchGoalExecutionInputV2 = {
-  request_identity: string;
-  goal: DashboardSourcedResearchGoalV2;
-  trial_family_proposal: DashboardTrialFamilyProposalV1;
-};
 
 export type SourceIntakeAncestryV1 = {
   request_identity: string;
@@ -76,43 +63,6 @@ function exactKeys(value: Record<string, unknown>, expected: readonly string[]) 
   const keys = Object.keys(value).sort();
   const wanted = [...expected].sort();
   return keys.length === wanted.length && keys.every((key, index) => key === wanted[index]);
-}
-
-function validText(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0
-    && new TextEncoder().encode(value).byteLength <= 8_192 && !/\p{Cc}/u.test(value);
-}
-
-export function validResearchGoalExecutionInputV2(value: ResearchGoalExecutionInputV2): boolean {
-  if (!IDENTITY.test(value?.request_identity ?? "") || !object(value?.goal)
-    || !exactKeys(value.goal, [
-      "hypothesis", "mechanism", "falsification_question", "expected_observation",
-      "required_data", "cost_assumption", "capacity_assumption",
-    ]) || ![
-      value.goal.hypothesis,
-      value.goal.mechanism,
-      value.goal.falsification_question,
-      value.goal.expected_observation,
-      value.goal.cost_assumption,
-      value.goal.capacity_assumption,
-    ].every(validText) || !Array.isArray(value.goal.required_data)
-    || value.goal.required_data.length < 1 || value.goal.required_data.length > 64
-    || !value.goal.required_data.every(validText) || !object(value?.trial_family_proposal)
-    || !exactKeys(value.trial_family_proposal, [
-      "trial_budget", "stop_rule", "pit_rule_identity", "cost_model_identity",
-      "slippage_model_identity", "capacity_model_identity", "independence_rationale",
-    ])) return false;
-  const proposal = value.trial_family_proposal;
-  return Number.isSafeInteger(proposal.trial_budget)
-    && proposal.trial_budget >= 1 && proposal.trial_budget <= 64
-    && [
-      proposal.stop_rule,
-      proposal.pit_rule_identity,
-      proposal.cost_model_identity,
-      proposal.slippage_model_identity,
-      proposal.capacity_model_identity,
-      proposal.independence_rationale,
-    ].every(validText);
 }
 
 function validAncestry(value: SourceIntakeAncestryV1): boolean {

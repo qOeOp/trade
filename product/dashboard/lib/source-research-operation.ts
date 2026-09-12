@@ -5,14 +5,14 @@ import {
 import { configuredDisposableOwnerTransportV1 } from "./rd-owner-http.ts";
 import {
   executeResearchGoalOperationV2,
-  validResearchGoalExecutionInputV2,
-  type ResearchGoalExecutionInputV2,
 } from "./research-goal-operation.ts";
 import {
   executeSourceIntakeOperationV1,
-  validSourceIntakeExecutionInputV1,
-  type SourceIntakeExecutionInputV1,
 } from "./source-intake-operation.ts";
+import {
+  validSourceResearchOperationRequestV1,
+  type SourceResearchOperationRequestV1,
+} from "./source-research-input-contract.ts";
 import {
   operationalRunAvailableV1,
   operationalRunUnavailableV1,
@@ -30,15 +30,11 @@ import {
   unavailableSourceResearchRoutingAdmissionV1,
 } from "./source-research-run-contract.ts";
 
+export type { SourceResearchOperationRequestV1 } from "./source-research-input-contract.ts";
+
 type Environment = Record<string, string | undefined>;
 type Fetcher = typeof fetch;
 type JsonRecord = Record<string, unknown>;
-
-export type SourceResearchOperationRequestV1 = {
-  action: "RUN" | "RESOLVE";
-  source: SourceIntakeExecutionInputV1;
-  research: ResearchGoalExecutionInputV2;
-};
 
 export type SourceResearchOperationResponseV1 = {
   status: number;
@@ -85,9 +81,7 @@ function unavailable(
 }
 
 function validRequest(request: SourceResearchOperationRequestV1): boolean {
-  return (request.action === "RUN" || request.action === "RESOLVE")
-    && validSourceIntakeExecutionInputV1(request.source)
-    && validResearchGoalExecutionInputV2(request.research);
+  return validSourceResearchOperationRequestV1(request);
 }
 
 export async function executeSourceResearchOperationV1({

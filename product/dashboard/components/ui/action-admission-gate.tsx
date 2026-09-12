@@ -9,6 +9,8 @@ import { StatusBadge } from "./status-badge";
 import styles from "./action-admission-gate.module.css";
 
 export function ActionAdmissionGate({
+  eyebrow = "Artifact formation",
+  ariaLabel = "Artifact formation action",
   title,
   state,
   message,
@@ -18,6 +20,8 @@ export function ActionAdmissionGate({
   capabilityDisabled = false,
   actions,
 }: {
+  eyebrow?: ReactNode;
+  ariaLabel?: string;
   title: ReactNode;
   state: string;
   message: ReactNode;
@@ -28,9 +32,9 @@ export function ActionAdmissionGate({
   actions: ReactNode;
 }) {
   return (
-    <DetailInspector as="section" className={styles.gate} aria-label="Artifact formation action">
+    <DetailInspector as="section" className={styles.gate} aria-label={ariaLabel}>
       <DetailInspectorHeader
-        eyebrow="Artifact formation"
+        eyebrow={eyebrow}
         title={title}
         status={<StatusBadge tone={actionStateTone(state)}>{state.toLowerCase()}</StatusBadge>}
       />

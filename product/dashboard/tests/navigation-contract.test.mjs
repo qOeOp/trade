@@ -58,7 +58,7 @@ test("only the current bilingual completeness closure is drawable exact", () => 
     "/backtest",
     "/runtime", "/runtime/generations", "/runtime/checkpoints", "/runtime/incidents",
     "/portfolio", "/portfolio/exposure", "/portfolio/capacity", "/portfolio/attribution",
-    "/data", "/data/pit-catalog", "/operations", "/operations/workers", "/operations/schedules", "/operations/service-logs", "/operations/audit", "/operations/runs/example", "/operations/workers/example",
+    "/data", "/data/pit-catalog", "/operations", "/operations/workers", "/operations/schedules", "/operations/service-logs", "/operations/audit", "/rd/intake/new", "/operations/runs/example", "/operations/workers/example",
   ]);
   assert.deepEqual(Object.keys(exactBlueprints).sort(), exact.toSorted());
 });
@@ -107,6 +107,11 @@ test("Portfolio routes expose only the fixed fail-closed contract blueprint", ()
 test("the run detail route binds to the Runs top tab", () => {
   assert.equal(parentTabFor("/operations/runs/example"), "/operations");
   assert.deepEqual(foundationRoutes, ["/market"]);
+});
+
+test("the Source Research composer remains under the Intake top tab", () => {
+  assert.equal(parentTabFor("/rd/intake/new"), "/rd");
+  assert.equal(maturityFor("/rd/intake/new"), "DRAWABLE_EXACT");
 });
 
 test("detail URLs retain the correct persistent Dashboard chrome identity", () => {

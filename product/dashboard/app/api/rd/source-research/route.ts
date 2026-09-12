@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 
 import {
   executeSourceResearchOperationV1,
-  type SourceResearchOperationRequestV1,
 } from "@/lib/source-research-operation";
+import type { SourceResearchOperationRequestV1 } from "@/lib/source-research-input-contract";
 import { verifyOperatorCapabilityV1 } from "@/lib/operator-capability";
 import { projectSourceResearchBrowserEnvelopeV1 } from "@/lib/source-research-browser-projection";
 

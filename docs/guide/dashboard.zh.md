@@ -171,6 +171,29 @@ Intake、创建 successor、获取 source content、调用 provider、mutate Win
 交易。route registry 中更广的 composer、TrialFamily policy、authority-resolution、draft-source 与正向
 action panel 仍是未来 blueprint，不能被推断进本工作台。
 
+## 有界准入：Source 到 Research typed control
+
+`SourceResearchControl` 是 `/rd/intake/new` 的独立 mutation surface；`/rd` 继续保持上文精确 zero-effect
+回读工作台。该 control 只接受公开 `SourceIntakeExecutionInputV1` 与 `ResearchGoalExecutionInputV2` 字段：
+两个生成后不可变的 request identity、normalized DOI、有界 interpretation、可证伪 goal、required-data list、
+cost/capacity assumption 与完整 TrialFamily proposal。它不从 Source custody 反向拼装这些字段，不暴露 Owner
+内部字段，也不接收 raw JSON。三个内容区复用 `DetailInspector`、`FormField`、`Input` 与 `Textarea` 原子；
+action 区复用 `ActionAdmissionGate` 和标准 compact button variant。
+
+client 与 server 导入同一份 pure input validator。plausible alternatives 在校验前规范成唯一 UTF-8 byte order；
+required data 保留输入顺序。`RUN` 在 dispatch 开始时冻结完整 request 并清空 operator access。terminal bounded
+Owner projection 链接到精确 Research 与 Run 回读。malformed response、transport loss 或 nonterminal
+operational run 统一变成 `SUBMITTED_OR_UNKNOWN`，且只开放携带冻结 Source/Research identity 与 payload 的
+`RESOLVE`；不存在 retry 或 replacement identity。只有 server 明确返回无 RunStore identity 的 unavailable
+响应才会释放 draft 供修正与 revalidation，因为它证明 run 尚未开始。operator access 只保存在 React state，
+绝不持久化、进入 URL、写 log 或在 dispatch 后渲染。
+
+该 route 在授权 B 下是 `IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`。它只调用现有精确
+`POST /api/rd/source-research` BFF；availability 仍必须同时满足 disposable enablement、content-addressed
+compatibility、RunStore 与两个唯一 `ACTIVE / TRADE_DASHBOARD` Product Edge binding。该 route 不修改任何
+binding，不调用 production Owner/provider，不修改 Windmill，不授权交易，也不建立 publication 或 production
+cutover。
+
 ## 有界准入：Develop Composer 精确回读工作台
 
 `DevelopComposerReadbackWorkbench` 是 `/rd/composer` 的精确 `P` surface。它只对一个已提交的 Develop
@@ -260,7 +283,7 @@ projection identity、source cut 与 TrialFamily identity 收进技术信息控�
 configuration failure、permission denied、Owner response malformed/oversized、identity drift 或 transport
 failure 都会清除旧内容并展示一个保持形状的 unavailable state。
 
-在下文“第一方 effect custody 准入（授权 B）”闭合 disposable runtime 动态 gate 后，accepted Research
+在下文"第一方 effect custody 准入（授权 B）"闭合 disposable runtime 动态 gate 后，accepted Research
 详情只在 Owner 投影精确为 `AVAILABLE / INTENT_FROZEN / WAIT_FOR_R_AND_D_EXECUTION` 时，于同一 inset body
 追加共享 `ActionAdmissionGate`。该紧凑控件复用 `DetailInspector`、`Input`、`Button` 与 `StatusBadge` 原子；
 operator access 只保存在当前 browser state，不进入 URL、HTML、日志或持久化存储。`Check & Run` 先调用

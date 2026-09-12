@@ -48,6 +48,7 @@ export const modules = [
 ];
 
 export const nestedRoutes = [
+  { label: "New intake", href: "/rd/intake/new", moduleId: "rd", parentHref: "/rd" },
   { label: "Protected feedback", href: "/qualification/protected-feedback", moduleId: "qualification", parentHref: "/qualification/outcomes" },
   { label: "Run detail", href: "/operations/runs/example", moduleId: "operations", parentHref: "/operations" },
   { label: "Worker detail", href: "/operations/workers/example", moduleId: "operations", parentHref: "/operations/workers" },
@@ -63,7 +64,7 @@ const exactRoutes = new Set([
   "/operations/workers", "/operations/workers/example", "/operations/schedules", "/operations/service-logs", "/operations/audit",
   "/runtime", "/runtime/generations", "/runtime/checkpoints", "/runtime/incidents",
   "/portfolio", "/portfolio/exposure", "/portfolio/capacity", "/portfolio/attribution",
-  "/rd", "/rd/composer", "/rd/research", "/rd/artifacts", "/backtest",
+  "/rd", "/rd/intake/new", "/rd/composer", "/rd/research", "/rd/artifacts", "/backtest",
 ]);
 /** @type {Set<string>} */
 const detailOnlyRoutes = new Set([]);
@@ -106,6 +107,7 @@ export function pageFor(href) {
 export const exactBlueprints = {
   "/backtest": { summaries: [], primary: "ExploratoryReplayReadbackWorkbench", context: null, terminal: "ResultProjectionUnavailable", state: "IMPLEMENTATION_ADMITTED - SEALED_REQUEST_POINT_READ_ONLY - NO_RUN_OR_RESULT" },
   "/rd": { summaries: [], primary: "SourceIntakeReadbackWorkbench", context: null, terminal: "OwnerUnavailable", state: "IMPLEMENTATION_ADMITTED - OWNER_POINT_READ_ONLY - NO_SUBMIT_OR_RESOLVE" },
+  "/rd/intake/new": { summaries: [], primary: "SourceResearchControl", context: null, terminal: "OwnerOutcomeOrUnavailable", state: "IMPLEMENTATION_ADMITTED - DISPOSABLE_SOURCE_RESEARCH - NOT_CUT_OVER" },
   "/rd/composer": { summaries: [], primary: "DevelopComposerReadbackWorkbench", context: null, terminal: "OwnerUnavailable", state: "IMPLEMENTATION_ADMITTED - OWNER_POINT_READ_ONLY - NO_RUN_RESOLVE_OR_EDIT" },
   "/rd/research": { summaries: [], primary: "VerifiedResearchDirectory", context: null, terminal: "OwnerUnavailable", state: "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_SUBMIT_OR_RESOLVE" },
   "/rd/artifacts": { summaries: [], primary: "VerifiedArtifactDirectory", context: null, terminal: "OwnerUnavailable", state: "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_BUILD_OR_EXECUTION" },

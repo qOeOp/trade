@@ -204,6 +204,31 @@ invoke a provider, mutate Windmill, write business state, or authorize trading. 
 TrialFamily policy, authority-resolution, draft-source, and positive-action panels in the route registry remain
 future blueprint content and are not inferred into this workbench.
 
+## Bounded admission: Source to Research typed control
+
+`SourceResearchControl` is the independent mutation surface at `/rd/intake/new`; `/rd` remains the exact
+zero-effect readback workbench above. The control accepts only the public `SourceIntakeExecutionInputV1` and
+`ResearchGoalExecutionInputV2` fields: two generated immutable request identities, normalized DOI, bounded
+interpretation, falsifiable goal, required-data list, cost and capacity assumptions, and the complete TrialFamily
+proposal. It does not reconstruct these fields from Source custody, expose Owner internals, or accept raw JSON.
+The three content regions reuse shared `DetailInspector`, `FormField`, `Input`, and `Textarea` atoms; the action
+region reuses `ActionAdmissionGate` and the standard compact button variants.
+
+Client and server import the same pure input validator. Plausible alternatives are canonicalized into unique
+UTF-8 byte order before validation; required data preserves the entered order. `RUN` freezes the complete request
+and clears operator access as dispatch begins. A terminal bounded Owner projection links to the exact Research and
+Run readbacks. A malformed response, transport loss, or nonterminal operational run becomes
+`SUBMITTED_OR_UNKNOWN` and exposes only `RESOLVE` with the frozen Source and Research identities and payload;
+there is no retry or replacement identity. An unavailable response with no RunStore identity releases the draft
+for correction and revalidation because the server proves that no run began. Operator access is held only in
+React state and is never persisted, placed in a URL, logged, or rendered after dispatch.
+
+This route is `IMPLEMENTATION_ADMITTED / NOT_CUT_OVER` under Authorization B. It calls only the existing exact
+`POST /api/rd/source-research` BFF, and availability still requires the disposable enablement, content-addressed
+compatibility, RunStore, and two unique `ACTIVE / TRADE_DASHBOARD` Product Edge bindings. The route does not
+change either binding, call a production Owner or provider, modify Windmill, authorize trading, or establish
+publication or production cutover.
+
 ## Bounded admission: Develop Composer exact-readback workbench
 
 `DevelopComposerReadbackWorkbench` is the exact `P` surface for `/rd/composer`. It is a bounded point-read of one

@@ -14,6 +14,7 @@ test("only admitted R&D surfaces embed their route chrome", async () => {
     new Set(predicate.match(/[A-Za-z][A-Za-z]+/gu)),
     new Set([
       "sourceIntakeReadback",
+      "sourceResearchControl",
       "composerReadback",
       "researchDirectory",
       "researchReadback",

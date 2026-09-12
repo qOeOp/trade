@@ -1,6 +1,5 @@
 import {
   projectOwnerReadbackV1,
-  type SourceInterpretationV1,
 } from "../../rd-owner-client/source_intake_v1.ts";
 import {
   PRODUCT_EDGE_SOURCE_INTAKE_ROUTING_KEY_V1,
@@ -10,6 +9,13 @@ import {
   rdOwnerJsonOutcomeV1,
   type RdOwnerHttpTransportV1,
 } from "./rd-owner-http.ts";
+import {
+  validSourceIntakeExecutionInputV1,
+  type SourceIntakeExecutionInputV1,
+} from "./source-research-input-contract.ts";
+
+export { validSourceIntakeExecutionInputV1 } from "./source-research-input-contract.ts";
+export type { SourceIntakeExecutionInputV1 } from "./source-research-input-contract.ts";
 
 export const SOURCE_INTAKE_EXECUTE_OPERATION = "source_intake.execute.v1" as const;
 export const SOURCE_INTAKE_EFFECT_SET_V1 = ["R_AND_D_SOURCE_INTAKE_MUTATION_V1"] as const;
@@ -34,12 +40,6 @@ export const sourceIntakeOperationV1 = {
   channels: ["DASHBOARD_DISPOSABLE_EXECUTION"],
 } as const;
 
-export type SourceIntakeExecutionInputV1 = {
-  request_identity: string;
-  normalized_doi: string;
-  interpretation: SourceInterpretationV1;
-};
-
 export type SourceIntakeExecutionResultV1 = {
   availability: "available" | "unavailable";
   unavailable_reason: string | null;
@@ -50,41 +50,6 @@ export type SourceIntakeExecutionResultV1 = {
     terminal_receipt_identity: string;
   } | null;
 };
-
-const IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/;
-const DOI = /^10\.[a-z0-9./\-_;():]{1,252}$/;
-
-function validText(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0
-    && new TextEncoder().encode(value).byteLength <= 8_192 && !/\p{Cc}/u.test(value);
-}
-
-function compareUtf8(left: string, right: string): number {
-  const leftBytes = new TextEncoder().encode(left);
-  const rightBytes = new TextEncoder().encode(right);
-  const length = Math.min(leftBytes.length, rightBytes.length);
-  for (let index = 0; index < length; index += 1) {
-    if (leftBytes[index] !== rightBytes[index]) return leftBytes[index] - rightBytes[index];
-  }
-  return leftBytes.length - rightBytes.length;
-}
-
-export function validSourceIntakeExecutionInputV1(
-  value: SourceIntakeExecutionInputV1,
-): boolean {
-  const interpretation = value?.interpretation;
-  return IDENTITY.test(value?.request_identity ?? "")
-    && DOI.test(value?.normalized_doi ?? "")
-    && validText(interpretation?.bounded_explanation)
-    && validText(interpretation?.differentiating_prediction)
-    && validText(interpretation?.falsifier)
-    && Array.isArray(interpretation?.plausible_alternatives)
-    && interpretation.plausible_alternatives.length >= 1
-    && interpretation.plausible_alternatives.length <= 16
-    && interpretation.plausible_alternatives.every(validText)
-    && interpretation.plausible_alternatives.slice(1).every((item, index) =>
-      compareUtf8(interpretation.plausible_alternatives[index], item) < 0);
-}
 
 function unavailable(reason: string): SourceIntakeExecutionResultV1 {
   return {
