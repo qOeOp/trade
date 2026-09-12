@@ -10,6 +10,7 @@ use vibe_data::owner::{
     native_replay_scheduling_v1::NativeReplaySchedulingResolverV1,
     shared_time_evidence::{SharedTimeEvidenceResolver, UntrustedClockHeadLocator},
 };
+use vibe_rd_market_data_repair_custody::MARKET_DATA_REPAIR_LOCK_FUNCTION_SOURCE_V1;
 
 use crate::{
     BacktestResultCustodyErrorV2, ExploratoryReplayResultLocatorV2,
@@ -27,6 +28,8 @@ use crate::{
 };
 
 const REQUESTED_EVENT_V1: &str = "MARKET_DATA_REPAIR_REQUESTED_V1";
+const MARKET_DATA_LOCK_FUNCTION_V1: &str =
+    "rd_owner_api.lock_market_data_repair_request_v1(text,text,text,text)";
 
 pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
     crate::schema_materialization::PublicTableSpec {
@@ -90,7 +93,54 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), MarketDataRepairPostgre
         "CREATE TABLE IF NOT EXISTS rd_market_data_repair_requests_v1 (request_identity TEXT PRIMARY KEY, action_request_identity TEXT NOT NULL UNIQUE REFERENCES rd_repair_action_requests_v1(action_request_identity), decision_identity TEXT NOT NULL UNIQUE, result_identity TEXT NOT NULL UNIQUE, request_digest TEXT NOT NULL, request_json JSONB NOT NULL, receipt_json JSONB NOT NULL, request_storage_bytes BYTEA NOT NULL, request_storage_digest TEXT NOT NULL, receipt_storage_bytes BYTEA NOT NULL, receipt_storage_digest TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
     )
     .await
-    .map_err(unavailable)
+    .map_err(unavailable)?;
+    publish_market_data_read_port(pool).await
+}
+
+async fn publish_market_data_read_port(
+    pool: &PgPool,
+) -> Result<(), MarketDataRepairPostgresErrorV1> {
+    let mut transaction = pool.begin().await.map_err(unavailable)?;
+    for statement in [
+        "CREATE SCHEMA IF NOT EXISTS rd_owner_api",
+        "REVOKE ALL ON SCHEMA rd_owner_api FROM PUBLIC",
+        "GRANT USAGE ON SCHEMA rd_owner_api TO market_data_owner",
+    ] {
+        sqlx::query(statement)
+            .execute(&mut *transaction)
+            .await
+            .map_err(unavailable)?;
+    }
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "CREATE OR REPLACE FUNCTION rd_owner_api.lock_market_data_repair_request_v1(requested_request_identity text,requested_request_digest text,requested_receipt_identity text,requested_receipt_digest text) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path=pg_catalog AS $function${MARKET_DATA_REPAIR_LOCK_FUNCTION_SOURCE_V1}$function$"
+    )))
+    .execute(&mut *transaction)
+    .await
+    .map_err(unavailable)?;
+    for statement in [
+        "ALTER FUNCTION rd_owner_api.lock_market_data_repair_request_v1(text,text,text,text) OWNER TO rd_owner",
+        "REVOKE ALL ON FUNCTION rd_owner_api.lock_market_data_repair_request_v1(text,text,text,text) FROM PUBLIC, rd_owner, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner",
+        "GRANT EXECUTE ON FUNCTION rd_owner_api.lock_market_data_repair_request_v1(text,text,text,text) TO market_data_owner",
+        "REVOKE ALL ON TABLE rd_market_data_repair_requests_v1, rd_owner_outbox_v1 FROM market_data_owner, market_data_reader",
+    ] {
+        sqlx::query(statement)
+            .execute(&mut *transaction)
+            .await
+            .map_err(unavailable)?;
+    }
+    let exact: bool = sqlx::query_scalar(
+        "SELECT role.rolname='rd_owner' AND procedure.prosecdef AND procedure.provolatile='v' AND procedure.proparallel='u' AND procedure.proisstrict AND procedure.proconfig=ARRAY['search_path=pg_catalog']::text[] AND procedure.prosrc=$2 AND has_function_privilege('market_data_owner',procedure.oid,'EXECUTE') AND NOT has_function_privilege('public',procedure.oid,'EXECUTE') FROM pg_proc procedure JOIN pg_roles role ON role.oid=procedure.proowner WHERE procedure.oid=to_regprocedure($1)",
+    )
+    .bind(MARKET_DATA_LOCK_FUNCTION_V1)
+    .bind(MARKET_DATA_REPAIR_LOCK_FUNCTION_SOURCE_V1)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(unavailable)?
+    .unwrap_or(false);
+    if !exact {
+        return Err(unavailable("Market Data repair read port binding mismatch"));
+    }
+    transaction.commit().await.map_err(unavailable)
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -11124,6 +11124,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "vibe-rd-market-data-repair-custody"
+version = "0.62.0"
+dependencies = [
+ "base64 0.23.1",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "vibe-rd-source-intake-invocation-custody"
 version = "0.62.0"
 dependencies = [
@@ -11291,6 +11303,7 @@ dependencies = [
  "vibe-qualification",
  "vibe-rd-artifact-invocation-custody",
  "vibe-rd-exploratory-replay-custody",
+ "vibe-rd-market-data-repair-custody",
  "vibe-rd-source-intake-invocation-custody",
  "vibe-risk",
  "vibe-scheduled-events",

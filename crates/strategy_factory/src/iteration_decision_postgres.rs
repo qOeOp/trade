@@ -813,6 +813,9 @@ mod postgres_acceptance_tests {
     use vibe_data::owner::pit_snapshot::sealed_acceptance::{
         SealedAcceptanceMarketDataRepairEvidenceV1, issue_market_data_repair_evidence_v1,
     };
+    use vibe_rd_market_data_repair_custody::{
+        SealedMarketDataRepairRequestLocatorV1, lock_market_data_repair_request_v1,
+    };
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
     use crate::{
@@ -1135,6 +1138,39 @@ mod postgres_acceptance_tests {
         .await
         .expect("Market Data repair custody counts");
         assert_eq!(market_data_counts_before, (1, 1));
+
+        let market_data_pool = mutation.pool(CanonicalOwnerTestRoleV1::MarketDataOwner);
+        let mut market_data_transaction = market_data_pool
+            .begin()
+            .await
+            .expect("Market Data read transaction");
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *market_data_transaction)
+            .await
+            .expect("Market Data serializable isolation");
+        let sealed_market_data_request = lock_market_data_repair_request_v1(
+            &mut market_data_transaction,
+            &SealedMarketDataRepairRequestLocatorV1 {
+                request_identity: first_market_data.request().request_identity().to_string(),
+                request_digest: first_market_data.request().request_digest().to_string(),
+                receipt_identity: first_market_data.receipt().receipt_identity().to_string(),
+                receipt_digest: first_market_data.receipt().receipt_digest().to_string(),
+            },
+        )
+        .await
+        .expect("fixed Market Data Owner read port");
+        assert!(sealed_market_data_request.is_market_data_target());
+        assert_eq!(
+            sealed_market_data_request.canonical_request_bytes(),
+            first_market_data
+                .request()
+                .to_canonical_bytes()
+                .expect("canonical Market Data repair request")
+        );
+        market_data_transaction
+            .commit()
+            .await
+            .expect("read transaction commit");
 
         let mismatched_market_data = crate::market_data_repair_request_postgres::compose_with_sealed_owner_evidence_for_test_v1(
             rd_pool,

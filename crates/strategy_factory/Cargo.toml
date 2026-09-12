@@ -69,6 +69,7 @@ vibe-product-edge = { workspace = true }
 vibe-qualification = { workspace = true }
 vibe-rd-artifact-invocation-custody = { workspace = true }
 vibe-rd-exploratory-replay-custody = { workspace = true }
+vibe-rd-market-data-repair-custody = { workspace = true }
 vibe-rd-source-intake-invocation-custody = { workspace = true }
 vibe-risk = { workspace = true }
 vibe-scheduled-events = { workspace = true }
