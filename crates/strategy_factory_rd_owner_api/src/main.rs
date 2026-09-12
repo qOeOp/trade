@@ -29,6 +29,7 @@ use vibe_data::owner::{
     instrument_master_v2_postgres_owner_from_environment,
     native_replay_scheduling_resolver_v1_from_store_admission_environment,
     native_replay_scheduling_v1::NativeReplaySchedulingResolverV1,
+    shared_time_evidence_resolver_from_store_admission_environment_v1,
 };
 use vibe_data::owner::{
     research_pit_terminal::ResearchPitTerminalResolver,
@@ -144,6 +145,8 @@ struct DevelopComposerA0ExecutionsV1 {
 
 mod exploratory_replay;
 mod iteration_decision;
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+mod market_data_repair;
 mod source_intake;
 mod source_intake_research;
 
@@ -283,6 +286,8 @@ async fn main() -> anyhow::Result<()> {
     let native_replay_scheduling =
         native_replay_scheduling_resolver_v1_from_store_admission_environment().await?;
     #[cfg(feature = "sealed-develop-composer-acceptance")]
+    let shared_time = shared_time_evidence_resolver_from_store_admission_environment_v1().await?;
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
     let instrument_master_v2 =
         Arc::new(instrument_master_v2_postgres_owner_from_environment().await?);
     #[cfg(feature = "sealed-develop-composer-acceptance")]
@@ -390,6 +395,15 @@ async fn main() -> anyhow::Result<()> {
             ))
         }
     };
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    let market_data_repair = market_data_repair::production_router(
+        owner.clone(),
+        develop_composer_read.clone(),
+        instrument_master_v2.clone(),
+        native_replay_scheduling.clone(),
+        shared_time,
+        token_digest,
+    );
     let allow_acceptance_faults =
         env::var("RD_OWNER_ENABLE_ACCEPTANCE_FAULTS").as_deref() == Ok("1");
     let state = ApiState {
@@ -515,15 +529,10 @@ async fn main() -> anyhow::Result<()> {
             post(resolve_develop_composer),
         );
     #[cfg(feature = "sealed-develop-composer-acceptance")]
-    let app = app
-        .route(
-            "/v2/exploratory-replay/execution-input-bindings",
-            post(exploratory_replay::issue_execution_input_binding),
-        )
-        .merge(exploratory_replay::execution_router(
-            native_replay_execution,
-            token_digest,
-        ));
+    let app = app.route(
+        "/v2/exploratory-replay/execution-input-bindings",
+        post(exploratory_replay::issue_execution_input_binding),
+    );
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     let app = app
         .route(
@@ -557,6 +566,13 @@ async fn main() -> anyhow::Result<()> {
             request_proof_digest,
             allow_acceptance_faults,
         ));
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    let app = app
+        .merge(exploratory_replay::execution_router(
+            native_replay_execution,
+            token_digest,
+        ))
+        .merge(market_data_repair);
     let address = env_or("RD_OWNER_LISTEN", "0.0.0.0:8080");
     let listener = TcpListener::bind(&address).await?;
     tracing::info!(listen = %address, "R&D Owner API ready");

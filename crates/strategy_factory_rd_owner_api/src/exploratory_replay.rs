@@ -453,7 +453,7 @@ pub(super) async fn issue_execution_input_binding(
 }
 
 #[cfg(feature = "sealed-develop-composer-acceptance")]
-pub(super) async fn run_native_replay(
+async fn run_native_replay(
     State(state): State<NativeReplayExecutionApiStateV2>,
     headers: HeaderMap,
     body: Bytes,
