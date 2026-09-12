@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use strategy_factory_program_sdk::lifecycle_v1::SemanticTraceV1;
 use thiserror::Error;
 use vibe_backtest_owner_contracts::{
     DiagnosticCategoryV2, ObservationComponentV2, ReconciliationStatusV2, ReplayNamespaceV2,
@@ -10,6 +11,8 @@ use vibe_backtest_owner_contracts::{
 
 use crate::{
     LockedExploratoryReplayResultV2, ReplayPolicyCatalogBindingV3,
+    product_edge::FrozenResearchGoalIntent,
+    rd_owner_postgres_custody::VerifiedResearchCustodyV1,
     trial_family::{
         TrialFamilyAttemptTerminalDispositionV2, TrialFamilyCensusReadbackV2, TrialFamilyError,
     },
@@ -394,6 +397,45 @@ pub(crate) struct IterationInterpretationDiagnosticEvidenceV1 {
     evidence_digest: String,
 }
 
+/// One exact canonical fact referenced by a derived diagnosis dimension.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct IterationDiagnosisEvidenceReferenceV1 {
+    identity: String,
+    digest: String,
+}
+
+/// Finite result of interpreting one required R&D diagnosis dimension.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum IterationDiagnosisDispositionV1 {
+    EvidenceEstablished,
+    NoExecutionDefect,
+    ValidEconomicFailure,
+    Unresolved,
+}
+
+/// One R&D-owned dimension derived from the exact frozen evidence cut.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct IterationDiagnosisFindingV1 {
+    dimension: IterationDiagnosisDimensionV1,
+    disposition: IterationDiagnosisDispositionV1,
+    evidence: Vec<IterationDiagnosisEvidenceReferenceV1>,
+}
+
+/// Typed semantic trace facts admitted by the SDK canonical decoder.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct IterationSemanticTraceFactV1 {
+    schema_version: u16,
+    has_order_key: bool,
+    position_before_units: i64,
+    position_after_units: i64,
+    cumulative_filled_units: u64,
+    has_terminal_fill_disposition: bool,
+}
+
 /// Complete Owner-locked input boundary for the six R&D interpretation dimensions.
 ///
 /// It is serialize-only and has no caller-facing constructor. The later Decision composer may
@@ -407,6 +449,8 @@ pub(crate) struct IterationInterpretationContextV1 {
     result_custody: IterationInterpretationResultCustodyV1,
     owner_bindings: Vec<IterationInterpretationOwnerBindingV1>,
     diagnostic_evidence: IterationInterpretationDiagnosticEvidenceV1,
+    semantic_trace: IterationSemanticTraceFactV1,
+    diagnosis_findings: Vec<IterationDiagnosisFindingV1>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -452,26 +496,48 @@ pub enum IterationDecisionErrorV1 {
 )]
 pub(crate) fn issue_interpretation_context_v1(
     census: &TrialFamilyCensusReadbackV2,
+    research_custody: &VerifiedResearchCustodyV1,
     locked_result: &LockedExploratoryReplayResultV2,
 ) -> Result<IterationInterpretationContextV1, IterationDecisionErrorV1> {
+    let intent = research_custody.intent().ok_or(
+        IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+            "frozen Research Intent custody is missing",
+        ),
+    )?;
     let gate = gate_locked_exploratory_result_v1(census, locked_result)?;
+    let semantic_trace_bytes = locked_result.semantic_trace_canonical_bytes().ok_or(
+        IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+            "canonical semantic trace is missing",
+        ),
+    )?;
+    let semantic_trace = SemanticTraceV1::decode(semantic_trace_bytes).map_err(|_| {
+        IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+            "canonical semantic trace cannot be decoded",
+        )
+    })?;
     let result_custody = interpretation_result_custody_v1(
         locked_result.result_canonical_bytes(),
         locked_result.receipt_canonical_bytes(),
         locked_result.outbox_canonical_bytes(),
-        locked_result.semantic_trace_canonical_bytes().ok_or(
-            IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
-                "canonical semantic trace is missing",
-            ),
-        )?,
+        semantic_trace_bytes,
     );
-    issue_interpretation_context_from_result_v1(gate, locked_result.result(), result_custody)
+    issue_interpretation_context_from_result_v1(
+        census,
+        intent,
+        gate,
+        locked_result.result(),
+        result_custody,
+        semantic_trace,
+    )
 }
 
 fn issue_interpretation_context_from_result_v1(
+    census: &TrialFamilyCensusReadbackV2,
+    intent: &FrozenResearchGoalIntent,
     gate: IterationDecisionGateV1,
     result: &ReplayResultDtoV2,
     result_custody: IterationInterpretationResultCustodyV1,
+    semantic_trace: SemanticTraceV1,
 ) -> Result<IterationInterpretationContextV1, IterationDecisionErrorV1> {
     let IterationDecisionGateV1::InterpretationRequired {
         evidence_cut,
@@ -571,14 +637,14 @@ fn issue_interpretation_context_from_result_v1(
         });
     }
 
-    let semantic_trace = result.semantic_trace.as_ref().ok_or(
+    let semantic_trace_observation = result.semantic_trace.as_ref().ok_or(
         IterationDecisionErrorV1::InterpretationEvidenceUnavailable("semantic trace is missing"),
     )?;
-    if semantic_trace.component != ObservationComponentV2::SemanticTrace
-        || semantic_trace.locator.component != ObservationComponentV2::SemanticTrace
-        || semantic_trace.request_identity != result.request_identity
-        || semantic_trace.request_meaning_digest != result.request_meaning_digest
-        || semantic_trace.attempt_identity != result.attempt_identity
+    if semantic_trace_observation.component != ObservationComponentV2::SemanticTrace
+        || semantic_trace_observation.locator.component != ObservationComponentV2::SemanticTrace
+        || semantic_trace_observation.request_identity != result.request_identity
+        || semantic_trace_observation.request_meaning_digest != result.request_meaning_digest
+        || semantic_trace_observation.attempt_identity != result.attempt_identity
     {
         return Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
             "semantic trace is cross-spliced",
@@ -586,19 +652,46 @@ fn issue_interpretation_context_from_result_v1(
     }
     owner_bindings.push(IterationInterpretationOwnerBindingV1 {
         component: ObservationComponentV2::SemanticTrace,
-        meaning_identity: semantic_trace
+        meaning_identity: semantic_trace_observation
             .observed_meaning_identity
             .as_str()
             .to_string(),
-        meaning_digest: semantic_trace.observed_meaning_digest.as_str().to_string(),
-        evidence_identity: semantic_trace.locator.reference.as_str().to_string(),
-        evidence_digest: semantic_trace.locator.digest.as_str().to_string(),
+        meaning_digest: semantic_trace_observation
+            .observed_meaning_digest
+            .as_str()
+            .to_string(),
+        evidence_identity: semantic_trace_observation
+            .locator
+            .reference
+            .as_str()
+            .to_string(),
+        evidence_digest: semantic_trace_observation
+            .locator
+            .digest
+            .as_str()
+            .to_string(),
     });
     let diagnostic_locator = &diagnostic_fact.decisive_evidence;
     let diagnostic_evidence = IterationInterpretationDiagnosticEvidenceV1 {
         component: diagnostic_locator.component,
         evidence_identity: diagnostic_locator.reference.as_str().to_string(),
         evidence_digest: diagnostic_locator.digest.as_str().to_string(),
+    };
+    let diagnosis_findings = derive_six_dimension_diagnosis_v1(
+        census,
+        intent,
+        diagnostic,
+        &evidence_cut,
+        &owner_bindings,
+        &diagnostic_evidence,
+    )?;
+    let semantic_trace = IterationSemanticTraceFactV1 {
+        schema_version: semantic_trace.schema_version,
+        has_order_key: semantic_trace.order_key.is_some(),
+        position_before_units: semantic_trace.position_before_units,
+        position_after_units: semantic_trace.position_after_units,
+        cumulative_filled_units: semantic_trace.fill_frontier.cumulative_filled_units,
+        has_terminal_fill_disposition: semantic_trace.fill_frontier.terminal_disposition.is_some(),
     };
 
     Ok(IterationInterpretationContextV1 {
@@ -608,7 +701,139 @@ fn issue_interpretation_context_from_result_v1(
         result_custody,
         owner_bindings,
         diagnostic_evidence,
+        semantic_trace,
+        diagnosis_findings,
     })
+}
+
+fn derive_six_dimension_diagnosis_v1(
+    census: &TrialFamilyCensusReadbackV2,
+    intent: &FrozenResearchGoalIntent,
+    diagnostic: IterationInterpretationDiagnosticV1,
+    evidence_cut: &IterationDecisionEvidenceCutV1,
+    owner_bindings: &[IterationInterpretationOwnerBindingV1],
+    diagnostic_evidence: &IterationInterpretationDiagnosticEvidenceV1,
+) -> Result<Vec<IterationDiagnosisFindingV1>, IterationDecisionErrorV1> {
+    let FrozenResearchGoalIntent::V2(intent) = intent else {
+        return Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+            "frozen Research Intent V2 is missing",
+        ));
+    };
+    let initial_intent = census.legacy_family.initial_intent_member();
+    if intent.intent_identity != initial_intent.fact_identity()
+        || intent.semantic_digest != initial_intent.fact_digest()
+        || intent.trial_family_identity != evidence_cut.trial_family_identity
+    {
+        return Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+            "frozen Research Intent is cross-spliced",
+        ));
+    }
+    let intent_reference = IterationDiagnosisEvidenceReferenceV1 {
+        identity: intent.intent_identity.clone(),
+        digest: intent.semantic_digest.clone(),
+    };
+    let census_reference = IterationDiagnosisEvidenceReferenceV1 {
+        identity: evidence_cut.census_frontier_identity.clone(),
+        digest: evidence_cut.census_frontier_digest.clone(),
+    };
+    let candidate_reference = IterationDiagnosisEvidenceReferenceV1 {
+        identity: evidence_cut.candidate_set_frontier_identity.clone(),
+        digest: evidence_cut.candidate_set_frontier_digest.clone(),
+    };
+    let result_reference = IterationDiagnosisEvidenceReferenceV1 {
+        identity: evidence_cut.result_identity.clone(),
+        digest: evidence_cut.result_digest.clone(),
+    };
+    let trace_reference =
+        owner_binding_reference_v1(owner_bindings, ObservationComponentV2::SemanticTrace)?;
+    let cost_reference =
+        owner_binding_reference_v1(owner_bindings, ObservationComponentV2::CostModel)?;
+    let slippage_reference =
+        owner_binding_reference_v1(owner_bindings, ObservationComponentV2::SlippageModel)?;
+    let capacity_reference =
+        owner_binding_reference_v1(owner_bindings, ObservationComponentV2::CapacityModel)?;
+    let failure_reference = IterationDiagnosisEvidenceReferenceV1 {
+        identity: diagnostic_evidence.evidence_identity.clone(),
+        digest: diagnostic_evidence.evidence_digest.clone(),
+    };
+    let failure_disposition = match diagnostic {
+        IterationInterpretationDiagnosticV1::NoExecutionDefect => {
+            IterationDiagnosisDispositionV1::NoExecutionDefect
+        }
+        IterationInterpretationDiagnosticV1::ValidEconomicFailure => {
+            IterationDiagnosisDispositionV1::ValidEconomicFailure
+        }
+    };
+    Ok(vec![
+        diagnosis_finding_v1(
+            IterationDiagnosisDimensionV1::EvidenceIntegrity,
+            IterationDiagnosisDispositionV1::EvidenceEstablished,
+            vec![
+                result_reference,
+                census_reference.clone(),
+                trace_reference.clone(),
+            ],
+        ),
+        diagnosis_finding_v1(
+            IterationDiagnosisDimensionV1::MechanismValidity,
+            IterationDiagnosisDispositionV1::Unresolved,
+            vec![intent_reference.clone(), trace_reference.clone()],
+        ),
+        diagnosis_finding_v1(
+            IterationDiagnosisDimensionV1::EconomicViability,
+            IterationDiagnosisDispositionV1::Unresolved,
+            vec![
+                intent_reference,
+                cost_reference,
+                slippage_reference,
+                capacity_reference,
+                trace_reference.clone(),
+            ],
+        ),
+        diagnosis_finding_v1(
+            IterationDiagnosisDimensionV1::Robustness,
+            IterationDiagnosisDispositionV1::Unresolved,
+            vec![census_reference.clone(), trace_reference],
+        ),
+        diagnosis_finding_v1(
+            IterationDiagnosisDimensionV1::FailureAttribution,
+            failure_disposition,
+            vec![failure_reference],
+        ),
+        diagnosis_finding_v1(
+            IterationDiagnosisDimensionV1::InformationValue,
+            IterationDiagnosisDispositionV1::Unresolved,
+            vec![candidate_reference, census_reference],
+        ),
+    ])
+}
+
+fn owner_binding_reference_v1(
+    owner_bindings: &[IterationInterpretationOwnerBindingV1],
+    component: ObservationComponentV2,
+) -> Result<IterationDiagnosisEvidenceReferenceV1, IterationDecisionErrorV1> {
+    let binding = owner_bindings
+        .iter()
+        .find(|binding| binding.component == component)
+        .ok_or(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+            "required diagnosis Owner binding is missing",
+        ))?;
+    Ok(IterationDiagnosisEvidenceReferenceV1 {
+        identity: binding.meaning_identity.clone(),
+        digest: binding.meaning_digest.clone(),
+    })
+}
+
+fn diagnosis_finding_v1(
+    dimension: IterationDiagnosisDimensionV1,
+    disposition: IterationDiagnosisDispositionV1,
+    evidence: Vec<IterationDiagnosisEvidenceReferenceV1>,
+) -> IterationDiagnosisFindingV1 {
+    IterationDiagnosisFindingV1 {
+        dimension,
+        disposition,
+        evidence,
+    }
 }
 
 fn interpretation_result_custody_v1(
@@ -976,6 +1201,7 @@ mod tests {
     };
 
     use super::*;
+    use crate::product_edge::{FrozenResearchGoalIntentV2, SourcedResearchGoalV2};
     use crate::trial_family::{
         TrialFamilyAttemptAppendV2, TrialFamilyCandidateSetProposalV2,
         TrialFamilyIndependenceDispositionV1, TrialFamilyPolicyV1, append_attempt_to_census_v2,
@@ -1135,19 +1361,56 @@ mod tests {
     }
 
     fn interpretation_context(
+        census: &TrialFamilyCensusReadbackV2,
         gate: IterationDecisionGateV1,
         result: &ReplayResultDtoV2,
     ) -> Result<IterationInterpretationContextV1, IterationDecisionErrorV1> {
         let result_bytes = serde_json::to_vec(result).expect("result bytes");
+        let semantic_trace_bytes = SemanticTraceV1::default().encode();
+        let intent = FrozenResearchGoalIntent::V2(FrozenResearchGoalIntentV2 {
+            schema_version: 2,
+            intent_identity: census
+                .legacy_family
+                .initial_intent_member()
+                .fact_identity()
+                .to_string(),
+            request_identity: "research-request-v2".to_string(),
+            semantic_digest: census
+                .legacy_family
+                .initial_intent_member()
+                .fact_digest()
+                .to_string(),
+            source_frontier: Vec::new(),
+            goal: SourcedResearchGoalV2 {
+                hypothesis: "trend continuation".to_string(),
+                mechanism: "persistent order flow".to_string(),
+                falsification_question: "does the signal survive exact costs?".to_string(),
+                expected_observation: "positive next return".to_string(),
+                required_data: vec!["bars".to_string()],
+                cost_assumption: "catalog cost model".to_string(),
+                capacity_assumption: "catalog capacity model".to_string(),
+                sources: Vec::new(),
+            },
+            independence_basis_identity: "basis-v1".to_string(),
+            independence_basis_digest: format!("sha256:{}", "a".repeat(64)),
+            protected_feedback_projection_identity: "protected-feedback-v1".to_string(),
+            protected_feedback_projection_digest: format!("sha256:{}", "b".repeat(64)),
+            trial_family_identity: census.census_frontier.trial_family_identity().to_string(),
+            trial_family_policy_digest: format!("sha256:{}", "c".repeat(64)),
+            frozen_at_epoch_ms: 1,
+        });
         issue_interpretation_context_from_result_v1(
+            census,
+            &intent,
             gate,
             result,
             interpretation_result_custody_v1(
                 &result_bytes,
                 b"receipt-bytes",
                 b"outbox-bytes",
-                b"semantic-trace-bytes",
+                &semantic_trace_bytes,
             ),
+            SemanticTraceV1::decode(&semantic_trace_bytes).expect("canonical trace"),
         )
     }
 
@@ -1215,7 +1478,7 @@ mod tests {
         let result = interpretation_result(DiagnosticCategoryV2::NoExecutionDefect);
         let gate = gate_result(&census, &result, &decision_policy()).expect("interpretation gate");
 
-        let context = interpretation_context(gate, &result).expect("complete context");
+        let context = interpretation_context(&census, gate, &result).expect("complete context");
 
         assert_eq!(context.required_dimensions.len(), 6);
         assert_eq!(
@@ -1247,6 +1510,26 @@ mod tests {
                 .result_storage_digest
                 .starts_with("sha256:")
         );
+        assert_eq!(context.diagnosis_findings.len(), 6);
+        assert_eq!(
+            context.diagnosis_findings[0].disposition,
+            IterationDiagnosisDispositionV1::EvidenceEstablished
+        );
+        assert_eq!(
+            context.diagnosis_findings[4].disposition,
+            IterationDiagnosisDispositionV1::NoExecutionDefect
+        );
+        assert_eq!(
+            context
+                .diagnosis_findings
+                .iter()
+                .filter(|finding| {
+                    finding.disposition == IterationDiagnosisDispositionV1::Unresolved
+                })
+                .count(),
+            4
+        );
+        assert_eq!(context.semantic_trace.schema_version, 1);
         assert!(
             context
                 .result_custody
@@ -1263,7 +1546,7 @@ mod tests {
         result.reconciliation[1].component = result.reconciliation[0].component;
 
         assert!(matches!(
-            interpretation_context(gate, &result),
+            interpretation_context(&census, gate, &result),
             Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
                 _
             ))
@@ -1282,7 +1565,7 @@ mod tests {
             .request_identity = identity("another-request");
 
         assert!(matches!(
-            interpretation_context(gate, &result),
+            interpretation_context(&census, gate, &result),
             Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
                 _
             ))
@@ -1295,12 +1578,13 @@ mod tests {
         let mut result = interpretation_result(DiagnosticCategoryV2::NoExecutionDefect);
         let first_gate =
             gate_result(&census, &result, &decision_policy()).expect("interpretation gate");
-        let first = interpretation_context(first_gate, &result).expect("first context");
+        let first = interpretation_context(&census, first_gate, &result).expect("first context");
         result.diagnostic_census[0].decisive_evidence.reference =
             identity("different-owner-diagnostic-evidence");
         let changed_gate =
             gate_result(&census, &result, &decision_policy()).expect("changed interpretation gate");
-        let changed = interpretation_context(changed_gate, &result).expect("changed context");
+        let changed =
+            interpretation_context(&census, changed_gate, &result).expect("changed context");
 
         assert_ne!(
             first.result_custody.result_storage_digest,
