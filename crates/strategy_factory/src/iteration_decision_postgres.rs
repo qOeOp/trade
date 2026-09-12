@@ -10,12 +10,12 @@ use thiserror::Error;
 use crate::{
     BacktestResultCustodyErrorV2, ExploratoryReplayResultLocatorV2,
     iteration_decision::{
-        IterationDecisionErrorV1, IterationDecisionGateV1, IterationNoDecisionReasonV1,
-        RepairInputIterationDecisionReadbackV1, TrialBudgetTerminalStopDecisionReadbackV1,
-        admit_stored_repair_input_decision_v1, admit_stored_trial_budget_terminal_stop_decision_v1,
-        gate_locked_exploratory_result_v1, is_valid_iteration_decision_locator_v1,
-        issue_interpretation_context_v1, issue_repair_input_decision_v1,
-        issue_trial_budget_terminal_stop_decision_v1,
+        ExistingIterationDecisionReadbackV1, IterationDecisionErrorV1, IterationDecisionGateV1,
+        IterationNoDecisionReasonV1, RepairInputIterationDecisionReadbackV1,
+        TrialBudgetTerminalStopDecisionReadbackV1, admit_stored_repair_input_decision_v1,
+        admit_stored_trial_budget_terminal_stop_decision_v1, gate_locked_exploratory_result_v1,
+        is_valid_iteration_decision_locator_v1, issue_interpretation_context_v1,
+        issue_repair_input_decision_v1, issue_trial_budget_terminal_stop_decision_v1,
     },
     product_edge::ResearchGoalOwnerError,
     rd_owner_postgres_custody::{ResearchCustodyLookupV1, admit_research_custody_in_transaction},
@@ -408,6 +408,78 @@ pub(crate) async fn resolve_trial_budget_terminal_stop_decision_v1(
     if let Some(value) = readback.as_ref()
         && value.decision().decision_identity() != locator.decision_identity
     {
+        return Err(storage("Decision resolution locator mismatch"));
+    }
+    transaction.commit().await.map_err(storage)?;
+    Ok(readback)
+}
+
+/// Resolves one exact existing Decision without requiring the consumer to guess its branch.
+pub(crate) async fn resolve_iteration_decision_v1(
+    pool: &PgPool,
+    locator: IterationDecisionResolutionLocatorV1,
+) -> Result<Option<ExistingIterationDecisionReadbackV1>, IterationDecisionPostgresErrorV1> {
+    if !is_valid_iteration_decision_locator_v1(&locator.decision_identity)
+        || !is_valid_iteration_decision_locator_v1(&locator.result_identity)
+    {
+        return Err(IterationDecisionPostgresErrorV1::InvalidLocator);
+    }
+    let mut transaction = pool.begin().await.map_err(storage)?;
+    let stored = sqlx::query(
+        "SELECT decision_json FROM rd_iteration_decisions_v1 WHERE decision_identity=$1 AND result_identity=$2 FOR SHARE",
+    )
+    .bind(&locator.decision_identity)
+    .bind(&locator.result_identity)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(storage)?;
+    let Some(stored) = stored else {
+        transaction.commit().await.map_err(storage)?;
+        return Ok(None);
+    };
+    let decision_json: serde_json::Value = stored.try_get("decision_json").map_err(storage)?;
+    let outcome = decision_json
+        .get("outcome")
+        .and_then(|value| value.get("outcome"))
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| storage("stored Decision outcome discriminator is unavailable"))?;
+    let readback = match outcome {
+        "REPAIR_INPUTS" => {
+            load_by_result_in_transaction(&mut transaction, &locator.result_identity, None)
+                .await?
+                .map(ExistingIterationDecisionReadbackV1::RepairInputs)
+        }
+        "TERMINAL_STOP"
+            if decision_json
+                .get("outcome")
+                .and_then(|value| value.get("reason"))
+                .and_then(serde_json::Value::as_str)
+                == Some("TRIAL_BUDGET_EXHAUSTED") =>
+        {
+            load_trial_budget_terminal_stop_by_result_in_transaction(
+                &mut transaction,
+                &locator.result_identity,
+                None,
+            )
+            .await?
+            .map(ExistingIterationDecisionReadbackV1::TrialBudgetTerminalStop)
+        }
+        _ => {
+            return Err(storage(
+                "stored Decision kind has no admitted unified readback",
+            ));
+        }
+    };
+    let resolved_identity = match readback.as_ref() {
+        Some(ExistingIterationDecisionReadbackV1::RepairInputs(value)) => {
+            value.decision().decision_identity()
+        }
+        Some(ExistingIterationDecisionReadbackV1::TrialBudgetTerminalStop(value)) => {
+            value.decision().decision_identity()
+        }
+        None => return Err(storage("stored Decision readback is missing")),
+    };
+    if resolved_identity != locator.decision_identity {
         return Err(storage("Decision resolution locator mismatch"));
     }
     transaction.commit().await.map_err(storage)?;

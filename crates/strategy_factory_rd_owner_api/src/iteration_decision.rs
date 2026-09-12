@@ -15,7 +15,8 @@ use vibe_strategy_factory::{
     IterationDecisionResolutionLocatorV1, RepairActionCompositionRequestV1,
     RepairActionResolutionLocatorV1,
     iteration_decision::{
-        IterationDecisionEvidenceCutV1, IterationDecisionOutcomeV1, IterationRepairCategoryV1,
+        ExistingIterationDecisionReadbackV1, IterationDecisionEvidenceCutV1,
+        IterationDecisionOutcomeV1, IterationRepairCategoryV1,
         RepairInputIterationDecisionReadbackV1, TrialBudgetTerminalStopDecisionReadbackV1,
         is_valid_iteration_decision_locator_v1,
     },
@@ -95,6 +96,26 @@ impl TrialBudgetTerminalStopActionPort for PostgresResearchGoalOwnerV1 {
 }
 
 #[async_trait::async_trait]
+trait IterationDecisionReadPort: Send + Sync {
+    async fn resolve_decision(
+        &self,
+        locator: IterationDecisionResolutionLocatorV1,
+    ) -> Result<Option<UnifiedIterationDecisionResponseV1>, IterationDecisionPostgresErrorV1>;
+}
+
+#[async_trait::async_trait]
+impl IterationDecisionReadPort for PostgresResearchGoalOwnerV1 {
+    async fn resolve_decision(
+        &self,
+        locator: IterationDecisionResolutionLocatorV1,
+    ) -> Result<Option<UnifiedIterationDecisionResponseV1>, IterationDecisionPostgresErrorV1> {
+        self.resolve_iteration_decision_v1(locator)
+            .await
+            .map(|readback| readback.map(UnifiedIterationDecisionResponseV1::from))
+    }
+}
+
+#[async_trait::async_trait]
 trait RepairActionRequestActionPort: Send + Sync {
     async fn compose_repair_action(
         &self,
@@ -137,6 +158,12 @@ struct RepairInputDecisionApiState {
 #[derive(Clone)]
 struct TrialBudgetTerminalStopApiState {
     owner: Arc<dyn TrialBudgetTerminalStopActionPort>,
+    token_digest: [u8; 32],
+}
+
+#[derive(Clone)]
+struct IterationDecisionReadApiState {
+    owner: Arc<dyn IterationDecisionReadPort>,
     token_digest: [u8; 32],
 }
 
@@ -213,6 +240,30 @@ impl From<TrialBudgetTerminalStopDecisionReadbackV1> for TrialBudgetTerminalStop
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(
+    tag = "decision_kind",
+    content = "decision",
+    rename_all = "SCREAMING_SNAKE_CASE"
+)]
+enum UnifiedIterationDecisionResponseV1 {
+    RepairInputs(RepairInputDecisionActionResponseV1),
+    TrialBudgetTerminalStop(TrialBudgetTerminalStopActionResponseV1),
+}
+
+impl From<ExistingIterationDecisionReadbackV1> for UnifiedIterationDecisionResponseV1 {
+    fn from(readback: ExistingIterationDecisionReadbackV1) -> Self {
+        match readback {
+            ExistingIterationDecisionReadbackV1::RepairInputs(value) => {
+                Self::RepairInputs(value.into())
+            }
+            ExistingIterationDecisionReadbackV1::TrialBudgetTerminalStop(value) => {
+                Self::TrialBudgetTerminalStop(value.into())
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 struct RepairActionRequestActionResponseV1 {
     schema_version: u16,
@@ -250,11 +301,27 @@ impl From<RepairActionRequestReadbackV1> for RepairActionRequestActionResponseV1
 
 pub(super) fn router(owner: Arc<PostgresResearchGoalOwnerV1>, token_digest: [u8; 32]) -> Router {
     action_router(owner.clone(), token_digest)
+        .merge(iteration_decision_read_router(owner.clone(), token_digest))
         .merge(trial_budget_terminal_stop_router(
             owner.clone(),
             token_digest,
         ))
         .merge(repair_action_router(owner, token_digest))
+}
+
+fn iteration_decision_read_router(
+    owner: Arc<dyn IterationDecisionReadPort>,
+    token_digest: [u8; 32],
+) -> Router {
+    Router::new()
+        .route(
+            "/v1/iteration-decisions/resolve",
+            post(resolve_iteration_decision),
+        )
+        .with_state(IterationDecisionReadApiState {
+            owner,
+            token_digest,
+        })
 }
 
 fn trial_budget_terminal_stop_router(
@@ -344,6 +411,49 @@ async fn resolve_repair_input_decision(
         );
     }
     match state.owner.resolve(locator).await {
+        Ok(Some(result)) => (StatusCode::OK, Json(result)).into_response(),
+        Ok(None) => decision_resolution_rejection(
+            StatusCode::NOT_FOUND,
+            "ITERATION_DECISION_NOT_FOUND",
+            &decision_identity,
+        ),
+        Err(error) => decision_resolution_owner_error(&error, &decision_identity),
+    }
+}
+
+async fn resolve_iteration_decision(
+    State(state): State<IterationDecisionReadApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return decision_resolution_rejection(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            "unbound",
+        );
+    }
+    let locator: IterationDecisionResolutionLocatorV1 = match serde_json::from_slice(&body) {
+        Ok(locator) => locator,
+        Err(_) => {
+            return decision_resolution_rejection(
+                StatusCode::BAD_REQUEST,
+                "MALFORMED_TYPED_REQUEST",
+                "unbound",
+            );
+        }
+    };
+    let decision_identity = locator.decision_identity.clone();
+    if !is_valid_iteration_decision_locator_v1(&locator.decision_identity)
+        || !is_valid_iteration_decision_locator_v1(&locator.result_identity)
+    {
+        return decision_resolution_rejection(
+            StatusCode::BAD_REQUEST,
+            "INVALID_ITERATION_DECISION_LOCATORS",
+            &decision_identity,
+        );
+    }
+    match state.owner.resolve_decision(locator).await {
         Ok(Some(result)) => (StatusCode::OK, Json(result)).into_response(),
         Ok(None) => decision_resolution_rejection(
             StatusCode::NOT_FOUND,
@@ -745,6 +855,23 @@ mod tests {
         calls: AtomicUsize,
         resolve_calls: AtomicUsize,
         response: Option<TrialBudgetTerminalStopActionResponseV1>,
+    }
+
+    struct UnifiedDecisionOwnerStub {
+        resolve_calls: AtomicUsize,
+        response: Option<UnifiedIterationDecisionResponseV1>,
+    }
+
+    #[async_trait::async_trait]
+    impl IterationDecisionReadPort for UnifiedDecisionOwnerStub {
+        async fn resolve_decision(
+            &self,
+            _locator: IterationDecisionResolutionLocatorV1,
+        ) -> Result<Option<UnifiedIterationDecisionResponseV1>, IterationDecisionPostgresErrorV1>
+        {
+            self.resolve_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(self.response.clone())
+        }
     }
 
     #[async_trait::async_trait]
@@ -1386,5 +1513,95 @@ mod tests {
             serde_json::to_value(expected).unwrap()
         );
         assert_eq!(owner.resolve_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn unified_resolve_is_authenticated_and_preserves_both_owner_variants() {
+        let token = "unified-iteration-decision-readback-test";
+        let token_digest: [u8; 32] = sha2::Sha256::digest(token.as_bytes()).into();
+        let repair = UnifiedIterationDecisionResponseV1::RepairInputs(response());
+        let repair_owner = Arc::new(UnifiedDecisionOwnerStub {
+            resolve_calls: AtomicUsize::new(0),
+            response: Some(repair.clone()),
+        });
+
+        let unauthorized = iteration_decision_read_router(repair_owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/iteration-decisions/resolve",
+                decision_resolution_locator(),
+                None,
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(unauthorized.status(), StatusCode::FORBIDDEN);
+        assert_eq!(repair_owner.resolve_calls.load(Ordering::SeqCst), 0);
+
+        let mut invalid = decision_resolution_locator();
+        invalid["decision_identity"] = json!("decision/1");
+        let rejected = iteration_decision_read_router(repair_owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/iteration-decisions/resolve",
+                invalid,
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(rejected.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(repair_owner.resolve_calls.load(Ordering::SeqCst), 0);
+
+        let resolved = iteration_decision_read_router(repair_owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/iteration-decisions/resolve",
+                decision_resolution_locator(),
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(resolved.status(), StatusCode::OK);
+        assert_eq!(
+            response_json(resolved).await,
+            serde_json::to_value(repair).unwrap()
+        );
+        assert_eq!(repair_owner.resolve_calls.load(Ordering::SeqCst), 1);
+
+        let budget = UnifiedIterationDecisionResponseV1::TrialBudgetTerminalStop(
+            trial_budget_stop_response(),
+        );
+        let budget_owner = Arc::new(UnifiedDecisionOwnerStub {
+            resolve_calls: AtomicUsize::new(0),
+            response: Some(budget.clone()),
+        });
+        let resolved = iteration_decision_read_router(budget_owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/iteration-decisions/resolve",
+                json!({
+                    "decision_identity": "decision-budget-stop-1",
+                    "result_identity": "result-1",
+                }),
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(resolved.status(), StatusCode::OK);
+        assert_eq!(
+            response_json(resolved).await,
+            serde_json::to_value(budget).unwrap()
+        );
+        assert_eq!(budget_owner.resolve_calls.load(Ordering::SeqCst), 1);
+
+        let missing = Arc::new(UnifiedDecisionOwnerStub {
+            resolve_calls: AtomicUsize::new(0),
+            response: None,
+        });
+        let absent = iteration_decision_read_router(missing.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/iteration-decisions/resolve",
+                decision_resolution_locator(),
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(absent.status(), StatusCode::NOT_FOUND);
+        assert_eq!(missing.resolve_calls.load(Ordering::SeqCst), 1);
     }
 }
