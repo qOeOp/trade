@@ -224,7 +224,7 @@ async fn compose_repair_action_request(
     body: Bytes,
 ) -> Response {
     if !authorized(&headers, &state.token_digest) {
-        return rejection(
+        return repair_action_rejection(
             StatusCode::FORBIDDEN,
             "UNAUTHORIZED_PRODUCT_EDGE",
             "unbound",
@@ -233,7 +233,7 @@ async fn compose_repair_action_request(
     let request: RepairActionCompositionRequestV1 = match serde_json::from_slice(&body) {
         Ok(request) => request,
         Err(_) => {
-            return rejection(
+            return repair_action_rejection(
                 StatusCode::BAD_REQUEST,
                 "MALFORMED_TYPED_REQUEST",
                 "unbound",
@@ -244,7 +244,7 @@ async fn compose_repair_action_request(
     if !is_valid_iteration_decision_locator_v1(&request.decision_identity)
         || !is_valid_iteration_decision_locator_v1(&request.result_identity)
     {
-        return rejection(
+        return repair_action_rejection(
             StatusCode::BAD_REQUEST,
             "INVALID_REPAIR_ACTION_REQUEST_LOCATORS",
             &decision_identity,
@@ -252,48 +252,83 @@ async fn compose_repair_action_request(
     }
     match state.owner.compose_repair_action(request).await {
         Ok(result) => (StatusCode::OK, Json(result)).into_response(),
-        Err(error) => owner_error(&error, &decision_identity),
+        Err(error) => repair_action_owner_error(&error, &decision_identity),
     }
 }
 
 fn owner_error(error: &IterationDecisionPostgresErrorV1, request_identity: &str) -> Response {
+    owner_error_with(
+        error,
+        request_identity,
+        "INVALID_ITERATION_DECISION_LOCATORS",
+        rejection,
+    )
+}
+
+fn repair_action_owner_error(
+    error: &IterationDecisionPostgresErrorV1,
+    decision_identity: &str,
+) -> Response {
+    owner_error_with(
+        error,
+        decision_identity,
+        "INVALID_REPAIR_ACTION_REQUEST_LOCATORS",
+        repair_action_rejection,
+    )
+}
+
+fn owner_error_with(
+    error: &IterationDecisionPostgresErrorV1,
+    correlation_identity: &str,
+    invalid_locator_code: &str,
+    reject: fn(StatusCode, &str, &str) -> Response,
+) -> Response {
     match error {
-        IterationDecisionPostgresErrorV1::InvalidLocator => rejection(
+        IterationDecisionPostgresErrorV1::InvalidLocator => reject(
             StatusCode::BAD_REQUEST,
-            "INVALID_ITERATION_DECISION_LOCATORS",
-            request_identity,
+            invalid_locator_code,
+            correlation_identity,
         ),
-        IterationDecisionPostgresErrorV1::NoDecision(_) => rejection(
+        IterationDecisionPostgresErrorV1::NoDecision(_) => reject(
             StatusCode::CONFLICT,
             "ITERATION_DECISION_NOT_AVAILABLE",
-            request_identity,
+            correlation_identity,
         ),
-        IterationDecisionPostgresErrorV1::InterpretationRequired => rejection(
+        IterationDecisionPostgresErrorV1::InterpretationRequired => reject(
             StatusCode::CONFLICT,
             "ITERATION_INTERPRETATION_REQUIRED",
-            request_identity,
+            correlation_identity,
         ),
         IterationDecisionPostgresErrorV1::TrialFamily(_)
         | IterationDecisionPostgresErrorV1::Backtest(_)
         | IterationDecisionPostgresErrorV1::Decision(_)
         | IterationDecisionPostgresErrorV1::RepairAction(_)
-        | IterationDecisionPostgresErrorV1::Storage(_) => rejection(
+        | IterationDecisionPostgresErrorV1::Storage(_) => reject(
             StatusCode::SERVICE_UNAVAILABLE,
             "ITERATION_DECISION_OWNER_UNAVAILABLE",
-            request_identity,
+            correlation_identity,
         ),
     }
 }
 
 fn rejection(status: StatusCode, code: &str, request_identity: &str) -> Response {
-    let mut response = (
-        status,
-        Json(json!({
-            "request_identity": request_identity,
-            "error": code,
-        })),
-    )
-        .into_response();
+    correlated_rejection(status, code, "request_identity", request_identity)
+}
+
+fn repair_action_rejection(status: StatusCode, code: &str, decision_identity: &str) -> Response {
+    correlated_rejection(status, code, "decision_identity", decision_identity)
+}
+
+fn correlated_rejection(
+    status: StatusCode,
+    code: &str,
+    identity_field: &str,
+    identity: &str,
+) -> Response {
+    let mut body = serde_json::Map::new();
+    body.insert(identity_field.to_string(), json!(identity));
+    body.insert("error".to_string(), json!(code));
+    let mut response = (status, Json(serde_json::Value::Object(body))).into_response();
     insert_rejection_code(&mut response, code);
     response
 }
@@ -438,6 +473,13 @@ mod tests {
             .expect("HTTP request")
     }
 
+    async fn response_json(response: Response) -> serde_json::Value {
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("response bytes");
+        serde_json::from_slice(&body).expect("response JSON")
+    }
+
     #[test]
     fn request_accepts_only_the_four_owner_locators() {
         serde_json::from_value::<DecisionCompositionRequestV1>(request())
@@ -478,6 +520,13 @@ mod tests {
             .await
             .expect("router response");
         assert_eq!(no_decision.status(), StatusCode::CONFLICT);
+        assert_eq!(
+            response_json(no_decision).await,
+            json!({
+                "request_identity": "request-1",
+                "error": "ITERATION_DECISION_NOT_AVAILABLE",
+            })
+        );
         assert_eq!(owner.calls.load(Ordering::SeqCst), 1);
     }
 
@@ -550,6 +599,13 @@ mod tests {
             .await
             .expect("router response");
         assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            response_json(invalid).await,
+            json!({
+                "decision_identity": "decision/1",
+                "error": "INVALID_REPAIR_ACTION_REQUEST_LOCATORS",
+            })
+        );
         assert_eq!(owner.calls.load(Ordering::SeqCst), 0);
 
         let unavailable = repair_action_router(owner.clone(), token_digest)
@@ -561,6 +617,13 @@ mod tests {
             .await
             .expect("router response");
         assert_eq!(unavailable.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            response_json(unavailable).await,
+            json!({
+                "decision_identity": "decision-1",
+                "error": "ITERATION_DECISION_OWNER_UNAVAILABLE",
+            })
+        );
         assert_eq!(owner.calls.load(Ordering::SeqCst), 1);
     }
 
