@@ -100,6 +100,7 @@ fn owner_bound_profile_drives_bar_signal_then_real_event_fills() {
     assert_eq!(readback.execution_route(), "EVENT");
     vibe_backtest::result::CanonicalBacktestResult::from_slice(readback.canonical_result())
         .expect("EVENT readback must retain the exact canonical Backtest result");
+    assert!(readback.canonical_result_is_exact());
     assert!(
         serde_json::to_value(&readback)
             .expect("EVENT readback must serialize")

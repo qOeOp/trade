@@ -3,6 +3,13 @@
 //! This crate contains caller-authored requests and finite value vocabularies only. It does not
 //! define a positive result constructor, an observation provider trait, or Backtest execution.
 
+pub mod outcome_evidence;
+
+pub use outcome_evidence::{
+    BacktestOutcomeEvidenceBindingsV1, BacktestOutcomeEvidenceDtoV1,
+    BacktestOutcomeEvidenceErrorV1, CanonicalResultBindingDtoV1,
+};
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 

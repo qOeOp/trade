@@ -152,6 +152,12 @@ impl ProgramHostSimEventReadbackV1 {
         &self.canonical_result
     }
 
+    /// Verifies that the retained bytes still match the digest produced at the execution boundary.
+    #[must_use]
+    pub fn canonical_result_is_exact(&self) -> bool {
+        canonical_result_digest(&self.canonical_result) == self.canonical_result_digest
+    }
+
     #[must_use]
     pub const fn target_set_count(&self) -> usize {
         self.target_set_count
@@ -225,11 +231,7 @@ pub fn run_program_host_sim_event_consumer_v1(
         .collect::<Vec<_>>();
     validate_actual_consumption(&observed, &actual_fills, &census)?;
     let canonical_result = engine.get_canonical_result()?.to_bytes()?;
-    let mut hasher = Sha256::new();
-    hasher.update(CANONICAL_RESULT_DOMAIN);
-    hasher.update((canonical_result.len() as u64).to_le_bytes());
-    hasher.update(&canonical_result);
-    let canonical_result_digest = hasher.finalize().into();
+    let canonical_result_digest = canonical_result_digest(&canonical_result);
 
     Ok(ProgramHostSimEventReadbackV1 {
         execution_route: "EVENT".to_owned(),
@@ -245,6 +247,14 @@ pub fn run_program_host_sim_event_consumer_v1(
             .collect(),
         actual_fills,
     })
+}
+
+fn canonical_result_digest(bytes: &[u8]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(CANONICAL_RESULT_DOMAIN);
+    hasher.update((bytes.len() as u64).to_le_bytes());
+    hasher.update(bytes);
+    hasher.finalize().into()
 }
 
 fn validate_actual_consumption(

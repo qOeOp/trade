@@ -9,15 +9,17 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
 use thiserror::Error;
 use vibe_backtest_owner_contracts::{
-    CanonicalDigestV2, ObservationComponentV2, OpaqueIdentityV2, ReplayNamespaceV2,
-    ReplayResultDtoV2, ReplayTerminalV2,
+    BacktestOutcomeEvidenceDtoV1, CanonicalDigestV2, ObservationComponentV2, OpaqueIdentityV2,
+    ReplayNamespaceV2, ReplayResultDtoV2, ReplayTerminalV2,
 };
 
 const RESOLVE_FUNCTION_NAME: &str = "resolve_exploratory_replay_result_v2";
+const RESOLVE_V3_FUNCTION_NAME: &str = "resolve_exploratory_replay_result_v3";
 const AUTHORITY_LOCK_FUNCTION: &str = "backtest_authority_lock_api.lock_authority_catalogs_v1()";
 const TOPOLOGY_FENCE: &str = "vibe.backtest.result-topology.v2";
 const AUTHORITY_LOCK_FUNCTION_SOURCE: &str = "BEGIN LOCK TABLE pg_catalog.pg_authid, pg_catalog.pg_auth_members IN SHARE MODE; RETURN true; END";
 const FUNCTION_SOURCE: &str = "DECLARE locked_result public.backtest_replay_results_v2%ROWTYPE; locked_receipt public.backtest_replay_result_receipts_v1%ROWTYPE; locked_outbox public.backtest_replay_result_outbox_v1%ROWTYPE; locked_trace public.backtest_native_replay_semantic_traces_v2%ROWTYPE; BEGIN SELECT result.* INTO locked_result FROM public.backtest_replay_results_v2 result WHERE result.result_identity=p_result_identity AND result.request_identity=p_request_identity AND result.attempt_identity=p_attempt_identity; IF NOT FOUND THEN RETURN NULL; END IF; SELECT receipt.* INTO locked_receipt FROM public.backtest_replay_result_receipts_v1 receipt WHERE receipt.result_identity=p_result_identity; IF NOT FOUND THEN RETURN NULL; END IF; SELECT outbox.* INTO locked_outbox FROM public.backtest_replay_result_outbox_v1 outbox WHERE outbox.result_identity=p_result_identity; IF NOT FOUND THEN RETURN NULL; END IF; SELECT trace.* INTO locked_trace FROM public.backtest_native_replay_semantic_traces_v2 trace WHERE trace.result_identity=p_result_identity; RETURN pg_catalog.jsonb_build_object('schema_version',3,'result',pg_catalog.jsonb_build_object('result_identity',locked_result.result_identity,'result_digest',locked_result.result_digest,'request_identity',locked_result.request_identity,'request_meaning_digest',locked_result.request_meaning_digest,'attempt_identity',locked_result.attempt_identity,'terminal',locked_result.terminal,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_result.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_result.canonical_bytes_blake3),'receipt',pg_catalog.jsonb_build_object('result_identity',locked_receipt.result_identity,'receipt_identity',locked_receipt.receipt_identity,'receipt_digest',locked_receipt.receipt_digest,'request_identity',locked_receipt.request_identity,'request_meaning_digest',locked_receipt.request_meaning_digest,'result_digest',locked_receipt.result_digest,'namespace',locked_receipt.namespace,'outbox_event_identity',locked_receipt.outbox_event_identity,'committed_at_epoch_ms',locked_receipt.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_receipt.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_receipt.canonical_bytes_blake3),'outbox',pg_catalog.jsonb_build_object('result_identity',locked_outbox.result_identity,'event_identity',locked_outbox.event_identity,'event_digest',locked_outbox.event_digest,'receipt_identity',locked_outbox.receipt_identity,'request_identity',locked_outbox.request_identity,'request_meaning_digest',locked_outbox.request_meaning_digest,'result_digest',locked_outbox.result_digest,'namespace',locked_outbox.namespace,'payload_digest',locked_outbox.payload_digest,'committed_at_epoch_ms',locked_outbox.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_outbox.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_outbox.canonical_bytes_blake3),'semantic_trace',CASE WHEN locked_trace.result_identity IS NULL THEN NULL ELSE pg_catalog.jsonb_build_object('result_identity',locked_trace.result_identity,'locator_reference',locked_trace.locator_reference,'locator_digest',locked_trace.locator_digest,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_trace.canonical_bytes,'base64'),pg_catalog.chr(10),'')) END); END";
+const FUNCTION_SOURCE_V3: &str = r#"DECLARE locked_result public.backtest_replay_results_v2%ROWTYPE; locked_receipt public.backtest_replay_result_receipts_v1%ROWTYPE; locked_outbox public.backtest_replay_result_outbox_v1%ROWTYPE; locked_trace public.backtest_native_replay_semantic_traces_v2%ROWTYPE; locked_evidence public.backtest_native_replay_outcome_evidence_v1%ROWTYPE; locked_evidence_receipt public.backtest_native_replay_outcome_evidence_receipts_v1%ROWTYPE; locked_evidence_outbox public.backtest_native_replay_outcome_evidence_outbox_v1%ROWTYPE; BEGIN SELECT result.* INTO locked_result FROM public.backtest_replay_results_v2 result WHERE result.result_identity=p_result_identity AND result.request_identity=p_request_identity AND result.attempt_identity=p_attempt_identity FOR SHARE; IF NOT FOUND THEN RETURN NULL; END IF; SELECT receipt.* INTO locked_receipt FROM public.backtest_replay_result_receipts_v1 receipt WHERE receipt.result_identity=p_result_identity FOR SHARE; IF NOT FOUND THEN RETURN NULL; END IF; SELECT outbox.* INTO locked_outbox FROM public.backtest_replay_result_outbox_v1 outbox WHERE outbox.result_identity=p_result_identity FOR SHARE; IF NOT FOUND THEN RETURN NULL; END IF; SELECT trace.* INTO locked_trace FROM public.backtest_native_replay_semantic_traces_v2 trace WHERE trace.result_identity=p_result_identity FOR SHARE; IF NOT FOUND THEN RETURN NULL; END IF; SELECT evidence.* INTO locked_evidence FROM public.backtest_native_replay_outcome_evidence_v1 evidence WHERE evidence.result_identity=p_result_identity AND evidence.request_identity=p_request_identity AND evidence.attempt_identity=p_attempt_identity FOR SHARE; IF NOT FOUND THEN RETURN NULL; END IF; SELECT receipt.* INTO locked_evidence_receipt FROM public.backtest_native_replay_outcome_evidence_receipts_v1 receipt WHERE receipt.result_identity=p_result_identity FOR SHARE; IF NOT FOUND THEN RETURN NULL; END IF; SELECT outbox.* INTO locked_evidence_outbox FROM public.backtest_native_replay_outcome_evidence_outbox_v1 outbox WHERE outbox.result_identity=p_result_identity FOR SHARE; IF NOT FOUND THEN RETURN NULL; END IF; RETURN pg_catalog.jsonb_build_object('schema_version',4,'result',pg_catalog.jsonb_build_object('result_identity',locked_result.result_identity,'result_digest',locked_result.result_digest,'request_identity',locked_result.request_identity,'request_meaning_digest',locked_result.request_meaning_digest,'attempt_identity',locked_result.attempt_identity,'terminal',locked_result.terminal,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_result.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_result.canonical_bytes_blake3),'receipt',pg_catalog.jsonb_build_object('result_identity',locked_receipt.result_identity,'receipt_identity',locked_receipt.receipt_identity,'receipt_digest',locked_receipt.receipt_digest,'request_identity',locked_receipt.request_identity,'request_meaning_digest',locked_receipt.request_meaning_digest,'result_digest',locked_receipt.result_digest,'namespace',locked_receipt.namespace,'outbox_event_identity',locked_receipt.outbox_event_identity,'committed_at_epoch_ms',locked_receipt.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_receipt.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_receipt.canonical_bytes_blake3),'outbox',pg_catalog.jsonb_build_object('result_identity',locked_outbox.result_identity,'event_identity',locked_outbox.event_identity,'event_digest',locked_outbox.event_digest,'receipt_identity',locked_outbox.receipt_identity,'request_identity',locked_outbox.request_identity,'request_meaning_digest',locked_outbox.request_meaning_digest,'result_digest',locked_outbox.result_digest,'namespace',locked_outbox.namespace,'payload_digest',locked_outbox.payload_digest,'committed_at_epoch_ms',locked_outbox.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_outbox.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_outbox.canonical_bytes_blake3),'semantic_trace',pg_catalog.jsonb_build_object('result_identity',locked_trace.result_identity,'locator_reference',locked_trace.locator_reference,'locator_digest',locked_trace.locator_digest,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_trace.canonical_bytes,'base64'),pg_catalog.chr(10),'')),'outcome_evidence',pg_catalog.jsonb_build_object('result_identity',locked_evidence.result_identity,'evidence_identity',locked_evidence.evidence_identity,'evidence_digest',locked_evidence.evidence_digest,'result_digest',locked_evidence.result_digest,'request_identity',locked_evidence.request_identity,'request_meaning_digest',locked_evidence.request_meaning_digest,'attempt_identity',locked_evidence.attempt_identity,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_evidence.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_evidence.canonical_bytes_blake3,'engine_canonical_result_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_evidence.engine_canonical_result_bytes,'base64'),pg_catalog.chr(10),''),'engine_canonical_result_bytes_blake3',locked_evidence.engine_canonical_result_bytes_blake3),'outcome_evidence_receipt',pg_catalog.jsonb_build_object('result_identity',locked_evidence_receipt.result_identity,'receipt_identity',locked_evidence_receipt.receipt_identity,'receipt_digest',locked_evidence_receipt.receipt_digest,'evidence_identity',locked_evidence_receipt.evidence_identity,'evidence_digest',locked_evidence_receipt.evidence_digest,'result_digest',locked_evidence_receipt.result_digest,'request_identity',locked_evidence_receipt.request_identity,'request_meaning_digest',locked_evidence_receipt.request_meaning_digest,'attempt_identity',locked_evidence_receipt.attempt_identity,'outbox_event_identity',locked_evidence_receipt.outbox_event_identity,'committed_at_epoch_ms',locked_evidence_receipt.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_evidence_receipt.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_evidence_receipt.canonical_bytes_blake3),'outcome_evidence_outbox',pg_catalog.jsonb_build_object('result_identity',locked_evidence_outbox.result_identity,'event_identity',locked_evidence_outbox.event_identity,'event_digest',locked_evidence_outbox.event_digest,'receipt_identity',locked_evidence_outbox.receipt_identity,'evidence_identity',locked_evidence_outbox.evidence_identity,'evidence_digest',locked_evidence_outbox.evidence_digest,'result_digest',locked_evidence_outbox.result_digest,'request_identity',locked_evidence_outbox.request_identity,'request_meaning_digest',locked_evidence_outbox.request_meaning_digest,'attempt_identity',locked_evidence_outbox.attempt_identity,'payload_digest',locked_evidence_outbox.payload_digest,'committed_at_epoch_ms',locked_evidence_outbox.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_evidence_outbox.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_evidence_outbox.canonical_bytes_blake3)); END"#;
 const RESULT_STORAGE_DOMAIN: &str = "vibe.backtest.replay-result-storage.v2";
 const RECEIPT_STORAGE_DOMAIN: &str = "vibe.backtest.result-receipt-storage.v1";
 const OUTBOX_STORAGE_DOMAIN: &str = "vibe.backtest.result-outbox-storage.v1";
@@ -25,6 +27,20 @@ const RECEIPT_DIGEST_DOMAIN: &str = "vibe.backtest.result-receipt.v1";
 const OUTBOX_PAYLOAD_DIGEST_DOMAIN: &str = "vibe.backtest.result-outbox-payload.v1";
 const OUTBOX_EVENT_DIGEST_DOMAIN: &str = "vibe.backtest.result-outbox-event.v1";
 const SEMANTIC_TRACE_BYTES_DOMAIN_V2: &str = "vibe.backtest.native-semantic-trace.v2";
+const OUTCOME_EVIDENCE_STORAGE_DOMAIN_V1: &str = "vibe.backtest.outcome-evidence-storage.v1";
+const ENGINE_CANONICAL_RESULT_BINDING_DOMAIN_V1: &str = "vibe.backtest.canonical-result-bytes.v1";
+const ENGINE_CANONICAL_RESULT_STORAGE_DOMAIN_V1: &str =
+    "vibe.backtest.engine-canonical-result-storage.v1";
+const OUTCOME_EVIDENCE_RECEIPT_STORAGE_DOMAIN_V1: &str =
+    "vibe.backtest.outcome-evidence-receipt-storage.v1";
+const OUTCOME_EVIDENCE_OUTBOX_STORAGE_DOMAIN_V1: &str =
+    "vibe.backtest.outcome-evidence-outbox-storage.v1";
+const OUTCOME_EVIDENCE_RECEIPT_DIGEST_DOMAIN_V1: &str = "vibe.backtest.outcome-evidence-receipt.v1";
+const OUTCOME_EVIDENCE_OUTBOX_PAYLOAD_DIGEST_DOMAIN_V1: &str =
+    "vibe.backtest.outcome-evidence-outbox-payload.v1";
+const OUTCOME_EVIDENCE_OUTBOX_EVENT_DIGEST_DOMAIN_V1: &str =
+    "vibe.backtest.outcome-evidence-outbox-event.v1";
+const OUTCOME_EVIDENCE_EVENT_KIND_V1: &str = "BACKTEST_OUTCOME_EVIDENCE_COMMITTED_V1";
 const EVENT_KIND: &str = "EXPLORATORY_BACKTEST_RESULT_COMMITTED_V1";
 const RESULT_TABLE_CENSUS_QUERY: &str = "
 WITH family AS (
@@ -517,6 +533,168 @@ SELECT
      WHERE statistic.stxrelid IN (SELECT oid FROM family)
   )
 ";
+const OUTCOME_EVIDENCE_TABLE_CENSUS_QUERY: &str = "
+WITH family AS (
+  SELECT relation.oid,relation.relname
+    FROM pg_catalog.pg_class relation
+    JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+   WHERE namespace.nspname='public'
+     AND relation.relname IN (
+       'backtest_native_replay_outcome_evidence_v1',
+       'backtest_native_replay_outcome_evidence_receipts_v1',
+       'backtest_native_replay_outcome_evidence_outbox_v1'
+     )
+), expected_columns(relname,attnum,attname,typename) AS (VALUES
+  ('backtest_native_replay_outcome_evidence_v1',1::smallint,'result_identity','text'),
+  ('backtest_native_replay_outcome_evidence_v1',2::smallint,'evidence_identity','text'),
+  ('backtest_native_replay_outcome_evidence_v1',3::smallint,'evidence_digest','text'),
+  ('backtest_native_replay_outcome_evidence_v1',4::smallint,'result_digest','text'),
+  ('backtest_native_replay_outcome_evidence_v1',5::smallint,'request_identity','text'),
+  ('backtest_native_replay_outcome_evidence_v1',6::smallint,'request_meaning_digest','text'),
+  ('backtest_native_replay_outcome_evidence_v1',7::smallint,'attempt_identity','text'),
+  ('backtest_native_replay_outcome_evidence_v1',8::smallint,'canonical_bytes','bytea'),
+  ('backtest_native_replay_outcome_evidence_v1',9::smallint,'canonical_bytes_blake3','text'),
+  ('backtest_native_replay_outcome_evidence_v1',10::smallint,'engine_canonical_result_bytes','bytea'),
+  ('backtest_native_replay_outcome_evidence_v1',11::smallint,'engine_canonical_result_bytes_blake3','text'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',1::smallint,'result_identity','text'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',2::smallint,'receipt_identity','text'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',3::smallint,'receipt_digest','text'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',4::smallint,'evidence_identity','text'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',5::smallint,'evidence_digest','text'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',6::smallint,'result_digest','text'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',7::smallint,'request_identity','text'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',8::smallint,'request_meaning_digest','text'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',9::smallint,'attempt_identity','text'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',10::smallint,'outbox_event_identity','text'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',11::smallint,'committed_at_epoch_ms','bigint'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',12::smallint,'canonical_bytes','bytea'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',13::smallint,'canonical_bytes_blake3','text'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',1::smallint,'result_identity','text'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',2::smallint,'event_identity','text'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',3::smallint,'event_digest','text'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',4::smallint,'receipt_identity','text'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',5::smallint,'evidence_identity','text'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',6::smallint,'evidence_digest','text'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',7::smallint,'result_digest','text'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',8::smallint,'request_identity','text'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',9::smallint,'request_meaning_digest','text'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',10::smallint,'attempt_identity','text'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',11::smallint,'payload_digest','text'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',12::smallint,'committed_at_epoch_ms','bigint'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',13::smallint,'canonical_bytes','bytea'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',14::smallint,'canonical_bytes_blake3','text')
+), expected_constraints(relname,contype,conkey) AS (VALUES
+  ('backtest_native_replay_outcome_evidence_v1','p','1'),
+  ('backtest_native_replay_outcome_evidence_v1','u','2'),
+  ('backtest_native_replay_outcome_evidence_v1','u','5 7'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1','p','1'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1','u','2'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1','u','4'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1','u','10'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1','p','1'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1','u','2'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1','u','4'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1','u','5')
+)
+SELECT
+  (SELECT pg_catalog.count(*)=3 AND pg_catalog.bool_and(
+       relation.relkind='r' AND relation.relpersistence='p'
+       AND access_method.amname='heap'
+       AND pg_catalog.pg_get_userbyid(relation.relowner)='backtest_custodian'
+       AND NOT relation.relrowsecurity AND NOT relation.relforcerowsecurity
+       AND relation.relreplident='d' AND NOT relation.relispartition
+       AND relation.reltablespace=0 AND relation.reloptions IS NULL)
+     FROM family JOIN pg_catalog.pg_class relation ON relation.oid=family.oid
+     JOIN pg_catalog.pg_am access_method ON access_method.oid=relation.relam)
+  AND NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_class relation
+    JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+    WHERE namespace.nspname<>'public' AND relation.relname IN (
+      'backtest_native_replay_outcome_evidence_v1',
+      'backtest_native_replay_outcome_evidence_receipts_v1',
+      'backtest_native_replay_outcome_evidence_outbox_v1'))
+  AND (SELECT pg_catalog.count(*)=38 AND NOT pg_catalog.bool_or(
+       expected_columns.relname IS NULL OR NOT attribute.attnotnull
+       OR pg_catalog.format_type(attribute.atttypid,attribute.atttypmod)<>expected_columns.typename
+       OR attribute.atthasdef OR attribute.attidentity<>'' OR attribute.attgenerated<>''
+       OR attribute.attacl IS NOT NULL OR attribute.attndims<>0 OR NOT attribute.attislocal
+       OR attribute.attinhcount<>0)
+     FROM family JOIN pg_catalog.pg_attribute attribute
+       ON attribute.attrelid=family.oid AND attribute.attnum>0 AND NOT attribute.attisdropped
+     LEFT JOIN expected_columns ON expected_columns.relname=family.relname
+       AND expected_columns.attnum=attribute.attnum AND expected_columns.attname=attribute.attname)
+  AND NOT EXISTS (SELECT 1 FROM expected_columns
+       WHERE NOT EXISTS (SELECT 1 FROM family JOIN pg_catalog.pg_attribute attribute
+          ON attribute.attrelid=family.oid AND attribute.attnum=expected_columns.attnum
+         WHERE family.relname=expected_columns.relname AND attribute.attname=expected_columns.attname
+           AND NOT attribute.attisdropped))
+  AND (SELECT pg_catalog.count(*)=11 AND pg_catalog.bool_and(
+       expected_constraints.relname IS NOT NULL AND constraint_fact.convalidated
+       AND NOT constraint_fact.condeferrable AND NOT constraint_fact.condeferred)
+     FROM family JOIN pg_catalog.pg_constraint constraint_fact ON constraint_fact.conrelid=family.oid
+     LEFT JOIN expected_constraints ON expected_constraints.relname=family.relname
+       AND expected_constraints.contype=constraint_fact.contype::pg_catalog.text
+       AND expected_constraints.conkey=pg_catalog.array_to_string(constraint_fact.conkey,' ')
+    WHERE constraint_fact.contype IN ('p','u'))
+  AND NOT EXISTS (SELECT 1 FROM expected_constraints
+       WHERE NOT EXISTS (SELECT 1 FROM family
+          JOIN pg_catalog.pg_constraint constraint_fact ON constraint_fact.conrelid=family.oid
+         WHERE family.relname=expected_constraints.relname
+           AND constraint_fact.contype::pg_catalog.text=expected_constraints.contype
+           AND pg_catalog.array_to_string(constraint_fact.conkey,' ')=expected_constraints.conkey))
+  AND (SELECT pg_catalog.count(*)=2 AND pg_catalog.bool_and(
+       pg_catalog.pg_get_expr(constraint_fact.conbin,constraint_fact.conrelid,false)=
+       '(committed_at_epoch_ms >= 0)' AND constraint_fact.convalidated)
+     FROM family JOIN pg_catalog.pg_constraint constraint_fact ON constraint_fact.conrelid=family.oid
+    WHERE constraint_fact.contype='c')
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint constraint_fact
+       WHERE constraint_fact.conrelid IN (SELECT oid FROM family)
+         AND constraint_fact.contype NOT IN ('p','u','c'))
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint constraint_fact
+       WHERE constraint_fact.confrelid IN (SELECT oid FROM family))
+  AND (SELECT pg_catalog.count(*)=11 AND pg_catalog.bool_and(
+       index_fact.indisunique AND NOT index_fact.indisexclusion AND index_fact.indimmediate
+       AND index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive
+       AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL
+       AND index_fact.indnkeyatts=index_fact.indnatts AND index_relation.relkind='i'
+       AND index_method.amname='btree' AND pg_catalog.pg_get_userbyid(index_relation.relowner)='backtest_custodian'
+       AND EXISTS (SELECT 1 FROM pg_catalog.pg_constraint constraint_fact
+                    WHERE constraint_fact.conindid=index_fact.indexrelid
+                      AND constraint_fact.contype IN ('p','u')))
+     FROM family JOIN pg_catalog.pg_index index_fact ON index_fact.indrelid=family.oid
+     JOIN pg_catalog.pg_class index_relation ON index_relation.oid=index_fact.indexrelid
+     JOIN pg_catalog.pg_am index_method ON index_method.oid=index_relation.relam)
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact
+       WHERE trigger_fact.tgrelid IN (SELECT oid FROM family) AND NOT trigger_fact.tgisinternal)
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy
+       WHERE policy.polrelid IN (SELECT oid FROM family))
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite
+       WHERE rewrite.ev_class IN (SELECT oid FROM family))
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_inherits inheritance
+       WHERE inheritance.inhrelid IN (SELECT oid FROM family)
+          OR inheritance.inhparent IN (SELECT oid FROM family))
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_publication_rel publication
+       WHERE publication.prrelid IN (SELECT oid FROM family))
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_publication publication WHERE publication.puballtables)
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_publication_namespace publication_namespace
+       JOIN pg_catalog.pg_namespace namespace ON namespace.oid=publication_namespace.pnnspid
+      WHERE namespace.nspname='public')
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_statistic_ext statistic
+       WHERE statistic.stxrelid IN (SELECT oid FROM family))
+  AND (SELECT pg_catalog.count(*) FILTER (WHERE acl.privilege_type='SELECT')=3
+       AND pg_catalog.count(*) FILTER (WHERE acl.privilege_type='INSERT')=3
+       AND NOT pg_catalog.bool_or(acl.grantee=0 OR role.oid IS NULL
+         OR role.rolname IS DISTINCT FROM 'backtest_owner'
+         OR acl.privilege_type NOT IN ('SELECT','INSERT') OR acl.is_grantable
+         OR pg_catalog.pg_get_userbyid(acl.grantor)<>'backtest_custodian')
+     FROM family JOIN pg_catalog.pg_class relation ON relation.oid=family.oid
+     CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl
+     LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee WHERE acl.grantee<>relation.relowner)
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute attribute
+       CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+      WHERE attribute.attrelid IN (SELECT oid FROM family)
+        AND attribute.attnum>0 AND NOT attribute.attisdropped)
+";
 
 /// A caller-owned lookup. It carries no Result authority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -545,6 +723,49 @@ pub struct LockedExploratoryReplayResultV2 {
     receipt_canonical_bytes: Vec<u8>,
     outbox_canonical_bytes: Vec<u8>,
     semantic_trace_canonical_bytes: Option<Vec<u8>>,
+}
+
+/// Move-only positive Backtest custody readback including the exact native outcome evidence.
+#[derive(Debug)]
+pub struct LockedExploratoryReplayResultV3 {
+    replay: LockedExploratoryReplayResultV2,
+    outcome_evidence: BacktestOutcomeEvidenceDtoV1,
+    outcome_evidence_canonical_bytes: Vec<u8>,
+    engine_canonical_result_bytes: Vec<u8>,
+    outcome_evidence_receipt_canonical_bytes: Vec<u8>,
+    outcome_evidence_outbox_canonical_bytes: Vec<u8>,
+}
+
+impl LockedExploratoryReplayResultV3 {
+    #[must_use]
+    pub const fn replay(&self) -> &LockedExploratoryReplayResultV2 {
+        &self.replay
+    }
+
+    #[must_use]
+    pub const fn outcome_evidence(&self) -> &BacktestOutcomeEvidenceDtoV1 {
+        &self.outcome_evidence
+    }
+
+    #[must_use]
+    pub fn outcome_evidence_canonical_bytes(&self) -> &[u8] {
+        &self.outcome_evidence_canonical_bytes
+    }
+
+    #[must_use]
+    pub fn engine_canonical_result_bytes(&self) -> &[u8] {
+        &self.engine_canonical_result_bytes
+    }
+
+    #[must_use]
+    pub fn outcome_evidence_receipt_canonical_bytes(&self) -> &[u8] {
+        &self.outcome_evidence_receipt_canonical_bytes
+    }
+
+    #[must_use]
+    pub fn outcome_evidence_outbox_canonical_bytes(&self) -> &[u8] {
+        &self.outcome_evidence_outbox_canonical_bytes
+    }
 }
 
 impl LockedExploratoryReplayResultV2 {
@@ -602,6 +823,37 @@ pub async fn resolve_exploratory_replay_result_v2(
         .transpose()
 }
 
+/// Resolves one complete native outcome aggregate under the caller's existing R&D transaction.
+///
+/// Historical Replay results without the sibling outcome aggregate resolve as unavailable.
+pub async fn resolve_exploratory_replay_result_v3(
+    transaction: &mut Transaction<'_, Postgres>,
+    locator: ExploratoryReplayResultLocatorV2<'_>,
+) -> Result<Option<LockedExploratoryReplayResultV3>, BacktestResultCustodyErrorV2> {
+    if locator.result_identity.trim().is_empty()
+        || locator.request_identity.trim().is_empty()
+        || locator.attempt_identity.trim().is_empty()
+    {
+        return Err(BacktestResultCustodyErrorV2::Unavailable);
+    }
+    acquire_topology_fence(transaction).await?;
+    validate_topology(transaction, "rd_owner").await?;
+    validate_native_replay_evidence_topology(transaction).await?;
+    validate_outcome_evidence_topology(transaction, "rd_owner").await?;
+    let envelope: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT backtest_owner_api.resolve_exploratory_replay_result_v3($1,$2,$3)",
+    )
+    .bind(locator.result_identity)
+    .bind(locator.request_identity)
+    .bind(locator.attempt_identity)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|e| storage(&e))?;
+    envelope
+        .map(|value| validate_outcome_envelope(value, locator))
+        .transpose()
+}
+
 /// Validates the exact append-only writer topology in the supplied Backtest transaction.
 pub async fn validate_backtest_result_writer_topology_v2(
     transaction: &mut Transaction<'_, Postgres>,
@@ -627,6 +879,16 @@ pub async fn validate_backtest_native_replay_evidence_writer_topology_v2(
     validate_native_replay_evidence_topology(transaction).await
 }
 
+/// Validates the exact append-only native outcome-evidence writer topology.
+pub async fn validate_backtest_outcome_evidence_writer_topology_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), BacktestResultCustodyErrorV2> {
+    acquire_topology_fence(transaction).await?;
+    sqlx::query("LOCK TABLE public.backtest_native_replay_outcome_evidence_v1, public.backtest_native_replay_outcome_evidence_receipts_v1, public.backtest_native_replay_outcome_evidence_outbox_v1 IN ROW EXCLUSIVE MODE")
+        .execute(&mut **transaction).await.map_err(|e| storage(&e))?;
+    validate_outcome_evidence_topology(transaction, "backtest_owner").await
+}
+
 async fn validate_native_replay_evidence_topology(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<(), BacktestResultCustodyErrorV2> {
@@ -638,6 +900,66 @@ async fn validate_native_replay_evidence_topology(
         return Err(BacktestResultCustodyErrorV2::Unavailable);
     }
     Ok(())
+}
+
+async fn validate_outcome_evidence_topology(
+    transaction: &mut Transaction<'_, Postgres>,
+    expected_principal: &str,
+) -> Result<(), BacktestResultCustodyErrorV2> {
+    let exact_census: bool = sqlx::query_scalar(OUTCOME_EVIDENCE_TABLE_CENSUS_QUERY)
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(|e| storage(&e))?;
+    if !exact_census {
+        return Err(BacktestResultCustodyErrorV2::Unavailable);
+    }
+    let exact: bool = sqlx::query_scalar(
+        "SELECT session_user=$3 AND current_user=$3
+        AND (SELECT pg_catalog.count(*)=1 AND pg_catalog.bool_and(
+          pg_catalog.pg_get_userbyid(procedure.proowner)='backtest_custodian'
+          AND language.lanname='plpgsql' AND procedure.prokind='f' AND NOT procedure.proleakproof
+          AND procedure.prorettype='jsonb'::pg_catalog.regtype AND procedure.pronargs=3
+          AND procedure.prosecdef AND procedure.proisstrict AND procedure.provolatile='v'
+          AND procedure.proparallel='u'
+          AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[]
+          AND procedure.prosrc=$1)
+          FROM pg_catalog.pg_proc procedure
+          JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
+          JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang
+          WHERE namespace.nspname='backtest_owner_api' AND procedure.proname=$2
+            AND procedure.proargtypes=ARRAY['pg_catalog.text'::pg_catalog.regtype,'pg_catalog.text'::pg_catalog.regtype,'pg_catalog.text'::pg_catalog.regtype]::pg_catalog.oidvector)
+        AND (SELECT pg_catalog.count(*)=1 AND pg_catalog.bool_and(
+          role.rolname='rd_owner' AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable
+          AND pg_catalog.pg_get_userbyid(acl.grantor)='backtest_custodian')
+          FROM pg_catalog.pg_proc procedure
+          JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
+          CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(procedure.proacl,pg_catalog.acldefault('f',procedure.proowner))) acl
+          LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+          WHERE namespace.nspname='backtest_owner_api' AND procedure.proname=$2
+            AND acl.grantee<>procedure.proowner)
+        AND pg_catalog.has_function_privilege('rd_owner','backtest_owner_api.resolve_exploratory_replay_result_v3(text,text,text)','EXECUTE')
+        AND NOT pg_catalog.has_function_privilege('backtest_owner','backtest_owner_api.resolve_exploratory_replay_result_v3(text,text,text)','EXECUTE')
+        AND NOT pg_catalog.has_table_privilege('rd_owner','public.backtest_native_replay_outcome_evidence_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+        AND NOT pg_catalog.has_table_privilege('rd_owner','public.backtest_native_replay_outcome_evidence_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+        AND NOT pg_catalog.has_table_privilege('rd_owner','public.backtest_native_replay_outcome_evidence_outbox_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+        AND pg_catalog.has_table_privilege('backtest_owner','public.backtest_native_replay_outcome_evidence_v1','SELECT,INSERT')
+        AND pg_catalog.has_table_privilege('backtest_owner','public.backtest_native_replay_outcome_evidence_receipts_v1','SELECT,INSERT')
+        AND pg_catalog.has_table_privilege('backtest_owner','public.backtest_native_replay_outcome_evidence_outbox_v1','SELECT,INSERT')
+        AND NOT pg_catalog.has_table_privilege('backtest_owner','public.backtest_native_replay_outcome_evidence_v1','UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+        AND NOT pg_catalog.has_table_privilege('backtest_owner','public.backtest_native_replay_outcome_evidence_receipts_v1','UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+        AND NOT pg_catalog.has_table_privilege('backtest_owner','public.backtest_native_replay_outcome_evidence_outbox_v1','UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')",
+    )
+    .bind(FUNCTION_SOURCE_V3)
+    .bind(RESOLVE_V3_FUNCTION_NAME)
+    .bind(expected_principal)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|e| storage(&e))?;
+    if exact {
+        Ok(())
+    } else {
+        Err(BacktestResultCustodyErrorV2::Unavailable)
+    }
 }
 
 async fn acquire_topology_fence(
@@ -738,7 +1060,10 @@ async fn validate_topology(
         SELECT session_user=$3 AND current_user=$3
         AND (SELECT pg_catalog.pg_get_userbyid(namespace.nspowner)='backtest_custodian'
                FROM pg_catalog.pg_namespace namespace WHERE namespace.nspname='backtest_owner_api')
-        AND (SELECT pg_catalog.count(*)=1 AND pg_catalog.bool_and(procedure.oid=(SELECT oid FROM expected_function))
+        AND (SELECT pg_catalog.count(*)=2 AND pg_catalog.bool_and(procedure.oid IN (
+                  (SELECT oid FROM expected_function),
+                  pg_catalog.to_regprocedure('backtest_owner_api.resolve_exploratory_replay_result_v3(text,text,text)')
+                ))
                FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
               WHERE namespace.nspname='backtest_owner_api')
         AND (SELECT pg_catalog.count(*)=3 AND pg_catalog.bool_and(pg_catalog.pg_get_userbyid(relation.relowner)='backtest_custodian' AND relation.relkind='r' AND NOT relation.relrowsecurity AND NOT relation.relforcerowsecurity)
@@ -791,7 +1116,7 @@ async fn validate_topology(
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LockedEnvelopeV3 {
     schema_version: u16,
@@ -801,7 +1126,7 @@ struct LockedEnvelopeV3 {
     semantic_trace: Option<StoredSemanticTraceV2>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StoredResultV2 {
     result_identity: String,
@@ -814,7 +1139,7 @@ struct StoredResultV2 {
     canonical_bytes_blake3: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StoredReceiptV1 {
     result_identity: String,
@@ -830,7 +1155,7 @@ struct StoredReceiptV1 {
     canonical_bytes_blake3: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StoredOutboxV1 {
     result_identity: String,
@@ -847,13 +1172,79 @@ struct StoredOutboxV1 {
     canonical_bytes_blake3: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StoredSemanticTraceV2 {
     result_identity: String,
     locator_reference: String,
     locator_digest: String,
     canonical_bytes_base64: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LockedEnvelopeV4 {
+    schema_version: u16,
+    result: StoredResultV2,
+    receipt: StoredReceiptV1,
+    outbox: StoredOutboxV1,
+    semantic_trace: StoredSemanticTraceV2,
+    outcome_evidence: StoredOutcomeEvidenceV1,
+    outcome_evidence_receipt: StoredOutcomeEvidenceReceiptV1,
+    outcome_evidence_outbox: StoredOutcomeEvidenceOutboxV1,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredOutcomeEvidenceV1 {
+    result_identity: String,
+    evidence_identity: String,
+    evidence_digest: String,
+    result_digest: String,
+    request_identity: String,
+    request_meaning_digest: String,
+    attempt_identity: String,
+    canonical_bytes_base64: String,
+    canonical_bytes_blake3: String,
+    engine_canonical_result_bytes_base64: String,
+    engine_canonical_result_bytes_blake3: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredOutcomeEvidenceReceiptV1 {
+    result_identity: String,
+    receipt_identity: String,
+    receipt_digest: String,
+    evidence_identity: String,
+    evidence_digest: String,
+    result_digest: String,
+    request_identity: String,
+    request_meaning_digest: String,
+    attempt_identity: String,
+    outbox_event_identity: String,
+    committed_at_epoch_ms: u64,
+    canonical_bytes_base64: String,
+    canonical_bytes_blake3: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredOutcomeEvidenceOutboxV1 {
+    result_identity: String,
+    event_identity: String,
+    event_digest: String,
+    receipt_identity: String,
+    evidence_identity: String,
+    evidence_digest: String,
+    result_digest: String,
+    request_identity: String,
+    request_meaning_digest: String,
+    attempt_identity: String,
+    payload_digest: String,
+    committed_at_epoch_ms: u64,
+    canonical_bytes_base64: String,
+    canonical_bytes_blake3: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -919,6 +1310,78 @@ struct ResultOutboxPreimageV1<'a> {
     event_kind: &'a OpaqueIdentityV2,
     payload_digest: &'a CanonicalDigestV2,
     payload: &'a ResultOutboxPayloadV1,
+    committed_at_epoch_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OutcomeEvidenceReceiptV1 {
+    schema_version: u16,
+    receipt_identity: OpaqueIdentityV2,
+    receipt_digest: CanonicalDigestV2,
+    evidence_identity: OpaqueIdentityV2,
+    evidence_digest: CanonicalDigestV2,
+    result_identity: OpaqueIdentityV2,
+    result_digest: CanonicalDigestV2,
+    request_identity: OpaqueIdentityV2,
+    request_meaning_digest: CanonicalDigestV2,
+    attempt_identity: OpaqueIdentityV2,
+    outbox_event_identity: OpaqueIdentityV2,
+    committed_at_epoch_ms: u64,
+}
+
+#[derive(Serialize)]
+struct OutcomeEvidenceReceiptPreimageV1<'a> {
+    schema_version: u16,
+    receipt_identity: &'a OpaqueIdentityV2,
+    evidence_identity: &'a OpaqueIdentityV2,
+    evidence_digest: &'a CanonicalDigestV2,
+    result_identity: &'a OpaqueIdentityV2,
+    result_digest: &'a CanonicalDigestV2,
+    request_identity: &'a OpaqueIdentityV2,
+    request_meaning_digest: &'a CanonicalDigestV2,
+    attempt_identity: &'a OpaqueIdentityV2,
+    outbox_event_identity: &'a OpaqueIdentityV2,
+    committed_at_epoch_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OutcomeEvidenceOutboxPayloadV1 {
+    schema_version: u16,
+    receipt_identity: OpaqueIdentityV2,
+    receipt_digest: CanonicalDigestV2,
+    evidence_identity: OpaqueIdentityV2,
+    evidence_digest: CanonicalDigestV2,
+    result_identity: OpaqueIdentityV2,
+    result_digest: CanonicalDigestV2,
+    request_identity: OpaqueIdentityV2,
+    request_meaning_digest: CanonicalDigestV2,
+    attempt_identity: OpaqueIdentityV2,
+    committed_at_epoch_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OutcomeEvidenceOutboxV1 {
+    schema_version: u16,
+    event_identity: OpaqueIdentityV2,
+    event_digest: CanonicalDigestV2,
+    aggregate_identity: OpaqueIdentityV2,
+    event_kind: OpaqueIdentityV2,
+    payload_digest: CanonicalDigestV2,
+    payload: OutcomeEvidenceOutboxPayloadV1,
+    committed_at_epoch_ms: u64,
+}
+
+#[derive(Serialize)]
+struct OutcomeEvidenceOutboxPreimageV1<'a> {
+    schema_version: u16,
+    event_identity: &'a OpaqueIdentityV2,
+    aggregate_identity: &'a OpaqueIdentityV2,
+    event_kind: &'a OpaqueIdentityV2,
+    payload_digest: &'a CanonicalDigestV2,
+    payload: &'a OutcomeEvidenceOutboxPayloadV1,
     committed_at_epoch_ms: u64,
 }
 
@@ -1056,6 +1519,220 @@ fn validate_envelope(
         receipt_canonical_bytes: receipt_bytes,
         outbox_canonical_bytes: outbox_bytes,
         semantic_trace_canonical_bytes: semantic_trace_bytes,
+    })
+}
+
+fn validate_outcome_envelope(
+    value: serde_json::Value,
+    locator: ExploratoryReplayResultLocatorV2<'_>,
+) -> Result<LockedExploratoryReplayResultV3, BacktestResultCustodyErrorV2> {
+    let envelope: LockedEnvelopeV4 =
+        serde_json::from_value(value).map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
+    if envelope.schema_version != 4 {
+        return Err(BacktestResultCustodyErrorV2::Unavailable);
+    }
+    let replay = validate_envelope(
+        serde_json::json!({
+            "schema_version": 3,
+            "result": &envelope.result,
+            "receipt": &envelope.receipt,
+            "outbox": &envelope.outbox,
+            "semantic_trace": &envelope.semantic_trace,
+        }),
+        locator,
+    )?;
+    let evidence_bytes = decode_bytes(&envelope.outcome_evidence.canonical_bytes_base64)?;
+    let engine_bytes = decode_bytes(
+        &envelope
+            .outcome_evidence
+            .engine_canonical_result_bytes_base64,
+    )?;
+    let evidence_receipt_bytes =
+        decode_bytes(&envelope.outcome_evidence_receipt.canonical_bytes_base64)?;
+    let evidence_outbox_bytes =
+        decode_bytes(&envelope.outcome_evidence_outbox.canonical_bytes_base64)?;
+    let evidence = BacktestOutcomeEvidenceDtoV1::from_canonical_bytes(&evidence_bytes)
+        .map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
+    let receipt: OutcomeEvidenceReceiptV1 = decode_canonical(&evidence_receipt_bytes)?;
+    let outbox: OutcomeEvidenceOutboxV1 = decode_canonical(&evidence_outbox_bytes)?;
+    let result = replay.result();
+    let semantic_trace = result
+        .semantic_trace
+        .as_ref()
+        .ok_or(BacktestResultCustodyErrorV2::Unavailable)?;
+    let evidence_digest_suffix = evidence
+        .evidence_digest
+        .as_str()
+        .strip_prefix("blake3:")
+        .ok_or(BacktestResultCustodyErrorV2::Unavailable)?;
+    let expected_receipt_identity =
+        format!("backtest-outcome-evidence-receipt-v1-{evidence_digest_suffix}");
+    let expected_event_identity =
+        format!("backtest-outcome-evidence-outbox-v1-{evidence_digest_suffix}");
+    let engine_len =
+        u64::try_from(engine_bytes.len()).map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
+    let exact = envelope.outcome_evidence.result_identity == result.result_identity.as_str()
+        && envelope.outcome_evidence.evidence_identity == evidence.evidence_identity.as_str()
+        && envelope.outcome_evidence.evidence_digest == evidence.evidence_digest.as_str()
+        && envelope.outcome_evidence.result_digest == result.result_digest.as_str()
+        && envelope.outcome_evidence.request_identity == result.request_identity.as_str()
+        && envelope.outcome_evidence.request_meaning_digest
+            == result.request_meaning_digest.as_str()
+        && envelope.outcome_evidence.attempt_identity == result.attempt_identity.as_str()
+        && envelope.outcome_evidence.canonical_bytes_blake3
+            == storage_digest(OUTCOME_EVIDENCE_STORAGE_DOMAIN_V1, &evidence_bytes)
+        && envelope
+            .outcome_evidence
+            .engine_canonical_result_bytes_blake3
+            == storage_digest(ENGINE_CANONICAL_RESULT_STORAGE_DOMAIN_V1, &engine_bytes)
+        && evidence.result_identity == result.result_identity
+        && evidence.result_digest == result.result_digest
+        && evidence.request_identity == result.request_identity
+        && evidence.request_meaning_digest == result.request_meaning_digest
+        && evidence.attempt_identity == result.attempt_identity
+        && evidence.semantic_trace == semantic_trace.locator
+        && exact_result_content_binding(
+            result,
+            ObservationComponentV2::FrozenResearchIntent,
+            &evidence.frozen_research_intent,
+        )
+        && exact_result_content_binding(
+            result,
+            ObservationComponentV2::TrialFamilyCensusFrontier,
+            &evidence.trial_family_census_frontier,
+        )
+        && evidence.canonical_result.canonical_bytes_length == engine_len
+        && evidence.canonical_result.canonical_bytes_digest.as_str()
+            == storage_digest(ENGINE_CANONICAL_RESULT_BINDING_DOMAIN_V1, &engine_bytes)
+        && envelope.outcome_evidence_receipt.result_identity == result.result_identity.as_str()
+        && envelope.outcome_evidence_receipt.receipt_identity == receipt.receipt_identity.as_str()
+        && envelope.outcome_evidence_receipt.receipt_digest == receipt.receipt_digest.as_str()
+        && envelope.outcome_evidence_receipt.evidence_identity
+            == evidence.evidence_identity.as_str()
+        && envelope.outcome_evidence_receipt.evidence_digest == evidence.evidence_digest.as_str()
+        && envelope.outcome_evidence_receipt.result_digest == result.result_digest.as_str()
+        && envelope.outcome_evidence_receipt.request_identity == result.request_identity.as_str()
+        && envelope.outcome_evidence_receipt.request_meaning_digest
+            == result.request_meaning_digest.as_str()
+        && envelope.outcome_evidence_receipt.attempt_identity == result.attempt_identity.as_str()
+        && envelope.outcome_evidence_receipt.outbox_event_identity
+            == receipt.outbox_event_identity.as_str()
+        && envelope.outcome_evidence_receipt.committed_at_epoch_ms == receipt.committed_at_epoch_ms
+        && envelope.outcome_evidence_receipt.canonical_bytes_blake3
+            == storage_digest(
+                OUTCOME_EVIDENCE_RECEIPT_STORAGE_DOMAIN_V1,
+                &evidence_receipt_bytes,
+            )
+        && receipt.schema_version == 1
+        && receipt.receipt_identity.as_str() == expected_receipt_identity
+        && receipt.receipt_digest
+            == digest_value(
+                OUTCOME_EVIDENCE_RECEIPT_DIGEST_DOMAIN_V1,
+                &OutcomeEvidenceReceiptPreimageV1 {
+                    schema_version: receipt.schema_version,
+                    receipt_identity: &receipt.receipt_identity,
+                    evidence_identity: &receipt.evidence_identity,
+                    evidence_digest: &receipt.evidence_digest,
+                    result_identity: &receipt.result_identity,
+                    result_digest: &receipt.result_digest,
+                    request_identity: &receipt.request_identity,
+                    request_meaning_digest: &receipt.request_meaning_digest,
+                    attempt_identity: &receipt.attempt_identity,
+                    outbox_event_identity: &receipt.outbox_event_identity,
+                    committed_at_epoch_ms: receipt.committed_at_epoch_ms,
+                },
+            )?
+        && receipt.evidence_identity == evidence.evidence_identity
+        && receipt.evidence_digest == evidence.evidence_digest
+        && receipt.result_identity == result.result_identity
+        && receipt.result_digest == result.result_digest
+        && receipt.request_identity == result.request_identity
+        && receipt.request_meaning_digest == result.request_meaning_digest
+        && receipt.attempt_identity == result.attempt_identity
+        && envelope.outcome_evidence_outbox.result_identity == result.result_identity.as_str()
+        && envelope.outcome_evidence_outbox.event_identity == outbox.event_identity.as_str()
+        && envelope.outcome_evidence_outbox.event_digest == outbox.event_digest.as_str()
+        && envelope.outcome_evidence_outbox.receipt_identity
+            == outbox.payload.receipt_identity.as_str()
+        && envelope.outcome_evidence_outbox.evidence_identity
+            == evidence.evidence_identity.as_str()
+        && envelope.outcome_evidence_outbox.evidence_digest == evidence.evidence_digest.as_str()
+        && envelope.outcome_evidence_outbox.result_digest == result.result_digest.as_str()
+        && envelope.outcome_evidence_outbox.request_identity == result.request_identity.as_str()
+        && envelope.outcome_evidence_outbox.request_meaning_digest
+            == result.request_meaning_digest.as_str()
+        && envelope.outcome_evidence_outbox.attempt_identity == result.attempt_identity.as_str()
+        && envelope.outcome_evidence_outbox.payload_digest == outbox.payload_digest.as_str()
+        && envelope.outcome_evidence_outbox.committed_at_epoch_ms == outbox.committed_at_epoch_ms
+        && envelope.outcome_evidence_outbox.canonical_bytes_blake3
+            == storage_digest(
+                OUTCOME_EVIDENCE_OUTBOX_STORAGE_DOMAIN_V1,
+                &evidence_outbox_bytes,
+            )
+        && outbox.schema_version == 1
+        && outbox.payload.schema_version == 1
+        && outbox.event_identity.as_str() == expected_event_identity
+        && outbox.aggregate_identity == evidence.evidence_identity
+        && outbox.event_kind.as_str() == OUTCOME_EVIDENCE_EVENT_KIND_V1
+        && outbox.payload_digest
+            == digest_value(
+                OUTCOME_EVIDENCE_OUTBOX_PAYLOAD_DIGEST_DOMAIN_V1,
+                &outbox.payload,
+            )?
+        && outbox.event_digest
+            == digest_value(
+                OUTCOME_EVIDENCE_OUTBOX_EVENT_DIGEST_DOMAIN_V1,
+                &OutcomeEvidenceOutboxPreimageV1 {
+                    schema_version: outbox.schema_version,
+                    event_identity: &outbox.event_identity,
+                    aggregate_identity: &outbox.aggregate_identity,
+                    event_kind: &outbox.event_kind,
+                    payload_digest: &outbox.payload_digest,
+                    payload: &outbox.payload,
+                    committed_at_epoch_ms: outbox.committed_at_epoch_ms,
+                },
+            )?
+        && receipt.outbox_event_identity == outbox.event_identity
+        && outbox.payload.receipt_identity == receipt.receipt_identity
+        && outbox.payload.receipt_digest == receipt.receipt_digest
+        && outbox.payload.evidence_identity == evidence.evidence_identity
+        && outbox.payload.evidence_digest == evidence.evidence_digest
+        && outbox.payload.result_identity == result.result_identity
+        && outbox.payload.result_digest == result.result_digest
+        && outbox.payload.request_identity == result.request_identity
+        && outbox.payload.request_meaning_digest == result.request_meaning_digest
+        && outbox.payload.attempt_identity == result.attempt_identity
+        && outbox.committed_at_epoch_ms == receipt.committed_at_epoch_ms
+        && outbox.payload.committed_at_epoch_ms == receipt.committed_at_epoch_ms;
+    if !exact {
+        return Err(BacktestResultCustodyErrorV2::Unavailable);
+    }
+    Ok(LockedExploratoryReplayResultV3 {
+        replay,
+        outcome_evidence: evidence,
+        outcome_evidence_canonical_bytes: evidence_bytes,
+        engine_canonical_result_bytes: engine_bytes,
+        outcome_evidence_receipt_canonical_bytes: evidence_receipt_bytes,
+        outcome_evidence_outbox_canonical_bytes: evidence_outbox_bytes,
+    })
+}
+
+fn exact_result_content_binding(
+    result: &ReplayResultDtoV2,
+    component: ObservationComponentV2,
+    expected: &vibe_backtest_owner_contracts::ContentIdentityV2,
+) -> bool {
+    let mut matches = result
+        .reconciliation
+        .iter()
+        .filter(|atom| atom.component == component);
+    matches.next().is_some_and(|atom| {
+        matches.next().is_none()
+            && atom.status == vibe_backtest_owner_contracts::ReconciliationStatusV2::Exact
+            && atom.requested_meaning_identity == expected.identity
+            && atom.requested_meaning_digest == expected.digest
+            && atom.observed_meaning_identity.as_ref() == Some(&expected.identity)
+            && atom.observed_meaning_digest.as_ref() == Some(&expected.digest)
     })
 }
 
@@ -1589,9 +2266,11 @@ mod tests {
             },
         )
         .expect("generic custody remains available without a native trace row");
-        assert!(locked_without_native_trace
-            .semantic_trace_canonical_bytes()
-            .is_none());
+        assert!(
+            locked_without_native_trace
+                .semantic_trace_canonical_bytes()
+                .is_none()
+        );
 
         let mut changed_trace = envelope(
             &result_a,

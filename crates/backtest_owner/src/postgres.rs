@@ -6,9 +6,10 @@
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use thiserror::Error;
-use vibe_backtest_owner_contracts::ReplayResultDtoV2;
+use vibe_backtest_owner_contracts::{BacktestOutcomeEvidenceDtoV1, ReplayResultDtoV2};
 use vibe_backtest_result_custody::{
     validate_backtest_native_replay_evidence_writer_topology_v2,
+    validate_backtest_outcome_evidence_writer_topology_v1,
     validate_backtest_result_writer_topology_v2,
 };
 use vibe_strategy_factory::{
@@ -26,6 +27,7 @@ use crate::{
         NativeReplayEvidenceBatchReadbackV2, NativeReplayEvidenceEnvelopeReadbackV2,
         SealedNativeReplayEvidenceBatchV2,
     },
+    outcome_evidence::SealedBacktestOutcomeEvidenceV1,
 };
 
 const RESULT_STORAGE_DOMAIN: &str = "vibe.backtest.replay-result-storage.v2";
@@ -37,6 +39,15 @@ const OUTBOX_EVENT_DIGEST_DOMAIN: &str = "vibe.backtest.result-outbox-event.v1";
 const ATTEMPT_LOCK_DOMAIN: &str = "vibe.backtest.replay-result-attempt-lock.v2";
 const EVENT_KIND: &str = "EXPLORATORY_BACKTEST_RESULT_COMMITTED_V1";
 const EVIDENCE_SOURCE_STORAGE_DOMAIN: &str = "vibe.backtest.native-replay-producer-source.v2";
+const OUTCOME_EVIDENCE_STORAGE_DOMAIN: &str = "vibe.backtest.outcome-evidence-storage.v1";
+const ENGINE_RESULT_STORAGE_DOMAIN: &str = "vibe.backtest.engine-canonical-result-storage.v1";
+const OUTCOME_RECEIPT_STORAGE_DOMAIN: &str = "vibe.backtest.outcome-evidence-receipt-storage.v1";
+const OUTCOME_OUTBOX_STORAGE_DOMAIN: &str = "vibe.backtest.outcome-evidence-outbox-storage.v1";
+const OUTCOME_RECEIPT_DIGEST_DOMAIN: &str = "vibe.backtest.outcome-evidence-receipt.v1";
+const OUTCOME_OUTBOX_PAYLOAD_DIGEST_DOMAIN: &str =
+    "vibe.backtest.outcome-evidence-outbox-payload.v1";
+const OUTCOME_OUTBOX_EVENT_DIGEST_DOMAIN: &str = "vibe.backtest.outcome-evidence-outbox-event.v1";
+const OUTCOME_EVENT_KIND: &str = "BACKTEST_OUTCOME_EVIDENCE_COMMITTED_V1";
 const READ_ORPHAN_NATIVE_REPLAY_EVIDENCE: &str = "
 SELECT EXISTS (
   SELECT 1
@@ -48,9 +59,56 @@ SELECT EXISTS (
   SELECT 1
     FROM public.backtest_native_replay_semantic_traces_v2 trace
    WHERE trace.result_identity=$1 OR trace.locator_reference=$5
+) OR EXISTS (
+  SELECT 1
+    FROM public.backtest_native_replay_outcome_evidence_v1 evidence
+   WHERE evidence.result_identity=$1
+      OR (evidence.request_identity=$2 AND evidence.attempt_identity=$3)
+      OR evidence.evidence_identity=$6
+) OR EXISTS (
+  SELECT 1
+    FROM public.backtest_native_replay_outcome_evidence_receipts_v1 receipt
+   WHERE receipt.result_identity=$1
+      OR (receipt.request_identity=$2 AND receipt.attempt_identity=$3)
+      OR receipt.evidence_identity=$6
+) OR EXISTS (
+  SELECT 1
+    FROM public.backtest_native_replay_outcome_evidence_outbox_v1 outbox
+   WHERE outbox.result_identity=$1
+      OR (outbox.request_identity=$2 AND outbox.attempt_identity=$3)
+      OR outbox.evidence_identity=$6
 )";
 const INSERT_NATIVE_REPLAY_OBSERVATION: &str = "INSERT INTO public.backtest_native_replay_observations_v2(result_identity,component,request_identity,request_meaning_digest,request_receipt_identity,request_seal_digest,attempt_identity,envelope_reference,envelope_digest,producer_namespace,producer_reference,source_digest,observed_meaning_identity,observed_meaning_digest,canonical_bytes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)";
 const INSERT_NATIVE_REPLAY_TRACE: &str = "INSERT INTO public.backtest_native_replay_semantic_traces_v2(result_identity,locator_reference,locator_digest,canonical_bytes) VALUES($1,$2,$3,$4)";
+const READ_OUTCOME_EVIDENCE_AGGREGATE: &str = "
+SELECT evidence.result_identity,evidence.evidence_identity,evidence.evidence_digest,
+       evidence.result_digest,evidence.request_identity,evidence.request_meaning_digest,
+       evidence.attempt_identity,evidence.canonical_bytes,evidence.canonical_bytes_blake3,
+       evidence.engine_canonical_result_bytes,evidence.engine_canonical_result_bytes_blake3,
+       receipt.receipt_identity,receipt.receipt_digest,
+       receipt.evidence_identity AS receipt_evidence_identity,
+       receipt.evidence_digest AS receipt_evidence_digest,
+       receipt.result_digest AS receipt_result_digest,
+       receipt.request_identity AS receipt_request_identity,
+       receipt.request_meaning_digest AS receipt_request_meaning_digest,
+       receipt.attempt_identity AS receipt_attempt_identity,
+       receipt.outbox_event_identity,receipt.committed_at_epoch_ms AS receipt_committed_at_epoch_ms,
+       receipt.canonical_bytes AS receipt_canonical_bytes,
+       receipt.canonical_bytes_blake3 AS receipt_canonical_bytes_blake3,
+       outbox.event_identity,outbox.event_digest,outbox.receipt_identity AS outbox_receipt_identity,
+       outbox.evidence_identity AS outbox_evidence_identity,
+       outbox.evidence_digest AS outbox_evidence_digest,
+       outbox.result_digest AS outbox_result_digest,
+       outbox.request_identity AS outbox_request_identity,
+       outbox.request_meaning_digest AS outbox_request_meaning_digest,
+       outbox.attempt_identity AS outbox_attempt_identity,outbox.payload_digest,
+       outbox.committed_at_epoch_ms AS outbox_committed_at_epoch_ms,
+       outbox.canonical_bytes AS outbox_canonical_bytes,
+       outbox.canonical_bytes_blake3 AS outbox_canonical_bytes_blake3
+FROM public.backtest_native_replay_outcome_evidence_v1 evidence
+LEFT JOIN public.backtest_native_replay_outcome_evidence_receipts_v1 receipt USING(result_identity)
+LEFT JOIN public.backtest_native_replay_outcome_evidence_outbox_v1 outbox USING(result_identity)
+";
 
 const READ_AGGREGATE: &str = "
 SELECT result.result_identity,result.result_digest,result.request_identity,
@@ -84,6 +142,42 @@ pub struct ReplayResultReadbackV2 {
     outbox_canonical_bytes: Vec<u8>,
 }
 
+/// Integrity-checked Backtest outcome-evidence fact, receipt, outbox, and engine bytes.
+pub struct BacktestOutcomeEvidenceReadbackV1 {
+    evidence: BacktestOutcomeEvidenceDtoV1,
+    evidence_canonical_bytes: Vec<u8>,
+    canonical_result_bytes: Vec<u8>,
+    receipt_canonical_bytes: Vec<u8>,
+    outbox_canonical_bytes: Vec<u8>,
+}
+
+impl BacktestOutcomeEvidenceReadbackV1 {
+    #[must_use]
+    pub const fn evidence(&self) -> &BacktestOutcomeEvidenceDtoV1 {
+        &self.evidence
+    }
+
+    #[must_use]
+    pub fn evidence_canonical_bytes(&self) -> &[u8] {
+        &self.evidence_canonical_bytes
+    }
+
+    #[must_use]
+    pub fn canonical_result_bytes(&self) -> &[u8] {
+        &self.canonical_result_bytes
+    }
+
+    #[must_use]
+    pub fn receipt_canonical_bytes(&self) -> &[u8] {
+        &self.receipt_canonical_bytes
+    }
+
+    #[must_use]
+    pub fn outbox_canonical_bytes(&self) -> &[u8] {
+        &self.outbox_canonical_bytes
+    }
+}
+
 /// Outcome of submitting one atomic Backtest Result aggregate.
 #[must_use = "the caller must distinguish an acknowledged commit from SubmittedOrUnknown"]
 #[derive(Debug)]
@@ -115,6 +209,23 @@ pub struct NativeReplayAggregateCommitRecoveryV2 {
     trace_locator: crate::ComponentObservationLocatorV2,
     trace_bytes: Vec<u8>,
     trace_digest: CanonicalDigestV2,
+    outcome_evidence: ExpectedOutcomeEvidenceV1,
+}
+
+struct ExpectedOutcomeEvidenceV1 {
+    evidence: BacktestOutcomeEvidenceDtoV1,
+    evidence_canonical_bytes: Vec<u8>,
+    canonical_result_bytes: Vec<u8>,
+}
+
+impl ExpectedOutcomeEvidenceV1 {
+    fn from_sealed(value: &SealedBacktestOutcomeEvidenceV1) -> Self {
+        Self {
+            evidence: value.evidence().clone(),
+            evidence_canonical_bytes: value.evidence_canonical_bytes().to_vec(),
+            canonical_result_bytes: value.canonical_result_bytes().to_vec(),
+        }
+    }
 }
 
 struct ExpectedEvidenceEnvelopeV2 {
@@ -136,6 +247,7 @@ impl NativeReplayAggregateCommitRecoveryV2 {
         result: &ReplayResultDtoV2,
         batch: &SealedNativeReplayEvidenceBatchV2,
         trace: &SealedNativeReplaySemanticTraceV2,
+        outcome_evidence: &SealedBacktestOutcomeEvidenceV1,
     ) -> Self {
         Self {
             result_identity: result.result_identity.clone(),
@@ -161,10 +273,12 @@ impl NativeReplayAggregateCommitRecoveryV2 {
             trace_locator: trace.locator().clone(),
             trace_bytes: trace.canonical_bytes().to_vec(),
             trace_digest: trace.canonical_bytes_digest().clone(),
+            outcome_evidence: ExpectedOutcomeEvidenceV1::from_sealed(outcome_evidence),
         }
     }
 
-    /// Resolves only when Result, all 28 envelopes/source bytes, and trace are present and exact.
+    /// Resolves only when Result, all 28 envelopes/source bytes, trace, and outcome evidence are
+    /// present and exact.
     pub async fn resolve(
         &self,
         owner: &PostgresReplayResultOwnerV2,
@@ -378,6 +492,7 @@ impl PostgresReplayResultOwnerV2 {
         result: &SealedReplayResultV2,
         batch: &SealedNativeReplayEvidenceBatchV2,
         trace: &SealedNativeReplaySemanticTraceV2,
+        outcome_evidence: &SealedBacktestOutcomeEvidenceV1,
     ) -> Result<NativeReplayCommitDispositionV2, PostgresReplayResultOwnerErrorV2> {
         let result_bytes = result
             .to_canonical_bytes()
@@ -396,6 +511,7 @@ impl PostgresReplayResultOwnerV2 {
         batch
             .validate()
             .map_err(|_| PostgresReplayResultOwnerErrorV2::ResultNotAdmitted)?;
+        validate_sealed_outcome_evidence(outcome_evidence, &result_dto, trace)?;
         let mut transaction = self
             .pool
             .begin()
@@ -427,7 +543,15 @@ impl PostgresReplayResultOwnerV2 {
         {
             return Err(PostgresReplayResultOwnerErrorV2::RequestNotAdmitted);
         }
-        persist_native_replay_aggregate(transaction, result_dto, result_bytes, batch, trace).await
+        persist_native_replay_aggregate(
+            transaction,
+            result_dto,
+            result_bytes,
+            batch,
+            trace,
+            outcome_evidence,
+        )
+        .await
     }
 
     async fn resolve_exact_native_replay_aggregate_v2(
@@ -456,6 +580,9 @@ impl PostgresReplayResultOwnerV2 {
         validate_backtest_native_replay_evidence_writer_topology_v2(&mut transaction)
             .await
             .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+        validate_backtest_outcome_evidence_writer_topology_v1(&mut transaction)
+            .await
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
         let (batch, trace) = read_expected_evidence(
             &mut transaction,
             &recovery.result_identity,
@@ -463,6 +590,12 @@ impl PostgresReplayResultOwnerV2 {
             &recovery.trace_locator,
             &recovery.trace_bytes,
             &recovery.trace_digest,
+        )
+        .await?;
+        let outcome_evidence = read_expected_outcome_evidence(
+            &mut transaction,
+            &recovery.result_identity,
+            &recovery.outcome_evidence,
         )
         .await?;
         transaction
@@ -473,6 +606,7 @@ impl PostgresReplayResultOwnerV2 {
             result: Box::new(result),
             evidence_batch: batch,
             semantic_trace: trace,
+            outcome_evidence,
         }))
     }
 
@@ -651,12 +785,16 @@ async fn persist_native_replay_aggregate(
     result_bytes: Vec<u8>,
     batch: &SealedNativeReplayEvidenceBatchV2,
     trace: &SealedNativeReplaySemanticTraceV2,
+    outcome_evidence: &SealedBacktestOutcomeEvidenceV1,
 ) -> Result<NativeReplayCommitDispositionV2, PostgresReplayResultOwnerErrorV2> {
     validate_transaction_principal(&mut transaction).await?;
     validate_backtest_result_writer_topology_v2(&mut transaction)
         .await
         .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
     validate_backtest_native_replay_evidence_writer_topology_v2(&mut transaction)
+        .await
+        .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+    validate_backtest_outcome_evidence_writer_topology_v1(&mut transaction)
         .await
         .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
     lock_attempt(&mut transaction, &result_dto).await?;
@@ -676,16 +814,29 @@ async fn persist_native_replay_aggregate(
         )
         .await
         .map_err(|_| PostgresReplayResultOwnerErrorV2::ConflictingResult)?;
+        let outcome_evidence_readback = read_expected_outcome_evidence(
+            &mut transaction,
+            &result_dto.result_identity,
+            &ExpectedOutcomeEvidenceV1::from_sealed(outcome_evidence),
+        )
+        .await
+        .map_err(|_| PostgresReplayResultOwnerErrorV2::ConflictingResult)?;
         validate_transaction_principal(&mut transaction).await?;
         return if transaction.commit().await.is_ok() {
             Ok(NativeReplayCommitDispositionV2::Committed {
                 result: Box::new(readback),
                 evidence_batch,
                 semantic_trace,
+                outcome_evidence: outcome_evidence_readback,
             })
         } else {
             Ok(NativeReplayCommitDispositionV2::SubmittedOrUnknown(
-                NativeReplayAggregateCommitRecoveryV2::for_submission(&result_dto, batch, trace),
+                NativeReplayAggregateCommitRecoveryV2::for_submission(
+                    &result_dto,
+                    batch,
+                    trace,
+                    outcome_evidence,
+                ),
             ))
         };
     }
@@ -700,6 +851,7 @@ async fn persist_native_replay_aggregate(
         .bind(result_dto.attempt_identity.as_str())
         .bind(&envelope_references)
         .bind(trace.locator().reference.as_str())
+        .bind(outcome_evidence.evidence().evidence_identity.as_str())
         .fetch_one(&mut *transaction)
         .await
         .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
@@ -797,6 +949,65 @@ async fn persist_native_replay_aggregate(
         return Err(PostgresReplayResultOwnerErrorV2::ConflictingResult);
     }
 
+    let evidence = outcome_evidence.evidence();
+    let evidence_bytes = outcome_evidence.evidence_canonical_bytes();
+    let canonical_result_bytes = outcome_evidence.canonical_result_bytes();
+    let (outcome_receipt, outcome_receipt_bytes, outcome_outbox, outcome_outbox_bytes) =
+        build_outcome_evidence_custody_wires(evidence, epoch)?;
+    let inserted = sqlx::query("INSERT INTO public.backtest_native_replay_outcome_evidence_v1(result_identity,evidence_identity,evidence_digest,result_digest,request_identity,request_meaning_digest,attempt_identity,canonical_bytes,canonical_bytes_blake3,engine_canonical_result_bytes,engine_canonical_result_bytes_blake3) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)")
+        .bind(evidence.result_identity.as_str())
+        .bind(evidence.evidence_identity.as_str())
+        .bind(evidence.evidence_digest.as_str())
+        .bind(evidence.result_digest.as_str())
+        .bind(evidence.request_identity.as_str())
+        .bind(evidence.request_meaning_digest.as_str())
+        .bind(evidence.attempt_identity.as_str())
+        .bind(evidence_bytes)
+        .bind(storage_digest(OUTCOME_EVIDENCE_STORAGE_DOMAIN, evidence_bytes))
+        .bind(canonical_result_bytes)
+        .bind(storage_digest(ENGINE_RESULT_STORAGE_DOMAIN, canonical_result_bytes))
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+    if inserted.rows_affected() != 1 {
+        return Err(PostgresReplayResultOwnerErrorV2::ConflictingResult);
+    }
+    sqlx::query("INSERT INTO public.backtest_native_replay_outcome_evidence_receipts_v1(result_identity,receipt_identity,receipt_digest,evidence_identity,evidence_digest,result_digest,request_identity,request_meaning_digest,attempt_identity,outbox_event_identity,committed_at_epoch_ms,canonical_bytes,canonical_bytes_blake3) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)")
+        .bind(evidence.result_identity.as_str())
+        .bind(outcome_receipt.receipt_identity.as_str())
+        .bind(outcome_receipt.receipt_digest.as_str())
+        .bind(evidence.evidence_identity.as_str())
+        .bind(evidence.evidence_digest.as_str())
+        .bind(evidence.result_digest.as_str())
+        .bind(evidence.request_identity.as_str())
+        .bind(evidence.request_meaning_digest.as_str())
+        .bind(evidence.attempt_identity.as_str())
+        .bind(outcome_receipt.outbox_event_identity.as_str())
+        .bind(i64::try_from(epoch).map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?)
+        .bind(&outcome_receipt_bytes)
+        .bind(storage_digest(OUTCOME_RECEIPT_STORAGE_DOMAIN, &outcome_receipt_bytes))
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+    sqlx::query("INSERT INTO public.backtest_native_replay_outcome_evidence_outbox_v1(result_identity,event_identity,event_digest,receipt_identity,evidence_identity,evidence_digest,result_digest,request_identity,request_meaning_digest,attempt_identity,payload_digest,committed_at_epoch_ms,canonical_bytes,canonical_bytes_blake3) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)")
+        .bind(evidence.result_identity.as_str())
+        .bind(outcome_outbox.event_identity.as_str())
+        .bind(outcome_outbox.event_digest.as_str())
+        .bind(outcome_receipt.receipt_identity.as_str())
+        .bind(evidence.evidence_identity.as_str())
+        .bind(evidence.evidence_digest.as_str())
+        .bind(evidence.result_digest.as_str())
+        .bind(evidence.request_identity.as_str())
+        .bind(evidence.request_meaning_digest.as_str())
+        .bind(evidence.attempt_identity.as_str())
+        .bind(outcome_outbox.payload_digest.as_str())
+        .bind(i64::try_from(epoch).map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?)
+        .bind(&outcome_outbox_bytes)
+        .bind(storage_digest(OUTCOME_OUTBOX_STORAGE_DOMAIN, &outcome_outbox_bytes))
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+
     let expected = expected_evidence(batch);
     let (evidence_batch, semantic_trace) = read_expected_evidence(
         &mut transaction,
@@ -807,6 +1018,12 @@ async fn persist_native_replay_aggregate(
         trace.canonical_bytes_digest(),
     )
     .await?;
+    let outcome_evidence_readback = read_expected_outcome_evidence(
+        &mut transaction,
+        &result_dto.result_identity,
+        &ExpectedOutcomeEvidenceV1::from_sealed(outcome_evidence),
+    )
+    .await?;
     validate_transaction_principal(&mut transaction).await?;
     let committed = transaction.commit().await.is_ok();
     if committed {
@@ -814,10 +1031,16 @@ async fn persist_native_replay_aggregate(
             result: Box::new(result),
             evidence_batch,
             semantic_trace,
+            outcome_evidence: outcome_evidence_readback,
         })
     } else {
         Ok(NativeReplayCommitDispositionV2::SubmittedOrUnknown(
-            NativeReplayAggregateCommitRecoveryV2::for_submission(&result_dto, batch, trace),
+            NativeReplayAggregateCommitRecoveryV2::for_submission(
+                &result_dto,
+                batch,
+                trace,
+                outcome_evidence,
+            ),
         ))
     }
 }
@@ -932,6 +1155,119 @@ async fn read_expected_evidence(
     ))
 }
 
+async fn read_expected_outcome_evidence(
+    transaction: &mut Transaction<'_, Postgres>,
+    result_identity: &OpaqueIdentityV2,
+    expected: &ExpectedOutcomeEvidenceV1,
+) -> Result<BacktestOutcomeEvidenceReadbackV1, PostgresReplayResultOwnerErrorV2> {
+    let query = format!("{READ_OUTCOME_EVIDENCE_AGGREGATE} WHERE evidence.result_identity=$1");
+    let row = sqlx::query(sqlx::AssertSqlSafe(query))
+        .bind(result_identity.as_str())
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?
+        .ok_or(PostgresReplayResultOwnerErrorV2::CorruptReadback)?;
+    let evidence_bytes: Vec<u8> = required(&row, "canonical_bytes")?;
+    let evidence = BacktestOutcomeEvidenceDtoV1::from_canonical_bytes(&evidence_bytes)
+        .map_err(|_| PostgresReplayResultOwnerErrorV2::CorruptReadback)?;
+    let canonical_result_bytes: Vec<u8> = required(&row, "engine_canonical_result_bytes")?;
+    let receipt_bytes: Vec<u8> = required(&row, "receipt_canonical_bytes")?;
+    let receipt: OutcomeEvidenceReceiptV1 = decode_canonical(&receipt_bytes)?;
+    let outbox_bytes: Vec<u8> = required(&row, "outbox_canonical_bytes")?;
+    let outbox: OutcomeEvidenceOutboxV1 = decode_canonical(&outbox_bytes)?;
+
+    if evidence != expected.evidence
+        || evidence_bytes != expected.evidence_canonical_bytes
+        || canonical_result_bytes != expected.canonical_result_bytes
+        || required::<String>(&row, "result_identity")? != evidence.result_identity.as_str()
+        || required::<String>(&row, "evidence_identity")? != evidence.evidence_identity.as_str()
+        || required::<String>(&row, "evidence_digest")? != evidence.evidence_digest.as_str()
+        || required::<String>(&row, "result_digest")? != evidence.result_digest.as_str()
+        || required::<String>(&row, "request_identity")? != evidence.request_identity.as_str()
+        || required::<String>(&row, "request_meaning_digest")?
+            != evidence.request_meaning_digest.as_str()
+        || required::<String>(&row, "attempt_identity")? != evidence.attempt_identity.as_str()
+        || required::<String>(&row, "canonical_bytes_blake3")?
+            != storage_digest(OUTCOME_EVIDENCE_STORAGE_DOMAIN, &evidence_bytes)
+        || required::<String>(&row, "engine_canonical_result_bytes_blake3")?
+            != storage_digest(ENGINE_RESULT_STORAGE_DOMAIN, &canonical_result_bytes)
+        || receipt.schema_version != 1
+        || receipt.receipt_identity.as_str() != required::<String>(&row, "receipt_identity")?
+        || receipt.receipt_digest.as_str() != required::<String>(&row, "receipt_digest")?
+        || receipt.evidence_identity.as_str()
+            != required::<String>(&row, "receipt_evidence_identity")?
+        || receipt.evidence_digest.as_str() != required::<String>(&row, "receipt_evidence_digest")?
+        || receipt.result_digest.as_str() != required::<String>(&row, "receipt_result_digest")?
+        || receipt.request_identity.as_str()
+            != required::<String>(&row, "receipt_request_identity")?
+        || receipt.request_meaning_digest.as_str()
+            != required::<String>(&row, "receipt_request_meaning_digest")?
+        || receipt.attempt_identity.as_str()
+            != required::<String>(&row, "receipt_attempt_identity")?
+        || receipt.outbox_event_identity.as_str()
+            != required::<String>(&row, "outbox_event_identity")?
+        || receipt.committed_at_epoch_ms != required_epoch(&row, "receipt_committed_at_epoch_ms")?
+        || receipt.receipt_digest != receipt.expected_digest()?
+        || storage_digest(OUTCOME_RECEIPT_STORAGE_DOMAIN, &receipt_bytes)
+            != required::<String>(&row, "receipt_canonical_bytes_blake3")?
+        || outbox.schema_version != 1
+        || outbox.payload.schema_version != 1
+        || outbox.event_identity.as_str() != required::<String>(&row, "event_identity")?
+        || outbox.event_digest.as_str() != required::<String>(&row, "event_digest")?
+        || outbox.payload.receipt_identity.as_str()
+            != required::<String>(&row, "outbox_receipt_identity")?
+        || outbox.payload.evidence_identity.as_str()
+            != required::<String>(&row, "outbox_evidence_identity")?
+        || outbox.payload.evidence_digest.as_str()
+            != required::<String>(&row, "outbox_evidence_digest")?
+        || outbox.payload.result_digest.as_str()
+            != required::<String>(&row, "outbox_result_digest")?
+        || outbox.payload.request_identity.as_str()
+            != required::<String>(&row, "outbox_request_identity")?
+        || outbox.payload.request_meaning_digest.as_str()
+            != required::<String>(&row, "outbox_request_meaning_digest")?
+        || outbox.payload.attempt_identity.as_str()
+            != required::<String>(&row, "outbox_attempt_identity")?
+        || outbox.payload_digest.as_str() != required::<String>(&row, "payload_digest")?
+        || outbox.committed_at_epoch_ms != required_epoch(&row, "outbox_committed_at_epoch_ms")?
+        || outbox.payload_digest != outbox.expected_payload_digest()?
+        || outbox.event_digest != outbox.expected_event_digest()?
+        || storage_digest(OUTCOME_OUTBOX_STORAGE_DOMAIN, &outbox_bytes)
+            != required::<String>(&row, "outbox_canonical_bytes_blake3")?
+        || receipt.evidence_identity != evidence.evidence_identity
+        || receipt.evidence_digest != evidence.evidence_digest
+        || receipt.result_identity != evidence.result_identity
+        || receipt.result_digest != evidence.result_digest
+        || receipt.request_identity != evidence.request_identity
+        || receipt.request_meaning_digest != evidence.request_meaning_digest
+        || receipt.attempt_identity != evidence.attempt_identity
+        || receipt.outbox_event_identity != outbox.event_identity
+        || outbox.aggregate_identity != evidence.evidence_identity
+        || outbox.event_kind.as_str() != OUTCOME_EVENT_KIND
+        || outbox.payload.receipt_identity != receipt.receipt_identity
+        || outbox.payload.receipt_digest != receipt.receipt_digest
+        || outbox.payload.evidence_identity != evidence.evidence_identity
+        || outbox.payload.evidence_digest != evidence.evidence_digest
+        || outbox.payload.result_identity != evidence.result_identity
+        || outbox.payload.result_digest != evidence.result_digest
+        || outbox.payload.request_identity != evidence.request_identity
+        || outbox.payload.request_meaning_digest != evidence.request_meaning_digest
+        || outbox.payload.attempt_identity != evidence.attempt_identity
+        || outbox.committed_at_epoch_ms != receipt.committed_at_epoch_ms
+        || outbox.payload.committed_at_epoch_ms != receipt.committed_at_epoch_ms
+    {
+        return Err(PostgresReplayResultOwnerErrorV2::CorruptReadback);
+    }
+
+    Ok(BacktestOutcomeEvidenceReadbackV1 {
+        evidence,
+        evidence_canonical_bytes: evidence_bytes,
+        canonical_result_bytes,
+        receipt_canonical_bytes: receipt_bytes,
+        outbox_canonical_bytes: outbox_bytes,
+    })
+}
+
 fn component_text(
     value: crate::ObservationComponentV2,
 ) -> Result<String, PostgresReplayResultOwnerErrorV2> {
@@ -1018,6 +1354,29 @@ fn validate_sealed_result(
     Ok(())
 }
 
+fn validate_sealed_outcome_evidence(
+    sealed: &SealedBacktestOutcomeEvidenceV1,
+    result: &ReplayResultDtoV2,
+    trace: &SealedNativeReplaySemanticTraceV2,
+) -> Result<(), PostgresReplayResultOwnerErrorV2> {
+    let evidence = sealed.evidence();
+    if evidence
+        .to_canonical_bytes()
+        .map_err(|_| PostgresReplayResultOwnerErrorV2::ResultNotAdmitted)?
+        != sealed.evidence_canonical_bytes()
+        || sealed.canonical_result_bytes().is_empty()
+        || evidence.result_identity != result.result_identity
+        || evidence.result_digest != result.result_digest
+        || evidence.request_identity != result.request_identity
+        || evidence.request_meaning_digest != result.request_meaning_digest
+        || evidence.attempt_identity != result.attempt_identity
+        || &evidence.semantic_trace != trace.locator()
+    {
+        return Err(PostgresReplayResultOwnerErrorV2::ResultNotAdmitted);
+    }
+    Ok(())
+}
+
 async fn lock_attempt(
     transaction: &mut Transaction<'_, Postgres>,
     result: &ReplayResultDtoV2,
@@ -1085,7 +1444,7 @@ mod lock_key_tests {
             READ_ORPHAN_NATIVE_REPLAY_EVIDENCE
                 .matches("EXISTS (")
                 .count(),
-            2
+            5
         );
         assert!(!READ_ORPHAN_NATIVE_REPLAY_EVIDENCE.contains("pg_catalog.exists("));
         for required_key in [
@@ -1093,6 +1452,12 @@ mod lock_key_tests {
             "observation.request_identity=$2 AND observation.attempt_identity=$3",
             "observation.envelope_reference=ANY($4)",
             "trace.result_identity=$1 OR trace.locator_reference=$5",
+            "evidence.request_identity=$2 AND evidence.attempt_identity=$3",
+            "receipt.request_identity=$2 AND receipt.attempt_identity=$3",
+            "outbox.request_identity=$2 AND outbox.attempt_identity=$3",
+            "evidence.evidence_identity=$6",
+            "receipt.evidence_identity=$6",
+            "outbox.evidence_identity=$6",
         ] {
             assert!(
                 READ_ORPHAN_NATIVE_REPLAY_EVIDENCE.contains(required_key),
@@ -1230,6 +1595,122 @@ struct ResultOutboxPreimageV1<'a> {
     committed_at_epoch_ms: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OutcomeEvidenceReceiptV1 {
+    schema_version: u16,
+    receipt_identity: OpaqueIdentityV2,
+    receipt_digest: CanonicalDigestV2,
+    evidence_identity: OpaqueIdentityV2,
+    evidence_digest: CanonicalDigestV2,
+    result_identity: OpaqueIdentityV2,
+    result_digest: CanonicalDigestV2,
+    request_identity: OpaqueIdentityV2,
+    request_meaning_digest: CanonicalDigestV2,
+    attempt_identity: OpaqueIdentityV2,
+    outbox_event_identity: OpaqueIdentityV2,
+    committed_at_epoch_ms: u64,
+}
+
+#[derive(Serialize)]
+struct OutcomeEvidenceReceiptPreimageV1<'a> {
+    schema_version: u16,
+    receipt_identity: &'a OpaqueIdentityV2,
+    evidence_identity: &'a OpaqueIdentityV2,
+    evidence_digest: &'a CanonicalDigestV2,
+    result_identity: &'a OpaqueIdentityV2,
+    result_digest: &'a CanonicalDigestV2,
+    request_identity: &'a OpaqueIdentityV2,
+    request_meaning_digest: &'a CanonicalDigestV2,
+    attempt_identity: &'a OpaqueIdentityV2,
+    outbox_event_identity: &'a OpaqueIdentityV2,
+    committed_at_epoch_ms: u64,
+}
+
+impl OutcomeEvidenceReceiptV1 {
+    fn expected_digest(&self) -> Result<CanonicalDigestV2, PostgresReplayResultOwnerErrorV2> {
+        digest_value(
+            OUTCOME_RECEIPT_DIGEST_DOMAIN,
+            &OutcomeEvidenceReceiptPreimageV1 {
+                schema_version: self.schema_version,
+                receipt_identity: &self.receipt_identity,
+                evidence_identity: &self.evidence_identity,
+                evidence_digest: &self.evidence_digest,
+                result_identity: &self.result_identity,
+                result_digest: &self.result_digest,
+                request_identity: &self.request_identity,
+                request_meaning_digest: &self.request_meaning_digest,
+                attempt_identity: &self.attempt_identity,
+                outbox_event_identity: &self.outbox_event_identity,
+                committed_at_epoch_ms: self.committed_at_epoch_ms,
+            },
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OutcomeEvidenceOutboxPayloadV1 {
+    schema_version: u16,
+    receipt_identity: OpaqueIdentityV2,
+    receipt_digest: CanonicalDigestV2,
+    evidence_identity: OpaqueIdentityV2,
+    evidence_digest: CanonicalDigestV2,
+    result_identity: OpaqueIdentityV2,
+    result_digest: CanonicalDigestV2,
+    request_identity: OpaqueIdentityV2,
+    request_meaning_digest: CanonicalDigestV2,
+    attempt_identity: OpaqueIdentityV2,
+    committed_at_epoch_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OutcomeEvidenceOutboxV1 {
+    schema_version: u16,
+    event_identity: OpaqueIdentityV2,
+    event_digest: CanonicalDigestV2,
+    aggregate_identity: OpaqueIdentityV2,
+    event_kind: OpaqueIdentityV2,
+    payload_digest: CanonicalDigestV2,
+    payload: OutcomeEvidenceOutboxPayloadV1,
+    committed_at_epoch_ms: u64,
+}
+
+#[derive(Serialize)]
+struct OutcomeEvidenceOutboxPreimageV1<'a> {
+    schema_version: u16,
+    event_identity: &'a OpaqueIdentityV2,
+    aggregate_identity: &'a OpaqueIdentityV2,
+    event_kind: &'a OpaqueIdentityV2,
+    payload_digest: &'a CanonicalDigestV2,
+    payload: &'a OutcomeEvidenceOutboxPayloadV1,
+    committed_at_epoch_ms: u64,
+}
+
+impl OutcomeEvidenceOutboxV1 {
+    fn expected_payload_digest(
+        &self,
+    ) -> Result<CanonicalDigestV2, PostgresReplayResultOwnerErrorV2> {
+        digest_value(OUTCOME_OUTBOX_PAYLOAD_DIGEST_DOMAIN, &self.payload)
+    }
+
+    fn expected_event_digest(&self) -> Result<CanonicalDigestV2, PostgresReplayResultOwnerErrorV2> {
+        digest_value(
+            OUTCOME_OUTBOX_EVENT_DIGEST_DOMAIN,
+            &OutcomeEvidenceOutboxPreimageV1 {
+                schema_version: self.schema_version,
+                event_identity: &self.event_identity,
+                aggregate_identity: &self.aggregate_identity,
+                event_kind: &self.event_kind,
+                payload_digest: &self.payload_digest,
+                payload: &self.payload,
+                committed_at_epoch_ms: self.committed_at_epoch_ms,
+            },
+        )
+    }
+}
+
 impl ResultOutboxV1 {
     fn expected_payload_digest(
         &self,
@@ -1295,6 +1776,74 @@ fn build_custody_wires(
         event_digest: placeholder.clone(),
         aggregate_identity: result.result_identity.clone(),
         event_kind: typed_identity(EVENT_KIND.to_string())?,
+        payload_digest: placeholder,
+        payload,
+        committed_at_epoch_ms,
+    };
+    outbox.payload_digest = outbox.expected_payload_digest()?;
+    outbox.event_digest = outbox.expected_event_digest()?;
+    let receipt_bytes = serde_json::to_vec(&receipt)
+        .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+    let outbox_bytes = serde_json::to_vec(&outbox)
+        .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+    Ok((receipt, receipt_bytes, outbox, outbox_bytes))
+}
+
+fn build_outcome_evidence_custody_wires(
+    evidence: &BacktestOutcomeEvidenceDtoV1,
+    committed_at_epoch_ms: u64,
+) -> Result<
+    (
+        OutcomeEvidenceReceiptV1,
+        Vec<u8>,
+        OutcomeEvidenceOutboxV1,
+        Vec<u8>,
+    ),
+    PostgresReplayResultOwnerErrorV2,
+> {
+    let suffix = evidence
+        .evidence_digest
+        .as_str()
+        .strip_prefix("blake3:")
+        .ok_or(PostgresReplayResultOwnerErrorV2::ResultNotAdmitted)?;
+    let receipt_identity =
+        typed_identity(format!("backtest-outcome-evidence-receipt-v1-{suffix}"))?;
+    let event_identity = typed_identity(format!("backtest-outcome-evidence-outbox-v1-{suffix}"))?;
+    let placeholder = typed_digest(format!("blake3:{}", "0".repeat(64)))?;
+    let mut receipt = OutcomeEvidenceReceiptV1 {
+        schema_version: 1,
+        receipt_identity: receipt_identity.clone(),
+        receipt_digest: placeholder.clone(),
+        evidence_identity: evidence.evidence_identity.clone(),
+        evidence_digest: evidence.evidence_digest.clone(),
+        result_identity: evidence.result_identity.clone(),
+        result_digest: evidence.result_digest.clone(),
+        request_identity: evidence.request_identity.clone(),
+        request_meaning_digest: evidence.request_meaning_digest.clone(),
+        attempt_identity: evidence.attempt_identity.clone(),
+        outbox_event_identity: event_identity.clone(),
+        committed_at_epoch_ms,
+    };
+    receipt.receipt_digest = receipt.expected_digest()?;
+    let payload = OutcomeEvidenceOutboxPayloadV1 {
+        schema_version: 1,
+        receipt_identity,
+        receipt_digest: receipt.receipt_digest.clone(),
+        evidence_identity: evidence.evidence_identity.clone(),
+        evidence_digest: evidence.evidence_digest.clone(),
+        result_identity: evidence.result_identity.clone(),
+        result_digest: evidence.result_digest.clone(),
+        request_identity: evidence.request_identity.clone(),
+        request_meaning_digest: evidence.request_meaning_digest.clone(),
+        attempt_identity: evidence.attempt_identity.clone(),
+        committed_at_epoch_ms,
+    };
+    let mut outbox = OutcomeEvidenceOutboxV1 {
+        schema_version: 1,
+        event_identity,
+        event_digest: placeholder.clone(),
+        aggregate_identity: evidence.evidence_identity.clone(),
+        event_kind: typed_identity(OUTCOME_EVENT_KIND.to_owned())?,
         payload_digest: placeholder,
         payload,
         committed_at_epoch_ms,

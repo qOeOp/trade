@@ -29,9 +29,10 @@ use crate::{
         NativeReplayEvidenceBatchReadbackV2, NativeReplayEvidenceDraftV2,
         SealedNativeReplayEvidenceBatchV2,
     },
+    outcome_evidence::{BacktestOutcomeEvidenceOwnerErrorV1, SealedBacktestOutcomeEvidenceV1},
     postgres::{
-        NativeReplayAggregateCommitRecoveryV2, PostgresReplayResultOwnerErrorV2,
-        PostgresReplayResultOwnerV2, ReplayResultReadbackV2,
+        BacktestOutcomeEvidenceReadbackV1, NativeReplayAggregateCommitRecoveryV2,
+        PostgresReplayResultOwnerErrorV2, PostgresReplayResultOwnerV2, ReplayResultReadbackV2,
     },
     requested_component_meanings,
 };
@@ -289,6 +290,7 @@ pub trait NativeReplayPreparationOwnerV2: admitted_preparation_owner::Sealed + S
         result: &'a SealedReplayResultV2,
         evidence_batch: &'a SealedNativeReplayEvidenceBatchV2,
         semantic_trace: &'a SealedNativeReplaySemanticTraceV2,
+        outcome_evidence: &'a SealedBacktestOutcomeEvidenceV1,
     ) -> Pin<
         Box<
             dyn Future<
@@ -410,6 +412,7 @@ impl NativeReplayPreparationOwnerV2 for PostgresNativeReplayPreparationOwnerV2 {
         result: &'a SealedReplayResultV2,
         evidence_batch: &'a SealedNativeReplayEvidenceBatchV2,
         semantic_trace: &'a SealedNativeReplaySemanticTraceV2,
+        outcome_evidence: &'a SealedBacktestOutcomeEvidenceV1,
     ) -> Pin<
         Box<
             dyn Future<
@@ -429,6 +432,7 @@ impl NativeReplayPreparationOwnerV2 for PostgresNativeReplayPreparationOwnerV2 {
                     result,
                     evidence_batch,
                     semantic_trace,
+                    outcome_evidence,
                 )
                 .await
         })
@@ -443,6 +447,7 @@ pub enum NativeReplayCommitDispositionV2 {
         result: Box<ReplayResultReadbackV2>,
         evidence_batch: NativeReplayEvidenceBatchReadbackV2,
         semantic_trace: NativeReplaySemanticTraceReadbackV2,
+        outcome_evidence: BacktestOutcomeEvidenceReadbackV1,
     },
     /// The atomic submission was made, but its outcome was not acknowledged.
     SubmittedOrUnknown(NativeReplayAggregateCommitRecoveryV2),
@@ -461,6 +466,8 @@ pub enum NativeReplayRunErrorV2 {
     NativeExecution(String),
     #[error("Backtest Owner rejected the actual-consumption Result: {0}")]
     ResultConstruction(#[from] ReplayOwnerErrorV2),
+    #[error("Backtest Owner rejected the actual outcome evidence: {0}")]
+    OutcomeEvidenceConstruction(#[from] BacktestOutcomeEvidenceOwnerErrorV1),
     #[error("Backtest Result custody failed: {0}")]
     ResultCommit(#[from] PostgresReplayResultOwnerErrorV2),
 }
@@ -491,6 +498,7 @@ pub async fn run_exploratory_replay_v2<P: NativeReplayPreparationOwnerV2 + ?Size
             &prepared_commit.result,
             &prepared_commit.evidence_batch,
             &prepared_commit.semantic_trace,
+            &prepared_commit.outcome_evidence,
         )
         .await
         .map_err(NativeReplayRunErrorV2::from)?;
@@ -499,6 +507,7 @@ pub async fn run_exploratory_replay_v2<P: NativeReplayPreparationOwnerV2 + ?Size
         &prepared_commit.result,
         &prepared_commit.evidence_batch,
         &prepared_commit.semantic_trace,
+        &prepared_commit.outcome_evidence,
     )
 }
 
@@ -506,6 +515,7 @@ struct PreparedNativeReplayCommitV2 {
     result: SealedReplayResultV2,
     evidence_batch: SealedNativeReplayEvidenceBatchV2,
     semantic_trace: SealedNativeReplaySemanticTraceV2,
+    outcome_evidence: SealedBacktestOutcomeEvidenceV1,
 }
 
 fn execute_native_replay_preparation(
@@ -573,10 +583,13 @@ fn execute_native_replay_preparation(
             )],
         },
     )?;
+    let outcome_evidence =
+        SealedBacktestOutcomeEvidenceV1::seal(&result, &execution_readback, &semantic_trace)?;
     Ok(PreparedNativeReplayCommitV2 {
         result,
         evidence_batch,
         semantic_trace,
+        outcome_evidence,
     })
 }
 
@@ -585,20 +598,36 @@ fn validate_committed_readbacks(
     expected_result: &SealedReplayResultV2,
     expected_evidence_batch: &SealedNativeReplayEvidenceBatchV2,
     expected_semantic_trace: &SealedNativeReplaySemanticTraceV2,
+    expected_outcome_evidence: &SealedBacktestOutcomeEvidenceV1,
 ) -> Result<NativeReplayCommitDispositionV2, NativeReplayRunErrorV2> {
     match &disposition {
         NativeReplayCommitDispositionV2::Committed {
             result,
             evidence_batch,
             semantic_trace,
+            outcome_evidence,
         } => {
             validate_result_readback(result, expected_result)?;
             validate_evidence_batch_readback(evidence_batch, expected_evidence_batch)?;
             validate_semantic_trace_readback(semantic_trace, expected_semantic_trace)?;
+            validate_outcome_evidence_readback(outcome_evidence, expected_outcome_evidence)?;
         }
         NativeReplayCommitDispositionV2::SubmittedOrUnknown(_) => {}
     }
     Ok(disposition)
+}
+
+fn validate_outcome_evidence_readback(
+    actual: &BacktestOutcomeEvidenceReadbackV1,
+    expected: &SealedBacktestOutcomeEvidenceV1,
+) -> Result<(), NativeReplayRunErrorV2> {
+    if actual.evidence() != expected.evidence()
+        || actual.evidence_canonical_bytes() != expected.evidence_canonical_bytes()
+        || actual.canonical_result_bytes() != expected.canonical_result_bytes()
+    {
+        return Err(NativeReplayRunErrorV2::IncompleteReconciliation);
+    }
+    Ok(())
 }
 
 fn validate_evidence_batch_readback(
