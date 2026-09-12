@@ -34,7 +34,8 @@ use vibe_strategy_factory::{
         EXPLORATORY_REPLAY_MUTATION_EFFECT_V2, EXPLORATORY_REPLAY_OPERATION_V2,
         EXPLORATORY_REPLAY_SCHEMA_V2, ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError,
         ExploratoryReplayRecoverySelectorV2, ExploratoryReplayRequestLocatorV2,
-        ExploratoryReplayRequestProposalV2, ExploratoryReplaySealedReadPortV2,
+        ExploratoryReplayRequestProjectionV1, ExploratoryReplayRequestProposalV2,
+        ExploratoryReplaySealedReadPortV2,
     },
     product_edge::RESEARCH_OWNER_V1,
     product_edge_postgres::PostgresResearchGoalOwnerV1,
@@ -59,7 +60,7 @@ trait MarketDataRepairedReplayActionPort: Send + Sync {
         &self,
         predecessor: &ExploratoryReplayRequestLocatorV2,
         resolution: &MarketDataRepairResolutionLocatorV1,
-    ) -> Result<ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError>;
+    ) -> Result<MarketDataRepairedReplayActionResponseV1, ExploratoryReplayOwnerError>;
 }
 
 #[async_trait::async_trait]
@@ -68,9 +69,10 @@ impl MarketDataRepairedReplayActionPort for PostgresResearchGoalOwnerV1 {
         &self,
         predecessor: &ExploratoryReplayRequestLocatorV2,
         resolution: &MarketDataRepairResolutionLocatorV1,
-    ) -> Result<ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError> {
+    ) -> Result<MarketDataRepairedReplayActionResponseV1, ExploratoryReplayOwnerError> {
         self.commit_market_data_repaired_replay_request_by_locator_v2(predecessor, resolution)
             .await
+            .map(MarketDataRepairedReplayActionResponseV1::from)
     }
 }
 
@@ -85,6 +87,26 @@ struct MarketDataRepairedReplayActionApiState {
 struct MarketDataRepairedReplayActionRequestV1 {
     predecessor_request_locator: ExploratoryReplayRequestLocatorV2,
     repair_resolution_locator: MarketDataRepairResolutionLocatorV1,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+struct MarketDataRepairedReplayActionResponseV1 {
+    schema_version: u16,
+    projection: ExploratoryReplayRequestProjectionV1,
+    locator: ExploratoryReplayRequestLocatorV2,
+    canonical_request_bytes: Vec<u8>,
+}
+
+impl From<ExploratoryReplayCommitResultV2> for MarketDataRepairedReplayActionResponseV1 {
+    fn from(result: ExploratoryReplayCommitResultV2) -> Self {
+        Self {
+            schema_version: 1,
+            projection: result.projection().clone(),
+            locator: result.locator().clone(),
+            canonical_request_bytes: result.canonical_request_bytes().to_vec(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -960,21 +982,22 @@ mod tests {
     use sha2::Digest as _;
     use tower::ServiceExt;
 
-    struct UnavailableRepairedReplayOwner {
+    struct RepairedReplayOwnerStub {
         calls: AtomicUsize,
+        response: Option<MarketDataRepairedReplayActionResponseV1>,
     }
 
     #[async_trait::async_trait]
-    impl MarketDataRepairedReplayActionPort for UnavailableRepairedReplayOwner {
+    impl MarketDataRepairedReplayActionPort for RepairedReplayOwnerStub {
         async fn commit_repaired_replay(
             &self,
             _predecessor: &ExploratoryReplayRequestLocatorV2,
             _resolution: &MarketDataRepairResolutionLocatorV1,
-        ) -> Result<ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError> {
+        ) -> Result<MarketDataRepairedReplayActionResponseV1, ExploratoryReplayOwnerError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
-            Err(ExploratoryReplayOwnerError::Unavailable(
-                "test owner unavailable".into(),
-            ))
+            self.response.clone().ok_or_else(|| {
+                ExploratoryReplayOwnerError::Unavailable("test owner unavailable".into())
+            })
         }
     }
 
@@ -1042,6 +1065,27 @@ mod tests {
         })
     }
 
+    fn repaired_replay_action_response() -> MarketDataRepairedReplayActionResponseV1 {
+        MarketDataRepairedReplayActionResponseV1 {
+            schema_version: 1,
+            projection: ExploratoryReplayRequestProjectionV1 {
+                schema_version: 1,
+                request_identity: "successor-1".into(),
+                availability:
+                    vibe_strategy_factory::exploratory_replay::ExploratoryReplayAvailabilityV1::Available,
+                next_legal_action:
+                    vibe_strategy_factory::exploratory_replay::ExploratoryReplayNextLegalActionV1::LockByLocator,
+            },
+            locator: ExploratoryReplayRequestLocatorV2 {
+                request_identity: "successor-1".into(),
+                meaning_digest: format!("blake3:{}", "c".repeat(64)),
+                receipt_identity: "successor-receipt-1".into(),
+                seal_digest: format!("sha256:{}", "d".repeat(64)),
+            },
+            canonical_request_bytes: br#"{"request_identity":"successor-1"}"#.to_vec(),
+        }
+    }
+
     #[rstest]
     fn repaired_replay_action_accepts_only_the_two_exact_owner_locators() {
         let request = repaired_replay_action_request();
@@ -1060,8 +1104,9 @@ mod tests {
     async fn repaired_replay_action_rejects_before_owner_and_maps_owner_unavailability() {
         let token = "repaired-replay-action-test";
         let token_digest: [u8; 32] = sha2::Sha256::digest(token.as_bytes()).into();
-        let owner = Arc::new(UnavailableRepairedReplayOwner {
+        let owner = Arc::new(RepairedReplayOwnerStub {
             calls: AtomicUsize::new(0),
+            response: None,
         });
         let router = || market_data_repaired_replay_router(owner.clone(), token_digest);
         let send = |body: serde_json::Value, authorization: Option<&str>| {
@@ -1102,6 +1147,47 @@ mod tests {
             .expect("router response");
         assert_eq!(unavailable.status(), StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(owner.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn repaired_replay_action_returns_the_typed_owner_result_on_exact_retry() {
+        let token = "repaired-replay-action-success-test";
+        let token_digest: [u8; 32] = sha2::Sha256::digest(token.as_bytes()).into();
+        let expected = repaired_replay_action_response();
+        let owner = Arc::new(RepairedReplayOwnerStub {
+            calls: AtomicUsize::new(0),
+            response: Some(expected.clone()),
+        });
+        let request = || {
+            axum::http::Request::builder()
+                .method(axum::http::Method::POST)
+                .uri("/v2/exploratory-replay-requests/market-data-repair-successors")
+                .header(axum::http::header::AUTHORIZATION, format!("Bearer {token}"))
+                .header(axum::http::header::CONTENT_TYPE, "application/json")
+                .body(axum::body::Body::from(
+                    repaired_replay_action_request().to_string(),
+                ))
+                .expect("HTTP request")
+        };
+        let mut bodies = Vec::new();
+        for _ in 0..2 {
+            let response = market_data_repaired_replay_router(owner.clone(), token_digest)
+                .oneshot(request())
+                .await
+                .expect("router response");
+            assert_eq!(response.status(), StatusCode::OK);
+            bodies.push(
+                axum::body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .expect("typed response bytes"),
+            );
+        }
+        assert_eq!(owner.calls.load(Ordering::SeqCst), 2);
+        assert_eq!(bodies[0], bodies[1]);
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&bodies[0]).expect("typed response JSON"),
+            serde_json::to_value(expected).expect("expected response JSON"),
+        );
     }
 
     #[cfg(feature = "sealed-develop-composer-acceptance")]
