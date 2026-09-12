@@ -12,10 +12,6 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::net::TcpListener;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
-use vibe_backtest_owner::{
-    native_replay::PostgresNativeReplayPreparationOwnerV2, postgres::PostgresReplayResultOwnerV2,
-};
-#[cfg(feature = "sealed-develop-composer-acceptance")]
 use vibe_data::owner::replay_market_facts_v2::{
     ReplayCompositionIssuanceLocatorV1, ReplayCompositionLocatorOnlyIssuanceRequestV1,
     ReplayCompositionOwnerV1,
@@ -44,8 +40,6 @@ use vibe_product_edge::{
     ProductEdgeError, ProductEdgeInvocationClaimReadbackV1, ProductEdgeInvocationClaimRequestV1,
     ProductEdgeInvocationStateV1, ProductEdgePostgresOwnerV1,
 };
-#[cfg(feature = "sealed-develop-composer-acceptance")]
-use vibe_strategy_factory::native_replay_execution_preparation_resolver_v2::PostgresNativeReplayExecutionPreparationResolverV2;
 use vibe_strategy_factory::{
     artifact_build::{
         ARTIFACT_BUILD_OPERATION_V1, ARTIFACT_BUILD_SCHEMA_V1, ArtifactBuildCandidateV1,
@@ -383,26 +377,17 @@ async fn main() -> anyhow::Result<()> {
             let Some(market_data) = native_replay_scheduling.clone() else {
                 anyhow::bail!("Native Replay execution requires admitted Market Data scheduling");
             };
-            let rd_relock_pool = sqlx::PgPool::connect(&database_url).await?;
-            let backtest_pool = sqlx::PgPool::connect(&backtest_database_url).await?;
-            let result_owner =
-                Arc::new(PostgresReplayResultOwnerV2::from_admitted_pool(backtest_pool).await?);
-            let resolver = Arc::new(PostgresNativeReplayExecutionPreparationResolverV2::new(
-                owner.clone(),
-                develop_composer_read.clone(),
-                instrument_master_v2.clone(),
-                instrument_economic_terms.clone(),
-                market_data,
-            ));
-            let preparation_owner = Arc::new(PostgresNativeReplayPreparationOwnerV2::new(
-                rd_relock_pool,
-                resolver,
-            ));
             Some(Arc::new(
-                exploratory_replay::NativeReplayExecutionServiceV2::new(
-                    preparation_owner,
-                    result_owner,
-                ),
+                exploratory_replay::NativeReplayExecutionServiceV2::connect(
+                    &database_url,
+                    &backtest_database_url,
+                    owner.clone(),
+                    develop_composer_read.clone(),
+                    instrument_master_v2.clone(),
+                    instrument_economic_terms.clone(),
+                    market_data,
+                )
+                .await?,
             ))
         }
     };

@@ -21,6 +21,12 @@ use vibe_backtest_owner::{
 use vibe_backtest_owner_contracts::{
     CanonicalDigestV2, OpaqueIdentityV2, ReplayNamespaceV2, ReplayRequestDtoV2, ReplayRequestV2,
 };
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+use vibe_data::owner::{
+    instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresOwnerV1,
+    instrument_master_v2_postgres::InstrumentMasterV2PostgresOwner,
+    native_replay_scheduling_v1::NativeReplaySchedulingResolverV1,
+};
 use vibe_product_edge::{ProductEdgeAdmissionRequestV1, ProductEdgeError};
 use vibe_strategy_factory::{
     ExploratoryReplayResultLocatorV2,
@@ -32,6 +38,11 @@ use vibe_strategy_factory::{
     },
     product_edge::RESEARCH_OWNER_V1,
     product_edge_postgres::PostgresResearchGoalOwnerV1,
+};
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+use vibe_strategy_factory::{
+    develop_composer_postgres_v2::DevelopComposerSealedReadPortV2,
+    native_replay_execution_preparation_resolver_v2::PostgresNativeReplayExecutionPreparationResolverV2,
 };
 
 use super::{ApiState, authorized, hex_digest, insert_rejection_code};
@@ -63,14 +74,35 @@ pub(super) struct NativeReplayExecutionServiceV2 {
 
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 impl NativeReplayExecutionServiceV2 {
-    pub(super) fn new(
-        preparation_owner: Arc<PostgresNativeReplayPreparationOwnerV2>,
-        result_owner: Arc<PostgresReplayResultOwnerV2>,
-    ) -> Self {
-        Self {
+    #[allow(clippy::too_many_arguments)]
+    pub(super) async fn connect(
+        rd_database_url: &str,
+        backtest_database_url: &str,
+        research_owner: Arc<PostgresResearchGoalOwnerV1>,
+        composer: Arc<dyn DevelopComposerSealedReadPortV2>,
+        instrument_master_owner: Arc<InstrumentMasterV2PostgresOwner>,
+        instrument_terms_owner: Arc<InstrumentEconomicTermsPostgresOwnerV1>,
+        market_data: Arc<dyn NativeReplaySchedulingResolverV1>,
+    ) -> anyhow::Result<Self> {
+        let rd_relock_pool = sqlx::PgPool::connect(rd_database_url).await?;
+        let backtest_pool = sqlx::PgPool::connect(backtest_database_url).await?;
+        let result_owner =
+            Arc::new(PostgresReplayResultOwnerV2::from_admitted_pool(backtest_pool).await?);
+        let resolver = Arc::new(PostgresNativeReplayExecutionPreparationResolverV2::new(
+            research_owner,
+            composer,
+            instrument_master_owner,
+            instrument_terms_owner,
+            market_data,
+        ));
+        let preparation_owner = Arc::new(PostgresNativeReplayPreparationOwnerV2::new(
+            rd_relock_pool,
+            resolver,
+        ));
+        Ok(Self {
             preparation_owner,
             result_owner,
-        }
+        })
     }
 }
 
