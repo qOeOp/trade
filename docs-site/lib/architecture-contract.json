@@ -2393,6 +2393,26 @@
         "noAuthorityBasis": "The custody seam cannot transfer either Owner authority authorize provider execution production writes or trading or construct positive custody from caller input"
       },
       {
+        "inventoryId": "rd-market-data-repair-request-read-custody",
+        "memberPaths": ["crates/rd_market_data_repair_custody"],
+        "disposition": "OWNER_NATIVE_IMPLEMENTATION",
+        "destinationIds": ["rd", "market-data"],
+        "capabilityPortIds": [],
+        "providerMemberPortEvidence": [],
+        "adoptionRule": "Lock and verify one exact already-committed R&D repair request receipt storage and outbox record through the fixed Market Data Owner PostgreSQL read function",
+        "noAuthorityBasis": "The locator is query-only and the move-only readback grants no repair-terminal Market Data fact provider effect production-write or trading authority"
+      },
+      {
+        "inventoryId": "market-data-repair-terminal-custody",
+        "memberPaths": ["crates/market_data_repair_custody"],
+        "disposition": "OWNER_NATIVE_IMPLEMENTATION",
+        "destinationIds": ["market-data"],
+        "capabilityPortIds": [],
+        "providerMemberPortEvidence": [],
+        "adoptionRule": "Consume one sealed R&D request readback and one Owner-sealed PIT terminal to issue the canonical available or unavailable Market Data repair terminal",
+        "noAuthorityBasis": "The custody seam performs no provider transport persistence production-write or trading effect and cannot transfer R&D request authority to Market Data"
+      },
+      {
         "inventoryId": "rd-exploratory-replay-custody",
         "memberPaths": ["crates/rd_exploratory_replay_custody"],
         "disposition": "OWNER_NATIVE_IMPLEMENTATION",
