@@ -2782,6 +2782,33 @@ END$composer_read$;
 ALTER FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(text) OWNER TO composer_owner;
 REVOKE ALL ON FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(text) TO rd_owner;
+CREATE OR REPLACE FUNCTION composer_owner_api.resolve_develop_composer_locator_for_replay_v2(
+  p_artifact_locator text,
+  p_artifact_identity bytea,
+  p_canonical_plan_digest bytea,
+  p_design_digest bytea
+)
+RETURNS TABLE (request_identity text, operation_receipt_identity bytea)
+LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog AS $composer_replay_locator$BEGIN
+  IF SESSION_USER<>'rd_owner' OR CURRENT_USER<>'composer_owner' THEN RAISE EXCEPTION 'R&D Owner required' USING ERRCODE='42501'; END IF;
+  RETURN QUERY
+  SELECT role_set.request_identity,role_set.operation_receipt_identity
+    FROM composer_private.rd_develop_strategy_design_role_set_attestations_v1 role_set
+    JOIN composer_private.rd_develop_operations_v2 operation ON operation.request_identity=role_set.request_identity AND operation.artifact_identity=role_set.artifact_identity
+    JOIN composer_private.rd_develop_artifacts_v2 artifact ON artifact.artifact_identity=operation.artifact_identity AND artifact.plan_digest=role_set.canonical_plan_digest
+    JOIN composer_private.rd_develop_plans_v2 plan ON plan.plan_digest=artifact.plan_digest
+    JOIN composer_private.rd_develop_designs_v2 design ON design.design_identity=plan.design_identity
+   WHERE role_set.composer_schema_version=2
+     AND role_set.artifact_locator=p_artifact_locator
+     AND role_set.artifact_identity=p_artifact_identity
+     AND role_set.canonical_plan_digest=p_canonical_plan_digest
+     AND role_set.design_digest=p_design_digest
+   FOR SHARE OF role_set,operation,artifact,plan,design;
+END$composer_replay_locator$;
+ALTER FUNCTION composer_owner_api.resolve_develop_composer_locator_for_replay_v2(text,bytea,bytea,bytea) OWNER TO composer_owner;
+REVOKE ALL ON FUNCTION composer_owner_api.resolve_develop_composer_locator_for_replay_v2(text,bytea,bytea,bytea) FROM PUBLIC, rd_fact_writer, market_data_owner, market_data_reader;
+GRANT EXECUTE ON FUNCTION composer_owner_api.resolve_develop_composer_locator_for_replay_v2(text,bytea,bytea,bytea) TO rd_owner;
 CREATE OR REPLACE FUNCTION composer_owner_api.lock_develop_composer_commit_cut_v2(p_request_identity text)
 RETURNS TABLE (request_digest bytea, research_request_identity bytea, intent_identity bytea, artifact_identity bytea, operation_receipt_bytes bytea, response_bytes bytea, plan_digest bytea, artifact_package_bytes bytea, design_identity bytea, plan_bytes bytea, design_bytes bytea, module_ordinals integer[], module_bytes bytea[], build_ordinals integer[], build_receipt_tags integer[], build_receipt_identities bytea[], build_attempt_identities bytea[], capsule_identities bytea[], build_receipt_bytes bytea[], composer_receipt_bytes bytea, host_receipt_bytes bytea, outbox_bytes bytea)
 LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
@@ -2886,7 +2913,7 @@ BEGIN
   LOOP EXECUTE pg_catalog.format('REVOKE ALL ON FUNCTION %s FROM %I',grant_fact.signature,grant_fact.rolname); END LOOP;
 END
 $catalog_composer_function_acl_cutover$;
-GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_census_v2(), replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text), replay_policy_catalog_api.lock_current_replay_policy_catalog_v2(), replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text), replay_policy_catalog_api.lock_replay_policy_catalog_census_v3(), replay_policy_catalog_api.lock_replay_policy_catalog_record_v3(text), replay_policy_catalog_api.lock_current_replay_policy_catalog_v3(), replay_policy_catalog_api.read_replay_policy_catalog_audit_v3(text), composer_owner_api.lock_accepted_develop_composer_v2(text), composer_owner_api.lock_develop_composer_commit_cut_v2(text) TO rd_owner;
+GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_census_v2(), replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text), replay_policy_catalog_api.lock_current_replay_policy_catalog_v2(), replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text), replay_policy_catalog_api.lock_replay_policy_catalog_census_v3(), replay_policy_catalog_api.lock_replay_policy_catalog_record_v3(text), replay_policy_catalog_api.lock_current_replay_policy_catalog_v3(), replay_policy_catalog_api.read_replay_policy_catalog_audit_v3(text), composer_owner_api.lock_accepted_develop_composer_v2(text), composer_owner_api.resolve_develop_composer_locator_for_replay_v2(text,bytea,bytea,bytea), composer_owner_api.lock_develop_composer_commit_cut_v2(text) TO rd_owner;
 GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_census_v2(), replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text), replay_policy_catalog_api.lock_current_replay_policy_catalog_v2(), replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text), replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(text,text,text,text,text,numeric,text,text,bytea,bytea,bytea,bytea,text,text,jsonb,bigint), replay_policy_catalog_api.lock_replay_policy_catalog_census_v3(), replay_policy_catalog_api.lock_replay_policy_catalog_record_v3(text), replay_policy_catalog_api.lock_current_replay_policy_catalog_v3(), replay_policy_catalog_api.read_replay_policy_catalog_audit_v3(text), replay_policy_catalog_api.apply_replay_policy_catalog_command_v3(text,text,text,text,text,numeric,bytea,bytea,bytea,bytea,bytea,bytea,bytea,jsonb,bigint) TO replay_policy_catalog_admin_writer;
 GRANT EXECUTE ON FUNCTION composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea), composer_owner_api.commit_develop_composer_v3(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,integer[]) TO rd_fact_writer, rd_owner;
 \if :composer_acceptance
@@ -2975,10 +3002,11 @@ BEGIN
 $catalog_audit_read$
     ) FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
       WHERE namespace.nspname='replay_policy_catalog_api' AND procedure.proname='read_replay_policy_catalog_audit_v2')
-    AND (SELECT count(*)=CASE WHEN composer_acceptance THEN 9 ELSE 7 END AND bool_and(procedure.oid IN (
+    AND (SELECT count(*)=CASE WHEN composer_acceptance THEN 10 ELSE 8 END AND bool_and(procedure.oid IN (
       pg_catalog.to_regprocedure('composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea)'),
       pg_catalog.to_regprocedure('composer_owner_api.commit_develop_composer_v3(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,integer[])'),
       pg_catalog.to_regprocedure('composer_owner_api.lock_accepted_develop_composer_v2(text)'),
+      pg_catalog.to_regprocedure('composer_owner_api.resolve_develop_composer_locator_for_replay_v2(text,bytea,bytea,bytea)'),
       pg_catalog.to_regprocedure('composer_owner_api.lock_develop_composer_commit_cut_v2(text)'),
       pg_catalog.to_regprocedure('composer_owner_api.lock_replay_composition_cut_v1(text)'),
       pg_catalog.to_regprocedure('composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea)'),
@@ -3002,6 +3030,8 @@ $catalog_audit_read$
     AND (NOT composer_acceptance OR (pg_catalog.has_function_privilege('rd_owner','composer_owner_api.commit_develop_composer_acceptance_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea)','EXECUTE') AND NOT pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.commit_develop_composer_acceptance_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea)','EXECUTE') AND pg_catalog.has_function_privilege('rd_owner','composer_owner_api.commit_develop_composer_acceptance_v3(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,integer[])','EXECUTE') AND NOT pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.commit_develop_composer_acceptance_v3(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,integer[])','EXECUTE')))
     AND pg_catalog.has_function_privilege('rd_owner','composer_owner_api.lock_accepted_develop_composer_v2(text)','EXECUTE')
     AND NOT pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.lock_accepted_develop_composer_v2(text)','EXECUTE')
+    AND pg_catalog.has_function_privilege('rd_owner','composer_owner_api.resolve_develop_composer_locator_for_replay_v2(text,bytea,bytea,bytea)','EXECUTE')
+    AND NOT pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.resolve_develop_composer_locator_for_replay_v2(text,bytea,bytea,bytea)','EXECUTE')
     AND pg_catalog.has_function_privilege('rd_owner','composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea)','EXECUTE')
     AND NOT pg_catalog.has_function_privilege('rd_owner','composer_owner_api.resolve_strategy_design_native_join_v1(text,integer,bytea,text,bytea,bytea,bytea)','EXECUTE')
     AND NOT pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea)','EXECUTE')
@@ -3015,6 +3045,8 @@ $catalog_audit_read$
     AND NOT pg_catalog.has_function_privilege('market_data_reader','composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea)','EXECUTE')
     AND NOT pg_catalog.has_function_privilege('market_data_reader','composer_owner_api.commit_develop_composer_v3(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,integer[])','EXECUTE')
     AND NOT pg_catalog.has_function_privilege('market_data_reader','composer_owner_api.lock_accepted_develop_composer_v2(text)','EXECUTE')
+    AND NOT pg_catalog.has_function_privilege('market_data_reader','composer_owner_api.resolve_develop_composer_locator_for_replay_v2(text,bytea,bytea,bytea)','EXECUTE')
+    AND NOT pg_catalog.has_function_privilege('market_data_owner','composer_owner_api.resolve_develop_composer_locator_for_replay_v2(text,bytea,bytea,bytea)','EXECUTE')
     AND NOT pg_catalog.has_table_privilege('market_data_reader','composer_private.rd_develop_strategy_design_role_set_attestations_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
     AND NOT pg_catalog.has_table_privilege('market_data_reader','composer_private.rd_develop_strategy_design_native_joins_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
   INTO exact FROM pg_catalog.pg_database database WHERE database.datname=pg_catalog.current_database();

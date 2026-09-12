@@ -6,8 +6,9 @@ use vibe_data::owner::source_binding::BindingDigest;
 
 use crate::{
     develop_composer_postgres_v2::{
-        DevelopComposerSealedReadErrorV2, DevelopComposerSealedReadLocatorV2,
-        DevelopComposerSealedReadPortV2, SealedDevelopComposerReadbackV2,
+        DevelopComposerSealedReadErrorV2, DevelopComposerSealedReadPortV2,
+        SealedDevelopComposerReadbackV2,
+        resolve_develop_composer_locator_for_replay_v2_in_transaction,
     },
     exploratory_replay::{ExploratoryReplayRequestLocatorV2, SealedExploratoryReplayReadbackV2},
     native_replay_rd_sources_v2::NativeReplayRdSourcesV2,
@@ -65,7 +66,6 @@ pub enum NativeReplayPreparationInputsErrorV2 {
 pub async fn resolve_native_replay_preparation_inputs_v2_in_transaction<P>(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     replay_locator: &ExploratoryReplayRequestLocatorV2,
-    composer_locator: &DevelopComposerSealedReadLocatorV2,
     composer_port: &P,
 ) -> Result<NativeReplayPreparationInputsV2, NativeReplayPreparationInputsErrorV2>
 where
@@ -74,8 +74,18 @@ where
     let resolved = resolve_native_replay_rd_cut_v2_in_transaction(transaction, replay_locator)
         .await
         .map_err(|error| NativeReplayPreparationInputsErrorV2::Unavailable(error.to_string()))?;
+    let request = resolved.replay.request().as_dto();
+    let composer_locator = resolve_develop_composer_locator_for_replay_v2_in_transaction(
+        transaction,
+        request.artifact.identity.as_str(),
+        parse_sha256_content(&request.artifact.digest)?,
+        parse_sha256_content(&request.strategy_plan.digest)?,
+        parse_sha256_content(&request.strategy_design.digest)?,
+    )
+    .await
+    .map_err(composer_unavailable)?;
     let composer = composer_port
-        .read_accepted(composer_locator)
+        .read_accepted(&composer_locator)
         .await
         .map_err(composer_unavailable)?;
     issue_native_replay_preparation_inputs_v2(
@@ -195,6 +205,13 @@ fn parse_sha256_suffix(value: &str, prefix: &str) -> Option<BindingDigest> {
         *slot = u8::from_str_radix(&hex[index * 2..index * 2 + 2], 16).ok()?;
     }
     Some(BindingDigest::from_untrusted_bytes(bytes))
+}
+
+fn parse_sha256_content(
+    value: &vibe_backtest_owner_contracts::CanonicalDigestV2,
+) -> Result<BindingDigest, NativeReplayPreparationInputsErrorV2> {
+    parse_sha256_suffix(value.as_str(), "sha256:")
+        .ok_or_else(|| unavailable("canonical SHA-256 content digest is unavailable"))
 }
 
 fn named_identity_matches(value: &str, prefix: &str, expected: BindingDigest) -> bool {

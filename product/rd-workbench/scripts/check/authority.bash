@@ -161,6 +161,7 @@ test "$(printf '%s' "$acceptance_composer_acl" | sha256_stdin)" = c2fc6bbd3d0c1e
 test "$(grep -Fc '\if :composer_acceptance' "$composer_migration")" -eq 3
 grep -Fq 'DROP FUNCTION IF EXISTS composer_owner_api.commit_develop_composer_acceptance_v2(' "$composer_migration"
 grep -Fq 'CREATE OR REPLACE FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE OR REPLACE FUNCTION composer_owner_api.resolve_develop_composer_locator_for_replay_v2(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "IF SESSION_USER NOT IN ('rd_fact_writer','rd_owner') THEN RAISE EXCEPTION 'R&D Composer writer required'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "IF SESSION_USER<>'replay_policy_catalog_admin_writer' THEN RAISE EXCEPTION 'Replay Policy Catalog admin writer required'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "DO \$catalog_composer_function_acl_cutover\$" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
