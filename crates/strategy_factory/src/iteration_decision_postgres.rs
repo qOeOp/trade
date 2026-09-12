@@ -12,7 +12,8 @@ use crate::{
     iteration_decision::{
         IterationDecisionErrorV1, IterationDecisionGateV1, IterationNoDecisionReasonV1,
         RepairInputIterationDecisionReadbackV1, admit_stored_repair_input_decision_v1,
-        gate_locked_exploratory_result_v1, issue_repair_input_decision_v1,
+        gate_locked_exploratory_result_v1, is_valid_iteration_decision_locator_v1,
+        issue_repair_input_decision_v1,
     },
     repair_action::{
         RepairActionErrorV1, RepairActionRequestReadbackV1, admit_stored_repair_action_request_v1,
@@ -230,7 +231,9 @@ pub(crate) async fn resolve_repair_input_decision_v1(
     pool: &PgPool,
     locator: IterationDecisionResolutionLocatorV1,
 ) -> Result<Option<RepairInputIterationDecisionReadbackV1>, IterationDecisionPostgresErrorV1> {
-    if !valid_locator(&locator.decision_identity) || !valid_locator(&locator.result_identity) {
+    if !is_valid_iteration_decision_locator_v1(&locator.decision_identity)
+        || !is_valid_iteration_decision_locator_v1(&locator.result_identity)
+    {
         return Err(IterationDecisionPostgresErrorV1::InvalidLocator);
     }
     let mut transaction = pool.begin().await.map_err(storage)?;
@@ -288,8 +291,8 @@ pub(crate) async fn resolve_repair_action_request_v1(
     pool: &PgPool,
     locator: RepairActionResolutionLocatorV1,
 ) -> Result<Option<RepairActionRequestReadbackV1>, IterationDecisionPostgresErrorV1> {
-    if !valid_locator(&locator.action_request_identity)
-        || !valid_locator(&locator.decision_identity)
+    if !is_valid_iteration_decision_locator_v1(&locator.action_request_identity)
+        || !is_valid_iteration_decision_locator_v1(&locator.decision_identity)
     {
         return Err(IterationDecisionPostgresErrorV1::InvalidLocator);
     }
@@ -512,7 +515,9 @@ struct RepairActionRequestedOutboxV1 {
 fn validate_repair_action_composition(
     request: &RepairActionCompositionRequestV1,
 ) -> Result<(), IterationDecisionPostgresErrorV1> {
-    if valid_locator(&request.decision_identity) && valid_locator(&request.result_identity) {
+    if is_valid_iteration_decision_locator_v1(&request.decision_identity)
+        && is_valid_iteration_decision_locator_v1(&request.result_identity)
+    {
         Ok(())
     } else {
         Err(IterationDecisionPostgresErrorV1::InvalidLocator)
@@ -759,19 +764,12 @@ fn validate_composition_request(
         request.attempt_identity.as_str(),
     ]
     .into_iter()
-    .all(valid_locator)
+    .all(is_valid_iteration_decision_locator_v1)
     {
         Ok(())
     } else {
         Err(IterationDecisionPostgresErrorV1::InvalidLocator)
     }
-}
-
-fn valid_locator(value: &str) -> bool {
-    (4..=256).contains(&value.len())
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b':' | b'.'))
 }
 
 fn current_epoch_ms() -> Result<u64, IterationDecisionPostgresErrorV1> {

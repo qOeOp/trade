@@ -204,6 +204,15 @@ pub enum IterationTerminalStopReasonV1 {
     InputUnavailable,
 }
 
+/// Returns whether a caller-safe Iteration Decision locator has the exact Owner wire shape.
+#[must_use]
+pub fn is_valid_iteration_decision_locator_v1(value: &str) -> bool {
+    (4..=256).contains(&value.len())
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b':' | b'.'))
+}
+
 /// Exact Owner facts that every eventual Decision and Selection must repeat.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]

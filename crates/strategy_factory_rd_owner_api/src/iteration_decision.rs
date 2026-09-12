@@ -10,12 +10,11 @@ use axum::{
 };
 use serde::Serialize;
 use serde_json::json;
-use vibe_backtest_owner_contracts::OpaqueIdentityV2;
 use vibe_strategy_factory::{
     DecisionCompositionRequestV1, IterationDecisionPostgresErrorV1,
     iteration_decision::{
         IterationDecisionEvidenceCutV1, IterationDecisionOutcomeV1, IterationRepairCategoryV1,
-        RepairInputIterationDecisionReadbackV1,
+        RepairInputIterationDecisionReadbackV1, is_valid_iteration_decision_locator_v1,
     },
     product_edge_postgres::PostgresResearchGoalOwnerV1,
 };
@@ -126,7 +125,7 @@ async fn compose_repair_input_decision(
         request.attempt_identity.as_str(),
     ]
     .into_iter()
-    .any(|identity| OpaqueIdentityV2::try_from(identity.to_string()).is_err())
+    .any(|identity| !is_valid_iteration_decision_locator_v1(identity))
     {
         return rejection(
             StatusCode::BAD_REQUEST,
@@ -298,13 +297,15 @@ mod tests {
         assert_eq!(owner.calls.load(Ordering::SeqCst), 0);
 
         let mut invalid = request();
-        invalid["result_identity"] = json!(" invalid");
-        let invalid = action_router(owner.clone(), token_digest)
-            .oneshot(send(invalid, Some(&format!("Bearer {token}"))))
-            .await
-            .expect("router response");
-        assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
-        assert_eq!(owner.calls.load(Ordering::SeqCst), 0);
+        for invalid_identity in ["a", "result/1"] {
+            invalid["result_identity"] = json!(invalid_identity);
+            let response = action_router(owner.clone(), token_digest)
+                .oneshot(send(invalid.clone(), Some(&format!("Bearer {token}"))))
+                .await
+                .expect("router response");
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            assert_eq!(owner.calls.load(Ordering::SeqCst), 0);
+        }
 
         let no_decision = action_router(owner.clone(), token_digest)
             .oneshot(send(request(), Some(&format!("Bearer {token}"))))
