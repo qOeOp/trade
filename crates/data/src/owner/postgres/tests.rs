@@ -116,6 +116,131 @@ fn shared_clock(
     )
 }
 
+fn raw_bytea(digest: BindingDigest) -> Value {
+    let encoded = digest
+        .as_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    serde_json::json!(format!("\\x{encoded}"))
+}
+
+fn raw_clock_fact(fact: &ClockHeadFact) -> Vec<u8> {
+    let handoff = &fact.handoff;
+    serde_json::to_vec(&serde_json::json!({
+        "head_identity": raw_bytea(handoff.head_identity()),
+        "head_digest": raw_bytea(handoff.head_digest()),
+        "predecessor_head_digest": fact.predecessor_head_digest.map(raw_bytea),
+        "clock_identity": handoff.clock_identity(),
+        "clock_epoch": handoff.clock_epoch(),
+        "monotonic_sequence": handoff.monotonic_sequence(),
+        "wall_observed": handoff.wall_observed(),
+        "decision_cut": handoff.decision_cut(),
+        "valid_through": handoff.valid_through(),
+        "restart_continuity_digest": raw_bytea(handoff.restart_continuity_digest()),
+        "uncertainty_bound": handoff.uncertainty_bound(),
+        "skew_bound": handoff.skew_bound(),
+        "comparison_rule": 1,
+    }))
+    .unwrap()
+}
+
+fn raw_epoch_proof(proof: &EpochSuccessorProof) -> Vec<u8> {
+    serde_json::to_vec(&serde_json::json!({
+        "proof_identity": raw_bytea(proof.proof_identity()),
+        "predecessor_head_digest": raw_bytea(proof.predecessor_head_digest()),
+        "successor_head_digest": raw_bytea(proof.successor_head_digest()),
+        "prior_clock_identity": proof.prior_clock_identity(),
+        "prior_clock_epoch": proof.prior_clock_epoch(),
+        "successor_clock_identity": proof.successor_clock_identity(),
+        "successor_clock_epoch": proof.successor_clock_epoch(),
+        "successor_continuity_digest": raw_bytea(proof.successor_continuity_digest()),
+        "commit_cut": proof.commit_cut(),
+        "comparison_rule": 1,
+    }))
+    .unwrap()
+}
+
+fn raw_membership(
+    handoff_count: usize,
+    fact: &ClockHeadFact,
+    root: BindingDigest,
+    ordinal: u64,
+    prior: Option<BindingDigest>,
+) -> Vec<u8> {
+    serde_json::to_vec(&serde_json::json!({
+        "handoff_count": handoff_count,
+        "head_identity": raw_bytea(fact.handoff.head_identity()),
+        "root_head_identity": raw_bytea(root),
+        "ordinal": ordinal,
+        "prior_head_identity": prior.map(raw_bytea),
+    }))
+    .unwrap()
+}
+
+#[test]
+fn shared_time_raw_history_rejects_tampered_historical_epoch_proof() {
+    let root = build_head_fact(
+        &shared_clock("market-clock", "epoch-1", 1, 100, d(7), 1, 2),
+        None,
+    )
+    .unwrap();
+    let epoch_two = build_head_fact(
+        &shared_clock("market-clock", "epoch-2", 1, 110, d(8), 1, 2),
+        Some(root.handoff.head_digest()),
+    )
+    .unwrap();
+    let latest = build_head_fact(
+        &shared_clock("market-clock", "epoch-2", 2, 120, d(8), 1, 2),
+        Some(epoch_two.handoff.head_digest()),
+    )
+    .unwrap();
+    let proof = build_epoch_successor_proof(&root, &epoch_two);
+    let root_identity = root.handoff.head_identity();
+    let mut snapshot = RawSharedTimeEvidenceSnapshotV1 {
+        history_rows: vec![
+            RawSharedTimeHistoryRowV1 {
+                membership_row: raw_membership(3, &root, root_identity, 1, None),
+                handoff_row: Some(raw_clock_fact(&root)),
+                epoch_proof_row: None,
+            },
+            RawSharedTimeHistoryRowV1 {
+                membership_row: raw_membership(
+                    3,
+                    &epoch_two,
+                    root_identity,
+                    2,
+                    Some(root_identity),
+                ),
+                handoff_row: Some(raw_clock_fact(&epoch_two)),
+                epoch_proof_row: Some(raw_epoch_proof(&proof)),
+            },
+            RawSharedTimeHistoryRowV1 {
+                membership_row: raw_membership(
+                    3,
+                    &latest,
+                    root_identity,
+                    3,
+                    Some(epoch_two.handoff.head_identity()),
+                ),
+                handoff_row: Some(raw_clock_fact(&latest)),
+                epoch_proof_row: None,
+            },
+        ],
+    };
+
+    assert_eq!(verify_raw_clock_history_v1(&snapshot).unwrap().len(), 3);
+
+    let proof_row = snapshot.history_rows[1].epoch_proof_row.as_mut().unwrap();
+    let mut proof_json: Value = serde_json::from_slice(proof_row).unwrap();
+    proof_json["proof_identity"] = raw_bytea(d(99));
+    *proof_row = serde_json::to_vec(&proof_json).unwrap();
+    assert!(matches!(
+        verify_raw_clock_history_v1(&snapshot),
+        Err(SharedTimeEvidenceError::StoreUnavailable)
+    ));
+}
+
 fn source_proposal(sequence: u64, cut: u64) -> UntrustedSourceBindingProposal {
     let successor = sequence > 10;
     let mut proposal = UntrustedSourceBindingProposal {

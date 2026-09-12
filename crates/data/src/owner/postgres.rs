@@ -55,6 +55,9 @@ use super::sealed_replay_input::{
     SealedReplayInput, SealedReplayInputResolver, UntrustedSealedReplayInputRequest,
     seal_replay_input,
 };
+use super::store_admission::RawSharedTimeEvidenceSnapshotV1;
+#[cfg(test)]
+use super::store_admission::RawSharedTimeHistoryRowV1;
 #[cfg(not(test))]
 use super::store_admission::{
     AdmittedMarketDataSnapshotPort, BarScheduleStorageEvidenceV1,
@@ -6454,15 +6457,18 @@ impl SharedTimeEvidenceResolver for MarketDataReadPostgres {
     ) -> Result<ClockHeadHandoff, SharedTimeEvidenceError> {
         let raw = self
             .admitted_port
-            .resolve_shared_time_evidence_v1(*locator.head_identity().as_bytes(), None)
+            .resolve_shared_time_evidence_v1()
             .await
             .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
-        let fact = decode_raw_clock_fact(&raw.prior_row)
-            .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
-        if fact.handoff.locator() != locator {
+        let history = verify_raw_clock_history_v1(&raw)?;
+        let entry = history
+            .iter()
+            .find(|entry| entry.fact.handoff.head_identity() == locator.head_identity())
+            .ok_or(SharedTimeEvidenceError::LocatorMismatch)?;
+        if entry.fact.handoff.locator() != locator {
             return Err(SharedTimeEvidenceError::LocatorMismatch);
         }
-        Ok(fact.handoff)
+        Ok(entry.fact.handoff.clone())
     }
 
     async fn resolve_clock_successor(
@@ -6472,52 +6478,131 @@ impl SharedTimeEvidenceResolver for MarketDataReadPostgres {
     ) -> Result<ClockHeadSuccessorReadback, SharedTimeEvidenceError> {
         let raw = self
             .admitted_port
-            .resolve_shared_time_evidence_v1(
-                *prior.head_identity().as_bytes(),
-                Some((
-                    *successor.head_identity().as_bytes(),
-                    *successor.head_digest().as_bytes(),
-                )),
-            )
+            .resolve_shared_time_evidence_v1()
             .await
             .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
-        let prior_fact = decode_raw_clock_fact(&raw.prior_row)
-            .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
-        if &prior_fact.handoff != prior {
+        let history = verify_raw_clock_history_v1(&raw)?;
+        let prior_entry = history
+            .iter()
+            .find(|entry| entry.fact.handoff.head_identity() == prior.head_identity())
+            .ok_or(SharedTimeEvidenceError::PriorHandoffMismatch)?;
+        if &prior_entry.fact.handoff != prior {
             return Err(SharedTimeEvidenceError::PriorHandoffMismatch);
         }
-        let successor_fact = decode_raw_clock_fact(
-            raw.successor_row
-                .as_deref()
-                .ok_or(SharedTimeEvidenceError::LocatorMismatch)?,
-        )
-        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
-        if successor_fact.handoff.locator() != successor
-            || successor_fact.predecessor_head_digest != Some(prior.head_digest())
+        let successor_entry = history
+            .iter()
+            .find(|entry| entry.fact.handoff.head_identity() == successor.head_identity())
+            .ok_or(SharedTimeEvidenceError::LocatorMismatch)?;
+        if successor_entry.fact.handoff.locator() != successor
+            || successor_entry.fact.predecessor_head_digest != Some(prior.head_digest())
         {
             return Err(SharedTimeEvidenceError::PriorHandoffMismatch);
         }
-        let proof = raw
+        Ok(successor_readback(
+            successor_entry.fact.handoff.clone(),
+            successor_entry.proof.clone(),
+        ))
+    }
+}
+
+struct VerifiedClockHistoryEntryV1 {
+    membership: ClockMembership,
+    fact: ClockHeadFact,
+    proof: Option<EpochSuccessorProof>,
+}
+
+fn verify_raw_clock_history_v1(
+    raw: &RawSharedTimeEvidenceSnapshotV1,
+) -> Result<Vec<VerifiedClockHistoryEntryV1>, SharedTimeEvidenceError> {
+    let mut expected_count = None;
+    let mut entries = Vec::with_capacity(raw.history_rows.len());
+    for raw_entry in &raw.history_rows {
+        let (count, membership) = decode_raw_clock_membership(&raw_entry.membership_row)?;
+        if expected_count
+            .replace(count)
+            .is_some_and(|expected| expected != count)
+        {
+            return Err(SharedTimeEvidenceError::StoreUnavailable);
+        }
+        let fact = decode_raw_clock_fact(
+            raw_entry
+                .handoff_row
+                .as_deref()
+                .ok_or(SharedTimeEvidenceError::StoreUnavailable)?,
+        )
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+        if membership.identity != fact.handoff.head_identity() {
+            return Err(SharedTimeEvidenceError::StoreUnavailable);
+        }
+        let proof = raw_entry
             .epoch_proof_row
             .as_deref()
             .map(decode_raw_epoch_proof)
             .transpose()?;
-        if prior.clock_epoch() == successor_fact.handoff.clock_epoch() {
-            validate_same_epoch_successor(&prior_fact, &successor_fact.clock())?;
-            if proof.is_some() {
-                return Err(SharedTimeEvidenceError::EpochSuccessorProofMismatch);
+        entries.push(VerifiedClockHistoryEntryV1 {
+            membership,
+            fact,
+            proof,
+        });
+    }
+    if expected_count != Some(entries.len()) || entries.is_empty() {
+        return Err(SharedTimeEvidenceError::StoreUnavailable);
+    }
+    for entry in &entries {
+        if entries
+            .iter()
+            .filter(|candidate| candidate.membership.identity == entry.membership.identity)
+            .count()
+            != 1
+            || entries
+                .iter()
+                .filter(|candidate| candidate.membership.ordinal == entry.membership.ordinal)
+                .count()
+                != 1
+        {
+            return Err(SharedTimeEvidenceError::StoreUnavailable);
+        }
+        if entry.membership.ordinal == 1 {
+            if entry.membership.root_identity != entry.membership.identity
+                || entry.membership.prior_identity.is_some()
+                || entry.fact.predecessor_head_digest.is_some()
+                || entry.proof.is_some()
+            {
+                return Err(SharedTimeEvidenceError::StoreUnavailable);
+            }
+            continue;
+        }
+        let prior = entries
+            .iter()
+            .find(|candidate| {
+                Some(candidate.membership.identity) == entry.membership.prior_identity
+            })
+            .ok_or(SharedTimeEvidenceError::StoreUnavailable)?;
+        if entry.membership.root_identity != prior.membership.root_identity
+            || prior.membership.ordinal.checked_add(1) != Some(entry.membership.ordinal)
+            || entry.fact.predecessor_head_digest != Some(prior.fact.handoff.head_digest())
+        {
+            return Err(SharedTimeEvidenceError::StoreUnavailable);
+        }
+        if entry.fact.handoff.clock_epoch() == prior.fact.handoff.clock_epoch() {
+            validate_same_epoch_successor(&prior.fact, &entry.fact.clock())
+                .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+            if entry.proof.is_some() {
+                return Err(SharedTimeEvidenceError::StoreUnavailable);
             }
         } else {
-            validate_new_epoch_successor(&prior_fact, &successor_fact.clock())?;
-            let proof_value = proof
+            validate_new_epoch_successor(&prior.fact, &entry.fact.clock())
+                .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+            let proof = entry
+                .proof
                 .as_ref()
-                .ok_or(SharedTimeEvidenceError::EpochSuccessorProofMismatch)?;
-            if !verify_epoch_successor_proof(proof_value, &prior_fact, &successor_fact) {
-                return Err(SharedTimeEvidenceError::EpochSuccessorProofMismatch);
+                .ok_or(SharedTimeEvidenceError::StoreUnavailable)?;
+            if !verify_epoch_successor_proof(proof, &prior.fact, &entry.fact) {
+                return Err(SharedTimeEvidenceError::StoreUnavailable);
             }
         }
-        Ok(successor_readback(successor_fact.handoff, proof))
     }
+    Ok(entries)
 }
 
 #[cfg(test)]
@@ -7998,7 +8083,6 @@ fn decode_raw_clock(raw: &[u8]) -> Result<MarketDataClockAdmission, SourceBindin
     Ok(decode_raw_clock_fact(raw)?.clock())
 }
 
-#[cfg(not(test))]
 fn decode_raw_clock_fact(raw: &[u8]) -> Result<ClockHeadFact, SourceBindingError> {
     let value: Value =
         serde_json::from_slice(raw).map_err(|_| SourceBindingError::StoreUnavailable)?;
@@ -8070,7 +8154,49 @@ fn decode_raw_clock_fact(raw: &[u8]) -> Result<ClockHeadFact, SourceBindingError
     Ok(fact)
 }
 
-#[cfg(not(test))]
+fn decode_raw_clock_membership(
+    raw: &[u8],
+) -> Result<(usize, ClockMembership), SharedTimeEvidenceError> {
+    let value: Value =
+        serde_json::from_slice(raw).map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+    let object = value
+        .as_object()
+        .ok_or(SharedTimeEvidenceError::StoreUnavailable)?;
+    let count = object
+        .get("handoff_count")
+        .and_then(Value::as_u64)
+        .and_then(|value| usize::try_from(value).ok())
+        .filter(|value| *value != 0)
+        .ok_or(SharedTimeEvidenceError::StoreUnavailable)?;
+    let digest = |name| {
+        raw_digest(
+            object
+                .get(name)
+                .ok_or(SharedTimeEvidenceError::StoreUnavailable)?,
+        )
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)
+    };
+    let prior_identity = object
+        .get("prior_head_identity")
+        .filter(|value| !value.is_null())
+        .map(raw_digest)
+        .transpose()
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+    Ok((
+        count,
+        ClockMembership {
+            identity: digest("head_identity")?,
+            root_identity: digest("root_head_identity")?,
+            ordinal: object
+                .get("ordinal")
+                .and_then(Value::as_u64)
+                .filter(|value| *value != 0)
+                .ok_or(SharedTimeEvidenceError::StoreUnavailable)?,
+            prior_identity,
+        },
+    ))
+}
+
 fn decode_raw_epoch_proof(raw: &[u8]) -> Result<EpochSuccessorProof, SharedTimeEvidenceError> {
     let value: Value =
         serde_json::from_slice(raw).map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
@@ -8114,7 +8240,6 @@ fn decode_raw_epoch_proof(raw: &[u8]) -> Result<EpochSuccessorProof, SharedTimeE
     })
 }
 
-#[cfg(not(test))]
 fn raw_positive(value: &Value) -> Result<u64, SourceBindingError> {
     value
         .as_u64()
@@ -8122,7 +8247,6 @@ fn raw_positive(value: &Value) -> Result<u64, SourceBindingError> {
         .ok_or(SourceBindingError::StoreUnavailable)
 }
 
-#[cfg(not(test))]
 fn raw_digest(value: &Value) -> Result<BindingDigest, SourceBindingError> {
     let bytes = raw_bytes(value)?;
     let bytes: [u8; 32] = bytes
@@ -8131,7 +8255,6 @@ fn raw_digest(value: &Value) -> Result<BindingDigest, SourceBindingError> {
     Ok(BindingDigest::from_untrusted_bytes(bytes))
 }
 
-#[cfg(not(test))]
 fn raw_bytes(value: &Value) -> Result<Vec<u8>, SourceBindingError> {
     let encoded = value
         .as_str()

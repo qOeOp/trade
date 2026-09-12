@@ -12,6 +12,9 @@
 )]
 
 mod postgres;
+pub(super) use postgres::RawSharedTimeEvidenceSnapshotV1;
+#[cfg(test)]
+pub(super) use postgres::RawSharedTimeHistoryRowV1;
 
 use std::{
     fmt::{Debug, Display},
@@ -635,8 +638,6 @@ impl AdmittedMarketDataSnapshotPort {
     /// Reads one Shared Time head and an optional direct successor after admission before and after.
     pub(super) async fn resolve_shared_time_evidence_v1(
         &self,
-        prior_identity: [u8; 32],
-        successor: Option<([u8; 32], [u8; 32])>,
     ) -> Result<postgres::RawSharedTimeEvidenceSnapshotV1, DeploymentStoreAdmissionError> {
         let before = self
             .revalidator
@@ -648,20 +649,14 @@ impl AdmittedMarketDataSnapshotPort {
             &before.receipt,
             &before.measurement_spec,
         )?;
-        let raw = postgres::read_shared_time_evidence_snapshot_v1(
-            &before.credential_lease,
-            &prior_identity,
-            successor
-                .as_ref()
-                .map(|(identity, digest)| (identity, digest)),
-        )
-        .await
-        .map_err(|_| {
-            rejection(
-                &self.scope,
-                AdmissionFailureCode::DirectMeasurementUnavailable,
-            )
-        })?;
+        let raw = postgres::read_shared_time_evidence_snapshot_v1(&before.credential_lease)
+            .await
+            .map_err(|_| {
+                rejection(
+                    &self.scope,
+                    AdmissionFailureCode::DirectMeasurementUnavailable,
+                )
+            })?;
         let after = self
             .revalidator
             .admit_capability(self.scope.clone())
@@ -3038,11 +3033,19 @@ mod tests {
         let functions = vec![
             "market_data_private.resolve_owner_history_census_custody_v1()".to_string(),
             "market_data_private.resolve_clock_custody_state_v1()".to_string(),
+            "market_data_private.resolve_clock_membership_custody_v1()".to_string(),
             "market_data_private.resolve_clock_handoff_v1(bytea)".to_string(),
             "market_data_private.resolve_epoch_successor_proof_v1(bytea)".to_string(),
         ];
         let relations = vec![
             "market_data_private.owner_migrations_v1".to_string(),
+            "market_data_private.owner_history_census_state_v1".to_string(),
+            "market_data_private.source_binding_lineage_census_v1".to_string(),
+            "market_data_private.pit_snapshot_lineage_census_v1".to_string(),
+            "market_data_private.source_binding_facts_v1".to_string(),
+            "market_data_private.source_binding_heads_v1".to_string(),
+            "market_data_private.pit_snapshot_facts_v1".to_string(),
+            "market_data_private.pit_snapshot_heads_v1".to_string(),
             "market_data_private.clock_head_v1".to_string(),
             "market_data_private.clock_handoffs_v1".to_string(),
             "market_data_private.clock_handoff_state_v1".to_string(),
@@ -3059,23 +3062,30 @@ mod tests {
         .expect("complete Shared Time measurement");
         assert!(complete.covers_shared_time_floor_v1());
 
-        let missing_function = PostgresMeasurementSpec::new(
-            "market_data_private",
-            "market_data_private.schema_migrations_v1",
-            functions[..3].to_vec(),
-            relations.clone(),
-        )
-        .expect("bounded incomplete function measurement");
-        assert!(!missing_function.covers_shared_time_floor_v1());
-
-        let missing_relation = PostgresMeasurementSpec::new(
-            "market_data_private",
-            "market_data_private.schema_migrations_v1",
-            functions,
-            relations[..6].to_vec(),
-        )
-        .expect("bounded incomplete relation measurement");
-        assert!(!missing_relation.covers_shared_time_floor_v1());
+        for omitted in 0..functions.len() {
+            let mut incomplete = functions.clone();
+            incomplete.remove(omitted);
+            let spec = PostgresMeasurementSpec::new(
+                "market_data_private",
+                "market_data_private.schema_migrations_v1",
+                incomplete,
+                relations.clone(),
+            )
+            .expect("bounded incomplete function measurement");
+            assert!(!spec.covers_shared_time_floor_v1());
+        }
+        for omitted in 0..relations.len() {
+            let mut incomplete = relations.clone();
+            incomplete.remove(omitted);
+            let spec = PostgresMeasurementSpec::new(
+                "market_data_private",
+                "market_data_private.schema_migrations_v1",
+                functions.clone(),
+                incomplete,
+            )
+            .expect("bounded incomplete relation measurement");
+            assert!(!spec.covers_shared_time_floor_v1());
+        }
     }
 
     #[tokio::test]
