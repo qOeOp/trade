@@ -260,13 +260,25 @@ projection identity、source cut 与 TrialFamily identity 收进技术信息控�
 configuration failure、permission denied、Owner response malformed/oversized、identity drift 或 transport
 failure 都会清除旧内容并展示一个保持形状的 unavailable state。
 
+在下文“第一方 effect custody 准入（授权 B）”闭合 disposable runtime 动态 gate 后，accepted Research
+详情只在 Owner 投影精确为 `AVAILABLE / INTENT_FROZEN / WAIT_FOR_R_AND_D_EXECUTION` 时，于同一 inset body
+追加共享 `ActionAdmissionGate`。该紧凑控件复用 `DetailInspector`、`Input`、`Button` 与 `StatusBadge` 原子；
+operator access 只保存在当前 browser state，不进入 URL、HTML、日志或持久化存储。`Check & Run` 先调用
+`POST /api/rd/artifacts/formations/preflight` 并进入可取消的 `PREFLIGHTING`；只有精确 `READY` 才生成并保留
+同一组 deterministic build/attempt recovery identity，随后调用 `POST /api/rd/artifacts/formations` 并进入
+不可取消的 `ADMITTING`。preflight 的取消、transport failure、malformed response 或 non-ready 结果进入
+`REVALIDATION_REQUIRED`，且不展示 attempt Resolve。dispatch 后任何 unavailable、malformed response 或
+transport ambiguity 都进入 `SUBMITTED_OR_UNKNOWN`，只允许用保留的 exact build/attempt identity 执行
+`RESOLVE`；绝不创建 replacement identity 或提供裸 retry。
+
 Dashboard GET `/api/rd/research/{requestIdentity}` 绑定 path identity，并复用已注册的
 `research_goal.shadow_resolve.v1` Owner GET `/v2/research-goals/{request_identity}/readback`。BFF 只返回已验证
 outcome、可选 current Research view、committed/observed/valid-through 时间，以及上述有界技术 identity；
-它不接受 request body，也不排入 RunStore read。`Refresh`、目录 view/search/sort/pagination、`Load older`、
-`Open detail` 与本地返回是唯一 action。这里没有 Submit、Resolve、create successor、build、run、provider、
-Windmill、Owner write、production write 或 trading 路径。route registry 中更广的 Research admission、
-outcome action、receipt timeline 与 S1 custody panel 仍属于未来蓝图。
+它不接受 request body，也不排入 RunStore read。除上一段由 Authorization B 单独准入的 disposable Artifact
+formation control 外，`Refresh`、目录 view/search/sort/pagination、`Load older`、`Open detail` 与本地返回是
+唯一 action。该例外不改变 Windmill binding，不授权 production Owner/provider write、production cutover、
+Windmill removal 或 trading，也不增加通用 Submit 或 create-successor；route registry 中更广的 Research admission、outcome action、receipt timeline
+与 S1 custody panel 仍属于未来蓝图。
 
 ## 有界准入：已验证 Artifact 目录
 

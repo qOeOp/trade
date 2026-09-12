@@ -304,14 +304,27 @@ remain behind the technical-info control instead of appearing as loose explanato
 invalid identity, configuration failure, permission denial, malformed or oversized Owner response, identity
 drift, or transport failure clears prior content and renders one shape-preserving unavailable state.
 
+After the disposable-runtime dynamic gates in "First-party effect-custody admission (Authorization B)" are
+closed, an accepted Research detail appends the shared `ActionAdmissionGate` inside that same inset body only
+when the Owner projection is exactly `AVAILABLE / INTENT_FROZEN / WAIT_FOR_R_AND_D_EXECUTION`. The compact
+control reuses the `DetailInspector`, `Input`, `Button`, and `StatusBadge` atoms. Operator access remains only in
+current browser state and never enters a URL, HTML, log, or persistent store. `Check & Run` first calls
+`POST /api/rd/artifacts/formations/preflight` in cancellable `PREFLIGHTING`; only exact `READY` creates and retains
+one deterministic build/attempt recovery-identity pair, then calls `POST /api/rd/artifacts/formations` in
+non-cancellable `ADMITTING`. A cancelled preflight, transport failure, malformed response, or non-ready result
+enters `REVALIDATION_REQUIRED` and exposes no attempt Resolve. After dispatch, every unavailable or malformed
+response and every transport ambiguity enters `SUBMITTED_OR_UNKNOWN`; only `RESOLVE` with the retained exact
+build/attempt identities is available, with no replacement identity or naked retry.
+
 The Dashboard GET `/api/rd/research/{requestIdentity}` path-binds the identity and reuses the registered
 `research_goal.shadow_resolve.v1` Owner GET `/v2/research-goals/{request_identity}/readback`. The BFF returns only
 the verified outcome, optional current Research view, committed/observed/valid-through times, and the bounded
-technical identities named above. It accepts no request body and does not enqueue a RunStore read. `Refresh`,
-directory view/search/sort/pagination, `Load older`, `Open detail`, and local back navigation are the only actions.
-There is no Submit, Resolve, create-successor, build, run, provider, Windmill, Owner-write, production-write, or
-trading path. The broader Research admission, outcome-action, receipt timeline, and S1 custody panels in the route
-registry remain future blueprint content.
+technical identities named above. It accepts no request body and does not enqueue a RunStore read. Apart from the
+disposable Artifact-formation control separately admitted above by Authorization B, `Refresh`, directory
+view/search/sort/pagination, `Load older`, `Open detail`, and local back navigation are the only actions. That
+exception does not change the Windmill binding and does not authorize a production Owner/provider write,
+production cutover, Windmill removal, trading, generic Submit, or create-successor. The broader Research admission, outcome-action, receipt timeline,
+and S1 custody panels in the route registry remain future blueprint content.
 
 ## Bounded admission: verified Artifact directory
 

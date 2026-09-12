@@ -8,6 +8,8 @@
 
 .result {
   min-height: 144px;
+  display: grid;
+  gap: 10px;
 }
 
 .result :global(.empty-state),

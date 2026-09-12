@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-test("Research detail reuses shared read-only atoms and one GET boundary", async () => {
-  const [component, route, page, shell, navigation, css] = await Promise.all([
+test("Research detail reuses shared atoms and exposes the admitted Artifact control", async () => {
+  const [component, control, gate, route, page, shell, navigation, css] = await Promise.all([
     readFile(new URL("../components/research-readback-workspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/artifact-formation-control.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/ui/action-admission-gate.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/rd/research/[requestIdentity]/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/(dashboard)/rd/research/[requestIdentity]/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/dashboard-route-content.tsx", import.meta.url), "utf8"),
@@ -25,12 +27,17 @@ test("Research detail reuses shared read-only atoms and one GET boundary", async
   assert.match(page, /researchRequestIdentity=\{requestIdentity\}/u);
   assert.match(shell, /<ResearchReadbackWorkspace requestIdentity=\{researchRequestIdentity!\}/u);
   assert.match(navigation, /\^\\\/rd\\\/research\\\/\[\^\/\]\+\$/u);
-  assert.doesNotMatch(component, />\s*(Submit|Resolve|Run|Build|Save|Delete)\s*</u);
-  assert.doesNotMatch(component, /textarea|contentEditable|method:\s*"POST"/u);
+  assert.match(component, /<ArtifactFormationControl researchRequestIdentity=\{requestIdentity\}/u);
+  assert.match(control, /ArtifactFormationControl/u);
+  assert.match(control, /PREFLIGHTING[\s\S]+ADMITTING[\s\S]+SUBMITTED_OR_UNKNOWN/u);
+  assert.match(control, /\/api\/rd\/artifacts\/formations\/preflight\//u);
+  assert.match(control, /\/api\/rd\/artifacts\/formations\//u);
+  assert.match(control, /identity_mode: "EXACT"/u);
+  assert.match(gate, /DetailInspector[\s\S]+Input[\s\S]+StatusBadge/u);
   assert.doesNotMatch(css, /#[0-9a-f]{3,8}|rgba?\(|hsla?\(/iu);
 });
 
-test("bilingual Research detail contract closes geometry and no-effect boundary", async () => {
+test("bilingual Research detail contract closes geometry and the Authorization B boundary", async () => {
   for (const suffix of ["", ".zh"]) {
     const doc = await readFile(new URL(`../../../docs/guide/dashboard${suffix}.md`, import.meta.url), "utf8");
     const heading = suffix
@@ -42,7 +49,8 @@ test("bilingual Research detail contract closes geometry and no-effect boundary"
     for (const token of [
       "/rd/research/{requestIdentity}", "PanelFrame", "FactGroup", "Outcome", "Intent", "Timing",
       "Back to requests", "Refresh", suffix ? "技术" : "technical", "unavailable", "SUBMITTED_OR_UNKNOWN",
-      "GET", "research_goal.shadow_resolve.v1", "Submit", "Resolve", "Windmill", "Owner", "write", "trading",
+      "GET", "research_goal.shadow_resolve.v1", "ActionAdmissionGate", "PREFLIGHTING", "ADMITTING",
+      "Resolve", "Windmill", "Owner", "write", "trading",
     ]) assert.ok(specification.includes(token), `${suffix || "en"} missing ${token}`);
   }
 });

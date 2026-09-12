@@ -19,6 +19,7 @@ import {
   PanelFrameInfoList,
 } from "./ui/panel-frame";
 import { StatusBadge } from "./ui/status-badge";
+import { ArtifactFormationControl } from "./artifact-formation-control";
 import styles from "./research-readback-workspace.module.css";
 
 function displayTime(value: string): string {
@@ -144,7 +145,15 @@ export function ResearchReadbackWorkspace({ requestIdentity }: { requestIdentity
           {status === "loading" ? (
             <FactGroupSkeletonGrid aria-label="Loading Research readback" titles={["Outcome", "Intent", "Timing"]} />
           ) : status === "available" && projection ? (
-            <AvailableReadback projection={projection} />
+            <>
+              <AvailableReadback projection={projection} />
+              {projection.outcome?.resolution === "accepted"
+                && projection.view?.availability === "available"
+                && projection.view.phase === "intent_frozen"
+                && projection.view.nextStep === "wait_for_r_and_d_execution"
+                ? <ArtifactFormationControl researchRequestIdentity={requestIdentity} />
+                : null}
+            </>
           ) : (
             <UnavailableState
               icon={<EvidenceIcons.warning aria-hidden="true" size={20} />}

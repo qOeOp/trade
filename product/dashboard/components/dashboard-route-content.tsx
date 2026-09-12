@@ -164,8 +164,10 @@ export function DashboardRouteContent({
                 ? "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_EDIT_OR_EXECUTION"
                 : artifactDirectory
                 ? "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_BUILD_OR_EXECUTION"
-                : researchDirectory || researchReadback
+                : researchDirectory
                 ? "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_SUBMIT_OR_RESOLVE"
+                : researchReadback
+                ? "IMPLEMENTATION_ADMITTED - DISPOSABLE_ARTIFACT_FORMATION - NOT_CUT_OVER"
                 : sourceIntakeReadback
                 ? "IMPLEMENTATION_ADMITTED - OWNER_POINT_READ_ONLY - NO_SUBMIT_OR_RESOLVE"
                 : composerReadback
