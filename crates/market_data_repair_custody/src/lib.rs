@@ -119,6 +119,16 @@ impl MarketDataRepairTerminalV1 {
     }
 
     #[must_use]
+    pub const fn correlation_identity(&self) -> BindingDigest {
+        self.correlation_identity
+    }
+
+    #[must_use]
+    pub const fn result_time_evidence(&self) -> &UntrustedPitSnapshotTimeEvidence {
+        &self.result_time_evidence
+    }
+
+    #[must_use]
     pub const fn disposition(&self) -> MarketDataRepairDispositionV1 {
         self.disposition
     }

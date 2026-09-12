@@ -83,6 +83,7 @@ pub mod market_data_repair_request;
     reason = "T153 PostgreSQL custody is reached through the R&D Owner composition"
 )]
 mod market_data_repair_request_postgres;
+pub mod market_data_repair_resolution;
 pub use iteration_decision_postgres::{
     DecisionCompositionRequestV1, IterationDecisionPostgresErrorV1,
     IterationDecisionResolutionLocatorV1, RepairActionCompositionRequestV1,

@@ -62,6 +62,7 @@ vibe-deployment-attestation = { workspace = true }
 vibe-execution = { workspace = true }
 vibe-fred = { workspace = true }
 vibe-indicators-kernel = { workspace = true }
+vibe-market-data-repair-custody = { workspace = true }
 vibe-model = { workspace = true }
 vibe-persistence = { workspace = true }
 vibe-portfolio = { workspace = true }

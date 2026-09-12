@@ -11310,6 +11310,7 @@ dependencies = [
  "vibe-execution",
  "vibe-fred",
  "vibe-indicators-kernel",
+ "vibe-market-data-repair-custody",
  "vibe-model",
  "vibe-operator-authorization",
  "vibe-persistence",

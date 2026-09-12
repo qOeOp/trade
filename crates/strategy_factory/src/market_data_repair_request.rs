@@ -127,8 +127,16 @@ impl MarketDataRepairRequestV1 {
         &self.action_request_identity
     }
 
+    pub fn action_request_digest(&self) -> &str {
+        &self.action_request_digest
+    }
+
     pub fn decision_identity(&self) -> &str {
         &self.decision_identity
+    }
+
+    pub fn decision_digest(&self) -> &str {
+        &self.decision_digest
     }
 
     pub fn result_identity(&self) -> &str {
