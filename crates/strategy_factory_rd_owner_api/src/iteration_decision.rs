@@ -448,6 +448,7 @@ fn owner_error_with(
         ),
         IterationDecisionPostgresErrorV1::TrialFamily(_)
         | IterationDecisionPostgresErrorV1::Backtest(_)
+        | IterationDecisionPostgresErrorV1::ResearchCustody(_)
         | IterationDecisionPostgresErrorV1::Decision(_)
         | IterationDecisionPostgresErrorV1::RepairAction(_)
         | IterationDecisionPostgresErrorV1::Storage(_) => reject(
