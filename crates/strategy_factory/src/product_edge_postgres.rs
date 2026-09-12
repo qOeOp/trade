@@ -1336,6 +1336,17 @@ impl PostgresResearchGoalOwnerV1 {
         .await
     }
 
+    /// Resolves exact existing Decision custody without requiring a branch-specific endpoint.
+    pub async fn resolve_iteration_decision_v1(
+        &self,
+        locator: crate::IterationDecisionResolutionLocatorV1,
+    ) -> Result<
+        Option<crate::iteration_decision::ExistingIterationDecisionReadbackV1>,
+        crate::IterationDecisionPostgresErrorV1,
+    > {
+        crate::iteration_decision_postgres::resolve_iteration_decision_v1(&self.pool, locator).await
+    }
+
     /// Commits an effect-free repair request from exact stored Decision custody.
     pub async fn compose_repair_action_request_v1(
         &self,

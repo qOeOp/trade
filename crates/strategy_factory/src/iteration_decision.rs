@@ -296,6 +296,18 @@ pub struct TrialBudgetTerminalStopDecisionReadbackV1 {
     receipt: IterationDecisionReceiptV1,
 }
 
+/// One already-committed Iteration Decision resolved without guessing its concrete branch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(
+    tag = "decision_kind",
+    content = "readback",
+    rename_all = "SCREAMING_SNAKE_CASE"
+)]
+pub enum ExistingIterationDecisionReadbackV1 {
+    RepairInputs(RepairInputIterationDecisionReadbackV1),
+    TrialBudgetTerminalStop(TrialBudgetTerminalStopDecisionReadbackV1),
+}
+
 impl RepairInputIterationDecisionV1 {
     pub fn decision_identity(&self) -> &str {
         &self.decision_identity
