@@ -74,6 +74,7 @@ pub mod intent;
 mod legacy_prepared_attempt_drain;
 pub mod native_replay_execution_bundle_owner_v2;
 pub mod native_replay_preparation_inputs_v2;
+pub mod native_replay_preparation_owner_v2;
 pub mod native_replay_rd_sources_v2;
 #[allow(
     dead_code,

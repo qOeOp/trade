@@ -345,6 +345,16 @@ impl ReplayTargetSetExecutionBundleV1 {
         self.census.request_locator()
     }
 
+    #[must_use]
+    pub const fn execution_profile_binding_digest(&self) -> [u8; 32] {
+        self.census.execution_profile_binding_digest()
+    }
+
+    #[must_use]
+    pub const fn native_materialization_digest(&self) -> [u8; 32] {
+        self.census.native_materialization_digest()
+    }
+
     /// Consumes one Owner-issued dual-profile authority and admits an exact complete execution.
     ///
     /// # Errors

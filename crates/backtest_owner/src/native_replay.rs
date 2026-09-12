@@ -6,12 +6,14 @@
 //! from the actual ProgramHost/Sim EVENT readback. Until an Owner implementation can produce that
 //! handoff, no production caller can enter the runner.
 
-use std::{collections::BTreeSet, future::Future, pin::Pin};
+use std::{collections::BTreeSet, future::Future, pin::Pin, sync::Arc};
 
 use serde::Serialize;
+use sqlx::PgPool;
 use thiserror::Error;
 use vibe_strategy_factory::{
     exploratory_replay::{ExploratoryReplayRequestLocatorV2, SealedExploratoryReplayReadbackV2},
+    native_replay_preparation_owner_v2::NativeReplayExecutionPreparationResolverV2,
     program_host_sim_event_consumer_v1::{
         ProgramHostSimEventReadbackV1, run_program_host_sim_event_consumer_v1,
     },
@@ -293,6 +295,133 @@ pub trait NativeReplayPreparationOwnerV2: admitted_preparation_owner::Sealed + S
     >;
 }
 
+/// Backtest preparation Owner backed by one sealed Strategy Factory resolver and R&D connection.
+///
+/// The resolver owns preparation of the request-bound execution and producer evidence. This Owner
+/// converts that handoff into Backtest-private evidence types and retains the R&D connection for
+/// the final request re-lock performed inside the Backtest Result transaction.
+pub struct PostgresNativeReplayPreparationOwnerV2 {
+    rd_pool: PgPool,
+    resolver: Arc<dyn NativeReplayExecutionPreparationResolverV2>,
+}
+
+impl PostgresNativeReplayPreparationOwnerV2 {
+    #[must_use]
+    pub fn new(
+        rd_pool: PgPool,
+        resolver: Arc<dyn NativeReplayExecutionPreparationResolverV2>,
+    ) -> Self {
+        Self { rd_pool, resolver }
+    }
+}
+
+impl admitted_preparation_owner::Sealed for PostgresNativeReplayPreparationOwnerV2 {}
+
+impl NativeReplayPreparationOwnerV2 for PostgresNativeReplayPreparationOwnerV2 {
+    fn prepare_exploratory_replay_v2<'a>(
+        &'a self,
+        locator: &'a ExploratoryReplayRequestLocatorV2,
+        attempt_identity: &'a OpaqueIdentityV2,
+    ) -> Pin<Box<dyn Future<Output = Result<NativeReplayPreparationV2, NativeReplayRunErrorV2>> + 'a>>
+    {
+        Box::pin(async move {
+            let prepared = self
+                .resolver
+                .resolve_native_replay_execution_preparation_v2(locator, attempt_identity)
+                .await
+                .map_err(|_| NativeReplayRunErrorV2::ExecutionBundleOwnerUnavailable)?;
+            let (
+                request,
+                execution,
+                observations,
+                semantic_trace_reference,
+                deterministic_fill_seed,
+                instance_identity,
+            ) = prepared.into_parts();
+            validate_request_readback(&request, locator)?;
+            validate_execution_request_locator(execution.request_locator(), locator)?;
+            let request_meaning_digest = request
+                .request()
+                .meaning_digest()
+                .map_err(|_| NativeReplayRunErrorV2::IncompleteReconciliation)?;
+            let execution_profile_binding_digest = execution.execution_profile_binding_digest();
+            let native_materialization_digest = execution.native_materialization_digest();
+            let component_evidence = observations
+                .into_iter()
+                .map(|observation| {
+                    let (
+                        component,
+                        producer_namespace,
+                        producer_reference,
+                        canonical_bytes,
+                        observed_meaning_identity,
+                        observed_meaning_digest,
+                    ) = observation.into_parts();
+                    let observation_digest =
+                        digest_bytes(OWNER_OBSERVATION_BYTES_DOMAIN_V2, &canonical_bytes)?;
+                    Ok(NativeReplayComponentEvidenceV2::from_owner_observation(
+                        request.request().request_identity().clone(),
+                        request_meaning_digest.clone(),
+                        attempt_identity.clone(),
+                        component,
+                        producer_namespace,
+                        ComponentObservationLocatorV2 {
+                            component,
+                            reference: producer_reference,
+                            digest: observation_digest,
+                        },
+                        canonical_bytes,
+                        observed_meaning_identity,
+                        observed_meaning_digest,
+                    ))
+                })
+                .collect::<Result<Vec<_>, NativeReplayRunErrorV2>>()?;
+            Ok(NativeReplayPreparationV2::from_owner_resolution(
+                request,
+                execution,
+                component_evidence,
+                NativeReplaySemanticTraceEvidenceV2::from_owner_materialization(
+                    semantic_trace_reference,
+                    execution_profile_binding_digest,
+                    native_materialization_digest,
+                    deterministic_fill_seed,
+                    instance_identity,
+                ),
+            ))
+        })
+    }
+
+    fn relock_and_commit_exploratory_replay_v2<'a>(
+        &'a self,
+        result_owner: &'a PostgresReplayResultOwnerV2,
+        locator: &'a ExploratoryReplayRequestLocatorV2,
+        result: &'a SealedReplayResultV2,
+        evidence_batch: &'a SealedNativeReplayEvidenceBatchV2,
+        semantic_trace: &'a SealedNativeReplaySemanticTraceV2,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<
+                        NativeReplayCommitDispositionV2,
+                        PostgresReplayResultOwnerErrorV2,
+                    >,
+                > + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            result_owner
+                .commit_request_bound_native_replay_evidence_v2(
+                    &self.rd_pool,
+                    locator,
+                    result,
+                    evidence_batch,
+                    semantic_trace,
+                )
+                .await
+        })
+    }
+}
+
 /// Acknowledged native Replay commit with exact semantic-trace persistence evidence.
 #[must_use = "the caller must distinguish an acknowledged commit from SubmittedOrUnknown"]
 pub enum NativeReplayCommitDispositionV2 {
@@ -330,8 +459,8 @@ pub enum NativeReplayRunErrorV2 {
 /// execution bundle is consumed. Native execution failure, missing fills or checkpoint evidence,
 /// incomplete reconciliation, and final re-lock/commit drift produce no durable Result.
 ///
-/// No production preparation Owner implements this contract yet, so the current repository has no
-/// successful runtime entry to this function.
+/// A successful runtime entry requires the production Strategy Factory resolver behind
+/// `PostgresNativeReplayPreparationOwnerV2`; missing resolution remains fail closed.
 pub async fn run_exploratory_replay_v2<P: NativeReplayPreparationOwnerV2 + ?Sized>(
     preparation_owner: &P,
     result_owner: &PostgresReplayResultOwnerV2,
