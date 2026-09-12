@@ -347,6 +347,9 @@ mod tests {
         let mut injected = request();
         injected["execution"] = json!({"provider": "caller-selected"});
         assert!(serde_json::from_value::<MarketDataRepairCompositionRequestV1>(injected).is_err());
+        let mut nested = request();
+        nested["shared_time_head"]["execution"] = json!({"provider": "caller-selected"});
+        assert!(serde_json::from_value::<MarketDataRepairCompositionRequestV1>(nested).is_err());
     }
 
     #[tokio::test]
@@ -369,6 +372,13 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+        let mut nested = request();
+        nested["shared_time_head"]["execution"] = json!({"provider": "caller-selected"});
+        let nested = router(Some(service.clone()), token_digest)
+            .oneshot(send(nested, Some(&format!("Bearer {token}"))))
+            .await
+            .unwrap();
+        assert_eq!(nested.status(), StatusCode::BAD_REQUEST);
         assert_eq!(service.calls.load(Ordering::SeqCst), 0);
 
         let unavailable = router(None, token_digest)
