@@ -18,9 +18,9 @@ use vibe_data::owner::{
         NativeReplaySchedulingResolverV1, UntrustedNativeReplaySchedulingRequestV1,
     },
     replay_market_facts_v2::{
-        ReplayCompositionBindingReadbackV1, ReplayCompositionBindingResolverV1,
-        ReplayMarketDependencyKindV2, ReplayMarketFactsReadbackV2,
-        UntrustedReplayMarketFactsCompositionRequestV1, verify_replay_market_facts_readback_v2,
+        ReplayCompositionBindingReadbackV1, ReplayMarketDependencyKindV2,
+        ReplayMarketFactsReadbackV2, ResolvedReplayCompositionCutV1,
+        verify_replay_market_facts_readback_v2,
     },
     source_binding::BindingDigest,
 };
@@ -146,24 +146,13 @@ where
 /// Universe/Instrument dependency, two-member Instrument Master cut, and private economic terms.
 /// It deliberately does not return `ReplayTargetSetExecutionBundleV1`: the two missing native
 /// Market Data projections are represented by explicit terminal prerequisites below.
-pub async fn prepare_native_replay_execution_prerequisites_v2<R>(
+pub fn prepare_native_replay_execution_prerequisites_v2(
     preparation: NativeReplayPreparationInputsV2,
-    market_request: &UntrustedReplayMarketFactsCompositionRequestV1,
-    market_resolver: &R,
-    composition: ReplayCompositionBindingReadbackV1,
+    replay_cut: ResolvedReplayCompositionCutV1,
     instrument_master: InstrumentMasterReadbackV1,
     instrument_terms: [InstrumentEconomicTermsReadbackV1; TARGET_SET_MEMBER_COUNT],
-) -> Result<NativeReplayExecutionPrerequisitesV2, NativeReplayExecutionPrerequisitesErrorV2>
-where
-    R: ReplayCompositionBindingResolverV1 + ?Sized,
-{
-    if market_request.binding_locator() != composition.record().locator() {
-        return Err(NativeReplayExecutionPrerequisitesErrorV2::OwnerBindingUnavailable);
-    }
-    let market_facts = market_resolver
-        .resolve_replay_market_facts_composition_v1(market_request)
-        .await
-        .map_err(|_| NativeReplayExecutionPrerequisitesErrorV2::OwnerBindingUnavailable)?;
+) -> Result<NativeReplayExecutionPrerequisitesV2, NativeReplayExecutionPrerequisitesErrorV2> {
+    let (composition, market_facts) = replay_cut.into_parts();
     validate_available_owner_bindings(
         &preparation,
         &market_facts,

@@ -415,6 +415,32 @@ impl ReplayCompositionBindingV1 {
         self.roles.len()
     }
 
+    pub(crate) fn native_locator(
+        &self,
+        kind: ReplayCompositionNativeLocatorKindV1,
+    ) -> Option<ReplayCompositionNativeLocatorV1> {
+        self.native_locators
+            .iter()
+            .copied()
+            .find(|locator| locator.kind == kind)
+    }
+
+    pub(crate) const fn replay_request_identity(&self) -> BindingDigest {
+        self.replay_request_identity
+    }
+
+    pub(crate) const fn replay_request_digest(&self) -> BindingDigest {
+        self.replay_request_digest
+    }
+
+    pub(crate) const fn replay_start_event_ns(&self) -> i128 {
+        self.replay_start_event_ns
+    }
+
+    pub(crate) const fn replay_end_event_ns_exclusive(&self) -> i128 {
+        self.replay_end_event_ns_exclusive
+    }
+
     #[must_use]
     pub fn canonical_bytes(&self) -> &[u8] {
         &self.canonical_bytes

@@ -57,6 +57,45 @@ pub struct ReplayCompositionOwnerV1 {
     pub(in crate::owner) rd_role_set_pool: sqlx::PgPool,
 }
 
+/// Move-only exact binding plus its byte-verified Replay Market Facts readback.
+#[derive(Debug, Eq, PartialEq)]
+pub struct ResolvedReplayCompositionCutV1 {
+    binding: ReplayCompositionBindingReadbackV1,
+    market_facts: ReplayMarketFactsReadbackV2,
+}
+
+impl ResolvedReplayCompositionCutV1 {
+    pub(in crate::owner) const fn from_owner_resolution(
+        binding: ReplayCompositionBindingReadbackV1,
+        market_facts: ReplayMarketFactsReadbackV2,
+    ) -> Self {
+        Self {
+            binding,
+            market_facts,
+        }
+    }
+
+    #[must_use]
+    pub const fn binding(&self) -> &ReplayCompositionBindingReadbackV1 {
+        &self.binding
+    }
+
+    #[must_use]
+    pub const fn market_facts(&self) -> &ReplayMarketFactsReadbackV2 {
+        &self.market_facts
+    }
+
+    #[must_use]
+    pub fn into_parts(
+        self,
+    ) -> (
+        ReplayCompositionBindingReadbackV1,
+        ReplayMarketFactsReadbackV2,
+    ) {
+        (self.binding, self.market_facts)
+    }
+}
+
 impl super::sample_projection_v4::sealed::Sealed for ReplayCompositionOwnerV1 {}
 impl resolver_seal::Sealed for ReplayCompositionOwnerV1 {}
 impl composition::resolver_seal::Sealed for ReplayCompositionOwnerV1 {}
