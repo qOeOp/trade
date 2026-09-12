@@ -136,6 +136,7 @@ pub(crate) enum IterationCandidateComparisonV1 {
 pub(crate) enum IterationCandidateNoDecisionReasonV1 {
     EmptyOrIncompleteCensus,
     UnknownAdmissibility,
+    InadmissibleCandidate,
     NoAdmissibleWinner,
 }
 
@@ -260,6 +261,16 @@ fn compare_candidate_evaluations_v1(
     {
         return Ok(IterationCandidateComparisonV1::NoDecision {
             reason: IterationCandidateNoDecisionReasonV1::UnknownAdmissibility,
+        });
+    }
+    if evaluations.candidates.iter().any(|candidate| {
+        matches!(
+            candidate.admissibility,
+            IterationCandidateAdmissibilityV1::Inadmissible(_)
+        )
+    }) {
+        return Ok(IterationCandidateComparisonV1::NoDecision {
+            reason: IterationCandidateNoDecisionReasonV1::InadmissibleCandidate,
         });
     }
 
@@ -564,6 +575,33 @@ mod tests {
             Err(IterationCandidateErrorV1::Invalid(
                 "candidate evaluation membership is incomplete or cross-spliced"
             ))
+        ));
+    }
+
+    #[test]
+    fn inadmissible_member_prevents_another_member_from_winning() {
+        let candidates = vec![
+            candidate(
+                "candidate-above",
+                'b',
+                IterationCandidateAdmissibilityV1::AdmissibleAboveThreshold,
+                1,
+            ),
+            candidate(
+                "candidate-missing-binding",
+                'c',
+                IterationCandidateAdmissibilityV1::Inadmissible(
+                    IterationCandidateInadmissibilityV1::MissingBinding,
+                ),
+                2,
+            ),
+        ];
+        assert!(matches!(
+            compare_candidate_evaluations_v1(&frontier(&candidates), set(candidates))
+                .expect("classified no-decision"),
+            IterationCandidateComparisonV1::NoDecision {
+                reason: IterationCandidateNoDecisionReasonV1::InadmissibleCandidate
+            }
         ));
     }
 }
