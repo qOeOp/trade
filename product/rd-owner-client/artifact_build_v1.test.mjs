@@ -267,6 +267,53 @@ test("canonical Owner CLAIMED wire projects verified invocation custody", async 
   assert.equal(result.projection.next_legal_action, "RUN_BOUNDED_EXECUTION_AGENT")
 })
 
+test("canonical Owner INVOCATION_STARTED wire retains its opaque later state digest", async () => {
+  const admissionIdentity = `product-edge-request-admission-v1-${"d".repeat(64)}`
+  const invocationAdmissionReceiptIdentity =
+    `product-edge-provider-invocation-admission-receipt-v1-${"e".repeat(64)}`
+  const claimIdentity = await providerInvocationClaimIdentityV1(
+    admissionIdentity,
+    request.attempt_identity,
+    invocationAdmissionReceiptIdentity,
+  )
+  const claim = {
+    schema_version: 1,
+    request_identity: request.build_request_identity,
+    claim_identity: claimIdentity,
+    admission_identity: admissionIdentity,
+    attempt_identity: request.attempt_identity,
+    invocation_admission_receipt_identity: invocationAdmissionReceiptIdentity,
+    invocation_admission_receipt_digest: `sha256:${"f".repeat(64)}`,
+    claim_digest: "",
+    state_digest: "",
+    committed_at_epoch_ms: 10,
+    disposition: "ALREADY_CLAIMED",
+    state: "INVOCATION_STARTED",
+    next_legal_action: "MANUALLY_RECONCILE_PROVIDER_INVOCATION",
+  }
+  claim.claim_digest = await providerInvocationClaimDigestV1(claim)
+  claim.state_digest = await providerInvocationStateDigestV1({
+    ...claim,
+    updated_at_epoch_ms: claim.committed_at_epoch_ms + 1,
+  })
+
+  const result = await projectArtifactOwnerResultWithEvidenceV1(
+    {
+      ...unknown,
+      provider_invocation: claim,
+      next_legal_action: "MANUALLY_RECONCILE_PROVIDER_INVOCATION",
+    },
+    request.build_request_identity,
+    request.attempt_identity,
+    null,
+  )
+
+  assert.equal(Object.hasOwn(claim, "state_updated_at_epoch_ms"), false)
+  assert.equal(result.verified, true)
+  assert.deepEqual(result.projection.provider_invocation, claim)
+  assert.equal(result.projection.next_legal_action, "MANUALLY_RECONCILE_PROVIDER_INVOCATION")
+})
+
 test("Windmill artifact resolution keeps the existing Owner flow", async () => {
   const calls = []
   const result = await executeArtifactBuildV1(request, runtime("WINDMILL", async (url, init) => {

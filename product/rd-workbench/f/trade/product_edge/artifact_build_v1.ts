@@ -399,13 +399,22 @@ export function projectOwnerResolution(
   return result
 }
 
+function ownerArtifactOperationRequest(request: Record<string, unknown>) {
+  return {
+    build_request_identity: request.build_request_identity,
+    attempt_identity: request.attempt_identity,
+    intent_identity: request.intent_identity,
+    channel: request.channel,
+  }
+}
+
 async function fail(
   token: string,
   request: Record<string, unknown>,
   failureCode: string,
 ) {
   return ownerPost("/v1/artifact-builds/fail", token, {
-    request,
+    request: ownerArtifactOperationRequest(request),
     failure_code: failureCode,
   })
 }
@@ -670,7 +679,10 @@ async function runOwnerOperation(
     agent_change_explanation: generated.agent_change_explanation,
   }
   try {
-    return finish(await ownerPost("/v1/artifact-builds/candidate", token, { request, candidate }))
+    return finish(await ownerPost("/v1/artifact-builds/candidate", token, {
+      request: ownerArtifactOperationRequest(request),
+      candidate,
+    }))
   } catch {
     return finish(unknown(build_request_identity, attempt_identity))
   }

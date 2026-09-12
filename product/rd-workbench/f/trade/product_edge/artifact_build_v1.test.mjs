@@ -1,6 +1,10 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { pathToFileURL } from "node:url"
+import {
+  providerInvocationClaimDigestV1,
+  providerInvocationClaimIdentityV1,
+} from "../../../../rd-owner-client/provider_invocation_custody_v1.ts"
 
 const intentDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 const intentIdentity = "rd-research-intent-v2-d06b72fe795a6f42e0bb7c65b807679be2d8d3cacf4a19938560bfb6624625b8"
@@ -85,16 +89,23 @@ const preparation = {
   owner_receipt: null,
   next_legal_action: "RUN_BOUNDED_EXECUTION_AGENT",
 }
+const admissionIdentity = `product-edge-request-admission-v1-${"11".repeat(32)}`
+const invocationAdmissionReceiptIdentity =
+  `product-edge-provider-invocation-admission-receipt-v1-${"22".repeat(32)}`
+const invocationAdmissionReceiptDigest = `sha256:${"33".repeat(32)}`
+const claimIdentity = await providerInvocationClaimIdentityV1(
+  admissionIdentity, "attempt-1", invocationAdmissionReceiptIdentity,
+)
 const claim = {
   schema_version: 1,
   request_identity: "build-1",
-  claim_identity: "claim-1",
-  admission_identity: "admission-1",
+  claim_identity: claimIdentity,
+  admission_identity: admissionIdentity,
   attempt_identity: "attempt-1",
-  invocation_admission_receipt_identity: "invocation-admission-receipt-1",
-  invocation_admission_receipt_digest: "sha256:invocation-admission-receipt",
-  claim_digest: "sha256:claim",
-  state_digest: "sha256:claimed",
+  invocation_admission_receipt_identity: invocationAdmissionReceiptIdentity,
+  invocation_admission_receipt_digest: invocationAdmissionReceiptDigest,
+  claim_digest: "",
+  state_digest: "",
   committed_at_epoch_ms: 10,
   disposition: "CLAIMED_NEW",
   state: "CLAIMED",
@@ -103,14 +114,16 @@ const claim = {
 const start = {
   schema_version: 1,
   request_identity: "build-1",
-  claim_identity: "claim-1",
-  admission_identity: "admission-1",
+  claim_identity: claimIdentity,
+  admission_identity: admissionIdentity,
   attempt_identity: "attempt-1",
-  claim_digest: "sha256:claim",
-  state_digest: "sha256:started",
+  claim_digest: "",
+  state_digest: "",
   started_at_epoch_ms: 11,
   disposition: "STARTED_NEW",
 }
+claim.claim_digest = await providerInvocationClaimDigestV1(claim)
+start.claim_digest = claim.claim_digest
 claim.state_digest = await invocationStateDigestV1({
   schema_version: claim.schema_version,
   claim_identity: claim.claim_identity,
@@ -140,8 +153,8 @@ const executionCustody = await sealExecutionCustody({
     channel: "WINDMILL_PRODUCT_EDGE",
     admission: {
       request_identity: "build-1",
-      admission_identity: "admission-1",
-      admission_digest: "sha256:admission",
+      admission_identity: admissionIdentity,
+      admission_digest: `sha256:${"44".repeat(32)}`,
     },
   },
   request_semantic_digest: "sha256:request",
@@ -159,10 +172,10 @@ const executionCustody = await sealExecutionCustody({
   trial_family_root_digest: rootDigest,
   census_frontier_identity: frontierIdentity,
   census_frontier_digest: frontierDigest,
-  claim_identity: "claim-1",
-  claim_digest: "sha256:claim",
-  invocation_admission_receipt_identity: "invocation-admission-receipt-1",
-  invocation_admission_receipt_digest: "sha256:invocation-admission-receipt",
+  claim_identity: claimIdentity,
+  claim_digest: claim.claim_digest,
+  invocation_admission_receipt_identity: invocationAdmissionReceiptIdentity,
+  invocation_admission_receipt_digest: invocationAdmissionReceiptDigest,
   claimed_state_digest: claim.state_digest,
   reservation_identity: "reservation-1",
   reservation_digest: "sha256:reservation",
@@ -509,7 +522,7 @@ test("lost start response resolves exact started custody and exposes manual reco
     ...claim,
     disposition: "ALREADY_CLAIMED",
     state: "INVOCATION_STARTED",
-    state_digest: "sha256:started",
+    state_digest: start.state_digest,
     next_legal_action: "MANUALLY_RECONCILE_PROVIDER_INVOCATION",
   }
   const resolved = {
@@ -553,12 +566,12 @@ test("lost start response resolves exact started custody and exposes manual reco
     assert.equal(result.resolution, "SUBMITTED_OR_UNKNOWN")
     assert.equal(result.next_legal_action, "MANUALLY_RECONCILE_PROVIDER_INVOCATION")
     assert.equal(result.provider_invocation.request_identity, "build-1")
-    assert.equal(result.provider_invocation.admission_identity, "admission-1")
+    assert.equal(result.provider_invocation.admission_identity, admissionIdentity)
     assert.equal(result.provider_invocation.attempt_identity, "attempt-1")
-    assert.equal(result.provider_invocation.claim_identity, "claim-1")
-    assert.equal(result.provider_invocation.invocation_admission_receipt_identity, "invocation-admission-receipt-1")
-    assert.equal(result.provider_invocation.invocation_admission_receipt_digest, "sha256:invocation-admission-receipt")
-    assert.equal(result.provider_invocation.state_digest, "sha256:started")
+    assert.equal(result.provider_invocation.claim_identity, claimIdentity)
+    assert.equal(result.provider_invocation.invocation_admission_receipt_identity, invocationAdmissionReceiptIdentity)
+    assert.equal(result.provider_invocation.invocation_admission_receipt_digest, invocationAdmissionReceiptDigest)
+    assert.equal(result.provider_invocation.state_digest, start.state_digest)
   } finally {
     globalThis.fetch = originalFetch
     if (originalToken === undefined) delete process.env.RD_OWNER_API_TOKEN
@@ -597,7 +610,7 @@ test("an existing sealed claim starts once after preparation authority becomes s
         provider_invocation: {
           ...recoveredClaim,
           state: "INVOCATION_STARTED",
-          state_digest: "sha256:started",
+          state_digest: start.state_digest,
           next_legal_action: "MANUALLY_RECONCILE_PROVIDER_INVOCATION",
         },
       }))
@@ -661,8 +674,9 @@ test("recovered claimed custody starts directly when current S1 is unavailable",
   let startCalls = 0
   let providerCalls = 0
   let candidateCalls = 0
+  const candidateRequests = []
   const recoveredClaim = { ...claim, disposition: "ALREADY_CLAIMED" }
-  globalThis.fetch = async (url) => {
+  globalThis.fetch = async (url, options) => {
     const value = String(url)
     if (researchResolve(value)) throw new Error("current S1 unavailable")
     if (value.includes("/resolve")) return new Response(JSON.stringify({
@@ -695,10 +709,8 @@ test("recovered claimed custody starts directly when current S1 is unavailable",
     }
     if (value.includes("/candidate")) {
       candidateCalls += 1
-      return new Response(JSON.stringify(resolveCalls === 1 ? {
-        ...unclaimed,
-        provider_invocation: { ...claim, disposition: "ALREADY_CLAIMED" },
-      } : unclaimed))
+      candidateRequests.push(JSON.parse(options.body).request)
+      return new Response(JSON.stringify(unclaimed))
     }
     throw new Error(`unexpected request ${value}`)
   }
@@ -711,6 +723,12 @@ test("recovered claimed custody starts directly when current S1 is unavailable",
     assert.equal(startCalls, 1)
     assert.equal(providerCalls, 1)
     assert.equal(candidateCalls, 1)
+    assert.deepEqual(candidateRequests, [{
+      build_request_identity: "build-1",
+      attempt_identity: "attempt-1",
+      intent_identity: intentIdentity,
+      channel: "WINDMILL_PRODUCT_EDGE",
+    }])
     assert.equal(result.resolution, "SUBMITTED_OR_UNKNOWN")
   } finally {
     globalThis.fetch = originalFetch
@@ -795,6 +813,7 @@ async function runAfterSealedStart(providerResponse) {
   let resolveCalls = 0
   let failCalls = 0
   const failureCodes = []
+  const failureRequests = []
   globalThis.fetch = async (url, options) => {
     const value = String(url)
     if (researchResolve(value)) return new Response(JSON.stringify(s1Response))
@@ -819,7 +838,9 @@ async function runAfterSealedStart(providerResponse) {
     }
     if (value.includes("/fail")) {
       failCalls += 1
-      failureCodes.push(JSON.parse(options.body).failure_code)
+      const body = JSON.parse(options.body)
+      failureCodes.push(body.failure_code)
+      failureRequests.push(body.request)
       return new Response(JSON.stringify(unclaimed))
     }
     throw new Error(`unexpected request ${value}`)
@@ -828,7 +849,7 @@ async function runAfterSealedStart(providerResponse) {
   process.env.DEEPSEEK_API_KEY = "test-provider-key"
   try {
     const result = await main("RUN", "build-1", "attempt-1", "request-1", "EXACT")
-    return { result, providerCalls, resolveCalls, failCalls, failureCodes }
+    return { result, providerCalls, resolveCalls, failCalls, failureCodes, failureRequests }
   } finally {
     globalThis.fetch = originalFetch
     if (originalToken === undefined) delete process.env.RD_OWNER_API_TOKEN
@@ -862,10 +883,16 @@ for (const [name, providerResponse, failureCode] of [
   ["malformed provider candidate", () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ logic: {} }) } }] })), "CANDIDATE_MALFORMED"],
 ]) {
   test(`${name} after sealed start fails once without a provider retry`, async () => {
-    const { providerCalls, resolveCalls, failCalls, failureCodes } = await runAfterSealedStart(providerResponse)
+    const { providerCalls, resolveCalls, failCalls, failureCodes, failureRequests } = await runAfterSealedStart(providerResponse)
     assert.equal(providerCalls, 1)
     assert.equal(resolveCalls, 1)
     assert.equal(failCalls, 1)
     assert.deepEqual(failureCodes, [failureCode])
+    assert.deepEqual(failureRequests, [{
+      build_request_identity: "build-1",
+      attempt_identity: "attempt-1",
+      intent_identity: intentIdentity,
+      channel: "WINDMILL_PRODUCT_EDGE",
+    }])
   })
 }

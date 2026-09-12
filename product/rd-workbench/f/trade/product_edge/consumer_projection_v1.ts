@@ -78,16 +78,21 @@ async function verifyProviderInvocationCustodyV1(value: Json): Promise<boolean> 
     committed_at_epoch_ms: value.committed_at_epoch_ms,
   })
   if (value.claim_digest !== claimDigest) return false
-  return value.state_digest === await providerCanonicalDigest("product-edge.provider-invocation-state.v1", {
+  const claimedStateDigest = await providerCanonicalDigest("product-edge.provider-invocation-state.v1", {
     schema_version: value.schema_version,
     claim_identity: value.claim_identity,
     admission_identity: value.admission_identity,
     attempt_identity: value.attempt_identity,
     claim_digest: value.claim_digest,
-    state: value.state,
+    state: "CLAIMED",
     state_digest: "",
     updated_at_epoch_ms: value.committed_at_epoch_ms,
   })
+  // INVOCATION_STARTED is sealed using a later timestamp absent from this
+  // public wire. Preserve its opaque Owner digest, but reject a copied CLAIMED
+  // digest; CLAIMED custody remains fully recomputable here.
+  if (value.state === "INVOCATION_STARTED") return value.state_digest !== claimedStateDigest
+  return value.state === "CLAIMED" && value.state_digest === claimedStateDigest
 }
 
 const object = (value: unknown): value is Json => !!value && typeof value === "object" && !Array.isArray(value)

@@ -336,7 +336,7 @@ async function invocation(state) {
   }
   value.claim_digest = await providerInvocationClaimDigestV1(value)
   value.state_digest = await providerInvocationStateDigestV1({
-    ...value, updated_at_epoch_ms: value.committed_at_epoch_ms,
+    ...value, updated_at_epoch_ms: value.committed_at_epoch_ms + (state === "INVOCATION_STARTED" ? 1 : 0),
   })
   return value
 }
@@ -1098,6 +1098,10 @@ test("claimed and invocation-started response loss preserve exact custody and te
     claimed.provider_invocation.invocation_admission_receipt_digest)
   assert.equal(artifactActionControls(claimedResult, "build-1", "attempt-1").canRun, true)
 
+  const forgedClaimedState = clone(claimed)
+  forgedClaimedState.provider_invocation.state_digest = `sha256:${"44".repeat(32)}`
+  await assertArtifactUnknown(forgedClaimedState)
+
   const alreadyClaimed = clone(claimed)
   alreadyClaimed.provider_invocation.disposition = "ALREADY_CLAIMED"
   assert.equal((await deriveArtifactConsumerProjectionV1(
@@ -1120,6 +1124,10 @@ test("claimed and invocation-started response loss preserve exact custody and te
   assert.deepEqual(artifactActionControls(startedResult, "build-1", "attempt-1"), {
     canRun: false, canResolve: false, canCreateSuccessor: false,
   })
+
+  const copiedClaimedState = clone(started)
+  copiedClaimedState.provider_invocation.state_digest = claimed.provider_invocation.state_digest
+  await assertArtifactUnknown(copiedClaimedState)
 
   for (const mutate of [
     (v) => { v.provider_invocation.request_identity = "build-2" },
