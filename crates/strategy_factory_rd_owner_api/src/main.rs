@@ -176,8 +176,6 @@ struct ApiState {
     develop_composer: Arc<SealedPostgresSourceResearchComposerV2>,
     #[cfg(feature = "sealed-develop-composer-acceptance")]
     replay_composition: Option<Arc<ReplayCompositionOwnerV1>>,
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
-    native_replay_execution: Option<Arc<exploratory_replay::NativeReplayExecutionServiceV2>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -417,8 +415,6 @@ async fn main() -> anyhow::Result<()> {
         develop_composer,
         #[cfg(feature = "sealed-develop-composer-acceptance")]
         replay_composition: Some(replay_composition),
-        #[cfg(feature = "sealed-develop-composer-acceptance")]
-        native_replay_execution,
     };
     #[cfg(not(feature = "sealed-source-intake-acceptance"))]
     let source_intake = source_intake::production_router(
@@ -523,10 +519,10 @@ async fn main() -> anyhow::Result<()> {
             "/v2/exploratory-replay/execution-input-bindings",
             post(exploratory_replay::issue_execution_input_binding),
         )
-        .route(
-            "/v2/exploratory-replays",
-            post(exploratory_replay::run_native_replay),
-        );
+        .merge(exploratory_replay::execution_router(
+            native_replay_execution,
+            token_digest,
+        ));
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     let app = app
         .route(
@@ -2856,8 +2852,6 @@ mod tests {
             ),
             #[cfg(feature = "sealed-develop-composer-acceptance")]
             replay_composition: None,
-            #[cfg(feature = "sealed-develop-composer-acceptance")]
-            native_replay_execution: None,
         };
         let headers = bearer_headers(token);
         let research = ProductEdgeOperationRequestV2 {
@@ -3132,8 +3126,6 @@ mod tests {
             ),
             #[cfg(feature = "sealed-develop-composer-acceptance")]
             replay_composition: None,
-            #[cfg(feature = "sealed-develop-composer-acceptance")]
-            native_replay_execution: None,
         };
         let headers = bearer_headers(token);
         let research_request_identity = format!("rd-api-retry-research-{suffix}");

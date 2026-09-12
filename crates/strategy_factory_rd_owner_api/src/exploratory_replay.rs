@@ -73,6 +73,13 @@ pub(super) struct NativeReplayExecutionServiceV2 {
 }
 
 #[cfg(feature = "sealed-develop-composer-acceptance")]
+#[derive(Clone)]
+struct NativeReplayExecutionApiStateV2 {
+    service: Option<Arc<NativeReplayExecutionServiceV2>>,
+    token_digest: [u8; 32],
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
 impl NativeReplayExecutionServiceV2 {
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn connect(
@@ -112,6 +119,19 @@ impl NativeReplayExecutionServiceV2 {
 struct NativeReplayExecutionRequestV2 {
     request_locator: ExploratoryReplayRequestLocatorV2,
     attempt_identity: OpaqueIdentityV2,
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+pub(super) fn execution_router(
+    service: Option<Arc<NativeReplayExecutionServiceV2>>,
+    token_digest: [u8; 32],
+) -> Router {
+    Router::new()
+        .route("/v2/exploratory-replays", post(run_native_replay))
+        .with_state(NativeReplayExecutionApiStateV2 {
+            service,
+            token_digest,
+        })
 }
 
 pub(super) fn result_router(
@@ -303,7 +323,7 @@ pub(super) async fn issue_execution_input_binding(
 
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 pub(super) async fn run_native_replay(
-    State(state): State<super::ApiState>,
+    State(state): State<NativeReplayExecutionApiStateV2>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
@@ -332,7 +352,7 @@ pub(super) async fn run_native_replay(
             &request_identity,
         );
     }
-    let Some(service) = state.native_replay_execution.as_deref() else {
+    let Some(service) = state.service.as_deref() else {
         return rejection(
             StatusCode::SERVICE_UNAVAILABLE,
             "NATIVE_REPLAY_EXECUTION_UNAVAILABLE",
@@ -827,6 +847,10 @@ fn rejection(status: StatusCode, code: &str, request_identity: &str) -> Response
 mod tests {
     use super::*;
     use rstest::rstest;
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    use sha2::Digest as _;
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    use tower::ServiceExt;
 
     fn request() -> ReplayRequestDtoV2 {
         serde_json::from_value(json!({
@@ -913,6 +937,45 @@ mod tests {
             serde_json::from_slice::<serde_json::Value>(&body).expect("JSON rejection"),
             json!({
                 "error": "NATIVE_REPLAY_RESULT_SUBMITTED_OR_UNKNOWN",
+                "request_identity": "request-1",
+            })
+        );
+    }
+
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[tokio::test]
+    async fn native_replay_router_is_authenticated_and_fail_closed_without_service() {
+        let token = "native-replay-router-test";
+        let token_digest: [u8; 32] = sha2::Sha256::digest(token.as_bytes()).into();
+        let request = json!({
+            "request_locator": {
+                "request_identity": "request-1",
+                "meaning_digest": format!("blake3:{}", "a".repeat(64)),
+                "receipt_identity": "receipt-1",
+                "seal_digest": format!("sha256:{}", "b".repeat(64)),
+            },
+            "attempt_identity": "attempt-1",
+        });
+        let response = execution_router(None, token_digest)
+            .oneshot(
+                axum::http::Request::builder()
+                    .method(axum::http::Method::POST)
+                    .uri("/v2/exploratory-replays")
+                    .header(axum::http::header::AUTHORIZATION, format!("Bearer {token}"))
+                    .header(axum::http::header::CONTENT_TYPE, "application/json")
+                    .body(axum::body::Body::from(request.to_string()))
+                    .expect("HTTP request"),
+            )
+            .await
+            .expect("router response");
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("bounded rejection body");
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).expect("JSON rejection"),
+            json!({
+                "error": "NATIVE_REPLAY_EXECUTION_UNAVAILABLE",
                 "request_identity": "request-1",
             })
         );
