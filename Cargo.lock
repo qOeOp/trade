@@ -11315,6 +11315,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "vibe-backtest-owner",
  "vibe-backtest-owner-contracts",
  "vibe-data",
  "vibe-operator-authorization",

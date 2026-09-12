@@ -10,6 +10,14 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+use vibe_backtest_owner::{
+    native_replay::{
+        NativeReplayCommitDispositionV2, PostgresNativeReplayPreparationOwnerV2,
+        run_exploratory_replay_v2,
+    },
+    postgres::PostgresReplayResultOwnerV2,
+};
 use vibe_backtest_owner_contracts::{
     CanonicalDigestV2, OpaqueIdentityV2, ReplayNamespaceV2, ReplayRequestDtoV2, ReplayRequestV2,
 };
@@ -45,6 +53,33 @@ struct ExploratoryReplayResultPathV2 {
 struct ExploratoryReplayResultQueryV2 {
     request_identity: String,
     attempt_identity: String,
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+pub(super) struct NativeReplayExecutionServiceV2 {
+    preparation_owner: Arc<PostgresNativeReplayPreparationOwnerV2>,
+    result_owner: Arc<PostgresReplayResultOwnerV2>,
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+impl NativeReplayExecutionServiceV2 {
+    pub(super) fn new(
+        preparation_owner: Arc<PostgresNativeReplayPreparationOwnerV2>,
+        result_owner: Arc<PostgresReplayResultOwnerV2>,
+    ) -> Self {
+        Self {
+            preparation_owner,
+            result_owner,
+        }
+    }
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NativeReplayExecutionRequestV2 {
+    request_locator: ExploratoryReplayRequestLocatorV2,
+    attempt_identity: OpaqueIdentityV2,
 }
 
 pub(super) fn result_router(
@@ -232,6 +267,111 @@ pub(super) async fn issue_execution_input_binding(
             &request_identity,
         ),
     }
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+pub(super) async fn run_native_replay(
+    State(state): State<super::ApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            "unbound",
+        );
+    }
+    let request: NativeReplayExecutionRequestV2 = match serde_json::from_slice(&body) {
+        Ok(request) => request,
+        Err(_) => {
+            return rejection(
+                StatusCode::BAD_REQUEST,
+                "INVALID_NATIVE_REPLAY_EXECUTION_REQUEST",
+                "unbound",
+            );
+        }
+    };
+    let request_identity = request.request_locator.request_identity.clone();
+    if validate_request_locator(&request.request_locator).is_err() {
+        return rejection(
+            StatusCode::BAD_REQUEST,
+            "INVALID_NATIVE_REPLAY_EXECUTION_REQUEST",
+            &request_identity,
+        );
+    }
+    let Some(service) = state.native_replay_execution.as_deref() else {
+        return rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "NATIVE_REPLAY_EXECUTION_UNAVAILABLE",
+            &request_identity,
+        );
+    };
+    let run = require_send_future(run_exploratory_replay_v2(
+        service.preparation_owner.as_ref(),
+        service.result_owner.as_ref(),
+        &request.request_locator,
+        request.attempt_identity,
+    ));
+    match run.await {
+        Ok(disposition) => native_replay_execution_response(service, disposition).await,
+        Err(_) => rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "NATIVE_REPLAY_EXECUTION_UNAVAILABLE",
+            &request_identity,
+        ),
+    }
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+fn require_send_future<F: std::future::Future + Send>(future: F) -> F {
+    future
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+async fn native_replay_execution_response(
+    service: &NativeReplayExecutionServiceV2,
+    disposition: NativeReplayCommitDispositionV2,
+) -> Response {
+    let disposition = match disposition {
+        NativeReplayCommitDispositionV2::Committed { result, .. } => {
+            return canonical_result_response(result.result_canonical_bytes());
+        }
+        NativeReplayCommitDispositionV2::SubmittedOrUnknown(recovery) => {
+            recovery.resolve(service.result_owner.as_ref()).await
+        }
+    };
+    match disposition {
+        Ok(Some(NativeReplayCommitDispositionV2::Committed { result, .. })) => {
+            canonical_result_response(result.result_canonical_bytes())
+        }
+        _ => rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "NATIVE_REPLAY_RESULT_SUBMITTED_OR_UNKNOWN",
+            "unbound",
+        ),
+    }
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+fn canonical_result_response(bytes: &[u8]) -> Response {
+    (
+        StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        bytes.to_vec(),
+    )
+        .into_response()
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+fn validate_request_locator(
+    locator: &ExploratoryReplayRequestLocatorV2,
+) -> Result<(), vibe_backtest_owner_contracts::ReplayContractErrorV2> {
+    OpaqueIdentityV2::try_from(locator.request_identity.clone())?;
+    CanonicalDigestV2::try_from(locator.meaning_digest.clone())?;
+    OpaqueIdentityV2::try_from(locator.receipt_identity.clone())?;
+    CanonicalDigestV2::try_from(locator.seal_digest.clone())?;
+    Ok(())
 }
 
 async fn read_result(
@@ -695,6 +835,30 @@ mod tests {
 
     fn version(identity: &str) -> serde_json::Value {
         json!({ "identity": identity, "version": "v1" })
+    }
+
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[rstest]
+    fn native_replay_execution_request_accepts_only_exact_owner_locators() {
+        let request = json!({
+            "request_locator": {
+                "request_identity": "request-1",
+                "meaning_digest": format!("blake3:{}", "a".repeat(64)),
+                "receipt_identity": "receipt-1",
+                "seal_digest": format!("sha256:{}", "b".repeat(64)),
+            },
+            "attempt_identity": "attempt-1",
+        });
+        let parsed: NativeReplayExecutionRequestV2 =
+            serde_json::from_value(request.clone()).expect("exact execution request");
+        assert!(validate_request_locator(&parsed.request_locator).is_ok());
+
+        let mut with_caller_execution = request;
+        with_caller_execution["execution"] = json!({ "events": [] });
+        assert!(
+            serde_json::from_value::<NativeReplayExecutionRequestV2>(with_caller_execution)
+                .is_err()
+        );
     }
 
     #[rstest]

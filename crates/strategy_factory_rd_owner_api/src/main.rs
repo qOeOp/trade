@@ -12,6 +12,10 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::net::TcpListener;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
+use vibe_backtest_owner::{
+    native_replay::PostgresNativeReplayPreparationOwnerV2, postgres::PostgresReplayResultOwnerV2,
+};
+#[cfg(feature = "sealed-develop-composer-acceptance")]
 use vibe_data::owner::replay_market_facts_v2::{
     ReplayCompositionIssuanceLocatorV1, ReplayCompositionLocatorOnlyIssuanceRequestV1,
     ReplayCompositionOwnerV1,
@@ -40,6 +44,8 @@ use vibe_product_edge::{
     ProductEdgeError, ProductEdgeInvocationClaimReadbackV1, ProductEdgeInvocationClaimRequestV1,
     ProductEdgeInvocationStateV1, ProductEdgePostgresOwnerV1,
 };
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+use vibe_strategy_factory::native_replay_execution_preparation_resolver_v2::PostgresNativeReplayExecutionPreparationResolverV2;
 use vibe_strategy_factory::{
     artifact_build::{
         ARTIFACT_BUILD_OPERATION_V1, ARTIFACT_BUILD_SCHEMA_V1, ArtifactBuildCandidateV1,
@@ -176,6 +182,8 @@ struct ApiState {
     develop_composer: Arc<SealedPostgresSourceResearchComposerV2>,
     #[cfg(feature = "sealed-develop-composer-acceptance")]
     replay_composition: Option<Arc<ReplayCompositionOwnerV1>>,
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    native_replay_execution: Option<Arc<exploratory_replay::NativeReplayExecutionServiceV2>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -362,6 +370,42 @@ async fn main() -> anyhow::Result<()> {
     );
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     let develop_composer_read: Arc<dyn DevelopComposerSealedReadPortV2> = develop_composer.clone();
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    let native_replay_execution = match env::var("BACKTEST_OWNER_DATABASE_URL") {
+        Err(env::VarError::NotPresent) => None,
+        Err(error) => return Err(error.into()),
+        Ok(backtest_database_url) => {
+            if backtest_database_url.is_empty()
+                || backtest_database_url.trim() != backtest_database_url
+            {
+                anyhow::bail!("BACKTEST_OWNER_DATABASE_URL must be a non-empty exact value");
+            }
+            let Some(market_data) = native_replay_scheduling.clone() else {
+                anyhow::bail!("Native Replay execution requires admitted Market Data scheduling");
+            };
+            let rd_relock_pool = sqlx::PgPool::connect(&database_url).await?;
+            let backtest_pool = sqlx::PgPool::connect(&backtest_database_url).await?;
+            let result_owner =
+                Arc::new(PostgresReplayResultOwnerV2::from_admitted_pool(backtest_pool).await?);
+            let resolver = Arc::new(PostgresNativeReplayExecutionPreparationResolverV2::new(
+                owner.clone(),
+                develop_composer_read.clone(),
+                instrument_master_v2.clone(),
+                instrument_economic_terms.clone(),
+                market_data,
+            ));
+            let preparation_owner = Arc::new(PostgresNativeReplayPreparationOwnerV2::new(
+                rd_relock_pool,
+                resolver,
+            ));
+            Some(Arc::new(
+                exploratory_replay::NativeReplayExecutionServiceV2::new(
+                    preparation_owner,
+                    result_owner,
+                ),
+            ))
+        }
+    };
     let allow_acceptance_faults =
         env::var("RD_OWNER_ENABLE_ACCEPTANCE_FAULTS").as_deref() == Ok("1");
     let state = ApiState {
@@ -388,6 +432,8 @@ async fn main() -> anyhow::Result<()> {
         develop_composer,
         #[cfg(feature = "sealed-develop-composer-acceptance")]
         replay_composition: Some(replay_composition),
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        native_replay_execution,
     };
     #[cfg(not(feature = "sealed-source-intake-acceptance"))]
     let source_intake = source_intake::production_router(
@@ -487,10 +533,15 @@ async fn main() -> anyhow::Result<()> {
             post(resolve_develop_composer),
         );
     #[cfg(feature = "sealed-develop-composer-acceptance")]
-    let app = app.route(
-        "/v2/exploratory-replay/execution-input-bindings",
-        post(exploratory_replay::issue_execution_input_binding),
-    );
+    let app = app
+        .route(
+            "/v2/exploratory-replay/execution-input-bindings",
+            post(exploratory_replay::issue_execution_input_binding),
+        )
+        .route(
+            "/v2/exploratory-replays",
+            post(exploratory_replay::run_native_replay),
+        );
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     let app = app
         .route(
@@ -2820,6 +2871,8 @@ mod tests {
             ),
             #[cfg(feature = "sealed-develop-composer-acceptance")]
             replay_composition: None,
+            #[cfg(feature = "sealed-develop-composer-acceptance")]
+            native_replay_execution: None,
         };
         let headers = bearer_headers(token);
         let research = ProductEdgeOperationRequestV2 {
@@ -3094,6 +3147,8 @@ mod tests {
             ),
             #[cfg(feature = "sealed-develop-composer-acceptance")]
             replay_composition: None,
+            #[cfg(feature = "sealed-develop-composer-acceptance")]
+            native_replay_execution: None,
         };
         let headers = bearer_headers(token);
         let research_request_identity = format!("rd-api-retry-research-{suffix}");

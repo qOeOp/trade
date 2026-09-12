@@ -47,7 +47,7 @@ pub(crate) struct NativeReplayExecutionBindingConsumerErrorV1;
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn resolve_native_replay_execution_bundle_v1_in_transaction<P, R>(
-    transaction: &mut Transaction<'_, Postgres>,
+    mut transaction: Transaction<'_, Postgres>,
     locator: &ExploratoryReplayRequestLocatorV2,
     composer: &P,
     instrument_master_owner: &InstrumentMasterV2PostgresOwner,
@@ -60,18 +60,25 @@ where
     P: DevelopComposerSealedReadPortV2 + ?Sized,
     R: NativeReplaySchedulingResolverV1 + ?Sized,
 {
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| NativeReplayExecutionBindingConsumerErrorV1)?;
     let stored = resolve_native_replay_execution_input_binding_for_request_v1_in_transaction(
-        transaction,
+        &mut transaction,
         locator,
     )
     .await
     .map_err(|_| NativeReplayExecutionBindingConsumerErrorV1)?
     .ok_or(NativeReplayExecutionBindingConsumerErrorV1)?;
     let binding_bytes = stored.binding().canonical_bytes().to_vec();
-    let preparation =
-        resolve_native_replay_preparation_inputs_v2_in_transaction(transaction, locator, composer)
-            .await
-            .map_err(|_| NativeReplayExecutionBindingConsumerErrorV1)?;
+    let preparation = resolve_native_replay_preparation_inputs_v2_in_transaction(
+        &mut transaction,
+        locator,
+        composer,
+    )
+    .await
+    .map_err(|_| NativeReplayExecutionBindingConsumerErrorV1)?;
     let projected_plan =
         StrategyPlanV2::decode_owner_resolution_projection(preparation.composer().plan_bytes())
             .map_err(|_| NativeReplayExecutionBindingConsumerErrorV1)?;
@@ -147,6 +154,10 @@ where
     ];
     let (universe_frame, scheduling) = market
         .into_execution_parts()
+        .map_err(|_| NativeReplayExecutionBindingConsumerErrorV1)?;
+    transaction
+        .commit()
+        .await
         .map_err(|_| NativeReplayExecutionBindingConsumerErrorV1)?;
     let execution = ReplayTargetSetExecutionBundleV1::new(
         profile,

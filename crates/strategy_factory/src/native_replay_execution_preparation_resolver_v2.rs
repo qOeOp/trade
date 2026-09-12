@@ -73,7 +73,8 @@ impl NativeReplayExecutionPreparationResolverV2
                         NativeReplayExecutionPreparationV2,
                         NativeReplayExecutionPreparationErrorV2,
                     >,
-                > + 'a,
+                > + Send
+                + 'a,
         >,
     > {
         Box::pin(async move {
@@ -87,18 +88,14 @@ impl NativeReplayExecutionPreparationResolverV2
                 locator,
                 attempt_identity,
             )?;
-            let mut transaction = self
+            let transaction = self
                 .research_owner
                 .native_replay_pool_v2()
                 .begin()
                 .await
                 .map_err(unavailable)?;
-            sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-                .execute(&mut *transaction)
-                .await
-                .map_err(unavailable)?;
             let resolved = resolve_native_replay_execution_bundle_v1_in_transaction(
-                &mut transaction,
+                transaction,
                 locator,
                 self.composer.as_ref(),
                 self.instrument_master_owner.as_ref(),
@@ -109,7 +106,6 @@ impl NativeReplayExecutionPreparationResolverV2
             )
             .await
             .map_err(unavailable)?;
-            transaction.commit().await.map_err(unavailable)?;
             materialize_preparation(resolved, locator, attempt_identity)
         })
     }

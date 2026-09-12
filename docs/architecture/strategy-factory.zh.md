@@ -526,9 +526,13 @@ repeatable-read R&D transaction 内完成该重建，派生绑定 attempt 的 ru
 move-only bundle 与按固定顺序排列的完整 28-component observation package。Research、TrialFamily 与 Replay
 authority bytes 来自 R&D source record；Design、Plan 与 Artifact bytes 来自已接受的 Composer custody；其余
 resolved-input evidence 来自独立逐字节复现的 durable binding。现有 Backtest preparation Owner 直接接受该
-sealed resolver，并在进入 ProgramHost 前再次校验 request、component 与 execution locator。尚不声称
-disposable PostgreSQL acceptance、已注册 Native Replay execution service、execution/result closure、
-production startup/write、deployment 或 trading。
+sealed resolver，并在进入 ProgramHost 前再次校验 request、component 与 execution locator。启用 sealed
+Develop composition 时，authenticated R&D API 会注册 `POST /v2/exploratory-replays`；body 只含准确 sealed
+request locator 与 attempt identity。只有 `BACKTEST_OWNER_DATABASE_URL` 准入规范 Backtest Owner principal，
+且 Market Data scheduling capability 存在时，startup 才暴露 execution capability。Coordinator 确认 Result、
+全部 28 份 evidence envelope 与 semantic trace 后，handler 只返回实际持久化的 canonical Result bytes；未获
+确认的提交保持 unavailable。尚不声称 disposable PostgreSQL acceptance、已部署或正在运行的服务、production
+invocation、Paper/Live execution 或 trading。
 
 **TARGET / NOT_ADMITTED，BAR FRAME 与 JOINED_CUT composition：** additive
 `StrategyInputSampleProjectionV4` 是唯一可在完整 native join 中组合 BAR component 的 projection。

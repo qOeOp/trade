@@ -1445,17 +1445,13 @@ impl PostgresResearchGoalOwnerV1 {
         P: crate::develop_composer_postgres_v2::DevelopComposerSealedReadPortV2 + ?Sized,
         R: NativeReplaySchedulingResolverV1 + ?Sized,
     {
-        let mut transaction = self
+        let transaction = self
             .pool
             .begin()
             .await
             .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-            .execute(&mut *transaction)
-            .await
-            .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
         let execution = crate::native_replay_execution_binding_consumer_v1::resolve_native_replay_execution_bundle_v1_in_transaction(
-            &mut transaction,
+            transaction,
             locator,
             composer,
             instrument_master_owner,
@@ -1467,10 +1463,6 @@ impl PostgresResearchGoalOwnerV1 {
         .await
         .map_err(|_| crate::NativeReplayExecutionInputBindingErrorV1::Unavailable)?
         .into_execution();
-        transaction
-            .commit()
-            .await
-            .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
         Ok(execution)
     }
 

@@ -274,7 +274,13 @@ pub trait NativeReplayPreparationOwnerV2: admitted_preparation_owner::Sealed + S
         &'a self,
         locator: &'a ExploratoryReplayRequestLocatorV2,
         attempt_identity: &'a OpaqueIdentityV2,
-    ) -> Pin<Box<dyn Future<Output = Result<NativeReplayPreparationV2, NativeReplayRunErrorV2>> + 'a>>;
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<NativeReplayPreparationV2, NativeReplayRunErrorV2>>
+                + Send
+                + 'a,
+        >,
+    >;
 
     fn relock_and_commit_exploratory_replay_v2<'a>(
         &'a self,
@@ -290,7 +296,8 @@ pub trait NativeReplayPreparationOwnerV2: admitted_preparation_owner::Sealed + S
                         NativeReplayCommitDispositionV2,
                         PostgresReplayResultOwnerErrorV2,
                     >,
-                > + 'a,
+                > + Send
+                + 'a,
         >,
     >;
 }
@@ -322,8 +329,13 @@ impl NativeReplayPreparationOwnerV2 for PostgresNativeReplayPreparationOwnerV2 {
         &'a self,
         locator: &'a ExploratoryReplayRequestLocatorV2,
         attempt_identity: &'a OpaqueIdentityV2,
-    ) -> Pin<Box<dyn Future<Output = Result<NativeReplayPreparationV2, NativeReplayRunErrorV2>> + 'a>>
-    {
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<NativeReplayPreparationV2, NativeReplayRunErrorV2>>
+                + Send
+                + 'a,
+        >,
+    > {
         Box::pin(async move {
             let prepared = self
                 .resolver
@@ -405,7 +417,8 @@ impl NativeReplayPreparationOwnerV2 for PostgresNativeReplayPreparationOwnerV2 {
                         NativeReplayCommitDispositionV2,
                         PostgresReplayResultOwnerErrorV2,
                     >,
-                > + 'a,
+                > + Send
+                + 'a,
         >,
     > {
         Box::pin(async move {
@@ -470,6 +483,36 @@ pub async fn run_exploratory_replay_v2<P: NativeReplayPreparationOwnerV2 + ?Size
     let prepared = preparation_owner
         .prepare_exploratory_replay_v2(locator, &attempt_identity)
         .await?;
+    let prepared_commit = execute_native_replay_preparation(prepared, locator, &attempt_identity)?;
+    let disposition = preparation_owner
+        .relock_and_commit_exploratory_replay_v2(
+            result_owner,
+            locator,
+            &prepared_commit.result,
+            &prepared_commit.evidence_batch,
+            &prepared_commit.semantic_trace,
+        )
+        .await
+        .map_err(NativeReplayRunErrorV2::from)?;
+    validate_committed_readbacks(
+        disposition,
+        &prepared_commit.result,
+        &prepared_commit.evidence_batch,
+        &prepared_commit.semantic_trace,
+    )
+}
+
+struct PreparedNativeReplayCommitV2 {
+    result: SealedReplayResultV2,
+    evidence_batch: SealedNativeReplayEvidenceBatchV2,
+    semantic_trace: SealedNativeReplaySemanticTraceV2,
+}
+
+fn execute_native_replay_preparation(
+    prepared: NativeReplayPreparationV2,
+    locator: &ExploratoryReplayRequestLocatorV2,
+    attempt_identity: &OpaqueIdentityV2,
+) -> Result<PreparedNativeReplayCommitV2, NativeReplayRunErrorV2> {
     let NativeReplayPreparationV2 {
         request,
         execution,
@@ -484,7 +527,7 @@ pub async fn run_exploratory_replay_v2<P: NativeReplayPreparationOwnerV2 + ?Size
     let component_evidence = validate_component_evidence_inputs(
         request.request(),
         &request_meaning_digest,
-        &attempt_identity,
+        attempt_identity,
         component_evidence,
     )?;
     validate_execution_request_locator(execution.request_locator(), locator)?;
@@ -500,17 +543,21 @@ pub async fn run_exploratory_replay_v2<P: NativeReplayPreparationOwnerV2 + ?Size
         locator,
         request.request(),
         &request_meaning_digest,
-        &attempt_identity,
+        attempt_identity,
         component_evidence,
     )?;
     let semantic_trace = semantic_trace_evidence.finalize(
         request.request().request_identity(),
         &request_meaning_digest,
-        &attempt_identity,
+        attempt_identity,
         &execution_readback,
     )?;
-    let decisive_evidence = semantic_trace.observation.locator().clone();
-    observations.push(semantic_trace.observation);
+    let FinalizedNativeReplaySemanticTraceV2 {
+        observation,
+        sealed: semantic_trace,
+    } = semantic_trace;
+    let decisive_evidence = observation.locator().clone();
+    observations.push(observation);
     let result = commit_owner_result(
         request.request(),
         OwnerResultDraftV2 {
@@ -520,28 +567,17 @@ pub async fn run_exploratory_replay_v2<P: NativeReplayPreparationOwnerV2 + ?Size
             diagnostics: vec![DiagnosticEvidenceV2::from_native_execution(
                 request.request().request_identity().clone(),
                 request_meaning_digest,
-                attempt_identity,
+                attempt_identity.clone(),
                 DiagnosticCategoryV2::NoExecutionDefect,
                 decisive_evidence,
             )],
         },
     )?;
-    let disposition = preparation_owner
-        .relock_and_commit_exploratory_replay_v2(
-            result_owner,
-            locator,
-            &result,
-            &evidence_batch,
-            &semantic_trace.sealed,
-        )
-        .await
-        .map_err(NativeReplayRunErrorV2::from)?;
-    validate_committed_readbacks(
-        disposition,
-        &result,
-        &evidence_batch,
-        &semantic_trace.sealed,
-    )
+    Ok(PreparedNativeReplayCommitV2 {
+        result,
+        evidence_batch,
+        semantic_trace,
+    })
 }
 
 fn validate_committed_readbacks(

@@ -145,7 +145,8 @@ pub trait NativeReplayExecutionPreparationResolverV2: sealed::Sealed + Send + Sy
                         NativeReplayExecutionPreparationV2,
                         NativeReplayExecutionPreparationErrorV2,
                     >,
-                > + 'a,
+                > + Send
+                + 'a,
         >,
     >;
 }

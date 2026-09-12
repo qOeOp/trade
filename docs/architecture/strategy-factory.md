@@ -559,8 +559,13 @@ with the complete ordered 28-component observation package. R&D source records p
 Replay-authority bytes; accepted Composer custody provides Design, Plan and Artifact bytes; the independently
 reproduced durable binding provides the remaining resolved-input evidence. The existing Backtest preparation Owner
 accepts this sealed resolver directly and still performs its own request, component and execution-locator
-reconciliation before entering ProgramHost. This does not yet claim disposable PostgreSQL acceptance, a registered
-Native Replay execution service, execution/result closure, production startup/write, deployment, or trading.
+reconciliation before entering ProgramHost. With sealed Develop composition enabled, the authenticated R&D API
+registers `POST /v2/exploratory-replays`; the body contains only the exact sealed request locator and attempt
+identity. Startup exposes the execution capability only when `BACKTEST_OWNER_DATABASE_URL` admits the canonical
+Backtest Owner principal and the Market Data scheduling capability is present. The handler returns only the exact
+persisted canonical Result bytes after the coordinator acknowledges the Result, all 28 evidence envelopes and the
+semantic trace; an unacknowledged submission remains unavailable. This does not yet claim disposable PostgreSQL
+acceptance, a deployed or running service, production invocation, Paper/Live execution, or trading.
 
 **TARGET / NOT_ADMITTED, BAR FRAME and JOINED_CUT composition:** the additive
 `StrategyInputSampleProjectionV4` is the only projection that may compose BAR components across a complete
