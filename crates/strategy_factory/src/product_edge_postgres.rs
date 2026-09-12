@@ -1254,6 +1254,7 @@ impl PostgresResearchGoalOwnerV1 {
             crate::trial_family_postgres::TABLES,
             crate::iteration_decision_postgres::TABLES,
             crate::market_data_repair_request_postgres::TABLES,
+            crate::market_data_repair_resolution_postgres::TABLES,
             crate::complex_strategy_develop_evaluation::TABLES,
         ] {
             if materialization {
@@ -1387,6 +1388,29 @@ impl PostgresResearchGoalOwnerV1 {
             shared_time,
         )
         .await
+    }
+
+    /// Commits the effect-free R&D interpretation of one Owner-sealed Market Data terminal.
+    pub async fn commit_market_data_repair_resolution_v1(
+        &self,
+        resolution: crate::market_data_repair_resolution::MarketDataRepairResearchTerminalV1,
+    ) -> Result<
+        crate::MarketDataRepairResolutionReadbackV1,
+        crate::MarketDataRepairResolutionPostgresErrorV1,
+    > {
+        crate::market_data_repair_resolution_postgres::commit(&self.pool, resolution).await
+    }
+
+    /// Resolves exact existing R&D repair-terminal custody without creating a replacement.
+    pub async fn resolve_market_data_repair_resolution_v1(
+        &self,
+        locator: crate::MarketDataRepairResolutionLocatorV1,
+        expected: crate::market_data_repair_resolution::MarketDataRepairResearchTerminalV1,
+    ) -> Result<
+        Option<crate::MarketDataRepairResolutionReadbackV1>,
+        crate::MarketDataRepairResolutionPostgresErrorV1,
+    > {
+        crate::market_data_repair_resolution_postgres::resolve(&self.pool, locator, expected).await
     }
 
     /// Uses a canonical `backtest_owner` session to consume only the sealed R&D lock API.

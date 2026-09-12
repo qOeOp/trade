@@ -94,7 +94,10 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), MarketDataRepairPostgre
     )
     .await
     .map_err(unavailable)?;
-    publish_market_data_read_port(pool).await
+    publish_market_data_read_port(pool).await?;
+    crate::market_data_repair_resolution_postgres::migrate(pool)
+        .await
+        .map_err(unavailable)
 }
 
 async fn publish_market_data_read_port(

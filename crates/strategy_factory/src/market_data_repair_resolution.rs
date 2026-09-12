@@ -87,6 +87,26 @@ impl MarketDataRepairResearchTerminalV1 {
     }
 
     #[must_use]
+    pub fn decision_identity(&self) -> &str {
+        &self.decision_identity
+    }
+
+    #[must_use]
+    pub fn repair_request_identity(&self) -> &str {
+        &self.repair_request_identity
+    }
+
+    #[must_use]
+    pub fn market_data_terminal_identity(&self) -> &str {
+        &self.market_data_terminal_identity
+    }
+
+    #[must_use]
+    pub fn market_data_terminal_digest(&self) -> &str {
+        &self.market_data_terminal_digest
+    }
+
+    #[must_use]
     pub const fn disposition(&self) -> MarketDataRepairResolutionDispositionV1 {
         self.disposition
     }
@@ -461,7 +481,7 @@ fn encoding(error: impl std::fmt::Display) -> MarketDataRepairResolutionErrorV1 
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use vibe_data::owner::pit_snapshot::{
         UntrustedEventEffectiveTime, UntrustedProviderAvailableTime, UntrustedRetrievalTime,
@@ -657,6 +677,37 @@ mod tests {
             request_digest: "sha256:request",
             time: time(),
         }
+    }
+
+    pub(crate) fn repaired_resolution_fixture() -> MarketDataRepairResearchTerminalV1 {
+        issue_from_evidence(
+            &decision(),
+            &Action {
+                decision_digest: "sha256:decision",
+            },
+            &Request,
+            &available_terminal(),
+        )
+        .expect("repaired resolution fixture")
+    }
+
+    pub(crate) fn unavailable_resolution_fixture() -> MarketDataRepairResearchTerminalV1 {
+        issue_from_evidence(
+            &decision(),
+            &Action {
+                decision_digest: "sha256:decision",
+            },
+            &Request,
+            &Terminal {
+                disposition: MarketDataRepairDispositionV1::Unavailable,
+                repaired: None,
+                basis: Some(ResearchPitDisposition::Unavailable),
+                blockers: vec![ResearchPitBlocker::SourceUnavailable],
+                request_digest: "sha256:request",
+                time: time(),
+            },
+        )
+        .expect("unavailable resolution fixture")
     }
 
     #[test]

@@ -84,6 +84,7 @@ pub mod market_data_repair_request;
 )]
 mod market_data_repair_request_postgres;
 pub mod market_data_repair_resolution;
+mod market_data_repair_resolution_postgres;
 pub use iteration_decision_postgres::{
     DecisionCompositionRequestV1, IterationDecisionPostgresErrorV1,
     IterationDecisionResolutionLocatorV1, RepairActionCompositionRequestV1,
@@ -91,6 +92,10 @@ pub use iteration_decision_postgres::{
 };
 pub use market_data_repair_request_postgres::{
     MarketDataRepairCompositionRequestV1, MarketDataRepairPostgresErrorV1,
+};
+pub use market_data_repair_resolution_postgres::{
+    MarketDataRepairResolutionLocatorV1, MarketDataRepairResolutionPostgresErrorV1,
+    MarketDataRepairResolutionReadbackV1,
 };
 mod legacy_prepared_attempt_drain;
 #[allow(
