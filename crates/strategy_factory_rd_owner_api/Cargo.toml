@@ -41,12 +41,14 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 vibe-backtest-owner-contracts = { workspace = true }
+vibe-backtest-owner = { workspace = true }
 vibe-data = { workspace = true }
 vibe-product-edge = { workspace = true }
 vibe-strategy-factory = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
+tower = { workspace = true }
 vibe-operator-authorization = { workspace = true }
 vibe-rd-artifact-invocation-custody = { workspace = true }
 vibe-testkit = { workspace = true, features = ["postgres"] }

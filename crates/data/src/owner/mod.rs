@@ -9,6 +9,8 @@ pub mod instrument_economic_terms_postgres_v1;
 pub mod instrument_economic_terms_v1;
 pub mod instrument_master;
 pub mod instrument_master_v2;
+pub mod instrument_master_v2_postgres;
+pub mod native_replay_scheduling_v1;
 pub mod observation_census;
 pub mod pit_snapshot;
 pub mod replay_market_facts_v2;
@@ -29,6 +31,10 @@ use instrument_economic_terms_postgres_v1::{
     INSTRUMENT_OWNER_DATABASE_URL_ENV, InstrumentEconomicTermsPostgresErrorV1,
     InstrumentEconomicTermsPostgresOwnerV1,
 };
+use instrument_master_v2::InstrumentMasterCustodyErrorV2;
+use instrument_master_v2_postgres::{
+    InstrumentMasterV2PostgresOwner, MARKET_DATA_OWNER_DATABASE_URL_ENV,
+};
 
 pub(crate) mod corporate_action;
 pub(crate) mod correction_policy_projection;
@@ -40,6 +46,8 @@ pub(crate) mod time_zone;
 
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 pub use pit_snapshot::sealed_acceptance;
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub use postgres::bar_joined_cut_acceptance_v1;
 
 mod postgres;
 mod store_admission;
@@ -67,15 +75,38 @@ pub async fn instrument_economic_terms_postgres_owner_from_environment_v1()
     InstrumentEconomicTermsPostgresOwnerV1::install(pool).await
 }
 
+/// Opens the sole configured durable public Instrument Master V2 authority.
+///
+/// The environment supplies only deployment configuration. The returned Owner retains the pool;
+/// request and consumer APIs cannot inject a pool, symbol, digest, member order, or latest selector.
+///
+/// # Errors
+///
+/// Returns a redacted configuration/store/ACL failure without attempting a default database.
+pub async fn instrument_master_v2_postgres_owner_from_environment()
+-> Result<InstrumentMasterV2PostgresOwner, InstrumentMasterCustodyErrorV2> {
+    let url = std::env::var(MARKET_DATA_OWNER_DATABASE_URL_ENV)
+        .map_err(|_| InstrumentMasterCustodyErrorV2::StoreUnavailable)?;
+    if url.is_empty() || url.trim() != url {
+        return Err(InstrumentMasterCustodyErrorV2::StoreUnavailable);
+    }
+    let pool = sqlx::PgPool::connect(&url)
+        .await
+        .map_err(|_| InstrumentMasterCustodyErrorV2::StoreUnavailable)?;
+    InstrumentMasterV2PostgresOwner::install(pool).await
+}
+
 #[cfg(not(test))]
 use self::{
     bar_schedule::BarScheduleResolverV1,
+    native_replay_scheduling_v1::NativeReplaySchedulingResolverV1,
     postgres::MarketDataReadPostgres,
     research_pit_terminal::ResearchPitTerminalResolver,
     sample_projection::{
         StrategyInputSampleProjectionResolverV2, StrategyInputSampleProjectionResolverV3,
     },
     sealed_replay_input::SealedReplayInputResolver,
+    shared_time_evidence::SharedTimeEvidenceResolver,
 };
 
 /// Public startup failure categories for the sealed Research PIT terminal bridge.
@@ -120,6 +151,34 @@ pub struct StrategyInputSampleProjectionBootstrapErrorV3 {
 #[error("Market Data BAR schedule bootstrap rejected: {failure:?}")]
 pub struct BarScheduleBootstrapErrorV1 {
     failure: ResearchPitTerminalBootstrapFailure,
+}
+
+/// Redacted startup failure for the sealed native Replay scheduling resolver.
+#[derive(Debug, thiserror::Error)]
+#[error("Market Data native Replay scheduling bootstrap rejected: {failure:?}")]
+pub struct NativeReplaySchedulingBootstrapErrorV1 {
+    failure: ResearchPitTerminalBootstrapFailure,
+}
+
+/// Redacted startup failure for the sealed Shared Time evidence resolver.
+#[derive(Debug, thiserror::Error)]
+#[error("Market Data Shared Time evidence bootstrap rejected: {failure:?}")]
+pub struct SharedTimeEvidenceBootstrapErrorV1 {
+    failure: ResearchPitTerminalBootstrapFailure,
+}
+
+impl SharedTimeEvidenceBootstrapErrorV1 {
+    #[must_use]
+    pub const fn failure(&self) -> ResearchPitTerminalBootstrapFailure {
+        self.failure
+    }
+}
+
+impl NativeReplaySchedulingBootstrapErrorV1 {
+    #[must_use]
+    pub const fn failure(&self) -> ResearchPitTerminalBootstrapFailure {
+        self.failure
+    }
 }
 
 impl BarScheduleBootstrapErrorV1 {
@@ -354,6 +413,84 @@ pub async fn bar_schedule_resolver_v1_from_store_admission_lookup(
     consume_bar_schedule_store_admission_bootstrap_v1(bootstrap).await
 }
 
+/// Resolves store admission and returns the combined PIT and BAR native scheduling Owner port.
+///
+/// Disabled mode returns `None`. Required mode retains the fixed read-only capability inside
+/// Market Data; callers receive no pool, credential, raw row, or generic query surface.
+///
+/// # Errors
+///
+/// Returns only a redacted configuration or admission category.
+#[cfg(not(test))]
+pub async fn native_replay_scheduling_resolver_v1_from_store_admission_environment()
+-> Result<Option<Arc<dyn NativeReplaySchedulingResolverV1>>, NativeReplaySchedulingBootstrapErrorV1>
+{
+    let bootstrap =
+        store_admission::RdOwnerStoreAdmissionBootstrap::from_environment().map_err(|e| {
+            NativeReplaySchedulingBootstrapErrorV1 {
+                failure: map_bootstrap_failure(&e),
+            }
+        })?;
+    consume_native_replay_scheduling_store_admission_bootstrap_v1(bootstrap).await
+}
+
+/// Lookup-injected form of the sealed native Replay scheduling startup bridge.
+///
+/// # Errors
+///
+/// Returns only a redacted configuration or admission category.
+#[cfg(not(test))]
+pub async fn native_replay_scheduling_resolver_v1_from_store_admission_lookup(
+    lookup: impl FnMut(&str) -> Option<String>,
+) -> Result<Option<Arc<dyn NativeReplaySchedulingResolverV1>>, NativeReplaySchedulingBootstrapErrorV1>
+{
+    let bootstrap =
+        store_admission::RdOwnerStoreAdmissionBootstrap::from_lookup(lookup).map_err(|e| {
+            NativeReplaySchedulingBootstrapErrorV1 {
+                failure: map_bootstrap_failure(&e),
+            }
+        })?;
+    consume_native_replay_scheduling_store_admission_bootstrap_v1(bootstrap).await
+}
+
+/// Resolves store admission and returns only the sealed Shared Time evidence read port.
+///
+/// Disabled mode returns `None`. Required mode retains the fixed read-only capability inside
+/// Market Data; callers receive no pool, credential, raw clock row, or generic query surface.
+///
+/// # Errors
+///
+/// Returns only a redacted configuration or admission category.
+#[cfg(not(test))]
+pub async fn shared_time_evidence_resolver_from_store_admission_environment_v1()
+-> Result<Option<Arc<dyn SharedTimeEvidenceResolver>>, SharedTimeEvidenceBootstrapErrorV1> {
+    let bootstrap =
+        store_admission::RdOwnerStoreAdmissionBootstrap::from_environment().map_err(|e| {
+            SharedTimeEvidenceBootstrapErrorV1 {
+                failure: map_bootstrap_failure(&e),
+            }
+        })?;
+    consume_shared_time_evidence_store_admission_bootstrap_v1(bootstrap).await
+}
+
+/// Lookup-injected form of the sealed Shared Time evidence startup bridge.
+///
+/// # Errors
+///
+/// Returns only a redacted configuration or admission category.
+#[cfg(not(test))]
+pub async fn shared_time_evidence_resolver_from_store_admission_lookup_v1(
+    lookup: impl FnMut(&str) -> Option<String>,
+) -> Result<Option<Arc<dyn SharedTimeEvidenceResolver>>, SharedTimeEvidenceBootstrapErrorV1> {
+    let bootstrap =
+        store_admission::RdOwnerStoreAdmissionBootstrap::from_lookup(lookup).map_err(|e| {
+            SharedTimeEvidenceBootstrapErrorV1 {
+                failure: map_bootstrap_failure(&e),
+            }
+        })?;
+    consume_shared_time_evidence_store_admission_bootstrap_v1(bootstrap).await
+}
+
 #[cfg(not(test))]
 async fn consume_store_admission_bootstrap(
     bootstrap: store_admission::RdOwnerStoreAdmissionBootstrap,
@@ -457,6 +594,51 @@ async fn consume_bar_schedule_store_admission_bootstrap_v1(
                     failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
                 }
             })?;
+            Ok(Some(Arc::new(MarketDataReadPostgres::from_admitted(port))))
+        }
+    }
+}
+
+#[cfg(not(test))]
+async fn consume_native_replay_scheduling_store_admission_bootstrap_v1(
+    bootstrap: store_admission::RdOwnerStoreAdmissionBootstrap,
+) -> Result<Option<Arc<dyn NativeReplaySchedulingResolverV1>>, NativeReplaySchedulingBootstrapErrorV1>
+{
+    match bootstrap {
+        store_admission::RdOwnerStoreAdmissionBootstrap::Disabled => Ok(None),
+        store_admission::RdOwnerStoreAdmissionBootstrap::Required(request) => {
+            let capability = store_admission::admit_rd_owner_market_data_postgres(&request)
+                .await
+                .map_err(|_| NativeReplaySchedulingBootstrapErrorV1 {
+                    failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
+                })?;
+            let port = capability.into_bar_schedule_snapshot_port().map_err(|_| {
+                NativeReplaySchedulingBootstrapErrorV1 {
+                    failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
+                }
+            })?;
+            Ok(Some(Arc::new(MarketDataReadPostgres::from_admitted(port))))
+        }
+    }
+}
+
+#[cfg(not(test))]
+async fn consume_shared_time_evidence_store_admission_bootstrap_v1(
+    bootstrap: store_admission::RdOwnerStoreAdmissionBootstrap,
+) -> Result<Option<Arc<dyn SharedTimeEvidenceResolver>>, SharedTimeEvidenceBootstrapErrorV1> {
+    match bootstrap {
+        store_admission::RdOwnerStoreAdmissionBootstrap::Disabled => Ok(None),
+        store_admission::RdOwnerStoreAdmissionBootstrap::Required(request) => {
+            let capability = store_admission::admit_rd_owner_market_data_postgres(&request)
+                .await
+                .map_err(|_| SharedTimeEvidenceBootstrapErrorV1 {
+                    failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
+                })?;
+            let port = capability
+                .into_shared_time_evidence_snapshot_port_v1()
+                .map_err(|_| SharedTimeEvidenceBootstrapErrorV1 {
+                    failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
+                })?;
             Ok(Some(Arc::new(MarketDataReadPostgres::from_admitted(port))))
         }
     }

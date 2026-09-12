@@ -40,6 +40,7 @@ members = [
   "crates/indicators/kernel",
   "crates/infrastructure",
   "crates/live",
+  "crates/market_data_repair_custody",
   "crates/model",
   "crates/network",
   "crates/observability",
@@ -56,6 +57,7 @@ members = [
   "crates/qualification",
   "crates/rd_artifact_invocation_custody",
   "crates/rd_exploratory_replay_custody",
+  "crates/rd_market_data_repair_custody",
   "crates/rd_source_intake_invocation_custody",
   "crates/runtime",
   "crates/risk",
@@ -84,6 +86,7 @@ strategy-factory-program-sdk = { path = "crates/strategy_factory/programs/sdk", 
 vibe-analysis = { path = "crates/analysis", version = "0.62.0" }
 vibe-backtest = { path = "crates/backtest", version = "0.62.0" }
 vibe-backtest-owner-contracts = { path = "crates/backtest_owner_contracts", version = "0.62.0" }
+vibe-backtest-owner = { path = "crates/backtest_owner", version = "0.62.0" }
 vibe-backtest-result-custody = { path = "crates/backtest_result_custody", version = "0.62.0" }
 vibe-cli = { path = "crates/cli", version = "0.62.0" }
 vibe-common = { path = "crates/common", version = "0.62.0" }
@@ -96,6 +99,7 @@ vibe-indicators = { path = "crates/indicators", version = "0.62.0" }
 vibe-indicators-kernel = { path = "crates/indicators/kernel", version = "0.62.0" }
 vibe-infrastructure = { path = "crates/infrastructure", version = "0.62.0" }
 vibe-live = { path = "crates/live", version = "0.62.0", default-features = false }
+vibe-market-data-repair-custody = { path = "crates/market_data_repair_custody", version = "0.62.0" }
 vibe-model = { path = "crates/model", version = "0.62.0" }
 vibe-network = { path = "crates/network", version = "0.62.0" }
 vibe-operator-authorization = { path = "crates/operator_authorization", version = "0.62.0" }
@@ -109,6 +113,7 @@ vibe-pyo3 = { path = "crates/pyo3", version = "0.62.0" }
 vibe-qualification = { path = "crates/qualification", version = "0.62.0" }
 vibe-rd-artifact-invocation-custody = { path = "crates/rd_artifact_invocation_custody", version = "0.62.0" }
 vibe-rd-exploratory-replay-custody = { path = "crates/rd_exploratory_replay_custody", version = "0.62.0" }
+vibe-rd-market-data-repair-custody = { path = "crates/rd_market_data_repair_custody", version = "0.62.0" }
 vibe-rd-source-intake-invocation-custody = { path = "crates/rd_source_intake_invocation_custody", version = "0.62.0" }
 vibe-risk = { path = "crates/risk", version = "0.62.0" }
 vibe-scanner = { path = "crates/scanner", version = "0.62.0" }
@@ -334,6 +339,7 @@ tokio-tungstenite = { version = "0.30.0", features = [
   "rustls-tls-webpki-roots",
 ] }
 tokio-util = { version = "0.7.19", default-features = false, features = ["io"] }
+tower = "0.5.3"
 toml = { version = "1.1.4", default-features = false, features = [
   "parse",
   "serde",

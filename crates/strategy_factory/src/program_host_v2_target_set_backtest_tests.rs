@@ -13,12 +13,14 @@ use vibe_backtest::{
     config::{BacktestEngineConfig, SimulatedVenueConfig},
     engine::BacktestEngine,
 };
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+use vibe_backtest_owner_contracts::ReplayWindowV2;
 use vibe_data::owner::{
     sealed_acceptance::issue_strategy_input_universe_frame, source_binding::BindingDigest,
     strategy_input_binding::StrategyInputUniverseFrameReceipt,
 };
 use vibe_model::{
-    data::{Bar, BarSpecification, BarType, BookOrder, Data, OrderBookDelta},
+    data::{Bar, BarSpecification, BarType, BookOrder, Data, OrderBookDelta, QuoteTick},
     enums::{
         AccountType, AggregationSource, BarAggregation, BookAction, BookType, OmsType, OrderSide,
         PriceType,
@@ -50,6 +52,187 @@ use super::{
         issue_plugin_implementation_receipt_v2_for_test,
     },
 };
+
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+use super::{
+    program_host_sim_event_consumer_v1::run_program_host_sim_event_consumer_v1,
+    replay_execution_profile_binding_v1::owner_replay_execution_profile_binding_fixture_v1,
+    replay_target_set_execution_bundle_v1::ReplayTargetSetExecutionBundleV1,
+};
+
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn owner_bound_profile_drives_bar_signal_then_real_event_fills() {
+    let mut instruments = instruments();
+    for instrument in &mut instruments {
+        let instrument = crypto_perpetual_mut(instrument);
+        instrument.maker_fee = rust_decimal::Decimal::new(2, 4);
+        instrument.taker_fee = rust_decimal::Decimal::new(4, 4);
+        instrument.margin_init = rust_decimal::Decimal::new(1, 1);
+        instrument.margin_maint = rust_decimal::Decimal::new(5, 2);
+    }
+    let (plan, artifact, frame) = fixture().unwrap();
+    let admitted = admit_market_data_universe_program_event_v2(&plan, &frame).unwrap();
+    let time = admitted.envelope().order_key.logical_time_ns;
+    let authority = owner_replay_execution_profile_binding_fixture_v1(
+        &plan,
+        &artifact,
+        &frame,
+        ReplayWindowV2 {
+            start_event_ns: time,
+            end_event_ns_exclusive: time + 3,
+        },
+    );
+    let (bar_types, data) = request_execution_schedule(&instruments, time);
+    let capability = ReplayTargetSetExecutionBundleV1::new_with_native_instruments_for_test(
+        authority,
+        plan,
+        artifact,
+        frame,
+        StrategyId::from("TARGET-SET-PROFILE-EVENT-001"),
+        "target-set-profile-event".into(),
+        instruments,
+        bar_types,
+        data,
+    )
+    .unwrap();
+    let readback = run_program_host_sim_event_consumer_v1(capability).unwrap();
+    assert_eq!(readback.execution_route(), "EVENT");
+    vibe_backtest::result::CanonicalBacktestResult::from_slice(readback.canonical_result())
+        .expect("EVENT readback must retain the exact canonical Backtest result");
+    assert!(readback.canonical_result_is_exact());
+    assert!(
+        serde_json::to_value(&readback)
+            .expect("EVENT readback must serialize")
+            .get("canonical_result")
+            .is_none(),
+        "canonical result belongs to separate Backtest outcome evidence"
+    );
+    assert_eq!(readback.target_set_count(), 1);
+    assert!(readback.position_submit_count() >= 2);
+    assert!(
+        readback
+            .actual_fills()
+            .iter()
+            .any(|fill| fill.instrument() == "AAPL.XNAS")
+    );
+    assert!(
+        readback
+            .actual_fills()
+            .iter()
+            .any(|fill| fill.instrument() == "MSFT.XNAS")
+    );
+    assert_eq!(readback.instrument_fact_digests(), [[1; 32], [21; 32]]);
+    assert_eq!(readback.instrument_receipt_digests(), [[2; 32], [22; 32]]);
+    assert_eq!(
+        readback
+            .consumption_census()
+            .request_locator()
+            .request_identity,
+        "rd-replay-request-aapl-msft-v2"
+    );
+}
+
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn self_consistent_plan_artifact_splice_fails_before_execution() {
+    let (request_plan, request_artifact, request_frame) = fixture().unwrap();
+    let request_time = admit_market_data_universe_program_event_v2(&request_plan, &request_frame)
+        .unwrap()
+        .envelope()
+        .order_key
+        .logical_time_ns;
+    let authority = owner_replay_execution_profile_binding_fixture_v1(
+        &request_plan,
+        &request_artifact,
+        &request_frame,
+        ReplayWindowV2 {
+            start_event_ns: request_time,
+            end_event_ns_exclusive: request_time + 3,
+        },
+    );
+    let (foreign_plan, foreign_artifact, foreign_frame) =
+        fixture_with_target_sets(target_set(), Some(second_target_set())).unwrap();
+    let foreign_time = admit_market_data_universe_program_event_v2(&foreign_plan, &foreign_frame)
+        .unwrap()
+        .envelope()
+        .order_key
+        .logical_time_ns;
+    let instruments = instruments();
+    let (bar_types, data) = request_execution_schedule(&instruments, foreign_time);
+
+    assert!(
+        ReplayTargetSetExecutionBundleV1::new_with_native_instruments_for_test(
+            authority,
+            foreign_plan,
+            foreign_artifact,
+            foreign_frame,
+            StrategyId::from("TARGET-SET-PROFILE-EVENT-SPLICE"),
+            "target-set-profile-event-splice".into(),
+            instruments,
+            bar_types,
+            data,
+        )
+        .is_err()
+    );
+}
+
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn request_execution_schedule(
+    instruments: &[InstrumentAny; 2],
+    time: u64,
+) -> ([BarType; 2], Vec<Data>) {
+    let bar_types = instruments.each_ref().map(|instrument| {
+        BarType::new(
+            instrument.id(),
+            BarSpecification::new(1, BarAggregation::Day, PriceType::Last),
+            AggregationSource::External,
+        )
+    });
+    let mut data = vec![
+        Data::Bar(Bar::new(
+            bar_types[0],
+            Price::from("186.41"),
+            Price::from("188.00"),
+            Price::from("185.00"),
+            Price::from("187.25"),
+            Quantity::from("100"),
+            time.into(),
+            time.into(),
+        )),
+        Data::Bar(Bar::new(
+            bar_types[1],
+            Price::from("419.81"),
+            Price::from("425.00"),
+            Price::from("418.00"),
+            Price::from("421.15"),
+            Quantity::from("100.0"),
+            time.into(),
+            time.into(),
+        )),
+    ];
+    data.extend([
+        Data::Quote(QuoteTick::new(
+            instruments[0].id(),
+            Price::from("187.24"),
+            Price::from("187.25"),
+            Quantity::from("100"),
+            Quantity::from("100"),
+            (time + 1).into(),
+            (time + 1).into(),
+        )),
+        Data::Quote(QuoteTick::new(
+            instruments[1].id(),
+            Price::from("421.14"),
+            Price::from("421.15"),
+            Quantity::from("100.0"),
+            Quantity::from("100.0"),
+            (time + 2).into(),
+            (time + 2).into(),
+        )),
+    ]);
+    (bar_types, data)
+}
 
 #[derive(Serialize)]
 struct Corpus<'a> {
@@ -87,6 +270,18 @@ fn exact_two_member_target_set_drives_real_sim_with_bound_fills_and_restore_equa
     assert_eq!(uninterrupted.corpus, restored.corpus);
     assert_eq!(uninterrupted.corpus, repeated.corpus);
     assert_eq!(uninterrupted.trace.canonical_target_sets.len(), 1);
+    assert_eq!(uninterrupted.trace.actual_fill_consumptions.len(), 4);
+    assert!(
+        uninterrupted
+            .trace
+            .actual_fill_consumptions
+            .iter()
+            .all(|fill| {
+                matches!(fill.disposition.as_str(), "PARTIALLY_FILLED" | "FILLED")
+                    && fill.cumulative_filled_grid_units > 0
+                    && fill.checkpoint_before != fill.checkpoint_after
+            })
+    );
     assert!(!uninterrupted.trace.venue_atomicity_claimed);
     assert!(!uninterrupted.trace.cold_restart_claimed);
 
@@ -161,6 +356,7 @@ fn second_submit_boundary_fault_preserves_first_real_submission_and_committed_ho
     assert_eq!(trace.successful_position_submits.len(), 1);
     assert_eq!(evidence.native_order_count, 1);
     assert_eq!(trace.canonical_target_sets.len(), 1);
+    assert!(trace.actual_fill_consumptions.is_empty());
     assert_ne!(
         trace.batch_checkpoint_before, trace.failure_checkpoint_after,
         "the committed Host must not be rolled back after the first native submit"
@@ -353,6 +549,7 @@ fn every_invalid_batch_fact_prevents_both_submits_and_preserves_the_host_checkpo
         );
         assert_eq!(trace.position_submit_attempts, 0, "{case:?}");
         assert!(trace.native_order_observations.is_empty(), "{case:?}");
+        assert!(trace.actual_fill_consumptions.is_empty(), "{case:?}");
         assert!(trace.canonical_target_sets.is_empty(), "{case:?}");
         assert_eq!(
             trace.batch_checkpoint_before, trace.failure_checkpoint_after,
@@ -455,6 +652,7 @@ fn run_corpus_with_fault(restore: bool, second_submit_fault: bool) -> anyhow::Re
         instrument_ids,
         bar_types,
         [frame],
+        None,
         restore,
         Rc::clone(&restored),
         Rc::clone(&trace),
@@ -586,6 +784,7 @@ fn run_invalid_batch(case: InvalidBatchCase) -> anyhow::Result<TargetSetBacktest
         instrument_ids,
         bar_types,
         [frame],
+        None,
         false,
         Rc::new(Cell::new(false)),
         Rc::clone(&trace),
@@ -738,6 +937,7 @@ fn run_multi_frame_equity_corpus() -> anyhow::Result<TargetSetBacktestTraceV2> {
         instrument_ids,
         bar_types,
         [frame],
+        None,
         false,
         Rc::new(Cell::new(false)),
         Rc::clone(&trace),
@@ -781,7 +981,7 @@ fn run_multi_frame_equity_corpus() -> anyhow::Result<TargetSetBacktestTraceV2> {
     Ok(evidence)
 }
 
-fn instruments() -> [InstrumentAny; 2] {
+pub(crate) fn instruments() -> [InstrumentAny; 2] {
     [
         InstrumentAny::CryptoPerpetual(CryptoPerpetual::new(
             InstrumentId::from("AAPL.XNAS"),
@@ -863,7 +1063,7 @@ fn reconciliation_capability(
     .unwrap()
 }
 
-fn fixture() -> anyhow::Result<(
+pub(crate) fn fixture() -> anyhow::Result<(
     StrategyPlanV2,
     StrategyArtifactV2,
     StrategyInputUniverseFrameReceipt,

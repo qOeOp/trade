@@ -128,8 +128,8 @@ GRANT USAGE, CREATE ON SCHEMA public TO product_edge_owner;
 GRANT USAGE ON SCHEMA public TO qualification_writer;
 CREATE SCHEMA IF NOT EXISTS product_edge_api AUTHORIZATION product_edge_owner;
 ALTER SCHEMA product_edge_api OWNER TO product_edge_owner;
-REVOKE ALL ON SCHEMA product_edge_api FROM PUBLIC, operator_authorization_writer, portfolio_owner;
-GRANT USAGE ON SCHEMA product_edge_api TO rd_owner, portfolio_owner;
+REVOKE ALL ON SCHEMA product_edge_api FROM PUBLIC, operator_authorization_writer, portfolio_owner, backtest_owner;
+GRANT USAGE ON SCHEMA product_edge_api TO rd_owner, portfolio_owner, backtest_owner;
 CREATE SCHEMA IF NOT EXISTS rd_owner_api AUTHORIZATION rd_owner;
 ALTER SCHEMA rd_owner_api OWNER TO rd_owner;
 REVOKE ALL ON SCHEMA rd_owner_api FROM PUBLIC, operator_authorization_writer, qualification_writer;
@@ -138,12 +138,691 @@ GRANT USAGE ON SCHEMA public, rd_owner_api TO rd_exploratory_replay_api_owner;
 GRANT USAGE ON SCHEMA rd_owner_api TO market_data_owner;
 REVOKE ALL ON SCHEMA rd_owner_api FROM market_data_reader;
 
+ALTER TABLE IF EXISTS public.rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS request_storage_bytes BYTEA;
+ALTER TABLE IF EXISTS public.rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS request_storage_digest TEXT;
+ALTER TABLE IF EXISTS public.rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS receipt_storage_bytes BYTEA;
+ALTER TABLE IF EXISTS public.rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS receipt_storage_digest TEXT;
+ALTER TABLE IF EXISTS public.rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS intent_storage_bytes BYTEA;
+ALTER TABLE IF EXISTS public.rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS intent_storage_digest TEXT;
+ALTER TABLE IF EXISTS public.rd_trial_families_v1 ADD COLUMN IF NOT EXISTS root_storage_bytes BYTEA;
+ALTER TABLE IF EXISTS public.rd_trial_families_v1 ADD COLUMN IF NOT EXISTS root_storage_digest TEXT;
+ALTER TABLE IF EXISTS public.rd_trial_families_v1 ADD COLUMN IF NOT EXISTS root_receipt_storage_bytes BYTEA;
+ALTER TABLE IF EXISTS public.rd_trial_families_v1 ADD COLUMN IF NOT EXISTS root_receipt_storage_digest TEXT;
+ALTER TABLE IF EXISTS public.rd_trial_families_v1 ADD COLUMN IF NOT EXISTS initial_frontier_storage_bytes BYTEA;
+ALTER TABLE IF EXISTS public.rd_trial_families_v1 ADD COLUMN IF NOT EXISTS initial_frontier_storage_digest TEXT;
+ALTER TABLE IF EXISTS public.rd_trial_family_members_v1 ADD COLUMN IF NOT EXISTS member_storage_bytes BYTEA;
+ALTER TABLE IF EXISTS public.rd_trial_family_members_v1 ADD COLUMN IF NOT EXISTS member_storage_digest TEXT;
+ALTER TABLE IF EXISTS public.rd_trial_family_members_v1 ADD COLUMN IF NOT EXISTS membership_receipt_storage_bytes BYTEA;
+ALTER TABLE IF EXISTS public.rd_trial_family_members_v1 ADD COLUMN IF NOT EXISTS membership_receipt_storage_digest TEXT;
+ALTER TABLE IF EXISTS public.rd_trial_family_heads_v1 ADD COLUMN IF NOT EXISTS frontier_storage_bytes BYTEA;
+ALTER TABLE IF EXISTS public.rd_trial_family_heads_v1 ADD COLUMN IF NOT EXISTS frontier_storage_digest TEXT;
+ALTER TABLE IF EXISTS public.rd_trial_family_attempt_cuts_v2 ADD COLUMN IF NOT EXISTS census_frontier_storage_bytes BYTEA;
+ALTER TABLE IF EXISTS public.rd_trial_family_attempt_cuts_v2 ADD COLUMN IF NOT EXISTS census_frontier_storage_digest TEXT;
+ALTER TABLE IF EXISTS public.rd_trial_family_attempt_cuts_v2 ADD COLUMN IF NOT EXISTS attempt_frontier_storage_bytes BYTEA;
+ALTER TABLE IF EXISTS public.rd_trial_family_attempt_cuts_v2 ADD COLUMN IF NOT EXISTS attempt_frontier_storage_digest TEXT;
+ALTER TABLE IF EXISTS public.rd_trial_family_attempt_cuts_v2 ADD COLUMN IF NOT EXISTS candidate_set_frontier_storage_bytes BYTEA;
+ALTER TABLE IF EXISTS public.rd_trial_family_attempt_cuts_v2 ADD COLUMN IF NOT EXISTS candidate_set_frontier_storage_digest TEXT;
+ALTER TABLE IF EXISTS public.rd_sealed_exploratory_replay_requests_v1 ADD COLUMN IF NOT EXISTS v2_request_storage_digest TEXT;
+ALTER TABLE IF EXISTS public.rd_sealed_exploratory_replay_requests_v1 ADD COLUMN IF NOT EXISTS v2_receipt_storage_bytes BYTEA;
+ALTER TABLE IF EXISTS public.rd_sealed_exploratory_replay_requests_v1 ADD COLUMN IF NOT EXISTS v2_receipt_storage_digest TEXT;
+ALTER TABLE IF EXISTS public.rd_owner_outbox_v1 ADD COLUMN IF NOT EXISTS canonical_payload_bytes BYTEA;
+ALTER TABLE IF EXISTS public.rd_owner_outbox_v1 ADD COLUMN IF NOT EXISTS canonical_payload_storage_digest TEXT;
+ALTER TABLE IF EXISTS public.rd_owner_outbox_v1 ADD COLUMN IF NOT EXISTS canonical_envelope_bytes BYTEA;
+ALTER TABLE IF EXISTS public.rd_owner_outbox_v1 ADD COLUMN IF NOT EXISTS canonical_envelope_storage_digest TEXT;
+
+-- BEGIN INTERNAL_VERIFY_SOURCE_V1
+CREATE OR REPLACE FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(
+  requested_request_identity text,
+  requested_request_digest text,
+  requested_receipt_identity text
+)
+RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY INVOKER
+SET search_path = pg_catalog
+AS $function$
+        DECLARE sealed record;
+        DECLARE locked_outbox record;
+        DECLARE locked_trial_family_outbox record;
+        DECLARE locked_artifact_family_outbox record;
+        DECLARE owner_cut bigint;
+        DECLARE result_availability text := 'AVAILABLE';
+        BEGIN
+          IF pg_catalog.current_setting('transaction_isolation') NOT IN ('read committed','serializable') THEN RETURN NULL; END IF;
+          PERFORM pg_catalog.pg_advisory_xact_lock_shared(
+            pg_catalog.hashtextextended(requested_request_identity,0)
+          );
+          SELECT * INTO sealed
+            FROM public.rd_sealed_exploratory_replay_requests_v1
+           WHERE request_identity = requested_request_identity
+             AND (requested_request_digest = '' OR request_digest = requested_request_digest);
+          IF NOT FOUND THEN RETURN NULL; END IF;
+          IF sealed.lifecycle_state = 'REVOKED'
+             AND (requested_request_digest <> '' OR requested_receipt_identity <> '') THEN
+            RETURN pg_catalog.jsonb_build_object('schema_version',1,'availability','STALE');
+          END IF;
+          IF sealed.lifecycle_state = 'REVOKED' THEN
+            result_availability := 'STALE';
+          END IF;
+          IF sealed.lifecycle_state NOT IN ('FROZEN','REVOKED')
+             OR (requested_receipt_identity <> '' AND sealed.receipt_json->>'receipt_identity' <> requested_receipt_identity)
+             OR sealed.frozen_json->>'schema_version' <> '1'
+             OR coalesce(sealed.frozen_json->>'request_schema_version','1') <> sealed.request_schema_version::text
+             OR sealed.frozen_json->>'request_digest' <> sealed.request_digest
+             OR sealed.frozen_json->>'committed_at_epoch_ms' <> sealed.committed_at_epoch_ms::text
+             OR sealed.frozen_json->'proposal'->>'request_identity' <> sealed.request_identity
+             OR sealed.frozen_json->'proposal'->>'build_request_identity' <> sealed.build_request_identity
+             OR sealed.frozen_json->'proposal'->>'attempt_identity' <> sealed.attempt_identity
+             OR sealed.frozen_json->'proposal'->>'intent_identity' <> sealed.intent_identity
+             OR sealed.frozen_json->'proposal'->>'trial_family_identity' <> sealed.trial_family_identity
+             OR sealed.frozen_json->'proposal'->>'artifact_identity' <> sealed.artifact_identity
+             OR sealed.frozen_json->'proposal'->>'build_receipt_identity' <> sealed.build_receipt_identity
+             OR sealed.frozen_json->'proposal'->>'artifact_family_binding_identity' <> sealed.artifact_family_binding_identity
+             OR sealed.frozen_json->'proposal'->>'census_frontier_identity' <> sealed.census_frontier_identity
+             OR sealed.receipt_json->>'schema_version' <> '1'
+             OR sealed.receipt_json->>'request_identity' <> sealed.request_identity
+             OR sealed.receipt_json->>'request_digest' <> sealed.request_digest
+             OR sealed.receipt_json->>'committed_at_epoch_ms' <> sealed.committed_at_epoch_ms::text
+          THEN RETURN NULL; END IF;
+
+          SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json,
+                 committed_at_epoch_ms
+            INTO STRICT locked_trial_family_outbox
+           FROM public.rd_owner_outbox_v1
+           WHERE aggregate_identity=sealed.trial_family_identity
+             AND event_kind='TRIAL_FAMILY_FROZEN_V1';
+          SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json,
+                 committed_at_epoch_ms
+            INTO STRICT locked_artifact_family_outbox
+           FROM public.rd_owner_outbox_v1
+           WHERE aggregate_identity=sealed.artifact_identity
+             AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1';
+
+          IF NOT EXISTS (
+            SELECT 1 FROM public.rd_research_request_receipts_v1 research
+             WHERE research.intent_json->>'intent_identity'=sealed.intent_identity
+               AND research.intent_json->>'semantic_digest'=sealed.frozen_json->>'intent_semantic_digest'
+               AND research.receipt_json->>'receipt_identity'=sealed.frozen_json->>'research_receipt_identity'
+               AND research.receipt_json->>'disposition'='ACCEPTED'
+               AND research.view_json->>'availability'='AVAILABLE'
+               AND research.view_json->>'phase'='ARTIFACT_AVAILABLE'
+               AND research.view_json->>'attempt_identity'=sealed.attempt_identity
+               AND research.view_json->>'artifact_identity'=sealed.artifact_identity
+               AND research.view_json->>'build_receipt_identity'=sealed.build_receipt_identity
+               AND research.view_json->>'artifact_review_identity'=sealed.frozen_json->>'artifact_review_identity'
+          ) OR NOT EXISTS (
+            SELECT 1 FROM public.rd_trial_families_v1 family
+            JOIN public.rd_trial_family_heads_v1 head USING (trial_family_identity)
+             WHERE family.trial_family_identity=sealed.trial_family_identity
+               AND family.intent_identity=sealed.intent_identity
+               AND family.root_digest=sealed.frozen_json->>'trial_family_root_digest'
+               AND head.frontier_identity=sealed.census_frontier_identity
+               AND head.frontier_digest=sealed.frozen_json->>'census_frontier_digest'
+          ) OR NOT EXISTS (
+            SELECT 1 FROM public.rd_artifact_trial_family_bindings_v1 binding
+             WHERE binding.binding_identity=sealed.artifact_family_binding_identity
+               AND binding.artifact_identity=sealed.artifact_identity
+               AND binding.build_receipt_identity=sealed.build_receipt_identity
+               AND binding.intent_identity=sealed.intent_identity
+               AND binding.trial_family_identity=sealed.trial_family_identity
+               AND binding.binding_digest=sealed.frozen_json->>'artifact_family_binding_digest'
+               AND binding.binding_receipt_json->>'receipt_identity'=sealed.frozen_json->>'artifact_family_binding_receipt_identity'
+          ) OR NOT EXISTS (
+            SELECT 1 FROM public.rd_artifact_build_attempts_v1 attempt
+             WHERE attempt.build_request_identity=sealed.build_request_identity
+               AND attempt.attempt_identity=sealed.attempt_identity
+               AND attempt.attempt_json->>'state'='TERMINAL'
+               AND attempt.attempt_json->'receipt'->>'disposition'='SUCCESS'
+               AND attempt.attempt_json->'receipt'->>'artifact_identity'=sealed.artifact_identity
+               AND attempt.attempt_json->'receipt'->>'build_receipt_identity'=sealed.build_receipt_identity
+          ) OR NOT EXISTS (
+            SELECT 1 FROM public.rd_strategy_artifacts_v1 artifact
+             WHERE artifact.artifact_digest=sealed.artifact_identity
+               AND artifact.intent_identity=sealed.intent_identity
+               AND artifact.attempt_identity=sealed.attempt_identity
+               AND artifact.build_receipt_json->>'build_receipt_identity'=sealed.build_receipt_identity
+               AND artifact.build_receipt_json->>'wasm_digest'=sealed.frozen_json->'proposal'->>'exact_code_bytes_digest'
+               AND ('sha256:' || pg_catalog.encode(pg_catalog.sha256(artifact.wasm_bytes),'hex'))=sealed.frozen_json->>'exact_code_bytes_sha256_digest'
+               AND artifact.build_receipt_json->>'source_capsule_digest'=sealed.frozen_json->>'source_capsule_digest'
+               AND artifact.build_receipt_json->>'build_recipe_digest'=sealed.frozen_json->>'build_recipe_digest'
+               AND artifact.build_receipt_json->>'dependency_identity'=sealed.frozen_json->>'dependency_identity'
+               AND artifact.artifact_review_json->>'review_identity'=sealed.frozen_json->>'artifact_review_identity'
+          ) OR NOT EXISTS (
+            SELECT 1
+              FROM public.rd_owner_outbox_v1 family_outbox
+              JOIN public.rd_trial_families_v1 family
+                ON family.trial_family_identity=family_outbox.aggregate_identity
+              JOIN public.rd_trial_family_members_v1 member
+                ON member.trial_family_identity=family.trial_family_identity
+               AND member.ordinal=0
+              JOIN public.rd_trial_family_heads_v1 head
+                ON head.trial_family_identity=family.trial_family_identity
+             WHERE family_outbox.aggregate_identity=sealed.trial_family_identity
+               AND family_outbox.event_kind='TRIAL_FAMILY_FROZEN_V1'
+               AND family_outbox.payload_digest=sealed.frozen_json->>'trial_family_outbox_digest'
+               AND family_outbox.event_identity=sealed.frozen_json->>'trial_family_outbox_event_identity'
+               AND family_outbox.event_identity='rd-owner-outbox-v1-' || pg_catalog.replace(head.frontier_digest,'sha256:','')
+               AND family_outbox.committed_at_epoch_ms=(sealed.frozen_json->>'trial_family_outbox_committed_at_epoch_ms')::bigint
+               AND family_outbox.committed_at_epoch_ms=family.committed_at_epoch_ms
+               AND family_outbox.payload_json=(
+                 pg_catalog.jsonb_build_object(
+                   'schema_version',1,
+                   'research_receipt_identity',sealed.frozen_json->>'research_receipt_identity',
+                   'intent_identity',sealed.intent_identity,
+                   'trial_family_identity',sealed.trial_family_identity,
+                   'root_receipt_identity',family.root_receipt_json->>'receipt_identity',
+                   'membership_receipt_identity',member.membership_receipt_json->>'receipt_identity',
+                   'census_frontier_identity',head.frontier_identity,
+                   'census_frontier_digest',head.frontier_digest
+                 ) || CASE
+                   WHEN family.root_json->'policy' ? 'replay_execution_policy_v2'
+                   THEN pg_catalog.jsonb_build_object(
+                     'replay_execution_policy_v2',
+                     family.root_json->'policy'->'replay_execution_policy_v2'
+                   )
+                   ELSE '{}'::pg_catalog.jsonb
+                 END
+                 || CASE
+                   WHEN family.root_json->'policy' ? 'replay_policy_catalog_v3'
+                   THEN pg_catalog.jsonb_build_object(
+                     'replay_policy_catalog_v3',
+                     family.root_json->'policy'->'replay_policy_catalog_v3'
+                   )
+                   ELSE '{}'::pg_catalog.jsonb
+                 END
+               )
+          ) OR NOT EXISTS (
+            SELECT 1
+              FROM public.rd_owner_outbox_v1 artifact_outbox
+              JOIN public.rd_artifact_trial_family_bindings_v1 binding
+                ON binding.artifact_identity=artifact_outbox.aggregate_identity
+             WHERE artifact_outbox.aggregate_identity=sealed.artifact_identity
+               AND artifact_outbox.event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'
+               AND artifact_outbox.payload_digest=sealed.frozen_json->>'artifact_family_outbox_digest'
+               AND artifact_outbox.event_identity=sealed.frozen_json->>'artifact_family_outbox_event_identity'
+               AND artifact_outbox.event_identity='rd-owner-outbox-v1-' || pg_catalog.replace(binding.binding_digest,'sha256:','')
+               AND artifact_outbox.committed_at_epoch_ms=(sealed.frozen_json->>'artifact_family_outbox_committed_at_epoch_ms')::bigint
+               AND artifact_outbox.committed_at_epoch_ms=binding.committed_at_epoch_ms
+               AND artifact_outbox.payload_json=pg_catalog.jsonb_build_object(
+                 'schema_version',1,
+                 'artifact_identity',sealed.artifact_identity,
+                 'build_receipt_identity',sealed.build_receipt_identity,
+                 'trial_family_identity',sealed.trial_family_identity,
+                 'binding_identity',sealed.artifact_family_binding_identity,
+                 'binding_receipt_identity',sealed.frozen_json->>'artifact_family_binding_receipt_identity'
+               )
+          ) THEN RETURN NULL; END IF;
+
+          SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json,
+                 committed_at_epoch_ms
+            INTO STRICT locked_outbox
+           FROM public.rd_owner_outbox_v1
+           WHERE aggregate_identity=sealed.request_identity
+             AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V1';
+          owner_cut := pg_catalog.floor(extract(epoch FROM pg_catalog.clock_timestamp()) * 1000)::bigint;
+          RETURN pg_catalog.jsonb_build_object(
+            'schema_version',1,
+            'availability',result_availability,
+            'owner_cut_epoch_ms',owner_cut,
+            'frozen',sealed.frozen_json,
+            'receipt',sealed.receipt_json,
+            'outbox',pg_catalog.jsonb_build_object(
+              'event_identity',locked_outbox.event_identity,
+              'aggregate_identity',locked_outbox.aggregate_identity,
+              'event_kind',locked_outbox.event_kind,
+              'payload_digest',locked_outbox.payload_digest,
+              'payload_json',locked_outbox.payload_json,
+              'committed_at_epoch_ms',locked_outbox.committed_at_epoch_ms
+            ),
+            'trial_family_outbox',pg_catalog.jsonb_build_object(
+              'event_identity',locked_trial_family_outbox.event_identity,
+              'aggregate_identity',locked_trial_family_outbox.aggregate_identity,
+              'event_kind',locked_trial_family_outbox.event_kind,
+              'payload_digest',locked_trial_family_outbox.payload_digest,
+              'payload_json',locked_trial_family_outbox.payload_json,
+              'committed_at_epoch_ms',locked_trial_family_outbox.committed_at_epoch_ms
+            ),
+            'artifact_family_outbox',pg_catalog.jsonb_build_object(
+              'event_identity',locked_artifact_family_outbox.event_identity,
+              'aggregate_identity',locked_artifact_family_outbox.aggregate_identity,
+              'event_kind',locked_artifact_family_outbox.event_kind,
+              'payload_digest',locked_artifact_family_outbox.payload_digest,
+              'payload_json',locked_artifact_family_outbox.payload_json,
+              'committed_at_epoch_ms',locked_artifact_family_outbox.committed_at_epoch_ms
+            )
+          );
+        EXCEPTION WHEN no_data_found OR too_many_rows THEN RETURN NULL;
+        END
+$function$;
+-- END INTERNAL_VERIFY_SOURCE_V1
+-- BEGIN INTERNAL_VERIFY_SOURCE_V2
+CREATE OR REPLACE FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(
+  requested_request_identity text,
+  requested_meaning_digest text,
+  requested_receipt_identity text,
+  requested_seal_digest text
+)
+RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY INVOKER
+SET search_path = pg_catalog
+AS $function$
+        DECLARE base jsonb;
+        DECLARE sealed record;
+        DECLARE locked_v2_outbox record;
+        BEGIN
+          PERFORM pg_catalog.pg_advisory_xact_lock_shared(
+            pg_catalog.hashtextextended(requested_request_identity,0)
+          );
+          SELECT * INTO STRICT sealed
+            FROM public.rd_sealed_exploratory_replay_requests_v1
+           WHERE request_identity=requested_request_identity
+             AND request_schema_version=2
+             AND frozen_json->>'request_schema_version'='2'
+             AND v2_meaning_digest=requested_meaning_digest
+             AND v2_seal_digest=requested_seal_digest
+             AND v2_receipt_json->>'receipt_identity'=requested_receipt_identity;
+
+          IF sealed.v2_canonical_request_bytes IS NULL
+             OR sealed.v2_meaning_digest IS NULL
+             OR sealed.v2_seal_digest IS NULL
+             OR sealed.v2_receipt_json IS NULL
+             OR sealed.v2_receipt_json->>'schema_version' <> '2'
+             OR sealed.v2_receipt_json->>'request_identity' <> sealed.request_identity
+             OR sealed.v2_receipt_json->>'meaning_digest' <> sealed.v2_meaning_digest
+             OR sealed.v2_receipt_json->>'seal_digest' <> sealed.v2_seal_digest
+             OR sealed.v2_receipt_json->>'committed_at_epoch_ms' <> sealed.committed_at_epoch_ms::text
+             OR sealed.v2_receipt_json ? 'execution_profile_seal'
+             OR sealed.frozen_json ? 'execution_profile_seal'
+          THEN RETURN NULL; END IF;
+
+          base := rd_owner_api.verify_exploratory_replay_request_internal_v1(
+            requested_request_identity,
+            sealed.request_digest,
+            sealed.receipt_json->>'receipt_identity'
+          );
+          IF base IS NULL
+             OR base->>'availability' NOT IN ('AVAILABLE','STALE')
+          THEN RETURN NULL; END IF;
+
+          SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,
+                 committed_at_epoch_ms
+            INTO STRICT locked_v2_outbox
+           FROM public.rd_owner_outbox_v1
+           WHERE aggregate_identity=sealed.request_identity
+             AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V2';
+
+          IF locked_v2_outbox.payload_json <> pg_catalog.jsonb_build_object(
+               'schema_version',2,
+               'request_identity',sealed.request_identity,
+               'meaning_digest',sealed.v2_meaning_digest,
+               'seal_digest',sealed.v2_seal_digest,
+               'receipt_identity',sealed.v2_receipt_json->>'receipt_identity',
+               'lineage_request_digest',sealed.request_digest,
+               'committed_at_epoch_ms',sealed.committed_at_epoch_ms
+             )
+             OR locked_v2_outbox.committed_at_epoch_ms <> sealed.committed_at_epoch_ms
+          THEN RETURN NULL; END IF;
+
+          RETURN base || pg_catalog.jsonb_build_object(
+            'schema_version',2,
+            'v2_canonical_request_base64',pg_catalog.replace(
+              pg_catalog.encode(sealed.v2_canonical_request_bytes,'base64'),
+              pg_catalog.chr(10),
+              ''
+            ),
+            'v2_meaning_digest',sealed.v2_meaning_digest,
+            'v2_seal_digest',sealed.v2_seal_digest,
+            'v2_receipt',sealed.v2_receipt_json,
+            'v2_outbox',pg_catalog.jsonb_build_object(
+              'event_identity',locked_v2_outbox.event_identity,
+              'aggregate_identity',locked_v2_outbox.aggregate_identity,
+              'event_kind',locked_v2_outbox.event_kind,
+              'payload_digest',locked_v2_outbox.payload_digest,
+              'payload_json',locked_v2_outbox.payload_json,
+              'committed_at_epoch_ms',locked_v2_outbox.committed_at_epoch_ms
+            )
+          );
+        EXCEPTION WHEN no_data_found OR too_many_rows THEN RETURN NULL;
+        END
+$function$;
+-- END INTERNAL_VERIFY_SOURCE_V2
+-- BEGIN INTERNAL_VERIFY_SOURCE_V3
+CREATE OR REPLACE FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v3(
+  requested_request_identity text,
+  requested_meaning_digest text,
+  requested_receipt_identity text,
+  requested_seal_digest text
+)
+RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY INVOKER
+SET search_path = pg_catalog
+AS $function$
+        DECLARE base jsonb;
+        DECLARE sealed record;
+        DECLARE locked_v2_outbox record;
+        BEGIN
+          PERFORM pg_catalog.pg_advisory_xact_lock_shared(
+            pg_catalog.hashtextextended(requested_request_identity,0)
+          );
+          SELECT * INTO STRICT sealed
+            FROM public.rd_sealed_exploratory_replay_requests_v1
+           WHERE request_identity=requested_request_identity
+             AND request_schema_version=2
+             AND frozen_json->>'request_schema_version'='2'
+             AND v2_meaning_digest=requested_meaning_digest
+             AND v2_seal_digest=requested_seal_digest
+             AND v2_receipt_json->>'receipt_identity'=requested_receipt_identity;
+
+          IF sealed.v2_canonical_request_bytes IS NULL
+             OR sealed.v2_meaning_digest IS NULL
+             OR sealed.v2_seal_digest IS NULL
+             OR sealed.v2_receipt_json IS NULL
+             OR sealed.v2_receipt_json->>'schema_version' <> '3'
+             OR sealed.v2_receipt_json->>'request_identity' <> sealed.request_identity
+             OR sealed.v2_receipt_json->>'meaning_digest' <> sealed.v2_meaning_digest
+             OR sealed.v2_receipt_json->>'seal_digest' <> sealed.v2_seal_digest
+             OR sealed.v2_receipt_json->>'committed_at_epoch_ms' <> sealed.committed_at_epoch_ms::text
+             OR NOT sealed.v2_receipt_json ? 'execution_profile_seal'
+             OR NOT sealed.frozen_json ? 'execution_profile_seal'
+             OR sealed.v2_receipt_json->'execution_profile_seal' <> sealed.frozen_json->'execution_profile_seal'
+          THEN RETURN NULL; END IF;
+
+          base := rd_owner_api.verify_exploratory_replay_request_internal_v1(
+            requested_request_identity,
+            sealed.request_digest,
+            sealed.receipt_json->>'receipt_identity'
+          );
+          IF base IS NULL
+             OR base->>'availability' NOT IN ('AVAILABLE','STALE')
+          THEN RETURN NULL; END IF;
+
+          SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,
+                 committed_at_epoch_ms
+            INTO STRICT locked_v2_outbox
+           FROM public.rd_owner_outbox_v1
+           WHERE aggregate_identity=sealed.request_identity
+             AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V2';
+
+          IF locked_v2_outbox.payload_json <> pg_catalog.jsonb_build_object(
+               'schema_version',3,
+               'request_identity',sealed.request_identity,
+               'meaning_digest',sealed.v2_meaning_digest,
+               'seal_digest',sealed.v2_seal_digest,
+               'receipt_identity',sealed.v2_receipt_json->>'receipt_identity',
+               'lineage_request_digest',sealed.request_digest,
+               'execution_profile_seal',sealed.v2_receipt_json->'execution_profile_seal',
+               'committed_at_epoch_ms',sealed.committed_at_epoch_ms
+             )
+             OR locked_v2_outbox.committed_at_epoch_ms <> sealed.committed_at_epoch_ms
+          THEN RETURN NULL; END IF;
+
+          RETURN base || pg_catalog.jsonb_build_object(
+            'schema_version',3,
+            'v2_canonical_request_base64',pg_catalog.replace(
+              pg_catalog.encode(sealed.v2_canonical_request_bytes,'base64'),
+              pg_catalog.chr(10),
+              ''
+            ),
+            'v2_meaning_digest',sealed.v2_meaning_digest,
+            'v2_seal_digest',sealed.v2_seal_digest,
+            'v2_receipt',sealed.v2_receipt_json,
+            'v2_outbox',pg_catalog.jsonb_build_object(
+              'event_identity',locked_v2_outbox.event_identity,
+              'aggregate_identity',locked_v2_outbox.aggregate_identity,
+              'event_kind',locked_v2_outbox.event_kind,
+              'payload_digest',locked_v2_outbox.payload_digest,
+              'payload_json',locked_v2_outbox.payload_json,
+              'committed_at_epoch_ms',locked_v2_outbox.committed_at_epoch_ms
+            )
+          );
+        EXCEPTION WHEN no_data_found OR too_many_rows THEN RETURN NULL;
+        END
+$function$;
+-- END INTERNAL_VERIFY_SOURCE_V3
+-- BEGIN NATIVE_SOURCE_STORAGE_SOURCE_V2
+CREATE OR REPLACE FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(
+  requested_request_identity text,
+  requested_meaning_digest text,
+  requested_receipt_identity text,
+  requested_seal_digest text
+)
+RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+        DECLARE base jsonb;
+        DECLARE sealed record;
+        DECLARE research record;
+        DECLARE family record;
+        DECLARE member record;
+        DECLARE replay_outbox record;
+        DECLARE all_missing boolean;
+        DECLARE all_present boolean;
+        BEGIN
+          IF session_user NOT IN ('rd_owner','backtest_owner')
+             OR current_user <> 'rd_exploratory_replay_api_owner'
+             OR pg_catalog.current_setting('transaction_isolation') NOT IN ('read committed','serializable')
+          THEN RETURN NULL; END IF;
+          base := rd_owner_api.verify_exploratory_replay_request_internal_v3(
+            requested_request_identity,requested_meaning_digest,
+            requested_receipt_identity,requested_seal_digest
+          );
+          IF base IS NULL THEN
+            base := rd_owner_api.verify_exploratory_replay_request_internal_v2(
+              requested_request_identity,requested_meaning_digest,
+              requested_receipt_identity,requested_seal_digest
+            );
+          END IF;
+          IF base IS NULL OR base->>'availability'<>'AVAILABLE' THEN RETURN NULL; END IF;
+
+          SELECT * INTO STRICT sealed
+            FROM public.rd_sealed_exploratory_replay_requests_v1
+           WHERE request_identity=requested_request_identity;
+          SELECT * INTO STRICT research
+            FROM public.rd_research_request_receipts_v1
+           WHERE intent_json->>'intent_identity'=sealed.intent_identity;
+          SELECT * INTO STRICT family
+            FROM public.rd_trial_families_v1
+           WHERE trial_family_identity=sealed.trial_family_identity
+             AND intent_identity=sealed.intent_identity;
+          SELECT * INTO STRICT member
+            FROM public.rd_trial_family_members_v1
+           WHERE trial_family_identity=sealed.trial_family_identity AND ordinal=0;
+          SELECT * INTO STRICT replay_outbox
+            FROM public.rd_owner_outbox_v1
+           WHERE aggregate_identity=sealed.request_identity
+             AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V2';
+
+          all_missing := research.request_storage_bytes IS NULL
+            AND research.request_storage_digest IS NULL
+            AND research.receipt_storage_bytes IS NULL
+            AND research.receipt_storage_digest IS NULL
+            AND research.intent_storage_bytes IS NULL
+            AND research.intent_storage_digest IS NULL
+            AND family.root_storage_bytes IS NULL
+            AND family.root_storage_digest IS NULL
+            AND family.root_receipt_storage_bytes IS NULL
+            AND family.root_receipt_storage_digest IS NULL
+            AND family.initial_frontier_storage_bytes IS NULL
+            AND family.initial_frontier_storage_digest IS NULL
+            AND member.member_storage_bytes IS NULL
+            AND member.member_storage_digest IS NULL
+            AND member.membership_receipt_storage_bytes IS NULL
+            AND member.membership_receipt_storage_digest IS NULL
+            AND sealed.v2_request_storage_digest IS NULL
+            AND sealed.v2_receipt_storage_bytes IS NULL
+            AND sealed.v2_receipt_storage_digest IS NULL
+            AND replay_outbox.canonical_payload_bytes IS NULL
+            AND replay_outbox.canonical_payload_storage_digest IS NULL
+            AND replay_outbox.canonical_envelope_bytes IS NULL
+            AND replay_outbox.canonical_envelope_storage_digest IS NULL;
+          IF all_missing THEN
+            RETURN pg_catalog.jsonb_build_object(
+              'schema_version',1,'custody_state','LEGACY_MISSING','replay',base
+            );
+          END IF;
+          all_present := research.request_storage_bytes IS NOT NULL
+            AND research.request_storage_digest IS NOT NULL
+            AND research.receipt_storage_bytes IS NOT NULL
+            AND research.receipt_storage_digest IS NOT NULL
+            AND research.intent_storage_bytes IS NOT NULL
+            AND research.intent_storage_digest IS NOT NULL
+            AND family.root_storage_bytes IS NOT NULL
+            AND family.root_storage_digest IS NOT NULL
+            AND family.root_receipt_storage_bytes IS NOT NULL
+            AND family.root_receipt_storage_digest IS NOT NULL
+            AND family.initial_frontier_storage_bytes IS NOT NULL
+            AND family.initial_frontier_storage_digest IS NOT NULL
+            AND member.member_storage_bytes IS NOT NULL
+            AND member.member_storage_digest IS NOT NULL
+            AND member.membership_receipt_storage_bytes IS NOT NULL
+            AND member.membership_receipt_storage_digest IS NOT NULL
+            AND sealed.v2_request_storage_digest IS NOT NULL
+            AND sealed.v2_receipt_storage_bytes IS NOT NULL
+            AND sealed.v2_receipt_storage_digest IS NOT NULL
+            AND replay_outbox.canonical_payload_bytes IS NOT NULL
+            AND replay_outbox.canonical_payload_storage_digest IS NOT NULL
+            AND replay_outbox.canonical_envelope_bytes IS NOT NULL
+            AND replay_outbox.canonical_envelope_storage_digest IS NOT NULL;
+          IF NOT all_present THEN
+            RETURN pg_catalog.jsonb_build_object('schema_version',1,'custody_state','CORRUPT_PARTIAL');
+          END IF;
+
+          IF research.request_storage_digest !~ '^blake3:[0-9a-f]{64}$'
+             OR research.receipt_storage_digest !~ '^blake3:[0-9a-f]{64}$'
+             OR research.intent_storage_digest !~ '^blake3:[0-9a-f]{64}$'
+             OR family.root_storage_digest !~ '^blake3:[0-9a-f]{64}$'
+             OR family.root_receipt_storage_digest !~ '^blake3:[0-9a-f]{64}$'
+             OR family.initial_frontier_storage_digest !~ '^blake3:[0-9a-f]{64}$'
+             OR member.member_storage_digest !~ '^blake3:[0-9a-f]{64}$'
+             OR member.membership_receipt_storage_digest !~ '^blake3:[0-9a-f]{64}$'
+             OR sealed.v2_request_storage_digest !~ '^blake3:[0-9a-f]{64}$'
+             OR sealed.v2_receipt_storage_digest !~ '^blake3:[0-9a-f]{64}$'
+             OR replay_outbox.canonical_payload_storage_digest !~ '^blake3:[0-9a-f]{64}$'
+             OR replay_outbox.canonical_envelope_storage_digest !~ '^blake3:[0-9a-f]{64}$'
+             OR pg_catalog.convert_from(research.request_storage_bytes,'UTF8')::pg_catalog.jsonb <> research.request_json
+             OR pg_catalog.convert_from(research.receipt_storage_bytes,'UTF8')::pg_catalog.jsonb <> research.receipt_json
+             OR pg_catalog.convert_from(research.intent_storage_bytes,'UTF8')::pg_catalog.jsonb <> research.intent_json
+             OR pg_catalog.convert_from(family.root_storage_bytes,'UTF8')::pg_catalog.jsonb <> family.root_json
+             OR pg_catalog.convert_from(family.root_receipt_storage_bytes,'UTF8')::pg_catalog.jsonb <> family.root_receipt_json
+             OR pg_catalog.convert_from(member.member_storage_bytes,'UTF8')::pg_catalog.jsonb <> member.member_json
+             OR pg_catalog.convert_from(member.membership_receipt_storage_bytes,'UTF8')::pg_catalog.jsonb <> member.membership_receipt_json
+             OR pg_catalog.convert_from(sealed.v2_receipt_storage_bytes,'UTF8')::pg_catalog.jsonb <> sealed.v2_receipt_json
+             OR pg_catalog.convert_from(replay_outbox.canonical_payload_bytes,'UTF8')::pg_catalog.jsonb <> replay_outbox.payload_json
+             OR pg_catalog.convert_from(replay_outbox.canonical_envelope_bytes,'UTF8')::pg_catalog.jsonb <>
+                pg_catalog.jsonb_build_object(
+                  'event_identity',replay_outbox.event_identity,
+                  'aggregate_identity',replay_outbox.aggregate_identity,
+                  'event_kind',replay_outbox.event_kind,
+                  'payload_digest',replay_outbox.payload_digest,
+                  'payload_json',replay_outbox.payload_json,
+                  'committed_at_epoch_ms',replay_outbox.committed_at_epoch_ms
+                )
+          THEN
+            RETURN pg_catalog.jsonb_build_object('schema_version',1,'custody_state','CORRUPT_PARTIAL');
+          END IF;
+
+          RETURN pg_catalog.jsonb_build_object(
+            'schema_version',1,'custody_state','AVAILABLE',
+            'replay',base,
+            'research_request_identity',research.request_identity,
+            'research_view',research.view_json,
+            'research_request',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(research.request_storage_bytes,'base64'),pg_catalog.chr(10),''),'digest',research.request_storage_digest,'mirror',research.request_json),
+            'research_receipt',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(research.receipt_storage_bytes,'base64'),pg_catalog.chr(10),''),'digest',research.receipt_storage_digest,'mirror',research.receipt_json),
+            'research_intent',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(research.intent_storage_bytes,'base64'),pg_catalog.chr(10),''),'digest',research.intent_storage_digest,'mirror',research.intent_json),
+            'trial_family_root',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(family.root_storage_bytes,'base64'),pg_catalog.chr(10),''),'digest',family.root_storage_digest,'mirror',family.root_json),
+            'trial_family_root_receipt',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(family.root_receipt_storage_bytes,'base64'),pg_catalog.chr(10),''),'digest',family.root_receipt_storage_digest,'mirror',family.root_receipt_json),
+            'trial_family_initial_member',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(member.member_storage_bytes,'base64'),pg_catalog.chr(10),''),'digest',member.member_storage_digest,'mirror',member.member_json),
+            'trial_family_membership_receipt',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(member.membership_receipt_storage_bytes,'base64'),pg_catalog.chr(10),''),'digest',member.membership_receipt_storage_digest,'mirror',member.membership_receipt_json),
+            'trial_family_frontier',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(family.initial_frontier_storage_bytes,'base64'),pg_catalog.chr(10),''),'digest',family.initial_frontier_storage_digest,'mirror',pg_catalog.convert_from(family.initial_frontier_storage_bytes,'UTF8')::pg_catalog.jsonb),
+            'replay_request',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(sealed.v2_canonical_request_bytes,'base64'),pg_catalog.chr(10),''),'digest',sealed.v2_request_storage_digest,'mirror',pg_catalog.convert_from(sealed.v2_canonical_request_bytes,'UTF8')::pg_catalog.jsonb),
+            'replay_receipt',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(sealed.v2_receipt_storage_bytes,'base64'),pg_catalog.chr(10),''),'digest',sealed.v2_receipt_storage_digest,'mirror',sealed.v2_receipt_json),
+            'replay_outbox_payload',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(replay_outbox.canonical_payload_bytes,'base64'),pg_catalog.chr(10),''),'digest',replay_outbox.canonical_payload_storage_digest,'mirror',replay_outbox.payload_json),
+            'replay_outbox',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(replay_outbox.canonical_envelope_bytes,'base64'),pg_catalog.chr(10),''),'digest',replay_outbox.canonical_envelope_storage_digest,'mirror',pg_catalog.jsonb_build_object('event_identity',replay_outbox.event_identity,'aggregate_identity',replay_outbox.aggregate_identity,'event_kind',replay_outbox.event_kind,'payload_digest',replay_outbox.payload_digest,'payload_json',replay_outbox.payload_json,'committed_at_epoch_ms',replay_outbox.committed_at_epoch_ms))
+          );
+        EXCEPTION WHEN no_data_found OR too_many_rows OR data_exception THEN
+          RETURN pg_catalog.jsonb_build_object('schema_version',1,'custody_state','CORRUPT_PARTIAL');
+        END
+$function$;
+-- END NATIVE_SOURCE_STORAGE_SOURCE_V2
+-- BEGIN SELECTOR_RESOLVER_SOURCE_V2
+CREATE OR REPLACE FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(
+  requested_request_identity text,
+  requested_meaning_digest text
+)
+RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY INVOKER
+SET search_path = pg_catalog
+AS $function$
+        DECLARE stored_receipt_identity text;
+        DECLARE stored_seal_digest text;
+        DECLARE storage jsonb;
+        BEGIN
+          SELECT v2_receipt_json->>'receipt_identity',v2_seal_digest
+            INTO STRICT stored_receipt_identity,stored_seal_digest
+            FROM public.rd_sealed_exploratory_replay_requests_v1
+           WHERE request_identity=requested_request_identity
+             AND request_schema_version=2
+             AND frozen_json->>'request_schema_version'='2'
+             AND v2_meaning_digest=requested_meaning_digest
+           FOR SHARE;
+          IF stored_receipt_identity IS NULL OR stored_seal_digest IS NULL THEN RETURN NULL; END IF;
+          storage := rd_owner_api.resolve_native_replay_source_storage_v2(
+            requested_request_identity,requested_meaning_digest,
+            stored_receipt_identity,stored_seal_digest
+          );
+          IF storage IS NULL OR storage->>'custody_state'='CORRUPT_PARTIAL' THEN RETURN NULL; END IF;
+          RETURN storage->'replay';
+        EXCEPTION WHEN no_data_found OR too_many_rows THEN RETURN NULL;
+        END
+        $function$;
+-- END SELECTOR_RESOLVER_SOURCE_V2
+-- BEGIN MARKET_DATA_LOCK_SOURCE_V1
+CREATE OR REPLACE FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(
+  requested_request_identity text,
+  requested_meaning_digest text,
+  requested_receipt_identity text,
+  requested_seal_digest text
+)
+RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$DECLARE result jsonb; BEGIN IF session_user <> 'market_data_owner' OR current_user <> 'rd_exploratory_replay_api_owner' OR pg_catalog.current_setting('transaction_isolation') <> 'serializable' THEN RETURN NULL; END IF; result := rd_owner_api.verify_exploratory_replay_request_internal_v3(requested_request_identity,requested_meaning_digest,requested_receipt_identity,requested_seal_digest); IF result IS NOT NULL THEN RETURN result; END IF; RETURN rd_owner_api.verify_exploratory_replay_request_internal_v2(requested_request_identity,requested_meaning_digest,requested_receipt_identity,requested_seal_digest); END$function$;
+-- END MARKET_DATA_LOCK_SOURCE_V1
+
 ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text) OWNER TO rd_exploratory_replay_api_owner;
 ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner;
+ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner;
+ALTER FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner;
+ALTER FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) OWNER TO rd_owner;
 ALTER FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner;
-REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text) FROM PUBLIC, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_writer, operator_authorization_writer;
-REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) FROM PUBLIC, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_writer, operator_authorization_writer;
-GRANT EXECUTE ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text), rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) TO rd_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text) FROM PUBLIC, rd_fact_writer, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) FROM PUBLIC, rd_fact_writer, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) FROM PUBLIC, rd_fact_writer, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner;
+GRANT EXECUTE ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text), rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text), rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) TO rd_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(text,text,text,text) FROM PUBLIC, rd_fact_writer, market_data_owner, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner;
+GRANT EXECUTE ON FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(text,text,text,text) TO rd_owner, backtest_owner;
+DO $replay_internal_verifier_acl$
+DECLARE verifier regprocedure;
+BEGIN
+  FOREACH verifier IN ARRAY ARRAY[
+    'rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text)'::regprocedure,
+    'rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text)'::regprocedure,
+    'rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text)'::regprocedure
+  ] LOOP
+    IF NOT COALESCE((
+      SELECT pg_catalog.pg_get_userbyid(procedure.proowner)='rd_exploratory_replay_api_owner'
+        AND (SELECT pg_catalog.count(*)=1
+               AND pg_catalog.bool_and(role.rolname='rd_owner'
+                 AND acl.privilege_type='EXECUTE'
+                 AND NOT acl.is_grantable
+                 AND pg_catalog.pg_get_userbyid(acl.grantor)='rd_exploratory_replay_api_owner')
+               FROM pg_catalog.aclexplode(COALESCE(procedure.proacl,pg_catalog.acldefault('f',procedure.proowner))) acl
+               LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+              WHERE acl.grantee<>procedure.proowner)
+        FROM pg_catalog.pg_proc procedure
+       WHERE procedure.oid=verifier
+    ),false) THEN
+      RAISE EXCEPTION 'R&D exploratory Replay internal verifier owner/ACL mismatch: %', verifier;
+    END IF;
+  END LOOP;
+END
+$replay_internal_verifier_acl$;
+REVOKE ALL ON FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) FROM PUBLIC, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_writer, operator_authorization_writer;
+GRANT EXECUTE ON FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) TO rd_owner;
 REVOKE ALL ON FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text) FROM PUBLIC, rd_owner, rd_fact_writer, market_data_reader, backtest_owner, product_edge_owner, qualification_writer, operator_authorization_writer;
 GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text) TO market_data_owner;
 GRANT SELECT ON TABLE
@@ -216,11 +895,179 @@ CREATE TABLE IF NOT EXISTS public.backtest_replay_result_outbox_v1 (
   canonical_bytes bytea NOT NULL,
   canonical_bytes_blake3 text NOT NULL
 );
+CREATE TABLE IF NOT EXISTS public.backtest_native_replay_source_blobs_v2 (
+  source_digest text PRIMARY KEY,
+  canonical_bytes bytea NOT NULL,
+  canonical_bytes_blake3 text NOT NULL
+);
+CREATE TABLE IF NOT EXISTS public.backtest_native_replay_observations_v2 (
+  result_identity text NOT NULL,
+  component text NOT NULL,
+  request_identity text NOT NULL,
+  request_meaning_digest text NOT NULL,
+  request_receipt_identity text NOT NULL,
+  request_seal_digest text NOT NULL,
+  attempt_identity text NOT NULL,
+  envelope_reference text NOT NULL,
+  envelope_digest text NOT NULL,
+  producer_namespace text NOT NULL,
+  producer_reference text NOT NULL,
+  source_digest text NOT NULL,
+  observed_meaning_identity text NOT NULL,
+  observed_meaning_digest text NOT NULL,
+  canonical_bytes bytea NOT NULL,
+  PRIMARY KEY (result_identity, component),
+  UNIQUE (envelope_reference),
+  UNIQUE (request_identity, attempt_identity, component)
+);
+CREATE TABLE IF NOT EXISTS public.backtest_native_replay_semantic_traces_v2 (
+  result_identity text PRIMARY KEY,
+  locator_reference text NOT NULL UNIQUE,
+  locator_digest text NOT NULL,
+  canonical_bytes bytea NOT NULL
+);
 ALTER TABLE public.backtest_replay_results_v2 OWNER TO backtest_custodian;
 ALTER TABLE public.backtest_replay_result_receipts_v1 OWNER TO backtest_custodian;
 ALTER TABLE public.backtest_replay_result_outbox_v1 OWNER TO backtest_custodian;
+ALTER TABLE public.backtest_native_replay_source_blobs_v2 OWNER TO backtest_custodian;
+ALTER TABLE public.backtest_native_replay_observations_v2 OWNER TO backtest_custodian;
+ALTER TABLE public.backtest_native_replay_semantic_traces_v2 OWNER TO backtest_custodian;
 REVOKE ALL ON TABLE public.backtest_replay_results_v2, public.backtest_replay_result_receipts_v1, public.backtest_replay_result_outbox_v1 FROM PUBLIC, rd_owner, rd_fact_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
 GRANT SELECT, INSERT ON TABLE public.backtest_replay_results_v2, public.backtest_replay_result_receipts_v1, public.backtest_replay_result_outbox_v1 TO backtest_owner;
+REVOKE ALL ON TABLE public.backtest_native_replay_source_blobs_v2, public.backtest_native_replay_observations_v2, public.backtest_native_replay_semantic_traces_v2 FROM PUBLIC, rd_owner, rd_fact_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
+GRANT SELECT, INSERT ON TABLE public.backtest_native_replay_source_blobs_v2, public.backtest_native_replay_observations_v2, public.backtest_native_replay_semantic_traces_v2 TO backtest_owner;
+
+DO $backtest_native_replay_evidence_topology_readback$
+DECLARE exact boolean;
+BEGIN
+  WITH family AS (
+    SELECT relation.oid, relation.relname
+      FROM pg_catalog.pg_class relation
+      JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+     WHERE namespace.nspname='public'
+       AND relation.relname IN ('backtest_native_replay_source_blobs_v2','backtest_native_replay_observations_v2','backtest_native_replay_semantic_traces_v2')
+  )
+  SELECT
+    (SELECT pg_catalog.count(*)=3 AND pg_catalog.bool_and(
+              relation.relkind='r' AND relation.relpersistence='p' AND access_method.amname='heap'
+          AND pg_catalog.pg_get_userbyid(relation.relowner)='backtest_custodian'
+          AND NOT relation.relrowsecurity AND NOT relation.relforcerowsecurity
+          AND relation.relreplident='d' AND NOT relation.relispartition
+          AND relation.reltablespace=0 AND relation.reloptions IS NULL)
+       FROM family JOIN pg_catalog.pg_class relation ON relation.oid=family.oid
+       JOIN pg_catalog.pg_am access_method ON access_method.oid=relation.relam)
+    AND NOT EXISTS (
+      SELECT 1 FROM pg_catalog.pg_class relation
+      JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+       WHERE namespace.nspname<>'public'
+         AND relation.relname IN ('backtest_native_replay_source_blobs_v2','backtest_native_replay_observations_v2','backtest_native_replay_semantic_traces_v2'))
+    AND (SELECT pg_catalog.count(*)=22 AND NOT pg_catalog.bool_or(
+          (family.relname,attribute.attnum,attribute.attname,pg_catalog.format_type(attribute.atttypid,attribute.atttypmod),attribute.attnotnull)
+          NOT IN (VALUES
+            ('backtest_native_replay_source_blobs_v2',1::smallint,'source_digest','text',true),
+            ('backtest_native_replay_source_blobs_v2',2::smallint,'canonical_bytes','bytea',true),
+            ('backtest_native_replay_source_blobs_v2',3::smallint,'canonical_bytes_blake3','text',true),
+            ('backtest_native_replay_observations_v2',1::smallint,'result_identity','text',true),
+            ('backtest_native_replay_observations_v2',2::smallint,'component','text',true),
+            ('backtest_native_replay_observations_v2',3::smallint,'request_identity','text',true),
+            ('backtest_native_replay_observations_v2',4::smallint,'request_meaning_digest','text',true),
+            ('backtest_native_replay_observations_v2',5::smallint,'request_receipt_identity','text',true),
+            ('backtest_native_replay_observations_v2',6::smallint,'request_seal_digest','text',true),
+            ('backtest_native_replay_observations_v2',7::smallint,'attempt_identity','text',true),
+            ('backtest_native_replay_observations_v2',8::smallint,'envelope_reference','text',true),
+            ('backtest_native_replay_observations_v2',9::smallint,'envelope_digest','text',true),
+            ('backtest_native_replay_observations_v2',10::smallint,'producer_namespace','text',true),
+            ('backtest_native_replay_observations_v2',11::smallint,'producer_reference','text',true),
+            ('backtest_native_replay_observations_v2',12::smallint,'source_digest','text',true),
+            ('backtest_native_replay_observations_v2',13::smallint,'observed_meaning_identity','text',true),
+            ('backtest_native_replay_observations_v2',14::smallint,'observed_meaning_digest','text',true),
+            ('backtest_native_replay_observations_v2',15::smallint,'canonical_bytes','bytea',true),
+            ('backtest_native_replay_semantic_traces_v2',1::smallint,'result_identity','text',true),
+            ('backtest_native_replay_semantic_traces_v2',2::smallint,'locator_reference','text',true),
+            ('backtest_native_replay_semantic_traces_v2',3::smallint,'locator_digest','text',true),
+            ('backtest_native_replay_semantic_traces_v2',4::smallint,'canonical_bytes','bytea',true))
+          OR attribute.atthasdef OR attribute.attidentity<>'' OR attribute.attgenerated<>''
+          OR attribute.attacl IS NOT NULL OR attribute.attcollation<>attribute_type.typcollation
+          OR attribute.attndims<>0 OR NOT attribute.attislocal OR attribute.attinhcount<>0)
+       FROM family JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=family.oid AND attribute.attnum>0 AND NOT attribute.attisdropped
+       JOIN pg_catalog.pg_type attribute_type ON attribute_type.oid=attribute.atttypid)
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute attribute WHERE attribute.attrelid IN (SELECT oid FROM family) AND attribute.attnum>0 AND attribute.attisdropped)
+    AND (SELECT pg_catalog.count(*)=6
+          AND pg_catalog.count(DISTINCT (family.relname,constraint_fact.contype::pg_catalog.text,pg_catalog.array_to_string(constraint_fact.conkey,' ')))=6
+          AND NOT pg_catalog.bool_or(
+          (family.relname,constraint_fact.contype::pg_catalog.text,pg_catalog.array_to_string(constraint_fact.conkey,' '))
+          NOT IN (VALUES
+            ('backtest_native_replay_source_blobs_v2','p','1'),
+            ('backtest_native_replay_observations_v2','p','1 2'),
+            ('backtest_native_replay_observations_v2','u','8'),
+            ('backtest_native_replay_observations_v2','u','3 7 2'),
+            ('backtest_native_replay_semantic_traces_v2','p','1'),
+            ('backtest_native_replay_semantic_traces_v2','u','2'))
+          OR constraint_fact.condeferrable OR constraint_fact.condeferred OR NOT constraint_fact.convalidated
+          OR NOT constraint_fact.connoinherit OR NOT constraint_fact.conislocal OR constraint_fact.coninhcount<>0)
+       FROM pg_catalog.pg_constraint constraint_fact JOIN family ON family.oid=constraint_fact.conrelid
+       WHERE constraint_fact.contype IN ('p','u'))
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid IN (SELECT oid FROM family) AND constraint_fact.contype NOT IN ('p','u'))
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.confrelid IN (SELECT oid FROM family))
+    AND (SELECT pg_catalog.count(*)=6
+          AND pg_catalog.count(DISTINCT (family.relname,index_fact.indisprimary,pg_catalog.array_to_string(index_fact.indkey::smallint[],' ')))=6
+          AND NOT pg_catalog.bool_or(
+          (family.relname,index_fact.indisprimary,pg_catalog.array_to_string(index_fact.indkey::smallint[],' '))
+          NOT IN (VALUES
+            ('backtest_native_replay_source_blobs_v2',true,'1'),
+            ('backtest_native_replay_observations_v2',true,'1 2'),
+            ('backtest_native_replay_observations_v2',false,'8'),
+            ('backtest_native_replay_observations_v2',false,'3 7 2'),
+            ('backtest_native_replay_semantic_traces_v2',true,'1'),
+            ('backtest_native_replay_semantic_traces_v2',false,'2'))
+          OR NOT index_fact.indisunique OR index_fact.indisexclusion OR NOT index_fact.indimmediate
+          OR index_fact.indisclustered OR NOT index_fact.indisvalid OR NOT index_fact.indisready
+          OR NOT index_fact.indislive OR index_fact.indisreplident OR index_fact.indnullsnotdistinct
+          OR index_fact.indnkeyatts<>index_fact.indnatts OR index_fact.indexprs IS NOT NULL OR index_fact.indpred IS NOT NULL
+          OR index_relation.relkind<>'i' OR index_relation.relpersistence<>'p' OR index_relation.reltablespace<>0
+          OR index_relation.reloptions IS NOT NULL OR pg_catalog.pg_get_userbyid(index_relation.relowner)<>'backtest_custodian'
+          OR index_method.amname<>'btree'
+          OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conindid=index_relation.oid)
+          OR EXISTS (SELECT 1 FROM pg_catalog.unnest(index_fact.indoption::smallint[]) option_value WHERE option_value<>0)
+          OR EXISTS (SELECT 1 FROM pg_catalog.unnest(index_fact.indclass::oid[]) class_oid JOIN pg_catalog.pg_opclass operator_class ON operator_class.oid=class_oid WHERE NOT operator_class.opcdefault)
+          OR EXISTS (
+            SELECT 1 FROM pg_catalog.unnest(index_fact.indkey::smallint[]) WITH ORDINALITY key_fact(attnum,ordinality)
+            JOIN pg_catalog.unnest(index_fact.indcollation::oid[]) WITH ORDINALITY collation_fact(collation_oid,ordinality) USING(ordinality)
+            JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=index_fact.indrelid AND attribute.attnum=key_fact.attnum
+             WHERE collation_fact.collation_oid<>attribute.attcollation))
+       FROM pg_catalog.pg_index index_fact JOIN family ON family.oid=index_fact.indrelid
+       JOIN pg_catalog.pg_class index_relation ON index_relation.oid=index_fact.indexrelid
+       JOIN pg_catalog.pg_am index_method ON index_method.oid=index_relation.relam)
+    AND (SELECT pg_catalog.count(*)=6
+          AND pg_catalog.count(*) FILTER (WHERE acl.privilege_type='SELECT')=3
+          AND pg_catalog.count(*) FILTER (WHERE acl.privilege_type='INSERT')=3
+       FROM family JOIN pg_catalog.pg_class relation ON relation.oid=family.oid
+       CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl
+       JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+       WHERE acl.grantee<>relation.relowner AND acl.grantee<>0
+         AND role.rolname='backtest_owner' AND acl.privilege_type IN ('SELECT','INSERT') AND NOT acl.is_grantable
+         AND pg_catalog.pg_get_userbyid(acl.grantor)='backtest_custodian')
+    AND NOT EXISTS (
+      SELECT 1 FROM family JOIN pg_catalog.pg_class relation ON relation.oid=family.oid
+      CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl
+      LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+       WHERE acl.grantee<>relation.relowner
+         AND (acl.grantee=0 OR role.oid IS NULL OR role.rolname IS DISTINCT FROM 'backtest_owner'
+           OR acl.privilege_type NOT IN ('SELECT','INSERT') OR acl.is_grantable
+           OR pg_catalog.pg_get_userbyid(acl.grantor) IS DISTINCT FROM 'backtest_custodian'))
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute attribute CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl WHERE attribute.attrelid IN (SELECT oid FROM family) AND attribute.attnum>0 AND NOT attribute.attisdropped)
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact WHERE trigger_fact.tgrelid IN (SELECT oid FROM family) AND NOT trigger_fact.tgisinternal)
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy WHERE policy.polrelid IN (SELECT oid FROM family))
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite WHERE rewrite.ev_class IN (SELECT oid FROM family))
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_inherits inheritance WHERE inheritance.inhrelid IN (SELECT oid FROM family) OR inheritance.inhparent IN (SELECT oid FROM family))
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_publication_rel publication WHERE publication.prrelid IN (SELECT oid FROM family))
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_publication publication WHERE publication.puballtables)
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_publication_namespace publication_namespace JOIN pg_catalog.pg_namespace namespace ON namespace.oid=publication_namespace.pnnspid WHERE namespace.nspname='public')
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_statistic_ext statistic WHERE statistic.stxrelid IN (SELECT oid FROM family))
+  INTO exact;
+  IF exact IS DISTINCT FROM true THEN RAISE EXCEPTION 'Backtest native Replay evidence topology mismatch'; END IF;
+END
+$backtest_native_replay_evidence_topology_readback$;
 
 DO $remove_misplaced_authority_lock$
 DECLARE misplaced oid := pg_catalog.to_regprocedure('backtest_owner_api.lock_authority_catalogs_v1()');
@@ -257,7 +1104,7 @@ CREATE OR REPLACE FUNCTION backtest_owner_api.resolve_exploratory_replay_result_
   p_attempt_identity text
 ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
-AS $function$DECLARE locked_result public.backtest_replay_results_v2%ROWTYPE; locked_receipt public.backtest_replay_result_receipts_v1%ROWTYPE; locked_outbox public.backtest_replay_result_outbox_v1%ROWTYPE; BEGIN SELECT result.* INTO locked_result FROM public.backtest_replay_results_v2 result WHERE result.result_identity=p_result_identity AND result.request_identity=p_request_identity AND result.attempt_identity=p_attempt_identity FOR SHARE; IF NOT FOUND THEN RETURN NULL; END IF; SELECT receipt.* INTO locked_receipt FROM public.backtest_replay_result_receipts_v1 receipt WHERE receipt.result_identity=p_result_identity FOR SHARE; IF NOT FOUND THEN RETURN NULL; END IF; SELECT outbox.* INTO locked_outbox FROM public.backtest_replay_result_outbox_v1 outbox WHERE outbox.result_identity=p_result_identity FOR SHARE; IF NOT FOUND THEN RETURN NULL; END IF; RETURN pg_catalog.jsonb_build_object('schema_version',2,'result',pg_catalog.jsonb_build_object('result_identity',locked_result.result_identity,'result_digest',locked_result.result_digest,'request_identity',locked_result.request_identity,'request_meaning_digest',locked_result.request_meaning_digest,'attempt_identity',locked_result.attempt_identity,'terminal',locked_result.terminal,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_result.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_result.canonical_bytes_blake3),'receipt',pg_catalog.jsonb_build_object('result_identity',locked_receipt.result_identity,'receipt_identity',locked_receipt.receipt_identity,'receipt_digest',locked_receipt.receipt_digest,'request_identity',locked_receipt.request_identity,'request_meaning_digest',locked_receipt.request_meaning_digest,'result_digest',locked_receipt.result_digest,'namespace',locked_receipt.namespace,'outbox_event_identity',locked_receipt.outbox_event_identity,'committed_at_epoch_ms',locked_receipt.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_receipt.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_receipt.canonical_bytes_blake3),'outbox',pg_catalog.jsonb_build_object('result_identity',locked_outbox.result_identity,'event_identity',locked_outbox.event_identity,'event_digest',locked_outbox.event_digest,'receipt_identity',locked_outbox.receipt_identity,'request_identity',locked_outbox.request_identity,'request_meaning_digest',locked_outbox.request_meaning_digest,'result_digest',locked_outbox.result_digest,'namespace',locked_outbox.namespace,'payload_digest',locked_outbox.payload_digest,'committed_at_epoch_ms',locked_outbox.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_outbox.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_outbox.canonical_bytes_blake3)); END$function$;
+AS $function$DECLARE locked_result public.backtest_replay_results_v2%ROWTYPE; locked_receipt public.backtest_replay_result_receipts_v1%ROWTYPE; locked_outbox public.backtest_replay_result_outbox_v1%ROWTYPE; locked_trace public.backtest_native_replay_semantic_traces_v2%ROWTYPE; BEGIN SELECT result.* INTO locked_result FROM public.backtest_replay_results_v2 result WHERE result.result_identity=p_result_identity AND result.request_identity=p_request_identity AND result.attempt_identity=p_attempt_identity; IF NOT FOUND THEN RETURN NULL; END IF; SELECT receipt.* INTO locked_receipt FROM public.backtest_replay_result_receipts_v1 receipt WHERE receipt.result_identity=p_result_identity; IF NOT FOUND THEN RETURN NULL; END IF; SELECT outbox.* INTO locked_outbox FROM public.backtest_replay_result_outbox_v1 outbox WHERE outbox.result_identity=p_result_identity; IF NOT FOUND THEN RETURN NULL; END IF; SELECT trace.* INTO locked_trace FROM public.backtest_native_replay_semantic_traces_v2 trace WHERE trace.result_identity=p_result_identity; RETURN pg_catalog.jsonb_build_object('schema_version',3,'result',pg_catalog.jsonb_build_object('result_identity',locked_result.result_identity,'result_digest',locked_result.result_digest,'request_identity',locked_result.request_identity,'request_meaning_digest',locked_result.request_meaning_digest,'attempt_identity',locked_result.attempt_identity,'terminal',locked_result.terminal,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_result.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_result.canonical_bytes_blake3),'receipt',pg_catalog.jsonb_build_object('result_identity',locked_receipt.result_identity,'receipt_identity',locked_receipt.receipt_identity,'receipt_digest',locked_receipt.receipt_digest,'request_identity',locked_receipt.request_identity,'request_meaning_digest',locked_receipt.request_meaning_digest,'result_digest',locked_receipt.result_digest,'namespace',locked_receipt.namespace,'outbox_event_identity',locked_receipt.outbox_event_identity,'committed_at_epoch_ms',locked_receipt.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_receipt.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_receipt.canonical_bytes_blake3),'outbox',pg_catalog.jsonb_build_object('result_identity',locked_outbox.result_identity,'event_identity',locked_outbox.event_identity,'event_digest',locked_outbox.event_digest,'receipt_identity',locked_outbox.receipt_identity,'request_identity',locked_outbox.request_identity,'request_meaning_digest',locked_outbox.request_meaning_digest,'result_digest',locked_outbox.result_digest,'namespace',locked_outbox.namespace,'payload_digest',locked_outbox.payload_digest,'committed_at_epoch_ms',locked_outbox.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_outbox.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_outbox.canonical_bytes_blake3),'semantic_trace',CASE WHEN locked_trace.result_identity IS NULL THEN NULL ELSE pg_catalog.jsonb_build_object('result_identity',locked_trace.result_identity,'locator_reference',locked_trace.locator_reference,'locator_digest',locked_trace.locator_digest,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_trace.canonical_bytes,'base64'),pg_catalog.chr(10),'')) END); END$function$;
 ALTER FUNCTION backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text) OWNER TO backtest_custodian;
 REVOKE ALL ON FUNCTION backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text) FROM PUBLIC, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, rd_fact_writer, market_data_reader, rd_owner;
 GRANT EXECUTE ON FUNCTION backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text) TO rd_owner;
@@ -267,9 +1114,14 @@ DECLARE exact boolean;
 BEGIN
   SELECT
     (SELECT pg_catalog.pg_get_userbyid(namespace.nspowner)='backtest_custodian' FROM pg_catalog.pg_namespace namespace WHERE namespace.nspname='backtest_owner_api')
-    AND (SELECT pg_catalog.count(*)=1 AND pg_catalog.bool_and(procedure.oid=pg_catalog.to_regprocedure('backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text)'))
+    AND (SELECT pg_catalog.count(*) BETWEEN 1 AND 2
+                AND pg_catalog.bool_and(procedure.oid IN (
+                  pg_catalog.to_regprocedure('backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text)'),
+                  pg_catalog.to_regprocedure('backtest_owner_api.resolve_exploratory_replay_result_v3(text,text,text)')
+                ))
            FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
           WHERE namespace.nspname='backtest_owner_api')
+    AND pg_catalog.to_regprocedure('backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text)') IS NOT NULL
     AND (SELECT pg_catalog.count(*)=3 AND pg_catalog.bool_and(pg_catalog.pg_get_userbyid(relation.relowner)='backtest_custodian' AND relation.relkind='r' AND NOT relation.relrowsecurity AND NOT relation.relforcerowsecurity)
            FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
           WHERE namespace.nspname='public' AND relation.relname IN ('backtest_replay_results_v2','backtest_replay_result_receipts_v1','backtest_replay_result_outbox_v1'))
@@ -326,6 +1178,310 @@ BEGIN
   IF exact IS DISTINCT FROM true THEN RAISE EXCEPTION 'Backtest Result topology mismatch'; END IF;
 END
 $backtest_result_topology_readback$;
+
+CREATE TABLE IF NOT EXISTS public.backtest_native_replay_outcome_evidence_v1 (
+  result_identity TEXT PRIMARY KEY,
+  evidence_identity TEXT NOT NULL UNIQUE,
+  evidence_digest TEXT NOT NULL,
+  result_digest TEXT NOT NULL,
+  request_identity TEXT NOT NULL,
+  request_meaning_digest TEXT NOT NULL,
+  attempt_identity TEXT NOT NULL,
+  canonical_bytes BYTEA NOT NULL,
+  canonical_bytes_blake3 TEXT NOT NULL,
+  engine_canonical_result_bytes BYTEA NOT NULL,
+  engine_canonical_result_bytes_blake3 TEXT NOT NULL,
+  UNIQUE (request_identity, attempt_identity)
+);
+CREATE TABLE IF NOT EXISTS public.backtest_native_replay_outcome_evidence_receipts_v1 (
+  result_identity TEXT PRIMARY KEY,
+  receipt_identity TEXT NOT NULL UNIQUE,
+  receipt_digest TEXT NOT NULL,
+  evidence_identity TEXT NOT NULL UNIQUE,
+  evidence_digest TEXT NOT NULL,
+  result_digest TEXT NOT NULL,
+  request_identity TEXT NOT NULL,
+  request_meaning_digest TEXT NOT NULL,
+  attempt_identity TEXT NOT NULL,
+  outbox_event_identity TEXT NOT NULL UNIQUE,
+  committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0),
+  canonical_bytes BYTEA NOT NULL,
+  canonical_bytes_blake3 TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS public.backtest_native_replay_outcome_evidence_outbox_v1 (
+  result_identity TEXT PRIMARY KEY,
+  event_identity TEXT NOT NULL UNIQUE,
+  event_digest TEXT NOT NULL,
+  receipt_identity TEXT NOT NULL UNIQUE,
+  evidence_identity TEXT NOT NULL UNIQUE,
+  evidence_digest TEXT NOT NULL,
+  result_digest TEXT NOT NULL,
+  request_identity TEXT NOT NULL,
+  request_meaning_digest TEXT NOT NULL,
+  attempt_identity TEXT NOT NULL,
+  payload_digest TEXT NOT NULL,
+  committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0),
+  canonical_bytes BYTEA NOT NULL,
+  canonical_bytes_blake3 TEXT NOT NULL
+);
+ALTER TABLE public.backtest_native_replay_outcome_evidence_v1 OWNER TO backtest_custodian;
+ALTER TABLE public.backtest_native_replay_outcome_evidence_receipts_v1 OWNER TO backtest_custodian;
+ALTER TABLE public.backtest_native_replay_outcome_evidence_outbox_v1 OWNER TO backtest_custodian;
+REVOKE ALL ON TABLE public.backtest_native_replay_outcome_evidence_v1, public.backtest_native_replay_outcome_evidence_receipts_v1, public.backtest_native_replay_outcome_evidence_outbox_v1 FROM PUBLIC, backtest_owner, rd_owner, rd_fact_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner;
+GRANT SELECT, INSERT ON TABLE public.backtest_native_replay_outcome_evidence_v1, public.backtest_native_replay_outcome_evidence_receipts_v1, public.backtest_native_replay_outcome_evidence_outbox_v1 TO backtest_owner;
+
+CREATE OR REPLACE FUNCTION backtest_owner_api.resolve_exploratory_replay_result_v3(
+  p_result_identity text,
+  p_request_identity text,
+  p_attempt_identity text
+) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $function$DECLARE locked_result public.backtest_replay_results_v2%ROWTYPE; locked_receipt public.backtest_replay_result_receipts_v1%ROWTYPE; locked_outbox public.backtest_replay_result_outbox_v1%ROWTYPE; locked_trace public.backtest_native_replay_semantic_traces_v2%ROWTYPE; locked_evidence public.backtest_native_replay_outcome_evidence_v1%ROWTYPE; locked_evidence_receipt public.backtest_native_replay_outcome_evidence_receipts_v1%ROWTYPE; locked_evidence_outbox public.backtest_native_replay_outcome_evidence_outbox_v1%ROWTYPE; BEGIN SELECT result.* INTO locked_result FROM public.backtest_replay_results_v2 result WHERE result.result_identity=p_result_identity AND result.request_identity=p_request_identity AND result.attempt_identity=p_attempt_identity FOR SHARE; IF NOT FOUND THEN RETURN NULL; END IF; SELECT receipt.* INTO locked_receipt FROM public.backtest_replay_result_receipts_v1 receipt WHERE receipt.result_identity=p_result_identity FOR SHARE; IF NOT FOUND THEN RETURN NULL; END IF; SELECT outbox.* INTO locked_outbox FROM public.backtest_replay_result_outbox_v1 outbox WHERE outbox.result_identity=p_result_identity FOR SHARE; IF NOT FOUND THEN RETURN NULL; END IF; SELECT trace.* INTO locked_trace FROM public.backtest_native_replay_semantic_traces_v2 trace WHERE trace.result_identity=p_result_identity FOR SHARE; IF NOT FOUND THEN RETURN NULL; END IF; SELECT evidence.* INTO locked_evidence FROM public.backtest_native_replay_outcome_evidence_v1 evidence WHERE evidence.result_identity=p_result_identity AND evidence.request_identity=p_request_identity AND evidence.attempt_identity=p_attempt_identity FOR SHARE; IF NOT FOUND THEN RETURN NULL; END IF; SELECT receipt.* INTO locked_evidence_receipt FROM public.backtest_native_replay_outcome_evidence_receipts_v1 receipt WHERE receipt.result_identity=p_result_identity FOR SHARE; IF NOT FOUND THEN RETURN NULL; END IF; SELECT outbox.* INTO locked_evidence_outbox FROM public.backtest_native_replay_outcome_evidence_outbox_v1 outbox WHERE outbox.result_identity=p_result_identity FOR SHARE; IF NOT FOUND THEN RETURN NULL; END IF; RETURN pg_catalog.jsonb_build_object('schema_version',4,'result',pg_catalog.jsonb_build_object('result_identity',locked_result.result_identity,'result_digest',locked_result.result_digest,'request_identity',locked_result.request_identity,'request_meaning_digest',locked_result.request_meaning_digest,'attempt_identity',locked_result.attempt_identity,'terminal',locked_result.terminal,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_result.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_result.canonical_bytes_blake3),'receipt',pg_catalog.jsonb_build_object('result_identity',locked_receipt.result_identity,'receipt_identity',locked_receipt.receipt_identity,'receipt_digest',locked_receipt.receipt_digest,'request_identity',locked_receipt.request_identity,'request_meaning_digest',locked_receipt.request_meaning_digest,'result_digest',locked_receipt.result_digest,'namespace',locked_receipt.namespace,'outbox_event_identity',locked_receipt.outbox_event_identity,'committed_at_epoch_ms',locked_receipt.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_receipt.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_receipt.canonical_bytes_blake3),'outbox',pg_catalog.jsonb_build_object('result_identity',locked_outbox.result_identity,'event_identity',locked_outbox.event_identity,'event_digest',locked_outbox.event_digest,'receipt_identity',locked_outbox.receipt_identity,'request_identity',locked_outbox.request_identity,'request_meaning_digest',locked_outbox.request_meaning_digest,'result_digest',locked_outbox.result_digest,'namespace',locked_outbox.namespace,'payload_digest',locked_outbox.payload_digest,'committed_at_epoch_ms',locked_outbox.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_outbox.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_outbox.canonical_bytes_blake3),'semantic_trace',pg_catalog.jsonb_build_object('result_identity',locked_trace.result_identity,'locator_reference',locked_trace.locator_reference,'locator_digest',locked_trace.locator_digest,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_trace.canonical_bytes,'base64'),pg_catalog.chr(10),'')),'outcome_evidence',pg_catalog.jsonb_build_object('result_identity',locked_evidence.result_identity,'evidence_identity',locked_evidence.evidence_identity,'evidence_digest',locked_evidence.evidence_digest,'result_digest',locked_evidence.result_digest,'request_identity',locked_evidence.request_identity,'request_meaning_digest',locked_evidence.request_meaning_digest,'attempt_identity',locked_evidence.attempt_identity,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_evidence.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_evidence.canonical_bytes_blake3,'engine_canonical_result_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_evidence.engine_canonical_result_bytes,'base64'),pg_catalog.chr(10),''),'engine_canonical_result_bytes_blake3',locked_evidence.engine_canonical_result_bytes_blake3),'outcome_evidence_receipt',pg_catalog.jsonb_build_object('result_identity',locked_evidence_receipt.result_identity,'receipt_identity',locked_evidence_receipt.receipt_identity,'receipt_digest',locked_evidence_receipt.receipt_digest,'evidence_identity',locked_evidence_receipt.evidence_identity,'evidence_digest',locked_evidence_receipt.evidence_digest,'result_digest',locked_evidence_receipt.result_digest,'request_identity',locked_evidence_receipt.request_identity,'request_meaning_digest',locked_evidence_receipt.request_meaning_digest,'attempt_identity',locked_evidence_receipt.attempt_identity,'outbox_event_identity',locked_evidence_receipt.outbox_event_identity,'committed_at_epoch_ms',locked_evidence_receipt.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_evidence_receipt.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_evidence_receipt.canonical_bytes_blake3),'outcome_evidence_outbox',pg_catalog.jsonb_build_object('result_identity',locked_evidence_outbox.result_identity,'event_identity',locked_evidence_outbox.event_identity,'event_digest',locked_evidence_outbox.event_digest,'receipt_identity',locked_evidence_outbox.receipt_identity,'evidence_identity',locked_evidence_outbox.evidence_identity,'evidence_digest',locked_evidence_outbox.evidence_digest,'result_digest',locked_evidence_outbox.result_digest,'request_identity',locked_evidence_outbox.request_identity,'request_meaning_digest',locked_evidence_outbox.request_meaning_digest,'attempt_identity',locked_evidence_outbox.attempt_identity,'payload_digest',locked_evidence_outbox.payload_digest,'committed_at_epoch_ms',locked_evidence_outbox.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_evidence_outbox.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_evidence_outbox.canonical_bytes_blake3)); END$function$;
+ALTER FUNCTION backtest_owner_api.resolve_exploratory_replay_result_v3(text,text,text) OWNER TO backtest_custodian;
+REVOKE ALL ON FUNCTION backtest_owner_api.resolve_exploratory_replay_result_v3(text,text,text) FROM PUBLIC, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, rd_fact_writer, market_data_reader, rd_owner;
+GRANT EXECUTE ON FUNCTION backtest_owner_api.resolve_exploratory_replay_result_v3(text,text,text) TO rd_owner;
+
+DO $backtest_outcome_evidence_topology_readback$
+DECLARE exact boolean;
+BEGIN
+WITH family AS (
+  SELECT relation.oid,relation.relname
+    FROM pg_catalog.pg_class relation
+    JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+   WHERE namespace.nspname='public'
+     AND relation.relname IN (
+       'backtest_native_replay_outcome_evidence_v1',
+       'backtest_native_replay_outcome_evidence_receipts_v1',
+       'backtest_native_replay_outcome_evidence_outbox_v1'
+     )
+), expected_columns(relname,attnum,attname,typename) AS (VALUES
+  ('backtest_native_replay_outcome_evidence_v1',1::smallint,'result_identity','text'),
+  ('backtest_native_replay_outcome_evidence_v1',2::smallint,'evidence_identity','text'),
+  ('backtest_native_replay_outcome_evidence_v1',3::smallint,'evidence_digest','text'),
+  ('backtest_native_replay_outcome_evidence_v1',4::smallint,'result_digest','text'),
+  ('backtest_native_replay_outcome_evidence_v1',5::smallint,'request_identity','text'),
+  ('backtest_native_replay_outcome_evidence_v1',6::smallint,'request_meaning_digest','text'),
+  ('backtest_native_replay_outcome_evidence_v1',7::smallint,'attempt_identity','text'),
+  ('backtest_native_replay_outcome_evidence_v1',8::smallint,'canonical_bytes','bytea'),
+  ('backtest_native_replay_outcome_evidence_v1',9::smallint,'canonical_bytes_blake3','text'),
+  ('backtest_native_replay_outcome_evidence_v1',10::smallint,'engine_canonical_result_bytes','bytea'),
+  ('backtest_native_replay_outcome_evidence_v1',11::smallint,'engine_canonical_result_bytes_blake3','text'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',1::smallint,'result_identity','text'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',2::smallint,'receipt_identity','text'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',3::smallint,'receipt_digest','text'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',4::smallint,'evidence_identity','text'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',5::smallint,'evidence_digest','text'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',6::smallint,'result_digest','text'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',7::smallint,'request_identity','text'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',8::smallint,'request_meaning_digest','text'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',9::smallint,'attempt_identity','text'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',10::smallint,'outbox_event_identity','text'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',11::smallint,'committed_at_epoch_ms','bigint'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',12::smallint,'canonical_bytes','bytea'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',13::smallint,'canonical_bytes_blake3','text'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',1::smallint,'result_identity','text'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',2::smallint,'event_identity','text'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',3::smallint,'event_digest','text'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',4::smallint,'receipt_identity','text'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',5::smallint,'evidence_identity','text'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',6::smallint,'evidence_digest','text'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',7::smallint,'result_digest','text'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',8::smallint,'request_identity','text'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',9::smallint,'request_meaning_digest','text'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',10::smallint,'attempt_identity','text'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',11::smallint,'payload_digest','text'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',12::smallint,'committed_at_epoch_ms','bigint'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',13::smallint,'canonical_bytes','bytea'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',14::smallint,'canonical_bytes_blake3','text')
+), expected_constraints(relname,contype,conkey) AS (VALUES
+  ('backtest_native_replay_outcome_evidence_v1','p','1'),
+  ('backtest_native_replay_outcome_evidence_v1','u','2'),
+  ('backtest_native_replay_outcome_evidence_v1','u','5 7'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1','p','1'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1','u','2'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1','u','4'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1','u','10'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1','p','1'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1','u','2'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1','u','4'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1','u','5')
+), expected_indexes(relname,indisprimary,indkey) AS (VALUES
+  ('backtest_native_replay_outcome_evidence_v1',true,'1'),
+  ('backtest_native_replay_outcome_evidence_v1',false,'2'),
+  ('backtest_native_replay_outcome_evidence_v1',false,'5 7'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',true,'1'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',false,'2'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',false,'4'),
+  ('backtest_native_replay_outcome_evidence_receipts_v1',false,'10'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',true,'1'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',false,'2'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',false,'4'),
+  ('backtest_native_replay_outcome_evidence_outbox_v1',false,'5')
+)
+SELECT
+  (SELECT pg_catalog.count(*)=3 AND pg_catalog.bool_and(
+       relation.relkind='r' AND relation.relpersistence='p'
+       AND access_method.amname='heap'
+       AND pg_catalog.pg_get_userbyid(relation.relowner)='backtest_custodian'
+       AND NOT relation.relrowsecurity AND NOT relation.relforcerowsecurity
+       AND relation.relreplident='d' AND NOT relation.relispartition
+       AND relation.reltablespace=0 AND relation.reloptions IS NULL)
+     FROM family JOIN pg_catalog.pg_class relation ON relation.oid=family.oid
+     JOIN pg_catalog.pg_am access_method ON access_method.oid=relation.relam)
+  AND NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_class relation
+    JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+    WHERE namespace.nspname<>'public' AND relation.relname IN (
+      'backtest_native_replay_outcome_evidence_v1',
+      'backtest_native_replay_outcome_evidence_receipts_v1',
+      'backtest_native_replay_outcome_evidence_outbox_v1'))
+  AND (SELECT pg_catalog.count(*)=38 AND NOT pg_catalog.bool_or(
+       expected_columns.relname IS NULL OR NOT attribute.attnotnull
+       OR pg_catalog.format_type(attribute.atttypid,attribute.atttypmod)<>expected_columns.typename
+       OR attribute.atthasdef OR attribute.attidentity<>'' OR attribute.attgenerated<>''
+       OR attribute.attacl IS NOT NULL
+       OR attribute.attcollation<>attribute_type.typcollation
+       OR attribute.attndims<>0 OR NOT attribute.attislocal OR attribute.attinhcount<>0)
+     FROM family JOIN pg_catalog.pg_attribute attribute
+       ON attribute.attrelid=family.oid AND attribute.attnum>0 AND NOT attribute.attisdropped
+     JOIN pg_catalog.pg_type attribute_type ON attribute_type.oid=attribute.atttypid
+     LEFT JOIN expected_columns ON expected_columns.relname=family.relname
+       AND expected_columns.attnum=attribute.attnum AND expected_columns.attname=attribute.attname)
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute attribute
+       WHERE attribute.attrelid IN (SELECT oid FROM family)
+         AND attribute.attnum>0 AND attribute.attisdropped)
+  AND NOT EXISTS (SELECT 1 FROM expected_columns
+       WHERE NOT EXISTS (SELECT 1 FROM family JOIN pg_catalog.pg_attribute attribute
+          ON attribute.attrelid=family.oid AND attribute.attnum=expected_columns.attnum
+         WHERE family.relname=expected_columns.relname AND attribute.attname=expected_columns.attname
+           AND NOT attribute.attisdropped))
+  AND (SELECT pg_catalog.count(*)=11
+       AND pg_catalog.count(DISTINCT (family.relname,constraint_fact.contype::pg_catalog.text,
+            pg_catalog.array_to_string(constraint_fact.conkey,' ')))=11
+       AND NOT pg_catalog.bool_or(
+         expected_constraints.relname IS NULL
+         OR constraint_fact.condeferrable OR constraint_fact.condeferred
+         OR NOT constraint_fact.convalidated OR NOT constraint_fact.connoinherit
+         OR NOT constraint_fact.conislocal OR constraint_fact.coninhcount<>0)
+     FROM family JOIN pg_catalog.pg_constraint constraint_fact ON constraint_fact.conrelid=family.oid
+     LEFT JOIN expected_constraints ON expected_constraints.relname=family.relname
+       AND expected_constraints.contype=constraint_fact.contype::pg_catalog.text
+       AND expected_constraints.conkey=pg_catalog.array_to_string(constraint_fact.conkey,' ')
+    WHERE constraint_fact.contype IN ('p','u'))
+  AND NOT EXISTS (SELECT 1 FROM expected_constraints
+       WHERE NOT EXISTS (SELECT 1 FROM family
+          JOIN pg_catalog.pg_constraint constraint_fact ON constraint_fact.conrelid=family.oid
+         WHERE family.relname=expected_constraints.relname
+           AND constraint_fact.contype::pg_catalog.text=expected_constraints.contype
+           AND pg_catalog.array_to_string(constraint_fact.conkey,' ')=expected_constraints.conkey))
+  AND (SELECT pg_catalog.count(*)=2 AND pg_catalog.bool_and(
+       pg_catalog.pg_get_expr(constraint_fact.conbin,constraint_fact.conrelid,false)=
+       '(committed_at_epoch_ms >= 0)'
+       AND NOT constraint_fact.condeferrable AND NOT constraint_fact.condeferred
+       AND constraint_fact.convalidated AND NOT constraint_fact.connoinherit
+       AND constraint_fact.conislocal AND constraint_fact.coninhcount=0)
+     FROM family JOIN pg_catalog.pg_constraint constraint_fact ON constraint_fact.conrelid=family.oid
+    WHERE constraint_fact.contype='c')
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint constraint_fact
+       WHERE constraint_fact.conrelid IN (SELECT oid FROM family)
+         AND constraint_fact.contype NOT IN ('p','u','c'))
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint constraint_fact
+       WHERE constraint_fact.confrelid IN (SELECT oid FROM family))
+  AND (SELECT pg_catalog.count(*)=11
+       AND pg_catalog.count(DISTINCT (family.relname,index_fact.indisprimary,
+            pg_catalog.array_to_string(index_fact.indkey::smallint[],' ')))=11
+       AND NOT pg_catalog.bool_or(
+         expected_indexes.relname IS NULL OR NOT index_fact.indisunique
+         OR index_fact.indisexclusion OR NOT index_fact.indimmediate
+         OR index_fact.indisclustered OR NOT index_fact.indisvalid
+         OR NOT index_fact.indisready OR NOT index_fact.indislive
+         OR index_fact.indisreplident OR index_fact.indnullsnotdistinct
+         OR index_fact.indexprs IS NOT NULL OR index_fact.indpred IS NOT NULL
+         OR index_fact.indnkeyatts<>index_fact.indnatts OR index_relation.relkind<>'i'
+         OR index_relation.relpersistence<>'p' OR index_relation.reltablespace<>0
+         OR index_relation.reloptions IS NOT NULL
+         OR index_method.amname<>'btree'
+         OR pg_catalog.pg_get_userbyid(index_relation.relowner)<>'backtest_custodian'
+         OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint constraint_fact
+              WHERE constraint_fact.conindid=index_fact.indexrelid
+                AND constraint_fact.contype IN ('p','u'))
+         OR EXISTS (SELECT 1 FROM pg_catalog.unnest(index_fact.indoption::smallint[]) option_value
+              WHERE option_value<>0)
+         OR EXISTS (SELECT 1 FROM pg_catalog.unnest(index_fact.indclass::oid[]) class_oid
+              JOIN pg_catalog.pg_opclass operator_class ON operator_class.oid=class_oid
+             WHERE NOT operator_class.opcdefault)
+         OR EXISTS (SELECT 1
+              FROM pg_catalog.unnest(index_fact.indkey::smallint[]) WITH ORDINALITY key_fact(attnum,ordinality)
+              JOIN pg_catalog.unnest(index_fact.indcollation::oid[]) WITH ORDINALITY collation_fact(collation_oid,ordinality) USING(ordinality)
+              JOIN pg_catalog.pg_attribute attribute
+                ON attribute.attrelid=index_fact.indrelid AND attribute.attnum=key_fact.attnum
+             WHERE collation_fact.collation_oid<>attribute.attcollation))
+     FROM family JOIN pg_catalog.pg_index index_fact ON index_fact.indrelid=family.oid
+     JOIN pg_catalog.pg_class index_relation ON index_relation.oid=index_fact.indexrelid
+     JOIN pg_catalog.pg_am index_method ON index_method.oid=index_relation.relam
+     LEFT JOIN expected_indexes ON expected_indexes.relname=family.relname
+       AND expected_indexes.indisprimary=index_fact.indisprimary
+       AND expected_indexes.indkey=pg_catalog.array_to_string(index_fact.indkey::smallint[],' '))
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact
+       WHERE trigger_fact.tgrelid IN (SELECT oid FROM family) AND NOT trigger_fact.tgisinternal)
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy
+       WHERE policy.polrelid IN (SELECT oid FROM family))
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite
+       WHERE rewrite.ev_class IN (SELECT oid FROM family))
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_inherits inheritance
+       WHERE inheritance.inhrelid IN (SELECT oid FROM family)
+          OR inheritance.inhparent IN (SELECT oid FROM family))
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_publication_rel publication
+       WHERE publication.prrelid IN (SELECT oid FROM family))
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_publication publication WHERE publication.puballtables)
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_publication_namespace publication_namespace
+       JOIN pg_catalog.pg_namespace namespace ON namespace.oid=publication_namespace.pnnspid
+      WHERE namespace.nspname='public')
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_statistic_ext statistic
+       WHERE statistic.stxrelid IN (SELECT oid FROM family))
+  AND (SELECT pg_catalog.count(*)=6
+       AND pg_catalog.count(*) FILTER (WHERE acl.privilege_type='SELECT')=3
+       AND pg_catalog.count(*) FILTER (WHERE acl.privilege_type='INSERT')=3
+     FROM family JOIN pg_catalog.pg_class relation ON relation.oid=family.oid
+     CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl
+     JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+    WHERE acl.grantee<>relation.relowner AND acl.grantee<>0
+      AND role.rolname='backtest_owner' AND acl.privilege_type IN ('SELECT','INSERT')
+      AND NOT acl.is_grantable
+      AND pg_catalog.pg_get_userbyid(acl.grantor)='backtest_custodian')
+  AND NOT EXISTS (SELECT 1
+     FROM family JOIN pg_catalog.pg_class relation ON relation.oid=family.oid
+     CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl
+     LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+    WHERE acl.grantee<>relation.relowner AND (
+      acl.grantee=0 OR role.oid IS NULL OR role.rolname IS DISTINCT FROM 'backtest_owner'
+      OR acl.privilege_type NOT IN ('SELECT','INSERT') OR acl.is_grantable
+      OR pg_catalog.pg_get_userbyid(acl.grantor) IS DISTINCT FROM 'backtest_custodian'))
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute attribute
+       CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+      WHERE attribute.attrelid IN (SELECT oid FROM family)
+        AND attribute.attnum>0 AND NOT attribute.attisdropped)
+  INTO exact;
+  IF exact IS DISTINCT FROM true THEN RAISE EXCEPTION 'Backtest outcome-evidence table topology mismatch'; END IF;
+  SELECT
+    (SELECT pg_catalog.count(*)=1 AND pg_catalog.bool_and(
+       pg_catalog.pg_get_userbyid(procedure.proowner)='backtest_custodian'
+       AND procedure.prosecdef AND procedure.proisstrict
+       AND procedure.provolatile='v' AND procedure.proparallel='u'
+       AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[])
+       FROM pg_catalog.pg_proc procedure
+       JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
+      WHERE namespace.nspname='backtest_owner_api'
+        AND procedure.oid=pg_catalog.to_regprocedure('backtest_owner_api.resolve_exploratory_replay_result_v3(text,text,text)'))
+    AND NOT pg_catalog.has_table_privilege('rd_owner','public.backtest_native_replay_outcome_evidence_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+    AND NOT pg_catalog.has_table_privilege('rd_owner','public.backtest_native_replay_outcome_evidence_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+    AND NOT pg_catalog.has_table_privilege('rd_owner','public.backtest_native_replay_outcome_evidence_outbox_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+    AND pg_catalog.has_function_privilege('rd_owner','backtest_owner_api.resolve_exploratory_replay_result_v3(text,text,text)','EXECUTE')
+    AND NOT pg_catalog.has_function_privilege('backtest_owner','backtest_owner_api.resolve_exploratory_replay_result_v3(text,text,text)','EXECUTE')
+  INTO exact;
+  IF exact IS DISTINCT FROM true THEN RAISE EXCEPTION 'Backtest outcome-evidence function topology mismatch'; END IF;
+END
+$backtest_outcome_evidence_topology_readback$;
 REVOKE ALL ON SCHEMA public FROM backtest_owner;
 GRANT USAGE ON SCHEMA public TO backtest_owner;
 
@@ -480,7 +1636,7 @@ CREATE TABLE IF NOT EXISTS public.product_edge_deployment_bindings_v1 (binding_i
 CREATE TABLE IF NOT EXISTS public.product_edge_deployment_supersessions_v1 (binding_identity TEXT PRIMARY KEY REFERENCES public.product_edge_deployment_bindings_v1(binding_identity), successor_binding_identity TEXT, supersession_digest TEXT NOT NULL, supersession_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS public.product_edge_deployment_heads_v1 (deployment_identity TEXT PRIMARY KEY, binding_identity TEXT NOT NULL REFERENCES public.product_edge_deployment_bindings_v1(binding_identity), generation BIGINT NOT NULL, binding_digest TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS public.product_edge_binding_manifests_v1 (binding_identity TEXT NOT NULL REFERENCES public.product_edge_deployment_bindings_v1(binding_identity), manifest_identity TEXT NOT NULL REFERENCES public.product_edge_operation_manifests_v1(manifest_identity), manifest_digest TEXT NOT NULL, PRIMARY KEY(binding_identity, manifest_identity));
-CREATE TABLE IF NOT EXISTS public.product_edge_request_admissions_v1 (request_identity TEXT PRIMARY KEY, admission_identity TEXT NOT NULL UNIQUE, deployment_identity TEXT, binding_identity TEXT, authorization_identity TEXT, issuance_receipt_identity TEXT, authorization_frontier_identity TEXT, request_semantic_digest TEXT NOT NULL, admission_digest TEXT NOT NULL, admission_json JSONB NOT NULL, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
+CREATE TABLE IF NOT EXISTS public.product_edge_request_admissions_v1 (request_identity TEXT PRIMARY KEY, admission_identity TEXT NOT NULL UNIQUE, deployment_identity TEXT, binding_identity TEXT, authorization_identity TEXT, issuance_receipt_identity TEXT, authorization_frontier_identity TEXT, request_semantic_digest TEXT NOT NULL, admission_digest TEXT NOT NULL, admission_json JSONB NOT NULL, receipt_json JSONB NOT NULL, canonical_storage_bytes BYTEA, canonical_storage_digest TEXT, canonical_storage_json JSONB, committed_at_epoch_ms BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS public.product_edge_effect_invocation_admissions_v1 (receipt_identity TEXT PRIMARY KEY, receipt_digest TEXT NOT NULL, admission_identity TEXT NOT NULL UNIQUE, attempt_identity TEXT NOT NULL UNIQUE, claim_identity TEXT NOT NULL UNIQUE, receipt_json JSONB NOT NULL, write_cut_epoch_ms BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS public.product_edge_effect_invocation_claims_v1 (admission_identity TEXT PRIMARY KEY, claim_identity TEXT NOT NULL UNIQUE, attempt_identity TEXT NOT NULL UNIQUE, claim_digest TEXT NOT NULL, claim_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS public.product_edge_effect_invocation_states_v1 (claim_identity TEXT PRIMARY KEY REFERENCES public.product_edge_effect_invocation_claims_v1(claim_identity), admission_identity TEXT NOT NULL UNIQUE, attempt_identity TEXT NOT NULL UNIQUE, claim_digest TEXT NOT NULL, state_digest TEXT NOT NULL, state_json JSONB NOT NULL, updated_at_epoch_ms BIGINT NOT NULL);
@@ -500,6 +1656,9 @@ ALTER TABLE public.product_edge_request_admissions_v1 ADD COLUMN IF NOT EXISTS b
 ALTER TABLE public.product_edge_request_admissions_v1 ADD COLUMN IF NOT EXISTS authorization_identity TEXT;
 ALTER TABLE public.product_edge_request_admissions_v1 ADD COLUMN IF NOT EXISTS issuance_receipt_identity TEXT;
 ALTER TABLE public.product_edge_request_admissions_v1 ADD COLUMN IF NOT EXISTS authorization_frontier_identity TEXT;
+ALTER TABLE public.product_edge_request_admissions_v1 ADD COLUMN IF NOT EXISTS canonical_storage_bytes BYTEA;
+ALTER TABLE public.product_edge_request_admissions_v1 ADD COLUMN IF NOT EXISTS canonical_storage_digest TEXT;
+ALTER TABLE public.product_edge_request_admissions_v1 ADD COLUMN IF NOT EXISTS canonical_storage_json JSONB;
 UPDATE public.product_edge_request_admissions_v1
 SET deployment_identity=admission_json->>'deployment_identity',
     binding_identity=admission_json->>'binding_identity',
@@ -805,8 +1964,8 @@ BEGIN
 END
 $function$;
 ALTER FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) OWNER TO product_edge_owner;
-REVOKE ALL ON FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) FROM PUBLIC, operator_authorization_writer, portfolio_owner;
-GRANT EXECUTE ON FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) TO rd_owner, product_edge_owner;
+REVOKE ALL ON FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) FROM PUBLIC, operator_authorization_writer, portfolio_owner, backtest_owner;
+GRANT EXECUTE ON FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) TO rd_owner, product_edge_owner, backtest_owner;
 
 CREATE OR REPLACE FUNCTION product_edge_api.lock_source_invocation_state_v1(
   requested_request_identity text,
@@ -1104,6 +2263,8 @@ CREATE TABLE IF NOT EXISTS replay_policy_catalog_private.rd_replay_policy_catalo
 CREATE TABLE IF NOT EXISTS replay_policy_catalog_private.rd_replay_policy_catalog_head_v2 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), catalog_record_id TEXT NOT NULL UNIQUE REFERENCES replay_policy_catalog_private.rd_replay_policy_catalog_records_v2(catalog_record_id), catalog_version NUMERIC(20,0) NOT NULL UNIQUE, advanced_by TEXT NOT NULL, advanced_at_epoch_ms BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS replay_policy_catalog_private.rd_replay_policy_catalog_revocations_v2 (catalog_record_id TEXT PRIMARY KEY REFERENCES replay_policy_catalog_private.rd_replay_policy_catalog_records_v2(catalog_record_id), catalog_version NUMERIC(20,0) NOT NULL UNIQUE, revoked_by TEXT NOT NULL, revoked_at_epoch_ms BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS replay_policy_catalog_private.rd_replay_policy_catalog_audit_v2 (command_identity TEXT PRIMARY KEY, administrator_identity TEXT NOT NULL, authentication_fact_digest TEXT NOT NULL, command_kind TEXT NOT NULL, predecessor_record_id TEXT, predecessor_head_record_id TEXT, result_record_id TEXT, content_identity TEXT NOT NULL, audit_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
+CREATE TABLE IF NOT EXISTS replay_policy_catalog_private.rd_replay_policy_catalog_execution_profiles_v3 (catalog_record_id TEXT PRIMARY KEY REFERENCES replay_policy_catalog_private.rd_replay_policy_catalog_records_v2(catalog_record_id), catalog_version NUMERIC(20,0) NOT NULL UNIQUE CHECK (catalog_version > 0 AND catalog_version <= 18446744073709551615), catalog_record_digest BYTEA NOT NULL UNIQUE CHECK (octet_length(catalog_record_digest) = 32), economic_configuration_canonical_bytes BYTEA NOT NULL, economic_configuration_digest BYTEA NOT NULL CHECK (octet_length(economic_configuration_digest) = 32), runner_operational_profile_canonical_bytes BYTEA NOT NULL, runner_operational_profile_digest BYTEA NOT NULL CHECK (octet_length(runner_operational_profile_digest) = 32), execution_profiles_binding_digest BYTEA NOT NULL UNIQUE CHECK (octet_length(execution_profiles_binding_digest) = 32), catalog_binding_v3_digest BYTEA NOT NULL UNIQUE CHECK (octet_length(catalog_binding_v3_digest) = 32), created_by TEXT NOT NULL, created_at_epoch_ms BIGINT NOT NULL);
+CREATE TABLE IF NOT EXISTS replay_policy_catalog_private.rd_replay_policy_catalog_audit_v3 (command_identity TEXT PRIMARY KEY, administrator_identity TEXT NOT NULL, authentication_fact_digest TEXT NOT NULL, command_kind TEXT NOT NULL, catalog_record_id TEXT NOT NULL REFERENCES replay_policy_catalog_private.rd_replay_policy_catalog_records_v2(catalog_record_id), catalog_version NUMERIC(20,0) NOT NULL CHECK (catalog_version > 0 AND catalog_version <= 18446744073709551615), catalog_binding_v3_digest BYTEA NOT NULL CHECK (octet_length(catalog_binding_v3_digest) = 32), audit_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS composer_private.rd_develop_designs_v2 (design_identity BYTEA PRIMARY KEY, canonical_bytes BYTEA NOT NULL);
 CREATE TABLE IF NOT EXISTS composer_private.rd_develop_plans_v2 (plan_digest BYTEA PRIMARY KEY, design_identity BYTEA NOT NULL UNIQUE REFERENCES composer_private.rd_develop_designs_v2(design_identity), canonical_bytes BYTEA NOT NULL);
 CREATE TABLE IF NOT EXISTS composer_private.rd_develop_artifacts_v2 (artifact_identity BYTEA PRIMARY KEY, plan_digest BYTEA NOT NULL UNIQUE REFERENCES composer_private.rd_develop_plans_v2(plan_digest), package_bytes BYTEA NOT NULL);
@@ -1185,7 +2346,7 @@ CREATE TABLE IF NOT EXISTS composer_private.rd_develop_outbox_v2 (request_identi
 DO $private_table_owners$
 DECLARE relation_name text;
 BEGIN
-  FOREACH relation_name IN ARRAY ARRAY['rd_replay_policy_catalog_records_v2','rd_replay_policy_catalog_head_v2','rd_replay_policy_catalog_revocations_v2','rd_replay_policy_catalog_audit_v2'] LOOP EXECUTE pg_catalog.format('ALTER TABLE replay_policy_catalog_private.%I OWNER TO replay_policy_catalog_owner', relation_name); END LOOP;
+  FOREACH relation_name IN ARRAY ARRAY['rd_replay_policy_catalog_records_v2','rd_replay_policy_catalog_head_v2','rd_replay_policy_catalog_revocations_v2','rd_replay_policy_catalog_audit_v2','rd_replay_policy_catalog_execution_profiles_v3','rd_replay_policy_catalog_audit_v3'] LOOP EXECUTE pg_catalog.format('ALTER TABLE replay_policy_catalog_private.%I OWNER TO replay_policy_catalog_owner', relation_name); END LOOP;
   FOREACH relation_name IN ARRAY ARRAY['rd_develop_designs_v2','rd_develop_plans_v2','rd_develop_artifacts_v2','rd_develop_artifact_modules_v2','rd_develop_build_receipts_v2','rd_develop_artifact_build_receipt_uses_v2','rd_develop_build_receipts_v3','rd_develop_artifact_build_receipt_uses_v3','rd_develop_composer_receipts_v2','rd_develop_host_receipts_v2','rd_develop_operations_v2','rd_develop_strategy_design_role_set_attestations_v1','rd_develop_strategy_design_native_joins_v1','rd_develop_outbox_v2'] LOOP EXECUTE pg_catalog.format('ALTER TABLE composer_private.%I OWNER TO composer_owner', relation_name); END LOOP;
 END
 $private_table_owners$;
@@ -1235,7 +2396,7 @@ BEGIN
     SELECT 1 FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
     WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private') AND relation.relkind='S'
   ) THEN RAISE EXCEPTION 'Catalog/Composer sequence manifest mismatch'; END IF;
-  SELECT count(*)=18 AND bool_and(relation.relpersistence='p') INTO exact FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+  SELECT count(*)=20 AND bool_and(relation.relpersistence='p') INTO exact FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
   WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private') AND relation.relkind='r';
   IF exact IS DISTINCT FROM true THEN RAISE EXCEPTION 'Catalog/Composer relation ACL family mismatch'; END IF;
   IF EXISTS (
@@ -1369,6 +2530,136 @@ $catalog_apply$;
 ALTER FUNCTION replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(text,text,text,text,text,numeric,text,text,bytea,bytea,bytea,bytea,text,text,jsonb,bigint) OWNER TO replay_policy_catalog_owner;
 REVOKE ALL ON FUNCTION replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(text,text,text,text,text,numeric,text,text,bytea,bytea,bytea,bytea,text,text,jsonb,bigint) FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer;
 GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(text,text,text,text,text,numeric,text,text,bytea,bytea,bytea,bytea,text,text,jsonb,bigint) TO replay_policy_catalog_admin_writer;
+
+CREATE OR REPLACE FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_census_v3()
+RETURNS TABLE (execution_profile_count bigint, audit_count bigint)
+LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $catalog_census_v3$
+BEGIN
+  LOCK TABLE replay_policy_catalog_private.rd_replay_policy_catalog_execution_profiles_v3,
+    replay_policy_catalog_private.rd_replay_policy_catalog_audit_v3 IN SHARE ROW EXCLUSIVE MODE;
+  RETURN QUERY SELECT
+    (SELECT pg_catalog.count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_execution_profiles_v3),
+    (SELECT pg_catalog.count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_audit_v3);
+END
+$catalog_census_v3$;
+ALTER FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_census_v3() OWNER TO replay_policy_catalog_owner;
+REVOKE ALL ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_census_v3() FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer;
+GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_census_v3() TO rd_owner, replay_policy_catalog_admin_writer;
+
+CREATE OR REPLACE FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_record_v3(p_record_id text)
+RETURNS TABLE (catalog_record_id text, catalog_version numeric, owner_identity text, predecessor_record_id text, policy_grammar_parser_id text, policy_grammar_parser_digest bytea, policy_canonical_bytes bytea, policy_digest bytea, catalog_record_digest bytea, created_by text, created_at_epoch_ms bigint, head_record_id text, head_version numeric, advanced_by text, advanced_at_epoch_ms bigint, revoked boolean, v3_catalog_record_digest bytea, economic_configuration_canonical_bytes bytea, economic_configuration_digest bytea, runner_operational_profile_canonical_bytes bytea, runner_operational_profile_digest bytea, execution_profiles_binding_digest bytea, catalog_binding_v3_digest bytea, v3_created_by text, v3_created_at_epoch_ms bigint, v3_create_audit_json jsonb)
+LANGUAGE sql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $catalog_read_v3$
+  SELECT record.catalog_record_id, record.catalog_version, record.owner_identity, record.predecessor_record_id,
+    record.policy_grammar_parser_id, record.policy_grammar_parser_digest, record.policy_canonical_bytes,
+    record.policy_digest, record.catalog_record_digest, record.created_by, record.created_at_epoch_ms,
+    head.catalog_record_id, head.catalog_version, head.advanced_by, head.advanced_at_epoch_ms,
+    revocation.catalog_record_id IS NOT NULL, profile.catalog_record_digest,
+    profile.economic_configuration_canonical_bytes, profile.economic_configuration_digest,
+    profile.runner_operational_profile_canonical_bytes, profile.runner_operational_profile_digest,
+    profile.execution_profiles_binding_digest, profile.catalog_binding_v3_digest,
+    profile.created_by, profile.created_at_epoch_ms, issuance.audit_json
+  FROM replay_policy_catalog_private.rd_replay_policy_catalog_records_v2 record
+  JOIN replay_policy_catalog_private.rd_replay_policy_catalog_execution_profiles_v3 profile
+    ON profile.catalog_record_id=record.catalog_record_id AND profile.catalog_version=record.catalog_version
+  JOIN replay_policy_catalog_private.rd_replay_policy_catalog_audit_v3 issuance
+    ON issuance.catalog_record_id=record.catalog_record_id AND issuance.catalog_version=record.catalog_version
+      AND issuance.command_kind='CREATE' AND issuance.catalog_binding_v3_digest=profile.catalog_binding_v3_digest
+  LEFT JOIN replay_policy_catalog_private.rd_replay_policy_catalog_head_v2 head ON head.singleton
+  LEFT JOIN replay_policy_catalog_private.rd_replay_policy_catalog_revocations_v2 revocation ON revocation.catalog_record_id=record.catalog_record_id
+  WHERE record.catalog_record_id=p_record_id
+  FOR UPDATE OF record, profile, issuance
+$catalog_read_v3$;
+ALTER FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_record_v3(text) OWNER TO replay_policy_catalog_owner;
+REVOKE ALL ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_record_v3(text) FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer;
+GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_record_v3(text) TO rd_owner, replay_policy_catalog_admin_writer;
+
+CREATE OR REPLACE FUNCTION replay_policy_catalog_api.lock_current_replay_policy_catalog_v3()
+RETURNS TABLE (catalog_record_id text, catalog_version numeric, owner_identity text, predecessor_record_id text, policy_grammar_parser_id text, policy_grammar_parser_digest bytea, policy_canonical_bytes bytea, policy_digest bytea, catalog_record_digest bytea, created_by text, created_at_epoch_ms bigint, head_record_id text, head_version numeric, advanced_by text, advanced_at_epoch_ms bigint, revoked boolean, v3_catalog_record_digest bytea, economic_configuration_canonical_bytes bytea, economic_configuration_digest bytea, runner_operational_profile_canonical_bytes bytea, runner_operational_profile_digest bytea, execution_profiles_binding_digest bytea, catalog_binding_v3_digest bytea, v3_created_by text, v3_created_at_epoch_ms bigint, v3_create_audit_json jsonb)
+LANGUAGE sql VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $catalog_current_v3$
+  SELECT record.catalog_record_id, record.catalog_version, record.owner_identity, record.predecessor_record_id,
+    record.policy_grammar_parser_id, record.policy_grammar_parser_digest, record.policy_canonical_bytes,
+    record.policy_digest, record.catalog_record_digest, record.created_by, record.created_at_epoch_ms,
+    head.catalog_record_id, head.catalog_version, head.advanced_by, head.advanced_at_epoch_ms,
+    revocation.catalog_record_id IS NOT NULL, profile.catalog_record_digest,
+    profile.economic_configuration_canonical_bytes, profile.economic_configuration_digest,
+    profile.runner_operational_profile_canonical_bytes, profile.runner_operational_profile_digest,
+    profile.execution_profiles_binding_digest, profile.catalog_binding_v3_digest,
+    profile.created_by, profile.created_at_epoch_ms, issuance.audit_json
+  FROM replay_policy_catalog_private.rd_replay_policy_catalog_head_v2 head
+  JOIN replay_policy_catalog_private.rd_replay_policy_catalog_records_v2 record
+    ON record.catalog_record_id=head.catalog_record_id AND record.catalog_version=head.catalog_version
+  JOIN replay_policy_catalog_private.rd_replay_policy_catalog_execution_profiles_v3 profile
+    ON profile.catalog_record_id=record.catalog_record_id AND profile.catalog_version=record.catalog_version
+  JOIN replay_policy_catalog_private.rd_replay_policy_catalog_audit_v3 issuance
+    ON issuance.catalog_record_id=record.catalog_record_id AND issuance.catalog_version=record.catalog_version
+      AND issuance.command_kind='CREATE' AND issuance.catalog_binding_v3_digest=profile.catalog_binding_v3_digest
+  LEFT JOIN replay_policy_catalog_private.rd_replay_policy_catalog_revocations_v2 revocation ON revocation.catalog_record_id=record.catalog_record_id
+  WHERE head.singleton FOR UPDATE OF head, record, profile, issuance
+$catalog_current_v3$;
+ALTER FUNCTION replay_policy_catalog_api.lock_current_replay_policy_catalog_v3() OWNER TO replay_policy_catalog_owner;
+REVOKE ALL ON FUNCTION replay_policy_catalog_api.lock_current_replay_policy_catalog_v3() FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer;
+GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_current_replay_policy_catalog_v3() TO rd_owner, replay_policy_catalog_admin_writer;
+
+CREATE OR REPLACE FUNCTION replay_policy_catalog_api.read_replay_policy_catalog_audit_v3(p_command_identity text)
+RETURNS TABLE (audit_json jsonb)
+LANGUAGE sql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $catalog_audit_read_v3$
+  SELECT audit.audit_json FROM replay_policy_catalog_private.rd_replay_policy_catalog_audit_v3 audit
+  WHERE audit.command_identity=p_command_identity
+$catalog_audit_read_v3$;
+ALTER FUNCTION replay_policy_catalog_api.read_replay_policy_catalog_audit_v3(text) OWNER TO replay_policy_catalog_owner;
+REVOKE ALL ON FUNCTION replay_policy_catalog_api.read_replay_policy_catalog_audit_v3(text) FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer;
+GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.read_replay_policy_catalog_audit_v3(text) TO rd_owner, replay_policy_catalog_admin_writer;
+
+CREATE OR REPLACE FUNCTION replay_policy_catalog_api.apply_replay_policy_catalog_command_v3(
+  p_action text, p_command_identity text, p_administrator_identity text, p_authentication_digest text,
+  p_record_id text, p_version numeric, p_record_digest bytea,
+  p_economic_bytes bytea, p_economic_digest bytea, p_runner_bytes bytea, p_runner_digest bytea,
+  p_profiles_binding_digest bytea, p_catalog_binding_v3_digest bytea, p_audit jsonb, p_epoch_ms bigint
+) RETURNS boolean LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $catalog_apply_v3$
+BEGIN
+  IF SESSION_USER<>'replay_policy_catalog_admin_writer' THEN RAISE EXCEPTION 'Replay Policy Catalog admin writer required' USING ERRCODE='42501'; END IF;
+  PERFORM pg_catalog.pg_advisory_xact_lock(7246450332882419842);
+  IF NOT EXISTS (
+    SELECT 1 FROM replay_policy_catalog_private.rd_replay_policy_catalog_records_v2 record
+    WHERE record.catalog_record_id=p_record_id AND record.catalog_version=p_version
+      AND record.catalog_record_digest=p_record_digest
+  ) OR p_audit->>'command_identity' IS DISTINCT FROM p_command_identity
+    OR p_audit->>'administrator_identity' IS DISTINCT FROM p_administrator_identity
+    OR p_audit->>'authentication_fact_digest' IS DISTINCT FROM p_authentication_digest
+    OR p_audit->>'command_kind' IS DISTINCT FROM p_action
+    OR p_audit->>'catalog_record_id' IS DISTINCT FROM p_record_id
+  THEN RETURN false; END IF;
+  IF p_action='CREATE' THEN
+    IF EXISTS (SELECT 1 FROM replay_policy_catalog_private.rd_replay_policy_catalog_execution_profiles_v3 profile WHERE profile.catalog_record_id=p_record_id OR profile.catalog_version=p_version)
+    THEN RETURN false; END IF;
+    INSERT INTO replay_policy_catalog_private.rd_replay_policy_catalog_execution_profiles_v3 VALUES (
+      p_record_id,p_version,p_record_digest,p_economic_bytes,p_economic_digest,p_runner_bytes,p_runner_digest,
+      p_profiles_binding_digest,p_catalog_binding_v3_digest,p_administrator_identity,p_epoch_ms
+    );
+  ELSIF p_action='ADVANCE' THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM replay_policy_catalog_private.rd_replay_policy_catalog_execution_profiles_v3 profile
+      WHERE profile.catalog_record_id=p_record_id AND profile.catalog_version=p_version
+        AND profile.catalog_record_digest=p_record_digest
+        AND profile.economic_configuration_canonical_bytes=p_economic_bytes
+        AND profile.economic_configuration_digest=p_economic_digest
+        AND profile.runner_operational_profile_canonical_bytes=p_runner_bytes
+        AND profile.runner_operational_profile_digest=p_runner_digest
+        AND profile.execution_profiles_binding_digest=p_profiles_binding_digest
+        AND profile.catalog_binding_v3_digest=p_catalog_binding_v3_digest
+    ) THEN RETURN false; END IF;
+  ELSE RETURN false; END IF;
+  INSERT INTO replay_policy_catalog_private.rd_replay_policy_catalog_audit_v3 VALUES (
+    p_command_identity,p_administrator_identity,p_authentication_digest,p_action,p_record_id,p_version,
+    p_catalog_binding_v3_digest,p_audit,p_epoch_ms
+  );
+  RETURN true;
+END
+$catalog_apply_v3$;
+ALTER FUNCTION replay_policy_catalog_api.apply_replay_policy_catalog_command_v3(text,text,text,text,text,numeric,bytea,bytea,bytea,bytea,bytea,bytea,bytea,jsonb,bigint) OWNER TO replay_policy_catalog_owner;
+REVOKE ALL ON FUNCTION replay_policy_catalog_api.apply_replay_policy_catalog_command_v3(text,text,text,text,text,numeric,bytea,bytea,bytea,bytea,bytea,bytea,bytea,jsonb,bigint) FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer;
+GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.apply_replay_policy_catalog_command_v3(text,text,text,text,text,numeric,bytea,bytea,bytea,bytea,bytea,bytea,bytea,jsonb,bigint) TO replay_policy_catalog_admin_writer;
 
 DROP FUNCTION IF EXISTS composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea);
 CREATE OR REPLACE FUNCTION composer_owner_api.commit_develop_composer_v2(
@@ -1800,6 +3091,33 @@ END$composer_read$;
 ALTER FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(text) OWNER TO composer_owner;
 REVOKE ALL ON FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(text) TO rd_owner;
+CREATE OR REPLACE FUNCTION composer_owner_api.resolve_develop_composer_locator_for_replay_v2(
+  p_artifact_locator text,
+  p_artifact_identity bytea,
+  p_canonical_plan_digest bytea,
+  p_design_digest bytea
+)
+RETURNS TABLE (request_identity text, operation_receipt_identity bytea)
+LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog AS $composer_replay_locator$BEGIN
+  IF SESSION_USER<>'rd_owner' OR CURRENT_USER<>'composer_owner' THEN RAISE EXCEPTION 'R&D Owner required' USING ERRCODE='42501'; END IF;
+  RETURN QUERY
+  SELECT role_set.request_identity,role_set.operation_receipt_identity
+    FROM composer_private.rd_develop_strategy_design_role_set_attestations_v1 role_set
+    JOIN composer_private.rd_develop_operations_v2 operation ON operation.request_identity=role_set.request_identity AND operation.artifact_identity=role_set.artifact_identity
+    JOIN composer_private.rd_develop_artifacts_v2 artifact ON artifact.artifact_identity=operation.artifact_identity AND artifact.plan_digest=role_set.canonical_plan_digest
+    JOIN composer_private.rd_develop_plans_v2 plan ON plan.plan_digest=artifact.plan_digest
+    JOIN composer_private.rd_develop_designs_v2 design ON design.design_identity=plan.design_identity
+   WHERE role_set.composer_schema_version=2
+     AND role_set.artifact_locator=p_artifact_locator
+     AND role_set.artifact_identity=p_artifact_identity
+     AND role_set.canonical_plan_digest=p_canonical_plan_digest
+     AND role_set.design_digest=p_design_digest
+   FOR SHARE OF role_set,operation,artifact,plan,design;
+END$composer_replay_locator$;
+ALTER FUNCTION composer_owner_api.resolve_develop_composer_locator_for_replay_v2(text,bytea,bytea,bytea) OWNER TO composer_owner;
+REVOKE ALL ON FUNCTION composer_owner_api.resolve_develop_composer_locator_for_replay_v2(text,bytea,bytea,bytea) FROM PUBLIC, rd_fact_writer, market_data_owner, market_data_reader;
+GRANT EXECUTE ON FUNCTION composer_owner_api.resolve_develop_composer_locator_for_replay_v2(text,bytea,bytea,bytea) TO rd_owner;
 CREATE OR REPLACE FUNCTION composer_owner_api.lock_develop_composer_commit_cut_v2(p_request_identity text)
 RETURNS TABLE (request_digest bytea, research_request_identity bytea, intent_identity bytea, artifact_identity bytea, operation_receipt_bytes bytea, response_bytes bytea, plan_digest bytea, artifact_package_bytes bytea, design_identity bytea, plan_bytes bytea, design_bytes bytea, module_ordinals integer[], module_bytes bytea[], build_ordinals integer[], build_receipt_tags integer[], build_receipt_identities bytea[], build_attempt_identities bytea[], capsule_identities bytea[], build_receipt_bytes bytea[], composer_receipt_bytes bytea, host_receipt_bytes bytea, outbox_bytes bytea)
 LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
@@ -1904,8 +3222,8 @@ BEGIN
   LOOP EXECUTE pg_catalog.format('REVOKE ALL ON FUNCTION %s FROM %I',grant_fact.signature,grant_fact.rolname); END LOOP;
 END
 $catalog_composer_function_acl_cutover$;
-GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_census_v2(), replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text), replay_policy_catalog_api.lock_current_replay_policy_catalog_v2(), replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text), composer_owner_api.lock_accepted_develop_composer_v2(text), composer_owner_api.lock_develop_composer_commit_cut_v2(text) TO rd_owner;
-GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_census_v2(), replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text), replay_policy_catalog_api.lock_current_replay_policy_catalog_v2(), replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text), replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(text,text,text,text,text,numeric,text,text,bytea,bytea,bytea,bytea,text,text,jsonb,bigint) TO replay_policy_catalog_admin_writer;
+GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_census_v2(), replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text), replay_policy_catalog_api.lock_current_replay_policy_catalog_v2(), replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text), replay_policy_catalog_api.lock_replay_policy_catalog_census_v3(), replay_policy_catalog_api.lock_replay_policy_catalog_record_v3(text), replay_policy_catalog_api.lock_current_replay_policy_catalog_v3(), replay_policy_catalog_api.read_replay_policy_catalog_audit_v3(text), composer_owner_api.lock_accepted_develop_composer_v2(text), composer_owner_api.resolve_develop_composer_locator_for_replay_v2(text,bytea,bytea,bytea), composer_owner_api.lock_develop_composer_commit_cut_v2(text) TO rd_owner;
+GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_census_v2(), replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text), replay_policy_catalog_api.lock_current_replay_policy_catalog_v2(), replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text), replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(text,text,text,text,text,numeric,text,text,bytea,bytea,bytea,bytea,text,text,jsonb,bigint), replay_policy_catalog_api.lock_replay_policy_catalog_census_v3(), replay_policy_catalog_api.lock_replay_policy_catalog_record_v3(text), replay_policy_catalog_api.lock_current_replay_policy_catalog_v3(), replay_policy_catalog_api.read_replay_policy_catalog_audit_v3(text), replay_policy_catalog_api.apply_replay_policy_catalog_command_v3(text,text,text,text,text,numeric,bytea,bytea,bytea,bytea,bytea,bytea,bytea,jsonb,bigint) TO replay_policy_catalog_admin_writer;
 GRANT EXECUTE ON FUNCTION composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea), composer_owner_api.commit_develop_composer_v3(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,integer[]) TO rd_fact_writer, rd_owner;
 \if :composer_acceptance
 GRANT EXECUTE ON FUNCTION composer_owner_api.commit_develop_composer_acceptance_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea) TO rd_owner;
@@ -1958,20 +3276,25 @@ BEGIN
     AND NOT pg_catalog.has_schema_privilege('rd_fact_writer','replay_policy_catalog_api','USAGE')
     AND pg_catalog.has_schema_privilege('replay_policy_catalog_admin_writer','replay_policy_catalog_api','USAGE')
     AND pg_catalog.has_schema_privilege('rd_fact_writer','composer_owner_api','USAGE')
-    AND (SELECT count(*)=4 AND bool_and(relation.relpersistence='p' AND pg_catalog.pg_get_userbyid(relation.relowner)='replay_policy_catalog_owner') AND NOT bool_or(pg_catalog.has_table_privilege('rd_owner',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) AND NOT bool_or(pg_catalog.has_table_privilege('market_data_reader',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relkind='r')
+    AND (SELECT count(*)=6 AND bool_and(relation.relpersistence='p' AND pg_catalog.pg_get_userbyid(relation.relowner)='replay_policy_catalog_owner') AND NOT bool_or(pg_catalog.has_table_privilege('rd_owner',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) AND NOT bool_or(pg_catalog.has_table_privilege('market_data_reader',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relkind='r')
     AND (SELECT count(*)=14 AND bool_and(relation.relpersistence='p' AND pg_catalog.pg_get_userbyid(relation.relowner)='composer_owner') AND NOT bool_or(pg_catalog.has_table_privilege('rd_owner',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) AND NOT bool_or(pg_catalog.has_table_privilege('rd_fact_writer',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) AND NOT bool_or(pg_catalog.has_table_privilege('market_data_reader',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) AND NOT bool_or(pg_catalog.has_table_privilege('market_data_owner',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='composer_private' AND relation.relkind='r')
-    AND (SELECT count(*)=30 FROM pg_catalog.pg_attribute attribute JOIN pg_catalog.pg_class relation ON relation.oid=attribute.attrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relkind='r' AND attribute.attnum>0 AND NOT attribute.attisdropped)
+    AND (SELECT count(*)=50 FROM pg_catalog.pg_attribute attribute JOIN pg_catalog.pg_class relation ON relation.oid=attribute.attrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relkind='r' AND attribute.attnum>0 AND NOT attribute.attisdropped)
     AND (SELECT count(*)=54 FROM pg_catalog.pg_attribute attribute JOIN pg_catalog.pg_class relation ON relation.oid=attribute.attrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='composer_private' AND relation.relkind='r' AND attribute.attnum>0 AND NOT attribute.attisdropped)
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class object JOIN pg_catalog.pg_namespace namespace ON namespace.oid=object.relnamespace WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private') AND object.relkind NOT IN ('r','i'))
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact JOIN pg_catalog.pg_class relation ON relation.oid=trigger_fact.tgrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private') AND NOT trigger_fact.tgisinternal)
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy JOIN pg_catalog.pg_class relation ON relation.oid=policy.polrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private'))
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite JOIN pg_catalog.pg_class relation ON relation.oid=rewrite.ev_class JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private')
-    AND (SELECT count(*)=5 AND bool_and(procedure.oid IN (
+    AND (SELECT count(*)=10 AND bool_and(procedure.oid IN (
       pg_catalog.to_regprocedure('replay_policy_catalog_api.lock_replay_policy_catalog_census_v2()'),
       pg_catalog.to_regprocedure('replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text)'),
       pg_catalog.to_regprocedure('replay_policy_catalog_api.lock_current_replay_policy_catalog_v2()'),
       pg_catalog.to_regprocedure('replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text)'),
-      pg_catalog.to_regprocedure('replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(text,text,text,text,text,numeric,text,text,bytea,bytea,bytea,bytea,text,text,jsonb,bigint)')
+      pg_catalog.to_regprocedure('replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(text,text,text,text,text,numeric,text,text,bytea,bytea,bytea,bytea,text,text,jsonb,bigint)'),
+      pg_catalog.to_regprocedure('replay_policy_catalog_api.lock_replay_policy_catalog_census_v3()'),
+      pg_catalog.to_regprocedure('replay_policy_catalog_api.lock_replay_policy_catalog_record_v3(text)'),
+      pg_catalog.to_regprocedure('replay_policy_catalog_api.lock_current_replay_policy_catalog_v3()'),
+      pg_catalog.to_regprocedure('replay_policy_catalog_api.read_replay_policy_catalog_audit_v3(text)'),
+      pg_catalog.to_regprocedure('replay_policy_catalog_api.apply_replay_policy_catalog_command_v3(text,text,text,text,text,numeric,bytea,bytea,bytea,bytea,bytea,bytea,bytea,jsonb,bigint)')
     )) FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace WHERE namespace.nspname='replay_policy_catalog_api')
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace WHERE namespace.nspname='replay_policy_catalog_api' AND pg_catalog.has_function_privilege('market_data_reader',procedure.oid,'EXECUTE'))
     AND (SELECT count(*)=1 AND bool_and(
@@ -1988,10 +3311,11 @@ BEGIN
 $catalog_audit_read$
     ) FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
       WHERE namespace.nspname='replay_policy_catalog_api' AND procedure.proname='read_replay_policy_catalog_audit_v2')
-    AND (SELECT count(*)=CASE WHEN composer_acceptance THEN 9 ELSE 7 END AND bool_and(procedure.oid IN (
+    AND (SELECT count(*)=CASE WHEN composer_acceptance THEN 10 ELSE 8 END AND bool_and(procedure.oid IN (
       pg_catalog.to_regprocedure('composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea)'),
       pg_catalog.to_regprocedure('composer_owner_api.commit_develop_composer_v3(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,integer[])'),
       pg_catalog.to_regprocedure('composer_owner_api.lock_accepted_develop_composer_v2(text)'),
+      pg_catalog.to_regprocedure('composer_owner_api.resolve_develop_composer_locator_for_replay_v2(text,bytea,bytea,bytea)'),
       pg_catalog.to_regprocedure('composer_owner_api.lock_develop_composer_commit_cut_v2(text)'),
       pg_catalog.to_regprocedure('composer_owner_api.lock_replay_composition_cut_v1(text)'),
       pg_catalog.to_regprocedure('composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea)'),
@@ -2015,6 +3339,8 @@ $catalog_audit_read$
     AND (NOT composer_acceptance OR (pg_catalog.has_function_privilege('rd_owner','composer_owner_api.commit_develop_composer_acceptance_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea)','EXECUTE') AND NOT pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.commit_develop_composer_acceptance_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea)','EXECUTE') AND pg_catalog.has_function_privilege('rd_owner','composer_owner_api.commit_develop_composer_acceptance_v3(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,integer[])','EXECUTE') AND NOT pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.commit_develop_composer_acceptance_v3(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,integer[])','EXECUTE')))
     AND pg_catalog.has_function_privilege('rd_owner','composer_owner_api.lock_accepted_develop_composer_v2(text)','EXECUTE')
     AND NOT pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.lock_accepted_develop_composer_v2(text)','EXECUTE')
+    AND pg_catalog.has_function_privilege('rd_owner','composer_owner_api.resolve_develop_composer_locator_for_replay_v2(text,bytea,bytea,bytea)','EXECUTE')
+    AND NOT pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.resolve_develop_composer_locator_for_replay_v2(text,bytea,bytea,bytea)','EXECUTE')
     AND pg_catalog.has_function_privilege('rd_owner','composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea)','EXECUTE')
     AND NOT pg_catalog.has_function_privilege('rd_owner','composer_owner_api.resolve_strategy_design_native_join_v1(text,integer,bytea,text,bytea,bytea,bytea)','EXECUTE')
     AND NOT pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea)','EXECUTE')
@@ -2028,6 +3354,8 @@ $catalog_audit_read$
     AND NOT pg_catalog.has_function_privilege('market_data_reader','composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea)','EXECUTE')
     AND NOT pg_catalog.has_function_privilege('market_data_reader','composer_owner_api.commit_develop_composer_v3(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,integer[])','EXECUTE')
     AND NOT pg_catalog.has_function_privilege('market_data_reader','composer_owner_api.lock_accepted_develop_composer_v2(text)','EXECUTE')
+    AND NOT pg_catalog.has_function_privilege('market_data_reader','composer_owner_api.resolve_develop_composer_locator_for_replay_v2(text,bytea,bytea,bytea)','EXECUTE')
+    AND NOT pg_catalog.has_function_privilege('market_data_owner','composer_owner_api.resolve_develop_composer_locator_for_replay_v2(text,bytea,bytea,bytea)','EXECUTE')
     AND NOT pg_catalog.has_table_privilege('market_data_reader','composer_private.rd_develop_strategy_design_role_set_attestations_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
     AND NOT pg_catalog.has_table_privilege('market_data_reader','composer_private.rd_develop_strategy_design_native_joins_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
   INTO exact FROM pg_catalog.pg_database database WHERE database.datname=pg_catalog.current_database();
@@ -2045,6 +3373,7 @@ BEGIN
     ('replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','p','catalog_record_id'),('replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','u','catalog_version'),('replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','u','predecessor_record_id'),('replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','u','catalog_record_digest'),
     ('replay_policy_catalog_private','rd_replay_policy_catalog_head_v2','p','singleton'),('replay_policy_catalog_private','rd_replay_policy_catalog_head_v2','u','catalog_record_id'),('replay_policy_catalog_private','rd_replay_policy_catalog_head_v2','u','catalog_version'),
     ('replay_policy_catalog_private','rd_replay_policy_catalog_revocations_v2','p','catalog_record_id'),('replay_policy_catalog_private','rd_replay_policy_catalog_revocations_v2','u','catalog_version'),('replay_policy_catalog_private','rd_replay_policy_catalog_audit_v2','p','command_identity'),
+    ('replay_policy_catalog_private','rd_replay_policy_catalog_execution_profiles_v3','p','catalog_record_id'),('replay_policy_catalog_private','rd_replay_policy_catalog_execution_profiles_v3','u','catalog_version'),('replay_policy_catalog_private','rd_replay_policy_catalog_execution_profiles_v3','u','catalog_record_digest'),('replay_policy_catalog_private','rd_replay_policy_catalog_execution_profiles_v3','u','execution_profiles_binding_digest'),('replay_policy_catalog_private','rd_replay_policy_catalog_execution_profiles_v3','u','catalog_binding_v3_digest'),('replay_policy_catalog_private','rd_replay_policy_catalog_audit_v3','p','command_identity'),
     ('composer_private','rd_develop_designs_v2','p','design_identity'),('composer_private','rd_develop_plans_v2','p','plan_digest'),('composer_private','rd_develop_plans_v2','u','design_identity'),('composer_private','rd_develop_artifacts_v2','p','artifact_identity'),('composer_private','rd_develop_artifacts_v2','u','plan_digest'),
     ('composer_private','rd_develop_artifact_modules_v2','p','artifact_identity,ordinal'),('composer_private','rd_develop_build_receipts_v2','p','receipt_identity'),('composer_private','rd_develop_build_receipts_v2','u','build_attempt_identity'),('composer_private','rd_develop_build_receipts_v2','u','capsule_identity'),('composer_private','rd_develop_artifact_build_receipt_uses_v2','p','artifact_identity,ordinal'),('composer_private','rd_develop_artifact_build_receipt_uses_v2','u','artifact_identity,receipt_identity'),
     ('composer_private','rd_develop_build_receipts_v3','p','receipt_identity'),('composer_private','rd_develop_build_receipts_v3','u','build_attempt_identity'),('composer_private','rd_develop_build_receipts_v3','u','capsule_identity'),('composer_private','rd_develop_artifact_build_receipt_uses_v3','p','artifact_identity,ordinal'),('composer_private','rd_develop_artifact_build_receipt_uses_v3','u','artifact_identity,receipt_identity'),
@@ -2060,7 +3389,7 @@ BEGIN
   IF exact IS DISTINCT FROM true THEN RAISE EXCEPTION 'Catalog/Composer primary or unique manifest mismatch'; END IF;
 
   WITH expected(source_schema,source_table,source_keys,target_schema,target_table,target_keys) AS (VALUES
-    ('replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','predecessor_record_id','replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','catalog_record_id'),('replay_policy_catalog_private','rd_replay_policy_catalog_head_v2','catalog_record_id','replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','catalog_record_id'),('replay_policy_catalog_private','rd_replay_policy_catalog_revocations_v2','catalog_record_id','replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','catalog_record_id'),
+    ('replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','predecessor_record_id','replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','catalog_record_id'),('replay_policy_catalog_private','rd_replay_policy_catalog_head_v2','catalog_record_id','replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','catalog_record_id'),('replay_policy_catalog_private','rd_replay_policy_catalog_revocations_v2','catalog_record_id','replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','catalog_record_id'),('replay_policy_catalog_private','rd_replay_policy_catalog_execution_profiles_v3','catalog_record_id','replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','catalog_record_id'),('replay_policy_catalog_private','rd_replay_policy_catalog_audit_v3','catalog_record_id','replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','catalog_record_id'),
     ('composer_private','rd_develop_plans_v2','design_identity','composer_private','rd_develop_designs_v2','design_identity'),('composer_private','rd_develop_artifacts_v2','plan_digest','composer_private','rd_develop_plans_v2','plan_digest'),('composer_private','rd_develop_artifact_modules_v2','artifact_identity','composer_private','rd_develop_artifacts_v2','artifact_identity'),('composer_private','rd_develop_artifact_build_receipt_uses_v2','artifact_identity','composer_private','rd_develop_artifacts_v2','artifact_identity'),('composer_private','rd_develop_artifact_build_receipt_uses_v2','receipt_identity','composer_private','rd_develop_build_receipts_v2','receipt_identity'),('composer_private','rd_develop_artifact_build_receipt_uses_v3','artifact_identity','composer_private','rd_develop_artifacts_v2','artifact_identity'),('composer_private','rd_develop_artifact_build_receipt_uses_v3','receipt_identity','composer_private','rd_develop_build_receipts_v3','receipt_identity'),('composer_private','rd_develop_composer_receipts_v2','artifact_identity','composer_private','rd_develop_artifacts_v2','artifact_identity'),('composer_private','rd_develop_host_receipts_v2','artifact_identity','composer_private','rd_develop_artifacts_v2','artifact_identity'),('composer_private','rd_develop_operations_v2','artifact_identity','composer_private','rd_develop_artifacts_v2','artifact_identity'),('composer_private','rd_develop_strategy_design_role_set_attestations_v1','request_identity','composer_private','rd_develop_operations_v2','request_identity'),('composer_private','rd_develop_strategy_design_native_joins_v1','request_identity','composer_private','rd_develop_operations_v2','request_identity'),('composer_private','rd_develop_outbox_v2','request_identity','composer_private','rd_develop_operations_v2','request_identity')
   ), actual AS (
     SELECT source_namespace.nspname,source_relation.relname,string_agg(source_attribute.attname,',' ORDER BY key_fact.ordinality),target_namespace.nspname,target_relation.relname,string_agg(target_attribute.attname,',' ORDER BY key_fact.ordinality)
@@ -2070,11 +3399,11 @@ BEGIN
   ) SELECT NOT EXISTS((SELECT * FROM expected EXCEPT SELECT * FROM actual) UNION ALL (SELECT * FROM actual EXCEPT SELECT * FROM expected)) INTO exact;
   IF exact IS DISTINCT FROM true THEN RAISE EXCEPTION 'Catalog/Composer foreign-key dependency manifest mismatch'; END IF;
 
-  SELECT count(*)=5 AND bool_and(pg_catalog.pg_get_expr(constraint_fact.conbin,constraint_fact.conrelid) IN ('singleton','(octet_length(policy_grammar_parser_digest) = 32)','(octet_length(policy_digest) = 32)','(octet_length(catalog_record_digest) = 32)','((catalog_version > (0)::numeric) AND (catalog_version <= ''18446744073709551615''::numeric))'))
+  SELECT count(*)=13 AND bool_and(pg_catalog.pg_get_expr(constraint_fact.conbin,constraint_fact.conrelid) IN ('singleton','(octet_length(policy_grammar_parser_digest) = 32)','(octet_length(policy_digest) = 32)','(octet_length(catalog_record_digest) = 32)','(octet_length(economic_configuration_digest) = 32)','(octet_length(runner_operational_profile_digest) = 32)','(octet_length(execution_profiles_binding_digest) = 32)','(octet_length(catalog_binding_v3_digest) = 32)','((catalog_version > (0)::numeric) AND (catalog_version <= ''18446744073709551615''::numeric))'))
   INTO exact FROM pg_catalog.pg_constraint constraint_fact JOIN pg_catalog.pg_class relation ON relation.oid=constraint_fact.conrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private') AND constraint_fact.contype='c';
   IF exact IS DISTINCT FROM true THEN RAISE EXCEPTION 'Catalog/Composer CHECK manifest mismatch'; END IF;
 
-  SELECT count(*)=43 AND bool_and(index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND index_fact.indisunique AND NOT index_fact.indnullsnotdistinct AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL AND index_method.amname='btree' AND index_relation.relpersistence='p' AND index_relation.reltablespace=0 AND index_relation.reloptions IS NULL AND pg_catalog.pg_get_userbyid(index_relation.relowner) IN ('replay_policy_catalog_owner','composer_owner') AND EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conindid=index_relation.oid) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indclass::oid[]) class_oid JOIN pg_catalog.pg_opclass operator_class ON operator_class.oid=class_oid WHERE NOT operator_class.opcdefault) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indoption::smallint[]) option_value WHERE option_value<>0) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indkey::smallint[],index_fact.indcollation::oid[]) key_fact(attnum,collation_oid) JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=index_fact.indrelid AND attribute.attnum=key_fact.attnum WHERE key_fact.collation_oid<>attribute.attcollation))
+  SELECT count(*)=49 AND bool_and(index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND index_fact.indisunique AND NOT index_fact.indnullsnotdistinct AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL AND index_method.amname='btree' AND index_relation.relpersistence='p' AND index_relation.reltablespace=0 AND index_relation.reloptions IS NULL AND pg_catalog.pg_get_userbyid(index_relation.relowner) IN ('replay_policy_catalog_owner','composer_owner') AND EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conindid=index_relation.oid) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indclass::oid[]) class_oid JOIN pg_catalog.pg_opclass operator_class ON operator_class.oid=class_oid WHERE NOT operator_class.opcdefault) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indoption::smallint[]) option_value WHERE option_value<>0) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indkey::smallint[],index_fact.indcollation::oid[]) key_fact(attnum,collation_oid) JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=index_fact.indrelid AND attribute.attnum=key_fact.attnum WHERE key_fact.collation_oid<>attribute.attcollation))
   INTO exact FROM pg_catalog.pg_index index_fact JOIN pg_catalog.pg_class relation ON relation.oid=index_fact.indrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace JOIN pg_catalog.pg_class index_relation ON index_relation.oid=index_fact.indexrelid JOIN pg_catalog.pg_am index_method ON index_method.oid=index_relation.relam WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private');
   IF exact IS DISTINCT FROM true THEN RAISE EXCEPTION 'Catalog/Composer index manifest mismatch'; END IF;
   IF EXISTS (

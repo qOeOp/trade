@@ -251,7 +251,7 @@ pub(crate) fn issue_strategy_input_joined_cut_v1(
     census: &StrategyInputJoinCensusV1,
     trigger_logical_time: u64,
 ) -> Result<StrategyInputJoinedCutReceiptV1, StrategyInputJoinedCutUnavailable> {
-    validate_claim(claim)?;
+    validate_strategy_input_join_claim_v1(claim)?;
     let by_identity = claim
         .roles
         .iter()
@@ -375,7 +375,7 @@ pub(crate) fn issue_strategy_input_joined_cut_v1(
     Ok(receipt)
 }
 
-fn validate_claim(
+pub(crate) fn validate_strategy_input_join_claim_v1(
     claim: &UntrustedStrategyInputJoinClaimV1,
 ) -> Result<(), StrategyInputJoinedCutUnavailable> {
     let role_names = claim

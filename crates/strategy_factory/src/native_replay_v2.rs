@@ -9,10 +9,15 @@ use thiserror::Error;
 use vibe_backtest_owner_contracts::ReplayRequestV2;
 use vibe_data::owner::{
     instrument_master::{InstrumentMasterReadbackV1, verify_instrument_master_readback},
+    replay_market_facts_v2::AuthenticatedComposerNativeJoinV1,
     sample_projection::{
         StrategyInputSampleProjectionKindV2, StrategyInputSampleProjectionReadbackV2,
     },
-    sealed_replay_input::SealedReplayInput,
+    sample_projection_v4::{
+        StrategyInputSampleProjectionKindV4, StrategyInputSampleProjectionReadbackV4,
+        StrategyInputSampleProjectionResolverV4,
+    },
+    sealed_replay_input::{SealedReplayInput, sealed_replay_input_contains_joined_cut_v1},
     source_binding::BindingDigest,
     strategy_input_binding::{
         MarketDataFieldSemantic, StrategyInputBindingReceipt, StrategyInputEventKind,
@@ -26,7 +31,9 @@ use crate::{
     develop_composer_postgres_v2::SealedDevelopComposerReadbackV2,
     exploratory_replay::{ExploratoryReplayRequestLocatorV2, SealedExploratoryReplayReadbackV2},
     program_host_v2::{
-        ProgramHostV2, ProgramHostV2Error, admit_market_data_joined_program_event_v2,
+        AdmittedProgramEventV2, ProgramHostV2, ProgramHostV2Error,
+        admit_market_data_bar_joined_cut_program_event_v4,
+        admit_market_data_joined_program_event_v2,
     },
     strategy_plan_v2::{BindingProjectionV2, StrategyPlanV2, VerifiedStrategyInputBindingsV2},
 };
@@ -98,6 +105,128 @@ pub struct PreparedProgramHostCapabilityV2 {
     joined_cut: StrategyInputJoinedCutReceiptV1,
     sample_projection: StrategyInputSampleProjectionReadbackV2,
     binding: PreparedProgramBindingV2,
+}
+
+/// Move-only preparation capability for one exact Owner-issued V4 BAR joined cut.
+///
+/// The caller supplies selectors and sealed Owner readbacks, but never coordinate bytes. The V4
+/// projection is resolved through a sealed Market Data resolver and is retained with the exact
+/// joined cut until the real Backtest consumer takes ownership.
+///
+/// The capability is move-only:
+///
+/// ```compile_fail
+/// use vibe_strategy_factory::PreparedProgramHostBarCapabilityV1;
+/// fn require_clone<T: Clone>() {}
+/// require_clone::<PreparedProgramHostBarCapabilityV1>();
+/// ```
+///
+/// Its private evidence cannot be extracted or replaced:
+///
+/// ```compile_fail
+/// use vibe_strategy_factory::PreparedProgramHostBarCapabilityV1;
+/// fn split(value: PreparedProgramHostBarCapabilityV1) {
+///     let PreparedProgramHostBarCapabilityV1 { native_join, .. } = value;
+///     drop(native_join);
+/// }
+/// ```
+pub struct PreparedProgramHostBarCapabilityV1 {
+    plan: StrategyPlanV2,
+    artifact: StrategyArtifactV2,
+    request: ReplayRequestV2,
+    replay_input: SealedReplayInput,
+    instrument_master: InstrumentMasterReadbackV1,
+    input_bindings: Vec<StrategyInputBindingReceipt>,
+    joined_cut: StrategyInputJoinedCutReceiptV1,
+    sample_projection: StrategyInputSampleProjectionReadbackV4,
+    native_join: AuthenticatedComposerNativeJoinV1,
+    binding: PreparedProgramBarBindingV1,
+}
+
+/// Complete move-only Owner inputs for one V4 BAR joined-cut preparation.
+///
+/// This carrier shortens the preparation boundary without granting authority to construct any of
+/// its sealed values. The preparation path still revalidates every equality before Host creation.
+///
+/// It cannot be copied into a second preparation attempt:
+///
+/// ```compile_fail
+/// use vibe_strategy_factory::OwnerBarJoinedCutPreparationV1;
+/// fn require_clone<T: Clone>() {}
+/// require_clone::<OwnerBarJoinedCutPreparationV1>();
+/// ```
+pub struct OwnerBarJoinedCutPreparationV1 {
+    replay_input: SealedReplayInput,
+    instrument_master: InstrumentMasterReadbackV1,
+    input_bindings: Vec<StrategyInputBindingReceipt>,
+    joined_cut: StrategyInputJoinedCutReceiptV1,
+    native_join: AuthenticatedComposerNativeJoinV1,
+}
+
+impl OwnerBarJoinedCutPreparationV1 {
+    #[must_use]
+    pub fn new(
+        replay_input: SealedReplayInput,
+        instrument_master: InstrumentMasterReadbackV1,
+        input_bindings: Vec<StrategyInputBindingReceipt>,
+        joined_cut: StrategyInputJoinedCutReceiptV1,
+        native_join: AuthenticatedComposerNativeJoinV1,
+    ) -> Self {
+        Self {
+            replay_input,
+            instrument_master,
+            input_bindings,
+            joined_cut,
+            native_join,
+        }
+    }
+}
+
+impl PreparedProgramHostBarCapabilityV1 {
+    /// Revalidates the complete Owner binding and constructs the sole ProgramHost handoff.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProgramHostV2Error::InputCoverage`] before a handoff exists if any retained
+    /// Owner identity no longer matches the frozen preparation binding.
+    pub fn into_program_host_bar_handoff_v1(
+        self,
+    ) -> Result<PreparedProgramHostBarHandoffV1, ProgramHostV2Error> {
+        let Self {
+            plan,
+            artifact,
+            request,
+            replay_input,
+            instrument_master,
+            input_bindings,
+            joined_cut,
+            sample_projection,
+            native_join,
+            binding,
+        } = self;
+        if !prepared_bar_binding_matches_v1(
+            &binding,
+            &plan,
+            &joined_cut,
+            &sample_projection,
+            &native_join,
+        ) || binding.base.artifact != artifact.identity()
+        {
+            return Err(ProgramHostV2Error::InputCoverage);
+        }
+        let host = construct_prepared_program_host_v2(plan, artifact)?;
+        Ok(PreparedProgramHostBarHandoffV1 {
+            host,
+            request,
+            replay_input,
+            instrument_master,
+            input_bindings,
+            joined_cut,
+            sample_projection,
+            native_join,
+            binding,
+        })
+    }
 }
 
 impl PreparedProgramHostCapabilityV2 {
@@ -272,6 +401,86 @@ pub struct PreparedProgramHostHandoffV2 {
     binding: PreparedProgramBindingV2,
 }
 
+/// Inseparable ProgramHost handoff for one Owner-issued V4 BAR joined cut.
+///
+/// Public observations expose identities only. The joined cut, exact coordinate projection and
+/// resolver-authenticated native join remain private and move exactly once into the in-crate
+/// Backtest adapter.
+///
+/// The real Backtest consumer can take the handoff only once:
+///
+/// ```compile_fail
+/// use vibe_strategy_factory::{
+///     PreparedProgramHostBarHandoffV1, run_prepared_owner_bar_joined_cut_backtest_v1,
+/// };
+/// fn replay(value: PreparedProgramHostBarHandoffV1) {
+///     let _first = run_prepared_owner_bar_joined_cut_backtest_v1(value);
+///     let _second = run_prepared_owner_bar_joined_cut_backtest_v1(value);
+/// }
+/// ```
+pub struct PreparedProgramHostBarHandoffV1 {
+    host: ProgramHostV2,
+    request: ReplayRequestV2,
+    replay_input: SealedReplayInput,
+    instrument_master: InstrumentMasterReadbackV1,
+    input_bindings: Vec<StrategyInputBindingReceipt>,
+    joined_cut: StrategyInputJoinedCutReceiptV1,
+    sample_projection: StrategyInputSampleProjectionReadbackV4,
+    native_join: AuthenticatedComposerNativeJoinV1,
+    binding: PreparedProgramBarBindingV1,
+}
+
+impl PreparedProgramHostBarHandoffV1 {
+    /// Returns the exact V4 projection identity admitted before Host construction.
+    #[must_use]
+    pub const fn sample_projection_digest(&self) -> [u8; 32] {
+        self.binding.sample_projection_digest
+    }
+
+    /// Returns the exact schedule-dependency-set digest sealed by Market Data.
+    #[must_use]
+    pub const fn schedule_dependency_set_digest(&self) -> [u8; 32] {
+        self.binding.schedule_dependency_set_digest
+    }
+
+    /// Returns the canonical Host identity without exposing the prepared Host.
+    #[must_use]
+    pub const fn host_identity(&self) -> BindingDigest {
+        self.host.host_identity()
+    }
+
+    pub(crate) fn into_bar_parts_v1(
+        self,
+    ) -> Result<(ProgramHostV2, AdmittedProgramEventV2), ProgramHostV2Error> {
+        let Self {
+            host,
+            request: _,
+            replay_input: _,
+            instrument_master: _,
+            input_bindings: _,
+            joined_cut,
+            sample_projection,
+            native_join,
+            binding,
+        } = self;
+        if !prepared_bar_binding_matches_v1(
+            &binding,
+            host.plan(),
+            &joined_cut,
+            &sample_projection,
+            &native_join,
+        ) {
+            return Err(ProgramHostV2Error::InputCoverage);
+        }
+        let event = admit_market_data_bar_joined_cut_program_event_v4(
+            host.plan(),
+            &joined_cut,
+            &sample_projection,
+        )?;
+        Ok((host, event))
+    }
+}
+
 impl PreparedProgramHostHandoffV2 {
     /// Returns the canonical host identity without exposing the prepared host.
     pub const fn host_identity(&self) -> BindingDigest {
@@ -350,6 +559,18 @@ pub(crate) struct PreparedProgramBindingV2 {
     event_corpus_count: usize,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+struct PreparedProgramBarBindingV1 {
+    base: PreparedProgramBindingV2,
+    strategy_design_identity: BindingDigest,
+    join_identity: BindingDigest,
+    joined_cut_receipt_digest: BindingDigest,
+    sample_projection_digest: [u8; 32],
+    sample_projection_subject: [u8; 32],
+    schedule_dependency_set_digest: [u8; 32],
+    sample_projection_component_count: u32,
+}
+
 /// Prepares the sole ProgramHost package from R&D and Market Data Owner-sealed evidence.
 ///
 /// Every comparison and canonical parser completes before this function can return a capability.
@@ -400,6 +621,124 @@ pub fn prepare_program_host_from_owner_readbacks_v2(
         sample_projection,
         binding,
     })
+}
+
+/// Resolves and prepares one exact Owner-issued V4 BAR joined cut for the sole ProgramHost path.
+///
+/// # Errors
+///
+/// Returns [`ProgramPreparationFaultV2`] before Host construction when the exact V4 locator cannot
+/// be resolved or any Replay, Composer, Plan, joined-cut, role, static-binding, subject, schedule,
+/// or component equality fails.
+pub async fn prepare_program_host_from_owner_bar_joined_cut_v1<R>(
+    replay: &SealedExploratoryReplayReadbackV2,
+    composer: &SealedDevelopComposerReadbackV2,
+    inputs: OwnerBarJoinedCutPreparationV1,
+    resolver: &R,
+) -> Result<PreparedProgramHostBarCapabilityV1, ProgramPreparationFaultV2>
+where
+    R: StrategyInputSampleProjectionResolverV4 + ?Sized,
+{
+    let OwnerBarJoinedCutPreparationV1 {
+        replay_input,
+        instrument_master,
+        input_bindings,
+        joined_cut,
+        native_join,
+    } = inputs;
+    if !verify_instrument_master_readback(&instrument_master) {
+        return Err(ProgramPreparationFaultV2::Unavailable);
+    }
+    let sample_projection = resolver
+        .resolve_strategy_input_sample_projection_v4(native_join.locator())
+        .await
+        .map_err(|_| ProgramPreparationFaultV2::Unavailable)?;
+    if !sealed_replay_input_contains_joined_cut_v1(&replay_input, &joined_cut) {
+        return Err(ProgramPreparationFaultV2::OwnerMismatch);
+    }
+    let claims = ProgramPreparationClaimsV2::from_owner_readbacks(
+        replay,
+        composer,
+        &replay_input,
+        &instrument_master,
+    );
+    let verified_bindings = VerifiedStrategyInputBindingsV2::from_owner_receipts(&input_bindings);
+    let (plan, artifact, base) = prepare_program_package_v2(&claims, verified_bindings)?;
+    validate_bar_projection_admission_v1(&plan, &joined_cut, &sample_projection, &native_join)?;
+    let binding = PreparedProgramBarBindingV1 {
+        base,
+        strategy_design_identity: native_join.strategy_design_identity(),
+        join_identity: native_join.join_identity(),
+        joined_cut_receipt_digest: native_join.joined_cut_receipt_digest(),
+        sample_projection_digest: sample_projection.receipt_digest(),
+        sample_projection_subject: sample_projection.subject_identity(),
+        schedule_dependency_set_digest: sample_projection.schedule_dependency_set_digest(),
+        sample_projection_component_count: sample_projection.component_count(),
+    };
+    Ok(PreparedProgramHostBarCapabilityV1 {
+        plan,
+        artifact,
+        request: claims.request,
+        replay_input,
+        instrument_master,
+        input_bindings,
+        joined_cut,
+        sample_projection,
+        native_join,
+        binding,
+    })
+}
+
+fn validate_bar_projection_admission_v1(
+    plan: &StrategyPlanV2,
+    joined_cut: &StrategyInputJoinedCutReceiptV1,
+    projection: &StrategyInputSampleProjectionReadbackV4,
+    native_join: &AuthenticatedComposerNativeJoinV1,
+) -> Result<(), ProgramPreparationFaultV2> {
+    if projection.kind() != StrategyInputSampleProjectionKindV4::JoinedCut
+        || projection.component_count() != 6
+        || projection.components().len() != 6
+        || projection.receipt_digest() != native_join.locator().receipt_digest()
+        || projection.subject_identity() != *joined_cut.digest().as_bytes()
+        || projection.subject_identity() != *native_join.joined_cut_receipt_digest().as_bytes()
+        || projection.schedule_dependency_set_digest()
+            != *native_join.schedule_dependency_set_digest().as_bytes()
+        || joined_cut.strategy_design_identity() != plan.design_identity()
+        || native_join.strategy_design_identity() != plan.design_identity()
+        || joined_cut.join_identity() != native_join.join_identity()
+    {
+        return Err(ProgramPreparationFaultV2::OwnerMismatch);
+    }
+    admit_market_data_bar_joined_cut_program_event_v4(plan, joined_cut, projection)
+        .map(|_| ())
+        .map_err(|_| ProgramPreparationFaultV2::OwnerMismatch)
+}
+
+fn prepared_bar_binding_matches_v1(
+    binding: &PreparedProgramBarBindingV1,
+    plan: &StrategyPlanV2,
+    joined_cut: &StrategyInputJoinedCutReceiptV1,
+    projection: &StrategyInputSampleProjectionReadbackV4,
+    native_join: &AuthenticatedComposerNativeJoinV1,
+) -> bool {
+    binding.base.plan == plan.canonical_plan_digest()
+        && binding.base.artifact != BindingDigest::from_untrusted_bytes([0; 32])
+        && binding.strategy_design_identity == plan.design_identity()
+        && binding.strategy_design_identity == native_join.strategy_design_identity()
+        && binding.join_identity == joined_cut.join_identity()
+        && binding.join_identity == native_join.join_identity()
+        && binding.joined_cut_receipt_digest == joined_cut.digest()
+        && binding.joined_cut_receipt_digest == native_join.joined_cut_receipt_digest()
+        && binding.sample_projection_digest == projection.receipt_digest()
+        && binding.sample_projection_digest == native_join.locator().receipt_digest()
+        && binding.sample_projection_subject == projection.subject_identity()
+        && binding.sample_projection_subject == *joined_cut.digest().as_bytes()
+        && binding.schedule_dependency_set_digest == projection.schedule_dependency_set_digest()
+        && binding.schedule_dependency_set_digest
+            == *native_join.schedule_dependency_set_digest().as_bytes()
+        && binding.sample_projection_component_count == 6
+        && projection.component_count() == 6
+        && projection.components().len() == 6
 }
 
 /// Prepares one ProgramHost package carrying the complete Owner-sealed ordered EVENT corpus.

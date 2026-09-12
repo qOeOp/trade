@@ -10129,6 +10129,7 @@ dependencies = [
  "vibe-core",
  "vibe-model",
  "vibe-persistence",
+ "vibe-rd-exploratory-replay-custody",
  "vibe-serialization",
  "vibe-testkit",
  "zeroize",
@@ -10697,6 +10698,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "vibe-market-data-repair-custody"
+version = "0.62.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "thiserror 2.0.19",
+ "tokio",
+ "vibe-data",
+ "vibe-rd-market-data-repair-custody",
+ "vibe-testkit",
+]
+
+[[package]]
 name = "vibe-model"
 version = "0.62.0"
 dependencies = [
@@ -10980,6 +10996,7 @@ name = "vibe-product-edge"
 version = "0.62.0"
 dependencies = [
  "anyhow",
+ "blake3",
  "rstest",
  "serde",
  "serde_json",
@@ -11117,7 +11134,20 @@ dependencies = [
  "sqlx",
  "thiserror 2.0.19",
  "vibe-backtest-owner-contracts",
+ "vibe-core",
  "vibe-product-edge",
+]
+
+[[package]]
+name = "vibe-rd-market-data-repair-custody"
+version = "0.62.0"
+dependencies = [
+ "base64 0.23.1",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -11247,12 +11277,14 @@ dependencies = [
 name = "vibe-strategy-factory"
 version = "0.62.0"
 dependencies = [
+ "ahash 0.8.12",
  "anyhow",
  "async-trait",
  "base64 0.23.1",
  "blake3",
  "ed25519-dalek",
  "jiff",
+ "log",
  "reqwest 0.13.4",
  "rstest",
  "rust_decimal",
@@ -11275,8 +11307,10 @@ dependencies = [
  "vibe-core",
  "vibe-data",
  "vibe-deployment-attestation",
+ "vibe-execution",
  "vibe-fred",
  "vibe-indicators-kernel",
+ "vibe-market-data-repair-custody",
  "vibe-model",
  "vibe-operator-authorization",
  "vibe-persistence",
@@ -11285,7 +11319,9 @@ dependencies = [
  "vibe-qualification",
  "vibe-rd-artifact-invocation-custody",
  "vibe-rd-exploratory-replay-custody",
+ "vibe-rd-market-data-repair-custody",
  "vibe-rd-source-intake-invocation-custody",
+ "vibe-risk",
  "vibe-scheduled-events",
  "vibe-testkit",
  "vibe-trading",
@@ -11306,8 +11342,10 @@ dependencies = [
  "sha2 0.10.9",
  "sqlx",
  "tokio",
+ "tower",
  "tracing",
  "tracing-subscriber",
+ "vibe-backtest-owner",
  "vibe-backtest-owner-contracts",
  "vibe-data",
  "vibe-operator-authorization",

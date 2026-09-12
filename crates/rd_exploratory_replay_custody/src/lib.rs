@@ -14,19 +14,32 @@ use thiserror::Error;
 use vibe_backtest_owner_contracts::{ReplayNamespaceV2, ReplayRequestDtoV2, ReplayRequestV2};
 use vibe_product_edge::ProductEdgeAdmissionLocatorV1;
 
+use self::replay_policy_catalog_v2::{ReplayPolicyCatalogBindingV2, ReplayPolicyCatalogBindingV3};
+
+pub mod replay_economic_configuration_v1;
+pub mod replay_execution_policy_v2;
+pub mod replay_policy_catalog_v2;
+pub mod replay_runner_operational_profile_v1;
+
 const RD_RESOLVE_FUNCTION_V2: &str =
     "rd_owner_api.resolve_exploratory_replay_request_v2(text,text)";
+const RD_RESOLVE_FUNCTION_SOURCE_SHA256_V2: &str =
+    "6662a791a3416e4ef3f97b9e5e37cf649cd209c9f6beac081e9ba6ee04356562";
 const INTERNAL_VERIFY_FUNCTION_V2: &str =
     "rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text)";
+const INTERNAL_VERIFY_FUNCTION_V3: &str =
+    "rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text)";
 const INTERNAL_VERIFY_FUNCTION_V1: &str =
     "rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text)";
 const INTERNAL_VERIFY_FUNCTION_SOURCE_SHA256_V2: &str =
-    "bfb1b4defc7cb1d9bb75c331b1438ee783fd01b89db8a27fe963a5b5eb187f13";
+    "b92432129e4c799407c66295146cd77367b98a260c26d51283cf0edd27ffe5b4";
+const INTERNAL_VERIFY_FUNCTION_SOURCE_SHA256_V3: &str =
+    "ff658b932610b1c611198e80aaf55e99a23d84a34d6ea1e81a6c2b8e575d2d63";
 const INTERNAL_VERIFY_FUNCTION_SOURCE_SHA256_V1: &str =
-    "5d5de79515c40d438b8c74e423154a500c68d1ca1fa3e95462681793abffe650";
+    "6e3d4c06c1887590cc236aa34922e05dc74d0a45677ec8279b0944af06dc55b5";
 const MARKET_DATA_LOCK_FUNCTION_V1: &str =
     "rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text)";
-const MARKET_DATA_LOCK_FUNCTION_SOURCE_V1: &str = "BEGIN IF session_user <> 'market_data_owner' OR current_user <> 'rd_exploratory_replay_api_owner' OR pg_catalog.current_setting('transaction_isolation') <> 'serializable' THEN RETURN NULL; END IF; RETURN rd_owner_api.verify_exploratory_replay_request_internal_v2(requested_request_identity,requested_meaning_digest,requested_receipt_identity,requested_seal_digest); END";
+const MARKET_DATA_LOCK_FUNCTION_SOURCE_V1: &str = "DECLARE result jsonb; BEGIN IF session_user <> 'market_data_owner' OR current_user <> 'rd_exploratory_replay_api_owner' OR pg_catalog.current_setting('transaction_isolation') <> 'serializable' THEN RETURN NULL; END IF; result := rd_owner_api.verify_exploratory_replay_request_internal_v3(requested_request_identity,requested_meaning_digest,requested_receipt_identity,requested_seal_digest); IF result IS NOT NULL THEN RETURN result; END IF; RETURN rd_owner_api.verify_exploratory_replay_request_internal_v2(requested_request_identity,requested_meaning_digest,requested_receipt_identity,requested_seal_digest); END";
 const FROZEN_EVENT_V2: &str = "EXPLORATORY_REPLAY_REQUEST_FROZEN_V2";
 const FROZEN_EVENT_V1: &str = "EXPLORATORY_REPLAY_REQUEST_FROZEN_V1";
 
@@ -83,6 +96,7 @@ pub enum ExploratoryReplayAvailabilityV2 {
 pub struct SealedExploratoryReplayReadbackV2 {
     request: ReplayRequestV2,
     canonical_request_bytes: Vec<u8>,
+    canonical_receipt_proof_bytes: Vec<u8>,
     meaning_digest: String,
     receipt_identity: String,
     seal_digest: String,
@@ -99,6 +113,15 @@ impl SealedExploratoryReplayReadbackV2 {
     #[must_use]
     pub fn canonical_request_bytes(&self) -> &[u8] {
         &self.canonical_request_bytes
+    }
+
+    /// Returns deterministic bytes of the already-validated stored Owner receipt.
+    ///
+    /// These bytes are derived only after the durable receipt, seal, and outbox have all been
+    /// verified. They are proof material and do not provide a constructor for this readback.
+    #[must_use]
+    pub fn canonical_receipt_proof_bytes(&self) -> &[u8] {
+        &self.canonical_receipt_proof_bytes
     }
 
     #[must_use]
@@ -156,7 +179,7 @@ impl ExploratoryReplayReadResultV2 {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct LockedEnvelopeV2 {
     schema_version: u32,
@@ -255,6 +278,8 @@ struct StoredFrozenCoreV2 {
     artifact_family_outbox_event_identity: String,
     artifact_family_outbox_digest: String,
     artifact_family_outbox_committed_at_epoch_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    execution_profile_seal: Option<ReplayExecutionProfileRequestSealV1>,
     committed_at_epoch_ms: u64,
     request_digest: String,
 }
@@ -283,6 +308,8 @@ struct FrozenMeaningV1<'a> {
     artifact_family_outbox_event_identity: &'a str,
     artifact_family_outbox_digest: &'a str,
     artifact_family_outbox_committed_at_epoch_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    execution_profile_seal: Option<&'a ReplayExecutionProfileRequestSealV1>,
     committed_at_epoch_ms: u64,
 }
 
@@ -312,18 +339,6 @@ struct StoredOutboxV1 {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct ReplayPolicyCatalogBindingV2 {
-    catalog_record_id: String,
-    catalog_version: u64,
-    policy_grammar_parser_id: String,
-    policy_grammar_parser_digest: [u8; 32],
-    policy_canonical_bytes: Vec<u8>,
-    policy_digest: [u8; 32],
-    catalog_record_digest: [u8; 32],
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 struct FamilyFrozenOutboxV1 {
     schema_version: u32,
     research_receipt_identity: String,
@@ -335,6 +350,30 @@ struct FamilyFrozenOutboxV1 {
     census_frontier_digest: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     replay_execution_policy_v2: Option<ReplayPolicyCatalogBindingV2>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    replay_policy_catalog_v3: Option<ReplayPolicyCatalogBindingV3>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ReplayExecutionProfileRequestBindingV1 {
+    schema_version: u16,
+    request_identity: String,
+    request_meaning_digest: [u8; 32],
+    trial_family_identity: String,
+    trial_family_digest: [u8; 32],
+    economic_configuration_digest: [u8; 32],
+    runner_operational_profile_digest: [u8; 32],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ReplayExecutionProfileRequestSealV1 {
+    schema_version: u16,
+    request: ReplayExecutionProfileRequestBindingV1,
+    catalog_v3_binding_digest: [u8; 32],
+    family_profile_binding_digest: [u8; 32],
+    request_profile_binding_digest: [u8; 32],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -359,7 +398,7 @@ struct LockedOutboxV1 {
     committed_at_epoch_ms: u64,
 }
 
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct StoredReceiptV2 {
     schema_version: u16,
@@ -367,10 +406,12 @@ struct StoredReceiptV2 {
     request_identity: String,
     meaning_digest: String,
     seal_digest: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    execution_profile_seal: Option<ReplayExecutionProfileRequestSealV1>,
     committed_at_epoch_ms: u64,
 }
 
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct LockedOutboxV2 {
     event_identity: String,
@@ -381,7 +422,7 @@ struct LockedOutboxV2 {
     committed_at_epoch_ms: u64,
 }
 
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct StoredOutboxPayloadV2 {
     schema_version: u16,
@@ -390,6 +431,8 @@ struct StoredOutboxPayloadV2 {
     seal_digest: String,
     receipt_identity: String,
     lineage_request_digest: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    execution_profile_seal: Option<ReplayExecutionProfileRequestSealV1>,
     committed_at_epoch_ms: u64,
 }
 
@@ -573,6 +616,26 @@ async fn validate_market_data_resolution_binding(
                   AND acl.grantee NOT IN (helper_owner.oid,rd.oid)
              )
              AND pg_catalog.has_function_privilege('rd_owner',helper.oid,'EXECUTE')
+             AND NOT pg_catalog.has_function_privilege('market_data_owner',successor.oid,'EXECUTE')
+             AND successor_owner.oid=owner.oid
+             AND NOT successor.prosecdef
+             AND successor.provolatile='v'
+             AND successor.proparallel='u'
+             AND successor.proisstrict
+             AND successor.proconfig=ARRAY['search_path=pg_catalog']::text[]
+             AND successor.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
+             AND successor.proargtypes='25 25 25 25'::pg_catalog.oidvector
+             AND successor_language.lanname='plpgsql'
+             AND pg_catalog.encode(
+                   pg_catalog.sha256(pg_catalog.convert_to(successor.prosrc,'UTF8')),
+                   'hex'
+                 )=$8
+             AND NOT EXISTS (
+               SELECT 1 FROM pg_catalog.aclexplode(successor.proacl) acl
+                WHERE acl.privilege_type='EXECUTE'
+                  AND acl.grantee NOT IN (successor_owner.oid,rd.oid)
+             )
+             AND pg_catalog.has_function_privilege('rd_owner',successor.oid,'EXECUTE')
              AND NOT pg_catalog.has_function_privilege('market_data_owner',predecessor.oid,'EXECUTE')
              AND predecessor_owner.oid=owner.oid
              AND NOT predecessor.prosecdef
@@ -601,6 +664,9 @@ async fn validate_market_data_resolution_binding(
           JOIN pg_catalog.pg_proc helper ON helper.oid=pg_catalog.to_regprocedure($3)
           JOIN pg_catalog.pg_roles helper_owner ON helper_owner.oid=helper.proowner
           JOIN pg_catalog.pg_language helper_language ON helper_language.oid=helper.prolang
+          JOIN pg_catalog.pg_proc successor ON successor.oid=pg_catalog.to_regprocedure($7)
+          JOIN pg_catalog.pg_roles successor_owner ON successor_owner.oid=successor.proowner
+          JOIN pg_catalog.pg_language successor_language ON successor_language.oid=successor.prolang
           JOIN pg_catalog.pg_proc predecessor ON predecessor.oid=pg_catalog.to_regprocedure($5)
           JOIN pg_catalog.pg_roles predecessor_owner ON predecessor_owner.oid=predecessor.proowner
           JOIN pg_catalog.pg_language predecessor_language ON predecessor_language.oid=predecessor.prolang
@@ -612,6 +678,8 @@ async fn validate_market_data_resolution_binding(
     .bind(INTERNAL_VERIFY_FUNCTION_SOURCE_SHA256_V2)
     .bind(INTERNAL_VERIFY_FUNCTION_V1)
     .bind(INTERNAL_VERIFY_FUNCTION_SOURCE_SHA256_V1)
+    .bind(INTERNAL_VERIFY_FUNCTION_V3)
+    .bind(INTERNAL_VERIFY_FUNCTION_SOURCE_SHA256_V3)
     .fetch_optional(&mut **transaction)
     .await
     .map_err(storage)?
@@ -659,7 +727,10 @@ async fn validate_resolution_binding(
              AND procedure.proargtypes='25 25'::pg_catalog.oidvector
              AND owner.rolname='rd_owner'
              AND language.lanname='plpgsql'
-             AND pg_catalog.strpos(procedure.prosrc,'verify_exploratory_replay_request_internal_v2') > 0
+             AND pg_catalog.encode(
+                   pg_catalog.sha256(pg_catalog.convert_to(procedure.prosrc,'UTF8')),
+                   'hex'
+                 )=$2
              AND pg_catalog.has_function_privilege('rd_owner',procedure.oid,'EXECUTE')
              AND NOT EXISTS (
                SELECT 1 FROM pg_catalog.aclexplode(procedure.proacl) acl
@@ -668,13 +739,50 @@ async fn validate_resolution_binding(
              AND EXISTS (
                SELECT 1 FROM pg_catalog.pg_proc helper
                JOIN pg_catalog.pg_roles helper_owner ON helper_owner.oid=helper.proowner
-               WHERE helper.oid=pg_catalog.to_regprocedure($2)
+               JOIN pg_catalog.pg_language helper_language ON helper_language.oid=helper.prolang
+               WHERE helper.oid=pg_catalog.to_regprocedure($3)
                  AND helper_owner.rolname='rd_exploratory_replay_api_owner'
                  AND NOT helper.prosecdef
                  AND helper.provolatile='v'
                  AND helper.proparallel='u'
                  AND helper.proisstrict
                  AND helper.proconfig=ARRAY['search_path=pg_catalog']::text[]
+                 AND helper.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
+                 AND helper.proargtypes='25 25 25 25'::pg_catalog.oidvector
+                 AND helper_language.lanname='plpgsql'
+                 AND pg_catalog.encode(
+                       pg_catalog.sha256(pg_catalog.convert_to(helper.prosrc,'UTF8')),
+                       'hex'
+                     )=$4
+                 AND pg_catalog.has_function_privilege('rd_owner',helper.oid,'EXECUTE')
+                 AND NOT pg_catalog.has_function_privilege('backtest_owner',helper.oid,'EXECUTE')
+                 AND NOT EXISTS (
+                   SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) helper_acl
+                    WHERE helper_acl.privilege_type='EXECUTE'
+                      AND helper_acl.grantee NOT IN (
+                        helper_owner.oid,
+                        (SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner')
+                      )
+                 )
+             )
+             AND EXISTS (
+               SELECT 1 FROM pg_catalog.pg_proc helper
+               JOIN pg_catalog.pg_roles helper_owner ON helper_owner.oid=helper.proowner
+               JOIN pg_catalog.pg_language helper_language ON helper_language.oid=helper.prolang
+               WHERE helper.oid=pg_catalog.to_regprocedure($5)
+                 AND helper_owner.rolname='rd_exploratory_replay_api_owner'
+                 AND NOT helper.prosecdef
+                 AND helper.provolatile='v'
+                 AND helper.proparallel='u'
+                 AND helper.proisstrict
+                 AND helper.proconfig=ARRAY['search_path=pg_catalog']::text[]
+                 AND helper.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
+                 AND helper.proargtypes='25 25 25 25'::pg_catalog.oidvector
+                 AND helper_language.lanname='plpgsql'
+                 AND pg_catalog.encode(
+                       pg_catalog.sha256(pg_catalog.convert_to(helper.prosrc,'UTF8')),
+                       'hex'
+                     )=$6
                  AND pg_catalog.has_function_privilege('rd_owner',helper.oid,'EXECUTE')
                  AND NOT pg_catalog.has_function_privilege('backtest_owner',helper.oid,'EXECUTE')
                  AND NOT EXISTS (
@@ -692,7 +800,11 @@ async fn validate_resolution_binding(
           WHERE procedure.oid=pg_catalog.to_regprocedure($1)",
     )
     .bind(RD_RESOLVE_FUNCTION_V2)
+    .bind(RD_RESOLVE_FUNCTION_SOURCE_SHA256_V2)
     .bind(INTERNAL_VERIFY_FUNCTION_V2)
+    .bind(INTERNAL_VERIFY_FUNCTION_SOURCE_SHA256_V2)
+    .bind(INTERNAL_VERIFY_FUNCTION_V3)
+    .bind(INTERNAL_VERIFY_FUNCTION_SOURCE_SHA256_V3)
     .fetch_optional(rd_pool)
     .await
     .map_err(storage)?
@@ -712,7 +824,7 @@ fn decode_owner_envelope(
         return Ok(unavailable(selector));
     };
     let envelope: LockedEnvelopeV2 = exact(&value)?;
-    if envelope.schema_version != 2
+    if !matches!(envelope.schema_version, 2 | 3)
         || envelope.availability == ExploratoryReplayAvailabilityV2::Unavailable
     {
         return Ok(unavailable(selector));
@@ -722,8 +834,12 @@ fn decode_owner_envelope(
     };
 
     let availability = envelope.availability;
-    let owner_cut_epoch_ms = base.owner_cut_epoch_ms;
-    let frozen = base.frozen;
+    let ValidatedBaseEnvelopeV2 {
+        frozen,
+        owner_cut_epoch_ms,
+        replay_policy_v2,
+        catalog_v3,
+    } = base;
     let (Some(encoded), Some(meaning_digest), Some(seal_digest), Some(receipt_value), Some(outbox)) = (
         envelope.v2_canonical_request_base64,
         envelope.v2_meaning_digest,
@@ -756,34 +872,83 @@ fn decode_owner_envelope(
     {
         return Ok(unavailable(selector));
     }
-    let expected_seal = canonical_digest(
-        "rd.exploratory-replay-request-seal.v2",
-        &(
-            2_u16,
-            request.request_identity().as_str(),
-            meaning_digest.as_str(),
-            BASE64.encode(&canonical_request_bytes),
-            frozen.request_digest.as_str(),
-            frozen.committed_at_epoch_ms,
-        ),
-    )?;
-    let receipt_digest = canonical_digest(
-        "rd.exploratory-replay-request-receipt.v2",
-        &(
-            2_u16,
-            request.request_identity().as_str(),
-            meaning_digest.as_str(),
-            expected_seal.as_str(),
-            frozen.committed_at_epoch_ms,
-        ),
-    )?;
+    let (expected_seal, receipt_digest) = match (
+        envelope.schema_version,
+        receipt.schema_version,
+        frozen.execution_profile_seal.as_ref(),
+        receipt.execution_profile_seal.as_ref(),
+    ) {
+        (2, 2, None, None) => {
+            let seal = canonical_digest(
+                "rd.exploratory-replay-request-seal.v2",
+                &(
+                    2_u16,
+                    request.request_identity().as_str(),
+                    meaning_digest.as_str(),
+                    BASE64.encode(&canonical_request_bytes),
+                    frozen.request_digest.as_str(),
+                    frozen.committed_at_epoch_ms,
+                ),
+            )?;
+            let receipt = canonical_digest(
+                "rd.exploratory-replay-request-receipt.v2",
+                &(
+                    2_u16,
+                    request.request_identity().as_str(),
+                    meaning_digest.as_str(),
+                    seal.as_str(),
+                    frozen.committed_at_epoch_ms,
+                ),
+            )?;
+            (seal, receipt)
+        }
+        (3, 3, Some(frozen_profile), Some(receipt_profile))
+            if frozen_profile == receipt_profile
+                && validate_execution_profile_seal(
+                    frozen_profile,
+                    request.request_identity().as_str(),
+                    &meaning_digest,
+                    &frozen.proposal.trial_family_identity,
+                    &frozen.trial_family_root_digest,
+                    replay_policy_v2.as_ref(),
+                    catalog_v3.as_ref(),
+                ) =>
+        {
+            let seal = canonical_digest(
+                "rd.exploratory-replay-request-seal.v3",
+                &(
+                    3_u16,
+                    request.request_identity().as_str(),
+                    meaning_digest.as_str(),
+                    BASE64.encode(&canonical_request_bytes),
+                    frozen.request_digest.as_str(),
+                    frozen_profile,
+                    frozen.committed_at_epoch_ms,
+                ),
+            )?;
+            let receipt = canonical_digest(
+                "rd.exploratory-replay-request-receipt.v3",
+                &(
+                    3_u16,
+                    request.request_identity().as_str(),
+                    meaning_digest.as_str(),
+                    seal.as_str(),
+                    frozen_profile,
+                    frozen.committed_at_epoch_ms,
+                ),
+            )?;
+            (seal, receipt)
+        }
+        _ => return Ok(unavailable(selector)),
+    };
     let expected_payload = StoredOutboxPayloadV2 {
-        schema_version: 2,
+        schema_version: receipt.schema_version,
         request_identity: request.request_identity().as_str().to_string(),
         meaning_digest: meaning_digest.clone(),
         seal_digest: expected_seal.clone(),
         receipt_identity: receipt.receipt_identity.clone(),
         lineage_request_digest: frozen.request_digest.clone(),
+        execution_profile_seal: receipt.execution_profile_seal.clone(),
         committed_at_epoch_ms: frozen.committed_at_epoch_ms,
     };
     let payload_digest = canonical_digest("rd.owner-outbox.payload.v1", &expected_payload)?;
@@ -792,7 +957,6 @@ fn decode_owner_envelope(
         || frozen.request_schema_version != 2
         || selector.request_identity != request.request_identity().as_str()
         || selector.meaning_digest != meaning_digest
-        || receipt.schema_version != 2
         || receipt.request_identity != selector.request_identity
         || receipt.meaning_digest != meaning_digest
         || receipt.seal_digest != expected_seal
@@ -816,12 +980,15 @@ fn decode_owner_envelope(
             readback: None,
         });
     }
+    let canonical_receipt_proof_bytes =
+        serde_json::to_vec(&receipt).map_err(|_| ExploratoryReplayCustodyError::Unavailable)?;
     Ok(ExploratoryReplayReadResultV2 {
         request_identity: selector.request_identity.clone(),
         availability: ExploratoryReplayAvailabilityV2::Available,
         readback: Some(SealedExploratoryReplayReadbackV2 {
             request,
             canonical_request_bytes,
+            canonical_receipt_proof_bytes,
             meaning_digest,
             receipt_identity: receipt.receipt_identity,
             seal_digest,
@@ -834,6 +1001,8 @@ fn decode_owner_envelope(
 struct ValidatedBaseEnvelopeV2 {
     frozen: StoredFrozenCoreV2,
     owner_cut_epoch_ms: u64,
+    replay_policy_v2: Option<ReplayPolicyCatalogBindingV2>,
+    catalog_v3: Option<ReplayPolicyCatalogBindingV3>,
 }
 
 fn validate_base_envelope(
@@ -858,7 +1027,7 @@ fn validate_base_envelope(
     verify_frozen(&frozen)?;
     verify_receipt_v1(&receipt, &frozen)?;
     verify_outbox_v1(outbox, &frozen, &receipt)?;
-    verify_dependency_outbox::<FamilyFrozenOutboxV1>(
+    let family_outbox = verify_dependency_outbox::<FamilyFrozenOutboxV1>(
         envelope
             .trial_family_outbox
             .as_ref()
@@ -887,6 +1056,8 @@ fn validate_base_envelope(
     Ok(ValidatedBaseEnvelopeV2 {
         frozen,
         owner_cut_epoch_ms,
+        replay_policy_v2: family_outbox.replay_execution_policy_v2,
+        catalog_v3: family_outbox.replay_policy_catalog_v3,
     })
 }
 
@@ -933,6 +1104,7 @@ fn frozen_digest(frozen: &StoredFrozenCoreV2) -> Result<String, ExploratoryRepla
             artifact_family_outbox_digest: &frozen.artifact_family_outbox_digest,
             artifact_family_outbox_committed_at_epoch_ms: frozen
                 .artifact_family_outbox_committed_at_epoch_ms,
+            execution_profile_seal: frozen.execution_profile_seal.as_ref(),
             committed_at_epoch_ms: frozen.committed_at_epoch_ms,
         },
     )
@@ -1054,7 +1226,7 @@ fn verify_dependency_outbox<T>(
     event_identity: &str,
     payload_digest: &str,
     committed_at_epoch_ms: u64,
-) -> Result<(), ExploratoryReplayCustodyError>
+) -> Result<T, ExploratoryReplayCustodyError>
 where
     T: serde::de::DeserializeOwned + Serialize,
 {
@@ -1069,7 +1241,95 @@ where
     {
         return Err(ExploratoryReplayCustodyError::Unavailable);
     }
-    Ok(())
+    Ok(payload)
+}
+
+fn validate_execution_profile_seal(
+    seal: &ReplayExecutionProfileRequestSealV1,
+    request_identity: &str,
+    request_meaning_digest: &str,
+    trial_family_identity: &str,
+    trial_family_digest: &str,
+    replay_policy_v2: Option<&ReplayPolicyCatalogBindingV2>,
+    catalog_v3: Option<&ReplayPolicyCatalogBindingV3>,
+) -> bool {
+    let Some(catalog_v3) = catalog_v3 else {
+        return false;
+    };
+    let Some(request_meaning_digest) = decode_digest(request_meaning_digest) else {
+        return false;
+    };
+    let Some(trial_family_digest) = decode_digest(trial_family_digest) else {
+        return false;
+    };
+    let Ok((economic, runner)) = catalog_v3.verify() else {
+        return false;
+    };
+
+    let request = &seal.request;
+    let mut family_digest = Sha256::new();
+    family_digest.update(b"rd.replay-family-execution-profile-seal.v1\0");
+    family_digest.update(1_u16.to_le_bytes());
+    if update_length_prefixed(&mut family_digest, trial_family_identity.as_bytes()).is_none() {
+        return false;
+    }
+    family_digest.update(trial_family_digest);
+    family_digest.update(request.economic_configuration_digest);
+    family_digest.update(request.runner_operational_profile_digest);
+    family_digest.update(seal.catalog_v3_binding_digest);
+    let expected_family_digest: [u8; 32] = family_digest.finalize().into();
+
+    let mut request_digest = Sha256::new();
+    request_digest.update(b"rd.replay-request-execution-profile-seal.v1\0");
+    request_digest.update(1_u16.to_le_bytes());
+    if update_length_prefixed(&mut request_digest, request_identity.as_bytes()).is_none() {
+        return false;
+    }
+    request_digest.update(request_meaning_digest);
+    if update_length_prefixed(&mut request_digest, trial_family_identity.as_bytes()).is_none() {
+        return false;
+    }
+    request_digest.update(trial_family_digest);
+    request_digest.update(request.economic_configuration_digest);
+    request_digest.update(request.runner_operational_profile_digest);
+    request_digest.update(expected_family_digest);
+    let expected_request_digest: [u8; 32] = request_digest.finalize().into();
+
+    seal.schema_version == 1
+        && request.schema_version == 1
+        && request.request_identity == request_identity
+        && request.request_meaning_digest == request_meaning_digest
+        && request.trial_family_identity == trial_family_identity
+        && request.trial_family_digest == trial_family_digest
+        && request.economic_configuration_digest != [0; 32]
+        && request.runner_operational_profile_digest != [0; 32]
+        && request.economic_configuration_digest == economic.digest()
+        && request.runner_operational_profile_digest == runner.digest()
+        && replay_policy_v2 == Some(catalog_v3.replay_policy_v2())
+        && seal.catalog_v3_binding_digest == catalog_v3.binding_digest()
+        && seal.family_profile_binding_digest == expected_family_digest
+        && seal.request_profile_binding_digest == expected_request_digest
+}
+
+fn update_length_prefixed(hasher: &mut Sha256, value: &[u8]) -> Option<()> {
+    let length = u32::try_from(value.len()).ok()?;
+    hasher.update(length.to_le_bytes());
+    hasher.update(value);
+    Some(())
+}
+
+fn decode_digest(value: &str) -> Option<[u8; 32]> {
+    let (_, hexadecimal) = value.split_once(':')?;
+    if hexadecimal.len() != 64 {
+        return None;
+    }
+    let mut bytes = [0_u8; 32];
+    for (index, pair) in hexadecimal.as_bytes().chunks_exact(2).enumerate() {
+        let high = (pair[0] as char).to_digit(16)? as u8;
+        let low = (pair[1] as char).to_digit(16)? as u8;
+        bytes[index] = (high << 4) | low;
+    }
+    Some(bytes)
 }
 
 fn legacy_projection_matches(
@@ -1175,6 +1435,11 @@ fn storage(error: impl Display) -> ExploratoryReplayCustodyError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        replay_economic_configuration_v1::{ReplayEconomicConfigurationV1, economic_fixture},
+        replay_execution_policy_v2::ReplayExecutionPolicyV2,
+        replay_runner_operational_profile_v1::{ReplayRunnerOperationalProfileV1, runner_fixture},
+    };
     use rstest::rstest;
     use vibe_backtest_owner_contracts::{
         CanonicalDigestV2, ContentIdentityV2, OpaqueIdentityV2, ReplayAuthorityClaimV2,
@@ -1219,14 +1484,32 @@ mod tests {
     }
 
     fn replay_policy_binding() -> ReplayPolicyCatalogBindingV2 {
-        ReplayPolicyCatalogBindingV2 {
-            catalog_record_id: "replay-policy-v2".into(),
-            catalog_version: 7,
-            policy_grammar_parser_id: "replay-policy-parser-v2".into(),
-            policy_grammar_parser_digest: [1; 32],
-            policy_canonical_bytes: br#"{"schema_version":2}"#.to_vec(),
-            policy_digest: [2; 32],
-            catalog_record_digest: [3; 32],
+        ReplayPolicyCatalogBindingV2::from_policy("replay-policy-v2", 7, &replay_policy())
+            .expect("valid replay policy binding")
+    }
+
+    fn replay_policy() -> ReplayExecutionPolicyV2 {
+        ReplayExecutionPolicyV2 {
+            runtime_kernel: versioned("runtime-v2", "1"),
+            simulator: versioned("simulator-v2", "1"),
+            cost: versioned("cost-v2", "1"),
+            slippage: versioned("slippage-v2", "1"),
+            capacity: versioned("capacity-v2", "1"),
+            runner_operational_profile: versioned("backtest-v2", "1"),
+            diagnostic_policy: versioned("diagnostic-v2", "1"),
+            deterministic_seed: 42,
+            window: ReplayWindowV2 {
+                start_event_ns: 1,
+                end_event_ns_exclusive: 2,
+            },
+            calendar: versioned("calendar-v2", "1"),
+            session: versioned("session-v2", "1"),
+            time_zone: versioned("UTC", "1"),
+            correction_rule: versioned("correction-v2", "1"),
+            market_semantics: versioned("market-v2", "1"),
+            replay_configuration: content("configuration-v2", &sha('1')),
+            corporate_action_cut: content("corporate-actions-v2", &sha('2')),
+            historical_membership_cut: content("membership-v2", &sha('3')),
         }
     }
 
@@ -1298,6 +1581,7 @@ mod tests {
             census_frontier_identity: proposal.census_frontier_identity.clone(),
             census_frontier_digest: sha('8'),
             replay_execution_policy_v2: Some(replay_policy_binding()),
+            replay_policy_catalog_v3: None,
         };
         let family_digest =
             canonical_digest("rd.owner-outbox.payload.v1", &family_payload).unwrap();
@@ -1336,6 +1620,7 @@ mod tests {
             artifact_family_outbox_event_identity: artifact_event.clone(),
             artifact_family_outbox_digest: artifact_digest.clone(),
             artifact_family_outbox_committed_at_epoch_ms: committed_at_epoch_ms,
+            execution_profile_seal: None,
             committed_at_epoch_ms,
             request_digest: String::new(),
         };
@@ -1485,6 +1770,7 @@ mod tests {
             request_identity: request.request_identity().as_str().to_string(),
             meaning_digest: meaning_digest.clone(),
             seal_digest: seal_digest.clone(),
+            execution_profile_seal: None,
             committed_at_epoch_ms: frozen.committed_at_epoch_ms,
         };
         let payload = StoredOutboxPayloadV2 {
@@ -1494,6 +1780,7 @@ mod tests {
             seal_digest: seal_digest.clone(),
             receipt_identity: receipt.receipt_identity.clone(),
             lineage_request_digest: frozen.request_digest,
+            execution_profile_seal: None,
             committed_at_epoch_ms: frozen.committed_at_epoch_ms,
         };
         let payload_digest = canonical_digest("rd.owner-outbox.payload.v1", &payload).unwrap();
@@ -1509,6 +1796,180 @@ mod tests {
             payload_json: payload,
             committed_at_epoch_ms: frozen.committed_at_epoch_ms,
         });
+        envelope
+    }
+
+    fn valid_market_data_envelope_v3(
+        availability: ExploratoryReplayAvailabilityV2,
+    ) -> LockedEnvelopeV2 {
+        let mut envelope = valid_market_data_envelope(availability);
+        let replay_policy_v2 = replay_policy_binding();
+        let economic = ReplayEconomicConfigurationV1::seal(economic_fixture()).unwrap();
+        let runner = ReplayRunnerOperationalProfileV1::seal(runner_fixture()).unwrap();
+        let catalog_v3 =
+            ReplayPolicyCatalogBindingV3::issue(replay_policy_v2.clone(), &economic, &runner)
+                .unwrap();
+        let profiles = catalog_v3.execution_profiles_v1();
+
+        let meaning_digest = envelope.v2_meaning_digest.clone().unwrap();
+        let request_binding = ReplayExecutionProfileRequestBindingV1 {
+            schema_version: 1,
+            request_identity: "request-v2".into(),
+            request_meaning_digest: decode_digest(&meaning_digest).unwrap(),
+            trial_family_identity: "trial-v2".into(),
+            trial_family_digest: decode_digest(&sha('b')).unwrap(),
+            economic_configuration_digest: profiles.economic_configuration_digest(),
+            runner_operational_profile_digest: profiles.runner_operational_profile_digest(),
+        };
+        let mut family_profile_digest = Sha256::new();
+        family_profile_digest.update(b"rd.replay-family-execution-profile-seal.v1\0");
+        family_profile_digest.update(1_u16.to_le_bytes());
+        update_length_prefixed(
+            &mut family_profile_digest,
+            request_binding.trial_family_identity.as_bytes(),
+        )
+        .unwrap();
+        family_profile_digest.update(request_binding.trial_family_digest);
+        family_profile_digest.update(request_binding.economic_configuration_digest);
+        family_profile_digest.update(request_binding.runner_operational_profile_digest);
+        family_profile_digest.update(catalog_v3.binding_digest());
+        let family_profile_binding_digest = family_profile_digest.finalize().into();
+        let mut request_profile_digest = Sha256::new();
+        request_profile_digest.update(b"rd.replay-request-execution-profile-seal.v1\0");
+        request_profile_digest.update(1_u16.to_le_bytes());
+        update_length_prefixed(
+            &mut request_profile_digest,
+            request_binding.request_identity.as_bytes(),
+        )
+        .unwrap();
+        request_profile_digest.update(request_binding.request_meaning_digest);
+        update_length_prefixed(
+            &mut request_profile_digest,
+            request_binding.trial_family_identity.as_bytes(),
+        )
+        .unwrap();
+        request_profile_digest.update(request_binding.trial_family_digest);
+        request_profile_digest.update(request_binding.economic_configuration_digest);
+        request_profile_digest.update(request_binding.runner_operational_profile_digest);
+        request_profile_digest.update(family_profile_binding_digest);
+        let profile_seal = ReplayExecutionProfileRequestSealV1 {
+            schema_version: 1,
+            request: request_binding.clone(),
+            catalog_v3_binding_digest: catalog_v3.binding_digest(),
+            family_profile_binding_digest,
+            request_profile_binding_digest: request_profile_digest.finalize().into(),
+        };
+
+        let family_outbox = envelope.trial_family_outbox.as_mut().unwrap();
+        let mut family_payload: FamilyFrozenOutboxV1 = exact(&family_outbox.payload_json).unwrap();
+        family_payload.replay_policy_catalog_v3 = Some(catalog_v3);
+        let family_payload_digest =
+            canonical_digest("rd.owner-outbox.payload.v1", &family_payload).unwrap();
+        family_outbox.payload_json = serde_json::to_value(family_payload).unwrap();
+        family_outbox.payload_digest = family_payload_digest.clone();
+        family_outbox.event_identity = identity("rd-owner-event-v1", &family_payload_digest);
+
+        let mut frozen: StoredFrozenCoreV2 = exact(envelope.frozen.as_ref().unwrap()).unwrap();
+        frozen.trial_family_outbox_digest = family_payload_digest;
+        frozen.trial_family_outbox_event_identity = family_outbox.event_identity.clone();
+        frozen.execution_profile_seal = Some(profile_seal.clone());
+        frozen.request_digest = frozen_digest(&frozen).unwrap();
+        envelope.frozen = Some(serde_json::to_value(&frozen).unwrap());
+
+        let receipt_v1_digest = canonical_digest(
+            "rd.exploratory-replay-request-receipt.v1",
+            &(
+                1_u32,
+                &frozen.proposal.request_identity,
+                &frozen.request_digest,
+                frozen.committed_at_epoch_ms,
+            ),
+        )
+        .unwrap();
+        let receipt_v1 = StoredReceiptV1 {
+            schema_version: 1,
+            receipt_identity: identity("rd-exploratory-replay-receipt-v1", &receipt_v1_digest),
+            request_identity: frozen.proposal.request_identity.clone(),
+            request_digest: frozen.request_digest.clone(),
+            committed_at_epoch_ms: frozen.committed_at_epoch_ms,
+        };
+        envelope.receipt = Some(serde_json::to_value(&receipt_v1).unwrap());
+        let base_payload = StoredOutboxV1 {
+            schema_version: 1,
+            request_identity: frozen.proposal.request_identity.clone(),
+            request_digest: frozen.request_digest.clone(),
+            receipt_identity: receipt_v1.receipt_identity.clone(),
+            intent_identity: frozen.proposal.intent_identity.clone(),
+            trial_family_identity: frozen.proposal.trial_family_identity.clone(),
+            artifact_identity: frozen.proposal.artifact_identity.clone(),
+            census_frontier_identity: frozen.proposal.census_frontier_identity.clone(),
+            committed_at_epoch_ms: frozen.committed_at_epoch_ms,
+        };
+        let base_digest = canonical_digest("rd.owner-outbox.payload.v1", &base_payload).unwrap();
+        let base_outbox = envelope.outbox.as_mut().unwrap();
+        base_outbox.event_identity = identity("rd-owner-event-v1", &base_digest);
+        base_outbox.payload_digest = base_digest;
+        base_outbox.payload_json = serde_json::to_value(base_payload).unwrap();
+
+        let canonical_request_bytes = BASE64
+            .decode(envelope.v2_canonical_request_base64.as_ref().unwrap())
+            .unwrap();
+        let seal_digest = canonical_digest(
+            "rd.exploratory-replay-request-seal.v3",
+            &(
+                3_u16,
+                "request-v2",
+                meaning_digest.as_str(),
+                BASE64.encode(&canonical_request_bytes),
+                frozen.request_digest.as_str(),
+                &profile_seal,
+                frozen.committed_at_epoch_ms,
+            ),
+        )
+        .unwrap();
+        let receipt_digest = canonical_digest(
+            "rd.exploratory-replay-request-receipt.v3",
+            &(
+                3_u16,
+                "request-v2",
+                meaning_digest.as_str(),
+                seal_digest.as_str(),
+                &profile_seal,
+                frozen.committed_at_epoch_ms,
+            ),
+        )
+        .unwrap();
+        let receipt_v3 = StoredReceiptV2 {
+            schema_version: 3,
+            receipt_identity: identity("rd-exploratory-replay-receipt-v2", &receipt_digest),
+            request_identity: "request-v2".into(),
+            meaning_digest: meaning_digest.clone(),
+            seal_digest: seal_digest.clone(),
+            execution_profile_seal: Some(profile_seal.clone()),
+            committed_at_epoch_ms: frozen.committed_at_epoch_ms,
+        };
+        let payload_v3 = StoredOutboxPayloadV2 {
+            schema_version: 3,
+            request_identity: "request-v2".into(),
+            meaning_digest,
+            seal_digest: seal_digest.clone(),
+            receipt_identity: receipt_v3.receipt_identity.clone(),
+            lineage_request_digest: frozen.request_digest,
+            execution_profile_seal: Some(profile_seal),
+            committed_at_epoch_ms: frozen.committed_at_epoch_ms,
+        };
+        let payload_digest = canonical_digest("rd.owner-outbox.payload.v1", &payload_v3).unwrap();
+        envelope.v2_seal_digest = Some(seal_digest);
+        envelope.v2_receipt = Some(serde_json::to_value(receipt_v3).unwrap());
+        envelope.v2_outbox = Some(LockedOutboxV2 {
+            event_identity: identity("rd-owner-event-v1", &payload_digest),
+            aggregate_identity: "request-v2".into(),
+            event_kind: FROZEN_EVENT_V2.into(),
+            payload_digest,
+            payload_json: payload_v3,
+            committed_at_epoch_ms: frozen.committed_at_epoch_ms,
+        });
+        envelope.schema_version = 3;
         envelope
     }
 
@@ -1533,7 +1994,7 @@ mod tests {
     }
 
     #[rstest]
-    fn market_data_port_requires_exact_request_receipt_and_seal_equality() {
+    fn fixed_port_requires_exact_request_receipt_and_seal_equality() {
         let envelope = valid_market_data_envelope(ExploratoryReplayAvailabilityV2::Available);
         let locator = exact_locator(&envelope);
         let result =
@@ -1548,6 +2009,11 @@ mod tests {
             BASE64
                 .decode(envelope.v2_canonical_request_base64.as_ref().unwrap())
                 .unwrap()
+        );
+        let stored_receipt: StoredReceiptV2 = exact(envelope.v2_receipt.as_ref().unwrap()).unwrap();
+        assert_eq!(
+            result.readback().unwrap().canonical_receipt_proof_bytes(),
+            serde_json::to_vec(&stored_receipt).unwrap()
         );
 
         for changed in [
@@ -1579,6 +2045,117 @@ mod tests {
             );
             assert!(rejected.readback().is_none());
         }
+    }
+
+    #[rstest]
+    fn market_data_port_accepts_complete_schema3_and_rejects_partial_or_cross_spliced_profiles() {
+        let envelope = valid_market_data_envelope_v3(ExploratoryReplayAvailabilityV2::Available);
+        let locator = exact_locator(&envelope);
+        let accepted =
+            decode_market_data_envelope(&locator, Some(serde_json::to_value(&envelope).unwrap()))
+                .expect("complete schema 3 envelope");
+        assert_eq!(
+            accepted.availability(),
+            ExploratoryReplayAvailabilityV2::Available
+        );
+        assert!(accepted.readback().is_some());
+
+        let mut schema2_top_level = envelope.clone();
+        schema2_top_level.schema_version = 2;
+        let rejected = decode_market_data_envelope(
+            &locator,
+            Some(serde_json::to_value(schema2_top_level).unwrap()),
+        )
+        .expect("mixed top-level and schema 3 receipt is a closed read");
+        assert_eq!(
+            rejected.availability(),
+            ExploratoryReplayAvailabilityV2::Unavailable
+        );
+        assert!(rejected.readback().is_none());
+
+        let mut mixed_receipt = envelope.clone();
+        let mut receipt: StoredReceiptV2 =
+            exact(mixed_receipt.v2_receipt.as_ref().unwrap()).unwrap();
+        receipt.schema_version = 2;
+        mixed_receipt.v2_receipt = Some(serde_json::to_value(receipt).unwrap());
+        let rejected = decode_market_data_envelope(
+            &locator,
+            Some(serde_json::to_value(mixed_receipt).unwrap()),
+        )
+        .expect("mixed top-level and receipt versions are a closed read");
+        assert_eq!(
+            rejected.availability(),
+            ExploratoryReplayAvailabilityV2::Unavailable
+        );
+        assert!(rejected.readback().is_none());
+
+        let mut mixed_outbox = envelope.clone();
+        mixed_outbox
+            .v2_outbox
+            .as_mut()
+            .unwrap()
+            .payload_json
+            .schema_version = 2;
+        let rejected = decode_market_data_envelope(
+            &locator,
+            Some(serde_json::to_value(mixed_outbox).unwrap()),
+        )
+        .expect("mixed schema 3 receipt and schema 2 outbox is a closed read");
+        assert_eq!(
+            rejected.availability(),
+            ExploratoryReplayAvailabilityV2::Unavailable
+        );
+        assert!(rejected.readback().is_none());
+
+        let mut mixed_profile = envelope.clone();
+        let mut receipt: StoredReceiptV2 =
+            exact(mixed_profile.v2_receipt.as_ref().unwrap()).unwrap();
+        receipt
+            .execution_profile_seal
+            .as_mut()
+            .unwrap()
+            .schema_version = 2;
+        mixed_profile.v2_receipt = Some(serde_json::to_value(receipt).unwrap());
+        let rejected = decode_market_data_envelope(
+            &locator,
+            Some(serde_json::to_value(mixed_profile).unwrap()),
+        )
+        .expect("mixed profile seal version is a closed read");
+        assert_eq!(
+            rejected.availability(),
+            ExploratoryReplayAvailabilityV2::Unavailable
+        );
+        assert!(rejected.readback().is_none());
+
+        let mut partial = serde_json::to_value(&envelope).unwrap();
+        partial["v2_receipt"]
+            .as_object_mut()
+            .unwrap()
+            .remove("execution_profile_seal");
+        let rejected = decode_market_data_envelope(&locator, Some(partial))
+            .expect("partial schema 3 is a closed read");
+        assert_eq!(
+            rejected.availability(),
+            ExploratoryReplayAvailabilityV2::Unavailable
+        );
+        assert!(rejected.readback().is_none());
+
+        let mut spliced = envelope.clone();
+        let mut receipt: StoredReceiptV2 = exact(spliced.v2_receipt.as_ref().unwrap()).unwrap();
+        receipt
+            .execution_profile_seal
+            .as_mut()
+            .unwrap()
+            .request_profile_binding_digest = [99; 32];
+        spliced.v2_receipt = Some(serde_json::to_value(receipt).unwrap());
+        let rejected =
+            decode_market_data_envelope(&locator, Some(serde_json::to_value(spliced).unwrap()))
+                .expect("cross-spliced schema 3 is a closed read");
+        assert_eq!(
+            rejected.availability(),
+            ExploratoryReplayAvailabilityV2::Unavailable
+        );
+        assert!(rejected.readback().is_none());
     }
 
     #[rstest]

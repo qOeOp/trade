@@ -47,6 +47,24 @@ use crate::strategy_plan_v2::project_strategy_design_role_set_v1;
 
 const SEALED_READ_SCHEMA_V2: u16 = 2;
 const SEALED_READ_FUNCTION_V2: &str = "composer_owner_api.lock_accepted_develop_composer_v2(text)";
+const REPLAY_LOCATOR_FUNCTION_V2: &str =
+    "composer_owner_api.resolve_develop_composer_locator_for_replay_v2(text,bytea,bytea,bytea)";
+const REPLAY_LOCATOR_FUNCTION_SOURCE_V2: &str = "BEGIN
+  IF SESSION_USER<>'rd_owner' OR CURRENT_USER<>'composer_owner' THEN RAISE EXCEPTION 'R&D Owner required' USING ERRCODE='42501'; END IF;
+  RETURN QUERY
+  SELECT role_set.request_identity,role_set.operation_receipt_identity
+    FROM composer_private.rd_develop_strategy_design_role_set_attestations_v1 role_set
+    JOIN composer_private.rd_develop_operations_v2 operation ON operation.request_identity=role_set.request_identity AND operation.artifact_identity=role_set.artifact_identity
+    JOIN composer_private.rd_develop_artifacts_v2 artifact ON artifact.artifact_identity=operation.artifact_identity AND artifact.plan_digest=role_set.canonical_plan_digest
+    JOIN composer_private.rd_develop_plans_v2 plan ON plan.plan_digest=artifact.plan_digest
+    JOIN composer_private.rd_develop_designs_v2 design ON design.design_identity=plan.design_identity
+   WHERE role_set.composer_schema_version=2
+     AND role_set.artifact_locator=p_artifact_locator
+     AND role_set.artifact_identity=p_artifact_identity
+     AND role_set.canonical_plan_digest=p_canonical_plan_digest
+     AND role_set.design_digest=p_design_digest
+   FOR SHARE OF role_set,operation,artifact,plan,design;
+END";
 const SEALED_READ_UNAVAILABLE_PROTOCOL_V2: &str = "Composer sealed readback is unavailable";
 const COMMIT_FUNCTION_V2: &str = "composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea)";
 const COMMIT_FUNCTION_V3: &str = "composer_owner_api.commit_develop_composer_v3(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,integer[])";
@@ -693,6 +711,82 @@ impl DevelopComposerSealedReadLocatorV2 {
     }
 }
 
+/// Resolves the Composer locator already selected by one sealed Replay request.
+///
+/// All four arguments are exact R&D request claims. The Composer Owner performs the lookup and
+/// locks the matching durable operation; the caller cannot choose a Composer request identity or
+/// operation receipt independently.
+pub(crate) async fn resolve_develop_composer_locator_for_replay_v2_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    artifact_locator: &str,
+    artifact_identity: BindingDigest,
+    canonical_plan_digest: BindingDigest,
+    design_digest: BindingDigest,
+) -> Result<DevelopComposerSealedReadLocatorV2, DevelopComposerSealedReadErrorV2> {
+    let authority_is_exact: bool = sqlx::query_scalar(
+        "SELECT procedure.prosecdef
+            AND procedure.provolatile='v'
+            AND procedure.proparallel='u'
+            AND procedure.proisstrict
+            AND procedure.proretset
+            AND procedure.prokind='f'
+            AND procedure.proconfig=ARRAY['search_path=pg_catalog']::text[]
+            AND procedure.proargtypes='25 17 17 17'::pg_catalog.oidvector
+            AND procedure.proargnames=ARRAY['p_artifact_locator','p_artifact_identity','p_canonical_plan_digest','p_design_digest','request_identity','operation_receipt_identity']::text[]
+            AND pg_catalog.pg_get_userbyid(procedure.proowner)='composer_owner'
+            AND language.lanname='plpgsql'
+            AND procedure.prosrc=$1
+            AND (SELECT pg_catalog.count(*)=2
+                   AND pg_catalog.count(*) FILTER (WHERE acl.grantee=procedure.proowner AND acl.privilege_type='EXECUTE')=1
+                   AND pg_catalog.count(*) FILTER (WHERE role.rolname='rd_owner' AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=1
+                   AND pg_catalog.count(*) FILTER (WHERE acl.grantee=0)=0
+                   FROM pg_catalog.aclexplode(COALESCE(procedure.proacl,pg_catalog.acldefault('f',procedure.proowner))) acl
+                   LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee)
+           FROM pg_catalog.pg_proc procedure
+           JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang
+          WHERE procedure.oid=$2::pg_catalog.regprocedure",
+    )
+    .bind(REPLAY_LOCATOR_FUNCTION_SOURCE_V2)
+    .bind(REPLAY_LOCATOR_FUNCTION_V2)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?
+    .unwrap_or(false);
+    if !authority_is_exact || artifact_locator.is_empty() {
+        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+    }
+
+    let row = sqlx::query(
+        "SELECT request_identity,operation_receipt_identity
+           FROM composer_owner_api.resolve_develop_composer_locator_for_replay_v2($1,$2,$3,$4)",
+    )
+    .bind(artifact_locator)
+    .bind(artifact_identity.as_bytes().as_slice())
+    .bind(canonical_plan_digest.as_bytes().as_slice())
+    .bind(design_digest.as_bytes().as_slice())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?
+    .ok_or(DevelopComposerSealedReadErrorV2::Unavailable)?;
+    let request_identity = row
+        .try_get::<String, _>("request_identity")
+        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    let operation_receipt_identity = digest_column(&row, "operation_receipt_identity")
+        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    if request_identity.is_empty() {
+        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+    }
+    Ok(DevelopComposerSealedReadLocatorV2 {
+        schema_version: SEALED_READ_SCHEMA_V2,
+        request_identity,
+        operation_receipt_identity,
+        artifact_locator: artifact_locator.to_owned(),
+        artifact_identity,
+        canonical_plan_digest,
+        design_digest,
+    })
+}
+
 /// Uniform fail-closed result for missing, mismatched, corrupt, or unreadable R&D custody.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DevelopComposerSealedReadErrorV2 {
@@ -1102,6 +1196,29 @@ pub(crate) fn issue_sealed_develop_composer_readback_for_acceptance_v2(
         response_bytes: response.canonical_bytes(),
     };
     seal_readback(&locator, record, &response)
+}
+
+#[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
+pub(crate) fn issue_strategy_design_role_set_for_acceptance_v1(
+    composer: &SealedDevelopComposerReadbackV2,
+) -> Result<StrategyDesignRoleSetReceiptV1, StrategyDesignRoleSetErrorV1> {
+    let locator = composer.locator();
+    project_strategy_design_role_set_v1(
+        composer.plan_bytes(),
+        composer.design_bytes(),
+        composer.design_bytes_digest(),
+        StrategyDesignRoleSetLocatorV1 {
+            schema_version: locator.schema_version,
+            request_identity: locator.request_identity.clone(),
+            operation_receipt_identity: locator.operation_receipt_identity,
+            artifact_locator: locator.artifact_locator.clone(),
+            artifact_identity: locator.artifact_identity,
+            canonical_plan_digest: locator.canonical_plan_digest,
+            design_digest: locator.design_digest,
+        },
+        composer.research_request_identity(),
+        composer.intent_identity(),
+    )
 }
 
 #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]

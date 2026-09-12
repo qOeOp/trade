@@ -1,7 +1,8 @@
 use super::{
     BACKTEST_OWNER_V1, InstrumentClass, InstrumentDecimal, InstrumentMasterError,
     InstrumentMasterFactProposalV1, InstrumentMasterScopeV1, InstrumentVenueSourceMapping,
-    UntrustedInstrumentMasterRequestV1,
+    MissingNativeCryptoPerpetualOwnerFieldV1, UntrustedInstrumentMasterRequestV1,
+    V1StructuralPublicTermsField, V1StructuralPublicTermsProjectionError,
     authority::{
         build_cut, build_fact, build_readback, build_receipt, decode_cut, decode_fact,
         select_facts, validate_fact_graph,
@@ -112,6 +113,37 @@ fn request(
         correction_frontier: d(6),
         stable_correlation: d(23),
     }
+}
+
+fn crypto_perpetual_proposal(identity: &str) -> InstrumentMasterFactProposalV1 {
+    let mut proposal = proposal(identity, None, 55, 6);
+    proposal.mappings = vec![InstrumentVenueSourceMapping {
+        venue_identity: "SIM".into(),
+        source_identity: "BINANCE".into(),
+        source_instrument: b"ETHUSDT-PERP".to_vec(),
+    }];
+    proposal.instrument_class = InstrumentClass::CryptoPerpetual;
+    proposal.base_currency = Some("ETH".into());
+    proposal.quote_currency = Some("USDT".into());
+    proposal.settlement_currency = Some("USDT".into());
+    proposal.margin_currency = Some("USDT".into());
+    proposal
+}
+
+fn readback_for(proposal: InstrumentMasterFactProposalV1) -> super::InstrumentMasterReadbackV1 {
+    let clock = head(1, 60, 100);
+    let identity = proposal.canonical_identity.clone();
+    let fact = build_fact(proposal, &clock.handoff, None).unwrap();
+    let request = request(&identity, 59, &clock);
+    let cut = build_cut(
+        &request,
+        vec![identity],
+        std::slice::from_ref(&fact),
+        fact.clock.clone(),
+    )
+    .unwrap();
+    let receipt = build_receipt(&request, std::slice::from_ref(&fact), &cut, d(30), 7).unwrap();
+    build_readback(&receipt).unwrap()
 }
 
 #[rstest]
@@ -307,6 +339,229 @@ fn exact_scope_and_nested_fact_cut_receipt_readback_equalities_are_enforced() {
             tampered.cut.clock.clone()
         ),
         Err(InstrumentMasterError::MembershipMismatch)
+    );
+}
+
+#[rstest]
+fn v1_public_terms_projection_preserve_exact_mapping_terms_and_owner_evidence() {
+    let readback = readback_for(crypto_perpetual_proposal("ETHUSDT-PERP.SIM"));
+    let terms = readback
+        .project_validated_v1_crypto_perpetual_structural_public_terms(
+            "ETHUSDT-PERP.SIM",
+            "SIM",
+            "BINANCE",
+        )
+        .unwrap();
+
+    assert_eq!(terms.readback_identity(), readback.identity());
+    assert_eq!(terms.request_identity(), d(21));
+    assert_eq!(terms.request_meaning_digest(), d(22));
+    assert_eq!(terms.cut_identity(), readback.cut().identity());
+    assert_eq!(terms.receipt_identity(), readback.receipt_identity());
+    assert_eq!(terms.outbox_identity(), readback.outbox_identity());
+    assert_eq!(terms.stable_correlation(), d(23));
+    assert_eq!(terms.store_generation_identity(), d(30));
+    assert_eq!(terms.store_append_sequence(), 7);
+    assert_eq!(terms.fact_identity(), readback.facts()[0].identity());
+    assert_eq!(terms.predecessor_fact_digest(), None);
+    assert_eq!(terms.canonical_identity(), "ETHUSDT-PERP.SIM");
+    assert_eq!(terms.venue_identity(), "SIM");
+    assert_eq!(terms.source_identity(), "BINANCE");
+    assert_eq!(terms.source_instrument(), b"ETHUSDT-PERP");
+    assert_eq!(terms.raw_symbol(), "ETHUSDT-PERP");
+    assert_eq!(terms.instrument_class(), InstrumentClass::CryptoPerpetual);
+    assert_eq!(terms.base_currency(), "ETH");
+    assert_eq!(terms.quote_currency(), "USDT");
+    assert_eq!(terms.settlement_currency(), "USDT");
+    assert_eq!(terms.margin_currency(), Some("USDT"));
+    assert_eq!(
+        terms.price_increment(),
+        InstrumentDecimal {
+            mantissa: 1,
+            scale: 2
+        }
+    );
+    assert_eq!(
+        terms.quantity_increment(),
+        InstrumentDecimal {
+            mantissa: 1,
+            scale: 0
+        }
+    );
+    assert_eq!(
+        terms.contract_multiplier(),
+        InstrumentDecimal {
+            mantissa: 1,
+            scale: 0
+        }
+    );
+    assert_eq!(terms.calendar_identity(), "XNYS-CALENDAR-V1");
+    assert_eq!(terms.session_identity(), "XNYS-REGULAR-V1");
+    assert_eq!(terms.time_zone_identity(), "America/New_York");
+    assert_eq!(terms.lifecycle_frontier(), d(1));
+    assert_eq!(terms.corporate_action_frontier(), d(2));
+    assert_eq!(terms.historical_membership_frontier(), d(3));
+    assert_eq!(terms.market_semantics_identity(), d(4));
+    assert_eq!(terms.source_frontier(), d(5));
+    assert_eq!(terms.correction_frontier(), d(6));
+    assert_eq!(terms.effective_from().as_u64(), 10);
+    assert_eq!(terms.effective_until().unwrap().as_u64(), 100);
+    assert_eq!(terms.provider_available().as_u64(), 52);
+    assert_eq!(terms.retrieval().as_u64(), 53);
+    assert_eq!(terms.correction_publication().as_u64(), 54);
+    assert_eq!(terms.owner_observation().as_u64(), 55);
+    assert_eq!(terms.effective_instant().as_u64(), 50);
+    assert_eq!(terms.decision_cut(), 60);
+}
+
+#[rstest]
+fn v1_public_terms_projection_cannot_claim_complete_native_construction() {
+    let readback = readback_for(crypto_perpetual_proposal("ETHUSDT-PERP.SIM"));
+    let projection = readback
+        .project_validated_v1_crypto_perpetual_structural_public_terms(
+            "ETHUSDT-PERP.SIM",
+            "SIM",
+            "BINANCE",
+        )
+        .unwrap();
+
+    let unavailable = projection
+        .require_complete_native_crypto_perpetual_construction()
+        .unwrap_err();
+    assert_eq!(
+        unavailable.missing_owner_fields(),
+        &[
+            MissingNativeCryptoPerpetualOwnerFieldV1::IsInverse,
+            MissingNativeCryptoPerpetualOwnerFieldV1::LotSize,
+            MissingNativeCryptoPerpetualOwnerFieldV1::ContractStatus,
+            MissingNativeCryptoPerpetualOwnerFieldV1::LimitDispositions,
+        ]
+    );
+}
+
+#[rstest]
+fn v1_public_terms_projection_reject_missing_and_ambiguous_mapping_or_currency() {
+    let readback = readback_for(crypto_perpetual_proposal("ETHUSDT-PERP.SIM"));
+    assert_eq!(
+        readback.project_validated_v1_crypto_perpetual_structural_public_terms(
+            "ETHUSDT-PERP.SIM",
+            "SIM",
+            "OTHER",
+        ),
+        Err(V1StructuralPublicTermsProjectionError::MissingMapping)
+    );
+
+    let mut ambiguous = crypto_perpetual_proposal("ETHUSDT-PERP.SIM");
+    ambiguous.mappings.push(InstrumentVenueSourceMapping {
+        venue_identity: "SIM".into(),
+        source_identity: "BINANCE".into(),
+        source_instrument: b"ETHUSDT-PERP-ALT".to_vec(),
+    });
+    ambiguous.mappings.sort_by(|left, right| {
+        (
+            &left.venue_identity,
+            &left.source_identity,
+            &left.source_instrument,
+        )
+            .cmp(&(
+                &right.venue_identity,
+                &right.source_identity,
+                &right.source_instrument,
+            ))
+    });
+    let readback = readback_for(ambiguous);
+    assert_eq!(
+        readback.project_validated_v1_crypto_perpetual_structural_public_terms(
+            "ETHUSDT-PERP.SIM",
+            "SIM",
+            "BINANCE",
+        ),
+        Err(V1StructuralPublicTermsProjectionError::AmbiguousMapping)
+    );
+
+    let mut missing_currency = crypto_perpetual_proposal("ETHUSDT-PERP.SIM");
+    missing_currency.base_currency = None;
+    let readback = readback_for(missing_currency);
+    assert_eq!(
+        readback.project_validated_v1_crypto_perpetual_structural_public_terms(
+            "ETHUSDT-PERP.SIM",
+            "SIM",
+            "BINANCE",
+        ),
+        Err(V1StructuralPublicTermsProjectionError::MissingField(
+            V1StructuralPublicTermsField::BaseCurrency
+        ))
+    );
+}
+
+#[rstest]
+fn v1_public_terms_projection_rejects_whitespace_raw_symbol_and_currency() {
+    let mut whitespace_symbol = crypto_perpetual_proposal("ETHUSDT-PERP.SIM");
+    whitespace_symbol.mappings[0].source_instrument = b"   ".to_vec();
+    let readback = readback_for(whitespace_symbol);
+    assert_eq!(
+        readback.project_validated_v1_crypto_perpetual_structural_public_terms(
+            "ETHUSDT-PERP.SIM",
+            "SIM",
+            "BINANCE",
+        ),
+        Err(V1StructuralPublicTermsProjectionError::InvalidPublicTerm(
+            V1StructuralPublicTermsField::SourceInstrument
+        ))
+    );
+
+    let mut whitespace_currency = crypto_perpetual_proposal("ETHUSDT-PERP.SIM");
+    whitespace_currency.base_currency = Some("   ".into());
+    let readback = readback_for(whitespace_currency);
+    assert_eq!(
+        readback.project_validated_v1_crypto_perpetual_structural_public_terms(
+            "ETHUSDT-PERP.SIM",
+            "SIM",
+            "BINANCE",
+        ),
+        Err(V1StructuralPublicTermsProjectionError::InvalidPublicTerm(
+            V1StructuralPublicTermsField::BaseCurrency
+        ))
+    );
+}
+
+#[rstest]
+fn v1_public_terms_projection_reject_unsupported_native_values_and_cross_readback() {
+    let readback = readback_for(proposal("AAPL", None, 55, 6));
+    assert_eq!(
+        readback
+            .project_validated_v1_crypto_perpetual_structural_public_terms("AAPL", "XNAS", "SIP"),
+        Err(V1StructuralPublicTermsProjectionError::UnsupportedClass(
+            InstrumentClass::Equity
+        ))
+    );
+
+    let mut invalid_decimal = crypto_perpetual_proposal("ETHUSDT-PERP.SIM");
+    invalid_decimal.price_increment = InstrumentDecimal {
+        mantissa: 1,
+        scale: 38,
+    };
+    let readback = readback_for(invalid_decimal);
+    assert_eq!(
+        readback.project_validated_v1_crypto_perpetual_structural_public_terms(
+            "ETHUSDT-PERP.SIM",
+            "SIM",
+            "BINANCE",
+        ),
+        Err(V1StructuralPublicTermsProjectionError::InvalidPublicTerm(
+            V1StructuralPublicTermsField::PriceIncrement
+        ))
+    );
+
+    let mut cross_spliced = readback_for(crypto_perpetual_proposal("ETHUSDT-PERP.SIM"));
+    cross_spliced.cut.resolutions[0].fact_digest = d(99);
+    assert_eq!(
+        cross_spliced.project_validated_v1_crypto_perpetual_structural_public_terms(
+            "ETHUSDT-PERP.SIM",
+            "SIM",
+            "BINANCE",
+        ),
+        Err(V1StructuralPublicTermsProjectionError::InvalidReadback)
     );
 }
 

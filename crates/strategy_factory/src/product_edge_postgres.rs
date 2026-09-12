@@ -45,7 +45,7 @@ use crate::rd_owner_postgres_custody::{
     resolve_exploratory_replay_result_for_rd_in_transaction, resolve_verified_artifact_family,
 };
 use crate::{
-    replay_policy_catalog_postgres_v2::resolve_current_for_trial_family_formation,
+    replay_policy_catalog_postgres_v2::resolve_current_v3_for_trial_family_formation,
     trial_family::{
         TrialFamilyDirectResultV1, TrialFamilyError, TrialFamilyIndependenceDispositionV1,
         TrialFamilyPolicyV1,
@@ -53,6 +53,12 @@ use crate::{
     trial_family_postgres::{migrate as migrate_trial_family, persist_initial_family},
 };
 use vibe_data::owner::pit_snapshot::PitSnapshotOwnerReadback;
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+use vibe_data::owner::{
+    instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresOwnerV1,
+    instrument_master_v2_postgres::InstrumentMasterV2PostgresOwner,
+    native_replay_scheduling_v1::NativeReplaySchedulingResolverV1,
+};
 
 use crate::source_intake::{
     SOURCE_INTAKE_IDENTITY_PREREQUISITE_SQL_V1, SourceIntakePolicyEvidencePort,
@@ -309,6 +315,12 @@ const RD_CORE_TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
             crate::schema_materialization::optional("artifact_evidence_json", "jsonb"),
             crate::schema_materialization::optional("source_ancestry_locator_json", "jsonb"),
             crate::schema_materialization::optional("source_ancestry_evidence_digest", "text"),
+            crate::schema_materialization::optional("request_storage_bytes", "bytea"),
+            crate::schema_materialization::optional("request_storage_digest", "text"),
+            crate::schema_materialization::optional("receipt_storage_bytes", "bytea"),
+            crate::schema_materialization::optional("receipt_storage_digest", "text"),
+            crate::schema_materialization::optional("intent_storage_bytes", "bytea"),
+            crate::schema_materialization::optional("intent_storage_digest", "text"),
         ],
         constraints: &["p:request_identity:::false:false:true:"],
         indexes: &[
@@ -445,6 +457,9 @@ const RD_CORE_TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
             crate::schema_materialization::optional("v2_meaning_digest", "text"),
             crate::schema_materialization::optional("v2_seal_digest", "text"),
             crate::schema_materialization::optional("v2_receipt_json", "jsonb"),
+            crate::schema_materialization::optional("v2_request_storage_digest", "text"),
+            crate::schema_materialization::optional("v2_receipt_storage_bytes", "bytea"),
+            crate::schema_materialization::optional("v2_receipt_storage_digest", "text"),
         ],
         constraints: &["p:request_identity:::false:false:true:"],
         indexes: &[
@@ -455,6 +470,10 @@ const RD_CORE_TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
 ];
 
 impl PostgresResearchGoalOwnerV1 {
+    pub(crate) const fn native_replay_pool_v2(&self) -> &PgPool {
+        &self.pool
+    }
+
     fn verify_admission_v2(
         &self,
         admission: &ProductEdgeAdmissionReadbackV1,
@@ -813,7 +832,17 @@ impl PostgresResearchGoalOwnerV1 {
                 receipt_json JSONB NOT NULL,
                 intent_json JSONB,
                 view_json JSONB,
-                committed_at_epoch_ms BIGINT NOT NULL
+                committed_at_epoch_ms BIGINT NOT NULL,
+                artifact_evidence_digest TEXT,
+                artifact_evidence_json JSONB,
+                source_ancestry_locator_json JSONB,
+                source_ancestry_evidence_digest TEXT,
+                request_storage_bytes BYTEA,
+                request_storage_digest TEXT,
+                receipt_storage_bytes BYTEA,
+                receipt_storage_digest TEXT,
+                intent_storage_bytes BYTEA,
+                intent_storage_digest TEXT
             )
             ",
         )
@@ -852,6 +881,12 @@ impl PostgresResearchGoalOwnerV1 {
             "ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS artifact_evidence_json JSONB",
             "ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS source_ancestry_locator_json JSONB",
             "ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS source_ancestry_evidence_digest TEXT",
+            "ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS request_storage_bytes BYTEA",
+            "ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS request_storage_digest TEXT",
+            "ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS receipt_storage_bytes BYTEA",
+            "ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS receipt_storage_digest TEXT",
+            "ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS intent_storage_bytes BYTEA",
+            "ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS intent_storage_digest TEXT",
             "CREATE UNIQUE INDEX IF NOT EXISTS rd_research_intent_identity_v1 ON rd_research_request_receipts_v1 ((intent_json->>'intent_identity')) WHERE intent_json IS NOT NULL",
             "REVOKE ALL ON SCHEMA rd_owner_api FROM PUBLIC",
             "GRANT USAGE ON SCHEMA rd_owner_api TO product_edge_owner, qualification_writer",
@@ -1217,6 +1252,9 @@ impl PostgresResearchGoalOwnerV1 {
         for tables in [
             RD_CORE_TABLES,
             crate::trial_family_postgres::TABLES,
+            crate::iteration_decision_postgres::TABLES,
+            crate::market_data_repair_request_postgres::TABLES,
+            crate::market_data_repair_resolution_postgres::TABLES,
             crate::complex_strategy_develop_evaluation::TABLES,
         ] {
             if materialization {
@@ -1246,6 +1284,163 @@ impl PostgresResearchGoalOwnerV1 {
         .await
     }
 
+    /// Commits only the deterministic `REPAIR_INPUTS` branch from locked Owner custody.
+    pub async fn compose_repair_input_iteration_decision_v1(
+        &self,
+        request: crate::DecisionCompositionRequestV1,
+    ) -> Result<
+        crate::iteration_decision::RepairInputIterationDecisionReadbackV1,
+        crate::IterationDecisionPostgresErrorV1,
+    > {
+        crate::iteration_decision_postgres::compose_repair_input_decision_v1(&self.pool, request)
+            .await
+    }
+
+    /// Resolves existing Decision custody without creating a replacement.
+    pub async fn resolve_repair_input_iteration_decision_v1(
+        &self,
+        locator: crate::IterationDecisionResolutionLocatorV1,
+    ) -> Result<
+        Option<crate::iteration_decision::RepairInputIterationDecisionReadbackV1>,
+        crate::IterationDecisionPostgresErrorV1,
+    > {
+        crate::iteration_decision_postgres::resolve_repair_input_decision_v1(&self.pool, locator)
+            .await
+    }
+
+    /// Commits the budget-exhausted terminal Decision from the exact locked R&D cut.
+    pub async fn compose_trial_budget_terminal_stop_decision_v1(
+        &self,
+        request: crate::DecisionCompositionRequestV1,
+    ) -> Result<
+        crate::iteration_decision::TrialBudgetTerminalStopDecisionReadbackV1,
+        crate::IterationDecisionPostgresErrorV1,
+    > {
+        crate::iteration_decision_postgres::compose_trial_budget_terminal_stop_decision_v1(
+            &self.pool, request,
+        )
+        .await
+    }
+
+    /// Resolves existing budget-exhausted terminal Decision custody without creating it.
+    pub async fn resolve_trial_budget_terminal_stop_decision_v1(
+        &self,
+        locator: crate::IterationDecisionResolutionLocatorV1,
+    ) -> Result<
+        Option<crate::iteration_decision::TrialBudgetTerminalStopDecisionReadbackV1>,
+        crate::IterationDecisionPostgresErrorV1,
+    > {
+        crate::iteration_decision_postgres::resolve_trial_budget_terminal_stop_decision_v1(
+            &self.pool, locator,
+        )
+        .await
+    }
+
+    /// Commits an effect-free repair request from exact stored Decision custody.
+    pub async fn compose_repair_action_request_v1(
+        &self,
+        request: crate::RepairActionCompositionRequestV1,
+    ) -> Result<
+        crate::repair_action::RepairActionRequestReadbackV1,
+        crate::IterationDecisionPostgresErrorV1,
+    > {
+        crate::iteration_decision_postgres::compose_repair_action_request_v1(&self.pool, request)
+            .await
+    }
+
+    /// Resolves existing repair-request custody without executing the repair.
+    pub async fn resolve_repair_action_request_v1(
+        &self,
+        locator: crate::RepairActionResolutionLocatorV1,
+    ) -> Result<
+        Option<crate::repair_action::RepairActionRequestReadbackV1>,
+        crate::IterationDecisionPostgresErrorV1,
+    > {
+        crate::iteration_decision_postgres::resolve_repair_action_request_v1(&self.pool, locator)
+            .await
+    }
+
+    /// Commits one effect-free Market Data repair request from exact Owner readbacks.
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    pub async fn compose_market_data_repair_request_v1<P, M, T>(
+        &self,
+        request: crate::MarketDataRepairCompositionRequestV1,
+        composer: &P,
+        instrument_master_owner: &InstrumentMasterV2PostgresOwner,
+        market_data: &M,
+        shared_time: &T,
+    ) -> Result<
+        crate::market_data_repair_request::MarketDataRepairRequestReadbackV1,
+        crate::MarketDataRepairPostgresErrorV1,
+    >
+    where
+        P: crate::develop_composer_postgres_v2::DevelopComposerSealedReadPortV2 + ?Sized,
+        M: NativeReplaySchedulingResolverV1 + ?Sized,
+        T: vibe_data::owner::shared_time_evidence::SharedTimeEvidenceResolver + ?Sized,
+    {
+        crate::market_data_repair_request_postgres::compose_market_data_repair_request_v1(
+            &self.pool,
+            request,
+            composer,
+            instrument_master_owner,
+            market_data,
+            shared_time,
+        )
+        .await
+    }
+
+    /// Re-resolves existing Market Data repair request custody without creating a replacement.
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    pub async fn resolve_market_data_repair_request_v1<P, M, T>(
+        &self,
+        request: crate::MarketDataRepairCompositionRequestV1,
+        composer: &P,
+        instrument_master_owner: &InstrumentMasterV2PostgresOwner,
+        market_data: &M,
+        shared_time: &T,
+    ) -> Result<
+        Option<crate::market_data_repair_request::MarketDataRepairRequestReadbackV1>,
+        crate::MarketDataRepairPostgresErrorV1,
+    >
+    where
+        P: crate::develop_composer_postgres_v2::DevelopComposerSealedReadPortV2 + ?Sized,
+        M: NativeReplaySchedulingResolverV1 + ?Sized,
+        T: vibe_data::owner::shared_time_evidence::SharedTimeEvidenceResolver + ?Sized,
+    {
+        crate::market_data_repair_request_postgres::resolve_market_data_repair_request_v1(
+            &self.pool,
+            request,
+            composer,
+            instrument_master_owner,
+            market_data,
+            shared_time,
+        )
+        .await
+    }
+
+    /// Commits the effect-free R&D interpretation of one Owner-sealed Market Data terminal.
+    pub async fn commit_market_data_repair_resolution_v1(
+        &self,
+        resolution: crate::market_data_repair_resolution::MarketDataRepairResearchTerminalV1,
+    ) -> Result<
+        crate::MarketDataRepairResolutionReadbackV1,
+        crate::MarketDataRepairResolutionPostgresErrorV1,
+    > {
+        crate::market_data_repair_resolution_postgres::commit(&self.pool, resolution).await
+    }
+
+    /// Resolves exact existing R&D repair-terminal custody without creating a replacement.
+    pub async fn resolve_market_data_repair_resolution_v1(
+        &self,
+        locator: crate::MarketDataRepairResolutionLocatorV1,
+        expected: crate::market_data_repair_resolution::MarketDataRepairResearchTerminalV1,
+    ) -> Result<
+        Option<crate::MarketDataRepairResolutionReadbackV1>,
+        crate::MarketDataRepairResolutionPostgresErrorV1,
+    > {
+        crate::market_data_repair_resolution_postgres::resolve(&self.pool, locator, expected).await
+    }
+
     /// Uses a canonical `backtest_owner` session to consume only the sealed R&D lock API.
     pub async fn lock_exploratory_replay_request_for_backtest_v1(
         &self,
@@ -1267,6 +1462,41 @@ impl PostgresResearchGoalOwnerV1 {
         Box::pin(crate::exploratory_replay::postgres::commit_v2(
             &self.pool, proposal,
         ))
+        .await
+    }
+
+    /// Freezes the one request-equal Replay V2 successor admitted by a persisted Market Data
+    /// `REPAIRED` resolution. Product Edge admission is retained only as predecessor lineage and
+    /// is not reused as authority for this R&D-owned transition.
+    pub async fn commit_market_data_repaired_replay_request_v2(
+        &self,
+        predecessor: crate::exploratory_replay::SealedExploratoryReplayReadbackV2,
+        resolution: crate::MarketDataRepairResolutionReadbackV1,
+    ) -> Result<ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError> {
+        Box::pin(
+            crate::exploratory_replay::postgres::commit_market_data_repaired_v2(
+                &self.pool,
+                predecessor,
+                resolution,
+            ),
+        )
+        .await
+    }
+
+    /// Resolves exact existing Owner custody by locator and freezes its sole repaired Replay V2
+    /// successor. Callers cannot supply or deserialize a positive repair-resolution terminal.
+    pub async fn commit_market_data_repaired_replay_request_by_locator_v2(
+        &self,
+        predecessor: &crate::exploratory_replay::ExploratoryReplayRequestLocatorV2,
+        resolution: &crate::MarketDataRepairResolutionLocatorV1,
+    ) -> Result<ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError> {
+        Box::pin(
+            crate::exploratory_replay::postgres::commit_market_data_repaired_by_locator_v2(
+                &self.pool,
+                predecessor,
+                resolution,
+            ),
+        )
         .await
     }
 
@@ -1317,6 +1547,122 @@ impl PostgresResearchGoalOwnerV1 {
             .await
             .map_err(|_| crate::BacktestResultCustodyErrorV2::Unavailable)?;
         result
+    }
+
+    /// Resolves an already issued Native Replay execution-input binding from one sealed request.
+    ///
+    /// The R&D pool remains inside this Owner. A caller cannot provide the binding identity,
+    /// constituent locators, resolver, store, or fallback selection.
+    pub async fn resolve_native_replay_execution_input_binding_v1(
+        &self,
+        locator: &ExploratoryReplayRequestLocatorV2,
+    ) -> Result<
+        Option<crate::NativeReplayExecutionInputBindingReadbackV1>,
+        crate::NativeReplayExecutionInputBindingErrorV1,
+    > {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            .execute(&mut *transaction)
+            .await
+            .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
+        let result = crate::native_replay_execution_input_binding_v1::resolve_native_replay_execution_input_binding_for_request_v1_in_transaction(
+            &mut transaction,
+            locator,
+        )
+        .await;
+        transaction
+            .rollback()
+            .await
+            .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
+        result
+    }
+
+    /// Resolves every request-bound Owner input and atomically issues the R&D binding.
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    pub async fn issue_native_replay_execution_input_binding_v1<P, R>(
+        &self,
+        locator: &ExploratoryReplayRequestLocatorV2,
+        composer: &P,
+        instrument_master_owner: &InstrumentMasterV2PostgresOwner,
+        instrument_terms_owner: &InstrumentEconomicTermsPostgresOwnerV1,
+        market_data: &R,
+    ) -> Result<
+        crate::NativeReplayExecutionInputBindingReadbackV1,
+        crate::NativeReplayExecutionInputBindingErrorV1,
+    >
+    where
+        P: crate::develop_composer_postgres_v2::DevelopComposerSealedReadPortV2 + ?Sized,
+        R: NativeReplaySchedulingResolverV1 + ?Sized,
+    {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            .execute(&mut *transaction)
+            .await
+            .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
+        let readback = crate::native_replay_initial_binding_issuance_v1::issue_native_replay_initial_binding_v1_in_transaction(
+            &mut transaction,
+            locator,
+            composer,
+            instrument_master_owner,
+            instrument_terms_owner,
+            market_data,
+        )
+        .await
+        .map_err(|_| crate::NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+        transaction
+            .commit()
+            .await
+            .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
+        Ok(readback)
+    }
+
+    /// Re-resolves one issued binding into the existing native execution capability.
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[allow(clippy::too_many_arguments)]
+    pub async fn resolve_native_replay_execution_bundle_v1<P, R>(
+        &self,
+        locator: &ExploratoryReplayRequestLocatorV2,
+        composer: &P,
+        instrument_master_owner: &InstrumentMasterV2PostgresOwner,
+        instrument_terms_owner: &InstrumentEconomicTermsPostgresOwnerV1,
+        market_data: &R,
+        strategy_id: vibe_model::identifiers::StrategyId,
+        run_id: String,
+    ) -> Result<
+        crate::replay_target_set_execution_bundle_v1::ReplayTargetSetExecutionBundleV1,
+        crate::NativeReplayExecutionInputBindingErrorV1,
+    >
+    where
+        P: crate::develop_composer_postgres_v2::DevelopComposerSealedReadPortV2 + ?Sized,
+        R: NativeReplaySchedulingResolverV1 + ?Sized,
+    {
+        let transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
+        let execution = crate::native_replay_execution_binding_consumer_v1::resolve_native_replay_execution_bundle_v1_in_transaction(
+            transaction,
+            locator,
+            composer,
+            instrument_master_owner,
+            instrument_terms_owner,
+            market_data,
+            strategy_id,
+            run_id,
+        )
+        .await
+        .map_err(|_| crate::NativeReplayExecutionInputBindingErrorV1::Unavailable)?
+        .into_execution();
+        Ok(execution)
     }
 
     pub async fn preflight_request_identity(
@@ -2423,11 +2769,25 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
                 };
                 let commit =
                     decide_rejected_commit_v2(request, digest.clone(), rejection_code, write_cut);
-                sqlx::query("INSERT INTO rd_research_request_receipts_v1 (request_identity, semantic_digest, request_json, receipt_json, intent_json, view_json, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,NULL,NULL,$5)")
+                let (request_json, request_bytes, request_storage_digest) =
+                    research_source_storage(
+                        crate::native_replay_rd_sources_v2::RESEARCH_REQUEST_STORAGE_DOMAIN_V1,
+                        &stored_request,
+                    )?;
+                let (receipt_json, receipt_bytes, receipt_storage_digest) =
+                    research_source_storage(
+                        crate::native_replay_rd_sources_v2::RESEARCH_RECEIPT_STORAGE_DOMAIN_V1,
+                        &commit.receipt,
+                    )?;
+                sqlx::query("INSERT INTO rd_research_request_receipts_v1 (request_identity, semantic_digest, request_json, receipt_json, intent_json, view_json, request_storage_bytes,request_storage_digest,receipt_storage_bytes,receipt_storage_digest,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,NULL,NULL,$5,$6,$7,$8,$9)")
                     .bind(&commit.receipt.request_identity)
                     .bind(&commit.receipt.semantic_digest)
-                    .bind(serde_json::to_value(stored_request).map_err(json_storage)?)
-                    .bind(serde_json::to_value(&commit.receipt).map_err(json_storage)?)
+                    .bind(request_json)
+                    .bind(receipt_json)
+                    .bind(request_bytes)
+                    .bind(request_storage_digest)
+                    .bind(receipt_bytes)
+                    .bind(receipt_storage_digest)
                     .bind(i64::try_from(commit.receipt.committed_at_epoch_ms).map_err(json_storage)?)
                     .execute(&mut *transaction)
                     .await
@@ -2710,18 +3070,30 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             )
             .map_err(|e| trial_family_storage(&e))?,
             replay_execution_policy_v2: None,
+            replay_policy_catalog_v3: None,
+            decision_policy_v1: None,
         };
-        let replay_policy =
-            match resolve_current_for_trial_family_formation(&mut transaction, &canonical_policy)
-                .await
-            {
-                Ok(policy) => policy,
-                Err(_) => {
-                    transaction.rollback().await.map_err(|e| storage(&e))?;
-                    return Ok(unresolved_result_v2(&request_identity));
-                }
-            };
-        canonical_policy.replay_execution_policy_v2 = Some(replay_policy);
+        let replay_policy_catalog_v3 = match resolve_current_v3_for_trial_family_formation(
+            &mut transaction,
+            &canonical_policy,
+        )
+        .await
+        {
+            Ok(policy) => policy,
+            Err(_) => {
+                transaction.rollback().await.map_err(|e| storage(&e))?;
+                return Ok(unresolved_result_v2(&request_identity));
+            }
+        };
+        canonical_policy.replay_execution_policy_v2 =
+            Some(replay_policy_catalog_v3.replay_policy_v2().clone());
+        canonical_policy.decision_policy_v1 = Some(
+            crate::iteration_decision::IterationDecisionPolicyBindingV1::seal(
+                &replay_policy_catalog_v3,
+            )
+            .map_err(|error| trial_family_storage(&error))?,
+        );
+        canonical_policy.replay_policy_catalog_v3 = Some(replay_policy_catalog_v3);
         let stored_request = StoredAdmittedResearchRequestV2 {
             schema_version: 1,
             request: request.clone(),
@@ -2734,7 +3106,11 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             },
             canonical_trial_family_policy: canonical_policy.clone(),
         };
-        let request_json = serde_json::to_value(&stored_request).map_err(json_storage)?;
+        let (request_json, request_storage_bytes, request_storage_digest) =
+            research_source_storage(
+                crate::native_replay_rd_sources_v2::RESEARCH_REQUEST_STORAGE_DOMAIN_V1,
+                &stored_request,
+            )?;
         let commit = decide_commit_v2(
             validated,
             digest.clone(),
@@ -2744,13 +3120,17 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             &final_admission,
             write_cut,
         )?;
-        let receipt_json = serde_json::to_value(&commit.receipt).map_err(json_storage)?;
-        let intent_json = commit
-            .intent
-            .as_ref()
-            .map(serde_json::to_value)
-            .transpose()
-            .map_err(json_storage)?;
+        let (receipt_json, receipt_storage_bytes, receipt_storage_digest) =
+            research_source_storage(
+                crate::native_replay_rd_sources_v2::RESEARCH_RECEIPT_STORAGE_DOMAIN_V1,
+                &commit.receipt,
+            )?;
+        let (intent_json, intent_storage_bytes, intent_storage_digest) = research_source_storage(
+            crate::native_replay_rd_sources_v2::RESEARCH_INTENT_STORAGE_DOMAIN_V1,
+            commit.intent.as_ref().ok_or_else(|| {
+                ResearchGoalOwnerError::Storage("accepted S1 intent missing".to_string())
+            })?,
+        )?;
         let view_json = commit
             .view
             .as_ref()
@@ -2803,7 +3183,7 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             .map(serde_json::to_value)
             .transpose()
             .map_err(json_storage)?;
-        sqlx::query("INSERT INTO rd_research_request_receipts_v1 (request_identity, semantic_digest, request_json, receipt_json, intent_json, view_json, artifact_evidence_digest, artifact_evidence_json, source_ancestry_locator_json, source_ancestry_evidence_digest, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)")
+        sqlx::query("INSERT INTO rd_research_request_receipts_v1 (request_identity, semantic_digest, request_json, receipt_json, intent_json, view_json, artifact_evidence_digest, artifact_evidence_json, source_ancestry_locator_json, source_ancestry_evidence_digest, request_storage_bytes,request_storage_digest,receipt_storage_bytes,receipt_storage_digest,intent_storage_bytes,intent_storage_digest,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)")
             .bind(&commit.receipt.request_identity)
             .bind(&commit.receipt.semantic_digest)
             .bind(request_json)
@@ -2814,6 +3194,12 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             .bind(artifact_evidence_json)
             .bind(source_ancestry_locator_json)
             .bind(source_ancestry_evidence_digest.as_deref())
+            .bind(request_storage_bytes)
+            .bind(request_storage_digest)
+            .bind(receipt_storage_bytes)
+            .bind(receipt_storage_digest)
+            .bind(intent_storage_bytes)
+            .bind(intent_storage_digest)
             .bind(i64::try_from(commit.receipt.committed_at_epoch_ms).map_err(json_storage)?)
             .execute(&mut *transaction)
             .await
@@ -2905,6 +3291,16 @@ fn storage(error: &sqlx::Error) -> ResearchGoalOwnerError {
 
 fn json_storage(error: impl Display) -> ResearchGoalOwnerError {
     ResearchGoalOwnerError::Storage(error.to_string())
+}
+
+fn research_source_storage(
+    domain: &str,
+    value: &impl Serialize,
+) -> Result<(serde_json::Value, Vec<u8>, String), ResearchGoalOwnerError> {
+    let bytes = serde_json::to_vec(value).map_err(json_storage)?;
+    let json = serde_json::from_slice(&bytes).map_err(json_storage)?;
+    let digest = crate::native_replay_rd_sources_v2::owner_storage_digest(domain, &bytes);
+    Ok((json, bytes, digest))
 }
 
 fn trial_family_storage(error: &TrialFamilyError) -> ResearchGoalOwnerError {

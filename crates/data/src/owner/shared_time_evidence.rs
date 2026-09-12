@@ -28,6 +28,7 @@ const EPOCH_PROOF_IDENTITY_DOMAIN: &[u8] = b"vibe.market-data.shared-time.epoch-
 
 /// Untrusted content-addressed clock-head locator.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct UntrustedClockHeadLocator {
     head_identity: BindingDigest,
     head_digest: BindingDigest,

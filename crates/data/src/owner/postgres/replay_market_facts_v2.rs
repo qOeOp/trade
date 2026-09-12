@@ -12,8 +12,8 @@ use crate::owner::replay_market_facts_v2::{
     ReplayCompositionLocatorOnlyIssuanceRequestV1, ReplayCompositionOwnerV1,
     ReplayCorporateActionTermsV2, ReplayMarketDependencyKindV2, ReplayMarketDependencyRefV2,
     ReplayPriceAdjustmentV2, ReplayReferenceFactKindV2, ReplayReferenceFactTimeV2,
-    ReplayReferenceFactValueV2, ReplayTimestampBasisV2, UntrustedComposerNativeJoinRequestV1,
-    UntrustedReplayMarketFactsCompositionRequestV1,
+    ReplayReferenceFactValueV2, ReplayTimestampBasisV2, ResolvedReplayCompositionCutV1,
+    UntrustedComposerNativeJoinRequestV1, UntrustedReplayMarketFactsCompositionRequestV1,
     authority::{
         ReplayMarketFactsEvidenceV2, ReplayNativeChainEvidenceV2, ReplayReferenceFactCutProposalV2,
         ReplayReferenceFactProposalV2, ReplayReferenceFactScopeProposalV2,
@@ -27,6 +27,7 @@ use crate::owner::replay_market_facts_v2::{
     postgres::{
         PreparedReplayMarketFactsStorageV2, persist_replay_composition_binding_in_transaction_v1,
         persist_replay_market_facts_in_transaction_v2,
+        recover_bound_replay_market_facts_readback_in_transaction_v2,
         recover_replay_composition_binding_in_transaction_v1,
         recover_replay_market_facts_by_binding_in_transaction_v2,
     },
@@ -894,6 +895,7 @@ impl ReplayCompositionOwnerV1 {
             super::observation_census::load_strategy_input_joined_cut_custody_v1(
                 &mut transaction,
                 &joined_locator,
+                super::observation_census::ObservationCensusReadModeV1::LockRows,
             )
             .await
             .map_err(|_| ReplayCompositionBindingErrorV1::IncompleteComposition)?
@@ -1083,6 +1085,89 @@ impl ReplayCompositionOwnerV1 {
             &replay.facts_bytes,
             &replay.frontier_bytes,
             &replay.receipt_bytes,
+        ))
+    }
+
+    /// Recovers one exact binding, typed Replay facts, and Instrument Master cut from Owner custody.
+    ///
+    /// The binding identity is the only lookup coordinate. Market Data recovers the bound PIT
+    /// aggregate, reuses its original complete locator, and reissues the typed readback from the
+    /// byte-identical durable facts inside one transaction.
+    pub async fn resolve_bound_replay_cut_v1(
+        &self,
+        locator: ReplayCompositionBindingLocatorV1,
+    ) -> Result<ResolvedReplayCompositionCutV1, ReplayCompositionBindingErrorV1> {
+        let mut transaction = self
+            .owner
+            .pool
+            .begin()
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+        let binding =
+            recover_replay_composition_binding_in_transaction_v1(&mut transaction, locator)
+                .await
+                .map_err(|_| ReplayCompositionBindingErrorV1::UnknownBinding)?;
+        let record = binding.record();
+        let pit = record
+            .native_locator(ReplayCompositionNativeLocatorKindV1::PitSnapshot)
+            .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
+        let instrument = record
+            .native_locator(ReplayCompositionNativeLocatorKindV1::InstrumentMaster)
+            .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
+        let aggregate = super::load_pit_for_update(&mut transaction, pit.identity, false)
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?
+            .ok_or(ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+        let pit_locator = aggregate.receipt().locator().clone();
+        if pit.digest != pit_locator.fact_digest
+            || record.replay_request_identity() != pit_locator.request_identity
+            || record.replay_request_digest() != pit_locator.request_digest
+        {
+            return Err(ReplayCompositionBindingErrorV1::DigestMismatch);
+        }
+        let request =
+            super::super::replay_market_facts_v2::UntrustedReplayMarketFactsRequestV2::new(
+                pit_locator,
+                record.replay_start_event_ns(),
+                record.replay_end_event_ns_exclusive(),
+            );
+        let market_facts = recover_bound_replay_market_facts_readback_in_transaction_v2(
+            &mut transaction,
+            &request,
+            *locator.binding_identity().as_bytes(),
+        )
+        .await
+        .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+        let instrument_row = sqlx::query(
+            "SELECT request_identity FROM market_data_private.instrument_master_cuts_v1 WHERE cut_identity=$1",
+        )
+        .bind(instrument.identity.as_bytes().as_slice())
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?
+        .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
+        let instrument_request_identity = digest_column(&instrument_row, "request_identity")?;
+        let instrument_master = super::load_durable_instrument_readback(
+            &mut transaction,
+            instrument_request_identity,
+            false,
+        )
+        .await
+        .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?
+        .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
+        if instrument_master.cut().identity() != instrument.identity
+            || instrument_master.cut().digest() != instrument.digest
+        {
+            return Err(ReplayCompositionBindingErrorV1::DigestMismatch);
+        }
+        transaction
+            .commit()
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+        Ok(ResolvedReplayCompositionCutV1::from_owner_resolution(
+            binding,
+            market_facts,
+            instrument_master,
         ))
     }
 

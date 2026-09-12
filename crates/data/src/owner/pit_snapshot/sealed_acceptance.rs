@@ -33,6 +33,10 @@ use super::{
     },
 };
 use crate::owner::{
+    native_replay_scheduling_v1::{
+        MarketDataRepairSourceV1, market_data_repair_source_from_verified_batch,
+    },
+    shared_time_evidence::{ClockHeadHandoff, build_head_fact},
     source_binding::{
         BindingDigest, MarketDataClockAdmission, SourceBindingError, UntrustedAdapterBinding,
         UntrustedCompleteFrontier, UntrustedCredentialAudienceClaim,
@@ -162,6 +166,28 @@ pub struct SealedAcceptanceExactInstrumentBarFrame {
     frame: StrategyInputEventFrameReceipt,
     bindings: Box<[StrategyInputBindingReceipt]>,
     role_bindings: Box<[SealedAcceptanceStrategyInputRoleBinding]>,
+}
+
+/// Closed, renewable Owner evidence used only by the Market Data repair PostgreSQL acceptance.
+///
+/// The fixture accepts no caller-authored fact or clock. Each projection consumes a fresh clone of
+/// the same Owner-verified batch, so retry admission cannot reuse a previously consumed positive.
+#[derive(Clone, Debug)]
+pub struct SealedAcceptanceMarketDataRepairEvidenceV1 {
+    batch: super::VerifiedPitObservationBatch,
+    shared_time: ClockHeadHandoff,
+}
+
+impl SealedAcceptanceMarketDataRepairEvidenceV1 {
+    #[must_use]
+    pub fn source(&self) -> MarketDataRepairSourceV1 {
+        market_data_repair_source_from_verified_batch(self.batch.clone())
+    }
+
+    #[must_use]
+    pub fn shared_time(&self) -> ClockHeadHandoff {
+        self.shared_time.clone()
+    }
 }
 
 impl SealedAcceptanceExactInstrumentBarFrame {
@@ -423,6 +449,63 @@ pub fn issue_strategy_input_exact_instrument_bar_frame()
         bindings: bindings.into_boxed_slice(),
         role_bindings,
     })
+}
+
+/// Issues one fixed Market Data defect source and a strictly newer Shared Time head.
+///
+/// This acceptance-only function performs no PostgreSQL, provider, network, or trading effect and
+/// accepts no request field from its caller.
+pub fn issue_market_data_repair_evidence_v1()
+-> Result<SealedAcceptanceMarketDataRepairEvidenceV1, SealedAcceptanceError> {
+    let source_clock = clock();
+    let source_owner = TestOnlyInMemorySourceBindingOwner::default();
+    let source = source_owner.commit_initial(
+        source_proposal(),
+        OwnerSourceBindingDecision {
+            blockers: BTreeSet::new(),
+        },
+        &source_clock,
+    )?;
+    let mut snapshot = snapshot_proposal(source.receipt().locator());
+    let observations = observation_proposal(&snapshot);
+    snapshot.evidence.normalized_records_digest = derive_observation_batch_digest(&observations)?;
+    let prepared = prepare_observation_batch(&snapshot, &observations)?;
+    let basis = TestOnlyCanonicalBasisResolver::seal_for_test(
+        snapshot.request.clone(),
+        snapshot.evidence.clone(),
+        source_clock,
+    );
+    let aggregate = TestOnlyPitSnapshotOwner::default().commit_initial(
+        snapshot,
+        &basis,
+        &source_owner,
+        &clock(),
+    )?;
+    let native_rows = prepared.native_rows()?;
+    let batch = verify_observation_batch(
+        &aggregate,
+        aggregate.fact().source_binding_identity(),
+        aggregate.fact().source_binding_lineage_root(),
+        aggregate.fact().source_binding_lineage_version(),
+        prepared.digest(),
+        prepared.bytes(),
+        &native_rows,
+    )?;
+    let current_clock = MarketDataClockAdmission::seal_for_test(
+        CLOCK_IDENTITY,
+        CLOCK_EPOCH,
+        2,
+        DECISION_CUT + 10,
+        DECISION_CUT + 10,
+        u64::MAX,
+        digest_byte(7),
+        1,
+        2,
+    );
+    let shared_time = build_head_fact(&current_clock, None)
+        .map_err(|_| PitSnapshotError::TrustedClockMismatch)?
+        .handoff;
+    Ok(SealedAcceptanceMarketDataRepairEvidenceV1 { batch, shared_time })
 }
 
 fn digest_byte(value: u8) -> BindingDigest {

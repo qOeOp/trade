@@ -36,7 +36,14 @@ use super::{
 };
 use crate::{
     artifact_v2::{StrategyArtifactV2, StrategyArtifactV2Error},
-    cargo_artifact::{PluginCargoBuildEvidenceV2, VerifiedPluginCargoBuildV2},
+    bounded_feature_program_v1::{
+        BOUNDED_FEATURE_NUMERIC_FAILURE_V1, OWNER_SAMPLE_COORDINATE_SOURCE_V1,
+    },
+    cargo_artifact::{
+        PluginCargoBuildEvidenceV2, PluginCargoBuildEvidenceV3, VerifiedPluginCargoBuildV2,
+        VerifiedPluginCargoBuildV3,
+    },
+    plugin_wire_v2::PLUGIN_FRAME_ABI_V3,
     program_host_backtest_v2::{BacktestProgramHostStrategyV2, BacktestProgramHostTraceV2},
     program_host_v2_backtest_tests::stateful_plugin_module,
     program_host_v2_tests::hold_plugin_module,
@@ -46,8 +53,9 @@ use crate::{
     },
     strategy_plan_v2::{
         StrategyCompilationV2, StrategyDesignPreparationV2, StrategyPlanV2,
-        compile_strategy_design_v2, issue_plugin_implementation_receipt_v2_for_test,
-        prepare_strategy_design_v2, strategy_input_role_identity_v2,
+        compile_strategy_design_v2, compile_with_binding_and_implementation_receipts_for_test,
+        issue_plugin_implementation_receipt_v2_for_test, prepare_strategy_design_v2,
+        strategy_input_role_identity_v2,
     },
 };
 
@@ -55,6 +63,12 @@ const AAPL_OPEN: &str = "research.input.open.v1";
 const AAPL_CLOSE: &str = "research.input.close.v1";
 const MSFT_HOUR_CLOSE: &str = "research.input.msft-hour-close.v1";
 const QQQ_DAY_CLOSE: &str = "research.input.qqq-day-close.v1";
+pub(crate) const BAR_MINUTE_OPEN: &str = "minute-open";
+pub(crate) const BAR_MINUTE_HIGH: &str = "minute-high";
+pub(crate) const BAR_MINUTE_LOW: &str = "minute-low";
+pub(crate) const BAR_MINUTE_CLOSE: &str = "minute-close";
+pub(crate) const BAR_HOUR_CLOSE: &str = "hour-close";
+pub(crate) const BAR_SESSION_DAY_CLOSE: &str = "exchange-session-day-close";
 
 #[rstest]
 fn exact_owner_coordinate_evidence_changes_the_admitted_event_identity() {
@@ -67,7 +81,7 @@ fn exact_owner_coordinate_evidence_changes_the_admitted_event_identity() {
         canonical: coordinate,
         projection_receipt_digest: BindingDigest::from_untrusted_bytes([101; 32]),
         projection_subject_identity: joined.digest(),
-        schedule_dependency_set_digest: BindingDigest::from_untrusted_bytes([102; 32]),
+        schedule_dependency_set_digest: Some(BindingDigest::from_untrusted_bytes([102; 32])),
         timeframe_projection_digest: BindingDigest::from_untrusted_bytes([103; 32]),
         sample_identity: BindingDigest::from_untrusted_bytes([104; 32]),
         sample_receipt_digest: BindingDigest::from_untrusted_bytes([105; 32]),
@@ -477,13 +491,184 @@ fn event_corpus_design() -> crate::strategy_design_v2::StrategyDesignV2 {
     design
 }
 
-fn joined_plan_and_artifact(
+pub(crate) fn joined_plan_and_artifact(
     design: crate::strategy_design_v2::StrategyDesignV2,
     bindings: &[StrategyInputBindingReceipt],
 ) -> (StrategyPlanV2, StrategyArtifactV2) {
     let manifest = &design.plugins[0];
-    let wasm = stateful_plugin_module(manifest).expect("bounded stateful plugin module");
+    let wasm = if manifest.abi_version == 3 {
+        hold_plugin_module(manifest).expect("bounded HOLD ABI3 plugin module")
+    } else {
+        stateful_plugin_module(manifest).expect("bounded stateful plugin module")
+    };
     plan_and_artifact(design, bindings, wasm)
+}
+
+pub(crate) fn six_role_bar_design() -> crate::strategy_design_v2::StrategyDesignV2 {
+    let mut design = joined_design();
+    for input in &mut design.inputs {
+        let (semantic_id, instrument, timeframe, field_semantic_id) =
+            match input.semantic_id.as_str() {
+                AAPL_OPEN => (
+                    BAR_MINUTE_OPEN,
+                    "AAPL",
+                    "1M",
+                    "MARKET_DATA.BAR.OPEN.PRICE.V1",
+                ),
+                AAPL_CLOSE => (
+                    BAR_MINUTE_CLOSE,
+                    "AAPL",
+                    "1M",
+                    "MARKET_DATA.BAR.CLOSE.PRICE.V1",
+                ),
+                MSFT_HOUR_CLOSE => (
+                    BAR_HOUR_CLOSE,
+                    "AAPL",
+                    "1H",
+                    "MARKET_DATA.BAR.CLOSE.PRICE.V1",
+                ),
+                QQQ_DAY_CLOSE => (
+                    BAR_SESSION_DAY_CLOSE,
+                    "AAPL",
+                    "1D",
+                    "MARKET_DATA.BAR.CLOSE.PRICE.V1",
+                ),
+                other => panic!("unexpected joined BAR role {other}"),
+            };
+        input.semantic_id = semantic_id.into();
+        input.instrument = instrument.into();
+        input.timeframe = timeframe.into();
+        input.field_semantic_id = field_semantic_id.into();
+    }
+    let minute_open = design
+        .inputs
+        .iter()
+        .find(|input| input.semantic_id == BAR_MINUTE_OPEN)
+        .expect("minute OPEN role")
+        .clone();
+    let mut minute_high = minute_open.clone();
+    minute_high.semantic_id = BAR_MINUTE_HIGH.into();
+    minute_high.field_semantic_id = "MARKET_DATA.BAR.HIGH.PRICE.V1".into();
+    let mut minute_low = minute_open;
+    minute_low.semantic_id = BAR_MINUTE_LOW.into();
+    minute_low.field_semantic_id = "MARKET_DATA.BAR.LOW.PRICE.V1".into();
+    design.inputs.extend([minute_high, minute_low]);
+    design.joins = vec![InputJoinV2 {
+        semantic_id: "replay-composition-six-role-v1".into(),
+        inputs: [
+            BAR_MINUTE_OPEN,
+            BAR_MINUTE_HIGH,
+            BAR_MINUTE_LOW,
+            BAR_MINUTE_CLOSE,
+            BAR_HOUR_CLOSE,
+            BAR_SESSION_DAY_CLOSE,
+        ]
+        .map(str::to_owned)
+        .to_vec(),
+        alignment_semantic_id: INPUT_JOIN_LATEST_NOT_AFTER_TRIGGER_V1.into(),
+        trigger_input_id: BAR_MINUTE_CLOSE.into(),
+        max_staleness_ns: 1,
+    }];
+    design.resources.max_inputs = 6;
+    design
+        .parameters
+        .retain(|parameter| parameter.semantic_id != "research.parameter.timer-close.v1");
+    design.plugins[0].abi_version = PLUGIN_FRAME_ABI_V3;
+    design.plugins[0].failure_semantic_id = BOUNDED_FEATURE_NUMERIC_FAILURE_V1.into();
+    design.plugins[0].input_ports.extend([
+        PortContractV2 {
+            semantic_id: "input.minute-high.v1".into(),
+            value_type: ValueTypeV2::I128,
+            max_bytes: 16,
+        },
+        PortContractV2 {
+            semantic_id: "input.minute-low.v1".into(),
+            value_type: ValueTypeV2::I128,
+            max_bytes: 16,
+        },
+    ]);
+    let coordinate_roles = design
+        .inputs
+        .iter()
+        .map(|input| {
+            let role_identity = strategy_input_role_identity_v2(input);
+            (
+                input.semantic_id.clone(),
+                owner_sample_coordinate_port_id(role_identity),
+            )
+        })
+        .collect::<Vec<_>>();
+    design.plugins[0]
+        .input_ports
+        .extend(coordinate_roles.iter().map(|(_, port_id)| PortContractV2 {
+            semantic_id: port_id.clone(),
+            value_type: ValueTypeV2::Bytes,
+            max_bytes: 308,
+        }));
+    for reaction in &mut design.reactions {
+        if reaction.kind != LifecycleKindV2::Bar {
+            reaction.nodes.clear();
+            reaction.state_writes.clear();
+            reaction.proposal = None;
+            continue;
+        }
+        for node in &mut reaction.nodes {
+            for binding in &mut node.input_bindings {
+                if let ValueRefV2::Input { input_id } = &mut binding.source {
+                    *input_id = match input_id.as_str() {
+                        AAPL_OPEN => BAR_MINUTE_OPEN,
+                        AAPL_CLOSE => BAR_MINUTE_CLOSE,
+                        MSFT_HOUR_CLOSE => BAR_HOUR_CLOSE,
+                        QQQ_DAY_CLOSE => BAR_SESSION_DAY_CLOSE,
+                        other => panic!("unexpected joined BAR node input {other}"),
+                    }
+                    .into();
+                }
+            }
+            let minute_high = if reaction.kind == LifecycleKindV2::Bar {
+                ValueRefV2::Input {
+                    input_id: BAR_MINUTE_HIGH.into(),
+                }
+            } else {
+                timer_price()
+            };
+            let minute_low = if reaction.kind == LifecycleKindV2::Bar {
+                ValueRefV2::Input {
+                    input_id: BAR_MINUTE_LOW.into(),
+                }
+            } else {
+                timer_price()
+            };
+            node.input_bindings.extend([
+                PortBindingV2 {
+                    port_id: "input.minute-high.v1".into(),
+                    source: minute_high,
+                },
+                PortBindingV2 {
+                    port_id: "input.minute-low.v1".into(),
+                    source: minute_low,
+                },
+            ]);
+            node.input_bindings
+                .extend(
+                    coordinate_roles
+                        .iter()
+                        .map(|(input_id, port_id)| PortBindingV2 {
+                            port_id: port_id.clone(),
+                            source: ValueRefV2::OwnerSampleCoordinate {
+                                input_id: input_id.clone(),
+                                source_semantic_id: format!(
+                                    "{OWNER_SAMPLE_COORDINATE_SOURCE_V1}({input_id})"
+                                ),
+                            },
+                        }),
+                );
+            node.input_bindings.sort();
+        }
+    }
+    design.inputs.sort();
+    design.plugins[0].input_ports.sort();
+    design
 }
 
 fn plan_and_artifact(
@@ -492,6 +677,42 @@ fn plan_and_artifact(
     wasm: Vec<u8>,
 ) -> (StrategyPlanV2, StrategyArtifactV2) {
     let manifest = &design.plugins[0];
+    if manifest.abi_version == PLUGIN_FRAME_ABI_V3 {
+        let build = VerifiedPluginCargoBuildV3::verify(
+            manifest,
+            PluginCargoBuildEvidenceV3 {
+                wasm_one: &wasm,
+                wasm_two: &wasm,
+                capsule_digest: BindingDigest::from_untrusted_bytes([31; 32]),
+                source_set_digest: BindingDigest::from_untrusted_bytes([41; 32]),
+                verified_build_receipt_digest: BindingDigest::from_untrusted_bytes([51; 32]),
+                max_wasm_bytes: u32::try_from(wasm.len()).expect("bounded fixture module"),
+            },
+        )
+        .expect("repeat-equal ABI3 plugin build");
+        let receipt = issue_plugin_implementation_receipt_v2_for_test(
+            manifest,
+            build.capsule_digest(),
+            build.source_set_digest(),
+            build.module_digest(),
+            build.verified_build_receipt_digest(),
+            "strategy.plugin.compute.v2",
+            manifest.abi_version,
+            manifest
+                .capability_ids
+                .iter()
+                .map(|id| (id.clone(), 1))
+                .collect(),
+        );
+        let plan = match compile_strategy_design_v2(design, bindings, &[receipt]) {
+            StrategyCompilationV2::Compiled(plan) => plan,
+            other => panic!("exact Owner-bound ABI3 joined design compiles: {other:?}"),
+        };
+        let artifact = StrategyArtifactV2::issue_versioned(&plan, vec![build.into()])
+            .map_err(|error: StrategyArtifactV2Error| error.to_string())
+            .expect("joined ABI3 strategy artifact");
+        return (*plan, artifact);
+    }
     let build = VerifiedPluginCargoBuildV2::verify(
         manifest,
         PluginCargoBuildEvidenceV2 {
@@ -524,6 +745,63 @@ fn plan_and_artifact(
     let artifact = StrategyArtifactV2::issue(&plan, vec![build])
         .map_err(|error: StrategyArtifactV2Error| error.to_string())
         .expect("joined strategy artifact");
+    (*plan, artifact)
+}
+
+#[rstest]
+fn six_role_bar_plan_carries_every_bfp_value_coordinate_pair() {
+    let design = six_role_bar_design();
+    let expected_role_binding_count = design.inputs.len() * 2;
+    let bindings = crate::strategy_design_v2_tests::bindings(&design);
+    let (plan, artifact) = bfp_plan_and_artifact_with_projections(design, bindings);
+
+    assert_eq!(plan.bfp_role_bindings().len(), expected_role_binding_count);
+    ProgramHostV2::new(plan, artifact).expect("six-role ABI3 plan reaches ProgramHost");
+}
+
+fn bfp_plan_and_artifact_with_projections(
+    design: crate::strategy_design_v2::StrategyDesignV2,
+    bindings: Vec<(crate::strategy_design_v2::InputRoleV2, BindingDigest)>,
+) -> (StrategyPlanV2, StrategyArtifactV2) {
+    let manifest = &design.plugins[0];
+    let wasm = hold_plugin_module(manifest).expect("bounded HOLD ABI3 plugin module");
+    let build = VerifiedPluginCargoBuildV3::verify(
+        manifest,
+        PluginCargoBuildEvidenceV3 {
+            wasm_one: &wasm,
+            wasm_two: &wasm,
+            capsule_digest: BindingDigest::from_untrusted_bytes([31; 32]),
+            source_set_digest: BindingDigest::from_untrusted_bytes([41; 32]),
+            verified_build_receipt_digest: BindingDigest::from_untrusted_bytes([51; 32]),
+            max_wasm_bytes: u32::try_from(wasm.len()).expect("bounded fixture module"),
+        },
+    )
+    .expect("repeat-equal ABI3 plugin build");
+    let receipt = issue_plugin_implementation_receipt_v2_for_test(
+        manifest,
+        build.capsule_digest(),
+        build.source_set_digest(),
+        build.module_digest(),
+        build.verified_build_receipt_digest(),
+        "strategy.plugin.compute.v2",
+        manifest.abi_version,
+        manifest
+            .capability_ids
+            .iter()
+            .map(|id| (id.clone(), 1))
+            .collect(),
+    );
+    let plan = match compile_with_binding_and_implementation_receipts_for_test(
+        design,
+        bindings,
+        vec![receipt],
+    ) {
+        StrategyCompilationV2::Compiled(plan) => plan,
+        other => panic!("six-role ABI3 fixture compiles: {other:?}"),
+    };
+    let artifact = StrategyArtifactV2::issue_versioned(&plan, vec![build.into()])
+        .map_err(|error: StrategyArtifactV2Error| error.to_string())
+        .expect("six-role ABI3 strategy artifact");
     (*plan, artifact)
 }
 
@@ -653,4 +931,13 @@ fn timer_price() -> ValueRefV2 {
     ValueRefV2::Parameter {
         parameter_id: "research.parameter.timer-close.v1".into(),
     }
+}
+
+fn owner_sample_coordinate_port_id(input_role_identity: BindingDigest) -> String {
+    let mut value = String::from("strategy.input.sample-coordinate.v1.");
+    for byte in input_role_identity.as_bytes() {
+        use std::fmt::Write as _;
+        write!(&mut value, "{byte:02x}").expect("writing lowercase hex to String is infallible");
+    }
+    value
 }

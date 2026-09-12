@@ -41,6 +41,14 @@ use super::source_binding::BindingDigest;
 const FACT_SCHEMA_VERSION_V2: u16 = 2;
 const FACT_RESERVED_V2: u16 = 0;
 const FACT_DOMAIN_V2: &[u8] = b"VIBE_INSTRUMENT_MASTER_PUBLIC_FACT_V2";
+const CUT_DOMAIN_V2: &[u8] = b"VIBE_INSTRUMENT_MASTER_PUBLIC_CUT_V2";
+const RECEIPT_DOMAIN_V2: &[u8] = b"VIBE_INSTRUMENT_MASTER_PUBLIC_RECEIPT_V2";
+const OUTBOX_DOMAIN_V2: &[u8] = b"VIBE_INSTRUMENT_MASTER_PUBLIC_OUTBOX_V2";
+const REQUEST_BINDING_DOMAIN_V2: &[u8] = b"VIBE_INSTRUMENT_MASTER_PUBLIC_REQUEST_BINDING_V2";
+pub const BACKTEST_OWNER_ROLE_V1: &str = "BACKTEST_OWNER_V1";
+const NATIVE_REPLAY_REQUEST_DOMAIN_V2: &[u8] =
+    b"market-data.instrument-master-v2.native-replay-request.v1\0";
+const MAX_R_AND_D_REQUEST_IDENTITY_BYTES_V2: usize = 512;
 const MAX_CANONICAL_BYTES_V2: usize = 64 * 1024;
 const MAX_TEXT_BYTES_V2: usize = 1024;
 
@@ -479,6 +487,10 @@ impl InstrumentMasterFactV2 {
             })
     }
 
+    pub(crate) fn owner_observation_time_ns(&self) -> i128 {
+        self.latest_owner_observation_time_ns()
+    }
+
     fn latest_event_time_ns(&self) -> i128 {
         self.latest_delta
             .as_ref()
@@ -615,6 +627,491 @@ impl InstrumentMasterFactV2 {
             ts_init,
         })
     }
+}
+
+/// R&D-owned identity and decision cut. It carries no symbols, fact bytes, digests, ordering, or
+/// storage capability; those are resolved by Market Data from the sealed Universe Selection.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InstrumentMasterCutRequestV2 {
+    request_identity: BindingDigest,
+    decision_cut: u64,
+}
+
+impl InstrumentMasterCutRequestV2 {
+    #[must_use]
+    pub const fn new(request_identity: BindingDigest, decision_cut: u64) -> Self {
+        Self {
+            request_identity,
+            decision_cut,
+        }
+    }
+
+    /// Derives the fixed Market Data request coordinate from one sealed R&D Replay identity.
+    ///
+    /// The operation caller supplies no digest, symbol, member order, or latest selector.
+    pub fn for_native_replay_request(
+        request_identity: &str,
+        decision_cut: u64,
+    ) -> Result<Self, InstrumentMasterCustodyErrorV2> {
+        Ok(Self::new(
+            native_replay_request_identity_v2(request_identity)?,
+            decision_cut,
+        ))
+    }
+
+    #[must_use]
+    pub const fn request_identity(&self) -> BindingDigest {
+        self.request_identity
+    }
+
+    #[must_use]
+    pub const fn decision_cut(&self) -> u64 {
+        self.decision_cut
+    }
+
+    pub(crate) fn validate(self) -> Result<(), InstrumentMasterCustodyErrorV2> {
+        if is_zero(self.request_identity) || self.decision_cut == 0 {
+            Err(InstrumentMasterCustodyErrorV2::InvalidRequest)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// Maps one canonical sealed R&D Replay identity into the fixed Market Data V2 request key.
+pub fn native_replay_request_identity_v2(
+    request_identity: &str,
+) -> Result<BindingDigest, InstrumentMasterCustodyErrorV2> {
+    if request_identity.is_empty()
+        || request_identity.trim() != request_identity
+        || request_identity.len() > MAX_R_AND_D_REQUEST_IDENTITY_BYTES_V2
+    {
+        return Err(InstrumentMasterCustodyErrorV2::InvalidRequest);
+    }
+    let mut bytes = Vec::with_capacity(4 + request_identity.len());
+    bytes.extend_from_slice(
+        &u32::try_from(request_identity.len())
+            .map_err(|_| InstrumentMasterCustodyErrorV2::InvalidRequest)?
+            .to_be_bytes(),
+    );
+    bytes.extend_from_slice(request_identity.as_bytes());
+    Ok(digest(NATIVE_REPLAY_REQUEST_DOMAIN_V2, &bytes))
+}
+
+/// One canonical member of the fixed two-instrument cut.
+#[derive(Debug, Eq, PartialEq)]
+pub struct InstrumentMasterCutMemberV2 {
+    fact: InstrumentMasterFactV2,
+}
+
+impl InstrumentMasterCutMemberV2 {
+    #[must_use]
+    pub const fn fact(&self) -> &InstrumentMasterFactV2 {
+        &self.fact
+    }
+}
+
+/// Immutable, content-addressed exactly-two-member public V2 cut.
+#[derive(Debug, Eq, PartialEq)]
+pub struct InstrumentMasterCutV2 {
+    request_identity: BindingDigest,
+    request_binding_digest: BindingDigest,
+    decision_cut: u64,
+    universe_selection_identity: BindingDigest,
+    universe_selection_receipt_identity: BindingDigest,
+    universe_selection_outbox_identity: BindingDigest,
+    members: [InstrumentMasterCutMemberV2; 2],
+    canonical_bytes: Vec<u8>,
+    identity: BindingDigest,
+}
+
+impl InstrumentMasterCutV2 {
+    #[must_use]
+    pub const fn request_identity(&self) -> BindingDigest {
+        self.request_identity
+    }
+
+    #[must_use]
+    pub const fn request_binding_digest(&self) -> BindingDigest {
+        self.request_binding_digest
+    }
+
+    #[must_use]
+    pub const fn decision_cut(&self) -> u64 {
+        self.decision_cut
+    }
+
+    #[must_use]
+    pub const fn universe_selection_identity(&self) -> BindingDigest {
+        self.universe_selection_identity
+    }
+
+    #[must_use]
+    pub const fn universe_selection_receipt_identity(&self) -> BindingDigest {
+        self.universe_selection_receipt_identity
+    }
+
+    #[must_use]
+    pub const fn universe_selection_outbox_identity(&self) -> BindingDigest {
+        self.universe_selection_outbox_identity
+    }
+
+    #[must_use]
+    pub const fn members(&self) -> &[InstrumentMasterCutMemberV2; 2] {
+        &self.members
+    }
+
+    #[must_use]
+    pub fn canonical_bytes(&self) -> &[u8] {
+        &self.canonical_bytes
+    }
+
+    #[must_use]
+    pub const fn identity(&self) -> BindingDigest {
+        self.identity
+    }
+
+    pub(crate) fn issue(
+        request: InstrumentMasterCutRequestV2,
+        universe_selection_identity: BindingDigest,
+        universe_selection_receipt_identity: BindingDigest,
+        universe_selection_outbox_identity: BindingDigest,
+        mut facts: [InstrumentMasterFactV2; 2],
+    ) -> Result<Self, InstrumentMasterCustodyErrorV2> {
+        request.validate()?;
+        if [
+            universe_selection_identity,
+            universe_selection_receipt_identity,
+            universe_selection_outbox_identity,
+        ]
+        .into_iter()
+        .any(is_zero)
+        {
+            return Err(InstrumentMasterCustodyErrorV2::InvalidUniverseSelection);
+        }
+        facts.sort_by(|left, right| left.canonical_identity().cmp(right.canonical_identity()));
+        if facts[0].canonical_identity() == facts[1].canonical_identity()
+            || facts
+                .iter()
+                .any(|fact| fact.instrument_class() != PublicInstrumentClassV2::CryptoPerpetual)
+        {
+            return Err(InstrumentMasterCustodyErrorV2::InvalidUniverseSelection);
+        }
+        let request_binding_digest = request_binding_digest_v2(
+            request,
+            universe_selection_identity,
+            universe_selection_receipt_identity,
+            universe_selection_outbox_identity,
+        );
+        let mut encoder = Encoder::default();
+        encoder.u16(FACT_SCHEMA_VERSION_V2);
+        encoder
+            .string(BACKTEST_OWNER_ROLE_V1)
+            .map_err(custody_codec)?;
+        encoder.digest(request.request_identity);
+        encoder.digest(request_binding_digest);
+        encoder.u64(request.decision_cut);
+        encoder.digest(universe_selection_identity);
+        encoder.digest(universe_selection_receipt_identity);
+        encoder.digest(universe_selection_outbox_identity);
+        encoder.u32(2);
+        for fact in &facts {
+            encoder
+                .string(fact.canonical_identity())
+                .map_err(custody_codec)?;
+            encoder.digest(fact.identity());
+            encoder
+                .bytes(fact.canonical_bytes())
+                .map_err(custody_codec)?;
+        }
+        let canonical_bytes = encoder.finish();
+        let identity = digest(CUT_DOMAIN_V2, &canonical_bytes);
+        Ok(Self {
+            request_identity: request.request_identity,
+            request_binding_digest,
+            decision_cut: request.decision_cut,
+            universe_selection_identity,
+            universe_selection_receipt_identity,
+            universe_selection_outbox_identity,
+            members: facts.map(|fact| InstrumentMasterCutMemberV2 { fact }),
+            canonical_bytes,
+            identity,
+        })
+    }
+
+    pub(crate) fn parse_with_facts(
+        bytes: &[u8],
+        facts: [InstrumentMasterFactV2; 2],
+    ) -> Result<Self, InstrumentMasterCustodyErrorV2> {
+        let mut decoder = Decoder::new(bytes);
+        if decoder.u16().map_err(custody_codec)? != FACT_SCHEMA_VERSION_V2
+            || decoder.string().map_err(custody_codec)? != BACKTEST_OWNER_ROLE_V1
+        {
+            return Err(InstrumentMasterCustodyErrorV2::CodecMismatch);
+        }
+        let request_identity = decoder.digest().map_err(custody_codec)?;
+        let request_binding_digest = decoder.digest().map_err(custody_codec)?;
+        let decision_cut = decoder.u64().map_err(custody_codec)?;
+        let universe_selection_identity = decoder.digest().map_err(custody_codec)?;
+        let universe_selection_receipt_identity = decoder.digest().map_err(custody_codec)?;
+        let universe_selection_outbox_identity = decoder.digest().map_err(custody_codec)?;
+        if decoder.u32().map_err(custody_codec)? != 2 {
+            return Err(InstrumentMasterCustodyErrorV2::CodecMismatch);
+        }
+        let mut encoded_members = Vec::with_capacity(2);
+        for _ in 0..2 {
+            let canonical_identity = decoder.string().map_err(custody_codec)?;
+            let identity = decoder.digest().map_err(custody_codec)?;
+            let fact_bytes = decoder.bytes().map_err(custody_codec)?;
+            encoded_members.push((canonical_identity, identity, fact_bytes));
+        }
+        decoder.finish().map_err(custody_codec)?;
+        for ((canonical_identity, identity, fact_bytes), fact) in
+            encoded_members.iter().zip(facts.iter())
+        {
+            if fact.canonical_identity() != canonical_identity
+                || fact.identity() != *identity
+                || fact.canonical_bytes() != fact_bytes
+            {
+                return Err(InstrumentMasterCustodyErrorV2::CodecMismatch);
+            }
+        }
+        let cut = Self::issue(
+            InstrumentMasterCutRequestV2::new(request_identity, decision_cut),
+            universe_selection_identity,
+            universe_selection_receipt_identity,
+            universe_selection_outbox_identity,
+            facts,
+        )?;
+        if cut.request_binding_digest != request_binding_digest || cut.canonical_bytes != bytes {
+            return Err(InstrumentMasterCustodyErrorV2::CodecMismatch);
+        }
+        Ok(cut)
+    }
+}
+
+/// Durable append receipt. It is deterministic for one exact committed cut coordinate.
+#[derive(Debug, Eq, PartialEq)]
+pub struct InstrumentMasterCutReceiptV2 {
+    cut_identity: BindingDigest,
+    request_binding_digest: BindingDigest,
+    store_generation_identity: BindingDigest,
+    append_sequence: u64,
+    canonical_bytes: Vec<u8>,
+    identity: BindingDigest,
+    outbox_identity: BindingDigest,
+}
+
+impl InstrumentMasterCutReceiptV2 {
+    pub(crate) fn issue(
+        cut: &InstrumentMasterCutV2,
+        store_generation_identity: BindingDigest,
+        append_sequence: u64,
+    ) -> Result<Self, InstrumentMasterCustodyErrorV2> {
+        if is_zero(store_generation_identity) || append_sequence == 0 {
+            return Err(InstrumentMasterCustodyErrorV2::CodecMismatch);
+        }
+        let mut encoder = Encoder::default();
+        encoder.u16(FACT_SCHEMA_VERSION_V2);
+        encoder.digest(cut.identity);
+        encoder.digest(cut.request_binding_digest);
+        encoder.digest(store_generation_identity);
+        encoder.u64(append_sequence);
+        let canonical_bytes = encoder.finish();
+        let identity = digest(RECEIPT_DOMAIN_V2, &canonical_bytes);
+        let outbox_identity = digest(OUTBOX_DOMAIN_V2, identity.as_bytes());
+        Ok(Self {
+            cut_identity: cut.identity,
+            request_binding_digest: cut.request_binding_digest,
+            store_generation_identity,
+            append_sequence,
+            canonical_bytes,
+            identity,
+            outbox_identity,
+        })
+    }
+
+    pub(crate) fn parse(bytes: &[u8]) -> Result<Self, InstrumentMasterCustodyErrorV2> {
+        let mut decoder = Decoder::new(bytes);
+        if decoder.u16().map_err(custody_codec)? != FACT_SCHEMA_VERSION_V2 {
+            return Err(InstrumentMasterCustodyErrorV2::CodecMismatch);
+        }
+        let cut_identity = decoder.digest().map_err(custody_codec)?;
+        let request_binding_digest = decoder.digest().map_err(custody_codec)?;
+        let store_generation_identity = decoder.digest().map_err(custody_codec)?;
+        let append_sequence = decoder.u64().map_err(custody_codec)?;
+        decoder.finish().map_err(custody_codec)?;
+        let identity = digest(RECEIPT_DOMAIN_V2, bytes);
+        Ok(Self {
+            cut_identity,
+            request_binding_digest,
+            store_generation_identity,
+            append_sequence,
+            canonical_bytes: bytes.to_vec(),
+            identity,
+            outbox_identity: digest(OUTBOX_DOMAIN_V2, identity.as_bytes()),
+        })
+    }
+
+    #[must_use]
+    pub const fn identity(&self) -> BindingDigest {
+        self.identity
+    }
+    #[must_use]
+    pub const fn outbox_identity(&self) -> BindingDigest {
+        self.outbox_identity
+    }
+    #[must_use]
+    pub const fn cut_identity(&self) -> BindingDigest {
+        self.cut_identity
+    }
+    #[must_use]
+    pub const fn request_binding_digest(&self) -> BindingDigest {
+        self.request_binding_digest
+    }
+    #[must_use]
+    pub const fn store_generation_identity(&self) -> BindingDigest {
+        self.store_generation_identity
+    }
+    #[must_use]
+    pub const fn append_sequence(&self) -> u64 {
+        self.append_sequence
+    }
+    #[must_use]
+    pub fn canonical_bytes(&self) -> &[u8] {
+        &self.canonical_bytes
+    }
+}
+
+/// Exact historical resolver locator. It can only be obtained from an Owner-issued readback.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InstrumentMasterCutLocatorV2 {
+    request_identity: BindingDigest,
+    request_binding_digest: BindingDigest,
+    cut_identity: BindingDigest,
+    receipt_identity: BindingDigest,
+}
+
+impl InstrumentMasterCutLocatorV2 {
+    #[must_use]
+    pub const fn request_identity(&self) -> BindingDigest {
+        self.request_identity
+    }
+    #[must_use]
+    pub const fn request_binding_digest(&self) -> BindingDigest {
+        self.request_binding_digest
+    }
+    #[must_use]
+    pub const fn cut_identity(&self) -> BindingDigest {
+        self.cut_identity
+    }
+    #[must_use]
+    pub const fn receipt_identity(&self) -> BindingDigest {
+        self.receipt_identity
+    }
+}
+
+/// Move-only exact readback; callers cannot construct, clone, or deserialize it.
+#[derive(Debug, Eq, PartialEq)]
+pub struct InstrumentMasterReadbackV2 {
+    cut: InstrumentMasterCutV2,
+    receipt: InstrumentMasterCutReceiptV2,
+}
+
+impl InstrumentMasterReadbackV2 {
+    pub(crate) fn from_parts(
+        cut: InstrumentMasterCutV2,
+        receipt: InstrumentMasterCutReceiptV2,
+    ) -> Result<Self, InstrumentMasterCustodyErrorV2> {
+        if receipt.cut_identity != cut.identity
+            || receipt.request_binding_digest != cut.request_binding_digest
+        {
+            return Err(InstrumentMasterCustodyErrorV2::CrossSpliced);
+        }
+        Ok(Self { cut, receipt })
+    }
+
+    #[must_use]
+    pub const fn cut(&self) -> &InstrumentMasterCutV2 {
+        &self.cut
+    }
+    #[must_use]
+    pub const fn receipt(&self) -> &InstrumentMasterCutReceiptV2 {
+        &self.receipt
+    }
+    #[must_use]
+    pub const fn locator(&self) -> InstrumentMasterCutLocatorV2 {
+        InstrumentMasterCutLocatorV2 {
+            request_identity: self.cut.request_identity,
+            request_binding_digest: self.cut.request_binding_digest,
+            cut_identity: self.cut.identity,
+            receipt_identity: self.receipt.identity,
+        }
+    }
+}
+
+#[doc(hidden)]
+pub(crate) mod resolver_seal_v2 {
+    pub trait Sealed {}
+}
+
+/// Fixed read-only port consumed by Strategy Factory after R&D seals the exact locator.
+#[async_trait::async_trait]
+#[allow(private_bounds)]
+pub trait InstrumentMasterResolverV2: resolver_seal_v2::Sealed + Send + Sync {
+    /// Resolves the unique initial-composition cut bound to one sealed R&D Replay identity.
+    async fn resolve_instrument_master_v2_for_native_replay_request(
+        &self,
+        request_identity: &str,
+    ) -> Result<InstrumentMasterReadbackV2, InstrumentMasterCustodyErrorV2>;
+
+    /// Resolves one exact historical cut; there is no symbol or latest lookup.
+    async fn resolve_instrument_master_v2(
+        &self,
+        locator: InstrumentMasterCutLocatorV2,
+    ) -> Result<InstrumentMasterReadbackV2, InstrumentMasterCustodyErrorV2>;
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InstrumentMasterCustodyErrorV2 {
+    InvalidRequest,
+    InvalidUniverseSelection,
+    MissingFact,
+    ChainMismatch,
+    CodecMismatch,
+    CrossSpliced,
+    IdentityConflict,
+    RequestConflict,
+    UnknownLocator,
+    StoreUnavailable,
+    AclUnavailable,
+}
+
+impl Display for InstrumentMasterCustodyErrorV2 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{self:?}")
+    }
+}
+
+impl std::error::Error for InstrumentMasterCustodyErrorV2 {}
+
+fn request_binding_digest_v2(
+    request: InstrumentMasterCutRequestV2,
+    selection: BindingDigest,
+    receipt: BindingDigest,
+    outbox: BindingDigest,
+) -> BindingDigest {
+    let mut bytes = Vec::with_capacity(32 * 4 + 8);
+    bytes.extend_from_slice(request.request_identity.as_bytes());
+    bytes.extend_from_slice(&request.decision_cut.to_be_bytes());
+    bytes.extend_from_slice(selection.as_bytes());
+    bytes.extend_from_slice(receipt.as_bytes());
+    bytes.extend_from_slice(outbox.as_bytes());
+    digest(REQUEST_BINDING_DOMAIN_V2, &bytes)
+}
+
+fn custody_codec(_: InstrumentMasterV2Error) -> InstrumentMasterCustodyErrorV2 {
+    InstrumentMasterCustodyErrorV2::CodecMismatch
 }
 
 /// Validated Market Data-owned public terms for later native composition.
@@ -1202,6 +1699,14 @@ impl Encoder {
         self.0.extend(value.as_bytes());
         Ok(())
     }
+
+    fn bytes(&mut self, value: &[u8]) -> Result<(), InstrumentMasterV2Error> {
+        let length =
+            u32::try_from(value.len()).map_err(|_| InstrumentMasterV2Error::CodecMismatch)?;
+        self.u32(length);
+        self.0.extend(value);
+        Ok(())
+    }
 }
 
 struct Decoder<'a> {
@@ -1295,6 +1800,12 @@ impl<'a> Decoder<'a> {
         }
         String::from_utf8(self.take(length)?.to_vec())
             .map_err(|_| InstrumentMasterV2Error::CodecMismatch)
+    }
+
+    fn bytes(&mut self) -> Result<Vec<u8>, InstrumentMasterV2Error> {
+        let length =
+            usize::try_from(self.u32()?).map_err(|_| InstrumentMasterV2Error::CodecMismatch)?;
+        Ok(self.take(length)?.to_vec())
     }
 }
 
@@ -1919,6 +2430,128 @@ mod tests {
         assert_eq!(
             projection.instrument_class(),
             PublicInstrumentClassV2::CryptoPerpetual
+        );
+    }
+
+    fn fact_for(canonical_identity: &str, raw_symbol: &str, seed: u8) -> InstrumentMasterFactV2 {
+        let mut input = baseline(complete_terms());
+        input.canonical_identity = canonical_identity.to_owned();
+        input.raw_symbol = raw_symbol.to_owned();
+        input.provenance.source_binding_identity = id(seed);
+        input.provenance.source_binding_digest = id(seed + 1);
+        input.provenance.raw_payload_digest = id(seed + 2);
+        InstrumentMasterFactV2::from_exchange_info_baseline(input).unwrap()
+    }
+
+    #[test]
+    fn fixed_cut_canonicalizes_two_members_and_binds_request() {
+        let btc = fact_for("BTCUSDT-PERP.BINANCE", "BTCUSDT", 10);
+        let eth = fact_for("ETHUSDT-PERP.BINANCE", "ETHUSDT", 20);
+        let request = InstrumentMasterCutRequestV2::new(id(30), 7);
+        let cut = InstrumentMasterCutV2::issue(
+            request,
+            id(31),
+            id(32),
+            id(33),
+            [eth.clone(), btc.clone()],
+        )
+        .unwrap();
+        let reordered =
+            InstrumentMasterCutV2::issue(request, id(31), id(32), id(33), [btc, eth]).unwrap();
+
+        assert_eq!(cut.identity(), reordered.identity());
+        assert_eq!(
+            cut.members()[0].fact().canonical_identity(),
+            "BTCUSDT-PERP.BINANCE"
+        );
+        assert_eq!(
+            cut.members()[1].fact().canonical_identity(),
+            "ETHUSDT-PERP.BINANCE"
+        );
+        assert_ne!(
+            cut.identity(),
+            InstrumentMasterCutV2::issue(
+                InstrumentMasterCutRequestV2::new(id(34), 7),
+                id(31),
+                id(32),
+                id(33),
+                [
+                    fact_for("BTCUSDT-PERP.BINANCE", "BTCUSDT", 10),
+                    fact_for("ETHUSDT-PERP.BINANCE", "ETHUSDT", 20),
+                ],
+            )
+            .unwrap()
+            .identity()
+        );
+    }
+
+    #[test]
+    fn exact_cut_parse_rejects_reorder_and_changed_bytes() {
+        let btc = fact_for("BTCUSDT-PERP.BINANCE", "BTCUSDT", 10);
+        let eth = fact_for("ETHUSDT-PERP.BINANCE", "ETHUSDT", 20);
+        let cut = InstrumentMasterCutV2::issue(
+            InstrumentMasterCutRequestV2::new(id(30), 7),
+            id(31),
+            id(32),
+            id(33),
+            [btc.clone(), eth.clone()],
+        )
+        .unwrap();
+
+        assert_eq!(
+            InstrumentMasterCutV2::parse_with_facts(
+                cut.canonical_bytes(),
+                [btc.clone(), eth.clone()]
+            )
+            .unwrap(),
+            cut
+        );
+        assert_eq!(
+            InstrumentMasterCutV2::parse_with_facts(cut.canonical_bytes(), [eth, btc]),
+            Err(InstrumentMasterCustodyErrorV2::CodecMismatch)
+        );
+        let mut changed = cut.canonical_bytes().to_vec();
+        let last = changed.len() - 1;
+        changed[last] ^= 1;
+        assert_eq!(
+            InstrumentMasterCutV2::parse_with_facts(
+                &changed,
+                [
+                    fact_for("BTCUSDT-PERP.BINANCE", "BTCUSDT", 10),
+                    fact_for("ETHUSDT-PERP.BINANCE", "ETHUSDT", 20),
+                ]
+            ),
+            Err(InstrumentMasterCustodyErrorV2::CodecMismatch)
+        );
+    }
+
+    #[test]
+    fn readback_locator_is_exact_and_receipt_outbox_are_deterministic() {
+        let cut = InstrumentMasterCutV2::issue(
+            InstrumentMasterCutRequestV2::new(id(30), 7),
+            id(31),
+            id(32),
+            id(33),
+            [
+                fact_for("BTCUSDT-PERP.BINANCE", "BTCUSDT", 10),
+                fact_for("ETHUSDT-PERP.BINANCE", "ETHUSDT", 20),
+            ],
+        )
+        .unwrap();
+        let receipt = InstrumentMasterCutReceiptV2::issue(&cut, id(40), 1).unwrap();
+        let parsed = InstrumentMasterCutReceiptV2::parse(receipt.canonical_bytes()).unwrap();
+        assert_eq!(parsed, receipt);
+        let readback = InstrumentMasterReadbackV2::from_parts(cut, receipt).unwrap();
+        let locator = readback.locator();
+
+        assert_eq!(locator.request_identity(), id(30));
+        assert_eq!(locator.cut_identity(), readback.cut().identity());
+        assert_eq!(locator.receipt_identity(), readback.receipt().identity());
+        assert_eq!(
+            readback.receipt().outbox_identity(),
+            InstrumentMasterCutReceiptV2::parse(readback.receipt().canonical_bytes())
+                .unwrap()
+                .outbox_identity()
         );
     }
 }

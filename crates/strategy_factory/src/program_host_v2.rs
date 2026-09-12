@@ -12,6 +12,10 @@ use strategy_factory_program_sdk::lifecycle_v2::{
     InstrumentTargetSetV2, MemberTargetV2, TARGET_SET_BYTES, TARGET_SET_MEMBER_COUNT,
 };
 use thiserror::Error;
+#[cfg(feature = "isolated-event-replay-acceptance")]
+use vibe_data::owner::strategy_input_event_corpus_v1::{
+    StrategyInputSampleEventReadbackV1, StrategyInputSampleEventResolverV1,
+};
 use vibe_data::owner::{
     sample_projection_v4::{
         StrategyInputSampleProjectionKindV4, StrategyInputSampleProjectionReadbackV4,
@@ -89,7 +93,7 @@ struct OwnerSampleCoordinateEvidenceV2 {
     canonical: [u8; OWNER_SAMPLE_COORDINATE_BYTES_V1 as usize],
     projection_receipt_digest: BindingDigest,
     projection_subject_identity: BindingDigest,
-    schedule_dependency_set_digest: BindingDigest,
+    schedule_dependency_set_digest: Option<BindingDigest>,
     timeframe_projection_digest: BindingDigest,
     sample_identity: BindingDigest,
     sample_receipt_digest: BindingDigest,
@@ -282,9 +286,9 @@ impl AdmittedProgramEventV2 {
                     b"strategy.program-host.test-sample-projection-receipt.v4\0",
                 ),
                 projection_subject_identity: input.owner_event.observation_batch_digest,
-                schedule_dependency_set_digest: evidence_digest(
+                schedule_dependency_set_digest: Some(evidence_digest(
                     b"strategy.program-host.test-schedule-dependency-set.v1\0",
-                ),
+                )),
                 timeframe_projection_digest: evidence_digest(
                     b"strategy.program-host.test-timeframe-projection.v1\0",
                 ),
@@ -948,6 +952,229 @@ pub(crate) fn admit_market_data_joined_program_event_v2(
     })
 }
 
+#[cfg(feature = "isolated-event-replay-acceptance")]
+fn admit_market_data_resolved_sample_event_v1(
+    plan: &StrategyPlanV2,
+    readback: &StrategyInputSampleEventReadbackV1,
+) -> Result<AdmittedProgramEventV2, ProgramHostV2Error> {
+    let zero = BindingDigest::from_untrusted_bytes([0; 32]);
+    if readback.request_identity().is_empty()
+        || readback.request_meaning_digest().is_empty()
+        || readback.strategy_design_identity() != plan.design_identity()
+        || readback.binding_identity() == zero
+        || readback.binding_receipt_identity() == zero
+        || readback.binding_readback_identity() == zero
+        || readback.census_digest() == zero
+        || readback.event_count() == 0
+        || readback.projection_receipt_digest() == zero
+        || readback.projection_subject_identity() == [0; 32]
+    {
+        return Err(ProgramHostV2Error::InputCoverage);
+    }
+
+    let lifecycle = readback.lifecycle();
+    let order_key = lifecycle_v1::EventOrderKeyV1::new(
+        lifecycle.logical_time(),
+        lifecycle.event_time(),
+        lifecycle_v1::LifecycleKind::Event,
+        lifecycle.owner_sequence(),
+        lifecycle.event_identity(),
+    )
+    .map_err(ProgramHostV2Error::Kernel)?;
+    let driver = LifecycleEnvelopeV1::new_bound(order_key, lifecycle_v1::EnvelopePayloadV1::Event)
+        .map_err(ProgramHostV2Error::Kernel)?;
+    let required = reaction_input_roles(plan, lifecycle_v1::LifecycleKind::Event)?;
+    let join = join_for_roles(plan, &required).ok_or(ProgramHostV2Error::InputCoverage)?;
+    if join.alignment_semantic_id != INPUT_JOIN_LATEST_NOT_AFTER_TRIGGER_V1
+        || readback.values().len() != join.inputs.len()
+    {
+        return Err(ProgramHostV2Error::InputCoverage);
+    }
+
+    let mut inputs = Vec::with_capacity(required.len());
+    let mut source_binding_lineages = Vec::with_capacity(required.len());
+    for role in &required {
+        let role_identity = strategy_input_role_identity_v2(role);
+        let binding = plan
+            .input_bindings()
+            .iter()
+            .find(|binding| binding.input_role_identity() == role_identity)
+            .ok_or(ProgramHostV2Error::InputCoverage)?;
+        let value = readback
+            .values()
+            .iter()
+            .find(|value| value.role_identity() == *role_identity.as_bytes())
+            .ok_or(ProgramHostV2Error::InputCoverage)?;
+        if value.binding_receipt_digest() != *binding.receipt_digest().as_bytes()
+            || value.value_scale() != role.scale
+            || role.value_type != ValueTypeV2::I128
+            || value.sample_identity() == [0; 32]
+            || value.sample_receipt_digest() == [0; 32]
+            || value.sample_fact_digest() == [0; 32]
+            || value.canonical_row_digest() == [0; 32]
+            || value.snapshot_identity() == [0; 32]
+            || value.snapshot_fact_digest() == [0; 32]
+            || value.observation_batch_digest() == [0; 32]
+            || value.timeframe_identity() == [0; 32]
+            || value.timeframe_projection_digest() == [0; 32]
+            || value.value_trigger_digest() == zero
+            || value.source_binding_lineage_root()
+                != *binding.source_binding_lineage_root().as_bytes()
+            || value.source_binding_lineage_version() == 0
+            || value.market_semantics_identity() != *binding.market_semantics_identity().as_bytes()
+            || value.logical_time() > lifecycle.logical_time()
+            || lifecycle
+                .logical_time()
+                .saturating_sub(value.logical_time())
+                > join.max_staleness_ns
+            || value.event_time() > lifecycle.event_time()
+        {
+            return Err(ProgramHostV2Error::InputCoverage);
+        }
+        let component_key = lifecycle_v1::EventOrderKeyV1::new(
+            value.logical_time(),
+            value.event_time(),
+            lifecycle_v1::LifecycleKind::Event,
+            value.owner_sequence(),
+            value.owner_event_identity(),
+        )
+        .map_err(ProgramHostV2Error::Kernel)?;
+        let component =
+            LifecycleEnvelopeV1::new_bound(component_key, lifecycle_v1::EnvelopePayloadV1::Event)
+                .map_err(ProgramHostV2Error::Kernel)?;
+        if role.semantic_id == join.trigger_input_id
+            && (component != driver || value.value_trigger_digest() == zero)
+        {
+            return Err(ProgramHostV2Error::InputCoverage);
+        }
+
+        let coordinate = resolved_sample_coordinate_v1(value)?;
+        let event_receipt_digest = resolved_sample_event_receipt_digest_v1(readback, value);
+        inputs.push(ProgramEventInputV2 {
+            role_semantic_id: role.semantic_id.clone(),
+            member_ordinal: None,
+            value: TypedValueV2::new(ValueTypeV2::I128, value.value_bytes().as_slice())
+                .map_err(|_| ProgramHostV2Error::InputCoverage)?,
+            owner_event: OwnerEventEvidenceV2 {
+                input_role_identity: role_identity,
+                binding_receipt_digest: binding.receipt_digest(),
+                event_receipt_digest,
+                trigger_digest: value.value_trigger_digest(),
+                observation_batch_digest: BindingDigest::from_untrusted_bytes(
+                    value.observation_batch_digest(),
+                ),
+                component_envelope_digest: BindingDigest::from_untrusted_bytes(
+                    component.envelope_digest,
+                ),
+                scale: value.value_scale(),
+                sample_coordinate: Some(OwnerSampleCoordinateEvidenceV2 {
+                    canonical: coordinate,
+                    projection_receipt_digest: readback.projection_receipt_digest(),
+                    projection_subject_identity: BindingDigest::from_untrusted_bytes(
+                        readback.projection_subject_identity(),
+                    ),
+                    schedule_dependency_set_digest: None,
+                    timeframe_projection_digest: BindingDigest::from_untrusted_bytes(
+                        value.timeframe_projection_digest(),
+                    ),
+                    sample_identity: BindingDigest::from_untrusted_bytes(value.sample_identity()),
+                    sample_receipt_digest: BindingDigest::from_untrusted_bytes(
+                        value.sample_receipt_digest(),
+                    ),
+                }),
+            },
+        });
+        source_binding_lineages.push(SourceBindingLineageVersionV2 {
+            root: BindingDigest::from_untrusted_bytes(value.source_binding_lineage_root()),
+            version: value.source_binding_lineage_version(),
+        });
+    }
+    if !inputs
+        .iter()
+        .any(|input| input.role_semantic_id == join.trigger_input_id)
+    {
+        return Err(ProgramHostV2Error::InputCoverage);
+    }
+    source_binding_lineages.sort();
+    source_binding_lineages.dedup();
+    if source_binding_lineages
+        .windows(2)
+        .any(|pair| pair[0].root == pair[1].root && pair[0].version != pair[1].version)
+    {
+        return Err(ProgramHostV2Error::InputCoverage);
+    }
+    let input_join_identity = Some(input_join_identity_v2(join));
+    let identity = admitted_event_identity(
+        plan,
+        driver,
+        &inputs,
+        &source_binding_lineages,
+        input_join_identity,
+        None,
+    );
+    Ok(AdmittedProgramEventV2 {
+        envelope: driver,
+        inputs,
+        identity,
+        source_binding_lineages,
+        input_join_identity,
+        universe_frame: None,
+    })
+}
+
+#[cfg(feature = "isolated-event-replay-acceptance")]
+fn resolved_sample_coordinate_v1(
+    value: &vibe_data::owner::strategy_input_event_corpus_v1::StrategyInputSampleEventValueV1,
+) -> Result<[u8; OWNER_SAMPLE_COORDINATE_BYTES_V1 as usize], ProgramHostV2Error> {
+    let mut bytes = Vec::with_capacity(OWNER_SAMPLE_COORDINATE_BYTES_V1 as usize);
+    bytes.extend_from_slice(&1_u16.to_le_bytes());
+    bytes.extend_from_slice(&0_u16.to_le_bytes());
+    bytes.extend_from_slice(&value.role_identity());
+    bytes.extend_from_slice(&value.timeframe_identity());
+    bytes.extend_from_slice(&value.owner_event_identity());
+    bytes.extend_from_slice(&value.sample_identity());
+    bytes.extend_from_slice(&value.logical_time().to_le_bytes());
+    bytes.extend_from_slice(&value.event_time().to_le_bytes());
+    bytes.extend_from_slice(&value.owner_sequence().to_le_bytes());
+    bytes.extend_from_slice(&value.binding_receipt_digest());
+    bytes.extend_from_slice(&value.canonical_row_digest());
+    bytes.extend_from_slice(&value.source_binding_lineage_root());
+    bytes.extend_from_slice(&value.source_binding_lineage_version().to_le_bytes());
+    bytes.extend_from_slice(&value.market_semantics_identity());
+    bytes.extend_from_slice(&value.sample_receipt_digest());
+    bytes
+        .try_into()
+        .map_err(|_| ProgramHostV2Error::InputCoverage)
+}
+
+#[cfg(feature = "isolated-event-replay-acceptance")]
+fn resolved_sample_event_receipt_digest_v1(
+    readback: &StrategyInputSampleEventReadbackV1,
+    value: &vibe_data::owner::strategy_input_event_corpus_v1::StrategyInputSampleEventValueV1,
+) -> BindingDigest {
+    let mut bytes = Vec::new();
+    for text in [
+        readback.request_identity(),
+        readback.request_meaning_digest(),
+    ] {
+        bytes.extend_from_slice(&(text.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(text.as_bytes());
+    }
+    for digest in [
+        readback.binding_identity(),
+        readback.binding_receipt_identity(),
+        readback.binding_readback_identity(),
+        readback.census_digest(),
+        readback.projection_receipt_digest(),
+    ] {
+        bytes.extend_from_slice(digest.as_bytes());
+    }
+    bytes.extend_from_slice(&readback.projection_subject_identity());
+    bytes.extend_from_slice(&(readback.event_count() as u64).to_le_bytes());
+    bytes.extend_from_slice(&value.sample_receipt_digest());
+    domain_digest(b"strategy.program-host.resolved-owner-event.v1\0", &bytes)
+}
+
 /// Admits one BAR joined cut only when its exact Owner-verified V4 projection supplies every BFP
 /// value/coordinate role pair.
 pub(crate) fn admit_market_data_bar_joined_cut_program_event_v4(
@@ -1032,9 +1259,9 @@ fn attach_owner_sample_coordinates_v4(
             projection_subject_identity: BindingDigest::from_untrusted_bytes(
                 projection.subject_identity(),
             ),
-            schedule_dependency_set_digest: BindingDigest::from_untrusted_bytes(
+            schedule_dependency_set_digest: Some(BindingDigest::from_untrusted_bytes(
                 projection.schedule_dependency_set_digest(),
-            ),
+            )),
             timeframe_projection_digest: BindingDigest::from_untrusted_bytes(
                 component.timeframe_projection_digest(),
             ),
@@ -1282,6 +1509,10 @@ pub(crate) fn issue_backtest_universe_successor_for_test(
 }
 
 impl ProgramHostV2 {
+    pub(crate) const fn plan(&self) -> &StrategyPlanV2 {
+        &self.plan
+    }
+
     fn clone_for_scratch(&self) -> Self {
         Self {
             plan: self.plan.clone(),
@@ -1431,6 +1662,23 @@ impl ProgramHostV2 {
         receipt: &StrategyInputJoinedCutReceiptV1,
     ) -> Result<SemanticTraceV1, ProgramHostV2Error> {
         let event = admit_market_data_joined_program_event_v2(&self.plan, receipt)?;
+        self.apply_event(&event)
+    }
+
+    /// Resolves, admits, and atomically applies the exact Owner-selected EVENT.
+    ///
+    /// The capability contains its fixed request and store locator. No caller-selected event,
+    /// query, projection, or storage handle participates in this operation.
+    #[cfg(feature = "isolated-event-replay-acceptance")]
+    pub async fn apply_market_data_resolved_sample_event_v1(
+        &mut self,
+        resolver: &StrategyInputSampleEventResolverV1,
+    ) -> Result<SemanticTraceV1, ProgramHostV2Error> {
+        let readback = resolver
+            .resolve()
+            .await
+            .map_err(|_| ProgramHostV2Error::InputCoverage)?;
+        let event = admit_market_data_resolved_sample_event_v1(&self.plan, &readback)?;
         self.apply_event(&event)
     }
 
@@ -3217,7 +3465,9 @@ fn admitted_event_identity(
         if let Some(coordinate) = &input.owner_event.sample_coordinate {
             bytes.extend(coordinate.projection_receipt_digest.as_bytes());
             bytes.extend(coordinate.projection_subject_identity.as_bytes());
-            bytes.extend(coordinate.schedule_dependency_set_digest.as_bytes());
+            if let Some(digest) = coordinate.schedule_dependency_set_digest {
+                bytes.extend(digest.as_bytes());
+            }
             bytes.extend(coordinate.timeframe_projection_digest.as_bytes());
             bytes.extend(coordinate.sample_identity.as_bytes());
             bytes.extend(coordinate.sample_receipt_digest.as_bytes());
@@ -3500,4 +3750,8 @@ fn read_u64(bytes: &[u8], offset: usize) -> Result<u64, ProgramHostV2Error> {
 #[path = "program_host_v2_input_join_backtest_tests.rs"]
 mod input_join_backtest_tests;
 #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
-pub(crate) use input_join_backtest_tests::{event_corpus_plan_and_artifact, joined_design};
+pub(crate) use input_join_backtest_tests::{
+    BAR_HOUR_CLOSE, BAR_MINUTE_CLOSE, BAR_MINUTE_HIGH, BAR_MINUTE_LOW, BAR_MINUTE_OPEN,
+    BAR_SESSION_DAY_CLOSE, event_corpus_plan_and_artifact, joined_design, joined_plan_and_artifact,
+    six_role_bar_design,
+};

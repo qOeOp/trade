@@ -24,14 +24,20 @@ sealed-source-intake-composer-acceptance = [
 sealed-strategy-input-acceptance = [
   "vibe-data/sealed-strategy-input-acceptance",
 ]
+isolated-event-replay-acceptance = [
+  "sealed-strategy-input-acceptance",
+  "vibe-data/isolated-event-replay-acceptance",
+]
 
 [dependencies]
+ahash = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 blake3 = { workspace = true }
 ed25519-dalek = { workspace = true }
 jiff = { workspace = true }
+log = { workspace = true }
 reqwest = { workspace = true }
 rust_decimal = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
@@ -53,15 +59,20 @@ vibe-common = { workspace = true }
 vibe-core = { workspace = true }
 vibe-data = { workspace = true }
 vibe-deployment-attestation = { workspace = true }
+vibe-execution = { workspace = true }
 vibe-fred = { workspace = true }
 vibe-indicators-kernel = { workspace = true }
+vibe-market-data-repair-custody = { workspace = true }
 vibe-model = { workspace = true }
 vibe-persistence = { workspace = true }
+vibe-portfolio = { workspace = true }
 vibe-product-edge = { workspace = true }
 vibe-qualification = { workspace = true }
 vibe-rd-artifact-invocation-custody = { workspace = true }
 vibe-rd-exploratory-replay-custody = { workspace = true }
+vibe-rd-market-data-repair-custody = { workspace = true }
 vibe-rd-source-intake-invocation-custody = { workspace = true }
+vibe-risk = { workspace = true }
 vibe-scheduled-events = { workspace = true }
 vibe-testkit = { workspace = true, features = ["postgres"], optional = true }
 vibe-trading = { workspace = true }

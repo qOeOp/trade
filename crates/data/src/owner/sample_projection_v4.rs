@@ -5,10 +5,13 @@
     reason = "V4 preparation remains Owner-private until its first admitted W3 consumer"
 )]
 
+use std::collections::BTreeMap;
+
 use async_trait::async_trait;
 use sha2::{Digest, Sha256};
 
 use super::{
+    observation_census::{ObservationCensusReadbackV1, UntrustedObservationCensusRequestV1},
     sample_projection::DecodedStrategyInputSampleProjectionV3,
     strategy_input_joined_cut::StrategyInputJoinedCutReceiptV1,
 };
@@ -17,7 +20,7 @@ pub(super) const SCHEMA_V4: u16 = 4;
 pub(super) const FRAME_KIND_V4: u8 = 1;
 pub(super) const JOINED_CUT_KIND_V4: u8 = 2;
 pub(super) const BAR_LIFECYCLE_V4: u8 = 2;
-pub(super) const HEADER_LEN_V4: usize = 74;
+pub(super) const HEADER_LEN_V4: usize = 106;
 pub(super) const COMPONENT_LEN_V4: usize = 612;
 pub(super) const V3_HEADER_LEN: usize = 42;
 const RECEIPT_DOMAIN_V4: &[u8] = b"market-data.sample-projection-receipt.v4\0";
@@ -247,6 +250,7 @@ pub(super) struct DecodedStrategyInputSampleProjectionV4 {
     receipt_digest: [u8; 32],
     kind: StrategyInputSampleProjectionKindV4,
     subject_identity: [u8; 32],
+    subject_join_identity: [u8; 32],
     schedule_dependency_set_digest: [u8; 32],
     component_count: u32,
     components: Box<[StrategyInputSampleProjectionComponentV4]>,
@@ -263,6 +267,10 @@ impl DecodedStrategyInputSampleProjectionV4 {
 
     pub(super) const fn subject_identity(&self) -> [u8; 32] {
         self.subject_identity
+    }
+
+    pub(super) const fn subject_join_identity(&self) -> [u8; 32] {
+        self.subject_join_identity
     }
 
     pub(super) const fn schedule_dependency_set_digest(&self) -> [u8; 32] {
@@ -302,6 +310,7 @@ pub(super) fn prepare_frame_v4(
     prepare_v4(
         StrategyInputSampleProjectionKindV4::Frame,
         source.projection.subject_identity(),
+        [0; 32],
         None,
         &[source],
     )
@@ -317,6 +326,7 @@ pub(super) fn prepare_joined_cut_v4(
     prepare_v4(
         StrategyInputSampleProjectionKindV4::JoinedCut,
         *joined_cut.digest().as_bytes(),
+        *joined_cut.join_identity().as_bytes(),
         Some(joined_cut),
         sources,
     )
@@ -325,6 +335,7 @@ pub(super) fn prepare_joined_cut_v4(
 fn prepare_v4(
     kind: StrategyInputSampleProjectionKindV4,
     subject_identity: [u8; 32],
+    subject_join_identity: [u8; 32],
     joined_cut: Option<&StrategyInputJoinedCutReceiptV1>,
     sources: &[VerifiedV3ProjectionSourceV4<'_>],
 ) -> Result<PreparedStrategyInputSampleProjectionV4, StrategyInputSampleProjectionErrorV4> {
@@ -423,6 +434,7 @@ fn prepare_v4(
     bytes.push(kind.tag());
     bytes.push(BAR_LIFECYCLE_V4);
     bytes.extend_from_slice(&subject_identity);
+    bytes.extend_from_slice(&subject_join_identity);
     bytes.extend_from_slice(&schedule_dependency_set_digest);
     bytes.extend_from_slice(&component_count.to_le_bytes());
     for component in exact_components {
@@ -435,6 +447,7 @@ fn prepare_v4(
             receipt_digest,
             kind,
             subject_identity,
+            subject_join_identity,
             schedule_dependency_set_digest,
             component_count,
             components: components.into_boxed_slice(),
@@ -455,6 +468,112 @@ pub(super) fn joined_component_matches_exact_v4(
         && value.binding_receipt_digest().as_bytes() == &exact[32..64]
         && joined_component.frame().trigger().digest().as_bytes() == &exact[96..128]
         && value.digest().as_bytes() == &exact[144..176]
+}
+
+/// Replays the joined-cut selection predicates over the exact V4 components and the actual
+/// Observation Census readback. This binds the opaque joined receipt subject to the request's
+/// trigger semantics without minting or decoding a replacement receipt.
+pub(super) fn joined_components_match_observation_census_v4(
+    decoded: &DecodedStrategyInputSampleProjectionV4,
+    request: &UntrustedObservationCensusRequestV1,
+    census: &ObservationCensusReadbackV1,
+) -> bool {
+    if decoded.kind != StrategyInputSampleProjectionKindV4::JoinedCut
+        || decoded.components.len() != request.join_claim().roles.len()
+    {
+        return false;
+    }
+    let roles = request
+        .join_claim()
+        .roles
+        .iter()
+        .map(|role| {
+            (
+                *role.input_role_identity.as_bytes(),
+                role.semantic_id == request.join_claim().trigger_input_id,
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    if roles.len() != request.join_claim().roles.len()
+        || census
+            .record()
+            .entries()
+            .iter()
+            .any(|entry| !roles.contains_key(entry.input_role_identity().as_bytes()))
+    {
+        return false;
+    }
+
+    let mut trigger_components = 0_usize;
+
+    for exact in decoded.canonical_bytes[HEADER_LEN_V4..].chunks_exact(COMPONENT_LEN_V4) {
+        let Ok(role) = <[u8; 32]>::try_from(&exact[..32]) else {
+            return false;
+        };
+        let Some(is_trigger) = roles.get(&role).copied() else {
+            return false;
+        };
+        let coordinate = &exact[304..612];
+        let Ok(logical_time) = <[u8; 8]>::try_from(&coordinate[116..124]) else {
+            return false;
+        };
+        let Ok(event_time) = <[u8; 8]>::try_from(&coordinate[124..132]) else {
+            return false;
+        };
+        let Ok(owner_sequence) = <[u8; 8]>::try_from(&coordinate[132..140]) else {
+            return false;
+        };
+        let logical_time = u64::from_le_bytes(logical_time);
+        let event_time = u64::from_le_bytes(event_time);
+        let owner_sequence = u64::from_le_bytes(owner_sequence);
+        let event_identity = &exact[128..144];
+        let trigger_digest = &exact[96..128];
+        let value_digest = &exact[144..176];
+        if logical_time > request.trigger_logical_time()
+            || request.trigger_logical_time() - logical_time > request.join_claim().max_staleness_ns
+        {
+            return false;
+        }
+
+        let role_entries = census
+            .record()
+            .entries()
+            .iter()
+            .filter(|entry| entry.input_role_identity().as_bytes() == &role)
+            .collect::<Vec<_>>();
+        let Some(latest_time) = role_entries
+            .iter()
+            .filter(|entry| entry.logical_time() <= request.trigger_logical_time())
+            .map(|entry| entry.logical_time())
+            .max()
+        else {
+            return false;
+        };
+        if latest_time != logical_time
+            || role_entries
+                .iter()
+                .filter(|entry| entry.logical_time() == latest_time)
+                .count()
+                != 1
+            || role_entries
+                .iter()
+                .filter(|entry| {
+                    entry.logical_time() == logical_time
+                        && entry.event_time() == event_time
+                        && entry.owner_sequence() == owner_sequence
+                        && entry.event_identity().as_slice() == event_identity
+                        && entry.trigger_digest().as_bytes().as_slice() == trigger_digest
+                        && entry.value_digest().as_bytes().as_slice() == value_digest
+                })
+                .count()
+                != 1
+            || (is_trigger && logical_time != request.trigger_logical_time())
+        {
+            return false;
+        }
+        trigger_components += usize::from(is_trigger);
+    }
+    trigger_components == 1
 }
 
 pub(super) fn decode_v4(
@@ -479,11 +598,20 @@ pub(super) fn decode_v4(
     let subject_identity = bytes[6..38]
         .try_into()
         .map_err(|_| StrategyInputSampleProjectionErrorV4::InvalidLength)?;
-    let schedule_dependency_set_digest = bytes[38..70]
+    let subject_join_identity = bytes[38..70]
+        .try_into()
+        .map_err(|_| StrategyInputSampleProjectionErrorV4::InvalidLength)?;
+    if (kind == StrategyInputSampleProjectionKindV4::Frame && subject_join_identity != [0; 32])
+        || (kind == StrategyInputSampleProjectionKindV4::JoinedCut
+            && subject_join_identity == [0; 32])
+    {
+        return Err(StrategyInputSampleProjectionErrorV4::SubjectMismatch);
+    }
+    let schedule_dependency_set_digest = bytes[70..102]
         .try_into()
         .map_err(|_| StrategyInputSampleProjectionErrorV4::InvalidLength)?;
     let component_count = u32::from_le_bytes(
-        bytes[70..74]
+        bytes[102..106]
             .try_into()
             .map_err(|_| StrategyInputSampleProjectionErrorV4::InvalidLength)?,
     );
@@ -515,6 +643,7 @@ pub(super) fn decode_v4(
         receipt_digest: actual,
         kind,
         subject_identity,
+        subject_join_identity,
         schedule_dependency_set_digest,
         component_count,
         components: components.into_boxed_slice(),
@@ -639,9 +768,9 @@ mod tests {
         assert_eq!(
             prepared.receipt_digest(),
             [
-                0x53, 0x37, 0x5b, 0x9d, 0xcc, 0xb4, 0x0f, 0x9b, 0x27, 0x7e, 0x90, 0xff, 0x5a, 0x8e,
-                0x26, 0x1a, 0x8e, 0x48, 0xf8, 0xeb, 0xa1, 0xab, 0xea, 0x5c, 0x16, 0xf6, 0xf6, 0x13,
-                0x00, 0x34, 0x2f, 0x42,
+                0x51, 0x0d, 0xbb, 0x5a, 0x4d, 0x3a, 0x61, 0xe8, 0x27, 0xae, 0x3f, 0x97, 0x42, 0xb9,
+                0xe0, 0xd6, 0x08, 0xe8, 0x39, 0xab, 0x39, 0xcb, 0x45, 0x4a, 0xe9, 0xb8, 0x72, 0x71,
+                0x9e, 0xce, 0x2f, 0x49,
             ]
         );
         assert_eq!(prepared.kind(), StrategyInputSampleProjectionKindV4::Frame);
@@ -714,7 +843,7 @@ mod tests {
         second[304..612].fill(22);
 
         let mut bytes = prepared.canonical_bytes()[..HEADER_LEN_V4].to_vec();
-        bytes[70..74].copy_from_slice(&2_u32.to_le_bytes());
+        bytes[102..106].copy_from_slice(&2_u32.to_le_bytes());
         bytes.extend_from_slice(&first);
         bytes.extend_from_slice(&second);
         let expected_digest = digest(RECEIPT_DOMAIN_V4, &bytes);

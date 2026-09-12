@@ -25,6 +25,12 @@ use super::{load_pit_for_update, strategy_input_binding_registry};
 
 pub(super) const MAX_OBSERVATION_CENSUS_AGGREGATE_BYTES_V1: usize = 32 * 1024 * 1024;
 
+#[derive(Clone, Copy)]
+pub(super) enum ObservationCensusReadModeV1 {
+    LockRows,
+    ReadOnly,
+}
+
 pub(super) const OBSERVATION_CENSUS_SCHEMA_V1: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.observation_census_records_v1 (request_identity BYTEA PRIMARY KEY CHECK (octet_length(request_identity)=32), request_meaning_digest BYTEA NOT NULL CHECK (octet_length(request_meaning_digest)=32), request_bytes BYTEA NOT NULL CHECK (octet_length(request_bytes)>0 AND octet_length(request_bytes)<=262144), census_identity BYTEA NOT NULL UNIQUE CHECK (octet_length(census_identity)=32), census_bytes BYTEA NOT NULL, census_receipt_identity BYTEA NOT NULL UNIQUE CHECK (octet_length(census_receipt_identity)=32), census_receipt_bytes BYTEA NOT NULL, joined_cut_identity BYTEA NOT NULL UNIQUE CHECK (octet_length(joined_cut_identity)=32), joined_cut_custody_bytes BYTEA NOT NULL, v1_joined_cut_receipt_digest BYTEA NOT NULL CHECK (octet_length(v1_joined_cut_receipt_digest)=32), outbox_identity BYTEA NOT NULL UNIQUE CHECK (octet_length(outbox_identity)=32), CHECK (octet_length(census_bytes)>0 AND octet_length(census_receipt_bytes)>0 AND octet_length(joined_cut_custody_bytes)>0))",
     "CREATE TABLE IF NOT EXISTS market_data_private.observation_census_dependencies_v1 (request_identity BYTEA NOT NULL REFERENCES market_data_private.observation_census_records_v1(request_identity) ON DELETE RESTRICT, ordinal BIGINT NOT NULL CHECK (ordinal>=0), entry_identity BYTEA NOT NULL CHECK (octet_length(entry_identity)=32), input_role_identity BYTEA NOT NULL CHECK (octet_length(input_role_identity)=32), logical_time BIGINT NOT NULL CHECK (logical_time>0), event_time BIGINT NOT NULL CHECK (event_time>=0), owner_sequence BIGINT NOT NULL CHECK (owner_sequence>0), event_identity BYTEA NOT NULL CHECK (octet_length(event_identity)=16), trigger_digest BYTEA NOT NULL CHECK (octet_length(trigger_digest)=32), value_digest BYTEA NOT NULL CHECK (octet_length(value_digest)=32), entry_bytes BYTEA NOT NULL CHECK (octet_length(entry_bytes)>0), PRIMARY KEY(request_identity,ordinal), UNIQUE(request_identity,input_role_identity,logical_time,event_time,owner_sequence,event_identity))",
@@ -209,9 +215,15 @@ pub(super) async fn commit_observation_census_and_joined_cut_v1(
         if !exact {
             return Err(ObservationCensusErrorV1::RequestConflict);
         }
-        verify_dependencies(transaction, envelope.request_identity, &envelope.dependencies).await?;
+        verify_dependencies(
+            transaction,
+            envelope.request_identity,
+            &envelope.dependencies,
+            ObservationCensusReadModeV1::LockRows,
+        )
+        .await?;
         verify_outbox(transaction, envelope).await?;
-        verify_state(transaction).await?;
+        verify_state(transaction, ObservationCensusReadModeV1::LockRows).await?;
         return Ok(());
     }
     insert_record(transaction, envelope).await?;
@@ -231,10 +243,11 @@ pub(super) async fn commit_observation_census_and_joined_cut_v1(
         transaction,
         envelope.request_identity,
         &envelope.dependencies,
+        ObservationCensusReadModeV1::LockRows,
     )
     .await?;
     verify_outbox(transaction, envelope).await?;
-    verify_state(transaction).await?;
+    verify_state(transaction, ObservationCensusReadModeV1::LockRows).await?;
     Ok(())
 }
 
@@ -278,6 +291,34 @@ pub(super) async fn resolve_and_commit_observation_census_v1(
     let envelope = ObservationCensusWriteEnvelopeV1::from_readbacks(request, &census, &joined)?;
     commit_observation_census_and_joined_cut_v1(transaction, &envelope).await?;
     Ok((census, joined))
+}
+
+pub(super) async fn rederive_observation_census_read_only_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    request: &UntrustedObservationCensusRequestV1,
+) -> Result<
+    (
+        ObservationCensusReadbackV1,
+        StrategyInputJoinedCutReadbackV1,
+    ),
+    ObservationCensusErrorV1,
+> {
+    let role_identities = request
+        .join_claim()
+        .roles
+        .iter()
+        .map(|role| role.input_role_identity)
+        .collect::<Vec<_>>();
+    let (bindings, frames) =
+        strategy_input_binding_registry::rederive_complete_strategy_input_roles_read_only_v1(
+            transaction,
+            request.pit_locator().request_identity,
+            request.join_claim().strategy_design_identity,
+            &role_identities,
+        )
+        .await
+        .map_err(|error| map_registry_error(&error))?;
+    authority::issue_observation_census_and_joined_cut_v1(request, &bindings, frames.into_vec())
 }
 
 /// W3 positive composition entrypoint. The role set is resolved by fixed R&D composition before
@@ -370,10 +411,24 @@ async fn insert_dependency(
 pub(super) async fn load_observation_census_v1(
     transaction: &mut Transaction<'_, Postgres>,
     locator: &UntrustedObservationCensusLocatorV1,
+    read_mode: ObservationCensusReadModeV1,
 ) -> Result<Option<ObservationCensusReadbackV1>, ObservationCensusErrorV1> {
-    let Some(row) = sqlx::query("SELECT request_meaning_digest,request_bytes,census_bytes FROM market_data_private.observation_census_records_v1 WHERE request_identity=$1 FOR SHARE")
-        .bind(locator.request_identity().as_bytes().as_slice()).fetch_optional(&mut **transaction).await
-        .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)? else { return Ok(None); };
+    let query = match read_mode {
+        ObservationCensusReadModeV1::LockRows => sqlx::query(
+            "SELECT request_meaning_digest,request_bytes,census_identity,census_bytes,census_receipt_identity,census_receipt_bytes,outbox_identity FROM market_data_private.observation_census_records_v1 WHERE request_identity=$1 FOR SHARE",
+        ),
+        ObservationCensusReadModeV1::ReadOnly => sqlx::query(
+            "SELECT request_meaning_digest,request_bytes,census_identity,census_bytes,census_receipt_identity,census_receipt_bytes,outbox_identity FROM market_data_private.observation_census_records_v1 WHERE request_identity=$1",
+        ),
+    };
+    let Some(row) = query
+        .bind(locator.request_identity().as_bytes().as_slice())
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)?
+    else {
+        return Ok(None);
+    };
     if row_bytes(&row, "request_meaning_digest")? != locator.request_meaning_digest().as_bytes() {
         return Err(ObservationCensusErrorV1::RequestConflict);
     }
@@ -386,8 +441,11 @@ pub(super) async fn load_observation_census_v1(
     let readback =
         authority::decode_observation_census_storage_v1(row_bytes(&row, "census_bytes")?)?;
 
-    if readback.record().request_identity() != locator.request_identity()
-        || readback.record().request_meaning_digest() != locator.request_meaning_digest()
+    authority::validate_observation_census_for_request_v1(&request, &readback)?;
+    if row_bytes(&row, "census_identity")? != readback.record().identity().as_bytes()
+        || row_bytes(&row, "census_receipt_identity")? != readback.receipt().identity().as_bytes()
+        || row_bytes(&row, "census_receipt_bytes")? != readback.receipt().canonical_bytes()
+        || row_bytes(&row, "outbox_identity")? != readback.receipt().identity().as_bytes()
     {
         return Err(ObservationCensusErrorV1::DigestMismatch);
     }
@@ -407,18 +465,36 @@ pub(super) async fn load_observation_census_v1(
             entry_bytes: entry.canonical_bytes().into(),
         })
         .collect::<Vec<_>>();
-    verify_dependencies(transaction, locator.request_identity(), &expected).await?;
-    let outbox = sqlx::query("SELECT payload_digest,payload FROM market_data_private.observation_census_outbox_v1 WHERE request_identity=$1 FOR SHARE")
-        .bind(locator.request_identity().as_bytes().as_slice()).fetch_optional(&mut **transaction).await
+    verify_dependencies(
+        transaction,
+        locator.request_identity(),
+        &expected,
+        read_mode,
+    )
+    .await?;
+    let outbox_query = match read_mode {
+        ObservationCensusReadModeV1::LockRows => sqlx::query(
+            "SELECT outbox_identity,payload_digest,payload FROM market_data_private.observation_census_outbox_v1 WHERE request_identity=$1 FOR SHARE",
+        ),
+        ObservationCensusReadModeV1::ReadOnly => sqlx::query(
+            "SELECT outbox_identity,payload_digest,payload FROM market_data_private.observation_census_outbox_v1 WHERE request_identity=$1",
+        ),
+    };
+    let outbox = outbox_query
+        .bind(locator.request_identity().as_bytes().as_slice())
+        .fetch_optional(&mut **transaction)
+        .await
         .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)?
         .ok_or(ObservationCensusErrorV1::CommitInterrupted)?;
 
-    if row_bytes(&outbox, "payload_digest")? != readback.record().identity().as_bytes()
+    if row_bytes(&outbox, "outbox_identity")? != row_bytes(&row, "outbox_identity")?
+        || row_bytes(&outbox, "outbox_identity")? != readback.receipt().identity().as_bytes()
+        || row_bytes(&outbox, "payload_digest")? != readback.record().identity().as_bytes()
         || row_bytes(&outbox, "payload")? != row_bytes(&row, "census_bytes")?
     {
         return Err(ObservationCensusErrorV1::DigestMismatch);
     }
-    verify_state(transaction).await?;
+    verify_state(transaction, read_mode).await?;
     Ok(Some(readback))
 }
 
@@ -446,6 +522,7 @@ pub(super) async fn load_observation_census_request_v1(
 pub(super) async fn load_strategy_input_joined_cut_custody_v1(
     transaction: &mut Transaction<'_, Postgres>,
     locator: &UntrustedStrategyInputJoinedCutLocatorV1,
+    read_mode: ObservationCensusReadModeV1,
 ) -> Result<
     Option<(
         UntrustedObservationCensusRequestV1,
@@ -454,9 +531,22 @@ pub(super) async fn load_strategy_input_joined_cut_custody_v1(
     )>,
     ObservationCensusErrorV1,
 > {
-    let Some(row) = sqlx::query("SELECT request_bytes,joined_cut_identity,joined_cut_custody_bytes,v1_joined_cut_receipt_digest FROM market_data_private.observation_census_records_v1 WHERE joined_cut_identity=$1 FOR SHARE")
-        .bind(locator.joined_cut_identity().as_bytes().as_slice()).fetch_optional(&mut **transaction).await
-        .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)? else { return Ok(None); };
+    let query = match read_mode {
+        ObservationCensusReadModeV1::LockRows => sqlx::query(
+            "SELECT request_bytes,joined_cut_identity,joined_cut_custody_bytes,v1_joined_cut_receipt_digest FROM market_data_private.observation_census_records_v1 WHERE joined_cut_identity=$1 FOR SHARE",
+        ),
+        ObservationCensusReadModeV1::ReadOnly => sqlx::query(
+            "SELECT request_bytes,joined_cut_identity,joined_cut_custody_bytes,v1_joined_cut_receipt_digest FROM market_data_private.observation_census_records_v1 WHERE joined_cut_identity=$1",
+        ),
+    };
+    let Some(row) = query
+        .bind(locator.joined_cut_identity().as_bytes().as_slice())
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)?
+    else {
+        return Ok(None);
+    };
     if row_bytes(&row, "joined_cut_identity")? != locator.joined_cut_digest().as_bytes() {
         return Err(ObservationCensusErrorV1::DigestMismatch);
     }
@@ -487,9 +577,20 @@ async fn verify_dependencies(
     transaction: &mut Transaction<'_, Postgres>,
     request_identity: BindingDigest,
     expected: &[DependencyEnvelopeV1],
+    read_mode: ObservationCensusReadModeV1,
 ) -> Result<(), ObservationCensusErrorV1> {
-    let rows = sqlx::query("SELECT ordinal,entry_identity,input_role_identity,logical_time,event_time,owner_sequence,event_identity,trigger_digest,value_digest,entry_bytes FROM market_data_private.observation_census_dependencies_v1 WHERE request_identity=$1 ORDER BY ordinal FOR SHARE")
-        .bind(request_identity.as_bytes().as_slice()).fetch_all(&mut **transaction).await
+    let query = match read_mode {
+        ObservationCensusReadModeV1::LockRows => sqlx::query(
+            "SELECT ordinal,entry_identity,input_role_identity,logical_time,event_time,owner_sequence,event_identity,trigger_digest,value_digest,entry_bytes FROM market_data_private.observation_census_dependencies_v1 WHERE request_identity=$1 ORDER BY ordinal FOR SHARE",
+        ),
+        ObservationCensusReadModeV1::ReadOnly => sqlx::query(
+            "SELECT ordinal,entry_identity,input_role_identity,logical_time,event_time,owner_sequence,event_identity,trigger_digest,value_digest,entry_bytes FROM market_data_private.observation_census_dependencies_v1 WHERE request_identity=$1 ORDER BY ordinal",
+        ),
+    };
+    let rows = query
+        .bind(request_identity.as_bytes().as_slice())
+        .fetch_all(&mut **transaction)
+        .await
         .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)?;
     if rows.len() != expected.len() {
         return Err(ObservationCensusErrorV1::CommitInterrupted);
@@ -553,9 +654,20 @@ async fn verify_outbox(
 
 async fn verify_state(
     transaction: &mut Transaction<'_, Postgres>,
+    read_mode: ObservationCensusReadModeV1,
 ) -> Result<(), ObservationCensusErrorV1> {
-    let row = sqlx::query("SELECT s.aggregate_count,(SELECT COUNT(*) FROM market_data_private.observation_census_records_v1) AS record_count,(SELECT COUNT(*) FROM market_data_private.observation_census_outbox_v1) AS outbox_count FROM market_data_private.observation_census_state_v1 AS s WHERE s.singleton FOR SHARE")
-        .fetch_optional(&mut **transaction).await.map_err(|_| ObservationCensusErrorV1::StoreUnavailable)?
+    let query = match read_mode {
+        ObservationCensusReadModeV1::LockRows => sqlx::query(
+            "SELECT s.aggregate_count,(SELECT COUNT(*) FROM market_data_private.observation_census_records_v1) AS record_count,(SELECT COUNT(*) FROM market_data_private.observation_census_outbox_v1) AS outbox_count FROM market_data_private.observation_census_state_v1 AS s WHERE s.singleton FOR SHARE",
+        ),
+        ObservationCensusReadModeV1::ReadOnly => sqlx::query(
+            "SELECT s.aggregate_count,(SELECT COUNT(*) FROM market_data_private.observation_census_records_v1) AS record_count,(SELECT COUNT(*) FROM market_data_private.observation_census_outbox_v1) AS outbox_count FROM market_data_private.observation_census_state_v1 AS s WHERE s.singleton",
+        ),
+    };
+    let row = query
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)?
         .ok_or(ObservationCensusErrorV1::CommitInterrupted)?;
     let aggregate_count = row
         .try_get::<i64, _>("aggregate_count")
@@ -593,7 +705,18 @@ fn map_registry_error(
         | Registry::PitUnavailable
         | Registry::UniverseUnavailable
         | Registry::SourceUnavailable
-        | Registry::InstrumentMasterUnavailable
+        | Registry::InstrumentMasterScopeUnavailable
+        | Registry::InstrumentMasterBatchDigestUnavailable
+        | Registry::InstrumentMasterCutLocatorUnavailable
+        | Registry::InstrumentMasterReadbackUnavailable
+        | Registry::InstrumentMasterFactCountUnavailable
+        | Registry::InstrumentMasterDigestUnavailable
+        | Registry::InstrumentMasterCutUnavailable
+        | Registry::InstrumentMasterCanonicalIdentityUnavailable
+        | Registry::InstrumentMasterSemanticsIdentityUnavailable
+        | Registry::InstrumentMasterSourceFrontierUnavailable
+        | Registry::InstrumentMasterCorrectionFrontierUnavailable
+        | Registry::InstrumentMasterEffectiveRangeUnavailable
         | Registry::BindingUnavailable(_) => ObservationCensusErrorV1::IncompleteCensus,
     }
 }

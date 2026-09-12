@@ -133,8 +133,8 @@ grep -Fq 'ALTER TABLE public.%I SET SCHEMA composer_private' "$package_dir/postg
 grep -Fq 'CREATE OR REPLACE FUNCTION replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE OR REPLACE FUNCTION replay_policy_catalog_api.lock_current_replay_policy_catalog_v2()' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE OR REPLACE FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
-test "$(grep -Fc 'owner_identity text, predecessor_record_id text, policy_grammar_parser_id text' "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 2
-test "$(grep -Fc 'created_by text, created_at_epoch_ms bigint, head_record_id text, head_version numeric, advanced_by text, advanced_at_epoch_ms bigint' "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 2
+test "$(grep -Fc 'owner_identity text, predecessor_record_id text, policy_grammar_parser_id text' "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 4
+test "$(grep -Fc 'created_by text, created_at_epoch_ms bigint, head_record_id text, head_version numeric, advanced_by text, advanced_at_epoch_ms bigint' "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 4
 composer_migration="$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -A5 -F 'authority-custody-migrate:' "$package_dir/docker-compose.source-research-composer-sealed-acceptance.yml" |
   grep -Fq 'SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE: "1"'
@@ -161,6 +161,7 @@ test "$(printf '%s' "$acceptance_composer_acl" | sha256_stdin)" = c2fc6bbd3d0c1e
 test "$(grep -Fc '\if :composer_acceptance' "$composer_migration")" -eq 3
 grep -Fq 'DROP FUNCTION IF EXISTS composer_owner_api.commit_develop_composer_acceptance_v2(' "$composer_migration"
 grep -Fq 'CREATE OR REPLACE FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE OR REPLACE FUNCTION composer_owner_api.resolve_develop_composer_locator_for_replay_v2(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "IF SESSION_USER NOT IN ('rd_fact_writer','rd_owner') THEN RAISE EXCEPTION 'R&D Composer writer required'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "IF SESSION_USER<>'replay_policy_catalog_admin_writer' THEN RAISE EXCEPTION 'Replay Policy Catalog admin writer required'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "DO \$catalog_composer_function_acl_cutover\$" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
@@ -169,12 +170,44 @@ grep -Fq "DO \$catalog_composer_relation_acl_readback\$" "$package_dir/postgres-
 grep -Fq "REVOKE ALL (%I) ON TABLE %I.%I FROM %I" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "Catalog/Composer column ACL manifest mismatch" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "Catalog/Composer sequence manifest mismatch" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
-grep -Fq "count(*)=18 AND bool_and(relation.relpersistence='p')" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "count(*)=20 AND bool_and(relation.relpersistence='p')" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE TABLE IF NOT EXISTS replay_policy_catalog_private.rd_replay_policy_catalog_execution_profiles_v3' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE TABLE IF NOT EXISTS replay_policy_catalog_private.rd_replay_policy_catalog_audit_v3' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE OR REPLACE FUNCTION replay_policy_catalog_api.apply_replay_policy_catalog_command_v3(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE OR REPLACE FUNCTION replay_policy_catalog_api.lock_current_replay_policy_catalog_v3()' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE OR REPLACE FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_record_v3(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.apply_replay_policy_catalog_command_v3' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+if grep -Eq 'GRANT EXECUTE ON FUNCTION replay_policy_catalog_api\.apply_replay_policy_catalog_command_v3.* TO rd_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"; then
+  echo 'Catalog V3 apply must remain unavailable to rd_owner' >&2
+  exit 1
+fi
 grep -Fq "index_relation.relpersistence='p'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "ALTER ROLE rd_owner LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "ALTER ROLE rd_exploratory_replay_api_owner NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text) OWNER TO rd_exploratory_replay_api_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+for verifier_version in 1 2 3; do
+  test "$(grep -Fc -- "-- BEGIN INTERNAL_VERIFY_SOURCE_V$verifier_version" "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 1
+  test "$(grep -Fc -- "-- END INTERNAL_VERIFY_SOURCE_V$verifier_version" "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 1
+done
+grep -Fq 'GRANT EXECUTE ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text), rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text), rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) TO rd_owner;' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'DO $replay_internal_verifier_acl$' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "pg_catalog.count(*)=1" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "role.rolname='rd_owner'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "pg_catalog.pg_get_userbyid(acl.grantor)='rd_exploratory_replay_api_owner'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "R&D exploratory Replay internal verifier owner/ACL mismatch" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq -- '-- BEGIN SELECTOR_RESOLVER_SOURCE_V2' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'ALTER FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) OWNER TO rd_owner;' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'GRANT EXECUTE ON FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) TO rd_owner;' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'storage := rd_owner_api.resolve_native_replay_source_storage_v2(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "storage->>'custody_state'='CORRUPT_PARTIAL'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "RETURN storage->'replay'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'result := rd_owner_api.verify_exploratory_replay_request_internal_v3(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+if grep -Fq "verify_exploratory_replay_request_internal_v2(\$1,\$2,'','')" "$package_dir/../../crates/strategy_factory/src/exploratory_replay/postgres.rs"; then
+  echo 'Replay selector must not bypass exact receipt and seal equality' >&2
+  exit 1
+fi
 grep -Fq 'ALTER FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text) TO market_data_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 replay_api_relation_acl=$(sed -n '/^GRANT SELECT ON TABLE$/,/^FROM market_data_owner, market_data_reader;$/p' "$package_dir/postgres-init/10-migrate-authority-custody.sh")
@@ -214,14 +247,81 @@ if grep -Eq '^[[:space:]]*(DELETE FROM|UPDATE .*SET .*(_json|_digest|committed_a
   exit 1
 fi
 grep -Fq 'CREATE OR REPLACE FUNCTION product_edge_api.lock_downstream_admission_v1(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'REVOKE ALL ON SCHEMA product_edge_api FROM PUBLIC, operator_authorization_writer, portfolio_owner, backtest_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'GRANT USAGE ON SCHEMA product_edge_api TO rd_owner, portfolio_owner, backtest_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq '"REVOKE ALL ON SCHEMA product_edge_api FROM backtest_owner"' "$package_dir/../../crates/strategy_factory/src/exploratory_replay/postgres.rs"
+grep -Fq '"GRANT USAGE ON SCHEMA product_edge_api TO backtest_owner"' "$package_dir/../../crates/strategy_factory/src/exploratory_replay/postgres.rs"
+grep -Fq 'canonical_storage_bytes BYTEA' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'request_storage_bytes BYTEA' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'root_storage_bytes BYTEA' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'frontier_storage_bytes BYTEA' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'initial_frontier_storage_bytes BYTEA' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'v2_request_storage_digest TEXT' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'canonical_payload_storage_digest TEXT' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'canonical_envelope_storage_digest TEXT' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'SET search_path = pg_catalog' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
-grep -Fq 'GRANT EXECUTE ON FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) TO rd_owner, product_edge_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE OR REPLACE FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "pg_catalog.convert_from(replay_outbox.canonical_envelope_bytes,'UTF8')::pg_catalog.jsonb <>" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'GRANT EXECUTE ON FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(text,text,text,text) TO rd_owner, backtest_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'GRANT EXECUTE ON FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) TO rd_owner, product_edge_owner, backtest_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE OR REPLACE FUNCTION product_edge_api.lock_source_invocation_claim_v1(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE OR REPLACE FUNCTION product_edge_api.lock_source_invocation_started_v1(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'GRANT EXECUTE ON FUNCTION product_edge_api.lock_source_invocation_claim_v1(text,text,text) TO rd_owner, product_edge_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'GRANT EXECUTE ON FUNCTION product_edge_api.lock_source_invocation_started_v1(text,text,text) TO rd_owner, product_edge_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'const BACKTEST_LOCK_BOUNDARY_AUTH_SQL_V2: &str' "$package_dir/../../crates/strategy_factory/src/exploratory_replay/postgres.rs"
+grep -Fq 'dependency.prosrc=$5' "$package_dir/../../crates/strategy_factory/src/exploratory_replay/postgres.rs"
+grep -Fq 'pg_catalog.md5(dependency.prosrc)=$6' "$package_dir/../../crates/strategy_factory/src/exploratory_replay/postgres.rs"
+grep -Fq "pg_catalog.pg_get_userbyid(dependency.proowner)='rd_exploratory_replay_api_owner'" "$package_dir/../../crates/strategy_factory/src/exploratory_replay/postgres.rs"
+grep -Fq "dependency_language.lanname='plpgsql'" "$package_dir/../../crates/strategy_factory/src/exploratory_replay/postgres.rs"
+grep -Fq 'pg_catalog.count(DISTINCT role.rolname)=2' "$package_dir/../../crates/strategy_factory/src/exploratory_replay/postgres.rs"
+if grep -Fq "pg_catalog.strpos(procedure.prosrc,'verify_exploratory_replay_request_internal_v2')" "$package_dir/../../crates/strategy_factory/src/exploratory_replay/postgres.rs"; then
+  echo "Backtest Replay lock must authenticate its exact resolver dependency" >&2
+  exit 1
+fi
 grep -Fq 'CREATE SCHEMA IF NOT EXISTS rd_owner_api AUTHORIZATION rd_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE TABLE IF NOT EXISTS public.backtest_native_replay_source_blobs_v2' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE TABLE IF NOT EXISTS public.backtest_native_replay_observations_v2' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE TABLE IF NOT EXISTS public.backtest_native_replay_semantic_traces_v2' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'PRIMARY KEY (result_identity, component)' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'UNIQUE (request_identity, attempt_identity, component)' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'GRANT SELECT, INSERT ON TABLE public.backtest_native_replay_source_blobs_v2, public.backtest_native_replay_observations_v2, public.backtest_native_replay_semantic_traces_v2 TO backtest_owner;' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'DO $backtest_native_replay_evidence_topology_readback$' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "pg_catalog.count(*)=22 AND NOT pg_catalog.bool_or(" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "pg_catalog.count(*) FILTER (WHERE acl.privilege_type='SELECT')=3" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "pg_catalog.count(*) FILTER (WHERE acl.privilege_type='INSERT')=3" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "acl.grantee=0 OR role.oid IS NULL OR role.rolname IS DISTINCT FROM 'backtest_owner'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "acl.privilege_type NOT IN ('SELECT','INSERT')" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl)' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+native_evidence_runtime_census=$(sed -n '/^const NATIVE_REPLAY_EVIDENCE_TABLE_CENSUS_QUERY:/,/^";$/p' "$package_dir/../../crates/backtest_result_custody/src/lib.rs")
+printf '%s' "$native_evidence_runtime_census" | grep -Fq 'pg_catalog.unnest(index_fact.indoption::smallint[])'
+printf '%s' "$native_evidence_runtime_census" | grep -Fq 'pg_catalog.unnest(index_fact.indclass::oid[])'
+printf '%s' "$native_evidence_runtime_census" | grep -Fq 'WHERE NOT operator_class.opcdefault'
+printf '%s' "$native_evidence_runtime_census" | grep -Fq 'pg_catalog.unnest(index_fact.indcollation::oid[])'
+printf '%s' "$native_evidence_runtime_census" | grep -Fq 'collation_fact.collation_oid<>attribute.attcollation'
+printf '%s' "$native_evidence_runtime_census" | grep -Fq "pg_catalog.count(*) FILTER (WHERE acl.privilege_type='SELECT')=3"
+printf '%s' "$native_evidence_runtime_census" | grep -Fq "pg_catalog.count(*) FILTER (WHERE acl.privilege_type='INSERT')=3"
+printf '%s' "$native_evidence_runtime_census" | grep -Fq 'acl.grantee=0'
+printf '%s' "$native_evidence_runtime_census" | grep -Fq 'role.oid IS NULL'
+printf '%s' "$native_evidence_runtime_census" | grep -Fq "acl.privilege_type NOT IN ('SELECT','INSERT')"
+backtest_orphan_preflight=$(sed -n '/^const READ_ORPHAN_NATIVE_REPLAY_EVIDENCE:/,/^";$/p' "$package_dir/../../crates/backtest_owner/src/postgres.rs")
+printf '%s' "$backtest_orphan_preflight" | grep -Fq 'SELECT EXISTS ('
+if printf '%s' "$backtest_orphan_preflight" | grep -Fq 'pg_catalog.exists('; then
+  echo 'Backtest orphan preflight must use PostgreSQL EXISTS syntax' >&2
+  exit 1
+fi
+grep -Fq 'AND NOT trigger_fact.tgisinternal' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'SELECT 1 FROM pg_catalog.pg_rewrite rewrite' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "RAISE EXCEPTION 'Backtest native Replay evidence topology mismatch'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+backtest_result_resolver_source=$(grep -F 'AS $function$DECLARE locked_result public.backtest_replay_results_v2%ROWTYPE;' "$package_dir/postgres-init/10-migrate-authority-custody.sh")
+if printf '%s' "$backtest_result_resolver_source" | grep -Fq 'FOR SHARE'; then
+  echo 'Backtest Result readback must require only SELECT privilege' >&2
+  exit 1
+fi
+if grep -Eq 'GRANT (SELECT|INSERT|UPDATE|DELETE|TRUNCATE).*backtest_native_replay_.* TO rd_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"; then
+  echo 'R&D Owner must not receive raw Backtest native evidence table access' >&2
+  exit 1
+fi
 grep -Fq 'GRANT USAGE ON SCHEMA rd_owner_api TO product_edge_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE OR REPLACE FUNCTION rd_owner_api.lock_source_acquisition_binding_v1(' "$package_dir/../../crates/strategy_factory/src/source_intake/postgres.rs"
 grep -Fq 'CREATE OR REPLACE FUNCTION rd_owner_api.lock_source_invocation_reservation_v1(' "$package_dir/../../crates/strategy_factory/src/source_intake/postgres.rs"

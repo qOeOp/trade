@@ -1,8 +1,10 @@
 use std::{collections::BTreeMap, fmt::Display};
 
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row, postgres::PgRow};
+pub(crate) use vibe_backtest_result_custody::LockedExploratoryReplayResultV3;
 pub use vibe_backtest_result_custody::{
     BacktestResultCustodyErrorV2, ExploratoryReplayResultLocatorV2, LockedExploratoryReplayResultV2,
 };
@@ -20,6 +22,533 @@ pub async fn resolve_exploratory_replay_result_for_rd_in_transaction(
     locator: ExploratoryReplayResultLocatorV2<'_>,
 ) -> Result<Option<LockedExploratoryReplayResultV2>, BacktestResultCustodyErrorV2> {
     vibe_backtest_result_custody::resolve_exploratory_replay_result_v2(transaction, locator).await
+}
+
+/// Resolves the same Result with Backtest-owned native outcome evidence for R&D interpretation.
+pub(crate) async fn resolve_exploratory_replay_outcome_for_rd_in_transaction(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    locator: ExploratoryReplayResultLocatorV2<'_>,
+) -> Result<Option<LockedExploratoryReplayResultV3>, BacktestResultCustodyErrorV2> {
+    vibe_backtest_result_custody::resolve_exploratory_replay_result_v3(transaction, locator).await
+}
+
+/// Resolves the exact R&D-produced Native Replay source records under one read-only transaction.
+pub async fn resolve_native_replay_rd_sources_v2_in_transaction(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    locator: &crate::exploratory_replay::ExploratoryReplayRequestLocatorV2,
+) -> Result<
+    crate::native_replay_rd_sources_v2::NativeReplayRdSourcesV2,
+    crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2,
+> {
+    let resolved = resolve_native_replay_rd_cut_v2_in_transaction(transaction, locator).await?;
+    Ok(resolved.sources)
+}
+
+pub(crate) struct ResolvedNativeReplayRdCutV2 {
+    pub(crate) replay: crate::exploratory_replay::SealedExploratoryReplayReadbackV2,
+    pub(crate) sources: crate::native_replay_rd_sources_v2::NativeReplayRdSourcesV2,
+    pub(crate) research: VerifiedResearchCustodyV1,
+}
+
+pub(crate) async fn resolve_native_replay_rd_cut_v2_in_transaction(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    locator: &crate::exploratory_replay::ExploratoryReplayRequestLocatorV2,
+) -> Result<
+    ResolvedNativeReplayRdCutV2,
+    crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2,
+> {
+    let source_storage = resolve_native_source_storage_boundary(transaction, locator).await?;
+    if source_storage.schema_version != 1 {
+        return Err(native_source_unavailable(
+            "R&D Owner source storage schema mismatch",
+        ));
+    }
+    match source_storage.custody_state.as_str() {
+        "LEGACY_MISSING" => {
+            return Err(native_source_unavailable(
+                "legacy Replay row has no Native Replay source custody",
+            ));
+        }
+        "CORRUPT_PARTIAL" => {
+            return Err(native_source_unavailable(
+                "partial Native Replay source custody is corrupt",
+            ));
+        }
+        "AVAILABLE" => {}
+        _ => {
+            return Err(native_source_unavailable(
+                "unknown R&D Owner source custody state",
+            ));
+        }
+    }
+    let replay_result = crate::exploratory_replay::postgres::decode_v2_read_result(
+        &locator.request_identity,
+        &locator.meaning_digest,
+        Some(locator),
+        source_storage.replay.clone(),
+    )
+    .map_err(|error| native_source_unavailable(error.to_string()))?;
+    let mut replay = replay_result
+        .readback
+        .ok_or_else(|| native_source_unavailable("sealed Replay request unavailable"))?;
+    let replay_request = native_source_record_value(
+        source_storage.replay_request.as_ref(),
+        "replay_request",
+        replay.request(),
+        crate::native_replay_rd_sources_v2::REPLAY_REQUEST_STORAGE_DOMAIN_V1,
+    )?;
+    let replay_receipt = native_source_record_value(
+        source_storage.replay_receipt.as_ref(),
+        "replay_receipt",
+        &replay.receipt,
+        crate::native_replay_rd_sources_v2::REPLAY_RECEIPT_STORAGE_DOMAIN_V1,
+    )?;
+    let replay_outbox = native_replay_outbox_source_record(&source_storage)?;
+    replay.canonical_request_bytes = replay_request.bytes.clone();
+    replay.canonical_request_storage_digest = replay_request.digest.clone();
+    replay.canonical_receipt_bytes = replay_receipt.bytes.clone();
+    replay.canonical_receipt_storage_digest = replay_receipt.digest.clone();
+    replay.canonical_outbox_bytes = replay_outbox.bytes.clone();
+    replay.canonical_outbox_storage_digest = replay_outbox.digest.clone();
+
+    let replay_admission = resolve_admission_for_downstream_in_transaction(
+        transaction,
+        replay.product_edge_admission(),
+        DownstreamAdmissionModeV1::Historical,
+    )
+    .await
+    .map_err(|error| native_source_unavailable(error.to_string()))?;
+    let research =
+        native_research_custody_from_boundary(transaction, &source_storage, &replay_admission)
+            .await?;
+    if !research.authority_available_at(replay.owner_cut_epoch_ms()) {
+        return Err(
+            crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2::Unavailable(
+                "Research custody is unavailable at the Replay Owner cut".into(),
+            ),
+        );
+    }
+    let family = research.family().expect("checked present");
+    let stored = crate::native_replay_rd_sources_v2::NativeReplayStoredRowsV2 {
+        research_request: native_source_record(
+            source_storage.research_request.as_ref(),
+            "research_request",
+            research.request_json().expect("accepted V2 request"),
+            crate::native_replay_rd_sources_v2::RESEARCH_REQUEST_STORAGE_DOMAIN_V1,
+        )?,
+        research_receipt: native_source_record_value(
+            source_storage.research_receipt.as_ref(),
+            "research_receipt",
+            &research.receipt(),
+            crate::native_replay_rd_sources_v2::RESEARCH_RECEIPT_STORAGE_DOMAIN_V1,
+        )?,
+        research_intent: native_source_record_value(
+            source_storage.research_intent.as_ref(),
+            "research_intent",
+            research.intent().expect("accepted V2 intent"),
+            crate::native_replay_rd_sources_v2::RESEARCH_INTENT_STORAGE_DOMAIN_V1,
+        )?,
+        trial_family_root: native_source_record_value(
+            source_storage.trial_family_root.as_ref(),
+            "trial_family_root",
+            family.root(),
+            crate::native_replay_rd_sources_v2::TRIAL_FAMILY_ROOT_STORAGE_DOMAIN_V1,
+        )?,
+        trial_family_root_receipt: native_source_record_value(
+            source_storage.trial_family_root_receipt.as_ref(),
+            "trial_family_root_receipt",
+            family.root_receipt(),
+            crate::native_replay_rd_sources_v2::TRIAL_FAMILY_ROOT_RECEIPT_STORAGE_DOMAIN_V1,
+        )?,
+        trial_family_initial_member: native_source_record_value(
+            source_storage.trial_family_initial_member.as_ref(),
+            "trial_family_initial_member",
+            family.initial_intent_member(),
+            crate::native_replay_rd_sources_v2::TRIAL_FAMILY_MEMBER_STORAGE_DOMAIN_V1,
+        )?,
+        trial_family_membership_receipt: native_source_record_value(
+            source_storage.trial_family_membership_receipt.as_ref(),
+            "trial_family_membership_receipt",
+            family.membership_receipt(),
+            crate::native_replay_rd_sources_v2::TRIAL_FAMILY_MEMBERSHIP_RECEIPT_STORAGE_DOMAIN_V1,
+        )?,
+        trial_family_frontier: native_source_record_value(
+            source_storage.trial_family_frontier.as_ref(),
+            "trial_family_frontier",
+            family.census_frontier(),
+            crate::native_replay_rd_sources_v2::TRIAL_FAMILY_FRONTIER_STORAGE_DOMAIN_V1,
+        )?,
+        replay_request,
+        replay_receipt,
+        replay_outbox,
+    };
+    let sources = crate::native_replay_rd_sources_v2::issue_native_replay_rd_sources_v2(
+        &replay,
+        &replay_admission,
+        &research,
+        stored,
+    )?;
+    Ok(ResolvedNativeReplayRdCutV2 {
+        replay,
+        sources,
+        research,
+    })
+}
+
+fn native_source_unavailable(
+    message: impl Into<String>,
+) -> crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2 {
+    crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2::Unavailable(message.into())
+}
+
+fn native_source_storage(
+    error: sqlx::Error,
+) -> crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2 {
+    native_source_unavailable(error.to_string())
+}
+
+pub(crate) const NATIVE_SOURCE_STORAGE_FUNCTION_V2: &str =
+    "rd_owner_api.resolve_native_replay_source_storage_v2(text,text,text,text)";
+pub(crate) const NATIVE_SOURCE_STORAGE_SOURCE_MD5_V2: &str = "45bc491c00b98a0be6b2131c63bfc5d4";
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NativeSourceStorageRecordV2 {
+    bytes_base64: String,
+    digest: String,
+    mirror: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NativeSourceStorageEnvelopeV2 {
+    schema_version: u32,
+    custody_state: String,
+    #[serde(default)]
+    replay: Option<serde_json::Value>,
+    #[serde(default)]
+    research_request_identity: Option<String>,
+    #[serde(default)]
+    research_view: Option<serde_json::Value>,
+    #[serde(default)]
+    research_request: Option<NativeSourceStorageRecordV2>,
+    #[serde(default)]
+    research_receipt: Option<NativeSourceStorageRecordV2>,
+    #[serde(default)]
+    research_intent: Option<NativeSourceStorageRecordV2>,
+    #[serde(default)]
+    trial_family_root: Option<NativeSourceStorageRecordV2>,
+    #[serde(default)]
+    trial_family_root_receipt: Option<NativeSourceStorageRecordV2>,
+    #[serde(default)]
+    trial_family_initial_member: Option<NativeSourceStorageRecordV2>,
+    #[serde(default)]
+    trial_family_membership_receipt: Option<NativeSourceStorageRecordV2>,
+    #[serde(default)]
+    trial_family_frontier: Option<NativeSourceStorageRecordV2>,
+    #[serde(default)]
+    replay_request: Option<NativeSourceStorageRecordV2>,
+    #[serde(default)]
+    replay_receipt: Option<NativeSourceStorageRecordV2>,
+    #[serde(default)]
+    replay_outbox_payload: Option<NativeSourceStorageRecordV2>,
+    #[serde(default)]
+    replay_outbox: Option<NativeSourceStorageRecordV2>,
+}
+
+async fn resolve_native_source_storage_boundary(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    locator: &crate::exploratory_replay::ExploratoryReplayRequestLocatorV2,
+) -> Result<
+    NativeSourceStorageEnvelopeV2,
+    crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2,
+> {
+    let boundary_is_exact: bool = sqlx::query_scalar(
+        "SELECT procedure.prosecdef
+            AND procedure.provolatile='v'
+            AND procedure.proparallel='u'
+            AND procedure.proisstrict
+            AND NOT procedure.proleakproof
+            AND NOT procedure.proretset
+            AND procedure.prokind='f'
+            AND procedure.proconfig=ARRAY['search_path=pg_catalog']::text[]
+            AND procedure.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
+            AND procedure.proargtypes='25 25 25 25'::pg_catalog.oidvector
+            AND procedure.proargnames=ARRAY['requested_request_identity','requested_meaning_digest','requested_receipt_identity','requested_seal_digest']::text[]
+            AND pg_catalog.pg_get_userbyid(procedure.proowner)='rd_exploratory_replay_api_owner'
+            AND language.lanname='plpgsql'
+            AND procedure.prosrc=$1
+            AND pg_catalog.md5(procedure.prosrc)=$2
+            AND (SELECT pg_catalog.count(*)=2
+                   AND pg_catalog.bool_and(role.rolname IN ('rd_owner','backtest_owner')
+                     AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable
+                     AND pg_catalog.pg_get_userbyid(acl.grantor)='rd_exploratory_replay_api_owner')
+                   AND pg_catalog.count(DISTINCT role.rolname)=2
+                   FROM pg_catalog.aclexplode(COALESCE(procedure.proacl,pg_catalog.acldefault('f',procedure.proowner))) acl
+                   LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+                  WHERE acl.grantee<>procedure.proowner)
+           FROM pg_catalog.pg_proc procedure
+           JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang
+          WHERE procedure.oid=$3::pg_catalog.regprocedure",
+    )
+    .bind(crate::exploratory_replay::postgres::NATIVE_SOURCE_STORAGE_SOURCE_V2)
+    .bind(NATIVE_SOURCE_STORAGE_SOURCE_MD5_V2)
+    .bind(NATIVE_SOURCE_STORAGE_FUNCTION_V2)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(native_source_storage)?
+    .unwrap_or(false);
+    if !boundary_is_exact {
+        return Err(native_source_unavailable(
+            "R&D Owner Native Replay source boundary unavailable",
+        ));
+    }
+    let value: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT rd_owner_api.resolve_native_replay_source_storage_v2($1,$2,$3,$4)",
+    )
+    .bind(&locator.request_identity)
+    .bind(&locator.meaning_digest)
+    .bind(&locator.receipt_identity)
+    .bind(&locator.seal_digest)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(native_source_storage)?;
+    let value =
+        value.ok_or_else(|| native_source_unavailable("R&D Owner source read unavailable"))?;
+    serde_json::from_value(value)
+        .map_err(|error| native_source_unavailable(format!("R&D Owner source envelope: {error}")))
+}
+
+async fn native_research_custody_from_boundary(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    envelope: &NativeSourceStorageEnvelopeV2,
+    replay_admission: &ProductEdgeAdmissionReadbackV1,
+) -> Result<
+    VerifiedResearchCustodyV1,
+    crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2,
+> {
+    let request_record = envelope
+        .research_request
+        .as_ref()
+        .ok_or_else(|| native_source_unavailable("research_request missing"))?;
+    let stored_request: StoredAdmittedResearchRequestV2 = serde_json::from_slice(
+        &BASE64
+            .decode(&request_record.bytes_base64)
+            .map_err(|error| {
+                native_source_unavailable(format!("research_request base64: {error}"))
+            })?,
+    )
+    .map_err(|error| native_source_unavailable(format!("research_request decode: {error}")))?;
+    if stored_request.schema_version != 1
+        || envelope.research_request_identity.as_deref()
+            != Some(stored_request.request.request_identity.as_str())
+    {
+        return Err(native_source_unavailable(
+            "Research request identity or schema mismatch",
+        ));
+    }
+
+    let research_admission = resolve_admission_for_downstream_in_transaction(
+        transaction,
+        &stored_request.request.admission,
+        DownstreamAdmissionModeV1::Historical,
+    )
+    .await
+    .map_err(|error| native_source_unavailable(error.to_string()))?;
+    verify_research_admission_v2(&research_admission, &stored_request.request)
+        .map_err(|error| native_source_unavailable(error.to_string()))?;
+    if !crate::exploratory_replay::postgres::same_product_edge_authority(
+        replay_admission,
+        &research_admission,
+    ) {
+        return Err(native_source_unavailable(
+            "Research and Replay Product Edge authority mismatch",
+        ));
+    }
+
+    let semantic_digest = semantic_digest_v2(&stored_request.request)
+        .map_err(|error| native_source_unavailable(error.to_string()))?;
+    let receipt_record = envelope
+        .research_receipt
+        .as_ref()
+        .ok_or_else(|| native_source_unavailable("research_receipt missing"))?;
+    let receipt: ResearchRequestReceiptV1 = decode_native_record_value(receipt_record)?;
+    let intent_record = envelope
+        .research_intent
+        .as_ref()
+        .ok_or_else(|| native_source_unavailable("research_intent missing"))?;
+    let intent: FrozenResearchGoalIntent = decode_native_record_value(intent_record)?;
+    let FrozenResearchGoalIntent::V2(intent_v2) = &intent else {
+        return Err(native_source_unavailable("Research intent is not V2"));
+    };
+    let expected_intent_identity =
+        canonical_v2_intent_identity(&stored_request.request.request_identity, &semantic_digest);
+    if receipt.schema_version != 1
+        || receipt.request_identity != stored_request.request.request_identity
+        || receipt.semantic_digest != semantic_digest
+        || receipt.disposition != ResearchRequestDisposition::Accepted
+        || receipt.rejection_code.is_some()
+        || receipt.resulting_research_intent_identity.as_deref()
+            != Some(expected_intent_identity.as_str())
+        || receipt.receipt_identity
+            != crate::product_edge::canonical_research_receipt_identity(
+                2,
+                &receipt.request_identity,
+                &semantic_digest,
+            )
+        || intent_v2.schema_version != 2
+        || intent_v2.intent_identity != expected_intent_identity
+        || intent_v2.request_identity != receipt.request_identity
+        || intent_v2.semantic_digest != semantic_digest
+        || intent_v2.source_frontier != stored_request.request.goal.sources
+        || intent_v2.goal != stored_request.request.goal
+        || intent_v2.independence_basis_identity != stored_request.independence_basis.basis_identity
+        || intent_v2.independence_basis_digest != stored_request.independence_basis.basis_digest
+        || intent_v2.protected_feedback_projection_identity
+            != stored_request.protected_feedback.projection_identity
+        || intent_v2.protected_feedback_projection_digest
+            != stored_request.protected_feedback.projection_digest
+        || intent_v2.frozen_at_epoch_ms != receipt.committed_at_epoch_ms
+    {
+        return Err(native_source_unavailable(
+            "Research custody meaning mismatch",
+        ));
+    }
+
+    let family = form_initial_family(
+        &intent_v2.intent_identity,
+        &semantic_digest,
+        stored_request.canonical_trial_family_policy.clone(),
+        receipt.committed_at_epoch_ms,
+    )
+    .map_err(|error| native_source_unavailable(error.to_string()))?;
+    if intent_v2.trial_family_identity != family.root().trial_family_identity()
+        || intent_v2.trial_family_policy_digest != family.root().policy_digest()
+    {
+        return Err(native_source_unavailable("TrialFamily lineage mismatch"));
+    }
+
+    let view: ResearchViewV1 = serde_json::from_value(
+        envelope
+            .research_view
+            .clone()
+            .ok_or_else(|| native_source_unavailable("Research view missing"))?,
+    )
+    .map_err(|error| native_source_unavailable(format!("Research view decode: {error}")))?;
+    if view.schema_version != 1
+        || view.request_identity != receipt.request_identity
+        || view.trusted_principal != research_admission.effective_principal()
+        || view.authorized_scope != research_admission.authorized_scope()
+        || view.authorization_policy_cut
+            != research_admission
+                .authorization()
+                .frontier()
+                .frontier_identity()
+        || view.source_owner != RESEARCH_OWNER_V1
+        || view.intent_identity != intent_v2.intent_identity
+        || view.source_frontier != intent_v2.source_frontier
+        || view.projection_identity != canonical_research_view_identity_v2(&view)
+    {
+        return Err(native_source_unavailable("Research view custody mismatch"));
+    }
+
+    Ok(VerifiedResearchCustodyV1 {
+        request_json: Some(request_record.mirror.clone()),
+        receipt,
+        intent: Some(intent),
+        view: Some(view),
+        family: Some(family.clone()),
+        expected_family: Some(family),
+        independence_basis: None,
+        protected_feedback: None,
+        authority: VerifiedResearchAuthorityV1::Current(Box::new(research_admission)),
+        effective_principal: replay_admission.effective_principal().to_string(),
+        authorized_scope: replay_admission.authorized_scope().to_vec(),
+        request_schema_version: 2,
+        terminal_attempt_admission: None,
+    })
+}
+
+fn decode_native_record_value<T: serde::de::DeserializeOwned>(
+    record: &NativeSourceStorageRecordV2,
+) -> Result<T, crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2> {
+    let bytes = BASE64
+        .decode(&record.bytes_base64)
+        .map_err(|error| native_source_unavailable(error.to_string()))?;
+    serde_json::from_slice(&bytes).map_err(|error| native_source_unavailable(error.to_string()))
+}
+
+fn native_source_record(
+    record: Option<&NativeSourceStorageRecordV2>,
+    source_name: &str,
+    expected_json: &serde_json::Value,
+    domain: &str,
+) -> Result<
+    crate::native_replay_rd_sources_v2::StoredSourceRecordV2,
+    crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2,
+> {
+    let record =
+        record.ok_or_else(|| native_source_unavailable(format!("{source_name} missing")))?;
+    let bytes = BASE64
+        .decode(&record.bytes_base64)
+        .map_err(|error| native_source_unavailable(error.to_string()))?;
+    let decoded: serde_json::Value = serde_json::from_slice(&bytes)
+        .map_err(|error| native_source_unavailable(error.to_string()))?;
+    if bytes.is_empty()
+        || decoded != record.mirror
+        || decoded != *expected_json
+        || crate::native_replay_rd_sources_v2::owner_storage_digest(domain, &bytes) != record.digest
+    {
+        return Err(native_source_unavailable(format!(
+            "{source_name} custody mismatch"
+        )));
+    }
+    Ok(crate::native_replay_rd_sources_v2::StoredSourceRecordV2 {
+        bytes,
+        digest: record.digest.clone(),
+    })
+}
+
+fn native_source_record_value(
+    record: Option<&NativeSourceStorageRecordV2>,
+    source_name: &str,
+    expected: &impl Serialize,
+    domain: &str,
+) -> Result<
+    crate::native_replay_rd_sources_v2::StoredSourceRecordV2,
+    crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2,
+> {
+    let expected_json = serde_json::to_value(expected)
+        .map_err(|error| native_source_unavailable(error.to_string()))?;
+    native_source_record(record, source_name, &expected_json, domain)
+}
+
+fn native_replay_outbox_source_record(
+    envelope: &NativeSourceStorageEnvelopeV2,
+) -> Result<
+    crate::native_replay_rd_sources_v2::StoredSourceRecordV2,
+    crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2,
+> {
+    let outbox = envelope
+        .replay_outbox
+        .as_ref()
+        .ok_or_else(|| native_source_unavailable("replay_outbox missing"))?;
+    let payload_json = outbox
+        .mirror
+        .get("payload_json")
+        .ok_or_else(|| native_source_unavailable("replay_outbox payload mirror missing"))?;
+    let _payload = native_source_record(
+        envelope.replay_outbox_payload.as_ref(),
+        "replay_outbox_payload",
+        payload_json,
+        crate::native_replay_rd_sources_v2::REPLAY_OUTBOX_STORAGE_DOMAIN_V1,
+    )?;
+    native_source_record(
+        Some(outbox),
+        "replay_outbox",
+        &outbox.mirror,
+        crate::native_replay_rd_sources_v2::REPLAY_OUTBOX_ENVELOPE_STORAGE_DOMAIN_V1,
+    )
 }
 
 use crate::{

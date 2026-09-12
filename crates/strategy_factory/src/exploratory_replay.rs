@@ -247,6 +247,9 @@ pub(crate) struct ExploratoryReplayCommitReceiptV2 {
     pub(crate) request_identity: String,
     pub(crate) meaning_digest: String,
     pub(crate) seal_digest: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) execution_profile_seal:
+        Option<crate::replay_execution_profile_binding_v1::ReplayExecutionProfileRequestSealV1>,
     pub(crate) committed_at_epoch_ms: u64,
 }
 
@@ -324,8 +327,23 @@ pub struct ExploratoryReplayReadResultV1 {
 pub struct SealedExploratoryReplayReadbackV2 {
     pub(crate) request: ReplayRequestV2,
     pub(crate) canonical_request_bytes: Vec<u8>,
+    #[serde(skip)]
+    pub(crate) canonical_request_storage_digest: String,
+    #[serde(skip)]
+    pub(crate) product_edge_admission: ProductEdgeAdmissionLocatorV1,
     pub(crate) meaning_digest: String,
     pub(crate) receipt: ExploratoryReplayCommitReceiptV2,
+    #[serde(skip)]
+    pub(crate) canonical_receipt_bytes: Vec<u8>,
+    #[serde(skip)]
+    pub(crate) canonical_receipt_storage_digest: String,
+    #[serde(skip)]
+    pub(crate) canonical_outbox_bytes: Vec<u8>,
+    #[serde(skip)]
+    pub(crate) canonical_outbox_storage_digest: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) execution_profile_seal:
+        Option<crate::replay_execution_profile_binding_v1::ReplayExecutionProfileRequestSealV1>,
     pub(crate) owner_cut_epoch_ms: u64,
 }
 
@@ -342,6 +360,30 @@ impl SealedExploratoryReplayReadbackV2 {
         &self.canonical_request_bytes
     }
 
+    pub fn canonical_request_storage_digest(&self) -> &str {
+        &self.canonical_request_storage_digest
+    }
+
+    pub fn product_edge_admission(&self) -> &ProductEdgeAdmissionLocatorV1 {
+        &self.product_edge_admission
+    }
+
+    pub fn canonical_receipt_bytes(&self) -> &[u8] {
+        &self.canonical_receipt_bytes
+    }
+
+    pub fn canonical_receipt_storage_digest(&self) -> &str {
+        &self.canonical_receipt_storage_digest
+    }
+
+    pub fn canonical_outbox_bytes(&self) -> &[u8] {
+        &self.canonical_outbox_bytes
+    }
+
+    pub fn canonical_outbox_storage_digest(&self) -> &str {
+        &self.canonical_outbox_storage_digest
+    }
+
     pub fn meaning_digest(&self) -> &str {
         &self.meaning_digest
     }
@@ -352,6 +394,13 @@ impl SealedExploratoryReplayReadbackV2 {
 
     pub fn seal_digest(&self) -> &str {
         &self.receipt.seal_digest
+    }
+
+    pub(crate) fn execution_profile_seal(
+        &self,
+    ) -> Option<&crate::replay_execution_profile_binding_v1::ReplayExecutionProfileRequestSealV1>
+    {
+        self.execution_profile_seal.as_ref()
     }
 
     #[must_use]
@@ -369,7 +418,11 @@ impl SealedExploratoryReplayReadbackV2 {
     }
 }
 
-#[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
+#[cfg(test)]
+#[allow(
+    dead_code,
+    reason = "acceptance helpers are selected by focused test targets"
+)]
 pub(crate) fn issue_sealed_exploratory_replay_readback_for_acceptance_v2(
     request: ReplayRequestV2,
 ) -> anyhow::Result<SealedExploratoryReplayReadbackV2> {
@@ -389,17 +442,57 @@ pub(crate) fn issue_sealed_exploratory_replay_readback_for_acceptance_v2(
     Ok(SealedExploratoryReplayReadbackV2 {
         request,
         canonical_request_bytes,
+        canonical_request_storage_digest: String::new(),
+        product_edge_admission: ProductEdgeAdmissionLocatorV1 {
+            request_identity: request_identity.clone(),
+            admission_identity: "acceptance-only-admission".to_string(),
+            admission_digest: format!("sha256:{}", "0".repeat(64)),
+        },
         meaning_digest: meaning_digest.clone(),
         receipt: ExploratoryReplayCommitReceiptV2 {
             schema_version: 2,
-            receipt_identity,
-            request_identity,
-            meaning_digest,
-            seal_digest,
+            receipt_identity: receipt_identity.clone(),
+            request_identity: request_identity.clone(),
+            meaning_digest: meaning_digest.clone(),
+            seal_digest: seal_digest.clone(),
+            execution_profile_seal: None,
             committed_at_epoch_ms: 1,
         },
+        canonical_receipt_bytes: serde_json::to_vec(&serde_json::json!({
+            "schema_version": 2,
+            "receipt_identity": receipt_identity,
+            "request_identity": request_identity,
+            "meaning_digest": meaning_digest,
+            "seal_digest": seal_digest,
+            "committed_at_epoch_ms": 1,
+        }))?,
+        canonical_receipt_storage_digest: String::new(),
+        canonical_outbox_bytes: Vec::new(),
+        canonical_outbox_storage_digest: String::new(),
+        execution_profile_seal: None,
         owner_cut_epoch_ms: 1,
     })
+}
+
+#[cfg(test)]
+#[allow(
+    dead_code,
+    reason = "acceptance helpers are selected by focused test targets"
+)]
+pub(crate) fn issue_sealed_exploratory_replay_readback_with_profiles_for_acceptance_v2(
+    request: ReplayRequestV2,
+    family: &crate::trial_family::TrialFamilyReadbackV1,
+) -> anyhow::Result<SealedExploratoryReplayReadbackV2> {
+    let mut readback = issue_sealed_exploratory_replay_readback_for_acceptance_v2(request)?;
+    let seal =
+        crate::replay_execution_profile_binding_v1::ReplayExecutionProfileRequestSealV1::issue(
+            family,
+            readback.request_identity(),
+            readback.meaning_digest(),
+        )?;
+    readback.receipt.execution_profile_seal = Some(seal.clone());
+    readback.execution_profile_seal = Some(seal);
+    Ok(readback)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

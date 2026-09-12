@@ -508,6 +508,65 @@ readback shape for EVENT components, and Native Replay preparation consumes it o
 joined-cut receipt and the complete Plan binding set. This does not make the future BFP coordinate port executable
 and does not establish a Native Replay run, production startup, durable product composition, or Backtest closure.
 
+**CURRENT/PARTIAL, request-bound Native Replay execution inputs:** the R&D Owner issues and persists one
+immutable `NativeReplayExecutionInputBindingV1` for one exact sealed Exploratory Replay request. Strategy Factory
+owns the pure structural validator and preparation boundary; it has no independent storage authority and cannot
+mint, replace, or reinterpret any constituent Owner fact. The binding is a cross-Owner composition locator rather
+than a new source of market, instrument, schedule, universe, or economic truth.
+
+The canonical binding cross-binds the R&D request, TrialFamily, Artifact, Strategy Plan, Replay execution-profile
+seals, and exactly these constituents in the canonical two-member order fixed by the Owner-sealed universe
+selection: one exact Market Data V2 public Instrument Master cut/readback containing the two public facts; the two
+exact Instrument Owner `InstrumentEconomicTermsFactV1` receipt/readback locators; one exact two-member
+`StrategyInputUniverseFrameReceipt`; and the two exact Market Data BAR schedule cut/receipt readback locators. Each
+member entry repeats the canonical member key, public instrument identity/digest, venue, account scope, schedule
+identity, and every constituent locator/digest needed to prove equality. The binding stores locators and digests,
+while the move-only typed readbacks retain their original Owner authority; it never copies private economic terms
+into Market Data or turns a universe/schedule receipt into Instrument Master truth.
+
+Before R&D commits the binding, Strategy Factory must consume all exact-locator Owner readbacks and prove: exactly
+two distinct members and no extras; universe-member order and identities equal the Plan; each public fact equals
+the Instrument Economic Terms public-fact reference; venue, account scope, currencies, half-open validity and event
+time agree with the Replay profile; and each member's BAR timeframe equals its exact schedule readback. R&D then
+atomically stores the canonical binding, deterministic receipt, and outbox under the already sealed request. Exact
+request/binding-locator replay or response-loss recovery returns the same bytes with zero append. Any missing,
+duplicate, reordered, latest-selected, caller-reconstructed, V1-to-V2-synthesized, cross-request, cross-member,
+cross-venue, stale, tampered, or ACL-drifted constituent fails before binding, ProgramHost, Backtest, or result
+state changes.
+
+The initial-composition adapter derives the Market Data request from sealed values only. It takes the Replay PIT
+snapshot identity/digest and window, the Plan's complete universe-role declarations and selection projection, and
+the canonical Master V2 members. It maps only the closed Market Data semantic/channel/unit registries, preserves
+the Plan's role identities, timeframes, and scales, and hands that bounded request to the fixed Owner resolver.
+The returned universe frame and two schedule readbacks must equal the Plan selection and Master V2 member order
+before they can enter the R&D binding issuer. There is no caller-supplied schedule locator or generic Owner-input
+map in this path.
+
+Native Replay preparation and Backtest consume only the R&D Owner's move-only binding readback and independently
+re-resolve every embedded exact Owner locator before native materialization. A caller may supply the sealed Replay
+request locator only; it cannot supply the constituent list, facts, values, symbols, ordering, resolver, store, or
+fallback. The current slice implements the immutable PostgreSQL ledger, exact-locator recovery, typed Owner-readback
+validator, atomic binding/receipt/outbox issuance, and the fixed initial universe/schedule resolution bridge. The
+authenticated R&D service accepts only the complete sealed Replay locator: its issuance operation resolves the
+sealed preparation, Composer Plan and Artifact, request-bound Instrument Master V2 cut, unique same-account
+economic pair, universe frame, and two BAR schedules before committing the binding through one R&D transaction;
+its read operation returns only an already issued binding projection. A separate consumer composition first reads
+that durable binding, independently re-resolves the exact Composer, Instrument Master V2, economic, universe, and
+schedule inputs, reproduces the stored binding byte-for-byte, and only then materializes the existing native
+execution bundle. A sealed production Strategy Factory resolver now performs that reconstruction inside one
+repeatable-read R&D transaction, derives attempt-bound runtime identities, and hands Backtest the move-only bundle
+with the complete ordered 28-component observation package. R&D source records provide Research, TrialFamily and
+Replay-authority bytes; accepted Composer custody provides Design, Plan and Artifact bytes; the independently
+reproduced durable binding provides the remaining resolved-input evidence. The existing Backtest preparation Owner
+accepts this sealed resolver directly and still performs its own request, component and execution-locator
+reconciliation before entering ProgramHost. With sealed Develop composition enabled, the authenticated R&D API
+registers `POST /v2/exploratory-replays`; the body contains only the exact sealed request locator and attempt
+identity. Startup exposes the execution capability only when `BACKTEST_OWNER_DATABASE_URL` admits the canonical
+Backtest Owner principal and the Market Data scheduling capability is present. The handler returns only the exact
+persisted canonical Result bytes after the coordinator acknowledges the Result, all 28 evidence envelopes and the
+semantic trace; an unacknowledged submission remains unavailable. This does not yet claim disposable PostgreSQL
+acceptance, a deployed or running service, production invocation, Paper/Live execution, or trading.
+
 **TARGET / NOT_ADMITTED, BAR FRAME and JOINED_CUT composition:** the additive
 `StrategyInputSampleProjectionV4` is the only projection that may compose BAR components across a complete
 native join. It has closed `FRAME|JOINED_CUT` projection kinds and the closed `BAR` lifecycle; V2 EVENT/FRAME/

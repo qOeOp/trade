@@ -373,6 +373,8 @@ pub struct SampleFactV1 {
     observation_batch_digest: Identity,
     timeframe_identity: Identity,
     owner_event_identity: [u8; 16],
+    value_bytes: [u8; 16],
+    value_scale: u8,
     source_frontier_digest: Identity,
     correction_frontier_digest: Identity,
     instrument_master_digest: Identity,
@@ -421,6 +423,14 @@ impl SampleFactV1 {
     #[must_use]
     pub const fn owner_event_identity(&self) -> [u8; 16] {
         self.owner_event_identity
+    }
+    #[must_use]
+    pub(crate) const fn value_bytes(&self) -> &[u8; 16] {
+        &self.value_bytes
+    }
+    #[must_use]
+    pub(crate) const fn value_scale(&self) -> u8 {
+        self.value_scale
     }
     #[must_use]
     pub(crate) const fn source_frontier_digest(&self) -> Identity {
@@ -897,6 +907,8 @@ pub(crate) fn prepare_sample_commit_v1(
         observation_batch_digest: *batch.digest().as_bytes(),
         timeframe_identity: timeframe.timeframe_identity,
         owner_event_identity,
+        value_bytes: row.value_mantissa().to_le_bytes(),
+        value_scale: row.value_scale(),
         source_frontier_digest: *row.source_frontier_digest().as_bytes(),
         correction_frontier_digest: *row.correction_frontier_digest().as_bytes(),
         instrument_master_digest: *row.instrument_master_digest().as_bytes(),
@@ -1386,6 +1398,8 @@ fn decode_fact(
     if expected_event != owner_event_identity {
         return Err(SampleFactUnavailable::IdentityMismatch);
     }
+    let mut value_bytes = [0; 16];
+    value_bytes.copy_from_slice(value);
     let sample_identity = sha256(SAMPLE_ID_DOMAIN, &expected_digest);
     nonzero(sample_identity)?;
     Ok(SampleFactV1 {
@@ -1399,6 +1413,8 @@ fn decode_fact(
         observation_batch_digest: batch_digest,
         timeframe_identity,
         owner_event_identity,
+        value_bytes,
+        value_scale: scale,
         source_frontier_digest: source_frontier,
         correction_frontier_digest: correction_frontier,
         instrument_master_digest: instrument_master,
@@ -1721,9 +1737,12 @@ pub(crate) mod tests {
         VerifiedPitObservationBatch {
             request_identity: d(1),
             request_digest: d(2),
+            correlation_identity: d(21),
+            scope_digest: d(20),
             snapshot_identity: d(3 + fact),
             fact_digest: d(fact),
             source_binding_identity: d(6),
+            source_binding_fact_digest: d(22),
             source_binding_lineage_root: d(16),
             source_binding_lineage_version: 1,
             source_frontier_digest: d(7),
@@ -2250,6 +2269,8 @@ pub(crate) mod tests {
             observation_batch_digest: [16; 32],
             timeframe_identity: [3; 32],
             owner_event_identity: [4; 16],
+            value_bytes: [20; 16],
+            value_scale: 2,
             source_frontier_digest: [17; 32],
             correction_frontier_digest: [18; 32],
             instrument_master_digest: [19; 32],

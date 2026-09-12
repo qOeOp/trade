@@ -381,6 +381,10 @@ pub struct ProductEdgeAdmissionReadbackV1 {
     manifest_digest: String,
     read_cut_epoch_ms: u64,
     #[serde(skip)]
+    canonical_storage_bytes: Vec<u8>,
+    #[serde(skip)]
+    canonical_storage_digest: String,
+    #[serde(skip)]
     manifest_proposal: AgentOperationManifestProposalV1,
     #[serde(skip)]
     original_current_authorization_evidence: Option<UntrustedCanonicalAuthorizationEvidenceV1>,
@@ -517,6 +521,16 @@ pub struct ProductEdgeSourceInvocationStartRequestV1 {
 }
 
 impl ProductEdgeAdmissionReadbackV1 {
+    /// Exact canonical bytes retained by Product Edge when this admission was committed.
+    pub fn canonical_storage_bytes(&self) -> &[u8] {
+        &self.canonical_storage_bytes
+    }
+
+    /// Domain-separated digest over [`Self::canonical_storage_bytes`].
+    pub fn canonical_storage_digest(&self) -> &str {
+        &self.canonical_storage_digest
+    }
+
     pub fn locator(&self) -> &ProductEdgeAdmissionLocatorV1 {
         &self.locator
     }

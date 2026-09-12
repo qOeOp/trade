@@ -1406,6 +1406,7 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
+    use crate::owner::sealed_replay_input::sealed_replay_input_contains_joined_cut_v1;
 
     #[rstest]
     fn alternate_join_claim_is_owner_valid_and_differs_only_in_join_identity() {
@@ -1432,5 +1433,19 @@ mod tests {
         );
         assert_eq!(alternate.components(), canonical.components());
         assert_eq!(alternate.components().len(), corpus.bindings().len());
+    }
+
+    #[rstest]
+    fn replay_custody_rejects_an_authentic_prior_snapshot_cut() {
+        let mut corpus = issue_strategy_input_event_join_corpus_v1()
+            .expect("Owner-sealed multi-snapshot joined corpus");
+        let exact = corpus.events().last().expect("terminal cut").clone();
+        let prior = corpus.events().first().expect("prior cut").clone();
+        let replay = corpus
+            .take_event_replay_input()
+            .expect("terminal sealed replay input");
+
+        assert!(sealed_replay_input_contains_joined_cut_v1(&replay, &exact));
+        assert!(!sealed_replay_input_contains_joined_cut_v1(&replay, &prior));
     }
 }

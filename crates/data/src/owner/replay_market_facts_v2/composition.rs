@@ -17,6 +17,7 @@ use super::{
     ReplayMarketDependencyKindV2, ReplayMarketFactsErrorV2, ReplayMarketFactsReadbackV2,
     UntrustedReplayMarketFactsRequestV2,
     authority::{ReplayMarketFactsEvidenceV2, issue_replay_market_facts_v2},
+    verify_replay_market_facts_readback_v2,
 };
 use crate::owner::{
     pit_snapshot::UntrustedPitSnapshotLocator,
@@ -414,6 +415,32 @@ impl ReplayCompositionBindingV1 {
         self.roles.len()
     }
 
+    pub(crate) fn native_locator(
+        &self,
+        kind: ReplayCompositionNativeLocatorKindV1,
+    ) -> Option<ReplayCompositionNativeLocatorV1> {
+        self.native_locators
+            .iter()
+            .copied()
+            .find(|locator| locator.kind == kind)
+    }
+
+    pub(crate) const fn replay_request_identity(&self) -> BindingDigest {
+        self.replay_request_identity
+    }
+
+    pub(crate) const fn replay_request_digest(&self) -> BindingDigest {
+        self.replay_request_digest
+    }
+
+    pub(crate) const fn replay_start_event_ns(&self) -> i128 {
+        self.replay_start_event_ns
+    }
+
+    pub(crate) const fn replay_end_event_ns_exclusive(&self) -> i128 {
+        self.replay_end_event_ns_exclusive
+    }
+
     #[must_use]
     pub fn canonical_bytes(&self) -> &[u8] {
         &self.canonical_bytes
@@ -699,6 +726,15 @@ pub(crate) fn compose_replay_market_facts_v2(
     binding: &ReplayCompositionBindingReadbackV1,
     evidence: ReplayMarketFactsEvidenceV2,
 ) -> Result<ReplayMarketFactsReadbackV2, ReplayCompositionBindingErrorV1> {
+    validate_replay_request_binding_association_v1(request, binding)?;
+    validate_v2_evidence(binding.record(), &evidence)?;
+    issue_replay_market_facts_v2(request.replay_v2_request(), evidence).map_err(map_v2_error)
+}
+
+fn validate_replay_request_binding_association_v1(
+    request: &UntrustedReplayMarketFactsCompositionRequestV1,
+    binding: &ReplayCompositionBindingReadbackV1,
+) -> Result<(), ReplayCompositionBindingErrorV1> {
     if !verify_replay_composition_binding_v1(binding)
         || request.binding_locator() != binding.record.locator()
     {
@@ -714,8 +750,29 @@ pub(crate) fn compose_replay_market_facts_v2(
     {
         return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
     }
-    validate_v2_evidence(record, &evidence)?;
-    issue_replay_market_facts_v2(replay, evidence).map_err(map_v2_error)
+    Ok(())
+}
+
+pub(crate) fn validate_replay_composition_readback_association_v1(
+    request: &UntrustedReplayMarketFactsCompositionRequestV1,
+    binding: &ReplayCompositionBindingReadbackV1,
+    readback: &ReplayMarketFactsReadbackV2,
+) -> Result<(), ReplayCompositionBindingErrorV1> {
+    validate_replay_request_binding_association_v1(request, binding)?;
+    if !verify_replay_market_facts_readback_v2(readback) {
+        return Err(ReplayCompositionBindingErrorV1::DigestMismatch);
+    }
+    let replay = request.replay_v2_request();
+    let facts = readback.facts();
+    if facts.request_identity() != replay.pit_locator().request_identity
+        || facts.request_digest() != replay.pit_locator().request_digest
+        || facts.pit_snapshot_identity() != replay.pit_locator().snapshot_identity
+        || facts.replay_start_event_ns() != replay.replay_start_event_ns()
+        || facts.replay_end_event_ns_exclusive() != replay.replay_end_event_ns_exclusive()
+    {
+        return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
+    }
+    validate_v2_dependencies(binding.record(), facts.frontier().dependencies())
 }
 
 #[must_use]
@@ -1034,9 +1091,22 @@ fn validate_v2_evidence(
     binding: &ReplayCompositionBindingV1,
     evidence: &ReplayMarketFactsEvidenceV2,
 ) -> Result<(), ReplayCompositionBindingErrorV1> {
+    let chain = evidence.native_chain;
+    let mut dependencies = evidence.base_dependencies.clone();
+    dependencies.extend([
+        chain.observation_census,
+        chain.joined_cut,
+        chain.sample_projection,
+    ]);
+    validate_v2_dependencies(binding, &dependencies)
+}
+
+fn validate_v2_dependencies(
+    binding: &ReplayCompositionBindingV1,
+    dependencies: &[super::ReplayMarketDependencyRefV2],
+) -> Result<(), ReplayCompositionBindingErrorV1> {
     let find = |kind| {
-        evidence
-            .base_dependencies
+        dependencies
             .iter()
             .find(|dependency| dependency.kind() == kind)
     };
@@ -1074,13 +1144,26 @@ fn validate_v2_evidence(
             return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
         }
     }
-    let chain = evidence.native_chain;
-    if chain.observation_census.identity() != binding.census_identity
-        || chain.observation_census.digest() != binding.census_digest
-        || chain.joined_cut.identity() != binding.joined_cut_identity
-        || chain.joined_cut.digest() != binding.joined_cut_digest
-        || chain.sample_projection.identity() != binding.sample_projection_identity
-        || chain.sample_projection.digest() != binding.sample_projection_digest
+    let observation_census = find(ReplayMarketDependencyKindV2::ObservationCensusV1)
+        .ok_or(ReplayCompositionBindingErrorV1::DependencyMismatch)?;
+    let joined_cut = find(ReplayMarketDependencyKindV2::StrategyInputJoinedCutV1)
+        .ok_or(ReplayCompositionBindingErrorV1::DependencyMismatch)?;
+    let sample_projection = dependencies
+        .iter()
+        .find(|dependency| {
+            matches!(
+                dependency.kind(),
+                ReplayMarketDependencyKindV2::StrategyInputSampleProjectionV2
+                    | ReplayMarketDependencyKindV2::StrategyInputSampleProjectionV4
+            )
+        })
+        .ok_or(ReplayCompositionBindingErrorV1::DependencyMismatch)?;
+    if observation_census.identity() != binding.census_identity
+        || observation_census.digest() != binding.census_digest
+        || joined_cut.identity() != binding.joined_cut_identity
+        || joined_cut.digest() != binding.joined_cut_digest
+        || sample_projection.identity() != binding.sample_projection_identity
+        || sample_projection.digest() != binding.sample_projection_digest
     {
         return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
     }

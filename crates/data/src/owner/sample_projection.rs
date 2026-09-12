@@ -584,6 +584,8 @@ pub(super) struct DecodedStrategyInputSampleProjectionV2 {
 pub(super) struct DecodedStrategyInputSampleProjectionComponentV2 {
     role_identity: Identity,
     binding_receipt_digest: Identity,
+    value_trigger_digest: Identity,
+    owner_event_identity: [u8; 16],
     timeframe_projection_digest: Identity,
     sample_identity: Identity,
     sample_receipt_digest: Identity,
@@ -625,8 +627,28 @@ impl DecodedStrategyInputSampleProjectionV2 {
 }
 
 impl DecodedStrategyInputSampleProjectionComponentV2 {
+    pub(super) const fn role_identity(&self) -> Identity {
+        self.role_identity
+    }
+
+    pub(super) const fn binding_receipt_digest(&self) -> Identity {
+        self.binding_receipt_digest
+    }
+
+    pub(super) const fn value_trigger_digest(&self) -> Identity {
+        self.value_trigger_digest
+    }
+
+    pub(super) const fn owner_event_identity(&self) -> [u8; 16] {
+        self.owner_event_identity
+    }
+
     pub(super) const fn timeframe_projection_digest(&self) -> Identity {
         self.timeframe_projection_digest
+    }
+
+    pub(super) const fn sample_identity(&self) -> Identity {
+        self.sample_identity
     }
 
     pub(super) const fn sample_receipt_digest(&self) -> Identity {
@@ -1300,6 +1322,8 @@ pub(super) fn decode_strategy_input_sample_projection_v2(
         components.push(DecodedStrategyInputSampleProjectionComponentV2 {
             role_identity: role,
             binding_receipt_digest: binding_digest,
+            value_trigger_digest: entry_trigger,
+            owner_event_identity: role_bound_event_identity,
             timeframe_projection_digest,
             sample_identity,
             sample_receipt_digest,

@@ -1,15 +1,23 @@
 #![allow(
     dead_code,
-    reason = "candidate-private storage is intentionally unregistered until native dependency custody exists"
+    reason = "storage codec and test fault seams stay private behind the sealed Owner resolvers"
 )]
 
 use sqlx::{Postgres, Row, Transaction};
 
 use super::{
-    ReplayMarketDependencyKindV2, ReplayMarketFactsReadbackV2, UntrustedReplayMarketFactsRequestV2,
+    ReplayCorporateActionTermsV2, ReplayMarketDependencyKindV2, ReplayMarketDependencyRefV2,
+    ReplayMarketFactsReadbackV2, ReplayPriceAdjustmentV2, ReplayReferenceFactKindV2,
+    ReplayReferenceFactTimeV2, ReplayReferenceFactValueV2, ReplayTimestampBasisV2,
+    UntrustedReplayMarketFactsRequestV2,
+    authority::{
+        ReplayMarketFactsEvidenceV2, ReplayNativeChainEvidenceV2, ReplayReferenceFactCutProposalV2,
+        ReplayReferenceFactProposalV2, ReplayReferenceFactScopeProposalV2,
+        issue_replay_market_facts_v2,
+    },
     codec::{
-        FACTS_DOMAIN, FRONTIER_DOMAIN, MAX_AGGREGATE_BYTES, MAX_FIELD_BYTES, MAX_FRONTIER_BYTES,
-        MAX_RECEIPT_BYTES, RECEIPT_DOMAIN, digest,
+        CUT_DOMAIN, FACTS_DOMAIN, FRONTIER_DOMAIN, MAX_AGGREGATE_BYTES, MAX_CUT_BYTES,
+        MAX_FIELD_BYTES, MAX_FRONTIER_BYTES, MAX_RECEIPT_BYTES, RECEIPT_DOMAIN, digest,
     },
     composition::{
         ReplayCompositionBindingLocatorV1, ReplayCompositionBindingReadbackV1,
@@ -17,6 +25,7 @@ use super::{
     },
     verify_replay_market_facts_readback_v2,
 };
+use crate::owner::source_binding::BindingDigest;
 const STORAGE_DOMAIN: &[u8] = b"vibe.market-data.replay-market-facts-storage.v2\0";
 const MEANING_DOMAIN: &[u8] = b"vibe.market-data.replay-market-facts-meaning.v2\0";
 const BOUND_MEANING_DOMAIN: &[u8] = b"vibe.market-data.replay-market-facts-bound-meaning.v1\0";
@@ -27,6 +36,8 @@ const OUTBOX_CUSTODY_DOMAIN: &[u8] = b"vibe.market-data.replay-market-facts-outb
 const DIGEST_BYTES: usize = 32;
 const RECEIPT_CANONICAL_BYTES: usize = 2 + 4 * DIGEST_BYTES;
 const REQUIRED_DEPENDENCY_COUNT: usize = 7;
+const RESOLVE_COMPOSITION_BINDING_SOURCE_V1: &str = " SELECT b.binding_identity,b.binding_digest,b.receipt_identity,b.record_bytes,r.receipt_bytes,o.outbox_identity,o.binding_identity,o.receipt_identity,o.payload_bytes FROM market_data_private.replay_composition_bindings_v1 AS b JOIN market_data_private.replay_composition_binding_receipts_v1 AS r ON r.binding_identity=b.binding_identity JOIN market_data_private.replay_composition_binding_outbox_v1 AS o ON o.binding_identity=b.binding_identity WHERE b.binding_identity=p_binding_identity ";
+const RESOLVE_BOUND_REPLAY_FACTS_SOURCE_V1: &str = " SELECT f.facts_identity,f.meaning_identity,f.composition_binding_identity,f.request_identity,f.request_digest,f.frontier_identity,f.receipt_identity,f.universe_selection_identity,f.universe_selection_digest,f.joined_cut_identity,f.joined_cut_digest,f.sample_projection_identity,f.sample_projection_digest,f.facts_bytes,f.frontier_bytes,r.receipt_bytes,f.custody_digest,f.append_sequence,r.facts_identity,r.meaning_identity,r.append_sequence,r.manifest_digest,r.custody_digest,o.outbox_identity,o.facts_identity,o.receipt_identity,o.payload_digest,o.payload_bytes,o.append_sequence,o.manifest_digest,o.custody_digest,s.store_generation_identity,s.append_sequence,(SELECT COUNT(*) FROM market_data_private.replay_market_facts_v2),(SELECT COUNT(*) FROM market_data_private.replay_market_facts_receipts_v2),(SELECT COUNT(*) FROM market_data_private.replay_market_facts_outbox_v2),(SELECT COALESCE(MAX(append_sequence),0) FROM market_data_private.replay_market_facts_v2),(SELECT COALESCE(MAX(append_sequence),0) FROM market_data_private.replay_market_facts_receipts_v2),(SELECT COALESCE(MAX(append_sequence),0) FROM market_data_private.replay_market_facts_outbox_v2) FROM market_data_private.replay_market_facts_v2 AS f JOIN market_data_private.replay_market_facts_receipts_v2 AS r ON r.facts_identity=f.facts_identity JOIN market_data_private.replay_market_facts_outbox_v2 AS o ON o.facts_identity=f.facts_identity CROSS JOIN market_data_private.replay_market_facts_state_v2 AS s WHERE s.singleton AND f.meaning_identity=p_meaning_identity ";
 
 pub(crate) const REPLAY_MARKET_FACTS_SCHEMA_V2: [&str; 20] = [
     "CREATE TABLE IF NOT EXISTS market_data_private.replay_market_facts_state_v2 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), store_generation_identity BYTEA NOT NULL CHECK (octet_length(store_generation_identity)=32), append_sequence BIGINT NOT NULL CHECK (append_sequence>=0))",
@@ -207,6 +218,169 @@ pub(crate) enum ReplayMarketFactsPostgresErrorV2 {
     BindingUnavailable,
     #[error("composition binding custody is corrupt or conflicts")]
     BindingConflict,
+}
+
+pub(crate) async fn verify_replay_market_facts_read_contract_v2(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), ReplayMarketFactsPostgresErrorV2> {
+    let exact: bool = sqlx::query_scalar(
+        "SELECT current_user='market_data_owner'
+            AND pg_catalog.pg_get_userbyid(namespace.nspowner)=current_user
+            AND pg_catalog.has_schema_privilege(current_user,namespace.oid,'USAGE,CREATE')
+            AND NOT EXISTS (
+                SELECT 1 FROM pg_catalog.aclexplode(COALESCE(namespace.nspacl,pg_catalog.acldefault('n',namespace.nspowner))) privilege
+                 WHERE privilege.grantee<>namespace.nspowner)
+            AND (SELECT count(*)=7
+                   AND count(*) FILTER (WHERE pg_catalog.pg_get_userbyid(relation.relowner)=current_user)=7
+                   AND count(*) FILTER (WHERE relation.relkind='r' AND relation.relpersistence='p')=7
+                   AND count(*) FILTER (WHERE NOT relation.relrowsecurity AND NOT relation.relforcerowsecurity)=7
+                   AND NOT EXISTS (
+                       SELECT 1 FROM pg_catalog.pg_class relation_acl
+                       CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(relation_acl.relacl,pg_catalog.acldefault('r',relation_acl.relowner))) privilege
+                        WHERE relation_acl.oid=ANY(ARRAY[
+                          pg_catalog.to_regclass('market_data_private.replay_market_facts_v2'),
+                          pg_catalog.to_regclass('market_data_private.replay_market_facts_receipts_v2'),
+                          pg_catalog.to_regclass('market_data_private.replay_market_facts_outbox_v2'),
+                          pg_catalog.to_regclass('market_data_private.replay_market_facts_state_v2'),
+                          pg_catalog.to_regclass('market_data_private.replay_composition_bindings_v1'),
+                          pg_catalog.to_regclass('market_data_private.replay_composition_binding_receipts_v1'),
+                          pg_catalog.to_regclass('market_data_private.replay_composition_binding_outbox_v1')
+                        ]) AND privilege.grantee<>relation_acl.relowner)
+                   AND NOT EXISTS (
+                       SELECT 1 FROM pg_catalog.pg_attribute attribute
+                        WHERE attribute.attrelid=ANY(ARRAY[
+                          pg_catalog.to_regclass('market_data_private.replay_market_facts_v2'),
+                          pg_catalog.to_regclass('market_data_private.replay_market_facts_receipts_v2'),
+                          pg_catalog.to_regclass('market_data_private.replay_market_facts_outbox_v2'),
+                          pg_catalog.to_regclass('market_data_private.replay_market_facts_state_v2'),
+                          pg_catalog.to_regclass('market_data_private.replay_composition_bindings_v1'),
+                          pg_catalog.to_regclass('market_data_private.replay_composition_binding_receipts_v1'),
+                          pg_catalog.to_regclass('market_data_private.replay_composition_binding_outbox_v1')
+                        ]) AND attribute.attnum>0 AND NOT attribute.attisdropped AND attribute.attacl IS NOT NULL)
+                  FROM pg_catalog.pg_class relation
+                 WHERE relation.oid=ANY(ARRAY[
+                   pg_catalog.to_regclass('market_data_private.replay_market_facts_v2'),
+                   pg_catalog.to_regclass('market_data_private.replay_market_facts_receipts_v2'),
+                   pg_catalog.to_regclass('market_data_private.replay_market_facts_outbox_v2'),
+                   pg_catalog.to_regclass('market_data_private.replay_market_facts_state_v2'),
+                   pg_catalog.to_regclass('market_data_private.replay_composition_bindings_v1'),
+                   pg_catalog.to_regclass('market_data_private.replay_composition_binding_receipts_v1'),
+                   pg_catalog.to_regclass('market_data_private.replay_composition_binding_outbox_v1')
+                 ]))
+            AND (SELECT count(*)=2
+                   AND count(*) FILTER (WHERE pg_catalog.pg_get_userbyid(procedure.proowner)=current_user)=2
+                   AND count(*) FILTER (WHERE language.lanname='sql' AND procedure.prokind='f' AND procedure.proretset AND procedure.prosecdef AND NOT procedure.proisstrict AND procedure.provolatile='s' AND procedure.proparallel='u' AND procedure.proconfig=ARRAY['search_path=pg_catalog']::text[] AND procedure.prosrc=ANY(ARRAY[$1,$2]))=2
+                   AND NOT EXISTS (
+                       SELECT 1 FROM pg_catalog.pg_proc function_acl
+                       CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(function_acl.proacl,pg_catalog.acldefault('f',function_acl.proowner))) privilege
+                        WHERE function_acl.oid=ANY(ARRAY[
+                          pg_catalog.to_regprocedure('market_data_private.resolve_replay_composition_binding_v1(bytea)'),
+                          pg_catalog.to_regprocedure('market_data_private.resolve_replay_market_facts_bound_storage_v1(bytea)')
+                        ]) AND privilege.grantee<>function_acl.proowner)
+                  FROM pg_catalog.pg_proc procedure
+                  JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang
+                 WHERE procedure.oid=ANY(ARRAY[
+                   pg_catalog.to_regprocedure('market_data_private.resolve_replay_composition_binding_v1(bytea)'),
+                   pg_catalog.to_regprocedure('market_data_private.resolve_replay_market_facts_bound_storage_v1(bytea)')
+                 ]))
+           FROM pg_catalog.pg_namespace namespace
+          WHERE namespace.nspname='market_data_private'",
+    )
+    .bind(RESOLVE_COMPOSITION_BINDING_SOURCE_V1)
+    .bind(RESOLVE_BOUND_REPLAY_FACTS_SOURCE_V1)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|_| ReplayMarketFactsPostgresErrorV2::StoreUnavailable)?;
+    let topology_exact: bool = sqlx::query_scalar(
+        "WITH expected(relation_name,constraint_kind,key_columns,foreign_relation,foreign_columns,delete_action) AS (VALUES
+            ('replay_market_facts_state_v2','p','singleton','','',' '),
+            ('replay_market_facts_v2','p','facts_identity','','',' '),
+            ('replay_market_facts_v2','u','meaning_identity','','',' '),
+            ('replay_market_facts_v2','u','receipt_identity','','',' '),
+            ('replay_market_facts_v2','u','append_sequence','','',' '),
+            ('replay_market_facts_receipts_v2','p','receipt_identity','','',' '),
+            ('replay_market_facts_receipts_v2','u','facts_identity','','',' '),
+            ('replay_market_facts_receipts_v2','u','meaning_identity','','',' '),
+            ('replay_market_facts_receipts_v2','u','append_sequence','','',' '),
+            ('replay_market_facts_receipts_v2','f','facts_identity','replay_market_facts_v2','facts_identity','a'),
+            ('replay_market_facts_outbox_v2','p','outbox_identity','','',' '),
+            ('replay_market_facts_outbox_v2','u','facts_identity','','',' '),
+            ('replay_market_facts_outbox_v2','u','receipt_identity','','',' '),
+            ('replay_market_facts_outbox_v2','u','append_sequence','','',' '),
+            ('replay_market_facts_outbox_v2','f','facts_identity','replay_market_facts_v2','facts_identity','a'),
+            ('replay_market_facts_outbox_v2','f','receipt_identity','replay_market_facts_receipts_v2','receipt_identity','a'),
+            ('replay_composition_bindings_v1','p','binding_identity','','',' '),
+            ('replay_composition_bindings_v1','u','binding_digest','','',' '),
+            ('replay_composition_bindings_v1','u','receipt_identity','','',' '),
+            ('replay_composition_binding_receipts_v1','p','receipt_identity','','',' '),
+            ('replay_composition_binding_receipts_v1','u','binding_identity','','',' '),
+            ('replay_composition_binding_receipts_v1','f','binding_identity','replay_composition_bindings_v1','binding_identity','r'),
+            ('replay_composition_binding_outbox_v1','p','outbox_identity','','',' '),
+            ('replay_composition_binding_outbox_v1','u','binding_identity','','',' '),
+            ('replay_composition_binding_outbox_v1','u','receipt_identity','','',' '),
+            ('replay_composition_binding_outbox_v1','f','binding_identity','replay_composition_bindings_v1','binding_identity','r'),
+            ('replay_composition_binding_outbox_v1','f','receipt_identity','replay_composition_binding_receipts_v1','receipt_identity','r')
+        ), observed AS (
+          SELECT relation.relname::text AS relation_name,
+                 constraint_fact.contype::text AS constraint_kind,
+                 pg_catalog.array_to_string(ARRAY(
+                   SELECT attribute.attname
+                     FROM pg_catalog.unnest(constraint_fact.conkey) WITH ORDINALITY key(attnum,ordinality)
+                     JOIN pg_catalog.pg_attribute attribute
+                       ON attribute.attrelid=constraint_fact.conrelid AND attribute.attnum=key.attnum
+                    ORDER BY key.ordinality),' ') AS key_columns,
+                 COALESCE(foreign_relation.relname,'')::text AS foreign_relation,
+                 COALESCE(pg_catalog.array_to_string(ARRAY(
+                   SELECT attribute.attname
+                     FROM pg_catalog.unnest(constraint_fact.confkey) WITH ORDINALITY key(attnum,ordinality)
+                     JOIN pg_catalog.pg_attribute attribute
+                       ON attribute.attrelid=constraint_fact.confrelid AND attribute.attnum=key.attnum
+                    ORDER BY key.ordinality),' '),'') AS foreign_columns,
+                 CASE WHEN constraint_fact.contype='f' THEN constraint_fact.confdeltype::text ELSE ' ' END AS delete_action,
+                 constraint_fact.condeferrable,constraint_fact.condeferred,constraint_fact.convalidated,
+                 constraint_fact.conislocal,constraint_fact.coninhcount,
+                 constraint_fact.contype<>'f'
+                   OR constraint_fact.confrelid=pg_catalog.to_regclass(
+                       pg_catalog.format('market_data_private.%I',foreign_relation.relname)) AS foreign_relation_oid_exact
+            FROM pg_catalog.pg_constraint constraint_fact
+            JOIN pg_catalog.pg_class relation ON relation.oid=constraint_fact.conrelid
+            JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+            LEFT JOIN pg_catalog.pg_class foreign_relation ON foreign_relation.oid=constraint_fact.confrelid
+           WHERE namespace.nspname='market_data_private'
+             AND relation.relname IN (
+               'replay_market_facts_state_v2','replay_market_facts_v2',
+               'replay_market_facts_receipts_v2','replay_market_facts_outbox_v2',
+               'replay_composition_bindings_v1','replay_composition_binding_receipts_v1',
+               'replay_composition_binding_outbox_v1')
+             AND constraint_fact.contype IN ('p','u','f')
+        )
+        SELECT (SELECT count(*) FROM observed)=27
+          AND NOT EXISTS (SELECT relation_name,constraint_kind,key_columns,foreign_relation,foreign_columns,delete_action FROM expected EXCEPT ALL SELECT relation_name,constraint_kind,key_columns,foreign_relation,foreign_columns,delete_action FROM observed)
+          AND NOT EXISTS (SELECT relation_name,constraint_kind,key_columns,foreign_relation,foreign_columns,delete_action FROM observed EXCEPT ALL SELECT relation_name,constraint_kind,key_columns,foreign_relation,foreign_columns,delete_action FROM expected)
+          AND NOT EXISTS (SELECT 1 FROM observed WHERE condeferrable OR condeferred OR NOT convalidated OR NOT conislocal OR coninhcount<>0)
+          AND NOT EXISTS (SELECT 1 FROM observed WHERE NOT foreign_relation_oid_exact)
+          AND (SELECT count(*)=1
+                 AND bool_and(index_fact.indisunique AND index_fact.indisvalid AND index_fact.indisready
+                              AND NOT index_fact.indisprimary AND NOT index_fact.indisexclusion
+                              AND index_fact.indrelid=pg_catalog.to_regclass('market_data_private.replay_market_facts_v2')
+                              AND pg_catalog.pg_get_expr(index_fact.indpred,index_fact.indrelid)='(composition_binding_identity IS NOT NULL)'
+                              AND pg_catalog.array_to_string(ARRAY(
+                                  SELECT attribute.attname
+                                    FROM pg_catalog.unnest(index_fact.indkey::smallint[]) WITH ORDINALITY key(attnum,ordinality)
+                                    JOIN pg_catalog.pg_attribute attribute
+                                      ON attribute.attrelid=index_fact.indrelid AND attribute.attnum=key.attnum
+                                   ORDER BY key.ordinality),' ')='composition_binding_identity')
+                 FROM pg_catalog.pg_index index_fact
+                 JOIN pg_catalog.pg_class index_relation ON index_relation.oid=index_fact.indexrelid
+                WHERE index_relation.relnamespace=pg_catalog.to_regnamespace('market_data_private')
+                  AND index_relation.relname='replay_market_facts_binding_v1')",
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|_| ReplayMarketFactsPostgresErrorV2::StoreUnavailable)?;
+    (exact && topology_exact)
+        .then_some(())
+        .ok_or(ReplayMarketFactsPostgresErrorV2::StoreUnavailable)
 }
 
 pub(crate) async fn persist_replay_composition_binding_in_transaction_v1(
@@ -448,10 +622,38 @@ pub(crate) struct ExactStoredReplayMarketFactsV2 {
     pub(crate) receipt_bytes: Vec<u8>,
 }
 
-pub(crate) async fn recover_replay_market_facts_by_binding_in_transaction_v2(
+pub(crate) async fn recover_replay_market_facts_readback_in_transaction_v2(
     transaction: &mut Transaction<'_, Postgres>,
-    binding_identity: [u8; 32],
-) -> Result<ExactStoredReplayMarketFactsV2, ReplayMarketFactsPostgresErrorV2> {
+    request: &UntrustedReplayMarketFactsRequestV2,
+) -> Result<ReplayMarketFactsReadbackV2, ReplayMarketFactsPostgresErrorV2> {
+    let locator = request.pit_locator();
+    let meaning = meaning_identity(
+        *locator.request_identity.as_bytes(),
+        *locator.request_digest.as_bytes(),
+        *locator.snapshot_identity.as_bytes(),
+        request.replay_start_event_ns(),
+        request.replay_end_event_ns_exclusive(),
+    );
+    let durable = load_by_meaning(transaction, meaning)
+        .await?
+        .ok_or(ReplayMarketFactsPostgresErrorV2::UnknownRecord)?;
+    decode_exact_readback_v2(&durable, request)
+}
+
+pub(crate) async fn recover_bound_replay_market_facts_readback_in_transaction_v2(
+    transaction: &mut Transaction<'_, Postgres>,
+    request: &UntrustedReplayMarketFactsRequestV2,
+    binding_identity: [u8; DIGEST_BYTES],
+) -> Result<ReplayMarketFactsReadbackV2, ReplayMarketFactsPostgresErrorV2> {
+    let durable =
+        recover_durable_by_binding_in_transaction_v2(transaction, binding_identity).await?;
+    decode_exact_readback_v2(&durable, request)
+}
+
+async fn recover_durable_by_binding_in_transaction_v2(
+    transaction: &mut Transaction<'_, Postgres>,
+    binding_identity: [u8; DIGEST_BYTES],
+) -> Result<DurableReplayMarketFactsStorageV2, ReplayMarketFactsPostgresErrorV2> {
     let meanings: Vec<Vec<u8>> = sqlx::query_scalar("SELECT meaning_identity FROM market_data_private.replay_market_facts_v2 WHERE composition_binding_identity=$1 ORDER BY meaning_identity")
         .bind(binding_identity.as_slice())
         .fetch_all(&mut **transaction)
@@ -464,9 +666,17 @@ pub(crate) async fn recover_replay_market_facts_by_binding_in_transaction_v2(
             ReplayMarketFactsPostgresErrorV2::CorruptRecord
         });
     };
-    let durable = load_by_meaning(transaction, digest_array(meaning.clone())?)
+    load_by_meaning(transaction, digest_array(meaning.clone())?)
         .await?
-        .ok_or(ReplayMarketFactsPostgresErrorV2::UnknownRecord)?;
+        .ok_or(ReplayMarketFactsPostgresErrorV2::UnknownRecord)
+}
+
+pub(crate) async fn recover_replay_market_facts_by_binding_in_transaction_v2(
+    transaction: &mut Transaction<'_, Postgres>,
+    binding_identity: [u8; 32],
+) -> Result<ExactStoredReplayMarketFactsV2, ReplayMarketFactsPostgresErrorV2> {
+    let durable =
+        recover_durable_by_binding_in_transaction_v2(transaction, binding_identity).await?;
     validate_stored_row(&durable.row)?;
     validate_storage_manifest(&durable.row, &durable.manifest)?;
     if durable.row.composition_binding_identity != Some(binding_identity)
@@ -481,6 +691,412 @@ pub(crate) async fn recover_replay_market_facts_by_binding_in_transaction_v2(
         frontier_bytes: durable.row.frontier_bytes,
         receipt_bytes: durable.row.receipt_bytes,
     })
+}
+
+fn decode_exact_readback_v2(
+    durable: &DurableReplayMarketFactsStorageV2,
+    request: &UntrustedReplayMarketFactsRequestV2,
+) -> Result<ReplayMarketFactsReadbackV2, ReplayMarketFactsPostgresErrorV2> {
+    validate_stored_row(&durable.row)?;
+    validate_storage_manifest(&durable.row, &durable.manifest)?;
+    let row = &durable.row;
+    let locator = request.pit_locator();
+    if row.request_identity != *locator.request_identity.as_bytes()
+        || row.request_digest != *locator.request_digest.as_bytes()
+        || row.pit_snapshot_identity != *locator.snapshot_identity.as_bytes()
+        || row.replay_start_event_ns != request.replay_start_event_ns()
+        || row.replay_end_event_ns_exclusive != request.replay_end_event_ns_exclusive()
+    {
+        return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
+    }
+
+    let (base_dependencies, native_chain, reference_cut_identities) =
+        decode_frontier_evidence_v2(&row.frontier_bytes)?;
+    let reference_cuts = decode_fact_cuts_v2(
+        &row.facts_bytes,
+        request,
+        row.frontier_identity,
+        &reference_cut_identities,
+    )?;
+    let stable_correlation = decode_receipt_correlation_v2(&row.receipt_bytes)?;
+    let readback = issue_replay_market_facts_v2(
+        request,
+        ReplayMarketFactsEvidenceV2 {
+            base_dependencies,
+            native_chain,
+            reference_cuts,
+            stable_correlation,
+        },
+    )
+    .map_err(|_| ReplayMarketFactsPostgresErrorV2::CorruptRecord)?;
+    if readback.facts().identity().as_bytes() != &row.facts_identity
+        || readback.receipt().identity().as_bytes() != &row.receipt_identity
+        || readback.facts().canonical_bytes() != row.facts_bytes
+        || readback.facts().frontier().canonical_bytes() != row.frontier_bytes
+        || readback.receipt().canonical_bytes() != row.receipt_bytes
+    {
+        return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
+    }
+    Ok(readback)
+}
+
+fn decode_frontier_evidence_v2(
+    bytes: &[u8],
+) -> Result<
+    (
+        Vec<ReplayMarketDependencyRefV2>,
+        ReplayNativeChainEvidenceV2,
+        Vec<BindingDigest>,
+    ),
+    ReplayMarketFactsPostgresErrorV2,
+> {
+    let mut cursor = Cursor::new(bytes);
+    cursor.version()?;
+    if cursor.u32()? as usize != REQUIRED_DEPENDENCY_COUNT {
+        return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
+    }
+    let expected_kinds = [
+        ReplayMarketDependencyKindV2::PitSnapshotV1,
+        ReplayMarketDependencyKindV2::SourceBindingV1,
+        ReplayMarketDependencyKindV2::InstrumentMasterCutV1,
+        ReplayMarketDependencyKindV2::UniverseSelectionV1,
+        ReplayMarketDependencyKindV2::ObservationCensusV1,
+        ReplayMarketDependencyKindV2::StrategyInputJoinedCutV1,
+    ];
+    let mut dependencies = Vec::with_capacity(REQUIRED_DEPENDENCY_COUNT);
+    for kind in expected_kinds {
+        dependencies.push(cursor.typed_dependency(kind)?);
+    }
+    let projection_kind = cursor.u16()?;
+    let projection_kind = match projection_kind {
+        7 => ReplayMarketDependencyKindV2::StrategyInputSampleProjectionV2,
+        8 => ReplayMarketDependencyKindV2::StrategyInputSampleProjectionV4,
+        _ => return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord),
+    };
+    let projection = ReplayMarketDependencyRefV2::from_verified_owner_record(
+        projection_kind,
+        cursor.binding_digest()?,
+        cursor.binding_digest()?,
+    );
+    dependencies.push(projection);
+
+    let observation = cursor.typed_dependency(ReplayMarketDependencyKindV2::ObservationCensusV1)?;
+    let joined = cursor.typed_dependency(ReplayMarketDependencyKindV2::StrategyInputJoinedCutV1)?;
+    let joined_subject = cursor.binding_digest()?;
+    let joined_subject_digest = cursor.binding_digest()?;
+    let sample = cursor.typed_dependency(projection_kind)?;
+    let sample_subject = cursor.binding_digest()?;
+    let sample_subject_digest = cursor.binding_digest()?;
+    let reference_count = usize::try_from(cursor.u32()?)
+        .map_err(|_| ReplayMarketFactsPostgresErrorV2::CorruptRecord)?;
+    if reference_count != 7 {
+        return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
+    }
+    let mut reference_cut_identities = Vec::with_capacity(reference_count);
+    for _ in 0..reference_count {
+        reference_cut_identities.push(cursor.binding_digest()?);
+    }
+    if !cursor.is_finished()
+        || observation != dependencies[4]
+        || joined != dependencies[5]
+        || sample != dependencies[6]
+    {
+        return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
+    }
+    Ok((
+        dependencies[..4].to_vec(),
+        ReplayNativeChainEvidenceV2 {
+            observation_census: observation,
+            joined_cut: joined,
+            joined_cut_observation_subject: joined_subject,
+            joined_cut_observation_subject_digest: joined_subject_digest,
+            sample_projection: sample,
+            sample_projection_joined_cut_subject: sample_subject,
+            sample_projection_joined_cut_subject_digest: sample_subject_digest,
+        },
+        reference_cut_identities,
+    ))
+}
+
+fn decode_fact_cuts_v2(
+    bytes: &[u8],
+    request: &UntrustedReplayMarketFactsRequestV2,
+    expected_frontier: [u8; DIGEST_BYTES],
+    expected_cut_identities: &[BindingDigest],
+) -> Result<Vec<ReplayReferenceFactCutProposalV2>, ReplayMarketFactsPostgresErrorV2> {
+    let mut cursor = Cursor::new(bytes);
+    cursor.version()?;
+    let locator = request.pit_locator();
+    if cursor.binding_digest()? != locator.request_identity
+        || cursor.binding_digest()? != locator.request_digest
+        || cursor.binding_digest()? != locator.snapshot_identity
+        || cursor.binding_digest()? != locator.fact_digest
+        || cursor.u64()? != locator.time_evidence.decision_cut.value
+        || cursor.u64()? != locator.time_evidence.observed_at
+        || cursor.u64()? != locator.time_evidence.valid_through
+        || cursor.length_prefixed(MAX_FIELD_BYTES)?
+            != locator.time_evidence.decision_cut.clock_identity.as_bytes()
+        || cursor.length_prefixed(MAX_FIELD_BYTES)?
+            != locator.time_evidence.decision_cut.clock_epoch.as_bytes()
+        || cursor.i128()? != request.replay_start_event_ns()
+        || cursor.i128()? != request.replay_end_event_ns_exclusive()
+        || cursor.digest()? != expected_frontier
+    {
+        return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
+    }
+    let count = usize::try_from(cursor.u32()?)
+        .map_err(|_| ReplayMarketFactsPostgresErrorV2::CorruptRecord)?;
+    if count != 7 || expected_cut_identities.len() != count {
+        return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
+    }
+    let mut cuts = Vec::with_capacity(count);
+    let mut decoded_identities = Vec::with_capacity(count);
+    for ordinal in 1_u16..=7 {
+        if cursor.u16()? != ordinal {
+            return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
+        }
+        let identity = cursor.binding_digest()?;
+        let cut_bytes = cursor.length_prefixed(MAX_CUT_BYTES)?;
+        if digest(CUT_DOMAIN, cut_bytes) != identity {
+            return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
+        }
+        cuts.push(decode_cut_proposal_v2(cut_bytes)?);
+        decoded_identities.push(identity);
+    }
+    let mut sorted_identities = decoded_identities;
+    sorted_identities.sort_unstable();
+    if !cursor.is_finished() || sorted_identities != expected_cut_identities {
+        return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
+    }
+    Ok(cuts)
+}
+
+fn decode_cut_proposal_v2(
+    bytes: &[u8],
+) -> Result<ReplayReferenceFactCutProposalV2, ReplayMarketFactsPostgresErrorV2> {
+    let mut cursor = Cursor::new(bytes);
+    cursor.version()?;
+    let kind = reference_kind(cursor.u16()?)?;
+    let scope_bytes = cursor.length_prefixed(MAX_FIELD_BYTES)?;
+    let scope = decode_scope_v2(scope_bytes)?;
+    let count = usize::try_from(cursor.u32()?)
+        .map_err(|_| ReplayMarketFactsPostgresErrorV2::CorruptRecord)?;
+    if count > super::codec::MAX_FACTS_PER_CUT {
+        return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
+    }
+    let mut facts = Vec::with_capacity(count);
+    for _ in 0..count {
+        let identity = cursor.binding_digest()?;
+        let fact_bytes = cursor.length_prefixed(super::codec::MAX_FACT_BYTES)?;
+        if digest(super::codec::FACT_DOMAIN, fact_bytes) != identity {
+            return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
+        }
+        facts.push(decode_fact_proposal_v2(fact_bytes, scope_bytes)?);
+    }
+    if !cursor.is_finished() {
+        return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
+    }
+    Ok(ReplayReferenceFactCutProposalV2 { kind, scope, facts })
+}
+
+fn decode_scope_v2(
+    bytes: &[u8],
+) -> Result<ReplayReferenceFactScopeProposalV2, ReplayMarketFactsPostgresErrorV2> {
+    let mut cursor = Cursor::new(bytes);
+    cursor.version()?;
+    let scope = ReplayReferenceFactScopeProposalV2 {
+        pit_snapshot_identity: cursor.binding_digest()?,
+        pit_decision_cut: cursor.u64()?,
+        pit_observed_at: cursor.u64()?,
+        pit_valid_through: cursor.u64()?,
+        pit_clock_digest: cursor.binding_digest()?,
+        replay_start_event_ns: cursor.i128()?,
+        replay_end_event_ns_exclusive: cursor.i128()?,
+        authority_kind: dependency_kind(cursor.u16()?)?,
+        authority_identity: cursor.binding_digest()?,
+    };
+    cursor
+        .is_finished()
+        .then_some(scope)
+        .ok_or(ReplayMarketFactsPostgresErrorV2::CorruptRecord)
+}
+
+fn decode_fact_proposal_v2(
+    bytes: &[u8],
+    expected_scope: &[u8],
+) -> Result<ReplayReferenceFactProposalV2, ReplayMarketFactsPostgresErrorV2> {
+    let mut cursor = Cursor::new(bytes);
+    cursor.version()?;
+    if cursor.length_prefixed(MAX_FIELD_BYTES)? != expected_scope {
+        return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
+    }
+    let value = decode_value_v2(&mut cursor)?;
+    let time = decode_time_v2(&mut cursor)?;
+    let source_identity = cursor.binding_digest()?;
+    let correction_identity = cursor.binding_digest()?;
+    if !cursor.is_finished() {
+        return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
+    }
+    Ok(ReplayReferenceFactProposalV2 {
+        value,
+        time,
+        source_identity,
+        correction_identity,
+    })
+}
+
+fn decode_value_v2(
+    cursor: &mut Cursor<'_>,
+) -> Result<ReplayReferenceFactValueV2, ReplayMarketFactsPostgresErrorV2> {
+    Ok(match reference_kind(cursor.u16()?)? {
+        ReplayReferenceFactKindV2::Calendar => ReplayReferenceFactValueV2::Calendar {
+            calendar_identity: cursor.length_prefixed(MAX_FIELD_BYTES)?.to_vec(),
+            trading_day: cursor.i32()?,
+            is_open: cursor.boolean()?,
+        },
+        ReplayReferenceFactKindV2::Session => ReplayReferenceFactValueV2::Session {
+            session_identity: cursor.length_prefixed(MAX_FIELD_BYTES)?.to_vec(),
+            calendar_identity: cursor.length_prefixed(MAX_FIELD_BYTES)?.to_vec(),
+            opens_at_ns: cursor.i128()?,
+            closes_at_ns: cursor.i128()?,
+        },
+        ReplayReferenceFactKindV2::TimeZone => ReplayReferenceFactValueV2::TimeZone {
+            time_zone_identity: cursor.length_prefixed(MAX_FIELD_BYTES)?.to_vec(),
+            ruleset_identity: cursor.binding_digest()?,
+            offset_seconds: cursor.i32()?,
+        },
+        ReplayReferenceFactKindV2::MarketSemantics => {
+            let normalization_identity = cursor.binding_digest()?;
+            let price_adjustment = match cursor.u16()? {
+                1 => ReplayPriceAdjustmentV2::Raw,
+                2 => ReplayPriceAdjustmentV2::SplitAdjusted,
+                3 => ReplayPriceAdjustmentV2::TotalReturnAdjusted,
+                _ => return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord),
+            };
+            let timestamp_basis = match cursor.u16()? {
+                1 => ReplayTimestampBasisV2::EventEffective,
+                2 => ReplayTimestampBasisV2::IntervalOpen,
+                3 => ReplayTimestampBasisV2::IntervalClose,
+                _ => return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord),
+            };
+            ReplayReferenceFactValueV2::MarketSemantics {
+                normalization_identity,
+                price_adjustment,
+                timestamp_basis,
+                price_unit_identity: cursor.binding_digest()?,
+                size_unit_identity: cursor.binding_digest()?,
+            }
+        }
+        ReplayReferenceFactKindV2::CorrectionPolicy => {
+            ReplayReferenceFactValueV2::CorrectionPolicy {
+                stream_identity: cursor.length_prefixed(MAX_FIELD_BYTES)?.to_vec(),
+                sequence: cursor.u64()?,
+                successor_only: cursor.boolean()?,
+            }
+        }
+        ReplayReferenceFactKindV2::CorporateAction => {
+            let action_identity = cursor.binding_digest()?;
+            let instrument = cursor.length_prefixed(MAX_FIELD_BYTES)?.to_vec();
+            let terms = match cursor.u16()? {
+                1 => ReplayCorporateActionTermsV2::Split {
+                    numerator: cursor.u64()?,
+                    denominator: cursor.u64()?,
+                },
+                2 => ReplayCorporateActionTermsV2::CashDividend {
+                    mantissa: cursor.i128()?,
+                    scale: cursor.u8()?,
+                    currency_identity: cursor.length_prefixed(MAX_FIELD_BYTES)?.to_vec(),
+                },
+                3 => ReplayCorporateActionTermsV2::SymbolChange {
+                    successor_instrument: cursor.length_prefixed(MAX_FIELD_BYTES)?.to_vec(),
+                },
+                4 => ReplayCorporateActionTermsV2::Expiry,
+                5 => ReplayCorporateActionTermsV2::Roll {
+                    successor_instrument: cursor.length_prefixed(MAX_FIELD_BYTES)?.to_vec(),
+                },
+                _ => return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord),
+            };
+            ReplayReferenceFactValueV2::CorporateAction {
+                action_identity,
+                instrument,
+                terms,
+            }
+        }
+        ReplayReferenceFactKindV2::HistoricalMembership => {
+            ReplayReferenceFactValueV2::HistoricalMembership {
+                selection_identity: cursor.binding_digest()?,
+                member_key: cursor.length_prefixed(MAX_FIELD_BYTES)?.to_vec(),
+                instrument: cursor.length_prefixed(MAX_FIELD_BYTES)?.to_vec(),
+                included: cursor.boolean()?,
+            }
+        }
+    })
+}
+
+fn decode_time_v2(
+    cursor: &mut Cursor<'_>,
+) -> Result<ReplayReferenceFactTimeV2, ReplayMarketFactsPostgresErrorV2> {
+    let effective_from_ns = cursor.i128()?;
+    let effective_until_ns = match cursor.u8()? {
+        0 => None,
+        1 => Some(cursor.i128()?),
+        _ => return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord),
+    };
+    Ok(ReplayReferenceFactTimeV2 {
+        effective_from_ns,
+        effective_until_ns,
+        provider_available_ns: cursor.i128()?,
+        retrieval_ns: cursor.i128()?,
+        correction_publication_ns: cursor.i128()?,
+        owner_observation_ns: cursor.i128()?,
+        decision_cut: cursor.u64()?,
+    })
+}
+
+fn decode_receipt_correlation_v2(
+    bytes: &[u8],
+) -> Result<BindingDigest, ReplayMarketFactsPostgresErrorV2> {
+    let mut cursor = Cursor::new(bytes);
+    cursor.version()?;
+    let _request_identity = cursor.digest()?;
+    let _facts_identity = cursor.digest()?;
+    let _frontier_identity = cursor.digest()?;
+    let correlation = cursor.binding_digest()?;
+    cursor
+        .is_finished()
+        .then_some(correlation)
+        .ok_or(ReplayMarketFactsPostgresErrorV2::CorruptRecord)
+}
+
+fn reference_kind(
+    value: u16,
+) -> Result<ReplayReferenceFactKindV2, ReplayMarketFactsPostgresErrorV2> {
+    match value {
+        1 => Ok(ReplayReferenceFactKindV2::Calendar),
+        2 => Ok(ReplayReferenceFactKindV2::Session),
+        3 => Ok(ReplayReferenceFactKindV2::TimeZone),
+        4 => Ok(ReplayReferenceFactKindV2::MarketSemantics),
+        5 => Ok(ReplayReferenceFactKindV2::CorrectionPolicy),
+        6 => Ok(ReplayReferenceFactKindV2::CorporateAction),
+        7 => Ok(ReplayReferenceFactKindV2::HistoricalMembership),
+        _ => Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord),
+    }
+}
+
+fn dependency_kind(
+    value: u16,
+) -> Result<ReplayMarketDependencyKindV2, ReplayMarketFactsPostgresErrorV2> {
+    match value {
+        1 => Ok(ReplayMarketDependencyKindV2::PitSnapshotV1),
+        2 => Ok(ReplayMarketDependencyKindV2::SourceBindingV1),
+        3 => Ok(ReplayMarketDependencyKindV2::InstrumentMasterCutV1),
+        4 => Ok(ReplayMarketDependencyKindV2::UniverseSelectionV1),
+        5 => Ok(ReplayMarketDependencyKindV2::ObservationCensusV1),
+        6 => Ok(ReplayMarketDependencyKindV2::StrategyInputJoinedCutV1),
+        7 => Ok(ReplayMarketDependencyKindV2::StrategyInputSampleProjectionV2),
+        8 => Ok(ReplayMarketDependencyKindV2::StrategyInputSampleProjectionV4),
+        _ => Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord),
+    }
 }
 
 /// Performs only the negative half of resolution.
@@ -1003,6 +1619,13 @@ impl<'a> Cursor<'a> {
         )?))
     }
 
+    fn u8(&mut self) -> Result<u8, ReplayMarketFactsPostgresErrorV2> {
+        Ok(*self
+            .take(1)?
+            .first()
+            .ok_or(ReplayMarketFactsPostgresErrorV2::CorruptRecord)?)
+    }
+
     fn u32(&mut self) -> Result<u32, ReplayMarketFactsPostgresErrorV2> {
         Ok(u32::from_be_bytes(self.take(4)?.try_into().map_err(
             |_| ReplayMarketFactsPostgresErrorV2::CorruptRecord,
@@ -1011,6 +1634,12 @@ impl<'a> Cursor<'a> {
 
     fn u64(&mut self) -> Result<u64, ReplayMarketFactsPostgresErrorV2> {
         Ok(u64::from_be_bytes(self.take(8)?.try_into().map_err(
+            |_| ReplayMarketFactsPostgresErrorV2::CorruptRecord,
+        )?))
+    }
+
+    fn i32(&mut self) -> Result<i32, ReplayMarketFactsPostgresErrorV2> {
+        Ok(i32::from_be_bytes(self.take(4)?.try_into().map_err(
             |_| ReplayMarketFactsPostgresErrorV2::CorruptRecord,
         )?))
     }
@@ -1025,6 +1654,30 @@ impl<'a> Cursor<'a> {
         self.take(DIGEST_BYTES)?
             .try_into()
             .map_err(|_| ReplayMarketFactsPostgresErrorV2::CorruptRecord)
+    }
+
+    fn binding_digest(&mut self) -> Result<BindingDigest, ReplayMarketFactsPostgresErrorV2> {
+        Ok(BindingDigest::from_untrusted_bytes(self.digest()?))
+    }
+
+    fn boolean(&mut self) -> Result<bool, ReplayMarketFactsPostgresErrorV2> {
+        match self.u8()? {
+            0 => Ok(false),
+            1 => Ok(true),
+            _ => Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord),
+        }
+    }
+
+    fn length_prefixed(
+        &mut self,
+        limit: usize,
+    ) -> Result<&'a [u8], ReplayMarketFactsPostgresErrorV2> {
+        let count = usize::try_from(self.u32()?)
+            .map_err(|_| ReplayMarketFactsPostgresErrorV2::CorruptRecord)?;
+        if count > limit {
+            return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
+        }
+        self.take(count)
     }
 
     fn skip_length_prefixed(&mut self) -> Result<(), ReplayMarketFactsPostgresErrorV2> {
@@ -1048,6 +1701,20 @@ impl<'a> Cursor<'a> {
             identity: self.digest()?,
             digest: self.digest()?,
         })
+    }
+
+    fn typed_dependency(
+        &mut self,
+        expected_kind: ReplayMarketDependencyKindV2,
+    ) -> Result<ReplayMarketDependencyRefV2, ReplayMarketFactsPostgresErrorV2> {
+        if self.u16()? != expected_kind as u16 {
+            return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
+        }
+        Ok(ReplayMarketDependencyRefV2::from_verified_owner_record(
+            expected_kind,
+            self.binding_digest()?,
+            self.binding_digest()?,
+        ))
     }
 
     const fn is_finished(&self) -> bool {
@@ -1292,4 +1959,147 @@ pub(super) fn validate_storage_manifest_for_test(
 #[cfg(test)]
 pub(super) fn store_generation_identity_for_test(database_name: &str) -> [u8; DIGEST_BYTES] {
     store_generation_identity(database_name)
+}
+
+#[cfg(test)]
+mod resolver_contract_tests {
+    use super::*;
+
+    #[test]
+    fn read_contract_authenticates_exact_schema_functions_and_acl() {
+        let schema = REPLAY_MARKET_FACTS_SCHEMA_V2.join("\n");
+        assert!(schema.contains(RESOLVE_COMPOSITION_BINDING_SOURCE_V1));
+        assert!(schema.contains(RESOLVE_BOUND_REPLAY_FACTS_SOURCE_V1));
+
+        let source = include_str!("postgres.rs");
+        for required in [
+            "current_user='market_data_owner'",
+            "pg_catalog.aclexplode",
+            "attribute.attacl IS NOT NULL",
+            "procedure.prosrc=ANY(ARRAY[$1,$2])",
+            "procedure.prosecdef",
+            "procedure.proconfig=ARRAY['search_path=pg_catalog']::text[]",
+            "relation.relkind='r'",
+            "(SELECT count(*) FROM observed)=27",
+            "constraint_fact.confrelid=pg_catalog.to_regclass(",
+            "NOT foreign_relation_oid_exact",
+            "replay_market_facts_binding_v1",
+            "index_fact.indisunique",
+            "index_fact.indrelid=pg_catalog.to_regclass('market_data_private.replay_market_facts_v2')",
+            "pg_catalog.pg_get_expr(index_fact.indpred,index_fact.indrelid)='(composition_binding_identity IS NOT NULL)'",
+        ] {
+            assert!(source.contains(required));
+        }
+    }
+
+    #[test]
+    fn resolver_requires_binding_and_revalidates_native_chain_before_return() {
+        let owner = include_str!("../postgres.rs");
+        let ordinary = owner
+            .split("pub(crate) async fn resolve_replay_market_facts_readback_v2")
+            .nth(1)
+            .expect("ordinary replay resolver")
+            .split("pub(crate) async fn resolve_replay_composition_readback_v1")
+            .next()
+            .expect("bounded ordinary replay resolver");
+        assert!(ordinary.contains("Err(ReplayMarketFactsErrorV2::CustodyUnavailable)"));
+        assert!(!ordinary.contains("recover_replay_market_facts_readback_in_transaction_v2"));
+
+        let composition = owner
+            .split("pub(crate) async fn resolve_replay_composition_readback_v1")
+            .nth(1)
+            .expect("bound composition resolver")
+            .split("async fn migrate")
+            .next()
+            .expect("bounded composition resolver");
+        let recover = composition
+            .find("recover_bound_replay_market_facts_readback_in_transaction_v2")
+            .expect("exact binding recovery");
+        let association = composition
+            .find("validate_replay_composition_readback_association_v1")
+            .expect("binding and replay association validation");
+        let native = composition
+            .find("validate_replay_market_native_dependencies_read_only_v2")
+            .expect("native dependency closure");
+        let commit = composition.find(".commit()").expect("read-only commit");
+        assert!(recover < association && association < native && native < commit);
+
+        let composition_contract = include_str!("composition.rs");
+        let shared_association = composition_contract
+            .split("fn validate_replay_request_binding_association_v1")
+            .nth(1)
+            .expect("shared request and binding association")
+            .split("pub(crate) fn validate_replay_composition_readback_association_v1")
+            .next()
+            .expect("bounded request and binding association");
+        for required in [
+            "request.binding_locator() != binding.record.locator()",
+            "record.replay_request_identity != replay.pit_locator().request_identity",
+            "record.replay_request_digest != replay.pit_locator().request_digest",
+            "record.pit_snapshot_identity != replay.pit_locator().snapshot_identity",
+            "record.replay_start_event_ns != replay.replay_start_event_ns()",
+            "record.replay_end_event_ns_exclusive != replay.replay_end_event_ns_exclusive()",
+        ] {
+            assert!(shared_association.contains(required));
+        }
+        assert_eq!(
+            composition_contract
+                .matches("validate_replay_request_binding_association_v1(request, binding)?")
+                .count(),
+            2,
+        );
+        let dependency_association = composition_contract
+            .split("fn validate_v2_dependencies")
+            .nth(1)
+            .expect("shared dependency association")
+            .split("fn encode_record")
+            .next()
+            .expect("bounded dependency association");
+        for required in [
+            "ReplayCompositionNativeLocatorKindV1::PitSnapshot",
+            "ReplayCompositionNativeLocatorKindV1::SourceBinding",
+            "ReplayCompositionNativeLocatorKindV1::InstrumentMaster",
+            "ReplayCompositionNativeLocatorKindV1::UniverseSelection",
+            "ReplayMarketDependencyKindV2::ObservationCensusV1",
+            "ReplayMarketDependencyKindV2::StrategyInputJoinedCutV1",
+            "ReplayMarketDependencyKindV2::StrategyInputSampleProjectionV4",
+        ] {
+            assert!(dependency_association.contains(required));
+        }
+
+        for required in [
+            "universe_selection_records_v1",
+            "load_strategy_input_joined_cut_custody_v1",
+            "load_observation_census_v1",
+            "rederive_observation_census_read_only_v1",
+            "persisted_census != rederived_census",
+            "persisted_census.record().identity() != observation.identity()",
+            "resolve_strategy_input_sample_projection_v4",
+            "row_digest(\"schedule_dependency_set_digest\")?",
+            "validate_sample_projection_dependencies_v3",
+            ".ok_or(Error::UniverseSelectionUnavailable)",
+            ".ok_or(Error::JoinedCutUnavailable)",
+            ".ok_or(Error::SampleProjectionUnavailable)",
+        ] {
+            assert!(owner.contains(required));
+        }
+    }
+
+    #[test]
+    fn resolver_decoder_rejects_unknown_canonical_discriminants() {
+        assert_eq!(
+            reference_kind(0),
+            Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord)
+        );
+        assert_eq!(
+            dependency_kind(9),
+            Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord)
+        );
+
+        let mut invalid_boolean = Cursor::new(&[2]);
+        assert_eq!(
+            invalid_boolean.boolean(),
+            Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord)
+        );
+    }
 }

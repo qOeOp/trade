@@ -47,6 +47,8 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|vibe_strategy_factory|replay_execution_profile_binding_v1::tests::verified_owner_readback_mints_provenance_and_wrong_coordinates_fail'
   'vibe-product-edge|vibe_product_edge|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation'
   'vibe-data|instrument_economic_terms_postgres_v1|atomic_exact_replay_restart_tamper_and_acl_fail_closed'
+  'vibe-strategy-factory|vibe_strategy_factory|program_host_bar_joined_cut_postgres_acceptance_tests::owner_postgres_v4_moves_through_program_host_and_real_backtest'
+  'vibe-strategy-factory|vibe_strategy_factory|iteration_decision_postgres::postgres_acceptance_tests::repair_decision_action_and_market_data_request_commit_retry_resolve_and_rejection_are_atomic'
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed'
 )
 readonly nextest_graph_args=(
@@ -62,6 +64,7 @@ readonly nextest_graph_args=(
 # The incoming Makefile union also contains workspace-root features that none of
 # the three selected packages expose. Keep the archive projection package-scoped.
 readonly nextest_archive_features='vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance'
+readonly schema_materialization_features="${nextest_archive_features},vibe-strategy-factory-rd-owner-api/sealed-develop-composer-acceptance"
 readonly nextest_execution_args=(--fail-fast --run-ignored ignored-only)
 
 check_nextest_graph_contract() {
@@ -69,8 +72,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 30 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all thirty ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 32 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all thirty-two ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -95,14 +98,17 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[26]}" != *'|replay_execution_profile_binding_v1::tests::verified_owner_readback_mints_provenance_and_wrong_coordinates_fail' ]] ||
     [[ "${rd_owner_postgres_tests[27]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]] ||
     [[ "${rd_owner_postgres_tests[28]}" != *'|atomic_exact_replay_restart_tamper_and_acl_fail_closed' ]] ||
-    [[ "${rd_owner_postgres_tests[29]}" != *'|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed' ]]; then
+    [[ "${rd_owner_postgres_tests[29]}" != *'|program_host_bar_joined_cut_postgres_acceptance_tests::owner_postgres_v4_moves_through_program_host_and_real_backtest' ]] ||
+    [[ "${rd_owner_postgres_tests[30]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::repair_decision_action_and_market_data_request_commit_retry_resolve_and_rejection_are_atomic' ]] ||
+    [[ "${rd_owner_postgres_tests[31]}" != *'|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
     return 1
   fi
   if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --package vibe-backtest-owner --package vibe-data --lib --tests' ]] ||
     [[ "$nextest_archive_features" != 'vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance' ]] ||
+    [[ "$schema_materialization_features" != "${nextest_archive_features},vibe-strategy-factory-rd-owner-api/sealed-develop-composer-acceptance" ]] ||
     [[ "${nextest_execution_args[*]}" != '--fail-fast --run-ignored ignored-only' ]]; then
-    echo "ERROR: shared nextest graph or sequential ignored-only execution changed." >&2
+    echo "ERROR: shared nextest graph, schema feature union, or sequential ignored-only execution changed." >&2
     return 1
   fi
 
@@ -154,6 +160,12 @@ check_nextest_graph_contract() {
     'cargo nextest archive.*\n[[:space:]]+"\$\{nextest_graph_args\[@\]\}".*\n[[:space:]]+--features "\$nextest_archive_features"' \
     "${BASH_SOURCE[0]}"; then
     echo "ERROR: nextest archive must compile the exact selected-package feature projection." >&2
+    return 1
+  fi
+  if ! rg -Uq \
+    "program_host_bar_joined_cut_postgres_acceptance_tests::owner_postgres_v4_moves_through_program_host_and_real_backtest'.*\n[[:space:]]+env.*\n[[:space:]]+VIBE_POSTGRES_TEST_DATABASE_NAME=\"\\\$program_host_acceptance_database\"" \
+    "${BASH_SOURCE[0]}"; then
+    echo "ERROR: Program Host acceptance must use its canonical fresh PostgreSQL clone." >&2
     return 1
   fi
 }
@@ -491,6 +503,7 @@ readonly test_database="vibe_test_${suffix//-/_}"
 readonly catalog_admin_database="vibe_test_catalog_admin_${suffix//-/_}"
 readonly origin_current_database="vibe_test_origin_current_${suffix//-/_}"
 readonly legacy_replay_database="vibe_test_legacy_replay_${suffix//-/_}"
+readonly program_host_acceptance_database="vibe_test_program_host_acceptance_${suffix//-/_}"
 readonly impersonator_container="vibe-rd-owner-impersonator-${suffix}"
 readonly impersonator_volume="vibe-rd-owner-impersonator-${suffix}"
 readonly impersonator_database="vibe_impersonator_${suffix//-/_}"
@@ -843,7 +856,7 @@ RD_OWNER_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:$
   --package vibe-strategy-factory-rd-owner-api \
   --bin strategy-factory-rd-owner-api \
   --profile "$cargo_ci_profile" \
-  --features "$nextest_archive_features" \
+  --features "$schema_materialization_features" \
   -- \
   --materialize-schema
 
@@ -1526,22 +1539,27 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --set=test_database="$test_database" \
   --set=catalog_admin_database="$catalog_admin_database" \
   --set=origin_current_database="$origin_current_database" \
-  --set=legacy_replay_database="$legacy_replay_database" << 'SQL'
+  --set=legacy_replay_database="$legacy_replay_database" \
+  --set=program_host_acceptance_database="$program_host_acceptance_database" << 'SQL'
 CREATE DATABASE :"catalog_admin_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
 CREATE DATABASE :"origin_current_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
 CREATE DATABASE :"legacy_replay_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
+CREATE DATABASE :"program_host_acceptance_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
 REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"catalog_admin_database" FROM PUBLIC;
 REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"origin_current_database" FROM PUBLIC;
 REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"legacy_replay_database" FROM PUBLIC;
+REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"program_host_acceptance_database" FROM PUBLIC;
 GRANT CONNECT ON DATABASE :"catalog_admin_database"
   TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, vibe_test_owner_topology_admin;
 GRANT CONNECT ON DATABASE :"origin_current_database"
   TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, vibe_test_owner_topology_admin;
 GRANT CONNECT ON DATABASE :"legacy_replay_database"
   TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, vibe_test_owner_topology_admin;
+GRANT CONNECT ON DATABASE :"program_host_acceptance_database"
+  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, vibe_test_owner_topology_admin;
 
 WITH clones(database_name) AS (
-  VALUES (:'catalog_admin_database'), (:'origin_current_database'), (:'legacy_replay_database')
+  VALUES (:'catalog_admin_database'), (:'origin_current_database'), (:'legacy_replay_database'), (:'program_host_acceptance_database')
 ), roles(role_name) AS (
   VALUES
     ('operator_authorization_writer'),
@@ -1658,6 +1676,13 @@ SELECT
   'sha256:legacy-seal-' || ordinal::text,
   pg_catalog.jsonb_build_object('ordinal',ordinal,'kind','legacy-v2-receipt')
 FROM pg_catalog.generate_series(0,25) ordinal;
+SQL
+
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$program_host_acceptance_database" \
+  --set=program_host_acceptance_database="$program_host_acceptance_database" << 'SQL'
+UPDATE vibe_test_admin.dedicated_postgres_test_instance_v1
+   SET database_name=:'program_host_acceptance_database';
 SQL
 
 legacy_replay_fingerprint() {
@@ -2090,7 +2115,8 @@ SQL
   run_authority_migration
 }
 
-# The Catalog administrator and two replay migration filters use separate fresh databases. The drain probe
+# The Catalog administrator, two replay migration filters, and Program Host acceptance use separate
+# fresh databases. The drain probe
 # removes receipt storage needed to validate its retained legacy attempts, so it
 # follows positive consumers. Keep the complete Instrument Owner storage/ACL oracle
 # last because its final inheritance fault intentionally poisons that private store.
@@ -2164,6 +2190,26 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       BACKTEST_TEST_DATABASE_URL="postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       INSTRUMENT_OWNER_TEST_DATABASE_URL="postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       INSTRUMENT_OWNER_DATABASE_URL="postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
+      cargo nextest run \
+      --archive-file "$nextest_archive_file" \
+      --profile "$nextest_profile" \
+      "${nextest_execution_args[@]}" \
+      -E "$test_filter"
+  elif [[ "$test_name" == 'program_host_bar_joined_cut_postgres_acceptance_tests::owner_postgres_v4_moves_through_program_host_and_real_backtest' ]]; then
+    env \
+      VIBE_POSTGRES_TEST_DATABASE_NAME="$program_host_acceptance_database" \
+      OPERATOR_AUTHORIZATION_TEST_DATABASE_URL="postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
+      PRODUCT_EDGE_TEST_DATABASE_URL="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
+      RD_OWNER_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
+      RD_FACT_WRITER_TEST_DATABASE_URL="postgresql://rd_fact_writer:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
+      MARKET_DATA_OWNER_TEST_DATABASE_URL="postgresql://market_data_owner:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
+      REPLAY_POLICY_CATALOG_ADMIN_TEST_DATABASE_URL="postgresql://replay_policy_catalog_admin_writer:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
+      MARKET_DATA_RD_ROLE_SET_TEST_DATABASE_URL="postgresql://market_data_reader:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
+      VIBE_TEST_OWNER_TOPOLOGY_ADMIN_DATABASE_URL="postgresql://vibe_test_owner_topology_admin:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
+      QUALIFICATION_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
+      BACKTEST_TEST_DATABASE_URL="postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
+      INSTRUMENT_OWNER_TEST_DATABASE_URL="postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
+      INSTRUMENT_OWNER_DATABASE_URL="postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
       cargo nextest run \
       --archive-file "$nextest_archive_file" \
       --profile "$nextest_profile" \

@@ -31,6 +31,18 @@ macro_rules! table {
             indexes: &[$(table!(@index $kind $keys)),*],
         }
     };
+    ($name:literal, $runtime_read_grantees:expr, [$(($column:literal, $data_type:literal)),* $(,)?], optional [$(($optional_column:literal, $optional_data_type:literal)),* $(,)?], [$($constraint:literal),* $(,)?], [$($kind:ident $keys:literal),* $(,)?]) => {
+        crate::schema_materialization::PublicTableSpec {
+            name: $name,
+            runtime_read_grantees: $runtime_read_grantees,
+            columns: &[
+                $(crate::schema_materialization::required($column, $data_type)),*,
+                $(crate::schema_materialization::optional($optional_column, $optional_data_type)),*
+            ],
+            constraints: &[$($constraint),*],
+            indexes: &[$(table!(@index $kind $keys)),*],
+        }
+    };
     (@index primary $keys:literal) => { crate::schema_materialization::primary_index($keys) };
     (@index unique $keys:literal) => { crate::schema_materialization::unique_index($keys) };
 }
@@ -40,14 +52,14 @@ pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
         ("trial_family_identity", "text"), ("intent_identity", "text"),
         ("root_digest", "text"), ("root_json", "jsonb"),
         ("root_receipt_json", "jsonb"), ("committed_at_epoch_ms", "bigint")
-    ], ["p:trial_family_identity:::false:false:true:", "u:intent_identity:::false:false:true:"],
+    ], optional [("root_storage_bytes", "bytea"), ("root_storage_digest", "text"), ("root_receipt_storage_bytes", "bytea"), ("root_receipt_storage_digest", "text"), ("initial_frontier_storage_bytes", "bytea"), ("initial_frontier_storage_digest", "text")], ["p:trial_family_identity:::false:false:true:", "u:intent_identity:::false:false:true:"],
     [primary "trial_family_identity", unique "intent_identity"]),
     table!("rd_trial_family_members_v1", &["rd_exploratory_replay_api_owner"], [
         ("member_identity", "text"), ("trial_family_identity", "text"),
         ("ordinal", "integer"), ("fact_identity", "text"), ("member_digest", "text"),
         ("member_json", "jsonb"), ("membership_receipt_json", "jsonb"),
         ("committed_at_epoch_ms", "bigint")
-    ], [
+    ], optional [("member_storage_bytes", "bytea"), ("member_storage_digest", "text"), ("membership_receipt_storage_bytes", "bytea"), ("membership_receipt_storage_digest", "text")], [
         "f:trial_family_identity:public.rd_trial_families_v1(trial_family_identity):a:a:s:false:false:true:",
         "p:member_identity:::false:false:true:", "u:fact_identity:::false:false:true:",
         "u:trial_family_identity,ordinal:::false:false:true:"
@@ -56,7 +68,7 @@ pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
         ("trial_family_identity", "text"), ("frontier_identity", "text"),
         ("frontier_digest", "text"), ("frontier_json", "jsonb"),
         ("committed_at_epoch_ms", "bigint")
-    ], [
+    ], optional [("frontier_storage_bytes", "bytea"), ("frontier_storage_digest", "text")], [
         "f:trial_family_identity:public.rd_trial_families_v1(trial_family_identity):a:a:s:false:false:true:",
         "p:trial_family_identity:::false:false:true:", "u:frontier_identity:::false:false:true:"
     ], [primary "trial_family_identity", unique "frontier_identity"]),
@@ -66,7 +78,7 @@ pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
         ("candidate_set_frontier_identity", "text"), ("census_frontier_json", "jsonb"),
         ("attempt_frontier_json", "jsonb"), ("candidate_set_frontier_json", "jsonb"),
         ("committed_at_epoch_ms", "bigint")
-    ], [
+    ], optional [("census_frontier_storage_bytes", "bytea"), ("census_frontier_storage_digest", "text"), ("attempt_frontier_storage_bytes", "bytea"), ("attempt_frontier_storage_digest", "text"), ("candidate_set_frontier_storage_bytes", "bytea"), ("candidate_set_frontier_storage_digest", "text")], [
         "f:trial_family_identity:public.rd_trial_families_v1(trial_family_identity):a:a:s:false:false:true:",
         "p:census_frontier_identity:::false:false:true:",
         "u:attempt_frontier_identity:::false:false:true:",
@@ -88,7 +100,7 @@ pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
         ("event_identity", "text"), ("aggregate_identity", "text"), ("event_kind", "text"),
         ("payload_digest", "text"), ("payload_json", "jsonb"),
         ("committed_at_epoch_ms", "bigint")
-    ], ["p:event_identity:::false:false:true:", "u:aggregate_identity,event_kind:::false:false:true:"],
+    ], optional [("canonical_payload_bytes", "bytea"), ("canonical_payload_storage_digest", "text"), ("canonical_envelope_bytes", "bytea"), ("canonical_envelope_storage_digest", "text")], ["p:event_identity:::false:false:true:", "u:aggregate_identity,event_kind:::false:false:true:"],
     [primary "event_identity", unique "aggregate_identity,event_kind", unique "aggregate_identity,event_kind"]),
 ];
 
@@ -96,19 +108,19 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), TrialFamilyError> {
     for (relation_name, statement) in [
         (
             "rd_trial_families_v1",
-            "CREATE TABLE IF NOT EXISTS rd_trial_families_v1 (trial_family_identity TEXT PRIMARY KEY, intent_identity TEXT NOT NULL UNIQUE, root_digest TEXT NOT NULL, root_json JSONB NOT NULL, root_receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS rd_trial_families_v1 (trial_family_identity TEXT PRIMARY KEY, intent_identity TEXT NOT NULL UNIQUE, root_digest TEXT NOT NULL, root_json JSONB NOT NULL, root_receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, root_storage_bytes BYTEA, root_storage_digest TEXT, root_receipt_storage_bytes BYTEA, root_receipt_storage_digest TEXT, initial_frontier_storage_bytes BYTEA, initial_frontier_storage_digest TEXT)",
         ),
         (
             "rd_trial_family_members_v1",
-            "CREATE TABLE IF NOT EXISTS rd_trial_family_members_v1 (member_identity TEXT PRIMARY KEY, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), ordinal INTEGER NOT NULL, fact_identity TEXT NOT NULL UNIQUE, member_digest TEXT NOT NULL, member_json JSONB NOT NULL, membership_receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE (trial_family_identity, ordinal))",
+            "CREATE TABLE IF NOT EXISTS rd_trial_family_members_v1 (member_identity TEXT PRIMARY KEY, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), ordinal INTEGER NOT NULL, fact_identity TEXT NOT NULL UNIQUE, member_digest TEXT NOT NULL, member_json JSONB NOT NULL, membership_receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, member_storage_bytes BYTEA, member_storage_digest TEXT, membership_receipt_storage_bytes BYTEA, membership_receipt_storage_digest TEXT, UNIQUE (trial_family_identity, ordinal))",
         ),
         (
             "rd_trial_family_heads_v1",
-            "CREATE TABLE IF NOT EXISTS rd_trial_family_heads_v1 (trial_family_identity TEXT PRIMARY KEY REFERENCES rd_trial_families_v1(trial_family_identity), frontier_identity TEXT NOT NULL UNIQUE, frontier_digest TEXT NOT NULL, frontier_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS rd_trial_family_heads_v1 (trial_family_identity TEXT PRIMARY KEY REFERENCES rd_trial_families_v1(trial_family_identity), frontier_identity TEXT NOT NULL UNIQUE, frontier_digest TEXT NOT NULL, frontier_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, frontier_storage_bytes BYTEA, frontier_storage_digest TEXT)",
         ),
         (
             "rd_trial_family_attempt_cuts_v2",
-            "CREATE TABLE IF NOT EXISTS rd_trial_family_attempt_cuts_v2 (census_frontier_identity TEXT PRIMARY KEY, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), attempt_ordinal INTEGER NOT NULL, attempt_frontier_identity TEXT NOT NULL UNIQUE, candidate_set_frontier_identity TEXT NOT NULL UNIQUE, census_frontier_json JSONB NOT NULL, attempt_frontier_json JSONB NOT NULL, candidate_set_frontier_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE (trial_family_identity, attempt_ordinal))",
+            "CREATE TABLE IF NOT EXISTS rd_trial_family_attempt_cuts_v2 (census_frontier_identity TEXT PRIMARY KEY, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), attempt_ordinal INTEGER NOT NULL, attempt_frontier_identity TEXT NOT NULL UNIQUE, candidate_set_frontier_identity TEXT NOT NULL UNIQUE, census_frontier_json JSONB NOT NULL, attempt_frontier_json JSONB NOT NULL, candidate_set_frontier_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, census_frontier_storage_bytes BYTEA, census_frontier_storage_digest TEXT, attempt_frontier_storage_bytes BYTEA, attempt_frontier_storage_digest TEXT, candidate_set_frontier_storage_bytes BYTEA, candidate_set_frontier_storage_digest TEXT, UNIQUE (trial_family_identity, attempt_ordinal))",
         ),
         (
             "rd_artifact_trial_family_bindings_v1",
@@ -123,7 +135,35 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), TrialFamilyError> {
             .await
             .map_err(storage)?;
     }
+    for statement in [
+        "ALTER TABLE rd_trial_families_v1 ADD COLUMN IF NOT EXISTS root_storage_bytes BYTEA",
+        "ALTER TABLE rd_trial_families_v1 ADD COLUMN IF NOT EXISTS root_storage_digest TEXT",
+        "ALTER TABLE rd_trial_families_v1 ADD COLUMN IF NOT EXISTS root_receipt_storage_bytes BYTEA",
+        "ALTER TABLE rd_trial_families_v1 ADD COLUMN IF NOT EXISTS root_receipt_storage_digest TEXT",
+        "ALTER TABLE rd_trial_families_v1 ADD COLUMN IF NOT EXISTS initial_frontier_storage_bytes BYTEA",
+        "ALTER TABLE rd_trial_families_v1 ADD COLUMN IF NOT EXISTS initial_frontier_storage_digest TEXT",
+        "ALTER TABLE rd_trial_family_members_v1 ADD COLUMN IF NOT EXISTS member_storage_bytes BYTEA",
+        "ALTER TABLE rd_trial_family_members_v1 ADD COLUMN IF NOT EXISTS member_storage_digest TEXT",
+        "ALTER TABLE rd_trial_family_members_v1 ADD COLUMN IF NOT EXISTS membership_receipt_storage_bytes BYTEA",
+        "ALTER TABLE rd_trial_family_members_v1 ADD COLUMN IF NOT EXISTS membership_receipt_storage_digest TEXT",
+        "ALTER TABLE rd_trial_family_heads_v1 ADD COLUMN IF NOT EXISTS frontier_storage_bytes BYTEA",
+        "ALTER TABLE rd_trial_family_heads_v1 ADD COLUMN IF NOT EXISTS frontier_storage_digest TEXT",
+        "ALTER TABLE rd_trial_family_attempt_cuts_v2 ADD COLUMN IF NOT EXISTS census_frontier_storage_bytes BYTEA",
+        "ALTER TABLE rd_trial_family_attempt_cuts_v2 ADD COLUMN IF NOT EXISTS census_frontier_storage_digest TEXT",
+        "ALTER TABLE rd_trial_family_attempt_cuts_v2 ADD COLUMN IF NOT EXISTS attempt_frontier_storage_bytes BYTEA",
+        "ALTER TABLE rd_trial_family_attempt_cuts_v2 ADD COLUMN IF NOT EXISTS attempt_frontier_storage_digest TEXT",
+        "ALTER TABLE rd_trial_family_attempt_cuts_v2 ADD COLUMN IF NOT EXISTS candidate_set_frontier_storage_bytes BYTEA",
+        "ALTER TABLE rd_trial_family_attempt_cuts_v2 ADD COLUMN IF NOT EXISTS candidate_set_frontier_storage_digest TEXT",
+    ] {
+        sqlx::query(statement)
+            .execute(pool)
+            .await
+            .map_err(storage)?;
+    }
     crate::replay_policy_catalog_postgres_v2::migrate(pool)
+        .await
+        .map_err(|e| TrialFamilyError::Unavailable(e.to_string()))?;
+    crate::iteration_decision_postgres::migrate(pool)
         .await
         .map_err(|e| TrialFamilyError::Unavailable(e.to_string()))?;
     Ok(())
@@ -135,34 +175,63 @@ pub(crate) async fn persist_initial_family(
     research_receipt: &ResearchRequestReceiptV1,
 ) -> Result<(), TrialFamilyError> {
     verify_family(family)?;
+    if family.root.policy().replay_policy_catalog_v3().is_some()
+        && family.root.policy().decision_policy_v1().is_none()
+    {
+        return Err(TrialFamilyError::Unavailable(
+            "new Replay Catalog V3 family is missing its decision-policy seal".to_string(),
+        ));
+    }
     let committed_at =
         i64::try_from(research_receipt.committed_at_epoch_ms).map_err(unavailable)?;
-    sqlx::query("INSERT INTO rd_trial_families_v1 (trial_family_identity, intent_identity, root_digest, root_json, root_receipt_json, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6)")
+    let (root_json, root_bytes, root_storage_digest) = source_encode(
+        crate::native_replay_rd_sources_v2::TRIAL_FAMILY_ROOT_STORAGE_DOMAIN_V1,
+        &family.root,
+    )?;
+    let (root_receipt_json, root_receipt_bytes, root_receipt_storage_digest) = source_encode(
+        crate::native_replay_rd_sources_v2::TRIAL_FAMILY_ROOT_RECEIPT_STORAGE_DOMAIN_V1,
+        &family.root_receipt,
+    )?;
+    let (member_json, member_bytes, member_storage_digest) = source_encode(
+        crate::native_replay_rd_sources_v2::TRIAL_FAMILY_MEMBER_STORAGE_DOMAIN_V1,
+        &family.initial_intent_member,
+    )?;
+    let (membership_receipt_json, membership_receipt_bytes, membership_receipt_storage_digest) =
+        source_encode(
+            crate::native_replay_rd_sources_v2::TRIAL_FAMILY_MEMBERSHIP_RECEIPT_STORAGE_DOMAIN_V1,
+            &family.membership_receipt,
+        )?;
+    let (frontier_json, frontier_bytes, frontier_storage_digest) = source_encode(
+        crate::native_replay_rd_sources_v2::TRIAL_FAMILY_FRONTIER_STORAGE_DOMAIN_V1,
+        &family.census_frontier,
+    )?;
+    sqlx::query("INSERT INTO rd_trial_families_v1 (trial_family_identity, intent_identity, root_digest, root_json, root_receipt_json, root_storage_bytes,root_storage_digest,root_receipt_storage_bytes,root_receipt_storage_digest,initial_frontier_storage_bytes,initial_frontier_storage_digest,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)")
         .bind(family.root.trial_family_identity())
         .bind(family.root_receipt.intent_identity())
         .bind(family.root.root_digest())
-        .bind(encode(&family.root)?)
-        .bind(encode(&family.root_receipt)?)
+        .bind(root_json).bind(root_receipt_json)
+        .bind(root_bytes).bind(root_storage_digest).bind(root_receipt_bytes).bind(root_receipt_storage_digest)
+        .bind(&frontier_bytes).bind(&frontier_storage_digest)
         .bind(committed_at)
         .execute(&mut **transaction)
         .await
         .map_err(storage)?;
-    sqlx::query("INSERT INTO rd_trial_family_members_v1 (member_identity, trial_family_identity, ordinal, fact_identity, member_digest, member_json, membership_receipt_json, committed_at_epoch_ms) VALUES ($1,$2,0,$3,$4,$5,$6,$7)")
+    sqlx::query("INSERT INTO rd_trial_family_members_v1 (member_identity, trial_family_identity, ordinal, fact_identity, member_digest, member_json, membership_receipt_json, member_storage_bytes,member_storage_digest,membership_receipt_storage_bytes,membership_receipt_storage_digest,committed_at_epoch_ms) VALUES ($1,$2,0,$3,$4,$5,$6,$7,$8,$9,$10,$11)")
         .bind(family.initial_intent_member.member_identity())
         .bind(family.root.trial_family_identity())
         .bind(family.initial_intent_member.fact_identity())
         .bind(family.initial_intent_member.member_digest())
-        .bind(encode(&family.initial_intent_member)?)
-        .bind(encode(&family.membership_receipt)?)
+        .bind(member_json).bind(membership_receipt_json)
+        .bind(member_bytes).bind(member_storage_digest).bind(membership_receipt_bytes).bind(membership_receipt_storage_digest)
         .bind(committed_at)
         .execute(&mut **transaction)
         .await
         .map_err(storage)?;
-    sqlx::query("INSERT INTO rd_trial_family_heads_v1 (trial_family_identity, frontier_identity, frontier_digest, frontier_json, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5)")
+    sqlx::query("INSERT INTO rd_trial_family_heads_v1 (trial_family_identity, frontier_identity, frontier_digest, frontier_json, frontier_storage_bytes,frontier_storage_digest,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7)")
         .bind(family.root.trial_family_identity())
         .bind(family.census_frontier.frontier_identity())
         .bind(family.census_frontier.frontier_digest())
-        .bind(encode(&family.census_frontier)?)
+        .bind(frontier_json).bind(frontier_bytes).bind(frontier_storage_digest)
         .bind(committed_at)
         .execute(&mut **transaction)
         .await
@@ -178,6 +247,7 @@ pub(crate) async fn persist_initial_family(
         census_frontier_identity: family.census_frontier.frontier_identity().to_string(),
         census_frontier_digest: family.census_frontier.frontier_digest().to_string(),
         replay_execution_policy_v2: family.root.policy().replay_execution_policy_v2().cloned(),
+        replay_policy_catalog_v3: family.root.policy().replay_policy_catalog_v3().cloned(),
     };
     persist_outbox(
         transaction,
@@ -456,36 +526,55 @@ pub(crate) async fn append_trial_family_attempt_in_transaction(
         .zip(&next.membership_receipts)
         .skip(prior_member_count)
     {
-        sqlx::query("INSERT INTO rd_trial_family_members_v1 (member_identity, trial_family_identity, ordinal, fact_identity, member_digest, member_json, membership_receipt_json, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)")
+        let (member_json, member_bytes, member_storage_digest) = source_encode(
+            crate::native_replay_rd_sources_v2::TRIAL_FAMILY_MEMBER_STORAGE_DOMAIN_V1,
+            member,
+        )?;
+        let (receipt_json, receipt_bytes, receipt_storage_digest) = source_encode(
+            crate::native_replay_rd_sources_v2::TRIAL_FAMILY_MEMBERSHIP_RECEIPT_STORAGE_DOMAIN_V1,
+            receipt,
+        )?;
+        sqlx::query("INSERT INTO rd_trial_family_members_v1 (member_identity, trial_family_identity, ordinal, fact_identity, member_digest, member_json, membership_receipt_json, member_storage_bytes,member_storage_digest,membership_receipt_storage_bytes,membership_receipt_storage_digest,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)")
             .bind(member.member_identity())
             .bind(member.trial_family_identity())
             .bind(i32::try_from(member.ordinal()).map_err(unavailable)?)
             .bind(member.fact_identity())
             .bind(member.member_digest())
-            .bind(encode(member)?)
-            .bind(encode(receipt)?)
+            .bind(member_json).bind(receipt_json)
+            .bind(member_bytes).bind(member_storage_digest).bind(receipt_bytes).bind(receipt_storage_digest)
             .bind(i64::try_from(receipt.committed_at_epoch_ms()).map_err(unavailable)?)
             .execute(&mut **transaction)
             .await
             .map_err(storage)?;
     }
-    sqlx::query("INSERT INTO rd_trial_family_attempt_cuts_v2 (census_frontier_identity, trial_family_identity, attempt_ordinal, attempt_frontier_identity, candidate_set_frontier_identity, census_frontier_json, attempt_frontier_json, candidate_set_frontier_json, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)")
+    let (census_json, census_bytes, census_storage_digest) = source_encode(
+        crate::native_replay_rd_sources_v2::TRIAL_FAMILY_FRONTIER_STORAGE_DOMAIN_V1,
+        &next.census_frontier,
+    )?;
+    let (attempt_json, attempt_bytes, attempt_storage_digest) = source_encode(
+        "rd.trial-family-attempt-frontier.storage.v1",
+        &next.attempt_frontier,
+    )?;
+    let (candidate_json, candidate_bytes, candidate_storage_digest) = source_encode(
+        "rd.trial-family-candidate-set-frontier.storage.v1",
+        &next.candidate_set_frontier,
+    )?;
+    sqlx::query("INSERT INTO rd_trial_family_attempt_cuts_v2 (census_frontier_identity, trial_family_identity, attempt_ordinal, attempt_frontier_identity, candidate_set_frontier_identity, census_frontier_json, attempt_frontier_json, candidate_set_frontier_json, census_frontier_storage_bytes,census_frontier_storage_digest,attempt_frontier_storage_bytes,attempt_frontier_storage_digest,candidate_set_frontier_storage_bytes,candidate_set_frontier_storage_digest,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)")
         .bind(next.census_frontier.frontier_identity())
         .bind(next.census_frontier.trial_family_identity())
         .bind(i32::try_from(next.candidate_set_frontier.attempt_ordinal()).map_err(unavailable)?)
         .bind(next.attempt_frontier.frontier_identity())
         .bind(next.candidate_set_frontier.frontier_identity())
-        .bind(encode(&next.census_frontier)?)
-        .bind(encode(&next.attempt_frontier)?)
-        .bind(encode(&next.candidate_set_frontier)?)
+        .bind(&census_json).bind(attempt_json).bind(candidate_json)
+        .bind(&census_bytes).bind(&census_storage_digest).bind(attempt_bytes).bind(attempt_storage_digest).bind(candidate_bytes).bind(candidate_storage_digest)
         .bind(committed_at)
         .execute(&mut **transaction)
         .await
         .map_err(storage)?;
-    let updated = sqlx::query("UPDATE rd_trial_family_heads_v1 SET frontier_identity = $1, frontier_digest = $2, frontier_json = $3, committed_at_epoch_ms = $4 WHERE trial_family_identity = $5 AND frontier_identity = $6")
+    let updated = sqlx::query("UPDATE rd_trial_family_heads_v1 SET frontier_identity = $1, frontier_digest = $2, frontier_json = $3, frontier_storage_bytes=$4,frontier_storage_digest=$5,committed_at_epoch_ms = $6 WHERE trial_family_identity = $7 AND frontier_identity = $8")
         .bind(next.census_frontier.frontier_identity())
         .bind(next.census_frontier.frontier_digest())
-        .bind(encode(&next.census_frontier)?)
+        .bind(census_json).bind(census_bytes).bind(census_storage_digest)
         .bind(committed_at)
         .bind(next.census_frontier.trial_family_identity())
         .bind(&prior_frontier_identity)
@@ -511,6 +600,7 @@ pub(crate) async fn append_trial_family_attempt_in_transaction(
             .frontier_identity()
             .to_string(),
         candidate_set_frontier_digest: next.candidate_set_frontier.frontier_digest().to_string(),
+        replay_policy_catalog_v3: next.census_frontier.replay_policy_catalog_v3().cloned(),
     };
     persist_outbox(
         transaction,
@@ -714,6 +804,62 @@ pub(crate) async fn load_trial_family_census_v2_in_transaction(
     Ok(latest)
 }
 
+pub(crate) async fn load_trial_family_census_v2_by_family_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    trial_family_identity: &str,
+) -> Result<TrialFamilyCensusReadbackV2, TrialFamilyError> {
+    let family_rows = sqlx::query(
+        "SELECT intent_identity FROM rd_trial_families_v1 WHERE trial_family_identity = $1 FOR SHARE",
+    )
+    .bind(trial_family_identity)
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    let outbox_rows = sqlx::query(
+        "SELECT aggregate_identity,event_kind,payload_json FROM rd_owner_outbox_v1 WHERE aggregate_identity = $1 AND event_kind = $2 FOR SHARE",
+    )
+    .bind(trial_family_identity)
+    .bind(FAMILY_FROZEN_EVENT)
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    if family_rows.len() != 1 || outbox_rows.len() != 1 {
+        return Err(TrialFamilyError::Unavailable(
+            "TrialFamily locator custody is incomplete".to_string(),
+        ));
+    }
+    let intent_identity: String = family_rows[0].try_get("intent_identity").map_err(storage)?;
+    let payload: FamilyFrozenOutboxV1 =
+        decode(&outbox_rows[0].try_get("payload_json").map_err(storage)?)?;
+    if outbox_rows[0]
+        .try_get::<String, _>("aggregate_identity")
+        .map_err(storage)?
+        != trial_family_identity
+        || outbox_rows[0]
+            .try_get::<String, _>("event_kind")
+            .map_err(storage)?
+            != FAMILY_FROZEN_EVENT
+        || payload.trial_family_identity != trial_family_identity
+        || payload.intent_identity != intent_identity
+    {
+        return Err(TrialFamilyError::Unavailable(
+            "TrialFamily locator/outbox cross-binding mismatch".to_string(),
+        ));
+    }
+    let census = load_trial_family_census_v2_in_transaction(
+        transaction,
+        &intent_identity,
+        &payload.research_receipt_identity,
+    )
+    .await?;
+    if census.census_frontier.trial_family_identity() != trial_family_identity {
+        return Err(TrialFamilyError::Unavailable(
+            "TrialFamily locator resolved a different family".to_string(),
+        ));
+    }
+    Ok(census)
+}
+
 fn verify_row_bindings(
     family: &TrialFamilyReadbackV1,
     root_row: &sqlx::postgres::PgRow,
@@ -830,6 +976,8 @@ fn verify_family_outbox_row(
         || payload.census_frontier_digest != family.census_frontier.frontier_digest()
         || payload.replay_execution_policy_v2
             != family.root.policy().replay_execution_policy_v2().cloned()
+        || payload.replay_policy_catalog_v3
+            != family.root.policy().replay_policy_catalog_v3().cloned()
     {
         return Err(TrialFamilyError::Unavailable(
             "family outbox mismatch".to_string(),
@@ -885,6 +1033,8 @@ async fn verify_census_outbox_in_transaction(
             != readback.candidate_set_frontier.frontier_identity()
         || payload.candidate_set_frontier_digest
             != readback.candidate_set_frontier.frontier_digest()
+        || payload.replay_policy_catalog_v3
+            != readback.census_frontier.replay_policy_catalog_v3().cloned()
     {
         return Err(TrialFamilyError::Unavailable(
             "V2 census outbox mismatch".to_string(),
@@ -973,6 +1123,8 @@ struct FamilyFrozenOutboxV1 {
     census_frontier_digest: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     replay_execution_policy_v2: Option<crate::ReplayPolicyCatalogBindingV2>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    replay_policy_catalog_v3: Option<crate::ReplayPolicyCatalogBindingV3>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -987,6 +1139,8 @@ struct CensusAdvancedOutboxV2 {
     attempt_frontier_digest: String,
     candidate_set_frontier_identity: String,
     candidate_set_frontier_digest: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    replay_policy_catalog_v3: Option<crate::ReplayPolicyCatalogBindingV3>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -1043,6 +1197,16 @@ fn digest(domain: &str, value: &impl Serialize) -> Result<String, TrialFamilyErr
 
 fn encode(value: &impl Serialize) -> Result<serde_json::Value, TrialFamilyError> {
     serde_json::to_value(value).map_err(unavailable)
+}
+
+fn source_encode(
+    domain: &str,
+    value: &impl Serialize,
+) -> Result<(serde_json::Value, Vec<u8>, String), TrialFamilyError> {
+    let bytes = serde_json::to_vec(value).map_err(unavailable)?;
+    let json = serde_json::from_slice(&bytes).map_err(unavailable)?;
+    let digest = crate::native_replay_rd_sources_v2::owner_storage_digest(domain, &bytes);
+    Ok((json, bytes, digest))
 }
 
 fn decode<T>(value: &serde_json::Value) -> Result<T, TrialFamilyError>
@@ -1735,6 +1899,8 @@ mod postgres_binding_tests {
             independence_basis_identity: "independence-basis-v1".to_string(),
             frozen_falsifier_binding: format!("sha256:{}", "c".repeat(64)),
             replay_execution_policy_v2: None,
+            replay_policy_catalog_v3: None,
+            decision_policy_v1: None,
         }
     }
 

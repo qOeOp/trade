@@ -238,6 +238,9 @@ impl BarScheduleReadbackV1 {
     pub const fn receipt_identity(&self) -> BarScheduleIdentity {
         self.receipt.identity
     }
+    pub const fn cut_identity(&self) -> BarScheduleIdentity {
+        self.cut.identity
+    }
     pub const fn outbox_identity(&self) -> BarScheduleIdentity {
         self.receipt.identity
     }

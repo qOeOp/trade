@@ -201,7 +201,49 @@ pub(super) async fn resolve_market_semantics_scope_in_transaction_v1(
     owner_observation_ns: i128,
     decision_cut: u64,
 ) -> Result<MarketSemanticsReadbackV1, MarketSemanticsErrorV1> {
-    let rows = sqlx::query("SELECT r.request_identity,f.fact_identity,f.fact_bytes FROM market_data_private.market_semantics_receipts_v1 r JOIN market_data_private.market_semantics_facts_v1 f ON f.fact_identity=r.fact_identity WHERE f.compatibility_scope_identity=$1 FOR SHARE OF r,f")
+    resolve_market_semantics_scope_with_lock_v1(
+        transaction,
+        compatibility_scope_identity,
+        effective_instant_ns,
+        owner_observation_ns,
+        decision_cut,
+        true,
+    )
+    .await
+}
+
+pub(super) async fn resolve_market_semantics_scope_read_only_in_transaction_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    compatibility_scope_identity: MarketSemanticsIdentity,
+    effective_instant_ns: i128,
+    owner_observation_ns: i128,
+    decision_cut: u64,
+) -> Result<MarketSemanticsReadbackV1, MarketSemanticsErrorV1> {
+    resolve_market_semantics_scope_with_lock_v1(
+        transaction,
+        compatibility_scope_identity,
+        effective_instant_ns,
+        owner_observation_ns,
+        decision_cut,
+        false,
+    )
+    .await
+}
+
+async fn resolve_market_semantics_scope_with_lock_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    compatibility_scope_identity: MarketSemanticsIdentity,
+    effective_instant_ns: i128,
+    owner_observation_ns: i128,
+    decision_cut: u64,
+    lock: bool,
+) -> Result<MarketSemanticsReadbackV1, MarketSemanticsErrorV1> {
+    let query = if lock {
+        "SELECT r.request_identity,f.fact_identity,f.fact_bytes FROM market_data_private.market_semantics_receipts_v1 r JOIN market_data_private.market_semantics_facts_v1 f ON f.fact_identity=r.fact_identity WHERE f.compatibility_scope_identity=$1 FOR SHARE OF r,f"
+    } else {
+        "SELECT r.request_identity,f.fact_identity,f.fact_bytes FROM market_data_private.market_semantics_receipts_v1 r JOIN market_data_private.market_semantics_facts_v1 f ON f.fact_identity=r.fact_identity WHERE f.compatibility_scope_identity=$1"
+    };
+    let rows = sqlx::query(query)
         .bind(compatibility_scope_identity.as_bytes().as_slice())
         .fetch_all(&mut **transaction)
         .await
@@ -240,7 +282,7 @@ pub(super) async fn resolve_market_semantics_scope_in_transaction_v1(
         selected = Some((fact, request_identity));
     }
     let (fact, request_identity) = selected.ok_or(MarketSemanticsErrorV1::UnknownIdentity)?;
-    let readback = load_readback(transaction, request_identity, true)
+    let readback = load_readback(transaction, request_identity, lock)
         .await?
         .ok_or(MarketSemanticsErrorV1::StoreUntrusted)?;
     let [resolved] = readback.facts() else {

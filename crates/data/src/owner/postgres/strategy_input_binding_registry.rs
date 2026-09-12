@@ -29,8 +29,8 @@ use crate::owner::{
 };
 
 use super::{
-    load_durable_instrument_readback, load_pit_for_update, load_pit_observation_batch_for_update,
-    load_source_for_update,
+    load_durable_instrument_readback, load_pit, load_pit_for_update, load_pit_observation_batch,
+    load_pit_observation_batch_for_update, load_source, load_source_for_update,
 };
 
 pub(super) const MAX_STRATEGY_INPUT_BINDING_REQUEST_BYTES_V1: usize = codec::MAX_REQUEST_BYTES;
@@ -48,7 +48,18 @@ pub(super) enum StrategyInputBindingRegistryErrorV1 {
     PitUnavailable,
     UniverseUnavailable,
     SourceUnavailable,
-    InstrumentMasterUnavailable,
+    InstrumentMasterScopeUnavailable,
+    InstrumentMasterBatchDigestUnavailable,
+    InstrumentMasterCutLocatorUnavailable,
+    InstrumentMasterReadbackUnavailable,
+    InstrumentMasterFactCountUnavailable,
+    InstrumentMasterDigestUnavailable,
+    InstrumentMasterCutUnavailable,
+    InstrumentMasterCanonicalIdentityUnavailable,
+    InstrumentMasterSemanticsIdentityUnavailable,
+    InstrumentMasterSourceFrontierUnavailable,
+    InstrumentMasterCorrectionFrontierUnavailable,
+    InstrumentMasterEffectiveRangeUnavailable,
     MarketSemanticsUnavailable,
     BindingUnavailable(StrategyInputBindingUnavailable),
     UnknownDeclaration,
@@ -259,11 +270,26 @@ async fn resolve_and_bind(
     transaction: &mut Transaction<'_, Postgres>,
     request: &UntrustedStrategyInputBindingRequest,
 ) -> Result<StrategyInputBindingReceipt, StrategyInputBindingRegistryErrorV1> {
-    let batch = resolve_native_pit(transaction, request).await?;
-    let universe = resolve_native_universe(transaction, request.universe_selection_digest).await?;
+    resolve_and_bind_with_mode(transaction, request, DependencyReadModeV1::LockRows).await
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DependencyReadModeV1 {
+    LockRows,
+    ReadOnly,
+}
+
+async fn resolve_and_bind_with_mode(
+    transaction: &mut Transaction<'_, Postgres>,
+    request: &UntrustedStrategyInputBindingRequest,
+    mode: DependencyReadModeV1,
+) -> Result<StrategyInputBindingReceipt, StrategyInputBindingRegistryErrorV1> {
+    let batch = resolve_native_pit(transaction, request, mode).await?;
+    let universe =
+        resolve_native_universe(transaction, request.universe_selection_digest, mode).await?;
     validate_universe_dependency(request, &batch, &universe)?;
-    validate_native_source(transaction, request, &batch).await?;
-    let semantics = resolve_native_market_semantics(transaction, request, &batch).await?;
+    validate_native_source(transaction, request, &batch, mode).await?;
+    let semantics = resolve_native_market_semantics(transaction, request, &batch, mode).await?;
     let [semantics_fact] = semantics.facts() else {
         return Err(StrategyInputBindingRegistryErrorV1::MarketSemanticsUnavailable);
     };
@@ -274,11 +300,63 @@ async fn resolve_and_bind(
         .map_err(StrategyInputBindingRegistryErrorV1::BindingUnavailable)
 }
 
+pub(super) async fn rederive_strategy_input_binding_read_only_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    request: &UntrustedStrategyInputBindingRequest,
+) -> Result<StrategyInputBindingReceipt, StrategyInputBindingRegistryErrorV1> {
+    resolve_and_bind_with_mode(transaction, request, DependencyReadModeV1::ReadOnly).await
+}
+
 pub(super) async fn resolve_complete_strategy_input_roles_v1(
     transaction: &mut Transaction<'_, Postgres>,
     pit_request_identity: BindingDigest,
     strategy_design_identity: BindingDigest,
     role_identities: &[BindingDigest],
+) -> Result<
+    (
+        Box<[StrategyInputBindingReceipt]>,
+        Box<[StrategyInputEventFrameReceipt]>,
+    ),
+    StrategyInputBindingRegistryErrorV1,
+> {
+    resolve_complete_strategy_input_roles_with_mode_v1(
+        transaction,
+        pit_request_identity,
+        strategy_design_identity,
+        role_identities,
+        DependencyReadModeV1::LockRows,
+    )
+    .await
+}
+
+pub(super) async fn rederive_complete_strategy_input_roles_read_only_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    pit_request_identity: BindingDigest,
+    strategy_design_identity: BindingDigest,
+    role_identities: &[BindingDigest],
+) -> Result<
+    (
+        Box<[StrategyInputBindingReceipt]>,
+        Box<[StrategyInputEventFrameReceipt]>,
+    ),
+    StrategyInputBindingRegistryErrorV1,
+> {
+    resolve_complete_strategy_input_roles_with_mode_v1(
+        transaction,
+        pit_request_identity,
+        strategy_design_identity,
+        role_identities,
+        DependencyReadModeV1::ReadOnly,
+    )
+    .await
+}
+
+async fn resolve_complete_strategy_input_roles_with_mode_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    pit_request_identity: BindingDigest,
+    strategy_design_identity: BindingDigest,
+    role_identities: &[BindingDigest],
+    mode: DependencyReadModeV1,
 ) -> Result<
     (
         Box<[StrategyInputBindingReceipt]>,
@@ -294,21 +372,32 @@ pub(super) async fn resolve_complete_strategy_input_roles_v1(
     }
     let mut declarations = Vec::with_capacity(unique.len());
     for role_identity in unique {
-        declarations.push(
-            recover_strategy_input_binding_declaration_v1(
-                transaction,
-                pit_request_identity,
-                strategy_design_identity,
-                role_identity,
-            )
-            .await?,
-        );
+        declarations.push(match mode {
+            DependencyReadModeV1::LockRows => {
+                recover_strategy_input_binding_declaration_v1(
+                    transaction,
+                    pit_request_identity,
+                    strategy_design_identity,
+                    role_identity,
+                )
+                .await?
+            }
+            DependencyReadModeV1::ReadOnly => {
+                rederive_strategy_input_binding_declaration_read_only_v1(
+                    transaction,
+                    pit_request_identity,
+                    strategy_design_identity,
+                    role_identity,
+                )
+                .await?
+            }
+        });
     }
     let request = declarations
         .first()
         .ok_or(StrategyInputBindingRegistryErrorV1::InvalidRequest)?
         .request();
-    let batch = resolve_native_pit(transaction, request).await?;
+    let batch = resolve_native_pit(transaction, request, mode).await?;
     let bindings = declarations
         .into_iter()
         .map(|declaration| declaration.binding)
@@ -323,15 +412,56 @@ pub(super) async fn resolve_complete_strategy_input_roles_v1(
     Ok((bindings.into_boxed_slice(), frames.into_boxed_slice()))
 }
 
+async fn rederive_strategy_input_binding_declaration_read_only_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    pit_request_identity: BindingDigest,
+    strategy_design_identity: BindingDigest,
+    input_role_identity: BindingDigest,
+) -> Result<StrategyInputBindingDeclarationReadbackV1, StrategyInputBindingRegistryErrorV1> {
+    let stored = load_stored_read_only(
+        transaction,
+        pit_request_identity,
+        strategy_design_identity,
+        input_role_identity,
+    )
+    .await?
+    .ok_or(StrategyInputBindingRegistryErrorV1::UnknownDeclaration)?;
+    let request = verify_stored(
+        pit_request_identity,
+        strategy_design_identity,
+        input_role_identity,
+        &stored.request_bytes,
+        stored.request_meaning_digest,
+        stored.owner_binding_digest,
+    )?;
+    let binding =
+        resolve_and_bind_with_mode(transaction, &request, DependencyReadModeV1::ReadOnly).await?;
+    if binding.digest() != stored.owner_binding_digest {
+        return Err(StrategyInputBindingRegistryErrorV1::StoreUntrusted);
+    }
+    Ok(StrategyInputBindingDeclarationReadbackV1 {
+        request,
+        request_meaning_digest: stored.request_meaning_digest,
+        binding,
+    })
+}
+
 async fn validate_native_source(
     transaction: &mut Transaction<'_, Postgres>,
     request: &UntrustedStrategyInputBindingRequest,
     batch: &VerifiedPitObservationBatch,
+    mode: DependencyReadModeV1,
 ) -> Result<(), StrategyInputBindingRegistryErrorV1> {
-    let aggregate = load_source_for_update(transaction, batch.source_binding_identity(), false)
-        .await
-        .map_err(|_| StrategyInputBindingRegistryErrorV1::SourceUnavailable)?
-        .ok_or(StrategyInputBindingRegistryErrorV1::SourceUnavailable)?;
+    let aggregate = match mode {
+        DependencyReadModeV1::LockRows => {
+            load_source_for_update(transaction, batch.source_binding_identity(), false).await
+        }
+        DependencyReadModeV1::ReadOnly => {
+            load_source(transaction, batch.source_binding_identity(), false).await
+        }
+    }
+    .map_err(|_| StrategyInputBindingRegistryErrorV1::SourceUnavailable)?
+    .ok_or(StrategyInputBindingRegistryErrorV1::SourceUnavailable)?;
     let source = SourceBindingOwnerReadback::from_verified(&aggregate);
     if !source.is_admitted()
         || source.binding_id() != request.source_binding_identity
@@ -353,7 +483,7 @@ pub(super) async fn recover_strategy_input_binding_source_v1(
     transaction: &mut Transaction<'_, Postgres>,
     request: &UntrustedStrategyInputBindingRequest,
 ) -> Result<SourceBindingOwnerReadback, StrategyInputBindingRegistryErrorV1> {
-    let batch = resolve_native_pit(transaction, request).await?;
+    let batch = resolve_native_pit(transaction, request, DependencyReadModeV1::LockRows).await?;
     let aggregate = load_source_for_update(transaction, batch.source_binding_identity(), false)
         .await
         .map_err(|_| StrategyInputBindingRegistryErrorV1::SourceUnavailable)?
@@ -381,11 +511,11 @@ async fn validate_native_instrument_master(
     semantics: &crate::owner::market_semantics::MarketSemanticsFactV1,
 ) -> Result<NativeInstrumentMasterCoordinateV1, StrategyInputBindingRegistryErrorV1> {
     let UntrustedStrategyInputScope::ExactInstrument { instrument } = &request.scope else {
-        return Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterUnavailable);
+        return Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterScopeUnavailable);
     };
 
     if request.instrument_master_digest != batch.instrument_master_digest() {
-        return Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterUnavailable);
+        return Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterBatchDigestUnavailable);
     }
     // The semantics fact carries the complete version coordinate. The unique cut locator selects
     // one durable readback without choosing a latest fact or scanning the instrument history.
@@ -402,29 +532,47 @@ async fn validate_native_instrument_master(
         .map_err(map_instrument_error)?
         .ok_or(StrategyInputBindingRegistryErrorV1::StoreUntrusted)?;
     let [fact] = readback.facts() else {
-        return Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterUnavailable);
+        return Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterFactCountUnavailable);
     };
     let exact_member = readback.cut().expected_members() == std::slice::from_ref(instrument);
     let effective = i128::from(batch.time_evidence().event_effective.value);
 
-    if readback.digest() != request.instrument_master_digest
-        || !native_instrument_cut_matches(
-            readback.cut().decision_cut,
-            request.decision_cut,
-            readback.cut().effective_instant(),
-            effective,
-            exact_member,
-        )
-        || fact.canonical_identity() != instrument
-        || fact.market_semantics_identity() != request.market_semantics_identity
-        || fact.source_frontier() != batch.source_frontier_digest()
-        || fact.correction_frontier() != batch.correction_frontier_digest()
-        || fact.effective_from() > effective
+    if readback.digest() != request.instrument_master_digest {
+        return Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterDigestUnavailable);
+    }
+    if !native_instrument_cut_matches(
+        readback.cut().decision_cut,
+        request.decision_cut,
+        readback.cut().effective_instant(),
+        effective,
+        exact_member,
+    ) {
+        return Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterCutUnavailable);
+    }
+    if fact.canonical_identity() != instrument {
+        return Err(
+            StrategyInputBindingRegistryErrorV1::InstrumentMasterCanonicalIdentityUnavailable,
+        );
+    }
+    if fact.market_semantics_identity() != request.market_semantics_identity {
+        return Err(
+            StrategyInputBindingRegistryErrorV1::InstrumentMasterSemanticsIdentityUnavailable,
+        );
+    }
+    if fact.source_frontier() != batch.source_frontier_digest() {
+        return Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterSourceFrontierUnavailable);
+    }
+    if fact.correction_frontier() != batch.correction_frontier_digest() {
+        return Err(
+            StrategyInputBindingRegistryErrorV1::InstrumentMasterCorrectionFrontierUnavailable,
+        );
+    }
+    if fact.effective_from() > effective
         || fact
             .effective_until()
             .is_some_and(|until| effective >= until)
     {
-        return Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterUnavailable);
+        return Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterEffectiveRangeUnavailable);
     }
     Ok(NativeInstrumentMasterCoordinateV1 {
         readback: readback.digest(),
@@ -438,7 +586,7 @@ fn exact_instrument_request_identity(
 ) -> Result<BindingDigest, StrategyInputBindingRegistryErrorV1> {
     let [request_identity] = request_rows else {
         return if request_rows.is_empty() {
-            Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterUnavailable)
+            Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterCutLocatorUnavailable)
         } else {
             Err(StrategyInputBindingRegistryErrorV1::StoreUntrusted)
         };
@@ -484,15 +632,30 @@ async fn resolve_native_market_semantics(
     transaction: &mut Transaction<'_, Postgres>,
     request: &UntrustedStrategyInputBindingRequest,
     batch: &VerifiedPitObservationBatch,
+    mode: DependencyReadModeV1,
 ) -> Result<MarketSemanticsReadbackV1, StrategyInputBindingRegistryErrorV1> {
-    super::market_semantics::resolve_market_semantics_scope_in_transaction_v1(
-        transaction,
-        request.market_semantics_identity,
-        i128::from(batch.time_evidence().event_effective.value),
-        i128::from(batch.time_evidence().observed_at),
-        request.decision_cut,
-    )
-    .await
+    match mode {
+        DependencyReadModeV1::LockRows => {
+            super::market_semantics::resolve_market_semantics_scope_in_transaction_v1(
+                transaction,
+                request.market_semantics_identity,
+                i128::from(batch.time_evidence().event_effective.value),
+                i128::from(batch.time_evidence().observed_at),
+                request.decision_cut,
+            )
+            .await
+        }
+        DependencyReadModeV1::ReadOnly => {
+            super::market_semantics::resolve_market_semantics_scope_read_only_in_transaction_v1(
+                transaction,
+                request.market_semantics_identity,
+                i128::from(batch.time_evidence().event_effective.value),
+                i128::from(batch.time_evidence().observed_at),
+                request.decision_cut,
+            )
+            .await
+        }
+    }
     .map_err(map_market_semantics_error)
 }
 
@@ -526,15 +689,28 @@ fn validate_native_market_semantics(
 async fn resolve_native_pit(
     transaction: &mut Transaction<'_, Postgres>,
     request: &UntrustedStrategyInputBindingRequest,
+    mode: DependencyReadModeV1,
 ) -> Result<VerifiedPitObservationBatch, StrategyInputBindingRegistryErrorV1> {
-    let aggregate = load_pit_for_update(transaction, request.snapshot_identity, false)
-        .await
-        .map_err(map_pit_error)?
-        .ok_or(StrategyInputBindingRegistryErrorV1::PitUnavailable)?;
-    let stored = load_pit_observation_batch_for_update(transaction, &aggregate)
-        .await
-        .map_err(map_pit_error)?
-        .ok_or(StrategyInputBindingRegistryErrorV1::PitUnavailable)?;
+    let aggregate = match mode {
+        DependencyReadModeV1::LockRows => {
+            load_pit_for_update(transaction, request.snapshot_identity, false).await
+        }
+        DependencyReadModeV1::ReadOnly => {
+            load_pit(transaction, request.snapshot_identity, false, false).await
+        }
+    }
+    .map_err(map_pit_error)?
+    .ok_or(StrategyInputBindingRegistryErrorV1::PitUnavailable)?;
+    let stored = match mode {
+        DependencyReadModeV1::LockRows => {
+            load_pit_observation_batch_for_update(transaction, &aggregate).await
+        }
+        DependencyReadModeV1::ReadOnly => {
+            load_pit_observation_batch(transaction, &aggregate, false).await
+        }
+    }
+    .map_err(map_pit_error)?
+    .ok_or(StrategyInputBindingRegistryErrorV1::PitUnavailable)?;
     verify_observation_batch(
         &aggregate,
         stored.source_binding_identity,
@@ -550,8 +726,17 @@ async fn resolve_native_pit(
 async fn resolve_native_universe(
     transaction: &mut Transaction<'_, Postgres>,
     selection_identity: BindingDigest,
+    mode: DependencyReadModeV1,
 ) -> Result<UniverseSelectionReadbackV1, StrategyInputBindingRegistryErrorV1> {
-    let row = sqlx::query("SELECT r.request_identity,r.request_meaning_digest,r.selection_identity,r.record_bytes,c.receipt_identity,c.receipt_bytes,o.outbox_identity,o.receipt_bytes AS outbox_receipt_bytes FROM market_data_private.universe_selection_records_v1 AS r JOIN market_data_private.universe_selection_receipts_v1 AS c ON c.request_identity=r.request_identity JOIN market_data_private.universe_selection_outbox_v1 AS o ON o.request_identity=r.request_identity WHERE r.selection_identity=$1 FOR SHARE OF r,c,o")
+    let query = match mode {
+        DependencyReadModeV1::LockRows => {
+            "SELECT r.request_identity,r.request_meaning_digest,r.selection_identity,r.record_bytes,c.receipt_identity,c.receipt_bytes,o.outbox_identity,o.receipt_bytes AS outbox_receipt_bytes FROM market_data_private.universe_selection_records_v1 AS r JOIN market_data_private.universe_selection_receipts_v1 AS c ON c.request_identity=r.request_identity JOIN market_data_private.universe_selection_outbox_v1 AS o ON o.request_identity=r.request_identity WHERE r.selection_identity=$1 FOR SHARE OF r,c,o"
+        }
+        DependencyReadModeV1::ReadOnly => {
+            "SELECT r.request_identity,r.request_meaning_digest,r.selection_identity,r.record_bytes,c.receipt_identity,c.receipt_bytes,o.outbox_identity,o.receipt_bytes AS outbox_receipt_bytes FROM market_data_private.universe_selection_records_v1 AS r JOIN market_data_private.universe_selection_receipts_v1 AS c ON c.request_identity=r.request_identity JOIN market_data_private.universe_selection_outbox_v1 AS o ON o.request_identity=r.request_identity WHERE r.selection_identity=$1"
+        }
+    };
+    let row = sqlx::query(query)
         .bind(selection_identity.as_bytes().as_slice())
         .fetch_optional(&mut **transaction)
         .await
@@ -620,6 +805,31 @@ async fn load_stored(
     input_role_identity: BindingDigest,
 ) -> Result<Option<StoredDeclarationV1>, StrategyInputBindingRegistryErrorV1> {
     let row = sqlx::query("SELECT request_bytes,request_meaning_digest,owner_binding_digest FROM market_data_private.strategy_input_binding_declarations_v1 WHERE pit_request_identity=$1 AND strategy_design_identity=$2 AND input_role_identity=$3 FOR UPDATE")
+        .bind(pit_request_identity.as_bytes().as_slice())
+        .bind(strategy_design_identity.as_bytes().as_slice())
+        .bind(input_role_identity.as_bytes().as_slice())
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|_| StrategyInputBindingRegistryErrorV1::StoreUnavailable)?;
+    row.map(|row| {
+        Ok(StoredDeclarationV1 {
+            request_bytes: row
+                .try_get("request_bytes")
+                .map_err(|_| StrategyInputBindingRegistryErrorV1::StoreUntrusted)?,
+            request_meaning_digest: row_digest(&row, "request_meaning_digest")?,
+            owner_binding_digest: row_digest(&row, "owner_binding_digest")?,
+        })
+    })
+    .transpose()
+}
+
+async fn load_stored_read_only(
+    transaction: &mut Transaction<'_, Postgres>,
+    pit_request_identity: BindingDigest,
+    strategy_design_identity: BindingDigest,
+    input_role_identity: BindingDigest,
+) -> Result<Option<StoredDeclarationV1>, StrategyInputBindingRegistryErrorV1> {
+    let row = sqlx::query("SELECT request_bytes,request_meaning_digest,owner_binding_digest FROM market_data_private.strategy_input_binding_declarations_v1 WHERE pit_request_identity=$1 AND strategy_design_identity=$2 AND input_role_identity=$3")
         .bind(pit_request_identity.as_bytes().as_slice())
         .bind(strategy_design_identity.as_bytes().as_slice())
         .bind(input_role_identity.as_bytes().as_slice())
@@ -724,7 +934,7 @@ fn map_pit_error(_: PitSnapshotError) -> StrategyInputBindingRegistryErrorV1 {
 }
 
 fn map_instrument_error(_: InstrumentMasterError) -> StrategyInputBindingRegistryErrorV1 {
-    StrategyInputBindingRegistryErrorV1::InstrumentMasterUnavailable
+    StrategyInputBindingRegistryErrorV1::InstrumentMasterReadbackUnavailable
 }
 
 fn map_market_semantics_error(_: MarketSemanticsErrorV1) -> StrategyInputBindingRegistryErrorV1 {
@@ -899,7 +1109,7 @@ mod tests {
         );
         assert_eq!(
             exact_instrument_request_identity(&[]),
-            Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterUnavailable)
+            Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterCutLocatorUnavailable)
         );
         assert_eq!(
             exact_instrument_request_identity(&[vec![12; 32], vec![12; 32]]),

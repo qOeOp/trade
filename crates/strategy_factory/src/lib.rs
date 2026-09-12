@@ -71,15 +71,74 @@ mod family_adapters;
 mod formation_adapters;
 mod holdout;
 pub mod intent;
+#[allow(
+    dead_code,
+    reason = "the R&D-private candidate comparison awaits the same-transaction Decision composer"
+)]
+mod iteration_candidate;
+pub mod iteration_decision;
+mod iteration_decision_postgres;
+pub mod market_data_repair_reentry;
+#[allow(
+    dead_code,
+    reason = "the effect-free Market Data repair request issuer awaits T153 PostgreSQL custody"
+)]
+pub mod market_data_repair_request;
+#[allow(
+    dead_code,
+    reason = "T153 PostgreSQL custody is reached through the R&D Owner composition"
+)]
+mod market_data_repair_request_postgres;
+pub mod market_data_repair_resolution;
+mod market_data_repair_resolution_postgres;
+pub use iteration_decision_postgres::{
+    DecisionCompositionRequestV1, IterationDecisionPostgresErrorV1,
+    IterationDecisionResolutionLocatorV1, RepairActionCompositionRequestV1,
+    RepairActionResolutionLocatorV1,
+};
+pub use market_data_repair_request_postgres::{
+    MarketDataRepairCompositionRequestV1, MarketDataRepairPostgresErrorV1,
+};
+pub use market_data_repair_resolution_postgres::{
+    MarketDataRepairResolutionLocatorV1, MarketDataRepairResolutionPostgresErrorV1,
+    MarketDataRepairResolutionReadbackV1,
+};
 mod legacy_prepared_attempt_drain;
+#[allow(
+    dead_code,
+    reason = "the binding-governed execution bundle is consumed by the next Native Replay service slice"
+)]
+mod native_replay_execution_binding_consumer_v1;
+pub mod native_replay_execution_bundle_owner_v2;
+#[allow(
+    dead_code,
+    reason = "T139 binding issuer awaits the T140 typed Owner-readback adapter"
+)]
+pub mod native_replay_execution_input_binding_v1;
+pub mod native_replay_execution_preparation_resolver_v2;
+#[allow(
+    dead_code,
+    reason = "the initial issuance operation is called by the R&D Owner API feature composition"
+)]
+mod native_replay_initial_binding_issuance_v1;
+#[allow(
+    dead_code,
+    reason = "the fixed initial Owner-input adapter is consumed by the T145 atomic service composition"
+)]
+mod native_replay_initial_owner_inputs_v1;
+pub mod native_replay_preparation_inputs_v2;
+pub mod native_replay_preparation_owner_v2;
+pub mod native_replay_rd_sources_v2;
 #[allow(
     dead_code,
     reason = "prepared Native Replay awaits native Instrument Master and complete Owner readbacks"
 )]
 mod native_replay_v2;
 pub use native_replay_v2::{
-    PreparedProgramHostCapabilityV2, PreparedProgramHostEventCorpusCapabilityV2,
-    PreparedProgramHostHandoffV2, ProgramPreparationFaultV2,
+    OwnerBarJoinedCutPreparationV1, PreparedProgramHostBarCapabilityV1,
+    PreparedProgramHostBarHandoffV1, PreparedProgramHostCapabilityV2,
+    PreparedProgramHostEventCorpusCapabilityV2, PreparedProgramHostHandoffV2,
+    ProgramPreparationFaultV2, prepare_program_host_from_owner_bar_joined_cut_v1,
     prepare_program_host_from_owner_event_corpus_v1, prepare_program_host_from_owner_readbacks_v2,
 };
 mod pairs_relative_value;
@@ -94,8 +153,16 @@ mod program_host;
 mod program_host_backtest_target_set_v2;
 #[allow(dead_code)]
 mod program_host_backtest_v2;
+mod program_host_bar_joined_cut_backtest_v1;
+pub mod repair_action;
+pub use program_host_bar_joined_cut_backtest_v1::{
+    OwnerBarJoinedCutBacktestReadbackV1, run_prepared_owner_bar_joined_cut_backtest_v1,
+};
+#[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
+mod program_host_bar_joined_cut_postgres_acceptance_tests;
 #[allow(dead_code)]
 mod program_host_event_corpus_backtest_v1;
+pub mod program_host_sim_event_consumer_v1;
 pub mod program_host_v2;
 #[cfg(test)]
 mod program_host_v2_backtest_tests;
@@ -115,24 +182,48 @@ mod rd_bounded_feature_program_v1;
 pub mod rd_historical_custody;
 pub mod rd_historical_custody_postgres;
 mod rd_owner_postgres_custody;
+pub use native_replay_execution_bundle_owner_v2::{
+    NativeReplayExecutionPrerequisitesErrorV2, NativeReplayExecutionPrerequisitesV2,
+    compose_native_replay_execution_bundle_v2, native_execution_bundle_prerequisite_v2,
+    prepare_native_replay_execution_prerequisites_v2,
+};
+pub use native_replay_execution_input_binding_v1::{
+    NativeReplayExecutionInputBindingErrorV1, NativeReplayExecutionInputBindingLocatorV1,
+    NativeReplayExecutionInputBindingReadbackV1,
+    resolve_native_replay_execution_input_binding_v1_in_transaction,
+};
+pub use native_replay_preparation_inputs_v2::{
+    NativeReplayPreparationInputsErrorV2, NativeReplayPreparationInputsV2,
+    resolve_native_replay_preparation_inputs_v2_in_transaction,
+};
+pub use native_replay_rd_sources_v2::{
+    NativeReplayRdSourceKindV2, NativeReplayRdSourceRecordV2, NativeReplayRdSourcesErrorV2,
+    NativeReplayRdSourcesV2,
+};
 pub use rd_owner_postgres_custody::{
     BacktestResultCustodyErrorV2, ExploratoryReplayResultLocatorV2,
     LockedExploratoryReplayResultV2, resolve_exploratory_replay_result_for_rd_in_transaction,
+    resolve_native_replay_rd_sources_v2_in_transaction,
 };
 pub mod receipt;
 pub mod replay_economic_configuration_v1;
 pub mod replay_execution_policy_v2;
 pub mod replay_execution_profile_binding_v1;
+pub mod replay_execution_profile_native_v1;
 mod replay_policy_catalog_postgres_v2;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 pub mod replay_policy_catalog_sealed_acceptance_v2;
 mod replay_policy_catalog_v2;
+pub mod replay_target_set_execution_bundle_v1;
 pub use replay_policy_catalog_postgres_v2::{
+    advance_authenticated_replay_policy_catalog_head_v3,
+    create_authenticated_replay_policy_catalog_v3,
     ensure_authenticated_replay_policy_catalog_genesis_v1,
-    read_authenticated_replay_policy_catalog_genesis_v1,
+    read_authenticated_replay_policy_catalog_genesis_v1, read_current_replay_policy_catalog_v3,
 };
 pub use replay_policy_catalog_v2::{
-    ReplayPolicyCatalogBindingV2, ReplayPolicyCatalogBootstrapReceiptV1, ReplayPolicyCatalogErrorV2,
+    ReplayExecutionProfileSealsV1, ReplayPolicyCatalogBindingV2, ReplayPolicyCatalogBindingV3,
+    ReplayPolicyCatalogBootstrapReceiptV1, ReplayPolicyCatalogErrorV2,
 };
 pub mod replay_runner_operational_profile_v1;
 mod representative;

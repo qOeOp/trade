@@ -27,7 +27,10 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::sample_projection_v4::UntrustedStrategyInputSampleProjectionLocatorV4;
-use super::{pit_snapshot::UntrustedPitSnapshotLocator, source_binding::BindingDigest};
+use super::{
+    instrument_master::InstrumentMasterReadbackV1, pit_snapshot::UntrustedPitSnapshotLocator,
+    source_binding::BindingDigest,
+};
 
 pub(super) mod authority;
 mod codec;
@@ -55,6 +58,100 @@ pub use composition::{
 pub struct ReplayCompositionOwnerV1 {
     pub(in crate::owner) owner: super::postgres::MarketDataOwnerPostgres,
     pub(in crate::owner) rd_role_set_pool: sqlx::PgPool,
+}
+
+/// Move-only exact binding plus its byte-verified Replay facts and Instrument Master cut.
+#[derive(Debug, Eq, PartialEq)]
+pub struct ResolvedReplayCompositionCutV1 {
+    binding: ReplayCompositionBindingReadbackV1,
+    market_facts: ReplayMarketFactsReadbackV2,
+    instrument_master: InstrumentMasterReadbackV1,
+}
+
+impl ResolvedReplayCompositionCutV1 {
+    pub(in crate::owner) const fn from_owner_resolution(
+        binding: ReplayCompositionBindingReadbackV1,
+        market_facts: ReplayMarketFactsReadbackV2,
+        instrument_master: InstrumentMasterReadbackV1,
+    ) -> Self {
+        Self {
+            binding,
+            market_facts,
+            instrument_master,
+        }
+    }
+
+    #[must_use]
+    pub const fn binding(&self) -> &ReplayCompositionBindingReadbackV1 {
+        &self.binding
+    }
+
+    #[must_use]
+    pub const fn market_facts(&self) -> &ReplayMarketFactsReadbackV2 {
+        &self.market_facts
+    }
+
+    #[must_use]
+    pub const fn instrument_master(&self) -> &InstrumentMasterReadbackV1 {
+        &self.instrument_master
+    }
+
+    #[must_use]
+    pub fn into_parts(
+        self,
+    ) -> (
+        ReplayCompositionBindingReadbackV1,
+        ReplayMarketFactsReadbackV2,
+        InstrumentMasterReadbackV1,
+    ) {
+        (self.binding, self.market_facts, self.instrument_master)
+    }
+}
+
+impl super::sample_projection_v4::sealed::Sealed for ReplayCompositionOwnerV1 {}
+impl resolver_seal::Sealed for ReplayCompositionOwnerV1 {}
+impl composition::resolver_seal::Sealed for ReplayCompositionOwnerV1 {}
+
+#[async_trait::async_trait]
+impl ReplayMarketFactsResolverV2 for ReplayCompositionOwnerV1 {
+    async fn resolve_replay_market_facts_v2(
+        &self,
+        request: &UntrustedReplayMarketFactsRequestV2,
+    ) -> Result<ReplayMarketFactsReadbackV2, ReplayMarketFactsErrorV2> {
+        self.owner
+            .resolve_replay_market_facts_readback_v2(request)
+            .await
+    }
+}
+
+#[async_trait::async_trait]
+impl ReplayCompositionBindingResolverV1 for ReplayCompositionOwnerV1 {
+    async fn resolve_replay_market_facts_composition_v1(
+        &self,
+        request: &UntrustedReplayMarketFactsCompositionRequestV1,
+    ) -> Result<ReplayMarketFactsReadbackV2, ReplayCompositionBindingErrorV1> {
+        self.owner
+            .resolve_replay_composition_readback_v1(request)
+            .await
+    }
+}
+
+#[async_trait::async_trait]
+impl super::sample_projection_v4::StrategyInputSampleProjectionResolverV4
+    for ReplayCompositionOwnerV1
+{
+    async fn resolve_strategy_input_sample_projection_v4(
+        &self,
+        locator: &UntrustedStrategyInputSampleProjectionLocatorV4,
+    ) -> Result<
+        super::sample_projection_v4::StrategyInputSampleProjectionReadbackV4,
+        super::sample_projection_v4::StrategyInputSampleProjectionResolveErrorV4,
+    > {
+        self.owner
+            .resolve_strategy_input_sample_projection_v4(locator)
+            .await
+            .map_err(|_| super::sample_projection_v4::StrategyInputSampleProjectionResolveErrorV4)
+    }
 }
 
 /// Untrusted selectors for the exact existing Market Data custody used by sealed Composer.

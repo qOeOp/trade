@@ -17,7 +17,8 @@ crate-type = ["rlib"]
 
 [features]
 default = []
-sealed-strategy-input-acceptance = []
+isolated-event-replay-acceptance = ["dep:vibe-rd-exploratory-replay-custody"]
+sealed-strategy-input-acceptance = ["dep:vibe-testkit"]
 streaming = ["vibe-persistence"]
 high-precision = [
   "vibe-model/high-precision",
@@ -46,6 +47,8 @@ vibe-common = { workspace = true }
 vibe-core = { workspace = true }
 vibe-model = { workspace = true, features = ["stubs"] }
 vibe-persistence = { workspace = true, optional = true }
+vibe-rd-exploratory-replay-custody = { workspace = true, optional = true }
+vibe-testkit = { workspace = true, features = ["postgres"], optional = true }
 
 ahash = { workspace = true }
 anyhow = { workspace = true }

@@ -652,14 +652,52 @@ revalidates canonical bytes, custody and ACL closure, and rejects missing, parti
 cross-spliced or tampered storage before returning a move-only readback. This private fact is not generic
 public Instrument Master truth and does not alter any V1 or public V2 bytes.
 
+For initial Native Replay composition, Instrument Owner also maintains an Owner-private derived selection
+index beside those canonical facts. One fixed read-only operation consumes the unforgeable
+`InstrumentMasterReadbackV2`, the Replay profile's venue and common quote currency, and the sealed request
+start event time. Instrument Owner derives both canonical member identities and public fact digests from
+the Master V2 readback and derives the account scope from its own matching facts. It returns one exact
+readback per member only when exactly one complete pair is valid under one shared account scope. Missing,
+overlapping, corrupt, or multiple complete pairs are unavailable. The caller supplies no account scope,
+economic-terms locator, latest selector, pool, or replacement store.
+
 Strategy Factory may mint its move-only economic provenance only from that verified Owner readback and
 must additionally match venue, account scope, event time, currencies and all visible economic profile
 values. Market Data's public-fact module still neither imports Strategy Factory nor validates, copies,
 selects, or issues replay economic values.
 
-**NOT_ADMITTED:** public V2 still claims no provider parser or call, authenticated ingestion, durable
-public-fact storage/migration, V2 cut/receipt/readback, deployment, production effect, or trading. The
-private economic path does not elevate those public-fact claims or construct a native instrument.
+**CURRENT/PARTIAL, durable public V2 custody and fixed Native Replay resolution:** Market Data owns
+the additive `InstrumentMasterFactV2` store, immutable content-addressed cut, atomic receipt/outbox, and
+move-only exact-locator readback. The first consumer is the exact `BACKTEST_OWNER_V1` Native Replay vertical and
+its cut contains exactly two distinct canonical crypto-perpetual instruments in canonical instrument-identity
+order. Each entry binds the complete V2 fact bytes and identity, direct predecessor, correction sequence,
+baseline/latest-delta provenance, Source Binding identities, venue/raw-symbol mapping, and the complete public
+term set. V1 facts, cuts, receipts, readbacks, tables, codecs, and resolver behavior remain byte-for-byte
+independent.
+
+Cut issuance accepts only the fixed consumer role, the R&D-owned request identity and decision cut, and the exact
+Owner-sealed two-member universe-selection readback. Market Data resolves the two public fact chains internally at
+that cut and returns the new exact V2 cut locator/readback. The request cannot carry fact bytes, fact digests,
+symbols, member order, a store/pool, or a latest selector. For initial composition only, the fixed resolver derives a
+domain-separated request key from the canonical sealed R&D Replay request identity and resolves the unique cut under
+that key. After R&D seals the returned four-coordinate cut locator into its request binding, later exact resolution
+accepts that locator only. In one fixed Owner snapshot, the resolver must decode and rehash the
+cut and both facts, prove exact membership and order, walk every direct-predecessor link back to the bound baseline
+without a gap or branch, revalidate current store admission and reader ACL, and return one move-only readback. A
+missing, extra, duplicate, reordered, noncanonical, cross-spliced, tampered, or ACL-drifted row returns no
+readback. Exact-locator replay and response-loss recovery return byte-identical historical bytes with zero append;
+same identity with different bytes conflicts.
+
+Fact/cut/receipt/outbox creation is append-only and failure-atomic. Only the fixed Market Data writer may create
+or advance public V2 custody; the fixed consumer receives only `EXECUTE` on the exact resolver and no raw table
+privilege. Market Data does not resolve private `InstrumentEconomicTermsFactV1`, Strategy Input universe frames,
+BAR schedules, replay profiles, or the R&D request binding, and it does not assemble a cross-Owner execution-input
+aggregate.
+
+**NOT_ADMITTED:** this contract still claims no provider parser or call, authenticated ingestion, completed
+migration, admitted default/production database write, registered product composition,
+deployment, runtime execution, production effect, or trading. The private economic path does not elevate those
+public-fact claims or construct a native instrument.
 
 ### Status and fixed consumer
 
@@ -1128,6 +1166,15 @@ exact and historical reads; reader ACLs; admitted capability issuance and revali
 resolver. Byte-identical recovery returns the exact stored readback, while mismatch or tamper fails closed. This is
 CURRENT/PARTIAL schedule custody and admitted read authority, not Windmill, Backtest, composite, or other product
 reachability. A caller locator, structural decode, or reconstructed bytes confers no schedule authority.
+
+For initial Native Replay execution-input composition, the admitted Market Data read capability also exposes one
+fixed request-bound operation. It resolves the PIT batch by the snapshot identity and fact digest already sealed in
+the R&D Replay request, rebuilds the complete universe frame from the Plan-declared role schema and Owner batch
+coordinates, then reads the complete BAR schedule history for each Master V2 canonical member. Market Data returns
+exactly one schedule per member only when its canonical timeframe, half-open validity, cut instant, Instrument Master,
+Market Semantics, source frontier, and correction frontier all equal that same batch and request window. Missing,
+duplicate, overlapping, reordered, or corrupt candidates return no frame or schedule readback. The caller supplies
+no schedule locator, account scope, latest selector, raw row, SQL, pool, credential, or replacement store.
 
 In the CURRENT/PARTIAL BAR schedule path, only a custody-verified readback may authorize the additive immutable
 `TimeframeProjectionReceiptV1` keyed by the exact V1 binding-receipt digest. Its existing canonical bytes and domain

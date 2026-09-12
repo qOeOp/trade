@@ -59,6 +59,35 @@ impl VerifiedAttemptCustodyV1 {
         replay_admission: &ProductEdgeAdmissionLocatorV1,
         read_cut_epoch_ms: u64,
     ) -> Result<Option<(Self, ProductEdgeAdmissionReadbackV1)>, ArtifactBuildError> {
+        Self::admit_for_exploratory_replay_with_admission_mode_in_transaction(
+            transaction,
+            build_request_identity,
+            replay_admission,
+            DownstreamAdmissionModeV1::FirstMutation { read_cut_epoch_ms },
+        )
+        .await
+    }
+
+    pub(crate) async fn admit_for_repaired_exploratory_replay_in_transaction(
+        transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        build_request_identity: &str,
+        replay_admission: &ProductEdgeAdmissionLocatorV1,
+    ) -> Result<Option<(Self, ProductEdgeAdmissionReadbackV1)>, ArtifactBuildError> {
+        Self::admit_for_exploratory_replay_with_admission_mode_in_transaction(
+            transaction,
+            build_request_identity,
+            replay_admission,
+            DownstreamAdmissionModeV1::Historical,
+        )
+        .await
+    }
+
+    async fn admit_for_exploratory_replay_with_admission_mode_in_transaction(
+        transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        build_request_identity: &str,
+        replay_admission: &ProductEdgeAdmissionLocatorV1,
+        admission_mode: DownstreamAdmissionModeV1,
+    ) -> Result<Option<(Self, ProductEdgeAdmissionReadbackV1)>, ArtifactBuildError> {
         let hint_rows = sqlx::query("SELECT build_request_identity, attempt_identity, semantic_digest, attempt_json, prepared_at_epoch_ms FROM rd_artifact_build_attempts_v1 WHERE build_request_identity = $1")
             .bind(build_request_identity)
             .fetch_all(&mut **transaction)
@@ -80,7 +109,7 @@ impl VerifiedAttemptCustodyV1 {
             transaction,
             replay_admission,
             &hint.request.admission,
-            read_cut_epoch_ms,
+            admission_mode,
         )
         .await?;
         verify_artifact_build_admission(&artifact, &hint.request)?;
@@ -116,7 +145,7 @@ impl VerifiedAttemptCustodyV1 {
         transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         replay_admission: &ProductEdgeAdmissionLocatorV1,
         artifact_admission: &ProductEdgeAdmissionLocatorV1,
-        read_cut_epoch_ms: u64,
+        admission_mode: DownstreamAdmissionModeV1,
     ) -> Result<
         (
             ProductEdgeAdmissionReadbackV1,
@@ -147,7 +176,7 @@ impl VerifiedAttemptCustodyV1 {
             let admission = resolve_admission_for_downstream_in_transaction(
                 transaction,
                 locator,
-                DownstreamAdmissionModeV1::FirstMutation { read_cut_epoch_ms },
+                admission_mode,
             )
             .await
             .map_err(|e| ArtifactBuildError::Storage(e.to_string()))?;
