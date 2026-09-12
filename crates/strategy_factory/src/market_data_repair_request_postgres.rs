@@ -141,7 +141,15 @@ where
         )?;
         issued
     } else {
-        admit_row(rows, inputs)?
+        admit_row(
+            rows,
+            &inputs.action,
+            &inputs.decision,
+            inputs.preparation.replay().request(),
+            inputs.result.result(),
+            inputs.source,
+            inputs.shared_time,
+        )?
     };
     verify_outbox(&mut transaction, &readback).await?;
     transaction.commit().await.map_err(unavailable)?;
@@ -178,7 +186,15 @@ where
         shared_time,
     )
     .await?;
-    let readback = admit_row(rows, inputs)?;
+    let readback = admit_row(
+        rows,
+        &inputs.action,
+        &inputs.decision,
+        inputs.preparation.replay().request(),
+        inputs.result.result(),
+        inputs.source,
+        inputs.shared_time,
+    )?;
     verify_outbox(&mut transaction, &readback).await?;
     transaction.commit().await.map_err(unavailable)?;
     Ok(Some(readback))
@@ -336,7 +352,12 @@ async fn persist(
 
 fn admit_row(
     rows: Vec<sqlx::postgres::PgRow>,
-    inputs: ResolvedInputs,
+    action: &crate::repair_action::RepairActionRequestReadbackV1,
+    decision: &crate::iteration_decision::RepairInputIterationDecisionReadbackV1,
+    replay: &vibe_backtest_owner_contracts::ReplayRequestV2,
+    result: &vibe_backtest_owner_contracts::ReplayResultDtoV2,
+    source: vibe_data::owner::native_replay_scheduling_v1::MarketDataRepairSourceV1,
+    shared_time: vibe_data::owner::shared_time_evidence::ClockHeadHandoff,
 ) -> Result<MarketDataRepairRequestReadbackV1, MarketDataRepairPostgresErrorV1> {
     if rows.len() != 1 {
         return Err(unavailable("repair request identity is not unique"));
@@ -366,12 +387,12 @@ fn admit_row(
     let readback = admit_stored_market_data_repair_request_v1(
         &request_bytes,
         &receipt_bytes,
-        &inputs.action,
-        &inputs.decision,
-        inputs.preparation.replay().request(),
-        inputs.result.result(),
-        inputs.source,
-        inputs.shared_time,
+        action,
+        decision,
+        replay,
+        result,
+        source,
+        shared_time,
         committed_at_epoch_ms,
     )?;
     let request = readback.request();
@@ -407,6 +428,135 @@ fn admit_row(
         return Err(unavailable("repair request row/readback mismatch"));
     }
     Ok(readback)
+}
+
+#[cfg(test)]
+pub(crate) async fn compose_with_sealed_owner_evidence_for_test_v1(
+    pool: &PgPool,
+    action_request_identity: &str,
+    decision_identity: &str,
+    replay: &vibe_backtest_owner_contracts::ReplayRequestV2,
+    source: vibe_data::owner::native_replay_scheduling_v1::MarketDataRepairSourceV1,
+    shared_time: vibe_data::owner::shared_time_evidence::ClockHeadHandoff,
+) -> Result<MarketDataRepairRequestReadbackV1, MarketDataRepairPostgresErrorV1> {
+    store_with_sealed_owner_evidence_for_test_v1(
+        pool,
+        action_request_identity,
+        decision_identity,
+        replay,
+        source,
+        shared_time,
+        false,
+    )
+    .await?
+    .ok_or_else(|| unavailable("Market Data repair request commit is missing"))
+}
+
+#[cfg(test)]
+pub(crate) async fn resolve_with_sealed_owner_evidence_for_test_v1(
+    pool: &PgPool,
+    action_request_identity: &str,
+    decision_identity: &str,
+    replay: &vibe_backtest_owner_contracts::ReplayRequestV2,
+    source: vibe_data::owner::native_replay_scheduling_v1::MarketDataRepairSourceV1,
+    shared_time: vibe_data::owner::shared_time_evidence::ClockHeadHandoff,
+) -> Result<Option<MarketDataRepairRequestReadbackV1>, MarketDataRepairPostgresErrorV1> {
+    store_with_sealed_owner_evidence_for_test_v1(
+        pool,
+        action_request_identity,
+        decision_identity,
+        replay,
+        source,
+        shared_time,
+        true,
+    )
+    .await
+}
+
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
+async fn store_with_sealed_owner_evidence_for_test_v1(
+    pool: &PgPool,
+    action_request_identity: &str,
+    decision_identity: &str,
+    replay: &vibe_backtest_owner_contracts::ReplayRequestV2,
+    source: vibe_data::owner::native_replay_scheduling_v1::MarketDataRepairSourceV1,
+    shared_time: vibe_data::owner::shared_time_evidence::ClockHeadHandoff,
+    resolve_only: bool,
+) -> Result<Option<MarketDataRepairRequestReadbackV1>, MarketDataRepairPostgresErrorV1> {
+    let mut transaction = pool.begin().await.map_err(unavailable)?;
+    if !resolve_only {
+        lock_composition_key(&mut transaction, action_request_identity).await?;
+    }
+    let action = crate::iteration_decision_postgres::load_repair_action_in_transaction(
+        &mut transaction,
+        decision_identity,
+        None,
+    )
+    .await
+    .map_err(|error| unavailable(error.to_string()))?
+    .ok_or_else(|| unavailable("repair action custody is missing"))?;
+    if action.request().action_request_identity() != action_request_identity {
+        return Err(unavailable("repair action locator mismatch"));
+    }
+    let result_identity = action.request().result_identity();
+    let decision = crate::iteration_decision_postgres::load_by_result_in_transaction(
+        &mut transaction,
+        result_identity,
+        None,
+    )
+    .await
+    .map_err(|error| unavailable(error.to_string()))?
+    .ok_or_else(|| unavailable("Iteration Decision custody is missing"))?;
+    if decision.decision().decision_identity() != decision_identity {
+        return Err(unavailable("Iteration Decision locator mismatch"));
+    }
+    let result = crate::resolve_exploratory_replay_result_for_rd_in_transaction(
+        &mut transaction,
+        ExploratoryReplayResultLocatorV2 {
+            result_identity,
+            request_identity: replay.request_identity().as_str(),
+            attempt_identity: &decision.decision().evidence_cut().attempt_identity,
+        },
+    )
+    .await
+    .map_err(|error: BacktestResultCustodyErrorV2| unavailable(error.to_string()))?
+    .ok_or_else(|| unavailable("locked exploratory Result is missing"))?;
+    let rows = load_rows(&mut transaction, action_request_identity).await?;
+    if resolve_only && rows.is_empty() {
+        transaction.commit().await.map_err(unavailable)?;
+        return Ok(None);
+    }
+    let readback = if rows.is_empty() {
+        let issued = issue_market_data_repair_request_v1(
+            &action,
+            &decision,
+            replay,
+            result.result(),
+            source,
+            shared_time,
+            current_epoch_ms()?,
+        )?;
+        persist(&mut transaction, &issued).await?;
+        verify_row_matches_issued(
+            load_rows(&mut transaction, action_request_identity).await?,
+            &issued,
+        )?;
+        issued
+    } else {
+        admit_row(
+            rows,
+            &action,
+            &decision,
+            replay,
+            result.result(),
+            source,
+            shared_time,
+        )?
+    };
+    verify_outbox(&mut transaction, &readback).await?;
+    transaction.commit().await.map_err(unavailable)?;
+    Ok(Some(readback))
 }
 
 fn verify_row_matches_issued(

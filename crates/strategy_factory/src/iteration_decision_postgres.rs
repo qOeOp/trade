@@ -806,8 +806,12 @@ mod postgres_acceptance_tests {
     use vibe_backtest_owner_contracts::{
         CanonicalDigestV2, ComponentObservationLocatorV2, ContentIdentityV2, DiagnosticCategoryV2,
         DiagnosticEvidenceDtoV2, ObservationComponentV2, OpaqueIdentityV2, ReconciliationAtomDtoV2,
-        ReconciliationStatusV2, ReplayAuthorityClaimV2, ReplayNamespaceV2, ReplayResultDtoV2,
-        ReplayTerminalV2, ReplayWindowV2, VersionedIdentityV2,
+        ReconciliationStatusV2, ReplayAuthorityClaimV2, ReplayModelProfilesV2, ReplayNamespaceV2,
+        ReplayRequestDtoV2, ReplayRequestV2, ReplayResultDtoV2, ReplayTerminalV2, ReplayWindowV2,
+        VersionedIdentityV2,
+    };
+    use vibe_data::owner::pit_snapshot::sealed_acceptance::{
+        SealedAcceptanceMarketDataRepairEvidenceV1, issue_market_data_repair_evidence_v1,
     };
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
@@ -915,7 +919,7 @@ mod postgres_acceptance_tests {
 
     #[tokio::test]
     #[ignore = "requires the canonical disposable R&D and Backtest Owner PostgreSQL topology"]
-    async fn repair_decision_and_action_request_commit_retry_resolve_and_rejection_are_atomic() {
+    async fn repair_decision_action_and_market_data_request_commit_retry_resolve_and_rejection_are_atomic() {
         let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
             .await
             .expect("canonical disposable topology");
@@ -942,7 +946,19 @@ mod postgres_acceptance_tests {
         };
 
         let request_identity = format!("rd-replay-request-decision-{suffix}");
-        let request_digest = digest('b');
+        let market_data_evidence =
+            issue_market_data_repair_evidence_v1().expect("sealed Market Data repair evidence");
+        let replay = repair_replay(
+            &market_data_evidence,
+            &request_identity,
+            &family_identity,
+            &suffix,
+        );
+        let request_digest = replay
+            .meaning_digest()
+            .expect("Replay request meaning")
+            .as_str()
+            .to_string();
         let attempt_identity = format!("backtest-attempt-decision-{suffix}");
         let result = repair_result(
             &request_identity,
@@ -1070,6 +1086,83 @@ mod postgres_acceptance_tests {
         .await
         .expect("repair action custody counts");
         assert_eq!(action_counts_before, (1, 1));
+
+        let first_market_data = crate::market_data_repair_request_postgres::compose_with_sealed_owner_evidence_for_test_v1(
+            rd_pool,
+            first_action.request().action_request_identity(),
+            first.decision().decision_identity(),
+            &replay,
+            market_data_evidence.source(),
+            market_data_evidence.shared_time(),
+        )
+        .await
+        .expect("first Market Data repair request commit");
+        let retried_market_data = crate::market_data_repair_request_postgres::compose_with_sealed_owner_evidence_for_test_v1(
+            rd_pool,
+            first_action.request().action_request_identity(),
+            first.decision().decision_identity(),
+            &replay,
+            market_data_evidence.source(),
+            market_data_evidence.shared_time(),
+        )
+        .await
+        .expect("same-meaning Market Data repair retry");
+        assert_eq!(
+            serde_json::to_vec(&retried_market_data).unwrap(),
+            serde_json::to_vec(&first_market_data).unwrap()
+        );
+        let resolved_market_data = crate::market_data_repair_request_postgres::resolve_with_sealed_owner_evidence_for_test_v1(
+            rd_pool,
+            first_action.request().action_request_identity(),
+            first.decision().decision_identity(),
+            &replay,
+            market_data_evidence.source(),
+            market_data_evidence.shared_time(),
+        )
+        .await
+        .expect("Market Data repair request resolve")
+        .expect("stored Market Data repair request");
+        assert_eq!(
+            serde_json::to_vec(&resolved_market_data).unwrap(),
+            serde_json::to_vec(&first_market_data).unwrap()
+        );
+        let market_data_counts_before: (i64, i64) = sqlx::query_as(
+            "SELECT (SELECT COUNT(*) FROM rd_market_data_repair_requests_v1 WHERE action_request_identity=$1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE aggregate_identity=$2 AND event_kind='MARKET_DATA_REPAIR_REQUESTED_V1')",
+        )
+        .bind(first_action.request().action_request_identity())
+        .bind(first_market_data.request().request_identity())
+        .fetch_one(rd_pool)
+        .await
+        .expect("Market Data repair custody counts");
+        assert_eq!(market_data_counts_before, (1, 1));
+
+        let mismatched_market_data = crate::market_data_repair_request_postgres::compose_with_sealed_owner_evidence_for_test_v1(
+            rd_pool,
+            first_action.request().action_request_identity(),
+            "rd-iteration-decision-v1-mismatch",
+            &replay,
+            market_data_evidence.source(),
+            market_data_evidence.shared_time(),
+        )
+        .await;
+        assert!(mismatched_market_data.is_err());
+        let mismatched_market_data_resolve = crate::market_data_repair_request_postgres::resolve_with_sealed_owner_evidence_for_test_v1(
+            rd_pool,
+            "rd-repair-action-request-v1-mismatch",
+            first.decision().decision_identity(),
+            &replay,
+            market_data_evidence.source(),
+            market_data_evidence.shared_time(),
+        )
+        .await;
+        assert!(mismatched_market_data_resolve.is_err());
+        let market_data_counts_after: (i64, i64) = sqlx::query_as(
+            "SELECT (SELECT COUNT(*) FROM rd_market_data_repair_requests_v1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind='MARKET_DATA_REPAIR_REQUESTED_V1')",
+        )
+        .fetch_one(rd_pool)
+        .await
+        .expect("post-rejection Market Data repair counts");
+        assert_eq!(market_data_counts_after, (1, 1));
 
         let mismatched_action_retry = compose_repair_action_request_v1(
             rd_pool,
@@ -1204,6 +1297,85 @@ mod postgres_acceptance_tests {
                     .unwrap(),
             ),
         }
+    }
+
+    fn repair_replay(
+        evidence: &SealedAcceptanceMarketDataRepairEvidenceV1,
+        request_identity: &str,
+        family_identity: &str,
+        suffix: &str,
+    ) -> ReplayRequestV2 {
+        let source = evidence.source();
+        let content = |name: &str, byte: char| ContentIdentityV2 {
+            identity: identity(format!("{name}-{suffix}")),
+            digest: canonical_digest_value(byte),
+        };
+        let version = |name: &str, byte: char| VersionedIdentityV2 {
+            identity: identity(format!("{name}-{suffix}")),
+            version: identity(format!("v1-{byte}")),
+        };
+        let from_binding = |value: vibe_data::owner::source_binding::BindingDigest| {
+            CanonicalDigestV2::try_from(format!("sha256:{}", hex(value.as_bytes()))).unwrap()
+        };
+        ReplayRequestV2::try_from(ReplayRequestDtoV2 {
+            schema_version: 2,
+            request_identity: identity(request_identity),
+            frozen_research_intent: content("research-intent", '1'),
+            trial_family: ContentIdentityV2 {
+                identity: identity(family_identity),
+                digest: canonical_digest_value('2'),
+            },
+            trial_family_census_frontier: content("family-census", '3'),
+            replay_authority: ReplayAuthorityClaimV2::Exploratory,
+            strategy_design: content("strategy-design", '4'),
+            strategy_plan: content("strategy-plan", '5'),
+            artifact: content("artifact", '6'),
+            resolved_owner_inputs: content("resolved-owner-inputs", '7'),
+            pit_scope: ContentIdentityV2 {
+                identity: identity(format!("pit-scope-{suffix}")),
+                digest: from_binding(source.instrument_scope_digest()),
+            },
+            pit_snapshot: ContentIdentityV2 {
+                identity: identity(format!(
+                    "sha256:{}",
+                    hex(source.pit_snapshot_identity().as_bytes())
+                )),
+                digest: from_binding(source.pit_snapshot_fact_digest()),
+            },
+            universe_selection: ContentIdentityV2 {
+                identity: identity(format!("universe-selection-{suffix}")),
+                digest: from_binding(source.universe_selection_digest()),
+            },
+            correction_rule: version("correction-rule", '8'),
+            market_semantics: VersionedIdentityV2 {
+                identity: identity(format!(
+                    "sha256:{}",
+                    hex(source.market_semantics_identity().as_bytes())
+                )),
+                version: identity("v1"),
+            },
+            replay_configuration: content("replay-configuration", '9'),
+            models: ReplayModelProfilesV2 {
+                runtime_kernel: version("runtime-kernel", 'a'),
+                simulator: version("simulator", 'b'),
+                cost: version("cost", 'c'),
+                slippage: version("slippage", 'd'),
+                capacity: version("capacity", 'e'),
+            },
+            runner_operational_profile: version("runner", 'f'),
+            diagnostic_policy: version("diagnostic", '1'),
+            deterministic_seed: 17,
+            window: ReplayWindowV2 {
+                start_event_ns: 1,
+                end_event_ns_exclusive: 2,
+            },
+            calendar: version("calendar", '2'),
+            session: version("session", '3'),
+            time_zone: version("time-zone", '4'),
+            corporate_action_cut: content("corporate-action", '5'),
+            historical_membership_cut: content("membership", '6'),
+        })
+        .expect("valid Market Data repair Replay request")
     }
 
     fn repair_result(

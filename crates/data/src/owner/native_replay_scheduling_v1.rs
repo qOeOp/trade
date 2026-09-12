@@ -377,24 +377,7 @@ impl NativeReplayInitialMarketReadbackV1 {
     /// repair request. The original observations and executable schedules are not returned.
     #[must_use]
     pub fn into_market_data_repair_source(self) -> MarketDataRepairSourceV1 {
-        MarketDataRepairSourceV1 {
-            pit_request_identity: self.batch.request_identity(),
-            pit_request_digest: self.batch.request_digest(),
-            correlation_identity: self.batch.correlation_identity(),
-            pit_snapshot_identity: self.batch.snapshot_identity(),
-            pit_snapshot_fact_digest: self.batch.fact_digest(),
-            instrument_scope_digest: self.batch.scope_digest(),
-            source_binding_identity: self.batch.source_binding_identity(),
-            source_binding_fact_digest: self.batch.source_binding_fact_digest(),
-            source_binding_lineage_root: self.batch.source_binding_lineage_root(),
-            source_binding_lineage_version: self.batch.source_binding_lineage_version(),
-            source_frontier_digest: self.batch.source_frontier_digest(),
-            correction_frontier_digest: self.batch.correction_frontier_digest(),
-            instrument_master_digest: self.batch.instrument_master_digest(),
-            universe_selection_digest: self.batch.universe_selection_digest(),
-            market_semantics_identity: self.batch.market_semantics_identity(),
-            time_evidence: self.batch.time_evidence().clone(),
-        }
+        market_data_repair_source_from_verified_batch(self.batch)
     }
 
     #[must_use]
@@ -425,6 +408,29 @@ impl NativeReplayInitialMarketReadbackV1 {
             self.window_end_ns_exclusive,
         )?;
         Ok((self.universe_frame, scheduling))
+    }
+}
+
+pub(crate) fn market_data_repair_source_from_verified_batch(
+    batch: VerifiedPitObservationBatch,
+) -> MarketDataRepairSourceV1 {
+    MarketDataRepairSourceV1 {
+        pit_request_identity: batch.request_identity(),
+        pit_request_digest: batch.request_digest(),
+        correlation_identity: batch.correlation_identity(),
+        pit_snapshot_identity: batch.snapshot_identity(),
+        pit_snapshot_fact_digest: batch.fact_digest(),
+        instrument_scope_digest: batch.scope_digest(),
+        source_binding_identity: batch.source_binding_identity(),
+        source_binding_fact_digest: batch.source_binding_fact_digest(),
+        source_binding_lineage_root: batch.source_binding_lineage_root(),
+        source_binding_lineage_version: batch.source_binding_lineage_version(),
+        source_frontier_digest: batch.source_frontier_digest(),
+        correction_frontier_digest: batch.correction_frontier_digest(),
+        instrument_master_digest: batch.instrument_master_digest(),
+        universe_selection_digest: batch.universe_selection_digest(),
+        market_semantics_identity: batch.market_semantics_identity(),
+        time_evidence: batch.time_evidence().clone(),
     }
 }
 
