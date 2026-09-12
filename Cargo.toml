@@ -40,6 +40,7 @@ members = [
   "crates/indicators/kernel",
   "crates/infrastructure",
   "crates/live",
+  "crates/market_data_repair_custody",
   "crates/model",
   "crates/network",
   "crates/observability",
@@ -98,6 +99,7 @@ vibe-indicators = { path = "crates/indicators", version = "0.62.0" }
 vibe-indicators-kernel = { path = "crates/indicators/kernel", version = "0.62.0" }
 vibe-infrastructure = { path = "crates/infrastructure", version = "0.62.0" }
 vibe-live = { path = "crates/live", version = "0.62.0", default-features = false }
+vibe-market-data-repair-custody = { path = "crates/market_data_repair_custody", version = "0.62.0" }
 vibe-model = { path = "crates/model", version = "0.62.0" }
 vibe-network = { path = "crates/network", version = "0.62.0" }
 vibe-operator-authorization = { path = "crates/operator_authorization", version = "0.62.0" }

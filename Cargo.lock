@@ -10698,6 +10698,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "vibe-market-data-repair-custody"
+version = "0.62.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.19",
+ "vibe-data",
+ "vibe-rd-market-data-repair-custody",
+]
+
+[[package]]
 name = "vibe-model"
 version = "0.62.0"
 dependencies = [
