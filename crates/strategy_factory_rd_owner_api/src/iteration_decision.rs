@@ -12,11 +12,13 @@ use serde::Serialize;
 use serde_json::json;
 use vibe_strategy_factory::{
     DecisionCompositionRequestV1, IterationDecisionPostgresErrorV1,
+    RepairActionCompositionRequestV1,
     iteration_decision::{
         IterationDecisionEvidenceCutV1, IterationDecisionOutcomeV1, IterationRepairCategoryV1,
         RepairInputIterationDecisionReadbackV1, is_valid_iteration_decision_locator_v1,
     },
     product_edge_postgres::PostgresResearchGoalOwnerV1,
+    repair_action::RepairActionRequestReadbackV1,
 };
 
 use super::{authorized, insert_rejection_code};
@@ -41,9 +43,35 @@ impl RepairInputDecisionActionPort for PostgresResearchGoalOwnerV1 {
     }
 }
 
+#[async_trait::async_trait]
+trait RepairActionRequestActionPort: Send + Sync {
+    async fn compose_repair_action(
+        &self,
+        request: RepairActionCompositionRequestV1,
+    ) -> Result<RepairActionRequestActionResponseV1, IterationDecisionPostgresErrorV1>;
+}
+
+#[async_trait::async_trait]
+impl RepairActionRequestActionPort for PostgresResearchGoalOwnerV1 {
+    async fn compose_repair_action(
+        &self,
+        request: RepairActionCompositionRequestV1,
+    ) -> Result<RepairActionRequestActionResponseV1, IterationDecisionPostgresErrorV1> {
+        self.compose_repair_action_request_v1(request)
+            .await
+            .map(RepairActionRequestActionResponseV1::from)
+    }
+}
+
 #[derive(Clone)]
 struct RepairInputDecisionApiState {
     owner: Arc<dyn RepairInputDecisionActionPort>,
+    token_digest: [u8; 32],
+}
+
+#[derive(Clone)]
+struct RepairActionRequestApiState {
+    owner: Arc<dyn RepairActionRequestActionPort>,
     token_digest: [u8; 32],
 }
 
@@ -79,8 +107,59 @@ impl From<RepairInputIterationDecisionReadbackV1> for RepairInputDecisionActionR
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+struct RepairActionRequestActionResponseV1 {
+    schema_version: u16,
+    action_request_identity: String,
+    action_request_digest: String,
+    decision_identity: String,
+    decision_digest: String,
+    result_identity: String,
+    category: IterationRepairCategoryV1,
+    target: vibe_strategy_factory::iteration_decision::IterationRepairTargetV1,
+    receipt_identity: String,
+    receipt_digest: String,
+    committed_at_epoch_ms: u64,
+}
+
+impl From<RepairActionRequestReadbackV1> for RepairActionRequestActionResponseV1 {
+    fn from(readback: RepairActionRequestReadbackV1) -> Self {
+        let request = readback.request();
+        let receipt = readback.receipt();
+        Self {
+            schema_version: 1,
+            action_request_identity: request.action_request_identity().to_string(),
+            action_request_digest: request.action_request_digest().to_string(),
+            decision_identity: request.decision_identity().to_string(),
+            decision_digest: request.decision_digest().to_string(),
+            result_identity: request.result_identity().to_string(),
+            category: request.category(),
+            target: request.target(),
+            receipt_identity: receipt.receipt_identity().to_string(),
+            receipt_digest: receipt.receipt_digest().to_string(),
+            committed_at_epoch_ms: receipt.committed_at_epoch_ms(),
+        }
+    }
+}
+
 pub(super) fn router(owner: Arc<PostgresResearchGoalOwnerV1>, token_digest: [u8; 32]) -> Router {
-    action_router(owner, token_digest)
+    action_router(owner.clone(), token_digest).merge(repair_action_router(owner, token_digest))
+}
+
+fn repair_action_router(
+    owner: Arc<dyn RepairActionRequestActionPort>,
+    token_digest: [u8; 32],
+) -> Router {
+    Router::new()
+        .route(
+            "/v1/repair-action-requests",
+            post(compose_repair_action_request),
+        )
+        .with_state(RepairActionRequestApiState {
+            owner,
+            token_digest,
+        })
 }
 
 fn action_router(owner: Arc<dyn RepairInputDecisionActionPort>, token_digest: [u8; 32]) -> Router {
@@ -136,6 +215,44 @@ async fn compose_repair_input_decision(
     match state.owner.compose(request).await {
         Ok(result) => (StatusCode::OK, Json(result)).into_response(),
         Err(error) => owner_error(&error, &request_identity),
+    }
+}
+
+async fn compose_repair_action_request(
+    State(state): State<RepairActionRequestApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            "unbound",
+        );
+    }
+    let request: RepairActionCompositionRequestV1 = match serde_json::from_slice(&body) {
+        Ok(request) => request,
+        Err(_) => {
+            return rejection(
+                StatusCode::BAD_REQUEST,
+                "MALFORMED_TYPED_REQUEST",
+                "unbound",
+            );
+        }
+    };
+    let decision_identity = request.decision_identity.clone();
+    if !is_valid_iteration_decision_locator_v1(&request.decision_identity)
+        || !is_valid_iteration_decision_locator_v1(&request.result_identity)
+    {
+        return rejection(
+            StatusCode::BAD_REQUEST,
+            "INVALID_REPAIR_ACTION_REQUEST_LOCATORS",
+            &decision_identity,
+        );
+    }
+    match state.owner.compose_repair_action(request).await {
+        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
+        Err(error) => owner_error(&error, &decision_identity),
     }
 }
 
@@ -197,6 +314,24 @@ mod tests {
         response: Option<RepairInputDecisionActionResponseV1>,
     }
 
+    struct RepairActionOwnerStub {
+        calls: AtomicUsize,
+        response: Option<RepairActionRequestActionResponseV1>,
+    }
+
+    #[async_trait::async_trait]
+    impl RepairActionRequestActionPort for RepairActionOwnerStub {
+        async fn compose_repair_action(
+            &self,
+            _request: RepairActionCompositionRequestV1,
+        ) -> Result<RepairActionRequestActionResponseV1, IterationDecisionPostgresErrorV1> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.response.clone().ok_or_else(|| {
+                IterationDecisionPostgresErrorV1::Storage("test owner unavailable".into())
+            })
+        }
+    }
+
     #[async_trait::async_trait]
     impl RepairInputDecisionActionPort for DecisionOwnerStub {
         async fn compose(
@@ -256,13 +391,44 @@ mod tests {
         }
     }
 
+    fn repair_action_request() -> serde_json::Value {
+        json!({
+            "decision_identity": "decision-1",
+            "result_identity": "result-1",
+        })
+    }
+
+    fn repair_action_response() -> RepairActionRequestActionResponseV1 {
+        RepairActionRequestActionResponseV1 {
+            schema_version: 1,
+            action_request_identity: "repair-action-1".into(),
+            action_request_digest: format!("sha256:{}", "a".repeat(64)),
+            decision_identity: "decision-1".into(),
+            decision_digest: format!("sha256:{}", "b".repeat(64)),
+            result_identity: "result-1".into(),
+            category: IterationRepairCategoryV1::MarketData,
+            target: IterationRepairTargetV1::MarketData,
+            receipt_identity: "repair-action-receipt-1".into(),
+            receipt_digest: format!("sha256:{}", "c".repeat(64)),
+            committed_at_epoch_ms: 19,
+        }
+    }
+
     fn send(
+        body: serde_json::Value,
+        authorization: Option<&str>,
+    ) -> axum::http::Request<axum::body::Body> {
+        send_to("/v1/iteration-decisions/repair-inputs", body, authorization)
+    }
+
+    fn send_to(
+        uri: &str,
         body: serde_json::Value,
         authorization: Option<&str>,
     ) -> axum::http::Request<axum::body::Body> {
         let mut request = axum::http::Request::builder()
             .method(axum::http::Method::POST)
-            .uri("/v1/iteration-decisions/repair-inputs")
+            .uri(uri)
             .header(axum::http::header::CONTENT_TYPE, "application/json");
         if let Some(authorization) = authorization {
             request = request.header(axum::http::header::AUTHORIZATION, authorization);
@@ -328,6 +494,93 @@ mod tests {
         for _ in 0..2 {
             let response = action_router(owner.clone(), token_digest)
                 .oneshot(send(request(), Some(&format!("Bearer {token}"))))
+                .await
+                .expect("router response");
+            assert_eq!(response.status(), StatusCode::OK);
+            bodies.push(
+                axum::body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .expect("typed response bytes"),
+            );
+        }
+        assert_eq!(owner.calls.load(Ordering::SeqCst), 2);
+        assert_eq!(bodies[0], bodies[1]);
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&bodies[0]).expect("typed response JSON"),
+            serde_json::to_value(expected).expect("expected response JSON"),
+        );
+    }
+
+    #[test]
+    fn repair_action_request_accepts_only_decision_and_result_locators() {
+        serde_json::from_value::<RepairActionCompositionRequestV1>(repair_action_request())
+            .expect("exact repair action request");
+        let mut injected = repair_action_request();
+        injected["execution"] = json!({ "provider": "caller-controlled" });
+        assert!(serde_json::from_value::<RepairActionCompositionRequestV1>(injected).is_err());
+    }
+
+    #[tokio::test]
+    async fn repair_action_rejections_stop_before_owner() {
+        let token = "repair-action-test";
+        let token_digest: [u8; 32] = sha2::Sha256::digest(token.as_bytes()).into();
+        let owner = Arc::new(RepairActionOwnerStub {
+            calls: AtomicUsize::new(0),
+            response: None,
+        });
+        let unauthorized = repair_action_router(owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/repair-action-requests",
+                repair_action_request(),
+                None,
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(unauthorized.status(), StatusCode::FORBIDDEN);
+        assert_eq!(owner.calls.load(Ordering::SeqCst), 0);
+
+        let mut invalid = repair_action_request();
+        invalid["decision_identity"] = json!("decision/1");
+        let invalid = repair_action_router(owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/repair-action-requests",
+                invalid,
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(owner.calls.load(Ordering::SeqCst), 0);
+
+        let unavailable = repair_action_router(owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/repair-action-requests",
+                repair_action_request(),
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(unavailable.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(owner.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn repair_action_exact_retry_returns_the_same_typed_owner_response() {
+        let token = "repair-action-success-test";
+        let token_digest: [u8; 32] = sha2::Sha256::digest(token.as_bytes()).into();
+        let expected = repair_action_response();
+        let owner = Arc::new(RepairActionOwnerStub {
+            calls: AtomicUsize::new(0),
+            response: Some(expected.clone()),
+        });
+        let mut bodies = Vec::new();
+        for _ in 0..2 {
+            let response = repair_action_router(owner.clone(), token_digest)
+                .oneshot(send_to(
+                    "/v1/repair-action-requests",
+                    repair_action_request(),
+                    Some(&format!("Bearer {token}")),
+                ))
                 .await
                 .expect("router response");
             assert_eq!(response.status(), StatusCode::OK);
