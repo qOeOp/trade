@@ -567,7 +567,7 @@ impl ReplayTargetSetExecutionBundleV1 {
 
     #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
-    #[expect(
+    #[allow(
         dead_code,
         reason = "acceptance helpers are selected by focused test targets"
     )]

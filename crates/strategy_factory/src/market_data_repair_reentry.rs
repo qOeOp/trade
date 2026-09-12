@@ -5,7 +5,7 @@
     reason = "the crate-private repaired-request former awaits T156c Owner composition"
 )]
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use vibe_backtest_owner_contracts::{
@@ -28,6 +28,30 @@ const REQUEST_IDENTITY_DOMAIN_V1: &str = "rd.market-data-repaired-replay-request
 /// It is not a Replay Request and cannot invoke Backtest.
 #[derive(Debug, Eq, PartialEq, Serialize)]
 pub struct MarketDataRepairReplayReentryAuthorityV1 {
+    schema_version: u16,
+    authority_identity: String,
+    authority_digest: String,
+    predecessor_replay: ExploratoryReplayRequestLocatorV2,
+    decision_identity: String,
+    repair_request_identity: String,
+    repair_request_digest: String,
+    market_data_terminal_identity: String,
+    market_data_terminal_digest: String,
+    resolution_identity: String,
+    resolution_digest: String,
+    resolution_committed_at_epoch_ms: u64,
+    correlation_identity: BindingDigest,
+    repaired_snapshot_identity: BindingDigest,
+    repaired_normalized_records_digest: BindingDigest,
+}
+
+/// Serializable coordinates retained inside sealed Replay custody.
+///
+/// Decoding these coordinates never recreates the move-only authority; consumers must verify the
+/// complete binding against the frozen predecessor and successor requests.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MarketDataRepairReplayReentryBindingV1 {
     schema_version: u16,
     authority_identity: String,
     authority_digest: String,
@@ -74,6 +98,10 @@ impl MarketDataRepairedReplayRequestV1 {
     pub fn to_canonical_bytes(&self) -> Result<Vec<u8>, MarketDataRepairReplayReentryErrorV1> {
         serde_json::to_vec(self).map_err(encoding)
     }
+
+    pub(crate) fn into_parts(self) -> (MarketDataRepairReplayReentryBindingV1, ReplayRequestV2) {
+        (self.authority.binding(), self.request)
+    }
 }
 
 impl MarketDataRepairReplayReentryAuthorityV1 {
@@ -109,6 +137,79 @@ impl MarketDataRepairReplayReentryAuthorityV1 {
     /// Returns an encoding error if canonical serialization is unavailable.
     pub fn to_canonical_bytes(&self) -> Result<Vec<u8>, MarketDataRepairReplayReentryErrorV1> {
         serde_json::to_vec(self).map_err(encoding)
+    }
+
+    fn binding(&self) -> MarketDataRepairReplayReentryBindingV1 {
+        MarketDataRepairReplayReentryBindingV1 {
+            schema_version: self.schema_version,
+            authority_identity: self.authority_identity.clone(),
+            authority_digest: self.authority_digest.clone(),
+            predecessor_replay: self.predecessor_replay.clone(),
+            decision_identity: self.decision_identity.clone(),
+            repair_request_identity: self.repair_request_identity.clone(),
+            repair_request_digest: self.repair_request_digest.clone(),
+            market_data_terminal_identity: self.market_data_terminal_identity.clone(),
+            market_data_terminal_digest: self.market_data_terminal_digest.clone(),
+            resolution_identity: self.resolution_identity.clone(),
+            resolution_digest: self.resolution_digest.clone(),
+            resolution_committed_at_epoch_ms: self.resolution_committed_at_epoch_ms,
+            correlation_identity: self.correlation_identity,
+            repaired_snapshot_identity: self.repaired_snapshot_identity,
+            repaired_normalized_records_digest: self.repaired_normalized_records_digest,
+        }
+    }
+}
+
+impl MarketDataRepairReplayReentryBindingV1 {
+    pub(crate) fn predecessor_replay(&self) -> &ExploratoryReplayRequestLocatorV2 {
+        &self.predecessor_replay
+    }
+
+    pub(crate) fn authority_digest(&self) -> &str {
+        &self.authority_digest
+    }
+
+    pub(crate) fn successor_request_identity(
+        &self,
+    ) -> Result<String, MarketDataRepairReplayReentryErrorV1> {
+        repaired_request_identity_from_authority_digest(&self.authority_digest)
+            .map(|identity| identity.as_str().to_owned())
+    }
+
+    pub(crate) const fn repaired_snapshot_identity(&self) -> BindingDigest {
+        self.repaired_snapshot_identity
+    }
+
+    pub(crate) const fn repaired_normalized_records_digest(&self) -> BindingDigest {
+        self.repaired_normalized_records_digest
+    }
+
+    pub(crate) fn verify(&self) -> Result<(), MarketDataRepairReplayReentryErrorV1> {
+        let meaning = AuthorityMeaningV1 {
+            schema_version: self.schema_version,
+            predecessor_replay: &self.predecessor_replay,
+            decision_identity: &self.decision_identity,
+            repair_request_identity: &self.repair_request_identity,
+            repair_request_digest: &self.repair_request_digest,
+            market_data_terminal_identity: &self.market_data_terminal_identity,
+            market_data_terminal_digest: &self.market_data_terminal_digest,
+            resolution_identity: &self.resolution_identity,
+            resolution_digest: &self.resolution_digest,
+            resolution_committed_at_epoch_ms: self.resolution_committed_at_epoch_ms,
+            correlation_identity: self.correlation_identity,
+            repaired_snapshot_identity: self.repaired_snapshot_identity,
+            repaired_normalized_records_digest: self.repaired_normalized_records_digest,
+        };
+        let expected_digest = digest(&meaning)?;
+        let expected_identity = format!(
+            "rd-market-data-repair-replay-reentry-v1-{}",
+            expected_digest.trim_start_matches("sha256:")
+        );
+        if self.authority_digest != expected_digest || self.authority_identity != expected_identity
+        {
+            return Err(MarketDataRepairReplayReentryErrorV1::CustodyMismatch);
+        }
+        Ok(())
     }
 }
 
@@ -283,25 +384,28 @@ fn digest(value: &impl Serialize) -> Result<String, MarketDataRepairReplayReentr
     .map_err(encoding)
 }
 
-fn binding_identity(value: BindingDigest) -> String {
+pub(crate) fn binding_identity(value: BindingDigest) -> String {
     format!("sha256:{}", hex(value))
 }
 
-fn binding_digest(value: BindingDigest) -> String {
+pub(crate) fn binding_digest(value: BindingDigest) -> String {
     format!("sha256:{}", hex(value))
 }
 
 fn repaired_request_identity(
     authority: &MarketDataRepairReplayReentryAuthorityV1,
 ) -> Result<OpaqueIdentityV2, MarketDataRepairReplayReentryErrorV1> {
+    repaired_request_identity_from_authority_digest(authority.authority_digest())
+}
+
+fn repaired_request_identity_from_authority_digest(
+    authority_digest: &str,
+) -> Result<OpaqueIdentityV2, MarketDataRepairReplayReentryErrorV1> {
     #[derive(Serialize)]
     struct Meaning<'a> {
         authority_digest: &'a str,
     }
-    let bytes = serde_json::to_vec(&Meaning {
-        authority_digest: authority.authority_digest(),
-    })
-    .map_err(encoding)?;
+    let bytes = serde_json::to_vec(&Meaning { authority_digest }).map_err(encoding)?;
     let mut hasher = Sha256::new();
     hasher.update(REQUEST_IDENTITY_DOMAIN_V1.as_bytes());
     hasher.update([0]);
@@ -501,6 +605,16 @@ mod tests {
         assert_eq!(
             first.request().as_dto().pit_snapshot.digest.as_str(),
             binding_digest(first.authority().repaired_normalized_records_digest())
+        );
+        let mut binding = first.authority().binding();
+        assert_eq!(
+            binding.successor_request_identity().unwrap(),
+            first.request().request_identity().as_str()
+        );
+        binding.authority_digest = format!("sha256:{}", "0".repeat(64));
+        assert_eq!(
+            binding.verify(),
+            Err(MarketDataRepairReplayReentryErrorV1::CustodyMismatch)
         );
     }
 }

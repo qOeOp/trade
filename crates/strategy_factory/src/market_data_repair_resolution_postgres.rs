@@ -173,6 +173,111 @@ pub(crate) async fn resolve(
     Ok(Some(readback))
 }
 
+/// Re-admits the exact positive resolution bytes at a later R&D write boundary.
+///
+/// The caller retains no authority from the earlier readback: the canonical row and its outbox
+/// record must still be complete and byte-equal inside the successor transaction.
+pub(crate) async fn verify_repaired_readback_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    expected_resolution_bytes: &[u8],
+    expected_committed_at_epoch_ms: u64,
+) -> Result<(), MarketDataRepairResolutionPostgresErrorV1> {
+    let expected_json: serde_json::Value =
+        serde_json::from_slice(expected_resolution_bytes).map_err(unavailable)?;
+    let resolution_identity = json_string(&expected_json, "resolution_identity")?;
+    let repair_request_identity = json_string(&expected_json, "repair_request_identity")?;
+    let decision_identity = json_string(&expected_json, "decision_identity")?;
+    let market_data_terminal_identity =
+        json_string(&expected_json, "market_data_terminal_identity")?;
+    let market_data_terminal_digest = json_string(&expected_json, "market_data_terminal_digest")?;
+    let resolution_digest = json_string(&expected_json, "resolution_digest")?;
+    if json_string(&expected_json, "disposition")? != "REPAIRED" {
+        return Err(unavailable(
+            "Replay re-entry requires a REPAIRED resolution",
+        ));
+    }
+    for identity in [
+        resolution_identity,
+        repair_request_identity,
+        decision_identity,
+        market_data_terminal_identity,
+    ] {
+        validate_identity(identity)?;
+    }
+
+    let rows = load_rows(transaction, repair_request_identity).await?;
+    if rows.len() != 1 {
+        return Err(unavailable("resolution request identity is not unique"));
+    }
+    let row = &rows[0];
+    let stored_bytes: Vec<u8> = row
+        .try_get("resolution_storage_bytes")
+        .map_err(unavailable)?;
+    let stored_json: serde_json::Value = row.try_get("resolution_json").map_err(unavailable)?;
+    let stored_committed_at_epoch_ms = u64::try_from(
+        row.try_get::<i64, _>("committed_at_epoch_ms")
+            .map_err(unavailable)?,
+    )
+    .map_err(unavailable)?;
+    if stored_bytes != expected_resolution_bytes
+        || stored_json != expected_json
+        || serde_json::from_slice::<serde_json::Value>(&stored_bytes).map_err(unavailable)?
+            != stored_json
+        || row
+            .try_get::<String, _>("resolution_storage_digest")
+            .map_err(unavailable)?
+            != bytes_digest(STORAGE_DOMAIN_V1, &stored_bytes)
+        || row
+            .try_get::<String, _>("resolution_identity")
+            .map_err(unavailable)?
+            != resolution_identity
+        || row
+            .try_get::<String, _>("repair_request_identity")
+            .map_err(unavailable)?
+            != repair_request_identity
+        || row
+            .try_get::<String, _>("decision_identity")
+            .map_err(unavailable)?
+            != decision_identity
+        || row
+            .try_get::<String, _>("market_data_terminal_identity")
+            .map_err(unavailable)?
+            != market_data_terminal_identity
+        || row
+            .try_get::<String, _>("market_data_terminal_digest")
+            .map_err(unavailable)?
+            != market_data_terminal_digest
+        || row
+            .try_get::<String, _>("resolution_digest")
+            .map_err(unavailable)?
+            != resolution_digest
+        || row
+            .try_get::<String, _>("disposition")
+            .map_err(unavailable)?
+            != "REPAIRED"
+        || stored_committed_at_epoch_ms != expected_committed_at_epoch_ms
+    {
+        return Err(unavailable("resolution row/readback mismatch"));
+    }
+
+    verify_outbox_payload(
+        transaction,
+        resolution_identity,
+        &ResolvedOutboxV1 {
+            schema_version: 1,
+            resolution_identity: resolution_identity.to_owned(),
+            resolution_digest: resolution_digest.to_owned(),
+            repair_request_identity: repair_request_identity.to_owned(),
+            decision_identity: decision_identity.to_owned(),
+            market_data_terminal_identity: market_data_terminal_identity.to_owned(),
+            market_data_terminal_digest: market_data_terminal_digest.to_owned(),
+            disposition: MarketDataRepairResolutionDispositionV1::Repaired,
+        },
+        expected_committed_at_epoch_ms,
+    )
+    .await
+}
+
 async fn lock_request(
     transaction: &mut Transaction<'_, Postgres>,
     request_identity: &str,
@@ -305,8 +410,23 @@ async fn verify_outbox(
     readback: &MarketDataRepairResolutionReadbackV1,
 ) -> Result<(), MarketDataRepairResolutionPostgresErrorV1> {
     let resolution = readback.resolution();
+    verify_outbox_payload(
+        transaction,
+        resolution.resolution_identity(),
+        &outbox_payload(resolution),
+        readback.committed_at_epoch_ms(),
+    )
+    .await
+}
+
+async fn verify_outbox_payload(
+    transaction: &mut Transaction<'_, Postgres>,
+    resolution_identity: &str,
+    expected: &ResolvedOutboxV1,
+    committed_at_epoch_ms: u64,
+) -> Result<(), MarketDataRepairResolutionPostgresErrorV1> {
     let rows = sqlx::query("SELECT aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms FROM rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2 FOR SHARE")
-        .bind(resolution.resolution_identity())
+        .bind(resolution_identity)
         .bind(RESOLVED_EVENT_V1)
         .fetch_all(&mut **transaction)
         .await
@@ -314,12 +434,11 @@ async fn verify_outbox(
     if rows.len() != 1 {
         return Err(unavailable("resolution outbox custody is incomplete"));
     }
-    let expected = outbox_payload(resolution);
     let row = &rows[0];
     if row
         .try_get::<String, _>("aggregate_identity")
         .map_err(unavailable)?
-        != resolution.resolution_identity()
+        != resolution_identity
         || row
             .try_get::<String, _>("event_kind")
             .map_err(unavailable)?
@@ -335,7 +454,7 @@ async fn verify_outbox(
         || row
             .try_get::<i64, _>("committed_at_epoch_ms")
             .map_err(unavailable)?
-            != i64::try_from(readback.committed_at_epoch_ms()).map_err(unavailable)?
+            != i64::try_from(committed_at_epoch_ms).map_err(unavailable)?
     {
         return Err(unavailable("resolution outbox/readback mismatch"));
     }
@@ -428,6 +547,73 @@ fn unavailable(error: impl std::fmt::Display) -> MarketDataRepairResolutionPostg
 mod tests {
     use super::*;
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+
+    async fn prepare_resolution_custody() -> (CanonicalOwnerPostgresTestDatabaseV1, PgPool) {
+        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+            .await
+            .expect("canonical disposable topology");
+        let pool = database
+            .mutation()
+            .pool(CanonicalOwnerTestRoleV1::RdOwner)
+            .clone();
+        sqlx::query(
+            "CREATE TABLE rd_market_data_repair_requests_v1 (request_identity TEXT PRIMARY KEY)",
+        )
+        .execute(&pool)
+        .await
+        .expect("parent request table");
+        sqlx::query("CREATE TABLE rd_owner_outbox_v1 (event_identity TEXT PRIMARY KEY, aggregate_identity TEXT NOT NULL, event_kind TEXT NOT NULL, payload_digest TEXT NOT NULL, payload_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE (aggregate_identity,event_kind))")
+            .execute(&pool)
+            .await
+            .expect("R&D outbox");
+        migrate(&pool).await.expect("resolution schema");
+        sqlx::query(
+            "INSERT INTO rd_market_data_repair_requests_v1(request_identity) VALUES ('request')",
+        )
+        .execute(&pool)
+        .await
+        .expect("parent request");
+        (database, pool)
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the canonical disposable R&D Owner PostgreSQL topology"]
+    async fn repaired_readback_is_reverified_inside_successor_transaction() {
+        let (_database, pool) = prepare_resolution_custody().await;
+        let readback = commit_at(
+            &pool,
+            crate::market_data_repair_resolution::tests::repaired_resolution_fixture(),
+            1_000,
+        )
+        .await
+        .expect("repaired resolution");
+        let bytes = readback
+            .resolution()
+            .to_canonical_bytes()
+            .expect("canonical resolution");
+
+        let mut transaction = pool.begin().await.expect("successor transaction");
+        verify_repaired_readback_in_transaction(&mut transaction, &bytes, 1_000)
+            .await
+            .expect("exact repaired readback");
+        transaction
+            .commit()
+            .await
+            .expect("read verification commit");
+
+        sqlx::query("UPDATE rd_owner_outbox_v1 SET payload_digest='sha256:tampered' WHERE aggregate_identity=$1")
+            .bind(readback.resolution().resolution_identity())
+            .execute(&pool)
+            .await
+            .expect("tamper fixture");
+        let mut transaction = pool.begin().await.expect("tampered transaction");
+        assert!(
+            verify_repaired_readback_in_transaction(&mut transaction, &bytes, 1_000)
+                .await
+                .is_err()
+        );
+        transaction.rollback().await.expect("tampered rollback");
+    }
 
     #[tokio::test]
     #[ignore = "requires the canonical disposable R&D Owner PostgreSQL topology"]

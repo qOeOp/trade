@@ -419,7 +419,7 @@ impl SealedExploratoryReplayReadbackV2 {
 }
 
 #[cfg(test)]
-#[expect(
+#[allow(
     dead_code,
     reason = "acceptance helpers are selected by focused test targets"
 )]
@@ -475,7 +475,7 @@ pub(crate) fn issue_sealed_exploratory_replay_readback_for_acceptance_v2(
 }
 
 #[cfg(test)]
-#[expect(
+#[allow(
     dead_code,
     reason = "acceptance helpers are selected by focused test targets"
 )]

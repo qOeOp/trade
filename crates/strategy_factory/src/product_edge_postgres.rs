@@ -1437,6 +1437,24 @@ impl PostgresResearchGoalOwnerV1 {
         .await
     }
 
+    /// Freezes the one request-equal Replay V2 successor admitted by a persisted Market Data
+    /// `REPAIRED` resolution. Product Edge admission is retained only as predecessor lineage and
+    /// is not reused as authority for this R&D-owned transition.
+    pub async fn commit_market_data_repaired_replay_request_v2(
+        &self,
+        predecessor: crate::exploratory_replay::SealedExploratoryReplayReadbackV2,
+        resolution: crate::MarketDataRepairResolutionReadbackV1,
+    ) -> Result<ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError> {
+        Box::pin(
+            crate::exploratory_replay::postgres::commit_market_data_repaired_v2(
+                &self.pool,
+                predecessor,
+                resolution,
+            ),
+        )
+        .await
+    }
+
     /// Re-reads only already committed Replay V2 custody through the R&D Owner session.
     /// Missing or mismatched custody remains unavailable and this path performs no admission.
     pub async fn resolve_exploratory_replay_request_v2(

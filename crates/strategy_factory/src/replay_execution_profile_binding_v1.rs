@@ -633,7 +633,7 @@ pub(crate) fn issue_owner_replay_execution_profile_binding_from_readbacks_v1(
 /// It accepts only already issued Owner readbacks/provenance and delegates without synthesizing,
 /// defaulting, or weakening any production predicate.
 #[cfg(test)]
-#[expect(
+#[allow(
     dead_code,
     reason = "acceptance helpers are selected by focused test targets"
 )]
@@ -647,7 +647,7 @@ pub(crate) fn issue_owner_replay_execution_profile_binding_for_test_v1(
 
 /// Genuine fixed Owner-readback fixture for the Backtest consumer seam.
 #[cfg(test)]
-#[expect(
+#[allow(
     dead_code,
     reason = "acceptance helpers are selected by focused test targets"
 )]
@@ -1331,7 +1331,7 @@ fn decode_canonical_digest(value: &str) -> Result<[u8; 32], ReplayExecutionProfi
 }
 
 #[cfg(test)]
-#[expect(
+#[allow(
     dead_code,
     reason = "acceptance helpers are selected by focused test targets"
 )]

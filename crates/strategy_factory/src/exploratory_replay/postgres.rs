@@ -25,6 +25,11 @@ use crate::{
         SealedExploratoryReplayReadbackV2, VersionedIdentityV1,
         exploratory_replay_admission_payload_v1, exploratory_replay_admission_payload_v2,
     },
+    market_data_repair_reentry::{
+        MarketDataRepairReplayReentryBindingV1, authorize_market_data_repair_replay_reentry_v1,
+        form_market_data_repaired_replay_request_v1,
+    },
+    market_data_repair_resolution_postgres::MarketDataRepairResolutionReadbackV1,
     product_edge::{
         FrozenResearchGoalIntent, RESEARCH_OWNER_V1, RESEARCH_SCOPE_V1, ResearchRequestDisposition,
     },
@@ -550,6 +555,8 @@ struct FrozenMeaningV1<'a> {
     artifact_family_outbox_committed_at_epoch_ms: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     execution_profile_seal: Option<&'a ReplayExecutionProfileRequestSealV1>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    market_data_repair_reentry: Option<&'a MarketDataRepairReplayReentryBindingV1>,
     committed_at_epoch_ms: u64,
 }
 
@@ -580,6 +587,8 @@ struct StoredFrozenV1 {
     artifact_family_outbox_committed_at_epoch_ms: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     execution_profile_seal: Option<ReplayExecutionProfileRequestSealV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    market_data_repair_reentry: Option<MarketDataRepairReplayReentryBindingV1>,
     committed_at_epoch_ms: u64,
     request_digest: String,
 }
@@ -676,6 +685,13 @@ struct CommittedReplay {
     frozen: StoredFrozenV1,
     receipt: StoredReceiptV1,
     v2: Option<(PreparedSealV2, StoredReceiptV2)>,
+}
+
+struct MarketDataRepairReplayCommitSourcesV1 {
+    binding: MarketDataRepairReplayReentryBindingV1,
+    predecessor: SealedExploratoryReplayReadbackV2,
+    resolution_canonical_bytes: Vec<u8>,
+    resolution_committed_at_epoch_ms: u64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -1745,7 +1761,7 @@ pub(crate) async fn commit(
     pool: &PgPool,
     proposal: ExploratoryReplayRequestProposalV1,
 ) -> Result<ExploratoryReplayCommitResultV1, ExploratoryReplayOwnerError> {
-    let committed = Box::pin(commit_inner(pool, proposal, None)).await?;
+    let committed = Box::pin(commit_inner(pool, proposal, None, None)).await?;
     Ok(assemble(committed.frozen, committed.receipt))
 }
 
@@ -1770,6 +1786,7 @@ pub(crate) async fn commit_v2(
             meaning_digest,
             execution_profile_seal: None,
         }),
+        None,
     ))
     .await?;
     let (prepared, receipt) = committed.v2.ok_or_else(|| {
@@ -1778,10 +1795,97 @@ pub(crate) async fn commit_v2(
     Ok(assemble_v2(prepared, receipt))
 }
 
+/// Freezes one repaired request-equal Replay V2 request from exact existing R&D custody.
+pub(crate) async fn commit_market_data_repaired_v2(
+    pool: &PgPool,
+    predecessor: SealedExploratoryReplayReadbackV2,
+    resolution: MarketDataRepairResolutionReadbackV1,
+) -> Result<ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError> {
+    let resolution_canonical_bytes = resolution
+        .resolution()
+        .to_canonical_bytes()
+        .map_err(unavailable)?;
+    let resolution_committed_at_epoch_ms = resolution.committed_at_epoch_ms();
+    let authority = authorize_market_data_repair_replay_reentry_v1(&predecessor, resolution)
+        .map_err(unavailable)?;
+    let repaired = form_market_data_repaired_replay_request_v1(&predecessor, authority)
+        .map_err(unavailable)?;
+    let (binding, request) = repaired.into_parts();
+    binding.verify().map_err(unavailable)?;
+
+    let row = sqlx::query(
+        "SELECT frozen_json,v2_canonical_request_bytes,v2_meaning_digest,v2_seal_digest \
+           FROM public.rd_sealed_exploratory_replay_requests_v1 \
+          WHERE request_identity=$1 AND request_schema_version=2",
+    )
+    .bind(predecessor.request_identity())
+    .fetch_one(pool)
+    .await
+    .map_err(storage)?;
+    let frozen: StoredFrozenV1 = decode_exact(
+        &row.try_get::<serde_json::Value, _>("frozen_json")
+            .map_err(storage)?,
+    )?;
+    let stored_request: Vec<u8> = row.try_get("v2_canonical_request_bytes").map_err(storage)?;
+    let stored_meaning: String = row.try_get("v2_meaning_digest").map_err(storage)?;
+    let stored_seal: String = row.try_get("v2_seal_digest").map_err(storage)?;
+    verify_frozen(&frozen)?;
+    if stored_request != predecessor.canonical_request_bytes()
+        || stored_meaning != predecessor.meaning_digest()
+        || stored_seal != predecessor.seal_digest()
+        || binding.predecessor_replay() != &predecessor.locator()
+    {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "repaired Replay predecessor custody mismatch".into(),
+        ));
+    }
+
+    let proposal = ExploratoryReplayRequestProposalV2 {
+        admission: frozen.proposal.admission.clone(),
+        build_request_identity: frozen.proposal.build_request_identity.clone(),
+        attempt_identity: frozen.proposal.attempt_identity.clone(),
+        build_receipt_identity: frozen.proposal.build_receipt_identity.clone(),
+        artifact_family_binding_identity: frozen.proposal.artifact_family_binding_identity.clone(),
+        request: request.as_dto().clone(),
+    };
+    validate_proposal_v2_with_authority(&proposal, true)?;
+    let canonical_request_bytes = request.to_canonical_bytes().map_err(unavailable)?;
+    let meaning_digest = request
+        .meaning_digest()
+        .map_err(unavailable)?
+        .as_str()
+        .to_string();
+    let lineage = legacy_lineage_projection_with_authority(&proposal, true)?;
+    let committed = Box::pin(commit_inner(
+        pool,
+        lineage,
+        Some(PreparedSealV2 {
+            proposal,
+            canonical_request_bytes,
+            meaning_digest,
+            execution_profile_seal: None,
+        }),
+        Some(MarketDataRepairReplayCommitSourcesV1 {
+            binding,
+            predecessor,
+            resolution_canonical_bytes,
+            resolution_committed_at_epoch_ms,
+        }),
+    ))
+    .await?;
+    let (prepared, receipt) = committed.v2.ok_or_else(|| {
+        ExploratoryReplayOwnerError::Unavailable(
+            "repaired Replay V2 seal missing after commit".into(),
+        )
+    })?;
+    Ok(assemble_v2(prepared, receipt))
+}
+
 async fn commit_inner(
     pool: &PgPool,
     proposal: ExploratoryReplayRequestProposalV1,
     mut prepared_v2: Option<PreparedSealV2>,
+    market_data_repair_sources: Option<MarketDataRepairReplayCommitSourcesV1>,
 ) -> Result<CommittedReplay, ExploratoryReplayOwnerError> {
     validate_proposal(&proposal)?;
     let mut transaction = pool.begin().await.map_err(storage)?;
@@ -1791,8 +1895,21 @@ async fn commit_inner(
         .await
         .map_err(storage)?;
 
-    if let Some(existing) =
-        resolve_existing(&mut transaction, &proposal, prepared_v2.as_ref()).await?
+    if let Some(sources) = market_data_repair_sources.as_ref() {
+        verify_market_data_repair_sources_in_transaction(&mut transaction, sources).await?;
+    }
+
+    let market_data_repair_reentry = market_data_repair_sources
+        .as_ref()
+        .map(|sources| &sources.binding);
+
+    if let Some(existing) = resolve_existing(
+        &mut transaction,
+        &proposal,
+        prepared_v2.as_ref(),
+        market_data_repair_reentry,
+    )
+    .await?
     {
         transaction.commit().await.map_err(storage)?;
         return Ok(existing);
@@ -1805,23 +1922,40 @@ async fn commit_inner(
     .await
     .map_err(storage)?;
     let now = u64::try_from(now).map_err(unavailable)?;
-    let (custody, replay_admission) = Box::pin(
-        VerifiedAttemptCustodyV1::admit_for_exploratory_replay_in_transaction(
-            &mut transaction,
-            &proposal.build_request_identity,
-            &proposal.admission,
-            now,
-        ),
-    )
-    .await
-    .map_err(|e| ExploratoryReplayOwnerError::Unavailable(e.to_string()))?
-    .ok_or_else(|| ExploratoryReplayOwnerError::Unavailable("artifact custody missing".into()))?;
-    verify_replay_admission_for_commit(&replay_admission, &proposal, prepared_v2.as_ref())?;
+    let admitted = if market_data_repair_sources.is_some() {
+        Box::pin(
+            VerifiedAttemptCustodyV1::admit_for_repaired_exploratory_replay_in_transaction(
+                &mut transaction,
+                &proposal.build_request_identity,
+                &proposal.admission,
+            ),
+        )
+        .await
+    } else {
+        Box::pin(
+            VerifiedAttemptCustodyV1::admit_for_exploratory_replay_in_transaction(
+                &mut transaction,
+                &proposal.build_request_identity,
+                &proposal.admission,
+                now,
+            ),
+        )
+        .await
+    };
+    let (custody, replay_admission) = admitted
+        .map_err(|e| ExploratoryReplayOwnerError::Unavailable(e.to_string()))?
+        .ok_or_else(|| {
+            ExploratoryReplayOwnerError::Unavailable("artifact custody missing".into())
+        })?;
+    if market_data_repair_sources.is_none() {
+        verify_replay_admission_for_commit(&replay_admission, &proposal, prepared_v2.as_ref())?;
+    }
 
-    if !custody.research.authority_available_at(now)
-        || !custody
-            .product_edge_admission
-            .authorizes_first_mutation_at(now)
+    if market_data_repair_sources.is_none()
+        && (!custody.research.authority_available_at(now)
+            || !custody
+                .product_edge_admission
+                .authorizes_first_mutation_at(now))
     {
         return Err(ExploratoryReplayOwnerError::Unavailable(
             "current R&D lineage authority unavailable".into(),
@@ -1974,18 +2108,21 @@ async fn commit_inner(
     // Replay and Artifact admission rows were locked before any R&D custody row.
     // With every dependency lock/read now complete, revalidate those exact
     // readbacks at one final cut without issuing another admission query.
-    verify_replay_admission_for_commit(&replay_admission, &proposal, prepared_v2.as_ref())?;
+    if market_data_repair_sources.is_none() {
+        verify_replay_admission_for_commit(&replay_admission, &proposal, prepared_v2.as_ref())?;
+    }
     verify_artifact_build_admission(&custody.product_edge_admission, &custody.attempt.request)
         .map_err(|e| ExploratoryReplayOwnerError::Unavailable(e.to_string()))?;
     let research_admission = custody.research.product_edge_admission().ok_or_else(|| {
         ExploratoryReplayOwnerError::Unavailable("research Product Edge admission missing".into())
     })?;
 
-    if !custody.research.authority_available_at(final_cut)
-        || !replay_admission.authorizes_first_mutation_at(final_cut)
-        || !custody
-            .product_edge_admission
-            .authorizes_first_mutation_at(final_cut)
+    if (market_data_repair_sources.is_none()
+        && (!custody.research.authority_available_at(final_cut)
+            || !replay_admission.authorizes_first_mutation_at(final_cut)
+            || !custody
+                .product_edge_admission
+                .authorizes_first_mutation_at(final_cut)))
         || !same_product_edge_authority(&replay_admission, &custody.product_edge_admission)
         || !same_product_edge_authority(&replay_admission, research_admission)
     {
@@ -2023,6 +2160,7 @@ async fn commit_inner(
         execution_profile_seal: prepared_v2
             .as_ref()
             .and_then(|prepared| prepared.execution_profile_seal.clone()),
+        market_data_repair_reentry: market_data_repair_sources.map(|sources| sources.binding),
         committed_at_epoch_ms: final_cut,
         request_digest: String::new(),
     };
@@ -2168,10 +2306,63 @@ async fn commit_inner(
     })
 }
 
+async fn verify_market_data_repair_sources_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    sources: &MarketDataRepairReplayCommitSourcesV1,
+) -> Result<(), ExploratoryReplayOwnerError> {
+    sources.binding.verify().map_err(unavailable)?;
+    if sources.binding.predecessor_replay() != &sources.predecessor.locator() {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "repaired Replay predecessor authority mismatch".into(),
+        ));
+    }
+
+    let predecessor_locator = sources.predecessor.locator();
+    let value: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT rd_owner_api.resolve_native_replay_source_storage_v2($1,$2,$3,$4)->'replay'",
+    )
+    .bind(&predecessor_locator.request_identity)
+    .bind(&predecessor_locator.meaning_digest)
+    .bind(&predecessor_locator.receipt_identity)
+    .bind(&predecessor_locator.seal_digest)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    let verified = decode_v2_read_result(
+        sources.predecessor.request_identity(),
+        sources.predecessor.meaning_digest(),
+        Some(&predecessor_locator),
+        value,
+    )?;
+    let verified = verified.readback.ok_or_else(|| {
+        ExploratoryReplayOwnerError::Unavailable(
+            "repaired Replay predecessor is no longer available".into(),
+        )
+    })?;
+    if verified.request() != sources.predecessor.request()
+        || verified.canonical_request_bytes() != sources.predecessor.canonical_request_bytes()
+        || verified.locator() != sources.predecessor.locator()
+        || verified.product_edge_admission() != sources.predecessor.product_edge_admission()
+    {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "repaired Replay predecessor readback mismatch".into(),
+        ));
+    }
+
+    crate::market_data_repair_resolution_postgres::verify_repaired_readback_in_transaction(
+        transaction,
+        &sources.resolution_canonical_bytes,
+        sources.resolution_committed_at_epoch_ms,
+    )
+    .await
+    .map_err(unavailable)
+}
+
 async fn resolve_existing(
     transaction: &mut Transaction<'_, Postgres>,
     proposal: &ExploratoryReplayRequestProposalV1,
     prepared_v2: Option<&PreparedSealV2>,
+    market_data_repair_reentry: Option<&MarketDataRepairReplayReentryBindingV1>,
 ) -> Result<Option<CommittedReplay>, ExploratoryReplayOwnerError> {
     let value: Option<serde_json::Value> = sqlx::query_scalar(
         "SELECT rd_owner_api.verify_exploratory_replay_request_internal_v1($1,'','')",
@@ -2212,6 +2403,13 @@ async fn resolve_existing(
         return Err(ExploratoryReplayOwnerError::Unavailable(
             "stored Replay request version mismatch".into(),
         ));
+    }
+
+    if validated.frozen.market_data_repair_reentry.as_ref() != market_data_repair_reentry {
+        return Err(ExploratoryReplayOwnerError::ConflictingReplay);
+    }
+    if let Some(binding) = market_data_repair_reentry {
+        binding.verify().map_err(unavailable)?;
     }
 
     if validated.frozen.proposal != *proposal {
@@ -2936,9 +3134,17 @@ fn validate_available_envelope(
 fn validate_proposal_v2(
     proposal: &ExploratoryReplayRequestProposalV2,
 ) -> Result<ReplayRequestV2, ExploratoryReplayOwnerError> {
+    validate_proposal_v2_with_authority(proposal, false)
+}
+
+fn validate_proposal_v2_with_authority(
+    proposal: &ExploratoryReplayRequestProposalV2,
+    repaired_reentry: bool,
+) -> Result<ReplayRequestV2, ExploratoryReplayOwnerError> {
     let request = ReplayRequestV2::try_from(proposal.request.clone()).map_err(unavailable)?;
     if request.namespace() != ReplayNamespaceV2::Exploratory
-        || proposal.admission.request_identity != request.request_identity().as_str()
+        || (!repaired_reentry
+            && proposal.admission.request_identity != request.request_identity().as_str())
     {
         return Err(ExploratoryReplayOwnerError::Unavailable(
             "Replay V2 identity or namespace mismatch".into(),
@@ -3003,7 +3209,14 @@ fn verify_request_equals_family_sealed_policy(
 fn legacy_lineage_projection(
     proposal: &ExploratoryReplayRequestProposalV2,
 ) -> Result<ExploratoryReplayRequestProposalV1, ExploratoryReplayOwnerError> {
-    let request = validate_proposal_v2(proposal)?;
+    legacy_lineage_projection_with_authority(proposal, false)
+}
+
+fn legacy_lineage_projection_with_authority(
+    proposal: &ExploratoryReplayRequestProposalV2,
+    repaired_reentry: bool,
+) -> Result<ExploratoryReplayRequestProposalV1, ExploratoryReplayOwnerError> {
+    let request = validate_proposal_v2_with_authority(proposal, repaired_reentry)?;
     let request = request.as_dto();
     Ok(ExploratoryReplayRequestProposalV1 {
         request_identity: request.request_identity.as_str().to_string(),
@@ -3084,7 +3297,7 @@ fn proposal_v2_from_stored(
         artifact_family_binding_identity: frozen.proposal.artifact_family_binding_identity.clone(),
         request: request.clone(),
     };
-    validate_proposal_v2(&proposal)?;
+    validate_proposal_v2_with_authority(&proposal, frozen.market_data_repair_reentry.is_some())?;
     Ok(proposal)
 }
 
@@ -3180,6 +3393,7 @@ fn frozen_digest(frozen: &StoredFrozenV1) -> Result<String, ExploratoryReplayOwn
             artifact_family_outbox_committed_at_epoch_ms: frozen
                 .artifact_family_outbox_committed_at_epoch_ms,
             execution_profile_seal: frozen.execution_profile_seal.as_ref(),
+            market_data_repair_reentry: frozen.market_data_repair_reentry.as_ref(),
             committed_at_epoch_ms: frozen.committed_at_epoch_ms,
         },
     )
@@ -3262,6 +3476,29 @@ pub(crate) fn same_product_edge_authority(
 
 fn verify_frozen(frozen: &StoredFrozenV1) -> Result<(), ExploratoryReplayOwnerError> {
     validate_proposal(&frozen.proposal)?;
+    if let Some(binding) = &frozen.market_data_repair_reentry {
+        binding.verify().map_err(unavailable)?;
+        if frozen.proposal.request_identity
+            != binding.successor_request_identity().map_err(unavailable)?
+            || frozen.proposal.request_identity == binding.predecessor_replay().request_identity
+            || frozen.proposal.dataset.identity
+                != crate::market_data_repair_reentry::binding_identity(
+                    binding.repaired_snapshot_identity(),
+                )
+            || frozen.proposal.dataset.digest
+                != crate::market_data_repair_reentry::binding_digest(
+                    binding.repaired_normalized_records_digest(),
+                )
+        {
+            return Err(ExploratoryReplayOwnerError::Unavailable(
+                "repaired Replay lineage binding mismatch".into(),
+            ));
+        }
+    } else if frozen.proposal.admission.request_identity != frozen.proposal.request_identity {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "Replay admission identity mismatch".into(),
+        ));
+    }
     if frozen.schema_version != 1
         || !valid_sha256(&frozen.exact_code_bytes_sha256_digest)
         || !valid_sha256(&frozen.product_edge_request_semantic_digest)
@@ -3512,7 +3749,10 @@ fn verify_v2_seal(
     if request.namespace() != ReplayNamespaceV2::Exploratory
         || request.to_canonical_bytes().map_err(unavailable)? != prepared.canonical_request_bytes
         || request.meaning_digest().map_err(unavailable)?.as_str() != prepared.meaning_digest
-        || legacy_lineage_projection(&prepared.proposal)? != frozen.proposal
+        || legacy_lineage_projection_with_authority(
+            &prepared.proposal,
+            frozen.market_data_repair_reentry.is_some(),
+        )? != frozen.proposal
     {
         return Err(ExploratoryReplayOwnerError::Unavailable(
             "sealed Replay V2 canonical meaning mismatch".into(),
