@@ -122,9 +122,10 @@ use super::{
     },
     shared_time_evidence::{
         ClockHeadFact, ClockHeadHandoff, ClockHeadSuccessorReadback, EpochSuccessorProof,
-        SharedTimeEvidenceError, UntrustedClockHeadLocator, build_epoch_successor_proof,
-        build_head_fact, successor_readback, validate_new_epoch_successor,
-        validate_same_epoch_successor, verify_epoch_successor_proof, verify_head_fact,
+        SharedTimeEvidenceError, SharedTimeEvidenceResolver, UntrustedClockHeadLocator,
+        build_epoch_successor_proof, build_head_fact, successor_readback,
+        validate_new_epoch_successor, validate_same_epoch_successor, verify_epoch_successor_proof,
+        verify_head_fact,
     },
     source_binding::{
         BindingDigest, MarketDataClockAdmission, MarketDataClockComparisonRule, SourceBindingError,
@@ -153,10 +154,7 @@ use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions};
 
 #[cfg(test)]
-use super::{
-    pit_snapshot::{PitSnapshotOwnerReadback, PitSnapshotOwnerResolver},
-    shared_time_evidence::SharedTimeEvidenceResolver,
-};
+use super::pit_snapshot::{PitSnapshotOwnerReadback, PitSnapshotOwnerResolver};
 
 const MIGRATION_ID: &str = "market-data-owner-postgres-v1";
 const SHARED_TIME_MIGRATION_ID: &str = "market-data-owner-shared-time-v1";
@@ -6447,6 +6445,81 @@ impl SharedTimeEvidenceResolver for MarketDataReadPostgres {
     }
 }
 
+#[cfg(not(test))]
+#[async_trait::async_trait]
+impl SharedTimeEvidenceResolver for MarketDataReadPostgres {
+    async fn resolve_clock_head(
+        &self,
+        locator: &UntrustedClockHeadLocator,
+    ) -> Result<ClockHeadHandoff, SharedTimeEvidenceError> {
+        let raw = self
+            .admitted_port
+            .resolve_shared_time_evidence_v1(*locator.head_identity().as_bytes(), None)
+            .await
+            .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+        let fact = decode_raw_clock_fact(&raw.prior_row)
+            .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+        if fact.handoff.locator() != locator {
+            return Err(SharedTimeEvidenceError::LocatorMismatch);
+        }
+        Ok(fact.handoff)
+    }
+
+    async fn resolve_clock_successor(
+        &self,
+        prior: &ClockHeadHandoff,
+        successor: &UntrustedClockHeadLocator,
+    ) -> Result<ClockHeadSuccessorReadback, SharedTimeEvidenceError> {
+        let raw = self
+            .admitted_port
+            .resolve_shared_time_evidence_v1(
+                *prior.head_identity().as_bytes(),
+                Some((
+                    *successor.head_identity().as_bytes(),
+                    *successor.head_digest().as_bytes(),
+                )),
+            )
+            .await
+            .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+        let prior_fact = decode_raw_clock_fact(&raw.prior_row)
+            .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+        if &prior_fact.handoff != prior {
+            return Err(SharedTimeEvidenceError::PriorHandoffMismatch);
+        }
+        let successor_fact = decode_raw_clock_fact(
+            raw.successor_row
+                .as_deref()
+                .ok_or(SharedTimeEvidenceError::LocatorMismatch)?,
+        )
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+        if successor_fact.handoff.locator() != successor
+            || successor_fact.predecessor_head_digest != Some(prior.head_digest())
+        {
+            return Err(SharedTimeEvidenceError::PriorHandoffMismatch);
+        }
+        let proof = raw
+            .epoch_proof_row
+            .as_deref()
+            .map(decode_raw_epoch_proof)
+            .transpose()?;
+        if prior.clock_epoch() == successor_fact.handoff.clock_epoch() {
+            validate_same_epoch_successor(&prior_fact, &successor_fact.clock())?;
+            if proof.is_some() {
+                return Err(SharedTimeEvidenceError::EpochSuccessorProofMismatch);
+            }
+        } else {
+            validate_new_epoch_successor(&prior_fact, &successor_fact.clock())?;
+            let proof_value = proof
+                .as_ref()
+                .ok_or(SharedTimeEvidenceError::EpochSuccessorProofMismatch)?;
+            if !verify_epoch_successor_proof(proof_value, &prior_fact, &successor_fact) {
+                return Err(SharedTimeEvidenceError::EpochSuccessorProofMismatch);
+            }
+        }
+        Ok(successor_readback(successor_fact.handoff, proof))
+    }
+}
+
 #[cfg(test)]
 #[async_trait::async_trait]
 impl SourceBindingOwnerResolver for MarketDataReadPostgres {
@@ -7922,6 +7995,11 @@ fn decode_raw_pit_envelope(raw: &[u8]) -> Result<StoredEnvelope, PitSnapshotErro
 
 #[cfg(not(test))]
 fn decode_raw_clock(raw: &[u8]) -> Result<MarketDataClockAdmission, SourceBindingError> {
+    Ok(decode_raw_clock_fact(raw)?.clock())
+}
+
+#[cfg(not(test))]
+fn decode_raw_clock_fact(raw: &[u8]) -> Result<ClockHeadFact, SourceBindingError> {
     let value: Value =
         serde_json::from_slice(raw).map_err(|_| SourceBindingError::StoreUnavailable)?;
     let object = value
@@ -7989,7 +8067,51 @@ fn decode_raw_clock(raw: &[u8]) -> Result<MarketDataClockAdmission, SourceBindin
     {
         return Err(SourceBindingError::TrustedClockMismatch);
     }
-    Ok(clock)
+    Ok(fact)
+}
+
+#[cfg(not(test))]
+fn decode_raw_epoch_proof(raw: &[u8]) -> Result<EpochSuccessorProof, SharedTimeEvidenceError> {
+    let value: Value =
+        serde_json::from_slice(raw).map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+    let object = value
+        .as_object()
+        .ok_or(SharedTimeEvidenceError::StoreUnavailable)?;
+    let digest = |name| {
+        raw_digest(
+            object
+                .get(name)
+                .ok_or(SharedTimeEvidenceError::StoreUnavailable)?,
+        )
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)
+    };
+    let string = |name| {
+        object
+            .get(name)
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .ok_or(SharedTimeEvidenceError::StoreUnavailable)
+    };
+    if object.get("comparison_rule").and_then(Value::as_i64) != Some(1) {
+        return Err(SharedTimeEvidenceError::StoreUnavailable);
+    }
+    Ok(EpochSuccessorProof {
+        proof_identity: digest("proof_identity")?,
+        predecessor_head_digest: digest("predecessor_head_digest")?,
+        successor_head_digest: digest("successor_head_digest")?,
+        prior_clock_identity: string("prior_clock_identity")?,
+        prior_clock_epoch: string("prior_clock_epoch")?,
+        successor_clock_identity: string("successor_clock_identity")?,
+        successor_clock_epoch: string("successor_clock_epoch")?,
+        successor_continuity_digest: digest("successor_continuity_digest")?,
+        commit_cut: object
+            .get("commit_cut")
+            .and_then(Value::as_u64)
+            .filter(|value| *value != 0)
+            .ok_or(SharedTimeEvidenceError::StoreUnavailable)?,
+        comparison_rule:
+            super::shared_time_evidence::ClockHeadComparisonRule::ExclusiveValidThrough,
+    })
 }
 
 #[cfg(not(test))]

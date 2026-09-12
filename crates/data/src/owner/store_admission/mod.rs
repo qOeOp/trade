@@ -328,6 +328,19 @@ impl AdmittedMarketDataPostgresCapability {
         }
         Ok(self.into_source_binding_snapshot_port())
     }
+
+    /// Consumes this authority into the fixed Shared Time evidence read operation.
+    pub(super) fn into_shared_time_evidence_snapshot_port_v1(
+        self,
+    ) -> Result<AdmittedMarketDataSnapshotPort, DeploymentStoreAdmissionError> {
+        if !self.measurement_spec.covers_shared_time_floor_v1() {
+            return Err(rejection(
+                &self.scope,
+                AdmissionFailureCode::DirectMeasurementMismatch,
+            ));
+        }
+        Ok(self.into_source_binding_snapshot_port())
+    }
 }
 
 /// Owner-private opaque port exposing only fixed Market Data snapshot operations.
@@ -619,6 +632,49 @@ impl MarketDataSourceBindingStorageEvidence {
 }
 
 impl AdmittedMarketDataSnapshotPort {
+    /// Reads one Shared Time head and an optional direct successor after admission before and after.
+    pub(super) async fn resolve_shared_time_evidence_v1(
+        &self,
+        prior_identity: [u8; 32],
+        successor: Option<([u8; 32], [u8; 32])>,
+    ) -> Result<postgres::RawSharedTimeEvidenceSnapshotV1, DeploymentStoreAdmissionError> {
+        let before = self
+            .revalidator
+            .admit_capability(self.scope.clone())
+            .await?;
+        validate_shared_time_revalidation_v1(
+            &self.scope,
+            &self.receipt,
+            &before.receipt,
+            &before.measurement_spec,
+        )?;
+        let raw = postgres::read_shared_time_evidence_snapshot_v1(
+            &before.credential_lease,
+            &prior_identity,
+            successor
+                .as_ref()
+                .map(|(identity, digest)| (identity, digest)),
+        )
+        .await
+        .map_err(|_| {
+            rejection(
+                &self.scope,
+                AdmissionFailureCode::DirectMeasurementUnavailable,
+            )
+        })?;
+        let after = self
+            .revalidator
+            .admit_capability(self.scope.clone())
+            .await?;
+        validate_shared_time_revalidation_v1(
+            &self.scope,
+            &self.receipt,
+            &after.receipt,
+            &after.measurement_spec,
+        )?;
+        Ok(raw)
+    }
+
     /// Reads all candidates for one canonical instrument after admission before and after.
     pub(super) async fn resolve_bar_schedule_candidates_v1(
         &self,
@@ -1046,6 +1102,24 @@ fn validate_bar_schedule_revalidation_v1(
         ));
     }
 
+    if !same_snapshot_cut(expected, observed) {
+        return Err(rejection(scope, AdmissionFailureCode::AdmissionCutExpired));
+    }
+    Ok(())
+}
+
+fn validate_shared_time_revalidation_v1(
+    scope: &AdmissionScope,
+    expected: &SealedDeploymentStoreAdmissionReceipt,
+    observed: &SealedDeploymentStoreAdmissionReceipt,
+    observed_measurement_spec: &PostgresMeasurementSpec,
+) -> Result<(), DeploymentStoreAdmissionError> {
+    if !observed_measurement_spec.covers_shared_time_floor_v1() {
+        return Err(rejection(
+            scope,
+            AdmissionFailureCode::DirectMeasurementMismatch,
+        ));
+    }
     if !same_snapshot_cut(expected, observed) {
         return Err(rejection(scope, AdmissionFailureCode::AdmissionCutExpired));
     }
@@ -2957,6 +3031,51 @@ mod tests {
             .code(),
             AdmissionFailureCode::AdmissionCutExpired
         );
+    }
+
+    #[test]
+    fn shared_time_floor_requires_every_fixed_function_and_relation() {
+        let functions = vec![
+            "market_data_private.resolve_owner_history_census_custody_v1()".to_string(),
+            "market_data_private.resolve_clock_custody_state_v1()".to_string(),
+            "market_data_private.resolve_clock_handoff_v1(bytea)".to_string(),
+            "market_data_private.resolve_epoch_successor_proof_v1(bytea)".to_string(),
+        ];
+        let relations = vec![
+            "market_data_private.owner_migrations_v1".to_string(),
+            "market_data_private.clock_head_v1".to_string(),
+            "market_data_private.clock_handoffs_v1".to_string(),
+            "market_data_private.clock_handoff_state_v1".to_string(),
+            "market_data_private.clock_handoff_membership_v1".to_string(),
+            "market_data_private.clock_handoff_head_v1".to_string(),
+            "market_data_private.epoch_successor_proofs_v1".to_string(),
+        ];
+        let complete = PostgresMeasurementSpec::new(
+            "market_data_private",
+            "market_data_private.schema_migrations_v1",
+            functions.clone(),
+            relations.clone(),
+        )
+        .expect("complete Shared Time measurement");
+        assert!(complete.covers_shared_time_floor_v1());
+
+        let missing_function = PostgresMeasurementSpec::new(
+            "market_data_private",
+            "market_data_private.schema_migrations_v1",
+            functions[..3].to_vec(),
+            relations.clone(),
+        )
+        .expect("bounded incomplete function measurement");
+        assert!(!missing_function.covers_shared_time_floor_v1());
+
+        let missing_relation = PostgresMeasurementSpec::new(
+            "market_data_private",
+            "market_data_private.schema_migrations_v1",
+            functions,
+            relations[..6].to_vec(),
+        )
+        .expect("bounded incomplete relation measurement");
+        assert!(!missing_relation.covers_shared_time_floor_v1());
     }
 
     #[tokio::test]

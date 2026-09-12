@@ -106,6 +106,7 @@ use self::{
         StrategyInputSampleProjectionResolverV2, StrategyInputSampleProjectionResolverV3,
     },
     sealed_replay_input::SealedReplayInputResolver,
+    shared_time_evidence::SharedTimeEvidenceResolver,
 };
 
 /// Public startup failure categories for the sealed Research PIT terminal bridge.
@@ -157,6 +158,20 @@ pub struct BarScheduleBootstrapErrorV1 {
 #[error("Market Data native Replay scheduling bootstrap rejected: {failure:?}")]
 pub struct NativeReplaySchedulingBootstrapErrorV1 {
     failure: ResearchPitTerminalBootstrapFailure,
+}
+
+/// Redacted startup failure for the sealed Shared Time evidence resolver.
+#[derive(Debug, thiserror::Error)]
+#[error("Market Data Shared Time evidence bootstrap rejected: {failure:?}")]
+pub struct SharedTimeEvidenceBootstrapErrorV1 {
+    failure: ResearchPitTerminalBootstrapFailure,
+}
+
+impl SharedTimeEvidenceBootstrapErrorV1 {
+    #[must_use]
+    pub const fn failure(&self) -> ResearchPitTerminalBootstrapFailure {
+        self.failure
+    }
 }
 
 impl NativeReplaySchedulingBootstrapErrorV1 {
@@ -438,6 +453,44 @@ pub async fn native_replay_scheduling_resolver_v1_from_store_admission_lookup(
     consume_native_replay_scheduling_store_admission_bootstrap_v1(bootstrap).await
 }
 
+/// Resolves store admission and returns only the sealed Shared Time evidence read port.
+///
+/// Disabled mode returns `None`. Required mode retains the fixed read-only capability inside
+/// Market Data; callers receive no pool, credential, raw clock row, or generic query surface.
+///
+/// # Errors
+///
+/// Returns only a redacted configuration or admission category.
+#[cfg(not(test))]
+pub async fn shared_time_evidence_resolver_from_store_admission_environment_v1()
+-> Result<Option<Arc<dyn SharedTimeEvidenceResolver>>, SharedTimeEvidenceBootstrapErrorV1> {
+    let bootstrap =
+        store_admission::RdOwnerStoreAdmissionBootstrap::from_environment().map_err(|e| {
+            SharedTimeEvidenceBootstrapErrorV1 {
+                failure: map_bootstrap_failure(&e),
+            }
+        })?;
+    consume_shared_time_evidence_store_admission_bootstrap_v1(bootstrap).await
+}
+
+/// Lookup-injected form of the sealed Shared Time evidence startup bridge.
+///
+/// # Errors
+///
+/// Returns only a redacted configuration or admission category.
+#[cfg(not(test))]
+pub async fn shared_time_evidence_resolver_from_store_admission_lookup_v1(
+    lookup: impl FnMut(&str) -> Option<String>,
+) -> Result<Option<Arc<dyn SharedTimeEvidenceResolver>>, SharedTimeEvidenceBootstrapErrorV1> {
+    let bootstrap =
+        store_admission::RdOwnerStoreAdmissionBootstrap::from_lookup(lookup).map_err(|e| {
+            SharedTimeEvidenceBootstrapErrorV1 {
+                failure: map_bootstrap_failure(&e),
+            }
+        })?;
+    consume_shared_time_evidence_store_admission_bootstrap_v1(bootstrap).await
+}
+
 #[cfg(not(test))]
 async fn consume_store_admission_bootstrap(
     bootstrap: store_admission::RdOwnerStoreAdmissionBootstrap,
@@ -564,6 +617,28 @@ async fn consume_native_replay_scheduling_store_admission_bootstrap_v1(
                     failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
                 }
             })?;
+            Ok(Some(Arc::new(MarketDataReadPostgres::from_admitted(port))))
+        }
+    }
+}
+
+#[cfg(not(test))]
+async fn consume_shared_time_evidence_store_admission_bootstrap_v1(
+    bootstrap: store_admission::RdOwnerStoreAdmissionBootstrap,
+) -> Result<Option<Arc<dyn SharedTimeEvidenceResolver>>, SharedTimeEvidenceBootstrapErrorV1> {
+    match bootstrap {
+        store_admission::RdOwnerStoreAdmissionBootstrap::Disabled => Ok(None),
+        store_admission::RdOwnerStoreAdmissionBootstrap::Required(request) => {
+            let capability = store_admission::admit_rd_owner_market_data_postgres(&request)
+                .await
+                .map_err(|_| SharedTimeEvidenceBootstrapErrorV1 {
+                    failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
+                })?;
+            let port = capability
+                .into_shared_time_evidence_snapshot_port_v1()
+                .map_err(|_| SharedTimeEvidenceBootstrapErrorV1 {
+                    failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
+                })?;
             Ok(Some(Arc::new(MarketDataReadPostgres::from_admitted(port))))
         }
     }
