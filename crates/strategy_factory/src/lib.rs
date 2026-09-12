@@ -73,6 +73,11 @@ mod holdout;
 pub mod intent;
 mod legacy_prepared_attempt_drain;
 pub mod native_replay_execution_bundle_owner_v2;
+#[allow(
+    dead_code,
+    reason = "T139 binding issuer awaits the T140 typed Owner-readback adapter"
+)]
+pub mod native_replay_execution_input_binding_v1;
 pub mod native_replay_preparation_inputs_v2;
 pub mod native_replay_preparation_owner_v2;
 pub mod native_replay_rd_sources_v2;
@@ -132,6 +137,11 @@ pub use native_replay_execution_bundle_owner_v2::{
     NativeReplayExecutionPrerequisitesErrorV2, NativeReplayExecutionPrerequisitesV2,
     compose_native_replay_execution_bundle_v2, native_execution_bundle_prerequisite_v2,
     prepare_native_replay_execution_prerequisites_v2,
+};
+pub use native_replay_execution_input_binding_v1::{
+    NativeReplayExecutionInputBindingErrorV1, NativeReplayExecutionInputBindingLocatorV1,
+    NativeReplayExecutionInputBindingReadbackV1,
+    resolve_native_replay_execution_input_binding_v1_in_transaction,
 };
 pub use native_replay_preparation_inputs_v2::{
     NativeReplayPreparationInputsErrorV2, NativeReplayPreparationInputsV2,
