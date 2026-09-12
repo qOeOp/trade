@@ -47,6 +47,7 @@ test("gateway performs one authenticated GET and exposes only the bounded Compos
   assert.equal(calls[0].url, "http://rd-dashboard-owner-read-api:8082/v2/develop-composer/runs/composer-request-1/readback");
   assert.equal(calls[0].init.method, "GET");
   assert.equal(calls[0].init.body, undefined);
+  assert.equal(calls[0].init.redirect, "error");
   assert.equal(calls[0].init.cache, "no-store");
   assert.deepEqual(calls[0].init.headers, { authorization: "Bearer read-secret" });
   assert.equal(result.status, 200);
@@ -86,7 +87,7 @@ test("invalid identity and missing configuration make zero Owner calls", async (
   let calls = 0;
   const fetcher = async () => { calls += 1; throw new Error("must not fetch"); };
   const invalid = await readDevelopComposerGatewayV1({
-    requestIdentity: "bad identity",
+    requestIdentity: "a".repeat(257),
     environment: { RD_OWNER_API_URL: "http://rd-owner-api:8080", RD_OWNER_API_TOKEN: "secret" },
     fetcher,
   });

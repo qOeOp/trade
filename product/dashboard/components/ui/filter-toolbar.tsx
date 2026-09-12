@@ -21,7 +21,7 @@ export type TableFilterSection = {
 };
 
 export type FilterControlDensity = "default" | "compact";
-export type FilterActionVariant = "primary" | "secondary" | "ghost" | "warning" | "danger" | "outline";
+export type FilterActionVariant = "primary" | "secondary" | "ghost" | "warning" | "danger" | "outline" | "toggle";
 
 const buttonVariantsByFilter = {
   primary: "action",
@@ -30,11 +30,12 @@ const buttonVariantsByFilter = {
   warning: "warn",
   danger: "outlineDestructive",
   outline: "outline",
+  toggle: "toggle",
 } satisfies Record<FilterActionVariant, NonNullable<ButtonProps["variant"]>>;
 
 const buttonVariantFor = (variant: FilterActionVariant): ButtonProps["variant"] => buttonVariantsByFilter[variant];
 
-const buttonSizeFor = (density: FilterControlDensity): ButtonProps["size"] => density === "compact" ? "sm" : "default";
+const buttonSizeFor = (density: FilterControlDensity): ButtonProps["size"] => density === "compact" ? "tool" : "toolbar";
 
 export function TableFilterMenu({
   label,
@@ -170,6 +171,10 @@ export function FilterLink({
     "aria-disabled": disabled || undefined,
     tabIndex: disabled ? -1 : props.tabIndex,
   };
+  if (disabled) {
+    return <span role="link" aria-disabled="true" aria-label={props["aria-label"]}
+      title={props.title} className={sharedProps.className}>{children}</span>;
+  }
   const usesClientNavigation = typeof href === "string"
     && href.startsWith("/")
     && !href.startsWith("//")

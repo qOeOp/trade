@@ -7,27 +7,27 @@ import {
   type RegisteredOperationId,
 } from "@/lib/operation-registry";
 import { verifyOperatorCapabilityV1 } from "@/lib/operator-capability";
-import { projectRunListBrowserEnvelopeV1 } from "@/lib/run-list-browser-projection";
-import {
-  configuredRunStoreV1,
-  type RunOperationalState,
-} from "@/lib/run-store";
+import { configuredRunListViewGatewayV2 } from "@/lib/run-list-view-gateway";
+import { configuredRunStoreV1 } from "@/lib/run-store";
 
 export const dynamic = "force-dynamic";
-
-const states = new Set<RunOperationalState>([
-  "queued", "running", "succeeded", "failed", "cancelled", "unknown",
-]);
 
 function listUnavailable(reason: string, status: number) {
   return NextResponse.json({
     schema_version: 1,
-    operation: "dashboard.run_store.list.v1",
+    projection_version: 2,
+    operation: "dashboard.run_store.list.v2",
     availability: "unavailable",
     unavailable_reason: reason,
+    completeness: "partial_unavailable",
     observed_at: new Date().toISOString(),
+    source_cut: null,
+    snapshot: null,
+    filter_cut: null,
+    summary: null,
+    filtered_total: null,
+    total_pages: null,
     runs: [],
-    next_cursor: null,
   }, { status, headers: { "cache-control": "no-store" } });
 }
 
@@ -44,39 +44,33 @@ function enqueueUnavailable(reason: string, status: number) {
 
 export async function GET(request: Request) {
   const search = new URL(request.url).searchParams;
-  const rawLimit = search.get("limit");
-  const limit = rawLimit === null ? 50 : Number(rawLimit);
-  const rawOperationId = search.get("operationId");
-  const rawState = search.get("state");
-  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100
-    || (rawState !== null && !states.has(rawState as RunOperationalState))) {
+  const allowed = new Set(["kind", "state", "search", "duration", "pageSize", "page", "snapshot"]);
+  if ([...search.keys()].some((key) => !allowed.has(key))) {
     return listUnavailable("RUN_STORE_QUERY_INVALID", 400);
   }
-  let operationId: RegisteredOperationId | undefined;
-  if (rawOperationId !== null) {
-    try {
-      operationByIdV1(rawOperationId as RegisteredOperationId);
-      operationId = rawOperationId as RegisteredOperationId;
-    } catch {
-      return listUnavailable("RUN_STORE_QUERY_INVALID", 400);
-    }
-  }
   try {
-    const store = configuredRunStoreV1();
-    if (!store) return listUnavailable("RUN_STORE_CONFIGURATION_UNAVAILABLE", 503);
-    await store.assertSchema();
-    const page = await store.listRuns({
-      limit,
-      cursor: search.get("cursor") ?? undefined,
-      operationId,
-      state: rawState ? rawState as RunOperationalState : undefined,
-    });
-    return NextResponse.json(projectRunListBrowserEnvelopeV1(page), {
+    const gateway = configuredRunListViewGatewayV2();
+    if (!gateway) return listUnavailable("RUN_STORE_CONFIGURATION_UNAVAILABLE", 503);
+    await gateway.assertSchema();
+    const pageSize = search.get("pageSize");
+    const page = search.get("page");
+    return NextResponse.json(await gateway.read({
+      kind: search.get("kind") ?? undefined,
+      state: search.get("state") ?? undefined,
+      search: search.get("search") ?? undefined,
+      duration: search.get("duration") ?? undefined,
+      pageSize: pageSize === null ? undefined : Number(pageSize),
+      page: page === null ? undefined : Number(page),
+      snapshot: search.get("snapshot") ?? undefined,
+    }), {
       status: 200,
       headers: { "cache-control": "no-store" },
     });
-  } catch {
-    return listUnavailable("RUN_STORE_UNAVAILABLE", 503);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "RUN_STORE_UNAVAILABLE";
+    const invalid = reason.startsWith("RUN_LIST_QUERY_") || reason.startsWith("RUN_LIST_PAGE_")
+      || reason.startsWith("RUN_LIST_SNAPSHOT_INVALID") || reason.startsWith("RUN_LIST_SNAPSHOT_FILTER_");
+    return listUnavailable(invalid ? "RUN_STORE_QUERY_INVALID" : reason, invalid ? 400 : 503);
   }
 }
 

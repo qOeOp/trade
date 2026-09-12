@@ -35,6 +35,13 @@ function harness(sourceRun = operationRun()) {
   const store = {
     async assertSchema() { calls.push(["schema"]); },
     async getRun(runIdentity) { calls.push(["get", runIdentity]); return sourceRun; },
+    async readDevelopComposerRecovery(recoveryIdentity) {
+      calls.push(["composer-recovery", recoveryIdentity]);
+      return {
+        run: sourceRun,
+        projection: { design_digest: Array.from({ length: 32 }, () => 4) },
+      };
+    },
     async beginRead(operationId, recoveryIdentity) {
       calls.push(["begin", operationId, recoveryIdentity]);
       return operationRun({
@@ -66,6 +73,8 @@ function harness(sourceRun = operationRun()) {
     async research(value) { calls.push(["research", value]); return owner("ACCEPTED"); },
     async artifact(...values) { calls.push(["artifact", ...values]); return owner("SUCCESS"); },
     async iteration(value) { calls.push(["iteration", value]); return owner(); },
+    async replay(...values) { calls.push(["replay", ...values]); return owner(); },
+    async composer(value) { calls.push(["composer", value]); return composerOwner("SUCCESS"); },
   };
   return { calls, store, readers };
 }
@@ -77,6 +86,36 @@ function owner(resolution) {
       availability: "available",
       unavailable_reason: null,
       projection: resolution ? { resolution } : { state: "AWAITING_REPLAY_RESULT" },
+    },
+  };
+}
+
+function composerOwner(disposition) {
+  return {
+    status: 200,
+    envelope: {
+      availability: "available",
+      unavailable_reason: null,
+      projection: {
+        schemaVersion: 1,
+        availability: "available",
+        requestIdentity: "composer-request-resolution-1",
+        observedAt: "2026-09-01T00:00:02.000Z",
+        state: "readback",
+        readback: {
+          disposition,
+          receiptIdentity: disposition === "SUCCESS" ? "1".repeat(64) : null,
+          artifact: disposition === "SUCCESS" ? {
+            locator: "composer-artifact-resolution-1",
+            artifactDigest: "2".repeat(64),
+            canonicalPlanDigest: "3".repeat(64),
+            designDigest: "04".repeat(32),
+          } : null,
+          coordinate: disposition === "SUCCESS" ? null : "operation",
+          reason: disposition === "SUCCESS" ? null : "terminal outcome",
+        },
+        reason: null,
+      },
     },
   };
 }
@@ -130,6 +169,95 @@ test("artifact formation resolution maps to the zero-effect Artifact owner-read 
     "attempt-resolution-2",
   ]);
   assert.equal(calls.some(([kind]) => kind === "source" || kind === "research" || kind === "iteration"), false);
+});
+
+test("Replay request custody resolution maps to the zero-effect Replay owner-read operation", async () => {
+  const source = operationRun({
+    operation_id: "exploratory_replay.submit_or_resolve.v2",
+    channel: "DASHBOARD_DISPOSABLE_EXECUTION",
+    run_kind: "owner_effect",
+    recovery_identity: {
+      request_identity: "replay-α",
+      meaning_digest: `blake3:${"e".repeat(64)}`,
+    },
+  });
+  const { calls, store, readers } = harness(source);
+  const result = await resolveRunOwnerOutcomeV1({
+    runIdentity: sourceRunIdentity,
+    expectedTransitionVersion: 2,
+    store,
+    readers,
+  });
+  assert.equal(result.status, 200);
+  assert.equal(result.envelope.resolved_operation_id, "exploratory_replay.shadow_read.v2");
+  assert.deepEqual(calls.find(([kind]) => kind === "replay"), [
+    "replay", "replay-α", `blake3:${"e".repeat(64)}`,
+  ]);
+  assert.equal(calls.some(([kind]) => ["source", "research", "artifact", "iteration"].includes(kind)), false);
+});
+
+test("Composer resolution preserves typed disposition instead of defaulting to success", async () => {
+  for (const [disposition, expectedState, terminalCode] of [
+    ["SUCCESS", "available", "OWNER_AVAILABLE"],
+    ["CONFLICT", "rejected", "OWNER_REJECTED"],
+    ["UNAVAILABLE", "unavailable", "OWNER_UNAVAILABLE"],
+  ]) {
+    const source = operationRun({
+      operation_id: "develop_composer.submit_or_resolve.v2",
+      channel: "DASHBOARD_DISPOSABLE_EXECUTION",
+      run_kind: "owner_effect",
+      recovery_identity: {
+        request_identity: "composer-request-resolution-1",
+        projection_digest: `sha256:${"a".repeat(64)}`,
+      },
+    });
+    const { calls, store, readers } = harness(source);
+    readers.composer = async (value) => {
+      calls.push(["composer", value]);
+      return composerOwner(disposition);
+    };
+    const result = await resolveRunOwnerOutcomeV1({
+      runIdentity: sourceRunIdentity,
+      expectedTransitionVersion: 2,
+      store,
+      readers,
+    });
+    assert.equal(result.status, 200);
+    assert.equal(result.envelope.resolved_operation_id, "develop_composer.shadow_read.v2");
+    assert.equal(result.envelope.owner_outcome_state, expectedState);
+    assert.equal(calls.find(([kind]) => kind === "complete")[1].terminalCode, terminalCode);
+    assert.deepEqual(calls.find(([kind]) => kind === "composer"), [
+      "composer", "composer-request-resolution-1",
+    ]);
+  }
+});
+
+test("Composer resolution rejects success for a design outside frozen RunStore custody", async () => {
+  const source = operationRun({
+    operation_id: "develop_composer.submit_or_resolve.v2",
+    channel: "DASHBOARD_DISPOSABLE_EXECUTION",
+    run_kind: "owner_effect",
+    recovery_identity: {
+      request_identity: "composer-request-resolution-1",
+      projection_digest: `sha256:${"a".repeat(64)}`,
+    },
+  });
+  const { calls, store, readers } = harness(source);
+  readers.composer = async (value) => {
+    calls.push(["composer", value]);
+    const response = composerOwner("SUCCESS");
+    response.envelope.projection.readback.artifact.designDigest = "05".repeat(32);
+    return response;
+  };
+  const result = await resolveRunOwnerOutcomeV1({
+    runIdentity: sourceRunIdentity,
+    expectedTransitionVersion: 2,
+    store,
+    readers,
+  });
+  assert.equal(result.status, 200);
+  assert.equal(result.envelope.owner_outcome_state, "unavailable");
+  assert.equal(calls.find(([kind]) => kind === "complete")[1].terminalCode, "OWNER_UNAVAILABLE");
 });
 
 test("stale, active, and catalog runs fail before Owner transport or replacement run creation", async () => {

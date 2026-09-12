@@ -5,7 +5,7 @@ import { Slot } from '@radix-ui/react-slot';
 import { cn } from '@/lib/utils';
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 aria-invalid:border-destructive",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium no-underline transition-all disabled:pointer-events-none disabled:opacity-50 aria-[disabled=true]:pointer-events-none aria-[disabled=true]:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 aria-invalid:border-destructive",
   {
     variants: {
       variant: {
@@ -16,9 +16,11 @@ const buttonVariants = cva(
           'border border-status-positive bg-status-positive text-primary-foreground shadow-xs hover:bg-status-positive/90 active:shadow-none',
         warn: 'border border-status-warning bg-status-warning text-primary-foreground shadow-xs hover:bg-status-warning/90 active:shadow-none',
         action:
-          'border border-status-info bg-status-info text-primary-foreground shadow-xs hover:bg-status-info/90 active:shadow-none',
+          'border border-primary bg-primary text-primary-foreground shadow-xs hover:bg-primary/90 active:shadow-none',
         outline:
-          'border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground',
+          'border border-[var(--border-default)] bg-[var(--surface-card)] shadow-xs hover:bg-[var(--surface-hover)] hover:text-accent-foreground',
+        toggle:
+          'border border-[var(--border-default)] bg-[var(--surface-card)] shadow-xs hover:bg-[var(--surface-hover)] hover:text-accent-foreground aria-[pressed=true]:bg-[var(--surface-elevated)] aria-[pressed=true]:text-[var(--text-primary)] aria-[pressed=true]:shadow-[inset_0_0_0_1px_var(--border-default)]',
         secondary:
           'bg-secondary text-secondary-foreground hover:bg-secondary/80',
         ghost: 'hover:bg-accent hover:text-accent-foreground',
@@ -29,19 +31,27 @@ const buttonVariants = cva(
           'border border-destructive text-destructive hover:bg-destructive/10',
       },
       size: {
-        default: 'h-9 px-4 py-2 has-[>svg]:px-3',
+        default: 'h-8 gap-1.5 px-3 text-xs has-[>svg]:px-2.5',
+        toolbar: "h-8 gap-1.5 rounded-md px-[11px] text-[10px] font-[650] has-[>svg]:px-2.5 [&_svg:not([class*='size-'])]:size-3",
+        tool: "h-[30px] gap-[5px] rounded-[8px] px-[9px] text-[10px] font-[650] has-[>svg]:px-2 [&_svg:not([class*='size-'])]:size-3",
         xs: "h-6 gap-1 rounded-md px-2 text-xs has-[>svg]:px-1.5 [&_svg:not([class*='size-'])]:size-3",
-        sm: 'h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5',
+        sm: 'h-8 rounded-md gap-1.5 px-3 text-xs has-[>svg]:px-2.5',
         lg: 'h-10 rounded-md px-6 has-[>svg]:px-4',
         icon: 'size-9',
         'icon-xs': "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3",
+        'icon-tool': "size-[30px] rounded-[8px] [&_svg:not([class*='size-'])]:size-3",
         'icon-sm': 'size-8',
         'icon-lg': 'size-10',
+      },
+      shape: {
+        default: '',
+        circle: 'rounded-full',
       },
     },
     defaultVariants: {
       variant: 'default',
       size: 'default',
+      shape: 'default',
     },
   },
 );
@@ -50,6 +60,7 @@ function Button({
   className,
   variant = 'default',
   size = 'default',
+  shape = 'default',
   asChild = false,
   ...props
 }: React.ComponentProps<'button'> &
@@ -63,7 +74,8 @@ function Button({
       data-slot="button"
       data-variant={variant}
       data-size={size}
-      className={cn(buttonVariants({ variant, size, className }))}
+      data-shape={shape}
+      className={cn(buttonVariants({ variant, size, shape, className }))}
       {...props}
     />
   );

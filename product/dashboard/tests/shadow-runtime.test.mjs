@@ -12,7 +12,10 @@ import {
   configuredShadowRuntimeV1,
   shadowRuntimeRoleV1,
 } from "../lib/shadow-runtime.ts";
-import { ownerOutcomeForDevelopComposerResultV1 } from "../lib/shadow-run-journal.ts";
+import {
+  ownerOutcomeForDevelopComposerResultV1,
+  ownerOutcomeForExploratoryReplayResultV1,
+} from "../lib/shadow-run-journal.ts";
 import { runShadowWorkerTickV1 } from "../lib/shadow-worker.ts";
 import { compatibleEnvironmentV1 } from "./compatibility-fixture.mjs";
 
@@ -54,6 +57,31 @@ test("Develop Composer terminal dispositions keep Owner semantics separate from 
     state: "rejected", terminalCode: "OWNER_REJECTED",
   });
   assert.deepEqual(ownerOutcomeForDevelopComposerResultV1(result("UNAVAILABLE")), {
+    state: "unavailable", terminalCode: "OWNER_UNAVAILABLE",
+  });
+});
+
+test("Exploratory Replay result terminals preserve canonical Owner semantics", () => {
+  const result = (terminal) => ({
+    status: 200,
+    projection: {
+      availability: "available",
+      result: { terminal },
+    },
+  });
+  assert.deepEqual(ownerOutcomeForExploratoryReplayResultV1(result("TERMINAL_RESULT")), {
+    state: "available", terminalCode: "OWNER_AVAILABLE",
+  });
+  assert.deepEqual(ownerOutcomeForExploratoryReplayResultV1(result("IN_PROGRESS_OR_UNKNOWN")), {
+    state: "unknown", terminalCode: "OWNER_UNKNOWN",
+  });
+  assert.deepEqual(ownerOutcomeForExploratoryReplayResultV1(result("RUN_REJECTED")), {
+    state: "rejected", terminalCode: "OWNER_REJECTED",
+  });
+  assert.deepEqual(ownerOutcomeForExploratoryReplayResultV1({
+    status: 404,
+    projection: { availability: "unavailable", result: null },
+  }), {
     state: "unavailable", terminalCode: "OWNER_UNAVAILABLE",
   });
 });

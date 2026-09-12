@@ -83,7 +83,7 @@ export function LocalOperatorAccess() {
               <PanelFrameInfoFact label="Writes">Not admitted</PanelFrameInfoFact>
             </PanelFrameInfoList>
           </PanelFrameInfo>
-          <Button disabled={pending} onClick={() => void refresh()} size="xs" variant="outline">
+          <Button disabled={pending} onClick={() => void refresh()} size="tool" variant="outline">
             <InterfaceIcons.refresh aria-hidden="true" /> Refresh
           </Button>
         </>}
@@ -118,8 +118,8 @@ export function LocalOperatorAccess() {
           secondary={session?.unavailable_reason ?? "No authority or token value is exposed."}
         />
         <PanelFrameFooterActions>
-          <Button asChild size="xs" variant="outline"><Link href="/login?return_to=/settings/access">Re-authenticate</Link></Button>
-          <Button disabled={!session?.authenticated} onClick={() => void signOut()} size="xs" variant="ghost">Sign out</Button>
+          <Button asChild size="tool" variant="outline"><Link href="/login?return_to=/settings/access">Re-authenticate</Link></Button>
+          <Button disabled={!session?.authenticated} onClick={() => void signOut()} size="tool" variant="ghost">Sign out</Button>
         </PanelFrameFooterActions>
       </PanelFrameFooter>
     </PanelFrame>

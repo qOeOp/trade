@@ -1,3 +1,6 @@
+import { validExploratoryReplayOpaqueIdentityV2 } from "./exploratory-replay-identity.ts";
+import { validDevelopComposerIdentityV2 } from "./develop-composer-action-contract.ts";
+
 const IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/;
 const DIGEST = /^(?:sha256|blake3):[0-9a-f]{64}$/;
 
@@ -26,6 +29,20 @@ function exactFields(fields: readonly InputField[], keys: readonly string[]): bo
   return fields.length === keys.length && fields.every((field, index) => (
     field.key === keys[index] && IDENTITY.test(field.value)
   ));
+}
+
+function exactReplayFields(fields: readonly InputField[]): boolean {
+  return fields.length === 2
+    && fields[0].key === "request_identity"
+    && validExploratoryReplayOpaqueIdentityV2(fields[0].value)
+    && fields[1].key === "meaning_digest" && DIGEST.test(fields[1].value);
+}
+
+function exactComposerEffectFields(fields: readonly InputField[]): boolean {
+  return fields.length === 2
+    && fields[0].key === "request_identity"
+    && validDevelopComposerIdentityV2(fields[0].value)
+    && fields[1].key === "projection_digest" && DIGEST.test(fields[1].value);
 }
 
 function query(pathname: string, fields: readonly InputField[]): string {
@@ -77,6 +94,19 @@ export function projectRdOwnerViewLocatorV1(
       schema_version: 1,
       source_owner: "research_owner",
       href: query("/rd/research", identities),
+      action_label: "Resolve same identity",
+      identity_fields: fields.map(({ key, value }) => ({ key, value })),
+    };
+  }
+  if (operationId === "exploratory_replay.submit_or_resolve.v2"
+    && exactReplayFields(fields)) {
+    return {
+      schema_version: 1,
+      source_owner: "exploratory_replay_owner",
+      href: query("/rd/replay", [
+        { key: "requestIdentity", value: fields[0].value },
+        { key: "meaningDigest", value: fields[1].value },
+      ]),
       action_label: "Resolve same identity",
       identity_fields: fields.map(({ key, value }) => ({ key, value })),
     };
@@ -144,6 +174,16 @@ export function projectRdOwnerViewLocatorV1(
       identity_fields: fields.map(({ key, value }) => ({ key, value })),
     };
   }
+  if (operationId === "develop_composer.submit_or_resolve.v2"
+    && exactComposerEffectFields(fields)) {
+    return {
+      schema_version: 1,
+      source_owner: "develop_composer_owner",
+      href: query("/rd/composer", [{ key: "requestIdentity", value: fields[0].value }]),
+      action_label: "Resolve same identity",
+      identity_fields: fields.map(({ key, value }) => ({ key, value })),
+    };
+  }
   return null;
 }
 
@@ -155,6 +195,12 @@ function exactSearch(search: SearchParams, keys: readonly string[]): boolean {
   return actual.length === expected.length
     && actual.every((key, index) => key === expected[index])
     && keys.every((key) => typeof search[key] === "string" && IDENTITY.test(search[key] as string));
+}
+
+function exactComposerSearch(search: SearchParams): boolean {
+  return Object.keys(search).filter((key) => search[key] !== undefined).length === 1
+    && typeof search.requestIdentity === "string"
+    && validDevelopComposerIdentityV2(search.requestIdentity);
 }
 
 export function parseRdOwnerViewRequestV1(
@@ -193,7 +239,7 @@ export function parseRdOwnerViewRequestV1(
       meaningDigest: search.replayMeaningDigest as string,
     };
   }
-  if (route === "/rd/composer" && exactSearch(search, ["requestIdentity"])) {
+  if (route === "/rd/composer" && exactComposerSearch(search)) {
     return { kind: "composer", requestIdentity: search.requestIdentity as string };
   }
   return null;

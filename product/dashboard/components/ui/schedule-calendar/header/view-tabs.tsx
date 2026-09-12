@@ -22,9 +22,9 @@ export function Views({ view, mode, onView }: {
     {calendarViews.map(([value, label, Icon]) => {
       const active = mode === "calendar" && view === value;
       return <motion.button type="button" key={value} aria-label={`${label} view`} aria-pressed={active}
-        initial={false} animate={{ width: active ? 120 : 32 }}
+        initial={false} animate={{ width: active ? 96 : 30 }}
         transition={{ type: "tween", duration: 0.25, ease: "easeOut" }} onClick={() => onView(value)}>
-        <Icon size={16} aria-hidden="true" />
+        <Icon size={14} aria-hidden="true" />
         <AnimatePresence initial={false}>{active ? <motion.span
           initial={{ opacity: 0, scaleX: 0.8 }} animate={{ opacity: 1, scaleX: 1 }} exit={{ opacity: 0 }}
           transition={{ duration: 0.25, ease: "easeOut" }}>

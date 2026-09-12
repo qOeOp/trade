@@ -10,6 +10,11 @@ use thiserror::Error;
 #[cfg(feature = "sealed-source-intake-research-acceptance")]
 use std::net::{IpAddr, Ipv4Addr};
 
+#[cfg(feature = "sealed-source-intake-research-acceptance")]
+use vibe_data::owner::{
+    shared_time_evidence::UntrustedClockHeadLocator, source_binding::BindingDigest,
+};
+
 use super::{
     AcquisitionTerminalV1, OpenAlexWorkByDoiRequestV1, ResearchSourceProvenanceV1,
     SharedTimeEvidenceBindingV1, SourceAcquisitionAdmissionV1, SourceAcquisitionBindingV1,
@@ -40,6 +45,35 @@ const SEALED_RETENTION_POLICY_LOCATOR: &str = "sealed-source-intake-retention-po
 #[cfg(feature = "sealed-source-intake-research-acceptance")]
 #[allow(dead_code)]
 const SEALED_DNS_OBSERVATION_LOCATOR: &str = "sealed-source-intake-dns-observation-v1";
+
+/// Resolves the caller-free policy locator used by the transport-neutral
+/// Source Intake-to-Research operation in the sealed disposable topology.
+///
+/// The stored binding is only an untrusted locator source. The policy port
+/// still re-resolves and seals every referenced fact before Research can
+/// mutate state.
+#[cfg(feature = "sealed-source-intake-research-acceptance")]
+pub(crate) fn sealed_source_intake_research_policy_query_v2(
+    binding: &SourceAcquisitionBindingV1,
+) -> SourceIntakePolicyEvidenceQueryV1 {
+    SourceIntakePolicyEvidenceQueryV1 {
+        request_identity: binding.request_identity.clone(),
+        gateway: binding.gateway,
+        admission: binding.product_edge_admission.clone(),
+        operation_manifest_identity: binding.operation_manifest_identity.clone(),
+        operation_manifest_digest: binding.operation_manifest_digest.clone(),
+        connector_policy_locator: SEALED_CONNECTOR_POLICY_LOCATOR.into(),
+        network_policy_locator: SEALED_NETWORK_POLICY_LOCATOR.into(),
+        rights_policy_locator: SEALED_RIGHTS_POLICY_LOCATOR.into(),
+        retention_policy_locator: SEALED_RETENTION_POLICY_LOCATOR.into(),
+        dns_observation_locator: SEALED_DNS_OBSERVATION_LOCATOR.into(),
+        shared_time_head: UntrustedClockHeadLocator::from_untrusted(
+            BindingDigest::from_untrusted_bytes([1; 32]),
+            BindingDigest::from_untrusted_bytes([2; 32]),
+        ),
+        shared_time_successor: None,
+    }
+}
 
 /// Fixed, compile-time-only current-policy resolver for the disposable sealed
 /// Source Intake-to-Research acceptance. It has no provider, DSN, environment,

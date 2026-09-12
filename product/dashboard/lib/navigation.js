@@ -106,7 +106,7 @@ export function pageFor(href) {
 
 export const exactBlueprints = {
   "/settings/access": { summaries: ["Session", "Credentials", "Authority"], primary: "LocalOperatorAccess", context: null, terminal: "AuthorizationUnavailable", state: "IMPLEMENTATION_ADMITTED - LOCAL_SESSION_READ_ONLY - NO_AUTHORITY_OR_TOKEN_MUTATION" },
-  "/backtest": { summaries: [], primary: "ExploratoryReplayReadbackWorkbench", context: null, terminal: "ResultProjectionUnavailable", state: "IMPLEMENTATION_ADMITTED - SEALED_REQUEST_POINT_READ_ONLY - NO_RUN_OR_RESULT" },
+  "/backtest": { summaries: [], primary: "ExploratoryReplayReadbackWorkbench", context: null, terminal: "CanonicalResultOrUnavailable", state: "IMPLEMENTATION_ADMITTED - REQUEST_AND_RESULT_POINT_READ_ONLY - NO_RUN_OR_RESOLVE" },
   "/rd": { summaries: [], primary: "SourceIntakeReadbackWorkbench", context: null, terminal: "OwnerUnavailable", state: "IMPLEMENTATION_ADMITTED - OWNER_POINT_READ_ONLY - NO_SUBMIT_OR_RESOLVE" },
   "/rd/intake/new": { summaries: [], primary: "SourceResearchControl", context: null, terminal: "OwnerOutcomeOrUnavailable", state: "IMPLEMENTATION_ADMITTED - DISPOSABLE_SOURCE_RESEARCH - NOT_CUT_OVER" },
   "/rd/composer": { summaries: [], primary: "DevelopComposerReadbackWorkbench", context: null, terminal: "OwnerUnavailable", state: "IMPLEMENTATION_ADMITTED - OWNER_POINT_READ_ONLY - NO_RUN_RESOLVE_OR_EDIT" },

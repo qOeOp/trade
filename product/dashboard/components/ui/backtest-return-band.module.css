@@ -238,11 +238,6 @@
   background: var(--border-default);
 }
 
-.windowMeta button:disabled {
-  opacity: .35;
-  cursor: default;
-}
-
 @keyframes return-band-spin {
   to { transform: rotate(360deg); }
 }

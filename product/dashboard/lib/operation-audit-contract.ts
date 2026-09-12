@@ -13,6 +13,8 @@ export const operationAuditOperationsV1 = [
   "artifact_build.formation_execute.v1",
   "dashboard.dependency.cancel.queued.v1",
   "dashboard.operational_cache.delete.v1",
+  "develop_composer.submit_or_resolve.v2",
+  "exploratory_replay.submit_or_resolve.v2",
   "source_intake.research.submit_or_resolve.v1",
 ] as const;
 export type OperationAuditOperationV1 = typeof operationAuditOperationsV1[number];
@@ -197,6 +199,10 @@ export function parseOperationAuditEntryV1(value: unknown): OperationAuditEntryV
     || !operationAuditOperationsV1.includes(value.operation as OperationAuditOperationV1)
     || !["execute", "update", "delete"].includes(String(value.action_kind))
     || (value.operation === "artifact_build.formation_execute.v1" && value.action_kind !== "execute")
+    || (value.operation === "exploratory_replay.submit_or_resolve.v2"
+      && value.action_kind !== "execute")
+    || (value.operation === "develop_composer.submit_or_resolve.v2"
+      && value.action_kind !== "execute")
     || (value.operation === "source_intake.research.submit_or_resolve.v1" && value.action_kind !== "execute")
     || (value.operation === "dashboard.dependency.cancel.queued.v1" && value.action_kind !== "update")
     || (value.operation === "dashboard.operational_cache.delete.v1" && value.action_kind !== "delete")

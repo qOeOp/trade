@@ -138,7 +138,7 @@ export function PanelFrameIconAction({
   className,
   ...props
 }: { children: ReactNode } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children">) {
-  return <Button {...props} type="button" variant="outline" size="icon-sm"
+  return <Button {...props} type="button" variant="outline" size="icon-tool"
     className={["panel-frame-icon-action", className].filter(Boolean).join(" ")}>{children}</Button>;
 }
 
@@ -156,7 +156,8 @@ export function PanelFrameInfo({
       <Button
         type="button"
         variant="outline"
-        size="icon-sm"
+        size="icon-tool"
+        shape="circle"
         className="panel-info-trigger"
         aria-label={label}
         title={label}
@@ -196,6 +197,7 @@ export function PanelFrameCloseButton({
       type="button"
       variant="outline"
       size="icon-xs"
+      shape="circle"
       aria-label={ariaLabel}
       className={["panel-frame-close-button", className].filter(Boolean).join(" ")}
       data-slot="panel-frame-close-button"

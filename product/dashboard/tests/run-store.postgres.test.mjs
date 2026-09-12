@@ -14,7 +14,28 @@ import {
 import {
   executeDisposableArtifactFormationV1 as executeDisposableArtifactFormationImplV1,
 } from "../lib/artifact-formation-client.ts";
+import {
+  boundEffectWorkerIdentityV1,
+  configuredEffectDispatchTargetV1,
+  effectDispatchOperationIdsV1,
+  effectDispatchTargetDigestV1,
+} from "../lib/effect-dispatch-contract.ts";
+import {
+  canonicalReplayRequestDigestV2,
+  exploratoryReplayOwnerRequestBodyV2,
+} from "../lib/exploratory-replay-action-contract.ts";
+import {
+  admitExploratoryReplayExecutionV2,
+  exploratoryReplayOperationV2,
+} from "../lib/exploratory-replay-operation.ts";
+import { developComposerProjectionDigestV2 } from "../lib/develop-composer-action-contract.ts";
+import {
+  admitDevelopComposerExecutionV2,
+  developComposerOperationV2,
+} from "../lib/develop-composer-operation.ts";
+import { runEffectWorkerTickV1 } from "../lib/effect-worker.ts";
 import { researchGoalOperationV2 } from "../lib/research-goal-operation.ts";
+import { resolveRunOwnerOutcomeV1 } from "../lib/owner-outcome-resolution-gateway.ts";
 import { projectRunDetailEnvelopeV1 } from "../lib/run-detail-projection.ts";
 import {
   ARTIFACT_SHADOW_RESOLVE_OPERATION,
@@ -85,6 +106,56 @@ const sourceResearchCompatibility = compatibleEnvironmentV1({
   extraManifests: [sourceIntakeOperationV1, researchGoalOperationV2],
 });
 
+const replayContent = (identity, character) => ({
+  identity,
+  digest: `sha256:${character.repeat(64)}`,
+});
+const replayVersion = (identity) => ({ identity, version: "v1" });
+
+function replayRunRequest(suffix) {
+  return {
+    action: "RUN",
+    build_request_identity: `build-${suffix}`,
+    attempt_identity: `attempt-${suffix}`,
+    build_receipt_identity: `build-receipt-${suffix}`,
+    artifact_family_binding_identity: `artifact-family-binding-${suffix}`,
+    request: {
+      schema_version: 2,
+      request_identity: `replay-request-${suffix}`,
+      frozen_research_intent: replayContent(`intent-${suffix}`, "1"),
+      trial_family: replayContent(`family-${suffix}`, "2"),
+      trial_family_census_frontier: replayContent(`frontier-${suffix}`, "3"),
+      replay_authority: { namespace: "EXPLORATORY" },
+      strategy_design: replayContent(`design-${suffix}`, "4"),
+      strategy_plan: replayContent(`plan-${suffix}`, "5"),
+      artifact: replayContent(`artifact-${suffix}`, "6"),
+      resolved_owner_inputs: replayContent(`owner-inputs-${suffix}`, "7"),
+      pit_scope: replayContent(`pit-scope-${suffix}`, "8"),
+      pit_snapshot: replayContent(`pit-snapshot-${suffix}`, "9"),
+      universe_selection: replayContent(`universe-${suffix}`, "a"),
+      correction_rule: replayVersion(`correction-${suffix}`),
+      market_semantics: replayVersion(`market-${suffix}`),
+      replay_configuration: replayContent(`configuration-${suffix}`, "b"),
+      models: {
+        runtime_kernel: replayVersion(`kernel-${suffix}`),
+        simulator: replayVersion(`simulator-${suffix}`),
+        cost: replayVersion(`cost-${suffix}`),
+        slippage: replayVersion(`slippage-${suffix}`),
+        capacity: replayVersion(`capacity-${suffix}`),
+      },
+      runner_operational_profile: replayVersion(`runner-${suffix}`),
+      diagnostic_policy: replayVersion(`diagnostic-${suffix}`),
+      deterministic_seed: "18446744073709551615",
+      window: { start_event_ns: "1787932800000000000", end_event_ns_exclusive: "1787933100000000000" },
+      calendar: replayVersion(`calendar-${suffix}`),
+      session: replayVersion(`session-${suffix}`),
+      time_zone: replayVersion("UTC"),
+      corporate_action_cut: replayContent(`corporate-${suffix}`, "c"),
+      historical_membership_cut: replayContent(`membership-${suffix}`, "d"),
+    },
+  };
+}
+
 function actionContext(requestedAction) {
   return {
     authorizationDigest: `sha256:${"e".repeat(64)}`,
@@ -110,6 +181,14 @@ function executeSourceResearchOperationV1(input) {
 async function ensureControlPlaneAdmissionAudit(admin) {
   await admin.query(await readFile(
     new URL("../migrations/0012_control_plane_admission_audit.sql", import.meta.url),
+    "utf8",
+  ));
+}
+
+async function ensureEffectDispatchSchema(admin) {
+  await ensureControlPlaneAdmissionAudit(admin);
+  await admin.query(await readFile(
+    new URL("../migrations/0013_effect_dispatch_queue.sql", import.meta.url),
     "utf8",
   ));
 }
@@ -271,7 +350,12 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
   await admin.query(cancellationMigration);
   await admin.query(operationAuditMigration);
   await ensureControlPlaneAdmissionAudit(admin);
+  await ensureEffectDispatchSchema(admin);
   await admin.query(`TRUNCATE dashboard_operation_audit_v1,
+    dashboard_develop_composer_run_bindings_v2,
+    dashboard_exploratory_replay_run_bindings_v2,
+    dashboard_effect_dispatch_queue_v1,
+    dashboard_effect_workers_v1,
     dashboard_control_plane_admission_receipts_v1,
     dashboard_operation_run_cancellations_v1,
     dashboard_operation_run_cache_deletions_v1,
@@ -295,6 +379,7 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
   await admin.query(cancellationMigration);
   await admin.query(operationAuditMigration);
   await ensureControlPlaneAdmissionAudit(admin);
+  await ensureEffectDispatchSchema(admin);
   const predecessorUpgrade = await admin.query(
     `SELECT column_name, is_nullable
        FROM information_schema.columns
@@ -557,20 +642,21 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
     workerCapability,
     workerArtifactDigest,
   });
-  const workerPage = await store.listShadowWorkers();
+  const workerPage = await store.listOperationalWorkers();
   assert.equal(workerPage.workers.length, 1);
   assert.equal(workerPage.workers[0].worker_identity, "postgres-shadow-worker-1");
+  assert.equal(workerPage.workers[0].worker_kind, "shadow_read");
   assert.equal(workerPage.workers[0].lease_state, "available");
   assert.deepEqual(workerPage.workers[0].operation_ids, [
     ARTIFACT_SHADOW_RESOLVE_OPERATION,
     SOURCE_INTAKE_SHADOW_READ_OPERATION,
   ]);
-  const exactWorker = await store.readShadowWorker("postgres-shadow-worker-1");
+  const exactWorker = await store.readOperationalWorker("postgres-shadow-worker-1");
   assert.equal(exactWorker.worker?.worker_identity, "postgres-shadow-worker-1");
   assert.equal(exactWorker.worker?.lease_state, "available");
   assert.deepEqual(exactWorker.worker?.operation_ids, workerPage.workers[0].operation_ids);
-  assert.equal((await store.readShadowWorker("postgres-shadow-worker-missing")).worker, null);
-  await assert.rejects(() => store.readShadowWorker("invalid worker identity"), {
+  assert.equal((await store.readOperationalWorker("postgres-shadow-worker-missing")).worker, null);
+  await assert.rejects(() => store.readOperationalWorker("invalid worker identity"), {
     message: "WORKER_IDENTITY_INVALID",
   });
   assert.equal(JSON.stringify(workerPage).includes(workerCapability), false);
@@ -668,13 +754,13 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
     firstClaim?.compatibility_envelope_set_digest,
     queuedSourceBinding.compatibility_envelope_set_digest,
   );
-  const busyWorkerPage = await store.listShadowWorkers();
+  const busyWorkerPage = await store.listOperationalWorkers();
   assert.equal(busyWorkerPage.workers[0].job_count, 2);
   assert.equal(busyWorkerPage.workers[0].active_job_count, 1);
   assert.equal(busyWorkerPage.workers[0].last_run_identity, queuedSource.run_identity);
   assert.equal(busyWorkerPage.workers[0].last_run_state, "running");
   assert.ok(Date.parse(busyWorkerPage.workers[0].last_run_at) <= Date.parse(busyWorkerPage.observed_at));
-  const exactBusyWorker = await store.readShadowWorker("postgres-shadow-worker-1");
+  const exactBusyWorker = await store.readOperationalWorker("postgres-shadow-worker-1");
   assert.equal(exactBusyWorker.worker?.last_run_identity, queuedSource.run_identity);
   assert.equal(exactBusyWorker.worker?.active_job_count, 1);
   const terminalizedLegacy = await store.getRun(legacy.run_identity);
@@ -1322,6 +1408,10 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
   }), { message: "OPERATIONAL_DATA_EXPIRED" });
   await restarted.close();
   await admin.query(`TRUNCATE dashboard_operation_audit_v1,
+    dashboard_develop_composer_run_bindings_v2,
+    dashboard_exploratory_replay_run_bindings_v2,
+    dashboard_effect_dispatch_queue_v1,
+    dashboard_effect_workers_v1,
     dashboard_control_plane_admission_receipts_v1,
     dashboard_operation_run_cancellations_v1,
     dashboard_operation_run_cache_deletions_v1,
@@ -1351,6 +1441,7 @@ test("PostgreSQL Source-to-Research custody resumes only the missing Research st
   }
   await ensureSourceResearchCompatibilityCustody(admin);
   await ensureControlPlaneAdmissionAudit(admin);
+  await ensureEffectDispatchSchema(admin);
   const inputCustodyBefore = await admin.query(
     `SELECT count(*)::int AS custody_columns
        FROM information_schema.columns
@@ -1520,7 +1611,7 @@ test("PostgreSQL Source-to-Research custody resumes only the missing Research st
   assert.deepEqual(calls.map(({ url }) => new URL(url).pathname), [
     "/v1/source-intakes/source-request-1/readback",
     "/v2/research-goals/request-1/resolve",
-    "/v1/source-intake-research",
+    "/v2/source-intake-research",
     "/v2/research-goals/request-1/resolve",
   ]);
   assert.equal(calls[0].init.body, undefined);
@@ -1598,5 +1689,1070 @@ test("PostgreSQL Source-to-Research custody resumes only the missing Research st
   ), (error) => error?.code === "55000");
   await auditGateway.close();
   await store.close();
+  await admin.end();
+});
+
+test("PostgreSQL effect dispatch preserves atomic custody and lease-safe recovery", {
+  skip: !connectionString || !cursorKey,
+}, async () => {
+  const admin = new pg.Pool({ connectionString, max: 1 });
+  const existingRunStore = (await admin.query(
+    "SELECT to_regclass('public.dashboard_operation_runs_v1')::text AS runs",
+  )).rows[0]?.runs;
+  if (!existingRunStore) {
+    for (const name of [
+      "0001_operation_run_store.sql",
+      "0002_shadow_read_schedules.sql",
+      "0003_artifact_formation_run_store.sql",
+      "0006_source_research_run_store.sql",
+      "0007_operational_cache_deletion.sql",
+      "0008_queued_dependency_cancellation.sql",
+      "0009_operation_audit_store.sql",
+    ]) {
+      await admin.query(await readFile(new URL(`../migrations/${name}`, import.meta.url), "utf8"));
+    }
+  }
+  await ensureSourceResearchCompatibilityCustody(admin);
+  await ensureSourceResearchInputCustody(admin);
+  await ensureEffectDispatchSchema(admin);
+  await admin.query(`TRUNCATE dashboard_operation_audit_v1,
+    dashboard_develop_composer_run_bindings_v2,
+    dashboard_exploratory_replay_run_bindings_v2,
+    dashboard_effect_dispatch_queue_v1,
+    dashboard_effect_workers_v1,
+    dashboard_control_plane_admission_receipts_v1,
+    dashboard_operation_run_cancellations_v1,
+    dashboard_operation_run_cache_deletions_v1,
+    dashboard_source_research_run_bindings_v1,
+    dashboard_artifact_formation_run_bindings_v1,
+    dashboard_shadow_read_schedules_v1,
+    dashboard_shadow_dispatch_queue_v1,
+    dashboard_operation_run_logs_v1, dashboard_shadow_workers_v1,
+    dashboard_operation_runs_v1`);
+
+  const store = new PostgresRunStoreV1(connectionString, cursorKey);
+  await store.assertEffectDispatchSchema();
+  const nowEpochMs = Date.now();
+  const effectFixture = compatibleEnvironmentV1({
+    operationIds: [RESEARCH_SHADOW_RESOLVE_OPERATION],
+    extraManifests: [artifactFormationOperationManifestV1()],
+    nowEpochMs,
+  });
+  const activeRouting = {
+    state: "ACTIVE",
+    dispatcher: "TRADE_DASHBOARD",
+    binding_identity: `product-edge-operation-routing-binding-v1-${"2".repeat(64)}`,
+    binding_digest: `sha256:${"3".repeat(64)}`,
+    generation: 1,
+    history_head_identity: `product-edge-operation-routing-binding-v1-${"2".repeat(64)}`,
+  };
+  const artifactAdmission = await admitArtifactFormationExecutionV1({
+    action: "RUN",
+    environment: effectFixture.environment,
+    nowEpochMs,
+    routingResolver: async () => activeRouting,
+  });
+  assert.equal(artifactAdmission.availability, "available");
+  const sourceAdmission = await admitSourceResearchExecutionV1({
+    action: "RUN",
+    environment: sourceResearchCompatibility.environment,
+    nowEpochMs: sourceResearchCompatibility.nowEpochMs,
+    routingResolver: async () => activeRouting,
+  });
+  assert.equal(sourceAdmission.availability, "available");
+  const artifactDispatchTarget = configuredEffectDispatchTargetV1(
+    "artifact_build.formation_execute.v1",
+    {
+      RD_OWNER_API_URL: "http://127.0.0.1:18080",
+      RD_EXECUTION_AGENT_PROVIDER_URL: "https://provider.test/v1/chat",
+      RD_EXECUTION_AGENT_MODEL: "provider-model-v1",
+    },
+  );
+  const sourceDispatchTarget = configuredEffectDispatchTargetV1(
+    "source_intake.research.submit_or_resolve.v1",
+    { RD_OWNER_API_URL: "http://127.0.0.1:18080" },
+  );
+  const replayDispatchTarget = configuredEffectDispatchTargetV1(
+    "exploratory_replay.submit_or_resolve.v2",
+    { RD_OWNER_API_URL: "http://127.0.0.1:18080" },
+  );
+  const composerDispatchTarget = configuredEffectDispatchTargetV1(
+    "develop_composer.submit_or_resolve.v2",
+    { RD_OWNER_API_URL: "http://127.0.0.1:18080" },
+  );
+  assert.ok(artifactDispatchTarget);
+  assert.ok(sourceDispatchTarget);
+  assert.ok(replayDispatchTarget);
+  assert.ok(composerDispatchTarget);
+  const targetDigests = {
+    "artifact_build.formation_execute.v1": effectDispatchTargetDigestV1(
+      "artifact_build.formation_execute.v1",
+      artifactDispatchTarget,
+    ),
+    "exploratory_replay.submit_or_resolve.v2": effectDispatchTargetDigestV1(
+      "exploratory_replay.submit_or_resolve.v2",
+      replayDispatchTarget,
+    ),
+    "develop_composer.submit_or_resolve.v2": effectDispatchTargetDigestV1(
+      "develop_composer.submit_or_resolve.v2",
+      composerDispatchTarget,
+    ),
+    "source_intake.research.submit_or_resolve.v1": effectDispatchTargetDigestV1(
+      "source_intake.research.submit_or_resolve.v1",
+      sourceDispatchTarget,
+    ),
+  };
+
+  function artifactQueueInput(suffix, principalRef = `effect-postgres-${suffix}`) {
+    const recoveryIdentity = {
+      research_request_identity: `research-request-effect-${suffix}`,
+      build_request_identity: `artifact-build-request-effect-${suffix}`,
+      attempt_identity: `artifact-attempt-effect-${suffix}`,
+    };
+    return {
+      action: "RUN",
+      recoveryIdentity,
+      admission: artifactAdmission,
+      actionContext: {
+        authorizationDigest: `sha256:${"d".repeat(64)}`,
+        principalRef,
+        requestedAction: "RUN",
+      },
+      dispatchMode: "queue",
+      dispatchTarget: artifactDispatchTarget,
+      dispatchRequest: {
+        action: "RUN",
+        build_request_identity: recoveryIdentity.build_request_identity,
+        attempt_identity: recoveryIdentity.attempt_identity,
+        research_request_identity: recoveryIdentity.research_request_identity,
+        identity_mode: "GENERATE",
+      },
+      dispatchContext: {
+        schema_version: 1,
+        request_identity: recoveryIdentity.research_request_identity,
+        intent_identity: `research-intent-effect-${suffix}`,
+        intent_semantic_digest: `sha256:${"4".repeat(64)}`,
+        trial_family_identity: `trial-family-effect-${suffix}`,
+        trial_family_root_digest: `sha256:${"5".repeat(64)}`,
+        census_frontier_identity: `census-frontier-effect-${suffix}`,
+        census_frontier_digest: `sha256:${"6".repeat(64)}`,
+        valid_through_epoch_ms: nowEpochMs + 600_000,
+      },
+    };
+  }
+
+  await admin.query(`CREATE OR REPLACE FUNCTION dashboard_test_reject_effect_enqueue()
+    RETURNS trigger LANGUAGE plpgsql AS $function$
+    BEGIN
+      IF NEW.principal_ref = 'effect-postgres-rollback' THEN
+        RAISE EXCEPTION 'TEST_EFFECT_ENQUEUE_REJECTED' USING ERRCODE = '55000';
+      END IF;
+      RETURN NEW;
+    END $function$`);
+  await admin.query(`CREATE TRIGGER dashboard_test_reject_effect_enqueue
+    BEFORE INSERT ON dashboard_effect_dispatch_queue_v1
+    FOR EACH ROW EXECUTE FUNCTION dashboard_test_reject_effect_enqueue()`);
+  const rejectedInput = artifactQueueInput("rollback");
+  await assert.rejects(() => store.beginArtifactFormation(rejectedInput),
+    (error) => error?.code === "55000");
+  assert.deepEqual((await admin.query(
+    `SELECT
+       (SELECT COUNT(*)::int FROM dashboard_operation_runs_v1
+         WHERE recovery_identity_json->>'build_request_identity' = $1) AS runs,
+       (SELECT COUNT(*)::int FROM dashboard_control_plane_admission_receipts_v1
+         WHERE principal_ref = $2) AS receipts,
+       (SELECT COUNT(*)::int FROM dashboard_operation_audit_v1
+         WHERE principal_ref = $2) AS audits`,
+    [rejectedInput.recoveryIdentity.build_request_identity,
+      rejectedInput.actionContext.principalRef],
+  )).rows, [{ runs: 0, receipts: 0, audits: 0 }]);
+  await admin.query("DROP TRIGGER dashboard_test_reject_effect_enqueue ON dashboard_effect_dispatch_queue_v1");
+  await admin.query("DROP FUNCTION dashboard_test_reject_effect_enqueue()");
+
+  const artifactInput = artifactQueueInput("manual-reconciliation");
+  const queuedArtifact = await store.beginArtifactFormation(artifactInput);
+  assert.equal(queuedArtifact.run.state, "queued");
+  assert.deepEqual((await admin.query(
+    `SELECT
+       (SELECT COUNT(*)::int FROM dashboard_operation_runs_v1 WHERE run_identity = $1) AS runs,
+       (SELECT COUNT(*)::int FROM dashboard_artifact_formation_run_bindings_v1
+         WHERE run_identity = $1) AS bindings,
+       (SELECT COUNT(*)::int FROM dashboard_control_plane_admission_receipts_v1
+         WHERE run_identity = $1 AND execution_mode = 'FRESH_RUN') AS receipts,
+       (SELECT COUNT(*)::int FROM dashboard_operation_audit_v1
+         WHERE target_identity = $1) AS audits,
+       (SELECT COUNT(*)::int FROM dashboard_effect_dispatch_queue_v1
+         WHERE run_identity = $1) AS queued`,
+    [queuedArtifact.run.run_identity],
+  )).rows, [{ runs: 1, bindings: 1, receipts: 1, audits: 1, queued: 1 }]);
+
+  await assert.rejects(() => admin.query(
+    `UPDATE dashboard_effect_dispatch_queue_v1
+        SET request_json = jsonb_set(request_json, '{identity_mode}', '"EXACT"'::jsonb)
+      WHERE run_identity = $1`,
+    [queuedArtifact.run.run_identity],
+  ), (error) => error?.code === "23514");
+  await assert.rejects(() => admin.query(
+    `UPDATE dashboard_effect_dispatch_queue_v1
+        SET frozen_context_json = jsonb_set(frozen_context_json, '{intent_identity}', '"changed"'::jsonb)
+      WHERE run_identity = $1`,
+    [queuedArtifact.run.run_identity],
+  ), (error) => error?.code === "23514");
+  await assert.rejects(() => admin.query(
+    `UPDATE dashboard_effect_dispatch_queue_v1
+        SET frozen_target_json = jsonb_set(frozen_target_json, '{provider_model}', '"changed"'::jsonb)
+      WHERE run_identity = $1`,
+    [queuedArtifact.run.run_identity],
+  ), (error) => error?.code === "23514");
+
+  const shadowRun = await store.enqueueRead(SOURCE_INTAKE_SHADOW_READ_OPERATION, {
+    request_identity: "source-request-effect-cross-queue",
+  }, bindingFor(SOURCE_INTAKE_SHADOW_READ_OPERATION));
+  await assert.rejects(() => admin.query(
+    `INSERT INTO dashboard_shadow_dispatch_queue_v1
+       (run_identity, schema_version, registry_entry_digest, compatibility_envelope_set_digest)
+     VALUES ($1, 1, $2, $3)`,
+    [queuedArtifact.run.run_identity, `sha256:${"7".repeat(64)}`, `sha256:${"8".repeat(64)}`],
+  ), (error) => error?.code === "23514");
+  await assert.rejects(() => admin.query(
+    `INSERT INTO dashboard_effect_dispatch_queue_v1
+       (run_identity, schema_version, operation_id, request_json, request_digest,
+        frozen_target_json, frozen_target_digest,
+        frozen_context_json, frozen_context_digest, principal_ref,
+        authorization_digest, admission_receipt_identity)
+     SELECT $1, schema_version, operation_id, request_json, request_digest,
+            frozen_target_json, frozen_target_digest,
+            frozen_context_json, frozen_context_digest, principal_ref,
+            authorization_digest, admission_receipt_identity
+       FROM dashboard_effect_dispatch_queue_v1 WHERE run_identity = $2`,
+    [shadowRun.run_identity, queuedArtifact.run.run_identity],
+  ), (error) => error?.code === "23514");
+
+  const configuredIdentity = "postgres-effect-worker";
+  const workerCapability = "postgres-effect-worker-capability-at-least-thirty-two-bytes";
+  const workerArtifactDigest = `sha256:${"9".repeat(64)}`;
+  const workerIdentity = boundEffectWorkerIdentityV1({
+    configuredIdentity,
+    operationIds: effectDispatchOperationIdsV1,
+    workerCapability,
+    workerArtifactDigest,
+  });
+  assert.ok(workerIdentity);
+  const wrongWorkerIdentity = `dashboard-effect-worker-v1-${"f".repeat(64)}`;
+  await assert.rejects(() => store.registerEffectWorker({
+    configuredIdentity,
+    workerIdentity: wrongWorkerIdentity,
+    operationIds: effectDispatchOperationIdsV1,
+    workerCapability,
+    workerArtifactDigest,
+  }), { message: "EFFECT_WORKER_REGISTRATION_INVALID" });
+  await store.registerEffectWorker({
+    configuredIdentity,
+    workerIdentity,
+    operationIds: effectDispatchOperationIdsV1,
+    workerCapability,
+    workerArtifactDigest,
+  });
+  await assert.rejects(() => store.claimNextEffect({
+    workerIdentity: wrongWorkerIdentity,
+    workerCapability,
+    targetDigests,
+  }), { message: "EFFECT_WORKER_UNAVAILABLE" });
+  await assert.rejects(() => store.claimNextEffect({
+    workerIdentity,
+    workerCapability: `${workerCapability}-wrong`,
+    targetDigests,
+  }), { message: "EFFECT_WORKER_UNAVAILABLE" });
+
+  const artifactClaim = await store.claimNextEffect({ workerIdentity, workerCapability, targetDigests });
+  assert.equal(artifactClaim?.run_identity, queuedArtifact.run.run_identity);
+  assert.equal(artifactClaim?.claim_attempt, 1);
+  assert.deepEqual(artifactClaim?.request, artifactInput.dispatchRequest);
+  assert.deepEqual(artifactClaim?.frozen_target, artifactInput.dispatchTarget);
+  assert.deepEqual(artifactClaim?.frozen_context, artifactInput.dispatchContext);
+  const effectWorkerPage = await store.listOperationalWorkers();
+  const effectWorkerProjection = effectWorkerPage.workers.find(({ worker_identity }) => (
+    worker_identity === workerIdentity
+  ));
+  assert.equal(effectWorkerProjection?.worker_kind, "owner_effect");
+  assert.deepEqual(effectWorkerProjection?.operation_ids, effectDispatchOperationIdsV1);
+  assert.equal(effectWorkerProjection?.job_count, 1);
+  assert.equal(effectWorkerProjection?.active_job_count, 1);
+  assert.equal(effectWorkerProjection?.last_run_identity, artifactClaim.run_identity);
+  const exactEffectWorker = await store.readOperationalWorker(workerIdentity);
+  assert.equal(exactEffectWorker.worker?.worker_kind, "owner_effect");
+  assert.equal(exactEffectWorker.worker?.last_run_identity, artifactClaim.run_identity);
+  const claimedArtifactDetail = await store.readRunDetail(artifactClaim.run_identity);
+  assert.equal(claimedArtifactDetail?.worker_compatibility.availability, "available");
+  assert.equal(claimedArtifactDetail?.worker_compatibility.required_operation_id,
+    "artifact_build.formation_execute.v1");
+  assert.equal(claimedArtifactDetail?.worker_compatibility.worker_identity, workerIdentity);
+  assert.equal(claimedArtifactDetail?.worker_compatibility.claim_attempt, 1);
+  assert.equal(claimedArtifactDetail?.worker_compatibility.completed_at, null);
+  await assert.rejects(() => store.settleEffectClaim({
+    runIdentity: artifactClaim.run_identity,
+    workerIdentity,
+    workerCapability,
+    claimToken: `${artifactClaim.claim_token}-wrong`,
+    retry: true,
+  }), { message: "EFFECT_WORKER_SETTLEMENT_CONFLICT" });
+  await store.renewEffectClaim({
+    runIdentity: artifactClaim.run_identity,
+    workerIdentity,
+    workerCapability,
+    claimToken: artifactClaim.claim_token,
+    workerLeaseMilliseconds: 30_000,
+    claimLeaseMilliseconds: 30_000,
+  });
+  let artifactRun = await store.recordArtifactFormationPhase({
+    runIdentity: artifactClaim.run_identity,
+    expectedTransitionVersion: artifactClaim.transition_version,
+    phase: "OWNER_CLAIMED",
+  });
+  artifactRun = await store.recordArtifactFormationPhase({
+    runIdentity: artifactClaim.run_identity,
+    expectedTransitionVersion: artifactRun.transition_version,
+    phase: "INVOCATION_STARTED",
+  });
+  await admin.query(
+    `UPDATE dashboard_effect_dispatch_queue_v1
+        SET lease_expires_at = clock_timestamp() - interval '1 second'
+      WHERE run_identity = $1`,
+    [artifactClaim.run_identity],
+  );
+  assert.equal(await store.claimNextEffect({ workerIdentity, workerCapability, targetDigests }), null);
+  artifactRun = await store.getRun(artifactClaim.run_identity);
+  assert.equal(artifactRun?.state, "unknown");
+  assert.equal(artifactRun?.terminal_code, "MANUAL_RECONCILIATION_REQUIRED");
+  assert.equal((await admin.query(
+    `SELECT claim_attempt, completed_at IS NOT NULL AS completed
+       FROM dashboard_effect_dispatch_queue_v1 WHERE run_identity = $1`,
+    [artifactClaim.run_identity],
+  )).rows[0].claim_attempt, 1);
+  assert.equal((await admin.query(
+    `SELECT completed_at IS NOT NULL AS completed
+       FROM dashboard_effect_dispatch_queue_v1 WHERE run_identity = $1`,
+    [artifactClaim.run_identity],
+  )).rows[0].completed, true);
+  assert.equal((await store.getRunLogs(artifactClaim.run_identity))
+    .filter(({ event_code }) => event_code === "RUN_CLAIMED").length, 1);
+
+  function sourceQueueInput(suffix) {
+    const request = structuredClone(sourceResearchRunRequest);
+    request.source.request_identity = `source-request-effect-${suffix}`;
+    request.research.request_identity = `research-request-effect-${suffix}`;
+    return {
+      action: "RUN",
+      recoveryIdentity: {
+        source_request_identity: request.source.request_identity,
+        research_request_identity: request.research.request_identity,
+      },
+      admission: sourceAdmission,
+      actionContext: {
+        authorizationDigest: `sha256:${"a".repeat(64)}`,
+        principalRef: `effect-postgres-${suffix}`,
+        requestedAction: "RUN",
+      },
+      runRequest: request,
+      dispatchMode: "queue",
+      dispatchTarget: sourceDispatchTarget,
+    };
+  }
+
+  const sourceInput = sourceQueueInput("settle");
+  const queuedSource = await store.beginSourceResearch(sourceInput);
+  const unclaimedSourceDetail = await store.readRunDetail(queuedSource.run.run_identity);
+  assert.equal(unclaimedSourceDetail?.worker_compatibility.availability, "unavailable");
+  assert.equal(unclaimedSourceDetail?.worker_compatibility.unavailable_reason, "RUN_WORKER_NOT_CLAIMED");
+  assert.equal(unclaimedSourceDetail?.worker_compatibility.required_operation_id,
+    "source_intake.research.submit_or_resolve.v1");
+  assert.equal(unclaimedSourceDetail?.worker_compatibility.claim_attempt, 0);
+  const mismatchedTargetDigests = {
+    ...targetDigests,
+    "source_intake.research.submit_or_resolve.v1": `sha256:${"0".repeat(64)}`,
+  };
+  assert.equal(await store.claimNextEffect({
+    workerIdentity,
+    workerCapability,
+    targetDigests: mismatchedTargetDigests,
+  }), null);
+  assert.deepEqual((await admin.query(
+    `SELECT r.state, q.claim_attempt
+       FROM dashboard_effect_dispatch_queue_v1 q
+       JOIN dashboard_operation_runs_v1 r USING (run_identity)
+      WHERE q.run_identity = $1`,
+    [queuedSource.run.run_identity],
+  )).rows, [{ state: "queued", claim_attempt: 0 }]);
+  const sourceClaim = await store.claimNextEffect({ workerIdentity, workerCapability, targetDigests });
+  assert.equal(sourceClaim?.run_identity, queuedSource.run.run_identity);
+  assert.equal(sourceClaim?.claim_attempt, 1);
+  assert.deepEqual(sourceClaim?.frozen_target, sourceInput.dispatchTarget);
+  await store.renewEffectClaim({
+    runIdentity: sourceClaim.run_identity,
+    workerIdentity,
+    workerCapability,
+    claimToken: sourceClaim.claim_token,
+    workerLeaseMilliseconds: 30_000,
+    claimLeaseMilliseconds: 30_000,
+  });
+  let sourceRun = await store.recordSourceResearchPhase({
+    runIdentity: sourceClaim.run_identity,
+    expectedTransitionVersion: sourceClaim.transition_version,
+    phase: "SOURCE_OWNER_AVAILABLE",
+  });
+  sourceRun = await store.recordSourceResearchPhase({
+    runIdentity: sourceClaim.run_identity,
+    expectedTransitionVersion: sourceRun.transition_version,
+    phase: "RESEARCH_OWNER_AVAILABLE",
+  });
+  sourceRun = await store.completeSourceResearch({
+    runIdentity: sourceClaim.run_identity,
+    expectedTransitionVersion: sourceRun.transition_version,
+    ownerOutcomeState: "available",
+  });
+  const settledSource = await store.settleEffectClaim({
+    runIdentity: sourceClaim.run_identity,
+    workerIdentity,
+    workerCapability,
+    claimToken: sourceClaim.claim_token,
+    retry: false,
+  });
+  assert.equal(settledSource.state, "succeeded");
+  assert.equal(sourceRun.state, "succeeded");
+  assert.equal((await admin.query(
+    `SELECT completed_at IS NOT NULL AS completed
+       FROM dashboard_effect_dispatch_queue_v1 WHERE run_identity = $1`,
+    [sourceClaim.run_identity],
+  )).rows[0].completed, true);
+
+  const expiringInput = sourceQueueInput("lease-expiry");
+  const expiringSource = await store.beginSourceResearch(expiringInput);
+  const expiredClaim = await store.claimNextEffect({ workerIdentity, workerCapability, targetDigests });
+  assert.equal(expiredClaim?.run_identity, expiringSource.run.run_identity);
+  await admin.query(
+    `UPDATE dashboard_effect_dispatch_queue_v1
+        SET lease_expires_at = clock_timestamp() - interval '1 second'
+      WHERE run_identity = $1`,
+    [expiredClaim.run_identity],
+  );
+  const successorClaim = await store.claimNextEffect({ workerIdentity, workerCapability, targetDigests });
+  assert.equal(successorClaim?.run_identity, expiredClaim.run_identity);
+  assert.equal(successorClaim?.claim_attempt, 2);
+  await assert.rejects(() => store.settleEffectClaim({
+    runIdentity: expiredClaim.run_identity,
+    workerIdentity,
+    workerCapability,
+    claimToken: expiredClaim.claim_token,
+    retry: true,
+  }), { message: "EFFECT_WORKER_SETTLEMENT_CONFLICT" });
+  const expiryLogs = await store.getRunLogs(expiredClaim.run_identity);
+  assert.equal(expiryLogs.filter(({ event_code }) => event_code === "LEASE_EXPIRED_REQUEUED").length, 1);
+  assert.equal(expiryLogs.filter(({ event_code }) => event_code === "RUN_CLAIMED").length, 2);
+  sourceRun = await store.recordSourceResearchPhase({
+    runIdentity: successorClaim.run_identity,
+    expectedTransitionVersion: successorClaim.transition_version,
+    phase: "SOURCE_OWNER_AVAILABLE",
+  });
+  sourceRun = await store.recordSourceResearchPhase({
+    runIdentity: successorClaim.run_identity,
+    expectedTransitionVersion: sourceRun.transition_version,
+    phase: "RESEARCH_OWNER_AVAILABLE",
+  });
+  await store.completeSourceResearch({
+    runIdentity: successorClaim.run_identity,
+    expectedTransitionVersion: sourceRun.transition_version,
+    ownerOutcomeState: "available",
+  });
+  await store.settleEffectClaim({
+    runIdentity: successorClaim.run_identity,
+    workerIdentity,
+    workerCapability,
+    claimToken: successorClaim.claim_token,
+    retry: false,
+  });
+
+  const staleSourceDispatchTarget = configuredEffectDispatchTargetV1(
+    "source_intake.research.submit_or_resolve.v1",
+    { RD_OWNER_API_URL: "http://127.0.0.1:19090" },
+  );
+  assert.ok(staleSourceDispatchTarget);
+  const staleTargetRunIdentities = [];
+  for (let index = 0; index < 32; index += 1) {
+    const staleTargetInput = {
+      ...sourceQueueInput(`target-starvation-${String(index).padStart(2, "0")}`),
+      dispatchTarget: staleSourceDispatchTarget,
+    };
+    const staleTargetRun = await store.beginSourceResearch(staleTargetInput);
+    staleTargetRunIdentities.push(staleTargetRun.run.run_identity);
+  }
+  const currentTargetInput = sourceQueueInput("target-starvation-current");
+  const currentTargetRun = await store.beginSourceResearch(currentTargetInput);
+  let currentTargetClaim = null;
+  for (let tick = 0; tick < 3 && currentTargetClaim === null; tick += 1) {
+    currentTargetClaim = await store.claimNextEffect({
+      workerIdentity,
+      workerCapability,
+      targetDigests,
+    });
+  }
+  assert.equal(currentTargetClaim?.run_identity, currentTargetRun.run.run_identity);
+  assert.deepEqual((await admin.query(
+    `SELECT r.state, q.claim_attempt, COUNT(*)::int AS count
+       FROM dashboard_effect_dispatch_queue_v1 q
+       JOIN dashboard_operation_runs_v1 r USING (run_identity)
+      WHERE q.run_identity = ANY($1::text[])
+      GROUP BY r.state, q.claim_attempt`,
+    [staleTargetRunIdentities],
+  )).rows, [{ state: "queued", claim_attempt: 0, count: 32 }]);
+  sourceRun = await store.recordSourceResearchPhase({
+    runIdentity: currentTargetClaim.run_identity,
+    expectedTransitionVersion: currentTargetClaim.transition_version,
+    phase: "SOURCE_OWNER_AVAILABLE",
+  });
+  sourceRun = await store.recordSourceResearchPhase({
+    runIdentity: currentTargetClaim.run_identity,
+    expectedTransitionVersion: sourceRun.transition_version,
+    phase: "RESEARCH_OWNER_AVAILABLE",
+  });
+  await store.completeSourceResearch({
+    runIdentity: currentTargetClaim.run_identity,
+    expectedTransitionVersion: sourceRun.transition_version,
+    ownerOutcomeState: "available",
+  });
+  await store.settleEffectClaim({
+    runIdentity: currentTargetClaim.run_identity,
+    workerIdentity,
+    workerCapability,
+    claimToken: currentTargetClaim.claim_token,
+    retry: false,
+  });
+
+  const corruptedTargetInput = sourceQueueInput("target-corruption");
+  const corruptedTargetRun = await store.beginSourceResearch(corruptedTargetInput);
+  await admin.query(
+    "ALTER TABLE dashboard_effect_dispatch_queue_v1 DISABLE TRIGGER dashboard_effect_queue_frozen_custody_v1",
+  );
+  try {
+    await admin.query(
+      `UPDATE dashboard_effect_dispatch_queue_v1
+          SET frozen_target_digest = $2
+        WHERE run_identity = $1`,
+      [corruptedTargetRun.run.run_identity, `sha256:${"0".repeat(64)}`],
+    );
+    await admin.query(
+      `UPDATE dashboard_effect_dispatch_queue_v1 q
+          SET enqueued_at = '2020-01-01T00:00:00.000001Z'::timestamptz
+            + (ordered.ordinality - 1) * interval '1 microsecond'
+         FROM unnest($1::text[]) WITH ORDINALITY AS ordered(run_identity, ordinality)
+        WHERE q.run_identity = ordered.run_identity`,
+      [staleTargetRunIdentities],
+    );
+    await admin.query(
+      `UPDATE dashboard_effect_dispatch_queue_v1
+          SET enqueued_at = '2020-01-01T00:00:00.000100Z'::timestamptz
+        WHERE run_identity = $1`,
+      [corruptedTargetRun.run.run_identity],
+    );
+  } finally {
+    await admin.query(
+      "ALTER TABLE dashboard_effect_dispatch_queue_v1 ENABLE TRIGGER dashboard_effect_queue_frozen_custody_v1",
+    );
+  }
+  for (let tick = 0; tick < 3; tick += 1) {
+    assert.equal(await store.claimNextEffect({
+      workerIdentity,
+      workerCapability,
+      targetDigests,
+    }), null);
+  }
+  const quarantinedTargetRun = await store.getRun(corruptedTargetRun.run.run_identity);
+  assert.equal(quarantinedTargetRun?.state, "failed");
+  assert.equal(quarantinedTargetRun?.terminal_code, "DEPLOYMENT_UNAVAILABLE");
+  assert.deepEqual((await admin.query(
+    `SELECT r.state, q.claim_attempt, COUNT(*)::int AS count
+       FROM dashboard_effect_dispatch_queue_v1 q
+       JOIN dashboard_operation_runs_v1 r USING (run_identity)
+      WHERE q.run_identity = ANY($1::text[])
+      GROUP BY r.state, q.claim_attempt`,
+    [staleTargetRunIdentities],
+  )).rows, [{ state: "queued", claim_attempt: 0, count: 32 }]);
+  assert.deepEqual((await admin.query(
+    `SELECT scan_after_enqueued_at IS NOT NULL AS cursor_time,
+            scan_after_run_identity IS NOT NULL AS cursor_identity
+       FROM dashboard_effect_workers_v1 WHERE worker_identity = $1`,
+    [workerIdentity],
+  )).rows, [{ cursor_time: true, cursor_identity: true }]);
+
+  const malformedRequestInput = artifactQueueInput("request-coercion-corruption");
+  const malformedRequestRun = await store.beginArtifactFormation(malformedRequestInput);
+  const followingRequestInput = artifactQueueInput("request-coercion-follower");
+  const followingRequestRun = await store.beginArtifactFormation(followingRequestInput);
+  await admin.query(
+    "ALTER TABLE dashboard_effect_dispatch_queue_v1 DISABLE TRIGGER dashboard_effect_queue_frozen_custody_v1",
+  );
+  try {
+    await admin.query(
+      `UPDATE dashboard_effect_dispatch_queue_v1
+          SET request_json = jsonb_set(
+            request_json,
+            '{research_request_identity}',
+            '{"toString":null}'::jsonb
+          )
+        WHERE run_identity = $1`,
+      [malformedRequestRun.run.run_identity],
+    );
+  } finally {
+    await admin.query(
+      "ALTER TABLE dashboard_effect_dispatch_queue_v1 ENABLE TRIGGER dashboard_effect_queue_frozen_custody_v1",
+    );
+  }
+  const followingRequestClaim = await store.claimNextEffect({
+    workerIdentity,
+    workerCapability,
+    targetDigests,
+  });
+  assert.equal(followingRequestClaim?.run_identity, followingRequestRun.run.run_identity);
+  const quarantinedRequestRun = await store.getRun(malformedRequestRun.run.run_identity);
+  assert.equal(quarantinedRequestRun?.state, "failed");
+  assert.equal(quarantinedRequestRun?.terminal_code, "DEPLOYMENT_UNAVAILABLE");
+
+  const arraySourceInput = sourceQueueInput("array-source-corruption");
+  const arraySourceRun = await store.beginSourceResearch(arraySourceInput);
+  const followingSourceInput = sourceQueueInput("array-source-follower");
+  const followingSourceRun = await store.beginSourceResearch(followingSourceInput);
+  const arraySourceRequest = structuredClone(arraySourceInput.runRequest);
+  arraySourceRequest.source.normalized_doi = [arraySourceRequest.source.normalized_doi];
+  const arraySourceDigest = digest(JSON.stringify({
+    schema_version: 1,
+    operation_id: "source_intake.research.submit_or_resolve.v1",
+    request: arraySourceRequest,
+  }));
+  await admin.query(
+    "ALTER TABLE dashboard_effect_dispatch_queue_v1 DISABLE TRIGGER dashboard_effect_queue_frozen_custody_v1",
+  );
+  try {
+    await admin.query(
+      `UPDATE dashboard_effect_dispatch_queue_v1
+          SET request_json = $2::jsonb, request_digest = $3
+        WHERE run_identity = $1`,
+      [arraySourceRun.run.run_identity, JSON.stringify(arraySourceRequest), arraySourceDigest],
+    );
+  } finally {
+    await admin.query(
+      "ALTER TABLE dashboard_effect_dispatch_queue_v1 ENABLE TRIGGER dashboard_effect_queue_frozen_custody_v1",
+    );
+  }
+  const followingSourceClaim = await store.claimNextEffect({
+    workerIdentity,
+    workerCapability,
+    targetDigests,
+  });
+  assert.equal(followingSourceClaim?.run_identity, followingSourceRun.run.run_identity);
+  const quarantinedArraySourceRun = await store.getRun(arraySourceRun.run.run_identity);
+  assert.equal(quarantinedArraySourceRun?.state, "failed");
+  assert.equal(quarantinedArraySourceRun?.terminal_code, "DEPLOYMENT_UNAVAILABLE");
+
+  const replayFixture = compatibleEnvironmentV1({
+    extraManifests: [exploratoryReplayOperationV2],
+    nowEpochMs,
+  });
+  const replayAdmission = await admitExploratoryReplayExecutionV2({
+    environment: replayFixture.environment,
+    nowEpochMs,
+    routingResolver: async () => activeRouting,
+  });
+  assert.equal(replayAdmission.availability, "available");
+  const replayRequest = replayRunRequest("effect-postgres-1");
+  const canonicalBytes = [...new TextEncoder().encode(
+    exploratoryReplayOwnerRequestBodyV2(replayRequest.request),
+  )];
+  const replayDispatchRequest = {
+    ...replayRequest,
+    selector: {
+      request_identity: replayRequest.request.request_identity,
+      meaning_digest: `blake3:${"e".repeat(64)}`,
+      canonical_request_digest: canonicalReplayRequestDigestV2(canonicalBytes),
+    },
+  };
+  const replayStart = await store.beginExploratoryReplay({
+    recoveryIdentity: {
+      request_identity: replayDispatchRequest.selector.request_identity,
+      meaning_digest: replayDispatchRequest.selector.meaning_digest,
+    },
+    admission: replayAdmission,
+    actionContext: {
+      authorizationDigest: `sha256:${"d".repeat(64)}`,
+      principalRef: "effect-postgres-replay",
+      requestedAction: "RUN",
+    },
+    dispatchRequest: replayDispatchRequest,
+    dispatchTarget: replayDispatchTarget,
+  });
+  assert.equal(replayStart.execution_mode, "FRESH_RUN");
+  const replayRecovery = await store.readExploratoryReplayRecovery({
+    request_identity: replayDispatchRequest.selector.request_identity,
+    meaning_digest: replayDispatchRequest.selector.meaning_digest,
+  });
+  assert.equal(replayRecovery?.run.run_identity, replayStart.run.run_identity);
+  assert.equal(replayRecovery?.submission_started, false);
+  const replayClaim = await store.claimNextEffect({
+    workerIdentity,
+    workerCapability,
+    targetDigests,
+  });
+  assert.equal(replayClaim?.run_identity, replayStart.run.run_identity);
+  const replayPhased = await store.recordExploratoryReplaySubmissionStarted({
+    runIdentity: replayClaim.run_identity,
+    expectedTransitionVersion: replayClaim.transition_version,
+  });
+  assert.equal((await store.readExploratoryReplayRecovery({
+    request_identity: replayDispatchRequest.selector.request_identity,
+    meaning_digest: replayDispatchRequest.selector.meaning_digest,
+  }))?.submission_started, true);
+  const replayCompleted = await store.completeExploratoryReplay({
+    runIdentity: replayClaim.run_identity,
+    expectedTransitionVersion: replayPhased.transition_version,
+  });
+  assert.equal(replayCompleted.state, "succeeded");
+  await store.settleEffectClaim({
+    runIdentity: replayClaim.run_identity,
+    workerIdentity,
+    workerCapability,
+    claimToken: replayClaim.claim_token,
+    retry: false,
+  });
+
+  const composerFixture = compatibleEnvironmentV1({
+    extraManifests: [developComposerOperationV2],
+    nowEpochMs,
+  });
+  const composerAdmission = await admitDevelopComposerExecutionV2({
+    environment: composerFixture.environment,
+    nowEpochMs,
+    routingResolver: async () => activeRouting,
+  });
+  assert.equal(composerAdmission.availability, "available");
+  const digestBytes = (value) => Array.from({ length: 32 }, () => value);
+  const composerProjection = {
+    schema_version: 2,
+    research_request_locator: "research-request-composer-effect-postgres-1",
+    request_identity: "composer-request-effect-postgres-1",
+    request_digest: digestBytes(1),
+    research_custody_digest: digestBytes(2),
+    research_request_identity: digestBytes(3),
+    intent_identity: digestBytes(4),
+    intent_digest: digestBytes(5),
+    design_identity: digestBytes(6),
+    design_digest: digestBytes(7),
+    provider_identity: "provider-effect-postgres-1",
+  };
+  const composerProjectionDigest = developComposerProjectionDigestV2(composerProjection);
+  const composerDispatchRequest = {
+    action: "RUN",
+    research_request_locator: composerProjection.research_request_locator,
+    projection: composerProjection,
+  };
+  const composerStart = await store.beginDevelopComposer({
+    recoveryIdentity: {
+      request_identity: composerProjection.request_identity,
+      projection_digest: composerProjectionDigest,
+    },
+    admission: composerAdmission,
+    actionContext: {
+      authorizationDigest: `sha256:${"d".repeat(64)}`,
+      principalRef: "effect-postgres-composer",
+      requestedAction: "RUN",
+    },
+    dispatchRequest: composerDispatchRequest,
+    dispatchTarget: composerDispatchTarget,
+  });
+  assert.equal(composerStart.execution_mode, "FRESH_RUN");
+  assert.equal((await store.readDevelopComposerRecovery({
+    request_identity: composerProjection.request_identity,
+    projection_digest: composerProjectionDigest,
+  }))?.submission_started, false);
+  const composerClaim = await store.claimNextEffect({
+    workerIdentity,
+    workerCapability,
+    targetDigests,
+  });
+  assert.equal(composerClaim?.run_identity, composerStart.run.run_identity);
+  const composerPhased = await store.recordDevelopComposerSubmissionStarted({
+    runIdentity: composerClaim.run_identity,
+    expectedTransitionVersion: composerClaim.transition_version,
+  });
+  assert.equal((await store.readDevelopComposerRecovery({
+    request_identity: composerProjection.request_identity,
+    projection_digest: composerProjectionDigest,
+  }))?.submission_started, true);
+  await assert.rejects(() => store.completeDevelopComposer({
+    runIdentity: composerClaim.run_identity,
+    expectedTransitionVersion: composerPhased.transition_version,
+    operationalState: "succeeded",
+    ownerOutcomeState: "rejected",
+    terminalCode: "OWNER_REJECTED",
+  }), { message: "DEVELOP_COMPOSER_COMPLETION_INVALID" });
+  const composerCompleted = await store.completeDevelopComposer({
+    runIdentity: composerClaim.run_identity,
+    expectedTransitionVersion: composerPhased.transition_version,
+    operationalState: "succeeded",
+    ownerOutcomeState: "available",
+    terminalCode: "OWNER_AVAILABLE",
+  });
+  assert.equal(composerCompleted.state, "succeeded");
+  await store.settleEffectClaim({
+    runIdentity: composerClaim.run_identity,
+    workerIdentity,
+    workerCapability,
+    claimToken: composerClaim.claim_token,
+    retry: false,
+  });
+  const composerResolution = await resolveRunOwnerOutcomeV1({
+    runIdentity: composerCompleted.run_identity,
+    expectedTransitionVersion: composerCompleted.transition_version,
+    store,
+    readers: {
+      composer: async (requestIdentity) => ({
+        status: 200,
+        envelope: {
+          availability: "available",
+          unavailable_reason: null,
+          projection: {
+            schemaVersion: 1,
+            availability: "available",
+            requestIdentity,
+            observedAt: "2026-09-13T00:00:00.000Z",
+            state: "readback",
+            readback: {
+              disposition: "CONFLICT",
+              receiptIdentity: null,
+              artifact: null,
+              coordinate: "operation",
+              reason: "request identity is already bound to different input",
+            },
+            reason: null,
+          },
+        },
+      }),
+    },
+  });
+  assert.equal(composerResolution.status, 200);
+  assert.equal(composerResolution.envelope.owner_outcome_state, "rejected");
+  assert.equal(composerResolution.envelope.replacement_run.state, "succeeded");
+  const composerResolutionRun = await store.getRun(
+    composerResolution.envelope.replacement_run.run_identity,
+  );
+  assert.equal(composerResolutionRun?.owner_outcome_state, "rejected");
+  assert.equal(composerResolutionRun?.terminal_code, "OWNER_REJECTED");
+  const crossDesignResolution = await resolveRunOwnerOutcomeV1({
+    runIdentity: composerCompleted.run_identity,
+    expectedTransitionVersion: composerCompleted.transition_version,
+    store,
+    readers: {
+      composer: async (requestIdentity) => ({
+        status: 200,
+        envelope: {
+          availability: "available",
+          unavailable_reason: null,
+          projection: {
+            schemaVersion: 1,
+            availability: "available",
+            requestIdentity,
+            observedAt: "2026-09-13T00:00:01.000Z",
+            state: "readback",
+            readback: {
+              disposition: "SUCCESS",
+              receiptIdentity: "08".repeat(32),
+              artifact: {
+                locator: "develop-composer-artifact-cross-design-postgres-1",
+                artifactDigest: "09".repeat(32),
+                canonicalPlanDigest: "0a".repeat(32),
+                designDigest: "0b".repeat(32),
+              },
+              coordinate: null,
+              reason: null,
+            },
+            reason: null,
+          },
+        },
+      }),
+    },
+  });
+  assert.equal(crossDesignResolution.status, 200);
+  assert.equal(crossDesignResolution.envelope.owner_outcome_state, "unavailable");
+  const crossDesignResolutionRun = await store.getRun(
+    crossDesignResolution.envelope.replacement_run.run_identity,
+  );
+  assert.equal(crossDesignResolutionRun?.owner_outcome_state, "unavailable");
+  assert.equal(crossDesignResolutionRun?.terminal_code, "OWNER_UNAVAILABLE");
+
+  const httpProjection = {
+    ...composerProjection,
+    research_request_locator: "research-request-composer-http-postgres-1",
+    request_identity: "composer-request-http-postgres-1",
+    provider_identity: "provider-http-postgres-1",
+  };
+  let resolveCount = 0;
+  const ownerRequests = [];
+  const owner = createServer(async (request, response) => {
+    const body = [];
+    for await (const chunk of request) body.push(chunk);
+    const pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
+    ownerRequests.push({
+      method: request.method,
+      pathname,
+      search: new URL(request.url ?? "/", "http://127.0.0.1").search,
+      authorization: request.headers.authorization,
+      dispatcher: request.headers["x-trade-effect-dispatcher"],
+      body: Buffer.concat(body).toString("utf8"),
+    });
+    response.setHeader("content-type", "application/json");
+    if (request.method === "GET" && pathname === "/v2/develop-composer/request-projections") {
+      response.end(JSON.stringify(httpProjection));
+      return;
+    }
+    if (request.method === "POST"
+      && pathname === `/v2/develop-composer/runs/${httpProjection.request_identity}/resolve`) {
+      resolveCount += 1;
+      if (resolveCount === 1) {
+        response.statusCode = 503;
+        response.end(JSON.stringify({
+          schema_version: 2,
+          request_identity: httpProjection.request_identity,
+          disposition: "UNAVAILABLE",
+          receipt_identity: null,
+          artifact: null,
+          coordinate: "operation",
+          reason: "terminal is unavailable",
+        }));
+        return;
+      }
+      response.end(JSON.stringify({
+        schema_version: 2,
+        request_identity: httpProjection.request_identity,
+        disposition: "SUCCESS",
+        receipt_identity: digestBytes(8),
+        artifact: {
+          artifact_locator: "develop-composer-artifact-http-postgres-1",
+          artifact_digest: digestBytes(9),
+          canonical_plan_digest: digestBytes(10),
+          design_digest: httpProjection.design_digest,
+        },
+        coordinate: null,
+        reason: null,
+      }));
+      return;
+    }
+    if (request.method === "POST" && pathname === "/v2/develop-composer/runs") {
+      response.statusCode = 202;
+      response.end(JSON.stringify({
+        schema_version: 2,
+        request_identity: httpProjection.request_identity,
+        disposition: "SUBMITTED_OR_UNKNOWN",
+        receipt_identity: null,
+        artifact: null,
+        coordinate: null,
+        reason: null,
+      }));
+      return;
+    }
+    response.statusCode = 404;
+    response.end(JSON.stringify({ error: "not found" }));
+  });
+  owner.listen(0, "127.0.0.1");
+  await once(owner, "listening");
+  const ownerAddress = owner.address();
+  assert.ok(ownerAddress && typeof ownerAddress === "object");
+  const ownerUrl = `http://127.0.0.1:${ownerAddress.port}/`;
+  const workerEnvironment = {
+    DASHBOARD_EFFECT_WORKER_ID: "effect-worker-composer-http-postgres",
+    DASHBOARD_EFFECT_WORKER_TOKEN: "composer-http-postgres-worker-capability",
+    DASHBOARD_EFFECT_WORKER_ARTIFACT_DIGEST: `sha256:${"8".repeat(64)}`,
+    DASHBOARD_DEPLOYMENT_CLASS: "DISPOSABLE_LOCAL",
+    DASHBOARD_DISPOSABLE_DEVELOP_COMPOSER_EXECUTION: "ENABLED",
+    RD_OWNER_API_URL: ownerUrl,
+    RD_OWNER_API_TOKEN: "composer-http-postgres-owner-token",
+    RD_EXECUTION_AGENT_PROVIDER_URL: "https://provider.test/v1/chat",
+    RD_EXECUTION_AGENT_MODEL: "provider-model-v1",
+  };
+  const httpDispatchTarget = configuredEffectDispatchTargetV1(
+    "develop_composer.submit_or_resolve.v2",
+    workerEnvironment,
+  );
+  assert.ok(httpDispatchTarget);
+  const httpProjectionDigest = developComposerProjectionDigestV2(httpProjection);
+  const httpStart = await store.beginDevelopComposer({
+    recoveryIdentity: {
+      request_identity: httpProjection.request_identity,
+      projection_digest: httpProjectionDigest,
+    },
+    admission: composerAdmission,
+    actionContext: {
+      authorizationDigest: `sha256:${"7".repeat(64)}`,
+      principalRef: "effect-postgres-composer-http",
+      requestedAction: "RUN",
+    },
+    dispatchRequest: {
+      action: "RUN",
+      research_request_locator: httpProjection.research_request_locator,
+      projection: httpProjection,
+    },
+    dispatchTarget: httpDispatchTarget,
+  });
+  try {
+    const workerTick = await runEffectWorkerTickV1({
+      store,
+      environment: workerEnvironment,
+    });
+    assert.equal(workerTick.state, "executed");
+    assert.equal(workerTick.run_identity, httpStart.run.run_identity);
+    const httpRecovery = await store.readDevelopComposerRecovery({
+      request_identity: httpProjection.request_identity,
+      projection_digest: httpProjectionDigest,
+    });
+    assert.equal(httpRecovery?.run.state, "succeeded");
+    assert.equal(httpRecovery?.run.owner_outcome_state, "available");
+    assert.equal(httpRecovery?.run.terminal_code, "OWNER_AVAILABLE");
+    assert.equal(httpRecovery?.submission_started, true);
+    assert.deepEqual(ownerRequests.map(({ method, pathname }) => `${method} ${pathname}`), [
+      "GET /v2/develop-composer/request-projections",
+      `POST /v2/develop-composer/runs/${httpProjection.request_identity}/resolve`,
+      "POST /v2/develop-composer/runs",
+      `POST /v2/develop-composer/runs/${httpProjection.request_identity}/resolve`,
+    ]);
+    assert.equal(
+      ownerRequests[0].search,
+      `?research_request_locator=${httpProjection.research_request_locator}`,
+    );
+    assert.ok(ownerRequests.every(({ authorization }) => (
+      authorization === "Bearer composer-http-postgres-owner-token"
+    )));
+    assert.equal(ownerRequests[1].dispatcher, "TRADE_DASHBOARD");
+    assert.equal(ownerRequests[2].dispatcher, "TRADE_DASHBOARD");
+    assert.equal(ownerRequests[3].dispatcher, "TRADE_DASHBOARD");
+    assert.deepEqual(JSON.parse(ownerRequests[2].body), {
+      research_request_locator: httpProjection.research_request_locator,
+    });
+  } finally {
+    await new Promise((resolve, reject) => owner.close((error) => (
+      error ? reject(error) : resolve()
+    )));
+  }
+
+  await store.close();
+  await admin.query(`TRUNCATE dashboard_operation_audit_v1,
+    dashboard_develop_composer_run_bindings_v2,
+    dashboard_exploratory_replay_run_bindings_v2,
+    dashboard_effect_dispatch_queue_v1,
+    dashboard_effect_workers_v1,
+    dashboard_control_plane_admission_receipts_v1,
+    dashboard_operation_run_cancellations_v1,
+    dashboard_operation_run_cache_deletions_v1,
+    dashboard_source_research_run_bindings_v1,
+    dashboard_artifact_formation_run_bindings_v1,
+    dashboard_shadow_read_schedules_v1,
+    dashboard_shadow_dispatch_queue_v1,
+    dashboard_operation_run_logs_v1, dashboard_shadow_workers_v1,
+    dashboard_operation_runs_v1`);
   await admin.end();
 });

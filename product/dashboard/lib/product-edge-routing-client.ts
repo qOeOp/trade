@@ -25,6 +25,18 @@ export const PRODUCT_EDGE_ARTIFACT_BUILD_ROUTING_KEY_V1 = {
   channel: "WINDMILL_PRODUCT_EDGE",
 } as const satisfies ProductEdgeRoutingLookupKeyV1;
 
+export const PRODUCT_EDGE_DEVELOP_COMPOSER_ROUTING_KEY_V2 = {
+  operation: "develop_composer.submit_or_resolve.v2",
+  version: 2,
+  channel: "WINDMILL_PRODUCT_EDGE",
+} as const satisfies ProductEdgeRoutingLookupKeyV1;
+
+export const PRODUCT_EDGE_EXPLORATORY_REPLAY_ROUTING_KEY_V2 = {
+  operation: "exploratory_replay.submit_or_resolve.v2",
+  version: 2,
+  channel: "WINDMILL_PRODUCT_EDGE",
+} as const satisfies ProductEdgeRoutingLookupKeyV1;
+
 export const PRODUCT_EDGE_SOURCE_INTAKE_ROUTING_KEY_V1 = {
   operation: "source_intake.openalex_work_by_doi.submit_or_resolve.v1",
   version: 1,

@@ -8,11 +8,17 @@ const artifactRoute = await readFile(
 const sourceResearchRoute = await readFile(
   new URL("../app/api/rd/source-research/route.ts", import.meta.url), "utf8",
 );
+const replayRoute = await readFile(
+  new URL("../app/api/rd/exploratory-replay/route.ts", import.meta.url), "utf8",
+);
 const artifactClient = await readFile(
   new URL("../lib/artifact-formation-client.ts", import.meta.url), "utf8",
 );
 const sourceResearchOperation = await readFile(
   new URL("../lib/source-research-operation.ts", import.meta.url), "utf8",
+);
+const replayOperation = await readFile(
+  new URL("../lib/exploratory-replay-operation-client.ts", import.meta.url), "utf8",
 );
 
 test("effect routes bind authenticated capability digest and original action to admission", () => {
@@ -21,6 +27,9 @@ test("effect routes bind authenticated capability digest and original action to 
     assert.match(route, /capability !== "available" \|\| !authorizationDigest/u);
     assert.match(route, /actionContext:\s*\{[\s\S]*authorizationDigest,[\s\S]*principalRef: "local_operator",[\s\S]*requestedAction: body\.action/u);
   }
+  assert.match(replayRoute, /operatorCapabilityAuthorizationDigestV1\(\)/u);
+  assert.match(replayRoute, /capability !== "available" \|\| !authorizationDigest/u);
+  assert.match(replayRoute, /actionContext:\s*\{[\s\S]*authorizationDigest,[\s\S]*principalRef: "local_operator",[\s\S]*requestedAction: "RUN"/u);
 });
 
 test("operation clients stop invalid contexts before RunStore and forward the exact context", () => {
@@ -29,4 +38,7 @@ test("operation clients stop invalid contexts before RunStore and forward the ex
     assert.match(client, /actionContext\.requestedAction !== request\.action/u);
     assert.match(client, /begin(?:ArtifactFormation|SourceResearch)\(\{[\s\S]*actionContext,/u);
   }
+  assert.match(replayOperation, /validControlPlaneAdmissionContextV1\(actionContext\)/u);
+  assert.match(replayOperation, /actionContext\.requestedAction !== "RUN"/u);
+  assert.match(replayOperation, /beginExploratoryReplay\(\{[\s\S]*actionContext,/u);
 });

@@ -17,9 +17,12 @@ import { isRunEventCodeV1, isRunTerminalCodeV1 } from "../lib/run-contract.ts";
 import {
   SOURCE_RESEARCH_EXECUTE_OPERATION,
   canonicalSourceResearchRecoveryIdentityV1,
+  sourceResearchRunOperationV1,
   sourceResearchOperationManifestDigestV1,
   sourceResearchRecoveryIdentityDigestV1,
 } from "../lib/source-research-run-contract.ts";
+import { researchGoalOperationV2 } from "../lib/research-goal-operation.ts";
+import { sourceIntakeOperationV1 } from "../lib/source-intake-operation.ts";
 
 test("RunStore admits only producer-canonical identities and operational codes", () => {
   assert.equal(isRunIdentityV1("dashboard-run-v1-00000000-0000-4000-8000-000000000020"), true);
@@ -31,6 +34,7 @@ test("RunStore admits only producer-canonical identities and operational codes",
   assert.equal(isRunEventCodeV1("RUN_STARTED"), true);
   assert.equal(isRunEventCodeV1("SOURCE_OWNER_AVAILABLE"), true);
   assert.equal(isRunEventCodeV1("RESEARCH_OWNER_AVAILABLE"), true);
+  assert.equal(isRunEventCodeV1("REPLAY_OWNER_SUBMISSION_STARTED"), true);
   assert.equal(isRunEventCodeV1("OWNER_UNKNOWN"), true);
   assert.equal(isRunEventCodeV1("TRADE_EXECUTED"), false);
 });
@@ -47,6 +51,14 @@ test("Source-to-Research recovery binds the exact ordered identity pair and oper
   assert.deepEqual(canonicalSourceResearchRecoveryIdentityV1(first), second);
   assert.equal(sourceResearchRecoveryIdentityDigestV1(first), sourceResearchRecoveryIdentityDigestV1(second));
   assert.match(sourceResearchOperationManifestDigestV1(), /^sha256:[0-9a-f]{64}$/);
+  assert.deepEqual(sourceResearchRunOperationV1.owner_operations, [
+    sourceIntakeOperationV1.owner_operation,
+    researchGoalOperationV2.owner_operation,
+  ]);
+  assert.equal(
+    sourceResearchRunOperationV1.owner_operations[0],
+    "source_intake.openalex_work_by_doi.submit_or_resolve.v2",
+  );
   assert.equal(canonicalSourceResearchRecoveryIdentityV1({ ...second, smuggled: "field" }), null);
   assert.equal(SOURCE_RESEARCH_EXECUTE_OPERATION, "source_intake.research.submit_or_resolve.v1");
 });
@@ -120,6 +132,10 @@ test("RunStore migration owns only operational Dashboard tables", async () => {
     new URL("../migrations/0011_source_research_input_custody.sql", import.meta.url),
     "utf8",
   );
+  const effectDispatch = await readFile(
+    new URL("../migrations/0013_effect_dispatch_queue.sql", import.meta.url),
+    "utf8",
+  );
   assert.match(sql, /dashboard_operation_runs_v1/);
   assert.match(sql, /dashboard_operation_run_logs_v1/);
   assert.match(sql, /dashboard_shadow_workers_v1/);
@@ -188,6 +204,11 @@ test("RunStore migration owns only operational Dashboard tables", async () => {
   assert.match(sourceResearchInputCustody, /ALTER COLUMN input_custody_state DROP DEFAULT/);
   assert.equal(/windmill|rd_owner|rd_research|rd_artifact/i.test(sourceResearchInputCustody), false);
   assert.equal(/DELETE\s+FROM|DROP\s+TABLE|TRUNCATE/i.test(sourceResearchInputCustody), false);
+  assert.match(effectDispatch, /dashboard_exploratory_replay_run_bindings_v2/);
+  assert.match(effectDispatch, /exploratory_replay\.submit_or_resolve\.v2/);
+  assert.match(effectDispatch, /REPLAY_OWNER_SUBMISSION_STARTED/);
+  assert.match(effectDispatch, /dashboard_freeze_exploratory_replay_binding_v2/);
+  assert.equal(/DELETE\s+FROM|DROP\s+TABLE|TRUNCATE/i.test(effectDispatch), false);
 });
 
 test("durable enqueue stays capability protected and zero-effect bound", async () => {

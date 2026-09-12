@@ -27,8 +27,11 @@ import {
   parseOperationalCancellationReadbackV1,
   type OperationalCancellationReadbackV1,
 } from "./run-cancellation-contract.ts";
+import { validExploratoryReplayOpaqueIdentityV2 } from "./exploratory-replay-identity.ts";
+import { validDevelopComposerIdentityV2 } from "./develop-composer-action-contract.ts";
 
 const IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/;
+const EFFECT_WORKER_IDENTITY = /^dashboard-effect-worker-v1-[0-9a-f]{64}$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
 
 const operationInputs = {
@@ -42,10 +45,13 @@ const operationInputs = {
   "rd_historical_custody.shadow_read.v1": [],
   "rd_iteration_timeline.shadow_read.v1": ["trial_family_identity"],
   "exploratory_replay.shadow_read.v2": ["request_identity", "meaning_digest"],
+  "exploratory_replay_result.shadow_read.v2": ["result_identity", "request_identity", "attempt_identity", "meaning_digest"],
   "develop_composer.shadow_read.v2": ["request_identity"],
   "artifact_build.formation_execute.v1": [
     "research_request_identity", "build_request_identity", "attempt_identity",
   ],
+  "develop_composer.submit_or_resolve.v2": ["request_identity", "projection_digest"],
+  "exploratory_replay.submit_or_resolve.v2": ["request_identity", "meaning_digest"],
   "source_intake.research.submit_or_resolve.v1": [
     "source_request_identity", "research_request_identity",
   ],
@@ -65,7 +71,7 @@ export type RunDetailLogV1 = {
   observed_at: string;
   level: "info" | "warning" | "error";
   source: "run_store" | "dashboard_bff" | "owner_gateway" | "shadow_worker"
-    | "artifact_orchestrator" | "source_research_orchestrator";
+    | "artifact_orchestrator" | "source_research_orchestrator" | "effect_worker";
   event_code: RunEventCodeV1;
 };
 export type RunDetailRunV1 = {
@@ -156,14 +162,14 @@ function parseWorkerCompatibility(
   ]) || worker.schema_version !== 1
     || !["available", "unavailable", "not_applicable"].includes(String(worker.availability))
     || !nullableTimestamp(worker.claimed_at) || !nullableTimestamp(worker.completed_at)) return null;
-  if (runKind === "owner_effect") {
-    return worker.availability === "not_applicable" && worker.unavailable_reason === null
+  if (worker.availability === "not_applicable") {
+    return runKind === "owner_effect" && worker.unavailable_reason === null
       && worker.required_operation_id === null && worker.claim_attempt === null
       && worker.worker_identity === null && worker.worker_artifact_digest === null
       && worker.worker_lease_state === null && worker.claimed_at === null
       && worker.completed_at === null ? value as RunWorkerCompatibilityV1 : null;
   }
-  if (worker.availability === "not_applicable" || worker.required_operation_id !== operationId
+  if (worker.required_operation_id !== operationId
     || (worker.claim_attempt !== null && (!Number.isInteger(worker.claim_attempt)
       || Number(worker.claim_attempt) < 0 || Number(worker.claim_attempt) > 3))) return null;
   if (worker.availability === "unavailable") {
@@ -174,6 +180,7 @@ function parseWorkerCompatibility(
   }
   if (worker.unavailable_reason !== null || typeof worker.worker_identity !== "string"
     || !IDENTITY.test(worker.worker_identity) || typeof worker.worker_artifact_digest !== "string"
+    || (runKind === "owner_effect" && !EFFECT_WORKER_IDENTITY.test(worker.worker_identity))
     || !DIGEST.test(worker.worker_artifact_digest)
     || !["available", "expired"].includes(String(worker.worker_lease_state))
     || !timestamp(worker.claimed_at) || Date.parse(worker.claimed_at) > Date.parse(observedAt)
@@ -224,8 +231,15 @@ function parseInputFields(value: unknown, operationId: RunDetailOperationIdV1): 
   const parsed = value.map((field, index) => {
     if (!field || typeof field !== "object" || Array.isArray(field)) return null;
     const record = field as Record<string, unknown>;
+    const validValue = operationId === "exploratory_replay.submit_or_resolve.v2"
+      ? record.key === "meaning_digest" ? DIGEST.test(String(record.value))
+        : validExploratoryReplayOpaqueIdentityV2(record.value)
+      : operationId === "develop_composer.submit_or_resolve.v2"
+        ? record.key === "projection_digest" ? DIGEST.test(String(record.value))
+          : validDevelopComposerIdentityV2(record.value)
+      : IDENTITY.test(String(record.value));
     return exactKeys(record, ["key", "value"]) && record.key === expected[index]
-      && typeof record.value === "string" && IDENTITY.test(record.value)
+      && typeof record.value === "string" && validValue
       ? record as RunDetailInputV1 : null;
   });
   return parsed.some((field) => field === null) ? null : parsed as RunDetailInputV1[];
@@ -242,9 +256,13 @@ function parseRun(value: unknown, envelope: RunDetailEnvelopeV1): RunDetailRunV1
   ]) || run.schema_version !== 1 || run.run_identity !== envelope.run_identity
     || typeof run.operation_id !== "string" || !(run.operation_id in operationInputs)
     || ((run.operation_id === "artifact_build.formation_execute.v1"
+      || run.operation_id === "develop_composer.submit_or_resolve.v2"
+      || run.operation_id === "exploratory_replay.submit_or_resolve.v2"
       || run.operation_id === "source_intake.research.submit_or_resolve.v1")
       !== (run.channel === "DASHBOARD_DISPOSABLE_EXECUTION" && run.run_kind === "owner_effect"))
     || (run.operation_id !== "artifact_build.formation_execute.v1"
+      && run.operation_id !== "develop_composer.submit_or_resolve.v2"
+      && run.operation_id !== "exploratory_replay.submit_or_resolve.v2"
       && run.operation_id !== "source_intake.research.submit_or_resolve.v1"
       && (run.channel !== "DASHBOARD_SHADOW_READ" || run.run_kind !== "owner_read"))
     || !["dashboard_bff", "dashboard_api", "dashboard_scheduler"].includes(String(run.trigger_kind))
@@ -297,7 +315,7 @@ function parseLog(value: unknown, envelope: RunDetailEnvelopeV1): RunDetailLogV1
     || !timestamp(log.observed_at) || Date.parse(log.observed_at) > Date.parse(envelope.observed_at)
     || !["info", "warning", "error"].includes(String(log.level))
     || !["run_store", "dashboard_bff", "owner_gateway", "shadow_worker",
-      "artifact_orchestrator", "source_research_orchestrator"]
+      "artifact_orchestrator", "source_research_orchestrator", "effect_worker"]
       .includes(String(log.source)) || !isRunEventCodeV1(log.event_code)) return null;
   return log as RunDetailLogV1;
 }

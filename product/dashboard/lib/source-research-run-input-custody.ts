@@ -29,7 +29,7 @@ export type SourceResearchRunInputReadbackV1 = {
   request_digest: null;
 };
 
-function canonicalRequest(
+export function canonicalSourceResearchRunRequestV1(
   request: SourceResearchRunRequestV1,
 ): SourceResearchRunRequestV1 | null {
   if (!validSourceResearchOperationRequestV1(request) || request.action !== "RUN") return null;
@@ -72,7 +72,7 @@ function canonicalRequest(
 export function sourceResearchRunInputCustodyV1(
   request: SourceResearchRunRequestV1,
 ): SourceResearchRunInputReadbackV1 | null {
-  const canonical = canonicalRequest(request);
+  const canonical = canonicalSourceResearchRunRequestV1(request);
   if (!canonical) return null;
   const bytes = Buffer.from(JSON.stringify(canonical), "utf8");
   if (bytes.byteLength > MAX_CANONICAL_REQUEST_BYTES) return null;

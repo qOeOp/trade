@@ -406,12 +406,12 @@ export function OperationsAudit() {
                   setPageSize(next);
                   void load({ cut: { ...filterCut, observed_at: new Date().toISOString() }, requestedPageSize: next });
                 }}>{pageSizes.map((size) => <option key={size}>{size}</option>)}</select></label>
-                <Button type="button" variant="outline" size="icon-sm" aria-label="Previous audit page" disabled={pending || pageIndex === 0} onClick={() => {
+                <Button type="button" variant="outline" size="icon-tool" aria-label="Previous audit page" disabled={pending || pageIndex === 0} onClick={() => {
                   const priorIndex = Math.max(0, pageIndex - 1);
                   setPageIndex(priorIndex);
                   setSelectedIdentity(pages[priorIndex]?.entries[0]?.audit_identity ?? null);
                 }}><InterfaceIcons.previous aria-hidden="true" /></Button>
-                <Button type="button" variant="outline" size="icon-sm" aria-label="Next audit page" disabled={pending || (!pages[pageIndex + 1] && !page?.next_cursor)} onClick={() => {
+                <Button type="button" variant="outline" size="icon-tool" aria-label="Next audit page" disabled={pending || (!pages[pageIndex + 1] && !page?.next_cursor)} onClick={() => {
                   if (pages[pageIndex + 1]) setPageIndex((value) => value + 1);
                   else if (page?.next_cursor) void load({ cut: page.filter_cut, cursor: page.next_cursor, append: true });
                 }}><InterfaceIcons.next aria-hidden="true" /></Button>

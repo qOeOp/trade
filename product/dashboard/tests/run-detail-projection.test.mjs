@@ -171,6 +171,60 @@ test("Run Detail admits iteration inputs and rejects mismatched worker requireme
   assert.equal(parseRunDetailEnvelopeV1(mismatchedOwner), null);
 });
 
+test("Run Detail projects claimed owner-effect worker custody without inventing a shadow binding", () => {
+  const effect = envelope();
+  effect.run.operation_id = "source_intake.research.submit_or_resolve.v1";
+  effect.bounded_result.operation_id = "source_intake.research.submit_or_resolve.v1";
+  effect.run.channel = "DASHBOARD_DISPOSABLE_EXECUTION";
+  effect.run.run_kind = "owner_effect";
+  effect.run.input_fields = [
+    { key: "source_request_identity", value: "source-effect-detail-1" },
+    { key: "research_request_identity", value: "research-effect-detail-1" },
+  ];
+  effect.run.dispatch_binding = {
+    schema_version: 1,
+    availability: "not_applicable",
+    unavailable_reason: null,
+    required_operation_id: null,
+    dependency_operation_ids: [],
+    registry_entry_digest: null,
+    compatibility_envelope_set_digest: null,
+  };
+  effect.run.worker_compatibility.required_operation_id = effect.run.operation_id;
+  effect.run.worker_compatibility.worker_identity = `dashboard-effect-worker-v1-${"4".repeat(64)}`;
+  effect.run.owner_view = {
+    schema_version: 1,
+    source_owner: "research_owner",
+    href: "/rd/research?requestIdentity=research-effect-detail-1",
+    action_label: "Resolve same identity",
+    identity_fields: effect.run.input_fields,
+  };
+  assert.ok(parseRunDetailEnvelopeV1(effect));
+
+  const mismatched = structuredClone(effect);
+  mismatched.run.worker_compatibility.required_operation_id = "artifact_build.formation_execute.v1";
+  assert.equal(parseRunDetailEnvelopeV1(mismatched), null);
+
+  const shadowIdentity = structuredClone(effect);
+  shadowIdentity.run.worker_compatibility.worker_identity = "dashboard-shadow-worker-1";
+  assert.equal(parseRunDetailEnvelopeV1(shadowIdentity), null);
+
+  const legacyInline = structuredClone(effect);
+  legacyInline.run.worker_compatibility = {
+    schema_version: 1,
+    availability: "not_applicable",
+    unavailable_reason: null,
+    required_operation_id: null,
+    claim_attempt: null,
+    worker_identity: null,
+    worker_artifact_digest: null,
+    worker_lease_state: null,
+    claimed_at: null,
+    completed_at: null,
+  };
+  assert.ok(parseRunDetailEnvelopeV1(legacyInline));
+});
+
 test("Run Detail re-verifies immutable dispatch and declared dependency bindings", () => {
   const parsed = parseRunDetailEnvelopeV1(envelope());
   assert.equal(parsed?.run?.dispatch_binding.availability, "available");

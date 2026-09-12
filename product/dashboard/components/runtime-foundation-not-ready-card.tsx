@@ -130,7 +130,7 @@ export function RuntimeFoundationNotReadyCard() {
         actions={(
           <>
             <StatusBadge tone="warning">Setup incomplete</StatusBadge>
-            <FilterButton type="button" variant="outline" onClick={() => router.refresh()}>
+            <FilterButton density="compact" type="button" variant="outline" onClick={() => router.refresh()}>
               <InterfaceIcons.refresh size={13} aria-hidden="true" />
               Refresh foundation
             </FilterButton>
@@ -176,7 +176,7 @@ export function RuntimeFoundationNotReadyCard() {
           secondary="Complete setup before this page can show Runtime activity."
         />
         <PanelFrameFooterActions>
-          <FilterButton type="button" variant="outline" onClick={() => void copyLocator()}>
+          <FilterButton density="compact" type="button" variant="outline" onClick={() => void copyLocator()}>
             <InterfaceIcons.copy size={13} aria-hidden="true" />
             {copied ? "Copied foundation locator" : "Copy foundation locator"}
           </FilterButton>

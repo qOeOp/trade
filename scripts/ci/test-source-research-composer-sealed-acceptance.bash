@@ -12,8 +12,10 @@ windmill_image='ghcr.io/windmill-labs/windmill:1.791.0@sha256:1e9ec20f5a99235ccc
 postgres_image='postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297'
 rust_image='public.ecr.aws/docker/library/rust:1.97.1-slim-bookworm@sha256:99e09cb2284e2ddbb73a995deee3e91783fd04d177602ccf6eab326d778ee777'
 buildkit_image='docker.io/moby/buildkit:v0.26.2@sha256:de10faf919fc71ba4eb1dd7bd6449566d012b0c9436b1c61bfee21d621b009aa'
+dashboard_probe_image='node:22.22.0-bookworm-slim@sha256:dd9d21971ec4395903fa6143c2b9267d048ae01ca6d3ea96f16cb30df6187d94'
 research_request_one='sealed-source-intake-composer-research-v2-a'
 research_request_two='sealed-source-intake-composer-research-v2-b'
+transport_neutral_research_request='sealed-source-intake-transport-neutral-v2'
 
 composer_relations=(
   rd_develop_designs_v2
@@ -144,6 +146,16 @@ PY
   grep -Fq 'run_deployed source RUN' "$runner_file"
   grep -Fq '.resolution=="RETRIEVED" and .receipt.terminal=="RETRIEVED"' "$runner_file"
   grep -Fq 'run_deployed research RUN' "$runner_file"
+  grep -Fq 'owner_call POST /v2/source-intake-research' "$runner_file"
+  grep -Fq 'del(.proposal.channel, .policy_query)' "$runner_file"
+  grep -Fq 'dashboard-v2-probe:' "$overlay_compose"
+  DASHBOARD_PROBE_IMAGE="$dashboard_probe_image" \
+    yq -e '.["x-dashboard-probe-image"] == strenv(DASHBOARD_PROBE_IMAGE)' "$overlay_compose" > /dev/null
+  yq -e '.services."dashboard-v2-probe".read_only == true' "$overlay_compose" > /dev/null
+  yq -e '.services."dashboard-v2-probe".volumes | length == 1' "$overlay_compose" > /dev/null
+  yq -e '.services."dashboard-v2-probe".volumes[0] == "../:/workspace/product:ro"' "$overlay_compose" > /dev/null
+  yq -e '.services."dashboard-v2-probe".networks | length == 1' "$overlay_compose" > /dev/null
+  yq -e '.services."dashboard-v2-probe".networks[0] == "sealed-internal"' "$overlay_compose" > /dev/null
   grep -Fq 'run_deployed composer RUN' "$runner_file"
   grep -Fq 'run_deployed source RESOLVE' "$runner_file"
   grep -Fq 'run_deployed research RESOLVE' "$runner_file"
@@ -626,7 +638,7 @@ cmp "$run_dir/catalog-bootstrap.json" "$run_dir/catalog-readback.json" || die 'C
 with_deadline 60 "${compose[@]}" run --rm --no-deps -T authority-bootstrap \
   > "$run_dir/authority-bootstrap.json"
 if ! with_deadline 300 "${compose[@]}" up --detach --no-deps --no-build --pull never --wait \
-  rd-owner-api windmill-worker; then
+  rd-owner-api windmill-worker dashboard-v2-probe; then
   "${compose[@]}" logs --no-color rd-owner-api >&2 || true
   die 'isolated acceptance topology did not become healthy'
 fi
@@ -953,6 +965,183 @@ source_request_one="sealed-source-a-$(random_hex | cut -c1-12)"
 source_request_two="sealed-source-b-$(random_hex | cut -c1-12)"
 form_research "$source_request_one" "$research_request_one" one
 form_research "$source_request_two" "$research_request_two" two
+
+# Re-enter the exact Source custody created through the legacy Windmill V1
+# adapter through the public transport-neutral V2 contract. The same custody
+# must replay canonically without another physical provider invocation; the
+# Windmill adapter and direct Owner route may serialize object keys differently.
+jq 'del(.action)' "$run_dir/one-source.json.payload.json" > "$run_dir/transport-neutral-source-v2.json"
+owner_call GET /v1/source-intakes/sealed-acceptance/audit "$run_dir/source-v2-audit-before.json" 200
+owner_call POST /v2/source-intakes "$run_dir/transport-neutral-source-v2.response.json" 200 \
+  "$run_dir/transport-neutral-source-v2.json"
+# The legacy Windmill operation returns the shared business projection, while
+# V2 returns the raw Owner atom. Reuse that projector instead of duplicating it
+# in this acceptance script.
+# shellcheck disable=SC2016
+with_deadline 30 "${compose[@]}" exec -T dashboard-v2-probe \
+  node --experimental-strip-types --input-type=module -e '
+  const { readFileSync } = await import("node:fs");
+  const { projectOwnerReadbackV1 } = await import(
+    "/workspace/product/rd-owner-client/source_intake_v1.ts"
+  );
+  const raw = JSON.parse(readFileSync(0, "utf8"));
+  process.stdout.write(JSON.stringify(projectOwnerReadbackV1(raw, process.argv[1])));
+' "$source_request_one" < "$run_dir/transport-neutral-source-v2.response.json" \
+  > "$run_dir/transport-neutral-source-v2.projected.json"
+jq -S . "$run_dir/one-source.json" > "$run_dir/legacy-source-v1.projected-canonical.json"
+jq -S . "$run_dir/transport-neutral-source-v2.projected.json" > "$run_dir/transport-neutral-source-v2.projected-canonical.json"
+cmp -s "$run_dir/legacy-source-v1.projected-canonical.json" "$run_dir/transport-neutral-source-v2.projected-canonical.json" ||
+  die 'transport-neutral Source V2 replay changed canonical custody'
+jq -S . "$run_dir/transport-neutral-source-v2.response.json" > "$run_dir/transport-neutral-source-v2.raw-canonical.json"
+[[ $(db_scalar "SELECT count(*) FROM public.rd_source_intake_receipts_v1 WHERE request_identity='$source_request_one';") == 1 ]] ||
+  die 'transport-neutral Source V2 replay duplicated canonical Source custody'
+
+# Execute the checked-in Dashboard Source client against the real Owner. Its
+# forwarding wrapper makes the public request shape observable and rejects any
+# regression that exposes transport or policy internals.
+# shellcheck disable=SC2016
+with_deadline 30 "${compose[@]}" exec -T dashboard-v2-probe \
+  node --experimental-strip-types --input-type=module -e '
+  const { readFileSync } = await import("node:fs");
+  const { executeSourceIntakeOperationV1 } = await import(
+    "/workspace/product/dashboard/lib/source-intake-operation.ts"
+  );
+  const operation = JSON.parse(readFileSync(0, "utf8"));
+  const observed = [];
+  const fetcher = async (url, init) => {
+    const body = JSON.parse(init.body);
+    const keys = Object.keys(body).sort();
+    if (keys.join(",") !== "interpretation,normalized_doi,request_identity"
+      || "channel" in body || "policy_query" in body) {
+      throw new Error("Dashboard Source V2 request is not transport-neutral");
+    }
+    observed.push({ path: new URL(url).pathname, keys });
+    return fetch(url, init);
+  };
+  const result = await executeSourceIntakeOperationV1({
+    action: "RUN",
+    input: operation,
+    transport: {
+      owner_url: "http://rd-owner-api:8080",
+      owner_token: process.env.RD_OWNER_API_TOKEN,
+      fetcher,
+    },
+    routing: {
+      state: "ACTIVE",
+      dispatcher: "TRADE_DASHBOARD",
+      binding_identity: "acceptance-only-source-routing-binding",
+      binding_digest: "sha256:" + "1".repeat(64),
+      generation: 1,
+    },
+  });
+  process.stdout.write(JSON.stringify({ result, observed }));
+' < "$run_dir/transport-neutral-source-v2.json" > "$run_dir/dashboard-transport-neutral-source-v2.json"
+jq -e '
+  .result.availability=="available"
+  and .result.owner_response.terminal=="RETRIEVED"
+  and .observed==[{path:"/v2/source-intakes",keys:["interpretation","normalized_doi","request_identity"]}]
+' "$run_dir/dashboard-transport-neutral-source-v2.json" > /dev/null ||
+  die 'Dashboard Source V2 client did not preserve the real transport-neutral Owner result'
+jq -S '.result.owner_response' "$run_dir/dashboard-transport-neutral-source-v2.json" > "$run_dir/dashboard-transport-neutral-source-v2.raw-canonical.json"
+cmp -s "$run_dir/transport-neutral-source-v2.raw-canonical.json" "$run_dir/dashboard-transport-neutral-source-v2.raw-canonical.json" ||
+  die 'Dashboard Source V2 client changed canonical Owner custody'
+
+jq '.channel="WINDMILL_PRODUCT_EDGE"' "$run_dir/transport-neutral-source-v2.json" > "$run_dir/transport-neutral-source-v2-channel-injected.json"
+owner_call POST /v2/source-intakes "$run_dir/transport-neutral-source-v2-channel-injected.response" 400 \
+  "$run_dir/transport-neutral-source-v2-channel-injected.json"
+jq '.policy_query={}' "$run_dir/transport-neutral-source-v2.json" > "$run_dir/transport-neutral-source-v2-policy-injected.json"
+owner_call POST /v2/source-intakes "$run_dir/transport-neutral-source-v2-policy-injected.response" 400 \
+  "$run_dir/transport-neutral-source-v2-policy-injected.json"
+[[ $(db_scalar "SELECT count(*) FROM public.rd_source_intake_receipts_v1 WHERE request_identity='$source_request_one';") == 1 ]] ||
+  die 'Dashboard replay or rejected Source V2 injection changed canonical Source custody'
+owner_call GET /v1/source-intakes/sealed-acceptance/audit "$run_dir/source-v2-audit-after.json" 200
+cmp -s "$run_dir/source-v2-audit-before.json" "$run_dir/source-v2-audit-after.json" ||
+  die 'Source V2 replay or rejected injection invoked the physical provider'
+
+# The first-party V2 Owner operation accepts only the public proposal and exact
+# Source ancestry. Policy locators and transport channel remain outside its
+# caller contract, while the legacy V1 Windmill path above remains operational.
+jq --arg research "$transport_neutral_research_request" '
+  .proposal.request_identity=$research
+  | .proposal.goal.hypothesis=("A2 sealed source " + $research + " supports the transport-neutral operation.")
+  | del(.proposal.channel, .policy_query)
+' "$run_dir/one-research-operation.json" > "$run_dir/transport-neutral-v2.json"
+owner_call POST /v2/source-intake-research "$run_dir/transport-neutral-v2.response.json" 200 \
+  "$run_dir/transport-neutral-v2.json"
+jq -e '.resolution=="ACCEPTED" and .owner_receipt and .research_view and .trial_family_resolution=="AVAILABLE"' \
+  "$run_dir/transport-neutral-v2.response.json" > /dev/null ||
+  die 'transport-neutral V2 Research RUN was not canonically accepted'
+[[ $(db_scalar "SELECT count(*) FROM public.rd_research_request_receipts_v1 WHERE request_identity='$transport_neutral_research_request';") == 1 ]] ||
+  die 'transport-neutral V2 canonical Research receipt count is not one'
+owner_call POST /v2/source-intake-research "$run_dir/transport-neutral-v2-replay.response.json" 200 \
+  "$run_dir/transport-neutral-v2.json"
+jq -S 'del(.research_view.projection_at_epoch_ms)' "$run_dir/transport-neutral-v2.response.json" > "$run_dir/transport-neutral-v2.canonical.json"
+jq -S 'del(.research_view.projection_at_epoch_ms)' "$run_dir/transport-neutral-v2-replay.response.json" > "$run_dir/transport-neutral-v2-replay.canonical.json"
+cmp -s "$run_dir/transport-neutral-v2.canonical.json" "$run_dir/transport-neutral-v2-replay.canonical.json" ||
+  die 'transport-neutral V2 replay changed canonical custody'
+[[ $(db_scalar "SELECT count(*) FROM public.rd_research_request_receipts_v1 WHERE request_identity='$transport_neutral_research_request';") == 1 ]] ||
+  die 'transport-neutral V2 replay duplicated canonical Research custody'
+
+# Execute the checked-in Dashboard client against the same real Owner. The
+# forwarding wrapper refuses any regression that reintroduces transport or
+# policy internals before the request reaches the Owner.
+# shellcheck disable=SC2016
+with_deadline 30 "${compose[@]}" exec -T dashboard-v2-probe \
+  node --experimental-strip-types --input-type=module -e '
+  const { readFileSync } = await import("node:fs");
+  const { executeResearchGoalOperationV2 } = await import(
+    "/workspace/product/dashboard/lib/research-goal-operation.ts"
+  );
+  const operation = JSON.parse(readFileSync(0, "utf8"));
+  const observed = [];
+  const fetcher = async (url, init) => {
+    const body = JSON.parse(init.body);
+    const proposalKeys = Object.keys(body.proposal).sort();
+    if (proposalKeys.join(",") !== "goal,request_identity,trial_family_proposal"
+      || "policy_query" in body) throw new Error("Dashboard V2 request is not transport-neutral");
+    observed.push({ path: new URL(url).pathname, proposal_keys: proposalKeys });
+    return fetch(url, init);
+  };
+  const result = await executeResearchGoalOperationV2({
+    action: "RUN",
+    input: operation.proposal,
+    ancestry: operation.ancestry,
+    transport: {
+      owner_url: "http://rd-owner-api:8080",
+      owner_token: process.env.RD_OWNER_API_TOKEN,
+      fetcher,
+    },
+    routing: {
+      state: "ACTIVE",
+      dispatcher: "TRADE_DASHBOARD",
+      binding_identity: "acceptance-only-routing-binding",
+      binding_digest: "sha256:" + "1".repeat(64),
+      generation: 1,
+    },
+  });
+  process.stdout.write(JSON.stringify({ result, observed }));
+' < "$run_dir/transport-neutral-v2.json" > "$run_dir/dashboard-transport-neutral-v2.json"
+jq -e '
+  .result.availability=="available"
+  and .result.owner_outcome_state=="available"
+  and .result.owner_response.resolution=="ACCEPTED"
+  and .observed==[{path:"/v2/source-intake-research",proposal_keys:["goal","request_identity","trial_family_proposal"]}]
+' "$run_dir/dashboard-transport-neutral-v2.json" > /dev/null ||
+  die 'Dashboard V2 client did not preserve the real transport-neutral Owner result'
+jq -S '.result.owner_response | del(.research_view.projection_at_epoch_ms)' "$run_dir/dashboard-transport-neutral-v2.json" > "$run_dir/dashboard-transport-neutral-v2.canonical.json"
+cmp -s "$run_dir/transport-neutral-v2.canonical.json" "$run_dir/dashboard-transport-neutral-v2.canonical.json" ||
+  die 'Dashboard V2 client changed canonical Owner custody'
+[[ $(db_scalar "SELECT count(*) FROM public.rd_research_request_receipts_v1 WHERE request_identity='$transport_neutral_research_request';") == 1 ]] ||
+  die 'Dashboard V2 replay duplicated canonical Research custody'
+
+jq '.proposal.channel="WINDMILL_PRODUCT_EDGE"' "$run_dir/transport-neutral-v2.json" > "$run_dir/transport-neutral-v2-channel-injected.json"
+owner_call POST /v2/source-intake-research "$run_dir/transport-neutral-v2-channel-injected.response" 400 \
+  "$run_dir/transport-neutral-v2-channel-injected.json"
+jq '.policy_query={}' "$run_dir/transport-neutral-v2.json" > "$run_dir/transport-neutral-v2-policy-injected.json"
+owner_call POST /v2/source-intake-research "$run_dir/transport-neutral-v2-policy-injected.response" 400 \
+  "$run_dir/transport-neutral-v2-policy-injected.json"
+[[ $(db_scalar "SELECT count(*) FROM public.rd_research_request_receipts_v1 WHERE request_identity='$transport_neutral_research_request';") == 1 ]] ||
+  die 'rejected V2 transport/policy injection changed canonical Research custody'
 
 # Source and Research replay their exact meaning and resolve without an Owner request body.
 source_research_successor_before=$(composer_census)

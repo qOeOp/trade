@@ -7,6 +7,7 @@ import { DesktopModuleNavigation, MobileModuleDrawer } from "./module-navigation
 import { ModuleTabLinks } from "./module-tab-links";
 import { ThemeToggle } from "./theme-toggle";
 import { InterfaceIcons } from "./ui/iconography";
+import { Button } from "./ui/button";
 
 function TopBar({ current }: { current: string }) {
   const activeModule = moduleFor(current);
@@ -17,8 +18,8 @@ function TopBar({ current }: { current: string }) {
       <ModuleTabLinks activeHref={activeHref} ariaLabel={`${activeModule.label} pages`}
         className="module-tabs" tabs={activeModule.tabs} />
       <div className="top-actions">
-        <button type="button" disabled title="Search is not admitted"><InterfaceIcons.search size={16} /><span className="sr-only">Search unavailable</span></button>
-        <button type="button" disabled title="Notifications are not admitted"><InterfaceIcons.notification size={16} /><span className="sr-only">Notifications unavailable</span></button>
+        <Button type="button" variant="ghost" size="icon-tool" disabled title="Search is not admitted"><InterfaceIcons.search size={16} /><span className="sr-only">Search unavailable</span></Button>
+        <Button type="button" variant="ghost" size="icon-tool" disabled title="Notifications are not admitted"><InterfaceIcons.notification size={16} /><span className="sr-only">Notifications unavailable</span></Button>
         <ThemeToggle />
       </div>
     </header>

@@ -400,7 +400,7 @@ export function OperationsServiceLogs() {
             <FilterButton density="compact" variant="secondary" type="button" onClick={refresh} disabled={pending}>
               <InterfaceIcons.refresh aria-hidden="true" size={12} /> {pending ? "Reading" : "Refresh"}
             </FilterButton>
-            <FilterButton density="compact" variant="secondary" type="button" aria-pressed={autoRefresh} onClick={() => setAutoRefresh((value) => !value)}>
+            <FilterButton density="compact" variant="toggle" type="button" aria-pressed={autoRefresh} onClick={() => setAutoRefresh((value) => !value)}>
               <InterfaceIcons.autoRefresh aria-hidden="true" size={12} /> Auto-refresh {autoRefresh ? "on" : "off"}
             </FilterButton>
             {page && !pending ? <FilterButton density="compact" variant="secondary" type="button" onClick={() => void download()}>
@@ -497,8 +497,8 @@ export function OperationsServiceLogs() {
                         setPageSize(next);
                         void load({ cut: { ...filterCut, observed_at: new Date().toISOString() }, requestedPageSize: next });
                       }}>{pageSizes.map((size) => <option key={size} value={size}>{size}</option>)}</select></label>
-                      <Button type="button" variant="outline" size="icon-sm" aria-label="Previous service-log page" disabled={pending || pageIndex === 0} onClick={() => setPageIndex((value) => Math.max(0, value - 1))}><InterfaceIcons.previous aria-hidden="true" /></Button>
-                      <Button type="button" variant="outline" size="icon-sm" aria-label="Next service-log page" disabled={pending || (!pages[pageIndex + 1] && !page.next_cursor)} onClick={() => {
+                      <Button type="button" variant="outline" size="icon-tool" aria-label="Previous service-log page" disabled={pending || pageIndex === 0} onClick={() => setPageIndex((value) => Math.max(0, value - 1))}><InterfaceIcons.previous aria-hidden="true" /></Button>
+                      <Button type="button" variant="outline" size="icon-tool" aria-label="Next service-log page" disabled={pending || (!pages[pageIndex + 1] && !page.next_cursor)} onClick={() => {
                         if (pages[pageIndex + 1]) setPageIndex((value) => value + 1);
                         else void load({ cut: page.filter_cut, cursor: page.next_cursor, append: true });
                       }}><InterfaceIcons.next aria-hidden="true" /></Button>

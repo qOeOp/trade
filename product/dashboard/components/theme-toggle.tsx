@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { InterfaceIcons } from "./ui/iconography";
+import { Button } from "./ui/button";
 
 type Theme = "light" | "dark";
 
@@ -28,15 +29,17 @@ export function ThemeToggle() {
   const dark = theme === "dark";
 
   return (
-    <button
+    <Button
       aria-label={dark ? "Switch to light theme" : "Switch to dark theme"}
       aria-pressed={dark}
       className="theme-toggle"
       onClick={toggleTheme}
       title={dark ? "Light theme" : "Dark theme"}
+      size="icon-tool"
       type="button"
+      variant="ghost"
     >
       {dark ? <InterfaceIcons.themeLight aria-hidden="true" size={16} /> : <InterfaceIcons.themeDark aria-hidden="true" size={16} />}
-    </button>
+    </Button>
   );
 }

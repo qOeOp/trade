@@ -4,9 +4,13 @@ import {
   ownerOperationUrlV1,
 } from "./operation-registry.ts";
 import { ownerApiTargetForOperationV1 } from "./owner-api-target.ts";
+import {
+  canonicalDevelopComposerOperationResponseV2,
+  parseDevelopComposerOperationResponseV2,
+  validDevelopComposerIdentityV2,
+} from "./develop-composer-action-contract.ts";
 
 const MAX_OWNER_RESPONSE_BYTES = 1_048_576;
-const IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/;
 const COORDINATE = /^[A-Za-z0-9._:/-]{1,192}$/;
 const HEX_DIGEST = /^[0-9a-f]{64}$/;
 const REASON = /^[\p{L}\p{N}\p{P}\p{Zs}]{1,512}$/u;
@@ -65,7 +69,7 @@ function exactKeys(value: Json, keys: readonly string[]): boolean {
 }
 
 function validIdentity(value: unknown): value is string {
-  return typeof value === "string" && IDENTITY.test(value);
+  return validDevelopComposerIdentityV2(value);
 }
 
 function validIsoTime(value: unknown): value is string {
@@ -97,20 +101,17 @@ export function projectDevelopComposerOwnerReadbackV1(
   requestIdentity: string,
   observedAt: string,
 ): DevelopComposerBrowserProjectionV1 | null {
-  if (!record(value) || !exactKeys(value, [
-    "schema_version", "request_identity", "disposition", "receipt_identity", "artifact",
-    "coordinate", "reason",
-  ]) || value.schema_version !== 2 || value.request_identity !== requestIdentity
-    || !validIdentity(value.request_identity) || !validIsoTime(observedAt)
-    || typeof value.disposition !== "string" || !DISPOSITIONS.has(value.disposition)) return null;
+  const canonical = canonicalDevelopComposerOperationResponseV2(value, requestIdentity);
+  if (!canonical || !validIsoTime(observedAt)) return null;
+  const response = canonical;
 
-  if (value.disposition === "SUCCESS") {
-    const receiptIdentity = byteDigest(value.receipt_identity);
-    const artifact = value.artifact;
+  if (response.disposition === "SUCCESS") {
+    const receiptIdentity = byteDigest(response.receipt_identity);
+    const artifact = response.artifact;
     if (!receiptIdentity || !record(artifact) || !exactKeys(artifact, [
       "artifact_locator", "artifact_digest", "canonical_plan_digest", "design_digest",
     ]) || !validIdentity(artifact.artifact_locator)
-      || value.coordinate !== null || value.reason !== null) return null;
+      || response.coordinate !== null || response.reason !== null) return null;
     const artifactDigest = byteDigest(artifact.artifact_digest);
     const canonicalPlanDigest = byteDigest(artifact.canonical_plan_digest);
     const designDigest = byteDigest(artifact.design_digest);
@@ -122,7 +123,7 @@ export function projectDevelopComposerOwnerReadbackV1(
       observedAt,
       state: "readback",
       readback: {
-        disposition: value.disposition,
+        disposition: response.disposition,
         receiptIdentity,
         artifact: {
           locator: artifact.artifact_locator,
@@ -137,9 +138,9 @@ export function projectDevelopComposerOwnerReadbackV1(
     };
   }
 
-  if (value.receipt_identity !== null || value.artifact !== null
-    || typeof value.coordinate !== "string" || !COORDINATE.test(value.coordinate)
-    || typeof value.reason !== "string" || !REASON.test(value.reason)) return null;
+  if (response.receipt_identity !== null || response.artifact !== null
+    || typeof response.coordinate !== "string" || !COORDINATE.test(response.coordinate)
+    || typeof response.reason !== "string" || !REASON.test(response.reason)) return null;
   return {
     schemaVersion: 1,
     availability: "available",
@@ -147,11 +148,11 @@ export function projectDevelopComposerOwnerReadbackV1(
     observedAt,
     state: "readback",
     readback: {
-      disposition: value.disposition,
+      disposition: response.disposition,
       receiptIdentity: null,
       artifact: null,
-      coordinate: value.coordinate,
-      reason: value.reason,
+      coordinate: response.coordinate,
+      reason: response.reason,
     },
     reason: null,
   };
@@ -217,6 +218,7 @@ export async function readDevelopComposerGatewayV1({
     const response = await fetcher(endpoint, {
       method: "GET",
       headers: { authorization: `Bearer ${target.token}` },
+      redirect: "error",
       cache: "no-store",
       signal: AbortSignal.timeout(operation.timeout_class.milliseconds),
     });
@@ -233,8 +235,11 @@ export async function readDevelopComposerGatewayV1({
         projection: unavailable(requestIdentity, response.status >= 500
           ? "OWNER_TRANSPORT_UNAVAILABLE" : "OWNER_RESPONSE_UNAVAILABLE") };
     }
+    const canonical = parseDevelopComposerOperationResponseV2(response.status, raw, requestIdentity);
     const observedAt = new Date(clock()).toISOString();
-    const projection = projectDevelopComposerOwnerReadbackV1(raw, requestIdentity, observedAt);
+    const projection = canonical
+      ? projectDevelopComposerOwnerReadbackV1(canonical, requestIdentity, observedAt)
+      : null;
     if (!projection) {
       return { status: 502, projection: unavailable(requestIdentity, "OWNER_RESPONSE_UNAVAILABLE") };
     }

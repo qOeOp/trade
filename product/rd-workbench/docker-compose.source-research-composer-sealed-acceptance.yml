@@ -1,5 +1,8 @@
 name: ${SEALED_ACCEPTANCE_PROJECT:?set SEALED_ACCEPTANCE_PROJECT}
 
+x-dashboard-probe-image: &dashboard-probe-image >-
+  node:22.22.0-bookworm-slim@sha256:dd9d21971ec4395903fa6143c2b9267d048ae01ca6d3ea96f16cb30df6187d94
+
 services:
   postgres:
     environment:
@@ -29,6 +32,23 @@ services:
         ${SEALED_MARKET_DATA_OWNER_DATABASE_URL:?set SEALED_MARKET_DATA_OWNER_DATABASE_URL}
       MARKET_DATA_RD_ROLE_SET_DATABASE_URL: >-
         ${SEALED_MARKET_DATA_RD_ROLE_SET_DATABASE_URL:?set SEALED_MARKET_DATA_RD_ROLE_SET_DATABASE_URL}
+
+  dashboard-v2-probe:
+    image: *dashboard-probe-image
+    pull_policy: never
+    restart: "no"
+    read_only: true
+    entrypoint: ["/bin/sh", "-c", "trap : TERM INT; sleep infinity & wait"]
+    environment:
+      RD_OWNER_API_TOKEN: ${SEALED_RD_OWNER_API_TOKEN:?set SEALED_RD_OWNER_API_TOKEN}
+    volumes:
+      - ../:/workspace/product:ro
+    networks:
+      - sealed-internal
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
 
   replay-policy-catalog-fixture:
     profiles: ["catalog-fixture"]

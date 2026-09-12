@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const panel = await readFile(new URL("../components/ui/panel-frame.tsx", import.meta.url), "utf8");
+const button = await readFile(new URL("../components/ui/button.tsx", import.meta.url), "utf8");
 const detailInspector = await readFile(new URL("../components/ui/detail-inspector.tsx", import.meta.url), "utf8");
 const animateIn = await readFile(new URL("../components/ui/animate-in.tsx", import.meta.url), "utf8");
 const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
@@ -54,7 +55,7 @@ test("source motion is retained and obeys route/reduced-motion semantics", () =>
 test("panel adaptation uses shared tokens rather than private colors", () => {
   assert.doesNotMatch(panel, /#[0-9a-f]{3,8}|rgba?\(/iu);
   assert.match(css, /\.panel-frame-body-content\[data-mode="scroll"\] \{ overflow-y: auto; \}/);
-  assert.match(css, /\.panel-frame-close-button[^}]+var\(--surface-card\)/);
+  assert.doesNotMatch(css, /\.panel-frame-close-button\s*\{/u);
   assert.match(css, /\.panel-frame-header\[data-layout="inline"\]/);
   assert.match(css, /\.panel-frame\[data-geometry="shell-inset"\] > \.panel-frame-header[^}]+border-radius: 0/);
   assert.match(css, /\.panel-frame\[data-geometry="shell-inset"\] > \.panel-frame-header[^}]+background: transparent/);
@@ -94,9 +95,9 @@ test("detail inspectors keep chrome on the frame and one complete inset body", (
 test("operational summaries preserve a legible metric hierarchy across viewports", () => {
   assert.match(css, /.operations-runs-panel > \.panel-frame-header \.panel-frame-heading \{[^}]+max-width: 820px;/u);
   assert.match(css, /.operations-runs-panel > \.panel-frame-header p \{[^}]+margin-top: 10px;[^}]+font-size: 11px;/u);
-  assert.match(runStorePreview, /<CompactStatusBar className="operations-run-summaries" aria-label="Loaded run summary">/u);
-  assert.match(runStorePreview, /<CompactStatusGroup label="current view">/u);
-  for (const label of ["loaded runs", "active", "failed", "result ready", "result pending"]) {
+  assert.match(runStorePreview, /<CompactStatusBar className="operations-run-summaries" aria-label="Run summary">/u);
+  assert.match(runStorePreview, /<CompactStatusGroup label=\{kind === "runs" \? "runs" : "dependencies"\}>/u);
+  for (const label of ["queued", "running", "unknown", "completed", "failed"]) {
     assert.match(runStorePreview, new RegExp(`<CompactStatusItem label="${label}"`, "u"));
   }
   assert.match(css, /\.compact-status-bar \{[^}]+container: compact-status \/ inline-size;[^}]+width: 100%;/u);
@@ -127,8 +128,8 @@ test("operational summaries preserve a legible metric hierarchy across viewports
 });
 
 test("run detail actions, technical disclosure, and state values expose deliberate hierarchy", () => {
-  assert.match(css, /\.filter-action\[data-variant="ghost"\][^}]+background: transparent;/u);
-  assert.match(css, /\.filter-action:is\(\[data-variant="outline"\], \[data-variant="secondary"\]\)[^}]+var\(--border-default\)/u);
+  assert.match(button, /ghost:\s*'hover:bg-accent hover:text-accent-foreground'/u);
+  assert.match(button, /outline:[\s\S]*?border-\[var\(--border-default\)\][\s\S]*?bg-\[var\(--surface-card\)\]/u);
   assert.match(runDetail, /label="owner outcome"[\s\S]+?ownerOutcomeTone\(run\.owner_outcome_state\)/u);
   assert.match(css, /\.panel-info-popover \{[^}]+position: fixed;[^}]+max-height:[^}]+overflow-y: auto;[^}]+background: var\(--surface-elevated\);/u);
   assert.match(css, /\.panel-frame-actions \.panel-info-popover a \{[^}]+border-radius: 0;[^}]+background: transparent;[^}]+text-decoration: underline;/u);
@@ -166,7 +167,9 @@ test("operational surfaces keep implementation language behind information contr
     readFile(new URL("../components/ui/evidence-strip.tsx", import.meta.url), "utf8"),
   ]);
 
-  assert.match(runs, /title="Run history"[\s\S]+?<PanelFrameInfo>/u);
+  assert.match(runs, /title="Runs"[\s\S]+?<PanelFrameInfo label="View unavailable fields">/u);
+  assert.match(runs, /<DataTableSurface[\s\S]+?\{pageResult \? <>[\s\S]+?<UnavailableState/u);
+  assert.match(runs, /if \(isRunListSearchInputV2\(event\.target\.value\)\) setQueryDraft/u);
   assert.doesNotMatch(runs, /description="[^"]*(?:RunStore|Windmill|Owner facts)/u);
   assert.match(workers, /title="Workers"[\s\S]+?<PanelFrameInfo>/u);
   assert.doesNotMatch(workers, /description="[^"]*(?:PostgreSQL|custody|operational facts)/u);
@@ -177,15 +180,15 @@ test("operational surfaces keep implementation language behind information contr
     assert.match(logs, new RegExp(`<CompactStatusItem label="${label}"`, "u"));
   }
   assert.doesNotMatch(logs, /description="[^"]*(?:RunStore|observation cut|inferred)/u);
-  assert.doesNotMatch(runs, />\{run\.run_identity\}<\/code>|>\{run\.operation_id\}<\/code>/u);
-  assert.match(runs, /return `#\$\{tail\.slice\(-8\)\}`/u);
-  assert.match(runs, /<CompactStatusGroup label="current view">[\s\S]+?<CompactStatusItem label="loaded runs"/u);
-  assert.doesNotMatch(runs, /label="(?:Active|Failed|Result ready|Result pending)"/u);
+  assert.doesNotMatch(runs, />\{run\.run_identity\}<\/code>/u);
+  assert.match(runs, /<CompactStatusGroup label=\{kind === "runs" \? "runs" : "dependencies"\}>[\s\S]+?<CompactStatusItem label="queued"/u);
+  assert.doesNotMatch(runs, /label="(?:Queued|Running|Unknown|Completed|Failed)"/u);
   assert.match(logs, /<FilterButton density="compact" variant="secondary"[\s\S]+?Auto-refresh/u);
   assert.match(logs, /<PanelFrameInfo><b>Technical reason<\/b><code>/u);
   assert.match(logs, /<PanelFrameInfo><b>Data details<\/b><code/u);
-  assert.match(css, /button\.panel-info-trigger \{[^}]+width: 32px;[^}]+flex: 0 0 32px;[^}]+display: grid;[^}]+border-radius: 999px;/u);
+  assert.doesNotMatch(css, /button\.panel-info-trigger\s*\{/u);
   assert.doesNotMatch(css, /\.panel-frame-actions \.panel-info-trigger/u);
+  assert.equal(panel.match(/shape="circle"/gu)?.length, 2);
   assert.match(css, /@media \(max-width: 767px\) \{[\s\S]+?\.bounded-log-viewport-footer \{[^}]+flex-wrap: wrap;[^}]+\}[\s\S]+?\.bounded-log-viewport-footer > div:first-child \{[^}]+min-width: 0;[^}]+\}[\s\S]+?\.bounded-log-pagination \{[^}]+width: 100%;[^}]+justify-content: flex-end;/u);
   assert.doesNotMatch(logs, /canonical cut contains|Complete bounded cut|retention limit|No service logs were observed in this cut/u);
   assert.match(logs, /page && instances\.length === 0[\s\S]+?emptyPresentation\?\.detail/u);

@@ -1,14 +1,11 @@
 import { NextResponse } from "next/server";
 
-import {
-  executeSourceResearchOperationV1,
-} from "@/lib/source-research-operation";
+import { handleSourceResearchActionV1 } from "@/lib/dashboard-operation-handler";
 import type { SourceResearchOperationRequestV1 } from "@/lib/source-research-input-contract";
 import {
   operatorCapabilityAuthorizationDigestV1,
   verifyOperatorCapabilityV1,
 } from "@/lib/operator-capability";
-import { projectSourceResearchBrowserEnvelopeV1 } from "@/lib/source-research-browser-projection";
 
 export const dynamic = "force-dynamic";
 
@@ -74,7 +71,7 @@ export async function POST(request: Request) {
   } catch {
     return unavailable("EXECUTION_REQUEST_INVALID", 400);
   }
-  const result = await executeSourceResearchOperationV1({
+  const result = await handleSourceResearchActionV1({
     request: body,
     actionContext: {
       authorizationDigest,
@@ -82,17 +79,8 @@ export async function POST(request: Request) {
       requestedAction: body.action,
     },
   });
-  const sourceRequestIdentity = body.action === "RUN"
-    ? body.source.request_identity : body.source_request_identity;
-  const researchRequestIdentity = body.action === "RUN"
-    ? body.research.request_identity : body.research_request_identity;
-  const envelope = await projectSourceResearchBrowserEnvelopeV1({
-    result,
-    sourceRequestIdentity,
-    researchRequestIdentity,
-  });
-  return NextResponse.json(envelope, {
-    status: result.status === 200 && envelope.availability === "unavailable" ? 502 : result.status,
+  return NextResponse.json(result.envelope, {
+    status: result.status,
     headers: { "cache-control": "no-store" },
   });
 }

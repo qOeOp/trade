@@ -13,6 +13,7 @@ use sha2::{Digest, Sha256};
 use tokio::net::TcpListener;
 use vibe_backtest_owner_contracts::{CanonicalDigestV2, OpaqueIdentityV2};
 use vibe_strategy_factory::{
+    BacktestResultCustodyErrorV2, ExploratoryReplayResultLocatorV2,
     artifact_build::{
         ArtifactBuildError, ArtifactDirectoryCursorV1, ArtifactDirectoryOwnerPort,
         ArtifactReadbackOwnerPortV1, ArtifactSourceOwnerPort,
@@ -51,6 +52,7 @@ struct ApiState {
     source_intake_readback: Option<Arc<dyn SourceIntakeReadbackOwnerPort>>,
     composer_readback: Option<Arc<dyn DevelopComposerReadbackOwnerPortV2>>,
     exploratory_replay_readback: Arc<dyn ExploratoryReplayReadbackOwnerPortV2>,
+    exploratory_replay_result_readback: Arc<dyn ExploratoryReplayResultReadbackOwnerPortV2>,
     token_digest: [u8; 32],
 }
 
@@ -75,6 +77,34 @@ impl ExploratoryReplayReadbackOwnerPortV2 for PostgresExploratoryReplayReadbackO
     }
 }
 
+#[async_trait::async_trait]
+trait ExploratoryReplayResultReadbackOwnerPortV2: Send + Sync {
+    async fn read_exploratory_replay_result(
+        &self,
+        result_identity: &str,
+        request_identity: &str,
+        attempt_identity: &str,
+    ) -> Result<Option<Vec<u8>>, BacktestResultCustodyErrorV2>;
+}
+
+#[async_trait::async_trait]
+impl ExploratoryReplayResultReadbackOwnerPortV2 for PostgresExploratoryReplayReadbackOwnerV2 {
+    async fn read_exploratory_replay_result(
+        &self,
+        result_identity: &str,
+        request_identity: &str,
+        attempt_identity: &str,
+    ) -> Result<Option<Vec<u8>>, BacktestResultCustodyErrorV2> {
+        self.resolve_exploratory_replay_result_v2(ExploratoryReplayResultLocatorV2 {
+            result_identity,
+            request_identity,
+            attempt_identity,
+        })
+        .await
+        .map(|result| result.map(|locked| locked.result_canonical_bytes().to_vec()))
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ArtifactDirectoryQueryV1 {
@@ -96,6 +126,19 @@ struct ResearchDirectoryQueryV1 {
 struct ExploratoryReplayReadbackQueryV2 {
     request_identity: String,
     meaning_digest: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExploratoryReplayResultPathV2 {
+    result_identity: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExploratoryReplayResultQueryV2 {
+    request_identity: String,
+    attempt_identity: String,
 }
 
 #[tokio::main]
@@ -135,7 +178,8 @@ async fn main() -> anyhow::Result<()> {
         research_readback: research,
         source_intake_readback,
         composer_readback,
-        exploratory_replay_readback: exploratory_replay,
+        exploratory_replay_readback: exploratory_replay.clone(),
+        exploratory_replay_result_readback: exploratory_replay,
         token_digest: Sha256::digest(token.as_bytes()).into(),
     };
     let address =
@@ -177,6 +221,10 @@ fn router(state: ApiState) -> Router {
         .route(
             "/v2/exploratory-replay-requests/readback",
             get(read_exploratory_replay),
+        )
+        .route(
+            "/v2/exploratory-replay-results/{result_identity}",
+            get(read_exploratory_replay_result),
         )
         .with_state(state)
 }
@@ -539,6 +587,46 @@ async fn read_exploratory_replay(
     }
 }
 
+async fn read_exploratory_replay_result(
+    State(state): State<ApiState>,
+    Path(path): Path<ExploratoryReplayResultPathV2>,
+    Query(query): Query<ExploratoryReplayResultQueryV2>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    if [
+        path.result_identity.as_str(),
+        query.request_identity.as_str(),
+        query.attempt_identity.as_str(),
+    ]
+    .into_iter()
+    .any(|value| OpaqueIdentityV2::try_from(value.to_owned()).is_err())
+    {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+
+    match state
+        .exploratory_replay_result_readback
+        .read_exploratory_replay_result(
+            &path.result_identity,
+            &query.request_identity,
+            &query.attempt_identity,
+        )
+        .await
+    {
+        Ok(Some(bytes)) => (
+            StatusCode::OK,
+            [(axum::http::header::CONTENT_TYPE, "application/json")],
+            bytes,
+        )
+            .into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+}
+
 fn valid_identity(value: &str) -> bool {
     (1..=192).contains(&value.len())
         && value.bytes().all(|byte| {
@@ -594,6 +682,7 @@ mod tests {
 
     use async_trait::async_trait;
     use axum::http::{HeaderValue, header::AUTHORIZATION};
+    use sqlx::Row;
     use vibe_strategy_factory::{
         artifact_build::{
             ArtifactBuildResultV1, ArtifactDirectoryCompletenessV1, ArtifactDirectoryReadbackV1,
@@ -615,6 +704,7 @@ mod tests {
             SourceIntakeOwnerErrorV1, SourceIntakeReadbackOwnerPort, SourceIntakeTerminalAtomV1,
         },
     };
+    use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
     use super::*;
 
@@ -722,6 +812,7 @@ mod tests {
     #[derive(Default)]
     struct RecordingReplay {
         readback_calls: AtomicUsize,
+        result_calls: AtomicUsize,
     }
 
     #[async_trait]
@@ -733,6 +824,26 @@ mod tests {
             self.readback_calls.fetch_add(1, Ordering::SeqCst);
             Err(ExploratoryReplayOwnerError::Unavailable(
                 "test stop".to_owned(),
+            ))
+        }
+    }
+
+    #[async_trait]
+    impl ExploratoryReplayResultReadbackOwnerPortV2 for RecordingReplay {
+        async fn read_exploratory_replay_result(
+            &self,
+            result_identity: &str,
+            request_identity: &str,
+            attempt_identity: &str,
+        ) -> Result<Option<Vec<u8>>, BacktestResultCustodyErrorV2> {
+            self.result_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(Some(
+                serde_json::to_vec(&serde_json::json!({
+                    "result_identity": result_identity,
+                    "request_identity": request_identity,
+                    "attempt_identity": attempt_identity,
+                }))
+                .expect("recording result bytes"),
             ))
         }
     }
@@ -782,6 +893,7 @@ mod tests {
             source_intake_readback: Some(source_intake),
             composer_readback: Some(Arc::new(RecordingComposer::default())),
             exploratory_replay_readback: Arc::new(RecordingReplay::default()),
+            exploratory_replay_result_readback: Arc::new(RecordingReplay::default()),
             token_digest: Sha256::digest(b"test-token").into(),
         }
     }
@@ -1091,5 +1203,109 @@ mod tests {
         .await;
         assert_eq!(unavailable.status(), StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(replay.readback_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn replay_result_readback_binds_all_three_locator_fields() {
+        let replay = Arc::new(RecordingReplay::default());
+        let mut api = state(
+            Arc::new(RecordingArtifact::default()),
+            Arc::new(RecordingResearch::default()),
+            Arc::new(RecordingSourceIntake::default()),
+        );
+        api.exploratory_replay_result_readback = replay.clone();
+
+        let invalid = read_exploratory_replay_result(
+            State(api.clone()),
+            Path(ExploratoryReplayResultPathV2 {
+                result_identity: "result-1".to_owned(),
+            }),
+            Query(ExploratoryReplayResultQueryV2 {
+                request_identity: " invalid-request-identity".to_owned(),
+                attempt_identity: "attempt-1".to_owned(),
+            }),
+            headers(),
+        )
+        .await;
+        assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(replay.result_calls.load(Ordering::SeqCst), 0);
+
+        let response = read_exploratory_replay_result(
+            State(api),
+            Path(ExploratoryReplayResultPathV2 {
+                result_identity: "result-1".to_owned(),
+            }),
+            Query(ExploratoryReplayResultQueryV2 {
+                request_identity: "request-1".to_owned(),
+                attempt_identity: "attempt-1".to_owned(),
+            }),
+            headers(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(replay.result_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the canonical Backtest result commit immediately before this Dashboard consumer"]
+    async fn replay_result_dashboard_read_api_returns_exact_canonical_bytes() {
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let mutation = test_database.mutation();
+        let aggregate = sqlx::query(
+            "SELECT result.result_identity, result.request_identity, result.attempt_identity,
+                    result.canonical_bytes AS result_bytes
+               FROM public.backtest_replay_results_v2 result
+              WHERE result.request_identity='request' AND result.attempt_identity='attempt'",
+        )
+        .fetch_one(mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner))
+        .await
+        .expect("canonical Backtest commit fixture must precede the Dashboard consumer");
+        let result_identity: String = aggregate.try_get("result_identity").unwrap();
+        let request_identity: String = aggregate.try_get("request_identity").unwrap();
+        let attempt_identity: String = aggregate.try_get("attempt_identity").unwrap();
+        let result_bytes: Vec<u8> = aggregate.try_get("result_bytes").unwrap();
+        let owner = Arc::new(
+            PostgresExploratoryReplayReadbackOwnerV2::connect(
+                test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+            )
+            .await
+            .unwrap(),
+        );
+        let mut api = state(
+            Arc::new(RecordingArtifact::default()),
+            Arc::new(RecordingResearch::default()),
+            Arc::new(RecordingSourceIntake::default()),
+        );
+        api.exploratory_replay_result_readback = owner;
+
+        let response = read_exploratory_replay_result(
+            State(api.clone()),
+            Path(ExploratoryReplayResultPathV2 {
+                result_identity: result_identity.clone(),
+            }),
+            Query(ExploratoryReplayResultQueryV2 {
+                request_identity: request_identity.clone(),
+                attempt_identity: attempt_identity.clone(),
+            }),
+            headers(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), result_bytes.len() + 1)
+            .await
+            .unwrap();
+        assert_eq!(body.as_ref(), result_bytes.as_slice());
+
+        let cross_spliced = read_exploratory_replay_result(
+            State(api),
+            Path(ExploratoryReplayResultPathV2 { result_identity }),
+            Query(ExploratoryReplayResultQueryV2 {
+                request_identity: "cross-spliced-request".to_owned(),
+                attempt_identity,
+            }),
+            headers(),
+        )
+        .await;
+        assert_eq!(cross_spliced.status(), StatusCode::NOT_FOUND);
     }
 }

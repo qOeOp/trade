@@ -8,6 +8,8 @@ const RECEIPT_IDENTITY = /^dashboard-control-plane-admission-v1-[0-9a-f]{64}$/;
 
 export const controlPlaneAdmissionOperationsV1 = [
   "artifact_build.formation_execute.v1",
+  "develop_composer.submit_or_resolve.v2",
+  "exploratory_replay.submit_or_resolve.v2",
   "source_intake.research.submit_or_resolve.v1",
 ] as const;
 

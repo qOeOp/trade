@@ -6,6 +6,7 @@ import {
   ARTIFACT_SHADOW_RESOLVE_OPERATION,
   DEVELOP_COMPOSER_SHADOW_READ_OPERATION,
   EXPLORATORY_REPLAY_SHADOW_READ_OPERATION,
+  EXPLORATORY_REPLAY_RESULT_SHADOW_READ_OPERATION,
   LEGACY_RESEARCH_QUARANTINE_READ_OPERATION,
   operationByIdV1,
   operationDeploymentForIdV1,
@@ -31,6 +32,7 @@ test("the Trade registry exposes only admitted read-only shadow operations", () 
     RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION,
     RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION,
     EXPLORATORY_REPLAY_SHADOW_READ_OPERATION,
+    EXPLORATORY_REPLAY_RESULT_SHADOW_READ_OPERATION,
     DEVELOP_COMPOSER_SHADOW_READ_OPERATION,
     SOURCE_INTAKE_SHADOW_READ_OPERATION,
   ]);
@@ -47,6 +49,8 @@ test("the Trade registry exposes only admitted read-only shadow operations", () 
     assert.equal(operation.timeout_class.milliseconds, 8_000);
     if (operation.operation_id === EXPLORATORY_REPLAY_SHADOW_READ_OPERATION) {
       assert.deepEqual(operation.owner_route.query_fields, ["request_identity", "meaning_digest"]);
+    } else if (operation.operation_id === EXPLORATORY_REPLAY_RESULT_SHADOW_READ_OPERATION) {
+      assert.deepEqual(operation.owner_route.query_fields, ["request_identity", "attempt_identity"]);
     } else {
       assert.equal(operation.owner_route.query_fields, undefined);
     }
@@ -108,6 +112,15 @@ test("Owner URL rendering requires the exact registered route identities", () =>
       meaning_digest: `blake3:${"a".repeat(64)}`,
     },
   })), `http://rd-owner-api:8080/v2/exploratory-replay-requests/readback?request_identity=replay%2Frequest&meaning_digest=blake3%3A${"a".repeat(64)}`);
+  assert.equal(String(ownerOperationUrlV1({
+    operationId: EXPLORATORY_REPLAY_RESULT_SHADOW_READ_OPERATION,
+    baseUrl: "http://rd-owner-api:8080",
+    identities: {
+      result_identity: "result/one",
+      request_identity: "replay/request",
+      attempt_identity: "attempt/one",
+    },
+  })), "http://rd-owner-api:8080/v2/exploratory-replay-results/result%2Fone?request_identity=replay%2Frequest&attempt_identity=attempt%2Fone");
   for (const requestIdentity of [".", "..", "identity with spaces", "\ufeffidentity"]) {
     const endpoint = ownerOperationUrlV1({
       operationId: EXPLORATORY_REPLAY_SHADOW_READ_OPERATION,

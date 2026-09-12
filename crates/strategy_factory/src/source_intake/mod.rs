@@ -36,15 +36,17 @@ pub use policy_evidence::{
     SourceIntakePolicyEvidenceResultV1, SourceIntakePolicyEvidenceV1,
     SourceIntakePolicyUnavailableReasonV1, SourceIntakeRetrievalTimeEvidenceV1,
 };
-#[cfg(feature = "sealed-source-intake-research-acceptance")]
-#[allow(unused_imports)]
-pub(crate) use research_handoff::SealedSourceIntakeResearchPolicyV1;
 #[cfg(test)]
 #[allow(
     unused_imports,
     reason = "standalone Source Intake harness has no Product Edge assembly consumer"
 )]
 pub(crate) use research_handoff::verified_research_ancestry_fixture;
+#[cfg(feature = "sealed-source-intake-research-acceptance")]
+#[allow(unused_imports)]
+pub(crate) use research_handoff::{
+    SealedSourceIntakeResearchPolicyV1, sealed_source_intake_research_policy_query_v2,
+};
 pub use research_handoff::{
     SourceIntakeResearchAncestryProposalV1, VerifiedSourceIntakeResearchAncestryV1,
 };

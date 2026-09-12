@@ -14,17 +14,21 @@ type InputProps = React.ComponentProps<'input'> & {
   variant?: 'default' | 'surface';
   /** Shared text treatment for typed or opaque values. */
   typography?: 'default' | 'mono';
+  /** Shared control density. Compact inputs pair with tool-sized actions. */
+  density?: 'default' | 'compact';
 };
 
 // ─── Input ────────────────────────────────────────────────
 
-function Input({ className, type, icon, typography = 'default', variant = 'default', ...props }: InputProps) {
+function Input({ className, density = 'default', type, icon, typography = 'default', variant = 'default', ...props }: InputProps) {
   const inputClassName = cn(
     'file:text-foreground placeholder:text-muted-foreground selection:bg-primary selection:text-primary-foreground border-input h-9 w-full min-w-0 rounded-md border bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm',
     'focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]',
     'aria-invalid:ring-destructive/20 aria-invalid:border-destructive',
     variant === 'surface' && styles.surface,
     typography === 'mono' && styles.mono,
+    density === 'compact' && styles.compact,
+    density === 'compact' && 'h-[30px] px-[9px] text-[10px] md:text-[10px]',
     icon && 'pl-8',
     className,
   );
@@ -38,6 +42,7 @@ function Input({ className, type, icon, typography = 'default', variant = 'defau
         <input
           type={type}
           data-slot="input"
+          data-density={density}
           data-typography={typography}
           data-variant={variant}
           className={inputClassName}
@@ -51,6 +56,7 @@ function Input({ className, type, icon, typography = 'default', variant = 'defau
     <input
       type={type}
       data-slot="input"
+      data-density={density}
       data-typography={typography}
       data-variant={variant}
       className={inputClassName}

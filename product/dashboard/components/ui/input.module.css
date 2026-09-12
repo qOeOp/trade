@@ -18,6 +18,10 @@
   border-color: var(--status-warning);
 }
 
+.compact {
+  font-size: 10px;
+}
+
 .mono {
   font: 10px/1.2 var(--font-mono);
 }

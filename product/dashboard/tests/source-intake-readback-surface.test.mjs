@@ -17,6 +17,8 @@ test("Source Intake route renders one compact exact-readback workbench", async (
   assert.match(component, /<PanelFrame/u);
   assert.match(component, /<PanelFrameHeader/u);
   assert.match(component, /<PanelFrameBody/u);
+  assert.match(component, /<PanelFrameInfo label="View Source Intake read boundary">/u);
+  assert.doesNotMatch(component, /meta="Owner point read|description="Open one exact Owner readback/u);
   assert.match(component, /Request identity/u);
   assert.match(component, /Open readback/u);
   assert.match(component, /\["Intake", "Custody", "Evidence"\]/u);

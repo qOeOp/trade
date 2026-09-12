@@ -19,6 +19,24 @@
   background: var(--surface-panel);
 }
 
-.resultNotice {
+.resultLookup {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid color-mix(in srgb, var(--border-default) 72%, transparent);
+}
+
+.resultReadback {
+  min-height: 0;
   margin-top: 10px;
+}
+
+.resultReadback :global(.unavailable-state) {
+  min-height: 104px;
+  border: 1px solid color-mix(in srgb, var(--border-default) 72%, transparent);
+  border-radius: var(--panel-inner-radius);
+  background: var(--surface-panel);
+}
+
+.resultCard {
+  grid-template-columns: minmax(0, 1fr);
 }

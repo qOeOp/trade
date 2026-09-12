@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef } from "react";
 import { calendarGroupPageV1, type ScheduleCalendarGroupV1 } from "../../../../lib/schedule-calendar";
+import { Button } from "../../button";
 import { InterfaceIcons } from "../../iconography";
 import styles from "../../schedule-calendar.module.css";
 
@@ -24,9 +25,9 @@ export function ScheduleInspectionDialog({ inspection, groupIndex, page, onGroup
   const selected = inspection.groups[groupIndex];
   return <dialog ref={dialog} className={styles.dialog} aria-label={inspection.label} onClose={onClose}>
     <header className={styles.dialogHeader}><div><small>Schedule inspection</small><h3>{inspection.label}</h3></div>
-      <button type="button" className={styles.iconButton} aria-label="Close schedule inspection" onClick={() => dialog.current?.close()}>
+      <Button type="button" variant="outline" size="icon-tool" aria-label="Close schedule inspection" onClick={() => dialog.current?.close()}>
         <InterfaceIcons.close size={16} aria-hidden="true" />
-      </button>
+      </Button>
     </header>
     <label className={styles.dialogSelect}>Schedule <select value={groupIndex} onChange={(event) => onGroup(Number(event.target.value))}>
       {inspection.groups.map((group, index) => <option key={`${group.schedule_identity}-${group.kind}`} value={index}>
@@ -42,9 +43,9 @@ export function ScheduleInspectionDialog({ inspection, groupIndex, page, onGroup
         {selected.run_identity && <Link href={`/operations/runs/${encodeURIComponent(selected.run_identity)}`}>Open run</Link>}
       </li>)}</ol>
       <footer className={styles.dialogFooter}>
-        <button type="button" disabled={page === 0} onClick={() => onPage(page - 1)}><InterfaceIcons.previous size={14} aria-hidden="true" />Previous</button>
+        <Button type="button" variant="outline" size="tool" disabled={page === 0} onClick={() => onPage(page - 1)}><InterfaceIcons.previous size={12} aria-hidden="true" />Previous</Button>
         <span>{page + 1} / {Math.ceil(selected.count / 50)}</span>
-        <button type="button" disabled={(page + 1) * 50 >= selected.count} onClick={() => onPage(page + 1)}>Next<InterfaceIcons.next size={14} aria-hidden="true" /></button>
+        <Button type="button" variant="outline" size="tool" disabled={(page + 1) * 50 >= selected.count} onClick={() => onPage(page + 1)}>Next<InterfaceIcons.next size={12} aria-hidden="true" /></Button>
       </footer>
     </>}
   </dialog>;

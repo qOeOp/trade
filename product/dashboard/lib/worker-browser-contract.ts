@@ -2,15 +2,26 @@ import { operationRegistryV1, type RegisteredOperationId } from "./operation-reg
 import { isRunIdentityV1 } from "./run-contract.ts";
 
 const IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/;
+const EFFECT_WORKER_IDENTITY = /^dashboard-effect-worker-v1-[0-9a-f]{64}$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
-const operationIds = new Set(operationRegistryV1.map(({ operation_id }) => operation_id));
-const operationOrder = new Map(operationRegistryV1.map(({ operation_id }, index) => [operation_id, index]));
+const effectOperationIds = [
+  "artifact_build.formation_execute.v1",
+  "source_intake.research.submit_or_resolve.v1",
+] as const;
+export type WorkerOperationIdV1 = RegisteredOperationId | typeof effectOperationIds[number];
+const orderedOperationIds: WorkerOperationIdV1[] = [
+  ...operationRegistryV1.map(({ operation_id }) => operation_id),
+  ...effectOperationIds,
+];
+const operationIds = new Set<WorkerOperationIdV1>(orderedOperationIds);
+const operationOrder = new Map(orderedOperationIds.map((operation_id, index) => [operation_id, index]));
 const runStates = new Set(["queued", "running", "succeeded", "failed", "cancelled", "unknown"]);
 
 export type WorkerBrowserProjectionV1 = {
   schema_version: 1;
+  worker_kind: "shadow_read" | "owner_effect";
   worker_identity: string;
-  operation_ids: RegisteredOperationId[];
+  operation_ids: WorkerOperationIdV1[];
   worker_artifact_digest: string;
   lease_state: "available" | "expired";
   registered_at: string;
@@ -25,7 +36,7 @@ export type WorkerBrowserProjectionV1 = {
 
 export type WorkerBrowserEnvelopeV1 = {
   schema_version: 1;
-  operation: "dashboard.shadow_workers.list.v1";
+  operation: "dashboard.workers.list.v1";
   availability: "available" | "unavailable";
   unavailable_reason: string | null;
   observed_at: string;
@@ -34,7 +45,7 @@ export type WorkerBrowserEnvelopeV1 = {
 
 export type WorkerDetailBrowserEnvelopeV1 = {
   schema_version: 1;
-  operation: "dashboard.shadow_workers.detail.v1";
+  operation: "dashboard.workers.detail.v1";
   availability: "available" | "unavailable";
   unavailable_reason: string | null;
   observed_at: string;
@@ -82,18 +93,26 @@ function workerCount(value: unknown): value is number {
 
 function parseWorker(value: unknown, observedAt: string): WorkerBrowserProjectionV1 | null {
   if (!object(value) || !exactKeys(value, [
-    "schema_version", "worker_identity", "operation_ids", "worker_artifact_digest", "lease_state",
+    "schema_version", "worker_kind", "worker_identity", "operation_ids", "worker_artifact_digest", "lease_state",
     "registered_at", "last_heartbeat_at", "lease_expires_at", "job_count", "active_job_count",
     "last_run_identity", "last_run_state", "last_run_at",
   ])) return null;
   const receivedOperations = Array.isArray(value.operation_ids) ? value.operation_ids : [];
-  if (value.schema_version !== 1 || typeof value.worker_identity !== "string"
+  if (value.schema_version !== 1
+    || (value.worker_kind !== "shadow_read" && value.worker_kind !== "owner_effect")
+    || typeof value.worker_identity !== "string"
     || !IDENTITY.test(value.worker_identity) || receivedOperations.length < 1
-    || receivedOperations.some((id) => typeof id !== "string" || !operationIds.has(id as RegisteredOperationId))
+    || (value.worker_kind === "owner_effect" && !EFFECT_WORKER_IDENTITY.test(value.worker_identity))
+    || receivedOperations.some((id) => typeof id !== "string" || !operationIds.has(id as WorkerOperationIdV1))
     || new Set(receivedOperations).size !== receivedOperations.length
     || receivedOperations.some((id, index) => index > 0
-      && Number(operationOrder.get(receivedOperations[index - 1] as RegisteredOperationId))
-        >= Number(operationOrder.get(id as RegisteredOperationId)))
+      && Number(operationOrder.get(receivedOperations[index - 1] as WorkerOperationIdV1))
+        >= Number(operationOrder.get(id as WorkerOperationIdV1)))
+    || (value.worker_kind === "owner_effect"
+      && (receivedOperations.length !== effectOperationIds.length
+        || effectOperationIds.some((id) => !receivedOperations.includes(id))))
+    || (value.worker_kind === "shadow_read"
+      && receivedOperations.some((id) => effectOperationIds.includes(id as typeof effectOperationIds[number])))
     || typeof value.worker_artifact_digest !== "string" || !DIGEST.test(value.worker_artifact_digest)
     || (value.lease_state !== "available" && value.lease_state !== "expired")
     || !timestamp(value.registered_at) || !timestamp(value.last_heartbeat_at)
@@ -114,7 +133,7 @@ function parseWorker(value: unknown, observedAt: string): WorkerBrowserProjectio
 export function parseWorkerBrowserEnvelopeV1(value: unknown): WorkerBrowserEnvelopeV1 | null {
   if (!object(value) || !exactKeys(value, [
     "schema_version", "operation", "availability", "unavailable_reason", "observed_at", "workers",
-  ]) || value.schema_version !== 1 || value.operation !== "dashboard.shadow_workers.list.v1"
+  ]) || value.schema_version !== 1 || value.operation !== "dashboard.workers.list.v1"
     || !timestamp(value.observed_at) || !Array.isArray(value.workers) || value.workers.length > 100) return null;
   if (value.availability === "unavailable") {
     return typeof value.unavailable_reason === "string" && IDENTITY.test(value.unavailable_reason)
@@ -135,7 +154,7 @@ export function parseWorkerDetailBrowserEnvelopeV1(
   if (!isWorkerIdentityV1(expectedWorkerIdentity) || !object(value) || !exactKeys(value, [
     "schema_version", "operation", "availability", "unavailable_reason", "observed_at",
     "requested_worker_identity", "worker",
-  ]) || value.schema_version !== 1 || value.operation !== "dashboard.shadow_workers.detail.v1"
+  ]) || value.schema_version !== 1 || value.operation !== "dashboard.workers.detail.v1"
     || !timestamp(value.observed_at) || value.requested_worker_identity !== expectedWorkerIdentity) return null;
   if (value.availability === "unavailable") {
     return typeof value.unavailable_reason === "string" && IDENTITY.test(value.unavailable_reason)
@@ -175,13 +194,13 @@ export async function readWorkerBrowserResponsesV1(
   const observed_at = new Date().toISOString();
   const list: WorkerBrowserEnvelopeV1 = (listResponse.status === "fulfilled"
     ? listResponse.value : null) ?? {
-    schema_version: 1, operation: "dashboard.shadow_workers.list.v1", availability: "unavailable",
+    schema_version: 1, operation: "dashboard.workers.list.v1", availability: "unavailable",
     unavailable_reason: listResponse.status === "rejected" ? "WORKER_TRANSPORT_UNAVAILABLE" : "WORKER_RESPONSE_UNAVAILABLE",
     observed_at, workers: [],
   };
   const detail: WorkerDetailBrowserEnvelopeV1 | null = workerIdentity ? (
     (detailResponse.status === "fulfilled" ? detailResponse.value : null) ?? {
-      schema_version: 1, operation: "dashboard.shadow_workers.detail.v1", availability: "unavailable",
+      schema_version: 1, operation: "dashboard.workers.detail.v1", availability: "unavailable",
       unavailable_reason: detailResponse.status === "rejected" ? "WORKER_DETAIL_TRANSPORT_UNAVAILABLE" : "WORKER_DETAIL_RESPONSE_UNAVAILABLE",
       observed_at, requested_worker_identity: workerIdentity, worker: null,
     }

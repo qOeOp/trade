@@ -12,7 +12,7 @@ import { EmptyState, UnavailableState } from "./ui/evidence-strip";
 import { FactGroup, FactGroupGrid, FactGroupSkeletonGrid, FactItem } from "./ui/fact-group";
 import { FilterButton } from "./ui/filter-toolbar";
 import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
-import { PanelFrame, PanelFrameBody, PanelFrameHeader } from "./ui/panel-frame";
+import { PanelFrame, PanelFrameBody, PanelFrameHeader, PanelFrameInfo } from "./ui/panel-frame";
 import { ReadbackLookup, ReadbackLookupAction, ReadbackLookupField, ReadbackLookupInput } from "./ui/readback-lookup";
 import { StatusBadge, type StatusBadgeTone } from "./ui/status-badge";
 
@@ -120,9 +120,11 @@ export function DevelopComposerReadbackWorkbench({
         eyebrow="Develop composer"
         title="Composer readback"
         titleId="develop-composer-title"
-        meta="Owner point read · No run, resolve, or edit"
-        description="Inspect one exact sealed result without running, resolving, editing, or exposing source bytes."
-        actions={(
+        actions={<>
+          <PanelFrameInfo label="View Composer read boundary">
+            <b>Read boundary</b>
+            <p>Opens one sealed result. Running, resolving, editing, and source-byte exposure are unavailable here.</p>
+          </PanelFrameInfo>
           <FilterButton
             density="compact"
             variant="secondary"
@@ -132,7 +134,7 @@ export function DevelopComposerReadbackWorkbench({
           >
             <InterfaceIcons.refresh aria-hidden="true" size={14} /> Refresh
           </FilterButton>
-        )}
+        </>}
       />
       <PanelFrameBody className={styles.body}>
         <ReadbackLookup
@@ -159,7 +161,7 @@ export function DevelopComposerReadbackWorkbench({
             />
           </ReadbackLookupField>
           <ReadbackLookupAction disabled={status === "loading"}>
-            Open readback <EvidenceIcons.next aria-hidden="true" size={14} />
+            Open readback <EvidenceIcons.next aria-hidden="true" size={12} />
           </ReadbackLookupAction>
         </ReadbackLookup>
         <div className={styles.result} aria-live="polite">

@@ -16,6 +16,7 @@ const recoveryFields = {
   "rd_iteration_timeline.shadow_read.v1": ["trial_family_identity"],
   "rd_historical_custody.shadow_read.v1": [],
   "exploratory_replay.shadow_read.v2": ["request_identity", "meaning_digest"],
+  "exploratory_replay_result.shadow_read.v2": ["result_identity", "request_identity", "attempt_identity", "meaning_digest"],
   "develop_composer.shadow_read.v2": ["request_identity"],
 } as const satisfies Record<RegisteredOperationId, readonly string[]>;
 

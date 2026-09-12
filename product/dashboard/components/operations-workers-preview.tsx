@@ -50,6 +50,10 @@ function compactRunLabel(identity: string) {
   return `#${tail.slice(-8)}`;
 }
 
+function workerKindLabel(kind: WorkerBrowserProjectionV1["worker_kind"]) {
+  return kind.replaceAll("_", " ");
+}
+
 function WorkerDetail({ worker, exact = false }: { worker: WorkerBrowserProjectionV1; exact?: boolean }) {
   return (
     <DetailInspector aria-label={`Worker ${worker.worker_identity}`}>
@@ -82,6 +86,7 @@ function WorkerDetail({ worker, exact = false }: { worker: WorkerBrowserProjecti
               : <span>Unavailable</span>}</DetailClusterFact>
           </DetailCluster>
           <DetailCluster label="Capabilities" meta={`${worker.operation_ids.length} exact`}>
+            <DetailClusterFact label="Runtime role">{workerKindLabel(worker.worker_kind)}</DetailClusterFact>
             <DetailClusterFact label="Registered operations" wide>
               <span className="detail-cluster-values">
                 {worker.operation_ids.map((operation) => <code key={operation} title={operation}>{operation}</code>)}
@@ -150,6 +155,7 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
     (leaseFilter === "all" || worker.lease_state === leaseFilter)
     && (!normalizedSearch || [
       worker.worker_identity,
+      worker.worker_kind,
       worker.worker_artifact_digest,
       worker.last_run_identity,
       worker.last_run_state,
@@ -191,7 +197,7 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
       grow: 1.35,
       ignoreRowClick: true,
       cell: (worker) => <Link className="table-cell-stack" href={`/operations/workers/${encodeWorkerIdentitySegmentV1(worker.worker_identity)}`}>
-        <b title={worker.worker_identity}>{compactWorkerLabel(worker.worker_identity)}</b><span>Registered {displayTime(worker.registered_at)}</span>
+        <b title={worker.worker_identity}>{compactWorkerLabel(worker.worker_identity)}</b><span>{workerKindLabel(worker.worker_kind)} · registered {displayTime(worker.registered_at)}</span>
       </Link>,
     },
     {
@@ -275,7 +281,7 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
               </TableToolbar>
             }>
               <DataWorkspaceTable<WorkerBrowserProjectionV1>
-                ariaLabel="Dashboard shadow workers"
+                ariaLabel="Dashboard runtime workers"
                 className="operations-worker-table"
                 columns={columns}
                 conditionalRowStyles={selectedRowStyles}
@@ -287,7 +293,7 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
                 paginationResetKey={JSON.stringify([leaseFilter, normalizedSearch])}
                 paginationRowsPerPageOptions={[20, 50, 100]}
                 noDataComponent={<DataWorkspaceEmpty icon={<ModuleIcons.cpu aria-hidden="true" size={18} />}>
-                  No compatible shadow worker has registered.
+                  No Dashboard runtime worker has registered.
                 </DataWorkspaceEmpty>}
               />
             </DataTableSurface>

@@ -14,6 +14,7 @@ const observedAt = "2026-09-01T10:00:00.000Z";
 const runIdentity = "dashboard-run-v1-12345678-1234-4123-8123-123456789abc";
 const worker = {
   schema_version: 1,
+  worker_kind: "shadow_read",
   worker_identity: "dashboard-shadow-worker-1",
   operation_ids: ["research_goal.shadow_resolve.v1", "source_intake.shadow_read.v1"],
   worker_artifact_digest: `sha256:${"a".repeat(64)}`,
@@ -31,7 +32,7 @@ const worker = {
 function envelope(overrides = {}) {
   return {
     schema_version: 1,
-    operation: "dashboard.shadow_workers.list.v1",
+    operation: "dashboard.workers.list.v1",
     availability: "available",
     unavailable_reason: null,
     observed_at: observedAt,
@@ -44,6 +45,31 @@ test("worker envelope accepts exact lease, job and capability readback", () => {
   const parsed = parseWorkerBrowserEnvelopeV1(envelope());
   assert.equal(parsed?.workers[0].last_run_identity, runIdentity);
   assert.equal(parsed?.workers[0].active_job_count, 1);
+});
+
+test("worker envelope admits the exact effect runtime role and rejects cross-role capabilities", () => {
+  const effectWorker = {
+    ...worker,
+    worker_kind: "owner_effect",
+    worker_identity: `dashboard-effect-worker-v1-${"b".repeat(64)}`,
+    operation_ids: [
+      "artifact_build.formation_execute.v1",
+      "source_intake.research.submit_or_resolve.v1",
+    ],
+  };
+  assert.deepEqual(parseWorkerBrowserEnvelopeV1(envelope({ workers: [effectWorker] }))?.workers, [effectWorker]);
+  assert.equal(parseWorkerBrowserEnvelopeV1(envelope({ workers: [{
+    ...effectWorker, operation_ids: worker.operation_ids,
+  }] })), null);
+  assert.equal(parseWorkerBrowserEnvelopeV1(envelope({ workers: [{
+    ...worker, operation_ids: effectWorker.operation_ids,
+  }] })), null);
+  assert.equal(parseWorkerBrowserEnvelopeV1(envelope({ workers: [{
+    ...effectWorker, worker_kind: ["owner_effect"],
+  }] })), null);
+  assert.equal(parseWorkerBrowserEnvelopeV1(envelope({ workers: [{
+    ...effectWorker, worker_identity: "plain-worker",
+  }] })), null);
 });
 
 test("worker transport survives URL dot normalization and preserves exact response binding", async () => {
@@ -124,7 +150,7 @@ test("404 preserves only strict identity-bound missing detail, never positive or
       { ...missing, extra: true },
       { ...missing, unavailable_reason: "WORKER_STORE_UNAVAILABLE" },
       { ...missing, observed_at: null },
-      { ...missing, operation: "dashboard.shadow_workers.list.v1" },
+      { ...missing, operation: "dashboard.workers.list.v1" },
       { ...missing, schema_version: 2 },
       { ...missing, availability: "available" },
       null, [],
@@ -281,7 +307,7 @@ test("worker envelope admits only an empty explicit unavailable projection", () 
 function detailEnvelope(overrides = {}) {
   return {
     schema_version: 1,
-    operation: "dashboard.shadow_workers.detail.v1",
+    operation: "dashboard.workers.detail.v1",
     availability: "available",
     unavailable_reason: null,
     observed_at: observedAt,

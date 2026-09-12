@@ -192,7 +192,7 @@ test(testName, { skip: !url }, async () => {
       };
     }).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     if (browserAcceptance) {
-      assert.equal(new Set(descriptors.map((descriptor) => descriptor.operation_id)).size, 9);
+      assert.equal(new Set(descriptors.map((descriptor) => descriptor.operation_id)).size, 10);
     }
     // The configured-set parser owns canonical descriptor ordering.
     const canonical = JSON.stringify(descriptors);

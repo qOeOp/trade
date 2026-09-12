@@ -15,6 +15,7 @@ import {
   PanelFrame,
   PanelFrameBody,
   PanelFrameHeader,
+  PanelFrameInfo,
 } from "./ui/panel-frame";
 import { ReadbackLookup, ReadbackLookupAction, ReadbackLookupField, ReadbackLookupInput } from "./ui/readback-lookup";
 import { StatusBadge } from "./ui/status-badge";
@@ -103,9 +104,11 @@ export function SourceIntakeReadbackWorkbench({
         eyebrow="Source intake"
         title="Source intake"
         titleId="source-intake-title"
-        meta="Owner point read · No submit or resolve"
-        description="Open one exact Owner readback without submitting, resolving, or exposing source payload."
         actions={<>
+          <PanelFrameInfo label="View Source Intake read boundary">
+            <b>Read boundary</b>
+            <p>Opens one exact result. Submit, resolve, and source-payload exposure are unavailable here.</p>
+          </PanelFrameInfo>
           <FilterLink density="compact" variant="primary" href="/rd/intake/new">
             <EvidenceIcons.add aria-hidden="true" size={14} /> New intake
           </FilterLink>
@@ -145,7 +148,7 @@ export function SourceIntakeReadbackWorkbench({
             />
           </ReadbackLookupField>
           <ReadbackLookupAction disabled={status === "loading"}>
-            Open readback <EvidenceIcons.next aria-hidden="true" size={14} />
+            Open readback <EvidenceIcons.next aria-hidden="true" size={12} />
           </ReadbackLookupAction>
         </ReadbackLookup>
         <div className={styles.result} aria-live="polite">

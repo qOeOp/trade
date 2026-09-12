@@ -95,8 +95,9 @@ test("all Dashboard tables stay behind the TanStack and shadcn workspace boundar
     join(dashboardRoot, "components/operations-runstore-preview.tsx"),
     "utf8",
   );
-  assert.match(runTableSource, /<DataWorkspaceTable<RunListItemV1>/u);
-  assert.match(runTableSource, /data=\{visibleRuns\}/u);
+  assert.match(runTableSource, /<DataWorkspaceTable<RunListItemV2>/u);
+  assert.match(runTableSource, /data=\{pageResult\.runs\}/u);
+  assert.match(runTableSource, /runListViewMatchesFilterV2\(result,/u);
   const scheduleTableSource = await readFile(
     join(dashboardRoot, "components/operations-schedules-preview.tsx"),
     "utf8",

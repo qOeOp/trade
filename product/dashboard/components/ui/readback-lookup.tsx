@@ -57,7 +57,7 @@ export function ReadbackLookupField({
 }
 
 export function ReadbackLookupInput({ className, typography = "default", ...props }: InputProps) {
-  return <Input {...props} className={className} typography={typography} variant="surface" />;
+  return <Input {...props} className={className} density="compact" typography={typography} variant="surface" />;
 }
 
 export function ReadbackLookupAction({
@@ -70,7 +70,7 @@ export function ReadbackLookupAction({
     <Button
       {...props}
       className={classes(styles.action, className)}
-      size="default"
+      size="tool"
       type={type}
       variant="default"
     >

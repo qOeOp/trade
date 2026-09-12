@@ -16,14 +16,16 @@ const [proxy, layout, login, access, sessionRoute, healthRoute, navigation, comp
   readFile(new URL("../../../docs/guide/dashboard.zh.md", import.meta.url), "utf8"),
 ]);
 
-test("browser session guard has only the admitted public endpoints", () => {
-  assert.match(proxy, /PUBLIC_PATHS = new Set\(\["\/login", "\/api\/auth\/session", "\/api\/health"\]\)/u);
+test("browser session guard has only the admitted public and independently authenticated endpoints", () => {
+  assert.match(proxy, /PUBLIC_PATHS = new Set\(\["\/login", "\/api\/auth\/session", "\/api\/health", "\/api\/mcp"\]\)/u);
   assert.match(proxy, /PUBLIC_ASSETS = new Set\(\["\/icon\.svg", "\/favicon\.ico"\]\)/u);
   assert.doesNotMatch(proxy, /\\\.\[a-z0-9\]/u);
   assert.match(proxy, /readLocalOperatorSessionV1/u);
   assert.match(proxy, /status: state\.state === "configuration_unavailable" \? 503 : 401/u);
   assert.match(layout, /readLocalOperatorSessionV1/u);
   assert.match(layout, /redirect\(`\/login\?state=\$\{session\.state\}`\)/u);
+  assert.match(readme, /`\/api\/mcp` is a stateless Streamable HTTP endpoint/u);
+  assert.match(readme, /outside the[\s\S]+browser-session gate but requires its own finite, scoped Bearer capability/u);
 });
 
 test("login is a real local credential surface without fake account providers", () => {
@@ -55,6 +57,8 @@ test("Compose scopes session secrets to web and uses a zero-data health route", 
   assert.match(compose, /dashboard-web:[\s\S]+DASHBOARD_LOCAL_OPERATOR_LOGIN_TOKEN:[\s\S]+DASHBOARD_SESSION_HMAC_KEY:[\s\S]+fetch\('http:\/\/127\.0\.0\.1:3100\/api\/health\/'\)/u);
   assert.match(healthRoute, /schema_version: 1, status: "ok"/u);
   assert.doesNotMatch(healthRoute, /Owner|RunStore|database|Windmill/u);
+  assert.equal(compose.match(/^\s{6}DASHBOARD_MCP_API_TOKEN:/gmu)?.length, 1);
+  assert.equal(compose.match(/^\s{6}DASHBOARD_MCP_PRINCIPAL_REF:/gmu)?.length, 1);
 });
 
 test("bilingual architecture and package boundary admit the same narrow slice", () => {

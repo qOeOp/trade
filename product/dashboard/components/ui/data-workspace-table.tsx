@@ -289,10 +289,10 @@ export function DataWorkspaceTable<T extends RowData>({
             </select>
           </label>
           <span>{table.state.pagination.pageIndex * table.state.pagination.pageSize + 1}-{Math.min((table.state.pagination.pageIndex + 1) * table.state.pagination.pageSize, filteredRowCount)} of {filteredRowCount}</span>
-          <Button variant="outline" size="icon-sm" aria-label="Previous page" disabled={!table.getCanPreviousPage()} onClick={() => table.previousPage()}>
+          <Button variant="outline" size="icon-tool" aria-label="Previous page" disabled={!table.getCanPreviousPage()} onClick={() => table.previousPage()}>
             <InterfaceIcons.previous aria-hidden="true" />
           </Button>
-          <Button variant="outline" size="icon-sm" aria-label="Next page" disabled={!table.getCanNextPage()} onClick={() => table.nextPage()}>
+          <Button variant="outline" size="icon-tool" aria-label="Next page" disabled={!table.getCanNextPage()} onClick={() => table.nextPage()}>
             <InterfaceIcons.next aria-hidden="true" />
           </Button>
         </div>
