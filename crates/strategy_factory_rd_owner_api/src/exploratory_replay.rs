@@ -29,10 +29,10 @@ use vibe_data::owner::{
 };
 use vibe_product_edge::{ProductEdgeAdmissionRequestV1, ProductEdgeError};
 use vibe_strategy_factory::{
-    ExploratoryReplayResultLocatorV2,
+    ExploratoryReplayResultLocatorV2, MarketDataRepairResolutionLocatorV1,
     exploratory_replay::{
         EXPLORATORY_REPLAY_MUTATION_EFFECT_V2, EXPLORATORY_REPLAY_OPERATION_V2,
-        EXPLORATORY_REPLAY_SCHEMA_V2, ExploratoryReplayOwnerError,
+        EXPLORATORY_REPLAY_SCHEMA_V2, ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError,
         ExploratoryReplayRecoverySelectorV2, ExploratoryReplayRequestLocatorV2,
         ExploratoryReplayRequestProposalV2, ExploratoryReplaySealedReadPortV2,
     },
@@ -51,6 +51,40 @@ use super::{ApiState, authorized, hex_digest, insert_rejection_code};
 struct ExploratoryReplayResultApiState {
     owner: Arc<PostgresResearchGoalOwnerV1>,
     token_digest: [u8; 32],
+}
+
+#[async_trait::async_trait]
+trait MarketDataRepairedReplayActionPort: Send + Sync {
+    async fn commit_repaired_replay(
+        &self,
+        predecessor: &ExploratoryReplayRequestLocatorV2,
+        resolution: &MarketDataRepairResolutionLocatorV1,
+    ) -> Result<ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError>;
+}
+
+#[async_trait::async_trait]
+impl MarketDataRepairedReplayActionPort for PostgresResearchGoalOwnerV1 {
+    async fn commit_repaired_replay(
+        &self,
+        predecessor: &ExploratoryReplayRequestLocatorV2,
+        resolution: &MarketDataRepairResolutionLocatorV1,
+    ) -> Result<ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError> {
+        self.commit_market_data_repaired_replay_request_by_locator_v2(predecessor, resolution)
+            .await
+    }
+}
+
+#[derive(Clone)]
+struct MarketDataRepairedReplayActionApiState {
+    owner: Arc<dyn MarketDataRepairedReplayActionPort>,
+    token_digest: [u8; 32],
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MarketDataRepairedReplayActionRequestV1 {
+    predecessor_request_locator: ExploratoryReplayRequestLocatorV2,
+    repair_resolution_locator: MarketDataRepairResolutionLocatorV1,
 }
 
 #[derive(Debug, Deserialize)]
@@ -138,6 +172,7 @@ pub(super) fn result_router(
     owner: Arc<PostgresResearchGoalOwnerV1>,
     token_digest: [u8; 32],
 ) -> Router {
+    let repaired_replay_action = market_data_repaired_replay_router(owner.clone(), token_digest);
     Router::new()
         .route(
             "/v2/exploratory-replay-results/{result_identity}",
@@ -151,6 +186,80 @@ pub(super) fn result_router(
             owner,
             token_digest,
         })
+        .merge(repaired_replay_action)
+}
+
+fn market_data_repaired_replay_router(
+    owner: Arc<dyn MarketDataRepairedReplayActionPort>,
+    token_digest: [u8; 32],
+) -> Router {
+    Router::new()
+        .route(
+            "/v2/exploratory-replay-requests/market-data-repair-successors",
+            post(commit_market_data_repaired_replay),
+        )
+        .with_state(MarketDataRepairedReplayActionApiState {
+            owner,
+            token_digest,
+        })
+}
+
+async fn commit_market_data_repaired_replay(
+    State(state): State<MarketDataRepairedReplayActionApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            "unbound",
+        );
+    }
+    let request: MarketDataRepairedReplayActionRequestV1 = match serde_json::from_slice(&body) {
+        Ok(request) => request,
+        Err(_) => {
+            return rejection(
+                StatusCode::BAD_REQUEST,
+                "MALFORMED_TYPED_REQUEST",
+                "unbound",
+            );
+        }
+    };
+    let request_identity = request.predecessor_request_locator.request_identity.clone();
+    if validate_request_locator(&request.predecessor_request_locator).is_err()
+        || OpaqueIdentityV2::try_from(
+            request
+                .repair_resolution_locator
+                .resolution_identity
+                .clone(),
+        )
+        .is_err()
+        || OpaqueIdentityV2::try_from(
+            request
+                .repair_resolution_locator
+                .repair_request_identity
+                .clone(),
+        )
+        .is_err()
+    {
+        return rejection(
+            StatusCode::BAD_REQUEST,
+            "INVALID_MARKET_DATA_REPAIRED_REPLAY_LOCATORS",
+            &request_identity,
+        );
+    }
+    match state
+        .owner
+        .commit_repaired_replay(
+            &request.predecessor_request_locator,
+            &request.repair_resolution_locator,
+        )
+        .await
+    {
+        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
+        Err(error) => owner_error(&error, &request_identity),
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -423,7 +532,6 @@ fn canonical_result_response(bytes: &[u8]) -> Response {
         .into_response()
 }
 
-#[cfg(feature = "sealed-develop-composer-acceptance")]
 fn validate_request_locator(
     locator: &ExploratoryReplayRequestLocatorV2,
 ) -> Result<(), vibe_backtest_owner_contracts::ReplayContractErrorV2> {
@@ -845,12 +953,30 @@ fn rejection(status: StatusCode, code: &str, request_identity: &str) -> Response
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use super::*;
     use rstest::rstest;
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
     use sha2::Digest as _;
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
     use tower::ServiceExt;
+
+    struct UnavailableRepairedReplayOwner {
+        calls: AtomicUsize,
+    }
+
+    #[async_trait::async_trait]
+    impl MarketDataRepairedReplayActionPort for UnavailableRepairedReplayOwner {
+        async fn commit_repaired_replay(
+            &self,
+            _predecessor: &ExploratoryReplayRequestLocatorV2,
+            _resolution: &MarketDataRepairResolutionLocatorV1,
+        ) -> Result<ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Err(ExploratoryReplayOwnerError::Unavailable(
+                "test owner unavailable".into(),
+            ))
+        }
+    }
 
     fn request() -> ReplayRequestDtoV2 {
         serde_json::from_value(json!({
@@ -899,6 +1025,83 @@ mod tests {
 
     fn version(identity: &str) -> serde_json::Value {
         json!({ "identity": identity, "version": "v1" })
+    }
+
+    fn repaired_replay_action_request() -> serde_json::Value {
+        json!({
+            "predecessor_request_locator": {
+                "request_identity": "request-1",
+                "meaning_digest": format!("blake3:{}", "a".repeat(64)),
+                "receipt_identity": "receipt-1",
+                "seal_digest": format!("sha256:{}", "b".repeat(64)),
+            },
+            "repair_resolution_locator": {
+                "resolution_identity": "resolution-1",
+                "repair_request_identity": "repair-request-1",
+            },
+        })
+    }
+
+    #[rstest]
+    fn repaired_replay_action_accepts_only_the_two_exact_owner_locators() {
+        let request = repaired_replay_action_request();
+        serde_json::from_value::<MarketDataRepairedReplayActionRequestV1>(request.clone())
+            .expect("exact locator-only request");
+
+        let mut with_terminal = request;
+        with_terminal["repair_resolution"] = json!({ "disposition": "REPAIRED" });
+        assert!(
+            serde_json::from_value::<MarketDataRepairedReplayActionRequestV1>(with_terminal)
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn repaired_replay_action_rejects_before_owner_and_maps_owner_unavailability() {
+        let token = "repaired-replay-action-test";
+        let token_digest: [u8; 32] = sha2::Sha256::digest(token.as_bytes()).into();
+        let owner = Arc::new(UnavailableRepairedReplayOwner {
+            calls: AtomicUsize::new(0),
+        });
+        let router = || market_data_repaired_replay_router(owner.clone(), token_digest);
+        let send = |body: serde_json::Value, authorization: Option<&str>| {
+            let mut request = axum::http::Request::builder()
+                .method(axum::http::Method::POST)
+                .uri("/v2/exploratory-replay-requests/market-data-repair-successors")
+                .header(axum::http::header::CONTENT_TYPE, "application/json");
+            if let Some(authorization) = authorization {
+                request = request.header(axum::http::header::AUTHORIZATION, authorization);
+            }
+            request
+                .body(axum::body::Body::from(body.to_string()))
+                .expect("HTTP request")
+        };
+
+        let unauthorized = router()
+            .oneshot(send(repaired_replay_action_request(), None))
+            .await
+            .expect("router response");
+        assert_eq!(unauthorized.status(), StatusCode::FORBIDDEN);
+        assert_eq!(owner.calls.load(Ordering::SeqCst), 0);
+
+        let mut invalid = repaired_replay_action_request();
+        invalid["repair_resolution_locator"]["resolution_identity"] = json!(" invalid");
+        let invalid = router()
+            .oneshot(send(invalid, Some(&format!("Bearer {token}"))))
+            .await
+            .expect("router response");
+        assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(owner.calls.load(Ordering::SeqCst), 0);
+
+        let unavailable = router()
+            .oneshot(send(
+                repaired_replay_action_request(),
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(unavailable.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(owner.calls.load(Ordering::SeqCst), 1);
     }
 
     #[cfg(feature = "sealed-develop-composer-acceptance")]
