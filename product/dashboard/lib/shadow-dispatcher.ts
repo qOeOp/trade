@@ -2,6 +2,7 @@ import {
   ARTIFACT_SHADOW_RESOLVE_OPERATION,
   DEVELOP_COMPOSER_SHADOW_READ_OPERATION,
   EXPLORATORY_REPLAY_SHADOW_READ_OPERATION,
+  EXPLORATORY_REPLAY_RESULT_SHADOW_READ_OPERATION,
   LEGACY_RESEARCH_QUARANTINE_READ_OPERATION,
   operationDispatchBindingForIdV1,
   RD_FORMATION_CATALOG_SHADOW_READ_OPERATION,
@@ -12,6 +13,7 @@ import {
   type RegisteredOperationId,
 } from "./operation-registry.ts";
 import { resolveExploratoryReplayShadowV2 } from "./exploratory-replay-readback-client.ts";
+import { readExploratoryReplayResultGatewayV1 } from "./exploratory-replay-result-gateway.ts";
 import {
   resolveLegacyResearchQuarantineShadowV1,
   resolveArtifactShadowV1,
@@ -31,6 +33,7 @@ import type {
 import type { RunTerminalCodeV1 } from "./run-contract.ts";
 import {
   ownerOutcomeForDevelopComposerResultV1,
+  ownerOutcomeForExploratoryReplayResultV1,
   ownerOutcomeForShadowResultV1,
 } from "./shadow-run-journal.ts";
 
@@ -46,6 +49,7 @@ export const shadowDispatchOperationIdsV1 = [
   RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION,
   RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION,
   EXPLORATORY_REPLAY_SHADOW_READ_OPERATION,
+  EXPLORATORY_REPLAY_RESULT_SHADOW_READ_OPERATION,
   DEVELOP_COMPOSER_SHADOW_READ_OPERATION,
 ] as const satisfies readonly RegisteredOperationId[];
 
@@ -178,6 +182,16 @@ async function resolveClaimedOwnerOutcomeV1({
         requestIdentity: recovery.request_identity,
         meaningDigest: recovery.meaning_digest,
         ...ownerArguments,
+      }));
+    case EXPLORATORY_REPLAY_RESULT_SHADOW_READ_OPERATION:
+      return ownerOutcomeForExploratoryReplayResultV1(await readExploratoryReplayResultGatewayV1({
+        resultIdentity: recovery.result_identity,
+        requestIdentity: recovery.request_identity,
+        attemptIdentity: recovery.attempt_identity,
+        meaningDigest: recovery.meaning_digest,
+        environment,
+        fetcher,
+        clock,
       }));
     case DEVELOP_COMPOSER_SHADOW_READ_OPERATION:
       return ownerOutcomeForDevelopComposerResultV1(await readDevelopComposerGatewayV1({

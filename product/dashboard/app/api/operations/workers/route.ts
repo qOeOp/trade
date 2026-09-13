@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 function unavailable(reason: string) {
   return NextResponse.json({
     schema_version: 1,
-    operation: "dashboard.shadow_workers.list.v1",
+    operation: "dashboard.workers.list.v1",
     availability: "unavailable",
     unavailable_reason: reason,
     observed_at: new Date().toISOString(),
@@ -19,11 +19,11 @@ export async function GET() {
   try {
     const store = configuredRunStoreV1();
     if (!store) return unavailable("RUN_STORE_CONFIGURATION_UNAVAILABLE");
-    await store.assertSchema();
-    const result = await store.listShadowWorkers();
+    await store.assertEffectDispatchSchema();
+    const result = await store.listOperationalWorkers();
     return NextResponse.json({
       schema_version: 1,
-      operation: "dashboard.shadow_workers.list.v1",
+      operation: "dashboard.workers.list.v1",
       availability: "available",
       unavailable_reason: null,
       ...result,

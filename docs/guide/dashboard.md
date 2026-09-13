@@ -113,11 +113,12 @@ Owner resolve, provider call, or business write. No Dashboard route or admitted 
 currently supplies its positive projection, so component tests and static rendering do not establish
 live data, deployed-browser acceptance, S3 availability, or Windmill replacement.
 
-## Bounded admission: Exploratory Replay request readback
+## Bounded admission: Exploratory Replay request and result readback
 
 `ExploratoryReplayReadbackWorkbench` is the exact `P` surface for `/backtest`. It is an
-`ACTIVE_OBSERVATION / IMPLEMENTATION_ADMITTED` point-read of one previously committed Replay V2 request,
-not a replay composer, dispatcher, result resolver, comparison surface, or economic outcome. The route uses
+`ACTIVE_OBSERVATION / IMPLEMENTATION_ADMITTED` point-read of one previously committed Replay V2 request and,
+when all three result locator fields are supplied, one Backtest-owned canonical result. It is not a replay composer,
+dispatcher, comparison surface, or economic chart. The route uses
 one full-width `PanelFrame` with no summary strip, historical table, split detail pane, or reserved chart
 height. Its header contains the `EXPLORATORY REPLAY` eyebrow, `Replay request` title, one concise purpose,
 and `Refresh`, which is disabled until a valid selector has been opened. The inset body starts with one
@@ -131,7 +132,13 @@ identity, seal digest, committed time and Owner observation cut. `Replay basis` 
 window plus TrialFamily, Artifact, strategy-design, PIT-snapshot, runtime-kernel and simulator identities.
 Long identities remain selectable, expose their complete accessible text and truncate only visually. The
 browser receives none of the canonical request bytes, raw receipt, component digests, Product Edge
-admission, protected diagnostics, source, result bytes or storage fields.
+admission, protected evidence, source, result bytes or storage fields.
+
+After a request is available, a second compact lookup rail accepts `Result identity` and `Attempt identity`; the
+already-open request identity and meaning digest complete the immutable selector. `Open result` renders one shared
+`FactGroup` with only result status, concise diagnostic category, reconciled component count, semantic-trace
+availability and the result identity. Status uses the shared semantic badge colors. No raw 28-row reconciliation,
+decisive-evidence locator or internal short sentence is rendered in the primary page.
 
 The authenticated Owner route is exactly
 `GET /v2/exploratory-replay-requests/readback?request_identity={request_identity}&meaning_digest={meaning_digest}`. It accepts
@@ -142,13 +149,21 @@ request bytes against the typed request, and then projects only the fields above
 zero Owner calls. Unknown keys, malformed canonical bytes, identity/digest drift, contradictory availability,
 oversize response, permission denial or transport failure clear stale positive state and fail closed.
 
-Loading preserves the lookup rail and shows exactly three bounded group skeletons. Missing or unavailable
-custody uses the same compact body height and a precise reason. Because no admitted Backtest Owner result
-read port currently exists, the page renders no `BacktestReturnBand`, invented strategy line, benchmark,
-return, drawdown, run count or success claim. After the request groups it instead places one single-line
-compact `Result projection unavailable` status rail. `Run`, `Resolve`, `Create successor`, edit, compare,
+The result route is exactly
+`GET /v2/exploratory-replay-results/{result_identity}?request_identity={request_identity}&attempt_identity={attempt_identity}`.
+It is exposed by the existing `rd-dashboard-owner-read-api`, not by borrowing the Dashboard write credential. Its
+narrow typed port opens an R&D transaction, invokes the existing Backtest Owner locked-read function, returns only
+the already-validated canonical result bytes, and always rolls the transaction back. The BFF binds all three locator
+identities plus the opened request meaning, validates the complete finite component and diagnostic censuses, and
+projects only the compact fields above. Cross-spliced, missing, duplicate, noncanonical, oversized or unknown data
+fails closed and clears the previous result.
+
+Loading preserves the active lookup rail and uses bounded group skeletons. Missing or unavailable
+custody uses the same compact body geometry and a precise reason. The result readback supplies no return series,
+so the page renders no `BacktestReturnBand`, invented strategy line, benchmark, return, drawdown or run count.
+`Run`, `Resolve`, `Create successor`, edit, compare,
 download and provider actions have no slot. This slice does not establish S3 deployment availability,
-Backtest result availability, Windmill replacement or real-trading authority.
+Backtest execution, Windmill replacement or real-trading authority.
 
 ## Bounded admission: read-only strategy code viewer
 
@@ -258,6 +273,16 @@ compatibility, RunStore, and two unique `ACTIVE / TRADE_DASHBOARD` Product Edge 
 change either binding, call a production Owner or provider, modify Windmill, authorize trading, or establish
 publication or production cutover.
 
+The frozen effect operation and Product Edge routing identities remain unchanged during migration. For the Source
+stage, the Dashboard effect worker calls authenticated `POST /v2/source-intakes` with exactly
+`request_identity`, `normalized_doi`, and `interpretation`; transport channel and policy internals are rejected at
+the Owner API boundary. The Owner then adapts this neutral V2 proposal to the existing V1 custody model so its
+canonical admission, receipt, and recovery identities remain compatible. `POST /v1/source-intakes` remains only
+as the legacy Windmill adapter until V2 parity, recovery, an atomic routing cut, and rollback observation are all
+proven; this admission does not authorize that cut or removal.
+The composite Source-to-Research manifest derives its Owner operation list from those two child manifests, so its
+content-addressed digest records Source V2 without changing the frozen effect operation or Product Edge routing identities.
+
 ## Bounded admission: Develop Composer exact-readback workbench
 
 `DevelopComposerReadbackWorkbench` is the exact `P` surface for `/rd/composer`. It is a bounded point-read of one
@@ -293,6 +318,18 @@ read-only code viewer because this contract carries no source text. Artifact sou
 its separately admitted exact Artifact source route and identities; an Artifact locator alone is not converted
 into those identities. This slice cannot mutate Windmill, write business state, invoke a provider, or authorize
 trading. The broader Intake composer and authority-resolution panels remain future blueprint content.
+
+Separately from the browser surface, the authenticated `POST /api/rd/develop-composer` and fixed MCP tool
+`dashboard_develop_composer_action_v2` admit the typed effect operation
+`develop_composer.submit_or_resolve.v2` only for disposable-local execution. Admission requires the current
+content-addressed compatibility envelope, an `ACTIVE / TRADE_DASHBOARD` observation of the existing Product Edge
+routing key, an exact Owner request projection, operator capability, and RunStore custody. The web process freezes
+that projection and its digest with the queue row. The effect worker re-projects and requires exact equality,
+resolves the derived request identity first, and submits `{research_request_locator}` only when the Owner returns
+the exact absence sentinel. It records submission-start before transport and submits only on claim one; response
+loss, restart, and later claims are resolve-only. A second resolve supplies the terminal Owner outcome. This does
+not add a browser Run control, change the Product Edge binding, modify Windmill, call a shared or production Owner,
+authorize trading, or establish cutover.
 
 ## Bounded admission: verified Research directory and exact readback
 
@@ -1707,10 +1744,12 @@ the currently observed Windmill rows expose only principal, time and action kind
 `redacted`. They may remain external migration evidence, but cannot fabricate a target, outcome or Dashboard audit
 identity. The admitted producers are exactly successful `dashboard.dependency.cancel.queued.v1` and
 `dashboard.operational_cache.delete.v1` transitions plus authenticated control-plane admissions for
-`source_intake.research.submit_or_resolve.v1` and `artifact_build.formation_execute.v1`. Each cancellation or
+`source_intake.research.submit_or_resolve.v1`, `artifact_build.formation_execute.v1`, and
+`develop_composer.submit_or_resolve.v2`, and `exploratory_replay.submit_or_resolve.v2`. Each cancellation or
 deletion inserts its audit event in the same serializable PostgreSQL transaction as its immutable action receipt.
-Each Source-to-Research or Artifact request inserts a typed `dashboard-control-plane-admission-v1-*` receipt and
-its audit event in the same RunStore begin transaction before any Owner or provider call; a missing, conflicting,
+Each Source-to-Research, Artifact, Composer, or Replay request inserts a typed `dashboard-control-plane-admission-v1-*` receipt and
+its audit event in the same RunStore begin transaction before any Owner or provider effect. Replay's read-only
+identify preflight may precede that transaction only after compatibility and routing admission; a missing, conflicting,
 or rejected receipt/audit insert rolls back the run/binding transition and no downstream effect begins. The
 receipt binds the authenticated principal and authorization digest, original requested action, resolved execution
 mode, operation, and exact run identity. Repeating the same admission reads the same immutable receipt; a distinct
@@ -1894,7 +1933,7 @@ Dashboard can already be drawn:
 
 | Completeness status                   | Current pages or surfaces                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Admission meaning                                                                                                                                                                                                                                                                                      |
 | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `DRAWABLE_EXACT`                      | Operations Runs `/operations`, Run Detail `/operations/runs/:runId`, Workers `/operations/workers` and `/operations/workers/:workerId`, Schedules `/operations/schedules`, Service Logs `/operations/service-logs`, Audit `/operations/audit`; R&D Intake `/rd` and Develop Composer `/rd/composer` exact‑readback workbenches, Research directory `/rd/research` and exact readback `/rd/research/:requestIdentity`, and Artifacts `/rd/artifacts`; Backtest Replay request readback `/backtest`; Market Data `/data` and `/data/pit-catalog`; all four Runtime routes | The chapter fixes route slots, internal field/column order, dimensions or responsive transformation, state geometry, and button order. Fail‑closed routes are drawable with fixed unavailable/not‑ready values; this status does not make their backend or Dashboard consumer available                |
+| `DRAWABLE_EXACT`                      | Operations Runs `/operations`, Run Detail `/operations/runs/:runId`, Workers `/operations/workers` and `/operations/workers/:workerId`, Schedules `/operations/schedules`, Service Logs `/operations/service-logs`, Audit `/operations/audit`; R&D Intake `/rd` and Develop Composer `/rd/composer` exact‑readback workbenches, Research directory `/rd/research` and exact readback `/rd/research/:requestIdentity`, and Artifacts `/rd/artifacts`; Backtest Replay request and result readback `/backtest`; Market Data `/data` and `/data/pit-catalog`; all four Runtime routes | The chapter fixes route slots, internal field/column order, dimensions or responsive transformation, state geometry, and button order. Fail‑closed routes are drawable with fixed unavailable/not‑ready values; this status does not make their backend or Dashboard consumer available                |
 | `DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` | R&D Intake `/rd` composer and authority‑resolution panels beyond the admitted exact‑readback workbench                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | The named content/detail region is exact, but its enclosing route list still lacks one or more of summary labels, table columns, row actions, sort, pagination or loading‑row geometry; the broader surface is not drawable or implementable                                                           |
 | `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`    | Every other complete route in the registry, explicitly including Event Rail, Telemetry, and Alerts                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | The registry fixes navigation position, route slots, named page‑local composites, and button intent only. An unattended agent must not infer missing list behavior, timeline rows, responsive table transformation, or internal geometry from a component‑like name or excluded Windmill/native layout |
 
@@ -1952,7 +1991,7 @@ these slices.
 
 | Tab and route                                          | Fixed `S / P / Q / T` contents                                                                                                                                                                                       | Buttons in order                                                                                      | Default evidence state                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Exploratory `/backtest`                                | No summary strip; `P=ExploratoryReplayReadbackWorkbench` with `Request`, `Custody`, and `Replay basis`; one compact result‑unavailable status rail; no chart or historical rows without an admitted result read port | Open readback, Refresh. Run/Resolve/Create successor/edit/compare/download have no slot               | `ACTIVE_OBSERVATION / IMPLEMENTATION_ADMITTED` for the exact Replay V2 request readback only. S3 dispatch and Backtest result readback remain unavailable; the page cannot render returns or imply MCP/Windmill parity                                                                                                                                                                                                                                                                                                                              |
+| Exploratory `/backtest`                                | No summary strip; `P=ExploratoryReplayReadbackWorkbench` first renders `Request`, `Custody`, and `Replay basis`, then an exact Result/Attempt lookup and one compact shared `FactGroup` for terminal, diagnosis, reconciliation, semantic trace, and result identity; no chart or historical rows without an admitted return-series contract | Open readback, Open result, Refresh. Run/Resolve/Create successor/edit/compare/download have no browser slot | `ACTIVE_OBSERVATION / IMPLEMENTATION_ADMITTED` covers exact Replay V2 request and canonical result readback through the consolidated read API. The separately authenticated HTTP/MCP request-custody path is `IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`; the archived Windmill S3 entry and native replay execution remain unavailable. The result summary is read-only, and the page cannot invent returns or imply native-execution or cutover parity                                                                                                                                                                                                                                                      |
 | Compare `/backtest/compare`                            | Selected‑run count and comparable cuts; `P=RunPicker`; `Q=ComparisonBasis`; `T=RunComparePanel`                                                                                                                      | Add run, Remove run, Swap baseline, Open run detail                                                   | Read‑only; compare 2-4 exact compatible runs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | Diagnostics `/backtest/diagnostics`                    | Diagnostic category counts; `P=DiagnosticFilter`; `Q=ModelIdentityList`; `T=DiagnosticTable + bounded summary`                                                                                                       | Filter, Copy identity, Open source receipt                                                            | Only allowed categories; no protected Qualification data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | Intake `/qualification`                                | Submitted/pending/evaluating/unknown/not‑admitted/semantic‑conflict/unavailable counts; `P=QualificationIntakeTable`; `Q=EvidenceCompleteness + QualificationIntakeConflictPanel`; `T=IntakeReceiptTimeline`         | Submit intake, Refresh, Resolve exact same meaning, Open original receipt, Prepare admitted successor | Pending/evaluating requires a separately allowed intake projection and never implies a public terminal. Exact replay may resolve; any changed valid or invalid meaning under the same identity is `RequestSemanticConflict`. `OBSERVED_CANDIDATE_NOT_CURRENT`; no real Product Edge consumer yet                                                                                                                                                                                                                                                    |
@@ -2447,9 +2486,10 @@ artifact custody are proven.
 
 ### First-party effect custody admission (authorization B)
 
-`IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`. The first-party Dashboard may implement the two currently consumed
+`IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`. The first-party Dashboard may implement the four currently consumed
 Product Edge journeys behind `DASHBOARD_DISPOSABLE_EXECUTION`: the ordered Source Intake -> Research Goal V2
-journey and Artifact Build V1 formation. This admission permits source, tests, packaging, and disposable dynamic
+journey, Artifact Build V1 formation, Develop Composer V2 request submission-or-resolution, and Exploratory Replay
+V2 request submission-or-resolution. This admission permits source, tests, packaging, and disposable dynamic
 verification. It does not activate a route, change an existing Windmill binding, call a live provider, write a
 shared or production Owner database, or authorize trading. Those runtime effects remain separately gated.
 
@@ -2469,7 +2509,31 @@ request/attempt identities: it first resolves Owner custody, may continue only t
 claim, never re-evaluates a fresh Windmill/Dashboard choice, and never creates a replacement identity or naked
 retry. Exact-identity `RESOLVE` remains effect-free and does not require a current Dashboard routing binding.
 
+Exploratory Replay custody is narrower than native replay execution. The public HTTP/MCP request represents every
+unsigned 64-bit integer as a decimal string; the Dashboard first calls the read-only Owner identify port, verifies
+the returned canonical bytes and freezes `request_identity`, `meaning_digest`, and the canonical-byte digest. The
+effect worker then resolves that exact selector, submits only when absent and only on the first claim, and persists
+`REPLAY_OWNER_SUBMISSION_STARTED` before the one permitted submit. Any response-loss or restart retry identifies
+and resolves only; it never submits again. Completion requires exact Owner readback. The native
+`/v2/exploratory-replays` execution endpoint, provider work, and economic-result claims are outside this admission.
+
+Develop Composer custody begins with the read-only Owner projection for one bounded Research request locator. The
+Dashboard freezes the returned request identity and complete projection digest before enqueue. The effect worker
+re-projects for exact equality, resolves first, submits only on the exact absent sentinel and first claim, persists
+`COMPOSER_OWNER_SUBMISSION_STARTED` before transport, then resolves again. A response-loss or restart retry is
+projection-and-resolve only and cannot repeat submit. Browser mutation remains absent.
+
+The canonical Source Intake-to-Research Owner operation is transport-neutral: its request contains only the public
+Research proposal and exact Source ancestry; the public proposal has no transport `channel`. The Owner resolves current
+Source policy locators from sealed Source custody inside its boundary; Dashboard, browser, and MCP never construct or
+receive `policy_query`. During migration
+the legacy V1 Windmill adapter remains available only to avoid interrupting current jobs. After parity, recovery,
+the atomic Product Edge routing cut, and the rollback observation window are proven, that adapter and its V1 request
+surface are removed; they are not part of the Dashboard-only target architecture.
+
 The admitted HTTP surface is limited to `POST /api/rd/source-research`,
+`POST /api/rd/develop-composer`,
+`POST /api/rd/exploratory-replay`,
 `POST /api/rd/artifacts/formations/preflight`, and `POST /api/rd/artifacts/formations`. Each route accepts one
 exact allowlisted body, rejects unknown fields, and returns the same bounded Owner projection plus an operational
 run reference or an explicit unavailable state. No mutating control is enabled in the browser until disposable
@@ -2506,8 +2570,9 @@ the affected Dashboard projection `unavailable` and prevents an unattended agent
 4. **R&D S2 replacement** - bounded build job, Artifact/Build Receipt/Review, deterministic build evidence,
    direct Artifact-family binding/frontier readback, action admission, no-Artifact failure, restart recovery, and
    App/MCP parity.
-5. **Exploratory replay replacement** - only after S3 merge and independent revalidation; preserve separate R&D
-   and Backtest receipts and `NOT_ADMITTED` economic claims.
+5. **Exploratory replay replacement** - after the S3 merge and independent revalidation, replace only Replay V2
+   request submission custody; preserve separate R&D/Backtest receipts, native execution, and `NOT_ADMITTED`
+   economic claims.
 6. **Operations** - worker leases, schedules only for admitted consumers, job/progress/log views, disposable cache
    deletion, restart, Owner-based recovery.
 7. **Portfolio projections** - PR #332 admits only deterministic request/replay validation and the structured

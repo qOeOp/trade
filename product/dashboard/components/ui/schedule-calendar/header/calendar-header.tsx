@@ -1,6 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
+import { Button } from "../../button";
 import { InterfaceIcons } from "../../iconography";
 import { slideFromLeft, slideFromRight, transition } from "../animations";
 import styles from "../../schedule-calendar.module.css";
@@ -28,10 +29,10 @@ export function CalendarHeader(props: CalendarHeaderProps) {
       </div>
       <div className={styles.calendarActions}>
         <OperationSelect value={props.operationScope} operations={props.operations} onChange={props.onOperationScope} />
-        <motion.button type="button" className={styles.refreshAction} disabled={props.pending}
-          onClick={props.onRefresh} whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }}>
-          <InterfaceIcons.refresh size={16} aria-hidden="true" /><span>Refresh</span>
-        </motion.button>
+        <Button type="button" variant="action" size="tool" className={styles.refreshAction}
+          disabled={props.pending} onClick={props.onRefresh}>
+          <InterfaceIcons.refresh size={12} aria-hidden="true" /><span>Refresh</span>
+        </Button>
       </div>
       <Settings compactCalendar={props.compactCalendar} tableMode={props.mode === "table"}
         onCompactCalendar={props.onCompactCalendar} onToggleTable={props.onToggleTable} />

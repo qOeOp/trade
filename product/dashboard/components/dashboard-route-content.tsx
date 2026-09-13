@@ -163,7 +163,7 @@ export function DashboardRouteContent({
               </summary>
               <div className="authority-block">
                 <span className={`maturity maturity-${maturity === "DRAWABLE_EXACT" ? "exact" : "unavailable"}`}>{maturity}</span>
-                <b>{artifactSourceDetail ? "Verified Artifact read" : artifactDirectory ? "Verified Artifact directory" : researchReadback ? "Verified Research readback" : researchDirectory ? "Verified Research directory" : sourceResearchControl ? "Sourced research execution" : sourceIntakeReadback ? "Source Intake exact readback" : composerReadback ? "Develop Composer exact readback" : exploratoryReplayReadback ? "Replay request exact readback" : marketDataFoundation ? "Market Data Owner foundation" : runtimeFoundation ? "Runtime foundation" : portfolioUnavailable ? "Portfolio contract" : operationsConnected ? "Shadow operations" : drawableExact ? "Documented unavailable state" : "Navigation only"}</b>
+                <b>{artifactSourceDetail ? "Verified Artifact read" : artifactDirectory ? "Verified Artifact directory" : researchReadback ? "Verified Research readback" : researchDirectory ? "Verified Research directory" : sourceResearchControl ? "Sourced research execution" : sourceIntakeReadback ? "Source Intake exact readback" : composerReadback ? "Develop Composer exact readback" : exploratoryReplayReadback ? "Replay request and result readback" : marketDataFoundation ? "Market Data Owner foundation" : runtimeFoundation ? "Runtime foundation" : portfolioUnavailable ? "Portfolio contract" : operationsConnected ? "Shadow operations" : drawableExact ? "Documented unavailable state" : "Navigation only"}</b>
                 <small>{artifactSourceDetail
                 ? "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_EDIT_OR_EXECUTION"
                 : artifactDirectory
@@ -179,7 +179,7 @@ export function DashboardRouteContent({
                 : composerReadback
                 ? "IMPLEMENTATION_ADMITTED - OWNER_POINT_READ_ONLY - NO_RUN_RESOLVE_OR_EDIT"
                 : exploratoryReplayReadback
-                ? "IMPLEMENTATION_ADMITTED - SEALED_REQUEST_POINT_READ_ONLY - NO_RUN_OR_RESULT"
+                ? "IMPLEMENTATION_ADMITTED - REQUEST_AND_RESULT_POINT_READ_ONLY - NO_RUN_OR_RESOLVE"
                 : marketDataFoundation
                 ? "CURRENT/PARTIAL - DURABLE_MD_OWNER_POSTGRES_FOUNDATION_NOT_PROVIDER_AUTHENTICATED_NOT_CUTOVER"
                 : runtimeFoundation
@@ -232,29 +232,9 @@ export function DashboardRouteContent({
                 : <UnavailableBlueprint maturity={maturity as "DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY" | "BLUEPRINT_ONLY_NOT_IMPLEMENTABLE"}
                   routeLabel={rdPlaceholderRoute ? page.label : undefined} />}
           {!ownsRouteChrome && !operationsConnected && !marketDataFoundation
-            && !runtimeFoundation && !portfolioUnavailable ? <footer className="prototype-notice">
-            {artifactSourceDetail
-              ? "Source is reconstructed and verified by the Artifact Owner. The viewer cannot edit, execute or mutate custody."
-              : artifactDirectory
-              ? "Only terminal Artifacts with current Owner custody and sealed build review are listed. Unverified candidates remain withheld."
-              : researchDirectory
-              ? "Only current V2 Research custody is listed. Payloads, legacy candidates and every submit or resolution action remain withheld."
-              : sourceIntakeReadback
-              ? "Only one exact Source Intake Owner readback is exposed. Source payload, provider details, submit and resolution actions remain withheld."
-              : composerReadback
-              ? "Only one exact Develop Composer Owner readback is exposed. Source bytes, run, resolve, edit and provider actions remain withheld."
-              : exploratoryReplayReadback
-              ? "Only one exact sealed Replay request is exposed. Result projection, run, resolve, compare, provider and trading actions remain withheld."
-              : marketDataFoundation
-              ? "Only the sealed Market Data Owner foundation geometry is shown. Product resolution, rows, timelines and actions remain unavailable."
-              : runtimeFoundation
-              ? "Only the fixed non-authoritative Runtime foundation and its four revalidation dependencies are shown. Runtime custody and every application surface remain unavailable."
-              : portfolioUnavailable
-              ? "Only the fixed Portfolio request contract is shown. No Dashboard request, response instance, positive projection or domain action exists."
-              : connected
-                ? "This page is read only. Actions remain unavailable until their product workflow is connected."
-                : "Foundation prototype. Named placeholders preserve documented geometry without asserting product availability."}
-          </footer> : null}
+            && !runtimeFoundation && !portfolioUnavailable && !connected
+            ? <footer className="prototype-notice">Foundation prototype. Named placeholders preserve documented geometry without asserting product availability.</footer>
+            : null}
     </div>
   );
 }

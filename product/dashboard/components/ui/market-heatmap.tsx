@@ -26,6 +26,7 @@ import {
   useMarketHeatmapLayout,
 } from "../../lib/market-heatmap-layout";
 import { EmptyState } from "./evidence-strip";
+import { Button } from "./button";
 import { InterfaceIcons, ModuleIcons, RunIcons } from "./iconography";
 import {
   PanelFrame,
@@ -119,9 +120,9 @@ export const MarketHeatmap = memo(function MarketHeatmap({
         disabled={safeProjection.availability !== "available"}
       />
       {query ? (
-        <button type="button" aria-label="Clear search" onClick={() => setQuery("")}>
+        <Button type="button" variant="ghost" size="icon-xs" aria-label="Clear search" onClick={() => setQuery("")}>
           <InterfaceIcons.close aria-hidden="true" size={13} />
-        </button>
+        </Button>
       ) : null}
     </label>
   );
@@ -200,7 +201,7 @@ function MarketHeatmapBody({
     return (
       <div className={styles.state}>
         <span>No instruments match &quot;{query}&quot;.</span>
-        <button type="button" onClick={clearSearch}>Clear search</button>
+        <Button type="button" variant="outline" size="tool" onClick={clearSearch}>Clear search</Button>
       </div>
     );
   }

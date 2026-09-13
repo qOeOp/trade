@@ -94,11 +94,12 @@ provider call 或业务写。当前没有 Dashboard route 或已准入 Backtest 
 因此组件测试与静态渲染不能建立 live data、deployed-browser acceptance、S3 availability 或 Windmill
 replacement。
 
-## 有界准入：Exploratory Replay 请求回读
+## 有界准入：Exploratory Replay 请求与结果回读
 
 `ExploratoryReplayReadbackWorkbench` 是 `/backtest` 的精确 `P` surface。它是一个
-`ACTIVE_OBSERVATION / IMPLEMENTATION_ADMITTED` 的 Replay V2 已提交请求 point-read，不是 replay
-composer、dispatcher、result resolver、compare surface 或经济结果。route 只使用一个全宽 `PanelFrame`，
+`ACTIVE_OBSERVATION / IMPLEMENTATION_ADMITTED` 的 Replay V2 已提交请求 point-read；当三个 result locator
+field 齐全时，还可读取一个由 Backtest Owner 持有的 canonical result。它不是 replay composer、dispatcher、
+compare surface 或经济图表。route 只使用一个全宽 `PanelFrame`，
 没有 summary strip、历史表格、左右 detail pane 或预留图表高度。header 包含 `EXPLORATORY REPLAY`
 eyebrow、`Replay request` title、一行简短 purpose 与 `Refresh`；在打开合法 selector 前 Refresh disabled。
 inset body 从一条水平 lookup rail 开始：`Request identity`、`Meaning digest`、`Open readback`。窄屏只让
@@ -109,7 +110,13 @@ namespace 与 deterministic seed；`Custody` 展示 meaning digest、receipt ide
 time 与 Owner observation cut；`Replay basis` 展示精确 event window，以及 TrialFamily、Artifact、
 strategy-design、PIT-snapshot、runtime-kernel 与 simulator identity。长 identity 仍可选择并以 accessible
 text 暴露完整值，只在视觉上截断。browser 不接收 canonical request bytes、raw receipt、component digest、
-Product Edge admission、protected diagnostic、source、result bytes 或 storage field。
+Product Edge admission、protected evidence、source、result bytes 或 storage field。
+
+request available 后，第二条 compact lookup rail 接受 `Result identity` 与 `Attempt identity`；已打开的
+request identity 和 meaning digest 一起构成完整 immutable selector。`Open result` 只使用共享 `FactGroup`
+展示 result status、简短 diagnosis category、reconciled component 数量、semantic trace 是否 available 与
+result identity，并复用共享语义 badge 色。主页面不展示原始 28 行 reconciliation、decisive evidence locator
+或内部实现短句。
 
 经过认证的 Owner route 精确为
 `GET /v2/exploratory-replay-requests/readback?request_identity={request_identity}&meaning_digest={meaning_digest}`。它不接受
@@ -119,12 +126,19 @@ field 做绑定，验证完整 canonical Owner response，依据 typed request �
 上述字段。非法 selector 产生零次 Owner call。未知字段、错误 canonical bytes、identity/digest 漂移、
 availability 矛盾、超限 response、permission denial 或 transport failure 都会清除旧的正向状态并 fail closed。
 
-Loading 保留 lookup rail，并精确显示三个有界 group skeleton。missing 或 unavailable custody 使用相同紧凑
-body height 和明确 reason。由于当前不存在已准入的 Backtest Owner result read port，页面不渲染
-`BacktestReturnBand`、虚构 strategy line、benchmark、return、drawdown、run count 或 success claim；而是在
-request group 后放一条单行 compact `Result projection unavailable` status rail。`Run`、`Resolve`、
+result route 精确为
+`GET /v2/exploratory-replay-results/{result_identity}?request_identity={request_identity}&attempt_identity={attempt_identity}`。
+它由现有 `rd-dashboard-owner-read-api` 暴露，不借用 Dashboard write credential。最小 typed port 开启一个
+R&D transaction，调用现有 Backtest Owner locked-read function，只返回已经验证的 canonical result bytes，
+并始终 rollback。BFF 绑定三个 locator identity 及已打开 request 的 meaning，验证完整有限 component 与
+diagnostic census，然后只投影上述紧凑字段。交叉拼接、缺失、重复、非 canonical、超限或 unknown 数据均
+fail closed，并清除之前的 result。
+
+Loading 保留当前 lookup rail 并使用有界 group skeleton。missing 或 unavailable custody 使用相同紧凑
+body geometry 和明确 reason。result readback 不提供 return series，因此页面不渲染 `BacktestReturnBand`、
+虚构 strategy line、benchmark、return、drawdown 或 run count。`Run`、`Resolve`、
 `Create successor`、edit、compare、download 与 provider action 均没有 slot。本切片不建立 S3 deployment
-availability、Backtest result availability、Windmill replacement 或 real-trading authority。
+availability、Backtest execution、Windmill replacement 或 real-trading authority。
 
 ## 有界准入：只读策略代码查看器
 
@@ -220,6 +234,15 @@ compatibility、RunStore 与两个唯一 `ACTIVE / TRADE_DASHBOARD` Product Edge
 binding，不调用 production Owner/provider，不修改 Windmill，不授权交易，也不建立 publication 或 production
 cutover。
 
+迁移期间冻结的 effect operation 与 Product Edge routing identity 保持不变。Source 阶段由 Dashboard effect
+worker 调用认证 `POST /v2/source-intakes`，请求严格只含 `request_identity`、`normalized_doi` 与
+`interpretation`；transport channel 与 policy 内部字段在 Owner API 边界被拒绝。Owner 随后把这个中立 V2
+proposal 适配到现有 V1 custody model，以保持 canonical admission、receipt 与 recovery identity 兼容。
+`POST /v1/source-intakes` 只作为 legacy Windmill adapter 保留，直到 V2 parity、recovery、原子 routing cut 与
+rollback observation 全部被证明；本次准入不授权该切换或删除。
+Source 到 Research 的复合清单从这两个子清单派生 Owner operation 列表，因此其内容寻址 digest 会记录 Source V2，
+但不会改变已冻结的 effect operation 或 Product Edge routing identity。
+
 ## 有界准入：Develop Composer 精确回读工作台
 
 `DevelopComposerReadbackWorkbench` 是 `/rd/composer` 的精确 `P` surface。它只对一个已提交的 Develop
@@ -251,6 +274,17 @@ plugin capsule、principal、policy、outbox 与 storage field 都不跨越该�
 viewer。Artifact source 仍只能通过已单独准入、带精确 Artifact source identities 的 route 读取；不得把单独
 Artifact locator 转换成这些 identities。本切片不能 mutate Windmill、写 business state、调用 provider 或
 授权交易。更广的 Intake composer 与 authority-resolution panel 仍是未来 blueprint。
+
+与 browser surface 分离，经过认证的 `POST /api/rd/develop-composer` 与固定 MCP tool
+`dashboard_develop_composer_action_v2` 只在 disposable-local execution 下准入 typed effect operation
+`develop_composer.submit_or_resolve.v2`。准入必须同时具备当前 content-addressed compatibility envelope、现有
+Product Edge routing key 的 `ACTIVE / TRADE_DASHBOARD` observation、精确 Owner request projection、operator
+capability 与 RunStore custody。web process 把 projection 及其 digest 与 queue row 一起冻结；effect worker
+重新投影并要求精确相等，先 resolve 派生出的 request identity，且只有 Owner 返回精确 absence sentinel 时才提交
+`{research_request_locator}`。submission-start 必须先于 transport 持久化，并且只允许 claim one 提交；response
+loss、restart 与后续 claim 一律只 resolve。第二次 resolve 提供 terminal Owner outcome。这个准入不增加 browser
+Run control，不改变 Product Edge binding，不修改 Windmill，不调用 shared/production Owner，不授权交易，也不构成
+cutover。
 
 ## 有界准入：已验证 Research 目录与精确回读
 
@@ -1578,10 +1612,12 @@ trading effect。Log 不能升级 Owner health、business success、未绑定 ru
 它们可以继续作为外部 migration evidence，但不能伪造 target、outcome 或 Dashboard audit identity。准入
 producer 严格限定为成功的 `dashboard.dependency.cancel.queued.v1`、
 `dashboard.operational_cache.delete.v1` transition，以及经过认证的
-`source_intake.research.submit_or_resolve.v1` 与 `artifact_build.formation_execute.v1` 控制面准入。
+`source_intake.research.submit_or_resolve.v1`、`artifact_build.formation_execute.v1` 与
+`develop_composer.submit_or_resolve.v2`、`exploratory_replay.submit_or_resolve.v2` 控制面准入。
 Cancellation/deletion 的 audit event 必须与 immutable action receipt 在同一 serializable PostgreSQL
-transaction 中插入。Source-to-Research/Artifact request 则必须在任何 Owner/provider call 之前，于同一个
-RunStore begin transaction 中同时插入 typed `dashboard-control-plane-admission-v1-*` receipt 与 audit event；
+transaction 中插入。Source-to-Research/Artifact/Composer/Replay request 则必须在任何 Owner/provider effect 之前，于同一个
+RunStore begin transaction 中同时插入 typed `dashboard-control-plane-admission-v1-*` receipt 与 audit event；Replay
+只读 identify preflight 只有通过 compatibility 与 routing admission 后才能先于该 transaction；
 receipt 或 audit insert 缺失、冲突、被拒绝时，run/binding transition 整体 rollback，下游 effect 不开始。
 Receipt 精确绑定 authenticated principal、authorization digest、用户原始 requested action、解析后的
 execution mode、operation 与 run identity；重复的同一准入读回同一个 immutable receipt，不同 action 或
@@ -1758,7 +1794,7 @@ Route name、`S/P/Q/T` slot assignment 或 PascalCase label 本身都不是可�
 
 | 完整度状态                            | 当前 page 或 surface                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | 准入含义                                                                                                                                                                                                                                                         |
 | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DRAWABLE_EXACT`                      | Operations Runs `/operations`、Run Detail `/operations/runs/:runId`、Workers `/operations/workers` 与 `/operations/workers/:workerId`、Schedules `/operations/schedules`、Service Logs `/operations/service-logs`、Audit `/operations/audit`；R&D Intake `/rd` 与 Develop Composer `/rd/composer` 精确回读工作台、Research directory `/rd/research` 与精确回读 `/rd/research/:requestIdentity`、Artifacts `/rd/artifacts`；Backtest Replay 请求回读 `/backtest`；Market Data `/data` 与 `/data/pit-catalog`；全部四个 Runtime route | 本章固定 route slot、内部 field/column 顺序、尺寸或 responsive transformation、state geometry 与 button 顺序。Fail‑closed route 可以用固定 unavailable/not‑ready value 绘制；该状态不代表其 backend 或 Dashboard consumer available                              |
+| `DRAWABLE_EXACT`                      | Operations Runs `/operations`、Run Detail `/operations/runs/:runId`、Workers `/operations/workers` 与 `/operations/workers/:workerId`、Schedules `/operations/schedules`、Service Logs `/operations/service-logs`、Audit `/operations/audit`；R&D Intake `/rd` 与 Develop Composer `/rd/composer` 精确回读工作台、Research directory `/rd/research` 与精确回读 `/rd/research/:requestIdentity`、Artifacts `/rd/artifacts`；Backtest Replay 请求与结果回读 `/backtest`；Market Data `/data` 与 `/data/pit-catalog`；全部四个 Runtime route | 本章固定 route slot、内部 field/column 顺序、尺寸或 responsive transformation、state geometry 与 button 顺序。Fail‑closed route 可以用固定 unavailable/not‑ready value 绘制；该状态不代表其 backend 或 Dashboard consumer available                              |
 | `DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` | R&D Intake `/rd` 已准入精确回读工作台之外的 composer 与 authority‑resolution panel                                                                                                                                                                                                                                                                                                                                                                                                                                                  | 具名 content/detail region 已精确，但其外围 route list 仍缺少 summary label、table column、row action、sort、pagination 或 loading‑row geometry 中的一项或多项；更广 surface 不可绘制、不可实现                                                                  |
 | `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`    | Registry 中其他全部完整 route，明确包括 Event Rail、Telemetry 与 Alerts                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Registry 只固定 navigation position、route slot、具名 page‑local composite 与 button intent。无人值守 Agent 不得从 component‑like name 或已排除的 Windmill/native layout 推断缺失的 list behavior、timeline row、responsive table transformation 或内部 geometry |
 
@@ -1814,7 +1850,7 @@ replay 与 security-evidence panel 仍是未来 blueprint，不能被推断进�
 
 | Tab 与 route                                           | 固定 `S / P / Q / T` 内容                                                                                                                                                                                  | Button 顺序                                                                                           | 默认证据状态                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Exploratory `/backtest`                                | 无 summary strip；`P=ExploratoryReplayReadbackWorkbench`，依次为 `Request`、`Custody`、`Replay basis`；一条 compact result‑unavailable status rail；没有已准入 result read port 时不显示图表或历史 row     | Open readback、Refresh。Run/Resolve/Create successor/edit/compare/download 均无 slot                  | `ACTIVE_OBSERVATION / IMPLEMENTATION_ADMITTED` 只覆盖精确 Replay V2 request readback。S3 dispatch 与 Backtest result readback 继续 unavailable；页面不能绘制 return，也不能暗示 MCP/Windmill parity                                                                                                                                                                                                                                                                                 |
+| Exploratory `/backtest`                                | 无 summary strip；`P=ExploratoryReplayReadbackWorkbench` 先展示 `Request`、`Custody`、`Replay basis`，再提供精确 Result/Attempt lookup，并用一个共享 `FactGroup` 紧凑展示 terminal、diagnosis、reconciliation、semantic trace 与 result identity；没有已准入 return-series contract 时不显示图表或历史 row | Open readback、Open result、Refresh。Run/Resolve/Create successor/edit/compare/download 均无 browser slot | `ACTIVE_OBSERVATION / IMPLEMENTATION_ADMITTED` 覆盖经 consolidated read API 的精确 Replay V2 request 与 canonical result readback。独立认证的 HTTP/MCP request-custody 路径为 `IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`；已归档的 Windmill S3 entry 与 native replay execution 继续 unavailable。Result summary 只读，页面不能虚构 return，也不能暗示 native execution 或 cutover parity                                                                                                                                                                                                                    |
 | Compare `/backtest/compare`                            | Selected‑run count 与 comparable cut；`P=RunPicker`；`Q=ComparisonBasis`；`T=RunComparePanel`                                                                                                              | Add run、Remove run、Swap baseline、Open run detail                                                   | Read‑only；比较 2-4 个 exact compatible run                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | Diagnostics `/backtest/diagnostics`                    | Diagnostic category 计数；`P=DiagnosticFilter`；`Q=ModelIdentityList`；`T=DiagnosticTable + bounded summary`                                                                                               | Filter、Copy identity、Open source receipt                                                            | 仅允许的 category；无 protected Qualification data                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | Intake `/qualification`                                | Submitted/pending/evaluating/unknown/not‑admitted/semantic‑conflict/unavailable 计数；`P=QualificationIntakeTable`；`Q=EvidenceCompleteness + QualificationIntakeConflictPanel`；`T=IntakeReceiptTimeline` | Submit intake、Refresh、Resolve exact same meaning、Open original receipt、Prepare admitted successor | Pending/evaluating 需要独立准入的 intake projection，且绝不意味着 public terminal。Exact replay 可以 resolve；同 identity 下任意 changed valid/invalid meaning 都是 `RequestSemanticConflict`。`OBSERVED_CANDIDATE_NOT_CURRENT`；尚无真实 Product Edge consumer                                                                                                                                                                                                                     |
@@ -2296,8 +2332,9 @@ parity、cache-loss recovery 与 artifact custody 证明后，才能在独立可
 ### 第一方 effect custody 准入（授权 B）
 
 `IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`。第一方 Dashboard 可以在 `DASHBOARD_DISPOSABLE_EXECUTION`
-边界内实现当前实际使用的两个 Product Edge journey：有序的 Source Intake -> Research Goal V2，以及
-Artifact Build V1 formation。该准入允许源码、测试、打包与 disposable 动态验证；它不激活 routing、不修改
+边界内实现当前实际使用的四个 Product Edge journey：有序的 Source Intake -> Research Goal V2、
+Artifact Build V1 formation、Develop Composer V2 request submission-or-resolution，以及 Exploratory Replay V2
+request submission-or-resolution。该准入允许源码、测试、打包与 disposable 动态验证；它不激活 routing、不修改
 现有 Windmill binding、不调用真实 provider、不写共享或生产 Owner 数据库，也不授权交易。上述 runtime
 effect 仍需分别通过独立 gate。
 
@@ -2316,7 +2353,29 @@ response-loss 或 restart 只能使用 retained operation 与精确 request/atte
 identity，也不进行 naked retry。精确 identity 的 `RESOLVE` 保持 zero-effect，不要求当前 Dashboard routing
 binding。
 
+Exploratory Replay custody 比 native replay execution 更窄。公开 HTTP/MCP request 把所有 unsigned 64-bit
+integer 表示为十进制字符串；Dashboard 先调用只读 Owner identify port，验证返回的 canonical bytes，并冻结
+`request_identity`、`meaning_digest` 与 canonical-byte digest。effect worker 随后先解析这个精确 selector，
+只在 absent 且第一次 claim 时提交，并在唯一一次允许的 submit 前持久化
+`REPLAY_OWNER_SUBMISSION_STARTED`。任何 response-loss 或 restart retry 都只 identify 与 resolve，绝不再次
+submit；只有精确 Owner readback 才能完成。native `/v2/exploratory-replays` execution endpoint、provider work
+与 economic-result claim 不在本次准入内。
+
+Develop Composer custody 从一个有界 Research request locator 的只读 Owner projection 开始。Dashboard 在 enqueue
+前冻结返回的 request identity 与完整 projection digest。effect worker 重新投影并要求精确相等，先 resolve，
+只在精确 absent sentinel 与第一次 claim 同时成立时 submit，并在 transport 前持久化
+`COMPOSER_OWNER_SUBMISSION_STARTED`，随后再次 resolve。response-loss 或 restart retry 只能 projection-and-resolve，
+不能重复 submit；browser mutation 继续缺席。
+
+canonical Source Intake-to-Research Owner operation 与 transport 无关：请求只包含公开 Research proposal 与
+精确 Source ancestry，公开 proposal 不含 transport `channel`。Owner 在自身边界内从 sealed Source custody
+解析当前 Source policy locator；Dashboard、browser 与 MCP 均不构造或接收 `policy_query`。迁移期仅为不中断现有 job 而暂时保留 legacy V1 Windmill
+adapter；在 parity、recovery、Product Edge 原子 routing cut 与回滚观察窗口全部证明后，删除该 adapter 及其
+V1 request surface。它们不属于最终 Dashboard-only 架构。
+
 已准入 HTTP surface 仅包括 `POST /api/rd/source-research`、
+`POST /api/rd/develop-composer`、
+`POST /api/rd/exploratory-replay`、
 `POST /api/rd/artifacts/formations/preflight` 与 `POST /api/rd/artifacts/formations`。每个 route 只接受精确
 allowlisted body，拒绝 unknown field，并返回同一个 bounded Owner projection 加 operational run reference，
 或明确 unavailable state。在 disposable runtime 动态证明这些 gate 之前，浏览器不启用 mutation control。
@@ -2351,8 +2410,8 @@ predecessor、typed public port 或 exact Task identity 时，受影响 Dashboar
 4. **R&D S2 replacement** - bounded build job、Artifact/Build Receipt/Review、deterministic build evidence、
    direct Artifact-family binding/frontier readback、action admission、no-Artifact failure、restart recovery 与
    App/MCP parity。
-5. **Exploratory replay replacement** - 只在 S3 merge 并独立重验后实现；保留独立 R&D/Backtest receipt 与
-   `NOT_ADMITTED` economic claim。
+5. **Exploratory replay replacement** - S3 merge 并独立重验后，只替换 Replay V2 request submission custody；
+   保留独立 R&D/Backtest receipt、native execution 与 `NOT_ADMITTED` economic claim。
 6. **Operations** - worker lease；只给已准入消费者增加 schedule；job/progress/log view；disposable cache
    deletion、restart、Owner-based recovery。
 7. **Portfolio projections** - PR #332 只准入 deterministic request/replay validation 与 structured

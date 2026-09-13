@@ -82,13 +82,15 @@ function compareUtf8(left: string, right: string): number {
 }
 
 export function validSourceIntakeExecutionInputV1(value: SourceIntakeExecutionInputV1): boolean {
-  const interpretation = value?.interpretation;
-  return IDENTITY.test(value?.request_identity ?? "")
-    && DOI.test(value?.normalized_doi ?? "")
-    && validText(interpretation?.bounded_explanation)
-    && validText(interpretation?.differentiating_prediction)
-    && validText(interpretation?.falsifier)
-    && Array.isArray(interpretation?.plausible_alternatives)
+  if (!object(value) || typeof value.request_identity !== "string"
+    || typeof value.normalized_doi !== "string" || !object(value.interpretation)) return false;
+  const interpretation = value.interpretation;
+  return IDENTITY.test(value.request_identity)
+    && DOI.test(value.normalized_doi)
+    && validText(interpretation.bounded_explanation)
+    && validText(interpretation.differentiating_prediction)
+    && validText(interpretation.falsifier)
+    && Array.isArray(interpretation.plausible_alternatives)
     && interpretation.plausible_alternatives.length >= 1
     && interpretation.plausible_alternatives.length <= 16
     && interpretation.plausible_alternatives.every(validText)
@@ -97,7 +99,8 @@ export function validSourceIntakeExecutionInputV1(value: SourceIntakeExecutionIn
 }
 
 export function validResearchGoalExecutionInputV2(value: ResearchGoalExecutionInputV2): boolean {
-  if (!IDENTITY.test(value?.request_identity ?? "") || !object(value?.goal)
+  if (!object(value) || typeof value.request_identity !== "string"
+    || !IDENTITY.test(value.request_identity) || !object(value.goal)
     || !exactKeys(value.goal, [
       "hypothesis", "mechanism", "falsification_question", "expected_observation",
       "required_data", "cost_assumption", "capacity_assumption",
@@ -135,7 +138,9 @@ export function validSourceResearchOperationRequestV1(
   if (value.action === "RESOLVE") {
     return exactKeys(value, [
       "action", "source_request_identity", "research_request_identity",
-    ]) && IDENTITY.test(value.source_request_identity)
+    ]) && typeof value.source_request_identity === "string"
+      && typeof value.research_request_identity === "string"
+      && IDENTITY.test(value.source_request_identity)
       && IDENTITY.test(value.research_request_identity);
   }
   return value.action === "RUN"

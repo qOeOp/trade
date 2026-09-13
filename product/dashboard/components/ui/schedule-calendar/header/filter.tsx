@@ -17,7 +17,7 @@ export function FilterSchedules({ query, observationScope, onQuery, onObservatio
   onObservationScope: (scope: ScheduleObservationScope) => void;
 }) {
   return <details name="calendar-toolbar-menu" className={`${styles.toolMenu} ${styles.filterMenu}`}>
-    <summary aria-label="Filter schedules"><InterfaceIcons.filter size={16} aria-hidden="true" /></summary>
+    <summary aria-label="Filter schedules"><InterfaceIcons.filter size={14} aria-hidden="true" /></summary>
     <div className={styles.toolPopover}>
       <label className={styles.filterSearch}>
         <InterfaceIcons.search size={15} aria-hidden="true" />

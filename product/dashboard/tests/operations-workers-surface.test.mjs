@@ -24,9 +24,9 @@ test("Workers is a GET-only RunStore projection wired into the exact Operations 
   assert.match(shell, /operationsWorkers \? <OperationsWorkersPreview initialWorkerIdentity=\{workerIdentity\} \/>/);
   assert.match(shell, /RUN_STORE_WORKER_READ_ONLY - NO_WORKER_ADMIN/);
   assert.match(listRoute, /export async function GET/);
-  assert.match(listRoute, /store\.listShadowWorkers\(\)/);
+  assert.match(listRoute, /store\.listOperationalWorkers\(\)/);
   assert.match(detailRoute, /export async function GET/);
-  assert.match(detailRoute, /store\.readShadowWorker\(workerIdentity\)/);
+  assert.match(detailRoute, /store\.readOperationalWorker\(workerIdentity\)/);
   assert.match(detailRoute, /WORKER_NOT_FOUND/);
   assert.match(detailPage, /workerIdentity=\{workerIdentity\}/);
   assert.doesNotMatch(listRoute + detailRoute, /export async function (POST|PUT|PATCH|DELETE)/);
@@ -115,14 +115,15 @@ test("Next worker page and API decode the same normalized identity and reject al
     if (path === "next/navigation") return { notFound: () => { throw new Error("NOT_FOUND"); } };
     if (path === "next/server") return { NextResponse: { json: (body, init) => Response.json(body, init) } };
     if (path.includes("run-store")) return { configuredRunStoreV1: () => ({
-      assertSchema: async () => {},
-      readShadowWorker: async (identity) => {
+      assertEffectDispatchSchema: async () => {},
+      readOperationalWorker: async (identity) => {
         reads.push(identity);
         assert.equal(identity, requestedIdentity);
         return {
           observed_at: "2026-09-01T10:00:00.000Z",
           worker: {
-            schema_version: 1, worker_identity: identity, operation_ids: ["source_intake.shadow_read.v1"],
+            schema_version: 1, worker_kind: "shadow_read", worker_identity: identity,
+            operation_ids: ["source_intake.shadow_read.v1"],
             worker_artifact_digest: `sha256:${"a".repeat(64)}`, lease_state: "available",
             registered_at: "2026-09-01T09:00:00.000Z", last_heartbeat_at: "2026-09-01T09:59:50.000Z",
             lease_expires_at: "2026-09-01T10:00:20.000Z", job_count: 0, active_job_count: 0,
@@ -174,7 +175,7 @@ test("exact detail rendering is independent of list availability", async () => {
   const require = createRequire(import.meta.url);
   const identity = "a-worker";
   const worker = {
-    worker_identity: identity, operation_ids: [], lease_state: "available", job_count: 0,
+    worker_kind: "shadow_read", worker_identity: identity, operation_ids: [], lease_state: "available", job_count: 0,
     active_job_count: 0, last_run_identity: null, last_run_state: null, last_run_at: null,
     registered_at: null, last_heartbeat_at: null, lease_expires_at: null,
     worker_artifact_digest: "test-artifact",

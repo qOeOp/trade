@@ -23,7 +23,7 @@ export const SOURCE_INTAKE_EFFECT_SET_V1 = ["R_AND_D_SOURCE_INTAKE_MUTATION_V1"]
 export const sourceIntakeOperationV1 = {
   schema_version: 1,
   operation_id: SOURCE_INTAKE_EXECUTE_OPERATION,
-  owner_operation: "source_intake.openalex_work_by_doi.submit_or_resolve.v1",
+  owner_operation: "source_intake.openalex_work_by_doi.submit_or_resolve.v2",
   owner_schema: "rd-source-intake-terminal-v1",
   capability: "rd.source_intake.execute",
   effect_set: SOURCE_INTAKE_EFFECT_SET_V1,
@@ -33,7 +33,7 @@ export const sourceIntakeOperationV1 = {
   routing_dependency_keys: [PRODUCT_EDGE_SOURCE_INTAKE_ROUTING_KEY_V1],
   orchestration_contract: {
     identity: "dashboard-source-intake-orchestrator-v1",
-    run_owner_route: "POST /v1/source-intakes",
+    run_owner_route: "POST /v2/source-intakes",
     resolve_owner_route: "GET /v1/source-intakes/{request_identity}/readback",
     resolve_effects: 0,
   },
@@ -105,12 +105,11 @@ export async function executeSourceIntakeOperationV1({
   const ownerOutcome = await rdOwnerJsonOutcomeV1({
     transport,
     path: action === "RUN"
-      ? "/v1/source-intakes"
+      ? "/v2/source-intakes"
       : `/v1/source-intakes/${encodeURIComponent(input.request_identity)}/readback`,
     method: action === "RUN" ? "POST" : "GET",
     body: action === "RUN" ? {
       request_identity: input.request_identity,
-      channel: "WINDMILL_PRODUCT_EDGE",
       normalized_doi: input.normalized_doi,
       interpretation: input.interpretation,
     } : undefined,

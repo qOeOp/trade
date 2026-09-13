@@ -4,23 +4,23 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  parseRunListBrowserEnvelopeV1,
-  type RunListBrowserEnvelopeV1,
-  type RunListItemV1,
-} from "../lib/run-list-contract";
+  admitRunListViewResponseV2,
+  isRunListSearchInputV2,
+  runListViewMatchesFilterV2,
+  runListDurationsV2,
+  runListPageSizesV2,
+  runListStatesV2,
+  type RunListDurationV2,
+  type RunListItemV2,
+  type RunListKindV2,
+  type RunListPageSizeV2,
+  type RunListStateV2,
+  type RunListViewEnvelopeV2,
+} from "../lib/run-list-view-contract";
 import { CompactStatusBar, CompactStatusGroup, CompactStatusItem } from "./ui/compact-status-bar";
-import { summarizeRunsForPresentation } from "../lib/operations-presentation";
 import { UnavailableState } from "./ui/evidence-strip";
-import {
-  FilterButton,
-  FilterSearch,
-  TableFilterMenu,
-  TableToolbar,
-} from "./ui/filter-toolbar";
-import {
-  DataTableHeaderLabel,
-  DataTableSurface,
-} from "./ui/data-table";
+import { FilterButton, FilterSearch, FilterTabs, TableFilterMenu, TableToolbar } from "./ui/filter-toolbar";
+import { DataTableHeaderLabel, DataTableSurface } from "./ui/data-table";
 import { DataWorkspaceEmpty } from "./ui/data-workspace-empty";
 import { DataWorkspaceTable, type DataWorkspaceColumn } from "./ui/data-workspace-table";
 import {
@@ -32,292 +32,234 @@ import {
   PanelFrameFooterSummary,
   PanelFrameHeader,
   PanelFrameInfo,
+  PanelFrameInfoFact,
+  PanelFrameInfoList,
 } from "./ui/panel-frame";
 import { PageStack } from "./ui/page-stack";
 import { StatusBadge } from "./ui/status-badge";
 import { executionStateTone } from "./ui/status-tone-policy";
 import { InterfaceIcons, RunIcons } from "./ui/iconography";
 
-const runStateFilters = [
-  { value: "all", label: "All", icon: RunIcons.all },
-  { value: "queued", label: "Queued", icon: RunIcons.queued },
-  { value: "running", label: "Running", icon: RunIcons.running },
-  { value: "succeeded", label: "Succeeded", icon: RunIcons.succeeded },
-  { value: "failed", label: "Failed", icon: RunIcons.failed },
-  { value: "cancelled", label: "Cancelled", icon: RunIcons.cancelled },
-  { value: "unknown", label: "Unknown", icon: RunIcons.unknown },
-] as const;
-type RunStateFilter = typeof runStateFilters[number]["value"];
+const stateItems = runListStatesV2.map((value) => ({ value, label: value === "all" ? "All states" : value }));
+const durationLabels: Record<RunListDurationV2, string> = {
+  any: "Any duration",
+  lt_1s: "<1 s",
+  "1_10s": "1–10 s",
+  "10_60s": "10–60 s",
+  gte_60s: "≥60 s",
+};
+const durationItems = runListDurationsV2.map((value) => ({ value, label: durationLabels[value] }));
+const cadenceItems = [
+  { value: "0", label: "Auto-refresh off" },
+  { value: "5000", label: "Every 5 s" },
+  { value: "15000", label: "Every 15 s" },
+  { value: "30000", label: "Every 30 s" },
+];
 
-function durationLabel(durationMs: number | null) {
-  if (durationMs === null) return "-";
-  return durationMs < 1000 ? `${durationMs} ms` : `${(durationMs / 1000).toFixed(1)} s`;
-}
-
-function runLabel(identity: string) {
-  const tail = identity.split("-").at(-1) ?? identity;
-  return `#${tail.slice(-8)}`;
-}
-
-function operationLabel(identity: string) {
-  return identity.replace(/\.v\d+$/i, "").replace(/[._-]+/g, " ");
-}
-
-function runSourceLabel(run: RunListItemV1) {
-  const trigger = run.trigger_kind === "dashboard_api" ? "Dashboard" : operationLabel(run.trigger_kind);
-  const kind = run.run_kind === "owner_read" ? "Read only" : operationLabel(run.run_kind);
-  return { trigger, kind };
-}
-
-function resultLabel(state: RunListItemV1["owner_outcome_state"]) {
+function unavailable(reason: string): RunListViewEnvelopeV2 {
   return {
-    available: "Ready",
-    rejected: "Rejected",
-    unknown: "Pending",
-    unavailable: "Unavailable",
-    not_applicable: "Not applicable",
-  }[state];
-}
-
-function unavailable(reason: string): RunListBrowserEnvelopeV1 {
-  return {
-    schema_version: 1,
-    operation: "dashboard.run_store.list.v1",
-    availability: "unavailable",
-    unavailable_reason: reason,
-    observed_at: new Date().toISOString(),
-    runs: [],
-    next_cursor: null,
+    schema_version: 1, projection_version: 2, operation: "dashboard.run_store.list.v2",
+    availability: "unavailable", unavailable_reason: reason, completeness: "partial_unavailable",
+    observed_at: new Date().toISOString(), source_cut: null, snapshot: null, filter_cut: null,
+    summary: null, filtered_total: null, total_pages: null, runs: [],
   };
 }
 
-function matchesQuery(run: RunListItemV1, query: string) {
-  const normalized = query.trim().toLowerCase();
-  return normalized.length === 0 || [
-    run.run_identity, run.operation_id, run.run_kind, run.trigger_kind,
-    run.state, run.owner_outcome_state, run.terminal_code ?? "",
-  ].some((value) => value.toLowerCase().includes(normalized));
+function durationLabel(value: number | null) {
+  if (value === null) return "—";
+  if (value < 1_000) return `${value} ms`;
+  if (value < 60_000) return `${(value / 1_000).toFixed(1)} s`;
+  return `${(value / 60_000).toFixed(1)} min`;
+}
+
+function displayTime(value: string | null) {
+  return value ? new Date(value).toLocaleString() : "—";
+}
+
+function triggerLabel(run: RunListItemV2) {
+  const trigger = { dashboard_bff: "App", dashboard_api: "API", dashboard_scheduler: "Scheduler" }[run.trigger_kind];
+  return run.principal_ref ? `${trigger} · ${run.principal_ref}` : trigger;
 }
 
 export function OperationsRunStorePreview() {
   const router = useRouter();
-  const [result, setResult] = useState<RunListBrowserEnvelopeV1 | null>(null);
-  const [stateFilter, setStateFilter] = useState<RunStateFilter>("all");
-  const [query, setQuery] = useState("");
+  const [result, setResult] = useState<RunListViewEnvelopeV2 | null>(null);
+  const [kind, setKind] = useState<RunListKindV2>("runs");
+  const [state, setState] = useState<RunListStateV2>("all");
+  const [duration, setDuration] = useState<RunListDurationV2>("any");
+  const [pageSize, setPageSize] = useState<RunListPageSizeV2>(50);
+  const [page, setPage] = useState(1);
+  const [queryDraft, setQueryDraft] = useState("");
+  const [search, setSearch] = useState("");
+  const [cadence, setCadence] = useState(0);
   const [pending, setPending] = useState(true);
-  const [loadingOlder, setLoadingOlder] = useState(false);
-  const [autoRefresh, setAutoRefresh] = useState(false);
-  const [pageError, setPageError] = useState<string | null>(null);
   const requestVersion = useRef(0);
-  const resultRef = useRef<RunListBrowserEnvelopeV1 | null>(null);
+  const snapshotRef = useRef<string | null>(null);
 
-  const load = useCallback(async (cursor: string | null = null) => {
-    const append = cursor !== null;
+  const load = useCallback(async ({ requestedPage = page, preserveSnapshot = false } = {}) => {
     const version = ++requestVersion.current;
-    if (append) setLoadingOlder(true);
-    else setPending(true);
-    setPageError(null);
+    const expectedSnapshot = preserveSnapshot ? snapshotRef.current : null;
+    setPending(true);
     try {
-      const search = new URLSearchParams({ limit: "20" });
-      if (stateFilter !== "all") search.set("state", stateFilter);
-      if (cursor) search.set("cursor", cursor);
-      const response = await fetch(`/api/operations/runs/?${search.toString()}`, {
-        method: "GET",
-        cache: "no-store",
+      const params = new URLSearchParams({ kind, state, search, duration, pageSize: String(pageSize), page: String(requestedPage) });
+      if (preserveSnapshot && snapshotRef.current) params.set("snapshot", snapshotRef.current);
+      const response = await fetch(`/api/operations/runs/?${params}`, { method: "GET", cache: "no-store" });
+      const raw = await response.json();
+      const parsed = admitRunListViewResponseV2(raw, {
+        response_ok: response.ok,
+        filter_cut: {
+          schema_version: 1, kind, state, search, duration, page_size: pageSize, page: requestedPage,
+        },
+        ...(preserveSnapshot ? { expected_snapshot: expectedSnapshot ?? "" } : {}),
       });
-      const parsed = parseRunListBrowserEnvelopeV1(await response.json());
       if (version !== requestVersion.current) return;
-      if (!parsed) {
-        if (append) setPageError("RUN_PAGE_RESPONSE_UNAVAILABLE");
-        else {
-          const next = unavailable("RUN_STORE_RESPONSE_UNAVAILABLE");
-          resultRef.current = next;
-          setResult(next);
-        }
+      if (!parsed || parsed.availability !== "available") {
+        snapshotRef.current = null;
+        setResult(parsed ?? unavailable("RUN_STORE_RESPONSE_UNAVAILABLE"));
         return;
       }
-      if (parsed.availability === "unavailable") {
-        if (append) setPageError(parsed.unavailable_reason ?? "RUN_PAGE_UNAVAILABLE");
-        else {
-          resultRef.current = parsed;
-          setResult(parsed);
-        }
-        return;
-      }
-      if (!append) {
-        resultRef.current = parsed;
-        setResult(parsed);
-        return;
-      }
-      const current = resultRef.current;
-      if (current?.availability !== "available" || current.observed_at !== parsed.observed_at) {
-        setPageError("RUN_PAGE_CONTINUITY_UNAVAILABLE");
-        return;
-      }
-      const identities = new Set(current.runs.map(({ run_identity }) => run_identity));
-      if (parsed.runs.some(({ run_identity }) => identities.has(run_identity))) {
-        setPageError("RUN_PAGE_DUPLICATE_UNAVAILABLE");
-        return;
-      }
-      const merged = { ...parsed, runs: [...current.runs, ...parsed.runs] };
-      resultRef.current = merged;
-      setResult(merged);
+      snapshotRef.current = parsed.snapshot;
+      setPage(requestedPage);
+      setResult(parsed);
     } catch {
-      if (version !== requestVersion.current) return;
-      if (append) setPageError("RUN_PAGE_TRANSPORT_UNAVAILABLE");
-      else {
-        const next = unavailable("RUN_STORE_TRANSPORT_UNAVAILABLE");
-        resultRef.current = next;
-        setResult(next);
+      if (version === requestVersion.current) {
+        snapshotRef.current = null;
+        setResult(unavailable("RUN_STORE_TRANSPORT_UNAVAILABLE"));
       }
     } finally {
-      if (version === requestVersion.current) {
-        setPending(false);
-        setLoadingOlder(false);
-      }
+      if (version === requestVersion.current) setPending(false);
     }
-  }, [stateFilter]);
+  }, [duration, kind, page, pageSize, search, state]);
 
-  useEffect(() => { void load(); }, [load]);
   useEffect(() => {
-    if (!autoRefresh) return undefined;
-    const timer = window.setInterval(() => { void load(); }, 10_000);
-    return () => window.clearInterval(timer);
-  }, [autoRefresh, load]);
+    snapshotRef.current = null;
+    setPage(1);
+    void load({ requestedPage: 1 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [duration, kind, pageSize, search, state]);
 
-  const runs = result?.availability === "available" ? result.runs : [];
-  const visibleRuns = useMemo(() => runs.filter((run) => matchesQuery(run, query)), [query, runs]);
-  const summaries = useMemo(() => ({
-    ...summarizeRunsForPresentation(runs),
-    unknown: runs.filter(({ state }) => state === "unknown").length,
-    terminal: runs.filter(({ state }) => ["succeeded", "failed", "cancelled"].includes(state)).length,
-    operations: new Set(runs.map(({ operation_id }) => operation_id)).size,
-    scheduled: runs.filter(({ trigger_kind }) => trigger_kind === "dashboard_scheduler").length,
-  }), [runs]);
-  const columns = useMemo<DataWorkspaceColumn<RunListItemV1>[]>(() => [
-    {
-      id: "run",
-      name: <DataTableHeaderLabel>Run</DataTableHeaderLabel>,
-      selector: (run) => run.run_identity,
-      sortable: true,
-      minWidth: "205px",
-      grow: 1.15,
-      cell: (run) => <div className="table-cell-stack"><b title={run.run_identity}>{runLabel(run.run_identity)}</b></div>,
-    },
-    {
-      id: "operation",
-      name: <DataTableHeaderLabel>Operation</DataTableHeaderLabel>,
-      selector: (run) => run.operation_id,
-      sortable: true,
-      minWidth: "240px",
-      grow: 1.35,
-      cell: (run) => <div className="table-cell-stack"><b className="operation-label" title={run.operation_id}>{operationLabel(run.operation_id)}</b></div>,
-    },
-    {
-      id: "kind",
-      name: <DataTableHeaderLabel>Source</DataTableHeaderLabel>,
-      selector: (run) => run.run_kind,
-      sortable: true,
-      minWidth: "155px",
-      cell: (run) => {
-        const source = runSourceLabel(run);
-        return <div className="table-cell-stack"><b>{source.trigger}</b><span>{source.kind}</span></div>;
-      },
-    },
-    {
-      id: "state",
-      name: <DataTableHeaderLabel>Status / result</DataTableHeaderLabel>,
-      selector: (run) => run.state,
-      sortable: true,
-      minWidth: "175px",
-      cell: (run) => <div className="table-cell-stack"><StatusBadge tone={executionStateTone(run.state)}>{run.state}</StatusBadge><span>{resultLabel(run.owner_outcome_state)}</span></div>,
-    },
-    {
-      id: "duration",
-      name: <DataTableHeaderLabel>Duration</DataTableHeaderLabel>,
-      selector: (run) => run.duration_ms ?? -1,
-      sortable: true,
-      width: "116px",
-      cell: (run) => <span className="table-cell-numeric">{durationLabel(run.duration_ms)}</span>,
-    },
-    {
-      id: "created",
-      name: <DataTableHeaderLabel>Created</DataTableHeaderLabel>,
-      selector: (run) => run.created_at,
-      sortable: true,
-      minWidth: "190px",
-      cell: (run) => <time className="table-cell-time" dateTime={run.created_at}>{new Date(run.created_at).toLocaleString()}</time>,
-    },
-  ], []);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearch(queryDraft.trim().toLocaleLowerCase("en-US")), 300);
+    return () => window.clearTimeout(timer);
+  }, [queryDraft]);
+
+  useEffect(() => {
+    if (!cadence) return undefined;
+    const timer = window.setInterval(() => {
+      snapshotRef.current = null;
+      void load({ requestedPage: 1 });
+    }, cadence);
+    return () => window.clearInterval(timer);
+  }, [cadence, load]);
+
+  const pageResult = runListViewMatchesFilterV2(result, {
+    schema_version: 1,
+    kind,
+    state,
+    search,
+    duration,
+    page_size: pageSize,
+    page,
+  }) ? result : null;
+  const summary = pageResult?.summary;
+  const totalPages = pageResult?.total_pages ?? 1;
+
+  const columns = useMemo<DataWorkspaceColumn<RunListItemV2>[]>(() => [
+    { id: "status", name: <DataTableHeaderLabel>Status</DataTableHeaderLabel>, selector: (run) => run.state, width: "118px",
+      cell: (run) => <StatusBadge tone={executionStateTone(run.state)}>{run.state}</StatusBadge> },
+    { id: "started", name: <DataTableHeaderLabel>Started</DataTableHeaderLabel>, selector: (run) => run.started_at ?? "", minWidth: "170px",
+      cell: (run) => <time className="table-cell-time" dateTime={run.started_at ?? undefined}>{displayTime(run.started_at)}</time> },
+    { id: "duration", name: <DataTableHeaderLabel>Duration</DataTableHeaderLabel>, selector: (run) => run.duration_ms ?? -1, width: "112px",
+      cell: (run) => <span className="table-cell-numeric">{durationLabel(run.duration_ms)}</span> },
+    { id: "path", name: <DataTableHeaderLabel>Path</DataTableHeaderLabel>, selector: (run) => run.path, minWidth: "260px", grow: 1.4,
+      cell: (run) => <code title={run.path}>{run.path}</code> },
+    { id: "trigger", name: <DataTableHeaderLabel>Trigger</DataTableHeaderLabel>, selector: triggerLabel, minWidth: "160px",
+      cell: (run) => <span>{triggerLabel(run)}</span> },
+    { id: "tag", name: <DataTableHeaderLabel>Tag</DataTableHeaderLabel>, selector: () => "", width: "110px",
+      cell: () => <span title="Tag evidence is not retained by this RunStore">—</span> },
+    { id: "outcome", name: <DataTableHeaderLabel>Owner outcome</DataTableHeaderLabel>, selector: (run) => run.owner_outcome_state, minWidth: "150px",
+      cell: (run) => <span>{run.owner_outcome_state === "not_applicable" ? "not applicable" : run.owner_outcome_state}</span> },
+    { id: "open", name: <DataTableHeaderLabel>Open</DataTableHeaderLabel>, selector: (run) => run.run_identity, width: "80px", ignoreRowClick: true,
+      cell: (run) => <FilterButton density="compact" variant="secondary" type="button"
+        onClick={() => router.push(`/operations/runs/${encodeURIComponent(run.run_identity)}`)}>Open</FilterButton> },
+  ], [router]);
+
+  const move = (nextPage: number) => {
+    if (pending || nextPage < 1 || nextPage > totalPages || nextPage === page) return;
+    void load({ requestedPage: nextPage, preserveSnapshot: true });
+  };
 
   return (
     <PageStack className="operations-runs-page">
-    <PanelFrame className="operations-runs-panel bento-page-frame"
-      aria-labelledby="operations-runstore-title">
-      <PanelFrameHeader
-        eyebrow="Operational history"
-        title="Run history"
-        titleId="operations-runstore-title"
-        description="Review recent runs and open any row for status, timing, and results."
-        actions={<PanelFrameInfo><b>Data scope</b><p>This view reads one verified operational snapshot. Result ownership and execution state remain separate.</p></PanelFrameInfo>}
-      />
-      <PanelFrameBody>
-      <CompactStatusBar className="operations-run-summaries" aria-label="Loaded run summary">
-        <CompactStatusGroup label="current view">
-          <CompactStatusItem label="loaded runs" value={result?.availability === "available" ? runs.length : "unavailable"} />
-          <CompactStatusItem label="active" tone="info" value={result?.availability === "available" ? summaries.active : "-"} />
-          <CompactStatusItem label="failed" tone={summaries.failed > 0 ? "danger" : "neutral"} value={result?.availability === "available" ? summaries.failed : "-"} />
-          <CompactStatusItem label="result ready" tone="success" value={result?.availability === "available" ? summaries.ownerAvailable : "-"} />
-          <CompactStatusItem label="result pending" value={result?.availability === "available" ? summaries.ownerPending : "-"} />
-        </CompactStatusGroup>
-      </CompactStatusBar>
-      {result?.availability === "available" ? (
-        <>
+      <PanelFrame className="operations-runs-panel bento-page-frame" aria-labelledby="operations-runstore-title">
+        <PanelFrameHeader eyebrow="Operational history" title="Runs" titleId="operations-runstore-title" actions={<>
+          <TableFilterMenu density="compact" label="Run refresh cadence" sections={[{
+            id: "cadence", label: "Auto-refresh", selected: String(cadence), items: cadenceItems,
+            onSelect: (value) => setCadence(Number(value)),
+          }]} />
+          <FilterButton density="compact" variant="secondary" type="button" disabled={pending}
+            onClick={() => { snapshotRef.current = null; void load({ requestedPage: 1 }); }}>
+            <InterfaceIcons.refresh aria-hidden="true" size={12} /> {pending ? "Reading" : "Refresh"}
+          </FilterButton>
+        </>} />
+        <PanelFrameBody>
+          <CompactStatusBar className="operations-run-summaries" aria-label="Run summary">
+            <CompactStatusGroup label={kind === "runs" ? "runs" : "dependencies"}>
+              <CompactStatusItem label="queued" value={summary?.queued ?? "—"} />
+              <CompactStatusItem label="running" tone="info" value={summary?.running ?? "—"} />
+              <CompactStatusItem label="unknown" tone={summary?.unknown ? "warning" : "neutral"} value={summary?.unknown ?? "—"} />
+              <CompactStatusItem label="completed" value={summary?.completed ?? "—"} />
+              <CompactStatusItem label="failed" tone={summary?.failed ? "danger" : "neutral"} value={summary?.failed ?? "—"} />
+            </CompactStatusGroup>
+          </CompactStatusBar>
           <DataTableSurface className="operations-run-table-surface" geometry="inner" toolbarLabel="Run table controls" toolbar={
-            <TableToolbar filter={<TableFilterMenu label="Filter runs" sections={[{
-              id: "state", label: "State", items: runStateFilters, selected: stateFilter,
-              onSelect: (value) => setStateFilter(value as RunStateFilter),
-            }]} />}>
-              <FilterSearch label="Search loaded runs" value={query} onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search loaded runs" />
-              <FilterButton type="button" variant="outline" aria-pressed={autoRefresh}
-                onClick={() => setAutoRefresh((value) => !value)}>
-                <InterfaceIcons.autoRefresh aria-hidden="true" size={15} /> Auto {autoRefresh ? "on" : "off"}
-              </FilterButton>
-              <FilterButton type="button" onClick={() => void load()} disabled={pending}>
-                <InterfaceIcons.refresh aria-hidden="true" size={15} /> {pending ? "Reading…" : "Refresh"}
-              </FilterButton>
+            <TableToolbar filter={<>
+              <FilterTabs label="Run kind" items={[{ value: "runs", label: "Runs" }, { value: "dependencies", label: "Dependencies" }]}
+                selected={kind} onSelect={(value) => setKind(value as RunListKindV2)} />
+              <TableFilterMenu density="compact" label="Run filters" sections={[
+                { id: "state", label: "State", selected: state, items: stateItems, onSelect: (value) => setState(value as RunListStateV2) },
+                { id: "duration", label: "Duration", selected: duration, items: durationItems, onSelect: (value) => setDuration(value as RunListDurationV2) },
+              ]} />
+            </>}>
+              <FilterSearch density="compact" label="Search path or run identity" value={queryDraft}
+                onChange={(event) => {
+                  if (isRunListSearchInputV2(event.target.value)) setQueryDraft(event.target.value);
+                }} placeholder="Search path / run ID" maxLength={128} />
+              <PanelFrameInfo label="View unavailable fields"><PanelFrameInfoList>
+                <PanelFrameInfoFact label="Path">Exact operation identity</PanelFrameInfoFact>
+                <PanelFrameInfoFact label="Principal">Effect admissions only</PanelFrameInfoFact>
+                <PanelFrameInfoFact label="Tag">Not retained</PanelFrameInfoFact>
+                <PanelFrameInfoFact label="Concurrency">Not retained</PanelFrameInfoFact>
+              </PanelFrameInfoList></PanelFrameInfo>
             </TableToolbar>
           }>
-          <DataWorkspaceTable<RunListItemV1>
-            ariaLabel="Dashboard operation runs"
-            className="operations-run-table"
-            columns={columns}
-            data={visibleRuns}
-            keyField="run_identity"
-            noDataComponent={<DataWorkspaceEmpty icon={<RunIcons.loaded aria-hidden="true" size={18} />}>
-              {runs.length ? "No loaded run matches this search." : "No Dashboard operation run is retained."}
-            </DataWorkspaceEmpty>}
-            onRowClicked={(run) => router.push(`/operations/runs/${encodeURIComponent(run.run_identity)}`)}
-            pointerOnHover
-          />
-          {result.next_cursor || pageError ? <PanelFrameFooter layout="split">
-            <PanelFrameFooterSummary primary={`${visibleRuns.length} ${visibleRuns.length === 1 ? "run" : "runs"} shown`} />
-            {pageError ? <PanelFrameFooterMeta>Older runs are temporarily unavailable.</PanelFrameFooterMeta> : null}
-            {result.next_cursor ? <PanelFrameFooterActions>
-              <FilterButton density="compact" variant="secondary" type="button" disabled={loadingOlder} onClick={() => void load(result.next_cursor!)}>
-                {loadingOlder ? "Reading older…" : "Load older"}
-              </FilterButton>
-            </PanelFrameFooterActions> : null}
-          </PanelFrameFooter> : null}
+            {pageResult ? <>
+              <DataWorkspaceTable<RunListItemV2> ariaLabel="Dashboard operation runs" className="operations-run-table"
+                columns={columns} data={pageResult.runs} keyField="run_identity"
+                noDataComponent={<DataWorkspaceEmpty icon={<RunIcons.loaded aria-hidden="true" size={18} />}>
+                  {search || state !== "all" || duration !== "any" ? "No run matches these filters." : `No ${kind} are retained.`}
+                </DataWorkspaceEmpty>}
+                onRowClicked={(run) => router.push(`/operations/runs/${encodeURIComponent(run.run_identity)}`)} pointerOnHover />
+              <PanelFrameFooter layout="split">
+                <PanelFrameFooterSummary primary={`${pageResult.runs.length} shown / ${pageResult.filtered_total ?? "—"} filtered`} />
+                <PanelFrameFooterMeta>Page {page} of {totalPages}</PanelFrameFooterMeta>
+                <PanelFrameFooterActions>
+                  <TableFilterMenu density="compact" label="Rows per page" sections={[{
+                    id: "page-size", label: "Rows per page", selected: String(pageSize),
+                    items: runListPageSizesV2.map((value) => ({ value: String(value), label: `${value} rows` })),
+                    onSelect: (value) => setPageSize(Number(value) as RunListPageSizeV2),
+                  }]} />
+                  <FilterButton aria-label="First page" density="compact" variant="ghost" disabled={pending || page <= 1} onClick={() => move(1)}><InterfaceIcons.first aria-hidden="true" /></FilterButton>
+                  <FilterButton aria-label="Previous page" density="compact" variant="ghost" disabled={pending || page <= 1} onClick={() => move(page - 1)}><InterfaceIcons.previous aria-hidden="true" /></FilterButton>
+                  <FilterButton aria-label="Next page" density="compact" variant="ghost" disabled={pending || page >= totalPages} onClick={() => move(page + 1)}><InterfaceIcons.next aria-hidden="true" /></FilterButton>
+                  <FilterButton aria-label="Last page" density="compact" variant="ghost" disabled={pending || page >= totalPages} onClick={() => move(totalPages)}><InterfaceIcons.last aria-hidden="true" /></FilterButton>
+                </PanelFrameFooterActions>
+              </PanelFrameFooter>
+            </> : <UnavailableState density="compact" icon={<RunIcons.loaded aria-hidden="true" size={18} />}
+              title="Run history unavailable" reason={result?.unavailable_reason ?? "READING_RUN_STORE"} />}
           </DataTableSurface>
-        </>
-      ) : (
-        <UnavailableState density="compact" icon={<RunIcons.loaded aria-hidden="true" size={18} />}
-          title="Run history unavailable" reason={result?.unavailable_reason ?? "READING_RUN_STORE"} />
-      )}
-      </PanelFrameBody>
-    </PanelFrame>
+        </PanelFrameBody>
+      </PanelFrame>
     </PageStack>
   );
 }

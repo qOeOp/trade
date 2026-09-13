@@ -50,6 +50,22 @@ test("the shared browser/server input contract accepts exact run and identity-on
   assert.equal(validSourceResearchOperationRequestV1({ ...request, action: "RESOLVE" }), false);
   assert.equal(validSourceResearchOperationRequestV1({ ...resolveRequest, source: request.source }), false);
   assert.equal(validSourceResearchOperationRequestV1({ ...resolveRequest, source_request_identity: "" }), false);
+  assert.equal(validSourceResearchOperationRequestV1({
+    ...request,
+    source: { ...request.source, request_identity: [request.source.request_identity] },
+  }), false);
+  assert.equal(validSourceResearchOperationRequestV1({
+    ...request,
+    source: { ...request.source, normalized_doi: [request.source.normalized_doi] },
+  }), false);
+  assert.equal(validSourceResearchOperationRequestV1({
+    ...request,
+    research: { ...request.research, request_identity: [request.research.request_identity] },
+  }), false);
+  assert.equal(validSourceResearchOperationRequestV1({
+    ...resolveRequest,
+    research_request_identity: [resolveRequest.research_request_identity],
+  }), false);
 });
 
 test("the shared input contract rejects unordered alternatives and incomplete authority fields", () => {

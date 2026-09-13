@@ -22,10 +22,21 @@ test("Dashboard README keeps image, Compose, and effect custody explicit", () =>
     "`dashboard-preview` profile",
     "does not stop, replace, or add a",
     "Windmill remains",
-    "current executor for every effect",
+    "current executor for production effects",
+    "effect worker is disabled by default",
     "fails closed as an unavailable projection",
   ]) assert.ok(readme.includes(boundary), `missing README boundary: ${boundary}`);
 
   assert.match(readme, /127\.0\.0\.1:3100/u);
   assert.doesNotMatch(readme, /Windmill cutover[^.]*complete/iu);
+});
+
+test("Dashboard README keeps MCP finite, independently authenticated, and non-administrative", () => {
+  for (const boundary of [
+    "stateless Streamable HTTP endpoint",
+    "finite, scoped Bearer capability",
+    "no arbitrary script, database, shell, or administrative tool",
+  ]) assert.ok(readme.includes(boundary), `missing MCP boundary: ${boundary}`);
+  assert.match(readme, /validates Host and Origin before MCP\s+dispatch/u);
+  assert.match(readme, /Artifact preflight\/action, Source\/Research action, Develop Composer[\s\S]+Replay V2[\s\S]+exact run detail,[\s\S]+bounded run-log reads/u);
 });

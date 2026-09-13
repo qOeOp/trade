@@ -3,6 +3,7 @@
 import { Component } from 'react';
 import type { ReactNode } from 'react';
 import { EvidenceIcons } from './ui/iconography';
+import { Button } from './ui/button';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -71,18 +72,22 @@ export class ErrorBoundary extends Component<
               </details>
             )}
             <div className="flex gap-2 justify-center">
-              <button
+              <Button
+                type="button"
                 onClick={this.handleReset}
-                className="px-6 py-2 bg-mine-hover text-mine-text rounded-lg hover:bg-mine-hover/90 transition-colors"
+                size="sm"
+                variant="secondary"
               >
                 Try Again
-              </button>
-              <button
+              </Button>
+              <Button
+                type="button"
                 onClick={() => window.location.reload()}
-                className="px-6 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+                size="sm"
+                variant="action"
               >
                 Refresh Page
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -119,12 +124,14 @@ export function FeatureErrorFallback({
         </p>
       )}
       {onRetry && (
-        <button
+        <Button
+          type="button"
           onClick={onRetry}
-          className="px-4 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+          size="sm"
+          variant="action"
         >
           Retry
-        </button>
+        </Button>
       )}
     </div>
   );

@@ -18,6 +18,8 @@ test("Composer route renders one compact exact-readback workbench", async () => 
   assert.match(component, /<PanelFrame/u);
   assert.match(component, /<PanelFrameHeader/u);
   assert.match(component, /<PanelFrameBody/u);
+  assert.match(component, /<PanelFrameInfo label="View Composer read boundary">/u);
+  assert.doesNotMatch(component, /meta="Owner point read|description="Inspect one exact sealed result/u);
   assert.match(component, /\["Request", "Custody", "Artifact"\]/u);
   assert.match(component, /parseDevelopComposerBrowserProjectionV1/u);
   assert.match(component, /requestSequence\.current !== sequence/u);

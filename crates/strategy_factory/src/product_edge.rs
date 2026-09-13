@@ -859,9 +859,8 @@ pub(crate) fn verify_source_bound_research_admission_v2(
     request: &ProductEdgeResearchGoalRequestV2,
 ) -> Result<(), ResearchGoalOwnerError> {
     let goal = &request.goal;
-    let payload = serde_json::json!({
+    let transport_neutral_payload = serde_json::json!({
         "request_identity": request.request_identity,
-        "channel": request.channel,
         "goal": {
             "hypothesis": goal.hypothesis,
             "mechanism": goal.mechanism,
@@ -873,19 +872,37 @@ pub(crate) fn verify_source_bound_research_admission_v2(
         },
         "trial_family_proposal": request.trial_family_proposal,
     });
-    verify_research_admission(
+    let transport_neutral = verify_research_admission(
         admission,
         &request.admission,
         &request.request_identity,
         RESEARCH_GOAL_OPERATION_V2,
         RESEARCH_GOAL_SCHEMA_V2,
-        &payload,
-    )
-    .map_err(|_| {
-        ResearchGoalOwnerError::Unauthorized(
-            "canonical source-bound Product Edge admission mismatch",
+        &transport_neutral_payload,
+    );
+    if transport_neutral.is_err() {
+        // Transitional compatibility for V1 Windmill requests and durable
+        // admissions created before the transport-neutral V2 surface.
+        let legacy_payload = serde_json::json!({
+            "request_identity": request.request_identity,
+            "channel": request.channel,
+            "goal": transport_neutral_payload["goal"],
+            "trial_family_proposal": request.trial_family_proposal,
+        });
+        verify_research_admission(
+            admission,
+            &request.admission,
+            &request.request_identity,
+            RESEARCH_GOAL_OPERATION_V2,
+            RESEARCH_GOAL_SCHEMA_V2,
+            &legacy_payload,
         )
-    })?;
+        .map_err(|_| {
+            ResearchGoalOwnerError::Unauthorized(
+                "canonical source-bound Product Edge admission mismatch",
+            )
+        })?;
+    }
 
     verify_research_admission_v2_authority(admission)
 }

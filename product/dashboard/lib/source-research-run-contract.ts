@@ -28,8 +28,8 @@ export const sourceResearchRunOperationV1 = {
   schema_version: 1,
   operation_id: SOURCE_RESEARCH_EXECUTE_OPERATION,
   owner_operations: [
-    "source_intake.openalex_work_by_doi.submit_or_resolve.v1",
-    "research_goal.submit_or_resolve.v2",
+    sourceIntakeOperationV1.owner_operation,
+    researchGoalOperationV2.owner_operation,
   ],
   capability: "rd.source_intake_research.execute",
   effect_set: [...SOURCE_INTAKE_EFFECT_SET_V1, ...RESEARCH_GOAL_EFFECT_SET_V2],

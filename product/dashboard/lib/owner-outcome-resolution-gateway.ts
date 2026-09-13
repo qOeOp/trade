@@ -1,5 +1,6 @@
 import {
   ARTIFACT_SHADOW_RESOLVE_OPERATION,
+  DEVELOP_COMPOSER_SHADOW_READ_OPERATION,
   EXPLORATORY_REPLAY_SHADOW_READ_OPERATION,
   RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION,
   RESEARCH_SHADOW_RESOLVE_OPERATION,
@@ -7,11 +8,20 @@ import {
   type RegisteredOperationId,
 } from "./operation-registry.ts";
 import { resolveExploratoryReplayShadowV2 } from "./exploratory-replay-readback-client.ts";
+import { EXPLORATORY_REPLAY_EXECUTE_OPERATION } from "./exploratory-replay-operation.ts";
+import { DEVELOP_COMPOSER_EXECUTE_OPERATION } from "./develop-composer-operation.ts";
+import {
+  parseDevelopComposerBrowserProjectionV1,
+  readDevelopComposerGatewayV1,
+} from "./develop-composer-readback-gateway.ts";
 import type { OwnerOutcomeResolutionEnvelopeV1 } from "./owner-outcome-resolution-contract.ts";
 import { resolveRdIterationTimelineShadowV1 } from "./rd-iteration-timeline-client.ts";
 import { ownerApiTargetForOperationV1 } from "./owner-api-target.ts";
 import { resolveArtifactShadowV1, resolveResearchShadowV1, resolveSourceIntakeShadowV1 } from "./rd-shadow-client.ts";
-import { journalShadowReadV1 } from "./shadow-run-journal.ts";
+import {
+  journalShadowReadV1,
+  ownerOutcomeForDevelopComposerResultV1,
+} from "./shadow-run-journal.ts";
 import {
   configuredRunStoreV1,
   isRunIdentityV1,
@@ -32,6 +42,9 @@ type ResolutionTargetV1 = {
   operationId: RegisteredOperationId;
   recoveryIdentity: Record<string, string>;
   read: () => Promise<ShadowResponse>;
+  classifyOwnerOutcome?: (
+    result: ShadowResponse,
+  ) => ReturnType<typeof ownerOutcomeForDevelopComposerResultV1>;
 };
 
 type ResolutionReadersV1 = {
@@ -44,10 +57,11 @@ type ResolutionReadersV1 = {
   ) => Promise<ShadowResponse>;
   iteration: (trialFamilyIdentity: string) => Promise<ShadowResponse>;
   replay: (requestIdentity: string, meaningDigest: string) => Promise<ShadowResponse>;
+  composer: (requestIdentity: string) => Promise<ShadowResponse>;
 };
 
 type ResolutionStoreV1 = Pick<PostgresRunStoreV1,
-  "assertSchema" | "getRun" | "beginRead" | "completeRead">;
+  "assertSchema" | "getRun" | "beginRead" | "completeRead" | "readDevelopComposerRecovery">;
 
 export type OwnerOutcomeResolutionGatewayResultV1 = {
   status: 200 | 400 | 404 | 409 | 503;
@@ -75,6 +89,7 @@ function defaultReaders(): ResolutionReadersV1 {
   const artifactOwner = ownerApiTargetForOperationV1(ARTIFACT_SHADOW_RESOLVE_OPERATION);
   const iterationOwner = ownerApiTargetForOperationV1(RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION);
   const replayOwner = ownerApiTargetForOperationV1(EXPLORATORY_REPLAY_SHADOW_READ_OPERATION);
+  const composerOwner = ownerApiTargetForOperationV1(DEVELOP_COMPOSER_SHADOW_READ_OPERATION);
   return {
     source: (requestIdentity) => resolveSourceIntakeShadowV1({
       requestIdentity,
@@ -106,10 +121,31 @@ function defaultReaders(): ResolutionReadersV1 {
       baseUrl: replayOwner.baseUrl,
       token: replayOwner.token,
     }),
+    composer: async (requestIdentity) => {
+      const result = await readDevelopComposerGatewayV1({
+        requestIdentity,
+        environment: {
+          RD_DASHBOARD_OWNER_READ_API_URL: composerOwner.baseUrl,
+          RD_DASHBOARD_OWNER_READ_API_TOKEN: composerOwner.token,
+        },
+      });
+      return {
+        status: result.status,
+        envelope: {
+          availability: result.projection.availability,
+          unavailable_reason: result.projection.reason,
+          projection: result.projection,
+        },
+      };
+    },
   };
 }
 
-function targetForRun(run: OperationRunV1, readers: ResolutionReadersV1): ResolutionTargetV1 | null {
+function targetForRun(
+  run: OperationRunV1,
+  readers: ResolutionReadersV1,
+  composerDesignDigest: string | null = null,
+): ResolutionTargetV1 | null {
   const identity = run.recovery_identity;
   if (run.operation_id === SOURCE_INTAKE_SHADOW_READ_OPERATION) {
     return {
@@ -148,7 +184,8 @@ function targetForRun(run: OperationRunV1, readers: ResolutionReadersV1): Resolu
       read: () => readers.iteration(identity.trial_family_identity),
     };
   }
-  if (run.operation_id === EXPLORATORY_REPLAY_SHADOW_READ_OPERATION) {
+  if (run.operation_id === EXPLORATORY_REPLAY_SHADOW_READ_OPERATION
+    || run.operation_id === EXPLORATORY_REPLAY_EXECUTE_OPERATION) {
     return {
       operationId: EXPLORATORY_REPLAY_SHADOW_READ_OPERATION,
       recoveryIdentity: {
@@ -156,6 +193,23 @@ function targetForRun(run: OperationRunV1, readers: ResolutionReadersV1): Resolu
         meaning_digest: identity.meaning_digest,
       },
       read: () => readers.replay(identity.request_identity, identity.meaning_digest),
+    };
+  }
+  if (run.operation_id === DEVELOP_COMPOSER_SHADOW_READ_OPERATION
+    || run.operation_id === DEVELOP_COMPOSER_EXECUTE_OPERATION) {
+    return {
+      operationId: DEVELOP_COMPOSER_SHADOW_READ_OPERATION,
+      recoveryIdentity: { request_identity: identity.request_identity },
+      read: () => readers.composer(identity.request_identity),
+      classifyOwnerOutcome: (result) => {
+        const projection = parseDevelopComposerBrowserProjectionV1(result.envelope.projection);
+        if (!projection) return { state: "unavailable", terminalCode: "OWNER_UNAVAILABLE" };
+        const outcome = ownerOutcomeForDevelopComposerResultV1({ status: result.status, projection });
+        return outcome.state === "available"
+          && projection.readback?.artifact?.designDigest !== composerDesignDigest
+          ? { state: "unavailable", terminalCode: "OWNER_UNAVAILABLE" }
+          : outcome;
+      },
     };
   }
   return null;
@@ -189,12 +243,23 @@ export async function resolveRunOwnerOutcomeV1({
     if (!["succeeded", "failed", "unknown"].includes(sourceRun.state)) {
       return { status: 409, envelope: unavailable("OWNER_RESOLUTION_NOT_TERMINAL") };
     }
-    const target = targetForRun(sourceRun, readers);
+    let composerDesignDigest: string | null = null;
+    if (sourceRun.operation_id === DEVELOP_COMPOSER_SHADOW_READ_OPERATION
+      || sourceRun.operation_id === DEVELOP_COMPOSER_EXECUTE_OPERATION) {
+      const recovery = await store.readDevelopComposerRecovery(sourceRun.recovery_identity);
+      if (!recovery || recovery.run.run_identity !== sourceRun.run_identity) {
+        return { status: 503, envelope: unavailable("OWNER_RESOLUTION_CUSTODY_UNAVAILABLE") };
+      }
+      composerDesignDigest = recovery.projection.design_digest
+        .map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    }
+    const target = targetForRun(sourceRun, readers, composerDesignDigest);
     if (!target) return { status: 409, envelope: unavailable("OWNER_RESOLUTION_NOT_APPLICABLE") };
     const result = await journalShadowReadV1({
       operationId: target.operationId,
       recoveryIdentity: target.recoveryIdentity,
       read: target.read,
+      classifyOwnerOutcome: target.classifyOwnerOutcome,
       store,
     });
     const replacement = result.envelope.operational_run;

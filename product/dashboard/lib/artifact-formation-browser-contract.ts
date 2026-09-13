@@ -6,7 +6,7 @@ export type ArtifactFormationBrowserStateV1 = Readonly<{
   availability: "available" | "unavailable";
   unavailableReason: string | null;
   resolution: "SUCCESS" | "FAILED_NO_ARTIFACT" | "REJECTED_NO_WRITE"
-    | "OUTCOME_UNKNOWN" | "SUBMITTED_OR_UNKNOWN" | null;
+    | "OUTCOME_UNKNOWN" | "SUBMITTED_OR_UNKNOWN" | "QUEUED" | null;
   buildRequestIdentity: string | null;
   attemptIdentity: string | null;
   nextLegalAction: string | null;
@@ -104,6 +104,20 @@ export function parseArtifactFormationBrowserStateV1(
       buildRequestIdentity: expectedBuildRequestIdentity,
       attemptIdentity: expectedAttemptIdentity,
       nextLegalAction: null,
+      runIdentity,
+    };
+  }
+  if (value.unavailable_reason === null && value.projection === null
+    && object(value.operational_run)
+    && value.operational_run.availability === "available"
+    && ["queued", "running"].includes(String(value.operational_run.state))) {
+    return {
+      availability: "available",
+      unavailableReason: null,
+      resolution: "QUEUED",
+      buildRequestIdentity: expectedBuildRequestIdentity,
+      attemptIdentity: expectedAttemptIdentity,
+      nextLegalAction: "RESOLVE_SAME_ATTEMPT_IDENTITY",
       runIdentity,
     };
   }

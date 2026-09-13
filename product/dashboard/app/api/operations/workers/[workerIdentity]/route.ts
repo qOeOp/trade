@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 function unavailable(workerIdentity: string, reason: string, status: number) {
   return NextResponse.json({
     schema_version: 1,
-    operation: "dashboard.shadow_workers.detail.v1",
+    operation: "dashboard.workers.detail.v1",
     availability: "unavailable",
     unavailable_reason: reason,
     observed_at: new Date().toISOString(),
@@ -27,12 +27,12 @@ export async function GET(
   try {
     const store = configuredRunStoreV1();
     if (!store) return unavailable(workerIdentity, "RUN_STORE_CONFIGURATION_UNAVAILABLE", 503);
-    await store.assertSchema();
-    const result = await store.readShadowWorker(workerIdentity);
+    await store.assertEffectDispatchSchema();
+    const result = await store.readOperationalWorker(workerIdentity);
     if (!result.worker) return unavailable(workerIdentity, "WORKER_NOT_FOUND", 404);
     return NextResponse.json({
       schema_version: 1,
-      operation: "dashboard.shadow_workers.detail.v1",
+      operation: "dashboard.workers.detail.v1",
       availability: "available",
       unavailable_reason: null,
       observed_at: result.observed_at,

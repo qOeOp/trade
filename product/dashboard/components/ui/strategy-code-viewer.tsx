@@ -13,6 +13,7 @@ import {
   PanelFrameBody,
   PanelFrameFooter,
   PanelFrameHeader,
+  PanelFrameInfo,
 } from "./panel-frame";
 import styles from "./strategy-code-viewer.module.css";
 import { ViewerChrome } from "./strategy-code-viewer/viewer-chrome";
@@ -50,9 +51,14 @@ export function StrategyCodeViewer({
       <PanelFrameHeader
         eyebrow={eyebrow}
         title={title}
-        subtitle={safeProjection.availability === "available" ? safeProjection.artifactIdentity : undefined}
-        meta="Owner custody · Read only · No edit or execution"
         layout="inline"
+        actions={(
+          <PanelFrameInfo label="View strategy source details">
+            <b>Artifact</b>
+            <code>{safeProjection.availability === "available" ? safeProjection.artifactIdentity : "Unavailable"}</code>
+            <p>Source is read only. Edit and execution controls are unavailable here.</p>
+          </PanelFrameInfo>
+        )}
       />
       <PanelFrameBody className={styles.body} mode="static">
         <motion.div

@@ -12,12 +12,35 @@ const operationIds = [
   "rd_historical_custody.shadow_read.v1",
   "rd_iteration_timeline.shadow_read.v1",
   "exploratory_replay.shadow_read.v2",
+  "exploratory_replay_result.shadow_read.v2",
   "develop_composer.shadow_read.v2",
   "artifact_build.formation_execute.v1",
+  "develop_composer.submit_or_resolve.v2",
+  "exploratory_replay.submit_or_resolve.v2",
   "source_intake.research.submit_or_resolve.v1",
 ] as const;
 
-type RunListOperationIdV1 = typeof operationIds[number];
+export type RunListOperationIdV1 = typeof operationIds[number];
+
+export function isRunListOperationIdV1(value: unknown): value is RunListOperationIdV1 {
+  return typeof value === "string" && operationIds.includes(value as RunListOperationIdV1);
+}
+
+export function isRunListOperationBindingV1(
+  operationId: unknown,
+  runKind: unknown,
+  triggerKind: unknown,
+) {
+  if (!isRunListOperationIdV1(operationId)
+    || !["owner_read", "owner_effect"].includes(String(runKind))
+    || !["dashboard_bff", "dashboard_api", "dashboard_scheduler"].includes(String(triggerKind))) return false;
+  const effectRun = operationId === "artifact_build.formation_execute.v1"
+    || operationId === "develop_composer.submit_or_resolve.v2"
+    || operationId === "exploratory_replay.submit_or_resolve.v2"
+    || operationId === "source_intake.research.submit_or_resolve.v1";
+  return effectRun === (runKind === "owner_effect")
+    && (triggerKind !== "dashboard_scheduler" || !effectRun);
+}
 
 export type RunListItemV1 = {
   schema_version: 1;
@@ -69,8 +92,7 @@ function item(value: unknown): value is RunListItemV1 {
     "owner_outcome_state", "created_at", "started_at", "finished_at", "duration_ms", "terminal_code",
   ])) return false;
   if (value.schema_version !== 1 || !isRunIdentityV1(value.run_identity)
-    || typeof value.operation_id !== "string"
-    || !operationIds.includes(value.operation_id as RunListOperationIdV1)
+    || !isRunListOperationIdV1(value.operation_id)
     || !["DASHBOARD_SHADOW_READ", "DASHBOARD_DISPOSABLE_EXECUTION"].includes(String(value.channel))
     || !["owner_read", "owner_effect"].includes(String(value.run_kind))
     || !["dashboard_bff", "dashboard_api", "dashboard_scheduler"].includes(String(value.trigger_kind))
@@ -80,11 +102,10 @@ function item(value: unknown): value is RunListItemV1 {
     || !(value.duration_ms === null || (typeof value.duration_ms === "number"
       && Number.isSafeInteger(value.duration_ms) && value.duration_ms >= 0))
     || !(value.terminal_code === null || isRunTerminalCodeV1(value.terminal_code))) return false;
-  const effectRun = value.operation_id === "artifact_build.formation_execute.v1"
-    || value.operation_id === "source_intake.research.submit_or_resolve.v1";
-  return effectRun === (value.channel === "DASHBOARD_DISPOSABLE_EXECUTION" && value.run_kind === "owner_effect")
-    && (effectRun || (value.channel === "DASHBOARD_SHADOW_READ" && value.run_kind === "owner_read"))
-    && (value.trigger_kind !== "dashboard_scheduler" || !effectRun);
+  return isRunListOperationBindingV1(value.operation_id, value.run_kind, value.trigger_kind)
+    && (value.run_kind === "owner_effect"
+      ? value.channel === "DASHBOARD_DISPOSABLE_EXECUTION"
+      : value.channel === "DASHBOARD_SHADOW_READ");
 }
 
 export function parseRunListBrowserEnvelopeV1(value: unknown): RunListBrowserEnvelopeV1 | null {

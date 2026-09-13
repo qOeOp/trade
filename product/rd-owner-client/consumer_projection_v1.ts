@@ -466,7 +466,9 @@ export async function deriveVerifiedS1ConsumerContextV1(
   }
 }
 
-function validS1Context(value: unknown): value is VerifiedS1ConsumerContextV1 {
+export function validVerifiedS1ConsumerContextV1(
+  value: unknown,
+): value is VerifiedS1ConsumerContextV1 {
   return version(value) && exactKeys(value, [
     "schema_version", "request_identity", "intent_identity", "intent_semantic_digest",
     "trial_family_identity", "trial_family_root_digest", "census_frontier_identity",
@@ -750,7 +752,7 @@ export async function deriveArtifactConsumerProjectionV1(
 ) {
   const unknown = unknownArtifactProjectionV1(build, attempt)
   const legacy = legacyArtifactRawEnvelope(value)
-  if (legacy && !validS1Context(context)) return unknown
+  if (legacy && !validVerifiedS1ConsumerContextV1(context)) return unknown
   const request = context?.request_identity ?? ""
   const intent = context?.intent_identity ?? ""
   if (legacy?.schema_version === 1 && legacy.resolution === "LEGACY_TERMINAL_QUARANTINED") {
@@ -778,7 +780,7 @@ export async function deriveArtifactConsumerProjectionV1(
     }
     return unknown
   }
-  if (!validS1Context(context)) return unknown
+  if (!validVerifiedS1ConsumerContextV1(context)) return unknown
 
   // Complete terminal Owner custody wins over any invocation representation.
   if (["FAILED_NO_ARTIFACT", "OUTCOME_UNKNOWN"].includes(raw.resolution)) {
@@ -1226,7 +1228,8 @@ export async function deriveVerifiedArtifactS1ContextV1(
     valid_through_epoch_ms: view?.valid_through_epoch_ms,
   }
   if (raw?.resolution !== "SUCCESS" || view?.request_identity !== researchRequestIdentity
-    || !validS1Context(candidate) || !validArtifactFamily(raw.artifact_trial_family, receipt, candidate)
+    || !validVerifiedS1ConsumerContextV1(candidate)
+    || !validArtifactFamily(raw.artifact_trial_family, receipt, candidate)
     || !await canonicalArtifactFamilyV1(raw.artifact_trial_family, receipt)) return null
   const projected = await deriveArtifactConsumerProjectionV1(raw, build, attempt, candidate)
   return projected.resolution === "SUCCESS" && projected.owner_receipt !== null ? candidate : null

@@ -4,6 +4,7 @@ export const runLogLevelsV1 = ["all", "info", "warning", "error"] as const;
 export const runLogSourcesV1 = [
   "all", "run_store", "dashboard_bff", "owner_gateway", "shadow_worker", "artifact_orchestrator",
   "source_research_orchestrator",
+  "effect_worker",
 ] as const;
 
 export type RunLogLevelV1 = typeof runLogLevelsV1[number];

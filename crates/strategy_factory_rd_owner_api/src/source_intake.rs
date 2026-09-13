@@ -14,13 +14,13 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use vibe_product_edge::ProductEdgePostgresOwnerV1;
+use vibe_strategy_factory::source_intake::{
+    ProductEdgeGatewayV1, SourceIntakeOperationRequestV1, SourceIntakeOwnerErrorV1,
+    SourceIntakeOwnerV1, SourceIntakeTerminalAtomV1, SourceInterpretationV1,
+};
 #[cfg(feature = "sealed-source-intake-acceptance")]
 use vibe_strategy_factory::source_intake::{
     SOURCE_INTAKE_MIGRATION_SQL_V1, SealedSourceIntakeAuditV1, SealedSourceIntakeEnvironmentV1,
-};
-use vibe_strategy_factory::source_intake::{
-    SourceIntakeOperationRequestV1, SourceIntakeOwnerErrorV1, SourceIntakeOwnerV1,
-    SourceIntakeTerminalAtomV1,
 };
 
 const MAX_REQUEST_BYTES: usize = 256 * 1024;
@@ -656,6 +656,7 @@ pub(super) async fn materialize_schema(database_url: &str) -> anyhow::Result<()>
 fn router(state: SourceIntakeApiState) -> Router {
     let router = Router::new()
         .route("/v1/source-intakes", post(submit))
+        .route("/v2/source-intakes", post(submit_v2))
         .route(
             "/v1/source-intakes/{request_identity}/resolve",
             post(resolve),
@@ -709,6 +710,25 @@ fn sealed_audit_projection(
 #[serde(deny_unknown_fields)]
 struct EmptyObjectV1 {}
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SourceIntakeOperationRequestV2 {
+    pub request_identity: String,
+    pub normalized_doi: String,
+    pub interpretation: SourceInterpretationV1,
+}
+
+impl From<SourceIntakeOperationRequestV2> for SourceIntakeOperationRequestV1 {
+    fn from(request: SourceIntakeOperationRequestV2) -> Self {
+        Self {
+            request_identity: request.request_identity,
+            channel: ProductEdgeGatewayV1::WindmillProductEdge,
+            normalized_doi: request.normalized_doi,
+            interpretation: request.interpretation,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 struct SourceIntakeUnknownV1 {
     request_identity: String,
@@ -721,6 +741,31 @@ async fn submit(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
+    submit_decoded(state, headers, body, |body| {
+        serde_json::from_slice::<SourceIntakeOperationRequestV1>(body).ok()
+    })
+    .await
+}
+
+async fn submit_v2(
+    State(state): State<SourceIntakeApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    submit_decoded(state, headers, body, |body| {
+        serde_json::from_slice::<SourceIntakeOperationRequestV2>(body)
+            .ok()
+            .map(Into::into)
+    })
+    .await
+}
+
+async fn submit_decoded(
+    state: SourceIntakeApiState,
+    headers: HeaderMap,
+    body: Bytes,
+    decode: fn(&[u8]) -> Option<SourceIntakeOperationRequestV1>,
+) -> Response {
     let request_identity = parse_request_identity(&body);
 
     if !authorized(&headers, &state.token_digest) {
@@ -730,9 +775,9 @@ async fn submit(
             &request_identity,
         );
     }
-    let request: SourceIntakeOperationRequestV1 = match serde_json::from_slice(&body) {
-        Ok(request) => request,
-        Err(_) => {
+    let request = match decode(&body) {
+        Some(request) => request,
+        None => {
             return unknown_response(
                 StatusCode::BAD_REQUEST,
                 "MALFORMED_TYPED_REQUEST",
@@ -988,6 +1033,51 @@ mod tests {
             parse_request_identity(br#"{"request_identity":"bad identity"}"#),
             "INVALID_REQUEST_IDENTITY"
         );
+    }
+
+    #[rstest]
+    fn source_intake_v2_rejects_transport_fields_before_legacy_adaptation() {
+        let value = serde_json::json!({
+            "request_identity": "source-request-v2",
+            "normalized_doi": "10.5555/source-v2",
+            "interpretation": {
+                "bounded_explanation": "The source supports a bounded claim.",
+                "plausible_alternatives": ["alternative-a", "alternative-b"],
+                "differentiating_prediction": "The fixed observation separates the alternatives.",
+                "falsifier": "The fixed observation does not separate the alternatives."
+            }
+        });
+        let request: SourceIntakeOperationRequestV2 =
+            serde_json::from_value(value.clone()).expect("transport-neutral V2 request");
+        let adapted: SourceIntakeOperationRequestV1 = request.into();
+        assert_eq!(adapted.request_identity, "source-request-v2");
+        assert_eq!(adapted.channel, ProductEdgeGatewayV1::WindmillProductEdge);
+        assert!(adapted.validate().is_ok());
+
+        let mut channel_injected = value.clone();
+        channel_injected["channel"] = serde_json::Value::String("WINDMILL_PRODUCT_EDGE".into());
+        assert!(
+            serde_json::from_value::<SourceIntakeOperationRequestV2>(channel_injected).is_err(),
+            "V2 must reject caller-supplied transport channel"
+        );
+
+        let mut policy_injected = value;
+        policy_injected["policy_query"] = serde_json::json!({});
+        assert!(
+            serde_json::from_value::<SourceIntakeOperationRequestV2>(policy_injected).is_err(),
+            "V2 must reject caller-supplied policy internals"
+        );
+    }
+
+    #[rstest]
+    fn router_exposes_transport_neutral_source_intake_v2_without_replacing_v1() {
+        let source = include_str!("source_intake.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production module");
+        assert!(source.contains("/v1/source-intakes"));
+        assert!(source.contains("/v2/source-intakes"));
+        assert!(source.contains("SourceIntakeOperationRequestV2"));
     }
 
     #[rstest]

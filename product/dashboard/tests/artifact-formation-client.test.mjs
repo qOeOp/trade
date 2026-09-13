@@ -3,18 +3,91 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
+  executeClaimedArtifactFormationV1,
   executeDisposableArtifactFormationV1 as executeDisposableArtifactFormationImplV1,
   preflightDisposableArtifactFormationV1,
 } from "../lib/artifact-formation-client.ts";
+import {
+  configuredEffectDispatchTargetV1,
+  effectDispatchContextDigestV1,
+  effectDispatchRequestDigestV1,
+  effectDispatchTargetDigestV1,
+} from "../lib/effect-dispatch-contract.ts";
 import { artifactFormationOperationManifestV1 } from "../lib/artifact-formation-operation.ts";
 import { RESEARCH_SHADOW_RESOLVE_OPERATION } from "../lib/operation-registry.ts";
-import { unknownArtifactProjectionV1 } from "../../rd-owner-client/consumer_projection_v1.ts";
+import {
+  deriveGeneratedArtifactIdentitiesV1,
+  invocationStateDigestV1,
+} from "../../rd-owner-client/artifact_build_v1.ts";
+import {
+  deriveResearchConsumerProjectionV1,
+  deriveVerifiedS1ConsumerContextV1,
+  unknownArtifactProjectionV1,
+} from "../../rd-owner-client/consumer_projection_v1.ts";
+import {
+  providerInvocationClaimDigestV1,
+  providerInvocationClaimIdentityV1,
+} from "../../rd-owner-client/provider_invocation_custody_v1.ts";
 import { compatibleEnvironmentV1 } from "./compatibility-fixture.mjs";
 
 const acceptedResearch = JSON.parse(await readFile(
   new URL("./fixtures/research_accepted_v2.json", import.meta.url),
   "utf8",
 ));
+
+async function sha256(value) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function sealExecutionCustody(value) {
+  const custody = structuredClone(value);
+  const admission = custody.request.admission;
+  custody.request_semantic_digest = `sha256:${await sha256(JSON.stringify({
+    build_request_identity: custody.request.build_request_identity,
+    attempt_identity: custody.request.attempt_identity,
+    intent_identity: custody.request.intent_identity,
+    admission: {
+      request_identity: admission.request_identity,
+      admission_identity: admission.admission_identity,
+      admission_digest: admission.admission_digest,
+    },
+  }))}`;
+  custody.execution_custody_digest = `sha256:${await sha256(JSON.stringify({
+    schema_version: custody.schema_version,
+    request: custody.request,
+    request_semantic_digest: custody.request_semantic_digest,
+    canonical_intent_bytes: custody.canonical_intent_bytes,
+    intent_semantic_digest: custody.intent_semantic_digest,
+    research_request_identity: custody.research_request_identity,
+    research_valid_through_epoch_ms: custody.research_valid_through_epoch_ms,
+    trial_family_identity: custody.trial_family_identity,
+    trial_family_root_digest: custody.trial_family_root_digest,
+    census_frontier_identity: custody.census_frontier_identity,
+    census_frontier_digest: custody.census_frontier_digest,
+    claim_identity: custody.claim_identity,
+    claim_digest: custody.claim_digest,
+    invocation_admission_receipt_identity: custody.invocation_admission_receipt_identity,
+    invocation_admission_receipt_digest: custody.invocation_admission_receipt_digest,
+    claimed_state_digest: custody.claimed_state_digest,
+    reserved_at_epoch_ms: custody.reserved_at_epoch_ms,
+  }))}`;
+  custody.reservation_digest = `sha256:${await sha256(JSON.stringify({
+    schema_version: 1,
+    request_identity: custody.request.build_request_identity,
+    admission_identity: admission.admission_identity,
+    attempt_identity: custody.request.attempt_identity,
+    claim_identity: custody.claim_identity,
+    claim_digest: custody.claim_digest,
+    invocation_admission_receipt_identity: custody.invocation_admission_receipt_identity,
+    invocation_admission_receipt_digest: custody.invocation_admission_receipt_digest,
+    claimed_state_digest: custody.claimed_state_digest,
+    execution_custody_digest: custody.execution_custody_digest,
+    reserved_at_epoch_ms: custody.reserved_at_epoch_ms,
+  }))}`;
+  custody.reservation_identity = `rd-artifact-invocation-reservation-v1-${custody.reservation_digest.slice(7)}`;
+  return custody;
+}
 const exactResolve = {
   action: "RESOLVE",
   build_request_identity: "artifact-build-request-1",
@@ -200,4 +273,220 @@ test("fresh execution requires provider custody configuration before RunStore or
   assert.equal(result.envelope.unavailable_reason, "EXECUTION_CONFIGURATION_UNAVAILABLE");
   assert.equal(calls, 0);
   assert.deepEqual(events, []);
+});
+
+test("a claimed queued Artifact RUN performs first Owner prepare, claim, and invocation start from frozen S1 custody", async () => {
+  const request = {
+    action: "RUN",
+    build_request_identity: "dashboard-build-generation-1",
+    attempt_identity: "dashboard-attempt-generation-1",
+    research_request_identity: acceptedResearch.request_identity,
+    identity_mode: "GENERATE",
+  };
+  const context = await deriveVerifiedS1ConsumerContextV1(
+    await deriveResearchConsumerProjectionV1(acceptedResearch, acceptedResearch.request_identity),
+    acceptedResearch.request_identity,
+  );
+  assert.ok(context);
+  const generated = await deriveGeneratedArtifactIdentitiesV1(
+    request.build_request_identity,
+    request.attempt_identity,
+    request.research_request_identity,
+  );
+  assert.ok(generated);
+  const admissionIdentity = `product-edge-request-admission-v1-${"1".repeat(64)}`;
+  const invocationReceiptIdentity =
+    `product-edge-provider-invocation-admission-receipt-v1-${"2".repeat(64)}`;
+  const invocationReceiptDigest = `sha256:${"3".repeat(64)}`;
+  const claimIdentity = await providerInvocationClaimIdentityV1(
+    admissionIdentity,
+    generated.attempt_identity,
+    invocationReceiptIdentity,
+  );
+  const providerClaim = {
+    schema_version: 1,
+    request_identity: generated.build_request_identity,
+    claim_identity: claimIdentity,
+    admission_identity: admissionIdentity,
+    attempt_identity: generated.attempt_identity,
+    invocation_admission_receipt_identity: invocationReceiptIdentity,
+    invocation_admission_receipt_digest: invocationReceiptDigest,
+    claim_digest: "",
+    state_digest: "",
+    committed_at_epoch_ms: 10,
+    disposition: "CLAIMED_NEW",
+    state: "CLAIMED",
+    next_legal_action: "RUN_BOUNDED_EXECUTION_AGENT",
+  };
+  providerClaim.claim_digest = await providerInvocationClaimDigestV1(providerClaim);
+  providerClaim.state_digest = await invocationStateDigestV1({
+    ...providerClaim,
+    updated_at_epoch_ms: providerClaim.committed_at_epoch_ms,
+  });
+  const invocationStart = {
+    schema_version: 1,
+    request_identity: generated.build_request_identity,
+    claim_identity: claimIdentity,
+    admission_identity: admissionIdentity,
+    attempt_identity: generated.attempt_identity,
+    claim_digest: providerClaim.claim_digest,
+    state_digest: "",
+    started_at_epoch_ms: 11,
+    disposition: "STARTED_NEW",
+  };
+  invocationStart.state_digest = await invocationStateDigestV1({
+    ...invocationStart,
+    state: "INVOCATION_STARTED",
+    updated_at_epoch_ms: invocationStart.started_at_epoch_ms,
+  });
+  const executionCustody = await sealExecutionCustody({
+    schema_version: 1,
+    request: {
+      build_request_identity: generated.build_request_identity,
+      attempt_identity: generated.attempt_identity,
+      intent_identity: context.intent_identity,
+      channel: "WINDMILL_PRODUCT_EDGE",
+      admission: {
+        request_identity: generated.build_request_identity,
+        admission_identity: admissionIdentity,
+        admission_digest: `sha256:${"4".repeat(64)}`,
+      },
+    },
+    request_semantic_digest: "",
+    canonical_intent_bytes: `${JSON.stringify({
+      schema_version: 2,
+      intent_identity: context.intent_identity,
+      request_identity: context.request_identity,
+      semantic_digest: context.intent_semantic_digest,
+      trial_family_identity: context.trial_family_identity,
+    })}\n`,
+    intent_semantic_digest: context.intent_semantic_digest,
+    research_request_identity: context.request_identity,
+    research_valid_through_epoch_ms: context.valid_through_epoch_ms,
+    trial_family_identity: context.trial_family_identity,
+    trial_family_root_digest: context.trial_family_root_digest,
+    census_frontier_identity: context.census_frontier_identity,
+    census_frontier_digest: context.census_frontier_digest,
+    claim_identity: claimIdentity,
+    claim_digest: providerClaim.claim_digest,
+    invocation_admission_receipt_identity: invocationReceiptIdentity,
+    invocation_admission_receipt_digest: invocationReceiptDigest,
+    claimed_state_digest: providerClaim.state_digest,
+    reservation_identity: "",
+    reservation_digest: "",
+    reserved_at_epoch_ms: 10,
+  });
+  const requestDigest = effectDispatchRequestDigestV1(
+    "artifact_build.formation_execute.v1",
+    request,
+  );
+  const contextDigest = effectDispatchContextDigestV1(
+    "artifact_build.formation_execute.v1",
+    context,
+  );
+  assert.ok(requestDigest);
+  assert.ok(contextDigest);
+  const frozenTarget = configuredEffectDispatchTargetV1(
+    "artifact_build.formation_execute.v1",
+    disposableEnvironment(),
+  );
+  assert.ok(frozenTarget);
+  const claim = {
+    schema_version: 1,
+    run_identity: "dashboard-run-v1-00000000-0000-4000-8000-000000000001",
+    operation_id: "artifact_build.formation_execute.v1",
+    request,
+    request_digest: requestDigest,
+    frozen_target: frozenTarget,
+    frozen_target_digest: effectDispatchTargetDigestV1(
+      "artifact_build.formation_execute.v1",
+      frozenTarget,
+    ),
+    frozen_context: context,
+    frozen_context_digest: contextDigest,
+    principal_ref: "local_operator",
+    authorization_digest: `sha256:${"5".repeat(64)}`,
+    admission_receipt_identity: "dashboard-admission-receipt-1",
+    claim_token: `effect-claim-token-v1-${"6".repeat(64)}`,
+    claim_attempt: 1,
+    transition_version: 1,
+    lease_expires_at: new Date(Date.now() + 60_000).toISOString(),
+  };
+  const calls = [];
+  const phases = [];
+  const outcome = await executeClaimedArtifactFormationV1({
+    claim,
+    environment: disposableEnvironment(),
+    store: {
+      async recordArtifactFormationPhase({ phase }) {
+        phases.push(phase);
+        return { transition_version: phases.length + 1 };
+      },
+      async completeArtifactFormation() {
+        throw new Error("must not complete before the test stops at provider custody");
+      },
+    },
+    fetcher: async (url) => {
+      const path = new URL(String(url)).pathname;
+      calls.push(path);
+      if (path === "/v1/artifact-builds/prepare") {
+        return Response.json({
+          schema_version: 1,
+          resolution: "PREPARED",
+          build_request_identity: generated.build_request_identity,
+          attempt_identity: generated.attempt_identity,
+          intent_identity: context.intent_identity,
+          semantic_digest: `sha256:${"7".repeat(64)}`,
+          canonical_intent_bytes: executionCustody.canonical_intent_bytes,
+          intent_semantic_digest: context.intent_semantic_digest,
+          owner_receipt: null,
+          next_legal_action: "RUN_BOUNDED_EXECUTION_AGENT",
+        });
+      }
+      if (path === "/v1/artifact-builds/claim-provider-invocation") {
+        return Response.json(providerClaim);
+      }
+      if (path === "/v1/artifact-builds/start-provider-invocation") {
+        return Response.json({ execution_custody: executionCustody, invocation_start: invocationStart });
+      }
+      if (String(url) === "https://provider.test/v1/chat") {
+        throw new Error("STOP_AFTER_PROVEN_INVOCATION_START");
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    },
+  });
+  assert.equal(outcome, "retry");
+  assert.deepEqual(phases, ["OWNER_CLAIMED", "INVOCATION_STARTED"]);
+  assert.deepEqual(calls.slice(0, 3), [
+    "/v1/artifact-builds/prepare",
+    "/v1/artifact-builds/claim-provider-invocation",
+    "/v1/artifact-builds/start-provider-invocation",
+  ]);
+  assert.equal(calls[3], "/v1/chat");
+
+  for (const environmentDrift of [
+    { RD_OWNER_API_URL: "http://127.0.0.1:19090" },
+    { RD_EXECUTION_AGENT_PROVIDER_URL: "https://changed-provider.test/v1/chat" },
+    { RD_EXECUTION_AGENT_MODEL: "changed-provider-model" },
+  ]) {
+    const driftCalls = [];
+    const driftOutcome = await executeClaimedArtifactFormationV1({
+      claim,
+      environment: disposableEnvironment(environmentDrift),
+      store: {
+        async recordArtifactFormationPhase() {
+          throw new Error("target drift must stop before RunStore transitions");
+        },
+        async completeArtifactFormation() {
+          throw new Error("target drift must stop before completion");
+        },
+      },
+      fetcher: async (input) => {
+        driftCalls.push(String(input));
+        throw new Error("target drift must stop before fetch");
+      },
+    });
+    assert.equal(driftOutcome, "retry");
+    assert.deepEqual(driftCalls, []);
+  }
 });

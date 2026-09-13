@@ -94,7 +94,8 @@ test("Run result reuses shared status and action atoms instead of a page-local e
 });
 
 test("Compact toolbar controls share one density and semantic variant system", async () => {
-  const [toolbar, panel, explorer, logs, audit, serviceLogs, workers, runs] = await Promise.all([
+  const [button, toolbar, panel, explorer, logs, audit, serviceLogs, workers, runs] = await Promise.all([
+    source("ui/button.tsx"),
     source("ui/filter-toolbar.tsx"),
     source("ui/panel-frame.tsx"),
     source("ui/log-explorer.tsx"),
@@ -106,27 +107,42 @@ test("Compact toolbar controls share one density and semantic variant system", a
   ]);
 
   assert.match(toolbar, /export type FilterControlDensity = "default" \| "compact"/u);
-  assert.match(toolbar, /export type FilterActionVariant = "primary" \| "secondary" \| "ghost" \| "warning" \| "danger" \| "outline"/u);
+  assert.match(toolbar, /export type FilterActionVariant = "primary" \| "secondary" \| "ghost" \| "warning" \| "danger" \| "outline" \| "toggle"/u);
   assert.match(toolbar, /import \{ Button, buttonVariants, type ButtonProps \} from "\.\/button"/u);
   assert.match(toolbar, /satisfies Record<FilterActionVariant, NonNullable<ButtonProps\["variant"\]>>/u);
   assert.match(toolbar, /return <Button \{\.\.\.props\} variant=\{buttonVariantFor\(variant\)\} size=\{buttonSizeFor\(density\)\}/u);
   assert.match(toolbar, /className: cn\(buttonVariants\(\{ variant: buttonVariantFor\(variant\), size: buttonSizeFor\(density\) \}\), "filter-action", className\)/u);
+  assert.match(toolbar, /density === "compact" \? "tool" : "toolbar"/u);
+  assert.match(button, /action:\s*'border border-primary bg-primary text-primary-foreground/u);
+  assert.doesNotMatch(button, /action:\s*'[^']*status-info/u);
+  assert.match(button, /outline:[\s\S]*?border-\[var\(--border-default\)\][\s\S]*?bg-\[var\(--surface-card\)\]/u);
+  assert.match(button, /default:\s*'[^'\n]*h-8[^'\n]*text-xs/u);
+  assert.match(button, /toolbar:\s*"[^"\n]*h-8[^"\n]*text-\[10px\]/u);
+  assert.match(button, /tool:\s*"[^"\n]*h-\[30px\][^"\n]*text-\[10px\]/u);
+  assert.match(button, /'icon-tool':\s*"[^"\n]*size-\[30px\]/u);
+  assert.match(css, /button \{ font-family: inherit; \}/u);
+  assert.doesNotMatch(css, /button(?:, input)? \{ font: inherit; \}/u);
   assert.match(panel, /import \{ Button \} from "\.\/button"/u);
-  assert.match(panel, /<Button \{\.\.\.props\} type="button" variant="outline" size="icon-sm"/u);
+  assert.match(panel, /<Button \{\.\.\.props\} type="button" variant="outline" size="icon-tool"/u);
   assert.match(panel, /<Button[\s\S]*?className="panel-info-trigger"/u);
   assert.match(panel, /<Button[\s\S]*?className=\{\["panel-frame-close-button"/u);
+  assert.equal(panel.match(/shape="circle"/gu)?.length, 2);
   assert.match(explorer, /<TableFilterMenu[\s\S]*?density="compact"/u);
   assert.match(explorer, /<FilterSearch[\s\S]*?density="compact"/u);
   assert.doesNotMatch(explorer, /log-explorer-filter-select/u);
   assert.match(logs, /<FilterToggle density="compact"/u);
   assert.match(logs, /<FilterLink density="compact" variant="secondary"/u);
-  assert.match(css, /\.filter-action\[data-density="compact"\] \{ min-height: 32px;/u);
-  assert.match(css, /\.filter-action\[data-variant="warning"\] \{[^}]*var\(--status-warning\)/u);
+  assert.doesNotMatch(css, /\.filter-action\[data-density="compact"\]/u);
+  assert.match(button, /warn:\s*'[^']*border-status-warning[^']*bg-status-warning/u);
   assert.match(css, /\.filter-toggle\[data-density="compact"\] \{ min-height: 32px;/u);
   assert.match(css, /\.table-filter-menu\[data-density="compact"\] \.table-filter-select \{ min-width: 112px; height: 32px;/u);
   assert.match(css, /@media \(max-width: 1279px\) \{[\s\S]*?\.log-explorer-header \{ grid-template-columns: 1fr;[^}]*\}[\s\S]*?\.log-explorer-search-form \{ min-width: 150px; flex: 1 1 160px; \}/u);
   assert.match(css, /@media \(max-width: 767px\) \{[\s\S]*?\.log-explorer-controls \{[^}]*justify-content: flex-start;[^}]*flex-wrap: wrap;[^}]*overflow: visible;[^}]*\}/u);
   assert.match(css, /@media \(max-width: 767px\) \{[\s\S]*?\.log-explorer-actions \{[^}]*flex-wrap: wrap;[^}]*overflow: visible;[^}]*\}/u);
+  assert.match(
+    css,
+    /@media \(max-width: 767px\) \{[\s\S]*?\.operations-run-table-surface \.filter-toolbar-group\[data-align="end"\] \{[^}]*width: 100%;[^}]*margin-left: 0;[^}]*grid-template-columns: minmax\(0, 1fr\) auto;[^}]*\}[\s\S]*?\.operations-run-table-surface \.filter-search \{ width: 100%; \}/u,
+  );
   assert.match(css, /@container run-detail-result \(max-width: 520px\) \{[\s\S]*?\.run-result-actions \{[^}]*flex-wrap: wrap;[^}]*overflow: visible;[^}]*\}/u);
   for (const component of [audit, serviceLogs, workers, runs]) {
     assert.doesNotMatch(component, /data-action-variant=/u);
@@ -134,7 +150,8 @@ test("Compact toolbar controls share one density and semantic variant system", a
   }
   assert.doesNotMatch(css, /\.panel-frame-actions button:not\(\.filter-action\)|\.panel-frame-actions a:not\(\.filter-action\)/u);
   assert.doesNotMatch(css, /\.panel-frame-footer-actions button(?:\s|\{|:)/u);
-  assert.match(css, /\.panel-frame-actions \.filter-action\[aria-pressed="true"\]/u);
+  assert.match(button, /toggle:\s*[\s\S]*?aria-\[pressed=true\]:bg-\[var\(--surface-elevated\)\]/u);
+  assert.doesNotMatch(css, /\.panel-frame-actions \.filter-action\[aria-pressed="true"\]/u);
   assert.doesNotMatch(css, /\.log-explorer-filter-select|\.log-explorer-clear-filters/u);
 });
 

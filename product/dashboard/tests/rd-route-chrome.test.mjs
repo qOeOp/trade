@@ -31,8 +31,9 @@ test("only admitted R&D surfaces embed their route chrome", async () => {
   );
   assert.match(
     shell,
-    /\{!ownsRouteChrome && !operationsConnected && !marketDataFoundation[\s\S]*&& !runtimeFoundation && !portfolioUnavailable \? <footer className="prototype-notice">/u,
+    /\{!ownsRouteChrome && !operationsConnected && !marketDataFoundation[\s\S]*&& !runtimeFoundation && !portfolioUnavailable && !connected/u,
   );
+  assert.doesNotMatch(shell, /Only one exact sealed Replay request is exposed/u);
   assert.match(css, /\.module-tabs \{[^}]*justify-self: end;/u);
   assert.doesNotMatch(predicate, /hypoth|decision|backtest|market|runtime|portfolio|operation/iu);
 });
@@ -46,15 +47,16 @@ test("each embedded R&D panel owns an exact read-only boundary", async () => {
     readFile(new URL("../components/artifact-directory.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/ui/strategy-code-viewer.tsx", import.meta.url), "utf8"),
   ]);
-  const framedBoundaries = [
-    "Owner point read · No submit or resolve",
-    "Owner point read · No run, resolve, or edit",
-    "Owner custody · Read only · No edit or execution",
+  const disclosedBoundaries = [
+    "View Source Intake read boundary",
+    "View Composer read boundary",
+    "View strategy source details",
   ];
 
   [source, composer, viewer].forEach((surface, index) => {
     assert.match(surface, /<PanelFrameHeader/u);
-    assert.ok(surface.includes(`meta="${framedBoundaries[index]}"`), `${framedBoundaries[index]} is missing`);
+    assert.ok(surface.includes(`<PanelFrameInfo label="${disclosedBoundaries[index]}">`), `${disclosedBoundaries[index]} is missing`);
+    assert.doesNotMatch(surface, /meta="(?:Owner point read|Owner custody)/u);
   });
   assert.match(research, /<OwnerDirectoryInfo>[\s\S]+No research payloads, submission controls, or resolution actions are exposed here\./u);
   assert.match(researchReadback, /title="Research outcome"/u);

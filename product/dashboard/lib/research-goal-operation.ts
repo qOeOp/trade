@@ -45,7 +45,7 @@ export const researchGoalOperationV2 = {
   routing_dependency_keys: [PRODUCT_EDGE_RESEARCH_GOAL_ROUTING_KEY_V2],
   orchestration_contract: {
     identity: "dashboard-sourced-research-goal-orchestrator-v2",
-    run_owner_route: "POST /v1/source-intake-research",
+    run_owner_route: "POST /v2/source-intake-research",
     resolve_owner_route: "POST /v2/research-goals/{request_identity}/resolve",
     source_ancestry_required: true,
     resolve_identity_mode: "EXACT",
@@ -132,13 +132,12 @@ export async function executeResearchGoalOperationV2({
   const ownerOutcome = await rdOwnerJsonOutcomeV1({
     transport,
     path: action === "RUN"
-      ? "/v1/source-intake-research"
+      ? "/v2/source-intake-research"
       : `/v1/source-intake-research/${encodeURIComponent(input.request_identity)}/resolve`,
     method: "POST",
     body: {
       proposal: {
         request_identity: input.request_identity,
-        channel: "WINDMILL_PRODUCT_EDGE",
         goal: input.goal,
         trial_family_proposal: input.trial_family_proposal,
       },

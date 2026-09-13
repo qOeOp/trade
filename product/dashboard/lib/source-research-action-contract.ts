@@ -45,10 +45,20 @@ function operationalRun(value: unknown): OperationalRunReferenceV1 | null {
     "owner_outcome_state", "transition_version",
   ]) || value.schema_version !== 1) return null;
   if (value.availability === "available") {
-    return value.unavailable_reason === null && isRunIdentityV1(value.run_identity)
-      && ["succeeded", "failed"].includes(String(value.state))
+    if (value.unavailable_reason !== null || !isRunIdentityV1(value.run_identity)
+      || !Number.isSafeInteger(value.transition_version)) return null;
+    if (["queued", "running"].includes(String(value.state))) {
+      const transitionVersion = Number(value.transition_version);
+      const validTransition = value.state === "queued"
+        ? transitionVersion === 1
+        : transitionVersion >= 1 && transitionVersion <= 4;
+      return value.owner_outcome_state === "unknown" && validTransition
+        ? value as OperationalRunReferenceV1 : null;
+    }
+    return ["succeeded", "failed"].includes(String(value.state))
       && ["available", "rejected"].includes(String(value.owner_outcome_state))
-      && value.transition_version === 4 ? value as OperationalRunReferenceV1 : null;
+      && [4, 5].includes(Number(value.transition_version))
+      ? value as OperationalRunReferenceV1 : null;
   }
   if (value.availability !== "unavailable" || typeof value.unavailable_reason !== "string") {
     return null;
@@ -59,7 +69,7 @@ function operationalRun(value: unknown): OperationalRunReferenceV1 | null {
   }
   return isRunIdentityV1(value.run_identity) && value.state === "running"
     && value.owner_outcome_state === "unknown" && Number.isSafeInteger(value.transition_version)
-    && Number(value.transition_version) >= 1 && Number(value.transition_version) <= 3
+    && Number(value.transition_version) >= 1 && Number(value.transition_version) <= 4
     ? value as OperationalRunReferenceV1 : null;
 }
 
@@ -93,7 +103,11 @@ export function parseSourceResearchActionEnvelopeV1(
     ]) || value.research.schema_version !== 1 || value.research.request_identity !== researchRequestIdentity
     || !["ACCEPTED", "REJECTED_NO_WRITE"].includes(String(value.research.resolution))
     || typeof value.research.next_legal_action !== "string"
-    || !IDENTITY.test(value.research.next_legal_action)) return null;
+    || !IDENTITY.test(value.research.next_legal_action)) {
+    return value.unavailable_reason === null && value.source === null && value.research === null
+      && run.availability === "available" && ["queued", "running"].includes(run.state ?? "")
+      ? value as SourceResearchActionEnvelopeV1 : null;
+  }
   const accepted = value.research.resolution === "ACCEPTED";
   if (accepted !== (typeof value.research.intent_identity === "string"
       && IDENTITY.test(value.research.intent_identity))

@@ -10,7 +10,7 @@ export function Settings({ compactCalendar, tableMode, onCompactCalendar, onTogg
   onToggleTable: () => void;
 }) {
   return <details name="calendar-toolbar-menu" className={`${styles.toolMenu} ${styles.settingsMenu}`}>
-    <summary aria-label="Calendar settings"><InterfaceIcons.settings size={16} aria-hidden="true" /></summary>
+    <summary aria-label="Calendar settings"><InterfaceIcons.settings size={14} aria-hidden="true" /></summary>
     <div className={styles.toolPopover}>
       <strong>Calendar settings</strong>
       <label className={styles.settingRow}>

@@ -27,6 +27,8 @@ test("Runtime surface keeps fixed evidence but presents a compact business state
   assert.match(source, /<PanelFrameInfo label="View Runtime technical details">/);
   assert.match(source, /Refresh foundation/);
   assert.match(source, /Copy foundation locator/);
+  assert.match(source, /<FilterButton density="compact" type="button" variant="outline" onClick=\{\(\) => router\.refresh\(\)\}>/u);
+  assert.match(source, /<FilterButton density="compact" type="button" variant="outline" onClick=\{\(\) => void copyLocator\(\)\}>/u);
   assert.match(source, /reason="RUNTIME_FOUNDATION_NOT_READY"/);
 });
 
@@ -34,7 +36,7 @@ test("all Runtime routes render the admitted not-ready foundation card", async (
   const shell = await readFile(shellUrl, "utf8");
   assert.match(shell, /const runtimeFoundation = current === "\/runtime" \|\| current\.startsWith\("\/runtime\/"\)/);
   assert.match(shell, /runtimeFoundation \? <RuntimeFoundationNotReadyCard \/>/);
-  assert.match(shell, /!marketDataFoundation[\s\S]*&& !runtimeFoundation && !portfolioUnavailable \? <footer/);
+  assert.match(shell, /!marketDataFoundation[\s\S]*&& !runtimeFoundation && !portfolioUnavailable && !connected/);
 });
 
 test("Runtime composes shared unavailable and data-workspace table atoms", async () => {

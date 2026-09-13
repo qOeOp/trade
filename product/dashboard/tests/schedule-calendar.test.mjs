@@ -39,9 +39,10 @@ test("calendar colors resolve from the current shared theme instead of undefined
 });
 
 test("schedule controls retain the Vibe calendar hierarchy without editable actions", async () => {
-  const [component, shell] = await Promise.all([
+  const [component, shell, styles] = await Promise.all([
     readFile(new URL("../components/operations-schedules-preview.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/dashboard-route-content.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/ui/schedule-calendar.module.css", import.meta.url), "utf8"),
   ]);
   const sourceFiles = await Promise.all([
     "calendar-header.tsx",
@@ -64,7 +65,7 @@ test("schedule controls retain the Vibe calendar hierarchy without editable acti
     "Filter schedules",
     "Operation scope",
     "operationMarks",
-    'active ? 120 : 32',
+    'active ? 96 : 30',
     "Calendar settings",
     "compactCalendar",
     "refreshAction",
@@ -78,6 +79,13 @@ test("schedule controls retain the Vibe calendar hierarchy without editable acti
   assert.doesNotMatch(component, /Shadow-read schedules[^\n]+Expected triggers and observed runs/u);
   assert.equal(sourceLock.components.calendarHeader.blob, "2357cf00f668de103b346a15a02918fbfc9f25c8");
   assert.equal(sourceLock.components.calendarViewTabs.blob, "b7ea515cc3670441e739c6fcf7ae2f7ba93776af");
+  assert.match(source, /<Button[^>]+variant="action" size="tool" className=\{styles\.refreshAction\}/u);
+  assert.match(source, /<InterfaceIcons\.refresh size=\{12\}/u);
+  assert.match(styles, /\.refreshAction \{ flex: 0 0 auto; \}/u);
+  assert.doesNotMatch(styles, /\.refreshAction \{[^}]*(?:height|min-height|padding|font-size|font-weight|border-radius):|\.refreshAction:disabled/u);
+  assert.doesNotMatch(styles, /\.page button[^\{]*\{[^}]*font:\s*inherit/u);
+  assert.match(styles, /\.toolMenu > summary \{[^}]*width: 34px; height: 34px;/u);
+  assert.match(styles, /\.operationScope \{[^}]*height: 34px;/u);
   assert.doesNotMatch(`${component}\n${source}`, /Add Event|CALENDAR_ITEMS_MOCK/u);
   assert.doesNotMatch(component, />Calendar<|>Today<|>Agenda<|>Month</u);
 });

@@ -1,6 +1,7 @@
 "use client";
 
 import { EvidenceIcons, InterfaceIcons, ModuleIcons } from "../iconography";
+import { Button } from "../button";
 import styles from "../strategy-code-viewer.module.css";
 
 type ViewerState = "loading" | "available" | "unavailable";
@@ -34,8 +35,11 @@ export function ViewerChrome({
           </div>
         ))}
       </div>
-      <button
+      <Button
         type="button"
+        variant="outline"
+        size="icon-tool"
+        shape="circle"
         className={styles.chromeAction}
         onClick={onCopy}
         disabled={!onCopy}
@@ -43,7 +47,7 @@ export function ViewerChrome({
         title={onCopy ? "Copy strategy source" : "Source unavailable"}
       >
         <InterfaceIcons.copy size={15} strokeWidth={1.5} aria-hidden="true" />
-      </button>
+      </Button>
     </header>
   );
 }

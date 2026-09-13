@@ -4,8 +4,14 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
+  executeClaimedSourceResearchOperationV1,
   executeSourceResearchOperationV1 as executeSourceResearchOperationImplV1,
 } from "../lib/source-research-operation.ts";
+import {
+  configuredEffectDispatchTargetV1,
+  effectDispatchRequestDigestV1,
+  effectDispatchTargetDigestV1,
+} from "../lib/effect-dispatch-contract.ts";
 import { sourceResearchRunInputCustodyV1 } from "../lib/source-research-run-input-custody.ts";
 import { researchGoalOperationV2 } from "../lib/research-goal-operation.ts";
 import { sourceIntakeOperationV1 } from "../lib/source-intake-operation.ts";
@@ -194,6 +200,38 @@ function runStore(events = [], recovery = null) {
   };
 }
 
+function effectClaim(recovery, claimAttempt = 1) {
+  const frozenTarget = configuredEffectDispatchTargetV1(
+    "source_intake.research.submit_or_resolve.v1",
+    environment,
+  );
+  assert.ok(frozenTarget);
+  return {
+    schema_version: 1,
+    run_identity: recovery.run.run_identity,
+    operation_id: "source_intake.research.submit_or_resolve.v1",
+    request,
+    request_digest: effectDispatchRequestDigestV1(
+      "source_intake.research.submit_or_resolve.v1",
+      request,
+    ),
+    frozen_target: frozenTarget,
+    frozen_target_digest: effectDispatchTargetDigestV1(
+      "source_intake.research.submit_or_resolve.v1",
+      frozenTarget,
+    ),
+    frozen_context: null,
+    frozen_context_digest: null,
+    principal_ref: "local_operator",
+    authorization_digest: `sha256:${"e".repeat(64)}`,
+    admission_receipt_identity: "dashboard-admission-receipt-1",
+    claim_token: `effect-claim-token-v1-${"f".repeat(64)}`,
+    claim_attempt: claimAttempt,
+    transition_version: recovery.run.transition_version,
+    lease_expires_at: "2026-09-02T00:04:00.000Z",
+  };
+}
+
 test("fresh RUN binds both active Dashboard routes before ordered Owner effects", async () => {
   const keys = [];
   const calls = [];
@@ -205,7 +243,7 @@ test("fresh RUN binds both active Dashboard routes before ordered Owner effects"
     routingResolver: async (key) => { keys.push(key); return dashboardRoute; },
     fetcher: async (input, init) => {
       calls.push({ url: String(input), init });
-      return Response.json(String(input).endsWith("/v1/source-intakes")
+      return Response.json(String(input).endsWith("/v2/source-intakes")
         ? sourceTerminal : acceptedResearch);
     },
   });
@@ -216,15 +254,134 @@ test("fresh RUN binds both active Dashboard routes before ordered Owner effects"
     PRODUCT_EDGE_RESEARCH_GOAL_ROUTING_KEY_V2,
   ]);
   assert.deepEqual(calls.map(({ url }) => new URL(url).pathname), [
-    "/v1/source-intakes", "/v1/source-intake-research",
+    "/v2/source-intakes", "/v2/source-intake-research",
+  ]);
+  assert.ok(calls.every(({ init }) => (
+    init.headers["x-trade-effect-dispatcher"] === "TRADE_DASHBOARD"
+  )));
+  assert.deepEqual(Object.keys(JSON.parse(calls[0].init.body)).sort(), [
+    "interpretation", "normalized_doi", "request_identity",
+  ]);
+  assert.deepEqual(Object.keys(JSON.parse(calls[1].init.body).proposal).sort(), [
+    "goal", "request_identity", "trial_family_proposal",
+  ]);
+  assert.deepEqual(events, [
+    "schema", "read", "begin:RUN", "phase:SOURCE_OWNER_AVAILABLE",
+    "phase:RESEARCH_OWNER_AVAILABLE", "complete:available",
+  ]);
+});
+
+test("a claimed queued Source/Research RUN executes the frozen first attempt without re-admission or RunStore begin", async () => {
+  const calls = [];
+  const events = [];
+  const recovery = {
+    schema_version: 1,
+    run: run(),
+    requested_action: "RUN",
+    routing: { source: dashboardRoute, research: dashboardRoute },
+    input_custody: sourceResearchRunInputCustodyV1(request),
+    observed_phases: [],
+  };
+  const outcome = await executeClaimedSourceResearchOperationV1({
+    claim: effectClaim(recovery),
+    environment,
+    store: runStore(events, recovery),
+    fetcher: async (input, init) => {
+      calls.push({ url: String(input), init });
+      return Response.json(String(input).endsWith("/v2/source-intakes")
+        ? sourceTerminal : acceptedResearch);
+    },
+  });
+  assert.equal(outcome, "terminal");
+  assert.deepEqual(calls.map(({ url }) => new URL(url).pathname), [
+    "/v2/source-intakes", "/v2/source-intake-research",
   ]);
   assert.ok(calls.every(({ init }) => (
     init.headers["x-trade-effect-dispatcher"] === "TRADE_DASHBOARD"
   )));
   assert.deepEqual(events, [
-    "schema", "read", "begin:RUN", "phase:SOURCE_OWNER_AVAILABLE",
+    "read", "phase:SOURCE_OWNER_AVAILABLE",
     "phase:RESEARCH_OWNER_AVAILABLE", "complete:available",
   ]);
+  assert.equal(events.some((event) => event.startsWith("begin:")), false);
+});
+
+test("a claimed queued Source/Research RUN never retargets to changed Owner configuration", async () => {
+  const calls = [];
+  const recovery = {
+    schema_version: 1,
+    run: run(),
+    requested_action: "RUN",
+    routing: { source: dashboardRoute, research: dashboardRoute },
+    input_custody: sourceResearchRunInputCustodyV1(request),
+    observed_phases: [],
+  };
+  const outcome = await executeClaimedSourceResearchOperationV1({
+    claim: effectClaim(recovery),
+    environment: {
+      ...environment,
+      RD_OWNER_API_URL: "http://127.0.0.1:9090",
+    },
+    store: runStore([], recovery),
+    fetcher: async (input) => {
+      calls.push(String(input));
+      return Response.json(String(input).endsWith("/v2/source-intakes")
+        ? sourceTerminal : acceptedResearch);
+    },
+  });
+  assert.equal(outcome, "retry");
+  assert.deepEqual(calls, []);
+});
+
+test("a claimed Source response loss resolves the same identity before advancing and retries resolve-first", async () => {
+  const calls = [];
+  const recovery = {
+    schema_version: 1,
+    run: run(),
+    requested_action: "RUN",
+    routing: { source: dashboardRoute, research: dashboardRoute },
+    input_custody: sourceResearchRunInputCustodyV1(request),
+    observed_phases: [],
+  };
+  const outcome = await executeClaimedSourceResearchOperationV1({
+    claim: effectClaim(recovery),
+    environment,
+    store: runStore([], recovery),
+    fetcher: async (input, init) => {
+      const path = new URL(String(input)).pathname;
+      calls.push({ path, init });
+      if (path === "/v2/source-intakes") return Response.json({ error: "lost" }, { status: 503 });
+      return Response.json(path.includes("/source-intakes/") ? sourceTerminal : acceptedResearch);
+    },
+  });
+  assert.equal(outcome, "terminal");
+  assert.deepEqual(calls.map(({ path }) => path), [
+    "/v2/source-intakes",
+    "/v1/source-intakes/source-request-1/readback",
+    "/v2/source-intake-research",
+  ]);
+  assert.equal(calls[0].init.headers["x-trade-effect-dispatcher"], "TRADE_DASHBOARD");
+  assert.equal(calls[1].init.headers["x-trade-effect-dispatcher"], undefined);
+
+  calls.length = 0;
+  const retryOutcome = await executeClaimedSourceResearchOperationV1({
+    claim: effectClaim(recovery, 2),
+    environment,
+    store: runStore([], recovery),
+    fetcher: async (input, init) => {
+      calls.push({ path: new URL(String(input)).pathname, init });
+      return Response.json(String(input).includes("/source-intakes/")
+        ? sourceTerminal : acceptedResearch);
+    },
+  });
+  assert.equal(retryOutcome, "terminal");
+  assert.deepEqual(calls.map(({ path }) => path), [
+    "/v1/source-intakes/source-request-1/readback",
+    "/v2/research-goals/request-1/resolve",
+  ]);
+  assert.ok(calls.every(({ init }) => (
+    init.headers["x-trade-effect-dispatcher"] === undefined
+  )));
 });
 
 test("a Windmill-owned routing key stops before any Owner effect or RunStore begin", async () => {
@@ -321,13 +478,13 @@ test("identity-only RESOLVE resumes a missing Source stage from retained input",
       if (path === "/v1/source-intakes/source-request-1/readback") {
         return new Response(null, { status: 404 });
       }
-      return Response.json(path === "/v1/source-intakes" ? sourceTerminal : acceptedResearch);
+      return Response.json(path === "/v2/source-intakes" ? sourceTerminal : acceptedResearch);
     },
   });
   assert.equal(result.status, 200);
   assert.deepEqual(calls.map(({ url }) => new URL(url).pathname), [
     "/v1/source-intakes/source-request-1/readback",
-    "/v1/source-intakes",
+    "/v2/source-intakes",
     "/v2/research-goals/request-1/resolve",
   ]);
   assert.equal(calls[0].init.headers["x-trade-effect-dispatcher"], undefined);
@@ -361,7 +518,7 @@ test("a resumed Source RUN with unknown outcome returns to body-free identity re
           ? new Response(null, { status: 404 })
           : Response.json(sourceTerminal);
       }
-      if (path === "/v1/source-intakes") {
+      if (path === "/v2/source-intakes") {
         return Response.json(unknownSource, { status: 202 });
       }
       return Response.json(acceptedResearch);
@@ -370,7 +527,7 @@ test("a resumed Source RUN with unknown outcome returns to body-free identity re
   assert.equal(result.status, 200);
   assert.deepEqual(calls.map(({ path }) => path), [
     "/v1/source-intakes/source-request-1/readback",
-    "/v1/source-intakes",
+    "/v2/source-intakes",
     "/v1/source-intakes/source-request-1/readback",
     "/v2/research-goals/request-1/resolve",
   ]);
@@ -416,7 +573,7 @@ test("a resumed Research RUN with unknown outcome returns to body-free identity 
   assert.deepEqual(calls.map(({ path }) => path), [
     "/v1/source-intakes/source-request-1/readback",
     "/v2/research-goals/request-1/resolve",
-    "/v1/source-intake-research",
+    "/v2/source-intake-research",
     "/v2/research-goals/request-1/resolve",
   ]);
   assert.equal(calls[1].init.body, undefined);

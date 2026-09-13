@@ -210,6 +210,9 @@ export function SourceResearchControl() {
       setResult(parsed);
       if (!parsed) {
         setState("SUBMITTED_OR_UNKNOWN");
+      } else if (parsed.availability === "available"
+        && ["queued", "running"].includes(parsed.operational_run.state ?? "")) {
+        setState("SUBMITTED_OR_UNKNOWN");
       } else if (parsed.availability === "available") {
         setState("TERMINAL");
       } else if (parsed.operational_run.run_identity) {

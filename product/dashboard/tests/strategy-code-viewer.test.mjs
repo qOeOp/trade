@@ -146,6 +146,7 @@ test("component retains real CodeMirror read-only affordances and no execution p
     "PanelFrameHeader",
     "PanelFrameBody",
     "PanelFrameFooter",
+    "PanelFrameInfo",
     "InterfaceIcons.copy",
     "useReducedMotion",
     'data-slot="strategy-viewer-chrome"',
@@ -170,6 +171,8 @@ test("component retains real CodeMirror read-only affordances and no execution p
     assert.ok(!component.includes(forbidden), `unexpected ${forbidden}`);
   }
   assert.ok(component.includes('safeProjection.source?.fileName ?? "Source unavailable"'));
+  assert.match(component, /<PanelFrameInfo label="View strategy source details">/u);
+  assert.doesNotMatch(component, /meta="Owner custody|subtitle=\{safeProjection\.availability/u);
   assert.ok(component.includes('data-active={source ? "true" : undefined}'));
   assert.equal(sourceLock.sourceSets.strategyCodeViewer.revision, "48c8315f74536d9d308347d63ac9c4e96c9a7120");
   assert.equal(sourceLock.sourceSets.strategyCodeViewer.tree, "d226b620dc699c9e8e382274434b324a5fefe0e1");

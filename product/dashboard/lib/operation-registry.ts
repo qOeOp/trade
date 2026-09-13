@@ -6,6 +6,7 @@ export const RD_FORMATION_CATALOG_SHADOW_READ_OPERATION = "rd_formation_catalog.
 export const RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION = "rd_historical_custody.shadow_read.v1" as const;
 export const RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION = "rd_iteration_timeline.shadow_read.v1" as const;
 export const EXPLORATORY_REPLAY_SHADOW_READ_OPERATION = "exploratory_replay.shadow_read.v2" as const;
+export const EXPLORATORY_REPLAY_RESULT_SHADOW_READ_OPERATION = "exploratory_replay_result.shadow_read.v2" as const;
 export const DEVELOP_COMPOSER_SHADOW_READ_OPERATION = "develop_composer.shadow_read.v2" as const;
 
 export type RegisteredOperationId =
@@ -17,6 +18,7 @@ export type RegisteredOperationId =
   | typeof RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION
   | typeof RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION
   | typeof EXPLORATORY_REPLAY_SHADOW_READ_OPERATION
+  | typeof EXPLORATORY_REPLAY_RESULT_SHADOW_READ_OPERATION
   | typeof DEVELOP_COMPOSER_SHADOW_READ_OPERATION;
 
 export type OperationDispatchBindingV1 = {
@@ -229,6 +231,36 @@ export const operationRegistryV1 = [
       "canonical_request_bytes",
       "owner_receipt",
       "owner_cut",
+    ],
+    channels: ["DASHBOARD_SHADOW_READ"],
+    deployment_state: "unavailable",
+    compatibility_envelope_digest: null,
+    compatibility_observed_at_epoch_ms: null,
+    compatibility_valid_through_epoch_ms: null,
+    deployment_unavailable_reason: "COMPATIBILITY_ENVELOPE_UNAVAILABLE",
+  },
+  {
+    schema_version: 1,
+    operation_id: EXPLORATORY_REPLAY_RESULT_SHADOW_READ_OPERATION,
+    owner_operation: "exploratory_replay.result.readback.v2",
+    owner_schema: "backtest-replay-result-v2",
+    capability: "rd.exploratory_replay.result.read",
+    effect_set: [],
+    dependency_operation_ids: [EXPLORATORY_REPLAY_SHADOW_READ_OPERATION],
+    owner_route: {
+      method: "GET",
+      path_template: "/v2/exploratory-replay-results/{result_identity}",
+      identity_fields: ["result_identity", "request_identity", "attempt_identity"],
+      query_fields: ["request_identity", "attempt_identity"],
+      body_schema: null,
+    },
+    timeout_class: { identity: "owner-read-8s", milliseconds: 8_000 },
+    recovery_identity_fields: ["result_identity", "request_identity", "attempt_identity", "meaning_digest"],
+    allowed_operational_reads: [
+      "terminal",
+      "reconciliation_summary",
+      "diagnostic_summary",
+      "semantic_trace_presence",
     ],
     channels: ["DASHBOARD_SHADOW_READ"],
     deployment_state: "unavailable",

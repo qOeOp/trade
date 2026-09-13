@@ -1,5 +1,6 @@
 import type { RegisteredOperationId } from "./operation-registry.ts";
 import type { DevelopComposerGatewayResultV1 } from "./develop-composer-readback-gateway.ts";
+import type { ExploratoryReplayResultGatewayResultV1 } from "./exploratory-replay-result-gateway.ts";
 import type { OperationalRunReferenceV1 } from "./operational-run-reference.ts";
 import type { RunTerminalCodeV1 } from "./run-contract.ts";
 import {
@@ -89,6 +90,23 @@ export function ownerOutcomeForDevelopComposerResultV1(
   }
 }
 
+export function ownerOutcomeForExploratoryReplayResultV1(
+  result: ExploratoryReplayResultGatewayResultV1,
+): { state: OwnerOutcomeState; terminalCode: RunTerminalCodeV1 } {
+  if (result.projection.availability === "unavailable" || !result.projection.result) {
+    return { state: "unavailable", terminalCode: "OWNER_UNAVAILABLE" };
+  }
+  switch (result.projection.result.terminal) {
+    case "TERMINAL_RESULT":
+      return { state: "available", terminalCode: "OWNER_AVAILABLE" };
+    case "IN_PROGRESS_OR_UNKNOWN":
+      return { state: "unknown", terminalCode: "OWNER_UNKNOWN" };
+    case "RUN_REJECTED":
+    case "INVALID_REPLAY_EVIDENCE":
+      return { state: "rejected", terminalCode: "OWNER_REJECTED" };
+  }
+}
+
 function unavailable(
   reason: string,
   run: OperationRunV1 | null = null,
@@ -120,11 +138,16 @@ export async function journalShadowReadV1<T extends ShadowResult>({
   operationId,
   recoveryIdentity,
   read,
+  classifyOwnerOutcome = ownerOutcomeForShadowResultV1,
   store = configuredRunStoreV1(),
 }: {
   operationId: RegisteredOperationId;
   recoveryIdentity: Record<string, string>;
   read: () => Promise<T>;
+  classifyOwnerOutcome?: (result: T) => {
+    state: OwnerOutcomeState;
+    terminalCode: RunTerminalCodeV1;
+  };
   store?: Pick<PostgresRunStoreV1, "assertSchema" | "beginRead" | "completeRead"> | null;
 }): Promise<T & { envelope: T["envelope"] & { operational_run: OperationalRunReferenceV1 } }> {
   let started: OperationRunV1 | null = null;
@@ -141,7 +164,7 @@ export async function journalShadowReadV1<T extends ShadowResult>({
 
   const result = await read();
   if (store && started) {
-    const outcome = ownerOutcomeForShadowResultV1(result);
+    const outcome = classifyOwnerOutcome(result);
     try {
       operationalRun = available(await store.completeRead({
         runIdentity: started.run_identity,

@@ -10,8 +10,8 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use vibe_product_edge::{
-    ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionRequestV1, ProductEdgeError,
-    ProductEdgePostgresOwnerV1,
+    ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionReadbackV1, ProductEdgeAdmissionRequestV1,
+    ProductEdgeError, ProductEdgePostgresOwnerV1,
 };
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use vibe_strategy_factory::product_edge::ResearchGoalOwnerPortV2;
@@ -46,9 +46,24 @@ pub(crate) struct SourceIntakeResearchOperationV1 {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct SourceIntakeResearchOperationV2 {
+    pub proposal: SourceIntakeResearchProposalV2,
+    pub ancestry: SourceIntakeResearchAncestryProposalV1,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct SourceIntakeResearchProposalV1 {
     pub request_identity: String,
     pub channel: ProductEdgeChannel,
+    pub goal: UnsourcedResearchGoalV1,
+    pub trial_family_proposal: TrialFamilyProposalV1,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SourceIntakeResearchProposalV2 {
+    pub request_identity: String,
     pub goal: UnsourcedResearchGoalV1,
     pub trial_family_proposal: TrialFamilyProposalV1,
 }
@@ -62,6 +77,7 @@ pub(super) fn router(
 ) -> Router {
     Router::new()
         .route("/v1/source-intake-research", post(run))
+        .route("/v2/source-intake-research", post(run_v2))
         .route(
             "/v1/source-intake-research/{request_identity}/resolve",
             post(resolve),
@@ -82,6 +98,31 @@ async fn run(
     body: Bytes,
 ) -> Response {
     execute_run(state, headers, body).await
+}
+
+async fn run_v2(
+    State(state): State<SourceIntakeResearchApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !super::authorized(&headers, &state.token_digest) {
+        return super::rejection_v2(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            "unbound",
+        );
+    }
+    let operation: SourceIntakeResearchOperationV2 = match serde_json::from_slice(&body) {
+        Ok(operation) => operation,
+        Err(_) => {
+            return super::rejection_v2(
+                StatusCode::BAD_REQUEST,
+                "MALFORMED_TYPED_REQUEST",
+                "unbound",
+            );
+        }
+    };
+    execute_run_v2(state, headers, operation).await
 }
 
 async fn resolve(
@@ -182,31 +223,15 @@ async fn execute_run(
         Err(response) => return *response,
     };
 
-    let admission = match state
-        .product_edge
-        .admit_request(ProductEdgeAdmissionRequestV1 {
-            request_identity: request_identity.clone(),
-            typed_payload: match serde_json::to_value(&operation.proposal) {
-                Ok(value) => value,
-                Err(_) => {
-                    return super::rejection_v2(
-                        StatusCode::BAD_REQUEST,
-                        "MALFORMED_TYPED_REQUEST",
-                        &request_identity,
-                    );
-                }
-            },
-            operation: RESEARCH_GOAL_OPERATION_V2.into(),
-            operation_schema: RESEARCH_GOAL_SCHEMA_V2.into(),
-            target_owner: RESEARCH_OWNER_V1.into(),
-            requested_effects: vec!["R_AND_D_RESEARCH_MUTATION_V1".into()],
-            request_proof_digest: state.request_proof_digest.clone(),
-            audit_correlation: format!("rd-workbench:{request_identity}"),
-        })
-        .await
+    let admission = match admit_research_proposal(
+        &state,
+        &operation.proposal.request_identity,
+        &operation.proposal,
+    )
+    .await
     {
         Ok(admission) => admission,
-        Err(e) => return product_edge_error(&e, &request_identity),
+        Err(response) => return response,
     };
     let proposal = admitted_proposal(operation.proposal, admission.locator().clone());
 
@@ -219,6 +244,69 @@ async fn execute_run(
         Err(e) => source_research_owner_error(&e, &request_identity),
     };
 
+    delayed_acceptance_response(&state, &headers, response).await
+}
+
+async fn execute_run_v2(
+    state: SourceIntakeResearchApiState,
+    headers: HeaderMap,
+    operation: SourceIntakeResearchOperationV2,
+) -> Response {
+    let request_identity = operation.proposal.request_identity.clone();
+    let admission = match admit_research_proposal(
+        &state,
+        &operation.proposal.request_identity,
+        &operation.proposal,
+    )
+    .await
+    {
+        Ok(admission) => admission,
+        Err(response) => return response,
+    };
+    let proposal = admitted_proposal_v2(operation.proposal, admission.locator().clone());
+    let response = match state
+        .owner
+        .submit_source_intake_research_v2(proposal, operation.ancestry)
+        .await
+    {
+        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
+        Err(error) => source_research_owner_error(&error, &request_identity),
+    };
+    delayed_acceptance_response(&state, &headers, response).await
+}
+
+async fn admit_research_proposal<T: Serialize>(
+    state: &SourceIntakeResearchApiState,
+    request_identity: &str,
+    proposal: &T,
+) -> Result<ProductEdgeAdmissionReadbackV1, Response> {
+    state
+        .product_edge
+        .admit_request(ProductEdgeAdmissionRequestV1 {
+            request_identity: request_identity.to_owned(),
+            typed_payload: serde_json::to_value(proposal).map_err(|_| {
+                super::rejection_v2(
+                    StatusCode::BAD_REQUEST,
+                    "MALFORMED_TYPED_REQUEST",
+                    request_identity,
+                )
+            })?,
+            operation: RESEARCH_GOAL_OPERATION_V2.into(),
+            operation_schema: RESEARCH_GOAL_SCHEMA_V2.into(),
+            target_owner: RESEARCH_OWNER_V1.into(),
+            requested_effects: vec!["R_AND_D_RESEARCH_MUTATION_V1".into()],
+            request_proof_digest: state.request_proof_digest.clone(),
+            audit_correlation: format!("rd-workbench:{request_identity}"),
+        })
+        .await
+        .map_err(|error| product_edge_error(&error, request_identity))
+}
+
+async fn delayed_acceptance_response(
+    state: &SourceIntakeResearchApiState,
+    headers: &HeaderMap,
+    response: Response,
+) -> Response {
     if state.allow_acceptance_faults {
         let delay = headers
             .get("x-rd-acceptance-delay-after-commit-ms")
@@ -285,6 +373,21 @@ fn admitted_proposal(
     }
 }
 
+fn admitted_proposal_v2(
+    proposal: SourceIntakeResearchProposalV2,
+    admission: ProductEdgeAdmissionLocatorV1,
+) -> UnsourcedResearchProposalV1 {
+    UnsourcedResearchProposalV1 {
+        request_identity: proposal.request_identity,
+        // Product Edge still uses this internal legacy enum while migration is
+        // active. It is not part of the V2 caller or admission contract.
+        channel: ProductEdgeChannel::WindmillProductEdge,
+        admission,
+        goal: proposal.goal,
+        trial_family_proposal: proposal.trial_family_proposal,
+    }
+}
+
 fn source_research_owner_error(error: &ResearchGoalOwnerError, request_identity: &str) -> Response {
     let response = super::owner_error_v2(error, request_identity);
     #[cfg(feature = "sealed-source-intake-acceptance")]
@@ -293,6 +396,7 @@ fn source_research_owner_error(error: &ResearchGoalOwnerError, request_identity:
     if let ResearchGoalOwnerError::Unauthorized(message) = error {
         let stage = match *message {
             "Source Intake policy locator mismatch" => Some("POLICY_LOCATOR"),
+            "Source Intake policy locator unavailable" => Some("POLICY_LOCATOR"),
             "Source Intake policy Owner unavailable" => Some("POLICY_OWNER_BINDING"),
             "Source Intake current policy unavailable" => Some("POLICY_CURRENT"),
             "Source Intake ancestry peek unavailable" => Some("ANCESTRY_PEEK"),
@@ -395,6 +499,69 @@ mod tests {
             }
         }))
         .expect("fixture is the exact caller-safe operation")
+    }
+
+    fn operation_v2_fixture() -> SourceIntakeResearchOperationV2 {
+        let legacy = operation_fixture();
+        SourceIntakeResearchOperationV2 {
+            proposal: SourceIntakeResearchProposalV2 {
+                request_identity: legacy.proposal.request_identity,
+                goal: legacy.proposal.goal,
+                trial_family_proposal: legacy.proposal.trial_family_proposal,
+            },
+            ancestry: legacy.ancestry,
+        }
+    }
+
+    #[rstest]
+    fn v2_request_is_transport_neutral_and_rejects_owner_policy_internals() {
+        let operation = operation_v2_fixture();
+        let value = serde_json::to_value(&operation).expect("V2 operation serializes");
+        assert_eq!(
+            value
+                .as_object()
+                .expect("V2 operation is an object")
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>(),
+            vec!["ancestry", "proposal"]
+        );
+        assert_eq!(
+            value["proposal"]
+                .as_object()
+                .expect("V2 proposal is an object")
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>(),
+            vec!["goal", "request_identity", "trial_family_proposal"]
+        );
+
+        let mut legacy_value = serde_json::to_value(operation_fixture())
+            .expect("legacy operation serializes for strict-shape assertion");
+        assert!(
+            serde_json::from_value::<SourceIntakeResearchOperationV2>(legacy_value.take()).is_err(),
+            "V2 must reject caller-supplied policy_query"
+        );
+
+        let mut channel_injected = serde_json::to_value(operation_v2_fixture())
+            .expect("V2 operation serializes for strict-shape assertion");
+        channel_injected["proposal"]["channel"] =
+            serde_json::Value::String("WINDMILL_PRODUCT_EDGE".into());
+        assert!(
+            serde_json::from_value::<SourceIntakeResearchOperationV2>(channel_injected).is_err(),
+            "V2 must reject caller-supplied transport channel"
+        );
+    }
+
+    #[rstest]
+    fn v2_route_uses_owner_internal_policy_resolution() {
+        let source = include_str!("source_intake_research.rs");
+        let production = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production module precedes tests");
+        assert!(production.contains("/v2/source-intake-research"));
+        assert!(production.contains("submit_source_intake_research_v2("));
     }
 
     #[rstest]

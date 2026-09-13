@@ -6,7 +6,7 @@ import {
 } from "@/lib/local-operator-session";
 import { secureCookieForRequestV1 } from "@/lib/local-operator-request";
 
-const PUBLIC_PATHS = new Set(["/login", "/api/auth/session", "/api/health"]);
+const PUBLIC_PATHS = new Set(["/login", "/api/auth/session", "/api/health", "/api/mcp"]);
 const PUBLIC_ASSETS = new Set(["/icon.svg", "/favicon.ico"]);
 
 function normalizedPathname(pathname: string): string {

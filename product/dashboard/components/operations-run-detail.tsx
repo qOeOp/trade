@@ -371,7 +371,7 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
               title="Cancellation unavailable">{cancellationResult.unavailable_reason}</DetailNotice> : null}
             <DetailInspectorFooter layout="split">
               <span>No batch, retry, Owner, provider, build or replay cancellation.</span>
-              <FilterButton type="button" variant="outline"
+              <FilterButton density="compact" type="button" variant="outline"
                 disabled={cancellationCapability.length < 32 || cancelling}
                 onClick={() => void cancelQueuedDependency()}>
                 <RunIcons.cancelled aria-hidden="true" size={12} />
@@ -473,7 +473,7 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
           </DetailNotice> : null}
           <DetailInspectorFooter layout="split">
             <span>Owner payload, receipt bytes and source authority remain outside RunStore.</span>
-            <FilterLink href={run.owner_view.href}>
+            <FilterLink density="compact" href={run.owner_view.href}>
               Open Owner view <InterfaceIcons.open aria-hidden="true" size={13} />
             </FilterLink>
           </DetailInspectorFooter>
@@ -503,7 +503,7 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
             title="Cache deletion unavailable">{deletionResult.unavailable_reason}</DetailNotice> : null}
           <DetailInspectorFooter layout="split">
             <span>Exact transition {run.transition_version} · no generic delete or batch action</span>
-            <FilterButton type="button" variant="outline"
+            <FilterButton density="compact" type="button" variant="outline"
               disabled={!deleteConfirmed || deleteCapability.length < 32 || deleting}
               onClick={() => void deleteOperationalCache()}>
               <InterfaceIcons.delete aria-hidden="true" size={12} /> {deleting ? "Deleting…" : "Delete operational cache"}

@@ -20,6 +20,10 @@ import {
   parseWorkerBrowserEnvelopeV1,
   parseWorkerDetailBrowserEnvelopeV1,
 } from "../lib/worker-browser-contract.ts";
+import {
+  boundEffectWorkerIdentityV1,
+  effectDispatchOperationIdsV1,
+} from "../lib/effect-dispatch-contract.ts";
 import { compatibleEnvironmentV1 } from "./compatibility-fixture.mjs";
 
 const url = process.env.DASHBOARD_WORKERS_TEST_DATABASE_URL;
@@ -30,6 +34,15 @@ const dashboardRoot = new URL("../", import.meta.url);
 const cursorKey = "workers-disposable-only-cursor-key-32-bytes";
 const activeWorker = "dashboard-worker-browser-active-v1";
 const expiredWorker = "dashboard-worker-browser-expired-v1";
+const effectWorkerCapability = "browser-effect-worker-capability-at-least-thirty-two-bytes";
+const effectWorkerArtifactDigest = `sha256:${"e".repeat(64)}`;
+const effectWorker = boundEffectWorkerIdentityV1({
+  configuredIdentity: "browser-effect-worker-v1",
+  operationIds: effectDispatchOperationIdsV1,
+  workerCapability: effectWorkerCapability,
+  workerArtifactDigest: effectWorkerArtifactDigest,
+});
+assert.ok(effectWorker);
 const browserVersion = browserAcceptance
   ? execFileSync(browserExecutable, ["--version"], { encoding: "utf8" }).trim()
   : "";
@@ -185,6 +198,13 @@ test(testName, { skip: !url }, async () => {
       workerCapability: activeCapability,
       workerArtifactDigest: fixture.environment.DASHBOARD_SHADOW_WORKER_ARTIFACT_DIGEST,
     });
+    await store.registerEffectWorker({
+      configuredIdentity: "browser-effect-worker-v1",
+      workerIdentity: effectWorker,
+      operationIds: effectDispatchOperationIdsV1,
+      workerCapability: effectWorkerCapability,
+      workerArtifactDigest: effectWorkerArtifactDigest,
+    });
     await store.registerShadowWorker({
       workerIdentity: expiredWorker,
       operationIds: [ARTIFACT_SHADOW_RESOLVE_OPERATION],
@@ -209,13 +229,33 @@ test(testName, { skip: !url }, async () => {
     });
     assert.equal(claim?.run.run_identity, queued.run_identity);
 
-    const cut = await store.listShadowWorkers();
-    assert.deepEqual(cut.workers.map(({ worker_identity, lease_state, job_count, active_job_count }) => ({
-      worker_identity, lease_state, job_count, active_job_count,
+    const cut = await store.listOperationalWorkers();
+    assert.deepEqual(cut.workers.map(({ worker_kind, worker_identity, lease_state, job_count, active_job_count }) => ({
+      worker_kind, worker_identity, lease_state, job_count, active_job_count,
     })), [
-      { worker_identity: activeWorker, lease_state: "available", job_count: 1, active_job_count: 1 },
-      { worker_identity: expiredWorker, lease_state: "expired", job_count: 0, active_job_count: 0 },
+      { worker_kind: "owner_effect", worker_identity: effectWorker, lease_state: "available", job_count: 0, active_job_count: 0 },
+      { worker_kind: "shadow_read", worker_identity: activeWorker, lease_state: "available", job_count: 1, active_job_count: 1 },
+      { worker_kind: "shadow_read", worker_identity: expiredWorker, lease_state: "expired", job_count: 0, active_job_count: 0 },
     ]);
+
+    await pool.query(`INSERT INTO dashboard_shadow_workers_v1 (
+        worker_identity, schema_version, capabilities_json, capabilities_digest,
+        worker_artifact_digest, worker_capability_digest, lease_expires_at
+      )
+      SELECT 'aaa-shadow-worker-' || LPAD(series::text, 3, '0'), schema_version,
+             capabilities_json, capabilities_digest, worker_artifact_digest,
+             worker_capability_digest, clock_timestamp() + interval '5 minutes'
+        FROM dashboard_shadow_workers_v1 CROSS JOIN generate_series(1, 99) AS series
+       WHERE worker_identity = $1`, [activeWorker]);
+    await store.registerShadowWorker({
+      workerIdentity: effectWorker,
+      operationIds: [SOURCE_INTAKE_SHADOW_READ_OPERATION],
+      workerCapability: activeCapability,
+      workerArtifactDigest: fixture.environment.DASHBOARD_SHADOW_WORKER_ARTIFACT_DIGEST,
+    });
+    await assert.rejects(() => store.listOperationalWorkers(), { message: "WORKER_IDENTITY_CONFLICT" });
+    await pool.query(`DELETE FROM dashboard_shadow_workers_v1
+      WHERE worker_identity LIKE 'aaa-shadow-worker-%' OR worker_identity = $1`, [effectWorker]);
 
     if (!browserAcceptance) return;
     assert.equal(execFileSync("git", ["rev-parse", "HEAD"], {
@@ -236,13 +276,13 @@ test(testName, { skip: !url }, async () => {
     ], { cwd: dashboardRoot, env: { ...process.env, ...environment }, stdio: "inherit" });
     const origin = `http://127.0.0.1:${port}`;
     const pageResponse = await waitForHttp(`${origin}/operations/workers/`, preview);
-    assert.match(await pageResponse.text(), /Shadow read workers/);
+    assert.match(await pageResponse.text(), /Worker fleet/);
 
     const listResponse = await fetch(`${origin}/api/operations/workers/`);
     assert.equal(listResponse.status, 200);
     const listEnvelope = parseWorkerBrowserEnvelopeV1(await listResponse.json());
     assert.ok(listEnvelope);
-    assert.equal(listEnvelope.workers.length, 2);
+    assert.equal(listEnvelope.workers.length, 3);
 
     const exactResponse = await fetch(`${origin}/api/operations/workers/${activeWorker}/`);
     assert.equal(exactResponse.status, 200);
@@ -254,10 +294,11 @@ test(testName, { skip: !url }, async () => {
     await browser.send("Page.navigate", { url: `${origin}/operations/workers/` });
     await waitForBrowserExpression(browser,
       `document.body?.innerText.includes(${JSON.stringify(activeWorker)})
-        && document.body?.innerText.includes(${JSON.stringify(expiredWorker)})`);
+        && document.body?.innerText.includes(${JSON.stringify(expiredWorker)})
+        && document.body?.innerText.includes(${JSON.stringify(effectWorker)})`);
     const surface = await readBrowserValue(browser, `(() => {
       const summary = document.querySelector('[aria-label="Worker summary"]')?.innerText ?? '';
-      const table = document.querySelector('table[aria-label="Dashboard shadow workers"]');
+      const table = document.querySelector('table[aria-label="Dashboard runtime workers"]');
       const heads = [...(table?.querySelectorAll('th') ?? [])];
       const cells = [...(table?.querySelectorAll('tbody td') ?? [])];
       const separator = cells[1] ? getComputedStyle(cells[1], '::before') : null;
@@ -271,11 +312,11 @@ test(testName, { skip: !url }, async () => {
         separatorBottom: separator?.bottom,
       };
     })()`);
-    assert.match(surface.summary, /Available\s+1/);
+    assert.match(surface.summary, /Available\s+2/);
     assert.match(surface.summary, /Expired\s+1/);
     assert.match(surface.summary, /Claimed\s+1/);
     assert.match(surface.summary, /Active\s+1/);
-    assert.equal(surface.rows, 2);
+    assert.equal(surface.rows, 3);
     assert.equal(surface.allLeft, true);
     assert.equal(surface.allSticky, true);
     assert.equal(surface.separatorWidth, "0.5px");
@@ -353,7 +394,8 @@ test(testName, { skip: !url }, async () => {
     await waitForBrowserExpression(browser,
       `document.body?.innerText.includes(${JSON.stringify(activeWorker)})
         && !document.body?.innerText.includes(${JSON.stringify(expiredWorker)})
-        && document.querySelectorAll('table[aria-label="Dashboard shadow workers"] tbody tr').length === 1`);
+        && document.body?.innerText.includes(${JSON.stringify(effectWorker)})
+        && document.querySelectorAll('table[aria-label="Dashboard runtime workers"] tbody tr').length === 2`);
 
     await browser.send("Page.navigate", { url: `${origin}/operations/workers/${activeWorker}/` });
     await waitForBrowserExpression(browser,

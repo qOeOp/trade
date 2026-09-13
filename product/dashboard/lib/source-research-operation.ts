@@ -22,6 +22,12 @@ import {
 } from "./source-research-input-contract.ts";
 import { sourceResearchRunInputCustodyV1 } from "./source-research-run-input-custody.ts";
 import {
+  configuredEffectDispatchTargetV1,
+  effectDispatchRequestDigestV1,
+  effectDispatchTargetDigestV1,
+  type EffectDispatchClaimV1,
+} from "./effect-dispatch-contract.ts";
+import {
   operationalRunAvailableV1,
   operationalRunUnavailableV1,
   type OperationalRunReferenceV1,
@@ -64,6 +70,18 @@ type SourceResearchStoreV1 = Pick<PostgresRunStoreV1,
   | "recordSourceResearchPhase"
   | "completeSourceResearch">;
 
+type SourceResearchQueueStoreV1 = Pick<PostgresRunStoreV1,
+  | "assertEffectDispatchSchema"
+  | "readSourceResearchRecovery"
+  | "beginSourceResearch">;
+
+type ClaimedSourceResearchStoreV1 = Pick<PostgresRunStoreV1,
+  | "readSourceResearchRecovery"
+  | "recordSourceResearchPhase"
+  | "completeSourceResearch">;
+
+export type ClaimedSourceResearchOutcomeV1 = "terminal" | "retry";
+
 function unavailable(
   reason: string,
   status: number,
@@ -89,6 +107,240 @@ function unavailable(
 
 function validRequest(request: SourceResearchOperationRequestV1): boolean {
   return validSourceResearchOperationRequestV1(request);
+}
+
+export async function enqueueSourceResearchOperationV1({
+  request,
+  actionContext,
+  environment = process.env,
+  routingResolver,
+  nowEpochMs = Date.now(),
+  store = configuredRunStoreV1(),
+}: {
+  request: SourceResearchOperationRequestV1;
+  actionContext: ControlPlaneAdmissionContextV1;
+  environment?: Environment;
+  routingResolver?: (
+    key: ProductEdgeRoutingLookupKeyV1,
+  ) => Promise<ProductEdgeRoutingObservationV1>;
+  nowEpochMs?: number;
+  store?: SourceResearchQueueStoreV1 | null;
+}): Promise<SourceResearchOperationResponseV1> {
+  if (!validRequest(request) || request.action !== "RUN") {
+    return unavailable("EXECUTION_REQUEST_INVALID", 400);
+  }
+  if (!validControlPlaneAdmissionContextV1(actionContext)
+    || actionContext.requestedAction !== "RUN") {
+    return unavailable("EXECUTION_AUTHORIZATION_UNAVAILABLE", 503);
+  }
+  if (environment.DASHBOARD_DEPLOYMENT_CLASS !== "DISPOSABLE_LOCAL"
+    || environment.DASHBOARD_DISPOSABLE_SOURCE_RESEARCH_EXECUTION !== "ENABLED") {
+    return unavailable("EXECUTION_CONFIGURATION_UNAVAILABLE", 503);
+  }
+  const dispatchTarget = configuredEffectDispatchTargetV1(
+    SOURCE_RESEARCH_EXECUTE_OPERATION,
+    environment,
+  );
+  if (!dispatchTarget) return unavailable("EXECUTION_CONFIGURATION_UNAVAILABLE", 503);
+  if (!store) return unavailable("EXECUTION_RUN_STORE_UNAVAILABLE", 503);
+  const recoveryIdentity = {
+    source_request_identity: request.source.request_identity,
+    research_request_identity: request.research.request_identity,
+  };
+  const submittedCustody = sourceResearchRunInputCustodyV1(request);
+  if (!submittedCustody) return unavailable("EXECUTION_REQUEST_INVALID", 400);
+  try {
+    await store.assertEffectDispatchSchema();
+    const recovery = await store.readSourceResearchRecovery(recoveryIdentity);
+    if (recovery) {
+      if (recovery.input_custody.availability !== "available") {
+        return unavailable("EXECUTION_INPUT_CUSTODY_UNAVAILABLE", 409, recovery.run);
+      }
+      if (recovery.input_custody.request_digest !== submittedCustody.request_digest) {
+        return unavailable("EXECUTION_REQUEST_CONFLICT", 409, recovery.run);
+      }
+      if (["queued", "running"].includes(recovery.run.state)) {
+        return {
+          status: 202,
+          envelope: {
+            schema_version: 1,
+            operation: SOURCE_RESEARCH_EXECUTE_OPERATION,
+            channel: "DASHBOARD_DISPOSABLE_EXECUTION",
+            availability: "available",
+            unavailable_reason: null,
+            source: null,
+            research: null,
+            operational_run: operationalRunAvailableV1(recovery.run),
+          },
+        };
+      }
+      return unavailable("EXECUTION_PRIOR_RUN_TERMINAL", 409, recovery.run);
+    }
+  } catch {
+    return unavailable("EXECUTION_RUN_STORE_UNAVAILABLE", 503);
+  }
+  const admission = await admitSourceResearchExecutionV1({
+    action: "RUN",
+    environment,
+    nowEpochMs,
+    ...(routingResolver ? { routingResolver } : {}),
+  });
+  if (admission.availability !== "available") {
+    return unavailable(
+      admission.unavailable_reason === "DASHBOARD_ROUTING_UNAVAILABLE"
+        ? "EXECUTION_ROUTING_UNAVAILABLE"
+        : "EXECUTION_COMPATIBILITY_UNAVAILABLE",
+      503,
+    );
+  }
+  try {
+    const started = await store.beginSourceResearch({
+      action: "RUN",
+      recoveryIdentity,
+      admission,
+      actionContext,
+      runRequest: request,
+      dispatchMode: "queue",
+      dispatchTarget,
+    });
+    return {
+      status: 202,
+      envelope: {
+        schema_version: 1,
+        operation: SOURCE_RESEARCH_EXECUTE_OPERATION,
+        channel: "DASHBOARD_DISPOSABLE_EXECUTION",
+        availability: "available",
+        unavailable_reason: null,
+        source: null,
+        research: null,
+        operational_run: operationalRunAvailableV1(started.run),
+      },
+    };
+  } catch {
+    return unavailable("EXECUTION_RUN_STORE_UNAVAILABLE", 503);
+  }
+}
+
+export async function executeClaimedSourceResearchOperationV1({
+  claim,
+  environment = process.env,
+  fetcher = fetch,
+  store,
+}: {
+  claim: EffectDispatchClaimV1;
+  environment?: Environment;
+  fetcher?: Fetcher;
+  store: ClaimedSourceResearchStoreV1;
+}): Promise<ClaimedSourceResearchOutcomeV1> {
+  if (claim.operation_id !== SOURCE_RESEARCH_EXECUTE_OPERATION
+    || !validRequest(claim.request as SourceResearchOperationRequestV1)
+    || (claim.request as SourceResearchOperationRequestV1).action !== "RUN"
+    || effectDispatchRequestDigestV1(claim.operation_id, claim.request) !== claim.request_digest
+    || effectDispatchTargetDigestV1(claim.operation_id, claim.frozen_target)
+      !== claim.frozen_target_digest
+    || claim.frozen_context !== null || claim.frozen_context_digest !== null) return "retry";
+  const request = claim.request as SourceResearchRunRequestV1;
+  const configuredTarget = configuredEffectDispatchTargetV1(
+    SOURCE_RESEARCH_EXECUTE_OPERATION,
+    environment,
+  );
+  if (!configuredTarget
+    || effectDispatchTargetDigestV1(claim.operation_id, configuredTarget)
+      !== claim.frozen_target_digest) return "retry";
+  const ownerTransport = configuredDisposableOwnerTransportV1({
+    environment,
+    enablementKey: "DASHBOARD_DISPOSABLE_SOURCE_RESEARCH_EXECUTION",
+    fetcher,
+    ownerUrl: claim.frozen_target.owner_url,
+  });
+  if (!ownerTransport) return "retry";
+  let recovery: SourceResearchRecoverySnapshotV1 | null;
+  try {
+    recovery = await store.readSourceResearchRecovery({
+      source_request_identity: request.source.request_identity,
+      research_request_identity: request.research.request_identity,
+    });
+  } catch {
+    return "retry";
+  }
+  const submittedCustody = sourceResearchRunInputCustodyV1(request);
+  if (!recovery || !submittedCustody
+    || recovery.run.run_identity !== claim.run_identity
+    || recovery.run.state !== "running"
+    || recovery.requested_action !== "RUN"
+    || recovery.input_custody.availability !== "available"
+    || recovery.input_custody.request_digest !== submittedCustody.request_digest) return "retry";
+
+  let transitionVersion = claim.transition_version;
+  const observed = new Set(recovery.observed_phases);
+  const record = async (phase: "SOURCE_OWNER_AVAILABLE" | "RESEARCH_OWNER_AVAILABLE") => {
+    const run = await store.recordSourceResearchPhase({
+      runIdentity: claim.run_identity,
+      expectedTransitionVersion: transitionVersion,
+      phase,
+    });
+    transitionVersion = run.transition_version;
+    observed.add(phase);
+  };
+
+  let sourceResult = observed.has("SOURCE_OWNER_AVAILABLE") || claim.claim_attempt > 1
+    ? await resolveSourceIntakeOperationV1({
+      requestIdentity: request.source.request_identity,
+      transport: ownerTransport,
+    })
+    : await executeSourceIntakeOperationV1({
+      action: "RUN",
+      input: request.source,
+      transport: ownerTransport,
+      routing: recovery.routing.source,
+    });
+  if (sourceResult.availability !== "available" && claim.claim_attempt === 1
+    && !observed.has("SOURCE_OWNER_AVAILABLE")) {
+    sourceResult = await resolveSourceIntakeOperationV1({
+      requestIdentity: request.source.request_identity,
+      transport: ownerTransport,
+    });
+  }
+  if (sourceResult.availability !== "available" || !sourceResult.owner_response
+    || !sourceResult.ancestry) return "retry";
+  try {
+    if (!observed.has("SOURCE_OWNER_AVAILABLE")) await record("SOURCE_OWNER_AVAILABLE");
+  } catch {
+    return "retry";
+  }
+
+  let researchResult = observed.has("RESEARCH_OWNER_AVAILABLE") || claim.claim_attempt > 1
+    ? await resolveResearchGoalOperationV2({
+      requestIdentity: request.research.request_identity,
+      transport: ownerTransport,
+    })
+    : await executeResearchGoalOperationV2({
+      action: "RUN",
+      input: request.research,
+      ancestry: sourceResult.ancestry,
+      transport: ownerTransport,
+      routing: recovery.routing.research,
+    });
+  if (researchResult.availability !== "available" && claim.claim_attempt === 1
+    && !observed.has("RESEARCH_OWNER_AVAILABLE")) {
+    researchResult = await resolveResearchGoalOperationV2({
+      requestIdentity: request.research.request_identity,
+      transport: ownerTransport,
+    });
+  }
+  if (researchResult.availability !== "available" || !researchResult.owner_response
+    || !researchResult.owner_outcome_state) return "retry";
+  try {
+    if (!observed.has("RESEARCH_OWNER_AVAILABLE")) await record("RESEARCH_OWNER_AVAILABLE");
+    await store.completeSourceResearch({
+      runIdentity: claim.run_identity,
+      expectedTransitionVersion: transitionVersion,
+      ownerOutcomeState: researchResult.owner_outcome_state,
+    });
+  } catch {
+    return "retry";
+  }
+  return "terminal";
 }
 
 export async function executeSourceResearchOperationV1({

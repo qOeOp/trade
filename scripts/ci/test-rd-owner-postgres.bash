@@ -34,6 +34,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|source_intake|postgres_readback_rejects_tampered_raw_payload'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_owner_is_atomic_restart_exact_and_rd_locked_read_only'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::exploratory_replay_result_http_readback_is_exact_locked_and_rd_read_only'
+  'vibe-strategy-factory-rd-owner-api|dashboard_read_api|tests::replay_result_dashboard_read_api_returns_exact_canonical_bytes'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_rd_read_rejects_function_source_drift'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_rd_read_rejects_owner_api_routine_sibling'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_rd_read_rejects_raw_table_acl_drift'
@@ -72,8 +73,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 32 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all thirty-two ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 33 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all thirty-three ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -85,22 +86,23 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[13]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
     [[ "${rd_owner_postgres_tests[14]}" != *'|tests::postgres_result_owner_is_atomic_restart_exact_and_rd_locked_read_only' ]] ||
     [[ "${rd_owner_postgres_tests[15]}" != *'|tests::exploratory_replay_result_http_readback_is_exact_locked_and_rd_read_only' ]] ||
-    [[ "${rd_owner_postgres_tests[16]}" != *'|tests::postgres_result_rd_read_rejects_function_source_drift' ]] ||
-    [[ "${rd_owner_postgres_tests[17]}" != *'|tests::postgres_result_rd_read_rejects_owner_api_routine_sibling' ]] ||
-    [[ "${rd_owner_postgres_tests[18]}" != *'|tests::postgres_result_rd_read_rejects_raw_table_acl_drift' ]] ||
-    [[ "${rd_owner_postgres_tests[19]}" != *'|tests::postgres_result_rd_read_rejects_inherited_owner_membership' ]] ||
-    [[ "${rd_owner_postgres_tests[20]}" != *'|tests::postgres_result_rd_read_rejects_owner_attribute_drift' ]] ||
-    [[ "${rd_owner_postgres_tests[21]}" != *'|tests::postgres_result_topology_fence_serializes_managed_acl_drift' ]] ||
-    [[ "${rd_owner_postgres_tests[22]}" != *'|tests::postgres_result_mid_commit_failure_rolls_back_every_aggregate_row' ]] ||
-    [[ "${rd_owner_postgres_tests[23]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
-    [[ "${rd_owner_postgres_tests[24]}" != *'|tests::strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody' ]] ||
-    [[ "${rd_owner_postgres_tests[25]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]] ||
-    [[ "${rd_owner_postgres_tests[26]}" != *'|replay_execution_profile_binding_v1::tests::verified_owner_readback_mints_provenance_and_wrong_coordinates_fail' ]] ||
-    [[ "${rd_owner_postgres_tests[27]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]] ||
-    [[ "${rd_owner_postgres_tests[28]}" != *'|atomic_exact_replay_restart_tamper_and_acl_fail_closed' ]] ||
-    [[ "${rd_owner_postgres_tests[29]}" != *'|program_host_bar_joined_cut_postgres_acceptance_tests::owner_postgres_v4_moves_through_program_host_and_real_backtest' ]] ||
-    [[ "${rd_owner_postgres_tests[30]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::repair_decision_action_and_market_data_request_commit_retry_resolve_and_rejection_are_atomic' ]] ||
-    [[ "${rd_owner_postgres_tests[31]}" != *'|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed' ]]; then
+    [[ "${rd_owner_postgres_tests[16]}" != *'|tests::replay_result_dashboard_read_api_returns_exact_canonical_bytes' ]] ||
+    [[ "${rd_owner_postgres_tests[17]}" != *'|tests::postgres_result_rd_read_rejects_function_source_drift' ]] ||
+    [[ "${rd_owner_postgres_tests[18]}" != *'|tests::postgres_result_rd_read_rejects_owner_api_routine_sibling' ]] ||
+    [[ "${rd_owner_postgres_tests[19]}" != *'|tests::postgres_result_rd_read_rejects_raw_table_acl_drift' ]] ||
+    [[ "${rd_owner_postgres_tests[20]}" != *'|tests::postgres_result_rd_read_rejects_inherited_owner_membership' ]] ||
+    [[ "${rd_owner_postgres_tests[21]}" != *'|tests::postgres_result_rd_read_rejects_owner_attribute_drift' ]] ||
+    [[ "${rd_owner_postgres_tests[22]}" != *'|tests::postgres_result_topology_fence_serializes_managed_acl_drift' ]] ||
+    [[ "${rd_owner_postgres_tests[23]}" != *'|tests::postgres_result_mid_commit_failure_rolls_back_every_aggregate_row' ]] ||
+    [[ "${rd_owner_postgres_tests[24]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
+    [[ "${rd_owner_postgres_tests[25]}" != *'|tests::strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody' ]] ||
+    [[ "${rd_owner_postgres_tests[26]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]] ||
+    [[ "${rd_owner_postgres_tests[27]}" != *'|replay_execution_profile_binding_v1::tests::verified_owner_readback_mints_provenance_and_wrong_coordinates_fail' ]] ||
+    [[ "${rd_owner_postgres_tests[28]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]] ||
+    [[ "${rd_owner_postgres_tests[29]}" != *'|atomic_exact_replay_restart_tamper_and_acl_fail_closed' ]] ||
+    [[ "${rd_owner_postgres_tests[30]}" != *'|program_host_bar_joined_cut_postgres_acceptance_tests::owner_postgres_v4_moves_through_program_host_and_real_backtest' ]] ||
+    [[ "${rd_owner_postgres_tests[31]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::repair_decision_action_and_market_data_request_commit_retry_resolve_and_rejection_are_atomic' ]] ||
+    [[ "${rd_owner_postgres_tests[32]}" != *'|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
     return 1
   fi

@@ -1,3 +1,5 @@
+import { disposableOwnerUrlV1 } from "./disposable-owner-target.ts";
+
 const MAX_OWNER_RESPONSE_BYTES = 2 * 1024 * 1024;
 
 export type RdOwnerHttpTransportV1 = {
@@ -42,34 +44,23 @@ function ownerOutcomeUnknownV1(value: unknown): boolean {
     && (sourceUnknown || researchUnknown);
 }
 
-function loopbackOwnerUrl(raw: string | undefined): string | null {
-  if (!raw) return null;
-  try {
-    const value = new URL(raw);
-    const loopback = ["localhost", "127.0.0.1", "[::1]", "::1"].includes(value.hostname);
-    if (!loopback || value.protocol !== "http:" || value.username || value.password
-      || value.search || value.hash || value.pathname !== "/") return null;
-    return value.origin;
-  } catch {
-    return null;
-  }
-}
-
 export function configuredDisposableOwnerTransportV1({
   environment,
   enablementKey,
   fetcher,
+  ownerUrl = disposableOwnerUrlV1(environment.RD_OWNER_API_URL),
 }: {
   environment: Record<string, string | undefined>;
   enablementKey: "DASHBOARD_DISPOSABLE_SOURCE_RESEARCH_EXECUTION";
   fetcher: typeof fetch;
+  ownerUrl?: string | null;
 }): RdOwnerHttpTransportV1 | null {
-  const ownerUrl = loopbackOwnerUrl(environment.RD_OWNER_API_URL);
+  const canonicalOwnerUrl = disposableOwnerUrlV1(ownerUrl ?? undefined);
   const ownerToken = environment.RD_OWNER_API_TOKEN;
   if (environment.DASHBOARD_DEPLOYMENT_CLASS !== "DISPOSABLE_LOCAL"
     || environment[enablementKey] !== "ENABLED"
-    || !ownerUrl || !ownerToken) return null;
-  return { owner_url: ownerUrl, owner_token: ownerToken, fetcher };
+    || !canonicalOwnerUrl || canonicalOwnerUrl !== ownerUrl || !ownerToken) return null;
+  return { owner_url: canonicalOwnerUrl, owner_token: ownerToken, fetcher };
 }
 
 export async function rdOwnerJsonOutcomeV1({

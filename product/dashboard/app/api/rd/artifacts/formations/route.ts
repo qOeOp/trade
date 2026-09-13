@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
 
-import {
-  executeDisposableArtifactFormationV1,
-  type ArtifactFormationRequestV1,
-} from "@/lib/artifact-formation-client";
+import type { ArtifactFormationRequestV1 } from "@/lib/artifact-formation-client";
+import { handleArtifactFormationActionV1 } from "@/lib/dashboard-operation-handler";
 import {
   operatorCapabilityAuthorizationDigestV1,
   verifyOperatorCapabilityV1,
@@ -72,7 +70,7 @@ export async function POST(request: Request) {
   } catch {
     return unavailable("EXECUTION_REQUEST_INVALID", 400);
   }
-  const result = await executeDisposableArtifactFormationV1({
+  const result = await handleArtifactFormationActionV1({
     request: body,
     actionContext: {
       authorizationDigest,

@@ -99,6 +99,30 @@ impl PostgresExploratoryReplayReadbackOwnerV2 {
             .map_err(|e| ExploratoryReplayOwnerError::Unavailable(e.to_string()))?;
         Ok(Self { pool })
     }
+
+    /// Reads one complete Backtest-owned result through the existing R&D locked-read function.
+    ///
+    /// This narrow adapter exposes no R&D mutation method. Its transaction is always rolled back,
+    /// including after a successful canonical result read.
+    pub async fn resolve_exploratory_replay_result_v2(
+        &self,
+        locator: crate::ExploratoryReplayResultLocatorV2<'_>,
+    ) -> Result<Option<crate::LockedExploratoryReplayResultV2>, crate::BacktestResultCustodyErrorV2>
+    {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| crate::BacktestResultCustodyErrorV2::Unavailable)?;
+        let result =
+            resolve_exploratory_replay_result_for_rd_in_transaction(&mut transaction, locator)
+                .await;
+        transaction
+            .rollback()
+            .await
+            .map_err(|_| crate::BacktestResultCustodyErrorV2::Unavailable)?;
+        result
+    }
 }
 
 impl PostgresResearchReadbackOwnerV1 {
@@ -680,6 +704,57 @@ impl PostgresResearchGoalOwnerV1 {
             })),
         };
         owner.submit_v2(request).await
+    }
+
+    /// Transport-neutral Source Intake-to-Research submission. The consumer
+    /// supplies only the public proposal and exact Source ancestry; policy
+    /// locators are resolved inside the Owner boundary.
+    pub async fn submit_source_intake_research_v2(
+        &self,
+        proposal: UnsourcedResearchProposalV1,
+        ancestry: crate::source_intake::SourceIntakeResearchAncestryProposalV1,
+    ) -> Result<ResearchGoalOwnerResultV2, ResearchGoalOwnerError> {
+        #[cfg(feature = "sealed-source-intake-research-acceptance")]
+        {
+            let binding_json: serde_json::Value = sqlx::query_scalar(
+                "SELECT binding_json FROM public.rd_source_intake_bindings_v1 \
+                 WHERE request_identity=$1 AND binding_identity=$2 \
+                   AND terminal_receipt_identity=$3 AND state='TERMINAL'",
+            )
+            .bind(&ancestry.request_identity)
+            .bind(&ancestry.attempt_identity)
+            .bind(&ancestry.terminal_receipt_identity)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| storage(&e))?
+            .ok_or(ResearchGoalOwnerError::Unauthorized(
+                "Source Intake policy locator unavailable",
+            ))?;
+            let binding: crate::source_intake::SourceAcquisitionBindingV1 =
+                serde_json::from_value(binding_json).map_err(|_| {
+                    ResearchGoalOwnerError::Unauthorized("Source Intake policy locator unavailable")
+                })?;
+            if binding.request_identity != ancestry.request_identity
+                || binding.binding_identity != ancestry.attempt_identity
+            {
+                return Err(ResearchGoalOwnerError::Unauthorized(
+                    "Source Intake policy locator mismatch",
+                ));
+            }
+            let policy_query =
+                crate::source_intake::sealed_source_intake_research_policy_query_v2(&binding);
+            return self
+                .submit_source_intake_research_v1(proposal, ancestry, policy_query)
+                .await;
+        }
+
+        #[cfg(not(feature = "sealed-source-intake-research-acceptance"))]
+        {
+            let _ = (proposal, ancestry);
+            Err(ResearchGoalOwnerError::Unauthorized(
+                "Source Intake policy Owner unavailable",
+            ))
+        }
     }
 
     /// Resolves only an already committed Source Intake-bound Research request.
