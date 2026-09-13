@@ -150,6 +150,83 @@ pub struct ExploratoryReplayRecoverySelectorV2 {
     pub meaning_digest: String,
 }
 
+/// Exact selector for one pre-V2 Replay rejection retained under R&D custody.
+///
+/// This selector is intentionally disjoint from Replay V2 recovery: callers must opt into the
+/// historical quarantine read and bind all three stored identity fields.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct HistoricalExploratoryReplayRejectionSelectorV1 {
+    pub(crate) request_identity: String,
+    pub(crate) attempt_identity: String,
+    pub(crate) semantic_digest: String,
+}
+
+impl HistoricalExploratoryReplayRejectionSelectorV1 {
+    pub fn try_new(
+        request_identity: String,
+        attempt_identity: String,
+        semantic_digest: String,
+    ) -> Option<Self> {
+        historical_replay_selector_parts_valid(
+            &request_identity,
+            &attempt_identity,
+            &semantic_digest,
+        )
+        .then_some(Self {
+            request_identity,
+            attempt_identity,
+            semantic_digest,
+        })
+    }
+}
+
+pub(crate) fn historical_replay_selector_parts_valid(
+    request_identity: &str,
+    attempt_identity: &str,
+    semantic_digest: &str,
+) -> bool {
+    [request_identity, attempt_identity]
+        .into_iter()
+        .all(|value| {
+            (16..=200).contains(&value.len())
+                && value.bytes().all(|byte| {
+                    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b':' | b'.')
+                })
+        })
+        && semantic_digest.strip_prefix("sha256:").is_some_and(|hex| {
+            hex.len() == 64
+                && hex
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum HistoricalExploratoryReplayChannelV1 {
+    App,
+    Mcp,
+}
+
+/// Serialize-only quarantine projection for one verified historical Replay rejection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct HistoricalExploratoryReplayRejectionReadbackV1 {
+    pub(crate) schema_version: u32,
+    pub(crate) resolution: &'static str,
+    pub(crate) disposition: &'static str,
+    pub(crate) rejection_code: &'static str,
+    pub(crate) request_identity: String,
+    pub(crate) attempt_identity: String,
+    pub(crate) semantic_digest: String,
+    pub(crate) receipt_identity: String,
+    pub(crate) artifact_identity: String,
+    pub(crate) build_receipt_identity: String,
+    pub(crate) channel: HistoricalExploratoryReplayChannelV1,
+    pub(crate) committed_at_epoch_ms: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ExploratoryReplayAvailabilityV1 {
@@ -547,6 +624,17 @@ pub trait ExploratoryReplaySealedReadPortV2: sealed_read_port::RdOwned + Send + 
         &self,
         selector: &ExploratoryReplayRecoverySelectorV2,
     ) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError>;
+}
+
+/// Fixed query-only boundary for a pre-V2 rejection that cannot be promoted into current custody.
+#[async_trait]
+pub trait ExploratoryReplayHistoricalRejectionReadPortV1:
+    sealed_read_port::RdOwned + Send + Sync
+{
+    async fn read_historical_exploratory_replay_rejection_v1(
+        &self,
+        selector: &HistoricalExploratoryReplayRejectionSelectorV1,
+    ) -> Result<Option<HistoricalExploratoryReplayRejectionReadbackV1>, ExploratoryReplayOwnerError>;
 }
 
 impl ExploratoryReplayReadResultV1 {

@@ -10,6 +10,7 @@ import {
   encodeExploratoryReplayOpaqueIdentityV2,
 } from "../lib/exploratory-replay-identity.ts";
 import { readExploratoryReplayReadbackGatewayV1 } from "../lib/exploratory-replay-readback-gateway.ts";
+import { readExploratoryReplayHistoricalRejectionGatewayV1 } from "../lib/exploratory-replay-historical-rejection-gateway.ts";
 import { readExploratoryReplayResultGatewayV1 } from "../lib/exploratory-replay-result-gateway.ts";
 
 test("Backtest route renders one compact exact Replay request and result workbench", async () => {
@@ -179,6 +180,99 @@ test("Backtest result BFF rejects malformed or ambiguous selectors before Owner 
   const valid = await exports.GET(new Request(`http://dashboard.test/api/backtest/results?${base}`));
   assert.equal(valid.status, 503);
   assert.equal(ownerCalls, 1);
+});
+
+test("historical rejection BFF rejects malformed or ambiguous selectors before Owner dispatch", async () => {
+  const route = await readFile(
+    new URL("../app/api/backtest/rejections/route.ts", import.meta.url),
+    "utf8",
+  );
+  let ownerCalls = 0;
+  const require = createRequire(import.meta.url);
+  const load = (path) => {
+    if (path === "next/server") {
+      return { NextResponse: { json: (body, init) => Response.json(body, init) } };
+    }
+    if (path.includes("exploratory-replay-historical-rejection-gateway")) {
+      return {
+        readExploratoryReplayHistoricalRejectionGatewayV1: (selector) => (
+          readExploratoryReplayHistoricalRejectionGatewayV1({
+            ...selector,
+            environment: {
+              RD_DASHBOARD_OWNER_READ_API_URL: "http://rd-dashboard-owner-read-api:8082/",
+              RD_DASHBOARD_OWNER_READ_API_TOKEN: "secret",
+            },
+            fetcher: async () => {
+              ownerCalls += 1;
+              return new Response(null, { status: 503 });
+            },
+          })
+        ),
+      };
+    }
+    if (path.includes("exploratory-replay-identity")) {
+      return { decodeExploratoryReplayOpaqueIdentityV2 };
+    }
+    return require(path);
+  };
+  const exports = {};
+  const compiled = ts.transpileModule(route, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  });
+  new Function("require", "exports", compiled.outputText)(load, exports);
+  const encodedRequest = encodeExploratoryReplayOpaqueIdentityV2("historical-replay-request-v1");
+  const encodedAttempt = encodeExploratoryReplayOpaqueIdentityV2("historical-replay-attempt-v1");
+  assert.ok(encodedRequest && encodedAttempt);
+  const digest = `sha256:${"a".repeat(64)}`;
+  const base = `requestIdentityB64=${encodedRequest}&attemptIdentityB64=${encodedAttempt}`
+    + `&semanticDigest=${digest}`;
+  for (const [label, query] of [
+    ["malformed utf-8", base.replace(encodedRequest, "%FF")],
+    ["duplicate selector", `${base}&attemptIdentityB64=${encodedAttempt}`],
+    ["unknown selector", `${base}&unknown=value`],
+    ["missing selector", `requestIdentityB64=${encodedRequest}&semanticDigest=${digest}`],
+  ]) {
+    const response = await exports.GET(new Request(`http://dashboard.test/api/backtest/rejections?${query}`));
+    assert.equal(response.status, 400, label);
+    assert.equal(ownerCalls, 0, label);
+  }
+  const valid = await exports.GET(new Request(`http://dashboard.test/api/backtest/rejections?${base}`));
+  assert.equal(valid.status, 503);
+  assert.equal(valid.headers.get("cache-control"), "no-store");
+  assert.equal(ownerCalls, 1);
+});
+
+test("historical Replay rejection uses shared status-card atoms and keeps technical custody in info", async () => {
+  const [component, route, shell, page, docs, docsZh] = await Promise.all([
+    readFile(new URL("../components/exploratory-replay-readback-workbench.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/backtest/rejections/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../components/dashboard-route-content.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/(dashboard)/[...route]/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../../../docs/guide/dashboard.md", import.meta.url), "utf8"),
+    readFile(new URL("../../../docs/guide/dashboard.zh.md", import.meta.url), "utf8"),
+  ]);
+  assert.match(component, /<ReadbackLookup[\s\S]*?columns="triple"/u);
+  assert.match(component, /Open historical <EvidenceIcons\.next/u);
+  assert.match(component, /<FactGroup title="Outcome">[\s\S]*?<FactGroup title="Custody">[\s\S]*?<FactGroup title="Timing">/u);
+  for (const text of ["Historical", "Rejected", "Quarantined", "Invalid replay evidence", "Committed", "Observed"]) {
+    assert.ok(component.includes(text), `missing business fact ${text}`);
+  }
+  for (const label of ["Historical request", "Semantic digest", "Owner receipt", "Artifact", "Build receipt", "Source channel"]) {
+    assert.match(component, new RegExp(`<PanelFrameInfoFact label="${label}"`, "u"));
+  }
+  assert.match(route, /readExploratoryReplayHistoricalRejectionGatewayV1/u);
+  assert.match(route, /getAll\(key\)\.length === 1/u);
+  assert.match(shell, /initialHistoricalRequestIdentity/u);
+  assert.match(page, /query\.custody === "historical"/u);
+  for (const doc of [docs, docsZh]) {
+    for (const token of [
+      "/v1/exploratory-replay-rejections/readback",
+      "REJECTED_NO_WRITE",
+      "INVALID_REPLAY_EVIDENCE",
+      "Open historical",
+      "custody=historical",
+    ]) assert.ok(doc.includes(token), `historical contract missing ${token}`);
+  }
 });
 
 test("bilingual Replay request contract fixes filtered zero-effect geometry", async () => {
