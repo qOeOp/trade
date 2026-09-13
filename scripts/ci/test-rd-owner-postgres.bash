@@ -181,6 +181,12 @@ check_nextest_graph_contract() {
     echo "ERROR: Program Host acceptance must use its canonical fresh PostgreSQL clone." >&2
     return 1
   fi
+  if ! rg -Uq \
+    "strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody'.*\n[[:space:]]+RUST_MIN_STACK=16777216.*\n[[:space:]]+cargo nextest run" \
+    "${BASH_SOURCE[0]}"; then
+    echo "ERROR: strategy source browser acceptance must use its admitted test-thread stack." >&2
+    return 1
+  fi
 }
 
 check_static_isolation() {
@@ -2286,6 +2292,13 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       BACKTEST_TEST_DATABASE_URL="postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       INSTRUMENT_OWNER_TEST_DATABASE_URL="postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       INSTRUMENT_OWNER_DATABASE_URL="postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
+      cargo nextest run \
+      --archive-file "$nextest_archive_file" \
+      --profile "$nextest_profile" \
+      "${nextest_execution_args[@]}" \
+      -E "$test_filter"
+  elif [[ "$test_name" == 'tests::strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody' ]]; then
+    RUST_MIN_STACK=16777216 \
       cargo nextest run \
       --archive-file "$nextest_archive_file" \
       --profile "$nextest_profile" \
