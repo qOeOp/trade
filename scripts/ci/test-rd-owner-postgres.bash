@@ -2415,6 +2415,16 @@ BEGIN
        'qualification_api.read_public_status_v1(text)',
        'EXECUTE'
      )
+     OR pg_catalog.has_function_privilege(
+       'product_edge_owner',
+       'qualification_api.public_status_native_source_is_custodied_v1(text,text,bigint,text,text,text,bigint)',
+       'EXECUTE'
+     )
+     OR pg_catalog.has_function_privilege(
+       'qualification_writer',
+       'qualification_api.public_status_native_source_is_custodied_v1(text,text,bigint,text,text,text,bigint)',
+       'EXECUTE'
+     )
   THEN
     RAISE EXCEPTION 'Qualification public status API boundary is unavailable';
   END IF;
@@ -2434,6 +2444,23 @@ BEGIN
       AND procedure.proconfig = ARRAY['search_path=pg_catalog']
   ) THEN
     RAISE EXCEPTION 'Qualification public status API metadata mismatch';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_proc procedure
+    JOIN pg_catalog.pg_roles role ON role.oid = procedure.proowner
+    WHERE procedure.oid = pg_catalog.to_regprocedure(
+      'qualification_api.public_status_native_source_is_custodied_v1(text,text,bigint,text,text,text,bigint)'
+    )
+      AND role.rolname = 'qualification_owner'
+      AND procedure.prosecdef
+      AND procedure.proisstrict
+      AND procedure.provolatile = 's'
+      AND procedure.proparallel = 's'
+      AND procedure.proconfig = ARRAY['search_path=pg_catalog']
+  ) THEN
+    RAISE EXCEPTION 'Qualification public status native-custody validator metadata mismatch';
   END IF;
 
   IF NOT pg_catalog.has_schema_privilege('qualification_writer', 'rd_owner_api', 'USAGE')
