@@ -806,7 +806,7 @@ mod tests {
         PostgresReplayResultOwnerV2, ReplayResultCommitRecoveryV2,
     };
     use crate::protected_replay::{
-        ProtectedReplayResultDraftV1, ProtectedReplayResultDraftV2,
+        ProtectedReplayOwnerErrorV1, ProtectedReplayResultDraftV1, ProtectedReplayResultDraftV2,
         commit_protected_owner_result_v1, commit_protected_owner_result_v2, test_observation,
     };
     use vibe_backtest_owner_contracts::{
