@@ -629,7 +629,7 @@ impl PostgresQualificationOwnerV1 {
         if let Some(row) = sqlx::query(
             "SELECT seal_json,canonical_seal_bytes,storage_digest \
              FROM public.qualification_protected_replay_request_sets_v1 \
-             WHERE plan_cell_set_identity=$1 FOR UPDATE",
+             WHERE plan_cell_set_identity=$1",
         )
         .bind(&source.plan_cell_set_identity)
         .fetch_optional(&mut *transaction)
@@ -750,7 +750,7 @@ impl PostgresQualificationOwnerV1 {
         let request_set_row = sqlx::query(
             "SELECT review_request_identity,seal_json,canonical_seal_bytes,storage_digest \
              FROM public.qualification_protected_replay_request_sets_v1 \
-             WHERE request_set_identity=$1 AND request_set_digest=$2 FOR UPDATE",
+             WHERE request_set_identity=$1 AND request_set_digest=$2",
         )
         .bind(&frontier.request_set_identity)
         .bind(&frontier.request_set_digest)
@@ -859,7 +859,7 @@ impl PostgresQualificationOwnerV1 {
 
         if let Some(committed_at) = sqlx::query_scalar::<_, i64>(
             "SELECT committed_at_epoch_ms FROM public.qualification_protected_robustness_assessments_v1 \
-             WHERE attempt_frontier_identity=$1 FOR UPDATE",
+             WHERE attempt_frontier_identity=$1",
         )
         .bind(&frontier.frontier_identity)
         .fetch_optional(&mut *transaction)
@@ -1433,7 +1433,7 @@ async fn verify_protected_replay_request_set_commit_v1(
     let rows = sqlx::query(
         "SELECT request_set_digest,seal_json,canonical_seal_bytes,storage_digest,committed_at_epoch_ms \
          FROM public.qualification_protected_replay_request_sets_v1 \
-         WHERE request_set_identity=$1 FOR UPDATE",
+         WHERE request_set_identity=$1",
     )
     .bind(commit.request_set_identity())
     .fetch_all(&mut **transaction)
@@ -1613,7 +1613,7 @@ async fn verify_protected_assessment_invalid_commit_v1(
                 holdout_reservation_identity,plan_cell_set_identity,plan_cell_set_digest,status,\
                 assessment_json,committed_at_epoch_ms \
          FROM public.qualification_protected_robustness_assessments_v1 \
-         WHERE assessment_identity=$1 FOR UPDATE",
+         WHERE assessment_identity=$1",
     )
     .bind(assessment.assessment_identity())
     .fetch_all(&mut **transaction)
@@ -1665,7 +1665,7 @@ async fn verify_protected_assessment_invalid_commit_v1(
         "SELECT disposition_digest,status,assessment_identity,holdout_reservation_identity,\
                 disposition_json,committed_at_epoch_ms \
          FROM public.qualification_protected_attempt_dispositions_v2 \
-         WHERE disposition_identity=$1 FOR UPDATE",
+         WHERE disposition_identity=$1",
     )
     .bind(disposition.disposition_identity())
     .fetch_all(&mut **transaction)
@@ -1728,7 +1728,7 @@ async fn verify_protected_assessment_invalid_commit_v1(
     let receipt_rows = sqlx::query(
         "SELECT receipt_identity,receipt_digest,receipt_json,committed_at_epoch_ms \
          FROM public.qualification_protected_attempt_disposition_receipts_v2 \
-         WHERE disposition_identity=$1 FOR UPDATE",
+         WHERE disposition_identity=$1",
     )
     .bind(disposition.disposition_identity())
     .fetch_all(&mut **transaction)

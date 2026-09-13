@@ -3,6 +3,7 @@
 //! Validation proves canonical shape and internal equality only. Backtest and Qualification Owner
 //! custody must still be established through their sealed PostgreSQL read ports.
 
+use std::cmp::Ordering;
 use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
@@ -173,7 +174,9 @@ impl ProtectedEvaluationTimeEvidenceV1 {
         result: &Self,
     ) -> Result<(), ProtectedReplayContractErrorV1> {
         result.validate_common()?;
-        if result.stage != ProtectedEvaluationStageV1::Result {
+        if result.stage != ProtectedEvaluationStageV1::Result
+            || self.clock_epoch != result.clock_epoch
+        {
             return Err(ProtectedReplayContractErrorV1::InvalidResult);
         }
         self.validate_successor_of(
@@ -181,6 +184,48 @@ impl ProtectedEvaluationTimeEvidenceV1 {
             ProtectedEvaluationStageV1::Assessment,
             ProtectedReplayContractErrorV1::InvalidResult,
         )
+    }
+
+    /// Orders two result-stage cuts inside one comparable clock epoch.
+    ///
+    /// Equal sequences must identify the exact same cut. Later sequences must also advance every
+    /// ordered time coordinate so a forged or internally contradictory cut cannot become the
+    /// assessment predecessor.
+    pub fn compare_result_cut_within_epoch(
+        &self,
+        other: &Self,
+    ) -> Result<Ordering, ProtectedReplayContractErrorV1> {
+        self.validate_common()?;
+        other.validate_common()?;
+        if self.stage != ProtectedEvaluationStageV1::Result
+            || other.stage != ProtectedEvaluationStageV1::Result
+            || self.clock_identity != other.clock_identity
+            || self.clock_epoch != other.clock_epoch
+            || self.restart_continuity_digest != other.restart_continuity_digest
+            || self.uncertainty_bound != other.uncertainty_bound
+            || self.skew_bound != other.skew_bound
+            || self.comparison_rule != other.comparison_rule
+        {
+            return Err(ProtectedReplayContractErrorV1::InvalidResult);
+        }
+        match self.monotonic_sequence.cmp(&other.monotonic_sequence) {
+            Ordering::Equal if self == other => Ok(Ordering::Equal),
+            Ordering::Greater
+                if self.wall_observed > other.wall_observed
+                    && self.decision_cut > other.decision_cut
+                    && self.valid_through > other.valid_through =>
+            {
+                Ok(Ordering::Greater)
+            }
+            Ordering::Less
+                if self.wall_observed < other.wall_observed
+                    && self.decision_cut < other.decision_cut
+                    && self.valid_through < other.valid_through =>
+            {
+                Ok(Ordering::Less)
+            }
+            _ => Err(ProtectedReplayContractErrorV1::InvalidResult),
+        }
     }
 
     fn validate_successor_of(
@@ -2316,5 +2361,57 @@ mod tests {
         let assessment = time_evidence(ProtectedEvaluationStageV1::Assessment);
         assert!(assessment.validate_assessment_successor_of(&result).is_ok());
         assert!(assessment.validate_result_successor_of(&result).is_err());
+
+        let mut next_epoch = assessment.clone();
+        next_epoch.clock_epoch = "next-clock-epoch".into();
+        next_epoch.restart_continuity_digest = [7; 32];
+        next_epoch.epoch_successor_proof = Some(ProtectedEvaluationEpochSuccessorProofV1 {
+            proof_identity: [8; 32],
+            predecessor_head_digest: result.head_digest,
+            successor_head_digest: next_epoch.head_digest,
+            prior_clock_identity: result.clock_identity.clone(),
+            prior_clock_epoch: result.clock_epoch.clone(),
+            successor_clock_identity: next_epoch.clock_identity.clone(),
+            successor_clock_epoch: next_epoch.clock_epoch.clone(),
+            successor_continuity_digest: next_epoch.restart_continuity_digest,
+            commit_cut: next_epoch.decision_cut,
+            comparison_rule: next_epoch.comparison_rule,
+        });
+        assert!(
+            next_epoch
+                .validate_assessment_successor_of(&result)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn result_cuts_are_comparable_within_one_epoch() {
+        let earlier = time_evidence(ProtectedEvaluationStageV1::Result);
+        let mut later = earlier.clone();
+        later.head_identity = [7; 32];
+        later.head_digest = [8; 32];
+        later.monotonic_sequence += 1;
+        later.wall_observed += 10;
+        later.decision_cut += 10;
+        later.valid_through += 20;
+        later.direct_predecessor_head_identity = Some(earlier.head_identity);
+        later.direct_predecessor_head_digest = Some(earlier.head_digest);
+
+        assert_eq!(
+            later.compare_result_cut_within_epoch(&earlier).unwrap(),
+            Ordering::Greater
+        );
+        assert_eq!(
+            earlier.compare_result_cut_within_epoch(&later).unwrap(),
+            Ordering::Less
+        );
+
+        let mut conflicting = earlier.clone();
+        conflicting.head_identity = [9; 32];
+        assert!(
+            conflicting
+                .compare_result_cut_within_epoch(&earlier)
+                .is_err()
+        );
     }
 }

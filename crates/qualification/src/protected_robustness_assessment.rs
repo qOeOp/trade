@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
 use serde::Serialize;
@@ -219,7 +220,7 @@ pub(crate) fn form_all_not_applicable_assessment_v1(
     }
 
     let mut census = Vec::with_capacity(request_set.members.len());
-    let mut shared_result_time: Option<&ProtectedEvaluationTimeEvidenceV1> = None;
+    let mut latest_result_time: Option<&ProtectedEvaluationTimeEvidenceV1> = None;
     for member in &request_set.members {
         let request = requests_by_identity
             .get(member.request_identity.as_str())
@@ -282,14 +283,17 @@ pub(crate) fn form_all_not_applicable_assessment_v1(
                                 == digest
                     });
             every_basis_accepted &= accepted_basis;
-            if let Some(expected) = shared_result_time {
-                if expected != &result.result_time_evidence {
-                    return Err(unavailable(
-                        "protected result time evidence is not one comparable assessment cut",
-                    ));
+            if let Some(latest) = latest_result_time {
+                if result
+                    .result_time_evidence
+                    .compare_result_cut_within_epoch(latest)
+                    .map_err(contract)?
+                    == Ordering::Greater
+                {
+                    latest_result_time = Some(&result.result_time_evidence);
                 }
             } else {
-                shared_result_time = Some(&result.result_time_evidence);
+                latest_result_time = Some(&result.result_time_evidence);
             }
             terminal_results.push(ProtectedCellTerminalResultV1 {
                 result_identity: result.result_identity.clone(),
@@ -324,7 +328,7 @@ pub(crate) fn form_all_not_applicable_assessment_v1(
         });
     }
     census.sort_by(|left, right| left.plan_cell_identity.cmp(&right.plan_cell_identity));
-    let result_time = shared_result_time
+    let result_time = latest_result_time
         .ok_or_else(|| unavailable("protected assessment result time evidence is unavailable"))?;
     let assessment_time_evidence = assessment_time_evidence(assessment_successor);
     assessment_time_evidence

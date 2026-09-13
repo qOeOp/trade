@@ -343,6 +343,7 @@ impl PostgresReplayResultOwnerV2 {
             .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
         validate_cross_owner_binding(qualification_pool, &mut transaction).await?;
         let request_set = lock_qualification_request_set(&mut transaction, locator).await?;
+        lock_plan_cell_set_fence(&mut transaction, &request_set.plan_cell_set_identity).await?;
 
         if let Some(existing) =
             read_frontier_for_request_set(&mut transaction, &request_set.request_set_identity)
@@ -374,7 +375,7 @@ impl PostgresReplayResultOwnerV2 {
                 "SELECT result_identity,attempt_identity \
                    FROM public.backtest_protected_replay_results_v1 \
                   WHERE request_identity=$1 AND request_digest=$2 \
-                  ORDER BY attempt_identity,result_identity FOR UPDATE",
+                  ORDER BY attempt_identity,result_identity",
             )
             .bind(&member.request_identity)
             .bind(&member.request_digest)
@@ -407,7 +408,6 @@ impl PostgresReplayResultOwnerV2 {
             }
         }
 
-        lock_plan_cell_set_fence(&mut transaction, &request_set.plan_cell_set_identity).await?;
         if read_frontier_for_request_set(&mut transaction, &request_set.request_set_identity)
             .await?
             .is_some()
@@ -1400,7 +1400,7 @@ async fn read_frontier_for_request_set(
     let identity: Option<String> = sqlx::query_scalar(
         "SELECT frontier_identity \
            FROM public.backtest_protected_replay_attempt_frontiers_v1 \
-          WHERE request_set_identity=$1 FOR UPDATE",
+          WHERE request_set_identity=$1",
     )
     .bind(request_set_identity)
     .fetch_optional(&mut **transaction)
