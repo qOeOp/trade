@@ -21,6 +21,7 @@
   Eligibility 分类证据；同一轴可以包含多个必需单元，且它绝不是向 Research 返回保护细节的通道。
 - 冻结 Protected Replay Request 身份包含准确保护决策政策身份与版本 Strategy Artifact 请求 PIT 范围
   准确 PIT Market Snapshot 身份 快照与修订规则 重放配置摘要 Runtime 内核 模拟器及成本 滑点 容量模型版本。
+  它声明 `PROTECTED_EVALUATION` 为规范 `timeEvidenceCutKind`，并密封 request-stage root cut。
 - Protected Attempt Disposition 为 `REPLAY_REJECTED` `REPLAY_INVALID` 或 `ASSESSMENT_INVALID`，绑定 intake
   重放请求 终态结果和预注册 holdout 闭合，它不是 Eligibility。
 - 每个初始或续期 Eligibility Fact 都交叉绑定准确 Protected Replay Request 准确 `TERMINAL_RESULT`
@@ -138,7 +139,11 @@ canonical 类别集合的无重复子集，再应用逐类别 disposition。空�
 密封 Backtest runner/service 类别：Qualification 闭合 holdout custody，但不向 R&D Product Edge 或
 Governance 返回 operational evidence 或保护细节。不含缺陷但含 `VALID_ECONOMIC_FAILURE` 的集合必须进入失败 assessment 和
 `INELIGIBLE`；`UNRESOLVED_FAILURE` 与 `NO_EXECUTION_DEFECT` 各自只能作为单元素集合，且只有单元素
-`NO_EXECUTION_DEFECT` 才可能进入通过 assessment。随后完整 assessment 在冻结 adjudication 与保护决策政策版本下重复准确
+`NO_EXECUTION_DEFECT` 才可能进入通过 assessment。Qualification 先按自身冻结 plan 把准确密封 Backtest
+per-cell result 解析成一个完整且无重复的 result census。生成的 assessment 原子嵌入自身 census-finalization
+proof；该 proof 绑定冻结 stop 与 missing-cell policy、assessment-stage Time Evidence，以及证明没有请求
+单元仍处于非终态的密封 Backtest attempt frontier。缺少该 proof 时不存在 assessment，attempt 保持
+`IN_PROGRESS_OR_UNKNOWN`。随后完整 assessment 在冻结 adjudication 与保护决策政策版本下重复准确
 plan-cell-set digest，并对每个计划必需单元准确交代一次；同一轴可以包含多个单元。只有政策接受
 结果前已冻结的不适用依据时，该 cell 才是 `NOT_APPLICABLE_ACCEPTED`；依据缺失 过期 被拒或政策
 不匹配时为 `NOT_APPLICABLE_REJECTED`。任一 cell 缺失 重复 未知 请求结果不匹配 政策不匹配，或
@@ -147,6 +152,12 @@ plan-cell-set digest，并对每个计划必需单元准确交代一次；同一
 全部适用 cell 为 PASS、全部不适用 cell 获接受时才是 `COMPLETE_PASS`；任一适用 cell 失败或不适用
 依据被拒时为 `COMPLETE_FAIL`。`COMPLETE_PASS` 按冻结政策生成 `QUALIFIED`，`COMPLETE_FAIL` 生成
 `INELIGIBLE`，并重复准确 intake 政策 pair plan request result cell census 与判定字段。
+
+Protected Robustness Assessment 声明 `PROTECTED_EVALUATION` 为规范 `timeEvidenceCutKind`，直接绑定每个
+已接纳 result-stage Time Evidence，并密封一个 assessment-stage cut。Qualification 在 categorical
+assessment、holdout closure 或 Eligibility 写入前拒绝缺失、过期、epoch 无证明或互不可比、跳过阶段或
+未推进的 Time Evidence。具有直接证明的 request-to-result epoch 转换有效，但同一 assessment 的全部
+result 必须共享一个 result epoch，assessment 在该 epoch 内推进。
 
 终态 `RUN_REJECTED` 或 `INVALID_REPLAY_EVIDENCE` 生成 `REPLAY_REJECTED` 或 `REPLAY_INVALID`：
 Qualification 绑定 intake 请求 结果和预注册 holdout 闭合，不生成 Eligibility Fact，也不称为

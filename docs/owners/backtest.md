@@ -32,7 +32,9 @@ Replay frozen strategy artifacts against admitted historical facts with producti
   identity, required cell identity, metric set, coverage rule, tolerances, thresholds, aggregation, missing-cell
   policy, and stop policy before any protected observation.
 - Protected Run Result repeats the actual consumed counterpart of every protected-request field and the protected
-  policy pair and requires exact request-to-result equality.
+  policy pair and requires exact request-to-result equality. It declares `PROTECTED_EVALUATION` as its canonical
+  `timeEvidenceCutKind`, directly binds the request Time Evidence, and seals the result-stage clock cut for the
+  exact request, attempt, plan, and plan cell.
 - Backtest Repair Result binds one R&D-owned `native-repair-request`, exact `SIMULATOR` or
   `BACKTEST_OPERATIONAL` category, predecessor repair decision, stable correlation, original proof digest,
   category-specific old identity and source cut, repair policy, decisive evidence, and fresh Time Evidence.
@@ -222,8 +224,10 @@ Eligibility Fact, and exposes neither the operational evidence nor protected det
 - Protected Run Result proves exact equality between every requested and consumed Artifact, PIT scope, snapshot,
   universe, calendar/session/time-zone, corporate-action, historical-membership, market-semantics, correction,
   replay, kernel, simulator, cost, slippage, capacity-model, Protected Robustness Plan, and plan-cell identity.
-- The terminal protected result enumerates every required plan cell exactly once or records its preregistered
-  terminal missing-cell disposition; Backtest never silently drops a failed, unavailable, or incomplete cell.
+- Each terminal protected result accounts for exactly its requested plan cell and repeats the complete cell-set
+  digest. Qualification alone resolves all sealed per-cell results against the frozen plan and assigns missing-cell
+  disposition after consuming a sealed Backtest attempt frontier that proves no requested cell remains nonterminal;
+  Backtest cannot claim whole-plan completeness or silently relabel unavailable evidence.
 - Any protected request-to-result mismatch becomes `INVALID_REPLAY_EVIDENCE` and produces no Eligibility Fact.
 - Every exploratory result joins the same stable R&D-owned request identity; a mismatched, mutable, superseded, or unresolved request produces no run.
 - Every terminal exploratory result has one complete finite `diagnosticCategorySet`, diagnostic-policy version,
@@ -232,6 +236,9 @@ Eligibility Fact, and exposes neither the operational evidence nor protected det
 - Every terminal protected result likewise preserves one complete finite non-empty `diagnosticCategorySet` and
   content digest for Qualification only. `NO_EXECUTION_DEFECT` and `UNRESOLVED_FAILURE` are singleton-only; any
   supported execution defect preempts economics, and no protected set membership enters shared telemetry or R&D.
+- Every terminal protected cell result carries sealed Backtest-owned applicability and outcome evidence plus one
+  complete `PROTECTED_EVALUATION` result-stage Time Evidence. Backtest reports observations; it does not assign
+  Qualification's `PASS`, `FAIL`, or non-applicability categories.
 - Every `BACKTEST_OPERATIONAL` result proves the exact operational profile, run attempt, readiness/backpressure/
   resource-exhaustion/outage evidence, and Time Evidence; a correlated repair targets only
   `BACKTEST_RUNNER_SERVICE`, and a successor profile is consumed only by a new Replay Request.

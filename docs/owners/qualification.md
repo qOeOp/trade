@@ -24,7 +24,8 @@ Independently decide whether a frozen candidate satisfies preregistered evidence
   evidence and never a protected-detail feedback channel to Research.
 - Frozen Protected Replay Request identity: exact protected decision-policy identity and version, Strategy Artifact,
   requested PIT scope, exact PIT Market Snapshot identity, snapshot and correction rule, replay-configuration digest,
-  Runtime kernel, simulator, and cost, slippage, and capacity model versions.
+  Runtime kernel, simulator, and cost, slippage, and capacity model versions. It declares
+  `PROTECTED_EVALUATION` as its canonical `timeEvidenceCutKind` and seals the request-stage root cut.
 - Protected Attempt Disposition: `REPLAY_REJECTED`, `REPLAY_INVALID`, or `ASSESSMENT_INVALID`, bound to the intake,
   replay request, terminal result, and preregistered holdout closure; it is not Eligibility.
 - Each initial or renewed Eligibility Fact cross-bound to the exact Protected Replay Request, exact
@@ -158,7 +159,12 @@ Eligibility Fact. `BACKTEST_OPERATIONAL` remains a sealed Backtest runner/servic
 holdout custody but returns neither its operational evidence nor protected detail to R&D, Product Edge, or
 Governance. A set containing `VALID_ECONOMIC_FAILURE` without a defect must produce a failed assessment and
 `INELIGIBLE`. `UNRESOLVED_FAILURE` and `NO_EXECUTION_DEFECT` are each valid only as singleton sets, and only
-singleton `NO_EXECUTION_DEFECT` may proceed to a passing assessment. Qualification then derives one complete Protected Robustness Assessment under the frozen
+singleton `NO_EXECUTION_DEFECT` may proceed to a passing assessment. Qualification first resolves the exact sealed
+Backtest per-cell results against its frozen plan into one complete, duplicate-free result census. The resulting
+assessment atomically embeds its census-finalization proof, bound to the frozen stop and missing-cell policies,
+assessment-stage Time Evidence, and a sealed Backtest attempt frontier proving no requested cell remains
+nonterminal; without that proof no assessment exists and the attempt stays `IN_PROGRESS_OR_UNKNOWN`. It derives
+the complete Protected Robustness Assessment under the frozen
 adjudication and protected-decision policy versions. The assessment repeats the exact frozen plan-cell-set digest
 and accounts for every plan-required cell exactly once; an axis may contain multiple cells. An explicit
 pre-result non-applicability basis becomes `NOT_APPLICABLE_ACCEPTED` only when that policy accepts it; missing,
@@ -170,6 +176,12 @@ applicable cell passes, and every non-applicable cell is accepted; any applicabl
 non-applicability is `COMPLETE_FAIL`. `COMPLETE_PASS` produces `QUALIFIED`; `COMPLETE_FAIL` produces `INELIGIBLE`
 under the frozen policy. The Eligibility Fact repeats the exact intake, policy pair, plan, request, result, verified
 equality, cell census, coverage, tolerances, thresholds, aggregation, and missing-cell disposition.
+
+The Protected Robustness Assessment declares `PROTECTED_EVALUATION` as its canonical `timeEvidenceCutKind`,
+directly binds every admitted result-stage Time Evidence, and seals one assessment-stage cut. Qualification rejects
+missing, expired, unproved or mutually incomparable epochs, skipped-stage, or non-advancing Time Evidence before
+categorical assessment and before any holdout closure or Eligibility write. A direct proved request-to-result epoch
+transition is valid, but every result in one assessment shares one result epoch and the assessment advances there.
 
 A terminal `RUN_REJECTED` or `INVALID_REPLAY_EVIDENCE` produces `REPLAY_REJECTED` or `REPLAY_INVALID`:
 Qualification binds the intake, request, result, and preregistered holdout closure, emits no Eligibility Fact, and
