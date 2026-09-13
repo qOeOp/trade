@@ -2385,6 +2385,56 @@ mod postgres_acceptance_tests {
         .expect("post-rejection Market Data repair counts");
         assert_eq!(market_data_counts_after, (1, 1));
 
+        let market_data_terminal =
+            vibe_market_data_repair_custody::issue_market_data_repair_terminal_v1(
+                sealed_market_data_request,
+                market_data_evidence.into_repaired_terminal(),
+            )
+            .expect("Owner-sealed repaired Market Data terminal");
+        let repair_resolution =
+            crate::market_data_repair_resolution::resolve_market_data_repair_terminal_v1(
+                &first,
+                &first_action,
+                &first_market_data,
+                market_data_terminal,
+            )
+            .expect("R&D repaired resolution");
+        let repair_resolution =
+            crate::market_data_repair_resolution_postgres::commit(rd_pool, repair_resolution)
+                .await
+                .expect("R&D repaired resolution custody");
+        assert_eq!(
+            repair_resolution.resolution().disposition(),
+            crate::market_data_repair_resolution::MarketDataRepairResolutionDispositionV1::Repaired
+        );
+        let repair_resolution_counts: (i64, i64) = sqlx::query_as(
+            "SELECT (SELECT COUNT(*) FROM rd_market_data_repair_resolutions_v1 WHERE repair_request_identity=$1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE aggregate_identity=$2 AND event_kind='MARKET_DATA_REPAIR_RESOLVED_V1')",
+        )
+        .bind(first_market_data.request().request_identity())
+        .bind(repair_resolution.resolution().resolution_identity())
+        .fetch_one(rd_pool)
+        .await
+        .expect("R&D repaired resolution custody counts");
+        assert_eq!(repair_resolution_counts, (1, 1));
+
+        let repair_resolution_bytes = repair_resolution
+            .resolution()
+            .to_canonical_bytes()
+            .expect("canonical R&D repaired resolution");
+        let mut successor_transaction =
+            rd_pool.begin().await.expect("successor Replay transaction");
+        crate::market_data_repair_resolution_postgres::verify_repaired_readback_in_transaction(
+            &mut successor_transaction,
+            &repair_resolution_bytes,
+            repair_resolution.committed_at_epoch_ms(),
+        )
+        .await
+        .expect("R&D repaired resolution reverified at successor boundary");
+        successor_transaction
+            .commit()
+            .await
+            .expect("successor Replay verification commit");
+
         let mismatched_action_retry = compose_repair_action_request_v1(
             rd_pool,
             RepairActionCompositionRequestV1 {
