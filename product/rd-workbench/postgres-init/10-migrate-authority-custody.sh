@@ -1707,13 +1707,36 @@ GRANT USAGE ON SCHEMA public TO backtest_owner;
 CREATE SCHEMA IF NOT EXISTS qualification_api AUTHORIZATION qualification_owner;
 ALTER SCHEMA qualification_api OWNER TO qualification_owner;
 REVOKE ALL ON SCHEMA qualification_api FROM PUBLIC, rd_owner, qualification_writer, backtest_owner, product_edge_owner, operator_authorization_writer;
-GRANT USAGE ON SCHEMA qualification_api TO rd_owner, qualification_writer, backtest_owner;
+GRANT USAGE ON SCHEMA qualification_api TO rd_owner, qualification_writer, backtest_owner, product_edge_owner;
 
 CREATE TABLE IF NOT EXISTS public.qualification_protected_feedback_projections_v1 (projection_identity TEXT PRIMARY KEY, basis_identity TEXT NOT NULL, principal TEXT NOT NULL, request_scope_json JSONB NOT NULL, resolution_state TEXT NOT NULL, source_sequence BIGINT NOT NULL, source_cut TEXT NOT NULL, projection_digest TEXT NOT NULL, projection_json JSONB NOT NULL, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, valid_through_epoch_ms BIGINT NOT NULL);
 ALTER TABLE public.qualification_protected_feedback_projections_v1 DROP CONSTRAINT IF EXISTS qualification_protected_feedback_projections_v1_basis_identity_key;
 CREATE INDEX IF NOT EXISTS qualification_protected_feedback_basis_history_v1 ON public.qualification_protected_feedback_projections_v1(basis_identity, committed_at_epoch_ms, projection_identity);
 CREATE TABLE IF NOT EXISTS public.qualification_protected_feedback_heads_v1 (principal_scope_key TEXT PRIMARY KEY, principal TEXT NOT NULL, request_scope_json JSONB NOT NULL, frontier_identity TEXT NOT NULL UNIQUE REFERENCES public.qualification_protected_feedback_projections_v1(projection_identity), frontier_digest TEXT NOT NULL, source_sequence BIGINT NOT NULL, source_cut TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS public.qualification_candidate_intake_receipts_v1 (review_request_identity TEXT PRIMARY KEY, review_request_digest TEXT NOT NULL, candidate_identity TEXT NOT NULL UNIQUE, receipt_identity TEXT NOT NULL UNIQUE, status TEXT NOT NULL CHECK (status IN ('NOT_ADMITTED','ADMITTED')), receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
+CREATE TABLE IF NOT EXISTS public.qualification_public_status_facts_v1 (
+  fact_identity TEXT PRIMARY KEY,
+  fact_digest TEXT NOT NULL UNIQUE,
+  review_request_identity TEXT NOT NULL REFERENCES public.qualification_candidate_intake_receipts_v1(review_request_identity) DEFERRABLE INITIALLY DEFERRED,
+  candidate_identity TEXT NOT NULL,
+  phase_sequence BIGINT NOT NULL CHECK (phase_sequence BETWEEN 1 AND 3),
+  status TEXT NOT NULL CHECK (status IN ('NOT_ADMITTED','ADMITTED','EVALUATING','CLOSED_NOT_QUALIFIED')),
+  native_source_identity TEXT NOT NULL,
+  native_source_digest TEXT NOT NULL,
+  source_frontier_identity TEXT NOT NULL,
+  source_frontier_digest TEXT NOT NULL,
+  fact_json JSONB NOT NULL,
+  committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0),
+  UNIQUE (review_request_identity, phase_sequence)
+);
+CREATE TABLE IF NOT EXISTS public.qualification_public_status_heads_v1 (
+  review_request_identity TEXT PRIMARY KEY REFERENCES public.qualification_candidate_intake_receipts_v1(review_request_identity) DEFERRABLE INITIALLY DEFERRED,
+  candidate_identity TEXT NOT NULL,
+  fact_identity TEXT NOT NULL UNIQUE REFERENCES public.qualification_public_status_facts_v1(fact_identity) DEFERRABLE INITIALLY DEFERRED,
+  fact_digest TEXT NOT NULL,
+  phase_sequence BIGINT NOT NULL CHECK (phase_sequence BETWEEN 1 AND 3),
+  updated_at_epoch_ms BIGINT NOT NULL CHECK (updated_at_epoch_ms >= 0)
+);
 CREATE TABLE IF NOT EXISTS public.qualification_holdout_reservations_v1 (reservation_identity TEXT PRIMARY KEY, review_request_identity TEXT NOT NULL UNIQUE REFERENCES public.qualification_candidate_intake_receipts_v1(review_request_identity) DEFERRABLE INITIALLY DEFERRED, candidate_identity TEXT NOT NULL UNIQUE, reservation_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS public.qualification_holdout_treatment_registrations_v1 (
   reservation_identity TEXT PRIMARY KEY REFERENCES public.qualification_holdout_reservations_v1(reservation_identity) DEFERRABLE INITIALLY DEFERRED,
@@ -1858,6 +1881,8 @@ CREATE TABLE IF NOT EXISTS public.qualification_owner_outbox_v1 (event_identity 
 ALTER TABLE public.qualification_protected_feedback_projections_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_protected_feedback_heads_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_candidate_intake_receipts_v1 OWNER TO qualification_owner;
+ALTER TABLE public.qualification_public_status_facts_v1 OWNER TO qualification_owner;
+ALTER TABLE public.qualification_public_status_heads_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_holdout_reservations_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_holdout_treatment_registrations_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_protected_replay_requests_v1 OWNER TO qualification_owner;
@@ -1873,8 +1898,10 @@ ALTER TABLE public.qualification_protected_attempt_disposition_receipts_v2 OWNER
 ALTER TABLE public.qualification_holdout_closures_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_protected_attempt_disposition_receipts_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_owner_outbox_v1 OWNER TO qualification_owner;
-REVOKE ALL ON TABLE public.qualification_protected_feedback_projections_v1, public.qualification_protected_feedback_heads_v1, public.qualification_candidate_intake_receipts_v1, public.qualification_holdout_reservations_v1, public.qualification_holdout_treatment_registrations_v1, public.qualification_protected_replay_requests_v1, public.qualification_protected_replay_request_receipts_v1, public.qualification_protected_replay_request_sets_v1, public.qualification_protected_attempt_dispositions_v1, public.qualification_protected_robustness_assessments_v1, public.qualification_eligibility_facts_v1, public.qualification_eligibility_fact_receipts_v1, public.qualification_protected_attempt_dispositions_v2, public.qualification_holdout_closures_v1, public.qualification_holdout_closures_v2, public.qualification_protected_attempt_disposition_receipts_v1, public.qualification_protected_attempt_disposition_receipts_v2, public.qualification_owner_outbox_v1 FROM PUBLIC, rd_owner, backtest_owner, product_edge_owner, operator_authorization_writer;
+REVOKE ALL ON TABLE public.qualification_protected_feedback_projections_v1, public.qualification_protected_feedback_heads_v1, public.qualification_candidate_intake_receipts_v1, public.qualification_public_status_facts_v1, public.qualification_public_status_heads_v1, public.qualification_holdout_reservations_v1, public.qualification_holdout_treatment_registrations_v1, public.qualification_protected_replay_requests_v1, public.qualification_protected_replay_request_receipts_v1, public.qualification_protected_replay_request_sets_v1, public.qualification_protected_attempt_dispositions_v1, public.qualification_protected_robustness_assessments_v1, public.qualification_eligibility_facts_v1, public.qualification_eligibility_fact_receipts_v1, public.qualification_protected_attempt_dispositions_v2, public.qualification_holdout_closures_v1, public.qualification_holdout_closures_v2, public.qualification_protected_attempt_disposition_receipts_v1, public.qualification_protected_attempt_disposition_receipts_v2, public.qualification_owner_outbox_v1 FROM PUBLIC, rd_owner, backtest_owner, product_edge_owner, operator_authorization_writer;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.qualification_protected_feedback_projections_v1, public.qualification_protected_feedback_heads_v1, public.qualification_candidate_intake_receipts_v1, public.qualification_holdout_reservations_v1, public.qualification_protected_replay_requests_v1, public.qualification_protected_replay_request_receipts_v1, public.qualification_owner_outbox_v1 TO qualification_writer;
+GRANT SELECT, INSERT ON TABLE public.qualification_public_status_facts_v1 TO qualification_writer;
+GRANT SELECT, INSERT, UPDATE ON TABLE public.qualification_public_status_heads_v1 TO qualification_writer;
 GRANT SELECT, INSERT ON TABLE public.qualification_protected_replay_request_sets_v1, public.qualification_protected_attempt_dispositions_v1, public.qualification_holdout_closures_v1, public.qualification_protected_attempt_disposition_receipts_v1 TO qualification_writer;
 GRANT SELECT, INSERT ON TABLE public.qualification_protected_robustness_assessments_v1, public.qualification_eligibility_facts_v1, public.qualification_eligibility_fact_receipts_v1, public.qualification_protected_attempt_dispositions_v2, public.qualification_holdout_closures_v2, public.qualification_protected_attempt_disposition_receipts_v2 TO qualification_writer;
 GRANT SELECT, INSERT ON TABLE public.qualification_holdout_treatment_registrations_v1 TO qualification_writer;
@@ -2097,6 +2124,49 @@ $function$;
 ALTER FUNCTION qualification_api.lock_projection_for_basis_v1(text,text,text,text,jsonb,text) OWNER TO qualification_owner;
 REVOKE ALL ON FUNCTION qualification_api.lock_projection_for_basis_v1(text,text,text,text,jsonb,text) FROM PUBLIC, product_edge_owner, operator_authorization_writer;
 GRANT EXECUTE ON FUNCTION qualification_api.lock_projection_for_basis_v1(text,text,text,text,jsonb,text) TO rd_owner, qualification_writer;
+
+CREATE OR REPLACE FUNCTION qualification_api.read_public_status_v1(
+  requested_review_request_identity text
+)
+RETURNS jsonb LANGUAGE sql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+  SELECT fact.fact_json
+  FROM public.qualification_public_status_heads_v1 head
+  JOIN public.qualification_candidate_intake_receipts_v1 intake
+    ON intake.review_request_identity=head.review_request_identity
+   AND intake.candidate_identity=head.candidate_identity
+  JOIN public.qualification_public_status_facts_v1 fact
+    ON fact.fact_identity=head.fact_identity
+   AND fact.fact_digest=head.fact_digest
+   AND fact.review_request_identity=head.review_request_identity
+   AND fact.candidate_identity=head.candidate_identity
+   AND fact.phase_sequence=head.phase_sequence
+   AND fact.committed_at_epoch_ms=head.updated_at_epoch_ms
+  JOIN public.qualification_owner_outbox_v1 outbox
+    ON outbox.aggregate_identity=fact.fact_identity
+   AND outbox.event_kind='QUALIFICATION_PUBLIC_STATUS_COMMITTED_V1'
+   AND outbox.payload_json=fact.fact_json
+   AND outbox.committed_at_epoch_ms=fact.committed_at_epoch_ms
+  WHERE head.review_request_identity=requested_review_request_identity
+    AND CASE WHEN pg_catalog.jsonb_typeof(fact.fact_json)='object'
+      THEN (SELECT pg_catalog.count(*)=10 FROM pg_catalog.jsonb_object_keys(fact.fact_json))
+      ELSE false
+    END
+    AND fact.fact_json->'schema_version'=pg_catalog.to_jsonb(1)
+    AND fact.fact_json->'fact_identity'=pg_catalog.to_jsonb(fact.fact_identity)
+    AND fact.fact_json->'fact_digest'=pg_catalog.to_jsonb(fact.fact_digest)
+    AND fact.fact_json->'review_request_identity'=pg_catalog.to_jsonb(fact.review_request_identity)
+    AND fact.fact_json->'candidate_identity'=pg_catalog.to_jsonb(fact.candidate_identity)
+    AND fact.fact_json->'status'=pg_catalog.to_jsonb(fact.status)
+    AND fact.fact_json->'source_frontier_identity'=pg_catalog.to_jsonb(fact.source_frontier_identity)
+    AND fact.fact_json->'source_frontier_digest'=pg_catalog.to_jsonb(fact.source_frontier_digest)
+    AND fact.fact_json->'committed_at_epoch_ms'=pg_catalog.to_jsonb(fact.committed_at_epoch_ms)
+    AND pg_catalog.jsonb_typeof(fact.fact_json->'opaque_reference')='string'
+$function$;
+ALTER FUNCTION qualification_api.read_public_status_v1(text) OWNER TO qualification_owner;
+REVOKE ALL ON FUNCTION qualification_api.read_public_status_v1(text) FROM PUBLIC, rd_owner, qualification_writer, backtest_owner, product_edge_owner, operator_authorization_owner, operator_authorization_writer;
+GRANT EXECUTE ON FUNCTION qualification_api.read_public_status_v1(text) TO product_edge_owner;
 
 DO $move$
 DECLARE name text;

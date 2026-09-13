@@ -2404,6 +2404,38 @@ BEGIN
     RAISE EXCEPTION 'rd_owner lacks the sealed Qualification admission API';
   END IF;
 
+  IF NOT pg_catalog.has_schema_privilege('product_edge_owner', 'qualification_api', 'USAGE')
+     OR NOT pg_catalog.has_function_privilege(
+       'product_edge_owner',
+       'qualification_api.read_public_status_v1(text)',
+       'EXECUTE'
+     )
+     OR pg_catalog.has_function_privilege(
+       'qualification_writer',
+       'qualification_api.read_public_status_v1(text)',
+       'EXECUTE'
+     )
+  THEN
+    RAISE EXCEPTION 'Qualification public status API boundary is unavailable';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_proc procedure
+    JOIN pg_catalog.pg_roles role ON role.oid = procedure.proowner
+    WHERE procedure.oid = pg_catalog.to_regprocedure(
+      'qualification_api.read_public_status_v1(text)'
+    )
+      AND role.rolname = 'qualification_owner'
+      AND procedure.prosecdef
+      AND procedure.proisstrict
+      AND procedure.provolatile = 's'
+      AND procedure.proparallel = 's'
+      AND procedure.proconfig = ARRAY['search_path=pg_catalog']
+  ) THEN
+    RAISE EXCEPTION 'Qualification public status API metadata mismatch';
+  END IF;
+
   IF NOT pg_catalog.has_schema_privilege('qualification_writer', 'rd_owner_api', 'USAGE')
      OR NOT pg_catalog.has_function_privilege(
        'qualification_writer',
@@ -2699,6 +2731,7 @@ BEGIN
   END LOOP;
 
   FOREACH qualification_table IN ARRAY ARRAY[
+    'qualification_public_status_facts_v1',
     'qualification_protected_replay_request_sets_v1',
     'qualification_protected_attempt_dispositions_v1',
     'qualification_protected_robustness_assessments_v1',
@@ -2725,6 +2758,13 @@ BEGIN
     END LOOP;
   END LOOP;
 
+  IF (SELECT tableowner FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = 'qualification_public_status_heads_v1') <> 'qualification_owner'
+     OR NOT pg_catalog.has_table_privilege('qualification_writer', 'public.qualification_public_status_heads_v1', 'SELECT,INSERT,UPDATE')
+     OR pg_catalog.has_table_privilege('qualification_writer', 'public.qualification_public_status_heads_v1', 'DELETE,TRUNCATE,REFERENCES,TRIGGER')
+  THEN
+    RAISE EXCEPTION 'Qualification public status head custody mismatch';
+  END IF;
+
   FOREACH role_name IN ARRAY ARRAY[
     'rd_owner',
     'backtest_owner',
@@ -2736,6 +2776,8 @@ BEGIN
       'qualification_protected_feedback_projections_v1',
       'qualification_protected_feedback_heads_v1',
       'qualification_candidate_intake_receipts_v1',
+      'qualification_public_status_facts_v1',
+      'qualification_public_status_heads_v1',
       'qualification_holdout_reservations_v1',
       'qualification_protected_replay_requests_v1',
       'qualification_protected_replay_request_receipts_v1',

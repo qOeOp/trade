@@ -302,6 +302,12 @@ pub(crate) struct StoredCandidateV1 {
     independence_basis_identity: String,
 }
 
+impl StoredCandidateV1 {
+    pub(crate) fn protected_feedback_frontier(&self) -> &str {
+        &self.protected_feedback_frontier
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct StoredSelectionV1 {
@@ -511,11 +517,12 @@ pub(crate) fn form_candidate_intake_receipt_v1(
     request: &CandidateIntakeRequestV1,
     envelope: &ResolvedRdSelectionEnvelopeV1,
     committed_at_epoch_ms: u64,
+    feedback_frontier_is_current: bool,
 ) -> Result<CandidateIntakeReceiptV1, QualificationOwnerError> {
     validate_request(request)?;
     validate_handoff(request, envelope)?;
     let plan = &envelope.candidate.protected_robustness_plan;
-    let status = if adequate(plan, request) {
+    let status = if feedback_frontier_is_current && adequate(plan, request) {
         CandidateIntakeStatusV1::Admitted
     } else {
         CandidateIntakeStatusV1::NotAdmitted
@@ -1577,13 +1584,20 @@ mod tests {
     #[test]
     fn adequate_plan_admits_once_with_holdout_reservation() {
         let (request, envelope) = fixture();
-        let receipt = form_candidate_intake_receipt_v1(&request, &envelope, 20).unwrap();
+        let receipt = form_candidate_intake_receipt_v1(&request, &envelope, 20, true).unwrap();
         assert_eq!(receipt.status(), CandidateIntakeStatusV1::Admitted);
         assert!(receipt.holdout_reservation_identity().is_some());
         assert_eq!(
             decode_intake_receipt_v1(&receipt.as_json().unwrap()).unwrap(),
             receipt
         );
+        let stale_frontier =
+            form_candidate_intake_receipt_v1(&request, &envelope, 20, false).unwrap();
+        assert_eq!(
+            stale_frontier.status(),
+            CandidateIntakeStatusV1::NotAdmitted
+        );
+        assert!(stale_frontier.holdout_reservation_identity().is_none());
     }
 
     #[test]
@@ -1595,7 +1609,8 @@ mod tests {
         };
 
         let (intake_request, envelope) = fixture();
-        let receipt = form_candidate_intake_receipt_v1(&intake_request, &envelope, 20).unwrap();
+        let receipt =
+            form_candidate_intake_receipt_v1(&intake_request, &envelope, 20, true).unwrap();
         let source = protected_replay_authority_source_v1(&receipt, &envelope).unwrap();
         assert_eq!(source.plan_cells.len(), 4);
         let mut bindings = ProtectedReplayBindingFieldV1::ALL
@@ -1681,10 +1696,10 @@ mod tests {
             .proposal
             .required_time_windows
             .pop();
-        let receipt = form_candidate_intake_receipt_v1(&request, &envelope, 20).unwrap();
+        let receipt = form_candidate_intake_receipt_v1(&request, &envelope, 20, true).unwrap();
         assert_eq!(receipt.status(), CandidateIntakeStatusV1::NotAdmitted);
         assert!(receipt.holdout_reservation_identity().is_none());
         envelope.selection.candidate_identity = "other-candidate".into();
-        assert!(form_candidate_intake_receipt_v1(&request, &envelope, 20).is_err());
+        assert!(form_candidate_intake_receipt_v1(&request, &envelope, 20, true).is_err());
     }
 }
