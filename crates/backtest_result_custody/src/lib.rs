@@ -15,8 +15,9 @@ use vibe_backtest_owner_contracts::{
 
 mod protected_replay;
 pub use protected_replay::{
-    LockedProtectedReplayResultV1, ProtectedReplayResultLocatorV1,
+    LockedProtectedReplayResultV1, LockedProtectedReplayResultV2, ProtectedReplayResultLocatorV1,
     resolve_protected_replay_result_for_qualification_in_transaction,
+    resolve_protected_replay_result_v2_for_qualification_in_transaction,
     validate_protected_replay_result_reader_topology_v1,
     validate_protected_replay_result_writer_topology_v1,
 };
