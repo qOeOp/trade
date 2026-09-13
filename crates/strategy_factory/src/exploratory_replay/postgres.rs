@@ -240,12 +240,9 @@ const INTERNAL_VERIFY_SOURCE_V1: &str = r#"
                )
           ) OR NOT EXISTS (
             SELECT 1 FROM public.rd_trial_families_v1 family
-            JOIN public.rd_trial_family_heads_v1 head USING (trial_family_identity)
              WHERE family.trial_family_identity=sealed.trial_family_identity
                AND family.intent_identity=sealed.intent_identity
                AND family.root_digest=sealed.frozen_json->>'trial_family_root_digest'
-               AND head.frontier_identity=sealed.census_frontier_identity
-               AND head.frontier_digest=sealed.frozen_json->>'census_frontier_digest'
           ) OR NOT EXISTS (
             SELECT 1 FROM public.rd_artifact_trial_family_bindings_v1 binding
              WHERE binding.binding_identity=sealed.artifact_family_binding_identity
@@ -283,13 +280,11 @@ const INTERNAL_VERIFY_SOURCE_V1: &str = r#"
               JOIN public.rd_trial_family_members_v1 member
                 ON member.trial_family_identity=family.trial_family_identity
                AND member.ordinal=0
-              JOIN public.rd_trial_family_heads_v1 head
-                ON head.trial_family_identity=family.trial_family_identity
              WHERE family_outbox.aggregate_identity=sealed.trial_family_identity
                AND family_outbox.event_kind='TRIAL_FAMILY_FROZEN_V1'
                AND family_outbox.payload_digest=sealed.frozen_json->>'trial_family_outbox_digest'
                AND family_outbox.event_identity=sealed.frozen_json->>'trial_family_outbox_event_identity'
-               AND family_outbox.event_identity='rd-owner-outbox-v1-' || pg_catalog.replace(head.frontier_digest,'sha256:','')
+               AND family_outbox.event_identity='rd-owner-outbox-v1-' || pg_catalog.replace(sealed.frozen_json->>'census_frontier_digest','sha256:','')
                AND family_outbox.committed_at_epoch_ms=(sealed.frozen_json->>'trial_family_outbox_committed_at_epoch_ms')::bigint
                AND family_outbox.committed_at_epoch_ms=family.committed_at_epoch_ms
                AND family_outbox.payload_json=(
@@ -300,8 +295,8 @@ const INTERNAL_VERIFY_SOURCE_V1: &str = r#"
                    'trial_family_identity',sealed.trial_family_identity,
                    'root_receipt_identity',family.root_receipt_json->>'receipt_identity',
                    'membership_receipt_identity',member.membership_receipt_json->>'receipt_identity',
-                   'census_frontier_identity',head.frontier_identity,
-                   'census_frontier_digest',head.frontier_digest
+                   'census_frontier_identity',sealed.census_frontier_identity,
+                   'census_frontier_digest',sealed.frozen_json->>'census_frontier_digest'
                  ) || CASE
                    WHEN family.root_json->'policy' ? 'replay_execution_policy_v2'
                    THEN pg_catalog.jsonb_build_object(
@@ -1405,12 +1400,9 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
                AND research.view_json->>'artifact_review_identity'=sealed.frozen_json->>'artifact_review_identity'
           ) OR NOT EXISTS (
             SELECT 1 FROM public.rd_trial_families_v1 family
-            JOIN public.rd_trial_family_heads_v1 head USING (trial_family_identity)
              WHERE family.trial_family_identity=sealed.trial_family_identity
                AND family.intent_identity=sealed.intent_identity
                AND family.root_digest=sealed.frozen_json->>'trial_family_root_digest'
-               AND head.frontier_identity=sealed.census_frontier_identity
-               AND head.frontier_digest=sealed.frozen_json->>'census_frontier_digest'
           ) OR NOT EXISTS (
             SELECT 1 FROM public.rd_artifact_trial_family_bindings_v1 binding
              WHERE binding.binding_identity=sealed.artifact_family_binding_identity
@@ -1448,13 +1440,11 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
               JOIN public.rd_trial_family_members_v1 member
                 ON member.trial_family_identity=family.trial_family_identity
                AND member.ordinal=0
-              JOIN public.rd_trial_family_heads_v1 head
-                ON head.trial_family_identity=family.trial_family_identity
              WHERE family_outbox.aggregate_identity=sealed.trial_family_identity
                AND family_outbox.event_kind='TRIAL_FAMILY_FROZEN_V1'
                AND family_outbox.payload_digest=sealed.frozen_json->>'trial_family_outbox_digest'
                AND family_outbox.event_identity=sealed.frozen_json->>'trial_family_outbox_event_identity'
-               AND family_outbox.event_identity='rd-owner-outbox-v1-' || pg_catalog.replace(head.frontier_digest,'sha256:','')
+               AND family_outbox.event_identity='rd-owner-outbox-v1-' || pg_catalog.replace(sealed.frozen_json->>'census_frontier_digest','sha256:','')
                AND family_outbox.committed_at_epoch_ms=(sealed.frozen_json->>'trial_family_outbox_committed_at_epoch_ms')::bigint
                AND family_outbox.committed_at_epoch_ms=family.committed_at_epoch_ms
                AND family_outbox.payload_json=(
@@ -1465,8 +1455,8 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
                    'trial_family_identity',sealed.trial_family_identity,
                    'root_receipt_identity',family.root_receipt_json->>'receipt_identity',
                    'membership_receipt_identity',member.membership_receipt_json->>'receipt_identity',
-                   'census_frontier_identity',head.frontier_identity,
-                   'census_frontier_digest',head.frontier_digest
+                   'census_frontier_identity',sealed.census_frontier_identity,
+                   'census_frontier_digest',sealed.frozen_json->>'census_frontier_digest'
                  ) || CASE
                    WHEN family.root_json->'policy' ? 'replay_execution_policy_v2'
                    THEN pg_catalog.jsonb_build_object(

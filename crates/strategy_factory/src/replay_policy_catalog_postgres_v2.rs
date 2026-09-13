@@ -426,6 +426,9 @@ fn sealed_acceptance_policy() -> Result<ReplayExecutionPolicyV2, ReplayPolicyCat
         })
     }
 
+    const MARKET_DATA_REPAIR_SEMANTICS_IDENTITY: &str =
+        "sha256:1818181818181818181818181818181818181818181818181818181818181818";
+
     Ok(ReplayExecutionPolicyV2 {
         runtime_kernel: versioned("runtime-kernel-v2")?,
         simulator: versioned("simulator-v2")?,
@@ -443,7 +446,7 @@ fn sealed_acceptance_policy() -> Result<ReplayExecutionPolicyV2, ReplayPolicyCat
         session: versioned("session-v2")?,
         time_zone: versioned("time-zone-v2")?,
         correction_rule: versioned("correction-rule-v2")?,
-        market_semantics: versioned("market-semantics-v2")?,
+        market_semantics: versioned(MARKET_DATA_REPAIR_SEMANTICS_IDENTITY)?,
         replay_configuration: content("replay-configuration-v2")?,
         corporate_action_cut: content("corporate-action-cut-v2")?,
         historical_membership_cut: content("historical-membership-cut-v2")?,

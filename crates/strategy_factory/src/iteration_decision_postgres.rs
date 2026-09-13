@@ -1985,7 +1985,12 @@ fn storage(error: impl Display) -> IterationDecisionPostgresErrorV1 {
 #[cfg(test)]
 mod postgres_acceptance_tests {
     use super::*;
+    use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
     use serde::Serialize;
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::UnixListener,
+    };
     use vibe_backtest_owner_contracts::{
         CanonicalDigestV2, ComponentObservationLocatorV2, ConsumedComponentObservationDtoV2,
         ContentIdentityV2, DiagnosticCategoryV2, DiagnosticEvidenceDtoV2, ObservationComponentV2,
@@ -1996,14 +2001,47 @@ mod postgres_acceptance_tests {
     use vibe_data::owner::pit_snapshot::sealed_acceptance::{
         SealedAcceptanceMarketDataRepairEvidenceV1, issue_market_data_repair_evidence_v1,
     };
+    use vibe_operator_authorization::{
+        OperationManifestBindingV1, OperatorAuthorizationIssuanceProposalV1,
+        OperatorAuthorizationIssuerPostgresV1, OperatorAuthorizationScopeV1,
+    };
+    use vibe_product_edge::{
+        AgentOperationManifestProposalV1, ProductEdgeAdmissionLocatorV1,
+        ProductEdgeAdmissionRequestV1, ProductEdgeAuthorizationTrustV1,
+        ProductEdgeBootstrapProposalV1, ProductEdgeInvocationClaimRequestV1,
+        ProductEdgePostgresOwnerV1,
+    };
     use vibe_rd_market_data_repair_custody::{
         SealedMarketDataRepairRequestLocatorV1, lock_market_data_repair_request_v1,
     };
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
     use crate::{
+        artifact_build::{
+            ARTIFACT_BUILD_OPERATION_V1, ARTIFACT_BUILD_SCHEMA_V1, ArtifactBuildCandidateV1,
+            ArtifactBuildDisposition, ArtifactBuildOwnerPort, ArtifactBuildRequestV1,
+            ArtifactBuildResolution, GeneratedDirectionV1, GeneratedSignalV1,
+            GeneratedStrategyLogicV1, canonical_sandbox_source_capsule,
+        },
+        artifact_build_postgres::PostgresArtifactBuildOwnerV1,
+        cargo_artifact::{
+            RD_SANDBOX_DOCKERFILE, RUSTC_COMMIT, RUSTC_RELEASE, SANDBOX_POLICY_V1, TARGET,
+        },
+        exploratory_replay::{
+            EXPLORATORY_REPLAY_MUTATION_EFFECT_V2, EXPLORATORY_REPLAY_OPERATION_V2,
+            EXPLORATORY_REPLAY_SCHEMA_V2, ExploratoryReplayRecoverySelectorV2,
+            ExploratoryReplayRequestProposalV2, SealedExploratoryReplayReadbackV2,
+            exploratory_replay_admission_payload_v2,
+        },
+        family_adapters::verified_price_build,
         iteration_decision::PositiveAssessmentEvidenceReferenceV1,
-        product_edge::{ResearchRequestDisposition, ResearchRequestReceiptV1},
+        product_edge::{
+            ProductEdgeChannel, ProductEdgeResearchGoalRequestV2, RESEARCH_GOAL_OPERATION_V2,
+            RESEARCH_GOAL_SCHEMA_V2, RESEARCH_OWNER_V1, ResearchGoalOwnerPortV2,
+            ResearchRequestDisposition, ResearchRequestReceiptV1, ResearchSourceV1,
+            SourcedResearchGoalV2, TrialFamilyProposalV1,
+        },
+        product_edge_postgres::PostgresResearchGoalOwnerV1,
         replay_economic_configuration_v1::{ReplayEconomicConfigurationV1, economic_fixture},
         replay_execution_policy_v2::ReplayExecutionPolicyV2,
         replay_policy_catalog_v2::{ReplayPolicyCatalogBindingV2, ReplayPolicyCatalogBindingV3},
@@ -2104,9 +2142,535 @@ mod postgres_acceptance_tests {
         committed_at_epoch_ms: u64,
     }
 
-    #[tokio::test]
+    async fn persist_repair_replay_predecessor(
+        database: &CanonicalOwnerPostgresTestDatabaseV1,
+        evidence: &SealedAcceptanceMarketDataRepairEvidenceV1,
+        suffix: &str,
+    ) -> (
+        PostgresResearchGoalOwnerV1,
+        SealedExploratoryReplayReadbackV2,
+        String,
+        String,
+        String,
+        String,
+    ) {
+        crate::replay_policy_catalog_postgres_v2::ensure_authenticated_sealed_acceptance_fixture_v3(
+            database
+                .mutation()
+                .pool(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter),
+        )
+        .await
+        .expect("sealed Replay Policy Catalog fixture");
+
+        let now = current_epoch_ms().expect("test clock");
+        let valid_through = now + 3_600_000;
+        let mut manifests = vec![
+            repair_replay_manifest(
+                RESEARCH_GOAL_OPERATION_V2,
+                RESEARCH_GOAL_SCHEMA_V2,
+                vec!["R_AND_D_RESEARCH_MUTATION_V1".to_string()],
+                now,
+                valid_through,
+            ),
+            repair_replay_manifest(
+                ARTIFACT_BUILD_OPERATION_V1,
+                ARTIFACT_BUILD_SCHEMA_V1,
+                vec![
+                    "R_AND_D_ARTIFACT_BUILD_MUTATION_V1".to_string(),
+                    "R_AND_D_PROVIDER_INVOCATION_V1".to_string(),
+                ],
+                now,
+                valid_through,
+            ),
+            repair_replay_manifest(
+                EXPLORATORY_REPLAY_OPERATION_V2,
+                EXPLORATORY_REPLAY_SCHEMA_V2,
+                vec![EXPLORATORY_REPLAY_MUTATION_EFFECT_V2.to_string()],
+                now,
+                valid_through,
+            ),
+        ];
+        manifests.sort_by_key(|manifest| manifest.manifest_identity().expect("manifest identity"));
+        let request_proof_digest = format!("sha256:{}", "a".repeat(64));
+        let issuer_identity = format!("repair-replay-issuer-{suffix}");
+        let issuer_key_version = "test-key-v1".to_string();
+        let audience = format!("R_AND_D:{suffix}");
+        let principal = format!("repair-replay-principal-{suffix}");
+        let issuer = OperatorAuthorizationIssuerPostgresV1::connect_existing(
+            database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+        )
+        .await
+        .expect("Operator Authorization issuer");
+        let authorization = issuer
+            .issue_genesis(OperatorAuthorizationIssuanceProposalV1 {
+                authorization_identity: format!("repair-replay-authorization-{suffix}"),
+                issuer_identity: issuer_identity.clone(),
+                issuer_key_version: issuer_key_version.clone(),
+                scope: OperatorAuthorizationScopeV1 {
+                    principal: principal.clone(),
+                    audience: audience.clone(),
+                    permissions: vec![
+                        "research:artifact-build".to_string(),
+                        "research:submit".to_string(),
+                        "research:view".to_string(),
+                    ],
+                },
+                request_proof_digest: request_proof_digest.clone(),
+                operation_manifests: manifests
+                    .iter()
+                    .map(|manifest| OperationManifestBindingV1 {
+                        manifest_identity: manifest.manifest_identity().expect("manifest identity"),
+                        manifest_digest: manifest.manifest_digest().expect("manifest digest"),
+                    })
+                    .collect(),
+                not_before_epoch_ms: now.saturating_sub(1_000),
+                valid_through_epoch_ms: valid_through,
+                expected_revocation_head: "EMPTY".to_string(),
+            })
+            .await
+            .expect("Operator Authorization genesis");
+        let deployment_identity = format!("repair-replay-product-edge-{suffix}");
+        let edge = ProductEdgePostgresOwnerV1::connect_existing(
+            database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+            &deployment_identity,
+            ProductEdgeAuthorizationTrustV1 {
+                issuer_identity,
+                issuer_key_version,
+                audience,
+            },
+        )
+        .await
+        .expect("Product Edge Owner");
+        edge.bootstrap_genesis(ProductEdgeBootstrapProposalV1 {
+            deployment_identity,
+            binding_identity: format!("repair-replay-product-edge-binding-{suffix}"),
+            expected_history_head: "EMPTY".to_string(),
+            generation: 1,
+            effective_principal: principal,
+            scope_policy_version: "scope-v1".to_string(),
+            capability_policy_version: "capability-v1".to_string(),
+            audit_policy_version: "audit-v1".to_string(),
+            valid_from_epoch_ms: now.saturating_sub(1_000),
+            valid_through_epoch_ms: valid_through,
+            authorization: authorization.locator(),
+            manifests: manifests.to_vec(),
+        })
+        .await
+        .expect("Product Edge genesis");
+
+        let owner = PostgresResearchGoalOwnerV1::connect_with_backtest(
+            database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+            database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+            database.database_url(CanonicalOwnerTestRoleV1::BacktestOwner),
+        )
+        .await
+        .expect("R&D Owner");
+        let research_request_identity = format!("repair-replay-research-{suffix}");
+        let research_payload = ProductEdgeResearchGoalRequestV2 {
+            request_identity: research_request_identity.clone(),
+            channel: ProductEdgeChannel::WindmillProductEdge,
+            admission: placeholder_product_edge_admission(&research_request_identity),
+            goal: SourcedResearchGoalV2 {
+                hypothesis: "PIT momentum survives exact costs".to_string(),
+                mechanism: "bounded information diffusion".to_string(),
+                falsification_question: "does exact cost remove the effect".to_string(),
+                expected_observation: "net continuation remains positive".to_string(),
+                required_data: vec!["PIT bars".to_string()],
+                cost_assumption: "frozen cost model".to_string(),
+                capacity_assumption: "frozen capacity model".to_string(),
+                sources: vec![ResearchSourceV1 {
+                    locator: "https://example.com/research".to_string(),
+                    content_digest: format!("sha256:{}", "c".repeat(64)),
+                    observed_at: "2026-09-13T00:00:00Z".to_string(),
+                    source_cut: "source-cut-v1".to_string(),
+                    license_basis: "public research".to_string(),
+                    interpretation: "bounded interpretation".to_string(),
+                }],
+            },
+            trial_family_proposal: TrialFamilyProposalV1 {
+                trial_budget: 8,
+                stop_rule: "stop on falsifier or budget".to_string(),
+                pit_rule_identity: "pit-rule-v1".to_string(),
+                cost_model_identity: "cost-model-v1".to_string(),
+                slippage_model_identity: "slippage-model-v1".to_string(),
+                capacity_model_identity: "capacity-model-v1".to_string(),
+                independence_rationale: "Owner-resolved predecessor census".to_string(),
+            },
+        };
+        let research_admission = edge
+            .admit_request(ProductEdgeAdmissionRequestV1 {
+                request_identity: research_request_identity.clone(),
+                typed_payload: serde_json::json!({
+                    "request_identity": research_payload.request_identity,
+                    "channel": research_payload.channel,
+                    "goal": research_payload.goal,
+                    "trial_family_proposal": research_payload.trial_family_proposal,
+                }),
+                operation: RESEARCH_GOAL_OPERATION_V2.to_string(),
+                operation_schema: RESEARCH_GOAL_SCHEMA_V2.to_string(),
+                target_owner: RESEARCH_OWNER_V1.to_string(),
+                requested_effects: vec!["R_AND_D_RESEARCH_MUTATION_V1".to_string()],
+                request_proof_digest: request_proof_digest.clone(),
+                audit_correlation: format!("test:{research_request_identity}"),
+            })
+            .await
+            .expect("Research Product Edge admission")
+            .locator()
+            .clone();
+        let accepted = owner
+            .submit_v2(ProductEdgeResearchGoalRequestV2 {
+                admission: research_admission,
+                ..research_payload
+            })
+            .await
+            .expect("persisted Research acceptance");
+        let research_receipt = accepted.owner_receipt().expect("Research receipt");
+        let intent_identity = research_receipt
+            .resulting_research_intent_identity
+            .as_deref()
+            .expect("Research Intent")
+            .to_string();
+        let intent_digest = research_receipt.semantic_digest.clone();
+        let research_receipt_identity = research_receipt.receipt_identity.clone();
+
+        let build_request_identity = format!("repair-replay-artifact-request-{suffix}");
+        let attempt_identity = format!("repair-replay-artifact-attempt-{suffix}");
+        let artifact_payload = ArtifactBuildRequestV1 {
+            build_request_identity: build_request_identity.clone(),
+            attempt_identity: attempt_identity.clone(),
+            intent_identity: intent_identity.clone(),
+            channel: ProductEdgeChannel::WindmillProductEdge,
+            admission: placeholder_product_edge_admission(&build_request_identity),
+        };
+        let artifact_admission = edge
+            .admit_artifact_build_request(ProductEdgeAdmissionRequestV1 {
+                request_identity: build_request_identity.clone(),
+                typed_payload: serde_json::json!({
+                    "build_request_identity": artifact_payload.build_request_identity,
+                    "attempt_identity": artifact_payload.attempt_identity,
+                    "intent_identity": artifact_payload.intent_identity,
+                    "channel": artifact_payload.channel,
+                }),
+                operation: ARTIFACT_BUILD_OPERATION_V1.to_string(),
+                operation_schema: ARTIFACT_BUILD_SCHEMA_V1.to_string(),
+                target_owner: RESEARCH_OWNER_V1.to_string(),
+                requested_effects: vec![
+                    "R_AND_D_ARTIFACT_BUILD_MUTATION_V1".to_string(),
+                    "R_AND_D_PROVIDER_INVOCATION_V1".to_string(),
+                ],
+                request_proof_digest: request_proof_digest.clone(),
+                audit_correlation: format!("test:{build_request_identity}"),
+            })
+            .await
+            .expect("Artifact Product Edge admission")
+            .locator()
+            .clone();
+        let build_request = ArtifactBuildRequestV1 {
+            admission: artifact_admission,
+            ..artifact_payload
+        };
+        let sandbox_socket = format!("/tmp/rd-repair-replay-{suffix}.sock");
+        let _ = std::fs::remove_file(&sandbox_socket);
+        let listener = UnixListener::bind(&sandbox_socket).expect("Artifact sandbox listener");
+        let sandbox = tokio::spawn(serve_repair_replay_sandbox(
+            listener,
+            sandbox_socket.clone(),
+        ));
+        let artifact_owner = PostgresArtifactBuildOwnerV1::connect(
+            database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+            &sandbox_socket,
+            u64::MAX,
+        )
+        .await
+        .expect("Artifact Owner");
+        assert_eq!(
+            artifact_owner
+                .prepare(build_request.clone())
+                .await
+                .expect("prepared Artifact")
+                .resolution(),
+            ArtifactBuildResolution::Prepared
+        );
+        let invocation_claim = edge
+            .claim_provider_invocation(ProductEdgeInvocationClaimRequestV1 {
+                admission: build_request.admission.clone(),
+                attempt_identity: attempt_identity.clone(),
+            })
+            .await
+            .expect("Product Edge invocation claim");
+        let reserved = artifact_owner
+            .reserve_provider_invocation_custody(
+                &build_request_identity,
+                &attempt_identity,
+                invocation_claim,
+            )
+            .await
+            .expect("R&D invocation reservation");
+        let (start, _) = reserved.into_parts();
+        edge.start_provider_invocation(start)
+            .await
+            .expect("Product Edge invocation start");
+        let started_claim = edge
+            .resolve_provider_invocation_claim(&build_request.admission, &attempt_identity)
+            .await
+            .expect("Product Edge invocation resolve")
+            .expect("started Product Edge invocation");
+        let terminal = artifact_owner
+            .submit_candidate(
+                build_request,
+                ArtifactBuildCandidateV1 {
+                    schema_version: 1,
+                    candidate_identity: format!(
+                        "agent-program-candidate-v1-repair-replay-{suffix}"
+                    ),
+                    intent_identity: intent_identity.clone(),
+                    intent_semantic_digest: intent_digest.clone(),
+                    logic: GeneratedStrategyLogicV1 {
+                        signal: GeneratedSignalV1::Momentum,
+                        direction: GeneratedDirectionV1::LongOnly,
+                        lookback_bars: 24,
+                        entry_threshold_bps: 50,
+                        exit_threshold_bps: 10,
+                    },
+                    structured_logic_summary: "bounded repair Replay candidate".to_string(),
+                    agent_change_explanation: "test-only deterministic artifact".to_string(),
+                },
+                Some(&started_claim),
+            )
+            .await
+            .expect("persisted Artifact acceptance");
+        assert_eq!(
+            terminal
+                .owner_receipt()
+                .expect("Artifact receipt")
+                .disposition,
+            ArtifactBuildDisposition::Success
+        );
+        sandbox
+            .await
+            .expect("Artifact sandbox task")
+            .expect("Artifact sandbox response");
+        let artifact_receipt = terminal.owner_receipt().expect("Artifact receipt");
+        let artifact_identity = artifact_receipt
+            .artifact_identity
+            .as_deref()
+            .expect("Artifact identity");
+        let build_receipt_identity = artifact_receipt
+            .build_receipt_identity
+            .as_deref()
+            .expect("Artifact build receipt");
+        let artifact_review = terminal.artifact_review().expect("Artifact review");
+        let artifact_family = terminal.artifact_trial_family().expect("Artifact family");
+        let family = artifact_family.trial_family();
+        let family_identity = family.root().trial_family_identity().to_string();
+        let replay_policy = family
+            .root()
+            .policy()
+            .replay_execution_policy_v2()
+            .expect("Replay policy binding")
+            .verify()
+            .expect("verified Replay policy");
+
+        let predecessor_identity = format!("rd-replay-request-decision-{suffix}");
+        let mut predecessor_request =
+            repair_replay(evidence, &predecessor_identity, &family_identity, suffix)
+                .as_dto()
+                .clone();
+        predecessor_request.frozen_research_intent = ContentIdentityV2 {
+            identity: identity(&intent_identity),
+            digest: CanonicalDigestV2::try_from(intent_digest.clone()).expect("Intent digest"),
+        };
+        predecessor_request.trial_family = ContentIdentityV2 {
+            identity: identity(&family_identity),
+            digest: CanonicalDigestV2::try_from(family.root().root_digest().to_string())
+                .expect("family root digest"),
+        };
+        predecessor_request.trial_family_census_frontier = ContentIdentityV2 {
+            identity: identity(family.census_frontier().frontier_identity()),
+            digest: CanonicalDigestV2::try_from(
+                family.census_frontier().frontier_digest().to_string(),
+            )
+            .expect("family frontier digest"),
+        };
+        predecessor_request.artifact = ContentIdentityV2 {
+            identity: identity(artifact_identity),
+            digest: CanonicalDigestV2::try_from(artifact_review.build_receipt.wasm_digest.clone())
+                .expect("Artifact digest"),
+        };
+        predecessor_request.correction_rule = replay_policy.correction_rule.clone();
+        predecessor_request.market_semantics = replay_policy.market_semantics.clone();
+        predecessor_request.replay_configuration = replay_policy.replay_configuration.clone();
+        predecessor_request.models = ReplayModelProfilesV2 {
+            runtime_kernel: replay_policy.runtime_kernel.clone(),
+            simulator: replay_policy.simulator.clone(),
+            cost: replay_policy.cost.clone(),
+            slippage: replay_policy.slippage.clone(),
+            capacity: replay_policy.capacity.clone(),
+        };
+        predecessor_request.runner_operational_profile =
+            replay_policy.runner_operational_profile.clone();
+        predecessor_request.diagnostic_policy = replay_policy.diagnostic_policy.clone();
+        predecessor_request.deterministic_seed = replay_policy.deterministic_seed;
+        predecessor_request.window = replay_policy.window;
+        predecessor_request.calendar = replay_policy.calendar.clone();
+        predecessor_request.session = replay_policy.session.clone();
+        predecessor_request.time_zone = replay_policy.time_zone.clone();
+        predecessor_request.corporate_action_cut = replay_policy.corporate_action_cut.clone();
+        predecessor_request.historical_membership_cut =
+            replay_policy.historical_membership_cut.clone();
+        let mut proposal = ExploratoryReplayRequestProposalV2 {
+            admission: placeholder_product_edge_admission(&predecessor_identity),
+            build_request_identity,
+            attempt_identity,
+            build_receipt_identity: build_receipt_identity.to_string(),
+            artifact_family_binding_identity: artifact_family
+                .binding()
+                .binding_identity()
+                .to_string(),
+            request: predecessor_request,
+        };
+        let replay_admission = edge
+            .admit_request(ProductEdgeAdmissionRequestV1 {
+                request_identity: predecessor_identity.clone(),
+                typed_payload: exploratory_replay_admission_payload_v2(&proposal)
+                    .expect("Replay admission payload"),
+                operation: EXPLORATORY_REPLAY_OPERATION_V2.to_string(),
+                operation_schema: EXPLORATORY_REPLAY_SCHEMA_V2.to_string(),
+                target_owner: RESEARCH_OWNER_V1.to_string(),
+                requested_effects: vec![EXPLORATORY_REPLAY_MUTATION_EFFECT_V2.to_string()],
+                request_proof_digest,
+                audit_correlation: format!("test:{predecessor_identity}"),
+            })
+            .await
+            .expect("Replay Product Edge admission")
+            .locator()
+            .clone();
+        proposal.admission = replay_admission;
+        let committed = owner
+            .commit_exploratory_replay_request_v2(proposal)
+            .await
+            .expect("persisted Replay V2 predecessor");
+        let resolved = owner
+            .resolve_exploratory_replay_request_v2(&ExploratoryReplayRecoverySelectorV2 {
+                request_identity: committed.locator().request_identity.clone(),
+                meaning_digest: committed.locator().meaning_digest.clone(),
+            })
+            .await
+            .expect("Replay V2 predecessor resolve");
+        let predecessor = resolved
+            .readback()
+            .expect("persisted Replay V2 predecessor readback")
+            .clone();
+        assert_eq!(predecessor.locator(), committed.locator().clone());
+        assert_eq!(
+            predecessor.canonical_request_bytes(),
+            committed.canonical_request_bytes()
+        );
+        (
+            owner,
+            predecessor,
+            intent_identity,
+            intent_digest,
+            family_identity,
+            research_receipt_identity,
+        )
+    }
+
+    fn repair_replay_manifest(
+        operation: &str,
+        schema: &str,
+        effects: Vec<String>,
+        now: u64,
+        valid_through: u64,
+    ) -> AgentOperationManifestProposalV1 {
+        AgentOperationManifestProposalV1 {
+            operation: operation.to_string(),
+            operation_schema: schema.to_string(),
+            target_owner: RESEARCH_OWNER_V1.to_string(),
+            allowed_effects: effects,
+            prohibited_effects: vec!["REAL_TRADING_V1".to_string()],
+            capability_policy_digest: format!("sha256:{}", "b".repeat(64)),
+            effective_from_epoch_ms: now.saturating_sub(1_000),
+            valid_through_epoch_ms: valid_through,
+        }
+    }
+
+    fn placeholder_product_edge_admission(identity: &str) -> ProductEdgeAdmissionLocatorV1 {
+        ProductEdgeAdmissionLocatorV1 {
+            request_identity: identity.to_string(),
+            admission_identity: format!("placeholder-{identity}"),
+            admission_digest: format!("sha256:{}", "d".repeat(64)),
+        }
+    }
+
+    async fn serve_repair_replay_sandbox(
+        listener: UnixListener,
+        socket: String,
+    ) -> anyhow::Result<()> {
+        let (mut stream, _) = listener.accept().await?;
+        let length = stream.read_u32().await? as usize;
+        let mut bytes = vec![0; length];
+        stream.read_exact(&mut bytes).await?;
+        let request: serde_json::Value = serde_json::from_slice(&bytes)?;
+        let source = request["source"].as_str().expect("sandbox source");
+        let wasm = &verified_price_build()?.wasm;
+        let response = serde_json::to_vec(&serde_json::json!({
+            "protocol": "rd-build-sandbox-v1",
+            "outcome": "SUCCESS",
+            "failure_code": null,
+            "source_capsule_base64": BASE64.encode(canonical_sandbox_source_capsule(source.as_bytes())?),
+            "build_recipe_base64": BASE64.encode(repair_replay_build_recipe()),
+            "wasm_one_base64": BASE64.encode(wasm),
+            "wasm_two_base64": BASE64.encode(wasm),
+        }))?;
+        stream.write_u32(response.len() as u32).await?;
+        stream.write_all(&response).await?;
+        stream.flush().await?;
+        std::fs::remove_file(socket)?;
+        Ok(())
+    }
+
+    fn repair_replay_build_recipe() -> Vec<u8> {
+        let mut bytes = serde_json::to_vec(&serde_json::json!({
+            "build_platform": "linux/arm64",
+            "dependency_policy": "locked_no_external_dependencies",
+            "dockerfile_sha256": format!("sha256:{:x}", Sha256::digest(RD_SANDBOX_DOCKERFILE.as_bytes())),
+            "frontend": "docker/dockerfile:1.20@sha256:26147acbda4f14c5add9946e2fd2ed543fc402884fd75146bd342a7f6271dc1d",
+            "manifest": "Cargo.toml",
+            "network_policy": "container_network_none_cargo_offline",
+            "rust_image": "public.ecr.aws/docker/library/rust:1.97.1-slim-bookworm@sha256:99e09cb2284e2ddbb73a995deee3e91783fd04d177602ccf6eab326d778ee777",
+            "rustc_commit": RUSTC_COMMIT,
+            "rustc_release": RUSTC_RELEASE,
+            "sandbox_policy": SANDBOX_POLICY_V1,
+            "schema_version": 2,
+            "target": TARGET,
+            "wasm_target": "rd_generated_strategy",
+        }))
+        .expect("canonical sandbox build recipe");
+        bytes.push(b'\n');
+        bytes
+    }
+
+    #[test]
     #[ignore = "requires the canonical disposable R&D and Backtest Owner PostgreSQL topology"]
-    async fn repair_decision_action_and_market_data_request_commit_retry_resolve_and_rejection_are_atomic()
+    fn repair_decision_action_and_market_data_request_commit_retry_resolve_and_rejection_are_atomic()
+     {
+        std::thread::Builder::new()
+            .name("repair-reentry-golden-loop-test".into())
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("test runtime")
+                    .block_on(run_repair_decision_action_and_market_data_request_commit_retry_resolve_and_rejection_are_atomic());
+            })
+            .expect("golden-loop test thread")
+            .join()
+            .expect("golden-loop test thread completion");
+    }
+
+    async fn run_repair_decision_action_and_market_data_request_commit_retry_resolve_and_rejection_are_atomic()
      {
         let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
             .await
@@ -2116,37 +2680,24 @@ mod postgres_acceptance_tests {
         let backtest_pool = mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner);
         let suffix = unique_suffix();
         let committed_at = current_epoch_ms().expect("test clock");
-        let intent_identity = format!("rd-research-intent-decision-{suffix}");
-        let intent_digest = digest('a');
-        let policy = decision_family_policy();
-        let family = form_initial_family(&intent_identity, &intent_digest, policy, committed_at)
-            .expect("sealed Decision family");
-        let family_identity = family.root().trial_family_identity().to_string();
-        let research_receipt = ResearchRequestReceiptV1 {
-            schema_version: 1,
-            receipt_identity: format!("rd-research-request-receipt-decision-{suffix}"),
-            request_identity: format!("rd-research-request-decision-{suffix}"),
-            semantic_digest: intent_digest.clone(),
-            disposition: ResearchRequestDisposition::Accepted,
-            resulting_research_intent_identity: Some(intent_identity.clone()),
-            committed_at_epoch_ms: committed_at,
-            rejection_code: None,
-        };
-
-        let request_identity = format!("rd-replay-request-decision-{suffix}");
         let market_data_evidence =
             issue_market_data_repair_evidence_v1().expect("sealed Market Data repair evidence");
-        let replay = repair_replay(
+        let (
+            replay_owner,
+            predecessor,
+            intent_identity,
+            intent_digest,
+            family_identity,
+            research_receipt_identity,
+        ) = Box::pin(persist_repair_replay_predecessor(
+            &database,
             &market_data_evidence,
-            &request_identity,
-            &family_identity,
             &suffix,
-        );
-        let request_digest = replay
-            .meaning_digest()
-            .expect("Replay request meaning")
-            .as_str()
-            .to_string();
+        ))
+        .await;
+        let replay = predecessor.request();
+        let request_identity = predecessor.request_identity().to_string();
+        let request_digest = predecessor.meaning_digest().to_string();
         let attempt_identity = format!("backtest-attempt-decision-{suffix}");
         let result = repair_result(
             &request_identity,
@@ -2159,13 +2710,10 @@ mod postgres_acceptance_tests {
         let result_digest = result.result_digest.as_str().to_string();
 
         let mut family_transaction = rd_pool.begin().await.expect("family transaction");
-        persist_initial_family(&mut family_transaction, &family, &research_receipt)
-            .await
-            .expect("family custody");
         append_trial_family_attempt_in_transaction(
             &mut family_transaction,
             &intent_identity,
-            &research_receipt.receipt_identity,
+            &research_receipt_identity,
             TrialFamilyAttemptAppendV2 {
                 intent_identity: intent_identity.clone(),
                 intent_digest: intent_digest.clone(),
@@ -2407,6 +2955,12 @@ mod postgres_acceptance_tests {
             repair_resolution.resolution().disposition(),
             crate::market_data_repair_resolution::MarketDataRepairResolutionDispositionV1::Repaired
         );
+        let repaired = repair_resolution
+            .resolution()
+            .repaired()
+            .expect("repaired PIT coordinates");
+        let repaired_snapshot_identity = repaired.snapshot_identity();
+        let repaired_normalized_records_digest = repaired.normalized_records_digest();
         let repair_resolution_counts: (i64, i64) = sqlx::query_as(
             "SELECT (SELECT COUNT(*) FROM rd_market_data_repair_resolutions_v1 WHERE repair_request_identity=$1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE aggregate_identity=$2 AND event_kind='MARKET_DATA_REPAIR_RESOLVED_V1')",
         )
@@ -2417,23 +2971,72 @@ mod postgres_acceptance_tests {
         .expect("R&D repaired resolution custody counts");
         assert_eq!(repair_resolution_counts, (1, 1));
 
-        let repair_resolution_bytes = repair_resolution
-            .resolution()
-            .to_canonical_bytes()
-            .expect("canonical R&D repaired resolution");
-        let mut successor_transaction =
-            rd_pool.begin().await.expect("successor Replay transaction");
-        crate::market_data_repair_resolution_postgres::verify_repaired_readback_in_transaction(
-            &mut successor_transaction,
-            &repair_resolution_bytes,
-            repair_resolution.committed_at_epoch_ms(),
-        )
-        .await
-        .expect("R&D repaired resolution reverified at successor boundary");
-        successor_transaction
-            .commit()
+        let predecessor_locator = predecessor.locator();
+        let successor =
+            crate::exploratory_replay::postgres::commit_market_data_repaired_by_locator_v2(
+                rd_pool,
+                &predecessor_locator,
+                &crate::MarketDataRepairResolutionLocatorV1 {
+                    resolution_identity: repair_resolution
+                        .resolution()
+                        .resolution_identity()
+                        .to_string(),
+                    repair_request_identity: first_market_data
+                        .request()
+                        .request_identity()
+                        .to_string(),
+                },
+            )
             .await
-            .expect("successor Replay verification commit");
+            .expect("locator-only repaired Replay successor commit");
+        let successor_request: ReplayRequestDtoV2 =
+            serde_json::from_slice(successor.canonical_request_bytes())
+                .expect("canonical successor Replay request");
+        let mut expected_successor = predecessor.request().as_dto().clone();
+        expected_successor.request_identity = successor_request.request_identity.clone();
+        expected_successor.pit_snapshot = successor_request.pit_snapshot.clone();
+        assert_eq!(successor_request, expected_successor);
+        assert_ne!(
+            successor_request.request_identity,
+            predecessor.request().as_dto().request_identity
+        );
+        assert_eq!(
+            successor_request.pit_snapshot.identity.as_str(),
+            format!("sha256:{}", hex(repaired_snapshot_identity.as_bytes()))
+        );
+        assert_eq!(
+            successor_request.pit_snapshot.digest.as_str(),
+            format!(
+                "sha256:{}",
+                hex(repaired_normalized_records_digest.as_bytes())
+            )
+        );
+        let stored_predecessor: serde_json::Value = sqlx::query_scalar(
+            "SELECT frozen_json->'market_data_repair_reentry'->'predecessor_replay' FROM rd_sealed_exploratory_replay_requests_v1 WHERE request_identity=$1",
+        )
+        .bind(successor.locator().request_identity.as_str())
+        .fetch_one(rd_pool)
+        .await
+        .expect("successor predecessor binding");
+        assert_eq!(
+            stored_predecessor,
+            serde_json::to_value(&predecessor_locator).expect("predecessor locator JSON")
+        );
+        let successor_readback = replay_owner
+            .resolve_exploratory_replay_request_v2(&ExploratoryReplayRecoverySelectorV2 {
+                request_identity: successor.locator().request_identity.clone(),
+                meaning_digest: successor.locator().meaning_digest.clone(),
+            })
+            .await
+            .expect("successor Replay resolve")
+            .readback()
+            .expect("persisted successor Replay readback")
+            .clone();
+        assert_eq!(successor_readback.locator(), successor.locator().clone());
+        assert_eq!(
+            successor_readback.canonical_request_bytes(),
+            successor.canonical_request_bytes()
+        );
 
         let mismatched_action_retry = compose_repair_action_request_v1(
             rd_pool,
