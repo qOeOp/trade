@@ -1516,8 +1516,8 @@ GRANT USAGE ON SCHEMA public TO backtest_owner;
 
 CREATE SCHEMA IF NOT EXISTS qualification_api AUTHORIZATION qualification_owner;
 ALTER SCHEMA qualification_api OWNER TO qualification_owner;
-REVOKE ALL ON SCHEMA qualification_api FROM PUBLIC, product_edge_owner, operator_authorization_writer;
-GRANT USAGE ON SCHEMA qualification_api TO rd_owner, qualification_writer;
+REVOKE ALL ON SCHEMA qualification_api FROM PUBLIC, rd_owner, qualification_writer, backtest_owner, product_edge_owner, operator_authorization_writer;
+GRANT USAGE ON SCHEMA qualification_api TO rd_owner, qualification_writer, backtest_owner;
 
 CREATE TABLE IF NOT EXISTS public.qualification_protected_feedback_projections_v1 (projection_identity TEXT PRIMARY KEY, basis_identity TEXT NOT NULL, principal TEXT NOT NULL, request_scope_json JSONB NOT NULL, resolution_state TEXT NOT NULL, source_sequence BIGINT NOT NULL, source_cut TEXT NOT NULL, projection_digest TEXT NOT NULL, projection_json JSONB NOT NULL, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, valid_through_epoch_ms BIGINT NOT NULL);
 ALTER TABLE public.qualification_protected_feedback_projections_v1 DROP CONSTRAINT IF EXISTS qualification_protected_feedback_projections_v1_basis_identity_key;
@@ -1525,14 +1525,43 @@ CREATE INDEX IF NOT EXISTS qualification_protected_feedback_basis_history_v1 ON 
 CREATE TABLE IF NOT EXISTS public.qualification_protected_feedback_heads_v1 (principal_scope_key TEXT PRIMARY KEY, principal TEXT NOT NULL, request_scope_json JSONB NOT NULL, frontier_identity TEXT NOT NULL UNIQUE REFERENCES public.qualification_protected_feedback_projections_v1(projection_identity), frontier_digest TEXT NOT NULL, source_sequence BIGINT NOT NULL, source_cut TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS public.qualification_candidate_intake_receipts_v1 (review_request_identity TEXT PRIMARY KEY, review_request_digest TEXT NOT NULL, candidate_identity TEXT NOT NULL UNIQUE, receipt_identity TEXT NOT NULL UNIQUE, status TEXT NOT NULL CHECK (status IN ('NOT_ADMITTED','ADMITTED')), receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS public.qualification_holdout_reservations_v1 (reservation_identity TEXT PRIMARY KEY, review_request_identity TEXT NOT NULL UNIQUE REFERENCES public.qualification_candidate_intake_receipts_v1(review_request_identity) DEFERRABLE INITIALLY DEFERRED, candidate_identity TEXT NOT NULL UNIQUE, reservation_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
+CREATE TABLE IF NOT EXISTS public.qualification_protected_replay_requests_v1 (
+  request_identity TEXT PRIMARY KEY,
+  request_digest TEXT NOT NULL UNIQUE,
+  review_request_identity TEXT NOT NULL REFERENCES public.qualification_candidate_intake_receipts_v1(review_request_identity) DEFERRABLE INITIALLY DEFERRED,
+  intake_receipt_identity TEXT NOT NULL,
+  holdout_reservation_identity TEXT NOT NULL REFERENCES public.qualification_holdout_reservations_v1(reservation_identity) DEFERRABLE INITIALLY DEFERRED,
+  protected_plan_identity TEXT NOT NULL,
+  protected_plan_digest TEXT NOT NULL,
+  plan_cell_identity TEXT NOT NULL,
+  plan_cell_digest TEXT NOT NULL,
+  request_json JSONB NOT NULL,
+  canonical_request_bytes BYTEA NOT NULL,
+  storage_digest TEXT NOT NULL,
+  committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0),
+  UNIQUE (review_request_identity, plan_cell_identity)
+);
+CREATE TABLE IF NOT EXISTS public.qualification_protected_replay_request_receipts_v1 (
+  request_identity TEXT PRIMARY KEY REFERENCES public.qualification_protected_replay_requests_v1(request_identity) DEFERRABLE INITIALLY DEFERRED,
+  request_digest TEXT NOT NULL UNIQUE,
+  receipt_identity TEXT NOT NULL UNIQUE,
+  receipt_digest TEXT NOT NULL,
+  seal_digest TEXT NOT NULL,
+  receipt_json JSONB NOT NULL,
+  canonical_receipt_bytes BYTEA NOT NULL,
+  storage_digest TEXT NOT NULL,
+  committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0)
+);
 CREATE TABLE IF NOT EXISTS public.qualification_owner_outbox_v1 (event_identity TEXT PRIMARY KEY, aggregate_identity TEXT NOT NULL, event_kind TEXT NOT NULL, payload_digest TEXT NOT NULL, payload_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE (aggregate_identity, event_kind));
 ALTER TABLE public.qualification_protected_feedback_projections_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_protected_feedback_heads_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_candidate_intake_receipts_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_holdout_reservations_v1 OWNER TO qualification_owner;
+ALTER TABLE public.qualification_protected_replay_requests_v1 OWNER TO qualification_owner;
+ALTER TABLE public.qualification_protected_replay_request_receipts_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_owner_outbox_v1 OWNER TO qualification_owner;
-REVOKE ALL ON TABLE public.qualification_protected_feedback_projections_v1, public.qualification_protected_feedback_heads_v1, public.qualification_candidate_intake_receipts_v1, public.qualification_holdout_reservations_v1, public.qualification_owner_outbox_v1 FROM PUBLIC, rd_owner, product_edge_owner, operator_authorization_writer;
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.qualification_protected_feedback_projections_v1, public.qualification_protected_feedback_heads_v1, public.qualification_candidate_intake_receipts_v1, public.qualification_holdout_reservations_v1, public.qualification_owner_outbox_v1 TO qualification_writer;
+REVOKE ALL ON TABLE public.qualification_protected_feedback_projections_v1, public.qualification_protected_feedback_heads_v1, public.qualification_candidate_intake_receipts_v1, public.qualification_holdout_reservations_v1, public.qualification_protected_replay_requests_v1, public.qualification_protected_replay_request_receipts_v1, public.qualification_owner_outbox_v1 FROM PUBLIC, rd_owner, backtest_owner, product_edge_owner, operator_authorization_writer;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.qualification_protected_feedback_projections_v1, public.qualification_protected_feedback_heads_v1, public.qualification_candidate_intake_receipts_v1, public.qualification_holdout_reservations_v1, public.qualification_protected_replay_requests_v1, public.qualification_protected_replay_request_receipts_v1, public.qualification_owner_outbox_v1 TO qualification_writer;
 
 CREATE OR REPLACE FUNCTION rd_owner_api.lock_ready_for_selection_for_qualification_v1(requested_decision_identity text, requested_result_identity text)
 RETURNS TABLE(candidate_json jsonb, candidate_storage_bytes bytea, candidate_storage_digest text, selection_json jsonb, selection_storage_bytes bytea, selection_storage_digest text, selection_receipt_json jsonb, selection_receipt_storage_bytes bytea, selection_receipt_storage_digest text, candidate_outbox_count bigint, selection_outbox_count bigint, selection_outbox_json jsonb, selection_outbox_digest text, selection_outbox_committed_at_epoch_ms bigint)
@@ -1564,6 +1593,68 @@ $function$;
 ALTER FUNCTION rd_owner_api.lock_ready_for_selection_for_qualification_v1(text,text) OWNER TO rd_owner;
 REVOKE ALL ON FUNCTION rd_owner_api.lock_ready_for_selection_for_qualification_v1(text,text) FROM PUBLIC, rd_owner, product_edge_owner, qualification_owner, operator_authorization_writer;
 GRANT EXECUTE ON FUNCTION rd_owner_api.lock_ready_for_selection_for_qualification_v1(text,text) TO qualification_writer;
+
+CREATE OR REPLACE FUNCTION qualification_api.lock_protected_replay_request_v1(
+  requested_request_identity text,
+  requested_request_digest text,
+  requested_receipt_identity text,
+  requested_seal_digest text
+)
+RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+DECLARE locked jsonb;
+BEGIN
+  IF session_user <> 'backtest_owner'
+     OR current_user <> 'qualification_owner'
+     OR pg_catalog.current_setting('transaction_isolation') <> 'serializable'
+  THEN
+    RETURN NULL;
+  END IF;
+  SELECT pg_catalog.jsonb_build_object(
+           'schema_version', 1,
+           'request', pg_catalog.jsonb_build_object(
+             'bytes_base64', pg_catalog.replace(pg_catalog.encode(request.canonical_request_bytes, 'base64'), pg_catalog.chr(10), ''),
+             'storage_digest', request.storage_digest,
+             'mirror', request.request_json
+           ),
+           'receipt', pg_catalog.jsonb_build_object(
+             'bytes_base64', pg_catalog.replace(pg_catalog.encode(receipt.canonical_receipt_bytes, 'base64'), pg_catalog.chr(10), ''),
+             'storage_digest', receipt.storage_digest,
+             'mirror', receipt.receipt_json
+           ),
+           'outbox', pg_catalog.jsonb_build_object(
+             'event_identity', outbox.event_identity,
+             'payload_digest', outbox.payload_digest,
+             'payload_json', outbox.payload_json,
+             'committed_at_epoch_ms', outbox.committed_at_epoch_ms
+           )
+         )
+    INTO STRICT locked
+    FROM public.qualification_protected_replay_requests_v1 request
+    JOIN public.qualification_protected_replay_request_receipts_v1 receipt
+      ON receipt.request_identity = request.request_identity
+    JOIN public.qualification_owner_outbox_v1 outbox
+      ON outbox.aggregate_identity = request.request_identity
+     AND outbox.event_kind = 'QUALIFICATION_PROTECTED_REPLAY_REQUEST_FROZEN_V1'
+   WHERE request.request_identity = requested_request_identity
+     AND request.request_digest = requested_request_digest
+     AND receipt.receipt_identity = requested_receipt_identity
+     AND receipt.seal_digest = requested_seal_digest
+     AND receipt.request_digest = request.request_digest
+     AND outbox.payload_json->>'request_identity' = request.request_identity
+     AND outbox.payload_json->>'request_digest' = request.request_digest
+     AND outbox.payload_json->>'receipt_identity' = receipt.receipt_identity
+     AND outbox.payload_json->>'seal_digest' = receipt.seal_digest
+   FOR SHARE OF request, receipt, outbox;
+  RETURN locked;
+EXCEPTION WHEN no_data_found OR too_many_rows OR data_exception THEN
+  RETURN NULL;
+END
+$function$;
+ALTER FUNCTION qualification_api.lock_protected_replay_request_v1(text,text,text,text) OWNER TO qualification_owner;
+REVOKE ALL ON FUNCTION qualification_api.lock_protected_replay_request_v1(text,text,text,text) FROM PUBLIC, rd_owner, qualification_writer, backtest_owner, product_edge_owner, operator_authorization_owner, operator_authorization_writer;
+GRANT EXECUTE ON FUNCTION qualification_api.lock_protected_replay_request_v1(text,text,text,text) TO backtest_owner;
 
 CREATE OR REPLACE FUNCTION qualification_api.lock_projection_for_basis_v1(
   requested_basis_identity text,

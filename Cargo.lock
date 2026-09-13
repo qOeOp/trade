@@ -11107,6 +11107,7 @@ dependencies = [
  "sqlx",
  "thiserror 2.0.19",
  "tokio",
+ "vibe-backtest-owner-contracts",
  "vibe-testkit",
 ]
 

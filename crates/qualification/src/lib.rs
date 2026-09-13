@@ -5,6 +5,7 @@
 
 mod candidate_intake;
 mod postgres;
+mod protected_replay_request;
 
 #[cfg(feature = "owner-recovery")]
 mod recovery;
@@ -15,6 +16,11 @@ pub use candidate_intake::{
 pub use postgres::{
     PostgresQualificationOwnerV1, admit_historical_projection_in_transaction,
     admit_projection_in_transaction,
+};
+pub use protected_replay_request::{
+    PROTECTED_REPLAY_BINDING_COUNT_V1, ProtectedReplayBindingFieldV1, ProtectedReplayBindingV1,
+    ProtectedReplayRequestCommitV1, ProtectedReplayRequestLocatorV1,
+    ProtectedReplayRequestProposalV1,
 };
 #[cfg(feature = "owner-recovery")]
 pub use recovery::{RecoveryReceiptV1, run_owner_recovery_cli};
