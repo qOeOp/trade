@@ -188,6 +188,7 @@ mintable, workspace-bound token request with exactly these scopes:
 - `mcp:scripts:f/trade/product_edge/artifact_build_v1`
 - `mcp:scripts:f/trade/product_edge/exploratory_replay_v2`
 - `mcp:scripts:f/trade/product_edge/develop_composer_v2`
+- `mcp:scripts:f/trade/product_edge/research_iteration_action_v1`
 - `mcp:endpoints:getJob,getJobLogs`
 
 The profile intentionally omits `mcp:all`, favorites, folder wildcards, flows, previews, deployment, workspace listing, and every create/update/delete tool. Folder filtering is not the security boundary.
@@ -239,5 +240,13 @@ existing `strategy-factory-rd-dashboard-read-api`. It delegates only to the seal
 Replay read port through an `rd_owner` read pool; it does not add a service, identify
 or submit a request, resolve custody, execute a replay, expose results, or alter the
 Windmill transport.
+
+The `research_iteration_action_v1` Product Edge entry exposes the post-result repair
+path without becoming another Owner. `RUN` or `RESOLVE` selects exactly one existing
+R&D Owner action for the repair-input Decision, Repair Action Request, Market Data
+Repair Request, or repaired Replay successor. The script accepts only the stage's
+deny-unknown typed payload, cross-binds a successful response to those locators, and
+returns `SUBMITTED_OR_UNKNOWN` on malformed, unavailable, or ambiguous transport.
+It never repairs Market Data, executes Backtest, qualifies, deploys, or trades.
 
 Legacy V1 receipts, Intents, and Artifacts are not backfilled; direct family resolution returns `TRIAL_FAMILY_UNAVAILABLE_LEGACY`. This slice creates and resolves Owner-sealed Exploratory Replay V2 requests; it does not implement Backtest, Selection, Candidate, Qualification, Scanner, Runtime, Portfolio, Recovery, capital, Risk, Execution, orders, or real trading. The candidate is not `PRODUCT_CURRENT` until its exact-head dynamic default-Web evidence and repository gates pass and the PR is merged and accepted.

@@ -1,11 +1,12 @@
 {
-  "label": "s3-rd-replay-request-custody-mcp-v1",
+  "label": "rd-loop-product-edge-mcp-v1",
   "workspace_id": "trade-rd",
   "scopes": [
     "mcp:scripts:f/trade/product_edge/research_goal_v2",
     "mcp:scripts:f/trade/product_edge/artifact_build_v1",
     "mcp:scripts:f/trade/product_edge/exploratory_replay_v2",
     "mcp:scripts:f/trade/product_edge/develop_composer_v2",
+    "mcp:scripts:f/trade/product_edge/research_iteration_action_v1",
     "mcp:endpoints:getJob,getJobLogs"
   ],
   "read_only": false

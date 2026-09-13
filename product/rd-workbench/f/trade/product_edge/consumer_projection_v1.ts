@@ -1349,7 +1349,8 @@ function validReplayReceipt(
     "schema_version", "receipt_identity", "request_identity", "meaning_digest",
     "seal_digest", "committed_at_epoch_ms",
   ]) && value.schema_version === 2
-    && /^rd-exploratory-replay-receipt-v2-[0-9a-f]{64}$/.test(String(value.receipt_identity))
+    && typeof value.receipt_identity === "string"
+    && /^rd-exploratory-replay-receipt-v2-[0-9a-f]{64}$/.test(value.receipt_identity)
     && value.request_identity === requestIdentity && value.meaning_digest === meaningDigest
     && replayDigest(value.seal_digest) && epoch(value.committed_at_epoch_ms)
 }
