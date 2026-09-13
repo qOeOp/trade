@@ -36,6 +36,11 @@ use crate::owner::{
     native_replay_scheduling_v1::{
         MarketDataRepairSourceV1, market_data_repair_source_from_verified_batch,
     },
+    research_pit_terminal::{
+        ResearchPitTerminal, UntrustedResearchPitTerminalRequest, derive_license_binding_digest,
+        derive_provenance_binding_digest, derive_snapshot_correction_rule_digest,
+        seal_research_pit_terminal,
+    },
     shared_time_evidence::{ClockHeadHandoff, build_head_fact},
     source_binding::{
         BindingDigest, MarketDataClockAdmission, SourceBindingError, UntrustedAdapterBinding,
@@ -172,10 +177,11 @@ pub struct SealedAcceptanceExactInstrumentBarFrame {
 ///
 /// The fixture accepts no caller-authored fact or clock. Each projection consumes a fresh clone of
 /// the same Owner-verified batch, so retry admission cannot reuse a previously consumed positive.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct SealedAcceptanceMarketDataRepairEvidenceV1 {
     batch: super::VerifiedPitObservationBatch,
     shared_time: ClockHeadHandoff,
+    repaired_terminal: ResearchPitTerminal,
 }
 
 impl SealedAcceptanceMarketDataRepairEvidenceV1 {
@@ -187,6 +193,12 @@ impl SealedAcceptanceMarketDataRepairEvidenceV1 {
     #[must_use]
     pub fn shared_time(&self) -> ClockHeadHandoff {
         self.shared_time.clone()
+    }
+
+    /// Consumes the acceptance authority into one independently sealed replacement PIT terminal.
+    #[must_use]
+    pub fn into_repaired_terminal(self) -> ResearchPitTerminal {
+        self.repaired_terminal
     }
 }
 
@@ -486,6 +498,49 @@ pub fn issue_market_data_repair_evidence_v1()
         &source_owner,
         &clock(),
     )?;
+    let mut repaired_snapshot = snapshot_proposal(source.receipt().locator());
+    repaired_snapshot.evidence.normalized_records_digest = digest_byte(31);
+    let repaired_basis = TestOnlyCanonicalBasisResolver::seal_for_test(
+        repaired_snapshot.request.clone(),
+        repaired_snapshot.evidence.clone(),
+        clock(),
+    );
+    let repaired_aggregate = TestOnlyPitSnapshotOwner::default().commit_initial(
+        repaired_snapshot,
+        &repaired_basis,
+        &source_owner,
+        &clock(),
+    )?;
+    let stored_source =
+        source_owner.resolve_stored_for_sealed_acceptance(source.receipt().locator())?;
+    let repaired_fact = repaired_aggregate.fact();
+    let source_fact = stored_source.commit().fact();
+    let repaired_terminal = seal_research_pit_terminal(
+        &repaired_aggregate,
+        &stored_source,
+        &UntrustedResearchPitTerminalRequest {
+            consumer_role: "RESEARCH_OWNER".into(),
+            locator: repaired_aggregate.receipt().locator().clone(),
+            requester_identity: repaired_fact.request().requester_identity,
+            request_identity: repaired_fact.request_identity(),
+            request_digest: repaired_fact.request_digest(),
+            scope_digest: repaired_fact.request().scope_digest,
+            correlation_identity: repaired_fact.correlation_identity(),
+            source_binding_identity: repaired_fact.source_binding_identity(),
+            source_binding_fact_digest: source_fact.digest(),
+            source_binding_lineage_root: repaired_fact.source_binding_lineage_root(),
+            source_binding_lineage_version: repaired_fact.source_binding_lineage_version(),
+            source_frontier: repaired_fact.evidence().source_frontier.clone(),
+            correction_frontier: repaired_fact.evidence().correction_frontier.clone(),
+            time_evidence: repaired_fact.request().time_evidence.clone(),
+            snapshot_correction_rule_digest: derive_snapshot_correction_rule_digest(
+                repaired_fact.request(),
+                repaired_fact.evidence().correction_frontier.clone(),
+            )?,
+            provenance_binding_digest: derive_provenance_binding_digest(source_fact)?,
+            license_binding_digest: derive_license_binding_digest(source_fact)?,
+        },
+    )?;
     let native_rows = prepared.native_rows()?;
     let batch = verify_observation_batch(
         &aggregate,
@@ -510,7 +565,11 @@ pub fn issue_market_data_repair_evidence_v1()
     let shared_time = build_head_fact(&current_clock, None)
         .map_err(|_| PitSnapshotError::TrustedClockMismatch)?
         .handoff;
-    Ok(SealedAcceptanceMarketDataRepairEvidenceV1 { batch, shared_time })
+    Ok(SealedAcceptanceMarketDataRepairEvidenceV1 {
+        batch,
+        shared_time,
+        repaired_terminal,
+    })
 }
 
 fn digest_byte(value: u8) -> BindingDigest {

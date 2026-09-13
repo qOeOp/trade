@@ -249,6 +249,25 @@ pub(crate) struct TestOnlyInMemorySourceBindingOwner {
 }
 
 impl TestOnlyInMemorySourceBindingOwner {
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    pub(crate) fn resolve_stored_for_sealed_acceptance(
+        &self,
+        locator: &UntrustedSourceBindingLocator,
+    ) -> Result<SourceBindingStoredAggregate, SourceBindingError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| SourceBindingError::StoreUnavailable)?;
+        let stored = state
+            .commits
+            .get(&locator.binding_id)
+            .ok_or(SourceBindingError::LocatorMismatch)?;
+        if &stored.commit.receipt.locator != locator {
+            return Err(SourceBindingError::LocatorMismatch);
+        }
+        Ok(stored.clone())
+    }
+
     pub(crate) fn commit_initial(
         &self,
         proposal: UntrustedSourceBindingProposal,
