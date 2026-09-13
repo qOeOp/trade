@@ -4,10 +4,18 @@
 //! define a positive result constructor, an observation provider trait, or Backtest execution.
 
 pub mod outcome_evidence;
+pub mod protected_replay;
 
 pub use outcome_evidence::{
     BacktestOutcomeEvidenceBindingsV1, BacktestOutcomeEvidenceDtoV1,
     BacktestOutcomeEvidenceErrorV1, CanonicalResultBindingDtoV1,
+};
+pub use protected_replay::{
+    ProtectedConsumedInputLocatorV1, ProtectedReplayContractErrorV1,
+    ProtectedReplayReconciliationAtomV1, ProtectedReplayRequestDtoV1, ProtectedReplayResultDtoV1,
+    ProtectedResultOutboxDtoV1, ProtectedResultOutboxPayloadDtoV1, ProtectedResultOutcomeLocatorV1,
+    ProtectedResultReceiptDtoV1, protected_diagnostic_category_set_digest_v1,
+    protected_result_custody_wires_v1,
 };
 
 use serde::{Deserialize, Serialize};
@@ -226,6 +234,70 @@ pub enum ReplayNamespaceV2 {
     Exploratory,
     /// Qualification-only replay backed by an exact holdout reservation and plan cell.
     Protected,
+}
+
+/// Canonical Qualification-requested fields that Backtest must repeat as consumed evidence.
+pub const PROTECTED_REPLAY_BINDING_COUNT_V1: usize = 16;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ProtectedReplayBindingFieldV1 {
+    ProtectedRobustnessPlan,
+    StrategyArtifact,
+    RequestedPitScope,
+    PitMarketSnapshot,
+    UniverseSelection,
+    SnapshotCorrectionRule,
+    ReplayConfiguration,
+    RuntimeKernel,
+    Simulator,
+    CostModel,
+    SlippageModel,
+    CapacityModel,
+    PurgeEmbargoDerivationPolicy,
+    PurgeEmbargoSourceWindowAndBoundaries,
+    FamilyMultiplicityCensusAttemptBasis,
+    BoundedAlternativesAndDecisionThresholds,
+}
+
+impl ProtectedReplayBindingFieldV1 {
+    pub const ALL: [Self; PROTECTED_REPLAY_BINDING_COUNT_V1] = [
+        Self::ProtectedRobustnessPlan,
+        Self::StrategyArtifact,
+        Self::RequestedPitScope,
+        Self::PitMarketSnapshot,
+        Self::UniverseSelection,
+        Self::SnapshotCorrectionRule,
+        Self::ReplayConfiguration,
+        Self::RuntimeKernel,
+        Self::Simulator,
+        Self::CostModel,
+        Self::SlippageModel,
+        Self::CapacityModel,
+        Self::PurgeEmbargoDerivationPolicy,
+        Self::PurgeEmbargoSourceWindowAndBoundaries,
+        Self::FamilyMultiplicityCensusAttemptBasis,
+        Self::BoundedAlternativesAndDecisionThresholds,
+    ];
+}
+
+/// One caller-visible field in a frozen Qualification Protected Replay Request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProtectedReplayBindingV1 {
+    pub field: ProtectedReplayBindingFieldV1,
+    pub identity: String,
+    pub digest: String,
+}
+
+/// Locator-only handle for the sealed Qualification request read by Backtest.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProtectedReplayRequestLocatorV1 {
+    pub request_identity: String,
+    pub request_digest: String,
+    pub receipt_identity: String,
+    pub seal_digest: String,
 }
 
 /// Caller-authored authority claim. It is not evidence that Backtest consumed the authority.

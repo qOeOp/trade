@@ -1,61 +1,15 @@
-use serde::{Deserialize, Serialize};
-use vibe_backtest_owner_contracts::{CanonicalDigestV2, OpaqueIdentityV2};
+use serde::Serialize;
+use vibe_backtest_owner_contracts::{
+    CanonicalDigestV2, OpaqueIdentityV2, PROTECTED_REPLAY_BINDING_COUNT_V1,
+    ProtectedReplayRequestLocatorV1,
+};
+pub(crate) use vibe_backtest_owner_contracts::{
+    ProtectedReplayBindingFieldV1, ProtectedReplayBindingV1,
+};
 
 use crate::candidate_intake::ProtectedReplayAuthoritySourceV1;
 use crate::postgres::{canonical_digest, identity};
 use crate::{CandidateIntakeReceiptV1, QualificationOwnerError};
-
-pub const PROTECTED_REPLAY_BINDING_COUNT_V1: usize = 16;
-
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ProtectedReplayBindingFieldV1 {
-    ProtectedRobustnessPlan,
-    StrategyArtifact,
-    RequestedPitScope,
-    PitMarketSnapshot,
-    UniverseSelection,
-    SnapshotCorrectionRule,
-    ReplayConfiguration,
-    RuntimeKernel,
-    Simulator,
-    CostModel,
-    SlippageModel,
-    CapacityModel,
-    PurgeEmbargoDerivationPolicy,
-    PurgeEmbargoSourceWindowAndBoundaries,
-    FamilyMultiplicityCensusAttemptBasis,
-    BoundedAlternativesAndDecisionThresholds,
-}
-
-impl ProtectedReplayBindingFieldV1 {
-    pub const ALL: [Self; PROTECTED_REPLAY_BINDING_COUNT_V1] = [
-        Self::ProtectedRobustnessPlan,
-        Self::StrategyArtifact,
-        Self::RequestedPitScope,
-        Self::PitMarketSnapshot,
-        Self::UniverseSelection,
-        Self::SnapshotCorrectionRule,
-        Self::ReplayConfiguration,
-        Self::RuntimeKernel,
-        Self::Simulator,
-        Self::CostModel,
-        Self::SlippageModel,
-        Self::CapacityModel,
-        Self::PurgeEmbargoDerivationPolicy,
-        Self::PurgeEmbargoSourceWindowAndBoundaries,
-        Self::FamilyMultiplicityCensusAttemptBasis,
-        Self::BoundedAlternativesAndDecisionThresholds,
-    ];
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProtectedReplayBindingV1 {
-    pub field: ProtectedReplayBindingFieldV1,
-    pub identity: String,
-    pub digest: String,
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProtectedReplayRequestProposalV1 {
@@ -291,15 +245,6 @@ pub(crate) struct ProtectedReplayRequestReceiptV1 {
     request_digest: String,
     seal_digest: String,
     committed_at_epoch_ms: u64,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProtectedReplayRequestLocatorV1 {
-    request_identity: String,
-    request_digest: String,
-    receipt_identity: String,
-    seal_digest: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]

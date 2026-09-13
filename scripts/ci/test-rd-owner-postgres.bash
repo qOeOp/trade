@@ -52,6 +52,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|vibe_strategy_factory|iteration_decision_postgres::postgres_acceptance_tests::repair_decision_action_and_market_data_request_commit_retry_resolve_and_rejection_are_atomic'
   'vibe-strategy-factory|vibe_strategy_factory|iteration_decision_postgres::postgres_acceptance_tests::positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic'
   'vibe-qualification|vibe_qualification|postgres::postgres_tests::protected_replay_request_is_atomic_retry_exact_and_backtest_sealed'
+  'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_protected_result_is_atomic_request_bound_and_qualification_sealed'
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed'
 )
 readonly nextest_graph_args=(
@@ -76,8 +77,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 35 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all thirty-five ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 36 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all thirty-six ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -107,7 +108,8 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[31]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::repair_decision_action_and_market_data_request_commit_retry_resolve_and_rejection_are_atomic' ]] ||
     [[ "${rd_owner_postgres_tests[32]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic' ]] ||
     [[ "${rd_owner_postgres_tests[33]}" != *'|postgres::postgres_tests::protected_replay_request_is_atomic_retry_exact_and_backtest_sealed' ]] ||
-    [[ "${rd_owner_postgres_tests[34]}" != *'|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed' ]]; then
+    [[ "${rd_owner_postgres_tests[34]}" != *'|tests::postgres_protected_result_is_atomic_request_bound_and_qualification_sealed' ]] ||
+    [[ "${rd_owner_postgres_tests[35]}" != *'|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
     return 1
   fi
@@ -255,6 +257,7 @@ check_backtest_result_function_source() {
   python3 - \
     "$repository_root/product/rd-workbench/postgres-init/10-migrate-authority-custody.sh" \
     "$repository_root/crates/backtest_result_custody/src/lib.rs" \
+    "$repository_root/crates/backtest_result_custody/src/protected_replay.rs" \
     "$repository_root/scripts/ci/test-rd-owner-postgres.bash" << 'PY'
 from pathlib import Path
 import re
@@ -262,7 +265,8 @@ import sys
 
 migration = Path(sys.argv[1]).read_text(encoding="utf-8")
 rust = Path(sys.argv[2]).read_text(encoding="utf-8")
-test_script = Path(sys.argv[3]).read_text(encoding="utf-8")
+protected_rust = Path(sys.argv[3]).read_text(encoding="utf-8")
+test_script = Path(sys.argv[4]).read_text(encoding="utf-8")
 sql_match = re.search(
     r"CREATE OR REPLACE FUNCTION backtest_owner_api\.resolve_exploratory_replay_result_v2\("
     r".*?AS \$function\$(.*?)\$function\$;",
@@ -279,21 +283,34 @@ lock_sql_match = re.search(
 lock_rust_match = re.search(
     r'const AUTHORITY_LOCK_FUNCTION_SOURCE: &str =\s*"([^"]*)";', rust
 )
+protected_sql_match = re.search(
+    r"CREATE OR REPLACE FUNCTION backtest_owner_api\.resolve_protected_replay_result_v1\("
+    r".*?AS \$function\$(.*?)\$function\$;",
+    migration,
+    re.DOTALL,
+)
+protected_rust_match = re.search(
+    r'const FUNCTION_SOURCE: &str = r#"(.*?)"#;', protected_rust, re.DOTALL
+)
 if (
     sql_match is None
     or rust_match is None
     or lock_sql_match is None
     or lock_rust_match is None
+    or protected_sql_match is None
+    or protected_rust_match is None
 ):
     raise SystemExit("ERROR: Backtest Result locked-read source identity is unavailable")
 if sql_match.group(1) != rust_match.group(1):
     raise SystemExit("ERROR: Backtest Result locked-read source identity mismatch")
 if lock_sql_match.group(1) != lock_rust_match.group(1):
     raise SystemExit("ERROR: Backtest Result authority-lock source identity mismatch")
+if protected_sql_match.group(1) != protected_rust_match.group(1):
+    raise SystemExit("ERROR: protected Backtest Result locked-read source identity mismatch")
 required_isolation = (
     "CREATE SCHEMA IF NOT EXISTS backtest_authority_lock_api AUTHORIZATION postgres;",
     "misplaced Backtest authority-lock function provenance mismatch",
-    "GRANT USAGE ON SCHEMA backtest_owner_api TO rd_owner;",
+    "GRANT USAGE ON SCHEMA backtest_owner_api TO rd_owner, qualification_writer;",
     "namespace.nspname='backtest_authority_lock_api'",
     "pg_catalog.pg_class relation WHERE relation.relnamespace=namespace.oid",
     "pg_catalog.pg_default_acl default_acl WHERE default_acl.defaclnamespace=namespace.oid",
@@ -309,20 +326,23 @@ runtime_census = (
 if any(required not in rust for required in runtime_census):
     raise SystemExit("ERROR: Backtest Result runtime namespace census is unavailable")
 materializer_owner_api_routine_census = (
-    "pg_catalog.count(*) BETWEEN 1 AND 2",
+    "pg_catalog.count(*) BETWEEN 1 AND 3",
     "procedure.oid IN (",
     "backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text)",
     "backtest_owner_api.resolve_exploratory_replay_result_v3(text,text,text)",
+    "backtest_owner_api.resolve_protected_replay_result_v1(text,text,text)",
 )
 runtime_owner_api_routine_census = (
     "WITH expected_function AS (",
     "expected_sibling_function AS (",
+    "expected_protected_function AS (",
     "namespace.nspname='backtest_owner_api'",
     "procedure.proname=$2",
     "procedure.proname=$4",
     "procedure.proargtypes=ARRAY[",
     "procedure.oid=(SELECT oid FROM expected_function)",
     "SELECT oid FROM expected_sibling_function",
+    "SELECT oid FROM expected_protected_function",
 )
 if any(required not in migration for required in materializer_owner_api_routine_census) or any(
     required not in rust for required in runtime_owner_api_routine_census

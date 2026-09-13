@@ -18,14 +18,16 @@ pub use postgres::{
     admit_projection_in_transaction,
 };
 pub use protected_replay_request::{
-    PROTECTED_REPLAY_BINDING_COUNT_V1, ProtectedReplayBindingFieldV1, ProtectedReplayBindingV1,
-    ProtectedReplayRequestCommitV1, ProtectedReplayRequestLocatorV1,
-    ProtectedReplayRequestProposalV1,
+    ProtectedReplayRequestCommitV1, ProtectedReplayRequestProposalV1,
 };
 #[cfg(feature = "owner-recovery")]
 pub use recovery::{RecoveryReceiptV1, run_owner_recovery_cli};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+pub use vibe_backtest_owner_contracts::{
+    PROTECTED_REPLAY_BINDING_COUNT_V1, ProtectedReplayBindingFieldV1, ProtectedReplayBindingV1,
+    ProtectedReplayRequestLocatorV1,
+};
 
 /// Caller-safe locator for a directly resolved R&D Independence Basis.
 #[derive(Debug, Clone, PartialEq, Eq)]

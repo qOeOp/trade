@@ -26,6 +26,13 @@ pub mod native_replay;
 pub mod native_replay_evidence_custody;
 pub mod outcome_evidence;
 pub mod postgres;
+mod protected_replay;
+mod protected_replay_postgres;
+pub use protected_replay::SealedProtectedReplayResultV1;
+pub use protected_replay_postgres::{
+    ProtectedReplayResultCommitDispositionV1, ProtectedReplayResultCommitRecoveryV1,
+    ProtectedReplayResultReadbackV1,
+};
 /// Read-only view of an observation created by Backtest's internal composition boundary.
 ///
 /// The private supertrait prevents arbitrary external implementations.
@@ -797,8 +804,18 @@ mod tests {
         PostgresReplayResultCommitDispositionV2, PostgresReplayResultOwnerErrorV2,
         PostgresReplayResultOwnerV2, ReplayResultCommitRecoveryV2,
     };
+    use crate::protected_replay::{
+        ProtectedReplayResultDraftV1, commit_protected_owner_result_v1, test_observation,
+    };
     use vibe_backtest_owner_contracts::{
-        ContentIdentityV2, ReplayModelProfilesV2, ReplayWindowV2, VersionedIdentityV2,
+        ContentIdentityV2, ProtectedReplayBindingFieldV1, ProtectedReplayRequestDtoV1,
+        ProtectedReplayRequestLocatorV1, ProtectedResultOutcomeLocatorV1, ReplayModelProfilesV2,
+        ReplayWindowV2, VersionedIdentityV2,
+    };
+    use vibe_backtest_result_custody::{
+        ProtectedReplayResultLocatorV1,
+        resolve_protected_replay_result_for_qualification_in_transaction,
+        validate_protected_replay_result_writer_topology_v1,
     };
     use vibe_strategy_factory::{
         ExploratoryReplayResultLocatorV2, resolve_exploratory_replay_result_for_rd_in_transaction,
@@ -1134,6 +1151,232 @@ mod tests {
         .try_get(0)
         .expect("boolean ACL");
         assert!(acl);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the ordered canonical Owner PostgreSQL gate after protected request custody"]
+    async fn postgres_protected_result_is_atomic_request_bound_and_qualification_sealed() {
+        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+            .await
+            .expect("canonical disposable topology");
+        let mutation = database.mutation();
+        let backtest_pool = mutation
+            .pool(CanonicalOwnerTestRoleV1::BacktestOwner)
+            .clone();
+        let qualification_pool = mutation
+            .pool(CanonicalOwnerTestRoleV1::QualificationWriter)
+            .clone();
+        let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+        let owner = PostgresReplayResultOwnerV2::from_admitted_pool(backtest_pool.clone())
+            .await
+            .expect("Backtest writer topology");
+        let qualification_identity: (String, String, String, Option<String>, Option<i32>) =
+            sqlx::query_as(
+                "SELECT session_user,current_user,pg_catalog.current_database(),pg_catalog.inet_server_addr()::text,pg_catalog.inet_server_port()",
+            )
+            .fetch_one(&qualification_pool)
+            .await
+            .expect("Qualification connection identity");
+        let backtest_identity: (String, String, String, Option<String>, Option<i32>) =
+            sqlx::query_as(
+                "SELECT session_user,current_user,pg_catalog.current_database(),pg_catalog.inet_server_addr()::text,pg_catalog.inet_server_port()",
+            )
+            .fetch_one(&backtest_pool)
+            .await
+            .expect("Backtest connection identity");
+        assert_eq!(qualification_identity.0, "qualification_writer");
+        assert_eq!(qualification_identity.1, "qualification_writer");
+        assert_eq!(backtest_identity.0, "backtest_owner");
+        assert_eq!(backtest_identity.1, "backtest_owner");
+        assert_eq!(qualification_identity.2, backtest_identity.2);
+        assert_eq!(qualification_identity.3, backtest_identity.3);
+        assert_eq!(qualification_identity.4, backtest_identity.4);
+        let mut topology_transaction = backtest_pool
+            .begin()
+            .await
+            .expect("protected topology transaction");
+        validate_protected_replay_result_writer_topology_v1(&mut topology_transaction)
+            .await
+            .expect("protected writer topology");
+        topology_transaction
+            .rollback()
+            .await
+            .expect("protected topology rollback");
+
+        let request_row = sqlx::query(
+            "SELECT request.canonical_request_bytes,receipt.receipt_identity,receipt.seal_digest
+               FROM public.qualification_protected_replay_requests_v1 request
+               JOIN public.qualification_protected_replay_request_receipts_v1 receipt USING(request_identity)
+              ORDER BY request.committed_at_epoch_ms DESC,request.request_identity DESC LIMIT 1",
+        )
+        .fetch_one(&qualification_pool)
+        .await
+        .expect("prior ordered Qualification protected request");
+        let request_bytes: Vec<u8> = request_row
+            .try_get("canonical_request_bytes")
+            .expect("request bytes");
+        let request = ProtectedReplayRequestDtoV1::from_canonical_bytes(&request_bytes)
+            .expect("canonical protected request DTO");
+        let request_locator = ProtectedReplayRequestLocatorV1 {
+            request_identity: request.request_identity.clone(),
+            request_digest: request.request_digest.clone(),
+            receipt_identity: request_row
+                .try_get("receipt_identity")
+                .expect("request receipt identity"),
+            seal_digest: request_row
+                .try_get("seal_digest")
+                .expect("request seal digest"),
+        };
+        let attempt_identity = "protected-backtest-attempt-v1";
+        let exact_observations = ProtectedReplayBindingFieldV1::ALL
+            .into_iter()
+            .map(|field| test_observation(&request, attempt_identity, field, true))
+            .collect();
+        let result = commit_protected_owner_result_v1(
+            &request,
+            ProtectedReplayResultDraftV1 {
+                request_receipt_identity: request_locator.receipt_identity.clone(),
+                request_seal_digest: request_locator.seal_digest.clone(),
+                attempt_identity: attempt_identity.to_string(),
+                terminal: ReplayTerminalV2::TerminalResult,
+                observations: exact_observations,
+                diagnostic_category_set: vec![DiagnosticCategoryV2::NoExecutionDefect],
+                protected_outcome: Some(ProtectedResultOutcomeLocatorV1 {
+                    reference: identity("protected-backtest-outcome-v1"),
+                    digest: digest('e'),
+                }),
+            },
+        )
+        .expect("Backtest-sealed protected Result");
+        let result_identity = result.result_identity().to_string();
+        let result_bytes = result.to_canonical_bytes().expect("canonical Result bytes");
+
+        let first = match owner
+            .commit_request_bound_protected_replay_result_v1(
+                &qualification_pool,
+                &request_locator,
+                &result,
+            )
+            .await
+            .expect("request-bound protected Result commit")
+        {
+            ProtectedReplayResultCommitDispositionV1::Committed(readback) => *readback,
+            ProtectedReplayResultCommitDispositionV1::SubmittedOrUnknown(_) => {
+                panic!("test PostgreSQL must acknowledge protected Result commit")
+            }
+        };
+        let retry = match owner
+            .commit_request_bound_protected_replay_result_v1(
+                &qualification_pool,
+                &request_locator,
+                &result,
+            )
+            .await
+            .expect("byte-identical protected Result retry")
+        {
+            ProtectedReplayResultCommitDispositionV1::Committed(readback) => *readback,
+            ProtectedReplayResultCommitDispositionV1::SubmittedOrUnknown(_) => {
+                panic!("test PostgreSQL must acknowledge protected Result retry")
+            }
+        };
+        assert_eq!(first.result_canonical_bytes(), result_bytes);
+        assert_eq!(retry, first);
+        let counts: (i64, i64, i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM public.backtest_protected_replay_results_v1 WHERE result_identity=$1),(SELECT count(*) FROM public.backtest_protected_replay_result_receipts_v1 WHERE result_identity=$1),(SELECT count(*) FROM public.backtest_protected_replay_result_outbox_v1 WHERE result_identity=$1)",
+        )
+        .bind(&result_identity)
+        .fetch_one(&backtest_pool)
+        .await
+        .expect("protected aggregate counts");
+        assert_eq!(counts, (1, 1, 1));
+
+        let conflicting_observations = ProtectedReplayBindingFieldV1::ALL
+            .into_iter()
+            .map(|field| {
+                test_observation(
+                    &request,
+                    attempt_identity,
+                    field,
+                    field != ProtectedReplayBindingFieldV1::StrategyArtifact,
+                )
+            })
+            .collect();
+        let conflicting = commit_protected_owner_result_v1(
+            &request,
+            ProtectedReplayResultDraftV1 {
+                request_receipt_identity: request_locator.receipt_identity.clone(),
+                request_seal_digest: request_locator.seal_digest.clone(),
+                attempt_identity: attempt_identity.to_string(),
+                terminal: ReplayTerminalV2::InvalidReplayEvidence,
+                observations: conflicting_observations,
+                diagnostic_category_set: vec![DiagnosticCategoryV2::Artifact],
+                protected_outcome: None,
+            },
+        )
+        .expect("different Result meaning for the same attempt");
+        assert!(matches!(
+            owner
+                .commit_request_bound_protected_replay_result_v1(
+                    &qualification_pool,
+                    &request_locator,
+                    &conflicting,
+                )
+                .await,
+            Err(PostgresReplayResultOwnerErrorV2::ConflictingResult)
+        ));
+
+        let mut qualification_transaction = qualification_pool
+            .begin()
+            .await
+            .expect("Qualification read transaction");
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *qualification_transaction)
+            .await
+            .expect("serializable Qualification cut");
+        let locked = resolve_protected_replay_result_for_qualification_in_transaction(
+            &mut qualification_transaction,
+            ProtectedReplayResultLocatorV1 {
+                result_identity: &result_identity,
+                request_identity: &request.request_identity,
+                attempt_identity,
+            },
+        )
+        .await
+        .expect("Qualification sealed Result read")
+        .expect("complete protected Result aggregate");
+        assert_eq!(locked.result_canonical_bytes(), result_bytes);
+        assert_eq!(
+            locked.receipt_canonical_bytes(),
+            first.receipt_canonical_bytes()
+        );
+        assert_eq!(
+            locked.outbox_canonical_bytes(),
+            first.outbox_canonical_bytes()
+        );
+        qualification_transaction
+            .rollback()
+            .await
+            .expect("release Qualification locks");
+
+        for (pool, sql) in [
+            (
+                &qualification_pool,
+                "SELECT result_identity FROM public.backtest_protected_replay_results_v1 LIMIT 1",
+            ),
+            (
+                rd_pool,
+                "SELECT backtest_owner_api.resolve_protected_replay_result_v1('a','b','c')",
+            ),
+        ] {
+            let error = sqlx::query(sql)
+                .execute(pool)
+                .await
+                .expect_err("protected raw custody stays sealed from this principal");
+            assert_eq!(
+                error.as_database_error().and_then(|value| value.code()),
+                Some(std::borrow::Cow::Borrowed("42501"))
+            );
+        }
     }
 
     async fn assert_rd_result_fault_fails_closed() {
