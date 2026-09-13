@@ -13,6 +13,14 @@ use vibe_backtest_owner_contracts::{
     ReplayNamespaceV2, ReplayResultDtoV2, ReplayTerminalV2,
 };
 
+mod protected_replay;
+pub use protected_replay::{
+    LockedProtectedReplayResultV1, ProtectedReplayResultLocatorV1,
+    resolve_protected_replay_result_for_qualification_in_transaction,
+    validate_protected_replay_result_reader_topology_v1,
+    validate_protected_replay_result_writer_topology_v1,
+};
+
 const RESOLVE_FUNCTION_NAME: &str = "resolve_exploratory_replay_result_v2";
 const RESOLVE_V3_FUNCTION_NAME: &str = "resolve_exploratory_replay_result_v3";
 const AUTHORITY_LOCK_FUNCTION: &str = "backtest_authority_lock_api.lock_authority_catalogs_v1()";
@@ -1039,8 +1047,8 @@ async fn acquire_topology_fence(
              AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[]
              AND procedure.prosrc=$1
              AND (SELECT pg_catalog.pg_get_userbyid(namespace.nspowner)='postgres'
-                    AND (SELECT pg_catalog.count(*)=2 AND pg_catalog.bool_and(
-                           role.rolname IN ('rd_owner','backtest_owner')
+                    AND (SELECT pg_catalog.count(*)=3 AND pg_catalog.bool_and(
+                           role.rolname IN ('rd_owner','backtest_owner','qualification_writer')
                            AND acl.privilege_type='USAGE' AND NOT acl.is_grantable
                            AND pg_catalog.pg_get_userbyid(acl.grantor)='postgres'
                          )
@@ -1068,8 +1076,8 @@ async fn acquire_topology_fence(
                     FROM pg_catalog.pg_proc sibling
                     JOIN pg_catalog.pg_namespace namespace ON namespace.oid=sibling.pronamespace
                    WHERE namespace.nspname='backtest_authority_lock_api')
-             AND (SELECT pg_catalog.count(*)=2 AND pg_catalog.bool_and(
-                    role.rolname IN ('rd_owner','backtest_owner')
+             AND (SELECT pg_catalog.count(*)=3 AND pg_catalog.bool_and(
+                    role.rolname IN ('rd_owner','backtest_owner','qualification_writer')
                     AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable
                     AND pg_catalog.pg_get_userbyid(acl.grantor)='postgres'
                   )
@@ -1124,14 +1132,27 @@ async fn validate_topology(
                    'pg_catalog.text'::pg_catalog.regtype,
                    'pg_catalog.text'::pg_catalog.regtype
                  ]::pg_catalog.oidvector
+        ), expected_protected_function AS (
+          SELECT procedure.oid
+            FROM pg_catalog.pg_proc procedure
+            JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
+           WHERE namespace.nspname='backtest_owner_api'
+             AND procedure.proname='resolve_protected_replay_result_v1'
+             AND procedure.proargtypes=ARRAY[
+                   'pg_catalog.text'::pg_catalog.regtype,
+                   'pg_catalog.text'::pg_catalog.regtype,
+                   'pg_catalog.text'::pg_catalog.regtype
+                 ]::pg_catalog.oidvector
         )
         SELECT session_user=$3 AND current_user=$3
         AND (SELECT pg_catalog.pg_get_userbyid(namespace.nspowner)='backtest_custodian'
                FROM pg_catalog.pg_namespace namespace WHERE namespace.nspname='backtest_owner_api')
-        AND (SELECT pg_catalog.count(*)=2 AND pg_catalog.bool_and(procedure.oid IN (
+        AND (SELECT pg_catalog.count(*)=3 AND pg_catalog.bool_and(procedure.oid IN (
                   SELECT oid FROM expected_function
                   UNION ALL
                   SELECT oid FROM expected_sibling_function
+                  UNION ALL
+                  SELECT oid FROM expected_protected_function
                 ))
                FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
               WHERE namespace.nspname='backtest_owner_api')
@@ -1140,11 +1161,12 @@ async fn validate_topology(
               WHERE namespace.nspname='public' AND relation.relname IN ('backtest_replay_results_v2','backtest_replay_result_receipts_v1','backtest_replay_result_outbox_v1'))
         AND (SELECT pg_catalog.pg_get_userbyid(procedure.proowner)='backtest_custodian' AND procedure.prosecdef AND procedure.proisstrict AND procedure.provolatile='v' AND procedure.proparallel='u' AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[] AND procedure.prosrc=$1
                FROM pg_catalog.pg_proc procedure WHERE procedure.oid=(SELECT oid FROM expected_function))
-        AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.roleid IN (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN ('backtest_custodian','backtest_owner','rd_owner')) OR membership.member IN (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN ('backtest_custodian','backtest_owner','rd_owner')))
+        AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.roleid IN (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN ('backtest_custodian','backtest_owner','rd_owner','qualification_writer')) OR membership.member IN (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN ('backtest_custodian','backtest_owner','rd_owner','qualification_writer')))
         AND (SELECT NOT role.rolcanlogin AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls FROM pg_catalog.pg_roles role WHERE role.rolname='backtest_custodian')
         AND (SELECT role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls FROM pg_catalog.pg_roles role WHERE role.rolname='backtest_owner')
         AND (SELECT role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls FROM pg_catalog.pg_roles role WHERE role.rolname='rd_owner')
-        AND (SELECT pg_catalog.count(*)=1 AND pg_catalog.bool_and(role.rolname='rd_owner' AND acl.privilege_type='USAGE' AND NOT acl.is_grantable AND pg_catalog.pg_get_userbyid(acl.grantor)='backtest_custodian')
+        AND (SELECT role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls FROM pg_catalog.pg_roles role WHERE role.rolname='qualification_writer')
+        AND (SELECT pg_catalog.count(*)=2 AND pg_catalog.bool_and(role.rolname IN ('rd_owner','qualification_writer') AND acl.privilege_type='USAGE' AND NOT acl.is_grantable AND pg_catalog.pg_get_userbyid(acl.grantor)='backtest_custodian')
                FROM pg_catalog.pg_namespace namespace CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(namespace.nspacl,pg_catalog.acldefault('n',namespace.nspowner))) acl LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
               WHERE namespace.nspname='backtest_owner_api' AND acl.grantee<>namespace.nspowner)
         AND (SELECT pg_catalog.count(*)=1 AND pg_catalog.bool_and(role.rolname='rd_owner' AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable AND pg_catalog.pg_get_userbyid(acl.grantor)='backtest_custodian')

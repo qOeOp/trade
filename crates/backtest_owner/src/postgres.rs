@@ -364,7 +364,7 @@ pub enum PostgresReplayResultOwnerErrorV2 {
 /// The Backtest-owned writer over an independently admitted PostgreSQL topology.
 #[derive(Debug, Clone)]
 pub struct PostgresReplayResultOwnerV2 {
-    pool: PgPool,
+    pub(crate) pool: PgPool,
 }
 
 impl PostgresReplayResultOwnerV2 {
