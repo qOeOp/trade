@@ -53,6 +53,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|vibe_strategy_factory|iteration_decision_postgres::postgres_acceptance_tests::positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic'
   'vibe-qualification|vibe_qualification|postgres::postgres_tests::protected_replay_request_is_atomic_retry_exact_and_backtest_sealed'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_protected_result_is_atomic_request_bound_and_qualification_sealed'
+  'vibe-qualification|vibe_qualification|postgres::postgres_tests::negative_protected_attempt_closure_is_atomic_retry_exact_and_eligibility_absent'
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed'
 )
 readonly nextest_graph_args=(
@@ -77,8 +78,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 36 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all thirty-six ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 37 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all thirty-seven ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -109,7 +110,8 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[32]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic' ]] ||
     [[ "${rd_owner_postgres_tests[33]}" != *'|postgres::postgres_tests::protected_replay_request_is_atomic_retry_exact_and_backtest_sealed' ]] ||
     [[ "${rd_owner_postgres_tests[34]}" != *'|tests::postgres_protected_result_is_atomic_request_bound_and_qualification_sealed' ]] ||
-    [[ "${rd_owner_postgres_tests[35]}" != *'|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed' ]]; then
+    [[ "${rd_owner_postgres_tests[35]}" != *'|postgres::postgres_tests::negative_protected_attempt_closure_is_atomic_retry_exact_and_eligibility_absent' ]] ||
+    [[ "${rd_owner_postgres_tests[36]}" != *'|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
     return 1
   fi
@@ -970,6 +972,36 @@ FROM unnest(ARRAY[
 ]) AS role_name
 ON CONFLICT (test_role) DO UPDATE
 SET marker_identity=EXCLUDED.marker_identity, database_name=EXCLUDED.database_name;
+
+CREATE FUNCTION vibe_test_admin.remove_qualification_holdout_treatment_registration_v1(
+  expected_marker_identity text,
+  requested_reservation_identity text
+) RETURNS void LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $function$
+BEGIN
+  IF session_user<>'qualification_writer' OR current_user<>'postgres' THEN
+    RAISE EXCEPTION 'Qualification legacy-upgrade fixture caller mismatch' USING ERRCODE='42501';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM vibe_test_admin.dedicated_postgres_test_instance_v1 marker
+     WHERE marker.marker_identity=expected_marker_identity
+       AND marker.database_name=pg_catalog.current_database()
+       AND marker.test_role='qualification_writer'
+  ) THEN
+    RAISE EXCEPTION 'Qualification legacy-upgrade fixture marker mismatch' USING ERRCODE='55000';
+  END IF;
+  DELETE FROM public.qualification_holdout_treatment_registrations_v1 registration
+   WHERE registration.reservation_identity=requested_reservation_identity;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Qualification treatment registration fixture unavailable' USING ERRCODE='55000';
+  END IF;
+END
+$function$;
+ALTER FUNCTION vibe_test_admin.remove_qualification_holdout_treatment_registration_v1(text,text) OWNER TO postgres;
+REVOKE ALL ON FUNCTION vibe_test_admin.remove_qualification_holdout_treatment_registration_v1(text,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION vibe_test_admin.remove_qualification_holdout_treatment_registration_v1(text,text)
+  TO qualification_writer;
 
 CREATE FUNCTION vibe_test_admin.inject_backtest_result_acl_with_fence_v1(
   expected_marker_identity text
@@ -2605,6 +2637,26 @@ BEGIN
     END LOOP;
   END LOOP;
 
+  FOREACH qualification_table IN ARRAY ARRAY[
+    'qualification_protected_attempt_dispositions_v1',
+    'qualification_holdout_closures_v1',
+    'qualification_protected_attempt_disposition_receipts_v1'
+  ] LOOP
+    IF (SELECT tableowner FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = qualification_table) <> 'qualification_owner' THEN
+      RAISE EXCEPTION 'Qualification append-only table custody mismatch for %', qualification_table;
+    END IF;
+    FOREACH privilege_name IN ARRAY ARRAY['SELECT', 'INSERT'] LOOP
+      IF NOT pg_catalog.has_table_privilege('qualification_writer', pg_catalog.format('public.%I', qualification_table), privilege_name) THEN
+        RAISE EXCEPTION 'qualification_writer lacks % on %', privilege_name, qualification_table;
+      END IF;
+    END LOOP;
+    FOREACH forbidden_privilege IN ARRAY ARRAY['UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER'] LOOP
+      IF pg_catalog.has_table_privilege('qualification_writer', pg_catalog.format('public.%I', qualification_table), forbidden_privilege) THEN
+        RAISE EXCEPTION 'qualification_writer has forbidden append-only % on %', forbidden_privilege, qualification_table;
+      END IF;
+    END LOOP;
+  END LOOP;
+
   FOREACH role_name IN ARRAY ARRAY[
     'rd_owner',
     'backtest_owner',
@@ -2619,6 +2671,9 @@ BEGIN
       'qualification_holdout_reservations_v1',
       'qualification_protected_replay_requests_v1',
       'qualification_protected_replay_request_receipts_v1',
+      'qualification_protected_attempt_dispositions_v1',
+      'qualification_holdout_closures_v1',
+      'qualification_protected_attempt_disposition_receipts_v1',
       'qualification_owner_outbox_v1'
     ] LOOP
       FOREACH forbidden_privilege IN ARRAY ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER'] LOOP

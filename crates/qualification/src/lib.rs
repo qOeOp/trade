@@ -5,6 +5,7 @@
 
 mod candidate_intake;
 mod postgres;
+mod protected_attempt_disposition;
 mod protected_replay_request;
 
 #[cfg(feature = "owner-recovery")]
@@ -17,6 +18,10 @@ pub use postgres::{
     PostgresQualificationOwnerV1, admit_historical_projection_in_transaction,
     admit_projection_in_transaction,
 };
+pub use protected_attempt_disposition::{
+    HoldoutClosureDispositionV1, ProtectedAttemptDispositionCommitV1,
+    ProtectedAttemptDispositionStatusV1,
+};
 pub use protected_replay_request::{
     ProtectedReplayRequestCommitV1, ProtectedReplayRequestProposalV1,
 };
@@ -28,6 +33,7 @@ pub use vibe_backtest_owner_contracts::{
     PROTECTED_REPLAY_BINDING_COUNT_V1, ProtectedReplayBindingFieldV1, ProtectedReplayBindingV1,
     ProtectedReplayRequestLocatorV1,
 };
+pub use vibe_backtest_result_custody::ProtectedReplayResultLocatorV1;
 
 /// Caller-safe locator for a directly resolved R&D Independence Basis.
 #[derive(Debug, Clone, PartialEq, Eq)]
