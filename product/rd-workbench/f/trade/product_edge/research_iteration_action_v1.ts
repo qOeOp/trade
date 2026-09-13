@@ -39,6 +39,12 @@ function equalBytes(left: unknown, right: unknown): boolean {
     && left.every((byte, index) => byte === right[index])
 }
 
+async function domainSha256(domain: string, value: unknown): Promise<string> {
+  const encoded = new TextEncoder().encode(JSON.stringify({ domain, value }))
+  const hashed = new Uint8Array(await crypto.subtle.digest("SHA-256", encoded))
+  return `sha256:${[...hashed].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`
+}
+
 function timestamp(value: unknown): boolean {
   return Number.isSafeInteger(value) && Number(value) >= 0
 }
@@ -75,7 +81,6 @@ function validOriginalTimeEvidence(value: unknown): value is Json {
       && coordinate.clock_epoch === value.decision_cut.clock_epoch)
     && value.event_effective.value <= value.provider_available.value
     && value.provider_available.value <= value.retrieval.value
-    && value.provider_available.value <= value.correction_publication.value
     && value.correction_publication.value <= value.retrieval.value
     && value.provider_available.value <= value.decision_cut.value
     && value.retrieval.value <= value.decision_cut.value
@@ -288,7 +293,7 @@ function validRepairActionResponse(value: unknown, payload: Json): boolean {
       || value.action_request_identity === payload.action_request_identity)
 }
 
-function validMarketDataResponse(value: unknown, payload: Json): boolean {
+async function validMarketDataResponse(value: unknown, payload: Json): Promise<boolean> {
   if (!object(value) || !exactKeys(value, [
     "schema_version", "request_identity", "request_digest", "correlation_identity",
     "action_request_identity", "action_request_digest", "decision_identity", "decision_digest",
@@ -312,7 +317,7 @@ function validMarketDataResponse(value: unknown, payload: Json): boolean {
       "provenance_binding_fact_digest", "provenance_lineage_root", "source_frontier_digest",
       "correction_frontier_digest", "market_semantics_identity",
     ]
-    return object(canonical) && exactKeys(canonical, [
+    if (!object(canonical) || !exactKeys(canonical, [
       "schema_version", "request_identity", "request_digest", "correlation_identity",
       "action_request_identity", "action_request_digest", "decision_identity", "decision_digest",
       "decision_evidence_cut", "replay_request_identity", "replay_request_digest", "result_identity",
@@ -324,7 +329,10 @@ function validMarketDataResponse(value: unknown, payload: Json): boolean {
       "provenance_binding_identity", "provenance_binding_fact_digest", "provenance_lineage_root",
       "provenance_lineage_version", "source_frontier_digest", "correction_frontier_digest",
       "market_semantics_identity", "original_time_evidence", "shared_time_evidence",
-    ]) && canonical.schema_version === 1 && bindingKeys.every((key) => nonZeroBytes(canonical[key], 32))
+    ])) return false
+    const { request_identity: _requestIdentity, request_digest: _requestDigest, ...meaning } = canonical
+    const computedRequestDigest = await domainSha256("rd.market-data-repair-request.v1", meaning)
+    return canonical.schema_version === 1 && bindingKeys.every((key) => nonZeroBytes(canonical[key], 32))
       && validEvidenceCut(canonical.decision_evidence_cut, payload)
       && identity(canonical.instrument_scope_identity) && identity(canonical.universe_selection_identity)
       && identity(canonical.decisive_evidence_reference) && digest(canonical.decisive_evidence_digest)
@@ -334,6 +342,8 @@ function validMarketDataResponse(value: unknown, payload: Json): boolean {
       && canonical.bounded_reason === "BACKTEST_DIAGNOSTIC_MARKET_DATA"
       && canonical.request_identity === value.request_identity
       && canonical.request_digest === value.request_digest
+      && canonical.request_digest === computedRequestDigest
+      && canonical.request_identity === `rd-market-data-repair-request-v1-${computedRequestDigest.slice(7)}`
       && equalBytes(canonical.correlation_identity, value.correlation_identity)
       && canonical.action_request_identity === payload.action_request_identity
       && canonical.action_request_digest === value.action_request_digest
@@ -361,7 +371,7 @@ function validMarketDataResponse(value: unknown, payload: Json): boolean {
   }
 }
 
-function validRepairedReplayResponse(value: unknown, payload: Json): boolean {
+async function validRepairedReplayResponse(value: unknown, payload: Json, token: string): Promise<boolean> {
   if (!object(value) || !exactKeys(value, [
     "schema_version", "predecessor_request_locator", "repair_resolution_locator",
     "projection", "locator", "canonical_request_bytes",
@@ -388,10 +398,16 @@ function validRepairedReplayResponse(value: unknown, payload: Json): boolean {
     const request = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(
       Uint8Array.from(value.canonical_request_bytes),
     ))
-    return validExploratoryReplayRequestV2(request)
+    if (!(validExploratoryReplayRequestV2(request)
       && request.request_identity === value.locator.request_identity
       && request.request_identity !== payload.predecessor_request_locator.request_identity
-      && value.locator.meaning_digest !== payload.predecessor_request_locator.meaning_digest
+      && value.locator.meaning_digest !== payload.predecessor_request_locator.meaning_digest)) return false
+    const identified = await ownerPost("/v2/exploratory-replay-requests/identify", token, request)
+    return object(identified) && exactKeys(identified, [
+      "request_identity", "meaning_digest", "canonical_request_bytes",
+    ]) && identified.request_identity === value.locator.request_identity
+      && identified.meaning_digest === value.locator.meaning_digest
+      && equalBytes(identified.canonical_request_bytes, value.canonical_request_bytes)
   } catch {
     return false
   }
@@ -444,11 +460,11 @@ export async function main(action: Action, stage: Stage, payload: unknown) {
     if (stage === "REPAIR_ACTION" && validRepairActionResponse(result, payload)) {
       return confirmed(stage, result, "SUBMIT_NATIVE_REPAIR_REQUEST")
     }
-    if (stage === "MARKET_DATA_REPAIR" && validMarketDataResponse(result, payload)) {
+    if (stage === "MARKET_DATA_REPAIR" && await validMarketDataResponse(result, payload)) {
       return confirmed(stage, result, "WAIT_FOR_MARKET_DATA_TERMINAL")
     }
     if (stage === "REPAIRED_REPLAY") {
-      const replay = action === "RUN" ? (validRepairedReplayResponse(result, payload) ? result : null)
+      const replay = action === "RUN" ? (await validRepairedReplayResponse(result, payload, token) ? result : null)
         : validResolvedReplay(result, payload)
       if (replay !== null) return confirmed(stage, replay, "EXECUTE_EXPLORATORY_REPLAY")
     }

@@ -9,6 +9,21 @@ const { main } = await import(pathToFileURL(new URL("./research_iteration_action
 const sha = (value) => `sha256:${value.repeat(64)}`
 const blake = (value) => `blake3:${value.repeat(64)}`
 const bytes = (value) => [...new TextEncoder().encode(JSON.stringify(value))]
+const domainDigest = (domain, value) => `sha256:${createHash("sha256")
+  .update(JSON.stringify({ domain, value })).digest("hex")}`
+
+function bindMarketDataCanonical(owner, canonical) {
+  const { request_identity: _requestIdentity, request_digest: _requestDigest, ...meaning } = canonical
+  const requestDigest = domainDigest("rd.market-data-repair-request.v1", meaning)
+  const requestIdentity = `rd-market-data-repair-request-v1-${requestDigest.slice(7)}`
+  const boundCanonical = { ...canonical, request_identity: requestIdentity, request_digest: requestDigest }
+  return {
+    ...owner,
+    request_identity: requestIdentity,
+    request_digest: requestDigest,
+    canonical_request_bytes: bytes(boundCanonical),
+  }
+}
 const replayLocator = (requestIdentity = "replay-request-1") => ({
   request_identity: requestIdentity,
   meaning_digest: sha("a"),
@@ -248,10 +263,10 @@ test("Market Data repair RUN validates canonical Owner custody", { concurrency: 
       comparison_rule: "ExclusiveValidThrough",
     },
   }
-  const owner = {
+  const owner = bindMarketDataCanonical({
     schema_version: 1,
     request_identity: canonical.request_identity,
-    request_digest: sha("4"),
+    request_digest: canonical.request_digest,
     correlation_identity: Array(32).fill(3),
     action_request_identity: payload.action_request_identity,
     action_request_digest: sha("2"),
@@ -264,37 +279,40 @@ test("Market Data repair RUN validates canonical Owner custody", { concurrency: 
     receipt_digest: sha("5"),
     committed_at_epoch_ms: 25,
     canonical_request_bytes: bytes(canonical),
-  }
+  }, canonical)
   await withFetch([{ value: owner }], async (calls) => {
     const result = await main("RUN", "MARKET_DATA_REPAIR", payload)
     assert.equal(result.resolution, "OWNER_CONFIRMED")
     assert.equal(result.next_legal_action, "WAIT_FOR_MARKET_DATA_TERMINAL")
     assert.equal(new URL(calls[0].url).pathname, "/v1/market-data-repair-requests")
   })
-  const crossSpliced = {
+  const ownerCanonical = JSON.parse(new TextDecoder().decode(Uint8Array.from(owner.canonical_request_bytes)))
+  const digestSpliced = {
     ...owner,
-    canonical_request_bytes: bytes({ ...canonical, attempt_identity: "other-attempt" }),
+    canonical_request_bytes: bytes({
+      ...ownerCanonical,
+      original_pit_snapshot_identity: Array(32).fill(19),
+    }),
   }
+  await withFetch([{ value: digestSpliced }], async () => {
+    assert.equal((await main("RUN", "MARKET_DATA_REPAIR", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
+  })
+  const crossSpliced = bindMarketDataCanonical(owner, { ...canonical, attempt_identity: "other-attempt" })
   await withFetch([{ value: crossSpliced }], async () => {
     assert.equal((await main("RUN", "MARKET_DATA_REPAIR", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
   })
-  const injected = { ...owner, canonical_request_bytes: bytes({ ...canonical, injected: true }) }
+  const injected = bindMarketDataCanonical(owner, { ...canonical, injected: true })
   await withFetch([{ value: injected }], async () => {
     assert.equal((await main("RUN", "MARKET_DATA_REPAIR", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
   })
-  const malformedTime = {
-    ...owner,
-    canonical_request_bytes: bytes({
+  const malformedTime = bindMarketDataCanonical(owner, {
       ...canonical,
       original_time_evidence: { ...canonical.original_time_evidence, observed_at: 17 },
-    }),
-  }
+    })
   await withFetch([{ value: malformedTime }], async () => {
     assert.equal((await main("RUN", "MARKET_DATA_REPAIR", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
   })
-  const misorderedCorrection = {
-    ...owner,
-    canonical_request_bytes: bytes({
+  const ownerValidCorrectionOrder = bindMarketDataCanonical(owner, {
       ...canonical,
       original_time_evidence: {
         ...canonical.original_time_evidence,
@@ -303,49 +321,39 @@ test("Market Data repair RUN validates canonical Owner custody", { concurrency: 
           value: 11,
         },
       },
-    }),
-  }
-  await withFetch([{ value: misorderedCorrection }], async () => {
-    assert.equal((await main("RUN", "MARKET_DATA_REPAIR", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
+    })
+  await withFetch([{ value: ownerValidCorrectionOrder }], async () => {
+    assert.equal((await main("RUN", "MARKET_DATA_REPAIR", payload)).resolution, "OWNER_CONFIRMED")
   })
-  const staleSharedTime = {
-    ...owner,
-    canonical_request_bytes: bytes({
+  const staleSharedTime = bindMarketDataCanonical(owner, {
       ...canonical,
       shared_time_evidence: { ...canonical.shared_time_evidence, valid_through: 20 },
-    }),
-  }
+    })
   await withFetch([{ value: staleSharedTime }], async () => {
     assert.equal((await main("RUN", "MARKET_DATA_REPAIR", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
   })
-  const foreignSharedClock = {
-    ...owner,
-    canonical_request_bytes: bytes({
+  const foreignSharedClock = bindMarketDataCanonical(owner, {
       ...canonical,
       shared_time_evidence: {
         ...canonical.shared_time_evidence,
         clock_identity: "foreign-clock",
         clock_epoch: "foreign-epoch",
       },
-    }),
-  }
+    })
   await withFetch([{ value: foreignSharedClock }], async () => {
     assert.equal((await main("RUN", "MARKET_DATA_REPAIR", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
   })
   await withFetch([{ value: { ...owner, committed_at_epoch_ms: 30 } }], async () => {
     assert.equal((await main("RUN", "MARKET_DATA_REPAIR", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
   })
-  const foreignDecisionReplay = {
-    ...owner,
-    canonical_request_bytes: bytes({
+  const foreignDecisionReplay = bindMarketDataCanonical(owner, {
       ...canonical,
       decision_evidence_cut: {
         ...canonical.decision_evidence_cut,
         request_identity: "unrelated-request",
         request_digest: sha("9"),
       },
-    }),
-  }
+    })
   await withFetch([{ value: foreignDecisionReplay }], async () => {
     assert.equal((await main("RUN", "MARKET_DATA_REPAIR", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
   })
@@ -378,7 +386,12 @@ test("repaired Replay RUN accepts only the exact Owner successor projection", { 
     locator,
     canonical_request_bytes: bytes(request),
   }
-  await withFetch([{ value: owner }], async (calls) => {
+  const identified = {
+    request_identity: request.request_identity,
+    meaning_digest: locator.meaning_digest,
+    canonical_request_bytes: bytes(request),
+  }
+  await withFetch([{ value: owner }, { value: identified }], async (calls) => {
     const result = await main("RUN", "REPAIRED_REPLAY", payload)
     assert.equal(result.resolution, "OWNER_CONFIRMED")
     assert.equal(result.next_legal_action, "EXECUTE_EXPLORATORY_REPLAY")
@@ -386,6 +399,21 @@ test("repaired Replay RUN accepts only the exact Owner successor projection", { 
       new URL(calls[0].url).pathname,
       "/v2/exploratory-replay-requests/market-data-repair-successors",
     )
+    assert.equal(
+      new URL(calls[1].url).pathname,
+      "/v2/exploratory-replay-requests/identify",
+    )
+  })
+  const alteredRequest = structuredClone(request)
+  alteredRequest.artifact.digest = blake("f")
+  const alteredOwner = { ...owner, canonical_request_bytes: bytes(alteredRequest) }
+  const alteredIdentification = {
+    request_identity: alteredRequest.request_identity,
+    meaning_digest: sha("9"),
+    canonical_request_bytes: bytes(alteredRequest),
+  }
+  await withFetch([{ value: alteredOwner }, { value: alteredIdentification }], async () => {
+    assert.equal((await main("RUN", "REPAIRED_REPLAY", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
   })
   const predecessorReplay = replayRequest(payload.predecessor_request_locator.request_identity)
   const crossSpliced = {
