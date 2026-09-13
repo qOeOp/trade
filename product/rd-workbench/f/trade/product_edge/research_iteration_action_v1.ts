@@ -346,16 +346,7 @@ async function validMarketDataResponse(value: unknown, payload: Json): Promise<b
       Uint8Array.from(value.canonical_request_bytes),
     ))
     if (!object(canonical)) return false
-    const canonicalEncoding = [...new TextEncoder().encode(JSON.stringify(canonical))]
-    const bindingKeys = [
-      "correlation_identity", "original_pit_request_identity", "original_pit_request_digest",
-      "original_pit_snapshot_identity", "original_pit_proof_digest", "instrument_scope_digest",
-      "universe_selection_digest", "instrument_master_digest", "provenance_binding_identity",
-      "provenance_binding_fact_digest", "provenance_lineage_root", "source_frontier_digest",
-      "correction_frontier_digest", "market_semantics_identity",
-    ]
-    if (!equalBytes(value.canonical_request_bytes, canonicalEncoding)
-      || !exactKeys(canonical, [
+    const canonicalKeys = [
       "schema_version", "request_identity", "request_digest", "correlation_identity",
       "action_request_identity", "action_request_digest", "decision_identity", "decision_digest",
       "decision_evidence_cut", "replay_request_identity", "replay_request_digest", "result_identity",
@@ -367,8 +358,19 @@ async function validMarketDataResponse(value: unknown, payload: Json): Promise<b
       "provenance_binding_identity", "provenance_binding_fact_digest", "provenance_lineage_root",
       "provenance_lineage_version", "source_frontier_digest", "correction_frontier_digest",
       "market_semantics_identity", "original_time_evidence", "shared_time_evidence",
-    ])) return false
-    const { request_identity: _requestIdentity, request_digest: _requestDigest, ...meaning } = canonical
+    ]
+    if (!exactKeys(canonical, canonicalKeys)) return false
+    const orderedCanonical = Object.fromEntries(canonicalKeys.map((key) => [key, canonical[key]]))
+    const canonicalEncoding = [...new TextEncoder().encode(JSON.stringify(orderedCanonical))]
+    const bindingKeys = [
+      "correlation_identity", "original_pit_request_identity", "original_pit_request_digest",
+      "original_pit_snapshot_identity", "original_pit_proof_digest", "instrument_scope_digest",
+      "universe_selection_digest", "instrument_master_digest", "provenance_binding_identity",
+      "provenance_binding_fact_digest", "provenance_lineage_root", "source_frontier_digest",
+      "correction_frontier_digest", "market_semantics_identity",
+    ]
+    if (!equalBytes(value.canonical_request_bytes, canonicalEncoding)) return false
+    const { request_identity: _requestIdentity, request_digest: _requestDigest, ...meaning } = orderedCanonical
     const computedRequestDigest = await domainSha256("rd.market-data-repair-request.v1", meaning)
     const computedReceiptDigest = await domainSha256("rd.market-data-repair-request-receipt.v1", {
       schema_version: 1,
@@ -437,6 +439,7 @@ async function ownerVerifiesReplay(
     { meaning_digest: locator.meaning_digest },
   )
   if (!object(resolved) || !object(resolved.readback) || !object(resolved.readback.receipt)) return null
+  if (!equalBytes(resolved.readback.canonical_request_bytes, identified.canonical_request_bytes)) return null
   const projected = verifyReplayConsumerProjectionV2(
     resolved, request, locator.request_identity, locator.meaning_digest,
   )

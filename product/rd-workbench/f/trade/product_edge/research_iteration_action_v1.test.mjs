@@ -396,6 +396,14 @@ test("Market Data repair RUN validates canonical Owner custody", { concurrency: 
     assert.equal((await main("RUN", "MARKET_DATA_REPAIR", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
   })
   const ownerCanonical = JSON.parse(new TextDecoder().decode(Uint8Array.from(owner.canonical_request_bytes)))
+  const { request_identity: movedIdentity, request_digest: movedDigest, ...ownerCanonicalRest } = ownerCanonical
+  const reorderedCanonicalBytes = {
+    ...owner,
+    canonical_request_bytes: bytes({ ...ownerCanonicalRest, request_identity: movedIdentity, request_digest: movedDigest }),
+  }
+  await withFetch([{ value: reorderedCanonicalBytes }], async () => {
+    assert.equal((await main("RUN", "MARKET_DATA_REPAIR", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
+  })
   const digestSpliced = {
     ...owner,
     canonical_request_bytes: bytes({
@@ -518,6 +526,16 @@ test("repaired Replay RUN accepts only the exact Owner successor projection", { 
       "/v2/exploratory-replay-requests/replay-successor-1/resolve",
     )
   })
+  const nonCanonicalResolved = structuredClone(resolved)
+  const resolvedCanonicalText = new TextDecoder().decode(
+    Uint8Array.from(nonCanonicalResolved.readback.canonical_request_bytes),
+  )
+  nonCanonicalResolved.readback.canonical_request_bytes = [...new TextEncoder().encode(
+    resolvedCanonicalText.replace('"schema_version":2,', '"schema_version":2.0,'),
+  )]
+  await withFetch([{ value: owner }, { value: identified }, { value: nonCanonicalResolved }], async () => {
+    assert.equal((await main("RUN", "REPAIRED_REPLAY", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
+  })
   const alteredRequest = structuredClone(request)
   alteredRequest.artifact.digest = blake("f")
   const alteredOwner = { ...owner, canonical_request_bytes: bytes(alteredRequest) }
@@ -616,6 +634,16 @@ test("repaired Replay RESOLVE uses only its pre-existing request selector", { co
     assert.deepEqual(calls[0].body, { meaning_digest: payload.meaning_digest })
     assert.equal(new URL(calls[1].url).pathname, "/v2/exploratory-replay-requests/identify")
     assert.equal(new URL(calls[2].url).pathname, "/v2/exploratory-replay-requests/replay-successor-1/resolve")
+  })
+  const nonCanonicalReadback = structuredClone(owner)
+  const readbackCanonicalText = new TextDecoder().decode(
+    Uint8Array.from(nonCanonicalReadback.readback.canonical_request_bytes),
+  )
+  nonCanonicalReadback.readback.canonical_request_bytes = [...new TextEncoder().encode(
+    readbackCanonicalText.replace('"schema_version":2,', '"schema_version":2.0,'),
+  )]
+  await withFetch([{ value: owner }, { value: identified }, { value: nonCanonicalReadback }], async () => {
+    assert.equal((await main("RESOLVE", "REPAIRED_REPLAY", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
   })
   const alteredRequest = structuredClone(request)
   alteredRequest.artifact.digest = blake("f")
