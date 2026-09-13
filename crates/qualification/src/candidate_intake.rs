@@ -64,7 +64,6 @@ impl CandidateIntakeRequestV1 {
     pub(crate) fn review_request_digest(&self) -> &str {
         &self.review_request_digest
     }
-
     pub(crate) fn decision_identity(&self) -> &str {
         &self.decision_identity
     }
@@ -121,6 +120,12 @@ impl CandidateIntakeReceiptV1 {
     }
     pub(crate) fn review_request_digest(&self) -> &str {
         &self.review_request_digest
+    }
+    pub(crate) fn decision_identity(&self) -> &str {
+        &self.decision_identity
+    }
+    pub(crate) fn result_identity(&self) -> &str {
+        &self.result_identity
     }
     pub fn candidate_identity(&self) -> &str {
         &self.candidate_identity
@@ -690,6 +695,298 @@ fn adequate(plan: &ProtectedPlanV1, request: &CandidateIntakeRequestV1) -> bool 
         && valid_perturbations(&proposal.required_perturbations)
         && valid_parameters(proposal)
         && proposal.preregistered_capacity_ceiling > 0
+        && validate_plan_identity(plan).is_ok()
+        && derive_plan_cells(plan).is_ok()
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ProtectedReplayAuthoritySourceV1 {
+    pub candidate_identity: String,
+    pub candidate_digest: String,
+    pub trial_family_identity: String,
+    pub trial_family_digest: String,
+    pub plan_identity: String,
+    pub plan_digest: String,
+    pub plan_cell_set_identity: String,
+    pub plan_cell_set_digest: String,
+    pub plan_cells: Vec<(String, String)>,
+    pub artifact_identity: String,
+    pub artifact_digest: String,
+    pub cost_model_identity: String,
+    pub slippage_model_identity: String,
+    pub capacity_model_identity: String,
+    pub purge_embargo_policy_identity: String,
+    pub purge_embargo_policy_digest: String,
+    pub multiplicity_basis_identity: String,
+    pub multiplicity_basis_digest: String,
+    pub alternatives_thresholds_identity: String,
+    pub alternatives_thresholds_digest: String,
+    pub protected_decision_policy_identity: String,
+    pub protected_decision_policy_version: u64,
+}
+
+pub(crate) fn protected_replay_authority_source_v1(
+    receipt: &CandidateIntakeReceiptV1,
+    envelope: &ResolvedRdSelectionEnvelopeV1,
+) -> Result<ProtectedReplayAuthoritySourceV1, QualificationOwnerError> {
+    if receipt.status != CandidateIntakeStatusV1::Admitted
+        || receipt.candidate_identity != envelope.candidate.candidate_identity
+        || receipt.candidate_digest != envelope.candidate.candidate_digest
+        || receipt.selection_identity != envelope.selection.selection_identity
+        || receipt.selection_digest != envelope.selection.selection_digest
+        || receipt.decision_identity != envelope.selection.decision_identity
+        || receipt.result_identity != envelope.selection.evidence_cut.result_identity
+    {
+        return Err(unavailable(
+            "Candidate Intake and R&D handoff are cross-spliced",
+        ));
+    }
+    let candidate = &envelope.candidate;
+    let plan = &candidate.protected_robustness_plan;
+    validate_plan_identity(plan)?;
+    if receipt.protected_plan_identity != plan.plan_identity
+        || receipt.protected_plan_version != plan.plan_version
+        || receipt.protected_plan_digest != plan.plan_digest
+        || receipt.protected_decision_policy_identity
+            != plan.proposal.protected_decision_policy.identity
+        || receipt.protected_decision_policy_version
+            != plan.proposal.protected_decision_policy.version
+    {
+        return Err(unavailable("Candidate Intake protected plan changed"));
+    }
+    let (plan_cell_set_identity, plan_cell_set_digest, plan_cells) = derive_plan_cells(plan)?;
+    let purge_embargo_policy_digest = canonical_digest(
+        "qualification.protected-replay.purge-embargo-policy.v1",
+        &(&plan.proposal.purge_policy, &plan.proposal.embargo_policy),
+    )?;
+    let multiplicity_basis_digest = canonical_digest(
+        "qualification.protected-replay.multiplicity-basis.v1",
+        &(
+            &plan.proposal.multiplicity_policy,
+            &plan.census_frontier_identity,
+            &plan.census_frontier_digest,
+            &plan.attempt_frontier_identity,
+            &plan.attempt_frontier_digest,
+        ),
+    )?;
+    let alternatives_thresholds_digest = canonical_digest(
+        "qualification.protected-replay.alternatives-thresholds.v1",
+        &(
+            &plan.proposal.required_time_windows,
+            &plan.proposal.required_regimes,
+            &plan.proposal.required_instrument_slices,
+            plan.proposal.instrument_scope,
+            &plan.proposal.instrument_non_applicability_basis,
+            &plan.proposal.required_perturbations,
+            &plan.proposal.required_parameter_neighborhoods,
+            &plan.proposal.no_tunable_parameters_basis,
+            &plan.proposal.metric,
+            &plan.proposal.coverage_policy,
+            &plan.proposal.tolerance_policy,
+            &plan.proposal.threshold_policy,
+            &plan.proposal.aggregation_policy,
+            &plan.proposal.missing_cell_policy,
+            &plan.proposal.stop_policy,
+        ),
+    )?;
+    Ok(ProtectedReplayAuthoritySourceV1 {
+        candidate_identity: candidate.candidate_identity.clone(),
+        candidate_digest: candidate.candidate_digest.clone(),
+        trial_family_identity: plan.trial_family_identity.clone(),
+        trial_family_digest: plan.trial_family_digest.clone(),
+        plan_identity: plan.plan_identity.clone(),
+        plan_digest: plan.plan_digest.clone(),
+        plan_cell_set_identity,
+        plan_cell_set_digest,
+        plan_cells,
+        artifact_identity: plan.artifact.identity.clone(),
+        artifact_digest: plan.artifact.digest.clone(),
+        cost_model_identity: plan.cost_model_identity.clone(),
+        slippage_model_identity: plan.slippage_model_identity.clone(),
+        capacity_model_identity: plan.capacity_model_identity.clone(),
+        purge_embargo_policy_identity: identity(
+            "qualification-purge-embargo-policy-v1",
+            &purge_embargo_policy_digest,
+        ),
+        purge_embargo_policy_digest,
+        multiplicity_basis_identity: identity(
+            "qualification-multiplicity-basis-v1",
+            &multiplicity_basis_digest,
+        ),
+        multiplicity_basis_digest,
+        alternatives_thresholds_identity: identity(
+            "qualification-alternatives-thresholds-v1",
+            &alternatives_thresholds_digest,
+        ),
+        alternatives_thresholds_digest,
+        protected_decision_policy_identity: plan
+            .proposal
+            .protected_decision_policy
+            .identity
+            .clone(),
+        protected_decision_policy_version: plan.proposal.protected_decision_policy.version,
+    })
+}
+
+#[derive(Serialize)]
+struct ProtectedPlanMeaningV1<'a> {
+    schema_version: u16,
+    plan_version: u64,
+    trial_family_identity: &'a str,
+    trial_family_digest: &'a str,
+    census_frontier_identity: &'a str,
+    census_frontier_digest: &'a str,
+    attempt_frontier_identity: &'a str,
+    attempt_frontier_digest: &'a str,
+    artifact: &'a EvidenceReferenceV1,
+    pit_rule_identity: &'a str,
+    cost_model_identity: &'a str,
+    slippage_model_identity: &'a str,
+    capacity_model_identity: &'a str,
+    decision_policy_identity: &'a str,
+    decision_policy_version: u64,
+    proposal: &'a ProtectedPlanProposalV1,
+}
+
+fn validate_plan_identity(plan: &ProtectedPlanV1) -> Result<(), QualificationOwnerError> {
+    let digest = canonical_digest(
+        "rd.protected-robustness-plan.v1",
+        &ProtectedPlanMeaningV1 {
+            schema_version: plan.schema_version,
+            plan_version: plan.plan_version,
+            trial_family_identity: &plan.trial_family_identity,
+            trial_family_digest: &plan.trial_family_digest,
+            census_frontier_identity: &plan.census_frontier_identity,
+            census_frontier_digest: &plan.census_frontier_digest,
+            attempt_frontier_identity: &plan.attempt_frontier_identity,
+            attempt_frontier_digest: &plan.attempt_frontier_digest,
+            artifact: &plan.artifact,
+            pit_rule_identity: &plan.pit_rule_identity,
+            cost_model_identity: &plan.cost_model_identity,
+            slippage_model_identity: &plan.slippage_model_identity,
+            capacity_model_identity: &plan.capacity_model_identity,
+            decision_policy_identity: &plan.decision_policy_identity,
+            decision_policy_version: plan.decision_policy_version,
+            proposal: &plan.proposal,
+        },
+    )?;
+    if digest != plan.plan_digest
+        || identity("rd-protected-robustness-plan-v1", &digest) != plan.plan_identity
+    {
+        return Err(unavailable(
+            "R&D Protected Robustness Plan identity changed",
+        ));
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct PlanCellMeaningV1<'a> {
+    time_window: &'a EvidenceReferenceV1,
+    market_regime: &'a EvidenceReferenceV1,
+    instrument: &'a EvidenceReferenceV1,
+    input_perturbation: &'a EvidenceReferenceV1,
+    parameter_neighborhood: &'a EvidenceReferenceV1,
+}
+
+fn derive_plan_cells(
+    plan: &ProtectedPlanV1,
+) -> Result<(String, String, Vec<(String, String)>), QualificationOwnerError> {
+    let proposal = &plan.proposal;
+    let mut windows = proposal
+        .required_time_windows
+        .iter()
+        .map(|value| &value.evidence)
+        .collect::<Vec<_>>();
+    let mut regimes = proposal
+        .required_regimes
+        .iter()
+        .map(|value| &value.evidence)
+        .collect::<Vec<_>>();
+    let mut instruments = if proposal.required_instrument_slices.is_empty() {
+        proposal
+            .instrument_non_applicability_basis
+            .iter()
+            .collect::<Vec<_>>()
+    } else {
+        proposal
+            .required_instrument_slices
+            .iter()
+            .collect::<Vec<_>>()
+    };
+    let mut perturbations = proposal
+        .required_perturbations
+        .iter()
+        .map(|value| &value.perturbation)
+        .collect::<Vec<_>>();
+    let mut parameters = if proposal.required_parameter_neighborhoods.is_empty() {
+        proposal
+            .no_tunable_parameters_basis
+            .iter()
+            .collect::<Vec<_>>()
+    } else {
+        proposal
+            .required_parameter_neighborhoods
+            .iter()
+            .map(|value| &value.parameter)
+            .collect::<Vec<_>>()
+    };
+    for dimension in [
+        &mut windows,
+        &mut regimes,
+        &mut instruments,
+        &mut perturbations,
+        &mut parameters,
+    ] {
+        dimension.sort_by(|a, b| (&a.identity, &a.digest).cmp(&(&b.identity, &b.digest)));
+        if dimension.is_empty() || dimension.len() > 16 {
+            return Err(unavailable(
+                "Protected Robustness Plan cell dimension is empty or unbounded",
+            ));
+        }
+    }
+    let count = [
+        windows.len(),
+        regimes.len(),
+        instruments.len(),
+        perturbations.len(),
+        parameters.len(),
+    ]
+    .into_iter()
+    .try_fold(1usize, |count, value| count.checked_mul(value))
+    .filter(|count| *count <= 4_096)
+    .ok_or_else(|| unavailable("Protected Robustness Plan cell census is unbounded"))?;
+    let mut cells = Vec::with_capacity(count);
+    for window in windows {
+        for regime in &regimes {
+            for instrument in &instruments {
+                for perturbation in &perturbations {
+                    for parameter in &parameters {
+                        let digest = canonical_digest(
+                            "qualification.protected-plan-cell.v1",
+                            &PlanCellMeaningV1 {
+                                time_window: window,
+                                market_regime: regime,
+                                instrument,
+                                input_perturbation: perturbation,
+                                parameter_neighborhood: parameter,
+                            },
+                        )?;
+                        cells.push((
+                            identity("qualification-protected-plan-cell-v1", &digest),
+                            digest,
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    let set_digest = canonical_digest("qualification.protected-plan-cell-set.v1", &cells)?;
+    Ok((
+        identity("qualification-protected-plan-cell-set-v1", &set_digest),
+        set_digest,
+        cells,
+    ))
 }
 
 fn valid_windows(values: &[TimeWindowV1]) -> bool {
@@ -1083,7 +1380,7 @@ mod tests {
                 digest: digest('a'),
             },
         };
-        let plan = ProtectedPlanV1 {
+        let mut plan = ProtectedPlanV1 {
             schema_version: 1,
             plan_identity: "protected-plan".into(),
             plan_version: 1,
@@ -1103,6 +1400,30 @@ mod tests {
             decision_policy_version: 1,
             proposal,
         };
+        let plan_digest = canonical_digest(
+            "rd.protected-robustness-plan.v1",
+            &ProtectedPlanMeaningV1 {
+                schema_version: plan.schema_version,
+                plan_version: plan.plan_version,
+                trial_family_identity: &plan.trial_family_identity,
+                trial_family_digest: &plan.trial_family_digest,
+                census_frontier_identity: &plan.census_frontier_identity,
+                census_frontier_digest: &plan.census_frontier_digest,
+                attempt_frontier_identity: &plan.attempt_frontier_identity,
+                attempt_frontier_digest: &plan.attempt_frontier_digest,
+                artifact: &plan.artifact,
+                pit_rule_identity: &plan.pit_rule_identity,
+                cost_model_identity: &plan.cost_model_identity,
+                slippage_model_identity: &plan.slippage_model_identity,
+                capacity_model_identity: &plan.capacity_model_identity,
+                decision_policy_identity: &plan.decision_policy_identity,
+                decision_policy_version: plan.decision_policy_version,
+                proposal: &plan.proposal,
+            },
+        )
+        .unwrap();
+        plan.plan_identity = identity("rd-protected-robustness-plan-v1", &plan_digest);
+        plan.plan_digest = plan_digest;
         let candidate = StoredCandidateV1 {
             schema_version: 1,
             candidate_identity: "candidate".into(),
@@ -1181,6 +1502,86 @@ mod tests {
         assert_eq!(
             decode_intake_receipt_v1(&receipt.as_json().unwrap()).unwrap(),
             receipt
+        );
+    }
+
+    #[test]
+    fn protected_request_freezes_one_canonical_cell_and_all_sixteen_bindings() {
+        use crate::protected_replay_request::{
+            ProtectedReplayBindingFieldV1, ProtectedReplayBindingV1,
+            ProtectedReplayRequestProposalV1, form_protected_replay_request_v1,
+        };
+
+        let (intake_request, envelope) = fixture();
+        let receipt = form_candidate_intake_receipt_v1(&intake_request, &envelope, 20).unwrap();
+        let source = protected_replay_authority_source_v1(&receipt, &envelope).unwrap();
+        assert_eq!(source.plan_cells.len(), 4);
+        let mut bindings = ProtectedReplayBindingFieldV1::ALL
+            .into_iter()
+            .enumerate()
+            .map(|(index, field)| ProtectedReplayBindingV1 {
+                field,
+                identity: format!("requested-binding-{index}"),
+                digest: digest(char::from_digit((index % 10) as u32, 10).unwrap()),
+            })
+            .collect::<Vec<_>>();
+        for (index, identity_value, digest_value) in [
+            (0, &source.plan_identity, &source.plan_digest),
+            (1, &source.artifact_identity, &source.artifact_digest),
+            (
+                12,
+                &source.purge_embargo_policy_identity,
+                &source.purge_embargo_policy_digest,
+            ),
+            (
+                14,
+                &source.multiplicity_basis_identity,
+                &source.multiplicity_basis_digest,
+            ),
+            (
+                15,
+                &source.alternatives_thresholds_identity,
+                &source.alternatives_thresholds_digest,
+            ),
+        ] {
+            bindings[index].identity = identity_value.clone();
+            bindings[index].digest = digest_value.clone();
+        }
+        for (index, identity_value) in [
+            (9, &source.cost_model_identity),
+            (10, &source.slippage_model_identity),
+            (11, &source.capacity_model_identity),
+        ] {
+            bindings[index].identity = identity_value.clone();
+        }
+        let proposal = ProtectedReplayRequestProposalV1::new(
+            "protected-request-1".into(),
+            receipt.review_request_identity().into(),
+            receipt.receipt_identity().into(),
+            receipt.receipt_digest().into(),
+            2,
+            bindings.clone(),
+        )
+        .unwrap();
+        let request = form_protected_replay_request_v1(&proposal, &receipt, &source).unwrap();
+        let request_json = request.as_json().unwrap();
+        assert_eq!(request_json["bindings"].as_array().unwrap().len(), 16);
+        assert_eq!(
+            request_json["plan_cell_identity"],
+            serde_json::Value::String(source.plan_cells[2].0.clone())
+        );
+
+        bindings.swap(2, 3);
+        assert!(
+            ProtectedReplayRequestProposalV1::new(
+                "protected-request-2".into(),
+                receipt.review_request_identity().into(),
+                receipt.receipt_identity().into(),
+                receipt.receipt_digest().into(),
+                0,
+                bindings,
+            )
+            .is_err()
         );
     }
 

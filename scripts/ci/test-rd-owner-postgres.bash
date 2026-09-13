@@ -51,6 +51,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|vibe_strategy_factory|program_host_bar_joined_cut_postgres_acceptance_tests::owner_postgres_v4_moves_through_program_host_and_real_backtest'
   'vibe-strategy-factory|vibe_strategy_factory|iteration_decision_postgres::postgres_acceptance_tests::repair_decision_action_and_market_data_request_commit_retry_resolve_and_rejection_are_atomic'
   'vibe-strategy-factory|vibe_strategy_factory|iteration_decision_postgres::postgres_acceptance_tests::positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic'
+  'vibe-qualification|vibe_qualification|postgres::postgres_tests::protected_replay_request_is_atomic_retry_exact_and_backtest_sealed'
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed'
 )
 readonly nextest_graph_args=(
@@ -60,6 +61,7 @@ readonly nextest_graph_args=(
   --package vibe-product-edge
   --package vibe-backtest-owner
   --package vibe-data
+  --package vibe-qualification
   --lib
   --tests
 )
@@ -74,8 +76,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 34 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all thirty-four ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 35 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all thirty-five ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -104,11 +106,12 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[30]}" != *'|program_host_bar_joined_cut_postgres_acceptance_tests::owner_postgres_v4_moves_through_program_host_and_real_backtest' ]] ||
     [[ "${rd_owner_postgres_tests[31]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::repair_decision_action_and_market_data_request_commit_retry_resolve_and_rejection_are_atomic' ]] ||
     [[ "${rd_owner_postgres_tests[32]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic' ]] ||
-    [[ "${rd_owner_postgres_tests[33]}" != *'|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed' ]]; then
+    [[ "${rd_owner_postgres_tests[33]}" != *'|postgres::postgres_tests::protected_replay_request_is_atomic_retry_exact_and_backtest_sealed' ]] ||
+    [[ "${rd_owner_postgres_tests[34]}" != *'|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
     return 1
   fi
-  if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --package vibe-backtest-owner --package vibe-data --lib --tests' ]] ||
+  if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --package vibe-backtest-owner --package vibe-data --package vibe-qualification --lib --tests' ]] ||
     [[ "$nextest_archive_features" != 'vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance' ]] ||
     [[ "$schema_materialization_features" != "${nextest_archive_features},vibe-strategy-factory-rd-owner-api/sealed-develop-composer-acceptance" ]] ||
     [[ "${nextest_execution_args[*]}" != '--fail-fast --run-ignored ignored-only' ]]; then
@@ -2435,6 +2438,47 @@ BEGIN
     RAISE EXCEPTION 'sealed exploratory Replay V2 Backtest API metadata or ACL mismatch';
   END IF;
 
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_proc procedure
+    JOIN pg_catalog.pg_roles role ON role.oid = procedure.proowner
+    WHERE procedure.oid = pg_catalog.to_regprocedure(
+      'qualification_api.lock_protected_replay_request_v1(text,text,text,text)'
+    )
+      AND role.rolname = 'qualification_owner'
+      AND procedure.prosecdef
+      AND procedure.proisstrict
+      AND procedure.provolatile = 'v'
+      AND procedure.proparallel = 'u'
+      AND procedure.proconfig = ARRAY['search_path=pg_catalog']
+  )
+     OR NOT pg_catalog.has_schema_privilege('backtest_owner', 'qualification_api', 'USAGE')
+     OR NOT pg_catalog.has_function_privilege(
+       'backtest_owner',
+       'qualification_api.lock_protected_replay_request_v1(text,text,text,text)',
+       'EXECUTE'
+     )
+  THEN
+    RAISE EXCEPTION 'sealed protected replay Backtest API metadata or ACL mismatch';
+  END IF;
+
+  FOREACH role_name IN ARRAY ARRAY[
+    'public',
+    'rd_owner',
+    'qualification_writer',
+    'product_edge_owner',
+    'operator_authorization_owner',
+    'operator_authorization_writer'
+  ] LOOP
+    IF pg_catalog.has_function_privilege(
+      role_name,
+      'qualification_api.lock_protected_replay_request_v1(text,text,text,text)',
+      'EXECUTE'
+    ) THEN
+      RAISE EXCEPTION '% can execute the sealed protected replay API', role_name;
+    END IF;
+  END LOOP;
+
   FOREACH role_name IN ARRAY ARRAY[
     'public',
     'rd_owner',
@@ -2514,6 +2558,8 @@ BEGIN
     'qualification_protected_feedback_heads_v1',
     'qualification_candidate_intake_receipts_v1',
     'qualification_holdout_reservations_v1',
+    'qualification_protected_replay_requests_v1',
+    'qualification_protected_replay_request_receipts_v1',
     'qualification_owner_outbox_v1'
   ] LOOP
     IF (SELECT tableowner FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = qualification_table) <> 'qualification_owner' THEN
@@ -2541,6 +2587,7 @@ BEGIN
 
   FOREACH role_name IN ARRAY ARRAY[
     'rd_owner',
+    'backtest_owner',
     'product_edge_owner',
     'operator_authorization_owner',
     'operator_authorization_writer'
@@ -2550,6 +2597,8 @@ BEGIN
       'qualification_protected_feedback_heads_v1',
       'qualification_candidate_intake_receipts_v1',
       'qualification_holdout_reservations_v1',
+      'qualification_protected_replay_requests_v1',
+      'qualification_protected_replay_request_receipts_v1',
       'qualification_owner_outbox_v1'
     ] LOOP
       FOREACH forbidden_privilege IN ARRAY ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER'] LOOP

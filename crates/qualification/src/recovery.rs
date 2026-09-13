@@ -1132,10 +1132,13 @@ async fn qualification_counts(
             .map_err(storage)?,
         )?,
         outbox_events: checked_count(
-            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM qualification_owner_outbox_v1")
-                .fetch_one(&mut **transaction)
-                .await
-                .map_err(storage)?,
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM qualification_owner_outbox_v1 WHERE event_kind = $1",
+            )
+            .bind(PROJECTED_EVENT_KIND)
+            .fetch_one(&mut **transaction)
+            .await
+            .map_err(storage)?,
         )?,
         recovery_receipts: checked_count(
             sqlx::query_scalar::<_, i64>(
