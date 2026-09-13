@@ -261,7 +261,7 @@ function validEvidenceCut(value: unknown, payload: Json): boolean {
     && (payload.attempt_identity === undefined || value.attempt_identity === payload.attempt_identity)
 }
 
-function validDecisionResponse(value: unknown, payload: Json): boolean {
+async function validDecisionResponse(value: unknown, payload: Json): Promise<boolean> {
   if (!object(value) || !exactKeys(value, [
     "schema_version", "decision_identity", "decision_digest", "evidence_cut", "outcome",
     "supported_defects", "receipt_identity", "result_identity", "committed_at_epoch_ms",
@@ -273,12 +273,28 @@ function validDecisionResponse(value: unknown, payload: Json): boolean {
     || !validSupportedDefects(value.supported_defects, value.outcome.category)
     || !identity(value.receipt_identity) || !identity(value.result_identity)
     || !timestamp(value.committed_at_epoch_ms)) return false
-  return value.result_identity === payload.result_identity
+  const decisionDigest = await domainSha256("rd.iteration-decision.repair-inputs.v1", {
+    schema_version: 1,
+    evidence_cut: value.evidence_cut,
+    outcome: value.outcome,
+    supported_defects: value.supported_defects,
+  })
+  const receiptDigest = await domainSha256("rd.iteration-decision-receipt.v1", {
+    schema_version: 1,
+    decision_identity: value.decision_identity,
+    decision_digest: value.decision_digest,
+    result_identity: value.result_identity,
+    committed_at_epoch_ms: value.committed_at_epoch_ms,
+  })
+  return value.decision_digest === decisionDigest
+    && value.decision_identity === `rd-iteration-decision-v1-${decisionDigest.slice(7)}`
+    && value.receipt_identity === `rd-iteration-decision-receipt-v1-${receiptDigest.slice(7)}`
+    && value.result_identity === payload.result_identity
     && (payload.decision_identity === undefined || value.decision_identity === payload.decision_identity)
 }
 
-function validRepairActionResponse(value: unknown, payload: Json): boolean {
-  return object(value) && exactKeys(value, [
+async function validRepairActionResponse(value: unknown, payload: Json): Promise<boolean> {
+  if (!(object(value) && exactKeys(value, [
     "schema_version", "action_request_identity", "action_request_digest", "decision_identity",
     "decision_digest", "result_identity", "category", "target", "receipt_identity",
     "receipt_digest", "committed_at_epoch_ms",
@@ -290,7 +306,26 @@ function validRepairActionResponse(value: unknown, payload: Json): boolean {
     && timestamp(value.committed_at_epoch_ms) && value.decision_identity === payload.decision_identity
     && (payload.result_identity === undefined || value.result_identity === payload.result_identity)
     && (payload.action_request_identity === undefined
-      || value.action_request_identity === payload.action_request_identity)
+      || value.action_request_identity === payload.action_request_identity))) return false
+  const actionDigest = await domainSha256("rd.repair-action-request.v1", {
+    schema_version: 1,
+    decision_identity: value.decision_identity,
+    decision_digest: value.decision_digest,
+    result_identity: value.result_identity,
+    category: value.category,
+    target: value.target,
+  })
+  const receiptDigest = await domainSha256("rd.repair-action-request-receipt.v1", {
+    schema_version: 1,
+    action_request_identity: value.action_request_identity,
+    action_request_digest: value.action_request_digest,
+    decision_identity: value.decision_identity,
+    committed_at_epoch_ms: value.committed_at_epoch_ms,
+  })
+  return value.action_request_digest === actionDigest
+    && value.action_request_identity === `rd-repair-action-request-v1-${actionDigest.slice(7)}`
+    && value.receipt_digest === receiptDigest
+    && value.receipt_identity === `rd-repair-action-request-receipt-v1-${receiptDigest.slice(7)}`
 }
 
 async function validMarketDataResponse(value: unknown, payload: Json): Promise<boolean> {
@@ -332,6 +367,14 @@ async function validMarketDataResponse(value: unknown, payload: Json): Promise<b
     ])) return false
     const { request_identity: _requestIdentity, request_digest: _requestDigest, ...meaning } = canonical
     const computedRequestDigest = await domainSha256("rd.market-data-repair-request.v1", meaning)
+    const computedReceiptDigest = await domainSha256("rd.market-data-repair-request-receipt.v1", {
+      schema_version: 1,
+      request_identity: value.request_identity,
+      request_digest: value.request_digest,
+      action_request_identity: value.action_request_identity,
+      decision_identity: value.decision_identity,
+      committed_at_epoch_ms: value.committed_at_epoch_ms,
+    })
     return canonical.schema_version === 1 && bindingKeys.every((key) => nonZeroBytes(canonical[key], 32))
       && validEvidenceCut(canonical.decision_evidence_cut, payload)
       && identity(canonical.instrument_scope_identity) && identity(canonical.universe_selection_identity)
@@ -344,6 +387,8 @@ async function validMarketDataResponse(value: unknown, payload: Json): Promise<b
       && canonical.request_digest === value.request_digest
       && canonical.request_digest === computedRequestDigest
       && canonical.request_identity === `rd-market-data-repair-request-v1-${computedRequestDigest.slice(7)}`
+      && value.receipt_digest === computedReceiptDigest
+      && value.receipt_identity === `rd-market-data-repair-request-receipt-v1-${computedReceiptDigest.slice(7)}`
       && equalBytes(canonical.correlation_identity, value.correlation_identity)
       && canonical.action_request_identity === payload.action_request_identity
       && canonical.action_request_digest === value.action_request_digest
@@ -371,19 +416,30 @@ async function validMarketDataResponse(value: unknown, payload: Json): Promise<b
   }
 }
 
-async function ownerIdentifiesReplay(
+async function ownerVerifiesReplay(
   token: string,
   request: Json,
-  requestIdentity: string,
-  meaningDigest: string,
   canonicalRequestBytes: unknown,
-): Promise<boolean> {
+  locator: Json,
+): Promise<unknown | null> {
   const identified = await ownerPost("/v2/exploratory-replay-requests/identify", token, request)
-  return object(identified) && exactKeys(identified, [
+  if (!(object(identified) && exactKeys(identified, [
     "request_identity", "meaning_digest", "canonical_request_bytes",
-  ]) && identified.request_identity === requestIdentity
-    && identified.meaning_digest === meaningDigest
-    && equalBytes(identified.canonical_request_bytes, canonicalRequestBytes)
+  ]) && identified.request_identity === locator.request_identity
+    && identified.meaning_digest === locator.meaning_digest
+    && equalBytes(identified.canonical_request_bytes, canonicalRequestBytes))) return null
+  const resolved = await ownerPost(
+    `/v2/exploratory-replay-requests/${encodeURIComponent(locator.request_identity)}/resolve`,
+    token,
+    { meaning_digest: locator.meaning_digest },
+  )
+  if (!object(resolved) || !object(resolved.readback) || !object(resolved.readback.receipt)) return null
+  const projected = verifyReplayConsumerProjectionV2(
+    resolved, request, locator.request_identity, locator.meaning_digest,
+  )
+  return projected.resolution === "EXPLORATION_ACTIVE"
+    && resolved.readback.receipt.receipt_identity === locator.receipt_identity
+    && resolved.readback.receipt.seal_digest === locator.seal_digest ? projected : null
 }
 
 async function validRepairedReplayResponse(value: unknown, payload: Json, token: string): Promise<boolean> {
@@ -417,10 +473,7 @@ async function validRepairedReplayResponse(value: unknown, payload: Json, token:
       && request.request_identity === value.locator.request_identity
       && request.request_identity !== payload.predecessor_request_locator.request_identity
       && value.locator.meaning_digest !== payload.predecessor_request_locator.meaning_digest)) return false
-    return await ownerIdentifiesReplay(
-      token, request, value.locator.request_identity,
-      value.locator.meaning_digest, value.canonical_request_bytes,
-    )
+    return await ownerVerifiesReplay(token, request, value.canonical_request_bytes, value.locator) !== null
   } catch {
     return false
   }
@@ -433,10 +486,12 @@ async function validResolvedReplay(value: unknown, payload: Json, token: string)
   )
   if (projected.resolution !== "EXPLORATION_ACTIVE") return null
   try {
-    return await ownerIdentifiesReplay(
-      token, value.readback.request, payload.request_identity,
-      payload.meaning_digest, value.readback.canonical_request_bytes,
-    ) ? projected : null
+    return await ownerVerifiesReplay(token, value.readback.request, value.readback.canonical_request_bytes, {
+      request_identity: payload.request_identity,
+      meaning_digest: payload.meaning_digest,
+      receipt_identity: value.readback.receipt.receipt_identity,
+      seal_digest: value.readback.receipt.seal_digest,
+    })
   } catch {
     return null
   }
@@ -475,10 +530,10 @@ export async function main(action: Action, stage: Stage, payload: unknown) {
   const [path, body] = route(action, stage, payload)
   try {
     const result = await ownerPost(path, token, body)
-    if (stage === "REPAIR_INPUT_DECISION" && validDecisionResponse(result, payload)) {
+    if (stage === "REPAIR_INPUT_DECISION" && await validDecisionResponse(result, payload)) {
       return confirmed(stage, result, "SUBMIT_REPAIR_ACTION")
     }
-    if (stage === "REPAIR_ACTION" && validRepairActionResponse(result, payload)) {
+    if (stage === "REPAIR_ACTION" && await validRepairActionResponse(result, payload)) {
       return confirmed(stage, result, "SUBMIT_NATIVE_REPAIR_REQUEST")
     }
     if (stage === "MARKET_DATA_REPAIR" && await validMarketDataResponse(result, payload)) {

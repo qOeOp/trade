@@ -17,11 +17,70 @@ function bindMarketDataCanonical(owner, canonical) {
   const requestDigest = domainDigest("rd.market-data-repair-request.v1", meaning)
   const requestIdentity = `rd-market-data-repair-request-v1-${requestDigest.slice(7)}`
   const boundCanonical = { ...canonical, request_identity: requestIdentity, request_digest: requestDigest }
+  const receiptDigest = domainDigest("rd.market-data-repair-request-receipt.v1", {
+    schema_version: 1,
+    request_identity: requestIdentity,
+    request_digest: requestDigest,
+    action_request_identity: owner.action_request_identity,
+    decision_identity: owner.decision_identity,
+    committed_at_epoch_ms: owner.committed_at_epoch_ms,
+  })
   return {
     ...owner,
     request_identity: requestIdentity,
     request_digest: requestDigest,
+    receipt_identity: `rd-market-data-repair-request-receipt-v1-${receiptDigest.slice(7)}`,
+    receipt_digest: receiptDigest,
     canonical_request_bytes: bytes(boundCanonical),
+  }
+}
+
+function bindDecisionOwner(owner) {
+  const decisionDigest = domainDigest("rd.iteration-decision.repair-inputs.v1", {
+    schema_version: 1,
+    evidence_cut: owner.evidence_cut,
+    outcome: owner.outcome,
+    supported_defects: owner.supported_defects,
+  })
+  const decisionIdentity = `rd-iteration-decision-v1-${decisionDigest.slice(7)}`
+  const receiptDigest = domainDigest("rd.iteration-decision-receipt.v1", {
+    schema_version: 1,
+    decision_identity: decisionIdentity,
+    decision_digest: decisionDigest,
+    result_identity: owner.result_identity,
+    committed_at_epoch_ms: owner.committed_at_epoch_ms,
+  })
+  return {
+    ...owner,
+    decision_identity: decisionIdentity,
+    decision_digest: decisionDigest,
+    receipt_identity: `rd-iteration-decision-receipt-v1-${receiptDigest.slice(7)}`,
+  }
+}
+
+function bindRepairActionOwner(owner) {
+  const actionDigest = domainDigest("rd.repair-action-request.v1", {
+    schema_version: 1,
+    decision_identity: owner.decision_identity,
+    decision_digest: owner.decision_digest,
+    result_identity: owner.result_identity,
+    category: owner.category,
+    target: owner.target,
+  })
+  const actionIdentity = `rd-repair-action-request-v1-${actionDigest.slice(7)}`
+  const receiptDigest = domainDigest("rd.repair-action-request-receipt.v1", {
+    schema_version: 1,
+    action_request_identity: actionIdentity,
+    action_request_digest: actionDigest,
+    decision_identity: owner.decision_identity,
+    committed_at_epoch_ms: owner.committed_at_epoch_ms,
+  })
+  return {
+    ...owner,
+    action_request_identity: actionIdentity,
+    action_request_digest: actionDigest,
+    receipt_identity: `rd-repair-action-request-receipt-v1-${receiptDigest.slice(7)}`,
+    receipt_digest: receiptDigest,
   }
 }
 const replayLocator = (requestIdentity = "replay-request-1") => ({
@@ -64,6 +123,31 @@ function replayRequest(requestIdentity = "replay-successor-1") {
     time_zone: versioned("UTC"),
     corporate_action_cut: content("corporate-action-cut-1", "c"),
     historical_membership_cut: content("membership-cut-1", "d"),
+  }
+}
+
+function resolvedReplay(request, locator, committedAt = 26) {
+  return {
+    projection: {
+      schema_version: 1,
+      request_identity: request.request_identity,
+      availability: "AVAILABLE",
+      next_legal_action: "LOCK_BY_LOCATOR",
+    },
+    readback: {
+      request,
+      canonical_request_bytes: bytes(request),
+      meaning_digest: locator.meaning_digest,
+      receipt: {
+        schema_version: 2,
+        receipt_identity: locator.receipt_identity,
+        request_identity: request.request_identity,
+        meaning_digest: locator.meaning_digest,
+        seal_digest: locator.seal_digest,
+        committed_at_epoch_ms: committedAt,
+      },
+      owner_cut_epoch_ms: committedAt,
+    },
   }
 }
 
@@ -117,7 +201,7 @@ test("repair-input Decision RUN is one fixed authenticated Owner call", { concur
     trial_family_identity: "family-1", result_identity: "result-1",
     request_identity: "replay-request-1", attempt_identity: "attempt-1",
   }
-  const owner = {
+  const owner = bindDecisionOwner({
     schema_version: 1,
     decision_identity: "decision-1",
     decision_digest: sha("1"),
@@ -127,7 +211,7 @@ test("repair-input Decision RUN is one fixed authenticated Owner call", { concur
     receipt_identity: "decision-receipt-1",
     result_identity: "result-1",
     committed_at_epoch_ms: 23,
-  }
+  })
   await withFetch([{ value: owner }], async (calls) => {
     const result = await main("RUN", "REPAIR_INPUT_DECISION", payload)
     assert.equal(result.resolution, "OWNER_CONFIRMED")
@@ -150,11 +234,17 @@ test("repair-input Decision RUN is one fixed authenticated Owner call", { concur
   await withFetch([{ value: { ...owner, supported_defects: ["ARTIFACT"] } }], async () => {
     assert.equal((await main("RUN", "REPAIR_INPUT_DECISION", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
   })
+  await withFetch([{ value: {
+    ...owner,
+    outcome: { outcome: "REPAIR_INPUTS", category: "ARTIFACT", target: "RESEARCH_DEVELOP" },
+    supported_defects: ["ARTIFACT"],
+  } }], async () => {
+    assert.equal((await main("RUN", "REPAIR_INPUT_DECISION", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
+  })
 })
 
 test("repair-action RESOLVE cross-binds the exact recovery locator", { concurrency: false }, async () => {
-  const payload = { action_request_identity: "repair-action-1", decision_identity: "decision-1" }
-  const owner = {
+  const owner = bindRepairActionOwner({
     schema_version: 1,
     action_request_identity: "repair-action-1",
     action_request_digest: sha("2"),
@@ -166,6 +256,10 @@ test("repair-action RESOLVE cross-binds the exact recovery locator", { concurren
     receipt_identity: "repair-action-receipt-1",
     receipt_digest: sha("3"),
     committed_at_epoch_ms: 24,
+  })
+  const payload = {
+    action_request_identity: owner.action_request_identity,
+    decision_identity: owner.decision_identity,
   }
   await withFetch([{ value: owner }], async (calls) => {
     const result = await main("RESOLVE", "REPAIR_ACTION", payload)
@@ -175,6 +269,11 @@ test("repair-action RESOLVE cross-binds the exact recovery locator", { concurren
     assert.deepEqual(calls[0].body, payload)
   })
   await withFetch([{ value: { ...owner, target: "RUNTIME" } }], async () => {
+    assert.equal((await main("RESOLVE", "REPAIR_ACTION", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
+  })
+  await withFetch([{ value: {
+    ...owner, category: "ARTIFACT", target: "RESEARCH_DEVELOP",
+  } }], async () => {
     assert.equal((await main("RESOLVE", "REPAIR_ACTION", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
   })
 })
@@ -391,7 +490,8 @@ test("repaired Replay RUN accepts only the exact Owner successor projection", { 
     meaning_digest: locator.meaning_digest,
     canonical_request_bytes: bytes(request),
   }
-  await withFetch([{ value: owner }, { value: identified }], async (calls) => {
+  const resolved = resolvedReplay(request, locator)
+  await withFetch([{ value: owner }, { value: identified }, { value: resolved }], async (calls) => {
     const result = await main("RUN", "REPAIRED_REPLAY", payload)
     assert.equal(result.resolution, "OWNER_CONFIRMED")
     assert.equal(result.next_legal_action, "EXECUTE_EXPLORATORY_REPLAY")
@@ -403,6 +503,10 @@ test("repaired Replay RUN accepts only the exact Owner successor projection", { 
       new URL(calls[1].url).pathname,
       "/v2/exploratory-replay-requests/identify",
     )
+    assert.equal(
+      new URL(calls[2].url).pathname,
+      "/v2/exploratory-replay-requests/replay-successor-1/resolve",
+    )
   })
   const alteredRequest = structuredClone(request)
   alteredRequest.artifact.digest = blake("f")
@@ -413,6 +517,16 @@ test("repaired Replay RUN accepts only the exact Owner successor projection", { 
     canonical_request_bytes: bytes(alteredRequest),
   }
   await withFetch([{ value: alteredOwner }, { value: alteredIdentification }], async () => {
+    assert.equal((await main("RUN", "REPAIRED_REPLAY", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
+  })
+  const foreignReceiptOwner = {
+    ...owner,
+    locator: {
+      ...locator,
+      receipt_identity: `rd-exploratory-replay-receipt-v2-${"9".repeat(64)}`,
+    },
+  }
+  await withFetch([{ value: foreignReceiptOwner }, { value: identified }, { value: resolved }], async () => {
     assert.equal((await main("RUN", "REPAIRED_REPLAY", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
   })
   const predecessorReplay = replayRequest(payload.predecessor_request_locator.request_identity)
@@ -481,7 +595,7 @@ test("repaired Replay RESOLVE uses only its pre-existing request selector", { co
     meaning_digest: payload.meaning_digest,
     canonical_request_bytes: bytes(request),
   }
-  await withFetch([{ value: owner }, { value: identified }], async (calls) => {
+  await withFetch([{ value: owner }, { value: identified }, { value: owner }], async (calls) => {
     const result = await main("RESOLVE", "REPAIRED_REPLAY", payload)
     assert.equal(result.resolution, "OWNER_CONFIRMED")
     assert.equal(result.owner_result.resolution, "EXPLORATION_ACTIVE")
@@ -491,6 +605,7 @@ test("repaired Replay RESOLVE uses only its pre-existing request selector", { co
     )
     assert.deepEqual(calls[0].body, { meaning_digest: payload.meaning_digest })
     assert.equal(new URL(calls[1].url).pathname, "/v2/exploratory-replay-requests/identify")
+    assert.equal(new URL(calls[2].url).pathname, "/v2/exploratory-replay-requests/replay-successor-1/resolve")
   })
   const alteredRequest = structuredClone(request)
   alteredRequest.artifact.digest = blake("f")
@@ -508,6 +623,19 @@ test("repaired Replay RESOLVE uses only its pre-existing request selector", { co
     canonical_request_bytes: bytes(alteredRequest),
   }
   await withFetch([{ value: alteredOwner }, { value: alteredIdentification }], async () => {
+    assert.equal((await main("RESOLVE", "REPAIRED_REPLAY", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
+  })
+  const foreignReceipt = {
+    ...owner,
+    readback: {
+      ...owner.readback,
+      receipt: {
+        ...owner.readback.receipt,
+        receipt_identity: `rd-exploratory-replay-receipt-v2-${"9".repeat(64)}`,
+      },
+    },
+  }
+  await withFetch([{ value: foreignReceipt }, { value: identified }, { value: owner }], async () => {
     assert.equal((await main("RESOLVE", "REPAIRED_REPLAY", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
   })
   await withFetch([{ value: {
