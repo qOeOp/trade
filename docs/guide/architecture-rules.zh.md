@@ -150,8 +150,13 @@ Research 终态停止不创建 Selection 或 Candidate，因此永不进入 Qual
 或不匹配时，在保护回放前生成 `NOT_ADMITTED` 且不消耗 holdout。
 每个已选择 Candidate 还绑定结果前 Protected Robustness Plan。它冻结必需时间窗口 市场状态 标的切片
 扰动 合理参数邻域单元的完整有限集合，以及覆盖 指标 容差 阈值 聚合 缺失单元和停止政策；同一轴可以
-要求多个单元。plan request result assessment 必须重复准确 plan-cell-set digest，result 与 assessment
-各自对每个冻结单元准确交代一次。Qualification 拥有结果分类 assessment；保护测量和单元细节永不返回
+要求多个单元。plan、每个 per-cell request 与 result、assessment 必须重复准确 plan-cell-set digest。
+Qualification 按自身冻结 plan 解析密封 Backtest per-cell result，形成完整 result census；该 census 与
+assessment 各自对每个冻结单元准确交代一次。assessment 原子嵌入 Qualification census-finalization proof；
+该 proof 绑定冻结 stop 与 missing-cell policy、自身 assessment-stage Time Evidence，以及证明没有请求单元
+仍处于非终态的密封 Backtest attempt frontier。该 proof 产生前不存在 assessment，缺少 result 的单元保持
+unfinished，不能标记为 `MISSING`。
+Qualification 拥有结果分类 assessment；保护测量和单元细节永不返回
 R&D。单个漂亮 aggregate、每轴一个单元或一个保护终态结果都不能替代完整计划。
 对合格 Candidate，Eligibility Fact 还绑定下游可执行经济条件版本 已评估成本容量模型版本和资格容量上限。
 Governance 与 Risk 必须保留准确来源，候选 Capital Envelope 不得超过 Qualification 上限 生命周期上限或当前兼容 Capacity View 估计。
@@ -320,7 +325,7 @@ depth 与 dropped wake count；它永不改写业务事实。
 
 Time Evidence 按用途区分，不能压缩成一个 timestamp：
 
-每个时间敏感 architecture object 都准确声明一个规范 `timeEvidenceCutKind`。六行矩阵与这些对象声明
+每个时间敏感 architecture object 都准确声明一个规范 `timeEvidenceCutKind`。七行矩阵与这些对象声明
 必须形成严格双射：时间敏感对象未声明、矩阵重复，或声明不在矩阵中都使契约无效。范围包括 source
 binding 与 PIT request、保护 request/result/assessment 证据、Trade Intent 与 Authorized Order Command、
 incident 与 drift fact、Recovery admission 与 closure，以及所有显式时间绑定的 Portfolio fact。所选行
@@ -330,6 +335,13 @@ incident 与 drift fact、Recovery admission 与 closure，以及所有显式时
   retrieval 和 correction time；observation time 不能替代其中任何截面。
 - `RESEARCH_AND_GOVERNANCE_DECISION` 把决定绑定到一个 clock epoch monotonic sequence observation time
   和 `valid-through`；更晚 wall time 不能改写证据当时何时可得。
+- `PROTECTED_EVALUATION` 把每个保护 request result assessment 绑定到一个 clock identity 与 epoch、
+  monotonic sequence、observed-at、uncertainty/skew bound、restart-continuity proof、排他的 `valid-through`、
+  comparison rule 和准确 evaluation stage。request 是阶段根；每个 result 直接引用 request Time Evidence，
+  每个 assessment 直接引用 result Time Evidence。后继阶段必须在同一 epoch 严格推进 monotonic sequence，
+  或提供一个直接 epoch-successor proof。具有证明的 request-to-result 直接 epoch 转换有效；进入同一
+  assessment 的全部 per-cell result 必须共享一个 result epoch，assessment 在该 epoch 内推进。证据缺失、
+  过期、epoch 无证明或互不可比、跳过阶段或未推进时，不能关闭保护 custody，也不能创建 Eligibility。
 - `SCANNER_DUE_SLOT` 还绑定 time-zone ruleset 身份与版本 本地计划时间 已解析 UTC interval DST fold 或
   gap 处置 misfire/backfill policy 和 due-slot boundary。秋季回拨 fold 产生可区分 slot，春季跳时 gap
   按冻结 skip 或 shift 政策处理，不能重复运行。

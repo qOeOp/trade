@@ -29,6 +29,8 @@
   容量模型版本，以及准确 Candidate/Intake 保护决策政策身份与版本。它还在任何保护观测前重复冻结
   Protected Robustness Plan 身份 必需单元身份 指标集 覆盖规则 容差 阈值 聚合 缺失单元和停止政策。
 - Protected Run Result 逐项重复保护请求对应的实际消费字段与保护政策 pair，并要求请求与结果完全相等。
+  它声明 `PROTECTED_EVALUATION` 为规范 `timeEvidenceCutKind`，直接绑定 request Time Evidence，并为准确
+  request、attempt、plan 与 plan cell 密封 result-stage clock cut。
 - Backtest Repair Result 绑定一个 R&D-owned `native-repair-request`、准确 `SIMULATOR` 或
   `BACKTEST_OPERATIONAL` 类别、前驱 repair decision、稳定 correlation、原始 proof digest、类别专属旧
   identity 与 source cut、repair policy、决定性证据和新鲜 Time Evidence；只有 Backtest 能为该 attempt
@@ -199,8 +201,9 @@ service，绝不声称 Runtime kernel 或 Simulator 修复。保护路径中 Qua
 - Protected Run Result 能证明请求与实际消费的 Artifact PIT 范围 snapshot universe
   calendar/session/time-zone corporate-action 历史 membership market-semantics correction replay kernel
   simulator 成本 滑点 容量模型 Protected Robustness Plan 和计划单元身份逐项完全相等。
-- 终态保护结果准确枚举每个必需计划单元一次，或记录其预注册终态 missing-cell disposition；Backtest
-  不得静默丢弃失败 不可用或不完整单元。
+- 每个终态保护结果只对其请求的计划单元准确交代一次，并重复完整 cell-set digest。只有 Qualification
+  能按冻结计划解析全部密封 per-cell result，并在消费证明没有请求单元仍处于非终态的密封 Backtest
+  attempt frontier 后分配 missing-cell disposition；Backtest 不能声称完整计划已完成，也不能静默改写不可用证据。
 - 任一保护请求与结果不匹配都必须成为 `INVALID_REPLAY_EVIDENCE`，且不生成 Eligibility Fact。
 - 每个探索结果都关联同一稳定且由 R&D 拥有的请求身份；请求不匹配 可变 已取代或未解析时不生成运行。
 - 每个终态探索结果都只有一个完整有限 `diagnosticCategorySet` diagnostic-policy 版本，以及每个支持
@@ -209,6 +212,9 @@ service，绝不声称 Runtime kernel 或 Simulator 修复。保护路径中 Qua
 - 每个终态保护结果同样保留一个完整 有限 非空的 `diagnosticCategorySet` 与内容摘要，但只对
   Qualification 可见。`NO_EXECUTION_DEFECT` 与 `UNRESOLVED_FAILURE` 都只能单独出现；任一受支持执行
   缺陷优先于经济解释，任何保护集合成员都不得进入共享 telemetry 或 R&D。
+- 每个终态保护 cell result 都携带密封且由 Backtest 拥有的 applicability 与 outcome evidence，以及完整
+  `PROTECTED_EVALUATION` result-stage Time Evidence。Backtest 报告 observation，不分配 Qualification 的
+  `PASS` `FAIL` 或 non-applicability 分类。
 - 每个 `BACKTEST_OPERATIONAL` 结果都证明准确 operational profile、run attempt、readiness/backpressure/
   resource-exhaustion/outage 证据和 Time Evidence；关联修复只指向 `BACKTEST_RUNNER_SERVICE`，后继
   profile 只能由新 Replay Request 消费。

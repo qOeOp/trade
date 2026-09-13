@@ -169,8 +169,13 @@ mismatched selected-only disposition produces `NOT_ADMITTED` before protected re
 Every selected Candidate also binds one pre-result Protected Robustness Plan. It fixes the complete finite set of
 required time-window, regime, instrument-slice, perturbation, and reasonable parameter-neighborhood cells plus
 coverage, metric, tolerance, threshold, aggregation, missing-cell, and stop policies. An axis may require multiple
-cells. The plan, request, result, and assessment repeat the exact plan-cell-set digest; the result and assessment
-must account for every frozen cell exactly once. Qualification owns the resulting categorical assessment;
+cells. The plan, every per-cell request and result, and the assessment repeat the exact plan-cell-set digest.
+Qualification resolves the sealed Backtest per-cell results against its frozen plan into one complete result
+census; that census and the assessment must account for every frozen cell exactly once. The assessment atomically
+embeds Qualification's census-finalization proof, bound to the frozen stop and missing-cell policies, its
+assessment-stage Time Evidence, and a sealed Backtest attempt frontier proving that no requested cell remains
+nonterminal. Until that proof exists, there is no assessment and an absent result remains unfinished rather than
+`MISSING`. Qualification owns the resulting categorical assessment;
 protected measurements and cell detail never return to R&D. One attractive aggregate, one cell
 per axis, or one protected terminal result cannot substitute for the complete plan.
 For a qualified Candidate, the Eligibility Fact also binds one downstream-enforceable economic-condition version,
@@ -362,7 +367,7 @@ recovery-closure latency plus queue depth and dropped wake counts; they never re
 
 Time evidence is typed by use, not reduced to one timestamp:
 
-Every time-sensitive architecture object declares exactly one canonical `timeEvidenceCutKind`. The six matrix
+Every time-sensitive architecture object declares exactly one canonical `timeEvidenceCutKind`. The seven matrix
 rows and those object declarations form an exact bijection: an undeclared time-sensitive object, a duplicate row,
 or a declaration absent from the matrix is contract-invalid. This includes source bindings and PIT requests,
 protected request/result/assessment evidence, Trade Intent and Authorized Order Command, incident and drift facts,
@@ -373,6 +378,14 @@ complete required bindings; a local timestamp cannot satisfy the declaration.
   streams, and valuation facts. Observation time cannot replace any of those cuts.
 - `RESEARCH_AND_GOVERNANCE_DECISION` binds the decision to one clock epoch, monotonic sequence, observation time,
   and `valid-through`; a later wall time cannot rewrite when evidence was available.
+- `PROTECTED_EVALUATION` binds each protected request, result, and assessment to one clock identity and epoch,
+  monotonic sequence, observed-at, uncertainty/skew bound, restart-continuity proof, exclusive `valid-through`,
+  comparison rule, and exact evaluation stage. The request is the stage root; each result directly names the
+  request Time Evidence and each assessment directly names the result Time Evidence. A successor stage strictly
+  advances the monotonic sequence in the same epoch, or supplies one direct epoch-successor proof. A proved direct
+  request-to-result epoch transition is valid; all per-cell results entering one assessment must share one result
+  epoch, and the assessment advances in that epoch. Missing, expired, unproved or mutually incomparable epochs,
+  skipped-stage, or non-advancing evidence cannot close protected custody or create Eligibility.
 - `SCANNER_DUE_SLOT` additionally binds time-zone ruleset identity and version, local scheduled time, resolved UTC
   interval, DST fold or gap disposition, misfire/backfill policy, and due-slot boundary. A fall-back fold yields
   distinguishable slots; a spring-forward gap follows the frozen skip or shift policy rather than running twice.
