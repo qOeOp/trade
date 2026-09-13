@@ -75,6 +75,7 @@ function validOriginalTimeEvidence(value: unknown): value is Json {
       && coordinate.clock_epoch === value.decision_cut.clock_epoch)
     && value.event_effective.value <= value.provider_available.value
     && value.provider_available.value <= value.retrieval.value
+    && value.provider_available.value <= value.correction_publication.value
     && value.correction_publication.value <= value.retrieval.value
     && value.provider_available.value <= value.decision_cut.value
     && value.retrieval.value <= value.decision_cut.value

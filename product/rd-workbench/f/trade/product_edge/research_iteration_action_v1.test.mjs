@@ -292,6 +292,22 @@ test("Market Data repair RUN validates canonical Owner custody", { concurrency: 
   await withFetch([{ value: malformedTime }], async () => {
     assert.equal((await main("RUN", "MARKET_DATA_REPAIR", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
   })
+  const misorderedCorrection = {
+    ...owner,
+    canonical_request_bytes: bytes({
+      ...canonical,
+      original_time_evidence: {
+        ...canonical.original_time_evidence,
+        correction_publication: {
+          ...canonical.original_time_evidence.correction_publication,
+          value: 11,
+        },
+      },
+    }),
+  }
+  await withFetch([{ value: misorderedCorrection }], async () => {
+    assert.equal((await main("RUN", "MARKET_DATA_REPAIR", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
+  })
   const staleSharedTime = {
     ...owner,
     canonical_request_bytes: bytes({
