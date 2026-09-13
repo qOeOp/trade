@@ -345,6 +345,8 @@ async function validMarketDataResponse(value: unknown, payload: Json): Promise<b
     const canonical = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(
       Uint8Array.from(value.canonical_request_bytes),
     ))
+    if (!object(canonical)) return false
+    const canonicalEncoding = [...new TextEncoder().encode(JSON.stringify(canonical))]
     const bindingKeys = [
       "correlation_identity", "original_pit_request_identity", "original_pit_request_digest",
       "original_pit_snapshot_identity", "original_pit_proof_digest", "instrument_scope_digest",
@@ -352,7 +354,8 @@ async function validMarketDataResponse(value: unknown, payload: Json): Promise<b
       "provenance_binding_fact_digest", "provenance_lineage_root", "source_frontier_digest",
       "correction_frontier_digest", "market_semantics_identity",
     ]
-    if (!object(canonical) || !exactKeys(canonical, [
+    if (!equalBytes(value.canonical_request_bytes, canonicalEncoding)
+      || !exactKeys(canonical, [
       "schema_version", "request_identity", "request_digest", "correlation_identity",
       "action_request_identity", "action_request_digest", "decision_identity", "decision_digest",
       "decision_evidence_cut", "replay_request_identity", "replay_request_digest", "result_identity",

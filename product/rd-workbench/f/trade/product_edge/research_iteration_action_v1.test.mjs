@@ -385,6 +385,16 @@ test("Market Data repair RUN validates canonical Owner custody", { concurrency: 
     assert.equal(result.next_legal_action, "WAIT_FOR_MARKET_DATA_TERMINAL")
     assert.equal(new URL(calls[0].url).pathname, "/v1/market-data-repair-requests")
   })
+  const ownerCanonicalText = new TextDecoder().decode(Uint8Array.from(owner.canonical_request_bytes))
+  const nonCanonicalBytes = {
+    ...owner,
+    canonical_request_bytes: [...new TextEncoder().encode(
+      ownerCanonicalText.replace('"schema_version":1,', '"schema_version":1.0,'),
+    )],
+  }
+  await withFetch([{ value: nonCanonicalBytes }], async () => {
+    assert.equal((await main("RUN", "MARKET_DATA_REPAIR", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
+  })
   const ownerCanonical = JSON.parse(new TextDecoder().decode(Uint8Array.from(owner.canonical_request_bytes)))
   const digestSpliced = {
     ...owner,
