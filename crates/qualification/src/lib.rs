@@ -3,11 +3,15 @@
 //! The public surface accepts only an R&D basis locator. Positive readbacks
 //! are constructed exclusively after direct PostgreSQL verification.
 
+mod candidate_intake;
 mod postgres;
 
 #[cfg(feature = "owner-recovery")]
 mod recovery;
 
+pub use candidate_intake::{
+    CandidateIntakeReceiptV1, CandidateIntakeRequestV1, CandidateIntakeStatusV1,
+};
 pub use postgres::{
     PostgresQualificationOwnerV1, admit_historical_projection_in_transaction,
     admit_projection_in_transaction,
