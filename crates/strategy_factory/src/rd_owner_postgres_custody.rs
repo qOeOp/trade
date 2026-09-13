@@ -3,10 +3,7 @@
     reason = "R&D Owner custody retains complete typed readbacks across repeatable-read transactions"
 )]
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fmt::Display,
-};
+use std::{collections::BTreeMap, fmt::Display};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
@@ -2607,7 +2604,8 @@ async fn resolve_research_admission_hints(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     rows: &[PgRow],
 ) -> Result<BTreeMap<String, PreadmittedResearchAuthorityV1>, ResearchGoalOwnerError> {
-    let mut locators = Vec::with_capacity(rows.len());
+    let mut research_locators = Vec::with_capacity(rows.len());
+    let mut view_json_by_request = BTreeMap::new();
     let mut admissions = BTreeMap::new();
 
     for row in rows {
@@ -2697,67 +2695,31 @@ async fn resolve_research_admission_hints(
                 "Product Edge admission locator request mismatch".into(),
             ));
         }
-        locators.push((
+        research_locators.push((
             request_identity.clone(),
             locator,
-            false,
             legacy_product_edge_fallback,
         ));
         let view_json = row
             .try_get::<Option<serde_json::Value>, _>("view_json")
             .map_err(|e| storage(&e))?;
-        if let Some(view_json) = view_json {
-            let view = match decode_exact::<ResearchViewV1>(&view_json) {
-                Ok(view) => view,
-                Err(_) if legacy_product_edge_fallback => continue,
-                Err(e) => return Err(e),
-            };
-            if matches!(
-                view.phase,
-                crate::product_edge::ResearchViewPhase::ArtifactAvailable
-                    | crate::product_edge::ResearchViewPhase::ExplorationActive
-            ) {
-                let attempt_identity = view.attempt_identity.as_deref().ok_or_else(|| {
-                    ResearchGoalOwnerError::Storage(
-                        "terminal research view attempt identity missing".into(),
-                    )
-                })?;
-                let attempt_rows = sqlx::query("SELECT build_request_identity, attempt_identity, semantic_digest, attempt_json, prepared_at_epoch_ms FROM rd_artifact_build_attempts_v1 WHERE attempt_identity=$1")
-                    .bind(attempt_identity)
-                    .fetch_all(&mut **transaction)
-                    .await
-                    .map_err(|e| storage(&e))?;
-                if attempt_rows.len() != 1 {
-                    return Err(ResearchGoalOwnerError::Storage(
-                        "terminal research attempt hint unavailable".into(),
-                    ));
-                }
-                let build_request_identity: String = attempt_rows[0]
-                    .try_get("build_request_identity")
-                    .map_err(|e| storage(&e))?;
-                let attempt =
-                    attempt::decode_attempt_row(&attempt_rows[0], &build_request_identity)
-                        .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
-                locators.push((request_identity, attempt.request.admission, true, false));
-            }
+        if let Some(view_json) = view_json
+            && view_json_by_request
+                .insert(request_identity, view_json)
+                .is_some()
+        {
+            return Err(ResearchGoalOwnerError::Storage(
+                "duplicate research view hint".into(),
+            ));
         }
     }
-    locators.sort_by(|left, right| {
-        (&left.0, left.2, &left.1.admission_identity).cmp(&(
-            &right.0,
-            right.2,
-            &right.1.admission_identity,
-        ))
+    research_locators.sort_by(|left, right| {
+        (&left.0, &left.1.admission_identity).cmp(&(&right.0, &right.1.admission_identity))
     });
 
     let mut resolved_research = BTreeMap::new();
-    let mut resolved_terminal = BTreeMap::new();
-    let mut legacy_fallbacks = BTreeSet::new();
 
-    for (request_identity, locator, terminal, legacy_fallback) in locators {
-        if terminal && legacy_fallbacks.contains(&request_identity) {
-            continue;
-        }
+    for (request_identity, locator, legacy_fallback) in research_locators {
         let admission = match resolve_admission_for_downstream_in_transaction(
             transaction,
             &locator,
@@ -2766,14 +2728,13 @@ async fn resolve_research_admission_hints(
         .await
         {
             Ok(admission) => admission,
-            Err(ProductEdgeError::Unavailable) if !terminal && legacy_fallback => {
+            Err(ProductEdgeError::Unavailable) if legacy_fallback => {
                 if admissions
                     .insert(
                         request_identity.clone(),
                         PreadmittedResearchAuthorityV1::LegacyQuarantined,
                     )
                     .is_some()
-                    || !legacy_fallbacks.insert(request_identity)
                 {
                     return Err(ResearchGoalOwnerError::Storage(
                         "duplicate legacy Product Edge request hint".into(),
@@ -2783,13 +2744,68 @@ async fn resolve_research_admission_hints(
             }
             Err(e) => return Err(ResearchGoalOwnerError::Storage(e.to_string())),
         };
-        let target = if terminal {
-            &mut resolved_terminal
-        } else {
-            &mut resolved_research
-        };
+        if resolved_research
+            .insert(request_identity, admission)
+            .is_some()
+        {
+            return Err(ResearchGoalOwnerError::Storage(
+                "duplicate research request authority hint".into(),
+            ));
+        }
+    }
 
-        if target.insert(request_identity, admission).is_some() {
+    let mut terminal_locators = Vec::new();
+    for request_identity in resolved_research.keys() {
+        let Some(view_json) = view_json_by_request.get(request_identity) else {
+            continue;
+        };
+        let view = decode_exact::<ResearchViewV1>(view_json)?;
+        if !matches!(
+            view.phase,
+            crate::product_edge::ResearchViewPhase::ArtifactAvailable
+                | crate::product_edge::ResearchViewPhase::ExplorationActive
+        ) {
+            continue;
+        }
+        let attempt_identity = view.attempt_identity.as_deref().ok_or_else(|| {
+            ResearchGoalOwnerError::Storage(
+                "terminal research view attempt identity missing".into(),
+            )
+        })?;
+        let attempt_rows = sqlx::query("SELECT build_request_identity, attempt_identity, semantic_digest, attempt_json, prepared_at_epoch_ms FROM rd_artifact_build_attempts_v1 WHERE attempt_identity=$1")
+            .bind(attempt_identity)
+            .fetch_all(&mut **transaction)
+            .await
+            .map_err(|e| storage(&e))?;
+        if attempt_rows.len() != 1 {
+            return Err(ResearchGoalOwnerError::Storage(
+                "terminal research attempt hint unavailable".into(),
+            ));
+        }
+        let build_request_identity: String = attempt_rows[0]
+            .try_get("build_request_identity")
+            .map_err(|e| storage(&e))?;
+        let attempt = attempt::decode_attempt_row(&attempt_rows[0], &build_request_identity)
+            .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
+        terminal_locators.push((request_identity.clone(), attempt.request.admission));
+    }
+    terminal_locators.sort_by(|left, right| {
+        (&left.0, &left.1.admission_identity).cmp(&(&right.0, &right.1.admission_identity))
+    });
+
+    let mut resolved_terminal = BTreeMap::new();
+    for (request_identity, locator) in terminal_locators {
+        let admission = resolve_admission_for_downstream_in_transaction(
+            transaction,
+            &locator,
+            DownstreamAdmissionModeV1::Historical,
+        )
+        .await
+        .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
+        if resolved_terminal
+            .insert(request_identity, admission)
+            .is_some()
+        {
             return Err(ResearchGoalOwnerError::Storage(
                 "duplicate research request authority hint".into(),
             ));

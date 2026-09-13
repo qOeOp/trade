@@ -19,7 +19,7 @@ const REASON = new Set<ResearchShadowUnavailableReason>([
 type Fetcher = typeof fetch;
 
 export type ResearchReadbackOutcomeV1 = Readonly<{
-  resolution: "accepted" | "rejected";
+  resolution: "accepted" | "rejected" | "quarantined";
   intentIdentity: string | null;
   rejectionCode: string | null;
   committedAt: string;
@@ -133,6 +133,7 @@ function projectResponse(
     return unavailable(requestIdentity, "OWNER_RESPONSE_UNAVAILABLE", 502);
   }
   const accepted = projection.resolution === "ACCEPTED";
+  const quarantined = projection.resolution === "LEGACY_TERMINAL_QUARANTINED";
   const researchView = accepted ? projection.research_view : null;
   const observedAt = researchView ? isoTime(researchView.observed_at_epoch_ms) : null;
   const validThrough = researchView ? isoTime(researchView.valid_through_epoch_ms) : null;
@@ -155,9 +156,9 @@ function projectResponse(
       requestIdentity,
       observedAt: response.envelope.transport_observed_at,
       outcome: {
-        resolution: accepted ? "accepted" : "rejected",
+        resolution: accepted ? "accepted" : quarantined ? "quarantined" : "rejected",
         intentIdentity: accepted ? receipt.resulting_research_intent_identity : null,
-        rejectionCode: accepted ? null : receipt.rejection_code,
+        rejectionCode: accepted || quarantined ? null : receipt.rejection_code,
         committedAt,
       },
       view,
@@ -199,7 +200,7 @@ export function parseResearchReadbackBrowserProjectionV1(
   }
   if (!object(value.outcome) || !exactKeys(value.outcome, [
     "resolution", "intentIdentity", "rejectionCode", "committedAt",
-  ]) || !["accepted", "rejected"].includes(String(value.outcome.resolution))
+  ]) || !["accepted", "rejected", "quarantined"].includes(String(value.outcome.resolution))
     || !(value.outcome.intentIdentity === null || identity(value.outcome.intentIdentity))
     || !(value.outcome.rejectionCode === null || identity(value.outcome.rejectionCode))
     || !canonicalTime(value.outcome.committedAt)
@@ -210,6 +211,13 @@ export function parseResearchReadbackBrowserProjectionV1(
       .every((entry) => entry === null || identity(entry))) return null;
   if (value.outcome.resolution === "rejected") {
     return value.outcome.intentIdentity === null && identity(value.outcome.rejectionCode)
+      && value.view === null && value.technical.projectionIdentity === null
+      && value.technical.sourceCut === null && value.technical.trialFamilyIdentity === null
+      ? value as ResearchReadbackProjectionV1
+      : null;
+  }
+  if (value.outcome.resolution === "quarantined") {
+    return value.outcome.intentIdentity === null && value.outcome.rejectionCode === null
       && value.view === null && value.technical.projectionIdentity === null
       && value.technical.sourceCut === null && value.technical.trialFamilyIdentity === null
       ? value as ResearchReadbackProjectionV1

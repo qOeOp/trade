@@ -46,18 +46,19 @@ function AvailableReadback({ projection }: { projection: ResearchReadbackProject
     );
   }
   const view = projection.view;
+  const quarantined = outcome.resolution === "quarantined";
   return (
     <FactGroupGrid>
       <FactGroup title="Outcome">
         <FactItem label="Decision">
-          <StatusBadge tone={outcome.resolution === "accepted" ? "success" : "danger"}>
-            {outcome.resolution === "accepted" ? "Accepted" : "Rejected"}
+          <StatusBadge tone={outcome.resolution === "accepted" ? "success" : quarantined ? "warning" : "danger"}>
+            {outcome.resolution === "accepted" ? "Accepted" : quarantined ? "Historical" : "Rejected"}
           </StatusBadge>
         </FactItem>
         <FactItem label="Research state">
           {view ? <StatusBadge tone={view.phase === "artifact_available" ? "success" : "info"}>
             {phaseLabel(view.phase)}
-          </StatusBadge> : "Not created"}
+          </StatusBadge> : quarantined ? "Quarantined" : "Not created"}
         </FactItem>
         {outcome.rejectionCode ? <FactItem label="Reason" mono title={outcome.rejectionCode}>
           {outcome.rejectionCode}
@@ -65,14 +66,16 @@ function AvailableReadback({ projection }: { projection: ResearchReadbackProject
       </FactGroup>
       <FactGroup title="Intent">
         <FactItem label="Identity" mono title={outcome.intentIdentity ?? undefined}>
-          {outcome.intentIdentity ?? "Not created"}
+          {outcome.intentIdentity ?? (quarantined ? "Not promoted" : "Not created")}
         </FactItem>
         <FactItem label="Freshness">
           {view ? <StatusBadge tone={view.availability === "available" ? "success" : "warning"}>
             {view.availability === "available" ? "Current" : "Stale"}
           </StatusBadge> : "Unavailable"}
         </FactItem>
-        <FactItem label="Next step">{view ? nextStepLabel(view.nextStep) : "Correct input"}</FactItem>
+        <FactItem label="Next step">
+          {view ? nextStepLabel(view.nextStep) : quarantined ? "Refresh same request" : "Correct input"}
+        </FactItem>
       </FactGroup>
       <FactGroup title="Timing">
         <FactItem label="Committed">{displayTime(outcome.committedAt)}</FactItem>
