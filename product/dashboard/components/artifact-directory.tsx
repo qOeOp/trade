@@ -202,10 +202,14 @@ export function ArtifactDirectory() {
       sortable: true,
       minWidth: "310px",
       grow: 1.4,
-      cell: (item) => <div className={styles.identityCell}>
+      cell: (item) => <Link
+        className={styles.identityCell}
+        href={`/rd/artifacts/${encodeURIComponent(item.buildRequestIdentity)}/attempts/${encodeURIComponent(item.attemptIdentity)}?custody=historical`}
+      >
         <strong title={item.buildRequestIdentity}>{displayIdentity(item.buildRequestIdentity)}</strong>
-        <span>Candidate identity only</span>
-      </div>,
+        <span>Open historical outcome</span>
+      </Link>,
+      ignoreRowClick: true,
     },
     {
       id: "attempt",

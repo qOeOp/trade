@@ -14,6 +14,7 @@ import { OperationsServiceLogs } from "./operations-service-logs";
 import { OperationsAudit } from "./operations-audit";
 import { ArtifactDirectory } from "./artifact-directory";
 import { ArtifactSourceWorkspace } from "./artifact-source-workspace";
+import { ArtifactHistoricalReadbackWorkspace } from "./artifact-historical-readback-workspace";
 import { ResearchDirectory } from "./research-directory";
 import { ResearchReadbackWorkspace } from "./research-readback-workspace";
 import { SourceIntakeReadbackWorkbench } from "./source-intake-readback-workbench";
@@ -97,6 +98,7 @@ export function DashboardRouteContent({
   workerIdentity,
   artifactBuildRequestIdentity,
   artifactAttemptIdentity,
+  artifactHistoricalCustody = false,
   sourceIntakeRequestIdentity,
   composerRequestIdentity,
   replayRequestIdentity,
@@ -108,6 +110,7 @@ export function DashboardRouteContent({
   workerIdentity?: string;
   artifactBuildRequestIdentity?: string;
   artifactAttemptIdentity?: string;
+  artifactHistoricalCustody?: boolean;
   sourceIntakeRequestIdentity?: string;
   composerRequestIdentity?: string;
   replayRequestIdentity?: string;
@@ -163,7 +166,7 @@ export function DashboardRouteContent({
               </summary>
               <div className="authority-block">
                 <span className={`maturity maturity-${maturity === "DRAWABLE_EXACT" ? "exact" : "unavailable"}`}>{maturity}</span>
-                <b>{artifactSourceDetail ? "Verified Artifact read" : artifactDirectory ? "Verified Artifact directory" : researchReadback ? "Verified Research readback" : researchDirectory ? "Verified Research directory" : sourceResearchControl ? "Sourced research execution" : sourceIntakeReadback ? "Source Intake exact readback" : composerReadback ? "Develop Composer exact readback" : exploratoryReplayReadback ? "Replay request and result readback" : marketDataFoundation ? "Market Data Owner foundation" : runtimeFoundation ? "Runtime foundation" : portfolioUnavailable ? "Portfolio contract" : operationsConnected ? "Shadow operations" : drawableExact ? "Documented unavailable state" : "Navigation only"}</b>
+                <b>{artifactSourceDetail ? artifactHistoricalCustody ? "Historical Artifact outcome" : "Verified Artifact read" : artifactDirectory ? "Verified Artifact directory" : researchReadback ? "Verified Research readback" : researchDirectory ? "Verified Research directory" : sourceResearchControl ? "Sourced research execution" : sourceIntakeReadback ? "Source Intake exact readback" : composerReadback ? "Develop Composer exact readback" : exploratoryReplayReadback ? "Replay request and result readback" : marketDataFoundation ? "Market Data Owner foundation" : runtimeFoundation ? "Runtime foundation" : portfolioUnavailable ? "Portfolio contract" : operationsConnected ? "Shadow operations" : drawableExact ? "Documented unavailable state" : "Navigation only"}</b>
                 <small>{artifactSourceDetail
                 ? "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_EDIT_OR_EXECUTION"
                 : artifactDirectory
@@ -220,10 +223,15 @@ export function DashboardRouteContent({
               : researchReadback ? <ResearchReadbackWorkspace requestIdentity={researchRequestIdentity!} />
               : researchDirectory ? <ResearchDirectory />
               : artifactDirectory ? <ArtifactDirectory />
-              : artifactSourceDetail ? <ArtifactSourceWorkspace
-                buildRequestIdentity={artifactBuildRequestIdentity!}
-                attemptIdentity={artifactAttemptIdentity!}
-              />
+              : artifactSourceDetail ? artifactHistoricalCustody
+                ? <ArtifactHistoricalReadbackWorkspace
+                  buildRequestIdentity={artifactBuildRequestIdentity!}
+                  attemptIdentity={artifactAttemptIdentity!}
+                />
+                : <ArtifactSourceWorkspace
+                  buildRequestIdentity={artifactBuildRequestIdentity!}
+                  attemptIdentity={artifactAttemptIdentity!}
+                />
               : marketDataFoundation ? <MarketDataOwnerFoundationCard />
               : runtimeFoundation ? <RuntimeFoundationNotReadyCard />
               : portfolioUnavailable ? <PortfolioViewUnavailableCard />

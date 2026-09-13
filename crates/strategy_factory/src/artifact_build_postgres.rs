@@ -1556,6 +1556,38 @@ async fn read_source_from_pool(
     attempt_identity: &str,
 ) -> Result<Option<ArtifactSourceReadbackV1>, ArtifactBuildError> {
     let mut transaction = pool.begin().await.map_err(storage)?;
+    let rows = sqlx::query("SELECT build_request_identity, attempt_identity, attempt_json FROM rd_artifact_build_attempts_v1 WHERE build_request_identity=$1 OR attempt_identity=$2 FOR SHARE")
+        .bind(build_request_identity)
+        .bind(attempt_identity)
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(storage)?;
+    if rows.is_empty() {
+        transaction.commit().await.map_err(storage)?;
+        return Ok(None);
+    }
+    if rows.len() != 1 {
+        return Err(ArtifactBuildError::Storage(
+            "artifact source custody locator is ambiguous".into(),
+        ));
+    }
+    let row = &rows[0];
+    if row
+        .try_get::<String, _>("build_request_identity")
+        .map_err(storage)?
+        != build_request_identity
+        || row
+            .try_get::<String, _>("attempt_identity")
+            .map_err(storage)?
+            != attempt_identity
+    {
+        return Err(ArtifactBuildError::ConflictingReplay);
+    }
+    let encoded: serde_json::Value = row.try_get("attempt_json").map_err(storage)?;
+    if decode_current_attempt_exact(&encoded).is_none() {
+        transaction.commit().await.map_err(storage)?;
+        return Ok(None);
+    }
     let Some(custody) = Box::pin(admit_attempt_custody_in_transaction(
         &mut transaction,
         build_request_identity,
@@ -1625,6 +1657,49 @@ async fn read_artifact_from_pool(
 ) -> Result<ArtifactBuildResultV1, ArtifactBuildError> {
     let read_cut_epoch_ms = clock()?;
     let mut transaction = pool.begin().await.map_err(storage)?;
+    let rows = sqlx::query("SELECT build_request_identity, attempt_identity, semantic_digest, attempt_json, prepared_at_epoch_ms FROM rd_artifact_build_attempts_v1 WHERE build_request_identity=$1 OR attempt_identity=$2 FOR SHARE")
+        .bind(build_request_identity)
+        .bind(attempt_identity)
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(storage)?;
+    if rows.is_empty() {
+        transaction.commit().await.map_err(storage)?;
+        return Ok(unknown_result(build_request_identity, attempt_identity));
+    }
+    if rows.len() != 1 {
+        return Err(ArtifactBuildError::Storage(
+            "artifact readback custody locator is ambiguous".into(),
+        ));
+    }
+    let row = &rows[0];
+    if row
+        .try_get::<String, _>("build_request_identity")
+        .map_err(storage)?
+        != build_request_identity
+        || row
+            .try_get::<String, _>("attempt_identity")
+            .map_err(storage)?
+            != attempt_identity
+    {
+        return Err(ArtifactBuildError::ConflictingReplay);
+    }
+    let encoded: serde_json::Value = row.try_get("attempt_json").map_err(storage)?;
+    if decode_current_attempt_exact(&encoded).is_none() {
+        let (legacy, complete_projection_fields) = decode_legacy_attempt(&encoded)?;
+        verify_legacy_terminal_attempt(
+            &mut transaction,
+            row,
+            &encoded,
+            &legacy,
+            complete_projection_fields,
+            build_request_identity,
+            attempt_identity,
+        )
+        .await?;
+        transaction.commit().await.map_err(storage)?;
+        return Ok(legacy_terminal_result(legacy));
+    }
     let custody = Box::pin(admit_attempt_custody_in_transaction(
         &mut transaction,
         build_request_identity,
@@ -1669,9 +1744,13 @@ impl PostgresArtifactReadbackOwnerV1 {
             .connect(database_url)
             .await
             .map_err(storage)?;
-        crate::schema_materialization::require_existing_public_tables(&pool, ARTIFACT_BUILD_TABLES)
-            .await
-            .map_err(storage)?;
+        require_rd_owner_api_schema(&pool).await.map_err(storage)?;
+        crate::schema_materialization::require_existing_public_tables_for_readback(
+            &pool,
+            ARTIFACT_BUILD_TABLES,
+        )
+        .await
+        .map_err(storage)?;
         Ok(Self {
             pool,
             clock: Arc::new(current_epoch_ms),
@@ -1701,7 +1780,7 @@ impl PostgresArtifactReadbackOwnerV1 {
         let scan_limit = ARTIFACT_DIRECTORY_MAX_SCANNED + 1;
         let candidate_rows = if let Some(cursor) = after {
             sqlx::query(
-                "SELECT build_request_identity, prepared_at_epoch_ms FROM rd_artifact_build_attempts_v1 WHERE (prepared_at_epoch_ms, build_request_identity COLLATE \"C\") < ($1, $2 COLLATE \"C\") ORDER BY prepared_at_epoch_ms DESC, build_request_identity COLLATE \"C\" DESC LIMIT $3",
+                "SELECT build_request_identity, prepared_at_epoch_ms, attempt_json FROM rd_artifact_build_attempts_v1 WHERE (prepared_at_epoch_ms, build_request_identity COLLATE \"C\") < ($1, $2 COLLATE \"C\") ORDER BY prepared_at_epoch_ms DESC, build_request_identity COLLATE \"C\" DESC LIMIT $3",
             )
             .bind(i64::try_from(cursor.prepared_at_epoch_ms).map_err(json_storage)?)
             .bind(&cursor.build_request_identity)
@@ -1711,7 +1790,7 @@ impl PostgresArtifactReadbackOwnerV1 {
             .map_err(storage)?
         } else {
             sqlx::query(
-                "SELECT build_request_identity, prepared_at_epoch_ms FROM rd_artifact_build_attempts_v1 ORDER BY prepared_at_epoch_ms DESC, build_request_identity COLLATE \"C\" DESC LIMIT $1",
+                "SELECT build_request_identity, prepared_at_epoch_ms, attempt_json FROM rd_artifact_build_attempts_v1 ORDER BY prepared_at_epoch_ms DESC, build_request_identity COLLATE \"C\" DESC LIMIT $1",
             )
             .bind(scan_limit)
             .fetch_all(pool)
@@ -1745,6 +1824,12 @@ impl PostgresArtifactReadbackOwnerV1 {
                 build_request_identity: build_request_identity.clone(),
             });
             scanned += 1;
+
+            let encoded: serde_json::Value = row.try_get("attempt_json").map_err(storage)?;
+            if decode_current_attempt_exact(&encoded).is_none() {
+                omitted_count = omitted_count.saturating_add(1);
+                continue;
+            }
 
             let mut transaction = pool.begin().await.map_err(storage)?;
             let custody = Box::pin(admit_attempt_custody_in_transaction(
@@ -1923,6 +2008,12 @@ fn decode_legacy_attempt(
             "unclassified legacy attempt custody".into(),
         )),
     }
+}
+
+fn decode_current_attempt_exact(value: &serde_json::Value) -> Option<StoredAttemptV1> {
+    serde_json::from_value::<StoredAttemptV1>(value.clone())
+        .ok()
+        .filter(|decoded| serde_json::to_value(decoded).ok().as_ref() == Some(value))
 }
 
 fn decode_admitted_legacy_prepared(

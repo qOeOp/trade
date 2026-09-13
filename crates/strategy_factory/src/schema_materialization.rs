@@ -137,7 +137,20 @@ pub(crate) async fn require_existing_public_tables(
     }
 
     for spec in specs {
-        require_existing_public_table(pool, spec, spec.runtime_read_grantees).await?;
+        require_existing_public_table(pool, spec, spec.runtime_read_grantees, true).await?;
+    }
+    Ok(())
+}
+
+/// Verifies the same immutable relation manifest for a capability that exposes
+/// only Owner reads, without requiring the later runtime-role cutover to have
+/// happened already.
+pub(crate) async fn require_existing_public_tables_for_readback(
+    pool: &PgPool,
+    specs: &[PublicTableSpec],
+) -> Result<(), sqlx::Error> {
+    for spec in specs {
+        require_existing_public_table(pool, spec, &[], false).await?;
     }
     Ok(())
 }
@@ -153,7 +166,7 @@ pub(crate) async fn verify_materialized_public_tables(
     }
 
     for spec in specs {
-        require_existing_public_table(pool, spec, &[]).await?;
+        require_existing_public_table(pool, spec, &[], true).await?;
     }
     Ok(())
 }
@@ -162,6 +175,7 @@ async fn require_existing_public_table(
     pool: &PgPool,
     spec: &PublicTableSpec,
     runtime_read_grantees: &[&str],
+    require_exact_acl: bool,
 ) -> Result<(), sqlx::Error> {
     let relation_is_exact: Option<bool> = sqlx::query_scalar(
         "SELECT relation.relkind='r'
@@ -174,7 +188,8 @@ async fn require_existing_public_table(
            AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite WHERE rewrite.ev_class=relation.oid AND rewrite.rulename<>'_RETURN')
            AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_inherits inheritance WHERE inheritance.inhrelid=relation.oid OR inheritance.inhparent=relation.oid)
            AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_publication_rel publication WHERE publication.prrelid=relation.oid)
-           AND (SELECT count(*)=7+cardinality($2::text[])
+           AND ((NOT $3::boolean AND pg_catalog.has_table_privilege(current_user,relation.oid,'SELECT'))
+             OR ($3::boolean AND (SELECT count(*)=7+cardinality($2::text[])
                   AND count(*) FILTER (WHERE acl.grantee=relation.relowner)=7
                   AND count(DISTINCT acl.privilege_type) FILTER (WHERE acl.grantee=relation.relowner)=7
                   AND bool_and(acl.grantor=relation.relowner AND NOT acl.is_grantable)
@@ -184,7 +199,7 @@ async fn require_existing_public_table(
                   )
                   AND count(*) FILTER (WHERE acl.grantee<>relation.relowner)=cardinality($2::text[])
                   AND count(DISTINCT pg_catalog.pg_get_userbyid(acl.grantee)) FILTER (WHERE acl.grantee<>relation.relowner)=cardinality($2::text[])
-                  FROM pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl)
+                  FROM pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl)))
            AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute attribute WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped AND attribute.attacl IS NOT NULL)
           FROM pg_catalog.pg_class relation
           JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
@@ -192,6 +207,7 @@ async fn require_existing_public_table(
     )
     .bind(spec.name)
     .bind(runtime_read_grantees)
+    .bind(require_exact_acl)
     .fetch_optional(pool)
     .await?;
 

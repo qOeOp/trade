@@ -386,29 +386,39 @@ completeness/count、非法 identity/time、超限 response 或 transport/config
 unavailable，绝不能伪装成成功空页。candidate view 使用与 Research 相同的经认证 GET
 `/v1/historical-custodies` 与 read‑only Owner cut；最多暴露 200 个 attempt 与 200 个 TrialFamily-binding identity、
 custody time 及唯一 state `POINT_READ_REQUIRED`。count 只是 custody index 数量，绝不是 verified Artifact 或
-valid binding 数量；不得推断 Artifact outcome、binding validity、current authority，也不暴露 raw receipt、
-payload 或 storage 字段。
+valid binding 数量；directory cut 不得推断 Artifact outcome、binding validity、current authority，也不暴露
+raw receipt、payload 或 storage 字段。attempt candidate 可以链接到一个精确历史 point read；只有该 point read
+才能基于完整 stored custody 对 candidate 分类。
 
 verified directory、精确 readback 与精确 source GET 由上述统一的 `strategy-factory-rd-dashboard-read-api`
 打包；Artifact state 只持有 typed `ArtifactDirectoryOwnerPort`、`ArtifactReadbackOwnerPortV1` 与
-`ArtifactSourceOwnerPort`，不持有 sandbox 或任何 Artifact mutation port。精确 readback GET 复用 verified
-attempt custody 投影当前结果，但绝不调用 `ArtifactBuildOwnerPort::resolve`；它不能终态化过期 attempt、提交
-Building candidate、drain legacy custody、调用 provider 或写入业务状态。PostgreSQL adapter 保持普通
+`ArtifactSourceOwnerPort`，不持有 sandbox 或任何 Artifact mutation port。精确 readback GET 必须 current-first：
+精确 current stored shape 始终进入既有完整 Artifact verifier，current verification failure 绝不能降级进入
+historical decoder。只有精确 non-current shape 可以进入历史 quarantine verifier；仅当 terminal
+`FAILED_NO_ARTIFACT`、`REJECTED_NO_WRITE` 或 `OUTCOME_UNKNOWN` receipt 的 identity、semantic digest、time 与
+no-Artifact relation 全部 canonical 时，才投影 `LEGACY_TERMINAL_QUARANTINED`。historical `SUCCESS` 因缺少
+current Artifact custody 要求的 sealed build-security evidence 而继续 unavailable。verified directory 隐藏
+non-current shape 并把 cut 标为 partial，不得让 verified current row 因此整体 unavailable；source read 仍只接收
+current shape。adapter 绝不调用 `ArtifactBuildOwnerPort::resolve`；它不能终态化过期 attempt、提交 Building
+candidate、drain legacy custody、调用 provider 或写入业务状态。PostgreSQL adapter 保持普通
 read-committed locking reader，因为 canonical verifier 需要 `FOR SHARE`；若
 改成 read‑only transaction，PostgreSQL 会直接拒绝 verifier 本身。Dashboard 通过同一个必须成对配置的
 `RD_DASHBOARD_OWNER_READ_API_URL` 与 `RD_DASHBOARD_OWNER_READ_API_TOKEN` 绑定；只配置其中一项时必须 fail closed，
 绝不能借用 write API 的另一半 credential。
 
-唯一 action 是 `Refresh`、切换本地 directory/kind view、local search/sort/pagination、`Load older` 与打开一个
-精确 verified Artifact。目录不 submit
+唯一 action 是 `Refresh`、切换本地 directory/kind view、local search/sort/pagination、`Load older`、打开一个
+精确 verified Artifact 与一个精确 historical attempt outcome。historical detail 复用其他 readback 的
+`PanelFrame`、`FactGroup`、`FactItem`、`StatusBadge` 与 compact filter-button atoms；主视图只展示面向业务的
+outcome、quarantine、reason 与 timing facts，精确 identity 和 Owner receipt 留在既有 info affordance 中。目录不 submit
 或 resolve attempt，不 build source，不运行 sandbox/Wasm module，不调用 provider，不 mutate Windmill，不写
 business state，也不授权交易。关联 source viewer 的 `WASM_PREVIEW_NOT_RUN` 保持不变，直到另一个真实
 Owner-backed preview contract 被单独准入。
 
-认证 GET `/v1/artifact-builds/{build_request_identity}/attempts/{attempt_identity}/readback` 只作为无 effect 的
-`artifact_build.shadow_resolve.v1` operational read 的精确 Owner-outcome 来源而获准。RunStore 记录 replacement
-read 前，它保留既有严格 Research dependency 与 Artifact result verification。它不准入下方更广泛的 Artifact
-detail outcome、action、review、binding、replay 或 security panel。
+认证 GET `/v1/artifact-builds/{build_request_identity}/attempts/{attempt_identity}/readback` 同时作为无 effect 的
+`artifact_build.shadow_resolve.v1` operational read Owner-outcome 来源，以及上述有界 historical quarantine
+detail 的精确来源而获准。它保留严格 current Artifact verification，只向 historical detail 暴露通过验证的
+terminal legacy no-Artifact outcome；该准入不扩展至 Artifact action、review、binding、replay、security panel
+或任何 mutation。
 
 本章是 Trade 自有 Dashboard 的滚动实现与分阶段准入合同，定义产品外壳、信息架构、可复用 UI 系统，
 以及当前有证据支持的 Windmill 最小替代能力假设。用户已显式准入严格受本章精确合同约束的 Dashboard
