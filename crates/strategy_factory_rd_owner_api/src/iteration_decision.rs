@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 
 use axum::{
     Json, Router,
@@ -12,12 +12,13 @@ use serde::Serialize;
 use serde_json::json;
 use vibe_strategy_factory::{
     DecisionCompositionRequestV1, IterationDecisionPostgresErrorV1,
-    IterationDecisionResolutionLocatorV1, RepairActionCompositionRequestV1,
-    RepairActionResolutionLocatorV1,
+    IterationDecisionResolutionLocatorV1, ReadyForSelectionCompositionRequestV1,
+    RepairActionCompositionRequestV1, RepairActionResolutionLocatorV1,
     iteration_decision::{
         ExistingIterationDecisionReadbackV1, IterationDecisionEvidenceCutV1,
-        IterationDecisionOutcomeV1, IterationRepairCategoryV1,
-        RepairInputIterationDecisionReadbackV1, TrialBudgetTerminalStopDecisionReadbackV1,
+        IterationDecisionOutcomeV1, IterationRepairCategoryV1, PositiveAssessmentEvidenceV1,
+        ReadyForSelectionDecisionReadbackV1, RepairInputIterationDecisionReadbackV1,
+        ResearchSelectionDispositionV1, TrialBudgetTerminalStopDecisionReadbackV1,
         is_valid_iteration_decision_locator_v1,
     },
     product_edge_postgres::PostgresResearchGoalOwnerV1,
@@ -96,6 +97,40 @@ impl TrialBudgetTerminalStopActionPort for PostgresResearchGoalOwnerV1 {
 }
 
 #[async_trait::async_trait]
+trait ReadyForSelectionActionPort: Send + Sync {
+    async fn compose_ready(
+        &self,
+        request: ReadyForSelectionCompositionRequestV1,
+    ) -> Result<ReadyForSelectionActionResponseV1, IterationDecisionPostgresErrorV1>;
+
+    async fn resolve_ready(
+        &self,
+        locator: IterationDecisionResolutionLocatorV1,
+    ) -> Result<Option<ReadyForSelectionActionResponseV1>, IterationDecisionPostgresErrorV1>;
+}
+
+#[async_trait::async_trait]
+impl ReadyForSelectionActionPort for PostgresResearchGoalOwnerV1 {
+    async fn compose_ready(
+        &self,
+        request: ReadyForSelectionCompositionRequestV1,
+    ) -> Result<ReadyForSelectionActionResponseV1, IterationDecisionPostgresErrorV1> {
+        self.compose_ready_for_selection_decision_v1(request)
+            .await
+            .map(ReadyForSelectionActionResponseV1::from)
+    }
+
+    async fn resolve_ready(
+        &self,
+        locator: IterationDecisionResolutionLocatorV1,
+    ) -> Result<Option<ReadyForSelectionActionResponseV1>, IterationDecisionPostgresErrorV1> {
+        self.resolve_ready_for_selection_decision_v1(locator)
+            .await
+            .map(|readback| readback.map(ReadyForSelectionActionResponseV1::from))
+    }
+}
+
+#[async_trait::async_trait]
 trait IterationDecisionReadPort: Send + Sync {
     async fn resolve_decision(
         &self,
@@ -158,6 +193,12 @@ struct RepairInputDecisionApiState {
 #[derive(Clone)]
 struct TrialBudgetTerminalStopApiState {
     owner: Arc<dyn TrialBudgetTerminalStopActionPort>,
+    token_digest: [u8; 32],
+}
+
+#[derive(Clone)]
+struct ReadyForSelectionApiState {
+    owner: Arc<dyn ReadyForSelectionActionPort>,
     token_digest: [u8; 32],
 }
 
@@ -240,6 +281,70 @@ impl From<TrialBudgetTerminalStopDecisionReadbackV1> for TrialBudgetTerminalStop
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ReadyForSelectionActionResponseV1 {
+    schema_version: u16,
+    assessment_identity: String,
+    assessment_digest: String,
+    decision_identity: String,
+    decision_digest: String,
+    evidence_cut: IterationDecisionEvidenceCutV1,
+    outcome: IterationDecisionOutcomeV1,
+    candidate_identity: String,
+    candidate_digest: String,
+    positive_evidence: PositiveAssessmentEvidenceV1,
+    protected_robustness_plan_identity: String,
+    protected_robustness_plan_version: u64,
+    protected_robustness_plan_digest: String,
+    selection_identity: String,
+    selection_digest: String,
+    selection_disposition: ResearchSelectionDispositionV1,
+    receipt_identity: String,
+    selection_receipt_identity: String,
+    result_identity: String,
+    committed_at_epoch_ms: u64,
+}
+
+impl From<ReadyForSelectionDecisionReadbackV1> for ReadyForSelectionActionResponseV1 {
+    fn from(readback: ReadyForSelectionDecisionReadbackV1) -> Self {
+        let assessment = readback.assessment();
+        let decision = readback.decision();
+        let receipt = readback.receipt();
+        let candidate = readback.candidate();
+        let selection = readback.selection();
+        let selection_receipt = readback.selection_receipt();
+        Self {
+            schema_version: 1,
+            assessment_identity: assessment.assessment_identity().to_string(),
+            assessment_digest: assessment.assessment_digest().to_string(),
+            decision_identity: decision.decision_identity().to_string(),
+            decision_digest: decision.decision_digest().to_string(),
+            evidence_cut: decision.evidence_cut().clone(),
+            outcome: decision.outcome().clone(),
+            candidate_identity: assessment.candidate_identity().to_string(),
+            candidate_digest: assessment.candidate_digest().to_string(),
+            positive_evidence: assessment.positive_evidence().clone(),
+            protected_robustness_plan_identity: assessment
+                .protected_robustness_plan()
+                .plan_identity()
+                .to_string(),
+            protected_robustness_plan_version: candidate.protected_robustness_plan().plan_version(),
+            protected_robustness_plan_digest: assessment
+                .protected_robustness_plan()
+                .plan_digest()
+                .to_string(),
+            selection_identity: selection.selection_identity().to_string(),
+            selection_digest: selection.selection_digest().to_string(),
+            selection_disposition: selection.disposition(),
+            receipt_identity: receipt.receipt_identity().to_string(),
+            selection_receipt_identity: selection_receipt.receipt_identity().to_string(),
+            result_identity: receipt.result_identity().to_string(),
+            committed_at_epoch_ms: receipt.committed_at_epoch_ms(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(
     tag = "decision_kind",
     content = "decision",
@@ -248,6 +353,7 @@ impl From<TrialBudgetTerminalStopDecisionReadbackV1> for TrialBudgetTerminalStop
 enum UnifiedIterationDecisionResponseV1 {
     RepairInputs(RepairInputDecisionActionResponseV1),
     TrialBudgetTerminalStop(TrialBudgetTerminalStopActionResponseV1),
+    ReadyForSelection(ReadyForSelectionActionResponseV1),
 }
 
 impl From<ExistingIterationDecisionReadbackV1> for UnifiedIterationDecisionResponseV1 {
@@ -258,6 +364,9 @@ impl From<ExistingIterationDecisionReadbackV1> for UnifiedIterationDecisionRespo
             }
             ExistingIterationDecisionReadbackV1::TrialBudgetTerminalStop(value) => {
                 Self::TrialBudgetTerminalStop(value.into())
+            }
+            ExistingIterationDecisionReadbackV1::ReadyForSelection(value) => {
+                Self::ReadyForSelection(value.into())
             }
         }
     }
@@ -302,11 +411,31 @@ impl From<RepairActionRequestReadbackV1> for RepairActionRequestActionResponseV1
 pub(super) fn router(owner: Arc<PostgresResearchGoalOwnerV1>, token_digest: [u8; 32]) -> Router {
     action_router(owner.clone(), token_digest)
         .merge(iteration_decision_read_router(owner.clone(), token_digest))
+        .merge(ready_for_selection_router(owner.clone(), token_digest))
         .merge(trial_budget_terminal_stop_router(
             owner.clone(),
             token_digest,
         ))
         .merge(repair_action_router(owner, token_digest))
+}
+
+fn ready_for_selection_router(
+    owner: Arc<dyn ReadyForSelectionActionPort>,
+    token_digest: [u8; 32],
+) -> Router {
+    Router::new()
+        .route(
+            "/v1/iteration-decisions/ready-for-selection",
+            post(compose_ready_for_selection),
+        )
+        .route(
+            "/v1/iteration-decisions/ready-for-selection/resolve",
+            post(resolve_ready_for_selection),
+        )
+        .with_state(ReadyForSelectionApiState {
+            owner,
+            token_digest,
+        })
 }
 
 fn iteration_decision_read_router(
@@ -552,6 +681,85 @@ async fn compose_trial_budget_terminal_stop(
     }
 }
 
+async fn compose_ready_for_selection(
+    State(state): State<ReadyForSelectionApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            "unbound",
+        );
+    }
+    let request: ReadyForSelectionCompositionRequestV1 = match serde_json::from_slice(&body) {
+        Ok(request) => request,
+        Err(_) => {
+            return rejection(
+                StatusCode::BAD_REQUEST,
+                "MALFORMED_TYPED_REQUEST",
+                "unbound",
+            );
+        }
+    };
+    let request_identity = request.request_identity.clone();
+    if !valid_ready_for_selection_request(&request) {
+        return rejection(
+            StatusCode::BAD_REQUEST,
+            "INVALID_READY_FOR_SELECTION_PROPOSAL",
+            &request_identity,
+        );
+    }
+    match state.owner.compose_ready(request).await {
+        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
+        Err(error) => ready_for_selection_owner_error(&error, &request_identity),
+    }
+}
+
+async fn resolve_ready_for_selection(
+    State(state): State<ReadyForSelectionApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return decision_resolution_rejection(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            "unbound",
+        );
+    }
+    let locator: IterationDecisionResolutionLocatorV1 = match serde_json::from_slice(&body) {
+        Ok(locator) => locator,
+        Err(_) => {
+            return decision_resolution_rejection(
+                StatusCode::BAD_REQUEST,
+                "MALFORMED_TYPED_REQUEST",
+                "unbound",
+            );
+        }
+    };
+    let decision_identity = locator.decision_identity.clone();
+    if !is_valid_iteration_decision_locator_v1(&locator.decision_identity)
+        || !is_valid_iteration_decision_locator_v1(&locator.result_identity)
+    {
+        return decision_resolution_rejection(
+            StatusCode::BAD_REQUEST,
+            "INVALID_ITERATION_DECISION_LOCATORS",
+            &decision_identity,
+        );
+    }
+    match state.owner.resolve_ready(locator).await {
+        Ok(Some(result)) => (StatusCode::OK, Json(result)).into_response(),
+        Ok(None) => decision_resolution_rejection(
+            StatusCode::NOT_FOUND,
+            "ITERATION_DECISION_NOT_FOUND",
+            &decision_identity,
+        ),
+        Err(error) => decision_resolution_owner_error(&error, &decision_identity),
+    }
+}
+
 async fn resolve_trial_budget_terminal_stop(
     State(state): State<TrialBudgetTerminalStopApiState>,
     headers: HeaderMap,
@@ -709,6 +917,18 @@ fn trial_budget_terminal_stop_owner_error(
     )
 }
 
+fn ready_for_selection_owner_error(
+    error: &IterationDecisionPostgresErrorV1,
+    request_identity: &str,
+) -> Response {
+    owner_error_with(
+        error,
+        request_identity,
+        "INVALID_READY_FOR_SELECTION_PROPOSAL",
+        rejection,
+    )
+}
+
 fn trial_budget_terminal_stop_resolution_owner_error(
     error: &IterationDecisionPostgresErrorV1,
     decision_identity: &str,
@@ -772,6 +992,11 @@ fn owner_error_with(
             "TRIAL_BUDGET_TERMINAL_STOP_NOT_APPLICABLE",
             correlation_identity,
         ),
+        IterationDecisionPostgresErrorV1::ReadyForSelectionNotApplicable => reject(
+            StatusCode::CONFLICT,
+            "READY_FOR_SELECTION_NOT_APPLICABLE",
+            correlation_identity,
+        ),
         IterationDecisionPostgresErrorV1::TrialFamily(_)
         | IterationDecisionPostgresErrorV1::Backtest(_)
         | IterationDecisionPostgresErrorV1::ResearchCustody(_)
@@ -783,6 +1008,90 @@ fn owner_error_with(
             correlation_identity,
         ),
     }
+}
+
+fn valid_ready_for_selection_request(request: &ReadyForSelectionCompositionRequestV1) -> bool {
+    let locators = [
+        request.trial_family_identity.as_str(),
+        request.result_identity.as_str(),
+        request.request_identity.as_str(),
+        request.attempt_identity.as_str(),
+    ];
+    let dimensions = [
+        request.positive_evidence.mechanism_validity.as_slice(),
+        request.positive_evidence.economic_viability.as_slice(),
+        request.positive_evidence.robustness.as_slice(),
+        request.positive_evidence.information_value.as_slice(),
+    ];
+    let plan = &request.protected_robustness_plan;
+    let plan_dimensions = [
+        plan.required_time_windows.as_slice(),
+        plan.required_regimes.as_slice(),
+        plan.required_instrument_slices.as_slice(),
+        plan.required_perturbations.as_slice(),
+        plan.required_parameter_neighborhoods.as_slice(),
+    ];
+    let plan_policies = [
+        &plan.metric,
+        &plan.coverage_policy,
+        &plan.tolerance_policy,
+        &plan.threshold_policy,
+        &plan.aggregation_policy,
+        &plan.missing_cell_policy,
+        &plan.stop_policy,
+        &plan.purge_policy,
+        &plan.embargo_policy,
+        &plan.multiplicity_policy,
+    ];
+    let valid_reference = |reference: &vibe_strategy_factory::iteration_decision::PositiveAssessmentEvidenceReferenceV1| {
+        is_valid_iteration_decision_locator_v1(&reference.identity)
+            && valid_sha256(&reference.digest)
+    };
+    let mut assessment_identities = BTreeSet::new();
+    let mut assessment_digests = BTreeSet::new();
+    let assessment_is_finite = dimensions.iter().all(|dimension| {
+        !dimension.is_empty()
+            && dimension.len() <= 16
+            && dimension.iter().all(|reference| {
+                valid_reference(reference)
+                    && assessment_identities.insert(reference.identity.as_str())
+                    && assessment_digests.insert(reference.digest.as_str())
+            })
+    });
+    let mut plan_cell_count = 1usize;
+    let mut plan_cell_identities = BTreeSet::new();
+    let mut plan_cell_digests = BTreeSet::new();
+    let plan_is_finite = plan_dimensions.iter().all(|dimension| {
+        !dimension.is_empty()
+            && dimension.len() <= 16
+            && dimension.iter().all(|reference| {
+                valid_reference(reference)
+                    && plan_cell_identities.insert(reference.identity.as_str())
+                    && plan_cell_digests.insert(reference.digest.as_str())
+            })
+            && plan_cell_count
+                .checked_mul(dimension.len())
+                .filter(|count| *count <= 4_096)
+                .is_some_and(|count| {
+                    plan_cell_count = count;
+                    true
+                })
+    });
+    locators
+        .into_iter()
+        .all(is_valid_iteration_decision_locator_v1)
+        && assessment_is_finite
+        && plan_is_finite
+        && plan_policies.into_iter().all(valid_reference)
+        && plan.protected_decision_policy.version > 0
+        && is_valid_iteration_decision_locator_v1(&plan.protected_decision_policy.identity)
+        && valid_sha256(&plan.protected_decision_policy.digest)
+}
+
+fn valid_sha256(value: &str) -> bool {
+    value.len() == 71
+        && value.starts_with("sha256:")
+        && value[7..].bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn rejection(status: StatusCode, code: &str, request_identity: &str) -> Response {
@@ -855,6 +1164,31 @@ mod tests {
         calls: AtomicUsize,
         resolve_calls: AtomicUsize,
         response: Option<TrialBudgetTerminalStopActionResponseV1>,
+    }
+
+    struct ReadyForSelectionOwnerStub {
+        calls: AtomicUsize,
+        resolve_calls: AtomicUsize,
+    }
+
+    #[async_trait::async_trait]
+    impl ReadyForSelectionActionPort for ReadyForSelectionOwnerStub {
+        async fn compose_ready(
+            &self,
+            _request: ReadyForSelectionCompositionRequestV1,
+        ) -> Result<ReadyForSelectionActionResponseV1, IterationDecisionPostgresErrorV1> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Err(IterationDecisionPostgresErrorV1::ReadyForSelectionNotApplicable)
+        }
+
+        async fn resolve_ready(
+            &self,
+            _locator: IterationDecisionResolutionLocatorV1,
+        ) -> Result<Option<ReadyForSelectionActionResponseV1>, IterationDecisionPostgresErrorV1>
+        {
+            self.resolve_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(None)
+        }
     }
 
     struct UnifiedDecisionOwnerStub {
@@ -952,6 +1286,49 @@ mod tests {
         })
     }
 
+    fn ready_request() -> serde_json::Value {
+        let reference = |identity: &str, byte: char| {
+            json!({
+                "identity": identity,
+                "digest": format!("sha256:{}", byte.to_string().repeat(64)),
+            })
+        };
+        json!({
+            "trial_family_identity": "family-1",
+            "result_identity": "result-1",
+            "request_identity": "request-1",
+            "attempt_identity": "attempt-1",
+            "positive_evidence": {
+                "mechanism_validity": [reference("mechanism-evidence-1", '1')],
+                "economic_viability": [reference("economic-evidence-1", '2')],
+                "robustness": [reference("robustness-evidence-1", '3')],
+                "information_value": [reference("information-evidence-1", '4')]
+            },
+            "protected_robustness_plan": {
+                "required_time_windows": [reference("protected-time-window-1", '5')],
+                "required_regimes": [reference("protected-regime-1", '6')],
+                "required_instrument_slices": [reference("protected-instrument-slice-1", '7')],
+                "required_perturbations": [reference("protected-perturbation-1", '8')],
+                "required_parameter_neighborhoods": [reference("protected-parameter-neighborhood-1", '9')],
+                "metric": reference("protected-metric-1", 'a'),
+                "coverage_policy": reference("protected-coverage-policy-1", 'b'),
+                "tolerance_policy": reference("protected-tolerance-policy-1", 'c'),
+                "threshold_policy": reference("protected-threshold-policy-1", 'd'),
+                "aggregation_policy": reference("protected-aggregation-policy-1", 'e'),
+                "missing_cell_policy": reference("protected-missing-cell-policy-1", 'f'),
+                "stop_policy": reference("protected-stop-policy-1", '0'),
+                "purge_policy": reference("protected-purge-policy-1", '1'),
+                "embargo_policy": reference("protected-embargo-policy-1", '2'),
+                "multiplicity_policy": reference("protected-multiplicity-policy-1", '3'),
+                "protected_decision_policy": {
+                    "identity": "protected-decision-policy-1",
+                    "version": 1,
+                    "digest": format!("sha256:{}", "4".repeat(64))
+                }
+            }
+        })
+    }
+
     fn response() -> RepairInputDecisionActionResponseV1 {
         let evidence_cut = IterationDecisionEvidenceCutV1 {
             decision_policy_identity: "policy-1".into(),
@@ -1039,6 +1416,39 @@ mod tests {
             receipt_identity: "decision-budget-stop-receipt-1".into(),
             result_identity: "result-1".into(),
             committed_at_epoch_ms: 23,
+        }
+    }
+
+    fn ready_response() -> ReadyForSelectionActionResponseV1 {
+        let repair_response = response();
+        let parsed: ReadyForSelectionCompositionRequestV1 =
+            serde_json::from_value(ready_request()).expect("ready request");
+        let candidate_identity = "candidate-ready-1".to_string();
+        let candidate_digest = format!("sha256:{}", "a".repeat(64));
+        ReadyForSelectionActionResponseV1 {
+            schema_version: 1,
+            assessment_identity: "assessment-ready-1".into(),
+            assessment_digest: format!("sha256:{}", "e".repeat(64)),
+            decision_identity: "decision-ready-1".into(),
+            decision_digest: format!("sha256:{}", "f".repeat(64)),
+            evidence_cut: repair_response.evidence_cut,
+            outcome: IterationDecisionOutcomeV1::ReadyForSelection {
+                candidate_identity: candidate_identity.clone(),
+                candidate_digest: candidate_digest.clone(),
+            },
+            candidate_identity,
+            candidate_digest,
+            positive_evidence: parsed.positive_evidence,
+            protected_robustness_plan_identity: "protected-plan-ready-1".into(),
+            protected_robustness_plan_version: 1,
+            protected_robustness_plan_digest: format!("sha256:{}", "b".repeat(64)),
+            selection_identity: "research-selection-ready-1".into(),
+            selection_digest: format!("sha256:{}", "c".repeat(64)),
+            selection_disposition: ResearchSelectionDispositionV1::SelectedForQualification,
+            receipt_identity: "decision-ready-receipt-1".into(),
+            selection_receipt_identity: "research-selection-receipt-ready-1".into(),
+            result_identity: "result-1".into(),
+            committed_at_epoch_ms: 29,
         }
     }
 
@@ -1516,7 +1926,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unified_resolve_is_authenticated_and_preserves_both_owner_variants() {
+    async fn unified_resolve_is_authenticated_and_preserves_all_owner_variants() {
         let token = "unified-iteration-decision-readback-test";
         let token_digest: [u8; 32] = sha2::Sha256::digest(token.as_bytes()).into();
         let repair = UnifiedIterationDecisionResponseV1::RepairInputs(response());
@@ -1589,6 +1999,29 @@ mod tests {
         );
         assert_eq!(budget_owner.resolve_calls.load(Ordering::SeqCst), 1);
 
+        let ready = UnifiedIterationDecisionResponseV1::ReadyForSelection(ready_response());
+        let ready_owner = Arc::new(UnifiedDecisionOwnerStub {
+            resolve_calls: AtomicUsize::new(0),
+            response: Some(ready.clone()),
+        });
+        let resolved = iteration_decision_read_router(ready_owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/iteration-decisions/resolve",
+                json!({
+                    "decision_identity": "decision-ready-1",
+                    "result_identity": "result-1",
+                }),
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(resolved.status(), StatusCode::OK);
+        assert_eq!(
+            response_json(resolved).await,
+            serde_json::to_value(ready).unwrap()
+        );
+        assert_eq!(ready_owner.resolve_calls.load(Ordering::SeqCst), 1);
+
         let missing = Arc::new(UnifiedDecisionOwnerStub {
             resolve_calls: AtomicUsize::new(0),
             response: None,
@@ -1603,5 +2036,76 @@ mod tests {
             .expect("router response");
         assert_eq!(absent.status(), StatusCode::NOT_FOUND);
         assert_eq!(missing.resolve_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn ready_compose_authenticates_and_rejects_incomplete_evidence_before_owner() {
+        let token = "ready-for-selection-test";
+        let token_digest: [u8; 32] = sha2::Sha256::digest(token.as_bytes()).into();
+        let owner = Arc::new(ReadyForSelectionOwnerStub {
+            calls: AtomicUsize::new(0),
+            resolve_calls: AtomicUsize::new(0),
+        });
+        let unauthorized = ready_for_selection_router(owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/iteration-decisions/ready-for-selection",
+                ready_request(),
+                None,
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(unauthorized.status(), StatusCode::FORBIDDEN);
+        assert_eq!(owner.calls.load(Ordering::SeqCst), 0);
+
+        let mut incomplete = ready_request();
+        incomplete["positive_evidence"]["robustness"] = json!([]);
+        let rejected = ready_for_selection_router(owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/iteration-decisions/ready-for-selection",
+                incomplete,
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(rejected.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(owner.calls.load(Ordering::SeqCst), 0);
+
+        let mut incomplete_plan = ready_request();
+        incomplete_plan["protected_robustness_plan"]["required_regimes"] = json!([]);
+        let rejected_plan = ready_for_selection_router(owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/iteration-decisions/ready-for-selection",
+                incomplete_plan,
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(rejected_plan.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(owner.calls.load(Ordering::SeqCst), 0);
+
+        let mut forged_candidate = ready_request();
+        forged_candidate["candidate_identity"] = json!("caller-candidate");
+        forged_candidate["candidate_digest"] = json!(format!("sha256:{}", "1".repeat(64)));
+        let rejected_candidate = ready_for_selection_router(owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/iteration-decisions/ready-for-selection",
+                forged_candidate,
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(rejected_candidate.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(owner.calls.load(Ordering::SeqCst), 0);
+
+        let not_applicable = ready_for_selection_router(owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/iteration-decisions/ready-for-selection",
+                ready_request(),
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(not_applicable.status(), StatusCode::CONFLICT);
+        assert_eq!(owner.calls.load(Ordering::SeqCst), 1);
     }
 }
