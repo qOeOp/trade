@@ -29,7 +29,7 @@ pub struct QualificationPublicStatusFactV1 {
     opaque_reference: String,
     source_frontier_identity: String,
     source_frontier_digest: String,
-    committed_at_epoch_ms: u64,
+    source_frontier_is_current: bool,
 }
 
 impl QualificationPublicStatusFactV1 {
@@ -65,8 +65,8 @@ impl QualificationPublicStatusFactV1 {
         &self.source_frontier_digest
     }
 
-    pub const fn committed_at_epoch_ms(&self) -> u64 {
-        self.committed_at_epoch_ms
+    pub const fn source_frontier_is_current(&self) -> bool {
+        self.source_frontier_is_current
     }
 
     pub(crate) fn as_json(&self) -> Result<serde_json::Value, QualificationOwnerError> {
@@ -86,7 +86,24 @@ pub(crate) struct StoredQualificationPublicStatusFactV1 {
     opaque_reference: String,
     source_frontier_identity: String,
     source_frontier_digest: String,
-    committed_at_epoch_ms: u64,
+    source_frontier_is_current: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredPublicStatusReadEnvelopeV1 {
+    schema_version: u16,
+    fact: serde_json::Value,
+    history: Vec<serde_json::Value>,
+    terminal_event: Option<StoredPublicTerminalEventV1>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredPublicTerminalEventV1 {
+    event_identity: String,
+    payload_digest: String,
+    payload_json: serde_json::Value,
 }
 
 #[derive(Serialize)]
@@ -107,7 +124,17 @@ struct PublicFactMeaningV1<'a> {
     opaque_reference: &'a str,
     source_frontier_identity: &'a str,
     source_frontier_digest: &'a str,
-    committed_at_epoch_ms: u64,
+    source_frontier_is_current: bool,
+}
+
+#[derive(Serialize)]
+struct PublicTerminalEventMeaningV1<'a> {
+    schema_version: u16,
+    status: QualificationPublicStatusV1,
+    opaque_reference: &'a str,
+    source_frontier_identity: &'a str,
+    source_frontier_digest: &'a str,
+    source_frontier_is_current: bool,
 }
 
 pub(crate) struct PublicStatusFactInputV1<'a> {
@@ -118,7 +145,7 @@ pub(crate) struct PublicStatusFactInputV1<'a> {
     pub(crate) native_source_digest: &'a str,
     pub(crate) source_frontier_identity: &'a str,
     pub(crate) source_frontier_digest: &'a str,
-    pub(crate) committed_at_epoch_ms: u64,
+    pub(crate) source_frontier_is_current: bool,
 }
 
 pub(crate) fn form_public_status_fact_v1(
@@ -175,7 +202,7 @@ pub(crate) fn form_public_status_fact_v1(
             opaque_reference: &opaque_reference,
             source_frontier_identity: input.source_frontier_identity,
             source_frontier_digest: input.source_frontier_digest,
-            committed_at_epoch_ms: input.committed_at_epoch_ms,
+            source_frontier_is_current: input.source_frontier_is_current,
         },
     )?;
 
@@ -189,7 +216,7 @@ pub(crate) fn form_public_status_fact_v1(
         opaque_reference,
         source_frontier_identity: input.source_frontier_identity.to_string(),
         source_frontier_digest: input.source_frontier_digest.to_string(),
-        committed_at_epoch_ms: input.committed_at_epoch_ms,
+        source_frontier_is_current: input.source_frontier_is_current,
     })
 }
 
@@ -208,7 +235,7 @@ pub(crate) fn decode_public_status_fact_v1(
         native_source_digest,
         source_frontier_identity: &stored.source_frontier_identity,
         source_frontier_digest: &stored.source_frontier_digest,
-        committed_at_epoch_ms: stored.committed_at_epoch_ms,
+        source_frontier_is_current: stored.source_frontier_is_current,
     })?;
     if expected.as_json()? != *value {
         return Err(unavailable(
@@ -219,6 +246,61 @@ pub(crate) fn decode_public_status_fact_v1(
 }
 
 pub(crate) fn decode_public_status_readback_v1(
+    value: &serde_json::Value,
+) -> Result<QualificationPublicStatusFactV1, QualificationOwnerError> {
+    let envelope: StoredPublicStatusReadEnvelopeV1 =
+        serde_json::from_value(value.clone()).map_err(|error| unavailable(&error.to_string()))?;
+    if envelope.schema_version != 1 {
+        return Err(unavailable("Qualification public status envelope changed"));
+    }
+    let fact = decode_public_status_public_fact_v1(&envelope.fact)?;
+    let history = envelope
+        .history
+        .iter()
+        .map(decode_public_status_public_fact_v1)
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut previous_status = None;
+    for historical in &history {
+        let transition_is_valid = matches!(
+            (previous_status, historical.status()),
+            (
+                None,
+                QualificationPublicStatusV1::NotAdmitted | QualificationPublicStatusV1::Admitted
+            ) | (
+                Some(QualificationPublicStatusV1::Admitted),
+                QualificationPublicStatusV1::Evaluating
+            ) | (
+                Some(QualificationPublicStatusV1::Evaluating),
+                QualificationPublicStatusV1::ClosedNotQualified
+            )
+        );
+        if !transition_is_valid
+            || historical.review_request_identity() != fact.review_request_identity()
+            || historical.candidate_identity() != fact.candidate_identity()
+            || historical.source_frontier_identity() != fact.source_frontier_identity()
+            || historical.source_frontier_digest() != fact.source_frontier_digest()
+        {
+            return Err(unavailable("Qualification public status history changed"));
+        }
+        previous_status = Some(historical.status());
+    }
+    if history.last() != Some(&fact) {
+        return Err(unavailable("Qualification public status head is stale"));
+    }
+    match (fact.terminal_event_v1()?, envelope.terminal_event) {
+        (None, None) => {}
+        (Some((expected_identity, expected_digest, expected_json)), Some(stored_event))
+            if stored_event.event_identity == expected_identity
+                && stored_event.payload_digest == expected_digest
+                && stored_event.payload_json == expected_json => {}
+        _ => {
+            return Err(unavailable("Qualification public terminal event changed"));
+        }
+    }
+    Ok(fact)
+}
+
+fn decode_public_status_public_fact_v1(
     value: &serde_json::Value,
 ) -> Result<QualificationPublicStatusFactV1, QualificationOwnerError> {
     let stored: StoredQualificationPublicStatusFactV1 =
@@ -249,7 +331,7 @@ pub(crate) fn decode_public_status_readback_v1(
             opaque_reference: &stored.opaque_reference,
             source_frontier_identity: &stored.source_frontier_identity,
             source_frontier_digest: &stored.source_frontier_digest,
-            committed_at_epoch_ms: stored.committed_at_epoch_ms,
+            source_frontier_is_current: stored.source_frontier_is_current,
         },
     )?;
     if stored.schema_version != 1
@@ -268,7 +350,7 @@ pub(crate) fn decode_public_status_readback_v1(
         opaque_reference: stored.opaque_reference,
         source_frontier_identity: stored.source_frontier_identity,
         source_frontier_digest: stored.source_frontier_digest,
-        committed_at_epoch_ms: stored.committed_at_epoch_ms,
+        source_frontier_is_current: stored.source_frontier_is_current,
     };
     if fact.as_json()? != *value {
         return Err(unavailable(
@@ -276,6 +358,31 @@ pub(crate) fn decode_public_status_readback_v1(
         ));
     }
     Ok(fact)
+}
+
+impl QualificationPublicStatusFactV1 {
+    pub(crate) fn terminal_event_v1(
+        &self,
+    ) -> Result<Option<(String, String, serde_json::Value)>, QualificationOwnerError> {
+        if self.status != QualificationPublicStatusV1::ClosedNotQualified {
+            return Ok(None);
+        }
+        let payload = serde_json::to_value(PublicTerminalEventMeaningV1 {
+            schema_version: 1,
+            status: self.status,
+            opaque_reference: &self.opaque_reference,
+            source_frontier_identity: &self.source_frontier_identity,
+            source_frontier_digest: &self.source_frontier_digest,
+            source_frontier_is_current: self.source_frontier_is_current,
+        })
+        .map_err(|error| unavailable(&error.to_string()))?;
+        let digest = canonical_digest("qualification.public-status-terminal-event.v1", &payload)?;
+        Ok(Some((
+            identity("qualification-public-status-terminal-event-v1", &digest),
+            digest,
+            payload,
+        )))
+    }
 }
 
 pub(crate) fn digest_from_identity(
@@ -362,7 +469,7 @@ mod tests {
                 "b".repeat(64)
             ),
             source_frontier_digest: &source_frontier_digest,
-            committed_at_epoch_ms: 7,
+            source_frontier_is_current: true,
         })
         .unwrap();
         let ineligible_source_digest = format!("sha256:{}", "c".repeat(64));
@@ -380,7 +487,7 @@ mod tests {
                 "b".repeat(64)
             ),
             source_frontier_digest: &source_frontier_digest,
-            committed_at_epoch_ms: 7,
+            source_frontier_is_current: true,
         })
         .unwrap();
 
@@ -398,5 +505,72 @@ mod tests {
         assert_ne!(replay.opaque_reference(), ineligible.opaque_reference());
         assert!(!replay_json.to_string().contains("REPLAY"));
         assert!(!ineligible_json.to_string().contains("INELIGIBLE"));
+        assert!(!replay_json.to_string().contains("committed_at"));
+        assert!(
+            !replay
+                .terminal_event_v1()
+                .unwrap()
+                .unwrap()
+                .2
+                .to_string()
+                .contains("committed_at")
+        );
+    }
+
+    #[test]
+    fn public_readback_rejects_stale_head_and_terminal_event_drift() {
+        let frontier_digest = format!("sha256:{}", "f".repeat(64));
+        let frontier_identity = format!(
+            "qualification-protected-feedback-frontier-v1-{}",
+            "f".repeat(64)
+        );
+        let fact = |status, source: char| {
+            let digest = format!("sha256:{}", source.to_string().repeat(64));
+            form_public_status_fact_v1(&PublicStatusFactInputV1 {
+                review_request_identity: "review-1",
+                candidate_identity: "candidate-1",
+                status,
+                native_source_identity: &format!(
+                    "qualification-native-source-v1-{}",
+                    source.to_string().repeat(64)
+                ),
+                native_source_digest: &digest,
+                source_frontier_identity: &frontier_identity,
+                source_frontier_digest: &frontier_digest,
+                source_frontier_is_current: true,
+            })
+            .unwrap()
+        };
+        let admitted = fact(QualificationPublicStatusV1::Admitted, 'a');
+        let evaluating = fact(QualificationPublicStatusV1::Evaluating, 'b');
+        let closed = fact(QualificationPublicStatusV1::ClosedNotQualified, 'c');
+        let (event_identity, payload_digest, payload_json) =
+            closed.terminal_event_v1().unwrap().unwrap();
+        let history = vec![
+            admitted.as_json().unwrap(),
+            evaluating.as_json().unwrap(),
+            closed.as_json().unwrap(),
+        ];
+        let valid = serde_json::json!({
+            "schema_version": 1,
+            "fact": closed.as_json().unwrap(),
+            "history": history,
+            "terminal_event": {
+                "event_identity": event_identity,
+                "payload_digest": payload_digest,
+                "payload_json": payload_json,
+            },
+        });
+        assert_eq!(decode_public_status_readback_v1(&valid).unwrap(), closed);
+
+        let mut stale = valid.clone();
+        stale["fact"] = admitted.as_json().unwrap();
+        stale["terminal_event"] = serde_json::Value::Null;
+        assert!(decode_public_status_readback_v1(&stale).is_err());
+
+        let mut event_drift = valid;
+        event_drift["terminal_event"]["payload_digest"] =
+            serde_json::Value::String(format!("sha256:{}", "0".repeat(64)));
+        assert!(decode_public_status_readback_v1(&event_drift).is_err());
     }
 }

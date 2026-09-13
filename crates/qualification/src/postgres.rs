@@ -170,6 +170,14 @@ struct PublicStatusSourceV1<'a> {
     committed_at_epoch_ms: u64,
 }
 
+struct VerifiedPublicStatusHeadV1 {
+    sequence: i64,
+    fact: crate::QualificationPublicStatusFactV1,
+    native_source_identity: String,
+    native_source_digest: String,
+    committed_at_epoch_ms: u64,
+}
+
 async fn persist_public_status_transition_v1(
     transaction: &mut Transaction<'_, Postgres>,
     review_request_identity: &str,
@@ -177,7 +185,7 @@ async fn persist_public_status_transition_v1(
     status: QualificationPublicStatusV1,
     source: PublicStatusSourceV1<'_>,
     initial_source_frontier: Option<(&str, &str)>,
-) -> Result<crate::QualificationPublicStatusFactV1, QualificationOwnerError> {
+) -> Result<(), QualificationOwnerError> {
     let current = verify_public_status_history_in_transaction(
         transaction,
         review_request_identity,
@@ -185,20 +193,37 @@ async fn persist_public_status_transition_v1(
     )
     .await?;
 
-    if let Some((_, current_fact, current_source_identity, current_source_digest)) = &current
-        && current_fact.status() == status
+    if current.is_some()
+        && matches!(
+            status,
+            QualificationPublicStatusV1::NotAdmitted | QualificationPublicStatusV1::Admitted
+        )
+    {
+        verify_initial_public_status_fact_v1(
+            transaction,
+            review_request_identity,
+            candidate_identity,
+            status,
+            &source,
+        )
+        .await?;
+        return Ok(());
+    }
+
+    if let Some(current) = &current
+        && current.fact.status() == status
     {
         if status != QualificationPublicStatusV1::Evaluating
-            && (current_source_identity != source.identity
-                || current_source_digest != source.digest
-                || current_fact.committed_at_epoch_ms() != source.committed_at_epoch_ms)
+            && (current.native_source_identity != source.identity
+                || current.native_source_digest != source.digest
+                || current.committed_at_epoch_ms != source.committed_at_epoch_ms)
         {
             return Err(QualificationOwnerError::ConflictingIdentity);
         }
-        return Ok(current_fact.clone());
+        return Ok(());
     }
 
-    let phase_sequence = match current.as_ref().map(|(_, fact, _, _)| fact.status()) {
+    let phase_sequence = match current.as_ref().map(|current| current.fact.status()) {
         None if matches!(
             status,
             QualificationPublicStatusV1::NotAdmitted | QualificationPublicStatusV1::Admitted
@@ -224,14 +249,26 @@ async fn persist_public_status_transition_v1(
     };
 
     let (source_frontier_identity, source_frontier_digest) = match current.as_ref() {
-        Some((_, fact, _, _)) => (
-            fact.source_frontier_identity(),
-            fact.source_frontier_digest(),
+        Some(current) => (
+            current.fact.source_frontier_identity(),
+            current.fact.source_frontier_digest(),
         ),
         None => initial_source_frontier.ok_or_else(|| {
             unavailable("Qualification public status source frontier is unavailable")
         })?,
     };
+    let (resolved_frontier_digest, source_frontier_is_current) =
+        resolve_candidate_feedback_frontier_v1(
+            transaction,
+            source_frontier_identity,
+            source.committed_at_epoch_ms,
+        )
+        .await?;
+    if resolved_frontier_digest != source_frontier_digest {
+        return Err(unavailable(
+            "Qualification public status source frontier changed",
+        ));
+    }
     let fact = form_public_status_fact_v1(&PublicStatusFactInputV1 {
         review_request_identity,
         candidate_identity,
@@ -240,13 +277,13 @@ async fn persist_public_status_transition_v1(
         native_source_digest: source.digest,
         source_frontier_identity,
         source_frontier_digest,
-        committed_at_epoch_ms: source.committed_at_epoch_ms,
+        source_frontier_is_current,
     })?;
     let fact_json = fact.as_json()?;
     sqlx::query(
         "INSERT INTO public.qualification_public_status_facts_v1 \
-         (fact_identity,fact_digest,review_request_identity,candidate_identity,phase_sequence,status,native_source_identity,native_source_digest,source_frontier_identity,source_frontier_digest,fact_json,committed_at_epoch_ms) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
+         (fact_identity,fact_digest,review_request_identity,candidate_identity,phase_sequence,status,native_source_identity,native_source_digest,source_frontier_identity,source_frontier_digest,source_frontier_is_current,fact_json,committed_at_epoch_ms) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
     )
     .bind(fact.fact_identity())
     .bind(fact.fact_digest())
@@ -258,13 +295,14 @@ async fn persist_public_status_transition_v1(
     .bind(source.digest)
     .bind(source_frontier_identity)
     .bind(source_frontier_digest)
+    .bind(source_frontier_is_current)
     .bind(&fact_json)
     .bind(i64::try_from(source.committed_at_epoch_ms).map_err(json_storage)?)
     .execute(&mut **transaction)
     .await
     .map_err(storage)?;
 
-    if let Some((current_sequence, current_fact, _, _)) = current {
+    if let Some(current) = current {
         let updated = sqlx::query(
             "UPDATE public.qualification_public_status_heads_v1 \
              SET fact_identity=$1,fact_digest=$2,phase_sequence=$3,updated_at_epoch_ms=$4 \
@@ -275,9 +313,9 @@ async fn persist_public_status_transition_v1(
         .bind(phase_sequence)
         .bind(i64::try_from(source.committed_at_epoch_ms).map_err(json_storage)?)
         .bind(review_request_identity)
-        .bind(current_fact.fact_identity())
-        .bind(current_fact.fact_digest())
-        .bind(current_sequence)
+        .bind(current.fact.fact_identity())
+        .bind(current.fact.fact_digest())
+        .bind(current.sequence)
         .execute(&mut **transaction)
         .await
         .map_err(storage)?;
@@ -301,20 +339,21 @@ async fn persist_public_status_transition_v1(
         .map_err(storage)?;
     }
 
-    let payload_digest = canonical_digest("qualification.public-status-event.v1", &fact_json)?;
-    sqlx::query(
-        "INSERT INTO public.qualification_owner_outbox_v1 \
-         (event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms) \
-         VALUES ($1,$2,'QUALIFICATION_PUBLIC_STATUS_COMMITTED_V1',$3,$4,$5)",
-    )
-    .bind(identity("qualification-public-status-event-v1", &payload_digest))
-    .bind(fact.fact_identity())
-    .bind(payload_digest)
-    .bind(&fact_json)
-    .bind(i64::try_from(source.committed_at_epoch_ms).map_err(json_storage)?)
-    .execute(&mut **transaction)
-    .await
-    .map_err(storage)?;
+    if let Some((event_identity, payload_digest, payload_json)) = fact.terminal_event_v1()? {
+        sqlx::query(
+            "INSERT INTO public.qualification_owner_outbox_v1 \
+             (event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms) \
+             VALUES ($1,$2,'QUALIFICATION_PUBLIC_STATUS_TERMINAL_V1',$3,$4,$5)",
+        )
+        .bind(event_identity)
+        .bind(fact.fact_identity())
+        .bind(payload_digest)
+        .bind(payload_json)
+        .bind(i64::try_from(source.committed_at_epoch_ms).map_err(json_storage)?)
+        .execute(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    }
 
     let verified = verify_public_status_history_in_transaction(
         transaction,
@@ -323,22 +362,19 @@ async fn persist_public_status_transition_v1(
     )
     .await?
     .ok_or_else(|| unavailable("Qualification public status head is unavailable"))?;
-    if verified.1 != fact {
+    if verified.fact != fact {
         return Err(unavailable("Qualification public status commit changed"));
     }
-    Ok(fact)
+    Ok(())
 }
 
 async fn verify_public_status_history_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     review_request_identity: &str,
     candidate_identity: &str,
-) -> Result<
-    Option<(i64, crate::QualificationPublicStatusFactV1, String, String)>,
-    QualificationOwnerError,
-> {
+) -> Result<Option<VerifiedPublicStatusHeadV1>, QualificationOwnerError> {
     let rows = sqlx::query(
-        "SELECT fact_identity,fact_digest,candidate_identity,phase_sequence,status,native_source_identity,native_source_digest,source_frontier_identity,source_frontier_digest,fact_json,committed_at_epoch_ms \
+        "SELECT fact_identity,fact_digest,candidate_identity,phase_sequence,status,native_source_identity,native_source_digest,source_frontier_identity,source_frontier_digest,source_frontier_is_current,fact_json,committed_at_epoch_ms \
          FROM public.qualification_public_status_facts_v1 \
          WHERE review_request_identity=$1 ORDER BY phase_sequence FOR SHARE",
     )
@@ -354,6 +390,11 @@ async fn verify_public_status_history_in_transaction(
         let native_source_identity: String =
             row.try_get("native_source_identity").map_err(storage)?;
         let native_source_digest: String = row.try_get("native_source_digest").map_err(storage)?;
+        let committed_at_epoch_ms = u64::try_from(
+            row.try_get::<i64, _>("committed_at_epoch_ms")
+                .map_err(storage)?,
+        )
+        .map_err(json_storage)?;
         let fact_json: serde_json::Value = row.try_get("fact_json").map_err(storage)?;
         let fact = decode_public_status_fact_v1(
             &fact_json,
@@ -398,45 +439,63 @@ async fn verify_public_status_history_in_transaction(
                 .try_get::<String, _>("source_frontier_digest")
                 .map_err(storage)?
                 != fact.source_frontier_digest()
-            || u64::try_from(
-                row.try_get::<i64, _>("committed_at_epoch_ms")
-                    .map_err(storage)?,
-            )
-            .map_err(json_storage)?
-                != fact.committed_at_epoch_ms()
+            || row
+                .try_get::<bool, _>("source_frontier_is_current")
+                .map_err(storage)?
+                != fact.source_frontier_is_current()
             || previous_frontier
                 .as_ref()
                 .is_some_and(|previous| previous != &frontier)
         {
             return Err(unavailable("Qualification public status history changed"));
         }
-        let event_payload_digest =
-            canonical_digest("qualification.public-status-event.v1", &fact_json)?;
-        let event_count: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM public.qualification_owner_outbox_v1 \
-             WHERE event_identity=$1 AND aggregate_identity=$2 \
-               AND event_kind='QUALIFICATION_PUBLIC_STATUS_COMMITTED_V1' \
-               AND payload_digest=$3 AND payload_json=$4 AND committed_at_epoch_ms=$5",
+        let event_rows = sqlx::query(
+            "SELECT event_identity,payload_digest,payload_json,committed_at_epoch_ms \
+             FROM public.qualification_owner_outbox_v1 \
+             WHERE aggregate_identity=$1 \
+               AND event_kind IN ('QUALIFICATION_PUBLIC_STATUS_COMMITTED_V1','QUALIFICATION_PUBLIC_STATUS_TERMINAL_V1')",
         )
-        .bind(identity(
-            "qualification-public-status-event-v1",
-            &event_payload_digest,
-        ))
         .bind(fact.fact_identity())
-        .bind(event_payload_digest)
-        .bind(&fact_json)
-        .bind(i64::try_from(fact.committed_at_epoch_ms()).map_err(json_storage)?)
-        .fetch_one(&mut **transaction)
+        .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
-        if event_count != 1 {
-            return Err(unavailable(
-                "Qualification public status event is unavailable",
-            ));
+        match (fact.terminal_event_v1()?, event_rows.as_slice()) {
+            (None, []) => {}
+            (Some((event_identity, payload_digest, payload_json)), [event])
+                if event
+                    .try_get::<String, _>("event_identity")
+                    .map_err(storage)?
+                    == event_identity
+                    && event
+                        .try_get::<String, _>("payload_digest")
+                        .map_err(storage)?
+                        == payload_digest
+                    && event
+                        .try_get::<serde_json::Value, _>("payload_json")
+                        .map_err(storage)?
+                        == payload_json
+                    && u64::try_from(
+                        event
+                            .try_get::<i64, _>("committed_at_epoch_ms")
+                            .map_err(storage)?,
+                    )
+                    .map_err(json_storage)?
+                        == committed_at_epoch_ms => {}
+            _ => {
+                return Err(unavailable(
+                    "Qualification public status event is unavailable",
+                ));
+            }
         }
         previous_status = Some(fact.status());
         previous_frontier = Some(frontier);
-        last = Some((sequence, fact, native_source_identity, native_source_digest));
+        last = Some(VerifiedPublicStatusHeadV1 {
+            sequence,
+            fact,
+            native_source_identity,
+            native_source_digest,
+            committed_at_epoch_ms,
+        });
     }
 
     let heads = sqlx::query(
@@ -449,7 +508,7 @@ async fn verify_public_status_history_in_transaction(
     .map_err(storage)?;
     match (last.as_ref(), heads.as_slice()) {
         (None, []) => Ok(None),
-        (Some((sequence, fact, _, _)), [head])
+        (Some(current), [head])
             if head
                 .try_get::<String, _>("candidate_identity")
                 .map_err(storage)?
@@ -457,21 +516,65 @@ async fn verify_public_status_history_in_transaction(
                 && head
                     .try_get::<String, _>("fact_identity")
                     .map_err(storage)?
-                    == fact.fact_identity()
+                    == current.fact.fact_identity()
                 && head.try_get::<String, _>("fact_digest").map_err(storage)?
-                    == fact.fact_digest()
-                && head.try_get::<i64, _>("phase_sequence").map_err(storage)? == *sequence
+                    == current.fact.fact_digest()
+                && head.try_get::<i64, _>("phase_sequence").map_err(storage)?
+                    == current.sequence
                 && u64::try_from(
                     head.try_get::<i64, _>("updated_at_epoch_ms")
                         .map_err(storage)?,
                 )
                 .map_err(json_storage)?
-                    == fact.committed_at_epoch_ms() =>
+                    == current.committed_at_epoch_ms =>
         {
             Ok(last)
         }
         _ => Err(unavailable("Qualification public status head changed")),
     }
+}
+
+async fn verify_initial_public_status_fact_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    review_request_identity: &str,
+    candidate_identity: &str,
+    status: QualificationPublicStatusV1,
+    source: &PublicStatusSourceV1<'_>,
+) -> Result<(), QualificationOwnerError> {
+    let rows = sqlx::query(
+        "SELECT native_source_identity,native_source_digest,fact_json,committed_at_epoch_ms \
+         FROM public.qualification_public_status_facts_v1 \
+         WHERE review_request_identity=$1 AND phase_sequence=1 FOR SHARE",
+    )
+    .bind(review_request_identity)
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    let [row] = rows.as_slice() else {
+        return Err(unavailable(
+            "Qualification initial public status fact is unavailable",
+        ));
+    };
+    let native_source_identity: String = row.try_get("native_source_identity").map_err(storage)?;
+    let native_source_digest: String = row.try_get("native_source_digest").map_err(storage)?;
+    let fact_json: serde_json::Value = row.try_get("fact_json").map_err(storage)?;
+    let fact =
+        decode_public_status_fact_v1(&fact_json, &native_source_identity, &native_source_digest)?;
+    if fact.review_request_identity() != review_request_identity
+        || fact.candidate_identity() != candidate_identity
+        || fact.status() != status
+        || native_source_identity != source.identity
+        || native_source_digest != source.digest
+        || u64::try_from(
+            row.try_get::<i64, _>("committed_at_epoch_ms")
+                .map_err(storage)?,
+        )
+        .map_err(json_storage)?
+            != source.committed_at_epoch_ms
+    {
+        return Err(QualificationOwnerError::ConflictingIdentity);
+    }
+    Ok(())
 }
 
 async fn resolve_candidate_feedback_frontier_v1(

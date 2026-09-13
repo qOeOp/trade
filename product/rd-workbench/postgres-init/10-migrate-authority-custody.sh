@@ -1725,6 +1725,7 @@ CREATE TABLE IF NOT EXISTS public.qualification_public_status_facts_v1 (
   native_source_digest TEXT NOT NULL,
   source_frontier_identity TEXT NOT NULL,
   source_frontier_digest TEXT NOT NULL,
+  source_frontier_is_current BOOLEAN NOT NULL,
   fact_json JSONB NOT NULL,
   committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0),
   UNIQUE (review_request_identity, phase_sequence)
@@ -2131,7 +2132,23 @@ CREATE OR REPLACE FUNCTION qualification_api.read_public_status_v1(
 RETURNS jsonb LANGUAGE sql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
 SET search_path = pg_catalog
 AS $function$
-  SELECT fact.fact_json
+  SELECT pg_catalog.jsonb_build_object(
+           'schema_version', 1,
+           'fact', fact.fact_json,
+           'history', (
+             SELECT pg_catalog.jsonb_agg(prior.fact_json ORDER BY prior.phase_sequence)
+             FROM public.qualification_public_status_facts_v1 prior
+             WHERE prior.review_request_identity=head.review_request_identity
+           ),
+           'terminal_event', CASE
+             WHEN fact.status='CLOSED_NOT_QUALIFIED' THEN pg_catalog.jsonb_build_object(
+               'event_identity', outbox.event_identity,
+               'payload_digest', outbox.payload_digest,
+               'payload_json', outbox.payload_json
+             )
+             ELSE 'null'::jsonb
+           END
+         )
   FROM public.qualification_public_status_heads_v1 head
   JOIN public.qualification_candidate_intake_receipts_v1 intake
     ON intake.review_request_identity=head.review_request_identity
@@ -2143,12 +2160,20 @@ AS $function$
    AND fact.candidate_identity=head.candidate_identity
    AND fact.phase_sequence=head.phase_sequence
    AND fact.committed_at_epoch_ms=head.updated_at_epoch_ms
-  JOIN public.qualification_owner_outbox_v1 outbox
+  LEFT JOIN public.qualification_owner_outbox_v1 outbox
     ON outbox.aggregate_identity=fact.fact_identity
-   AND outbox.event_kind='QUALIFICATION_PUBLIC_STATUS_COMMITTED_V1'
-   AND outbox.payload_json=fact.fact_json
+   AND outbox.event_kind IN ('QUALIFICATION_PUBLIC_STATUS_COMMITTED_V1','QUALIFICATION_PUBLIC_STATUS_TERMINAL_V1')
    AND outbox.committed_at_epoch_ms=fact.committed_at_epoch_ms
   WHERE head.review_request_identity=requested_review_request_identity
+    AND NOT EXISTS (
+      SELECT 1 FROM public.qualification_public_status_facts_v1 newer
+      WHERE newer.review_request_identity=head.review_request_identity
+        AND newer.phase_sequence>head.phase_sequence
+    )
+    AND (
+      (fact.status='CLOSED_NOT_QUALIFIED' AND outbox.event_identity IS NOT NULL)
+      OR (fact.status<>'CLOSED_NOT_QUALIFIED' AND outbox.event_identity IS NULL)
+    )
     AND CASE WHEN pg_catalog.jsonb_typeof(fact.fact_json)='object'
       THEN (SELECT pg_catalog.count(*)=10 FROM pg_catalog.jsonb_object_keys(fact.fact_json))
       ELSE false
@@ -2161,7 +2186,7 @@ AS $function$
     AND fact.fact_json->'status'=pg_catalog.to_jsonb(fact.status)
     AND fact.fact_json->'source_frontier_identity'=pg_catalog.to_jsonb(fact.source_frontier_identity)
     AND fact.fact_json->'source_frontier_digest'=pg_catalog.to_jsonb(fact.source_frontier_digest)
-    AND fact.fact_json->'committed_at_epoch_ms'=pg_catalog.to_jsonb(fact.committed_at_epoch_ms)
+    AND fact.fact_json->'source_frontier_is_current'=pg_catalog.to_jsonb(fact.source_frontier_is_current)
     AND pg_catalog.jsonb_typeof(fact.fact_json->'opaque_reference')='string'
 $function$;
 ALTER FUNCTION qualification_api.read_public_status_v1(text) OWNER TO qualification_owner;
