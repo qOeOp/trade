@@ -3,12 +3,18 @@ use std::fmt::Display;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgRow};
-use vibe_backtest_owner_contracts::{ProtectedReplayRequestDtoV1, ProtectedReplayRequestLocatorV1};
+use vibe_backtest_owner_contracts::{
+    ProtectedReplayAttemptFrontierLocatorV1, ProtectedReplayRequestDtoV1,
+    ProtectedReplayRequestLocatorV1,
+};
 use vibe_backtest_result_custody::{
     LockedProtectedReplayResultV1, LockedProtectedReplayResultV2, ProtectedReplayResultLocatorV1,
+    resolve_protected_replay_attempt_frontier_for_qualification_in_transaction,
     resolve_protected_replay_result_for_qualification_in_transaction,
     resolve_protected_replay_result_v2_for_qualification_in_transaction,
+    resolve_protected_replay_result_v3_for_qualification_in_transaction,
 };
+use vibe_data::owner::shared_time_evidence::ClockHeadSuccessorReadback;
 
 use crate::candidate_intake::{
     ResolvedRdSelectionStorageV1, decode_intake_receipt_v1, decode_resolved_handoff_v1,
@@ -22,9 +28,14 @@ use crate::protected_attempt_disposition::{
 };
 use crate::protected_replay_request::{
     ProtectedReplayRequestReceiptV1, ProtectedReplayRequestV1, ProtectedReplayRequestV2,
-    commit_projection, commit_projection_v2, decode_protected_replay_request_v1,
-    decode_request_receipt_v1, form_protected_replay_request_v1, form_protected_replay_request_v2,
-    form_request_receipt_v1, form_request_receipt_v2,
+    commit_projection, commit_projection_v2, decode_protected_replay_request_set_v1,
+    decode_protected_replay_request_v1, decode_protected_replay_request_v2,
+    decode_request_receipt_v1, decode_request_receipt_v2, form_protected_replay_request_set_v1,
+    form_protected_replay_request_v1, form_protected_replay_request_v2, form_request_receipt_v1,
+    form_request_receipt_v2,
+};
+use crate::protected_robustness_assessment::{
+    ProtectedAssessmentInvalidCommitV1, form_all_not_applicable_assessment_v1,
 };
 use crate::{CandidateIntakeReceiptV1, CandidateIntakeRequestV1, CandidateIntakeStatusV1};
 use crate::{
@@ -33,7 +44,7 @@ use crate::{
 };
 use crate::{
     ProtectedReplayRequestCommitV1, ProtectedReplayRequestProposalV1,
-    ProtectedReplayRequestProposalV2,
+    ProtectedReplayRequestProposalV2, ProtectedReplayRequestSetCommitV1,
 };
 
 const CLOCK_EPOCH_V1: &str = "unix-epoch-ms-v1";
@@ -208,12 +219,6 @@ impl PostgresQualificationOwnerV1 {
         proposal: &ProtectedReplayRequestProposalV1,
     ) -> Result<ProtectedReplayRequestCommitV1, QualificationOwnerError> {
         let mut transaction = self.pool.begin().await.map_err(storage)?;
-        sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended($1, 0))")
-            .bind(proposal.request_identity())
-            .execute(&mut *transaction)
-            .await
-            .map_err(storage)?;
-
         let intake_row = sqlx::query(
             "SELECT receipt_json FROM public.qualification_candidate_intake_receipts_v1 \
              WHERE review_request_identity=$1 AND receipt_identity=$2 AND status='ADMITTED' FOR UPDATE",
@@ -239,6 +244,13 @@ impl PostgresQualificationOwnerV1 {
         .await?;
         let source = protected_replay_authority_source_v1(&intake, &handoff)?;
         let request = form_protected_replay_request_v1(proposal, &intake, &source)?;
+
+        lock_request_registration_fence_v1(
+            &mut transaction,
+            &source.plan_cell_set_identity,
+            proposal.request_identity(),
+        )
+        .await?;
 
         if let Some(row) = sqlx::query(
             "SELECT request_digest FROM public.qualification_protected_replay_requests_v1 \
@@ -272,6 +284,8 @@ impl PostgresQualificationOwnerV1 {
             transaction.commit().await.map_err(storage)?;
             return commit_projection(&request, &receipt);
         }
+
+        reject_request_after_set_seal_v1(&mut transaction, &source.plan_cell_set_identity).await?;
 
         if holdout_treatment.is_none() {
             return Err(unavailable(
@@ -371,12 +385,6 @@ impl PostgresQualificationOwnerV1 {
         proposal: &ProtectedReplayRequestProposalV2,
     ) -> Result<ProtectedReplayRequestCommitV1, QualificationOwnerError> {
         let mut transaction = self.pool.begin().await.map_err(storage)?;
-        sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended($1, 0))")
-            .bind(proposal.request_identity())
-            .execute(&mut *transaction)
-            .await
-            .map_err(storage)?;
-
         let intake_row = sqlx::query(
             "SELECT receipt_json FROM public.qualification_candidate_intake_receipts_v1 \
              WHERE review_request_identity=$1 AND receipt_identity=$2 AND status='ADMITTED' FOR UPDATE",
@@ -402,6 +410,13 @@ impl PostgresQualificationOwnerV1 {
         .await?;
         let source = protected_replay_authority_source_v1(&intake, &handoff)?;
         let request = form_protected_replay_request_v2(proposal, &intake, &source)?;
+
+        lock_request_registration_fence_v1(
+            &mut transaction,
+            &source.plan_cell_set_identity,
+            proposal.request_identity(),
+        )
+        .await?;
 
         if let Some(row) = sqlx::query(
             "SELECT request_digest FROM public.qualification_protected_replay_requests_v1 \
@@ -435,6 +450,8 @@ impl PostgresQualificationOwnerV1 {
             transaction.commit().await.map_err(storage)?;
             return commit_projection_v2(&request, &receipt);
         }
+
+        reject_request_after_set_seal_v1(&mut transaction, &source.plan_cell_set_identity).await?;
 
         if holdout_treatment.is_none() {
             return Err(unavailable(
@@ -528,6 +545,357 @@ impl PostgresQualificationOwnerV1 {
         verify_protected_replay_request_commit_v2(&mut transaction, &request, &receipt).await?;
         transaction.commit().await.map_err(storage)?;
         commit_projection_v2(&request, &receipt)
+    }
+
+    /// Seal the complete, duplicate-free V2 request membership for one admitted protected plan.
+    /// The caller names only the admitted intake; Qualification re-derives the plan and locks every
+    /// request before it closes the registration fence.
+    pub async fn seal_protected_replay_request_set_v1(
+        &self,
+        review_request_identity: &str,
+        intake_receipt_identity: &str,
+    ) -> Result<ProtectedReplayRequestSetCommitV1, QualificationOwnerError> {
+        let mut transaction = self.pool.begin().await.map_err(storage)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *transaction)
+            .await
+            .map_err(storage)?;
+
+        let intake_json: serde_json::Value = sqlx::query_scalar(
+            "SELECT receipt_json FROM public.qualification_candidate_intake_receipts_v1 \
+             WHERE review_request_identity=$1 AND receipt_identity=$2 AND status='ADMITTED' FOR UPDATE",
+        )
+        .bind(review_request_identity)
+        .bind(intake_receipt_identity)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(storage)?
+        .ok_or_else(|| unavailable("ADMITTED Candidate Intake custody is unavailable"))?;
+        let intake = decode_intake_receipt_v1(&intake_json)?;
+        verify_candidate_intake_commit_v1(&mut transaction, &intake)
+            .await?
+            .ok_or_else(|| unavailable("preregistered holdout treatment is unavailable"))?;
+        let handoff = load_rd_selection_in_transaction(
+            &mut transaction,
+            intake.decision_identity(),
+            intake.result_identity(),
+        )
+        .await?;
+        let source = protected_replay_authority_source_v1(&intake, &handoff)?;
+        sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended($1, 0))")
+            .bind(&source.plan_cell_set_identity)
+            .execute(&mut *transaction)
+            .await
+            .map_err(storage)?;
+
+        let rows = sqlx::query(
+            "SELECT request.request_json,request.canonical_request_bytes,request.storage_digest,\
+                    receipt.receipt_json \
+             FROM public.qualification_protected_replay_requests_v1 request \
+             JOIN public.qualification_protected_replay_request_receipts_v1 receipt \
+               ON receipt.request_identity=request.request_identity \
+             WHERE request.review_request_identity=$1 \
+             ORDER BY request.plan_cell_identity \
+             FOR UPDATE OF request,receipt",
+        )
+        .bind(review_request_identity)
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(storage)?;
+        let mut requests = Vec::with_capacity(rows.len());
+        for row in rows {
+            let bytes: Vec<u8> = row.try_get("canonical_request_bytes").map_err(storage)?;
+            let request = decode_protected_replay_request_v2(&bytes)?;
+            if request.as_json()?
+                != row
+                    .try_get::<serde_json::Value, _>("request_json")
+                    .map_err(storage)?
+                || canonical_digest("qualification.protected-replay-request.storage.v1", &bytes)?
+                    != row
+                        .try_get::<String, _>("storage_digest")
+                        .map_err(storage)?
+            {
+                return Err(unavailable(
+                    "frozen Protected Replay Request storage changed",
+                ));
+            }
+            let receipt_json: serde_json::Value = row.try_get("receipt_json").map_err(storage)?;
+            let receipt = decode_request_receipt_v2(&receipt_json, &request)?;
+            verify_protected_replay_request_commit_v2(&mut transaction, &request, &receipt).await?;
+            requests.push((request, receipt));
+        }
+        let commit = form_protected_replay_request_set_v1(&intake, &source, &requests)?;
+
+        if let Some(row) = sqlx::query(
+            "SELECT seal_json,canonical_seal_bytes,storage_digest \
+             FROM public.qualification_protected_replay_request_sets_v1 \
+             WHERE plan_cell_set_identity=$1 FOR UPDATE",
+        )
+        .bind(&source.plan_cell_set_identity)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(storage)?
+        {
+            let bytes: Vec<u8> = row.try_get("canonical_seal_bytes").map_err(storage)?;
+            let stored = decode_protected_replay_request_set_v1(&bytes)?;
+            if stored != commit
+                || stored.as_json()?
+                    != row
+                        .try_get::<serde_json::Value, _>("seal_json")
+                        .map_err(storage)?
+                || canonical_digest(
+                    "qualification.protected-replay-request-set.storage.v1",
+                    &bytes,
+                )? != row
+                    .try_get::<String, _>("storage_digest")
+                    .map_err(storage)?
+            {
+                return Err(QualificationOwnerError::ConflictingIdentity);
+            }
+            verify_protected_replay_request_set_commit_v1(&mut transaction, &stored).await?;
+            transaction.commit().await.map_err(storage)?;
+            return Ok(stored);
+        }
+
+        let bytes = commit.to_canonical_bytes()?;
+        let seal_json = commit.as_json()?;
+        let storage_digest = canonical_digest(
+            "qualification.protected-replay-request-set.storage.v1",
+            &bytes,
+        )?;
+        let committed_at_epoch_ms = owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
+        sqlx::query(
+            "INSERT INTO public.qualification_protected_replay_request_sets_v1 \
+             (request_set_identity,request_set_digest,review_request_identity,intake_receipt_identity,\
+              holdout_reservation_identity,protected_plan_identity,protected_plan_digest,\
+              plan_cell_set_identity,plan_cell_set_digest,seal_json,canonical_seal_bytes,storage_digest,committed_at_epoch_ms) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
+        )
+        .bind(commit.request_set_identity())
+        .bind(commit.request_set_digest())
+        .bind(review_request_identity)
+        .bind(intake_receipt_identity)
+        .bind(commit.seal().holdout_reservation_identity.as_str())
+        .bind(&source.plan_identity)
+        .bind(&source.plan_digest)
+        .bind(&source.plan_cell_set_identity)
+        .bind(&source.plan_cell_set_digest)
+        .bind(&seal_json)
+        .bind(&bytes)
+        .bind(&storage_digest)
+        .bind(i64::try_from(committed_at_epoch_ms).map_err(json_storage)?)
+        .execute(&mut *transaction)
+        .await
+        .map_err(storage)?;
+        let payload = serde_json::json!({
+            "schema_version": 1,
+            "request_set_identity": commit.request_set_identity(),
+            "request_set_digest": commit.request_set_digest(),
+            "plan_cell_set_identity": source.plan_cell_set_identity,
+            "plan_cell_set_digest": source.plan_cell_set_digest,
+        });
+        let event_digest = canonical_digest(
+            "qualification.protected-replay-request-set-sealed-event.v1",
+            &payload,
+        )?;
+        sqlx::query(
+            "INSERT INTO public.qualification_owner_outbox_v1 \
+             (event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms) \
+             VALUES ($1,$2,'QUALIFICATION_PROTECTED_REPLAY_REQUEST_SET_SEALED_V1',$3,$4,$5)",
+        )
+        .bind(identity(
+            "qualification-protected-replay-request-set-sealed-event-v1",
+            &event_digest,
+        ))
+        .bind(commit.request_set_identity())
+        .bind(&event_digest)
+        .bind(&payload)
+        .bind(i64::try_from(committed_at_epoch_ms).map_err(json_storage)?)
+        .execute(&mut *transaction)
+        .await
+        .map_err(storage)?;
+        verify_protected_replay_request_set_commit_v1(&mut transaction, &commit).await?;
+        transaction.commit().await.map_err(storage)?;
+        Ok(commit)
+    }
+
+    /// Consume one sealed complete Backtest frontier and atomically close an all-not-applicable
+    /// assessment. Accepted bases cannot turn an empty applicable-cell census into eligibility;
+    /// rejected bases and duplicate attempts remain explicit in the sealed census.
+    pub async fn close_all_not_applicable_assessment_v1(
+        &self,
+        frontier_locator: &ProtectedReplayAttemptFrontierLocatorV1,
+        assessment_successor: &ClockHeadSuccessorReadback,
+    ) -> Result<ProtectedAssessmentInvalidCommitV1, QualificationOwnerError> {
+        let mut transaction = self.pool.begin().await.map_err(storage)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *transaction)
+            .await
+            .map_err(storage)?;
+        let locked_frontier =
+            resolve_protected_replay_attempt_frontier_for_qualification_in_transaction(
+                &mut transaction,
+                frontier_locator,
+            )
+            .await
+            .map_err(|_| unavailable("sealed Backtest attempt frontier custody is unavailable"))?
+            .ok_or_else(|| unavailable("sealed Backtest attempt frontier is unavailable"))?;
+        let frontier = locked_frontier.frontier();
+        sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended($1, 0))")
+            .bind(&frontier.frontier_identity)
+            .execute(&mut *transaction)
+            .await
+            .map_err(storage)?;
+
+        let request_set_row = sqlx::query(
+            "SELECT review_request_identity,seal_json,canonical_seal_bytes,storage_digest \
+             FROM public.qualification_protected_replay_request_sets_v1 \
+             WHERE request_set_identity=$1 AND request_set_digest=$2 FOR UPDATE",
+        )
+        .bind(&frontier.request_set_identity)
+        .bind(&frontier.request_set_digest)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(storage)?
+        .ok_or_else(|| unavailable("sealed Protected Replay Request set is unavailable"))?;
+        let request_set_bytes: Vec<u8> = request_set_row
+            .try_get("canonical_seal_bytes")
+            .map_err(storage)?;
+        let request_set = decode_protected_replay_request_set_v1(&request_set_bytes)?;
+        if request_set.as_json()?
+            != request_set_row
+                .try_get::<serde_json::Value, _>("seal_json")
+                .map_err(storage)?
+            || canonical_digest(
+                "qualification.protected-replay-request-set.storage.v1",
+                &request_set_bytes,
+            )? != request_set_row
+                .try_get::<String, _>("storage_digest")
+                .map_err(storage)?
+        {
+            return Err(unavailable("Protected Replay Request set storage changed"));
+        }
+        verify_protected_replay_request_set_commit_v1(&mut transaction, &request_set).await?;
+        let review_request_identity: String = request_set_row
+            .try_get("review_request_identity")
+            .map_err(storage)?;
+
+        let mut requests = Vec::with_capacity(request_set.seal().members.len());
+        for member in &request_set.seal().members {
+            let row = sqlx::query(
+                "SELECT request_json,canonical_request_bytes,storage_digest \
+                 FROM public.qualification_protected_replay_requests_v1 \
+                 WHERE request_identity=$1 FOR UPDATE",
+            )
+            .bind(&member.request_identity)
+            .fetch_optional(&mut *transaction)
+            .await
+            .map_err(storage)?
+            .ok_or_else(|| unavailable("frozen Protected Replay Request is unavailable"))?;
+            let bytes: Vec<u8> = row.try_get("canonical_request_bytes").map_err(storage)?;
+            let request = decode_protected_replay_request_v2(&bytes)?;
+            let receipt_json: serde_json::Value = sqlx::query_scalar(
+                "SELECT receipt_json FROM public.qualification_protected_replay_request_receipts_v1 \
+                 WHERE request_identity=$1 FOR UPDATE",
+            )
+            .bind(&member.request_identity)
+            .fetch_one(&mut *transaction)
+            .await
+            .map_err(storage)?;
+            let receipt = decode_request_receipt_v2(&receipt_json, &request)?;
+            if request.as_json()?
+                != row
+                    .try_get::<serde_json::Value, _>("request_json")
+                    .map_err(storage)?
+                || canonical_digest("qualification.protected-replay-request.storage.v1", &bytes)?
+                    != row
+                        .try_get::<String, _>("storage_digest")
+                        .map_err(storage)?
+            {
+                return Err(unavailable(
+                    "frozen Protected Replay Request storage changed",
+                ));
+            }
+            verify_protected_replay_request_commit_v2(&mut transaction, &request, &receipt).await?;
+            requests.push(request.as_contract_dto().clone());
+        }
+
+        let mut results = Vec::with_capacity(frontier.members.len());
+        for member in &frontier.members {
+            let locator = ProtectedReplayResultLocatorV1 {
+                result_identity: &member.result.result_identity,
+                request_identity: &member.request_identity,
+                attempt_identity: &member.attempt_identity,
+            };
+            let result = resolve_protected_replay_result_v3_for_qualification_in_transaction(
+                &mut transaction,
+                locator,
+            )
+            .await
+            .map_err(|_| unavailable("sealed Protected Replay Result custody is unavailable"))?
+            .ok_or_else(|| unavailable("sealed Protected Replay Result is unavailable"))?;
+            results.push(result.result().clone());
+        }
+
+        let intake_json: serde_json::Value = sqlx::query_scalar(
+            "SELECT receipt_json FROM public.qualification_candidate_intake_receipts_v1 \
+             WHERE review_request_identity=$1 FOR UPDATE",
+        )
+        .bind(&review_request_identity)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(storage)?;
+        let intake = decode_intake_receipt_v1(&intake_json)?;
+        let holdout_treatment = verify_candidate_intake_commit_v1(&mut transaction, &intake)
+            .await?
+            .ok_or_else(|| unavailable("preregistered holdout treatment is unavailable"))?;
+        let handoff = load_rd_selection_in_transaction(
+            &mut transaction,
+            intake.decision_identity(),
+            intake.result_identity(),
+        )
+        .await?;
+        let source = protected_replay_authority_source_v1(&intake, &handoff)?;
+
+        if let Some(committed_at) = sqlx::query_scalar::<_, i64>(
+            "SELECT committed_at_epoch_ms FROM public.qualification_protected_robustness_assessments_v1 \
+             WHERE attempt_frontier_identity=$1 FOR UPDATE",
+        )
+        .bind(&frontier.frontier_identity)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(storage)?
+        {
+            let commit = form_all_not_applicable_assessment_v1(
+                request_set.seal(),
+                frontier,
+                &requests,
+                &results,
+                &source,
+                assessment_successor,
+                &holdout_treatment,
+                u64::try_from(committed_at).map_err(json_storage)?,
+            )?;
+            verify_protected_assessment_invalid_commit_v1(&mut transaction, &commit).await?;
+            transaction.commit().await.map_err(storage)?;
+            return Ok(commit);
+        }
+
+        let committed_at_epoch_ms = owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
+        let commit = form_all_not_applicable_assessment_v1(
+            request_set.seal(),
+            frontier,
+            &requests,
+            &results,
+            &source,
+            assessment_successor,
+            &holdout_treatment,
+            committed_at_epoch_ms,
+        )?;
+        persist_protected_assessment_invalid_commit_v1(&mut transaction, &commit).await?;
+        verify_protected_assessment_invalid_commit_v1(&mut transaction, &commit).await?;
+        transaction.commit().await.map_err(storage)?;
+        Ok(commit)
     }
 
     /// Consume one sealed Backtest negative terminal and atomically close its
@@ -782,16 +1150,26 @@ impl PostgresQualificationOwnerV1 {
                  CROSS JOIN pg_catalog.unnest(ARRAY['TRUNCATE','REFERENCES','TRIGGER']) privilege_name)
                 AND (SELECT pg_catalog.bool_and(pg_catalog.has_table_privilege(current_user, table_name, privilege_name))
                  FROM pg_catalog.unnest(ARRAY[
+                   'public.qualification_protected_replay_request_sets_v1',
                    'public.qualification_protected_attempt_dispositions_v1',
+                   'public.qualification_protected_robustness_assessments_v1',
+                   'public.qualification_protected_attempt_dispositions_v2',
                    'public.qualification_holdout_closures_v1',
-                   'public.qualification_protected_attempt_disposition_receipts_v1'
+                   'public.qualification_holdout_closures_v2',
+                   'public.qualification_protected_attempt_disposition_receipts_v1',
+                   'public.qualification_protected_attempt_disposition_receipts_v2'
                  ]) table_name
                  CROSS JOIN pg_catalog.unnest(ARRAY['SELECT','INSERT']) privilege_name)
                 AND NOT (SELECT pg_catalog.bool_or(pg_catalog.has_table_privilege(current_user, table_name, privilege_name))
                  FROM pg_catalog.unnest(ARRAY[
+                   'public.qualification_protected_replay_request_sets_v1',
                    'public.qualification_protected_attempt_dispositions_v1',
+                   'public.qualification_protected_robustness_assessments_v1',
+                   'public.qualification_protected_attempt_dispositions_v2',
                    'public.qualification_holdout_closures_v1',
-                   'public.qualification_protected_attempt_disposition_receipts_v1'
+                   'public.qualification_holdout_closures_v2',
+                   'public.qualification_protected_attempt_disposition_receipts_v1',
+                   'public.qualification_protected_attempt_disposition_receipts_v2'
                  ]) table_name
                  CROSS JOIN pg_catalog.unnest(ARRAY['UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) privilege_name)
                 AND NOT EXISTS (
@@ -813,7 +1191,10 @@ impl PostgresQualificationOwnerV1 {
                 AND pg_catalog.has_function_privilege(current_user, 'rd_owner_api.lock_ready_for_selection_for_qualification_v1(text,text)', 'EXECUTE')
                 AND pg_catalog.has_schema_privilege('backtest_owner', 'qualification_api', 'USAGE')
                 AND pg_catalog.has_function_privilege('backtest_owner', 'qualification_api.lock_protected_replay_request_v1(text,text,text,text)', 'EXECUTE')
+                AND pg_catalog.has_function_privilege('backtest_owner', 'qualification_api.lock_protected_replay_request_set_v1(text,text)', 'EXECUTE')
                 AND NOT pg_catalog.has_function_privilege(current_user, 'qualification_api.lock_protected_replay_request_v1(text,text,text,text)', 'EXECUTE')
+                AND NOT pg_catalog.has_function_privilege(current_user, 'qualification_api.lock_protected_replay_request_set_v1(text,text)', 'EXECUTE')
+                AND pg_catalog.has_function_privilege(current_user, 'backtest_owner_api.resolve_protected_replay_attempt_frontier_v1(text,text)', 'EXECUTE')
                 AND NOT pg_catalog.pg_has_role(current_user, 'qualification_owner', 'MEMBER')
                 AND NOT pg_catalog.has_schema_privilege(current_user, 'public', 'CREATE')
                 AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_tables WHERE tableowner = current_user)
@@ -1001,6 +1382,403 @@ impl PostgresQualificationOwnerV1 {
     ) -> Result<Option<ProtectedFeedbackFrontierReadbackV1>, QualificationOwnerError> {
         admit_projection_in_transaction(transaction, locator).await
     }
+}
+
+async fn lock_request_registration_fence_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    plan_cell_set_identity: &str,
+    request_identity: &str,
+) -> Result<(), QualificationOwnerError> {
+    for identity in [plan_cell_set_identity, request_identity] {
+        sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended($1, 0))")
+            .bind(identity)
+            .execute(&mut **transaction)
+            .await
+            .map_err(storage)?;
+    }
+    Ok(())
+}
+
+async fn reject_request_after_set_seal_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    plan_cell_set_identity: &str,
+) -> Result<(), QualificationOwnerError> {
+    let sealed: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM public.qualification_protected_replay_request_sets_v1 \
+         WHERE plan_cell_set_identity=$1)",
+    )
+    .bind(plan_cell_set_identity)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    if sealed {
+        Err(unavailable(
+            "Protected Replay Request registration is closed by the request-set seal",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+async fn verify_protected_replay_request_set_commit_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    commit: &ProtectedReplayRequestSetCommitV1,
+) -> Result<(), QualificationOwnerError> {
+    let bytes = commit.to_canonical_bytes()?;
+    let seal_json = commit.as_json()?;
+    let storage_digest = canonical_digest(
+        "qualification.protected-replay-request-set.storage.v1",
+        &bytes,
+    )?;
+    let rows = sqlx::query(
+        "SELECT request_set_digest,seal_json,canonical_seal_bytes,storage_digest,committed_at_epoch_ms \
+         FROM public.qualification_protected_replay_request_sets_v1 \
+         WHERE request_set_identity=$1 FOR UPDATE",
+    )
+    .bind(commit.request_set_identity())
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    if rows.len() != 1
+        || rows[0]
+            .try_get::<String, _>("request_set_digest")
+            .map_err(storage)?
+            != commit.request_set_digest()
+        || rows[0]
+            .try_get::<serde_json::Value, _>("seal_json")
+            .map_err(storage)?
+            != seal_json
+        || rows[0]
+            .try_get::<Vec<u8>, _>("canonical_seal_bytes")
+            .map_err(storage)?
+            != bytes
+        || rows[0]
+            .try_get::<String, _>("storage_digest")
+            .map_err(storage)?
+            != storage_digest
+    {
+        return Err(unavailable("Protected Replay Request set custody changed"));
+    }
+    let committed_at: i64 = rows[0].try_get("committed_at_epoch_ms").map_err(storage)?;
+    let outbox_rows = sqlx::query(
+        "SELECT payload_digest,payload_json,committed_at_epoch_ms \
+         FROM public.qualification_owner_outbox_v1 \
+         WHERE aggregate_identity=$1 \
+           AND event_kind='QUALIFICATION_PROTECTED_REPLAY_REQUEST_SET_SEALED_V1' FOR UPDATE",
+    )
+    .bind(commit.request_set_identity())
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    let expected_payload = serde_json::json!({
+        "schema_version": 1,
+        "request_set_identity": commit.request_set_identity(),
+        "request_set_digest": commit.request_set_digest(),
+        "plan_cell_set_identity": commit.seal().plan_cell_set_identity,
+        "plan_cell_set_digest": commit.seal().plan_cell_set_digest,
+    });
+    let expected_payload_digest = canonical_digest(
+        "qualification.protected-replay-request-set-sealed-event.v1",
+        &expected_payload,
+    )?;
+    if outbox_rows.len() != 1
+        || outbox_rows[0]
+            .try_get::<String, _>("payload_digest")
+            .map_err(storage)?
+            != expected_payload_digest
+        || outbox_rows[0]
+            .try_get::<serde_json::Value, _>("payload_json")
+            .map_err(storage)?
+            != expected_payload
+        || outbox_rows[0]
+            .try_get::<i64, _>("committed_at_epoch_ms")
+            .map_err(storage)?
+            != committed_at
+    {
+        return Err(unavailable("Protected Replay Request set outbox changed"));
+    }
+    Ok(())
+}
+
+async fn persist_protected_assessment_invalid_commit_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    commit: &ProtectedAssessmentInvalidCommitV1,
+) -> Result<(), QualificationOwnerError> {
+    let assessment = commit.assessment();
+    let disposition = commit.disposition();
+    let receipt = commit.receipt();
+    let committed_at = i64::try_from(assessment.committed_at_epoch_ms()).map_err(json_storage)?;
+    sqlx::query(
+        "INSERT INTO public.qualification_protected_robustness_assessments_v1 \
+         (assessment_identity,assessment_digest,request_set_identity,attempt_frontier_identity,\
+          holdout_reservation_identity,plan_cell_set_identity,plan_cell_set_digest,status,\
+          assessment_json,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,'INCOMPLETE_INVALID',$8,$9)",
+    )
+    .bind(assessment.assessment_identity())
+    .bind(assessment.assessment_digest())
+    .bind(assessment.request_set_identity())
+    .bind(assessment.attempt_frontier_identity())
+    .bind(assessment.holdout_reservation_identity())
+    .bind(assessment.plan_cell_set_identity())
+    .bind(assessment.plan_cell_set_digest())
+    .bind(assessment.as_json()?)
+    .bind(committed_at)
+    .execute(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    sqlx::query(
+        "INSERT INTO public.qualification_protected_attempt_dispositions_v2 \
+         (disposition_identity,disposition_digest,status,assessment_identity,\
+          holdout_reservation_identity,disposition_json,committed_at_epoch_ms) \
+         VALUES ($1,$2,'ASSESSMENT_INVALID',$3,$4,$5,$6)",
+    )
+    .bind(disposition.disposition_identity())
+    .bind(disposition.disposition_digest())
+    .bind(disposition.assessment_identity())
+    .bind(disposition.holdout_reservation_identity())
+    .bind(disposition.as_json()?)
+    .bind(committed_at)
+    .execute(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    sqlx::query(
+        "INSERT INTO public.qualification_holdout_closures_v2 \
+         (closure_identity,closure_digest,reservation_identity,disposition_identity,\
+          closure_disposition,closure_json,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7)",
+    )
+    .bind(disposition.holdout_closure_identity())
+    .bind(disposition.holdout_closure_digest())
+    .bind(disposition.holdout_reservation_identity())
+    .bind(disposition.disposition_identity())
+    .bind(closure_status(disposition.holdout_closure_disposition()))
+    .bind(serde_json::json!({
+        "schema_version": 2,
+        "closure_identity": disposition.holdout_closure_identity(),
+        "closure_digest": disposition.holdout_closure_digest(),
+        "reservation_identity": disposition.holdout_reservation_identity(),
+        "disposition_identity": disposition.disposition_identity(),
+        "closure_disposition": closure_status(disposition.holdout_closure_disposition()),
+    }))
+    .bind(committed_at)
+    .execute(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    sqlx::query(
+        "INSERT INTO public.qualification_protected_attempt_disposition_receipts_v2 \
+         (disposition_identity,receipt_identity,receipt_digest,receipt_json,committed_at_epoch_ms) \
+         VALUES ($1,$2,$3,$4,$5)",
+    )
+    .bind(disposition.disposition_identity())
+    .bind(receipt.receipt_identity())
+    .bind(receipt.receipt_digest())
+    .bind(receipt.as_json()?)
+    .bind(committed_at)
+    .execute(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    let payload = serde_json::to_value(commit).map_err(json_storage)?;
+    let event_digest = canonical_digest(
+        "qualification.protected-assessment-invalid-event.v1",
+        &payload,
+    )?;
+    sqlx::query(
+        "INSERT INTO public.qualification_owner_outbox_v1 \
+         (event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms) \
+         VALUES ($1,$2,'QUALIFICATION_PROTECTED_ASSESSMENT_INVALID_COMMITTED_V1',$3,$4,$5)",
+    )
+    .bind(identity(
+        "qualification-protected-assessment-invalid-event-v1",
+        &event_digest,
+    ))
+    .bind(disposition.disposition_identity())
+    .bind(event_digest)
+    .bind(payload)
+    .bind(committed_at)
+    .execute(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    Ok(())
+}
+
+async fn verify_protected_assessment_invalid_commit_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    commit: &ProtectedAssessmentInvalidCommitV1,
+) -> Result<(), QualificationOwnerError> {
+    let assessment = commit.assessment();
+    let disposition = commit.disposition();
+    let receipt = commit.receipt();
+    let committed_at = i64::try_from(assessment.committed_at_epoch_ms()).map_err(json_storage)?;
+    let assessment_rows = sqlx::query(
+        "SELECT assessment_digest,request_set_identity,attempt_frontier_identity,\
+                holdout_reservation_identity,plan_cell_set_identity,plan_cell_set_digest,status,\
+                assessment_json,committed_at_epoch_ms \
+         FROM public.qualification_protected_robustness_assessments_v1 \
+         WHERE assessment_identity=$1 FOR UPDATE",
+    )
+    .bind(assessment.assessment_identity())
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    if assessment_rows.len() != 1
+        || assessment_rows[0]
+            .try_get::<String, _>("assessment_digest")
+            .map_err(storage)?
+            != assessment.assessment_digest()
+        || assessment_rows[0]
+            .try_get::<String, _>("request_set_identity")
+            .map_err(storage)?
+            != assessment.request_set_identity()
+        || assessment_rows[0]
+            .try_get::<String, _>("attempt_frontier_identity")
+            .map_err(storage)?
+            != assessment.attempt_frontier_identity()
+        || assessment_rows[0]
+            .try_get::<String, _>("holdout_reservation_identity")
+            .map_err(storage)?
+            != assessment.holdout_reservation_identity()
+        || assessment_rows[0]
+            .try_get::<String, _>("plan_cell_set_identity")
+            .map_err(storage)?
+            != assessment.plan_cell_set_identity()
+        || assessment_rows[0]
+            .try_get::<String, _>("plan_cell_set_digest")
+            .map_err(storage)?
+            != assessment.plan_cell_set_digest()
+        || assessment_rows[0]
+            .try_get::<String, _>("status")
+            .map_err(storage)?
+            != "INCOMPLETE_INVALID"
+        || assessment_rows[0]
+            .try_get::<serde_json::Value, _>("assessment_json")
+            .map_err(storage)?
+            != assessment.as_json()?
+        || assessment_rows[0]
+            .try_get::<i64, _>("committed_at_epoch_ms")
+            .map_err(storage)?
+            != committed_at
+    {
+        return Err(unavailable(
+            "Protected Robustness Assessment custody changed",
+        ));
+    }
+    let disposition_rows = sqlx::query(
+        "SELECT disposition_digest,status,assessment_identity,holdout_reservation_identity,\
+                disposition_json,committed_at_epoch_ms \
+         FROM public.qualification_protected_attempt_dispositions_v2 \
+         WHERE disposition_identity=$1 FOR UPDATE",
+    )
+    .bind(disposition.disposition_identity())
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    if disposition_rows.len() != 1
+        || disposition_rows[0]
+            .try_get::<String, _>("disposition_digest")
+            .map_err(storage)?
+            != disposition.disposition_digest()
+        || disposition_rows[0]
+            .try_get::<String, _>("status")
+            .map_err(storage)?
+            != "ASSESSMENT_INVALID"
+        || disposition_rows[0]
+            .try_get::<String, _>("assessment_identity")
+            .map_err(storage)?
+            != disposition.assessment_identity()
+        || disposition_rows[0]
+            .try_get::<String, _>("holdout_reservation_identity")
+            .map_err(storage)?
+            != disposition.holdout_reservation_identity()
+        || disposition_rows[0]
+            .try_get::<serde_json::Value, _>("disposition_json")
+            .map_err(storage)?
+            != disposition.as_json()?
+        || disposition_rows[0]
+            .try_get::<i64, _>("committed_at_epoch_ms")
+            .map_err(storage)?
+            != committed_at
+    {
+        return Err(unavailable(
+            "ASSESSMENT_INVALID disposition custody changed",
+        ));
+    }
+    let expected_closure_json = serde_json::json!({
+        "schema_version": 2,
+        "closure_identity": disposition.holdout_closure_identity(),
+        "closure_digest": disposition.holdout_closure_digest(),
+        "reservation_identity": disposition.holdout_reservation_identity(),
+        "disposition_identity": disposition.disposition_identity(),
+        "closure_disposition": closure_status(disposition.holdout_closure_disposition()),
+    });
+    let closure_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM public.qualification_holdout_closures_v2 \
+         WHERE closure_identity=$1 AND closure_digest=$2 AND reservation_identity=$3 \
+           AND disposition_identity=$4 AND closure_disposition=$5 AND closure_json=$6 \
+           AND committed_at_epoch_ms=$7",
+    )
+    .bind(disposition.holdout_closure_identity())
+    .bind(disposition.holdout_closure_digest())
+    .bind(disposition.holdout_reservation_identity())
+    .bind(disposition.disposition_identity())
+    .bind(closure_status(disposition.holdout_closure_disposition()))
+    .bind(expected_closure_json)
+    .bind(committed_at)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    let receipt_rows = sqlx::query(
+        "SELECT receipt_identity,receipt_digest,receipt_json,committed_at_epoch_ms \
+         FROM public.qualification_protected_attempt_disposition_receipts_v2 \
+         WHERE disposition_identity=$1 FOR UPDATE",
+    )
+    .bind(disposition.disposition_identity())
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    let payload = serde_json::to_value(commit).map_err(json_storage)?;
+    let event_digest = canonical_digest(
+        "qualification.protected-assessment-invalid-event.v1",
+        &payload,
+    )?;
+    let outbox_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM public.qualification_owner_outbox_v1 \
+         WHERE event_identity=$1 AND aggregate_identity=$2 \
+           AND event_kind='QUALIFICATION_PROTECTED_ASSESSMENT_INVALID_COMMITTED_V1' \
+           AND payload_digest=$3 AND payload_json=$4 AND committed_at_epoch_ms=$5",
+    )
+    .bind(identity(
+        "qualification-protected-assessment-invalid-event-v1",
+        &event_digest,
+    ))
+    .bind(disposition.disposition_identity())
+    .bind(event_digest)
+    .bind(payload)
+    .bind(committed_at)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    if closure_count != 1
+        || receipt_rows.len() != 1
+        || receipt_rows[0]
+            .try_get::<String, _>("receipt_identity")
+            .map_err(storage)?
+            != receipt.receipt_identity()
+        || receipt_rows[0]
+            .try_get::<String, _>("receipt_digest")
+            .map_err(storage)?
+            != receipt.receipt_digest()
+        || receipt_rows[0]
+            .try_get::<serde_json::Value, _>("receipt_json")
+            .map_err(storage)?
+            != receipt.as_json()?
+        || receipt_rows[0]
+            .try_get::<i64, _>("committed_at_epoch_ms")
+            .map_err(storage)?
+            != committed_at
+        || outbox_count != 1
+    {
+        return Err(unavailable("ASSESSMENT_INVALID commit custody changed"));
+    }
+    Ok(())
 }
 
 async fn load_rd_selection_in_transaction(

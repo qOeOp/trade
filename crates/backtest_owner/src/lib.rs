@@ -29,9 +29,13 @@ pub mod postgres;
 mod protected_replay;
 mod protected_replay_postgres;
 pub use protected_replay::{
-    SealedProtectedReplayResultV1, SealedProtectedReplayResultV2, SealedProtectedReplayResultV3,
+    ProtectedConsumedBindingObservationProposalV3, ProtectedReplayResultProposalV3,
+    ResolvedProtectedReplayRequestSetV1, SealedProtectedReplayResultV1,
+    SealedProtectedReplayResultV2, SealedProtectedReplayResultV3,
 };
 pub use protected_replay_postgres::{
+    ProtectedReplayAttemptFrontierCommitDispositionV1,
+    ProtectedReplayAttemptFrontierCommitRecoveryV1, ProtectedReplayAttemptFrontierReadbackV1,
     ProtectedReplayResultCommitDispositionV1, ProtectedReplayResultCommitDispositionV2,
     ProtectedReplayResultCommitDispositionV3, ProtectedReplayResultCommitRecoveryV1,
     ProtectedReplayResultCommitRecoveryV2, ProtectedReplayResultCommitRecoveryV3,

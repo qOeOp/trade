@@ -7,6 +7,7 @@ mod candidate_intake;
 mod postgres;
 mod protected_attempt_disposition;
 mod protected_replay_request;
+mod protected_robustness_assessment;
 
 #[cfg(feature = "owner-recovery")]
 mod recovery;
@@ -24,7 +25,10 @@ pub use protected_attempt_disposition::{
 };
 pub use protected_replay_request::{
     ProtectedReplayRequestCommitV1, ProtectedReplayRequestProposalV1,
-    ProtectedReplayRequestProposalV2,
+    ProtectedReplayRequestProposalV2, ProtectedReplayRequestSetCommitV1,
+};
+pub use protected_robustness_assessment::{
+    ProtectedAssessmentInvalidCommitV1, ProtectedAssessmentStatusV1, ProtectedCellAssessmentV1,
 };
 #[cfg(feature = "owner-recovery")]
 pub use recovery::{RecoveryReceiptV1, run_owner_recovery_cli};

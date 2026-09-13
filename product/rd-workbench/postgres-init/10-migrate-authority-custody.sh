@@ -963,6 +963,43 @@ CREATE TABLE IF NOT EXISTS public.backtest_protected_replay_result_outbox_v1 (
   canonical_bytes bytea NOT NULL,
   storage_digest text NOT NULL
 );
+CREATE TABLE IF NOT EXISTS public.backtest_protected_replay_attempt_frontiers_v1 (
+  frontier_identity text PRIMARY KEY,
+  frontier_digest text NOT NULL UNIQUE,
+  request_set_identity text NOT NULL UNIQUE,
+  request_set_digest text NOT NULL,
+  plan_cell_set_identity text NOT NULL UNIQUE,
+  plan_cell_set_digest text NOT NULL,
+  frontier_json jsonb NOT NULL,
+  canonical_frontier_bytes bytea NOT NULL,
+  storage_digest text NOT NULL,
+  committed_at_epoch_ms bigint NOT NULL CHECK (committed_at_epoch_ms>=0)
+);
+CREATE TABLE IF NOT EXISTS public.backtest_protected_replay_attempt_frontier_receipts_v1 (
+  frontier_identity text PRIMARY KEY REFERENCES public.backtest_protected_replay_attempt_frontiers_v1(frontier_identity) DEFERRABLE INITIALLY DEFERRED,
+  receipt_identity text NOT NULL UNIQUE,
+  receipt_digest text NOT NULL,
+  frontier_digest text NOT NULL,
+  request_set_identity text NOT NULL,
+  request_set_digest text NOT NULL,
+  outbox_event_identity text NOT NULL UNIQUE,
+  committed_at_epoch_ms bigint NOT NULL CHECK (committed_at_epoch_ms>=0),
+  canonical_bytes bytea NOT NULL,
+  storage_digest text NOT NULL
+);
+CREATE TABLE IF NOT EXISTS public.backtest_protected_replay_attempt_frontier_outbox_v1 (
+  frontier_identity text PRIMARY KEY REFERENCES public.backtest_protected_replay_attempt_frontiers_v1(frontier_identity) DEFERRABLE INITIALLY DEFERRED,
+  event_identity text NOT NULL UNIQUE,
+  event_digest text NOT NULL,
+  receipt_identity text NOT NULL UNIQUE,
+  request_set_identity text NOT NULL,
+  request_set_digest text NOT NULL,
+  frontier_digest text NOT NULL,
+  payload_digest text NOT NULL,
+  committed_at_epoch_ms bigint NOT NULL CHECK (committed_at_epoch_ms>=0),
+  canonical_bytes bytea NOT NULL,
+  storage_digest text NOT NULL
+);
 CREATE TABLE IF NOT EXISTS public.backtest_native_replay_source_blobs_v2 (
   source_digest text PRIMARY KEY,
   canonical_bytes bytea NOT NULL,
@@ -1000,6 +1037,9 @@ ALTER TABLE public.backtest_replay_result_outbox_v1 OWNER TO backtest_custodian;
 ALTER TABLE public.backtest_protected_replay_results_v1 OWNER TO backtest_custodian;
 ALTER TABLE public.backtest_protected_replay_result_receipts_v1 OWNER TO backtest_custodian;
 ALTER TABLE public.backtest_protected_replay_result_outbox_v1 OWNER TO backtest_custodian;
+ALTER TABLE public.backtest_protected_replay_attempt_frontiers_v1 OWNER TO backtest_custodian;
+ALTER TABLE public.backtest_protected_replay_attempt_frontier_receipts_v1 OWNER TO backtest_custodian;
+ALTER TABLE public.backtest_protected_replay_attempt_frontier_outbox_v1 OWNER TO backtest_custodian;
 ALTER TABLE public.backtest_native_replay_source_blobs_v2 OWNER TO backtest_custodian;
 ALTER TABLE public.backtest_native_replay_observations_v2 OWNER TO backtest_custodian;
 ALTER TABLE public.backtest_native_replay_semantic_traces_v2 OWNER TO backtest_custodian;
@@ -1007,6 +1047,8 @@ REVOKE ALL ON TABLE public.backtest_replay_results_v2, public.backtest_replay_re
 GRANT SELECT, INSERT ON TABLE public.backtest_replay_results_v2, public.backtest_replay_result_receipts_v1, public.backtest_replay_result_outbox_v1 TO backtest_owner;
 REVOKE ALL ON TABLE public.backtest_protected_replay_results_v1, public.backtest_protected_replay_result_receipts_v1, public.backtest_protected_replay_result_outbox_v1 FROM PUBLIC, rd_owner, rd_fact_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
 GRANT SELECT, INSERT ON TABLE public.backtest_protected_replay_results_v1, public.backtest_protected_replay_result_receipts_v1, public.backtest_protected_replay_result_outbox_v1 TO backtest_owner;
+REVOKE ALL ON TABLE public.backtest_protected_replay_attempt_frontiers_v1, public.backtest_protected_replay_attempt_frontier_receipts_v1, public.backtest_protected_replay_attempt_frontier_outbox_v1 FROM PUBLIC, rd_owner, rd_fact_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
+GRANT SELECT, INSERT ON TABLE public.backtest_protected_replay_attempt_frontiers_v1, public.backtest_protected_replay_attempt_frontier_receipts_v1, public.backtest_protected_replay_attempt_frontier_outbox_v1 TO backtest_owner;
 REVOKE ALL ON TABLE public.backtest_native_replay_source_blobs_v2, public.backtest_native_replay_observations_v2, public.backtest_native_replay_semantic_traces_v2 FROM PUBLIC, rd_owner, rd_fact_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
 GRANT SELECT, INSERT ON TABLE public.backtest_native_replay_source_blobs_v2, public.backtest_native_replay_observations_v2, public.backtest_native_replay_semantic_traces_v2 TO backtest_owner;
 
@@ -1187,11 +1229,12 @@ DECLARE exact boolean;
 BEGIN
   SELECT
     (SELECT pg_catalog.pg_get_userbyid(namespace.nspowner)='backtest_custodian' FROM pg_catalog.pg_namespace namespace WHERE namespace.nspname='backtest_owner_api')
-    AND (SELECT pg_catalog.count(*) BETWEEN 1 AND 3
+    AND (SELECT pg_catalog.count(*) BETWEEN 1 AND 4
                 AND pg_catalog.bool_and(procedure.oid IN (
                   pg_catalog.to_regprocedure('backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text)'),
                   pg_catalog.to_regprocedure('backtest_owner_api.resolve_exploratory_replay_result_v3(text,text,text)'),
-                  pg_catalog.to_regprocedure('backtest_owner_api.resolve_protected_replay_result_v1(text,text,text)')
+                  pg_catalog.to_regprocedure('backtest_owner_api.resolve_protected_replay_result_v1(text,text,text)'),
+                  pg_catalog.to_regprocedure('backtest_owner_api.resolve_protected_replay_attempt_frontier_v1(text,text)')
                 ))
            FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
           WHERE namespace.nspname='backtest_owner_api')
@@ -1367,6 +1410,55 @@ $function$;
 ALTER FUNCTION backtest_owner_api.resolve_protected_replay_result_v1(text,text,text) OWNER TO backtest_custodian;
 REVOKE ALL ON FUNCTION backtest_owner_api.resolve_protected_replay_result_v1(text,text,text) FROM PUBLIC, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, rd_fact_writer, market_data_reader, rd_owner;
 GRANT EXECUTE ON FUNCTION backtest_owner_api.resolve_protected_replay_result_v1(text,text,text) TO qualification_writer;
+
+CREATE OR REPLACE FUNCTION backtest_owner_api.resolve_protected_replay_attempt_frontier_v1(
+  p_frontier_identity text,
+  p_frontier_digest text
+) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+DECLARE locked jsonb;
+BEGIN
+  IF session_user <> 'qualification_writer'
+     OR current_user <> 'backtest_custodian'
+     OR pg_catalog.current_setting('transaction_isolation') <> 'serializable'
+  THEN
+    RETURN NULL;
+  END IF;
+  SELECT pg_catalog.jsonb_build_object(
+           'schema_version',1,
+           'frontier',pg_catalog.jsonb_build_object(
+             'bytes_base64',pg_catalog.replace(pg_catalog.encode(frontier.canonical_frontier_bytes,'base64'),pg_catalog.chr(10),''),
+             'storage_digest',frontier.storage_digest,
+             'mirror',frontier.frontier_json),
+           'receipt',pg_catalog.jsonb_build_object(
+             'bytes_base64',pg_catalog.replace(pg_catalog.encode(receipt.canonical_bytes,'base64'),pg_catalog.chr(10),''),
+             'storage_digest',receipt.storage_digest),
+           'outbox',pg_catalog.jsonb_build_object(
+             'bytes_base64',pg_catalog.replace(pg_catalog.encode(outbox.canonical_bytes,'base64'),pg_catalog.chr(10),''),
+             'storage_digest',outbox.storage_digest)
+         ) INTO STRICT locked
+    FROM public.backtest_protected_replay_attempt_frontiers_v1 frontier
+    JOIN public.backtest_protected_replay_attempt_frontier_receipts_v1 receipt USING(frontier_identity)
+    JOIN public.backtest_protected_replay_attempt_frontier_outbox_v1 outbox USING(frontier_identity)
+   WHERE frontier.frontier_identity=p_frontier_identity
+     AND frontier.frontier_digest=p_frontier_digest
+     AND receipt.frontier_digest=frontier.frontier_digest
+     AND receipt.request_set_identity=frontier.request_set_identity
+     AND receipt.request_set_digest=frontier.request_set_digest
+     AND outbox.receipt_identity=receipt.receipt_identity
+     AND outbox.frontier_digest=frontier.frontier_digest
+     AND outbox.request_set_identity=frontier.request_set_identity
+     AND outbox.request_set_digest=frontier.request_set_digest
+   FOR SHARE OF frontier,receipt,outbox;
+  RETURN locked;
+EXCEPTION WHEN no_data_found OR too_many_rows OR data_exception THEN
+  RETURN NULL;
+END
+$function$;
+ALTER FUNCTION backtest_owner_api.resolve_protected_replay_attempt_frontier_v1(text,text) OWNER TO backtest_custodian;
+REVOKE ALL ON FUNCTION backtest_owner_api.resolve_protected_replay_attempt_frontier_v1(text,text) FROM PUBLIC, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, rd_fact_writer, market_data_reader, rd_owner;
+GRANT EXECUTE ON FUNCTION backtest_owner_api.resolve_protected_replay_attempt_frontier_v1(text,text) TO qualification_writer;
 
 DO $backtest_outcome_evidence_topology_readback$
 DECLARE exact boolean;
@@ -1658,6 +1750,21 @@ CREATE TABLE IF NOT EXISTS public.qualification_protected_replay_request_receipt
   storage_digest TEXT NOT NULL,
   committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0)
 );
+CREATE TABLE IF NOT EXISTS public.qualification_protected_replay_request_sets_v1 (
+  request_set_identity TEXT PRIMARY KEY,
+  request_set_digest TEXT NOT NULL UNIQUE,
+  review_request_identity TEXT NOT NULL UNIQUE REFERENCES public.qualification_candidate_intake_receipts_v1(review_request_identity) DEFERRABLE INITIALLY DEFERRED,
+  intake_receipt_identity TEXT NOT NULL,
+  holdout_reservation_identity TEXT NOT NULL UNIQUE REFERENCES public.qualification_holdout_reservations_v1(reservation_identity) DEFERRABLE INITIALLY DEFERRED,
+  protected_plan_identity TEXT NOT NULL,
+  protected_plan_digest TEXT NOT NULL,
+  plan_cell_set_identity TEXT NOT NULL UNIQUE,
+  plan_cell_set_digest TEXT NOT NULL,
+  seal_json JSONB NOT NULL,
+  canonical_seal_bytes BYTEA NOT NULL,
+  storage_digest TEXT NOT NULL,
+  committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0)
+);
 CREATE TABLE IF NOT EXISTS public.qualification_protected_attempt_dispositions_v1 (
   disposition_identity TEXT PRIMARY KEY,
   disposition_digest TEXT NOT NULL UNIQUE,
@@ -1667,6 +1774,43 @@ CREATE TABLE IF NOT EXISTS public.qualification_protected_attempt_dispositions_v
   attempt_identity TEXT NOT NULL,
   holdout_reservation_identity TEXT NOT NULL REFERENCES public.qualification_holdout_reservations_v1(reservation_identity) DEFERRABLE INITIALLY DEFERRED,
   disposition_json JSONB NOT NULL,
+  committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0)
+);
+CREATE TABLE IF NOT EXISTS public.qualification_protected_robustness_assessments_v1 (
+  assessment_identity TEXT PRIMARY KEY,
+  assessment_digest TEXT NOT NULL UNIQUE,
+  request_set_identity TEXT NOT NULL UNIQUE REFERENCES public.qualification_protected_replay_request_sets_v1(request_set_identity) DEFERRABLE INITIALLY DEFERRED,
+  attempt_frontier_identity TEXT NOT NULL UNIQUE,
+  holdout_reservation_identity TEXT NOT NULL UNIQUE REFERENCES public.qualification_holdout_reservations_v1(reservation_identity) DEFERRABLE INITIALLY DEFERRED,
+  plan_cell_set_identity TEXT NOT NULL,
+  plan_cell_set_digest TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status='INCOMPLETE_INVALID'),
+  assessment_json JSONB NOT NULL,
+  committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0)
+);
+CREATE TABLE IF NOT EXISTS public.qualification_protected_attempt_dispositions_v2 (
+  disposition_identity TEXT PRIMARY KEY,
+  disposition_digest TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL CHECK (status='ASSESSMENT_INVALID'),
+  assessment_identity TEXT NOT NULL UNIQUE REFERENCES public.qualification_protected_robustness_assessments_v1(assessment_identity) DEFERRABLE INITIALLY DEFERRED,
+  holdout_reservation_identity TEXT NOT NULL UNIQUE REFERENCES public.qualification_holdout_reservations_v1(reservation_identity) DEFERRABLE INITIALLY DEFERRED,
+  disposition_json JSONB NOT NULL,
+  committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0)
+);
+CREATE TABLE IF NOT EXISTS public.qualification_holdout_closures_v2 (
+  closure_identity TEXT PRIMARY KEY,
+  closure_digest TEXT NOT NULL UNIQUE,
+  reservation_identity TEXT NOT NULL UNIQUE REFERENCES public.qualification_holdout_reservations_v1(reservation_identity) DEFERRABLE INITIALLY DEFERRED,
+  disposition_identity TEXT NOT NULL UNIQUE REFERENCES public.qualification_protected_attempt_dispositions_v2(disposition_identity) DEFERRABLE INITIALLY DEFERRED,
+  closure_disposition TEXT NOT NULL CHECK (closure_disposition IN ('CONSUMED','RELEASED')),
+  closure_json JSONB NOT NULL,
+  committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0)
+);
+CREATE TABLE IF NOT EXISTS public.qualification_protected_attempt_disposition_receipts_v2 (
+  disposition_identity TEXT PRIMARY KEY REFERENCES public.qualification_protected_attempt_dispositions_v2(disposition_identity) DEFERRABLE INITIALLY DEFERRED,
+  receipt_identity TEXT NOT NULL UNIQUE,
+  receipt_digest TEXT NOT NULL,
+  receipt_json JSONB NOT NULL,
   committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0)
 );
 CREATE TABLE IF NOT EXISTS public.qualification_holdout_closures_v1 (
@@ -1693,13 +1837,19 @@ ALTER TABLE public.qualification_holdout_reservations_v1 OWNER TO qualification_
 ALTER TABLE public.qualification_holdout_treatment_registrations_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_protected_replay_requests_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_protected_replay_request_receipts_v1 OWNER TO qualification_owner;
+ALTER TABLE public.qualification_protected_replay_request_sets_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_protected_attempt_dispositions_v1 OWNER TO qualification_owner;
+ALTER TABLE public.qualification_protected_robustness_assessments_v1 OWNER TO qualification_owner;
+ALTER TABLE public.qualification_protected_attempt_dispositions_v2 OWNER TO qualification_owner;
+ALTER TABLE public.qualification_holdout_closures_v2 OWNER TO qualification_owner;
+ALTER TABLE public.qualification_protected_attempt_disposition_receipts_v2 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_holdout_closures_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_protected_attempt_disposition_receipts_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_owner_outbox_v1 OWNER TO qualification_owner;
-REVOKE ALL ON TABLE public.qualification_protected_feedback_projections_v1, public.qualification_protected_feedback_heads_v1, public.qualification_candidate_intake_receipts_v1, public.qualification_holdout_reservations_v1, public.qualification_holdout_treatment_registrations_v1, public.qualification_protected_replay_requests_v1, public.qualification_protected_replay_request_receipts_v1, public.qualification_protected_attempt_dispositions_v1, public.qualification_holdout_closures_v1, public.qualification_protected_attempt_disposition_receipts_v1, public.qualification_owner_outbox_v1 FROM PUBLIC, rd_owner, backtest_owner, product_edge_owner, operator_authorization_writer;
+REVOKE ALL ON TABLE public.qualification_protected_feedback_projections_v1, public.qualification_protected_feedback_heads_v1, public.qualification_candidate_intake_receipts_v1, public.qualification_holdout_reservations_v1, public.qualification_holdout_treatment_registrations_v1, public.qualification_protected_replay_requests_v1, public.qualification_protected_replay_request_receipts_v1, public.qualification_protected_replay_request_sets_v1, public.qualification_protected_attempt_dispositions_v1, public.qualification_protected_robustness_assessments_v1, public.qualification_protected_attempt_dispositions_v2, public.qualification_holdout_closures_v1, public.qualification_holdout_closures_v2, public.qualification_protected_attempt_disposition_receipts_v1, public.qualification_protected_attempt_disposition_receipts_v2, public.qualification_owner_outbox_v1 FROM PUBLIC, rd_owner, backtest_owner, product_edge_owner, operator_authorization_writer;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.qualification_protected_feedback_projections_v1, public.qualification_protected_feedback_heads_v1, public.qualification_candidate_intake_receipts_v1, public.qualification_holdout_reservations_v1, public.qualification_protected_replay_requests_v1, public.qualification_protected_replay_request_receipts_v1, public.qualification_owner_outbox_v1 TO qualification_writer;
-GRANT SELECT, INSERT ON TABLE public.qualification_protected_attempt_dispositions_v1, public.qualification_holdout_closures_v1, public.qualification_protected_attempt_disposition_receipts_v1 TO qualification_writer;
+GRANT SELECT, INSERT ON TABLE public.qualification_protected_replay_request_sets_v1, public.qualification_protected_attempt_dispositions_v1, public.qualification_holdout_closures_v1, public.qualification_protected_attempt_disposition_receipts_v1 TO qualification_writer;
+GRANT SELECT, INSERT ON TABLE public.qualification_protected_robustness_assessments_v1, public.qualification_protected_attempt_dispositions_v2, public.qualification_holdout_closures_v2, public.qualification_protected_attempt_disposition_receipts_v2 TO qualification_writer;
 GRANT SELECT, INSERT ON TABLE public.qualification_holdout_treatment_registrations_v1 TO qualification_writer;
 
 CREATE OR REPLACE FUNCTION rd_owner_api.lock_ready_for_selection_for_qualification_v1(requested_decision_identity text, requested_result_identity text)
@@ -1794,6 +1944,56 @@ $function$;
 ALTER FUNCTION qualification_api.lock_protected_replay_request_v1(text,text,text,text) OWNER TO qualification_owner;
 REVOKE ALL ON FUNCTION qualification_api.lock_protected_replay_request_v1(text,text,text,text) FROM PUBLIC, rd_owner, qualification_writer, backtest_owner, product_edge_owner, operator_authorization_owner, operator_authorization_writer;
 GRANT EXECUTE ON FUNCTION qualification_api.lock_protected_replay_request_v1(text,text,text,text) TO backtest_owner;
+
+CREATE OR REPLACE FUNCTION qualification_api.lock_protected_replay_request_set_v1(
+  requested_request_set_identity text,
+  requested_request_set_digest text
+)
+RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+DECLARE locked jsonb;
+BEGIN
+  IF session_user <> 'backtest_owner'
+     OR current_user <> 'qualification_owner'
+     OR pg_catalog.current_setting('transaction_isolation') <> 'serializable'
+  THEN
+    RETURN NULL;
+  END IF;
+  SELECT pg_catalog.jsonb_build_object(
+           'schema_version', 1,
+           'seal', pg_catalog.jsonb_build_object(
+             'bytes_base64', pg_catalog.replace(pg_catalog.encode(request_set.canonical_seal_bytes, 'base64'), pg_catalog.chr(10), ''),
+             'storage_digest', request_set.storage_digest,
+             'mirror', request_set.seal_json
+           ),
+           'outbox', pg_catalog.jsonb_build_object(
+             'event_identity', outbox.event_identity,
+             'payload_digest', outbox.payload_digest,
+             'payload_json', outbox.payload_json,
+             'committed_at_epoch_ms', outbox.committed_at_epoch_ms
+           )
+         )
+    INTO STRICT locked
+    FROM public.qualification_protected_replay_request_sets_v1 request_set
+    JOIN public.qualification_owner_outbox_v1 outbox
+      ON outbox.aggregate_identity=request_set.request_set_identity
+     AND outbox.event_kind='QUALIFICATION_PROTECTED_REPLAY_REQUEST_SET_SEALED_V1'
+   WHERE request_set.request_set_identity=requested_request_set_identity
+     AND request_set.request_set_digest=requested_request_set_digest
+     AND outbox.payload_json->>'request_set_identity'=request_set.request_set_identity
+     AND outbox.payload_json->>'request_set_digest'=request_set.request_set_digest
+     AND outbox.payload_json->>'plan_cell_set_identity'=request_set.plan_cell_set_identity
+     AND outbox.payload_json->>'plan_cell_set_digest'=request_set.plan_cell_set_digest
+   FOR SHARE OF request_set,outbox;
+  RETURN locked;
+EXCEPTION WHEN no_data_found OR too_many_rows OR data_exception THEN
+  RETURN NULL;
+END
+$function$;
+ALTER FUNCTION qualification_api.lock_protected_replay_request_set_v1(text,text) OWNER TO qualification_owner;
+REVOKE ALL ON FUNCTION qualification_api.lock_protected_replay_request_set_v1(text,text) FROM PUBLIC, rd_owner, qualification_writer, backtest_owner, product_edge_owner, operator_authorization_owner, operator_authorization_writer;
+GRANT EXECUTE ON FUNCTION qualification_api.lock_protected_replay_request_set_v1(text,text) TO backtest_owner;
 
 CREATE OR REPLACE FUNCTION qualification_api.lock_projection_for_basis_v1(
   requested_basis_identity text,

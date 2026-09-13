@@ -296,6 +296,15 @@ protected_sql_match = re.search(
 protected_rust_match = re.search(
     r'const FUNCTION_SOURCE: &str = r#"(.*?)"#;', protected_rust, re.DOTALL
 )
+frontier_sql_match = re.search(
+    r"CREATE OR REPLACE FUNCTION backtest_owner_api\.resolve_protected_replay_attempt_frontier_v1\("
+    r".*?AS \$function\$(.*?)\$function\$;",
+    migration,
+    re.DOTALL,
+)
+frontier_rust_match = re.search(
+    r'const FRONTIER_FUNCTION_SOURCE: &str = r#"(.*?)"#;', protected_rust, re.DOTALL
+)
 if (
     sql_match is None
     or rust_match is None
@@ -303,6 +312,8 @@ if (
     or lock_rust_match is None
     or protected_sql_match is None
     or protected_rust_match is None
+    or frontier_sql_match is None
+    or frontier_rust_match is None
 ):
     raise SystemExit("ERROR: Backtest Result locked-read source identity is unavailable")
 if sql_match.group(1) != rust_match.group(1):
@@ -311,6 +322,8 @@ if lock_sql_match.group(1) != lock_rust_match.group(1):
     raise SystemExit("ERROR: Backtest Result authority-lock source identity mismatch")
 if protected_sql_match.group(1) != protected_rust_match.group(1):
     raise SystemExit("ERROR: protected Backtest Result locked-read source identity mismatch")
+if frontier_sql_match.group(1) != frontier_rust_match.group(1):
+    raise SystemExit("ERROR: protected Backtest frontier locked-read source identity mismatch")
 required_isolation = (
     "CREATE SCHEMA IF NOT EXISTS backtest_authority_lock_api AUTHORIZATION postgres;",
     "misplaced Backtest authority-lock function provenance mismatch",
@@ -330,16 +343,18 @@ runtime_census = (
 if any(required not in rust for required in runtime_census):
     raise SystemExit("ERROR: Backtest Result runtime namespace census is unavailable")
 materializer_owner_api_routine_census = (
-    "pg_catalog.count(*) BETWEEN 1 AND 3",
+    "pg_catalog.count(*) BETWEEN 1 AND 4",
     "procedure.oid IN (",
     "backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text)",
     "backtest_owner_api.resolve_exploratory_replay_result_v3(text,text,text)",
     "backtest_owner_api.resolve_protected_replay_result_v1(text,text,text)",
+    "backtest_owner_api.resolve_protected_replay_attempt_frontier_v1(text,text)",
 )
 runtime_owner_api_routine_census = (
     "WITH expected_function AS (",
     "expected_sibling_function AS (",
     "expected_protected_function AS (",
+    "expected_protected_frontier_function AS (",
     "namespace.nspname='backtest_owner_api'",
     "procedure.proname=$2",
     "procedure.proname=$4",
@@ -347,6 +362,7 @@ runtime_owner_api_routine_census = (
     "procedure.oid=(SELECT oid FROM expected_function)",
     "SELECT oid FROM expected_sibling_function",
     "SELECT oid FROM expected_protected_function",
+    "SELECT oid FROM expected_protected_frontier_function",
 )
 if any(required not in migration for required in materializer_owner_api_routine_census) or any(
     required not in rust for required in runtime_owner_api_routine_census
@@ -2516,6 +2532,29 @@ BEGIN
     RAISE EXCEPTION 'sealed protected replay Backtest API metadata or ACL mismatch';
   END IF;
 
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_proc procedure
+    JOIN pg_catalog.pg_roles role ON role.oid = procedure.proowner
+    WHERE procedure.oid = pg_catalog.to_regprocedure(
+      'qualification_api.lock_protected_replay_request_set_v1(text,text)'
+    )
+      AND role.rolname = 'qualification_owner'
+      AND procedure.prosecdef
+      AND procedure.proisstrict
+      AND procedure.provolatile = 'v'
+      AND procedure.proparallel = 'u'
+      AND procedure.proconfig = ARRAY['search_path=pg_catalog']
+  )
+     OR NOT pg_catalog.has_function_privilege(
+       'backtest_owner',
+       'qualification_api.lock_protected_replay_request_set_v1(text,text)',
+       'EXECUTE'
+     )
+  THEN
+    RAISE EXCEPTION 'sealed protected replay request-set API metadata or ACL mismatch';
+  END IF;
+
   FOREACH role_name IN ARRAY ARRAY[
     'public',
     'rd_owner',
@@ -2530,6 +2569,13 @@ BEGIN
       'EXECUTE'
     ) THEN
       RAISE EXCEPTION '% can execute the sealed protected replay API', role_name;
+    END IF;
+    IF pg_catalog.has_function_privilege(
+      role_name,
+      'qualification_api.lock_protected_replay_request_set_v1(text,text)',
+      'EXECUTE'
+    ) THEN
+      RAISE EXCEPTION '% can execute the sealed protected replay request-set API', role_name;
     END IF;
   END LOOP;
 
@@ -2640,9 +2686,14 @@ BEGIN
   END LOOP;
 
   FOREACH qualification_table IN ARRAY ARRAY[
+    'qualification_protected_replay_request_sets_v1',
     'qualification_protected_attempt_dispositions_v1',
+    'qualification_protected_robustness_assessments_v1',
+    'qualification_protected_attempt_dispositions_v2',
     'qualification_holdout_closures_v1',
-    'qualification_protected_attempt_disposition_receipts_v1'
+    'qualification_holdout_closures_v2',
+    'qualification_protected_attempt_disposition_receipts_v1',
+    'qualification_protected_attempt_disposition_receipts_v2'
   ] LOOP
     IF (SELECT tableowner FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = qualification_table) <> 'qualification_owner' THEN
       RAISE EXCEPTION 'Qualification append-only table custody mismatch for %', qualification_table;
@@ -2673,9 +2724,14 @@ BEGIN
       'qualification_holdout_reservations_v1',
       'qualification_protected_replay_requests_v1',
       'qualification_protected_replay_request_receipts_v1',
+      'qualification_protected_replay_request_sets_v1',
       'qualification_protected_attempt_dispositions_v1',
+      'qualification_protected_robustness_assessments_v1',
+      'qualification_protected_attempt_dispositions_v2',
       'qualification_holdout_closures_v1',
+      'qualification_holdout_closures_v2',
       'qualification_protected_attempt_disposition_receipts_v1',
+      'qualification_protected_attempt_disposition_receipts_v2',
       'qualification_owner_outbox_v1'
     ] LOOP
       FOREACH forbidden_privilege IN ARRAY ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER'] LOOP

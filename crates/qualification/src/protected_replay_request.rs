@@ -3,7 +3,8 @@ use vibe_backtest_owner_contracts::{
     CanonicalDigestV2, OpaqueIdentityV2, PROTECTED_REPLAY_BINDING_COUNT_V1,
     ProtectedEvaluationComparisonRuleV1, ProtectedEvaluationStageV1,
     ProtectedEvaluationTimeEvidenceV1, ProtectedReplayRequestDtoV1, ProtectedReplayRequestDtoV2,
-    ProtectedReplayRequestLocatorV1,
+    ProtectedReplayRequestLocatorV1, ProtectedReplayRequestSetMemberV1,
+    ProtectedReplayRequestSetSealDtoV1, protected_evaluation_time_evidence_digest_v1,
 };
 pub(crate) use vibe_backtest_owner_contracts::{
     ProtectedReplayBindingFieldV1, ProtectedReplayBindingV1,
@@ -345,6 +346,140 @@ pub struct ProtectedReplayRequestCommitV1 {
     receipt: serde_json::Value,
 }
 
+/// Qualification-owned seal of every request required by one admitted protected plan.
+/// Callers can relay this value but cannot construct or deserialize it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
+pub struct ProtectedReplayRequestSetCommitV1(ProtectedReplayRequestSetSealDtoV1);
+
+impl ProtectedReplayRequestSetCommitV1 {
+    pub fn request_set_identity(&self) -> &str {
+        &self.0.request_set_identity
+    }
+
+    pub fn request_set_digest(&self) -> &str {
+        &self.0.request_set_digest
+    }
+
+    pub(crate) fn seal(&self) -> &ProtectedReplayRequestSetSealDtoV1 {
+        &self.0
+    }
+
+    pub(crate) fn to_canonical_bytes(&self) -> Result<Vec<u8>, QualificationOwnerError> {
+        self.0
+            .to_canonical_bytes()
+            .map_err(|error| unavailable(&error.to_string()))
+    }
+
+    pub(crate) fn as_json(&self) -> Result<serde_json::Value, QualificationOwnerError> {
+        serde_json::to_value(&self.0).map_err(|error| unavailable(&error.to_string()))
+    }
+}
+
+pub(crate) fn decode_protected_replay_request_set_v1(
+    bytes: &[u8],
+) -> Result<ProtectedReplayRequestSetCommitV1, QualificationOwnerError> {
+    ProtectedReplayRequestSetSealDtoV1::from_canonical_bytes(bytes)
+        .map(ProtectedReplayRequestSetCommitV1)
+        .map_err(|error| unavailable(&error.to_string()))
+}
+
+pub(crate) fn form_protected_replay_request_set_v1(
+    intake: &CandidateIntakeReceiptV1,
+    source: &ProtectedReplayAuthoritySourceV1,
+    requests: &[(ProtectedReplayRequestV2, ProtectedReplayRequestReceiptV1)],
+) -> Result<ProtectedReplayRequestSetCommitV1, QualificationOwnerError> {
+    let reservation_identity = intake
+        .holdout_reservation_identity()
+        .ok_or_else(|| unavailable("ADMITTED holdout reservation is unavailable"))?;
+    if requests.len() != source.plan_cells.len() || requests.is_empty() {
+        return Err(unavailable(
+            "complete Protected Replay Request cell census is unavailable",
+        ));
+    }
+
+    let mut members = Vec::with_capacity(requests.len());
+    for (request, receipt) in requests {
+        let dto = request.as_contract_dto();
+        if dto.frozen_basis.candidate_identity != source.candidate_identity
+            || dto.frozen_basis.candidate_digest != source.candidate_digest
+            || dto.frozen_basis.review_request_identity != intake.review_request_identity()
+            || dto.frozen_basis.intake_receipt_identity != intake.receipt_identity()
+            || dto.frozen_basis.intake_receipt_digest != intake.receipt_digest()
+            || dto.frozen_basis.holdout_reservation_identity != reservation_identity
+            || dto.frozen_basis.protected_decision_policy_identity
+                != source.protected_decision_policy_identity
+            || dto.frozen_basis.protected_decision_policy_version
+                != source.protected_decision_policy_version
+            || dto.frozen_basis.protected_plan_identity != source.plan_identity
+            || dto.frozen_basis.protected_plan_digest != source.plan_digest
+            || dto.frozen_basis.plan_cell_set_identity != source.plan_cell_set_identity
+            || dto.frozen_basis.plan_cell_set_digest != source.plan_cell_set_digest
+            || receipt.request_digest() != dto.request_digest
+        {
+            return Err(unavailable("Protected Replay Request set is cross-spliced"));
+        }
+        members.push(ProtectedReplayRequestSetMemberV1 {
+            request_identity: dto.request_identity.clone(),
+            request_digest: dto.request_digest.clone(),
+            request_receipt_identity: receipt.receipt_identity().to_string(),
+            request_seal_digest: receipt.seal_digest().to_string(),
+            plan_cell_identity: dto.frozen_basis.plan_cell_identity.clone(),
+            plan_cell_digest: dto.frozen_basis.plan_cell_digest.clone(),
+            request_time_evidence_digest: protected_evaluation_time_evidence_digest_v1(
+                &dto.request_time_evidence,
+            )
+            .map_err(|error| unavailable(&error.to_string()))?,
+        });
+    }
+
+    let observed_cells = members
+        .iter()
+        .map(|member| {
+            (
+                member.plan_cell_identity.clone(),
+                member.plan_cell_digest.clone(),
+            )
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    let expected_cells = source
+        .plan_cells
+        .iter()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    if observed_cells != expected_cells {
+        return Err(unavailable(
+            "Protected Replay Request set does not match the frozen plan cell set",
+        ));
+    }
+
+    let seal = ProtectedReplayRequestSetSealDtoV1 {
+        schema_version: 1,
+        request_set_identity: "pending-request-set-identity".to_string(),
+        request_set_digest: format!("sha256:{}", "0".repeat(64)),
+        candidate_identity: source.candidate_identity.clone(),
+        candidate_digest: source.candidate_digest.clone(),
+        intake_receipt_identity: intake.receipt_identity().to_string(),
+        intake_receipt_digest: intake.receipt_digest().to_string(),
+        holdout_reservation_identity: reservation_identity.to_string(),
+        holdout_reservation_digest: source.holdout_reservation_digest.clone(),
+        protected_decision_policy_identity: source.protected_decision_policy_identity.clone(),
+        protected_decision_policy_version: source.protected_decision_policy_version,
+        protected_plan_identity: source.plan_identity.clone(),
+        protected_plan_digest: source.plan_digest.clone(),
+        plan_cell_set_identity: source.plan_cell_set_identity.clone(),
+        plan_cell_set_digest: source.plan_cell_set_digest.clone(),
+        missing_cell_policy_identity: source.missing_cell_policy_identity.clone(),
+        missing_cell_policy_digest: source.missing_cell_policy_digest.clone(),
+        stop_policy_identity: source.stop_policy_identity.clone(),
+        stop_policy_digest: source.stop_policy_digest.clone(),
+        members,
+    }
+    .seal()
+    .map_err(|error| unavailable(&error.to_string()))?;
+    Ok(ProtectedReplayRequestSetCommitV1(seal))
+}
+
 impl ProtectedReplayRequestCommitV1 {
     pub fn locator(&self) -> &ProtectedReplayRequestLocatorV1 {
         &self.locator
@@ -481,6 +616,9 @@ impl ProtectedReplayRequestV1 {
 }
 
 impl ProtectedReplayRequestV2 {
+    pub(crate) fn as_contract_dto(&self) -> &ProtectedReplayRequestDtoV2 {
+        &self.0
+    }
     pub(crate) fn request_identity(&self) -> &str {
         &self.0.request_identity
     }
@@ -535,6 +673,14 @@ pub(crate) fn decode_protected_replay_request_v1(
     Ok(request)
 }
 
+pub(crate) fn decode_protected_replay_request_v2(
+    bytes: &[u8],
+) -> Result<ProtectedReplayRequestV2, QualificationOwnerError> {
+    ProtectedReplayRequestDtoV2::from_canonical_bytes(bytes)
+        .map(ProtectedReplayRequestV2)
+        .map_err(|error| unavailable(&error.to_string()))
+}
+
 pub(crate) fn decode_request_receipt_v1(
     value: &serde_json::Value,
     request: &ProtectedReplayRequestV1,
@@ -542,6 +688,22 @@ pub(crate) fn decode_request_receipt_v1(
     let receipt: ProtectedReplayRequestReceiptV1 =
         serde_json::from_value(value.clone()).map_err(|error| unavailable(&error.to_string()))?;
     if receipt != form_request_receipt_v1(request, receipt.committed_at_epoch_ms)?
+        || receipt.as_json()? != *value
+    {
+        return Err(unavailable(
+            "stored Protected Replay Request receipt changed",
+        ));
+    }
+    Ok(receipt)
+}
+
+pub(crate) fn decode_request_receipt_v2(
+    value: &serde_json::Value,
+    request: &ProtectedReplayRequestV2,
+) -> Result<ProtectedReplayRequestReceiptV1, QualificationOwnerError> {
+    let receipt: ProtectedReplayRequestReceiptV1 =
+        serde_json::from_value(value.clone()).map_err(|error| unavailable(&error.to_string()))?;
+    if receipt != form_request_receipt_v2(request, receipt.committed_at_epoch_ms)?
         || receipt.as_json()? != *value
     {
         return Err(unavailable(

@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::QualificationOwnerError;
 use crate::postgres::{canonical_digest, identity};
-use crate::protected_attempt_disposition::preregistered_holdout_treatment_v1;
+use crate::protected_attempt_disposition::{
+    PreregisteredHoldoutTreatmentV1, preregistered_holdout_treatment_v1,
+};
 
 const ROBUSTNESS_ADEQUACY_POLICY_IDENTITY_V1: &str = "qualification-robustness-adequacy-policy-v1";
 const ROBUSTNESS_ADEQUACY_POLICY_VERSION_V1: u64 = 1;
@@ -444,7 +446,7 @@ struct MarketRegimeV1 {
 }
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum InstrumentScopeV1 {
+pub(crate) enum InstrumentScopeV1 {
     SingleInstrument,
     MultipleInstruments,
 }
@@ -522,34 +524,17 @@ pub(crate) fn form_candidate_intake_receipt_v1(
         &request.protected_decision_policy_identity,
         request.protected_decision_policy_version,
     )?;
-    let reservation_digest = canonical_digest(
-        "qualification.holdout-reservation.v1",
-        &(
-            request.review_request_identity.as_str(),
-            envelope.candidate.candidate_identity.as_str(),
-            envelope
-                .candidate
-                .evidence_cut
-                .trial_family_identity
-                .as_str(),
-            envelope
-                .candidate
-                .evidence_cut
-                .census_frontier_identity
-                .as_str(),
-            envelope
-                .candidate
-                .evidence_cut
-                .attempt_frontier_identity
-                .as_str(),
-            plan.plan_identity.as_str(),
-            plan.plan_digest.as_str(),
-            request.protected_decision_policy_identity.as_str(),
-            request.protected_decision_policy_version,
-            holdout_treatment.identity(),
-            holdout_treatment.digest(),
-            holdout_treatment.closure_disposition(),
-        ),
+    let reservation_digest = holdout_reservation_digest_v1(
+        &request.review_request_identity,
+        &envelope.candidate.candidate_identity,
+        &envelope.candidate.evidence_cut.trial_family_identity,
+        &envelope.candidate.evidence_cut.census_frontier_identity,
+        &envelope.candidate.evidence_cut.attempt_frontier_identity,
+        &plan.plan_identity,
+        &plan.plan_digest,
+        &request.protected_decision_policy_identity,
+        request.protected_decision_policy_version,
+        &holdout_treatment,
     )?;
     let reservation = (status == CandidateIntakeStatusV1::Admitted)
         .then(|| identity("qualification-holdout-reservation-v1", &reservation_digest));
@@ -598,6 +583,38 @@ pub(crate) fn form_candidate_intake_receipt_v1(
         holdout_reservation_identity: reservation,
         committed_at_epoch_ms,
     })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn holdout_reservation_digest_v1(
+    review_request_identity: &str,
+    candidate_identity: &str,
+    trial_family_identity: &str,
+    census_frontier_identity: &str,
+    attempt_frontier_identity: &str,
+    plan_identity: &str,
+    plan_digest: &str,
+    protected_decision_policy_identity: &str,
+    protected_decision_policy_version: u64,
+    holdout_treatment: &PreregisteredHoldoutTreatmentV1,
+) -> Result<String, QualificationOwnerError> {
+    canonical_digest(
+        "qualification.holdout-reservation.v1",
+        &(
+            review_request_identity,
+            candidate_identity,
+            trial_family_identity,
+            census_frontier_identity,
+            attempt_frontier_identity,
+            plan_identity,
+            plan_digest,
+            protected_decision_policy_identity,
+            protected_decision_policy_version,
+            holdout_treatment.identity(),
+            holdout_treatment.digest(),
+            holdout_treatment.closure_disposition(),
+        ),
+    )
 }
 
 fn validate_request(request: &CandidateIntakeRequestV1) -> Result<(), QualificationOwnerError> {
@@ -727,6 +744,13 @@ pub(crate) struct ProtectedReplayAuthoritySourceV1 {
     pub plan_cell_set_identity: String,
     pub plan_cell_set_digest: String,
     pub plan_cells: Vec<(String, String)>,
+    pub holdout_reservation_digest: String,
+    pub missing_cell_policy_identity: String,
+    pub missing_cell_policy_digest: String,
+    pub stop_policy_identity: String,
+    pub stop_policy_digest: String,
+    pub instrument_scope: InstrumentScopeV1,
+    pub instrument_non_applicability_basis: Option<(String, String)>,
     pub artifact_identity: String,
     pub artifact_digest: String,
     pub cost_model_identity: String,
@@ -772,6 +796,33 @@ pub(crate) fn protected_replay_authority_source_v1(
         return Err(unavailable("Candidate Intake protected plan changed"));
     }
     let (plan_cell_set_identity, plan_cell_set_digest, plan_cells) = derive_plan_cells(plan)?;
+    let holdout_treatment = preregistered_holdout_treatment_v1(
+        &plan.proposal.protected_decision_policy.identity,
+        plan.proposal.protected_decision_policy.version,
+    )?;
+    let holdout_reservation_digest = holdout_reservation_digest_v1(
+        receipt.review_request_identity(),
+        &candidate.candidate_identity,
+        &candidate.evidence_cut.trial_family_identity,
+        &candidate.evidence_cut.census_frontier_identity,
+        &candidate.evidence_cut.attempt_frontier_identity,
+        &plan.plan_identity,
+        &plan.plan_digest,
+        &plan.proposal.protected_decision_policy.identity,
+        plan.proposal.protected_decision_policy.version,
+        &holdout_treatment,
+    )?;
+    if receipt.holdout_reservation_identity()
+        != Some(
+            identity(
+                "qualification-holdout-reservation-v1",
+                &holdout_reservation_digest,
+            )
+            .as_str(),
+        )
+    {
+        return Err(unavailable("Candidate Intake holdout reservation changed"));
+    }
     let purge_embargo_policy_digest = canonical_digest(
         "qualification.protected-replay.purge-embargo-policy.v1",
         &(&plan.proposal.purge_policy, &plan.proposal.embargo_policy),
@@ -816,6 +867,17 @@ pub(crate) fn protected_replay_authority_source_v1(
         plan_cell_set_identity,
         plan_cell_set_digest,
         plan_cells,
+        holdout_reservation_digest,
+        missing_cell_policy_identity: plan.proposal.missing_cell_policy.identity.clone(),
+        missing_cell_policy_digest: plan.proposal.missing_cell_policy.digest.clone(),
+        stop_policy_identity: plan.proposal.stop_policy.identity.clone(),
+        stop_policy_digest: plan.proposal.stop_policy.digest.clone(),
+        instrument_scope: plan.proposal.instrument_scope,
+        instrument_non_applicability_basis: plan
+            .proposal
+            .instrument_non_applicability_basis
+            .as_ref()
+            .map(|basis| (basis.identity.clone(), basis.digest.clone())),
         artifact_identity: plan.artifact.identity.clone(),
         artifact_digest: plan.artifact.digest.clone(),
         cost_model_identity: plan.cost_model_identity.clone(),
@@ -906,9 +968,11 @@ struct PlanCellMeaningV1<'a> {
     parameter_neighborhood: &'a EvidenceReferenceV1,
 }
 
+type ProtectedPlanCellSetV1 = (String, String, Vec<(String, String)>);
+
 fn derive_plan_cells(
     plan: &ProtectedPlanV1,
-) -> Result<(String, String, Vec<(String, String)>), QualificationOwnerError> {
+) -> Result<ProtectedPlanCellSetV1, QualificationOwnerError> {
     let proposal = &plan.proposal;
     let mut windows = proposal
         .required_time_windows

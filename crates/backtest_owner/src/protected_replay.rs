@@ -12,9 +12,10 @@ use vibe_backtest_owner_contracts::{
     ProtectedEvaluationComparisonRuleV1, ProtectedEvaluationEpochSuccessorProofV1,
     ProtectedEvaluationStageV1, ProtectedEvaluationTimeEvidenceV1, ProtectedReplayBindingFieldV1,
     ProtectedReplayReconciliationAtomV1, ProtectedReplayRequestDtoV1, ProtectedReplayRequestDtoV2,
-    ProtectedReplayResultDtoV1, ProtectedReplayResultDtoV2, ProtectedReplayResultDtoV3,
-    ProtectedResultOutcomeLocatorV1, ReconciliationStatusV2, ReplayTerminalV2,
-    protected_diagnostic_category_set_digest_v1, protected_evaluation_time_evidence_digest_v1,
+    ProtectedReplayRequestSetSealDtoV1, ProtectedReplayResultDtoV1, ProtectedReplayResultDtoV2,
+    ProtectedReplayResultDtoV3, ProtectedResultOutcomeLocatorV1, ReconciliationStatusV2,
+    ReplayTerminalV2, protected_diagnostic_category_set_digest_v1,
+    protected_evaluation_time_evidence_digest_v1,
 };
 use vibe_data::owner::shared_time_evidence::{ClockHeadComparisonRule, ClockHeadSuccessorReadback};
 
@@ -26,6 +27,30 @@ pub enum ProtectedReplayOwnerErrorV1 {
     DuplicateObservation,
     #[error("protected replay result is noncanonical")]
     InvalidResult,
+}
+
+/// Caller-supplied Backtest observation. It becomes Owner evidence only after exact reconciliation
+/// with the locked Qualification request inside [`PostgresReplayResultOwnerV2`](crate::PostgresReplayResultOwnerV2).
+#[derive(Debug)]
+pub struct ProtectedConsumedBindingObservationProposalV3 {
+    pub field: ProtectedReplayBindingFieldV1,
+    pub consumed_identity: String,
+    pub consumed_digest: String,
+    pub evidence: ProtectedConsumedInputLocatorV1,
+}
+
+/// Inputs to the single public Owner-controlled V3 production path.
+///
+/// This vocabulary records Backtest observations and locators only; it contains no Qualification
+/// adjudication.
+#[derive(Debug)]
+pub struct ProtectedReplayResultProposalV3 {
+    pub attempt_identity: String,
+    pub observations: Vec<ProtectedConsumedBindingObservationProposalV3>,
+    pub diagnostic_evidence: Vec<ProtectedDiagnosticEvidenceV2>,
+    pub applicability_evidence: ProtectedCellApplicabilityEvidenceV3,
+    pub protected_outcome: ProtectedResultOutcomeLocatorV1,
+    pub time_successor: ClockHeadSuccessorReadback,
 }
 
 #[derive(Debug)]
@@ -91,6 +116,21 @@ pub struct SealedProtectedReplayResultV2(ProtectedReplayResultDtoV2);
 #[derive(Debug, Serialize)]
 #[serde(transparent)]
 pub struct SealedProtectedReplayResultV3(ProtectedReplayResultDtoV3);
+
+/// Backtest readback of a Qualification-locked complete request set.
+#[derive(Debug, Serialize)]
+#[serde(transparent)]
+pub struct ResolvedProtectedReplayRequestSetV1(ProtectedReplayRequestSetSealDtoV1);
+
+impl ResolvedProtectedReplayRequestSetV1 {
+    pub fn request_set(&self) -> &ProtectedReplayRequestSetSealDtoV1 {
+        &self.0
+    }
+
+    pub(crate) fn new(request_set: ProtectedReplayRequestSetSealDtoV1) -> Self {
+        Self(request_set)
+    }
+}
 
 impl SealedProtectedReplayResultV1 {
     pub fn result_identity(&self) -> &str {
@@ -534,6 +574,39 @@ pub(crate) fn commit_protected_owner_result_v3(
     )
     .map_err(|_| ProtectedReplayOwnerErrorV1::InvalidResult)?;
     Ok(SealedProtectedReplayResultV3(dto))
+}
+
+pub(crate) fn commit_protected_owner_result_proposal_v3(
+    request: &ProtectedReplayRequestDtoV2,
+    locator: &vibe_backtest_owner_contracts::ProtectedReplayRequestLocatorV1,
+    proposal: ProtectedReplayResultProposalV3,
+) -> Result<SealedProtectedReplayResultV3, ProtectedReplayOwnerErrorV1> {
+    let observations = proposal
+        .observations
+        .into_iter()
+        .map(|observation| ProtectedConsumedBindingObservationV1 {
+            request_identity: request.request_identity.clone(),
+            request_digest: request.request_digest.clone(),
+            attempt_identity: proposal.attempt_identity.clone(),
+            field: observation.field,
+            consumed_identity: observation.consumed_identity,
+            consumed_digest: observation.consumed_digest,
+            evidence: observation.evidence,
+        })
+        .collect();
+    commit_protected_owner_result_v3(
+        request,
+        ProtectedReplayResultDraftV3 {
+            request_receipt_identity: locator.receipt_identity.clone(),
+            request_seal_digest: locator.seal_digest.clone(),
+            attempt_identity: proposal.attempt_identity,
+            observations,
+            diagnostic_evidence: proposal.diagnostic_evidence,
+            applicability_evidence: proposal.applicability_evidence,
+            protected_outcome: proposal.protected_outcome,
+            time_successor: proposal.time_successor,
+        },
+    )
 }
 
 fn result_time_evidence(
