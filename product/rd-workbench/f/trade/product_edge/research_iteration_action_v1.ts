@@ -371,6 +371,21 @@ async function validMarketDataResponse(value: unknown, payload: Json): Promise<b
   }
 }
 
+async function ownerIdentifiesReplay(
+  token: string,
+  request: Json,
+  requestIdentity: string,
+  meaningDigest: string,
+  canonicalRequestBytes: unknown,
+): Promise<boolean> {
+  const identified = await ownerPost("/v2/exploratory-replay-requests/identify", token, request)
+  return object(identified) && exactKeys(identified, [
+    "request_identity", "meaning_digest", "canonical_request_bytes",
+  ]) && identified.request_identity === requestIdentity
+    && identified.meaning_digest === meaningDigest
+    && equalBytes(identified.canonical_request_bytes, canonicalRequestBytes)
+}
+
 async function validRepairedReplayResponse(value: unknown, payload: Json, token: string): Promise<boolean> {
   if (!object(value) || !exactKeys(value, [
     "schema_version", "predecessor_request_locator", "repair_resolution_locator",
@@ -402,23 +417,29 @@ async function validRepairedReplayResponse(value: unknown, payload: Json, token:
       && request.request_identity === value.locator.request_identity
       && request.request_identity !== payload.predecessor_request_locator.request_identity
       && value.locator.meaning_digest !== payload.predecessor_request_locator.meaning_digest)) return false
-    const identified = await ownerPost("/v2/exploratory-replay-requests/identify", token, request)
-    return object(identified) && exactKeys(identified, [
-      "request_identity", "meaning_digest", "canonical_request_bytes",
-    ]) && identified.request_identity === value.locator.request_identity
-      && identified.meaning_digest === value.locator.meaning_digest
-      && equalBytes(identified.canonical_request_bytes, value.canonical_request_bytes)
+    return await ownerIdentifiesReplay(
+      token, request, value.locator.request_identity,
+      value.locator.meaning_digest, value.canonical_request_bytes,
+    )
   } catch {
     return false
   }
 }
 
-function validResolvedReplay(value: unknown, payload: Json): unknown | null {
+async function validResolvedReplay(value: unknown, payload: Json, token: string): Promise<unknown | null> {
   if (!object(value) || !object(value.readback) || !object(value.readback.request)) return null
   const projected = verifyReplayConsumerProjectionV2(
     value, value.readback.request, payload.request_identity, payload.meaning_digest,
   )
-  return projected.resolution === "EXPLORATION_ACTIVE" ? projected : null
+  if (projected.resolution !== "EXPLORATION_ACTIVE") return null
+  try {
+    return await ownerIdentifiesReplay(
+      token, value.readback.request, payload.request_identity,
+      payload.meaning_digest, value.readback.canonical_request_bytes,
+    ) ? projected : null
+  } catch {
+    return null
+  }
 }
 
 function confirmed(stage: Stage, ownerResult: unknown, nextLegalAction: string) {
@@ -465,7 +486,7 @@ export async function main(action: Action, stage: Stage, payload: unknown) {
     }
     if (stage === "REPAIRED_REPLAY") {
       const replay = action === "RUN" ? (await validRepairedReplayResponse(result, payload, token) ? result : null)
-        : validResolvedReplay(result, payload)
+        : await validResolvedReplay(result, payload, token)
       if (replay !== null) return confirmed(stage, replay, "EXECUTE_EXPLORATORY_REPLAY")
     }
   } catch {

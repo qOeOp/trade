@@ -476,7 +476,12 @@ test("repaired Replay RESOLVE uses only its pre-existing request selector", { co
       owner_cut_epoch_ms: 26,
     },
   }
-  await withFetch([{ value: owner }], async (calls) => {
+  const identified = {
+    request_identity: request.request_identity,
+    meaning_digest: payload.meaning_digest,
+    canonical_request_bytes: bytes(request),
+  }
+  await withFetch([{ value: owner }, { value: identified }], async (calls) => {
     const result = await main("RESOLVE", "REPAIRED_REPLAY", payload)
     assert.equal(result.resolution, "OWNER_CONFIRMED")
     assert.equal(result.owner_result.resolution, "EXPLORATION_ACTIVE")
@@ -485,6 +490,25 @@ test("repaired Replay RESOLVE uses only its pre-existing request selector", { co
       "/v2/exploratory-replay-requests/replay-successor-1/resolve",
     )
     assert.deepEqual(calls[0].body, { meaning_digest: payload.meaning_digest })
+    assert.equal(new URL(calls[1].url).pathname, "/v2/exploratory-replay-requests/identify")
+  })
+  const alteredRequest = structuredClone(request)
+  alteredRequest.artifact.digest = blake("f")
+  const alteredOwner = {
+    ...owner,
+    readback: {
+      ...owner.readback,
+      request: alteredRequest,
+      canonical_request_bytes: bytes(alteredRequest),
+    },
+  }
+  const alteredIdentification = {
+    request_identity: alteredRequest.request_identity,
+    meaning_digest: sha("9"),
+    canonical_request_bytes: bytes(alteredRequest),
+  }
+  await withFetch([{ value: alteredOwner }, { value: alteredIdentification }], async () => {
+    assert.equal((await main("RESOLVE", "REPAIRED_REPLAY", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
   })
   await withFetch([{ value: {
     ...owner,
