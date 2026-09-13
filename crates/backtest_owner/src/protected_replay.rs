@@ -7,12 +7,16 @@ use thiserror::Error;
 #[cfg(test)]
 use vibe_backtest_owner_contracts::{CanonicalDigestV2, OpaqueIdentityV2};
 use vibe_backtest_owner_contracts::{
-    DiagnosticCategoryV2, PROTECTED_REPLAY_BINDING_COUNT_V1, ProtectedConsumedInputLocatorV1,
-    ProtectedDiagnosticEvidenceV2, ProtectedReplayBindingFieldV1,
-    ProtectedReplayReconciliationAtomV1, ProtectedReplayRequestDtoV1, ProtectedReplayResultDtoV1,
-    ProtectedReplayResultDtoV2, ProtectedResultOutcomeLocatorV1, ReconciliationStatusV2,
-    ReplayTerminalV2, protected_diagnostic_category_set_digest_v1,
+    DiagnosticCategoryV2, PROTECTED_REPLAY_BINDING_COUNT_V1, ProtectedCellApplicabilityEvidenceV3,
+    ProtectedConsumedInputLocatorV1, ProtectedDiagnosticEvidenceV2,
+    ProtectedEvaluationComparisonRuleV1, ProtectedEvaluationEpochSuccessorProofV1,
+    ProtectedEvaluationStageV1, ProtectedEvaluationTimeEvidenceV1, ProtectedReplayBindingFieldV1,
+    ProtectedReplayReconciliationAtomV1, ProtectedReplayRequestDtoV1, ProtectedReplayRequestDtoV2,
+    ProtectedReplayResultDtoV1, ProtectedReplayResultDtoV2, ProtectedReplayResultDtoV3,
+    ProtectedResultOutcomeLocatorV1, ReconciliationStatusV2, ReplayTerminalV2,
+    protected_diagnostic_category_set_digest_v1, protected_evaluation_time_evidence_digest_v1,
 };
+use vibe_data::owner::shared_time_evidence::{ClockHeadComparisonRule, ClockHeadSuccessorReadback};
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ProtectedReplayOwnerErrorV1 {
@@ -56,6 +60,18 @@ pub(crate) struct ProtectedReplayResultDraftV2 {
     pub(crate) protected_outcome: ProtectedResultOutcomeLocatorV1,
 }
 
+#[derive(Debug)]
+pub(crate) struct ProtectedReplayResultDraftV3 {
+    pub(crate) request_receipt_identity: String,
+    pub(crate) request_seal_digest: String,
+    pub(crate) attempt_identity: String,
+    pub(crate) observations: Vec<ProtectedConsumedBindingObservationV1>,
+    pub(crate) diagnostic_evidence: Vec<ProtectedDiagnosticEvidenceV2>,
+    pub(crate) applicability_evidence: ProtectedCellApplicabilityEvidenceV3,
+    pub(crate) protected_outcome: ProtectedResultOutcomeLocatorV1,
+    pub(crate) time_successor: ClockHeadSuccessorReadback,
+}
+
 /// Serialize-only Backtest Owner result. Callers cannot construct or deserialize this value.
 #[derive(Debug, Serialize)]
 #[serde(transparent)]
@@ -70,6 +86,11 @@ pub struct SealedProtectedReplayResultV1(ProtectedReplayResultDtoV1);
 #[derive(Debug, Serialize)]
 #[serde(transparent)]
 pub struct SealedProtectedReplayResultV2(ProtectedReplayResultDtoV2);
+
+/// Serialize-only Backtest Owner protected per-cell evidence with a sealed time successor.
+#[derive(Debug, Serialize)]
+#[serde(transparent)]
+pub struct SealedProtectedReplayResultV3(ProtectedReplayResultDtoV3);
 
 impl SealedProtectedReplayResultV1 {
     pub fn result_identity(&self) -> &str {
@@ -119,6 +140,26 @@ impl SealedProtectedReplayResultV2 {
     }
 
     pub(crate) fn dto(&self) -> &ProtectedReplayResultDtoV2 {
+        &self.0
+    }
+}
+
+impl SealedProtectedReplayResultV3 {
+    pub fn result_identity(&self) -> &str {
+        &self.0.result_identity
+    }
+    pub fn request_identity(&self) -> &str {
+        &self.0.request_identity
+    }
+    pub fn attempt_identity(&self) -> &str {
+        &self.0.attempt_identity
+    }
+    pub fn to_canonical_bytes(&self) -> Result<Vec<u8>, ProtectedReplayOwnerErrorV1> {
+        self.0
+            .to_canonical_bytes()
+            .map_err(|_| ProtectedReplayOwnerErrorV1::InvalidResult)
+    }
+    pub(crate) fn dto(&self) -> &ProtectedReplayResultDtoV3 {
         &self.0
     }
 }
@@ -339,6 +380,206 @@ pub(crate) fn commit_protected_owner_result_v2(
     dto.validate()
         .map_err(|_| ProtectedReplayOwnerErrorV1::InvalidResult)?;
     Ok(SealedProtectedReplayResultV2(dto))
+}
+
+pub(crate) fn commit_protected_owner_result_v3(
+    request: &ProtectedReplayRequestDtoV2,
+    mut draft: ProtectedReplayResultDraftV3,
+) -> Result<SealedProtectedReplayResultV3, ProtectedReplayOwnerErrorV1> {
+    request
+        .validate()
+        .map_err(|_| ProtectedReplayOwnerErrorV1::InvalidResult)?;
+    let basis = &request.frozen_basis;
+    let mut observed = BTreeMap::new();
+    for observation in draft.observations {
+        if observation.request_identity != request.request_identity
+            || observation.request_digest != request.request_digest
+            || observation.attempt_identity != draft.attempt_identity
+        {
+            return Err(ProtectedReplayOwnerErrorV1::ObservationBindingMismatch);
+        }
+        if observed.insert(observation.field, observation).is_some() {
+            return Err(ProtectedReplayOwnerErrorV1::DuplicateObservation);
+        }
+    }
+    let reconciliation = basis
+        .bindings
+        .iter()
+        .map(|binding| {
+            if let Some(observation) = observed.remove(&binding.field) {
+                let status = if observation.consumed_identity == binding.identity
+                    && observation.consumed_digest == binding.digest
+                {
+                    ReconciliationStatusV2::Exact
+                } else {
+                    ReconciliationStatusV2::Mismatched
+                };
+                ProtectedReplayReconciliationAtomV1 {
+                    field: binding.field,
+                    requested_identity: binding.identity.clone(),
+                    requested_digest: binding.digest.clone(),
+                    consumed_identity: Some(observation.consumed_identity),
+                    consumed_digest: Some(observation.consumed_digest),
+                    evidence: Some(observation.evidence),
+                    status,
+                }
+            } else {
+                ProtectedReplayReconciliationAtomV1 {
+                    field: binding.field,
+                    requested_identity: binding.identity.clone(),
+                    requested_digest: binding.digest.clone(),
+                    consumed_identity: None,
+                    consumed_digest: None,
+                    evidence: None,
+                    status: ReconciliationStatusV2::Missing,
+                }
+            }
+        })
+        .collect::<Vec<_>>();
+    if !observed.is_empty()
+        || reconciliation.len() != PROTECTED_REPLAY_BINDING_COUNT_V1
+        || reconciliation
+            .iter()
+            .any(|atom| atom.status != ReconciliationStatusV2::Exact)
+    {
+        return Err(ProtectedReplayOwnerErrorV1::InvalidResult);
+    }
+
+    draft
+        .diagnostic_evidence
+        .sort_by_key(|value| value.category);
+    if draft.diagnostic_evidence.is_empty()
+        || draft
+            .diagnostic_evidence
+            .windows(2)
+            .any(|pair| pair[0].category == pair[1].category)
+        || draft.diagnostic_evidence.iter().any(|evidence| {
+            evidence.request_identity != request.request_identity
+                || evidence.request_digest != request.request_digest
+                || evidence.attempt_identity != draft.attempt_identity
+        })
+        || draft.applicability_evidence.request_identity != request.request_identity
+        || draft.applicability_evidence.request_digest != request.request_digest
+        || draft.applicability_evidence.attempt_identity != draft.attempt_identity
+        || draft.applicability_evidence.plan_cell_identity != basis.plan_cell_identity
+    {
+        return Err(ProtectedReplayOwnerErrorV1::InvalidResult);
+    }
+    let diagnostic_category_set = draft
+        .diagnostic_evidence
+        .iter()
+        .map(|value| value.category)
+        .collect::<Vec<_>>();
+    let diagnostic_category_set_digest =
+        protected_diagnostic_category_set_digest_v1(&diagnostic_category_set)
+            .map_err(|_| ProtectedReplayOwnerErrorV1::InvalidResult)?;
+    let result_time_evidence = result_time_evidence(&draft.time_successor);
+    if draft.time_successor.predecessor_head_identity().as_bytes()
+        != &request.request_time_evidence.head_identity
+        || draft.time_successor.predecessor_head_digest().as_bytes()
+            != &request.request_time_evidence.head_digest
+    {
+        return Err(ProtectedReplayOwnerErrorV1::InvalidResult);
+    }
+    result_time_evidence
+        .validate_result_successor_of(&request.request_time_evidence)
+        .map_err(|_| ProtectedReplayOwnerErrorV1::InvalidResult)?;
+    let request_time_evidence_digest =
+        protected_evaluation_time_evidence_digest_v1(&request.request_time_evidence)
+            .map_err(|_| ProtectedReplayOwnerErrorV1::InvalidResult)?;
+    let mut dto = ProtectedReplayResultDtoV3 {
+        schema_version: 3,
+        result_identity: "pending-result-identity".to_string(),
+        result_digest: format!("blake3:{}", "0".repeat(64)),
+        request_identity: request.request_identity.clone(),
+        request_digest: request.request_digest.clone(),
+        request_receipt_identity: draft.request_receipt_identity,
+        request_seal_digest: draft.request_seal_digest,
+        attempt_identity: draft.attempt_identity,
+        terminal: ReplayTerminalV2::TerminalResult,
+        protected_decision_policy_identity: basis.protected_decision_policy_identity.clone(),
+        protected_decision_policy_version: basis.protected_decision_policy_version,
+        protected_plan_identity: basis.protected_plan_identity.clone(),
+        protected_plan_digest: basis.protected_plan_digest.clone(),
+        plan_cell_set_identity: basis.plan_cell_set_identity.clone(),
+        plan_cell_set_digest: basis.plan_cell_set_digest.clone(),
+        plan_cell_identity: basis.plan_cell_identity.clone(),
+        plan_cell_digest: basis.plan_cell_digest.clone(),
+        reconciliation,
+        diagnostic_category_set,
+        diagnostic_category_set_digest,
+        diagnostic_evidence: draft.diagnostic_evidence,
+        applicability_evidence: draft.applicability_evidence,
+        protected_outcome: draft.protected_outcome,
+        request_time_evidence_digest,
+        result_time_evidence,
+    };
+    dto.result_digest = dto
+        .compute_result_digest()
+        .map_err(|_| ProtectedReplayOwnerErrorV1::InvalidResult)?;
+    dto.result_identity = format!(
+        "backtest-protected-replay-result-v3-{}",
+        dto.result_digest
+            .strip_prefix("blake3:")
+            .ok_or(ProtectedReplayOwnerErrorV1::InvalidResult)?
+    );
+    dto.validate_against_request(
+        request,
+        &vibe_backtest_owner_contracts::ProtectedReplayRequestLocatorV1 {
+            request_identity: request.request_identity.clone(),
+            request_digest: request.request_digest.clone(),
+            receipt_identity: dto.request_receipt_identity.clone(),
+            seal_digest: dto.request_seal_digest.clone(),
+        },
+    )
+    .map_err(|_| ProtectedReplayOwnerErrorV1::InvalidResult)?;
+    Ok(SealedProtectedReplayResultV3(dto))
+}
+
+fn result_time_evidence(
+    readback: &ClockHeadSuccessorReadback,
+) -> ProtectedEvaluationTimeEvidenceV1 {
+    let handoff = readback.handoff();
+    ProtectedEvaluationTimeEvidenceV1 {
+        cut_kind: "PROTECTED_EVALUATION".to_string(),
+        stage: ProtectedEvaluationStageV1::Result,
+        head_identity: *handoff.head_identity().as_bytes(),
+        head_digest: *handoff.head_digest().as_bytes(),
+        clock_identity: handoff.clock_identity().to_string(),
+        clock_epoch: handoff.clock_epoch().to_string(),
+        monotonic_sequence: handoff.monotonic_sequence(),
+        wall_observed: handoff.wall_observed(),
+        decision_cut: handoff.decision_cut(),
+        valid_through: handoff.valid_through(),
+        restart_continuity_digest: *handoff.restart_continuity_digest().as_bytes(),
+        uncertainty_bound: handoff.uncertainty_bound(),
+        skew_bound: handoff.skew_bound(),
+        comparison_rule: match handoff.comparison_rule() {
+            ClockHeadComparisonRule::ExclusiveValidThrough => {
+                ProtectedEvaluationComparisonRuleV1::ExclusiveValidThrough
+            }
+        },
+        direct_predecessor_head_identity: Some(*readback.predecessor_head_identity().as_bytes()),
+        direct_predecessor_head_digest: Some(*readback.predecessor_head_digest().as_bytes()),
+        epoch_successor_proof: readback.epoch_successor_proof().map(|proof| {
+            ProtectedEvaluationEpochSuccessorProofV1 {
+                proof_identity: *proof.proof_identity().as_bytes(),
+                predecessor_head_digest: *proof.predecessor_head_digest().as_bytes(),
+                successor_head_digest: *proof.successor_head_digest().as_bytes(),
+                prior_clock_identity: proof.prior_clock_identity().to_string(),
+                prior_clock_epoch: proof.prior_clock_epoch().to_string(),
+                successor_clock_identity: proof.successor_clock_identity().to_string(),
+                successor_clock_epoch: proof.successor_clock_epoch().to_string(),
+                successor_continuity_digest: *proof.successor_continuity_digest().as_bytes(),
+                commit_cut: proof.commit_cut(),
+                comparison_rule: match proof.comparison_rule() {
+                    ClockHeadComparisonRule::ExclusiveValidThrough => {
+                        ProtectedEvaluationComparisonRuleV1::ExclusiveValidThrough
+                    }
+                },
+            }
+        }),
+    }
 }
 
 #[cfg(test)]

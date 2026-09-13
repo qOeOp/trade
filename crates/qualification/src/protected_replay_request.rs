@@ -1,11 +1,14 @@
 use serde::{Deserialize, Serialize};
 use vibe_backtest_owner_contracts::{
     CanonicalDigestV2, OpaqueIdentityV2, PROTECTED_REPLAY_BINDING_COUNT_V1,
-    ProtectedReplayRequestDtoV1, ProtectedReplayRequestLocatorV1,
+    ProtectedEvaluationComparisonRuleV1, ProtectedEvaluationStageV1,
+    ProtectedEvaluationTimeEvidenceV1, ProtectedReplayRequestDtoV1, ProtectedReplayRequestDtoV2,
+    ProtectedReplayRequestLocatorV1,
 };
 pub(crate) use vibe_backtest_owner_contracts::{
     ProtectedReplayBindingFieldV1, ProtectedReplayBindingV1,
 };
+use vibe_data::owner::shared_time_evidence::{ClockHeadComparisonRule, ClockHeadHandoff};
 
 use crate::candidate_intake::ProtectedReplayAuthoritySourceV1;
 use crate::postgres::{canonical_digest, identity};
@@ -19,6 +22,37 @@ pub struct ProtectedReplayRequestProposalV1 {
     intake_receipt_digest: String,
     plan_cell_ordinal: u32,
     bindings: [ProtectedReplayBindingV1; PROTECTED_REPLAY_BINDING_COUNT_V1],
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProtectedReplayRequestProposalV2 {
+    frozen_basis: ProtectedReplayRequestProposalV1,
+    request_time_handoff: ClockHeadHandoff,
+}
+
+impl ProtectedReplayRequestProposalV2 {
+    pub fn new(
+        frozen_basis: ProtectedReplayRequestProposalV1,
+        request_time_handoff: ClockHeadHandoff,
+    ) -> Self {
+        Self {
+            frozen_basis,
+            request_time_handoff,
+        }
+    }
+
+    pub(crate) fn request_identity(&self) -> &str {
+        self.frozen_basis.request_identity()
+    }
+    pub(crate) fn review_request_identity(&self) -> &str {
+        self.frozen_basis.review_request_identity()
+    }
+    pub(crate) fn intake_receipt_identity(&self) -> &str {
+        self.frozen_basis.intake_receipt_identity()
+    }
+    pub(crate) fn intake_receipt_digest(&self) -> &str {
+        self.frozen_basis.intake_receipt_digest()
+    }
 }
 
 impl ProtectedReplayRequestProposalV1 {
@@ -236,6 +270,62 @@ pub(crate) fn form_protected_replay_request_v1(
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
+pub(crate) struct ProtectedReplayRequestV2(ProtectedReplayRequestDtoV2);
+
+pub(crate) fn form_protected_replay_request_v2(
+    proposal: &ProtectedReplayRequestProposalV2,
+    intake: &CandidateIntakeReceiptV1,
+    source: &ProtectedReplayAuthoritySourceV1,
+) -> Result<ProtectedReplayRequestV2, QualificationOwnerError> {
+    let frozen_basis = form_protected_replay_request_v1(&proposal.frozen_basis, intake, source)?;
+    let frozen_basis = frozen_basis.as_contract_dto();
+    let request_time_evidence = request_time_evidence(&proposal.request_time_handoff);
+    request_time_evidence
+        .validate_request_root()
+        .map_err(|error| unavailable(&error.to_string()))?;
+    let mut dto = ProtectedReplayRequestDtoV2 {
+        schema_version: 2,
+        request_identity: frozen_basis.request_identity.clone(),
+        request_digest: format!("sha256:{}", "0".repeat(64)),
+        frozen_basis,
+        request_time_evidence,
+    };
+    dto.request_digest = dto
+        .compute_request_digest()
+        .map_err(|error| unavailable(&error.to_string()))?;
+    dto.validate()
+        .map_err(|error| unavailable(&error.to_string()))?;
+    Ok(ProtectedReplayRequestV2(dto))
+}
+
+fn request_time_evidence(handoff: &ClockHeadHandoff) -> ProtectedEvaluationTimeEvidenceV1 {
+    ProtectedEvaluationTimeEvidenceV1 {
+        cut_kind: "PROTECTED_EVALUATION".to_string(),
+        stage: ProtectedEvaluationStageV1::Request,
+        head_identity: *handoff.head_identity().as_bytes(),
+        head_digest: *handoff.head_digest().as_bytes(),
+        clock_identity: handoff.clock_identity().to_string(),
+        clock_epoch: handoff.clock_epoch().to_string(),
+        monotonic_sequence: handoff.monotonic_sequence(),
+        wall_observed: handoff.wall_observed(),
+        decision_cut: handoff.decision_cut(),
+        valid_through: handoff.valid_through(),
+        restart_continuity_digest: *handoff.restart_continuity_digest().as_bytes(),
+        uncertainty_bound: handoff.uncertainty_bound(),
+        skew_bound: handoff.skew_bound(),
+        comparison_rule: match handoff.comparison_rule() {
+            ClockHeadComparisonRule::ExclusiveValidThrough => {
+                ProtectedEvaluationComparisonRuleV1::ExclusiveValidThrough
+            }
+        },
+        direct_predecessor_head_identity: None,
+        direct_predecessor_head_digest: None,
+        epoch_successor_proof: None,
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ProtectedReplayRequestReceiptV1 {
     schema_version: u16,
@@ -289,6 +379,44 @@ pub(crate) fn form_request_receipt_v1(
         receipt_digest,
         request_identity: request.request_identity.clone(),
         request_digest: request.request_digest.clone(),
+        seal_digest,
+        committed_at_epoch_ms,
+    })
+}
+
+pub(crate) fn form_request_receipt_v2(
+    request: &ProtectedReplayRequestV2,
+    committed_at_epoch_ms: u64,
+) -> Result<ProtectedReplayRequestReceiptV1, QualificationOwnerError> {
+    if committed_at_epoch_ms >= request.0.request_time_evidence.valid_through {
+        return Err(unavailable(
+            "Protected Replay Request time evidence expired before commit",
+        ));
+    }
+    let request_bytes =
+        serde_json::to_vec(request).map_err(|error| unavailable(&error.to_string()))?;
+    let seal_digest = canonical_digest(
+        "qualification.protected-replay-request-seal.v1",
+        &request_bytes,
+    )?;
+    let receipt_digest = canonical_digest(
+        "qualification.protected-replay-request-receipt.v1",
+        &(
+            request.request_identity(),
+            request.request_digest(),
+            &seal_digest,
+            committed_at_epoch_ms,
+        ),
+    )?;
+    Ok(ProtectedReplayRequestReceiptV1 {
+        schema_version: 1,
+        receipt_identity: identity(
+            "qualification-protected-replay-request-receipt-v1",
+            &receipt_digest,
+        ),
+        receipt_digest,
+        request_identity: request.request_identity().to_string(),
+        request_digest: request.request_digest().to_string(),
         seal_digest,
         committed_at_epoch_ms,
     })
@@ -349,6 +477,44 @@ impl ProtectedReplayRequestV1 {
     }
     pub(crate) fn as_json(&self) -> Result<serde_json::Value, QualificationOwnerError> {
         serde_json::to_value(self).map_err(|error| unavailable(&error.to_string()))
+    }
+}
+
+impl ProtectedReplayRequestV2 {
+    pub(crate) fn request_identity(&self) -> &str {
+        &self.0.request_identity
+    }
+    pub(crate) fn request_digest(&self) -> &str {
+        &self.0.request_digest
+    }
+    pub(crate) fn review_request_identity(&self) -> &str {
+        &self.0.frozen_basis.review_request_identity
+    }
+    pub(crate) fn intake_receipt_identity(&self) -> &str {
+        &self.0.frozen_basis.intake_receipt_identity
+    }
+    pub(crate) fn holdout_reservation_identity(&self) -> &str {
+        &self.0.frozen_basis.holdout_reservation_identity
+    }
+    pub(crate) fn protected_plan_identity(&self) -> &str {
+        &self.0.frozen_basis.protected_plan_identity
+    }
+    pub(crate) fn protected_plan_digest(&self) -> &str {
+        &self.0.frozen_basis.protected_plan_digest
+    }
+    pub(crate) fn plan_cell_identity(&self) -> &str {
+        &self.0.frozen_basis.plan_cell_identity
+    }
+    pub(crate) fn plan_cell_digest(&self) -> &str {
+        &self.0.frozen_basis.plan_cell_digest
+    }
+    pub(crate) fn as_json(&self) -> Result<serde_json::Value, QualificationOwnerError> {
+        serde_json::to_value(self).map_err(|error| unavailable(&error.to_string()))
+    }
+    pub(crate) fn to_canonical_bytes(&self) -> Result<Vec<u8>, QualificationOwnerError> {
+        self.0
+            .to_canonical_bytes()
+            .map_err(|error| unavailable(&error.to_string()))
     }
 }
 
@@ -414,6 +580,22 @@ pub(crate) fn commit_projection(
         locator: ProtectedReplayRequestLocatorV1 {
             request_identity: request.request_identity.clone(),
             request_digest: request.request_digest.clone(),
+            receipt_identity: receipt.receipt_identity.clone(),
+            seal_digest: receipt.seal_digest.clone(),
+        },
+        request: request.as_json()?,
+        receipt: receipt.as_json()?,
+    })
+}
+
+pub(crate) fn commit_projection_v2(
+    request: &ProtectedReplayRequestV2,
+    receipt: &ProtectedReplayRequestReceiptV1,
+) -> Result<ProtectedReplayRequestCommitV1, QualificationOwnerError> {
+    Ok(ProtectedReplayRequestCommitV1 {
+        locator: ProtectedReplayRequestLocatorV1 {
+            request_identity: request.request_identity().to_string(),
+            request_digest: request.request_digest().to_string(),
             receipt_identity: receipt.receipt_identity.clone(),
             seal_digest: receipt.seal_digest.clone(),
         },

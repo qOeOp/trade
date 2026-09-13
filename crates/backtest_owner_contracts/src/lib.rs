@@ -11,12 +11,16 @@ pub use outcome_evidence::{
     BacktestOutcomeEvidenceErrorV1, CanonicalResultBindingDtoV1,
 };
 pub use protected_replay::{
-    ProtectedConsumedInputLocatorV1, ProtectedDiagnosticEvidenceV2, ProtectedReplayContractErrorV1,
-    ProtectedReplayReconciliationAtomV1, ProtectedReplayRequestDtoV1, ProtectedReplayResultDtoV1,
-    ProtectedReplayResultDtoV2, ProtectedResultOutboxDtoV1, ProtectedResultOutboxPayloadDtoV1,
-    ProtectedResultOutcomeLocatorV1, ProtectedResultReceiptDtoV1,
-    protected_diagnostic_category_set_digest_v1, protected_result_custody_wires_v1,
-    protected_result_custody_wires_v2,
+    ProtectedCellApplicabilityEvidenceV3, ProtectedCellApplicabilityObservationV3,
+    ProtectedConsumedInputLocatorV1, ProtectedDiagnosticEvidenceV2,
+    ProtectedEvaluationComparisonRuleV1, ProtectedEvaluationEpochSuccessorProofV1,
+    ProtectedEvaluationStageV1, ProtectedEvaluationTimeEvidenceV1, ProtectedReplayContractErrorV1,
+    ProtectedReplayReconciliationAtomV1, ProtectedReplayRequestDtoV1, ProtectedReplayRequestDtoV2,
+    ProtectedReplayResultDtoV1, ProtectedReplayResultDtoV2, ProtectedReplayResultDtoV3,
+    ProtectedResultOutboxDtoV1, ProtectedResultOutboxPayloadDtoV1, ProtectedResultOutcomeLocatorV1,
+    ProtectedResultReceiptDtoV1, protected_diagnostic_category_set_digest_v1,
+    protected_evaluation_time_evidence_digest_v1, protected_result_custody_wires_v1,
+    protected_result_custody_wires_v2, protected_result_custody_wires_v3,
 };
 
 use serde::{Deserialize, Serialize};
