@@ -29,6 +29,7 @@ pub use protected_replay_request::{
 };
 pub use protected_robustness_assessment::{
     ProtectedAssessmentInvalidCommitV1, ProtectedAssessmentStatusV1, ProtectedCellAssessmentV1,
+    ProtectedEligibilityStatusV1, ProtectedIneligibleCommitV1,
 };
 #[cfg(feature = "owner-recovery")]
 pub use recovery::{RecoveryReceiptV1, run_owner_recovery_cli};

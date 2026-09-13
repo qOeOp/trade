@@ -4,8 +4,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgRow};
 use vibe_backtest_owner_contracts::{
-    ProtectedReplayAttemptFrontierLocatorV1, ProtectedReplayRequestDtoV1,
-    ProtectedReplayRequestLocatorV1,
+    ProtectedReplayAttemptFrontierDtoV1, ProtectedReplayAttemptFrontierLocatorV1,
+    ProtectedReplayRequestDtoV1, ProtectedReplayRequestDtoV2, ProtectedReplayRequestLocatorV1,
+    ProtectedReplayRequestSetSealDtoV1, ProtectedReplayResultDtoV3,
 };
 use vibe_backtest_result_custody::{
     LockedProtectedReplayResultV1, LockedProtectedReplayResultV2, ProtectedReplayResultLocatorV1,
@@ -17,8 +18,9 @@ use vibe_backtest_result_custody::{
 use vibe_data::owner::shared_time_evidence::ClockHeadSuccessorReadback;
 
 use crate::candidate_intake::{
-    ResolvedRdSelectionStorageV1, decode_intake_receipt_v1, decode_resolved_handoff_v1,
-    form_candidate_intake_receipt_v1, protected_replay_authority_source_v1,
+    ProtectedReplayAuthoritySourceV1, ResolvedRdSelectionStorageV1, decode_intake_receipt_v1,
+    decode_resolved_handoff_v1, form_candidate_intake_receipt_v1,
+    protected_replay_authority_source_v1,
 };
 use crate::protected_attempt_disposition::{
     HoldoutClosureDispositionV1, PreregisteredHoldoutTreatmentV1,
@@ -35,7 +37,8 @@ use crate::protected_replay_request::{
     form_request_receipt_v2,
 };
 use crate::protected_robustness_assessment::{
-    ProtectedAssessmentInvalidCommitV1, form_all_not_applicable_assessment_v1,
+    ProtectedAssessmentInvalidCommitV1, ProtectedIneligibleCommitV1,
+    form_all_not_applicable_assessment_v1, form_economic_failure_assessment_v1,
 };
 use crate::{CandidateIntakeReceiptV1, CandidateIntakeRequestV1, CandidateIntakeStatusV1};
 use crate::{
@@ -72,6 +75,17 @@ enum ProtectedAttemptClosureKindV1 {
 enum LockedProtectedAttemptResultV1 {
     Negative(LockedProtectedReplayResultV1),
     Diagnostic(LockedProtectedReplayResultV2),
+}
+
+#[derive(Clone, Copy)]
+enum ProtectedAssessmentClosureKindV1 {
+    AllNotApplicable,
+    EconomicFailure,
+}
+
+enum ProtectedAssessmentCommitV1 {
+    Invalid(Box<ProtectedAssessmentInvalidCommitV1>),
+    Ineligible(Box<ProtectedIneligibleCommitV1>),
 }
 
 impl LockedProtectedAttemptResultV1 {
@@ -727,6 +741,47 @@ impl PostgresQualificationOwnerV1 {
         frontier_locator: &ProtectedReplayAttemptFrontierLocatorV1,
         assessment_successor: &ClockHeadSuccessorReadback,
     ) -> Result<ProtectedAssessmentInvalidCommitV1, QualificationOwnerError> {
+        match Box::pin(self.close_protected_assessment_v1(
+            frontier_locator,
+            assessment_successor,
+            ProtectedAssessmentClosureKindV1::AllNotApplicable,
+        ))
+        .await?
+        {
+            ProtectedAssessmentCommitV1::Invalid(commit) => Ok(*commit),
+            ProtectedAssessmentCommitV1::Ineligible(_) => Err(unavailable(
+                "protected assessment returned the wrong terminal kind",
+            )),
+        }
+    }
+
+    /// Consume a complete sealed frontier whose applicable cells carry an authoritative
+    /// `VALID_ECONOMIC_FAILURE`, then atomically commit `COMPLETE_FAIL` and `INELIGIBLE`.
+    pub async fn close_economic_failure_assessment_v1(
+        &self,
+        frontier_locator: &ProtectedReplayAttemptFrontierLocatorV1,
+        assessment_successor: &ClockHeadSuccessorReadback,
+    ) -> Result<ProtectedIneligibleCommitV1, QualificationOwnerError> {
+        match Box::pin(self.close_protected_assessment_v1(
+            frontier_locator,
+            assessment_successor,
+            ProtectedAssessmentClosureKindV1::EconomicFailure,
+        ))
+        .await?
+        {
+            ProtectedAssessmentCommitV1::Ineligible(commit) => Ok(*commit),
+            ProtectedAssessmentCommitV1::Invalid(_) => Err(unavailable(
+                "protected assessment returned the wrong terminal kind",
+            )),
+        }
+    }
+
+    async fn close_protected_assessment_v1(
+        &self,
+        frontier_locator: &ProtectedReplayAttemptFrontierLocatorV1,
+        assessment_successor: &ClockHeadSuccessorReadback,
+        kind: ProtectedAssessmentClosureKindV1,
+    ) -> Result<ProtectedAssessmentCommitV1, QualificationOwnerError> {
         let mut transaction = self.pool.begin().await.map_err(storage)?;
         sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
             .execute(&mut *transaction)
@@ -866,7 +921,8 @@ impl PostgresQualificationOwnerV1 {
         .await
         .map_err(storage)?
         {
-            let commit = form_all_not_applicable_assessment_v1(
+            let commit = form_protected_assessment_commit_v1(
+                kind,
                 request_set.seal(),
                 frontier,
                 &requests,
@@ -876,13 +932,14 @@ impl PostgresQualificationOwnerV1 {
                 &holdout_treatment,
                 u64::try_from(committed_at).map_err(json_storage)?,
             )?;
-            verify_protected_assessment_invalid_commit_v1(&mut transaction, &commit).await?;
+            verify_protected_assessment_commit_v1(&mut transaction, &commit).await?;
             transaction.commit().await.map_err(storage)?;
             return Ok(commit);
         }
 
         let committed_at_epoch_ms = owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
-        let commit = form_all_not_applicable_assessment_v1(
+        let commit = form_protected_assessment_commit_v1(
+            kind,
             request_set.seal(),
             frontier,
             &requests,
@@ -892,8 +949,8 @@ impl PostgresQualificationOwnerV1 {
             &holdout_treatment,
             committed_at_epoch_ms,
         )?;
-        persist_protected_assessment_invalid_commit_v1(&mut transaction, &commit).await?;
-        verify_protected_assessment_invalid_commit_v1(&mut transaction, &commit).await?;
+        persist_protected_assessment_commit_v1(&mut transaction, &commit).await?;
+        verify_protected_assessment_commit_v1(&mut transaction, &commit).await?;
         transaction.commit().await.map_err(storage)?;
         Ok(commit)
     }
@@ -1153,6 +1210,8 @@ impl PostgresQualificationOwnerV1 {
                    'public.qualification_protected_replay_request_sets_v1',
                    'public.qualification_protected_attempt_dispositions_v1',
                    'public.qualification_protected_robustness_assessments_v1',
+                   'public.qualification_eligibility_facts_v1',
+                   'public.qualification_eligibility_fact_receipts_v1',
                    'public.qualification_protected_attempt_dispositions_v2',
                    'public.qualification_holdout_closures_v1',
                    'public.qualification_holdout_closures_v2',
@@ -1165,6 +1224,8 @@ impl PostgresQualificationOwnerV1 {
                    'public.qualification_protected_replay_request_sets_v1',
                    'public.qualification_protected_attempt_dispositions_v1',
                    'public.qualification_protected_robustness_assessments_v1',
+                   'public.qualification_eligibility_facts_v1',
+                   'public.qualification_eligibility_fact_receipts_v1',
                    'public.qualification_protected_attempt_dispositions_v2',
                    'public.qualification_holdout_closures_v1',
                    'public.qualification_holdout_closures_v2',
@@ -1500,6 +1561,76 @@ async fn verify_protected_replay_request_set_commit_v1(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
+fn form_protected_assessment_commit_v1(
+    kind: ProtectedAssessmentClosureKindV1,
+    request_set: &ProtectedReplayRequestSetSealDtoV1,
+    frontier: &ProtectedReplayAttemptFrontierDtoV1,
+    requests: &[ProtectedReplayRequestDtoV2],
+    results: &[ProtectedReplayResultDtoV3],
+    source: &ProtectedReplayAuthoritySourceV1,
+    assessment_successor: &ClockHeadSuccessorReadback,
+    holdout_treatment: &PreregisteredHoldoutTreatmentV1,
+    committed_at_epoch_ms: u64,
+) -> Result<ProtectedAssessmentCommitV1, QualificationOwnerError> {
+    match kind {
+        ProtectedAssessmentClosureKindV1::AllNotApplicable => {
+            form_all_not_applicable_assessment_v1(
+                request_set,
+                frontier,
+                requests,
+                results,
+                source,
+                assessment_successor,
+                holdout_treatment,
+                committed_at_epoch_ms,
+            )
+            .map(Box::new)
+            .map(ProtectedAssessmentCommitV1::Invalid)
+        }
+        ProtectedAssessmentClosureKindV1::EconomicFailure => form_economic_failure_assessment_v1(
+            request_set,
+            frontier,
+            requests,
+            results,
+            source,
+            assessment_successor,
+            holdout_treatment,
+            committed_at_epoch_ms,
+        )
+        .map(Box::new)
+        .map(ProtectedAssessmentCommitV1::Ineligible),
+    }
+}
+
+async fn persist_protected_assessment_commit_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    commit: &ProtectedAssessmentCommitV1,
+) -> Result<(), QualificationOwnerError> {
+    match commit {
+        ProtectedAssessmentCommitV1::Invalid(commit) => {
+            persist_protected_assessment_invalid_commit_v1(transaction, commit).await
+        }
+        ProtectedAssessmentCommitV1::Ineligible(commit) => {
+            persist_protected_ineligible_commit_v1(transaction, commit).await
+        }
+    }
+}
+
+async fn verify_protected_assessment_commit_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    commit: &ProtectedAssessmentCommitV1,
+) -> Result<(), QualificationOwnerError> {
+    match commit {
+        ProtectedAssessmentCommitV1::Invalid(commit) => {
+            verify_protected_assessment_invalid_commit_v1(transaction, commit).await
+        }
+        ProtectedAssessmentCommitV1::Ineligible(commit) => {
+            verify_protected_ineligible_commit_v1(transaction, commit).await
+        }
+    }
+}
+
 async fn persist_protected_assessment_invalid_commit_v1(
     transaction: &mut Transaction<'_, Postgres>,
     commit: &ProtectedAssessmentInvalidCommitV1,
@@ -1777,6 +1908,222 @@ async fn verify_protected_assessment_invalid_commit_v1(
         || outbox_count != 1
     {
         return Err(unavailable("ASSESSMENT_INVALID commit custody changed"));
+    }
+    Ok(())
+}
+
+async fn persist_protected_ineligible_commit_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    commit: &ProtectedIneligibleCommitV1,
+) -> Result<(), QualificationOwnerError> {
+    let assessment = commit.assessment();
+    let eligibility = commit.eligibility();
+    let receipt = commit.receipt();
+    let committed_at = i64::try_from(assessment.committed_at_epoch_ms()).map_err(json_storage)?;
+    sqlx::query(
+        "INSERT INTO public.qualification_protected_robustness_assessments_v1 \
+         (assessment_identity,assessment_digest,request_set_identity,attempt_frontier_identity,\
+          holdout_reservation_identity,plan_cell_set_identity,plan_cell_set_digest,status,\
+          assessment_json,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,'COMPLETE_FAIL',$8,$9)",
+    )
+    .bind(assessment.assessment_identity())
+    .bind(assessment.assessment_digest())
+    .bind(assessment.request_set_identity())
+    .bind(assessment.attempt_frontier_identity())
+    .bind(assessment.holdout_reservation_identity())
+    .bind(assessment.plan_cell_set_identity())
+    .bind(assessment.plan_cell_set_digest())
+    .bind(assessment.as_json()?)
+    .bind(committed_at)
+    .execute(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    sqlx::query(
+        "INSERT INTO public.qualification_eligibility_facts_v1 \
+         (eligibility_identity,eligibility_digest,status,candidate_identity,assessment_identity,\
+          holdout_reservation_identity,holdout_closure_identity,holdout_closure_digest,\
+          holdout_closure_disposition,eligibility_json,committed_at_epoch_ms) \
+         VALUES ($1,$2,'INELIGIBLE',$3,$4,$5,$6,$7,$8,$9,$10)",
+    )
+    .bind(eligibility.eligibility_identity())
+    .bind(eligibility.eligibility_digest())
+    .bind(commit.assessment().candidate_identity())
+    .bind(eligibility.assessment_identity())
+    .bind(eligibility.holdout_reservation_identity())
+    .bind(eligibility.holdout_closure_identity())
+    .bind(eligibility.holdout_closure_digest())
+    .bind(closure_status(eligibility.holdout_closure_disposition()))
+    .bind(eligibility.as_json()?)
+    .bind(committed_at)
+    .execute(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    sqlx::query(
+        "INSERT INTO public.qualification_eligibility_fact_receipts_v1 \
+         (eligibility_identity,receipt_identity,receipt_digest,receipt_json,committed_at_epoch_ms) \
+         VALUES ($1,$2,$3,$4,$5)",
+    )
+    .bind(eligibility.eligibility_identity())
+    .bind(receipt.receipt_identity())
+    .bind(receipt.receipt_digest())
+    .bind(receipt.as_json()?)
+    .bind(committed_at)
+    .execute(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    let payload = serde_json::to_value(commit).map_err(json_storage)?;
+    let event_digest = canonical_digest(
+        "qualification.protected-eligibility-ineligible-event.v1",
+        &payload,
+    )?;
+    sqlx::query(
+        "INSERT INTO public.qualification_owner_outbox_v1 \
+         (event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms) \
+         VALUES ($1,$2,'QUALIFICATION_PROTECTED_INELIGIBLE_COMMITTED_V1',$3,$4,$5)",
+    )
+    .bind(identity(
+        "qualification-protected-eligibility-ineligible-event-v1",
+        &event_digest,
+    ))
+    .bind(eligibility.eligibility_identity())
+    .bind(event_digest)
+    .bind(payload)
+    .bind(committed_at)
+    .execute(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    Ok(())
+}
+
+async fn verify_protected_ineligible_commit_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    commit: &ProtectedIneligibleCommitV1,
+) -> Result<(), QualificationOwnerError> {
+    let assessment = commit.assessment();
+    let eligibility = commit.eligibility();
+    let receipt = commit.receipt();
+    let committed_at = i64::try_from(eligibility.committed_at_epoch_ms()).map_err(json_storage)?;
+    let assessment_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM public.qualification_protected_robustness_assessments_v1 \
+         WHERE assessment_identity=$1 AND assessment_digest=$2 AND request_set_identity=$3 \
+           AND attempt_frontier_identity=$4 AND holdout_reservation_identity=$5 \
+           AND plan_cell_set_identity=$6 AND plan_cell_set_digest=$7 AND status='COMPLETE_FAIL' \
+           AND assessment_json=$8 AND committed_at_epoch_ms=$9",
+    )
+    .bind(assessment.assessment_identity())
+    .bind(assessment.assessment_digest())
+    .bind(assessment.request_set_identity())
+    .bind(assessment.attempt_frontier_identity())
+    .bind(assessment.holdout_reservation_identity())
+    .bind(assessment.plan_cell_set_identity())
+    .bind(assessment.plan_cell_set_digest())
+    .bind(assessment.as_json()?)
+    .bind(committed_at)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    let eligibility_rows = sqlx::query(
+        "SELECT eligibility_digest,status,candidate_identity,assessment_identity,\
+                holdout_reservation_identity,holdout_closure_identity,holdout_closure_digest,\
+                holdout_closure_disposition,eligibility_json,committed_at_epoch_ms \
+         FROM public.qualification_eligibility_facts_v1 WHERE eligibility_identity=$1",
+    )
+    .bind(eligibility.eligibility_identity())
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    let receipt_rows = sqlx::query(
+        "SELECT receipt_identity,receipt_digest,receipt_json,committed_at_epoch_ms \
+         FROM public.qualification_eligibility_fact_receipts_v1 WHERE eligibility_identity=$1",
+    )
+    .bind(eligibility.eligibility_identity())
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    let payload = serde_json::to_value(commit).map_err(json_storage)?;
+    let event_digest = canonical_digest(
+        "qualification.protected-eligibility-ineligible-event.v1",
+        &payload,
+    )?;
+    let outbox_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM public.qualification_owner_outbox_v1 \
+         WHERE event_identity=$1 AND aggregate_identity=$2 \
+           AND event_kind='QUALIFICATION_PROTECTED_INELIGIBLE_COMMITTED_V1' \
+           AND payload_digest=$3 AND payload_json=$4 AND committed_at_epoch_ms=$5",
+    )
+    .bind(identity(
+        "qualification-protected-eligibility-ineligible-event-v1",
+        &event_digest,
+    ))
+    .bind(eligibility.eligibility_identity())
+    .bind(event_digest)
+    .bind(payload)
+    .bind(committed_at)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    if assessment_count != 1
+        || eligibility_rows.len() != 1
+        || eligibility_rows[0]
+            .try_get::<String, _>("eligibility_digest")
+            .map_err(storage)?
+            != eligibility.eligibility_digest()
+        || eligibility_rows[0]
+            .try_get::<String, _>("status")
+            .map_err(storage)?
+            != "INELIGIBLE"
+        || eligibility_rows[0]
+            .try_get::<String, _>("candidate_identity")
+            .map_err(storage)?
+            != assessment.candidate_identity()
+        || eligibility_rows[0]
+            .try_get::<String, _>("assessment_identity")
+            .map_err(storage)?
+            != eligibility.assessment_identity()
+        || eligibility_rows[0]
+            .try_get::<String, _>("holdout_reservation_identity")
+            .map_err(storage)?
+            != eligibility.holdout_reservation_identity()
+        || eligibility_rows[0]
+            .try_get::<String, _>("holdout_closure_identity")
+            .map_err(storage)?
+            != eligibility.holdout_closure_identity()
+        || eligibility_rows[0]
+            .try_get::<String, _>("holdout_closure_digest")
+            .map_err(storage)?
+            != eligibility.holdout_closure_digest()
+        || eligibility_rows[0]
+            .try_get::<String, _>("holdout_closure_disposition")
+            .map_err(storage)?
+            != closure_status(eligibility.holdout_closure_disposition())
+        || eligibility_rows[0]
+            .try_get::<serde_json::Value, _>("eligibility_json")
+            .map_err(storage)?
+            != eligibility.as_json()?
+        || eligibility_rows[0]
+            .try_get::<i64, _>("committed_at_epoch_ms")
+            .map_err(storage)?
+            != committed_at
+        || receipt_rows.len() != 1
+        || receipt_rows[0]
+            .try_get::<String, _>("receipt_identity")
+            .map_err(storage)?
+            != receipt.receipt_identity()
+        || receipt_rows[0]
+            .try_get::<String, _>("receipt_digest")
+            .map_err(storage)?
+            != receipt.receipt_digest()
+        || receipt_rows[0]
+            .try_get::<serde_json::Value, _>("receipt_json")
+            .map_err(storage)?
+            != receipt.as_json()?
+        || receipt_rows[0]
+            .try_get::<i64, _>("committed_at_epoch_ms")
+            .map_err(storage)?
+            != committed_at
+        || outbox_count != 1
+    {
+        return Err(unavailable("INELIGIBLE Eligibility Fact custody changed"));
     }
     Ok(())
 }
@@ -4282,7 +4629,7 @@ mod postgres_tests {
             HoldoutClosureDispositionV1::Consumed
         );
         let counts: (i64, i64, i64, i64, bool, bool) = sqlx::query_as(
-            "SELECT (SELECT count(*) FROM public.qualification_protected_attempt_dispositions_v1 WHERE result_identity=$1),(SELECT count(*) FROM public.qualification_holdout_closures_v1 closure JOIN public.qualification_protected_attempt_dispositions_v1 disposition USING(disposition_identity) WHERE disposition.result_identity=$1),(SELECT count(*) FROM public.qualification_protected_attempt_disposition_receipts_v1 WHERE disposition_identity=$2),(SELECT count(*) FROM public.qualification_owner_outbox_v1 WHERE aggregate_identity=$2 AND event_kind='QUALIFICATION_PROTECTED_ATTEMPT_DISPOSITION_COMMITTED_V1'),pg_catalog.to_regclass('public.qualification_eligibility_facts_v1') IS NULL,NOT EXISTS (SELECT 1 FROM public.qualification_owner_outbox_v1 WHERE event_kind ILIKE '%ELIGIBILITY%')",
+            "SELECT (SELECT count(*) FROM public.qualification_protected_attempt_dispositions_v1 WHERE result_identity=$1),(SELECT count(*) FROM public.qualification_holdout_closures_v1 closure JOIN public.qualification_protected_attempt_dispositions_v1 disposition USING(disposition_identity) WHERE disposition.result_identity=$1),(SELECT count(*) FROM public.qualification_protected_attempt_disposition_receipts_v1 WHERE disposition_identity=$2),(SELECT count(*) FROM public.qualification_owner_outbox_v1 WHERE aggregate_identity=$2 AND event_kind='QUALIFICATION_PROTECTED_ATTEMPT_DISPOSITION_COMMITTED_V1'),NOT EXISTS (SELECT 1 FROM public.qualification_eligibility_facts_v1),NOT EXISTS (SELECT 1 FROM public.qualification_owner_outbox_v1 WHERE event_kind ILIKE '%ELIGIBILITY%')",
         )
         .bind(&result_identity)
         .bind(first.disposition_identity())

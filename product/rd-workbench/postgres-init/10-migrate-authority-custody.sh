@@ -1784,8 +1784,33 @@ CREATE TABLE IF NOT EXISTS public.qualification_protected_robustness_assessments
   holdout_reservation_identity TEXT NOT NULL UNIQUE REFERENCES public.qualification_holdout_reservations_v1(reservation_identity) DEFERRABLE INITIALLY DEFERRED,
   plan_cell_set_identity TEXT NOT NULL,
   plan_cell_set_digest TEXT NOT NULL,
-  status TEXT NOT NULL CHECK (status='INCOMPLETE_INVALID'),
+  status TEXT NOT NULL CHECK (status IN ('INCOMPLETE_INVALID','COMPLETE_FAIL')),
   assessment_json JSONB NOT NULL,
+  committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0)
+);
+ALTER TABLE public.qualification_protected_robustness_assessments_v1
+  DROP CONSTRAINT IF EXISTS qualification_protected_robustness_assessments_v1_status_check;
+ALTER TABLE public.qualification_protected_robustness_assessments_v1
+  ADD CONSTRAINT qualification_protected_robustness_assessments_v1_status_check
+  CHECK (status IN ('INCOMPLETE_INVALID','COMPLETE_FAIL'));
+CREATE TABLE IF NOT EXISTS public.qualification_eligibility_facts_v1 (
+  eligibility_identity TEXT PRIMARY KEY,
+  eligibility_digest TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL CHECK (status='INELIGIBLE'),
+  candidate_identity TEXT NOT NULL,
+  assessment_identity TEXT NOT NULL UNIQUE REFERENCES public.qualification_protected_robustness_assessments_v1(assessment_identity) DEFERRABLE INITIALLY DEFERRED,
+  holdout_reservation_identity TEXT NOT NULL UNIQUE REFERENCES public.qualification_holdout_reservations_v1(reservation_identity) DEFERRABLE INITIALLY DEFERRED,
+  holdout_closure_identity TEXT NOT NULL UNIQUE,
+  holdout_closure_digest TEXT NOT NULL UNIQUE,
+  holdout_closure_disposition TEXT NOT NULL CHECK (holdout_closure_disposition IN ('CONSUMED','RELEASED')),
+  eligibility_json JSONB NOT NULL,
+  committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0)
+);
+CREATE TABLE IF NOT EXISTS public.qualification_eligibility_fact_receipts_v1 (
+  eligibility_identity TEXT PRIMARY KEY REFERENCES public.qualification_eligibility_facts_v1(eligibility_identity) DEFERRABLE INITIALLY DEFERRED,
+  receipt_identity TEXT NOT NULL UNIQUE,
+  receipt_digest TEXT NOT NULL,
+  receipt_json JSONB NOT NULL,
   committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0)
 );
 CREATE TABLE IF NOT EXISTS public.qualification_protected_attempt_dispositions_v2 (
@@ -1840,16 +1865,18 @@ ALTER TABLE public.qualification_protected_replay_request_receipts_v1 OWNER TO q
 ALTER TABLE public.qualification_protected_replay_request_sets_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_protected_attempt_dispositions_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_protected_robustness_assessments_v1 OWNER TO qualification_owner;
+ALTER TABLE public.qualification_eligibility_facts_v1 OWNER TO qualification_owner;
+ALTER TABLE public.qualification_eligibility_fact_receipts_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_protected_attempt_dispositions_v2 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_holdout_closures_v2 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_protected_attempt_disposition_receipts_v2 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_holdout_closures_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_protected_attempt_disposition_receipts_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_owner_outbox_v1 OWNER TO qualification_owner;
-REVOKE ALL ON TABLE public.qualification_protected_feedback_projections_v1, public.qualification_protected_feedback_heads_v1, public.qualification_candidate_intake_receipts_v1, public.qualification_holdout_reservations_v1, public.qualification_holdout_treatment_registrations_v1, public.qualification_protected_replay_requests_v1, public.qualification_protected_replay_request_receipts_v1, public.qualification_protected_replay_request_sets_v1, public.qualification_protected_attempt_dispositions_v1, public.qualification_protected_robustness_assessments_v1, public.qualification_protected_attempt_dispositions_v2, public.qualification_holdout_closures_v1, public.qualification_holdout_closures_v2, public.qualification_protected_attempt_disposition_receipts_v1, public.qualification_protected_attempt_disposition_receipts_v2, public.qualification_owner_outbox_v1 FROM PUBLIC, rd_owner, backtest_owner, product_edge_owner, operator_authorization_writer;
+REVOKE ALL ON TABLE public.qualification_protected_feedback_projections_v1, public.qualification_protected_feedback_heads_v1, public.qualification_candidate_intake_receipts_v1, public.qualification_holdout_reservations_v1, public.qualification_holdout_treatment_registrations_v1, public.qualification_protected_replay_requests_v1, public.qualification_protected_replay_request_receipts_v1, public.qualification_protected_replay_request_sets_v1, public.qualification_protected_attempt_dispositions_v1, public.qualification_protected_robustness_assessments_v1, public.qualification_eligibility_facts_v1, public.qualification_eligibility_fact_receipts_v1, public.qualification_protected_attempt_dispositions_v2, public.qualification_holdout_closures_v1, public.qualification_holdout_closures_v2, public.qualification_protected_attempt_disposition_receipts_v1, public.qualification_protected_attempt_disposition_receipts_v2, public.qualification_owner_outbox_v1 FROM PUBLIC, rd_owner, backtest_owner, product_edge_owner, operator_authorization_writer;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.qualification_protected_feedback_projections_v1, public.qualification_protected_feedback_heads_v1, public.qualification_candidate_intake_receipts_v1, public.qualification_holdout_reservations_v1, public.qualification_protected_replay_requests_v1, public.qualification_protected_replay_request_receipts_v1, public.qualification_owner_outbox_v1 TO qualification_writer;
 GRANT SELECT, INSERT ON TABLE public.qualification_protected_replay_request_sets_v1, public.qualification_protected_attempt_dispositions_v1, public.qualification_holdout_closures_v1, public.qualification_protected_attempt_disposition_receipts_v1 TO qualification_writer;
-GRANT SELECT, INSERT ON TABLE public.qualification_protected_robustness_assessments_v1, public.qualification_protected_attempt_dispositions_v2, public.qualification_holdout_closures_v2, public.qualification_protected_attempt_disposition_receipts_v2 TO qualification_writer;
+GRANT SELECT, INSERT ON TABLE public.qualification_protected_robustness_assessments_v1, public.qualification_eligibility_facts_v1, public.qualification_eligibility_fact_receipts_v1, public.qualification_protected_attempt_dispositions_v2, public.qualification_holdout_closures_v2, public.qualification_protected_attempt_disposition_receipts_v2 TO qualification_writer;
 GRANT SELECT, INSERT ON TABLE public.qualification_holdout_treatment_registrations_v1 TO qualification_writer;
 
 CREATE OR REPLACE FUNCTION rd_owner_api.lock_ready_for_selection_for_qualification_v1(requested_decision_identity text, requested_result_identity text)

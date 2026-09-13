@@ -23,13 +23,27 @@ use crate::protected_attempt_disposition::{
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ProtectedAssessmentStatusV1 {
     IncompleteInvalid,
+    CompleteFail,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ProtectedCellAssessmentV1 {
+    Fail,
     NotApplicableAccepted,
     NotApplicableRejected,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ProtectedEligibilityStatusV1 {
+    Ineligible,
+}
+
+#[derive(Clone, Copy)]
+enum ProtectedAssessmentModeV1 {
+    AllNotApplicable,
+    EconomicFailure,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -139,6 +153,96 @@ pub struct ProtectedAssessmentInvalidCommitV1 {
     receipt: ProtectedAssessmentInvalidDispositionReceiptV2,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ProtectedEligibilityFactV1 {
+    schema_version: u16,
+    eligibility_identity: String,
+    eligibility_digest: String,
+    status: ProtectedEligibilityStatusV1,
+    candidate_identity: String,
+    candidate_digest: String,
+    intake_receipt_identity: String,
+    intake_receipt_digest: String,
+    assessment_identity: String,
+    assessment_digest: String,
+    request_set_identity: String,
+    request_set_digest: String,
+    attempt_frontier_identity: String,
+    attempt_frontier_digest: String,
+    protected_decision_policy_identity: String,
+    protected_decision_policy_version: u64,
+    protected_plan_identity: String,
+    protected_plan_digest: String,
+    plan_cell_set_identity: String,
+    plan_cell_set_digest: String,
+    census_digest: String,
+    alternatives_thresholds_identity: String,
+    alternatives_thresholds_digest: String,
+    cost_model_identity: String,
+    slippage_model_identity: String,
+    capacity_model_identity: String,
+    holdout_reservation_identity: String,
+    holdout_reservation_digest: String,
+    holdout_closure_identity: String,
+    holdout_closure_digest: String,
+    holdout_closure_disposition: HoldoutClosureDispositionV1,
+    holdout_treatment_policy_identity: String,
+    holdout_treatment_policy_digest: String,
+    committed_at_epoch_ms: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ProtectedEligibilityFactReceiptV1 {
+    schema_version: u16,
+    receipt_identity: String,
+    receipt_digest: String,
+    eligibility_identity: String,
+    eligibility_digest: String,
+    committed_at_epoch_ms: u64,
+}
+
+/// Qualification-owned atomic readback for a complete failed protected assessment.
+/// Its fields are serialize-only; callers cannot author an `INELIGIBLE` fact.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProtectedIneligibleCommitV1 {
+    assessment: ProtectedRobustnessAssessmentV1,
+    eligibility: ProtectedEligibilityFactV1,
+    receipt: ProtectedEligibilityFactReceiptV1,
+}
+
+impl ProtectedIneligibleCommitV1 {
+    pub fn assessment_identity(&self) -> &str {
+        &self.assessment.assessment_identity
+    }
+
+    pub fn eligibility_identity(&self) -> &str {
+        &self.eligibility.eligibility_identity
+    }
+
+    pub const fn status(&self) -> ProtectedEligibilityStatusV1 {
+        self.eligibility.status
+    }
+
+    pub const fn assessment_status(&self) -> ProtectedAssessmentStatusV1 {
+        self.assessment.status
+    }
+
+    pub(crate) fn assessment(&self) -> &ProtectedRobustnessAssessmentV1 {
+        &self.assessment
+    }
+
+    pub(crate) fn eligibility(&self) -> &ProtectedEligibilityFactV1 {
+        &self.eligibility
+    }
+
+    pub(crate) fn receipt(&self) -> &ProtectedEligibilityFactReceiptV1 {
+        &self.receipt
+    }
+}
+
 impl ProtectedAssessmentInvalidCommitV1 {
     pub fn assessment_identity(&self) -> &str {
         &self.assessment.assessment_identity
@@ -180,6 +284,61 @@ pub(crate) fn form_all_not_applicable_assessment_v1(
     holdout_treatment: &PreregisteredHoldoutTreatmentV1,
     committed_at_epoch_ms: u64,
 ) -> Result<ProtectedAssessmentInvalidCommitV1, QualificationOwnerError> {
+    let assessment = form_assessment_v1(
+        request_set,
+        frontier,
+        requests,
+        results,
+        source,
+        assessment_successor,
+        committed_at_epoch_ms,
+        ProtectedAssessmentModeV1::AllNotApplicable,
+    )?;
+    form_invalid_disposition(assessment, holdout_treatment, committed_at_epoch_ms)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn form_economic_failure_assessment_v1(
+    request_set: &ProtectedReplayRequestSetSealDtoV1,
+    frontier: &ProtectedReplayAttemptFrontierDtoV1,
+    requests: &[ProtectedReplayRequestDtoV2],
+    results: &[ProtectedReplayResultDtoV3],
+    source: &ProtectedReplayAuthoritySourceV1,
+    assessment_successor: &ClockHeadSuccessorReadback,
+    holdout_treatment: &PreregisteredHoldoutTreatmentV1,
+    committed_at_epoch_ms: u64,
+) -> Result<ProtectedIneligibleCommitV1, QualificationOwnerError> {
+    let assessment = form_assessment_v1(
+        request_set,
+        frontier,
+        requests,
+        results,
+        source,
+        assessment_successor,
+        committed_at_epoch_ms,
+        ProtectedAssessmentModeV1::EconomicFailure,
+    )?;
+    form_ineligible_fact(
+        assessment,
+        request_set,
+        frontier,
+        source,
+        holdout_treatment,
+        committed_at_epoch_ms,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn form_assessment_v1(
+    request_set: &ProtectedReplayRequestSetSealDtoV1,
+    frontier: &ProtectedReplayAttemptFrontierDtoV1,
+    requests: &[ProtectedReplayRequestDtoV2],
+    results: &[ProtectedReplayResultDtoV3],
+    source: &ProtectedReplayAuthoritySourceV1,
+    assessment_successor: &ClockHeadSuccessorReadback,
+    committed_at_epoch_ms: u64,
+    mode: ProtectedAssessmentModeV1,
+) -> Result<ProtectedRobustnessAssessmentV1, QualificationOwnerError> {
     request_set.validate().map_err(contract)?;
     frontier
         .validate_against_request_set(request_set)
@@ -235,6 +394,11 @@ pub(crate) fn form_all_not_applicable_assessment_v1(
                 "protected assessment frontier member is missing",
             ));
         }
+        if !valid_terminal_result_count(mode, frontier_members.len()) {
+            return Err(unavailable(
+                "protected economic assessment contains duplicate cell attempts",
+            ));
+        }
         let locator = ProtectedReplayRequestLocatorV1 {
             request_identity: member.request_identity.clone(),
             request_digest: member.request_digest.clone(),
@@ -253,35 +417,38 @@ pub(crate) fn form_all_not_applicable_assessment_v1(
             let result_time_digest =
                 protected_evaluation_time_evidence_digest_v1(&result.result_time_evidence)
                     .map_err(contract)?;
+            let assessment_ready = assessment_ready_cell(
+                mode,
+                &result.diagnostic_category_set,
+                result.applicability_evidence.observation,
+            );
             if frontier_member.result.result_digest != result.result_digest
                 || frontier_member.result_time_evidence_digest != result_time_digest
-                || result.diagnostic_category_set.as_slice()
-                    != [DiagnosticCategoryV2::NoExecutionDefect]
-                || result.applicability_evidence.observation
-                    != ProtectedCellApplicabilityObservationV3::PreResultNonApplicabilityBasisObserved
+                || !assessment_ready
             {
                 return Err(unavailable(
-                    "protected result is not an assessment-ready non-applicable cell",
+                    "protected result is not ready for the requested assessment",
                 ));
             }
-            let accepted_basis = source.instrument_scope == InstrumentScopeV1::SingleInstrument
-                && source
-                    .instrument_non_applicability_basis
-                    .as_ref()
-                    .is_some_and(|(identity, digest)| {
-                        result
-                            .applicability_evidence
-                            .decisive_evidence
-                            .reference
-                            .as_str()
-                            == identity
-                            && result
+            let accepted_basis = matches!(mode, ProtectedAssessmentModeV1::EconomicFailure)
+                || (source.instrument_scope == InstrumentScopeV1::SingleInstrument
+                    && source
+                        .instrument_non_applicability_basis
+                        .as_ref()
+                        .is_some_and(|(identity, digest)| {
+                            result
                                 .applicability_evidence
                                 .decisive_evidence
-                                .digest
+                                .reference
                                 .as_str()
-                                == digest
-                    });
+                                == identity
+                                && result
+                                    .applicability_evidence
+                                    .decisive_evidence
+                                    .digest
+                                    .as_str()
+                                    == digest
+                        }));
             every_basis_accepted &= accepted_basis;
             result_times.push(&result.result_time_evidence);
             terminal_results.push(ProtectedCellTerminalResultV1 {
@@ -309,10 +476,14 @@ pub(crate) fn form_all_not_applicable_assessment_v1(
             request_identity: member.request_identity.clone(),
             request_digest: member.request_digest.clone(),
             terminal_results,
-            assessment: if every_basis_accepted {
-                ProtectedCellAssessmentV1::NotApplicableAccepted
-            } else {
-                ProtectedCellAssessmentV1::NotApplicableRejected
+            assessment: match mode {
+                ProtectedAssessmentModeV1::EconomicFailure => ProtectedCellAssessmentV1::Fail,
+                ProtectedAssessmentModeV1::AllNotApplicable if every_basis_accepted => {
+                    ProtectedCellAssessmentV1::NotApplicableAccepted
+                }
+                ProtectedAssessmentModeV1::AllNotApplicable => {
+                    ProtectedCellAssessmentV1::NotApplicableRejected
+                }
             },
         });
     }
@@ -377,10 +548,16 @@ pub(crate) fn form_all_not_applicable_assessment_v1(
         census_digest,
         result_time_evidence_digests,
     };
+    let status = match mode {
+        ProtectedAssessmentModeV1::AllNotApplicable => {
+            ProtectedAssessmentStatusV1::IncompleteInvalid
+        }
+        ProtectedAssessmentModeV1::EconomicFailure => ProtectedAssessmentStatusV1::CompleteFail,
+    };
     let assessment_digest = canonical_digest(
         "qualification.protected-robustness-assessment.v1",
         &(
-            ProtectedAssessmentStatusV1::IncompleteInvalid,
+            status,
             &request_set.candidate_identity,
             &request_set.candidate_digest,
             &request_set.intake_receipt_identity,
@@ -405,7 +582,7 @@ pub(crate) fn form_all_not_applicable_assessment_v1(
             &assessment_digest,
         ),
         assessment_digest,
-        status: ProtectedAssessmentStatusV1::IncompleteInvalid,
+        status,
         candidate_identity: request_set.candidate_identity.clone(),
         candidate_digest: request_set.candidate_digest.clone(),
         intake_receipt_identity: request_set.intake_receipt_identity.clone(),
@@ -422,7 +599,29 @@ pub(crate) fn form_all_not_applicable_assessment_v1(
         assessment_time_evidence,
         committed_at_epoch_ms,
     };
-    form_invalid_disposition(assessment, holdout_treatment, committed_at_epoch_ms)
+    Ok(assessment)
+}
+
+fn valid_terminal_result_count(mode: ProtectedAssessmentModeV1, count: usize) -> bool {
+    count > 0 && (!matches!(mode, ProtectedAssessmentModeV1::EconomicFailure) || count == 1)
+}
+
+fn assessment_ready_cell(
+    mode: ProtectedAssessmentModeV1,
+    diagnostic_categories: &[DiagnosticCategoryV2],
+    applicability: ProtectedCellApplicabilityObservationV3,
+) -> bool {
+    match mode {
+        ProtectedAssessmentModeV1::AllNotApplicable => diagnostic_categories
+            == [DiagnosticCategoryV2::NoExecutionDefect]
+            && applicability
+                == ProtectedCellApplicabilityObservationV3::PreResultNonApplicabilityBasisObserved,
+        ProtectedAssessmentModeV1::EconomicFailure => {
+            diagnostic_categories == [DiagnosticCategoryV2::ValidEconomicFailure]
+                && applicability
+                    == ProtectedCellApplicabilityObservationV3::ApplicableInputsObserved
+        }
+    }
 }
 
 fn form_invalid_disposition(
@@ -499,6 +698,143 @@ fn form_invalid_disposition(
     Ok(ProtectedAssessmentInvalidCommitV1 {
         assessment,
         disposition,
+        receipt,
+    })
+}
+
+fn form_ineligible_fact(
+    assessment: ProtectedRobustnessAssessmentV1,
+    request_set: &ProtectedReplayRequestSetSealDtoV1,
+    frontier: &ProtectedReplayAttemptFrontierDtoV1,
+    source: &ProtectedReplayAuthoritySourceV1,
+    treatment: &PreregisteredHoldoutTreatmentV1,
+    committed_at_epoch_ms: u64,
+) -> Result<ProtectedIneligibleCommitV1, QualificationOwnerError> {
+    let closure_digest = canonical_digest(
+        "qualification.eligibility-holdout-closure.v1",
+        &(
+            &assessment.holdout_reservation_identity,
+            &assessment.assessment_identity,
+            &assessment.assessment_digest,
+            ProtectedEligibilityStatusV1::Ineligible,
+            treatment.closure_disposition(),
+            treatment.identity(),
+            treatment.digest(),
+            committed_at_epoch_ms,
+        ),
+    )?;
+    let holdout_closure_identity = identity(
+        "qualification-eligibility-holdout-closure-v1",
+        &closure_digest,
+    );
+    let mut eligibility = ProtectedEligibilityFactV1 {
+        schema_version: 1,
+        eligibility_identity: String::new(),
+        eligibility_digest: String::new(),
+        status: ProtectedEligibilityStatusV1::Ineligible,
+        candidate_identity: assessment.candidate_identity.clone(),
+        candidate_digest: assessment.candidate_digest.clone(),
+        intake_receipt_identity: assessment.intake_receipt_identity.clone(),
+        intake_receipt_digest: assessment.intake_receipt_digest.clone(),
+        assessment_identity: assessment.assessment_identity.clone(),
+        assessment_digest: assessment.assessment_digest.clone(),
+        request_set_identity: request_set.request_set_identity.clone(),
+        request_set_digest: request_set.request_set_digest.clone(),
+        attempt_frontier_identity: frontier.frontier_identity.clone(),
+        attempt_frontier_digest: frontier.frontier_digest.clone(),
+        protected_decision_policy_identity: assessment.protected_decision_policy_identity.clone(),
+        protected_decision_policy_version: assessment.protected_decision_policy_version,
+        protected_plan_identity: assessment.protected_plan_identity.clone(),
+        protected_plan_digest: assessment.protected_plan_digest.clone(),
+        plan_cell_set_identity: assessment.plan_cell_set_identity.clone(),
+        plan_cell_set_digest: assessment.plan_cell_set_digest.clone(),
+        census_digest: assessment.census_finalization_proof.census_digest.clone(),
+        alternatives_thresholds_identity: source.alternatives_thresholds_identity.clone(),
+        alternatives_thresholds_digest: source.alternatives_thresholds_digest.clone(),
+        cost_model_identity: source.cost_model_identity.clone(),
+        slippage_model_identity: source.slippage_model_identity.clone(),
+        capacity_model_identity: source.capacity_model_identity.clone(),
+        holdout_reservation_identity: assessment.holdout_reservation_identity.clone(),
+        holdout_reservation_digest: source.holdout_reservation_digest.clone(),
+        holdout_closure_identity,
+        holdout_closure_digest: closure_digest,
+        holdout_closure_disposition: treatment.closure_disposition(),
+        holdout_treatment_policy_identity: treatment.identity().to_string(),
+        holdout_treatment_policy_digest: treatment.digest().to_string(),
+        committed_at_epoch_ms,
+    };
+    eligibility.eligibility_digest = canonical_digest(
+        "qualification.protected-eligibility-fact.v1",
+        &(
+            (eligibility.schema_version, eligibility.status),
+            (
+                &eligibility.candidate_identity,
+                &eligibility.candidate_digest,
+                &eligibility.intake_receipt_identity,
+                &eligibility.intake_receipt_digest,
+            ),
+            (
+                &eligibility.assessment_identity,
+                &eligibility.assessment_digest,
+                &eligibility.request_set_identity,
+                &eligibility.request_set_digest,
+                &eligibility.attempt_frontier_identity,
+                &eligibility.attempt_frontier_digest,
+            ),
+            (
+                &eligibility.protected_decision_policy_identity,
+                eligibility.protected_decision_policy_version,
+                &eligibility.protected_plan_identity,
+                &eligibility.protected_plan_digest,
+                &eligibility.plan_cell_set_identity,
+                &eligibility.plan_cell_set_digest,
+                &eligibility.census_digest,
+            ),
+            (
+                &eligibility.alternatives_thresholds_identity,
+                &eligibility.alternatives_thresholds_digest,
+                &eligibility.cost_model_identity,
+                &eligibility.slippage_model_identity,
+                &eligibility.capacity_model_identity,
+            ),
+            (
+                &eligibility.holdout_reservation_identity,
+                &eligibility.holdout_reservation_digest,
+                &eligibility.holdout_closure_identity,
+                &eligibility.holdout_closure_digest,
+                eligibility.holdout_closure_disposition,
+                &eligibility.holdout_treatment_policy_identity,
+                &eligibility.holdout_treatment_policy_digest,
+            ),
+            eligibility.committed_at_epoch_ms,
+        ),
+    )?;
+    eligibility.eligibility_identity = identity(
+        "qualification-protected-eligibility-fact-v1",
+        &eligibility.eligibility_digest,
+    );
+    let receipt_digest = canonical_digest(
+        "qualification.protected-eligibility-fact-receipt.v1",
+        &(
+            &eligibility.eligibility_identity,
+            &eligibility.eligibility_digest,
+            committed_at_epoch_ms,
+        ),
+    )?;
+    let receipt = ProtectedEligibilityFactReceiptV1 {
+        schema_version: 1,
+        receipt_identity: identity(
+            "qualification-protected-eligibility-fact-receipt-v1",
+            &receipt_digest,
+        ),
+        receipt_digest,
+        eligibility_identity: eligibility.eligibility_identity.clone(),
+        eligibility_digest: eligibility.eligibility_digest.clone(),
+        committed_at_epoch_ms,
+    };
+    Ok(ProtectedIneligibleCommitV1 {
+        assessment,
+        eligibility,
         receipt,
     })
 }
@@ -597,6 +933,10 @@ impl ProtectedRobustnessAssessmentV1 {
         &self.assessment_digest
     }
 
+    pub(crate) fn candidate_identity(&self) -> &str {
+        &self.candidate_identity
+    }
+
     pub(crate) fn request_set_identity(&self) -> &str {
         &self.census_finalization_proof.request_set_identity
     }
@@ -657,6 +997,58 @@ impl ProtectedAssessmentInvalidDispositionV2 {
 }
 
 impl ProtectedAssessmentInvalidDispositionReceiptV2 {
+    pub(crate) fn as_json(&self) -> Result<serde_json::Value, QualificationOwnerError> {
+        serde_json::to_value(self).map_err(|error| unavailable(&error.to_string()))
+    }
+
+    pub(crate) fn receipt_identity(&self) -> &str {
+        &self.receipt_identity
+    }
+
+    pub(crate) fn receipt_digest(&self) -> &str {
+        &self.receipt_digest
+    }
+}
+
+impl ProtectedEligibilityFactV1 {
+    pub(crate) fn as_json(&self) -> Result<serde_json::Value, QualificationOwnerError> {
+        serde_json::to_value(self).map_err(|error| unavailable(&error.to_string()))
+    }
+
+    pub(crate) fn eligibility_identity(&self) -> &str {
+        &self.eligibility_identity
+    }
+
+    pub(crate) fn eligibility_digest(&self) -> &str {
+        &self.eligibility_digest
+    }
+
+    pub(crate) fn assessment_identity(&self) -> &str {
+        &self.assessment_identity
+    }
+
+    pub(crate) fn holdout_reservation_identity(&self) -> &str {
+        &self.holdout_reservation_identity
+    }
+
+    pub(crate) fn holdout_closure_identity(&self) -> &str {
+        &self.holdout_closure_identity
+    }
+
+    pub(crate) fn holdout_closure_digest(&self) -> &str {
+        &self.holdout_closure_digest
+    }
+
+    pub(crate) const fn holdout_closure_disposition(&self) -> HoldoutClosureDispositionV1 {
+        self.holdout_closure_disposition
+    }
+
+    pub(crate) const fn committed_at_epoch_ms(&self) -> u64 {
+        self.committed_at_epoch_ms
+    }
+}
+
+impl ProtectedEligibilityFactReceiptV1 {
     pub(crate) fn as_json(&self) -> Result<serde_json::Value, QualificationOwnerError> {
         serde_json::to_value(self).map_err(|error| unavailable(&error.to_string()))
     }
