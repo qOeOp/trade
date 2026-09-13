@@ -1523,6 +1523,34 @@ impl PostgresResearchGoalOwnerV1 {
         .await
     }
 
+    /// Seals one positive assessment and READY Decision from the exact locked R&D cut.
+    pub async fn compose_ready_for_selection_decision_v1(
+        &self,
+        request: crate::ReadyForSelectionCompositionRequestV1,
+    ) -> Result<
+        crate::iteration_decision::ReadyForSelectionDecisionReadbackV1,
+        crate::IterationDecisionPostgresErrorV1,
+    > {
+        crate::iteration_decision_postgres::compose_ready_for_selection_decision_v1(
+            &self.pool, request,
+        )
+        .await
+    }
+
+    /// Resolves existing positive assessment and READY Decision custody without creating it.
+    pub async fn resolve_ready_for_selection_decision_v1(
+        &self,
+        locator: crate::IterationDecisionResolutionLocatorV1,
+    ) -> Result<
+        Option<crate::iteration_decision::ReadyForSelectionDecisionReadbackV1>,
+        crate::IterationDecisionPostgresErrorV1,
+    > {
+        crate::iteration_decision_postgres::resolve_ready_for_selection_decision_v1(
+            &self.pool, locator,
+        )
+        .await
+    }
+
     /// Resolves exact existing Decision custody without requiring a branch-specific endpoint.
     pub async fn resolve_iteration_decision_v1(
         &self,

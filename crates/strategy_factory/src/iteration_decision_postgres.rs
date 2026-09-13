@@ -11,11 +11,14 @@ use crate::{
     BacktestResultCustodyErrorV2, ExploratoryReplayResultLocatorV2,
     iteration_decision::{
         ExistingIterationDecisionReadbackV1, IterationDecisionErrorV1, IterationDecisionGateV1,
-        IterationNoDecisionReasonV1, RepairInputIterationDecisionReadbackV1,
-        TrialBudgetTerminalStopDecisionReadbackV1, admit_stored_repair_input_decision_v1,
+        IterationNoDecisionReasonV1, PositiveAssessmentEvidenceV1,
+        ProtectedRobustnessPlanProposalV1, ReadyForSelectionDecisionReadbackV1,
+        RepairInputIterationDecisionReadbackV1, TrialBudgetTerminalStopDecisionReadbackV1,
+        admit_stored_ready_for_selection_decision_v1, admit_stored_repair_input_decision_v1,
         admit_stored_trial_budget_terminal_stop_decision_v1, gate_locked_exploratory_result_v1,
         is_valid_iteration_decision_locator_v1, issue_interpretation_context_v1,
-        issue_repair_input_decision_v1, issue_trial_budget_terminal_stop_decision_v1,
+        issue_ready_for_selection_decision_v1, issue_repair_input_decision_v1,
+        issue_trial_budget_terminal_stop_decision_v1, ready_candidate_artifact_v1,
     },
     product_edge::ResearchGoalOwnerError,
     rd_owner_postgres_custody::{ResearchCustodyLookupV1, admit_research_custody_in_transaction},
@@ -28,6 +31,7 @@ use crate::{
 };
 
 const DECISION_COMMITTED_EVENT_V1: &str = "ITERATION_DECISION_COMMITTED_V1";
+const RESEARCH_SELECTION_COMMITTED_EVENT_V1: &str = "RESEARCH_SELECTION_COMMITTED_V1";
 const REPAIR_ACTION_REQUESTED_EVENT_V1: &str = "REPAIR_ACTION_REQUESTED_V1";
 
 pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
@@ -61,6 +65,100 @@ pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
             crate::schema_materialization::unique_index("request_identity"),
             crate::schema_materialization::unique_index("result_identity"),
             crate::schema_materialization::unique_index("attempt_identity"),
+        ],
+    },
+    crate::schema_materialization::PublicTableSpec {
+        name: "rd_iteration_positive_assessments_v1",
+        runtime_read_grantees: &[],
+        columns: &[
+            crate::schema_materialization::required("assessment_identity", "text"),
+            crate::schema_materialization::required("assessment_digest", "text"),
+            crate::schema_materialization::required("decision_identity", "text"),
+            crate::schema_materialization::required("trial_family_identity", "text"),
+            crate::schema_materialization::required("result_identity", "text"),
+            crate::schema_materialization::required("candidate_identity", "text"),
+            crate::schema_materialization::required("candidate_digest", "text"),
+            crate::schema_materialization::required("assessment_json", "jsonb"),
+            crate::schema_materialization::required("assessment_storage_bytes", "bytea"),
+            crate::schema_materialization::required("assessment_storage_digest", "text"),
+            crate::schema_materialization::required("committed_at_epoch_ms", "bigint"),
+        ],
+        constraints: &[
+            "f:decision_identity:public.rd_iteration_decisions_v1(decision_identity):a:a:s:false:false:true:",
+            "f:trial_family_identity:public.rd_trial_families_v1(trial_family_identity):a:a:s:false:false:true:",
+            "p:assessment_identity:::false:false:true:",
+            "u:decision_identity:::false:false:true:",
+            "u:result_identity:::false:false:true:",
+        ],
+        indexes: &[
+            crate::schema_materialization::primary_index("assessment_identity"),
+            crate::schema_materialization::unique_index("decision_identity"),
+            crate::schema_materialization::unique_index("result_identity"),
+        ],
+    },
+    crate::schema_materialization::PublicTableSpec {
+        name: "rd_qualification_candidates_v1",
+        runtime_read_grantees: &[],
+        columns: &[
+            crate::schema_materialization::required("candidate_identity", "text"),
+            crate::schema_materialization::required("candidate_digest", "text"),
+            crate::schema_materialization::required("trial_family_identity", "text"),
+            crate::schema_materialization::required("result_identity", "text"),
+            crate::schema_materialization::required("artifact_identity", "text"),
+            crate::schema_materialization::required("protected_plan_identity", "text"),
+            crate::schema_materialization::required("protected_plan_version", "bigint"),
+            crate::schema_materialization::required("candidate_json", "jsonb"),
+            crate::schema_materialization::required("candidate_storage_bytes", "bytea"),
+            crate::schema_materialization::required("candidate_storage_digest", "text"),
+            crate::schema_materialization::required("committed_at_epoch_ms", "bigint"),
+        ],
+        constraints: &[
+            "f:trial_family_identity:public.rd_trial_families_v1(trial_family_identity):a:a:s:false:false:true:",
+            "p:candidate_identity:::false:false:true:",
+            "u:result_identity:::false:false:true:",
+        ],
+        indexes: &[
+            crate::schema_materialization::primary_index("candidate_identity"),
+            crate::schema_materialization::unique_index("result_identity"),
+        ],
+    },
+    crate::schema_materialization::PublicTableSpec {
+        name: "rd_research_selections_v1",
+        runtime_read_grantees: &[],
+        columns: &[
+            crate::schema_materialization::required("selection_identity", "text"),
+            crate::schema_materialization::required("selection_digest", "text"),
+            crate::schema_materialization::required("candidate_identity", "text"),
+            crate::schema_materialization::required("assessment_identity", "text"),
+            crate::schema_materialization::required("decision_identity", "text"),
+            crate::schema_materialization::required("trial_family_identity", "text"),
+            crate::schema_materialization::required("result_identity", "text"),
+            crate::schema_materialization::required("disposition", "text"),
+            crate::schema_materialization::required("selection_json", "jsonb"),
+            crate::schema_materialization::required("receipt_json", "jsonb"),
+            crate::schema_materialization::required("selection_storage_bytes", "bytea"),
+            crate::schema_materialization::required("selection_storage_digest", "text"),
+            crate::schema_materialization::required("receipt_storage_bytes", "bytea"),
+            crate::schema_materialization::required("receipt_storage_digest", "text"),
+            crate::schema_materialization::required("committed_at_epoch_ms", "bigint"),
+        ],
+        constraints: &[
+            "f:candidate_identity:public.rd_qualification_candidates_v1(candidate_identity):a:a:s:false:false:true:",
+            "f:assessment_identity:public.rd_iteration_positive_assessments_v1(assessment_identity):a:a:s:false:false:true:",
+            "f:decision_identity:public.rd_iteration_decisions_v1(decision_identity):a:a:s:false:false:true:",
+            "f:trial_family_identity:public.rd_trial_families_v1(trial_family_identity):a:a:s:false:false:true:",
+            "p:selection_identity:::false:false:true:",
+            "u:candidate_identity:::false:false:true:",
+            "u:assessment_identity:::false:false:true:",
+            "u:decision_identity:::false:false:true:",
+            "u:result_identity:::false:false:true:",
+        ],
+        indexes: &[
+            crate::schema_materialization::primary_index("selection_identity"),
+            crate::schema_materialization::unique_index("candidate_identity"),
+            crate::schema_materialization::unique_index("assessment_identity"),
+            crate::schema_materialization::unique_index("decision_identity"),
+            crate::schema_materialization::unique_index("result_identity"),
         ],
     },
     crate::schema_materialization::PublicTableSpec {
@@ -101,6 +199,18 @@ pub struct DecisionCompositionRequestV1 {
     pub result_identity: String,
     pub request_identity: String,
     pub attempt_identity: String,
+}
+
+/// An authenticated analytical proposal. R&D still locks and derives every Owner fact.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReadyForSelectionCompositionRequestV1 {
+    pub trial_family_identity: String,
+    pub result_identity: String,
+    pub request_identity: String,
+    pub attempt_identity: String,
+    pub positive_evidence: PositiveAssessmentEvidenceV1,
+    pub protected_robustness_plan: ProtectedRobustnessPlanProposalV1,
 }
 
 /// Exact lookup for response-loss recovery. It cannot create first custody.
@@ -145,6 +255,8 @@ pub enum IterationDecisionPostgresErrorV1 {
     InterpretationRequired,
     #[error("the locked Result does not admit a trial-budget terminal stop")]
     TrialBudgetStopNotApplicable,
+    #[error("the locked Result does not admit READY_FOR_SELECTION")]
+    ReadyForSelectionNotApplicable,
     #[error("R&D Iteration Decision storage is unavailable: {0}")]
     Storage(String),
 }
@@ -154,6 +266,27 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), IterationDecisionPostgr
         pool,
         "rd_iteration_decisions_v1",
         "CREATE TABLE IF NOT EXISTS rd_iteration_decisions_v1 (decision_identity TEXT PRIMARY KEY, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), request_identity TEXT NOT NULL UNIQUE, result_identity TEXT NOT NULL UNIQUE, attempt_identity TEXT NOT NULL UNIQUE, decision_digest TEXT NOT NULL, decision_json JSONB NOT NULL, receipt_json JSONB NOT NULL, decision_storage_bytes BYTEA NOT NULL, decision_storage_digest TEXT NOT NULL, receipt_storage_bytes BYTEA NOT NULL, receipt_storage_digest TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
+    )
+    .await
+    .map_err(storage)?;
+    crate::schema_materialization::materialize_public_table(
+        pool,
+        "rd_iteration_positive_assessments_v1",
+        "CREATE TABLE IF NOT EXISTS rd_iteration_positive_assessments_v1 (assessment_identity TEXT PRIMARY KEY, assessment_digest TEXT NOT NULL, decision_identity TEXT NOT NULL UNIQUE REFERENCES rd_iteration_decisions_v1(decision_identity), trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), result_identity TEXT NOT NULL UNIQUE, candidate_identity TEXT NOT NULL, candidate_digest TEXT NOT NULL, assessment_json JSONB NOT NULL, assessment_storage_bytes BYTEA NOT NULL, assessment_storage_digest TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
+    )
+    .await
+    .map_err(storage)?;
+    crate::schema_materialization::materialize_public_table(
+        pool,
+        "rd_qualification_candidates_v1",
+        "CREATE TABLE IF NOT EXISTS rd_qualification_candidates_v1 (candidate_identity TEXT PRIMARY KEY, candidate_digest TEXT NOT NULL, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), result_identity TEXT NOT NULL UNIQUE, artifact_identity TEXT NOT NULL, protected_plan_identity TEXT NOT NULL, protected_plan_version BIGINT NOT NULL, candidate_json JSONB NOT NULL, candidate_storage_bytes BYTEA NOT NULL, candidate_storage_digest TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
+    )
+    .await
+    .map_err(storage)?;
+    crate::schema_materialization::materialize_public_table(
+        pool,
+        "rd_research_selections_v1",
+        "CREATE TABLE IF NOT EXISTS rd_research_selections_v1 (selection_identity TEXT PRIMARY KEY, selection_digest TEXT NOT NULL, candidate_identity TEXT NOT NULL UNIQUE REFERENCES rd_qualification_candidates_v1(candidate_identity), assessment_identity TEXT NOT NULL UNIQUE REFERENCES rd_iteration_positive_assessments_v1(assessment_identity), decision_identity TEXT NOT NULL UNIQUE REFERENCES rd_iteration_decisions_v1(decision_identity), trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), result_identity TEXT NOT NULL UNIQUE, disposition TEXT NOT NULL, selection_json JSONB NOT NULL, receipt_json JSONB NOT NULL, selection_storage_bytes BYTEA NOT NULL, selection_storage_digest TEXT NOT NULL, receipt_storage_bytes BYTEA NOT NULL, receipt_storage_digest TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
     )
     .await
     .map_err(storage)?;
@@ -414,6 +547,138 @@ pub(crate) async fn resolve_trial_budget_terminal_stop_decision_v1(
     Ok(readback)
 }
 
+/// Atomically seals one positive R&D assessment and its READY Decision from one locked cut.
+pub(crate) async fn compose_ready_for_selection_decision_v1(
+    pool: &PgPool,
+    request: ReadyForSelectionCompositionRequestV1,
+) -> Result<ReadyForSelectionDecisionReadbackV1, IterationDecisionPostgresErrorV1> {
+    validate_ready_for_selection_request(&request)?;
+    let mut transaction = pool.begin().await.map_err(storage)?;
+    lock_composition_key(&mut transaction, &request.result_identity).await?;
+    if sqlx::query("SELECT 1 FROM rd_iteration_decisions_v1 WHERE result_identity=$1 FOR SHARE")
+        .bind(&request.result_identity)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(storage)?
+        .is_some()
+    {
+        let existing = load_ready_for_selection_by_result_in_transaction(
+            &mut transaction,
+            &request.result_identity,
+            Some(&request),
+        )
+        .await?
+        .ok_or(IterationDecisionPostgresErrorV1::ReadyForSelectionNotApplicable)?;
+        transaction.commit().await.map_err(storage)?;
+        return Ok(existing);
+    }
+
+    let census = load_trial_family_census_v2_by_family_in_transaction(
+        &mut transaction,
+        &request.trial_family_identity,
+    )
+    .await?;
+    let locator = ExploratoryReplayResultLocatorV2 {
+        result_identity: &request.result_identity,
+        request_identity: &request.request_identity,
+        attempt_identity: &request.attempt_identity,
+    };
+    let locked_result =
+        crate::resolve_exploratory_replay_result_for_rd_in_transaction(&mut transaction, locator)
+            .await?
+            .ok_or(BacktestResultCustodyErrorV2::Unavailable)?;
+    match gate_locked_exploratory_result_v1(&census, &locked_result)? {
+        IterationDecisionGateV1::NoDecision { reason } => {
+            transaction.rollback().await.map_err(storage)?;
+            return Err(IterationDecisionPostgresErrorV1::NoDecision(reason));
+        }
+        IterationDecisionGateV1::RepairInputs { .. } => {
+            transaction.rollback().await.map_err(storage)?;
+            return Err(IterationDecisionPostgresErrorV1::ReadyForSelectionNotApplicable);
+        }
+        IterationDecisionGateV1::InterpretationRequired { .. } => {}
+    }
+    let locked_outcome =
+        crate::rd_owner_postgres_custody::resolve_exploratory_replay_outcome_for_rd_in_transaction(
+            &mut transaction,
+            ExploratoryReplayResultLocatorV2 {
+                result_identity: &request.result_identity,
+                request_identity: &request.request_identity,
+                attempt_identity: &request.attempt_identity,
+            },
+        )
+        .await?
+        .ok_or(BacktestResultCustodyErrorV2::Unavailable)?;
+    let intent_identity = census
+        .legacy_family
+        .initial_intent_member()
+        .fact_identity()
+        .to_string();
+    let research_custody = admit_research_custody_in_transaction(
+        &mut transaction,
+        ResearchCustodyLookupV1::Intent(&intent_identity),
+    )
+    .await?
+    .ok_or(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+        "frozen Research Intent custody is missing",
+    ))?;
+    let interpretation =
+        issue_interpretation_context_v1(&census, &research_custody, &locked_outcome)?;
+    let artifact = ready_candidate_artifact_v1(locked_result.result())?;
+    let issued = issue_ready_for_selection_decision_v1(
+        &census,
+        interpretation,
+        artifact,
+        request.positive_evidence.clone(),
+        request.protected_robustness_plan.clone(),
+        current_epoch_ms()?,
+    )
+    .map_err(|error| match error {
+        IterationDecisionErrorV1::InvalidStoredDecision(_) => {
+            IterationDecisionPostgresErrorV1::ReadyForSelectionNotApplicable
+        }
+        other => IterationDecisionPostgresErrorV1::Decision(other),
+    })?;
+    persist_ready_for_selection_decision(&mut transaction, &issued).await?;
+    let readback = load_ready_for_selection_by_result_in_transaction(
+        &mut transaction,
+        &request.result_identity,
+        Some(&request),
+    )
+    .await?
+    .ok_or_else(|| storage("committed READY Decision readback is missing"))?;
+    if readback != issued {
+        return Err(storage("committed READY Decision readback changed"));
+    }
+    transaction.commit().await.map_err(storage)?;
+    Ok(readback)
+}
+
+pub(crate) async fn resolve_ready_for_selection_decision_v1(
+    pool: &PgPool,
+    locator: IterationDecisionResolutionLocatorV1,
+) -> Result<Option<ReadyForSelectionDecisionReadbackV1>, IterationDecisionPostgresErrorV1> {
+    if !is_valid_iteration_decision_locator_v1(&locator.decision_identity)
+        || !is_valid_iteration_decision_locator_v1(&locator.result_identity)
+    {
+        return Err(IterationDecisionPostgresErrorV1::InvalidLocator);
+    }
+    let mut transaction = pool.begin().await.map_err(storage)?;
+    let readback = load_ready_for_selection_by_result_in_transaction(
+        &mut transaction,
+        &locator.result_identity,
+        None,
+    )
+    .await?;
+    if let Some(value) = readback.as_ref()
+        && value.decision().decision_identity() != locator.decision_identity
+    {
+        return Err(storage("Decision resolution locator mismatch"));
+    }
+    transaction.commit().await.map_err(storage)?;
+    Ok(readback)
+}
+
 /// Resolves one exact existing Decision without requiring the consumer to guess its branch.
 pub(crate) async fn resolve_iteration_decision_v1(
     pool: &PgPool,
@@ -464,6 +729,13 @@ pub(crate) async fn resolve_iteration_decision_v1(
             .await?
             .map(ExistingIterationDecisionReadbackV1::TrialBudgetTerminalStop)
         }
+        "READY_FOR_SELECTION" => load_ready_for_selection_by_result_in_transaction(
+            &mut transaction,
+            &locator.result_identity,
+            None,
+        )
+        .await?
+        .map(ExistingIterationDecisionReadbackV1::ReadyForSelection),
         _ => {
             return Err(storage(
                 "stored Decision kind has no admitted unified readback",
@@ -475,6 +747,9 @@ pub(crate) async fn resolve_iteration_decision_v1(
             value.decision().decision_identity()
         }
         Some(ExistingIterationDecisionReadbackV1::TrialBudgetTerminalStop(value)) => {
+            value.decision().decision_identity()
+        }
+        Some(ExistingIterationDecisionReadbackV1::ReadyForSelection(value)) => {
             value.decision().decision_identity()
         }
         None => return Err(storage("stored Decision readback is missing")),
@@ -806,6 +1081,135 @@ async fn persist_trial_budget_terminal_stop_decision(
     .await
 }
 
+async fn persist_ready_for_selection_decision(
+    transaction: &mut Transaction<'_, Postgres>,
+    readback: &ReadyForSelectionDecisionReadbackV1,
+) -> Result<(), IterationDecisionPostgresErrorV1> {
+    let decision = readback.decision();
+    persist_decision_record(
+        transaction,
+        decision,
+        decision.decision_identity(),
+        decision.decision_digest(),
+        decision.evidence_cut(),
+        readback.receipt(),
+    )
+    .await?;
+    let assessment = readback.assessment();
+    let assessment_bytes = serde_json::to_vec(assessment).map_err(storage)?;
+    let assessment_json =
+        serde_json::from_slice::<serde_json::Value>(&assessment_bytes).map_err(storage)?;
+    let assessment_storage_digest = crate::native_replay_rd_sources_v2::owner_storage_digest(
+        "rd.iteration-positive-assessment.storage.v1",
+        &assessment_bytes,
+    );
+    sqlx::query("INSERT INTO rd_iteration_positive_assessments_v1 (assessment_identity,assessment_digest,decision_identity,trial_family_identity,result_identity,candidate_identity,candidate_digest,assessment_json,assessment_storage_bytes,assessment_storage_digest,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)")
+        .bind(assessment.assessment_identity())
+        .bind(assessment.assessment_digest())
+        .bind(decision.decision_identity())
+        .bind(&decision.evidence_cut().trial_family_identity)
+        .bind(&decision.evidence_cut().result_identity)
+        .bind(assessment.candidate_identity())
+        .bind(assessment.candidate_digest())
+        .bind(assessment_json)
+        .bind(assessment_bytes)
+        .bind(assessment_storage_digest)
+        .bind(i64::try_from(readback.receipt().committed_at_epoch_ms()).map_err(storage)?)
+        .execute(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    let candidate = readback.candidate();
+    let candidate_bytes = serde_json::to_vec(candidate).map_err(storage)?;
+    let candidate_json =
+        serde_json::from_slice::<serde_json::Value>(&candidate_bytes).map_err(storage)?;
+    let candidate_storage_digest = crate::native_replay_rd_sources_v2::owner_storage_digest(
+        "rd.qualification-candidate.storage.v1",
+        &candidate_bytes,
+    );
+    sqlx::query("INSERT INTO rd_qualification_candidates_v1 (candidate_identity,candidate_digest,trial_family_identity,result_identity,artifact_identity,protected_plan_identity,protected_plan_version,candidate_json,candidate_storage_bytes,candidate_storage_digest,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)")
+        .bind(candidate.candidate_identity())
+        .bind(candidate.candidate_digest())
+        .bind(&decision.evidence_cut().trial_family_identity)
+        .bind(&decision.evidence_cut().result_identity)
+        .bind(candidate.protected_robustness_plan().artifact().identity.as_str())
+        .bind(candidate.protected_robustness_plan().plan_identity())
+        .bind(i64::try_from(candidate.protected_robustness_plan().plan_version()).map_err(storage)?)
+        .bind(candidate_json)
+        .bind(candidate_bytes)
+        .bind(candidate_storage_digest)
+        .bind(i64::try_from(readback.selection_receipt().committed_at_epoch_ms()).map_err(storage)?)
+        .execute(&mut **transaction)
+        .await
+        .map_err(storage)?;
+
+    let selection = readback.selection();
+    let selection_receipt = readback.selection_receipt();
+    let selection_bytes = serde_json::to_vec(selection).map_err(storage)?;
+    let selection_receipt_bytes = serde_json::to_vec(selection_receipt).map_err(storage)?;
+    let selection_json =
+        serde_json::from_slice::<serde_json::Value>(&selection_bytes).map_err(storage)?;
+    let selection_receipt_json =
+        serde_json::from_slice::<serde_json::Value>(&selection_receipt_bytes).map_err(storage)?;
+    let selection_storage_digest = crate::native_replay_rd_sources_v2::owner_storage_digest(
+        "rd.research-selection.storage.v1",
+        &selection_bytes,
+    );
+    let selection_receipt_storage_digest = crate::native_replay_rd_sources_v2::owner_storage_digest(
+        "rd.research-selection-receipt.storage.v1",
+        &selection_receipt_bytes,
+    );
+    sqlx::query("INSERT INTO rd_research_selections_v1 (selection_identity,selection_digest,candidate_identity,assessment_identity,decision_identity,trial_family_identity,result_identity,disposition,selection_json,receipt_json,selection_storage_bytes,selection_storage_digest,receipt_storage_bytes,receipt_storage_digest,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)")
+        .bind(selection.selection_identity())
+        .bind(selection.selection_digest())
+        .bind(candidate.candidate_identity())
+        .bind(assessment.assessment_identity())
+        .bind(decision.decision_identity())
+        .bind(&decision.evidence_cut().trial_family_identity)
+        .bind(&decision.evidence_cut().result_identity)
+        .bind("SELECTED_FOR_QUALIFICATION")
+        .bind(selection_json)
+        .bind(selection_receipt_json)
+        .bind(selection_bytes)
+        .bind(selection_storage_digest)
+        .bind(selection_receipt_bytes)
+        .bind(selection_receipt_storage_digest)
+        .bind(i64::try_from(selection_receipt.committed_at_epoch_ms()).map_err(storage)?)
+        .execute(&mut **transaction)
+        .await
+        .map_err(storage)?;
+
+    let selection_outbox = ResearchSelectionCommittedOutboxV1 {
+        schema_version: 1,
+        selection_identity: selection.selection_identity().to_string(),
+        selection_digest: selection.selection_digest().to_string(),
+        selection_receipt_identity: selection_receipt.receipt_identity().to_string(),
+        candidate_identity: candidate.candidate_identity().to_string(),
+        candidate_digest: candidate.candidate_digest().to_string(),
+        assessment_identity: assessment.assessment_identity().to_string(),
+        decision_identity: decision.decision_identity().to_string(),
+        trial_family_identity: decision.evidence_cut().trial_family_identity.clone(),
+        result_identity: decision.evidence_cut().result_identity.clone(),
+        protected_plan_identity: candidate
+            .protected_robustness_plan()
+            .plan_identity()
+            .to_string(),
+        protected_plan_version: candidate.protected_robustness_plan().plan_version(),
+    };
+    let payload_digest =
+        canonical_digest("rd.owner-outbox.research-selection.v1", &selection_outbox)?;
+    sqlx::query("INSERT INTO rd_owner_outbox_v1 (event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6)")
+        .bind(format!("rd-owner-outbox-research-selection-v1-{}", payload_digest.trim_start_matches("sha256:")))
+        .bind(selection.selection_identity())
+        .bind(RESEARCH_SELECTION_COMMITTED_EVENT_V1)
+        .bind(payload_digest)
+        .bind(serde_json::to_value(selection_outbox).map_err(storage)?)
+        .bind(i64::try_from(selection_receipt.committed_at_epoch_ms()).map_err(storage)?)
+        .execute(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    Ok(())
+}
+
 async fn persist_decision_record<T: Serialize>(
     transaction: &mut Transaction<'_, Postgres>,
     decision: &T,
@@ -1050,6 +1454,250 @@ async fn load_trial_budget_terminal_stop_by_result_in_transaction(
     Ok(Some(readback))
 }
 
+async fn load_ready_for_selection_by_result_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    result_identity: &str,
+    composition: Option<&ReadyForSelectionCompositionRequestV1>,
+) -> Result<Option<ReadyForSelectionDecisionReadbackV1>, IterationDecisionPostgresErrorV1> {
+    let rows = sqlx::query("SELECT a.assessment_identity,a.assessment_digest,a.decision_identity,a.trial_family_identity,a.result_identity,a.candidate_identity,a.candidate_digest,a.assessment_json,a.assessment_storage_bytes,a.assessment_storage_digest,a.committed_at_epoch_ms,d.request_identity,d.attempt_identity,d.decision_digest,d.decision_json,d.receipt_json,d.decision_storage_bytes,d.decision_storage_digest,d.receipt_storage_bytes,d.receipt_storage_digest,c.candidate_identity AS frozen_candidate_identity,c.candidate_digest AS frozen_candidate_digest,c.artifact_identity,c.protected_plan_identity,c.protected_plan_version,c.candidate_json,c.candidate_storage_bytes,c.candidate_storage_digest,c.committed_at_epoch_ms AS candidate_committed_at_epoch_ms,s.selection_identity,s.selection_digest,s.candidate_identity AS selection_candidate_identity,s.assessment_identity AS selection_assessment_identity,s.decision_identity AS selection_decision_identity,s.disposition,s.selection_json,s.receipt_json AS selection_receipt_json,s.selection_storage_bytes,s.selection_storage_digest,s.receipt_storage_bytes AS selection_receipt_storage_bytes,s.receipt_storage_digest AS selection_receipt_storage_digest,s.committed_at_epoch_ms AS selection_committed_at_epoch_ms FROM rd_iteration_positive_assessments_v1 a JOIN rd_iteration_decisions_v1 d ON d.decision_identity=a.decision_identity JOIN rd_qualification_candidates_v1 c ON c.candidate_identity=a.candidate_identity AND c.result_identity=a.result_identity JOIN rd_research_selections_v1 s ON s.candidate_identity=c.candidate_identity AND s.assessment_identity=a.assessment_identity AND s.decision_identity=d.decision_identity AND s.result_identity=a.result_identity WHERE a.result_identity=$1 FOR SHARE OF a,d,c,s")
+        .bind(result_identity)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    if rows.is_empty() {
+        let partial_rows = sqlx::query("SELECT decision_identity FROM rd_iteration_decisions_v1 WHERE result_identity=$1 FOR SHARE")
+            .bind(result_identity)
+            .fetch_all(&mut **transaction)
+            .await
+            .map_err(storage)?;
+        if !partial_rows.is_empty() {
+            return Err(storage(
+                "READY Decision exists without complete assessment, Candidate, and Selection custody",
+            ));
+        }
+        return Ok(None);
+    }
+    if rows.len() != 1 {
+        return Err(storage("positive assessment result identity is not unique"));
+    }
+    let row = &rows[0];
+    let assessment_bytes: Vec<u8> = row.try_get("assessment_storage_bytes").map_err(storage)?;
+    let decision_bytes: Vec<u8> = row.try_get("decision_storage_bytes").map_err(storage)?;
+    let receipt_bytes: Vec<u8> = row.try_get("receipt_storage_bytes").map_err(storage)?;
+    let candidate_bytes: Vec<u8> = row.try_get("candidate_storage_bytes").map_err(storage)?;
+    let selection_bytes: Vec<u8> = row.try_get("selection_storage_bytes").map_err(storage)?;
+    let selection_receipt_bytes: Vec<u8> = row
+        .try_get("selection_receipt_storage_bytes")
+        .map_err(storage)?;
+    if row
+        .try_get::<String, _>("assessment_storage_digest")
+        .map_err(storage)?
+        != crate::native_replay_rd_sources_v2::owner_storage_digest(
+            "rd.iteration-positive-assessment.storage.v1",
+            &assessment_bytes,
+        )
+        || row
+            .try_get::<String, _>("decision_storage_digest")
+            .map_err(storage)?
+            != crate::native_replay_rd_sources_v2::owner_storage_digest(
+                "rd.iteration-decision.storage.v1",
+                &decision_bytes,
+            )
+        || row
+            .try_get::<String, _>("receipt_storage_digest")
+            .map_err(storage)?
+            != crate::native_replay_rd_sources_v2::owner_storage_digest(
+                "rd.iteration-decision-receipt.storage.v1",
+                &receipt_bytes,
+            )
+        || row
+            .try_get::<String, _>("candidate_storage_digest")
+            .map_err(storage)?
+            != crate::native_replay_rd_sources_v2::owner_storage_digest(
+                "rd.qualification-candidate.storage.v1",
+                &candidate_bytes,
+            )
+        || row
+            .try_get::<String, _>("selection_storage_digest")
+            .map_err(storage)?
+            != crate::native_replay_rd_sources_v2::owner_storage_digest(
+                "rd.research-selection.storage.v1",
+                &selection_bytes,
+            )
+        || row
+            .try_get::<String, _>("selection_receipt_storage_digest")
+            .map_err(storage)?
+            != crate::native_replay_rd_sources_v2::owner_storage_digest(
+                "rd.research-selection-receipt.storage.v1",
+                &selection_receipt_bytes,
+            )
+    {
+        return Err(storage(
+            "READY assessment, Decision, Candidate, or Selection storage digest mismatch",
+        ));
+    }
+    let trial_family_identity: String = row.try_get("trial_family_identity").map_err(storage)?;
+    let request_identity: String = row.try_get("request_identity").map_err(storage)?;
+    let attempt_identity: String = row.try_get("attempt_identity").map_err(storage)?;
+    let census =
+        load_trial_family_census_v2_by_family_in_transaction(transaction, &trial_family_identity)
+            .await?;
+    let locked_result = crate::resolve_exploratory_replay_result_for_rd_in_transaction(
+        transaction,
+        ExploratoryReplayResultLocatorV2 {
+            result_identity,
+            request_identity: &request_identity,
+            attempt_identity: &attempt_identity,
+        },
+    )
+    .await?
+    .ok_or(BacktestResultCustodyErrorV2::Unavailable)?;
+    let artifact = ready_candidate_artifact_v1(locked_result.result())?;
+    let readback = admit_stored_ready_for_selection_decision_v1(
+        &census,
+        &artifact,
+        &assessment_bytes,
+        &decision_bytes,
+        &receipt_bytes,
+        &candidate_bytes,
+        &selection_bytes,
+        &selection_receipt_bytes,
+    )?;
+    let assessment = readback.assessment();
+    let decision = readback.decision();
+    let receipt = readback.receipt();
+    let candidate = readback.candidate();
+    let selection = readback.selection();
+    let selection_receipt = readback.selection_receipt();
+    if row
+        .try_get::<serde_json::Value, _>("assessment_json")
+        .map_err(storage)?
+        != serde_json::to_value(assessment).map_err(storage)?
+        || row
+            .try_get::<serde_json::Value, _>("decision_json")
+            .map_err(storage)?
+            != serde_json::to_value(decision).map_err(storage)?
+        || row
+            .try_get::<serde_json::Value, _>("receipt_json")
+            .map_err(storage)?
+            != serde_json::to_value(receipt).map_err(storage)?
+        || row
+            .try_get::<serde_json::Value, _>("candidate_json")
+            .map_err(storage)?
+            != serde_json::to_value(candidate).map_err(storage)?
+        || row
+            .try_get::<serde_json::Value, _>("selection_json")
+            .map_err(storage)?
+            != serde_json::to_value(selection).map_err(storage)?
+        || row
+            .try_get::<serde_json::Value, _>("selection_receipt_json")
+            .map_err(storage)?
+            != serde_json::to_value(selection_receipt).map_err(storage)?
+        || row
+            .try_get::<String, _>("assessment_identity")
+            .map_err(storage)?
+            != assessment.assessment_identity()
+        || row
+            .try_get::<String, _>("assessment_digest")
+            .map_err(storage)?
+            != assessment.assessment_digest()
+        || row
+            .try_get::<String, _>("decision_identity")
+            .map_err(storage)?
+            != decision.decision_identity()
+        || row
+            .try_get::<String, _>("decision_digest")
+            .map_err(storage)?
+            != decision.decision_digest()
+        || trial_family_identity != decision.evidence_cut().trial_family_identity
+        || row
+            .try_get::<String, _>("result_identity")
+            .map_err(storage)?
+            != decision.evidence_cut().result_identity
+        || request_identity != decision.evidence_cut().request_identity
+        || attempt_identity != decision.evidence_cut().attempt_identity
+        || row
+            .try_get::<String, _>("candidate_identity")
+            .map_err(storage)?
+            != assessment.candidate_identity()
+        || row
+            .try_get::<String, _>("candidate_digest")
+            .map_err(storage)?
+            != assessment.candidate_digest()
+        || row
+            .try_get::<String, _>("frozen_candidate_identity")
+            .map_err(storage)?
+            != candidate.candidate_identity()
+        || row
+            .try_get::<String, _>("frozen_candidate_digest")
+            .map_err(storage)?
+            != candidate.candidate_digest()
+        || row
+            .try_get::<String, _>("artifact_identity")
+            .map_err(storage)?
+            != candidate.protected_robustness_plan().artifact().identity
+        || row
+            .try_get::<String, _>("protected_plan_identity")
+            .map_err(storage)?
+            != candidate.protected_robustness_plan().plan_identity()
+        || row
+            .try_get::<i64, _>("protected_plan_version")
+            .map_err(storage)?
+            != i64::try_from(candidate.protected_robustness_plan().plan_version())
+                .map_err(storage)?
+        || row
+            .try_get::<String, _>("selection_identity")
+            .map_err(storage)?
+            != selection.selection_identity()
+        || row
+            .try_get::<String, _>("selection_digest")
+            .map_err(storage)?
+            != selection.selection_digest()
+        || row
+            .try_get::<String, _>("selection_candidate_identity")
+            .map_err(storage)?
+            != candidate.candidate_identity()
+        || row
+            .try_get::<String, _>("selection_assessment_identity")
+            .map_err(storage)?
+            != assessment.assessment_identity()
+        || row
+            .try_get::<String, _>("selection_decision_identity")
+            .map_err(storage)?
+            != decision.decision_identity()
+        || row.try_get::<String, _>("disposition").map_err(storage)? != "SELECTED_FOR_QUALIFICATION"
+        || row
+            .try_get::<i64, _>("committed_at_epoch_ms")
+            .map_err(storage)?
+            != i64::try_from(receipt.committed_at_epoch_ms()).map_err(storage)?
+        || row
+            .try_get::<i64, _>("candidate_committed_at_epoch_ms")
+            .map_err(storage)?
+            != i64::try_from(selection_receipt.committed_at_epoch_ms()).map_err(storage)?
+        || row
+            .try_get::<i64, _>("selection_committed_at_epoch_ms")
+            .map_err(storage)?
+            != i64::try_from(selection_receipt.committed_at_epoch_ms()).map_err(storage)?
+    {
+        return Err(storage(
+            "READY assessment, Decision, Candidate, or Selection row/readback mismatch",
+        ));
+    }
+    if let Some(request) = composition
+        && (request.trial_family_identity != decision.evidence_cut().trial_family_identity
+            || request.request_identity != decision.evidence_cut().request_identity
+            || request.result_identity != decision.evidence_cut().result_identity
+            || request.attempt_identity != decision.evidence_cut().attempt_identity
+            || request.positive_evidence != *assessment.positive_evidence()
+            || request.protected_robustness_plan
+                != *assessment.protected_robustness_plan().proposal())
+    {
+        return Err(storage("READY composition retry changed"));
+    }
+    verify_ready_for_selection_outbox_in_transaction(transaction, &readback).await?;
+    Ok(Some(readback))
+}
+
 async fn verify_outbox_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     readback: &RepairInputIterationDecisionReadbackV1,
@@ -1150,6 +1798,105 @@ async fn verify_trial_budget_terminal_stop_outbox_in_transaction(
     Ok(())
 }
 
+async fn verify_ready_for_selection_outbox_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    readback: &ReadyForSelectionDecisionReadbackV1,
+) -> Result<(), IterationDecisionPostgresErrorV1> {
+    let rows = sqlx::query("SELECT aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms FROM rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2 FOR SHARE")
+        .bind(readback.decision().decision_identity())
+        .bind(DECISION_COMMITTED_EVENT_V1)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    let evidence = readback.decision().evidence_cut();
+    let expected = DecisionCommittedOutboxV1 {
+        schema_version: 1,
+        decision_identity: readback.decision().decision_identity().to_string(),
+        decision_digest: readback.decision().decision_digest().to_string(),
+        receipt_identity: readback.receipt().receipt_identity().to_string(),
+        trial_family_identity: evidence.trial_family_identity.clone(),
+        census_frontier_identity: evidence.census_frontier_identity.clone(),
+        result_identity: evidence.result_identity.clone(),
+        decision_policy_binding_digest: evidence.decision_policy_binding_digest,
+    };
+    if rows.len() != 1
+        || rows[0]
+            .try_get::<String, _>("aggregate_identity")
+            .map_err(storage)?
+            != readback.decision().decision_identity()
+        || rows[0]
+            .try_get::<String, _>("event_kind")
+            .map_err(storage)?
+            != DECISION_COMMITTED_EVENT_V1
+        || rows[0]
+            .try_get::<serde_json::Value, _>("payload_json")
+            .map_err(storage)?
+            != serde_json::to_value(&expected).map_err(storage)?
+        || rows[0]
+            .try_get::<String, _>("payload_digest")
+            .map_err(storage)?
+            != canonical_digest("rd.owner-outbox.iteration-decision.v1", &expected)?
+        || rows[0]
+            .try_get::<i64, _>("committed_at_epoch_ms")
+            .map_err(storage)?
+            != i64::try_from(readback.receipt().committed_at_epoch_ms()).map_err(storage)?
+    {
+        return Err(storage("READY Decision outbox/readback mismatch"));
+    }
+    let selection_rows = sqlx::query("SELECT aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms FROM rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2 FOR SHARE")
+        .bind(readback.selection().selection_identity())
+        .bind(RESEARCH_SELECTION_COMMITTED_EVENT_V1)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    let candidate = readback.candidate();
+    let selection = readback.selection();
+    let selection_receipt = readback.selection_receipt();
+    let assessment = readback.assessment();
+    let expected_selection = ResearchSelectionCommittedOutboxV1 {
+        schema_version: 1,
+        selection_identity: selection.selection_identity().to_string(),
+        selection_digest: selection.selection_digest().to_string(),
+        selection_receipt_identity: selection_receipt.receipt_identity().to_string(),
+        candidate_identity: candidate.candidate_identity().to_string(),
+        candidate_digest: candidate.candidate_digest().to_string(),
+        assessment_identity: assessment.assessment_identity().to_string(),
+        decision_identity: readback.decision().decision_identity().to_string(),
+        trial_family_identity: evidence.trial_family_identity.clone(),
+        result_identity: evidence.result_identity.clone(),
+        protected_plan_identity: candidate
+            .protected_robustness_plan()
+            .plan_identity()
+            .to_string(),
+        protected_plan_version: candidate.protected_robustness_plan().plan_version(),
+    };
+    if selection_rows.len() != 1
+        || selection_rows[0]
+            .try_get::<String, _>("aggregate_identity")
+            .map_err(storage)?
+            != selection.selection_identity()
+        || selection_rows[0]
+            .try_get::<String, _>("event_kind")
+            .map_err(storage)?
+            != RESEARCH_SELECTION_COMMITTED_EVENT_V1
+        || selection_rows[0]
+            .try_get::<serde_json::Value, _>("payload_json")
+            .map_err(storage)?
+            != serde_json::to_value(&expected_selection).map_err(storage)?
+        || selection_rows[0]
+            .try_get::<String, _>("payload_digest")
+            .map_err(storage)?
+            != canonical_digest("rd.owner-outbox.research-selection.v1", &expected_selection)?
+        || selection_rows[0]
+            .try_get::<i64, _>("committed_at_epoch_ms")
+            .map_err(storage)?
+            != i64::try_from(selection_receipt.committed_at_epoch_ms()).map_err(storage)?
+    {
+        return Err(storage("Research Selection outbox/readback mismatch"));
+    }
+    Ok(())
+}
+
 #[derive(Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 struct DecisionCommittedOutboxV1 {
@@ -1161,6 +1908,23 @@ struct DecisionCommittedOutboxV1 {
     census_frontier_identity: String,
     result_identity: String,
     decision_policy_binding_digest: [u8; 32],
+}
+
+#[derive(Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ResearchSelectionCommittedOutboxV1 {
+    schema_version: u16,
+    selection_identity: String,
+    selection_digest: String,
+    selection_receipt_identity: String,
+    candidate_identity: String,
+    candidate_digest: String,
+    assessment_identity: String,
+    decision_identity: String,
+    trial_family_identity: String,
+    result_identity: String,
+    protected_plan_identity: String,
+    protected_plan_version: u64,
 }
 
 fn validate_composition_request(
@@ -1179,6 +1943,18 @@ fn validate_composition_request(
     } else {
         Err(IterationDecisionPostgresErrorV1::InvalidLocator)
     }
+}
+
+fn validate_ready_for_selection_request(
+    request: &ReadyForSelectionCompositionRequestV1,
+) -> Result<(), IterationDecisionPostgresErrorV1> {
+    validate_composition_request(&DecisionCompositionRequestV1 {
+        trial_family_identity: request.trial_family_identity.clone(),
+        result_identity: request.result_identity.clone(),
+        request_identity: request.request_identity.clone(),
+        attempt_identity: request.attempt_identity.clone(),
+    })?;
+    Ok(())
 }
 
 fn current_epoch_ms() -> Result<u64, IterationDecisionPostgresErrorV1> {
@@ -1211,11 +1987,11 @@ mod postgres_acceptance_tests {
     use super::*;
     use serde::Serialize;
     use vibe_backtest_owner_contracts::{
-        CanonicalDigestV2, ComponentObservationLocatorV2, ContentIdentityV2, DiagnosticCategoryV2,
-        DiagnosticEvidenceDtoV2, ObservationComponentV2, OpaqueIdentityV2, ReconciliationAtomDtoV2,
-        ReconciliationStatusV2, ReplayAuthorityClaimV2, ReplayModelProfilesV2, ReplayNamespaceV2,
-        ReplayRequestDtoV2, ReplayRequestV2, ReplayResultDtoV2, ReplayTerminalV2, ReplayWindowV2,
-        VersionedIdentityV2,
+        CanonicalDigestV2, ComponentObservationLocatorV2, ConsumedComponentObservationDtoV2,
+        ContentIdentityV2, DiagnosticCategoryV2, DiagnosticEvidenceDtoV2, ObservationComponentV2,
+        OpaqueIdentityV2, ReconciliationAtomDtoV2, ReconciliationStatusV2, ReplayAuthorityClaimV2,
+        ReplayModelProfilesV2, ReplayNamespaceV2, ReplayRequestDtoV2, ReplayRequestV2,
+        ReplayResultDtoV2, ReplayTerminalV2, ReplayWindowV2, VersionedIdentityV2,
     };
     use vibe_data::owner::pit_snapshot::sealed_acceptance::{
         SealedAcceptanceMarketDataRepairEvidenceV1, issue_market_data_repair_evidence_v1,
@@ -1226,6 +2002,7 @@ mod postgres_acceptance_tests {
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
     use crate::{
+        iteration_decision::PositiveAssessmentEvidenceReferenceV1,
         product_edge::{ResearchRequestDisposition, ResearchRequestReceiptV1},
         replay_economic_configuration_v1::{ReplayEconomicConfigurationV1, economic_fixture},
         replay_execution_policy_v2::ReplayExecutionPolicyV2,
@@ -1678,6 +2455,249 @@ mod postgres_acceptance_tests {
         assert_eq!(counts_after, (1, 1));
     }
 
+    #[tokio::test]
+    #[ignore = "requires the canonical disposable R&D and Backtest Owner PostgreSQL topology"]
+    async fn positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic() {
+        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+            .await
+            .expect("canonical disposable topology");
+        let mutation = database.mutation();
+        let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+        let backtest_pool = mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner);
+        let suffix = unique_suffix();
+        let committed_at = current_epoch_ms().expect("test clock");
+        let intent_identity = format!("rd-research-intent-ready-{suffix}");
+        let intent_digest = digest('a');
+        let family = form_initial_family(
+            &intent_identity,
+            &intent_digest,
+            decision_family_policy(),
+            committed_at,
+        )
+        .expect("sealed READY family");
+        let family_identity = family.root().trial_family_identity().to_string();
+        let research_receipt = ResearchRequestReceiptV1 {
+            schema_version: 1,
+            receipt_identity: format!("rd-research-request-receipt-ready-{suffix}"),
+            request_identity: format!("rd-research-request-ready-{suffix}"),
+            semantic_digest: intent_digest.clone(),
+            disposition: ResearchRequestDisposition::Accepted,
+            resulting_research_intent_identity: Some(intent_identity.clone()),
+            committed_at_epoch_ms: committed_at,
+            rejection_code: None,
+        };
+        let request_identity = format!("rd-replay-request-ready-{suffix}");
+        let market_data_evidence =
+            issue_market_data_repair_evidence_v1().expect("sealed Market Data evidence");
+        let replay = repair_replay(
+            &market_data_evidence,
+            &request_identity,
+            &family_identity,
+            &suffix,
+        );
+        let request_digest = replay
+            .meaning_digest()
+            .expect("Replay request meaning")
+            .as_str()
+            .to_string();
+        let attempt_identity = format!("backtest-attempt-ready-{suffix}");
+        let result = positive_result(
+            &request_identity,
+            &request_digest,
+            &attempt_identity,
+            &intent_identity,
+            &intent_digest,
+            &suffix,
+        );
+        let result_bytes = result.to_canonical_bytes().expect("canonical Result");
+        let result_identity = result.result_identity.as_str().to_string();
+        let result_digest = result.result_digest.as_str().to_string();
+
+        let mut family_transaction = rd_pool.begin().await.expect("family transaction");
+        persist_initial_family(&mut family_transaction, &family, &research_receipt)
+            .await
+            .expect("family custody");
+        append_trial_family_attempt_in_transaction(
+            &mut family_transaction,
+            &intent_identity,
+            &research_receipt.receipt_identity,
+            TrialFamilyAttemptAppendV2 {
+                intent_identity: intent_identity.clone(),
+                intent_digest: intent_digest.clone(),
+                request_identity: request_identity.clone(),
+                request_digest: request_digest.clone(),
+                result_identity: result_identity.clone(),
+                result_digest: result_digest.clone(),
+                terminal_disposition: TrialFamilyAttemptTerminalDispositionV2::TerminalResult,
+                consumed_trial_budget: 1,
+                candidate_set: TrialFamilyCandidateSetProposalV2 {
+                    generation_rule_identity: format!("rd-candidate-generation-ready-{suffix}"),
+                    generation_rule_digest: digest('c'),
+                    expected_cardinality: 0,
+                    candidates: Vec::new(),
+                },
+            },
+            committed_at + 1,
+        )
+        .await
+        .expect("attempt census");
+        family_transaction.commit().await.expect("family commit");
+        persist_backtest_result(backtest_pool, &result, &result_bytes, committed_at + 2).await;
+
+        let positive_evidence = positive_evidence(&suffix);
+        let protected_plan = protected_plan(&suffix);
+        let composition = ReadyForSelectionCompositionRequestV1 {
+            trial_family_identity: family_identity,
+            result_identity: result_identity.clone(),
+            request_identity,
+            attempt_identity,
+            positive_evidence: positive_evidence.clone(),
+            protected_robustness_plan: protected_plan.clone(),
+        };
+        let mut rollback_transaction = rd_pool.begin().await.expect("rollback transaction");
+        let census = load_trial_family_census_v2_by_family_in_transaction(
+            &mut rollback_transaction,
+            &composition.trial_family_identity,
+        )
+        .await
+        .expect("READY census");
+        let issued = crate::iteration_decision::tests::ready_storage_acceptance_fixture_v1(
+            &census,
+            &result,
+            positive_evidence,
+            protected_plan,
+            committed_at + 3,
+        )
+        .expect("issued READY custody");
+        persist_ready_for_selection_decision(&mut rollback_transaction, &issued)
+            .await
+            .expect("transactional READY persistence");
+        let in_transaction_counts: (i64, i64, i64, i64, i64) = sqlx::query_as(
+            "SELECT (SELECT COUNT(*) FROM rd_iteration_positive_assessments_v1 WHERE result_identity=$1), (SELECT COUNT(*) FROM rd_iteration_decisions_v1 WHERE result_identity=$1), (SELECT COUNT(*) FROM rd_qualification_candidates_v1 WHERE result_identity=$1), (SELECT COUNT(*) FROM rd_research_selections_v1 WHERE result_identity=$1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE (aggregate_identity=$2 AND event_kind='ITERATION_DECISION_COMMITTED_V1') OR (aggregate_identity=$3 AND event_kind='RESEARCH_SELECTION_COMMITTED_V1'))",
+        )
+        .bind(&result_identity)
+        .bind(issued.decision().decision_identity())
+        .bind(issued.selection().selection_identity())
+        .fetch_one(&mut *rollback_transaction)
+        .await
+        .expect("transactional READY counts");
+        assert_eq!(in_transaction_counts, (1, 1, 1, 1, 2));
+        rollback_transaction
+            .rollback()
+            .await
+            .expect("READY rollback");
+        let rolled_back_counts: (i64, i64, i64, i64, i64) = sqlx::query_as(
+            "SELECT (SELECT COUNT(*) FROM rd_iteration_positive_assessments_v1 WHERE result_identity=$1), (SELECT COUNT(*) FROM rd_iteration_decisions_v1 WHERE result_identity=$1), (SELECT COUNT(*) FROM rd_qualification_candidates_v1 WHERE result_identity=$1), (SELECT COUNT(*) FROM rd_research_selections_v1 WHERE result_identity=$1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE (aggregate_identity=$2 AND event_kind='ITERATION_DECISION_COMMITTED_V1') OR (aggregate_identity=$3 AND event_kind='RESEARCH_SELECTION_COMMITTED_V1'))",
+        )
+        .bind(&result_identity)
+        .bind(issued.decision().decision_identity())
+        .bind(issued.selection().selection_identity())
+        .fetch_one(rd_pool)
+        .await
+        .expect("rolled-back READY counts");
+        assert_eq!(rolled_back_counts, (0, 0, 0, 0, 0));
+
+        let mut commit_transaction = rd_pool.begin().await.expect("commit transaction");
+        persist_ready_for_selection_decision(&mut commit_transaction, &issued)
+            .await
+            .expect("committed READY persistence");
+        commit_transaction.commit().await.expect("READY commit");
+        let retried = compose_ready_for_selection_decision_v1(rd_pool, composition.clone())
+            .await
+            .expect("response-loss retry");
+        assert_eq!(
+            serde_json::to_vec(&retried).unwrap(),
+            serde_json::to_vec(&issued).unwrap()
+        );
+        let resolved = resolve_ready_for_selection_decision_v1(
+            rd_pool,
+            IterationDecisionResolutionLocatorV1 {
+                decision_identity: issued.decision().decision_identity().to_string(),
+                result_identity: result_identity.clone(),
+            },
+        )
+        .await
+        .expect("READY resolve")
+        .expect("stored READY custody");
+        assert_eq!(
+            serde_json::to_vec(&resolved).unwrap(),
+            serde_json::to_vec(&issued).unwrap()
+        );
+        let unified = resolve_iteration_decision_v1(
+            rd_pool,
+            IterationDecisionResolutionLocatorV1 {
+                decision_identity: issued.decision().decision_identity().to_string(),
+                result_identity: result_identity.clone(),
+            },
+        )
+        .await
+        .expect("unified Decision resolve")
+        .expect("unified READY custody");
+        assert!(
+            matches!(unified, ExistingIterationDecisionReadbackV1::ReadyForSelection(value) if value == issued)
+        );
+
+        let mut changed = composition;
+        changed.protected_robustness_plan.metric.identity =
+            format!("changed-protected-metric-{suffix}");
+        assert!(
+            compose_ready_for_selection_decision_v1(rd_pool, changed)
+                .await
+                .is_err()
+        );
+        let mut tamper_transaction = rd_pool.begin().await.expect("tamper transaction");
+        sqlx::query("UPDATE rd_iteration_positive_assessments_v1 SET assessment_storage_bytes=assessment_storage_bytes || decode('00','hex') WHERE result_identity=$1")
+            .bind(&result_identity)
+            .execute(&mut *tamper_transaction)
+            .await
+            .expect("temporary assessment tamper");
+        assert!(
+            load_ready_for_selection_by_result_in_transaction(
+                &mut tamper_transaction,
+                &result_identity,
+                None,
+            )
+            .await
+            .is_err()
+        );
+        tamper_transaction
+            .rollback()
+            .await
+            .expect("tamper rollback");
+        let mut selection_tamper_transaction =
+            rd_pool.begin().await.expect("Selection tamper transaction");
+        sqlx::query("UPDATE rd_research_selections_v1 SET selection_storage_bytes=selection_storage_bytes || decode('00','hex') WHERE result_identity=$1")
+            .bind(&result_identity)
+            .execute(&mut *selection_tamper_transaction)
+            .await
+            .expect("temporary Selection tamper");
+        assert!(
+            load_ready_for_selection_by_result_in_transaction(
+                &mut selection_tamper_transaction,
+                &result_identity,
+                None,
+            )
+            .await
+            .is_err()
+        );
+        selection_tamper_transaction
+            .rollback()
+            .await
+            .expect("Selection tamper rollback");
+        assert!(
+            resolve_ready_for_selection_decision_v1(
+                rd_pool,
+                IterationDecisionResolutionLocatorV1 {
+                    decision_identity: issued.decision().decision_identity().to_string(),
+                    result_identity,
+                },
+            )
+            .await
+            .expect("post-tamper resolve")
+            .is_some()
+        );
+    }
+
     fn decision_family_policy() -> TrialFamilyPolicyV1 {
         let economic = ReplayEconomicConfigurationV1::seal(economic_fixture()).unwrap();
         let runner = ReplayRunnerOperationalProfileV1::seal(runner_fixture()).unwrap();
@@ -1897,6 +2917,149 @@ mod postgres_acceptance_tests {
         result
     }
 
+    fn positive_result(
+        request_identity: &str,
+        request_digest: &str,
+        attempt_identity: &str,
+        intent_identity: &str,
+        intent_digest: &str,
+        suffix: &str,
+    ) -> ReplayResultDtoV2 {
+        let request_identity = identity(request_identity);
+        let request_meaning_digest =
+            CanonicalDigestV2::try_from(request_digest.to_string()).unwrap();
+        let attempt_identity = identity(attempt_identity);
+        let reconciliation = ObservationComponentV2::REQUESTED_MEANING
+            .into_iter()
+            .map(|component| {
+                let (meaning_identity, meaning_digest) =
+                    if component == ObservationComponentV2::FrozenResearchIntent {
+                        (
+                            identity(intent_identity),
+                            CanonicalDigestV2::try_from(intent_digest.to_string()).unwrap(),
+                        )
+                    } else {
+                        (
+                            identity(format!("ready-meaning-{suffix}-{component:?}")),
+                            canonical_digest_value('1'),
+                        )
+                    };
+                ReconciliationAtomDtoV2 {
+                    component,
+                    requested_meaning_identity: meaning_identity.clone(),
+                    requested_meaning_digest: meaning_digest.clone(),
+                    observed_meaning_identity: Some(meaning_identity),
+                    observed_meaning_digest: Some(meaning_digest),
+                    observation_locator: Some(ComponentObservationLocatorV2 {
+                        component,
+                        reference: identity(format!("ready-observation-{suffix}-{component:?}")),
+                        digest: canonical_digest_value('2'),
+                    }),
+                    status: ReconciliationStatusV2::Exact,
+                }
+            })
+            .collect::<Vec<_>>();
+        let diagnostic_census = vec![DiagnosticEvidenceDtoV2 {
+            request_identity: request_identity.clone(),
+            request_meaning_digest: request_meaning_digest.clone(),
+            attempt_identity: attempt_identity.clone(),
+            category: DiagnosticCategoryV2::NoExecutionDefect,
+            decisive_evidence: ComponentObservationLocatorV2 {
+                component: ObservationComponentV2::SemanticTrace,
+                reference: identity(format!("ready-diagnostic-{suffix}")),
+                digest: canonical_digest_value('3'),
+            },
+        }];
+        let semantic_trace = Some(ConsumedComponentObservationDtoV2 {
+            request_identity: request_identity.clone(),
+            request_meaning_digest: request_meaning_digest.clone(),
+            attempt_identity: attempt_identity.clone(),
+            component: ObservationComponentV2::SemanticTrace,
+            locator: ComponentObservationLocatorV2 {
+                component: ObservationComponentV2::SemanticTrace,
+                reference: identity(format!("ready-semantic-trace-{suffix}")),
+                digest: canonical_digest_value('4'),
+            },
+            observed_meaning_identity: identity(format!("ready-trace-meaning-{suffix}")),
+            observed_meaning_digest: canonical_digest_value('5'),
+        });
+        let mut result = ReplayResultDtoV2 {
+            schema_version: 2,
+            result_identity: identity("placeholder-result"),
+            result_digest: canonical_digest_value('0'),
+            request_identity,
+            request_meaning_digest,
+            namespace: ReplayNamespaceV2::Exploratory,
+            replay_authority: ReplayAuthorityClaimV2::Exploratory,
+            attempt_identity,
+            terminal: ReplayTerminalV2::TerminalResult,
+            reconciliation,
+            semantic_trace,
+            diagnostic_census,
+        };
+        let preimage = ResultDigestPreimageV2 {
+            schema_version: result.schema_version,
+            request_identity: &result.request_identity,
+            request_meaning_digest: &result.request_meaning_digest,
+            namespace: result.namespace,
+            replay_authority: &result.replay_authority,
+            attempt_identity: &result.attempt_identity,
+            terminal: result.terminal,
+            reconciliation: &result.reconciliation,
+            semantic_trace: result.semantic_trace.as_ref(),
+            diagnostic_census: &result.diagnostic_census,
+        };
+        result.result_digest = digest_value("vibe.backtest.replay-result.v2", &preimage);
+        result.result_identity = identity(format!(
+            "backtest-replay-result-v2-{}",
+            result.result_digest.as_str().trim_start_matches("blake3:")
+        ));
+        result
+    }
+
+    fn positive_evidence(suffix: &str) -> PositiveAssessmentEvidenceV1 {
+        let reference = |name: &str, byte: char| PositiveAssessmentEvidenceReferenceV1 {
+            identity: format!("{name}-{suffix}"),
+            digest: digest(byte),
+        };
+        PositiveAssessmentEvidenceV1 {
+            mechanism_validity: vec![reference("ready-mechanism-evidence", '1')],
+            economic_viability: vec![reference("ready-economic-evidence", '2')],
+            robustness: vec![reference("ready-robustness-evidence", '3')],
+            information_value: vec![reference("ready-information-evidence", '4')],
+        }
+    }
+
+    fn protected_plan(suffix: &str) -> ProtectedRobustnessPlanProposalV1 {
+        let reference = |name: &str, byte: char| PositiveAssessmentEvidenceReferenceV1 {
+            identity: format!("{name}-{suffix}"),
+            digest: digest(byte),
+        };
+        ProtectedRobustnessPlanProposalV1 {
+            required_time_windows: vec![reference("ready-protected-window", '5')],
+            required_regimes: vec![reference("ready-protected-regime", '6')],
+            required_instrument_slices: vec![reference("ready-protected-instrument", '7')],
+            required_perturbations: vec![reference("ready-protected-perturbation", '8')],
+            required_parameter_neighborhoods: vec![reference("ready-protected-parameter", '9')],
+            metric: reference("ready-protected-metric", 'a'),
+            coverage_policy: reference("ready-protected-coverage", 'b'),
+            tolerance_policy: reference("ready-protected-tolerance", 'c'),
+            threshold_policy: reference("ready-protected-threshold", 'd'),
+            aggregation_policy: reference("ready-protected-aggregation", 'e'),
+            missing_cell_policy: reference("ready-protected-missing-cell", 'f'),
+            stop_policy: reference("ready-protected-stop", '0'),
+            purge_policy: reference("ready-protected-purge", '1'),
+            embargo_policy: reference("ready-protected-embargo", '2'),
+            multiplicity_policy: reference("ready-protected-multiplicity", '3'),
+            protected_decision_policy:
+                crate::iteration_decision::ProtectedDecisionPolicyProposalV1 {
+                    identity: format!("ready-protected-decision-policy-{suffix}"),
+                    version: 1,
+                    digest: digest('4'),
+                },
+        }
+    }
+
     async fn persist_backtest_result(
         pool: &PgPool,
         result: &ReplayResultDtoV2,
@@ -1969,10 +3132,16 @@ mod postgres_acceptance_tests {
         let receipt_bytes = serde_json::to_vec(&receipt).unwrap();
         let outbox_bytes = serde_json::to_vec(&outbox).unwrap();
         let mut transaction = pool.begin().await.unwrap();
-        sqlx::query("INSERT INTO backtest_replay_results_v2 (result_identity,result_digest,request_identity,request_meaning_digest,attempt_identity,terminal,canonical_bytes,canonical_bytes_blake3) VALUES ($1,$2,$3,$4,$5,'INVALID_REPLAY_EVIDENCE',$6,$7)")
+        let terminal = match result.terminal {
+            ReplayTerminalV2::TerminalResult => "TERMINAL_RESULT",
+            ReplayTerminalV2::RunRejected => "RUN_REJECTED",
+            ReplayTerminalV2::InvalidReplayEvidence => "INVALID_REPLAY_EVIDENCE",
+            ReplayTerminalV2::InProgressOrUnknown => "IN_PROGRESS_OR_UNKNOWN",
+        };
+        sqlx::query("INSERT INTO backtest_replay_results_v2 (result_identity,result_digest,request_identity,request_meaning_digest,attempt_identity,terminal,canonical_bytes,canonical_bytes_blake3) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)")
             .bind(result.result_identity.as_str()).bind(result.result_digest.as_str())
             .bind(result.request_identity.as_str()).bind(result.request_meaning_digest.as_str())
-            .bind(result.attempt_identity.as_str()).bind(result_bytes)
+            .bind(result.attempt_identity.as_str()).bind(terminal).bind(result_bytes)
             .bind(storage_digest(RESULT_STORAGE_DOMAIN, result_bytes))
             .execute(&mut *transaction).await.unwrap();
         sqlx::query("INSERT INTO backtest_replay_result_receipts_v1 (result_identity,receipt_identity,receipt_digest,request_identity,request_meaning_digest,result_digest,namespace,outbox_event_identity,committed_at_epoch_ms,canonical_bytes,canonical_bytes_blake3) VALUES ($1,$2,$3,$4,$5,$6,'EXPLORATORY',$7,$8,$9,$10)")

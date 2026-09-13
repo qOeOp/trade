@@ -53,6 +53,10 @@ const SEALED_DNS_OBSERVATION_LOCATOR: &str = "sealed-source-intake-dns-observati
 /// still re-resolves and seals every referenced fact before Research can
 /// mutate state.
 #[cfg(feature = "sealed-source-intake-research-acceptance")]
+#[allow(
+    dead_code,
+    reason = "the path-included Source Intake test target omits the Product Edge caller"
+)]
 pub(crate) fn sealed_source_intake_research_policy_query_v2(
     binding: &SourceAcquisitionBindingV1,
 ) -> SourceIntakePolicyEvidenceQueryV1 {

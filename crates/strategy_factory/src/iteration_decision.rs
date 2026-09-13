@@ -1,11 +1,13 @@
 //! R&D-owned gate from one locked exploratory Result to an Iteration Decision.
 
+use std::collections::BTreeSet;
+
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use vibe_backtest_owner_contracts::{
-    DiagnosticCategoryV2, ObservationComponentV2, ReconciliationStatusV2, ReplayNamespaceV2,
-    ReplayResultDtoV2, ReplayTerminalV2,
+    CanonicalDigestV2, DiagnosticCategoryV2, ObservationComponentV2, OpaqueIdentityV2,
+    ReconciliationStatusV2, ReplayNamespaceV2, ReplayResultDtoV2, ReplayTerminalV2,
 };
 
 use crate::{
@@ -14,6 +16,7 @@ use crate::{
     rd_owner_postgres_custody::{LockedExploratoryReplayResultV3, VerifiedResearchCustodyV1},
     trial_family::{
         TrialFamilyAttemptTerminalDispositionV2, TrialFamilyCensusReadbackV2, TrialFamilyError,
+        TrialFamilyIndependenceDispositionV1,
     },
 };
 
@@ -296,6 +299,217 @@ pub struct TrialBudgetTerminalStopDecisionReadbackV1 {
     receipt: IterationDecisionReceiptV1,
 }
 
+/// One bounded R&D evidence reference supporting a positive assessment dimension.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PositiveAssessmentEvidenceReferenceV1 {
+    pub identity: String,
+    pub digest: String,
+}
+
+/// The four analytical dimensions that locked execution facts cannot decide by themselves.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PositiveAssessmentEvidenceV1 {
+    pub mechanism_validity: Vec<PositiveAssessmentEvidenceReferenceV1>,
+    pub economic_viability: Vec<PositiveAssessmentEvidenceReferenceV1>,
+    pub robustness: Vec<PositiveAssessmentEvidenceReferenceV1>,
+    pub information_value: Vec<PositiveAssessmentEvidenceReferenceV1>,
+}
+
+/// Versioned protected-decision semantics proposed by authenticated R&D analysis.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProtectedDecisionPolicyProposalV1 {
+    pub identity: String,
+    pub version: u64,
+    pub digest: String,
+}
+
+/// Untrusted analytical shape for the protected checks R&D will preregister for the candidate.
+///
+/// R&D derives every identity and lifecycle binding from the locked Decision cut; callers can
+/// propose only the finite cells and policies that require research judgment.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProtectedRobustnessPlanProposalV1 {
+    pub required_time_windows: Vec<PositiveAssessmentEvidenceReferenceV1>,
+    pub required_regimes: Vec<PositiveAssessmentEvidenceReferenceV1>,
+    pub required_instrument_slices: Vec<PositiveAssessmentEvidenceReferenceV1>,
+    pub required_perturbations: Vec<PositiveAssessmentEvidenceReferenceV1>,
+    pub required_parameter_neighborhoods: Vec<PositiveAssessmentEvidenceReferenceV1>,
+    pub metric: PositiveAssessmentEvidenceReferenceV1,
+    pub coverage_policy: PositiveAssessmentEvidenceReferenceV1,
+    pub tolerance_policy: PositiveAssessmentEvidenceReferenceV1,
+    pub threshold_policy: PositiveAssessmentEvidenceReferenceV1,
+    pub aggregation_policy: PositiveAssessmentEvidenceReferenceV1,
+    pub missing_cell_policy: PositiveAssessmentEvidenceReferenceV1,
+    pub stop_policy: PositiveAssessmentEvidenceReferenceV1,
+    pub purge_policy: PositiveAssessmentEvidenceReferenceV1,
+    pub embargo_policy: PositiveAssessmentEvidenceReferenceV1,
+    pub multiplicity_policy: PositiveAssessmentEvidenceReferenceV1,
+    pub protected_decision_policy: ProtectedDecisionPolicyProposalV1,
+}
+
+/// R&D-owned preregistration bound to the exact exploratory Artifact and TrialFamily cut.
+///
+/// Owner-issued positive records are serialize-only outside this crate:
+///
+/// ```compile_fail
+/// use serde::de::DeserializeOwned;
+/// use vibe_strategy_factory::iteration_decision::{
+///     FrozenQualificationCandidateV1, PositiveIterationAssessmentV1,
+///     ProtectedRobustnessPlanV1, ReadyForSelectionDecisionReadbackV1,
+///     ReadyForSelectionIterationDecisionV1, ResearchSelectionReceiptV1,
+///     ResearchSelectionV1,
+/// };
+/// fn decoded<T: DeserializeOwned>() {}
+/// decoded::<ProtectedRobustnessPlanV1>();
+/// decoded::<PositiveIterationAssessmentV1>();
+/// decoded::<ReadyForSelectionIterationDecisionV1>();
+/// decoded::<FrozenQualificationCandidateV1>();
+/// decoded::<ResearchSelectionV1>();
+/// decoded::<ResearchSelectionReceiptV1>();
+/// decoded::<ReadyForSelectionDecisionReadbackV1>();
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProtectedRobustnessPlanV1 {
+    schema_version: u16,
+    plan_identity: String,
+    plan_version: u64,
+    plan_digest: String,
+    trial_family_identity: String,
+    trial_family_digest: String,
+    census_frontier_identity: String,
+    census_frontier_digest: String,
+    attempt_frontier_identity: String,
+    attempt_frontier_digest: String,
+    artifact: PositiveAssessmentEvidenceReferenceV1,
+    pit_rule_identity: String,
+    cost_model_identity: String,
+    slippage_model_identity: String,
+    capacity_model_identity: String,
+    decision_policy_identity: String,
+    decision_policy_version: u64,
+    proposal: ProtectedRobustnessPlanProposalV1,
+}
+
+/// Canonical R&D assessment bound to one exact interpretation, Artifact, and candidate cut.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PositiveIterationAssessmentV1 {
+    schema_version: u16,
+    assessment_identity: String,
+    assessment_digest: String,
+    evidence_cut: IterationDecisionEvidenceCutV1,
+    candidate_identity: String,
+    candidate_digest: String,
+    protected_robustness_plan: ProtectedRobustnessPlanV1,
+    positive_evidence: PositiveAssessmentEvidenceV1,
+    interpretation: IterationInterpretationContextV1,
+}
+
+/// R&D-owned immutable `READY_FOR_SELECTION` Decision.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReadyForSelectionIterationDecisionV1 {
+    schema_version: u16,
+    decision_identity: String,
+    decision_digest: String,
+    evidence_cut: IterationDecisionEvidenceCutV1,
+    outcome: IterationDecisionOutcomeV1,
+    assessment_identity: String,
+    assessment_digest: String,
+}
+
+/// Frozen R&D Candidate handed to Qualification only with a selected-only Selection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FrozenQualificationCandidateV1 {
+    schema_version: u16,
+    candidate_identity: String,
+    candidate_digest: String,
+    evidence_cut: IterationDecisionEvidenceCutV1,
+    artifact: PositiveAssessmentEvidenceReferenceV1,
+    protected_robustness_plan: ProtectedRobustnessPlanV1,
+    trial_family_policy_digest: String,
+    consumed_trial_budget: u32,
+    frozen_falsifier_binding: String,
+    stop_rule: String,
+    cost_model_identity: String,
+    slippage_model_identity: String,
+    capacity_model_identity: String,
+    semantic_predecessor_frontier: Vec<String>,
+    protected_feedback_frontier: String,
+    independence_disposition: TrialFamilyIndependenceDispositionV1,
+    independence_basis_identity: String,
+}
+
+/// The only legal Research Selection disposition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ResearchSelectionDispositionV1 {
+    SelectedForQualification,
+}
+
+/// Frozen reason for issuing the selected-only disposition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ResearchSelectionRationaleV1 {
+    PositiveAssessmentSatisfied,
+}
+
+/// R&D-owned selected-only fact cross-binding Candidate, assessment, and READY Decision.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResearchSelectionV1 {
+    schema_version: u16,
+    selection_identity: String,
+    selection_digest: String,
+    disposition: ResearchSelectionDispositionV1,
+    rationale: ResearchSelectionRationaleV1,
+    candidate_identity: String,
+    candidate_digest: String,
+    assessment_identity: String,
+    assessment_digest: String,
+    decision_identity: String,
+    decision_digest: String,
+    evidence_cut: IterationDecisionEvidenceCutV1,
+    cost_model_identity: String,
+    slippage_model_identity: String,
+    capacity_model_identity: String,
+    protected_decision_policy_identity: String,
+    protected_decision_policy_version: u64,
+}
+
+/// Separate receipt proving atomic custody of the selected-only Selection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResearchSelectionReceiptV1 {
+    schema_version: u16,
+    receipt_identity: String,
+    selection_identity: String,
+    selection_digest: String,
+    candidate_identity: String,
+    candidate_digest: String,
+    decision_identity: String,
+    result_identity: String,
+    committed_at_epoch_ms: u64,
+}
+
+/// Atomic positive assessment, READY Decision, Candidate, and Selection custody returned by R&D.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReadyForSelectionDecisionReadbackV1 {
+    assessment: PositiveIterationAssessmentV1,
+    decision: ReadyForSelectionIterationDecisionV1,
+    receipt: IterationDecisionReceiptV1,
+    candidate: FrozenQualificationCandidateV1,
+    selection: ResearchSelectionV1,
+    selection_receipt: ResearchSelectionReceiptV1,
+}
+
 /// One already-committed Iteration Decision resolved without guessing its concrete branch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(
@@ -306,6 +520,7 @@ pub struct TrialBudgetTerminalStopDecisionReadbackV1 {
 pub enum ExistingIterationDecisionReadbackV1 {
     RepairInputs(RepairInputIterationDecisionReadbackV1),
     TrialBudgetTerminalStop(TrialBudgetTerminalStopDecisionReadbackV1),
+    ReadyForSelection(ReadyForSelectionDecisionReadbackV1),
 }
 
 impl RepairInputIterationDecisionV1 {
@@ -396,6 +611,228 @@ impl TrialBudgetTerminalStopDecisionReadbackV1 {
     pub fn receipt(&self) -> &IterationDecisionReceiptV1 {
         &self.receipt
     }
+}
+
+impl PositiveIterationAssessmentV1 {
+    pub fn assessment_identity(&self) -> &str {
+        &self.assessment_identity
+    }
+
+    pub fn assessment_digest(&self) -> &str {
+        &self.assessment_digest
+    }
+
+    pub fn evidence_cut(&self) -> &IterationDecisionEvidenceCutV1 {
+        &self.evidence_cut
+    }
+
+    pub fn candidate_identity(&self) -> &str {
+        &self.candidate_identity
+    }
+
+    pub fn candidate_digest(&self) -> &str {
+        &self.candidate_digest
+    }
+
+    pub fn positive_evidence(&self) -> &PositiveAssessmentEvidenceV1 {
+        &self.positive_evidence
+    }
+
+    pub fn protected_robustness_plan(&self) -> &ProtectedRobustnessPlanV1 {
+        &self.protected_robustness_plan
+    }
+}
+
+impl ProtectedRobustnessPlanV1 {
+    pub fn plan_identity(&self) -> &str {
+        &self.plan_identity
+    }
+
+    pub fn plan_digest(&self) -> &str {
+        &self.plan_digest
+    }
+
+    pub const fn plan_version(&self) -> u64 {
+        self.plan_version
+    }
+
+    pub fn artifact(&self) -> &PositiveAssessmentEvidenceReferenceV1 {
+        &self.artifact
+    }
+
+    pub fn proposal(&self) -> &ProtectedRobustnessPlanProposalV1 {
+        &self.proposal
+    }
+}
+
+impl FrozenQualificationCandidateV1 {
+    pub fn candidate_identity(&self) -> &str {
+        &self.candidate_identity
+    }
+
+    pub fn candidate_digest(&self) -> &str {
+        &self.candidate_digest
+    }
+
+    pub fn evidence_cut(&self) -> &IterationDecisionEvidenceCutV1 {
+        &self.evidence_cut
+    }
+
+    pub fn protected_robustness_plan(&self) -> &ProtectedRobustnessPlanV1 {
+        &self.protected_robustness_plan
+    }
+}
+
+impl ResearchSelectionV1 {
+    pub fn selection_identity(&self) -> &str {
+        &self.selection_identity
+    }
+
+    pub fn selection_digest(&self) -> &str {
+        &self.selection_digest
+    }
+
+    pub const fn disposition(&self) -> ResearchSelectionDispositionV1 {
+        self.disposition
+    }
+
+    pub fn candidate_identity(&self) -> &str {
+        &self.candidate_identity
+    }
+
+    pub fn candidate_digest(&self) -> &str {
+        &self.candidate_digest
+    }
+
+    pub fn decision_identity(&self) -> &str {
+        &self.decision_identity
+    }
+}
+
+impl ResearchSelectionReceiptV1 {
+    pub fn receipt_identity(&self) -> &str {
+        &self.receipt_identity
+    }
+
+    pub fn selection_identity(&self) -> &str {
+        &self.selection_identity
+    }
+
+    pub const fn committed_at_epoch_ms(&self) -> u64 {
+        self.committed_at_epoch_ms
+    }
+}
+
+impl ReadyForSelectionIterationDecisionV1 {
+    pub fn decision_identity(&self) -> &str {
+        &self.decision_identity
+    }
+
+    pub fn decision_digest(&self) -> &str {
+        &self.decision_digest
+    }
+
+    pub fn evidence_cut(&self) -> &IterationDecisionEvidenceCutV1 {
+        &self.evidence_cut
+    }
+
+    pub fn outcome(&self) -> &IterationDecisionOutcomeV1 {
+        &self.outcome
+    }
+
+    pub fn assessment_identity(&self) -> &str {
+        &self.assessment_identity
+    }
+
+    pub fn assessment_digest(&self) -> &str {
+        &self.assessment_digest
+    }
+}
+
+impl ReadyForSelectionDecisionReadbackV1 {
+    pub fn assessment(&self) -> &PositiveIterationAssessmentV1 {
+        &self.assessment
+    }
+
+    pub fn decision(&self) -> &ReadyForSelectionIterationDecisionV1 {
+        &self.decision
+    }
+
+    pub fn receipt(&self) -> &IterationDecisionReceiptV1 {
+        &self.receipt
+    }
+
+    pub fn candidate(&self) -> &FrozenQualificationCandidateV1 {
+        &self.candidate
+    }
+
+    pub fn selection(&self) -> &ResearchSelectionV1 {
+        &self.selection
+    }
+
+    pub fn selection_receipt(&self) -> &ResearchSelectionReceiptV1 {
+        &self.selection_receipt
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredPositiveIterationAssessmentV1 {
+    #[serde(rename = "schema_version")]
+    _schema_version: u16,
+    #[serde(rename = "assessment_identity")]
+    _assessment_identity: String,
+    #[serde(rename = "assessment_digest")]
+    _assessment_digest: String,
+    #[serde(rename = "evidence_cut")]
+    _evidence_cut: IterationDecisionEvidenceCutV1,
+    #[serde(rename = "candidate_identity")]
+    _candidate_identity: String,
+    #[serde(rename = "candidate_digest")]
+    _candidate_digest: String,
+    protected_robustness_plan: StoredProtectedRobustnessPlanV1,
+    positive_evidence: PositiveAssessmentEvidenceV1,
+    interpretation: IterationInterpretationContextV1,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredProtectedRobustnessPlanV1 {
+    #[serde(rename = "schema_version")]
+    _schema_version: u16,
+    #[serde(rename = "plan_identity")]
+    _plan_identity: String,
+    #[serde(rename = "plan_version")]
+    _plan_version: u64,
+    #[serde(rename = "plan_digest")]
+    _plan_digest: String,
+    #[serde(rename = "trial_family_identity")]
+    _trial_family_identity: String,
+    #[serde(rename = "trial_family_digest")]
+    _trial_family_digest: String,
+    #[serde(rename = "census_frontier_identity")]
+    _census_frontier_identity: String,
+    #[serde(rename = "census_frontier_digest")]
+    _census_frontier_digest: String,
+    #[serde(rename = "attempt_frontier_identity")]
+    _attempt_frontier_identity: String,
+    #[serde(rename = "attempt_frontier_digest")]
+    _attempt_frontier_digest: String,
+    #[serde(rename = "artifact")]
+    _artifact: PositiveAssessmentEvidenceReferenceV1,
+    #[serde(rename = "pit_rule_identity")]
+    _pit_rule_identity: String,
+    #[serde(rename = "cost_model_identity")]
+    _cost_model_identity: String,
+    #[serde(rename = "slippage_model_identity")]
+    _slippage_model_identity: String,
+    #[serde(rename = "capacity_model_identity")]
+    _capacity_model_identity: String,
+    #[serde(rename = "decision_policy_identity")]
+    _decision_policy_identity: String,
+    #[serde(rename = "decision_policy_version")]
+    _decision_policy_version: u64,
+    proposal: ProtectedRobustnessPlanProposalV1,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -1346,6 +1783,557 @@ fn validate_interpretation_cut_against_census_v1(
     Ok(())
 }
 
+pub(crate) fn issue_ready_for_selection_decision_v1(
+    census: &TrialFamilyCensusReadbackV2,
+    interpretation: IterationInterpretationContextV1,
+    artifact: PositiveAssessmentEvidenceReferenceV1,
+    positive_evidence: PositiveAssessmentEvidenceV1,
+    protected_robustness_plan: ProtectedRobustnessPlanProposalV1,
+    committed_at_epoch_ms: u64,
+) -> Result<ReadyForSelectionDecisionReadbackV1, IterationDecisionErrorV1> {
+    validate_interpretation_cut_against_census_v1(census, &interpretation)?;
+    if census.consumed_trial_budget() >= census.legacy_family.root().policy().trial_budget {
+        return Err(IterationDecisionErrorV1::InvalidStoredDecision(
+            "TrialFamily hard stop preempts readiness",
+        ));
+    }
+    if interpretation.diagnostic != IterationInterpretationDiagnosticV1::NoExecutionDefect {
+        return Err(IterationDecisionErrorV1::InvalidStoredDecision(
+            "positive assessment requires NO_EXECUTION_DEFECT",
+        ));
+    }
+    validate_complete_interpretation_v1(&interpretation)?;
+    let expected_dispositions = [
+        IterationDiagnosisDispositionV1::EvidenceEstablished,
+        IterationDiagnosisDispositionV1::Unresolved,
+        IterationDiagnosisDispositionV1::Unresolved,
+        IterationDiagnosisDispositionV1::Unresolved,
+        IterationDiagnosisDispositionV1::NoExecutionDefect,
+        IterationDiagnosisDispositionV1::Unresolved,
+    ];
+    if interpretation
+        .diagnosis_findings
+        .iter()
+        .zip(expected_dispositions)
+        .any(|(finding, expected)| finding.disposition != expected)
+    {
+        return Err(IterationDecisionErrorV1::InvalidStoredDecision(
+            "positive assessment does not extend the canonical unresolved dimensions",
+        ));
+    }
+    validate_positive_assessment_evidence_v1(&positive_evidence)?;
+
+    issue_ready_for_selection_from_parts_v1(
+        census,
+        interpretation,
+        artifact,
+        positive_evidence,
+        protected_robustness_plan,
+        committed_at_epoch_ms,
+    )
+}
+
+pub(crate) fn admit_stored_ready_for_selection_decision_v1(
+    census: &TrialFamilyCensusReadbackV2,
+    artifact: &PositiveAssessmentEvidenceReferenceV1,
+    assessment_bytes: &[u8],
+    decision_bytes: &[u8],
+    receipt_bytes: &[u8],
+    candidate_bytes: &[u8],
+    selection_bytes: &[u8],
+    selection_receipt_bytes: &[u8],
+) -> Result<ReadyForSelectionDecisionReadbackV1, IterationDecisionErrorV1> {
+    let assessment: StoredPositiveIterationAssessmentV1 = serde_json::from_slice(assessment_bytes)
+        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+    let _: serde_json::Value = serde_json::from_slice(decision_bytes)
+        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+    let _: serde_json::Value = serde_json::from_slice(candidate_bytes)
+        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+    let _: serde_json::Value = serde_json::from_slice(selection_bytes)
+        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+    let _: serde_json::Value = serde_json::from_slice(selection_receipt_bytes)
+        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+    let stored_receipt: StoredIterationDecisionReceiptV1 = serde_json::from_slice(receipt_bytes)
+        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+    let expected = issue_ready_for_selection_decision_v1(
+        census,
+        assessment.interpretation,
+        artifact.clone(),
+        assessment.positive_evidence,
+        assessment.protected_robustness_plan.proposal,
+        stored_receipt.committed_at_epoch_ms,
+    )?;
+    if serde_json::to_vec(expected.assessment())
+        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?
+        != assessment_bytes
+        || serde_json::to_vec(expected.decision())
+            .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?
+            != decision_bytes
+        || serde_json::to_vec(expected.receipt())
+            .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?
+            != receipt_bytes
+        || serde_json::to_vec(expected.candidate())
+            .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?
+            != candidate_bytes
+        || serde_json::to_vec(expected.selection())
+            .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?
+            != selection_bytes
+        || serde_json::to_vec(expected.selection_receipt())
+            .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?
+            != selection_receipt_bytes
+    {
+        return Err(IterationDecisionErrorV1::InvalidStoredDecision(
+            "stored READY assessment, Decision, Candidate, Selection, receipt, or digest mismatch",
+        ));
+    }
+    Ok(expected)
+}
+
+fn issue_ready_for_selection_from_parts_v1(
+    census: &TrialFamilyCensusReadbackV2,
+    interpretation: IterationInterpretationContextV1,
+    artifact: PositiveAssessmentEvidenceReferenceV1,
+    positive_evidence: PositiveAssessmentEvidenceV1,
+    protected_robustness_plan: ProtectedRobustnessPlanProposalV1,
+    committed_at_epoch_ms: u64,
+) -> Result<ReadyForSelectionDecisionReadbackV1, IterationDecisionErrorV1> {
+    validate_complete_interpretation_v1(&interpretation)?;
+    validate_positive_assessment_evidence_v1(&positive_evidence)?;
+    let evidence_cut = interpretation.evidence_cut.clone();
+    let protected_robustness_plan =
+        issue_protected_robustness_plan_v1(census, artifact, protected_robustness_plan)?;
+    let trial_family_policy = census.legacy_family.root().policy();
+    let candidate_digest = canonical_digest(
+        "rd.qualification-candidate-cut.v1",
+        &QualificationCandidateCutMeaningV1 {
+            schema_version: 1,
+            evidence_cut: &evidence_cut,
+            artifact: protected_robustness_plan.artifact(),
+            protected_robustness_plan: &protected_robustness_plan,
+            trial_family_policy_digest: census.legacy_family.root().policy_digest(),
+            consumed_trial_budget: census.consumed_trial_budget(),
+            frozen_falsifier_binding: &trial_family_policy.frozen_falsifier_binding,
+            stop_rule: &trial_family_policy.stop_rule,
+            cost_model_identity: &trial_family_policy.cost_model_identity,
+            slippage_model_identity: &trial_family_policy.slippage_model_identity,
+            capacity_model_identity: &trial_family_policy.capacity_model_identity,
+            semantic_predecessor_frontier: &trial_family_policy.semantic_predecessor_frontier,
+            protected_feedback_frontier: &trial_family_policy.protected_feedback_frontier,
+            independence_disposition: trial_family_policy.independence_disposition,
+            independence_basis_identity: &trial_family_policy.independence_basis_identity,
+        },
+    )?;
+    let candidate_identity = format!(
+        "rd-qualification-candidate-v1-{}",
+        candidate_digest.trim_start_matches("sha256:")
+    );
+    let candidate = FrozenQualificationCandidateV1 {
+        schema_version: 1,
+        candidate_identity: candidate_identity.clone(),
+        candidate_digest: candidate_digest.clone(),
+        evidence_cut: evidence_cut.clone(),
+        artifact: protected_robustness_plan.artifact().clone(),
+        protected_robustness_plan: protected_robustness_plan.clone(),
+        trial_family_policy_digest: census.legacy_family.root().policy_digest().to_string(),
+        consumed_trial_budget: census.consumed_trial_budget(),
+        frozen_falsifier_binding: trial_family_policy.frozen_falsifier_binding.clone(),
+        stop_rule: trial_family_policy.stop_rule.clone(),
+        cost_model_identity: trial_family_policy.cost_model_identity.clone(),
+        slippage_model_identity: trial_family_policy.slippage_model_identity.clone(),
+        capacity_model_identity: trial_family_policy.capacity_model_identity.clone(),
+        semantic_predecessor_frontier: trial_family_policy.semantic_predecessor_frontier.clone(),
+        protected_feedback_frontier: trial_family_policy.protected_feedback_frontier.clone(),
+        independence_disposition: trial_family_policy.independence_disposition,
+        independence_basis_identity: trial_family_policy.independence_basis_identity.clone(),
+    };
+    let assessment_digest = canonical_digest(
+        "rd.iteration-positive-assessment.v1",
+        &PositiveAssessmentMeaningV1 {
+            schema_version: 1,
+            evidence_cut: &evidence_cut,
+            candidate_identity: &candidate_identity,
+            candidate_digest: &candidate_digest,
+            protected_robustness_plan: &protected_robustness_plan,
+            positive_evidence: &positive_evidence,
+            interpretation: &interpretation,
+        },
+    )?;
+    let assessment_identity = format!(
+        "rd-iteration-positive-assessment-v1-{}",
+        assessment_digest.trim_start_matches("sha256:")
+    );
+    let assessment = PositiveIterationAssessmentV1 {
+        schema_version: 1,
+        assessment_identity: assessment_identity.clone(),
+        assessment_digest: assessment_digest.clone(),
+        evidence_cut: evidence_cut.clone(),
+        candidate_identity: candidate_identity.clone(),
+        candidate_digest: candidate_digest.clone(),
+        protected_robustness_plan: protected_robustness_plan.clone(),
+        positive_evidence,
+        interpretation,
+    };
+    let outcome = IterationDecisionOutcomeV1::ReadyForSelection {
+        candidate_identity,
+        candidate_digest,
+    };
+    let decision_digest = canonical_digest(
+        "rd.iteration-decision.ready-for-selection.v1",
+        &ReadyForSelectionDecisionMeaningV1 {
+            schema_version: 1,
+            evidence_cut: &evidence_cut,
+            outcome: &outcome,
+            assessment_identity: &assessment_identity,
+            assessment_digest: &assessment_digest,
+        },
+    )?;
+    let decision_identity = format!(
+        "rd-iteration-decision-v1-{}",
+        decision_digest.trim_start_matches("sha256:")
+    );
+    let decision = ReadyForSelectionIterationDecisionV1 {
+        schema_version: 1,
+        decision_identity: decision_identity.clone(),
+        decision_digest: decision_digest.clone(),
+        evidence_cut,
+        outcome,
+        assessment_identity,
+        assessment_digest,
+    };
+    let receipt_digest = canonical_digest(
+        "rd.iteration-decision-receipt.v1",
+        &DecisionReceiptMeaningV1 {
+            schema_version: 1,
+            decision_identity: &decision_identity,
+            decision_digest: &decision_digest,
+            result_identity: &decision.evidence_cut.result_identity,
+            committed_at_epoch_ms,
+        },
+    )?;
+    let receipt = IterationDecisionReceiptV1 {
+        schema_version: 1,
+        receipt_identity: format!(
+            "rd-iteration-decision-receipt-v1-{}",
+            receipt_digest.trim_start_matches("sha256:")
+        ),
+        decision_identity,
+        decision_digest,
+        result_identity: decision.evidence_cut.result_identity.clone(),
+        committed_at_epoch_ms,
+    };
+    let disposition = ResearchSelectionDispositionV1::SelectedForQualification;
+    let rationale = ResearchSelectionRationaleV1::PositiveAssessmentSatisfied;
+    let selection_digest = canonical_digest(
+        "rd.research-selection.v1",
+        &ResearchSelectionMeaningV1 {
+            schema_version: 1,
+            disposition,
+            rationale,
+            candidate_identity: candidate.candidate_identity(),
+            candidate_digest: candidate.candidate_digest(),
+            assessment_identity: assessment.assessment_identity(),
+            assessment_digest: assessment.assessment_digest(),
+            decision_identity: decision.decision_identity(),
+            decision_digest: decision.decision_digest(),
+            evidence_cut: decision.evidence_cut(),
+            cost_model_identity: &trial_family_policy.cost_model_identity,
+            slippage_model_identity: &trial_family_policy.slippage_model_identity,
+            capacity_model_identity: &trial_family_policy.capacity_model_identity,
+            protected_decision_policy_identity: &protected_robustness_plan
+                .proposal()
+                .protected_decision_policy
+                .identity,
+            protected_decision_policy_version: protected_robustness_plan
+                .proposal()
+                .protected_decision_policy
+                .version,
+        },
+    )?;
+    let selection_identity = format!(
+        "rd-research-selection-v1-{}",
+        selection_digest.trim_start_matches("sha256:")
+    );
+    let selection = ResearchSelectionV1 {
+        schema_version: 1,
+        selection_identity: selection_identity.clone(),
+        selection_digest: selection_digest.clone(),
+        disposition,
+        rationale,
+        candidate_identity: candidate.candidate_identity().to_string(),
+        candidate_digest: candidate.candidate_digest().to_string(),
+        assessment_identity: assessment.assessment_identity().to_string(),
+        assessment_digest: assessment.assessment_digest().to_string(),
+        decision_identity: decision.decision_identity().to_string(),
+        decision_digest: decision.decision_digest().to_string(),
+        evidence_cut: decision.evidence_cut().clone(),
+        cost_model_identity: trial_family_policy.cost_model_identity.clone(),
+        slippage_model_identity: trial_family_policy.slippage_model_identity.clone(),
+        capacity_model_identity: trial_family_policy.capacity_model_identity.clone(),
+        protected_decision_policy_identity: protected_robustness_plan
+            .proposal()
+            .protected_decision_policy
+            .identity
+            .clone(),
+        protected_decision_policy_version: protected_robustness_plan
+            .proposal()
+            .protected_decision_policy
+            .version,
+    };
+    let selection_receipt_digest = canonical_digest(
+        "rd.research-selection-receipt.v1",
+        &ResearchSelectionReceiptMeaningV1 {
+            schema_version: 1,
+            selection_identity: &selection_identity,
+            selection_digest: &selection_digest,
+            candidate_identity: candidate.candidate_identity(),
+            candidate_digest: candidate.candidate_digest(),
+            decision_identity: decision.decision_identity(),
+            result_identity: &decision.evidence_cut().result_identity,
+            committed_at_epoch_ms,
+        },
+    )?;
+    let selection_receipt = ResearchSelectionReceiptV1 {
+        schema_version: 1,
+        receipt_identity: format!(
+            "rd-research-selection-receipt-v1-{}",
+            selection_receipt_digest.trim_start_matches("sha256:")
+        ),
+        selection_identity,
+        selection_digest,
+        candidate_identity: candidate.candidate_identity().to_string(),
+        candidate_digest: candidate.candidate_digest().to_string(),
+        decision_identity: decision.decision_identity().to_string(),
+        result_identity: decision.evidence_cut().result_identity.clone(),
+        committed_at_epoch_ms,
+    };
+    Ok(ReadyForSelectionDecisionReadbackV1 {
+        assessment,
+        decision,
+        receipt,
+        candidate,
+        selection,
+        selection_receipt,
+    })
+}
+
+fn validate_positive_assessment_evidence_v1(
+    evidence: &PositiveAssessmentEvidenceV1,
+) -> Result<(), IterationDecisionErrorV1> {
+    let dimensions = [
+        evidence.mechanism_validity.as_slice(),
+        evidence.economic_viability.as_slice(),
+        evidence.robustness.as_slice(),
+        evidence.information_value.as_slice(),
+    ];
+    let mut identities = BTreeSet::new();
+    let mut digests = BTreeSet::new();
+    for dimension in dimensions {
+        if dimension.is_empty() || dimension.len() > 16 {
+            return Err(IterationDecisionErrorV1::InvalidStoredDecision(
+                "positive assessment dimension evidence is empty or unbounded",
+            ));
+        }
+        for reference in dimension {
+            if !is_valid_iteration_decision_locator_v1(&reference.identity)
+                || reference.digest.len() != 71
+                || !reference.digest.starts_with("sha256:")
+                || !reference.digest[7..]
+                    .bytes()
+                    .all(|byte| byte.is_ascii_hexdigit())
+                || !identities.insert(reference.identity.as_str())
+                || !digests.insert(reference.digest.as_str())
+            {
+                return Err(IterationDecisionErrorV1::InvalidStoredDecision(
+                    "positive assessment evidence reference is invalid or duplicated",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn ready_candidate_artifact_v1(
+    result: &ReplayResultDtoV2,
+) -> Result<PositiveAssessmentEvidenceReferenceV1, IterationDecisionErrorV1> {
+    let mut artifacts = result
+        .reconciliation
+        .iter()
+        .filter(|atom| atom.component == ObservationComponentV2::Artifact);
+    let artifact =
+        artifacts
+            .next()
+            .ok_or(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+                "locked Replay result is missing the requested Artifact",
+            ))?;
+    if artifacts.next().is_some()
+        || artifact.status != ReconciliationStatusV2::Exact
+        || artifact.observed_meaning_identity.as_ref() != Some(&artifact.requested_meaning_identity)
+        || artifact.observed_meaning_digest.as_ref() != Some(&artifact.requested_meaning_digest)
+    {
+        return Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+            "locked Replay result does not prove one exact Artifact",
+        ));
+    }
+    Ok(PositiveAssessmentEvidenceReferenceV1 {
+        identity: artifact.requested_meaning_identity.as_str().to_string(),
+        digest: artifact.requested_meaning_digest.as_str().to_string(),
+    })
+}
+
+fn issue_protected_robustness_plan_v1(
+    census: &TrialFamilyCensusReadbackV2,
+    artifact: PositiveAssessmentEvidenceReferenceV1,
+    proposal: ProtectedRobustnessPlanProposalV1,
+) -> Result<ProtectedRobustnessPlanV1, IterationDecisionErrorV1> {
+    validate_owner_artifact_reference_v1(&artifact)?;
+    validate_protected_robustness_plan_proposal_v1(&proposal)?;
+    let family = &census.legacy_family;
+    let policy = family.root().policy();
+    let decision_policy = policy.decision_policy_v1().ok_or(
+        IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+            "TrialFamily is missing its preregistered Decision policy",
+        ),
+    )?;
+    let meaning = ProtectedRobustnessPlanMeaningV1 {
+        schema_version: 1,
+        plan_version: 1,
+        trial_family_identity: family.root().trial_family_identity(),
+        trial_family_digest: family.root().root_digest(),
+        census_frontier_identity: census.census_frontier.frontier_identity(),
+        census_frontier_digest: census.census_frontier.frontier_digest(),
+        attempt_frontier_identity: census.attempt_frontier.frontier_identity(),
+        attempt_frontier_digest: census.attempt_frontier.frontier_digest(),
+        artifact: &artifact,
+        pit_rule_identity: &policy.pit_rule_identity,
+        cost_model_identity: &policy.cost_model_identity,
+        slippage_model_identity: &policy.slippage_model_identity,
+        capacity_model_identity: &policy.capacity_model_identity,
+        decision_policy_identity: decision_policy.policy_identity(),
+        decision_policy_version: decision_policy.policy_version(),
+        proposal: &proposal,
+    };
+    let plan_digest = canonical_digest("rd.protected-robustness-plan.v1", &meaning)?;
+    Ok(ProtectedRobustnessPlanV1 {
+        schema_version: 1,
+        plan_identity: format!(
+            "rd-protected-robustness-plan-v1-{}",
+            plan_digest.trim_start_matches("sha256:")
+        ),
+        plan_version: 1,
+        plan_digest,
+        trial_family_identity: meaning.trial_family_identity.to_string(),
+        trial_family_digest: meaning.trial_family_digest.to_string(),
+        census_frontier_identity: meaning.census_frontier_identity.to_string(),
+        census_frontier_digest: meaning.census_frontier_digest.to_string(),
+        attempt_frontier_identity: meaning.attempt_frontier_identity.to_string(),
+        attempt_frontier_digest: meaning.attempt_frontier_digest.to_string(),
+        artifact: artifact.clone(),
+        pit_rule_identity: meaning.pit_rule_identity.to_string(),
+        cost_model_identity: meaning.cost_model_identity.to_string(),
+        slippage_model_identity: meaning.slippage_model_identity.to_string(),
+        capacity_model_identity: meaning.capacity_model_identity.to_string(),
+        decision_policy_identity: meaning.decision_policy_identity.to_string(),
+        decision_policy_version: meaning.decision_policy_version,
+        proposal,
+    })
+}
+
+fn validate_owner_artifact_reference_v1(
+    artifact: &PositiveAssessmentEvidenceReferenceV1,
+) -> Result<(), IterationDecisionErrorV1> {
+    if OpaqueIdentityV2::try_from(artifact.identity.clone()).is_err()
+        || CanonicalDigestV2::try_from(artifact.digest.clone()).is_err()
+    {
+        return Err(IterationDecisionErrorV1::InvalidStoredDecision(
+            "assessment artifact reference is invalid",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_protected_robustness_plan_proposal_v1(
+    proposal: &ProtectedRobustnessPlanProposalV1,
+) -> Result<(), IterationDecisionErrorV1> {
+    let cell_dimensions = [
+        proposal.required_time_windows.as_slice(),
+        proposal.required_regimes.as_slice(),
+        proposal.required_instrument_slices.as_slice(),
+        proposal.required_perturbations.as_slice(),
+        proposal.required_parameter_neighborhoods.as_slice(),
+    ];
+    let mut cell_count = 1usize;
+    let mut cell_identities = BTreeSet::new();
+    let mut cell_digests = BTreeSet::new();
+    for dimension in cell_dimensions {
+        if dimension.is_empty() || dimension.len() > 16 {
+            return Err(IterationDecisionErrorV1::InvalidStoredDecision(
+                "protected robustness plan cell dimension is empty or unbounded",
+            ));
+        }
+        cell_count = cell_count.checked_mul(dimension.len()).ok_or(
+            IterationDecisionErrorV1::InvalidStoredDecision(
+                "protected robustness plan cell census is unbounded",
+            ),
+        )?;
+        if cell_count > 4_096 {
+            return Err(IterationDecisionErrorV1::InvalidStoredDecision(
+                "protected robustness plan cell census is unbounded",
+            ));
+        }
+        for reference in dimension {
+            validate_evidence_reference_v1(reference)?;
+            if !cell_identities.insert(reference.identity.as_str())
+                || !cell_digests.insert(reference.digest.as_str())
+            {
+                return Err(IterationDecisionErrorV1::InvalidStoredDecision(
+                    "protected robustness plan cell is duplicated",
+                ));
+            }
+        }
+    }
+    for policy in [
+        &proposal.metric,
+        &proposal.coverage_policy,
+        &proposal.tolerance_policy,
+        &proposal.threshold_policy,
+        &proposal.aggregation_policy,
+        &proposal.missing_cell_policy,
+        &proposal.stop_policy,
+        &proposal.purge_policy,
+        &proposal.embargo_policy,
+        &proposal.multiplicity_policy,
+    ] {
+        validate_evidence_reference_v1(policy)?;
+    }
+    validate_evidence_reference_v1(&PositiveAssessmentEvidenceReferenceV1 {
+        identity: proposal.protected_decision_policy.identity.clone(),
+        digest: proposal.protected_decision_policy.digest.clone(),
+    })?;
+    if proposal.protected_decision_policy.version == 0 {
+        return Err(IterationDecisionErrorV1::InvalidStoredDecision(
+            "protected decision policy version is invalid",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_evidence_reference_v1(
+    reference: &PositiveAssessmentEvidenceReferenceV1,
+) -> Result<(), IterationDecisionErrorV1> {
+    if !is_valid_iteration_decision_locator_v1(&reference.identity)
+        || reference.digest.len() != 71
+        || !reference.digest.starts_with("sha256:")
+        || !reference.digest[7..]
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err(IterationDecisionErrorV1::InvalidStoredDecision(
+            "assessment evidence reference is invalid",
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Serialize)]
 struct RepairDecisionMeaningV1<'a> {
     schema_version: u16,
@@ -1362,6 +2350,96 @@ struct TrialBudgetTerminalStopDecisionMeaningV1<'a> {
     consumed_trial_budget: u32,
     trial_budget: u32,
     interpretation: &'a IterationInterpretationContextV1,
+}
+
+#[derive(Serialize)]
+struct PositiveAssessmentMeaningV1<'a> {
+    schema_version: u16,
+    evidence_cut: &'a IterationDecisionEvidenceCutV1,
+    candidate_identity: &'a str,
+    candidate_digest: &'a str,
+    protected_robustness_plan: &'a ProtectedRobustnessPlanV1,
+    positive_evidence: &'a PositiveAssessmentEvidenceV1,
+    interpretation: &'a IterationInterpretationContextV1,
+}
+
+#[derive(Serialize)]
+struct ProtectedRobustnessPlanMeaningV1<'a> {
+    schema_version: u16,
+    plan_version: u64,
+    trial_family_identity: &'a str,
+    trial_family_digest: &'a str,
+    census_frontier_identity: &'a str,
+    census_frontier_digest: &'a str,
+    attempt_frontier_identity: &'a str,
+    attempt_frontier_digest: &'a str,
+    artifact: &'a PositiveAssessmentEvidenceReferenceV1,
+    pit_rule_identity: &'a str,
+    cost_model_identity: &'a str,
+    slippage_model_identity: &'a str,
+    capacity_model_identity: &'a str,
+    decision_policy_identity: &'a str,
+    decision_policy_version: u64,
+    proposal: &'a ProtectedRobustnessPlanProposalV1,
+}
+
+#[derive(Serialize)]
+struct QualificationCandidateCutMeaningV1<'a> {
+    schema_version: u16,
+    evidence_cut: &'a IterationDecisionEvidenceCutV1,
+    artifact: &'a PositiveAssessmentEvidenceReferenceV1,
+    protected_robustness_plan: &'a ProtectedRobustnessPlanV1,
+    trial_family_policy_digest: &'a str,
+    consumed_trial_budget: u32,
+    frozen_falsifier_binding: &'a str,
+    stop_rule: &'a str,
+    cost_model_identity: &'a str,
+    slippage_model_identity: &'a str,
+    capacity_model_identity: &'a str,
+    semantic_predecessor_frontier: &'a [String],
+    protected_feedback_frontier: &'a str,
+    independence_disposition: TrialFamilyIndependenceDispositionV1,
+    independence_basis_identity: &'a str,
+}
+
+#[derive(Serialize)]
+struct ResearchSelectionMeaningV1<'a> {
+    schema_version: u16,
+    disposition: ResearchSelectionDispositionV1,
+    rationale: ResearchSelectionRationaleV1,
+    candidate_identity: &'a str,
+    candidate_digest: &'a str,
+    assessment_identity: &'a str,
+    assessment_digest: &'a str,
+    decision_identity: &'a str,
+    decision_digest: &'a str,
+    evidence_cut: &'a IterationDecisionEvidenceCutV1,
+    cost_model_identity: &'a str,
+    slippage_model_identity: &'a str,
+    capacity_model_identity: &'a str,
+    protected_decision_policy_identity: &'a str,
+    protected_decision_policy_version: u64,
+}
+
+#[derive(Serialize)]
+struct ResearchSelectionReceiptMeaningV1<'a> {
+    schema_version: u16,
+    selection_identity: &'a str,
+    selection_digest: &'a str,
+    candidate_identity: &'a str,
+    candidate_digest: &'a str,
+    decision_identity: &'a str,
+    result_identity: &'a str,
+    committed_at_epoch_ms: u64,
+}
+
+#[derive(Serialize)]
+struct ReadyForSelectionDecisionMeaningV1<'a> {
+    schema_version: u16,
+    evidence_cut: &'a IterationDecisionEvidenceCutV1,
+    outcome: &'a IterationDecisionOutcomeV1,
+    assessment_identity: &'a str,
+    assessment_digest: &'a str,
 }
 
 #[derive(Serialize)]
@@ -1568,15 +2646,26 @@ const fn repair_target(category: IterationRepairCategoryV1) -> IterationRepairTa
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use vibe_backtest_owner_contracts::{
         CanonicalDigestV2, ComponentObservationLocatorV2, ConsumedComponentObservationDtoV2,
-        DiagnosticEvidenceDtoV2, ObservationComponentV2, OpaqueIdentityV2, ReconciliationAtomDtoV2,
-        ReconciliationStatusV2, ReplayAuthorityClaimV2,
+        ContentIdentityV2, DiagnosticEvidenceDtoV2, ObservationComponentV2, OpaqueIdentityV2,
+        ReconciliationAtomDtoV2, ReconciliationStatusV2, ReplayAuthorityClaimV2, ReplayWindowV2,
+        VersionedIdentityV2,
     };
 
     use super::*;
     use crate::product_edge::{FrozenResearchGoalIntentV2, SourcedResearchGoalV2};
+    use crate::replay_economic_configuration_v1::{
+        ReplayEconomicConfigurationV1, economic_fixture,
+    };
+    use crate::replay_execution_policy_v2::ReplayExecutionPolicyV2;
+    use crate::replay_policy_catalog_v2::{
+        ReplayPolicyCatalogBindingV2, ReplayPolicyCatalogBindingV3,
+    };
+    use crate::replay_runner_operational_profile_v1::{
+        ReplayRunnerOperationalProfileV1, runner_fixture,
+    };
     use crate::trial_family::{
         TrialFamilyAttemptAppendV2, TrialFamilyCandidateSetProposalV2,
         TrialFamilyIndependenceDispositionV1, TrialFamilyPolicyV1, append_attempt_to_census_v2,
@@ -1593,7 +2682,54 @@ mod tests {
             .expect("valid digest")
     }
 
+    fn hex(bytes: &[u8]) -> String {
+        bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+
     fn policy() -> TrialFamilyPolicyV1 {
+        let economic = ReplayEconomicConfigurationV1::seal(economic_fixture()).unwrap();
+        let runner = ReplayRunnerOperationalProfileV1::seal(runner_fixture()).unwrap();
+        let versioned = |value: &str| VersionedIdentityV2 {
+            identity: identity(value),
+            version: identity("v1"),
+        };
+        let content = |value: &str, digest: CanonicalDigestV2| ContentIdentityV2 {
+            identity: identity(value),
+            digest,
+        };
+        let execution = ReplayExecutionPolicyV2 {
+            runtime_kernel: versioned("runtime-kernel-v2"),
+            simulator: versioned("simulator-v2"),
+            cost: versioned("cost-v1"),
+            slippage: versioned("slippage-v1"),
+            capacity: versioned("capacity-v1"),
+            runner_operational_profile: versioned("runner-profile-v1"),
+            diagnostic_policy: versioned("diagnostic-policy-v1"),
+            deterministic_seed: 17,
+            window: ReplayWindowV2 {
+                start_event_ns: 1,
+                end_event_ns_exclusive: 2,
+            },
+            calendar: versioned("calendar-v1"),
+            session: versioned("session-v1"),
+            time_zone: versioned("time-zone-v1"),
+            correction_rule: versioned("correction-rule-v1"),
+            market_semantics: versioned("market-semantics-v1"),
+            replay_configuration: content(
+                "economic-profile-v1",
+                CanonicalDigestV2::try_from(format!("sha256:{}", hex(&economic.digest()))).unwrap(),
+            ),
+            corporate_action_cut: content("corporate-action-cut-v1", digest("sha256", 'd')),
+            historical_membership_cut: content("membership-cut-v1", digest("sha256", 'e')),
+        };
+        let catalog_v2 = ReplayPolicyCatalogBindingV2::from_policy(
+            "replay-policy-catalog-decision-v2",
+            1,
+            &execution,
+        )
+        .unwrap();
+        let catalog_v3 =
+            ReplayPolicyCatalogBindingV3::issue(catalog_v2.clone(), &economic, &runner).unwrap();
         TrialFamilyPolicyV1 {
             trial_budget: 2,
             stop_rule: "bounded-stop-v1".to_string(),
@@ -1609,25 +2745,14 @@ mod tests {
                 "Does the signal survive exact costs?",
             )
             .expect("valid falsifier"),
-            replay_execution_policy_v2: None,
-            replay_policy_catalog_v3: None,
-            decision_policy_v1: None,
+            replay_execution_policy_v2: Some(catalog_v2),
+            replay_policy_catalog_v3: Some(catalog_v3.clone()),
+            decision_policy_v1: Some(IterationDecisionPolicyBindingV1::seal(&catalog_v3).unwrap()),
         }
     }
 
     fn decision_policy() -> IterationDecisionPolicyBindingV1 {
-        IterationDecisionPolicyBindingV1 {
-            schema_version: 1,
-            policy_identity: ITERATION_DECISION_POLICY_ID_V1.to_string(),
-            policy_version: ITERATION_DECISION_POLICY_VERSION_V1,
-            policy_digest: Sha256::digest(ITERATION_DECISION_POLICY_DESCRIPTOR_V1).into(),
-            diagnostic_policy_identity: "diagnostic-policy-v1".to_string(),
-            diagnostic_policy_version: "v1".to_string(),
-            replay_catalog_record_id: "catalog-v3".to_string(),
-            replay_catalog_version: 1,
-            replay_catalog_record_digest: [6; 32],
-            binding_digest: [7; 32],
-        }
+        policy().decision_policy_v1.unwrap()
     }
 
     fn census(disposition: TrialFamilyAttemptTerminalDispositionV2) -> TrialFamilyCensusReadbackV2 {
@@ -2051,6 +3176,293 @@ mod tests {
             admit_stored_trial_budget_terminal_stop_decision_v1(&decision_bytes, &receipt_bytes)
                 .expect("stored terminal Decision");
         assert_eq!(admitted, readback);
+    }
+
+    fn positive_assessment_evidence() -> PositiveAssessmentEvidenceV1 {
+        let reference = |name: &str, byte: char| PositiveAssessmentEvidenceReferenceV1 {
+            identity: name.to_string(),
+            digest: format!("sha256:{}", byte.to_string().repeat(64)),
+        };
+        PositiveAssessmentEvidenceV1 {
+            mechanism_validity: vec![reference("mechanism-evidence-v1", '1')],
+            economic_viability: vec![reference("economic-evidence-v1", '2')],
+            robustness: vec![reference("robustness-evidence-v1", '3')],
+            information_value: vec![reference("information-evidence-v1", '4')],
+        }
+    }
+
+    fn protected_robustness_plan() -> ProtectedRobustnessPlanProposalV1 {
+        let reference = |name: &str, byte: char| PositiveAssessmentEvidenceReferenceV1 {
+            identity: name.to_string(),
+            digest: format!("sha256:{}", byte.to_string().repeat(64)),
+        };
+        ProtectedRobustnessPlanProposalV1 {
+            required_time_windows: vec![reference("protected-time-window-v1", '5')],
+            required_regimes: vec![reference("protected-regime-v1", '6')],
+            required_instrument_slices: vec![reference("protected-instrument-slice-v1", '7')],
+            required_perturbations: vec![reference("protected-perturbation-v1", '8')],
+            required_parameter_neighborhoods: vec![reference(
+                "protected-parameter-neighborhood-v1",
+                '9',
+            )],
+            metric: reference("protected-metric-v1", 'a'),
+            coverage_policy: reference("protected-coverage-policy-v1", 'b'),
+            tolerance_policy: reference("protected-tolerance-policy-v1", 'c'),
+            threshold_policy: reference("protected-threshold-policy-v1", 'd'),
+            aggregation_policy: reference("protected-aggregation-policy-v1", 'e'),
+            missing_cell_policy: reference("protected-missing-cell-policy-v1", 'f'),
+            stop_policy: reference("protected-stop-policy-v1", '0'),
+            purge_policy: reference("protected-purge-policy-v1", '1'),
+            embargo_policy: reference("protected-embargo-policy-v1", '2'),
+            multiplicity_policy: reference("protected-multiplicity-policy-v1", '3'),
+            protected_decision_policy: ProtectedDecisionPolicyProposalV1 {
+                identity: "protected-decision-policy-v1".to_string(),
+                version: 1,
+                digest: format!("sha256:{}", "4".repeat(64)),
+            },
+        }
+    }
+
+    pub(crate) fn ready_storage_acceptance_fixture_v1(
+        census: &TrialFamilyCensusReadbackV2,
+        result: &ReplayResultDtoV2,
+        positive_evidence: PositiveAssessmentEvidenceV1,
+        protected_plan: ProtectedRobustnessPlanProposalV1,
+        committed_at_epoch_ms: u64,
+    ) -> Result<ReadyForSelectionDecisionReadbackV1, IterationDecisionErrorV1> {
+        let decision_policy = census
+            .decision_policy_v1()
+            .ok_or(IterationDecisionErrorV1::DecisionPolicyUnavailable)?;
+        let gate = gate_result(census, result, decision_policy)?;
+        let initial_intent = census.legacy_family.initial_intent_member();
+        let intent = FrozenResearchGoalIntent::V2(FrozenResearchGoalIntentV2 {
+            schema_version: 2,
+            intent_identity: initial_intent.fact_identity().to_string(),
+            request_identity: "ready-storage-acceptance-research-request-v1".to_string(),
+            semantic_digest: initial_intent.fact_digest().to_string(),
+            source_frontier: Vec::new(),
+            goal: SourcedResearchGoalV2 {
+                hypothesis: "positive exploratory result".to_string(),
+                mechanism: "bound storage acceptance mechanism".to_string(),
+                falsification_question: "does the result survive the protected plan?".to_string(),
+                expected_observation: "positive protected evidence".to_string(),
+                required_data: vec!["canonical replay evidence".to_string()],
+                cost_assumption: "frozen family cost model".to_string(),
+                capacity_assumption: "frozen family capacity model".to_string(),
+                sources: Vec::new(),
+            },
+            independence_basis_identity: "ready-storage-acceptance-basis-v1".to_string(),
+            independence_basis_digest: format!("sha256:{}", "a".repeat(64)),
+            protected_feedback_projection_identity:
+                "ready-storage-acceptance-protected-frontier-v1".to_string(),
+            protected_feedback_projection_digest: format!("sha256:{}", "b".repeat(64)),
+            trial_family_identity: census.census_frontier.trial_family_identity().to_string(),
+            trial_family_policy_digest: census.legacy_family.root().policy_digest().to_string(),
+            frozen_at_epoch_ms: 1,
+        });
+        let binding = |component| {
+            result
+                .reconciliation
+                .iter()
+                .find(|atom| atom.component == component)
+                .ok_or(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+                    "storage acceptance component binding is missing",
+                ))
+        };
+        let frozen_intent = binding(ObservationComponentV2::FrozenResearchIntent)?;
+        let replay_census = binding(ObservationComponentV2::TrialFamilyCensusFrontier)?;
+        let outcome_evidence = IterationInterpretationOutcomeEvidenceV1 {
+            evidence_identity: "ready-storage-acceptance-outcome-evidence-v1".to_string(),
+            evidence_digest: format!("sha256:{}", "c".repeat(64)),
+            frozen_research_intent: IterationDiagnosisEvidenceReferenceV1 {
+                identity: frozen_intent
+                    .requested_meaning_identity
+                    .as_str()
+                    .to_string(),
+                digest: frozen_intent.requested_meaning_digest.as_str().to_string(),
+            },
+            trial_family_census_frontier: IterationDiagnosisEvidenceReferenceV1 {
+                identity: replay_census
+                    .requested_meaning_identity
+                    .as_str()
+                    .to_string(),
+                digest: replay_census.requested_meaning_digest.as_str().to_string(),
+            },
+            canonical_result_schema_identity: "vibe-backtest-result/v1".to_string(),
+            canonical_result_binding_digest: format!("sha256:{}", "d".repeat(64)),
+            canonical_result_bytes_length: 1,
+            evidence_storage_digest: format!("sha256:{}", "e".repeat(64)),
+            canonical_result_storage_digest: format!("sha256:{}", "f".repeat(64)),
+            receipt_storage_digest: format!("sha256:{}", "1".repeat(64)),
+            outbox_storage_digest: format!("sha256:{}", "2".repeat(64)),
+        };
+        let result_bytes = serde_json::to_vec(result)
+            .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+        let interpretation = issue_interpretation_context_from_result_v1(
+            census,
+            &intent,
+            gate,
+            result,
+            interpretation_result_custody_v1(
+                &result_bytes,
+                b"ready-storage-acceptance-result-receipt",
+                b"ready-storage-acceptance-result-outbox",
+                b"ready-storage-acceptance-semantic-trace",
+            ),
+            outcome_evidence,
+        )?;
+        issue_ready_for_selection_decision_v1(
+            census,
+            interpretation,
+            ready_candidate_artifact_v1(result)?,
+            positive_evidence,
+            protected_plan,
+            committed_at_epoch_ms,
+        )
+    }
+
+    #[test]
+    fn positive_assessment_issues_canonical_ready_decision_and_replays_exact_bytes() {
+        let census = census(TrialFamilyAttemptTerminalDispositionV2::TerminalResult);
+        let result = interpretation_result(DiagnosticCategoryV2::NoExecutionDefect);
+        let gate = gate_result(&census, &result, &decision_policy()).expect("interpretation gate");
+        let context = interpretation_context(&census, gate, &result).expect("complete context");
+        let readback = issue_ready_for_selection_decision_v1(
+            &census,
+            context,
+            ready_candidate_artifact_v1(&result).expect("exact Artifact"),
+            positive_assessment_evidence(),
+            protected_robustness_plan(),
+            3,
+        )
+        .expect("READY Decision");
+
+        assert!(matches!(
+            readback.decision().outcome(),
+            IterationDecisionOutcomeV1::ReadyForSelection { candidate_identity, candidate_digest }
+                if candidate_identity == readback.assessment().candidate_identity()
+                    && candidate_digest == readback.assessment().candidate_digest()
+        ));
+        assert_eq!(
+            readback.assessment().protected_robustness_plan().artifact(),
+            &ready_candidate_artifact_v1(&result).expect("exact Artifact")
+        );
+        let assessment_bytes = serde_json::to_vec(readback.assessment()).expect("assessment bytes");
+        let decision_bytes = serde_json::to_vec(readback.decision()).expect("decision bytes");
+        let receipt_bytes = serde_json::to_vec(readback.receipt()).expect("receipt bytes");
+        let candidate_bytes = serde_json::to_vec(readback.candidate()).expect("candidate bytes");
+        let selection_bytes = serde_json::to_vec(readback.selection()).expect("selection bytes");
+        let selection_receipt_bytes =
+            serde_json::to_vec(readback.selection_receipt()).expect("selection receipt bytes");
+        assert_eq!(
+            readback.selection().disposition(),
+            ResearchSelectionDispositionV1::SelectedForQualification
+        );
+        assert_eq!(
+            readback.selection().candidate_identity(),
+            readback.candidate().candidate_identity()
+        );
+        assert_eq!(
+            readback.selection().decision_identity(),
+            readback.decision().decision_identity()
+        );
+        assert_eq!(
+            admit_stored_ready_for_selection_decision_v1(
+                &census,
+                readback.assessment().protected_robustness_plan().artifact(),
+                &assessment_bytes,
+                &decision_bytes,
+                &receipt_bytes,
+                &candidate_bytes,
+                &selection_bytes,
+                &selection_receipt_bytes,
+            )
+            .expect("stored READY Decision"),
+            readback
+        );
+    }
+
+    #[test]
+    fn incomplete_positive_assessment_or_hard_stop_creates_no_ready_decision() {
+        let census = census(TrialFamilyAttemptTerminalDispositionV2::TerminalResult);
+        let result = interpretation_result(DiagnosticCategoryV2::NoExecutionDefect);
+        let gate = gate_result(&census, &result, &decision_policy()).expect("interpretation gate");
+        let context = interpretation_context(&census, gate, &result).expect("complete context");
+        let mut incomplete = positive_assessment_evidence();
+        incomplete.robustness.clear();
+        assert!(matches!(
+            issue_ready_for_selection_decision_v1(
+                &census,
+                context,
+                ready_candidate_artifact_v1(&result).expect("exact Artifact"),
+                incomplete,
+                protected_robustness_plan(),
+                3,
+            ),
+            Err(IterationDecisionErrorV1::InvalidStoredDecision(
+                "positive assessment dimension evidence is empty or unbounded"
+            ))
+        ));
+
+        let exhausted = census_with_budget(
+            TrialFamilyAttemptTerminalDispositionV2::TerminalResult,
+            1,
+            1,
+        );
+        let gate =
+            gate_result(&exhausted, &result, &decision_policy()).expect("interpretation gate");
+        let context = interpretation_context(&exhausted, gate, &result).expect("complete context");
+        assert!(matches!(
+            issue_ready_for_selection_decision_v1(
+                &exhausted,
+                context,
+                ready_candidate_artifact_v1(&result).expect("exact Artifact"),
+                positive_assessment_evidence(),
+                protected_robustness_plan(),
+                3,
+            ),
+            Err(IterationDecisionErrorV1::InvalidStoredDecision(
+                "TrialFamily hard stop preempts readiness"
+            ))
+        ));
+    }
+
+    #[test]
+    fn incomplete_protected_plan_or_non_exact_artifact_creates_no_ready_decision() {
+        let census = census(TrialFamilyAttemptTerminalDispositionV2::TerminalResult);
+        let result = interpretation_result(DiagnosticCategoryV2::NoExecutionDefect);
+        let gate = gate_result(&census, &result, &decision_policy()).expect("interpretation gate");
+        let context = interpretation_context(&census, gate, &result).expect("complete context");
+        let mut incomplete = protected_robustness_plan();
+        incomplete.required_regimes.clear();
+        assert!(matches!(
+            issue_ready_for_selection_decision_v1(
+                &census,
+                context,
+                ready_candidate_artifact_v1(&result).expect("exact Artifact"),
+                positive_assessment_evidence(),
+                incomplete,
+                3,
+            ),
+            Err(IterationDecisionErrorV1::InvalidStoredDecision(
+                "protected robustness plan cell dimension is empty or unbounded"
+            ))
+        ));
+
+        let mut mismatched = result;
+        let artifact = mismatched
+            .reconciliation
+            .iter_mut()
+            .find(|atom| atom.component == ObservationComponentV2::Artifact)
+            .expect("Artifact atom");
+        artifact.status = ReconciliationStatusV2::Mismatched;
+        artifact.observed_meaning_identity = Some(identity("different-artifact"));
+        assert!(matches!(
+            ready_candidate_artifact_v1(&mismatched),
+            Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+                "locked Replay result does not prove one exact Artifact"
+            ))
+        ));
     }
 
     #[test]
