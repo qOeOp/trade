@@ -17,8 +17,10 @@ use crate::{
 
 const REQUEST_SCHEMA_V1: u16 = 1;
 const RESULT_SCHEMA_V1: u16 = 1;
+const RESULT_SCHEMA_V2: u16 = 2;
 const REQUEST_DIGEST_DOMAIN: &str = "qualification.protected-replay-request.v1";
 const RESULT_DIGEST_DOMAIN: &str = "vibe.backtest.protected-replay-result.v1";
+const RESULT_DIGEST_DOMAIN_V2: &str = "vibe.backtest.protected-replay-result.v2";
 const DIAGNOSTIC_DIGEST_DOMAIN: &str = "vibe.backtest.protected-diagnostic-set.v1";
 const RECEIPT_DIGEST_DOMAIN: &str = "vibe.backtest.protected-result-receipt.v1";
 const OUTBOX_PAYLOAD_DIGEST_DOMAIN: &str = "vibe.backtest.protected-result-outbox-payload.v1";
@@ -201,6 +203,17 @@ pub struct ProtectedResultOutcomeLocatorV1 {
     pub digest: CanonicalDigestV2,
 }
 
+/// One Backtest-owned protected diagnostic category and its decisive evidence cut.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProtectedDiagnosticEvidenceV2 {
+    pub request_identity: String,
+    pub request_digest: String,
+    pub attempt_identity: String,
+    pub category: DiagnosticCategoryV2,
+    pub decisive_evidence: ProtectedConsumedInputLocatorV1,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProtectedReplayResultDtoV1 {
@@ -222,6 +235,36 @@ pub struct ProtectedReplayResultDtoV1 {
     pub reconciliation: Vec<ProtectedReplayReconciliationAtomV1>,
     pub diagnostic_category_set: Vec<DiagnosticCategoryV2>,
     pub diagnostic_category_set_digest: String,
+    pub protected_outcome: Option<ProtectedResultOutcomeLocatorV1>,
+}
+
+/// Protected result vocabulary that binds decisive evidence to every diagnostic category.
+///
+/// V1 remains decodable for the already committed negative terminal contract. Qualification only
+/// admits diagnostic closure from this V2 result, so a historical V1 `TERMINAL_RESULT` cannot be
+/// upgraded by inference.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProtectedReplayResultDtoV2 {
+    pub schema_version: u16,
+    pub result_identity: String,
+    pub result_digest: String,
+    pub request_identity: String,
+    pub request_digest: String,
+    pub request_receipt_identity: String,
+    pub request_seal_digest: String,
+    pub attempt_identity: String,
+    pub terminal: ReplayTerminalV2,
+    pub protected_decision_policy_identity: String,
+    pub protected_decision_policy_version: u64,
+    pub protected_plan_identity: String,
+    pub protected_plan_digest: String,
+    pub plan_cell_identity: String,
+    pub plan_cell_digest: String,
+    pub reconciliation: Vec<ProtectedReplayReconciliationAtomV1>,
+    pub diagnostic_category_set: Vec<DiagnosticCategoryV2>,
+    pub diagnostic_category_set_digest: String,
+    pub diagnostic_evidence: Vec<ProtectedDiagnosticEvidenceV2>,
     pub protected_outcome: Option<ProtectedResultOutcomeLocatorV1>,
 }
 
@@ -278,13 +321,59 @@ pub fn protected_result_custody_wires_v1(
     ProtectedReplayContractErrorV1,
 > {
     result.validate()?;
+    protected_result_custody_wires(
+        &result.request_identity,
+        &result.request_digest,
+        &result.result_identity,
+        &result.result_digest,
+        committed_at_epoch_ms,
+    )
+}
+
+pub fn protected_result_custody_wires_v2(
+    result: &ProtectedReplayResultDtoV2,
+    committed_at_epoch_ms: u64,
+) -> Result<
+    (
+        ProtectedResultReceiptDtoV1,
+        Vec<u8>,
+        ProtectedResultOutboxDtoV1,
+        Vec<u8>,
+    ),
+    ProtectedReplayContractErrorV1,
+> {
+    result.validate()?;
+    protected_result_custody_wires(
+        &result.request_identity,
+        &result.request_digest,
+        &result.result_identity,
+        &result.result_digest,
+        committed_at_epoch_ms,
+    )
+}
+
+fn protected_result_custody_wires(
+    request_identity: &str,
+    request_digest: &str,
+    result_identity: &str,
+    result_digest: &str,
+    committed_at_epoch_ms: u64,
+) -> Result<
+    (
+        ProtectedResultReceiptDtoV1,
+        Vec<u8>,
+        ProtectedResultOutboxDtoV1,
+        Vec<u8>,
+    ),
+    ProtectedReplayContractErrorV1,
+> {
     let receipt_digest = digest_json(
         RECEIPT_DIGEST_DOMAIN,
         &(
-            &result.request_identity,
-            &result.request_digest,
-            &result.result_identity,
-            &result.result_digest,
+            request_identity,
+            request_digest,
+            result_identity,
+            result_digest,
             committed_at_epoch_ms,
         ),
     )?;
@@ -294,10 +383,10 @@ pub fn protected_result_custody_wires_v1(
         schema_version: 1,
         receipt_identity: receipt_identity.clone(),
         receipt_digest: receipt_digest.clone(),
-        request_identity: result.request_identity.clone(),
-        request_digest: result.request_digest.clone(),
-        result_identity: result.result_identity.clone(),
-        result_digest: result.result_digest.clone(),
+        request_identity: request_identity.to_string(),
+        request_digest: request_digest.to_string(),
+        result_identity: result_identity.to_string(),
+        result_digest: result_digest.to_string(),
         committed_at_epoch_ms,
     };
     let payload_digest = digest_json(OUTBOX_PAYLOAD_DIGEST_DOMAIN, &payload)?;
@@ -306,10 +395,10 @@ pub fn protected_result_custody_wires_v1(
         schema_version: 1,
         receipt_identity,
         receipt_digest,
-        request_identity: result.request_identity.clone(),
-        request_digest: result.request_digest.clone(),
-        result_identity: result.result_identity.clone(),
-        result_digest: result.result_digest.clone(),
+        request_identity: request_identity.to_string(),
+        request_digest: request_digest.to_string(),
+        result_identity: result_identity.to_string(),
+        result_digest: result_digest.to_string(),
         outbox_event_identity: event_identity.clone(),
         committed_at_epoch_ms,
     };
@@ -318,7 +407,7 @@ pub fn protected_result_custody_wires_v1(
         &(
             1_u16,
             &event_identity,
-            &result.result_identity,
+            result_identity,
             EVENT_KIND,
             &payload_digest,
             &payload,
@@ -329,7 +418,7 @@ pub fn protected_result_custody_wires_v1(
         schema_version: 1,
         event_identity,
         event_digest,
-        aggregate_identity: result.result_identity.clone(),
+        aggregate_identity: result_identity.to_string(),
         event_kind: EVENT_KIND.to_string(),
         payload_digest,
         payload,
@@ -360,6 +449,28 @@ struct ResultMeaningV1<'a> {
     reconciliation: &'a [ProtectedReplayReconciliationAtomV1],
     diagnostic_category_set: &'a [DiagnosticCategoryV2],
     diagnostic_category_set_digest: &'a str,
+    protected_outcome: &'a Option<ProtectedResultOutcomeLocatorV1>,
+}
+
+#[derive(Serialize)]
+struct ResultMeaningV2<'a> {
+    schema_version: u16,
+    request_identity: &'a str,
+    request_digest: &'a str,
+    request_receipt_identity: &'a str,
+    request_seal_digest: &'a str,
+    attempt_identity: &'a str,
+    terminal: ReplayTerminalV2,
+    protected_decision_policy_identity: &'a str,
+    protected_decision_policy_version: u64,
+    protected_plan_identity: &'a str,
+    protected_plan_digest: &'a str,
+    plan_cell_identity: &'a str,
+    plan_cell_digest: &'a str,
+    reconciliation: &'a [ProtectedReplayReconciliationAtomV1],
+    diagnostic_category_set: &'a [DiagnosticCategoryV2],
+    diagnostic_category_set_digest: &'a str,
+    diagnostic_evidence: &'a [ProtectedDiagnosticEvidenceV2],
     protected_outcome: &'a Option<ProtectedResultOutcomeLocatorV1>,
 }
 
@@ -494,6 +605,152 @@ impl ProtectedReplayResultDtoV1 {
                 reconciliation: &self.reconciliation,
                 diagnostic_category_set: &self.diagnostic_category_set,
                 diagnostic_category_set_digest: &self.diagnostic_category_set_digest,
+                protected_outcome: &self.protected_outcome,
+            },
+        )
+    }
+}
+
+impl ProtectedReplayResultDtoV2 {
+    pub fn from_canonical_bytes(bytes: &[u8]) -> Result<Self, ProtectedReplayContractErrorV1> {
+        let value: Self = serde_json::from_slice(bytes)
+            .map_err(|_| ProtectedReplayContractErrorV1::InvalidEncoding)?;
+        value.validate()?;
+        if serde_json::to_vec(&value)
+            .map_err(|_| ProtectedReplayContractErrorV1::InvalidEncoding)?
+            != bytes
+        {
+            return Err(ProtectedReplayContractErrorV1::InvalidEncoding);
+        }
+        Ok(value)
+    }
+
+    pub fn validate(&self) -> Result<(), ProtectedReplayContractErrorV1> {
+        if self.schema_version != RESULT_SCHEMA_V2
+            || self.terminal != ReplayTerminalV2::TerminalResult
+            || !valid_identity(&self.result_identity)
+            || !valid_identity(&self.request_identity)
+            || !valid_identity(&self.request_receipt_identity)
+            || !valid_identity(&self.attempt_identity)
+            || !valid_identity(&self.protected_decision_policy_identity)
+            || !valid_identity(&self.protected_plan_identity)
+            || !valid_identity(&self.plan_cell_identity)
+            || self.protected_outcome.is_none()
+        {
+            return Err(ProtectedReplayContractErrorV1::InvalidResult);
+        }
+        for digest in [
+            &self.result_digest,
+            &self.request_digest,
+            &self.request_seal_digest,
+            &self.protected_plan_digest,
+            &self.plan_cell_digest,
+            &self.diagnostic_category_set_digest,
+        ] {
+            if !valid_digest(digest) {
+                return Err(ProtectedReplayContractErrorV1::InvalidDigest);
+            }
+        }
+        validate_reconciliation(&self.reconciliation)?;
+        validate_diagnostics(
+            &self.diagnostic_category_set,
+            &self.diagnostic_category_set_digest,
+        )?;
+        if !self
+            .reconciliation
+            .iter()
+            .all(|atom| atom.status == ReconciliationStatusV2::Exact)
+            || self.diagnostic_evidence.len() != self.diagnostic_category_set.len()
+        {
+            return Err(ProtectedReplayContractErrorV1::InvalidResult);
+        }
+        for (evidence, category) in self
+            .diagnostic_evidence
+            .iter()
+            .zip(self.diagnostic_category_set.iter())
+        {
+            if evidence.request_identity != self.request_identity
+                || evidence.request_digest != self.request_digest
+                || evidence.attempt_identity != self.attempt_identity
+                || evidence.category != *category
+            {
+                return Err(ProtectedReplayContractErrorV1::InvalidDiagnosticCensus);
+            }
+        }
+        let expected = self.compute_result_digest()?;
+        if self.result_digest != expected
+            || self.result_identity
+                != format!(
+                    "backtest-protected-replay-result-v2-{}",
+                    expected
+                        .strip_prefix("blake3:")
+                        .ok_or(ProtectedReplayContractErrorV1::InvalidDigest)?
+                )
+        {
+            return Err(ProtectedReplayContractErrorV1::InvalidDigest);
+        }
+        Ok(())
+    }
+
+    pub fn to_canonical_bytes(&self) -> Result<Vec<u8>, ProtectedReplayContractErrorV1> {
+        self.validate()?;
+        serde_json::to_vec(self).map_err(|_| ProtectedReplayContractErrorV1::InvalidEncoding)
+    }
+
+    pub fn validate_against_request(
+        &self,
+        request: &ProtectedReplayRequestDtoV1,
+        locator: &crate::ProtectedReplayRequestLocatorV1,
+    ) -> Result<(), ProtectedReplayContractErrorV1> {
+        self.validate()?;
+        request.validate()?;
+        if self.request_identity != request.request_identity
+            || self.request_digest != request.request_digest
+            || self.request_identity != locator.request_identity
+            || self.request_digest != locator.request_digest
+            || self.request_receipt_identity != locator.receipt_identity
+            || self.request_seal_digest != locator.seal_digest
+            || self.protected_decision_policy_identity != request.protected_decision_policy_identity
+            || self.protected_decision_policy_version != request.protected_decision_policy_version
+            || self.protected_plan_identity != request.protected_plan_identity
+            || self.protected_plan_digest != request.protected_plan_digest
+            || self.plan_cell_identity != request.plan_cell_identity
+            || self.plan_cell_digest != request.plan_cell_digest
+        {
+            return Err(ProtectedReplayContractErrorV1::InvalidResult);
+        }
+        for (atom, binding) in self.reconciliation.iter().zip(request.bindings.iter()) {
+            if atom.field != binding.field
+                || atom.requested_identity != binding.identity
+                || atom.requested_digest != binding.digest
+            {
+                return Err(ProtectedReplayContractErrorV1::InvalidBindingCensus);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn compute_result_digest(&self) -> Result<String, ProtectedReplayContractErrorV1> {
+        digest_json(
+            RESULT_DIGEST_DOMAIN_V2,
+            &ResultMeaningV2 {
+                schema_version: self.schema_version,
+                request_identity: &self.request_identity,
+                request_digest: &self.request_digest,
+                request_receipt_identity: &self.request_receipt_identity,
+                request_seal_digest: &self.request_seal_digest,
+                attempt_identity: &self.attempt_identity,
+                terminal: self.terminal,
+                protected_decision_policy_identity: &self.protected_decision_policy_identity,
+                protected_decision_policy_version: self.protected_decision_policy_version,
+                protected_plan_identity: &self.protected_plan_identity,
+                protected_plan_digest: &self.protected_plan_digest,
+                plan_cell_identity: &self.plan_cell_identity,
+                plan_cell_digest: &self.plan_cell_digest,
+                reconciliation: &self.reconciliation,
+                diagnostic_category_set: &self.diagnostic_category_set,
+                diagnostic_category_set_digest: &self.diagnostic_category_set_digest,
+                diagnostic_evidence: &self.diagnostic_evidence,
                 protected_outcome: &self.protected_outcome,
             },
         )

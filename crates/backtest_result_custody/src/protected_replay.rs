@@ -2,8 +2,9 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::Deserialize;
 use sqlx::{Postgres, Transaction};
 use vibe_backtest_owner_contracts::{
-    ProtectedReplayResultDtoV1, ProtectedResultOutboxDtoV1, ProtectedResultReceiptDtoV1,
-    protected_result_custody_wires_v1,
+    ProtectedReplayResultDtoV1, ProtectedReplayResultDtoV2, ProtectedResultOutboxDtoV1,
+    ProtectedResultReceiptDtoV1, protected_result_custody_wires_v1,
+    protected_result_custody_wires_v2,
 };
 
 use crate::BacktestResultCustodyErrorV2;
@@ -65,6 +66,29 @@ pub struct LockedProtectedReplayResultV1 {
     result_canonical_bytes: Vec<u8>,
     receipt_canonical_bytes: Vec<u8>,
     outbox_canonical_bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LockedProtectedReplayResultV2 {
+    result: ProtectedReplayResultDtoV2,
+    result_canonical_bytes: Vec<u8>,
+    receipt_canonical_bytes: Vec<u8>,
+    outbox_canonical_bytes: Vec<u8>,
+}
+
+impl LockedProtectedReplayResultV2 {
+    pub const fn result(&self) -> &ProtectedReplayResultDtoV2 {
+        &self.result
+    }
+    pub fn result_canonical_bytes(&self) -> &[u8] {
+        &self.result_canonical_bytes
+    }
+    pub fn receipt_canonical_bytes(&self) -> &[u8] {
+        &self.receipt_canonical_bytes
+    }
+    pub fn outbox_canonical_bytes(&self) -> &[u8] {
+        &self.outbox_canonical_bytes
+    }
 }
 
 impl LockedProtectedReplayResultV1 {
@@ -153,6 +177,68 @@ pub async fn resolve_protected_replay_result_for_qualification_in_transaction(
         return Err(BacktestResultCustodyErrorV2::Unavailable);
     }
     Ok(Some(LockedProtectedReplayResultV1 {
+        result,
+        result_canonical_bytes: result_bytes,
+        receipt_canonical_bytes: receipt_bytes,
+        outbox_canonical_bytes: outbox_bytes,
+    }))
+}
+
+pub async fn resolve_protected_replay_result_v2_for_qualification_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    locator: ProtectedReplayResultLocatorV1<'_>,
+) -> Result<Option<LockedProtectedReplayResultV2>, BacktestResultCustodyErrorV2> {
+    validate_protected_replay_result_reader_topology_v1(transaction).await?;
+    let (session_user, current_user, isolation): (String, String, String) = sqlx::query_as(
+        "SELECT session_user,current_user,pg_catalog.current_setting('transaction_isolation')",
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
+    if session_user != "qualification_writer"
+        || current_user != "qualification_writer"
+        || isolation != "serializable"
+    {
+        return Err(BacktestResultCustodyErrorV2::Unavailable);
+    }
+    let value: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT backtest_owner_api.resolve_protected_replay_result_v1($1,$2,$3)",
+    )
+    .bind(locator.result_identity)
+    .bind(locator.request_identity)
+    .bind(locator.attempt_identity)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
+    let Some(value) = value else { return Ok(None) };
+    let envelope: LockedEnvelopeV1 =
+        serde_json::from_value(value).map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
+    if envelope.schema_version != 1 {
+        return Err(BacktestResultCustodyErrorV2::Unavailable);
+    }
+    let result_bytes = decode(&envelope.result, RESULT_STORAGE_DOMAIN)?;
+    let receipt_bytes = decode(&envelope.receipt, RECEIPT_STORAGE_DOMAIN)?;
+    let outbox_bytes = decode(&envelope.outbox, OUTBOX_STORAGE_DOMAIN)?;
+    let result = ProtectedReplayResultDtoV2::from_canonical_bytes(&result_bytes)
+        .map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
+    let receipt: ProtectedResultReceiptDtoV1 = serde_json::from_slice(&receipt_bytes)
+        .map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
+    let outbox: ProtectedResultOutboxDtoV1 = serde_json::from_slice(&outbox_bytes)
+        .map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
+    let (expected_receipt, expected_receipt_bytes, expected_outbox, expected_outbox_bytes) =
+        protected_result_custody_wires_v2(&result, receipt.committed_at_epoch_ms)
+            .map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
+    if result.result_identity != locator.result_identity
+        || result.request_identity != locator.request_identity
+        || result.attempt_identity != locator.attempt_identity
+        || receipt != expected_receipt
+        || outbox != expected_outbox
+        || receipt_bytes != expected_receipt_bytes
+        || outbox_bytes != expected_outbox_bytes
+    {
+        return Err(BacktestResultCustodyErrorV2::Unavailable);
+    }
+    Ok(Some(LockedProtectedReplayResultV2 {
         result,
         result_canonical_bytes: result_bytes,
         receipt_canonical_bytes: receipt_bytes,

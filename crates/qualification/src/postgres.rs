@@ -3,10 +3,11 @@ use std::fmt::Display;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgRow};
-use vibe_backtest_owner_contracts::ProtectedReplayRequestLocatorV1;
+use vibe_backtest_owner_contracts::{ProtectedReplayRequestDtoV1, ProtectedReplayRequestLocatorV1};
 use vibe_backtest_result_custody::{
-    ProtectedReplayResultLocatorV1,
+    LockedProtectedReplayResultV1, LockedProtectedReplayResultV2, ProtectedReplayResultLocatorV1,
     resolve_protected_replay_result_for_qualification_in_transaction,
+    resolve_protected_replay_result_v2_for_qualification_in_transaction,
 };
 
 use crate::candidate_intake::{
@@ -16,7 +17,8 @@ use crate::candidate_intake::{
 use crate::protected_attempt_disposition::{
     HoldoutClosureDispositionV1, PreregisteredHoldoutTreatmentV1,
     ProtectedAttemptDispositionCommitV1, ProtectedAttemptDispositionStatusV1,
-    form_negative_attempt_disposition_v1, preregistered_holdout_treatment_v1,
+    form_diagnostic_attempt_disposition_v1, form_negative_attempt_disposition_v1,
+    preregistered_holdout_treatment_v1,
 };
 use crate::protected_replay_request::{
     ProtectedReplayRequestReceiptV1, ProtectedReplayRequestV1, commit_projection,
@@ -44,6 +46,53 @@ struct CreateResponseTimingForTestV1 {
 #[derive(Debug, Clone)]
 pub struct PostgresQualificationOwnerV1 {
     pool: PgPool,
+}
+
+#[derive(Clone, Copy)]
+enum ProtectedAttemptClosureKindV1 {
+    Negative,
+    Diagnostic,
+}
+
+enum LockedProtectedAttemptResultV1 {
+    Negative(LockedProtectedReplayResultV1),
+    Diagnostic(LockedProtectedReplayResultV2),
+}
+
+impl LockedProtectedAttemptResultV1 {
+    fn validate_against_request(
+        &self,
+        request: &ProtectedReplayRequestDtoV1,
+        locator: &ProtectedReplayRequestLocatorV1,
+    ) -> Result<(), QualificationOwnerError> {
+        match self {
+            Self::Negative(locked) => locked.result().validate_against_request(request, locator),
+            Self::Diagnostic(locked) => locked.result().validate_against_request(request, locator),
+        }
+        .map_err(|_| unavailable("Protected Replay Result changed the frozen request"))
+    }
+
+    fn form_disposition(
+        &self,
+        request: &ProtectedReplayRequestDtoV1,
+        treatment: &PreregisteredHoldoutTreatmentV1,
+        committed_at_epoch_ms: u64,
+    ) -> Result<ProtectedAttemptDispositionCommitV1, QualificationOwnerError> {
+        match self {
+            Self::Negative(locked) => form_negative_attempt_disposition_v1(
+                request,
+                locked.result(),
+                treatment,
+                committed_at_epoch_ms,
+            ),
+            Self::Diagnostic(locked) => form_diagnostic_attempt_disposition_v1(
+                request,
+                locked.result(),
+                treatment,
+                committed_at_epoch_ms,
+            ),
+        }
+    }
 }
 
 impl PostgresQualificationOwnerV1 {
@@ -320,18 +369,40 @@ impl PostgresQualificationOwnerV1 {
         &self,
         locator: ProtectedReplayResultLocatorV1<'_>,
     ) -> Result<ProtectedAttemptDispositionCommitV1, QualificationOwnerError> {
-        match self.close_negative_protected_attempt_once_v1(locator).await {
+        match self
+            .close_protected_attempt_once_v1(locator, ProtectedAttemptClosureKindV1::Negative)
+            .await
+        {
             Err(NegativeClosureAttemptError::RetryableContention) => self
-                .close_negative_protected_attempt_once_v1(locator)
+                .close_protected_attempt_once_v1(locator, ProtectedAttemptClosureKindV1::Negative)
                 .await
                 .map_err(NegativeClosureAttemptError::into_public),
             result => result.map_err(NegativeClosureAttemptError::into_public),
         }
     }
 
-    async fn close_negative_protected_attempt_once_v1(
+    /// Consume one request-equal protected terminal diagnostic result and atomically close its
+    /// holdout reservation when the sealed evidence proves an execution defect or unresolved run.
+    pub async fn close_terminal_diagnostic_protected_attempt_v1(
         &self,
         locator: ProtectedReplayResultLocatorV1<'_>,
+    ) -> Result<ProtectedAttemptDispositionCommitV1, QualificationOwnerError> {
+        match self
+            .close_protected_attempt_once_v1(locator, ProtectedAttemptClosureKindV1::Diagnostic)
+            .await
+        {
+            Err(NegativeClosureAttemptError::RetryableContention) => self
+                .close_protected_attempt_once_v1(locator, ProtectedAttemptClosureKindV1::Diagnostic)
+                .await
+                .map_err(NegativeClosureAttemptError::into_public),
+            result => result.map_err(NegativeClosureAttemptError::into_public),
+        }
+    }
+
+    async fn close_protected_attempt_once_v1(
+        &self,
+        locator: ProtectedReplayResultLocatorV1<'_>,
+        kind: ProtectedAttemptClosureKindV1,
     ) -> Result<ProtectedAttemptDispositionCommitV1, NegativeClosureAttemptError> {
         let mut transaction = self.pool.begin().await.map_err(negative_closure_storage)?;
         sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
@@ -341,17 +412,30 @@ impl PostgresQualificationOwnerV1 {
 
         // Keep the cross-Owner lock order: sealed Backtest aggregate first,
         // then Qualification's stable result/request aggregate lock.
-        let locked = resolve_protected_replay_result_for_qualification_in_transaction(
-            &mut transaction,
-            ProtectedReplayResultLocatorV1 {
-                result_identity: locator.result_identity,
-                request_identity: locator.request_identity,
-                attempt_identity: locator.attempt_identity,
-            },
-        )
-        .await
-        .map_err(|_| unavailable("sealed Protected Replay Result custody is unavailable"))?
-        .ok_or_else(|| unavailable("sealed Protected Replay Result is unavailable"))?;
+        let locked = match kind {
+            ProtectedAttemptClosureKindV1::Negative => LockedProtectedAttemptResultV1::Negative(
+                resolve_protected_replay_result_for_qualification_in_transaction(
+                    &mut transaction,
+                    locator,
+                )
+                .await
+                .map_err(|_| unavailable("sealed Protected Replay Result custody is unavailable"))?
+                .ok_or_else(|| unavailable("sealed Protected Replay Result is unavailable"))?,
+            ),
+            ProtectedAttemptClosureKindV1::Diagnostic => {
+                LockedProtectedAttemptResultV1::Diagnostic(
+                    resolve_protected_replay_result_v2_for_qualification_in_transaction(
+                        &mut transaction,
+                        locator,
+                    )
+                    .await
+                    .map_err(|_| {
+                        unavailable("sealed Protected Replay Result custody is unavailable")
+                    })?
+                    .ok_or_else(|| unavailable("sealed Protected Replay Result is unavailable"))?,
+                )
+            }
+        };
         sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended($1, 0))")
             .bind(locator.result_identity)
             .execute(&mut *transaction)
@@ -399,10 +483,7 @@ impl PostgresQualificationOwnerV1 {
             seal_digest: request_receipt.seal_digest().to_string(),
         };
         let request_dto = request.as_contract_dto();
-        locked
-            .result()
-            .validate_against_request(&request_dto, &request_locator)
-            .map_err(|_| unavailable("Protected Replay Result changed the frozen request"))?;
+        locked.validate_against_request(&request_dto, &request_locator)?;
 
         let intake_json: serde_json::Value = sqlx::query_scalar(
             "SELECT receipt_json FROM public.qualification_candidate_intake_receipts_v1 WHERE review_request_identity=$1 FOR UPDATE",
@@ -438,9 +519,8 @@ impl PostgresQualificationOwnerV1 {
         .await
         .map_err(negative_closure_storage)?
         {
-            let commit = form_negative_attempt_disposition_v1(
+            let commit = locked.form_disposition(
                 &request_dto,
-                locked.result(),
                 &holdout_treatment,
                 u64::try_from(committed_at).map_err(json_storage)?,
             )?;
@@ -453,12 +533,8 @@ impl PostgresQualificationOwnerV1 {
         }
 
         let committed_at_epoch_ms = owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
-        let commit = form_negative_attempt_disposition_v1(
-            &request_dto,
-            locked.result(),
-            &holdout_treatment,
-            committed_at_epoch_ms,
-        )?;
+        let commit =
+            locked.form_disposition(&request_dto, &holdout_treatment, committed_at_epoch_ms)?;
         let disposition = commit.disposition();
         let receipt = commit.receipt();
         let disposition_json = disposition.as_json()?;
@@ -2918,6 +2994,114 @@ mod postgres_tests {
             .rollback()
             .await
             .expect("Backtest rollback");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the ordered canonical Owner PostgreSQL gate after protected diagnostic Result custody"]
+    async fn diagnostic_protected_attempt_closure_is_atomic_and_creates_no_assessment_or_eligibility()
+     {
+        let qualification_url = std::env::var("QUALIFICATION_TEST_DATABASE_URL")
+            .expect("explicit disposable Qualification URL");
+        let backtest_url =
+            std::env::var("BACKTEST_TEST_DATABASE_URL").expect("explicit disposable Backtest URL");
+        let owner = PostgresQualificationOwnerV1::connect(&qualification_url)
+            .await
+            .expect("Qualification topology");
+        let backtest = PgPool::connect(&backtest_url).await.expect("Backtest pool");
+        let legacy_terminal: (String, String, String) = sqlx::query_as(
+            "SELECT result_identity,request_identity,attempt_identity
+               FROM public.backtest_protected_replay_results_v1
+              WHERE terminal='TERMINAL_RESULT'
+                AND convert_from(canonical_bytes,'UTF8')::jsonb->>'schema_version'='1'
+              ORDER BY result_identity LIMIT 1",
+        )
+        .fetch_one(&backtest)
+        .await
+        .expect("legacy protected terminal Result");
+        assert!(
+            owner
+                .close_terminal_diagnostic_protected_attempt_v1(ProtectedReplayResultLocatorV1 {
+                    result_identity: &legacy_terminal.0,
+                    request_identity: &legacy_terminal.1,
+                    attempt_identity: &legacy_terminal.2,
+                },)
+                .await
+                .is_err()
+        );
+        let legacy_closures: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM public.qualification_protected_attempt_dispositions_v1 WHERE result_identity=$1",
+        )
+        .bind(&legacy_terminal.0)
+        .fetch_one(&owner.pool)
+        .await
+        .expect("legacy terminal remains unclosed");
+        assert_eq!(legacy_closures, 0);
+        let rows: Vec<(String, String, String, String)> = sqlx::query_as(
+            "SELECT result.result_identity,result.request_identity,result.attempt_identity,
+                    convert_from(result.canonical_bytes,'UTF8')::jsonb->'diagnostic_category_set'->>0
+               FROM public.backtest_protected_replay_results_v1 result
+               JOIN public.backtest_protected_replay_result_receipts_v1 receipt USING(result_identity)
+              WHERE result.terminal='TERMINAL_RESULT'
+                AND convert_from(result.canonical_bytes,'UTF8')::jsonb->>'schema_version'='2'
+              ORDER BY result.attempt_identity",
+        )
+        .fetch_all(&backtest)
+        .await
+        .expect("sealed protected diagnostic Results");
+        assert_eq!(rows.len(), 2);
+
+        for (result_identity, request_identity, attempt_identity, category) in rows {
+            let first = owner
+                .close_terminal_diagnostic_protected_attempt_v1(ProtectedReplayResultLocatorV1 {
+                    result_identity: &result_identity,
+                    request_identity: &request_identity,
+                    attempt_identity: &attempt_identity,
+                })
+                .await
+                .expect("diagnostic closure commit");
+            let retry = owner
+                .close_terminal_diagnostic_protected_attempt_v1(ProtectedReplayResultLocatorV1 {
+                    result_identity: &result_identity,
+                    request_identity: &request_identity,
+                    attempt_identity: &attempt_identity,
+                })
+                .await
+                .expect("diagnostic closure exact retry");
+            assert_eq!(first, retry);
+            assert_eq!(
+                first.status(),
+                if category == "MARKET_DATA" {
+                    ProtectedAttemptDispositionStatusV1::DiagnosticInvalid
+                } else {
+                    assert_eq!(category, "UNRESOLVED_FAILURE");
+                    ProtectedAttemptDispositionStatusV1::DiagnosticUnresolved
+                }
+            );
+            assert_eq!(
+                first.holdout_closure_disposition(),
+                HoldoutClosureDispositionV1::Consumed
+            );
+            let counts: (i64, i64, i64, i64) = sqlx::query_as(
+                "SELECT
+                   (SELECT count(*) FROM public.qualification_protected_attempt_dispositions_v1 WHERE result_identity=$1),
+                   (SELECT count(*) FROM public.qualification_holdout_closures_v1 closure JOIN public.qualification_protected_attempt_dispositions_v1 disposition USING(disposition_identity) WHERE disposition.result_identity=$1),
+                   (SELECT count(*) FROM public.qualification_protected_attempt_disposition_receipts_v1 WHERE disposition_identity=$2),
+                   (SELECT count(*) FROM public.qualification_owner_outbox_v1 WHERE aggregate_identity=$2 AND event_kind='QUALIFICATION_PROTECTED_ATTEMPT_DISPOSITION_COMMITTED_V1')",
+            )
+            .bind(&result_identity)
+            .bind(first.disposition_identity())
+            .fetch_one(&owner.pool)
+            .await
+            .expect("diagnostic terminal aggregate counts");
+            assert_eq!(counts, (1, 1, 1, 1));
+        }
+        let forbidden_events: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM public.qualification_owner_outbox_v1 WHERE event_kind ILIKE '%ASSESSMENT%' OR event_kind ILIKE '%ELIGIBILITY%'",
+        )
+        .fetch_one(&owner.pool)
+        .await
+        .expect("absence of assessment and Eligibility events");
+        assert_eq!(forbidden_events, 0);
     }
 
     #[tokio::test]

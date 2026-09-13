@@ -28,10 +28,11 @@ pub mod outcome_evidence;
 pub mod postgres;
 mod protected_replay;
 mod protected_replay_postgres;
-pub use protected_replay::SealedProtectedReplayResultV1;
+pub use protected_replay::{SealedProtectedReplayResultV1, SealedProtectedReplayResultV2};
 pub use protected_replay_postgres::{
-    ProtectedReplayResultCommitDispositionV1, ProtectedReplayResultCommitRecoveryV1,
-    ProtectedReplayResultReadbackV1,
+    ProtectedReplayResultCommitDispositionV1, ProtectedReplayResultCommitDispositionV2,
+    ProtectedReplayResultCommitRecoveryV1, ProtectedReplayResultCommitRecoveryV2,
+    ProtectedReplayResultReadbackV1, ProtectedReplayResultReadbackV2,
 };
 /// Read-only view of an observation created by Backtest's internal composition boundary.
 ///
@@ -805,10 +806,12 @@ mod tests {
         PostgresReplayResultOwnerV2, ReplayResultCommitRecoveryV2,
     };
     use crate::protected_replay::{
-        ProtectedReplayResultDraftV1, commit_protected_owner_result_v1, test_observation,
+        ProtectedReplayOwnerErrorV1, ProtectedReplayResultDraftV1, ProtectedReplayResultDraftV2,
+        commit_protected_owner_result_v1, commit_protected_owner_result_v2, test_observation,
     };
     use vibe_backtest_owner_contracts::{
-        ContentIdentityV2, ProtectedReplayBindingFieldV1, ProtectedReplayRequestDtoV1,
+        ContentIdentityV2, ProtectedConsumedInputLocatorV1, ProtectedDiagnosticEvidenceV2,
+        ProtectedReplayBindingFieldV1, ProtectedReplayRequestDtoV1,
         ProtectedReplayRequestLocatorV1, ProtectedResultOutcomeLocatorV1, ReplayModelProfilesV2,
         ReplayWindowV2, VersionedIdentityV2,
     };
@@ -1375,6 +1378,94 @@ mod tests {
                     .await
                     .expect("request-bound negative Result commit"),
                 ProtectedReplayResultCommitDispositionV1::Committed(_)
+            ));
+        }
+
+        let invalid_diagnostic_attempt = "protected-backtest-invalid-diagnostic-v2";
+        assert!(matches!(
+            commit_protected_owner_result_v2(
+                &request,
+                ProtectedReplayResultDraftV2 {
+                    request_receipt_identity: request_locator.receipt_identity.clone(),
+                    request_seal_digest: request_locator.seal_digest.clone(),
+                    attempt_identity: invalid_diagnostic_attempt.to_string(),
+                    observations: ProtectedReplayBindingFieldV1::ALL
+                        .into_iter()
+                        .map(|field| {
+                            test_observation(&request, invalid_diagnostic_attempt, field, true)
+                        })
+                        .collect(),
+                    diagnostic_evidence: vec![ProtectedDiagnosticEvidenceV2 {
+                        request_identity: request.request_identity.clone(),
+                        request_digest: request.request_digest.clone(),
+                        attempt_identity: "cross-attempt-evidence".to_string(),
+                        category: DiagnosticCategoryV2::MarketData,
+                        decisive_evidence: ProtectedConsumedInputLocatorV1 {
+                            owner: identity("backtest-owner"),
+                            reference: identity("cross-attempt-diagnostic"),
+                            digest: digest('d'),
+                        },
+                    }],
+                    protected_outcome: ProtectedResultOutcomeLocatorV1 {
+                        reference: identity("invalid-protected-outcome"),
+                        digest: digest('e'),
+                    },
+                },
+            ),
+            Err(ProtectedReplayOwnerErrorV1::InvalidResult)
+        ));
+
+        for (diagnostic_attempt, diagnostic_category) in [
+            (
+                "protected-backtest-diagnostic-defect-v2",
+                DiagnosticCategoryV2::MarketData,
+            ),
+            (
+                "protected-backtest-diagnostic-unresolved-v2",
+                DiagnosticCategoryV2::UnresolvedFailure,
+            ),
+        ] {
+            let diagnostic = commit_protected_owner_result_v2(
+                &request,
+                ProtectedReplayResultDraftV2 {
+                    request_receipt_identity: request_locator.receipt_identity.clone(),
+                    request_seal_digest: request_locator.seal_digest.clone(),
+                    attempt_identity: diagnostic_attempt.to_string(),
+                    observations: ProtectedReplayBindingFieldV1::ALL
+                        .into_iter()
+                        .map(|field| test_observation(&request, diagnostic_attempt, field, true))
+                        .collect(),
+                    diagnostic_evidence: vec![ProtectedDiagnosticEvidenceV2 {
+                        request_identity: request.request_identity.clone(),
+                        request_digest: request.request_digest.clone(),
+                        attempt_identity: diagnostic_attempt.to_string(),
+                        category: diagnostic_category,
+                        decisive_evidence: ProtectedConsumedInputLocatorV1 {
+                            owner: identity("backtest-owner"),
+                            reference: identity(&format!(
+                                "protected-diagnostic-{diagnostic_attempt}"
+                            )),
+                            digest: digest('d'),
+                        },
+                    }],
+                    protected_outcome: ProtectedResultOutcomeLocatorV1 {
+                        reference: identity(&format!("protected-outcome-{diagnostic_attempt}")),
+                        digest: digest('e'),
+                    },
+                },
+            )
+            .expect("Backtest-sealed protected diagnostic Result");
+            let committed = owner
+                .commit_request_bound_protected_replay_result_v2(
+                    &qualification_pool,
+                    &request_locator,
+                    &diagnostic,
+                )
+                .await
+                .expect("request-bound protected diagnostic Result commit");
+            assert!(matches!(
+                committed,
+                ProtectedReplayResultCommitDispositionV2::Committed(_)
             ));
         }
 

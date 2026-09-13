@@ -1,7 +1,7 @@
 use serde::Serialize;
 use vibe_backtest_owner_contracts::{
-    ProtectedReplayBindingFieldV1, ProtectedReplayRequestDtoV1, ProtectedReplayResultDtoV1,
-    ReplayTerminalV2,
+    DiagnosticCategoryV2, ProtectedReplayBindingFieldV1, ProtectedReplayRequestDtoV1,
+    ProtectedReplayResultDtoV1, ProtectedReplayResultDtoV2, ReplayTerminalV2,
 };
 
 use crate::QualificationOwnerError;
@@ -138,6 +138,100 @@ pub(crate) fn form_negative_attempt_disposition_v1(
             ));
         }
     };
+    form_attempt_disposition_v1(
+        request,
+        result,
+        status,
+        holdout_treatment,
+        committed_at_epoch_ms,
+    )
+}
+
+pub(crate) fn form_diagnostic_attempt_disposition_v1(
+    request: &ProtectedReplayRequestDtoV1,
+    result: &ProtectedReplayResultDtoV2,
+    holdout_treatment: &PreregisteredHoldoutTreatmentV1,
+    committed_at_epoch_ms: u64,
+) -> Result<ProtectedAttemptDispositionCommitV1, QualificationOwnerError> {
+    if result.terminal != ReplayTerminalV2::TerminalResult {
+        return Err(unavailable(
+            "protected result is not a terminal diagnostic closure",
+        ));
+    }
+    let status = if result
+        .diagnostic_category_set
+        .iter()
+        .any(|category| category.is_execution_defect())
+    {
+        ProtectedAttemptDispositionStatusV1::DiagnosticInvalid
+    } else if result.diagnostic_category_set.as_slice() == [DiagnosticCategoryV2::UnresolvedFailure]
+    {
+        ProtectedAttemptDispositionStatusV1::DiagnosticUnresolved
+    } else {
+        return Err(unavailable(
+            "protected diagnostic requires a later robustness assessment",
+        ));
+    };
+    form_attempt_disposition_v1(
+        request,
+        result,
+        status,
+        holdout_treatment,
+        committed_at_epoch_ms,
+    )
+}
+
+trait ProtectedDispositionResult {
+    fn result_identity(&self) -> &str;
+    fn result_digest(&self) -> &str;
+    fn attempt_identity(&self) -> &str;
+    fn terminal(&self) -> ReplayTerminalV2;
+    fn diagnostic_category_set_digest(&self) -> &str;
+}
+
+impl ProtectedDispositionResult for ProtectedReplayResultDtoV1 {
+    fn result_identity(&self) -> &str {
+        &self.result_identity
+    }
+    fn result_digest(&self) -> &str {
+        &self.result_digest
+    }
+    fn attempt_identity(&self) -> &str {
+        &self.attempt_identity
+    }
+    fn terminal(&self) -> ReplayTerminalV2 {
+        self.terminal
+    }
+    fn diagnostic_category_set_digest(&self) -> &str {
+        &self.diagnostic_category_set_digest
+    }
+}
+
+impl ProtectedDispositionResult for ProtectedReplayResultDtoV2 {
+    fn result_identity(&self) -> &str {
+        &self.result_identity
+    }
+    fn result_digest(&self) -> &str {
+        &self.result_digest
+    }
+    fn attempt_identity(&self) -> &str {
+        &self.attempt_identity
+    }
+    fn terminal(&self) -> ReplayTerminalV2 {
+        self.terminal
+    }
+    fn diagnostic_category_set_digest(&self) -> &str {
+        &self.diagnostic_category_set_digest
+    }
+}
+
+fn form_attempt_disposition_v1(
+    request: &ProtectedReplayRequestDtoV1,
+    result: &impl ProtectedDispositionResult,
+    status: ProtectedAttemptDispositionStatusV1,
+    holdout_treatment: &PreregisteredHoldoutTreatmentV1,
+    committed_at_epoch_ms: u64,
+) -> Result<ProtectedAttemptDispositionCommitV1, QualificationOwnerError> {
     let attempt_basis = request
         .bindings
         .iter()
@@ -150,8 +244,8 @@ pub(crate) fn form_negative_attempt_disposition_v1(
         "qualification.holdout-closure.v1",
         &(
             &request.holdout_reservation_identity,
-            &result.result_identity,
-            &result.result_digest,
+            result.result_identity(),
+            result.result_digest(),
             &attempt_basis.identity,
             &attempt_basis.digest,
             closure_disposition,
@@ -170,11 +264,11 @@ pub(crate) fn form_negative_attempt_disposition_v1(
         intake_receipt_identity: request.intake_receipt_identity.clone(),
         request_identity: request.request_identity.clone(),
         request_digest: request.request_digest.clone(),
-        result_identity: result.result_identity.clone(),
-        result_digest: result.result_digest.clone(),
-        attempt_identity: result.attempt_identity.clone(),
-        terminal: result.terminal,
-        diagnostic_category_set_digest: result.diagnostic_category_set_digest.clone(),
+        result_identity: result.result_identity().to_string(),
+        result_digest: result.result_digest().to_string(),
+        attempt_identity: result.attempt_identity().to_string(),
+        terminal: result.terminal(),
+        diagnostic_category_set_digest: result.diagnostic_category_set_digest().to_string(),
         protected_decision_policy_identity: request.protected_decision_policy_identity.clone(),
         protected_decision_policy_version: request.protected_decision_policy_version,
         protected_plan_identity: request.protected_plan_identity.clone(),

@@ -11,11 +11,12 @@ pub use outcome_evidence::{
     BacktestOutcomeEvidenceErrorV1, CanonicalResultBindingDtoV1,
 };
 pub use protected_replay::{
-    ProtectedConsumedInputLocatorV1, ProtectedReplayContractErrorV1,
+    ProtectedConsumedInputLocatorV1, ProtectedDiagnosticEvidenceV2, ProtectedReplayContractErrorV1,
     ProtectedReplayReconciliationAtomV1, ProtectedReplayRequestDtoV1, ProtectedReplayResultDtoV1,
-    ProtectedResultOutboxDtoV1, ProtectedResultOutboxPayloadDtoV1, ProtectedResultOutcomeLocatorV1,
-    ProtectedResultReceiptDtoV1, protected_diagnostic_category_set_digest_v1,
-    protected_result_custody_wires_v1,
+    ProtectedReplayResultDtoV2, ProtectedResultOutboxDtoV1, ProtectedResultOutboxPayloadDtoV1,
+    ProtectedResultOutcomeLocatorV1, ProtectedResultReceiptDtoV1,
+    protected_diagnostic_category_set_digest_v1, protected_result_custody_wires_v1,
+    protected_result_custody_wires_v2,
 };
 
 use serde::{Deserialize, Serialize};
