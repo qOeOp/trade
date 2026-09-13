@@ -9672,6 +9672,7 @@ dependencies = [
  "trybuild",
  "vibe-backtest-owner-contracts",
  "vibe-backtest-result-custody",
+ "vibe-data",
  "vibe-strategy-factory",
  "vibe-testkit",
 ]
@@ -11112,6 +11113,7 @@ dependencies = [
  "tokio",
  "vibe-backtest-owner-contracts",
  "vibe-backtest-result-custody",
+ "vibe-data",
  "vibe-testkit",
 ]
 

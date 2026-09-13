@@ -24,6 +24,7 @@ pub use protected_attempt_disposition::{
 };
 pub use protected_replay_request::{
     ProtectedReplayRequestCommitV1, ProtectedReplayRequestProposalV1,
+    ProtectedReplayRequestProposalV2,
 };
 #[cfg(feature = "owner-recovery")]
 pub use recovery::{RecoveryReceiptV1, run_owner_recovery_cli};

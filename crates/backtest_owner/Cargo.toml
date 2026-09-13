@@ -20,6 +20,7 @@ sqlx = { workspace = true }
 thiserror = { workspace = true }
 vibe-backtest-owner-contracts = { workspace = true }
 vibe-backtest-result-custody = { workspace = true }
+vibe-data = { workspace = true }
 vibe-strategy-factory = { workspace = true }
 
 [dev-dependencies]

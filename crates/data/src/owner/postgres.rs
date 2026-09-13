@@ -5859,7 +5859,7 @@ async fn persist_clock_successor(
             .commit()
             .await
             .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
-        return Ok(successor_readback(stored.handoff, proof));
+        return Ok(successor_readback(prior, stored.handoff, proof));
     }
 
     if &current.handoff != prior {
@@ -5912,7 +5912,7 @@ async fn persist_clock_successor(
     if fault == PostgresCommitFault::ResponseLoss {
         Err(SharedTimeEvidenceError::ResponseLost)
     } else {
-        Ok(successor_readback(next_fact.handoff, proof))
+        Ok(successor_readback(prior, next_fact.handoff, proof))
     }
 }
 
@@ -6439,7 +6439,7 @@ impl SharedTimeEvidenceResolver for MarketDataReadPostgres {
                 return Err(SharedTimeEvidenceError::EpochSuccessorProofMismatch);
             }
         }
-        let readback = successor_readback(successor_fact.handoff, proof);
+        let readback = successor_readback(prior, successor_fact.handoff, proof);
         transaction
             .commit()
             .await
@@ -6499,6 +6499,7 @@ impl SharedTimeEvidenceResolver for MarketDataReadPostgres {
             return Err(SharedTimeEvidenceError::PriorHandoffMismatch);
         }
         Ok(successor_readback(
+            prior,
             successor_entry.fact.handoff.clone(),
             successor_entry.proof.clone(),
         ))

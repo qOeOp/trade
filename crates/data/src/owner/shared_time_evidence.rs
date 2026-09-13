@@ -220,11 +220,23 @@ impl EpochSuccessorProof {
 /// One exact direct transition resolved from Market Data custody.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ClockHeadSuccessorReadback {
+    predecessor_head_identity: BindingDigest,
+    predecessor_head_digest: BindingDigest,
     handoff: ClockHeadHandoff,
     epoch_successor_proof: Option<EpochSuccessorProof>,
 }
 
 impl ClockHeadSuccessorReadback {
+    /// Returns the exact sealed predecessor identity used for this direct transition.
+    pub const fn predecessor_head_identity(&self) -> BindingDigest {
+        self.predecessor_head_identity
+    }
+
+    /// Returns the exact sealed predecessor digest used for this direct transition.
+    pub const fn predecessor_head_digest(&self) -> BindingDigest {
+        self.predecessor_head_digest
+    }
+
     /// Returns the verified successor handoff.
     pub const fn handoff(&self) -> &ClockHeadHandoff {
         &self.handoff
@@ -422,10 +434,13 @@ impl ClockHeadFact {
 }
 
 pub(crate) fn successor_readback(
+    prior: &ClockHeadHandoff,
     handoff: ClockHeadHandoff,
     epoch_successor_proof: Option<EpochSuccessorProof>,
 ) -> ClockHeadSuccessorReadback {
     ClockHeadSuccessorReadback {
+        predecessor_head_identity: prior.head_identity,
+        predecessor_head_digest: prior.head_digest,
         handoff,
         epoch_successor_proof,
     }

@@ -28,11 +28,15 @@ pub mod outcome_evidence;
 pub mod postgres;
 mod protected_replay;
 mod protected_replay_postgres;
-pub use protected_replay::{SealedProtectedReplayResultV1, SealedProtectedReplayResultV2};
+pub use protected_replay::{
+    SealedProtectedReplayResultV1, SealedProtectedReplayResultV2, SealedProtectedReplayResultV3,
+};
 pub use protected_replay_postgres::{
     ProtectedReplayResultCommitDispositionV1, ProtectedReplayResultCommitDispositionV2,
-    ProtectedReplayResultCommitRecoveryV1, ProtectedReplayResultCommitRecoveryV2,
+    ProtectedReplayResultCommitDispositionV3, ProtectedReplayResultCommitRecoveryV1,
+    ProtectedReplayResultCommitRecoveryV2, ProtectedReplayResultCommitRecoveryV3,
     ProtectedReplayResultReadbackV1, ProtectedReplayResultReadbackV2,
+    ProtectedReplayResultReadbackV3,
 };
 /// Read-only view of an observation created by Backtest's internal composition boundary.
 ///
