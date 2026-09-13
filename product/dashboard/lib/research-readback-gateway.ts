@@ -20,6 +20,7 @@ type Fetcher = typeof fetch;
 
 export type ResearchReadbackOutcomeV1 = Readonly<{
   resolution: "accepted" | "rejected" | "quarantined";
+  historicalDisposition: "accepted" | "rejected" | null;
   intentIdentity: string | null;
   rejectionCode: string | null;
   committedAt: string;
@@ -157,8 +158,11 @@ function projectResponse(
       observedAt: response.envelope.transport_observed_at,
       outcome: {
         resolution: accepted ? "accepted" : quarantined ? "quarantined" : "rejected",
+        historicalDisposition: quarantined
+          ? receipt.disposition === "ACCEPTED" ? "accepted" : "rejected"
+          : null,
         intentIdentity: accepted ? receipt.resulting_research_intent_identity : null,
-        rejectionCode: accepted || quarantined ? null : receipt.rejection_code,
+        rejectionCode: accepted ? null : receipt.rejection_code,
         committedAt,
       },
       view,
@@ -199,8 +203,10 @@ export function parseResearchReadbackBrowserProjectionV1(
       : null;
   }
   if (!object(value.outcome) || !exactKeys(value.outcome, [
-    "resolution", "intentIdentity", "rejectionCode", "committedAt",
+    "resolution", "historicalDisposition", "intentIdentity", "rejectionCode", "committedAt",
   ]) || !["accepted", "rejected", "quarantined"].includes(String(value.outcome.resolution))
+    || !(value.outcome.historicalDisposition === null
+      || ["accepted", "rejected"].includes(String(value.outcome.historicalDisposition)))
     || !(value.outcome.intentIdentity === null || identity(value.outcome.intentIdentity))
     || !(value.outcome.rejectionCode === null || identity(value.outcome.rejectionCode))
     || !canonicalTime(value.outcome.committedAt)
@@ -210,20 +216,26 @@ export function parseResearchReadbackBrowserProjectionV1(
     || ![value.technical.projectionIdentity, value.technical.sourceCut, value.technical.trialFamilyIdentity]
       .every((entry) => entry === null || identity(entry))) return null;
   if (value.outcome.resolution === "rejected") {
-    return value.outcome.intentIdentity === null && identity(value.outcome.rejectionCode)
+    return value.outcome.historicalDisposition === null
+      && value.outcome.intentIdentity === null && identity(value.outcome.rejectionCode)
       && value.view === null && value.technical.projectionIdentity === null
       && value.technical.sourceCut === null && value.technical.trialFamilyIdentity === null
       ? value as ResearchReadbackProjectionV1
       : null;
   }
   if (value.outcome.resolution === "quarantined") {
-    return value.outcome.intentIdentity === null && value.outcome.rejectionCode === null
+    const historicalAccepted = value.outcome.historicalDisposition === "accepted"
+      && value.outcome.rejectionCode === null;
+    const historicalRejected = value.outcome.historicalDisposition === "rejected"
+      && identity(value.outcome.rejectionCode);
+    return value.outcome.intentIdentity === null && (historicalAccepted || historicalRejected)
       && value.view === null && value.technical.projectionIdentity === null
       && value.technical.sourceCut === null && value.technical.trialFamilyIdentity === null
       ? value as ResearchReadbackProjectionV1
       : null;
   }
-  if (!identity(value.outcome.intentIdentity) || value.outcome.rejectionCode !== null
+  if (value.outcome.historicalDisposition !== null
+    || !identity(value.outcome.intentIdentity) || value.outcome.rejectionCode !== null
     || !object(value.view) || !exactKeys(value.view, [
       "availability", "phase", "observedAt", "validThrough", "nextStep",
     ]) || !["available", "stale"].includes(String(value.view.availability))

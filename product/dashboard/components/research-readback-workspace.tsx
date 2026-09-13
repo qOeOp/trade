@@ -60,6 +60,11 @@ function AvailableReadback({ projection }: { projection: ResearchReadbackProject
             {phaseLabel(view.phase)}
           </StatusBadge> : quarantined ? "Quarantined" : "Not created"}
         </FactItem>
+        {outcome.historicalDisposition ? <FactItem label="Historical result">
+          <StatusBadge tone={outcome.historicalDisposition === "accepted" ? "success" : "danger"}>
+            {outcome.historicalDisposition === "accepted" ? "Accepted" : "Rejected"}
+          </StatusBadge>
+        </FactItem> : null}
         {outcome.rejectionCode ? <FactItem label="Reason" mono title={outcome.rejectionCode}>
           {outcome.rejectionCode}
         </FactItem> : null}

@@ -109,6 +109,7 @@ test("verified legacy terminal custody stays visible without becoming current Re
 
   assert.equal(result.status, 200);
   assert.equal(result.projection.outcome?.resolution, "quarantined");
+  assert.equal(result.projection.outcome?.historicalDisposition, "accepted");
   assert.equal(result.projection.outcome?.intentIdentity, null);
   assert.equal(result.projection.view, null);
   assert.equal(
@@ -131,6 +132,28 @@ test("verified legacy terminal custody stays visible without becoming current Re
   });
   assert.equal(promoted.status, 502);
   assert.equal(promoted.projection.availability, "unavailable");
+
+  const rejected = await readResearchReadbackGatewayV1({
+    requestIdentity: quarantined.request_identity,
+    environment: {
+      RD_DASHBOARD_OWNER_READ_API_URL: "http://dashboard-read:8082/",
+      RD_DASHBOARD_OWNER_READ_API_TOKEN: "secret",
+    },
+    fetcher: async () => new Response(JSON.stringify({
+      ...quarantined,
+      owner_receipt: {
+        ...quarantined.owner_receipt,
+        disposition: "REJECTED_NO_WRITE",
+        resulting_research_intent_identity: null,
+        rejection_code: "INVALID_RESEARCH_REQUEST",
+      },
+    }), { status: 200 }),
+  });
+  assert.equal(rejected.status, 200);
+  assert.equal(rejected.projection.outcome?.resolution, "quarantined");
+  assert.equal(rejected.projection.outcome?.historicalDisposition, "rejected");
+  assert.equal(rejected.projection.outcome?.rejectionCode, "INVALID_RESEARCH_REQUEST");
+  assert.deepEqual(parseResearchReadbackBrowserProjectionV1(rejected.projection), rejected.projection);
 });
 
 test("invalid identity, missing config and malformed Owner data fail closed", async () => {
