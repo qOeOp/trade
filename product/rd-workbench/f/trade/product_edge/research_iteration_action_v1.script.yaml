@@ -1,0 +1,114 @@
+summary: Advance or resolve one exact R&D iteration action
+description: >-
+  Calls only the fixed R&D Owner endpoints for a repair-input decision, repair action,
+  Market Data repair request, or repaired Replay successor. Owner-confirmed responses
+  are cross-bound to the submitted locators; malformed, unavailable, or ambiguous
+  responses remain SUBMITTED_OR_UNKNOWN. This transport does not repair Market Data,
+  execute Backtest, qualify, deploy, or trade.
+lock: "!inline f/trade/product_edge/research_iteration_action_v1.script.lock"
+kind: script
+tag: rd-product-edge
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  order: [action, stage, payload]
+  additionalProperties: false
+  required: [action, stage, payload]
+  properties:
+    action:
+      type: string
+      enum: [RUN, RESOLVE]
+    stage:
+      type: string
+      enum: [REPAIR_INPUT_DECISION, REPAIR_ACTION, MARKET_DATA_REPAIR, REPAIRED_REPLAY]
+    payload:
+      description: Exact deny-unknown Owner composition request or recovery locator for the selected stage.
+      anyOf:
+        - {$ref: "#/$defs/decisionRun"}
+        - {$ref: "#/$defs/decisionResolveOrRepairRun"}
+        - {$ref: "#/$defs/repairResolve"}
+        - {$ref: "#/$defs/marketData"}
+        - {$ref: "#/$defs/repairedReplayRun"}
+        - {$ref: "#/$defs/repairedReplayResolve"}
+  $defs:
+    identity:
+      type: string
+      minLength: 1
+      maxLength: 256
+    digest:
+      type: string
+      pattern: "^(sha256|blake3):[0-9a-f]{64}$"
+    byte32:
+      type: array
+      minItems: 32
+      maxItems: 32
+      items: {type: integer, minimum: 0, maximum: 255}
+    replayLocator:
+      type: object
+      additionalProperties: false
+      required: [request_identity, meaning_digest, receipt_identity, seal_digest]
+      properties:
+        request_identity: {$ref: "#/$defs/identity"}
+        meaning_digest: {$ref: "#/$defs/digest"}
+        receipt_identity: {$ref: "#/$defs/identity"}
+        seal_digest: {$ref: "#/$defs/digest"}
+    decisionRun:
+      type: object
+      additionalProperties: false
+      required: [trial_family_identity, result_identity, request_identity, attempt_identity]
+      properties:
+        trial_family_identity: {$ref: "#/$defs/identity"}
+        result_identity: {$ref: "#/$defs/identity"}
+        request_identity: {$ref: "#/$defs/identity"}
+        attempt_identity: {$ref: "#/$defs/identity"}
+    decisionResolveOrRepairRun:
+      type: object
+      additionalProperties: false
+      required: [decision_identity, result_identity]
+      properties:
+        decision_identity: {$ref: "#/$defs/identity"}
+        result_identity: {$ref: "#/$defs/identity"}
+    repairResolve:
+      type: object
+      additionalProperties: false
+      required: [action_request_identity, decision_identity]
+      properties:
+        action_request_identity: {$ref: "#/$defs/identity"}
+        decision_identity: {$ref: "#/$defs/identity"}
+    marketData:
+      type: object
+      additionalProperties: false
+      required: [action_request_identity, decision_identity, result_identity, attempt_identity, replay, shared_time_head]
+      properties:
+        action_request_identity: {$ref: "#/$defs/identity"}
+        decision_identity: {$ref: "#/$defs/identity"}
+        result_identity: {$ref: "#/$defs/identity"}
+        attempt_identity: {$ref: "#/$defs/identity"}
+        replay: {$ref: "#/$defs/replayLocator"}
+        shared_time_head:
+          type: object
+          additionalProperties: false
+          required: [head_identity, head_digest]
+          properties:
+            head_identity: {$ref: "#/$defs/byte32"}
+            head_digest: {$ref: "#/$defs/byte32"}
+    repairedReplayRun:
+      type: object
+      additionalProperties: false
+      required: [predecessor_request_locator, repair_resolution_locator]
+      properties:
+        predecessor_request_locator: {$ref: "#/$defs/replayLocator"}
+        repair_resolution_locator:
+          type: object
+          additionalProperties: false
+          required: [resolution_identity, repair_request_identity]
+          properties:
+            resolution_identity: {$ref: "#/$defs/identity"}
+            repair_request_identity: {$ref: "#/$defs/identity"}
+    repairedReplayResolve:
+      type: object
+      additionalProperties: false
+      required: [request_identity, meaning_digest]
+      properties:
+        request_identity: {$ref: "#/$defs/identity"}
+        meaning_digest: {$ref: "#/$defs/digest"}

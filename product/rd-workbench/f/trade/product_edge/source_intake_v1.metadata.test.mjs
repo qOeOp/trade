@@ -39,6 +39,7 @@ test("Source Intake exposes one narrow Windmill script without widening MCP", as
     "mcp:scripts:f/trade/product_edge/artifact_build_v1",
     "mcp:scripts:f/trade/product_edge/exploratory_replay_v2",
     "mcp:scripts:f/trade/product_edge/develop_composer_v2",
+    "mcp:scripts:f/trade/product_edge/research_iteration_action_v1",
     "mcp:endpoints:getJob,getJobLogs",
   ])
   assert.match(readme, /`source_intake\.openalex_work_by_doi\.submit_or_resolve\.v1`/)

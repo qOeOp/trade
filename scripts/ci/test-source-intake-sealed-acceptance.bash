@@ -251,7 +251,8 @@ static_check() {
     'Source Intake SEALED_ACCEPTANCE stage failed: initial-positive-counts'
   test -s "$lock_file"
   test "$(grep -Fc "$windmill_image" "$compose_file")" -eq 2
-  test "$(grep -Ec '^[[:space:]]+pull_policy: never$' "$compose_file")" -eq 6
+  test "$(grep -Ec '^[[:space:]]+pull_policy: never$' "$compose_file")" -eq \
+    "$(yq -r '.services | length' "$compose_file")"
   grep -Fq -- '--features sealed-source-intake-acceptance' \
     "$package_dir/Dockerfile.owner-sealed-acceptance"
   if head -n 1 "$package_dir/Dockerfile.owner-sealed-acceptance" | grep -Fq '# syntax='; then
@@ -552,17 +553,23 @@ PY
     die 'diagnostic output must reject non-allowlisted values'
   fi
   printf '{}\n' > "$static_config"
+  printf '%064d\n' 0 > "$static_dir/replay-policy-catalog-verifier.hex"
   cat > "$static_env" << EOF
 SEALED_ACCEPTANCE_PROJECT=source-intake-sealed-static-check
 SEALED_ACCEPTANCE_OWNER_IMAGE=source-intake-sealed-static-check-owner:local
 SEALED_POSTGRES_PASSWORD=static-only
 SEALED_WINDMILL_DATABASE=windmill_static_only
 SEALED_RD_OWNER_DB_PASSWORD=static-only
+SEALED_REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD=static-only
 SEALED_OPERATOR_AUTHORIZATION_DB_PASSWORD=static-only
 SEALED_QUALIFICATION_OWNER_DB_PASSWORD=static-only
 SEALED_PRODUCT_EDGE_DB_PASSWORD=static-only
 SEALED_BACKTEST_OWNER_DB_PASSWORD=static-only
 SEALED_RD_OWNER_DATABASE_URL=postgresql://rd_owner:static-only@postgres:5432/rd_owner
+SEALED_REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL=postgresql://replay_policy_catalog_admin:static-only@postgres:5432/rd_owner
+SEALED_REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST=$static_config
+SEALED_REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY=static-only
+SEALED_REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY=$static_dir/replay-policy-catalog-verifier.hex
 SEALED_OPERATOR_AUTHORIZATION_DATABASE_URL=postgresql://operator_authorization_writer:static-only@postgres:5432/rd_owner
 SEALED_QUALIFICATION_OWNER_DATABASE_URL=postgresql://qualification_writer:static-only@postgres:5432/rd_owner
 SEALED_PRODUCT_EDGE_DATABASE_URL=postgresql://product_edge_owner:static-only@postgres:5432/rd_owner
