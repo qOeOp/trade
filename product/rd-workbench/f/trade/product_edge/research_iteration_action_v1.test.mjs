@@ -126,6 +126,15 @@ test("repair-input Decision RUN is one fixed authenticated Owner call", { concur
   await withFetch([{ value: { ...owner, supported_defects: ["MARKET_DATA", "MARKET_DATA"] } }], async () => {
     assert.equal((await main("RUN", "REPAIR_INPUT_DECISION", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
   })
+  await withFetch([{ value: {
+    ...owner,
+    outcome: { outcome: "REPAIR_INPUTS", category: "MARKET_DATA", target: "RUNTIME" },
+  } }], async () => {
+    assert.equal((await main("RUN", "REPAIR_INPUT_DECISION", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
+  })
+  await withFetch([{ value: { ...owner, supported_defects: ["ARTIFACT"] } }], async () => {
+    assert.equal((await main("RUN", "REPAIR_INPUT_DECISION", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
+  })
 })
 
 test("repair-action RESOLVE cross-binds the exact recovery locator", { concurrency: false }, async () => {
@@ -150,6 +159,9 @@ test("repair-action RESOLVE cross-binds the exact recovery locator", { concurren
     assert.equal(new URL(calls[0].url).pathname, "/v1/repair-action-requests/resolve")
     assert.deepEqual(calls[0].body, payload)
   })
+  await withFetch([{ value: { ...owner, target: "RUNTIME" } }], async () => {
+    assert.equal((await main("RESOLVE", "REPAIR_ACTION", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
+  })
 })
 
 function marketDataPayload() {
@@ -165,18 +177,75 @@ function marketDataPayload() {
 
 test("Market Data repair RUN validates canonical Owner custody", { concurrency: false }, async () => {
   const payload = marketDataPayload()
-  const canonical = {
-    request_identity: "market-data-repair-1",
-    request_digest: sha("4"),
-    action_request_identity: payload.action_request_identity,
-    decision_identity: payload.decision_identity,
+  const decisionEvidence = evidenceCut({
+    trial_family_identity: "family-1",
+    request_identity: payload.replay.request_identity,
     result_identity: payload.result_identity,
     attempt_identity: payload.attempt_identity,
+  })
+  const canonical = {
+    schema_version: 1,
+    request_identity: "market-data-repair-1",
+    request_digest: sha("4"),
+    correlation_identity: Array(32).fill(3),
+    action_request_identity: payload.action_request_identity,
+    action_request_digest: sha("2"),
+    decision_identity: payload.decision_identity,
+    decision_digest: sha("1"),
+    decision_evidence_cut: decisionEvidence,
     replay_request_identity: payload.replay.request_identity,
     replay_request_digest: payload.replay.meaning_digest,
+    result_identity: payload.result_identity,
+    result_digest: decisionEvidence.result_digest,
+    attempt_identity: payload.attempt_identity,
     category: "MARKET_DATA",
     target: "MARKET_DATA",
-    shared_time_evidence: payload.shared_time_head,
+    bounded_reason: "BacktestDiagnosticMarketData",
+    decisive_evidence_component: "PIT_SNAPSHOT",
+    decisive_evidence_reference: "evidence-1",
+    decisive_evidence_digest: sha("6"),
+    original_pit_request_identity: Array(32).fill(4),
+    original_pit_request_digest: Array(32).fill(5),
+    original_pit_snapshot_identity: Array(32).fill(6),
+    original_pit_proof_digest: Array(32).fill(7),
+    instrument_scope_identity: "instrument-scope-1",
+    instrument_scope_digest: Array(32).fill(8),
+    universe_selection_identity: "universe-1",
+    universe_selection_digest: Array(32).fill(9),
+    instrument_master_digest: Array(32).fill(10),
+    provenance_binding_identity: Array(32).fill(11),
+    provenance_binding_fact_digest: Array(32).fill(12),
+    provenance_lineage_root: Array(32).fill(13),
+    provenance_lineage_version: 1,
+    source_frontier_digest: Array(32).fill(14),
+    correction_frontier_digest: Array(32).fill(15),
+    market_semantics_identity: Array(32).fill(16),
+    original_time_evidence: {
+      event_effective: { value: 10, clock_identity: "clock-1", clock_epoch: "epoch-1" },
+      provider_available: { value: 12, clock_identity: "clock-1", clock_epoch: "epoch-1" },
+      retrieval: { value: 15, clock_identity: "clock-1", clock_epoch: "epoch-1" },
+      correction_publication: { value: 14, clock_identity: "clock-1", clock_epoch: "epoch-1" },
+      decision_cut: { value: 18, clock_identity: "clock-1", clock_epoch: "epoch-1" },
+      monotonic_sequence: 1,
+      restart_continuity_digest: Array(32).fill(18),
+      skew_bound: 2,
+      uncertainty_bound: 1,
+      observed_at: 18,
+      valid_through: 30,
+    },
+    shared_time_evidence: {
+      ...payload.shared_time_head,
+      clock_identity: "clock-1",
+      clock_epoch: "epoch-1",
+      monotonic_sequence: 1,
+      wall_observed: 20,
+      decision_cut: 18,
+      valid_through: 30,
+      restart_continuity_digest: Array(32).fill(17),
+      uncertainty_bound: 1,
+      skew_bound: 2,
+      comparison_rule: "ExclusiveValidThrough",
+    },
   }
   const owner = {
     schema_version: 1,
@@ -208,6 +277,30 @@ test("Market Data repair RUN validates canonical Owner custody", { concurrency: 
   await withFetch([{ value: crossSpliced }], async () => {
     assert.equal((await main("RUN", "MARKET_DATA_REPAIR", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
   })
+  const injected = { ...owner, canonical_request_bytes: bytes({ ...canonical, injected: true }) }
+  await withFetch([{ value: injected }], async () => {
+    assert.equal((await main("RUN", "MARKET_DATA_REPAIR", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
+  })
+  const malformedTime = {
+    ...owner,
+    canonical_request_bytes: bytes({
+      ...canonical,
+      original_time_evidence: { ...canonical.original_time_evidence, observed_at: 17 },
+    }),
+  }
+  await withFetch([{ value: malformedTime }], async () => {
+    assert.equal((await main("RUN", "MARKET_DATA_REPAIR", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
+  })
+  const staleSharedTime = {
+    ...owner,
+    canonical_request_bytes: bytes({
+      ...canonical,
+      shared_time_evidence: { ...canonical.shared_time_evidence, valid_through: 20 },
+    }),
+  }
+  await withFetch([{ value: staleSharedTime }], async () => {
+    assert.equal((await main("RUN", "MARKET_DATA_REPAIR", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
+  })
 })
 
 test("repaired Replay RUN accepts only the exact Owner successor projection", { concurrency: false }, async () => {
@@ -226,6 +319,8 @@ test("repaired Replay RUN accepts only the exact Owner successor projection", { 
   }
   const owner = {
     schema_version: 1,
+    predecessor_request_locator: payload.predecessor_request_locator,
+    repair_resolution_locator: payload.repair_resolution_locator,
     projection: {
       schema_version: 1,
       request_identity: request.request_identity,
@@ -256,6 +351,14 @@ test("repaired Replay RUN accepts only the exact Owner successor projection", { 
     canonical_request_bytes: bytes(predecessorReplay),
   }
   await withFetch([{ value: crossSpliced }], async () => {
+    assert.equal((await main("RUN", "REPAIRED_REPLAY", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
+  })
+  await withFetch([{ value: {
+    ...owner,
+    repair_resolution_locator: {
+      resolution_identity: "unrelated-resolution", repair_request_identity: "unrelated-repair",
+    },
+  } }], async () => {
     assert.equal((await main("RUN", "REPAIRED_REPLAY", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
   })
 })

@@ -70,9 +70,14 @@ impl MarketDataRepairedReplayActionPort for PostgresResearchGoalOwnerV1 {
         predecessor: &ExploratoryReplayRequestLocatorV2,
         resolution: &MarketDataRepairResolutionLocatorV1,
     ) -> Result<MarketDataRepairedReplayActionResponseV1, ExploratoryReplayOwnerError> {
-        self.commit_market_data_repaired_replay_request_by_locator_v2(predecessor, resolution)
-            .await
-            .map(MarketDataRepairedReplayActionResponseV1::from)
+        let result = self
+            .commit_market_data_repaired_replay_request_by_locator_v2(predecessor, resolution)
+            .await?;
+        Ok(MarketDataRepairedReplayActionResponseV1::from_owner_result(
+            result,
+            predecessor.clone(),
+            resolution.clone(),
+        ))
     }
 }
 
@@ -93,15 +98,23 @@ struct MarketDataRepairedReplayActionRequestV1 {
 #[serde(deny_unknown_fields)]
 struct MarketDataRepairedReplayActionResponseV1 {
     schema_version: u16,
+    predecessor_request_locator: ExploratoryReplayRequestLocatorV2,
+    repair_resolution_locator: MarketDataRepairResolutionLocatorV1,
     projection: ExploratoryReplayRequestProjectionV1,
     locator: ExploratoryReplayRequestLocatorV2,
     canonical_request_bytes: Vec<u8>,
 }
 
-impl From<ExploratoryReplayCommitResultV2> for MarketDataRepairedReplayActionResponseV1 {
-    fn from(result: ExploratoryReplayCommitResultV2) -> Self {
+impl MarketDataRepairedReplayActionResponseV1 {
+    fn from_owner_result(
+        result: ExploratoryReplayCommitResultV2,
+        predecessor_request_locator: ExploratoryReplayRequestLocatorV2,
+        repair_resolution_locator: MarketDataRepairResolutionLocatorV1,
+    ) -> Self {
         Self {
             schema_version: 1,
+            predecessor_request_locator,
+            repair_resolution_locator,
             projection: result.projection().clone(),
             locator: result.locator().clone(),
             canonical_request_bytes: result.canonical_request_bytes().to_vec(),
@@ -1068,6 +1081,16 @@ mod tests {
     fn repaired_replay_action_response() -> MarketDataRepairedReplayActionResponseV1 {
         MarketDataRepairedReplayActionResponseV1 {
             schema_version: 1,
+            predecessor_request_locator: ExploratoryReplayRequestLocatorV2 {
+                request_identity: "request-1".into(),
+                meaning_digest: format!("blake3:{}", "a".repeat(64)),
+                receipt_identity: "receipt-1".into(),
+                seal_digest: format!("sha256:{}", "b".repeat(64)),
+            },
+            repair_resolution_locator: MarketDataRepairResolutionLocatorV1 {
+                resolution_identity: "resolution-1".into(),
+                repair_request_identity: "repair-request-1".into(),
+            },
             projection: ExploratoryReplayRequestProjectionV1 {
                 schema_version: 1,
                 request_identity: "successor-1".into(),

@@ -43,6 +43,61 @@ function timestamp(value: unknown): boolean {
   return Number.isSafeInteger(value) && Number(value) >= 0
 }
 
+function nonZeroBytes(value: unknown, exactLength: number): value is number[] {
+  return byteArray(value, exactLength) && value.some((byte) => byte !== 0)
+}
+
+function timeCoordinate(value: unknown): value is Json {
+  return object(value) && exactKeys(value, ["value", "clock_identity", "clock_epoch"])
+    && timestamp(value.value) && value.value > 0
+    && identity(value.clock_identity) && identity(value.clock_epoch)
+}
+
+function validOriginalTimeEvidence(value: unknown): value is Json {
+  if (!object(value) || !exactKeys(value, [
+    "event_effective", "provider_available", "retrieval", "correction_publication",
+    "decision_cut", "monotonic_sequence", "restart_continuity_digest", "skew_bound",
+    "uncertainty_bound", "observed_at", "valid_through",
+  ]) || !timeCoordinate(value.event_effective) || !timeCoordinate(value.provider_available)
+    || !timeCoordinate(value.retrieval) || !timeCoordinate(value.correction_publication)
+    || !timeCoordinate(value.decision_cut) || !timestamp(value.monotonic_sequence)
+    || value.monotonic_sequence === 0 || !nonZeroBytes(value.restart_continuity_digest, 32)
+    || !timestamp(value.skew_bound) || value.skew_bound === 0
+    || !timestamp(value.uncertainty_bound) || value.uncertainty_bound > value.skew_bound
+    || value.observed_at !== value.decision_cut.value
+    || !timestamp(value.valid_through) || value.valid_through <= value.decision_cut.value) return false
+  const coordinates = [
+    value.event_effective, value.provider_available, value.retrieval,
+    value.correction_publication,
+  ]
+  return coordinates.every((coordinate) =>
+    coordinate.clock_identity === value.decision_cut.clock_identity
+      && coordinate.clock_epoch === value.decision_cut.clock_epoch)
+    && value.event_effective.value <= value.provider_available.value
+    && value.provider_available.value <= value.retrieval.value
+    && value.correction_publication.value <= value.retrieval.value
+    && value.provider_available.value <= value.decision_cut.value
+    && value.retrieval.value <= value.decision_cut.value
+    && value.correction_publication.value <= value.decision_cut.value
+}
+
+function validSharedTimeEvidence(value: unknown): value is Json {
+  return object(value) && exactKeys(value, [
+    "head_identity", "head_digest", "clock_identity", "clock_epoch", "monotonic_sequence",
+    "wall_observed", "decision_cut", "valid_through", "restart_continuity_digest",
+    "uncertainty_bound", "skew_bound", "comparison_rule",
+  ]) && nonZeroBytes(value.head_identity, 32) && nonZeroBytes(value.head_digest, 32)
+    && identity(value.clock_identity) && identity(value.clock_epoch)
+    && timestamp(value.monotonic_sequence) && value.monotonic_sequence > 0
+    && timestamp(value.wall_observed) && timestamp(value.decision_cut) && value.decision_cut > 0
+    && timestamp(value.valid_through) && value.wall_observed >= value.decision_cut
+    && value.wall_observed < value.valid_through && value.decision_cut < value.valid_through
+    && nonZeroBytes(value.restart_continuity_digest, 32)
+    && timestamp(value.uncertainty_bound) && timestamp(value.skew_bound) && value.skew_bound > 0
+    && value.uncertainty_bound <= value.skew_bound
+    && value.comparison_rule === "ExclusiveValidThrough"
+}
+
 function replayLocator(value: unknown): value is Json {
   return object(value) && exactKeys(value, [
     "request_identity", "meaning_digest", "receipt_identity", "seal_digest",
@@ -137,14 +192,30 @@ async function ownerPost(path: string, token: string, body: unknown): Promise<un
   return result
 }
 
-const categories = new Set([
+const repairPrecedence = [
   "MARKET_DATA", "ARTIFACT", "RUNTIME_KERNEL", "BACKTEST_OPERATIONAL", "SIMULATOR",
   "REPLAY_CONFIGURATION",
+]
+const categories = new Set(repairPrecedence)
+const repairTargets = new Map([
+  ["MARKET_DATA", "MARKET_DATA"],
+  ["ARTIFACT", "RESEARCH_DEVELOP"],
+  ["RUNTIME_KERNEL", "RUNTIME"],
+  ["BACKTEST_OPERATIONAL", "BACKTEST_RUNNER_SERVICE"],
+  ["SIMULATOR", "SIM_EXCHANGE"],
+  ["REPLAY_CONFIGURATION", "RESEARCH_REPLAY_CONFIGURATION"],
 ])
-const targets = new Set([
-  "MARKET_DATA", "RESEARCH_DEVELOP", "RUNTIME", "BACKTEST_RUNNER_SERVICE", "SIM_EXCHANGE",
-  "RESEARCH_REPLAY_CONFIGURATION",
-])
+
+function validRepairPair(category: unknown, target: unknown): boolean {
+  return typeof category === "string" && repairTargets.get(category) === target
+}
+
+function validSupportedDefects(value: unknown, selected: unknown): boolean {
+  if (!Array.isArray(value) || value.length === 0 || value[0] !== selected
+    || !value.every((entry) => categories.has(entry))) return false
+  const expected = repairPrecedence.filter((entry) => value.includes(entry))
+  return expected.length === value.length && expected.every((entry, index) => entry === value[index])
+}
 
 function validEvidenceCut(value: unknown, payload: Json): boolean {
   if (!object(value) || !exactKeys(value, [
@@ -178,10 +249,9 @@ function validDecisionResponse(value: unknown, payload: Json): boolean {
   ]) || value.schema_version !== 1 || !identity(value.decision_identity) || !digest(value.decision_digest)
     || !validEvidenceCut(value.evidence_cut, payload) || !object(value.outcome)
     || !exactKeys(value.outcome, ["outcome", "category", "target"])
-    || value.outcome.outcome !== "REPAIR_INPUTS" || !categories.has(value.outcome.category)
-    || !targets.has(value.outcome.target) || !Array.isArray(value.supported_defects)
-    || value.supported_defects.length === 0 || !value.supported_defects.every((entry: unknown) => categories.has(entry))
-    || new Set(value.supported_defects).size !== value.supported_defects.length
+    || value.outcome.outcome !== "REPAIR_INPUTS"
+    || !validRepairPair(value.outcome.category, value.outcome.target)
+    || !validSupportedDefects(value.supported_defects, value.outcome.category)
     || !identity(value.receipt_identity) || !identity(value.result_identity)
     || !timestamp(value.committed_at_epoch_ms)) return false
   return value.result_identity === payload.result_identity
@@ -196,7 +266,7 @@ function validRepairActionResponse(value: unknown, payload: Json): boolean {
   ]) && value.schema_version === 1 && identity(value.action_request_identity)
     && digest(value.action_request_digest) && identity(value.decision_identity)
     && digest(value.decision_digest) && identity(value.result_identity)
-    && categories.has(value.category) && targets.has(value.target)
+    && validRepairPair(value.category, value.target)
     && identity(value.receipt_identity) && digest(value.receipt_digest)
     && timestamp(value.committed_at_epoch_ms) && value.decision_identity === payload.decision_identity
     && (payload.result_identity === undefined || value.result_identity === payload.result_identity)
@@ -221,16 +291,47 @@ function validMarketDataResponse(value: unknown, payload: Json): boolean {
     const canonical = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(
       Uint8Array.from(value.canonical_request_bytes),
     ))
-    return object(canonical) && canonical.request_identity === value.request_identity
+    const bindingKeys = [
+      "correlation_identity", "original_pit_request_identity", "original_pit_request_digest",
+      "original_pit_snapshot_identity", "original_pit_proof_digest", "instrument_scope_digest",
+      "universe_selection_digest", "instrument_master_digest", "provenance_binding_identity",
+      "provenance_binding_fact_digest", "provenance_lineage_root", "source_frontier_digest",
+      "correction_frontier_digest", "market_semantics_identity",
+    ]
+    return object(canonical) && exactKeys(canonical, [
+      "schema_version", "request_identity", "request_digest", "correlation_identity",
+      "action_request_identity", "action_request_digest", "decision_identity", "decision_digest",
+      "decision_evidence_cut", "replay_request_identity", "replay_request_digest", "result_identity",
+      "result_digest", "attempt_identity", "category", "target", "bounded_reason",
+      "decisive_evidence_component", "decisive_evidence_reference", "decisive_evidence_digest",
+      "original_pit_request_identity", "original_pit_request_digest", "original_pit_snapshot_identity",
+      "original_pit_proof_digest", "instrument_scope_identity", "instrument_scope_digest",
+      "universe_selection_identity", "universe_selection_digest", "instrument_master_digest",
+      "provenance_binding_identity", "provenance_binding_fact_digest", "provenance_lineage_root",
+      "provenance_lineage_version", "source_frontier_digest", "correction_frontier_digest",
+      "market_semantics_identity", "original_time_evidence", "shared_time_evidence",
+    ]) && canonical.schema_version === 1 && bindingKeys.every((key) => nonZeroBytes(canonical[key], 32))
+      && validEvidenceCut(canonical.decision_evidence_cut, payload)
+      && identity(canonical.instrument_scope_identity) && identity(canonical.universe_selection_identity)
+      && identity(canonical.decisive_evidence_reference) && digest(canonical.decisive_evidence_digest)
+      && timestamp(canonical.provenance_lineage_version)
+      && canonical.decisive_evidence_component === "PIT_SNAPSHOT"
+      && validOriginalTimeEvidence(canonical.original_time_evidence)
+      && canonical.bounded_reason === "BacktestDiagnosticMarketData"
+      && canonical.request_identity === value.request_identity
       && canonical.request_digest === value.request_digest
+      && equalBytes(canonical.correlation_identity, value.correlation_identity)
       && canonical.action_request_identity === payload.action_request_identity
+      && canonical.action_request_digest === value.action_request_digest
       && canonical.decision_identity === payload.decision_identity
+      && canonical.decision_digest === value.decision_digest
       && canonical.result_identity === payload.result_identity
+      && canonical.result_digest === canonical.decision_evidence_cut.result_digest
       && canonical.attempt_identity === payload.attempt_identity
       && canonical.replay_request_identity === payload.replay.request_identity
       && canonical.replay_request_digest === payload.replay.meaning_digest
       && canonical.category === value.category && canonical.target === value.target
-      && object(canonical.shared_time_evidence)
+      && validSharedTimeEvidence(canonical.shared_time_evidence)
       && equalBytes(canonical.shared_time_evidence.head_identity, payload.shared_time_head.head_identity)
       && equalBytes(canonical.shared_time_evidence.head_digest, payload.shared_time_head.head_digest)
       && value.action_request_identity === payload.action_request_identity
@@ -242,8 +343,14 @@ function validMarketDataResponse(value: unknown, payload: Json): boolean {
 
 function validRepairedReplayResponse(value: unknown, payload: Json): boolean {
   if (!object(value) || !exactKeys(value, [
-    "schema_version", "projection", "locator", "canonical_request_bytes",
-  ]) || value.schema_version !== 1 || !object(value.projection) || !replayLocator(value.locator)
+    "schema_version", "predecessor_request_locator", "repair_resolution_locator",
+    "projection", "locator", "canonical_request_bytes",
+  ]) || value.schema_version !== 1 || !replayLocator(value.predecessor_request_locator)
+    || !object(value.repair_resolution_locator)
+    || !exactKeys(value.repair_resolution_locator, ["resolution_identity", "repair_request_identity"])
+    || !identity(value.repair_resolution_locator.resolution_identity)
+    || !identity(value.repair_resolution_locator.repair_request_identity)
+    || !object(value.projection) || !replayLocator(value.locator)
     || !byteArray(value.canonical_request_bytes)) return false
   if (!exactKeys(value.projection, [
     "schema_version", "request_identity", "availability", "next_legal_action",
@@ -251,6 +358,12 @@ function validRepairedReplayResponse(value: unknown, payload: Json): boolean {
     || value.projection.request_identity !== value.locator.request_identity
     || value.projection.availability !== "AVAILABLE"
     || value.projection.next_legal_action !== "LOCK_BY_LOCATOR") return false
+  if (["request_identity", "meaning_digest", "receipt_identity", "seal_digest"].some(
+    (key) => value.predecessor_request_locator[key] !== payload.predecessor_request_locator[key],
+  ) || value.repair_resolution_locator.resolution_identity
+      !== payload.repair_resolution_locator.resolution_identity
+    || value.repair_resolution_locator.repair_request_identity
+      !== payload.repair_resolution_locator.repair_request_identity) return false
   try {
     const request = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(
       Uint8Array.from(value.canonical_request_bytes),
