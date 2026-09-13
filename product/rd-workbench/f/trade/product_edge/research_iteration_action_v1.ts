@@ -114,7 +114,8 @@ function replayLocator(value: unknown): value is Json {
   return object(value) && exactKeys(value, [
     "request_identity", "meaning_digest", "receipt_identity", "seal_digest",
   ]) && identity(value.request_identity) && digest(value.meaning_digest)
-    && identity(value.receipt_identity) && digest(value.seal_digest)
+    && /^rd-exploratory-replay-receipt-v2-[0-9a-f]{64}$/.test(String(value.receipt_identity))
+    && digest(value.seal_digest)
 }
 
 function decisionPayload(action: Action, value: unknown): value is Json {

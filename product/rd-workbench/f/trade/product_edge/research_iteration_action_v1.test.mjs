@@ -12,7 +12,7 @@ const bytes = (value) => [...new TextEncoder().encode(JSON.stringify(value))]
 const replayLocator = (requestIdentity = "replay-request-1") => ({
   request_identity: requestIdentity,
   meaning_digest: sha("a"),
-  receipt_identity: "replay-receipt-1",
+  receipt_identity: `rd-exploratory-replay-receipt-v2-${"7".repeat(64)}`,
   seal_digest: sha("b"),
 })
 
@@ -399,6 +399,12 @@ test("repaired Replay RUN accepts only the exact Owner successor projection", { 
     canonical_request_bytes: bytes(predecessorReplay),
   }
   await withFetch([{ value: crossSpliced }], async () => {
+    assert.equal((await main("RUN", "REPAIRED_REPLAY", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
+  })
+  await withFetch([{ value: {
+    ...owner,
+    locator: { ...owner.locator, receipt_identity: "malformed" },
+  } }], async () => {
     assert.equal((await main("RUN", "REPAIRED_REPLAY", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
   })
   await withFetch([{ value: {
