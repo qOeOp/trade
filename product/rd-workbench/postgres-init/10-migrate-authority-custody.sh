@@ -1628,6 +1628,14 @@ CREATE INDEX IF NOT EXISTS qualification_protected_feedback_basis_history_v1 ON 
 CREATE TABLE IF NOT EXISTS public.qualification_protected_feedback_heads_v1 (principal_scope_key TEXT PRIMARY KEY, principal TEXT NOT NULL, request_scope_json JSONB NOT NULL, frontier_identity TEXT NOT NULL UNIQUE REFERENCES public.qualification_protected_feedback_projections_v1(projection_identity), frontier_digest TEXT NOT NULL, source_sequence BIGINT NOT NULL, source_cut TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS public.qualification_candidate_intake_receipts_v1 (review_request_identity TEXT PRIMARY KEY, review_request_digest TEXT NOT NULL, candidate_identity TEXT NOT NULL UNIQUE, receipt_identity TEXT NOT NULL UNIQUE, status TEXT NOT NULL CHECK (status IN ('NOT_ADMITTED','ADMITTED')), receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS public.qualification_holdout_reservations_v1 (reservation_identity TEXT PRIMARY KEY, review_request_identity TEXT NOT NULL UNIQUE REFERENCES public.qualification_candidate_intake_receipts_v1(review_request_identity) DEFERRABLE INITIALLY DEFERRED, candidate_identity TEXT NOT NULL UNIQUE, reservation_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
+CREATE TABLE IF NOT EXISTS public.qualification_holdout_treatment_registrations_v1 (
+  reservation_identity TEXT PRIMARY KEY REFERENCES public.qualification_holdout_reservations_v1(reservation_identity) DEFERRABLE INITIALLY DEFERRED,
+  treatment_policy_identity TEXT NOT NULL,
+  treatment_policy_digest TEXT NOT NULL,
+  closure_disposition TEXT NOT NULL CHECK (closure_disposition IN ('CONSUMED','RELEASED')),
+  registration_json JSONB NOT NULL,
+  committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0)
+);
 CREATE TABLE IF NOT EXISTS public.qualification_protected_replay_requests_v1 (
   request_identity TEXT PRIMARY KEY,
   request_digest TEXT NOT NULL UNIQUE,
@@ -1655,16 +1663,49 @@ CREATE TABLE IF NOT EXISTS public.qualification_protected_replay_request_receipt
   storage_digest TEXT NOT NULL,
   committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0)
 );
+CREATE TABLE IF NOT EXISTS public.qualification_protected_attempt_dispositions_v1 (
+  disposition_identity TEXT PRIMARY KEY,
+  disposition_digest TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL CHECK (status IN ('REPLAY_REJECTED','REPLAY_INVALID','DIAGNOSTIC_INVALID','DIAGNOSTIC_UNRESOLVED','ASSESSMENT_INVALID')),
+  request_identity TEXT NOT NULL REFERENCES public.qualification_protected_replay_requests_v1(request_identity) DEFERRABLE INITIALLY DEFERRED,
+  result_identity TEXT NOT NULL UNIQUE,
+  attempt_identity TEXT NOT NULL,
+  holdout_reservation_identity TEXT NOT NULL REFERENCES public.qualification_holdout_reservations_v1(reservation_identity) DEFERRABLE INITIALLY DEFERRED,
+  disposition_json JSONB NOT NULL,
+  committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0)
+);
+CREATE TABLE IF NOT EXISTS public.qualification_holdout_closures_v1 (
+  closure_identity TEXT PRIMARY KEY,
+  closure_digest TEXT NOT NULL UNIQUE,
+  reservation_identity TEXT NOT NULL REFERENCES public.qualification_holdout_reservations_v1(reservation_identity) DEFERRABLE INITIALLY DEFERRED,
+  disposition_identity TEXT NOT NULL UNIQUE REFERENCES public.qualification_protected_attempt_dispositions_v1(disposition_identity) DEFERRABLE INITIALLY DEFERRED,
+  closure_disposition TEXT NOT NULL CHECK (closure_disposition IN ('CONSUMED','RELEASED')),
+  closure_json JSONB NOT NULL,
+  committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0)
+);
+CREATE TABLE IF NOT EXISTS public.qualification_protected_attempt_disposition_receipts_v1 (
+  disposition_identity TEXT PRIMARY KEY REFERENCES public.qualification_protected_attempt_dispositions_v1(disposition_identity) DEFERRABLE INITIALLY DEFERRED,
+  receipt_identity TEXT NOT NULL UNIQUE,
+  receipt_digest TEXT NOT NULL,
+  receipt_json JSONB NOT NULL,
+  committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0)
+);
 CREATE TABLE IF NOT EXISTS public.qualification_owner_outbox_v1 (event_identity TEXT PRIMARY KEY, aggregate_identity TEXT NOT NULL, event_kind TEXT NOT NULL, payload_digest TEXT NOT NULL, payload_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE (aggregate_identity, event_kind));
 ALTER TABLE public.qualification_protected_feedback_projections_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_protected_feedback_heads_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_candidate_intake_receipts_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_holdout_reservations_v1 OWNER TO qualification_owner;
+ALTER TABLE public.qualification_holdout_treatment_registrations_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_protected_replay_requests_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_protected_replay_request_receipts_v1 OWNER TO qualification_owner;
+ALTER TABLE public.qualification_protected_attempt_dispositions_v1 OWNER TO qualification_owner;
+ALTER TABLE public.qualification_holdout_closures_v1 OWNER TO qualification_owner;
+ALTER TABLE public.qualification_protected_attempt_disposition_receipts_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_owner_outbox_v1 OWNER TO qualification_owner;
-REVOKE ALL ON TABLE public.qualification_protected_feedback_projections_v1, public.qualification_protected_feedback_heads_v1, public.qualification_candidate_intake_receipts_v1, public.qualification_holdout_reservations_v1, public.qualification_protected_replay_requests_v1, public.qualification_protected_replay_request_receipts_v1, public.qualification_owner_outbox_v1 FROM PUBLIC, rd_owner, backtest_owner, product_edge_owner, operator_authorization_writer;
+REVOKE ALL ON TABLE public.qualification_protected_feedback_projections_v1, public.qualification_protected_feedback_heads_v1, public.qualification_candidate_intake_receipts_v1, public.qualification_holdout_reservations_v1, public.qualification_holdout_treatment_registrations_v1, public.qualification_protected_replay_requests_v1, public.qualification_protected_replay_request_receipts_v1, public.qualification_protected_attempt_dispositions_v1, public.qualification_holdout_closures_v1, public.qualification_protected_attempt_disposition_receipts_v1, public.qualification_owner_outbox_v1 FROM PUBLIC, rd_owner, backtest_owner, product_edge_owner, operator_authorization_writer;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.qualification_protected_feedback_projections_v1, public.qualification_protected_feedback_heads_v1, public.qualification_candidate_intake_receipts_v1, public.qualification_holdout_reservations_v1, public.qualification_protected_replay_requests_v1, public.qualification_protected_replay_request_receipts_v1, public.qualification_owner_outbox_v1 TO qualification_writer;
+GRANT SELECT, INSERT ON TABLE public.qualification_protected_attempt_dispositions_v1, public.qualification_holdout_closures_v1, public.qualification_protected_attempt_disposition_receipts_v1 TO qualification_writer;
+GRANT SELECT, INSERT ON TABLE public.qualification_holdout_treatment_registrations_v1 TO qualification_writer;
 
 CREATE OR REPLACE FUNCTION rd_owner_api.lock_ready_for_selection_for_qualification_v1(requested_decision_identity text, requested_result_identity text)
 RETURNS TABLE(candidate_json jsonb, candidate_storage_bytes bytea, candidate_storage_digest text, selection_json jsonb, selection_storage_bytes bytea, selection_storage_digest text, selection_receipt_json jsonb, selection_receipt_storage_bytes bytea, selection_receipt_storage_digest text, candidate_outbox_count bigint, selection_outbox_count bigint, selection_outbox_json jsonb, selection_outbox_digest text, selection_outbox_committed_at_epoch_ms bigint)

@@ -1325,6 +1325,59 @@ mod tests {
             Err(PostgresReplayResultOwnerErrorV2::ConflictingResult)
         ));
 
+        for (negative_attempt, terminal, diagnostic_category) in [
+            (
+                "protected-backtest-negative-invalid-v1",
+                ReplayTerminalV2::InvalidReplayEvidence,
+                DiagnosticCategoryV2::Artifact,
+            ),
+            (
+                "protected-backtest-negative-rejected-v1",
+                ReplayTerminalV2::RunRejected,
+                DiagnosticCategoryV2::BacktestOperational,
+            ),
+        ] {
+            let observations = match terminal {
+                ReplayTerminalV2::InvalidReplayEvidence => ProtectedReplayBindingFieldV1::ALL
+                    .into_iter()
+                    .map(|field| {
+                        test_observation(
+                            &request,
+                            negative_attempt,
+                            field,
+                            field != ProtectedReplayBindingFieldV1::StrategyArtifact,
+                        )
+                    })
+                    .collect(),
+                ReplayTerminalV2::RunRejected => Vec::new(),
+                _ => unreachable!("negative fixture terminal"),
+            };
+            let negative = commit_protected_owner_result_v1(
+                &request,
+                ProtectedReplayResultDraftV1 {
+                    request_receipt_identity: request_locator.receipt_identity.clone(),
+                    request_seal_digest: request_locator.seal_digest.clone(),
+                    attempt_identity: negative_attempt.to_string(),
+                    terminal,
+                    observations,
+                    diagnostic_category_set: vec![diagnostic_category],
+                    protected_outcome: None,
+                },
+            )
+            .expect("Backtest-sealed negative protected Result");
+            assert!(matches!(
+                owner
+                    .commit_request_bound_protected_replay_result_v1(
+                        &qualification_pool,
+                        &request_locator,
+                        &negative,
+                    )
+                    .await
+                    .expect("request-bound negative Result commit"),
+                ProtectedReplayResultCommitDispositionV1::Committed(_)
+            ));
+        }
+
         let mut qualification_transaction = qualification_pool
             .begin()
             .await

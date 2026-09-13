@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::QualificationOwnerError;
 use crate::postgres::{canonical_digest, identity};
+use crate::protected_attempt_disposition::preregistered_holdout_treatment_v1;
 
 const ROBUSTNESS_ADEQUACY_POLICY_IDENTITY_V1: &str = "qualification-robustness-adequacy-policy-v1";
 const ROBUSTNESS_ADEQUACY_POLICY_VERSION_V1: u64 = 1;
@@ -129,6 +130,15 @@ impl CandidateIntakeReceiptV1 {
     }
     pub fn candidate_identity(&self) -> &str {
         &self.candidate_identity
+    }
+    pub(crate) fn candidate_digest(&self) -> &str {
+        &self.candidate_digest
+    }
+    pub(crate) fn protected_decision_policy_identity(&self) -> &str {
+        &self.protected_decision_policy_identity
+    }
+    pub(crate) const fn protected_decision_policy_version(&self) -> u64 {
+        self.protected_decision_policy_version
     }
     pub const fn status(&self) -> CandidateIntakeStatusV1 {
         self.status
@@ -508,6 +518,10 @@ pub(crate) fn form_candidate_intake_receipt_v1(
     } else {
         CandidateIntakeStatusV1::NotAdmitted
     };
+    let holdout_treatment = preregistered_holdout_treatment_v1(
+        &request.protected_decision_policy_identity,
+        request.protected_decision_policy_version,
+    )?;
     let reservation_digest = canonical_digest(
         "qualification.holdout-reservation.v1",
         &(
@@ -532,6 +546,9 @@ pub(crate) fn form_candidate_intake_receipt_v1(
             plan.plan_digest.as_str(),
             request.protected_decision_policy_identity.as_str(),
             request.protected_decision_policy_version,
+            holdout_treatment.identity(),
+            holdout_treatment.digest(),
+            holdout_treatment.closure_disposition(),
         ),
     )?;
     let reservation = (status == CandidateIntakeStatusV1::Admitted)
@@ -1509,7 +1526,8 @@ mod tests {
     fn protected_request_freezes_one_canonical_cell_and_all_sixteen_bindings() {
         use crate::protected_replay_request::{
             ProtectedReplayBindingFieldV1, ProtectedReplayBindingV1,
-            ProtectedReplayRequestProposalV1, form_protected_replay_request_v1,
+            ProtectedReplayRequestProposalV1, decode_protected_replay_request_v1,
+            form_protected_replay_request_v1,
         };
 
         let (intake_request, envelope) = fixture();
@@ -1565,6 +1583,11 @@ mod tests {
         .unwrap();
         let request = form_protected_replay_request_v1(&proposal, &receipt, &source).unwrap();
         let request_json = request.as_json().unwrap();
+        let stored_request_bytes = serde_json::to_vec(&request_json).unwrap();
+        assert_eq!(
+            decode_protected_replay_request_v1(&stored_request_bytes).unwrap(),
+            request
+        );
         assert_eq!(request_json["bindings"].as_array().unwrap().len(), 16);
         assert_eq!(
             request_json["plan_cell_identity"],

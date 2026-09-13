@@ -27,6 +27,7 @@ sqlx = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, optional = true }
 vibe-backtest-owner-contracts = { path = "../backtest_owner_contracts" }
+vibe-backtest-result-custody = { path = "../backtest_result_custody" }
 
 [dev-dependencies]
 rstest = { workspace = true }

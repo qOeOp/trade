@@ -1,7 +1,7 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use vibe_backtest_owner_contracts::{
     CanonicalDigestV2, OpaqueIdentityV2, PROTECTED_REPLAY_BINDING_COUNT_V1,
-    ProtectedReplayRequestLocatorV1,
+    ProtectedReplayRequestDtoV1, ProtectedReplayRequestLocatorV1,
 };
 pub(crate) use vibe_backtest_owner_contracts::{
     ProtectedReplayBindingFieldV1, ProtectedReplayBindingV1,
@@ -90,7 +90,7 @@ impl ProtectedReplayRequestProposalV1 {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ProtectedReplayRequestV1 {
     schema_version: u16,
@@ -113,7 +113,7 @@ pub(crate) struct ProtectedReplayRequestV1 {
     plan_cell_identity: String,
     plan_cell_digest: String,
     bindings: [ProtectedReplayBindingV1; PROTECTED_REPLAY_BINDING_COUNT_V1],
-    state: &'static str,
+    state: String,
 }
 
 #[derive(Serialize)]
@@ -137,7 +137,7 @@ struct RequestMeaningV1<'a> {
     plan_cell_identity: &'a str,
     plan_cell_digest: &'a str,
     bindings: &'a [ProtectedReplayBindingV1; PROTECTED_REPLAY_BINDING_COUNT_V1],
-    state: &'static str,
+    state: &'a str,
 }
 
 pub(crate) fn form_protected_replay_request_v1(
@@ -231,11 +231,11 @@ pub(crate) fn form_protected_replay_request_v1(
         plan_cell_identity: cell.0.clone(),
         plan_cell_digest: cell.1.clone(),
         bindings: proposal.bindings.clone(),
-        state: "FROZEN",
+        state: "FROZEN".to_string(),
     })
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ProtectedReplayRequestReceiptV1 {
     schema_version: u16,
@@ -295,6 +295,31 @@ pub(crate) fn form_request_receipt_v1(
 }
 
 impl ProtectedReplayRequestV1 {
+    pub(crate) fn as_contract_dto(&self) -> ProtectedReplayRequestDtoV1 {
+        ProtectedReplayRequestDtoV1 {
+            schema_version: self.schema_version,
+            request_identity: self.request_identity.clone(),
+            request_digest: self.request_digest.clone(),
+            candidate_identity: self.candidate_identity.clone(),
+            candidate_digest: self.candidate_digest.clone(),
+            review_request_identity: self.review_request_identity.clone(),
+            intake_receipt_identity: self.intake_receipt_identity.clone(),
+            intake_receipt_digest: self.intake_receipt_digest.clone(),
+            holdout_reservation_identity: self.holdout_reservation_identity.clone(),
+            protected_decision_policy_identity: self.protected_decision_policy_identity.clone(),
+            protected_decision_policy_version: self.protected_decision_policy_version,
+            trial_family_identity: self.trial_family_identity.clone(),
+            trial_family_digest: self.trial_family_digest.clone(),
+            protected_plan_identity: self.protected_plan_identity.clone(),
+            protected_plan_digest: self.protected_plan_digest.clone(),
+            plan_cell_set_identity: self.plan_cell_set_identity.clone(),
+            plan_cell_set_digest: self.plan_cell_set_digest.clone(),
+            plan_cell_identity: self.plan_cell_identity.clone(),
+            plan_cell_digest: self.plan_cell_digest.clone(),
+            bindings: self.bindings.clone(),
+            state: self.state.clone(),
+        }
+    }
     pub(crate) fn request_identity(&self) -> &str {
         &self.request_identity
     }
@@ -325,6 +350,39 @@ impl ProtectedReplayRequestV1 {
     pub(crate) fn as_json(&self) -> Result<serde_json::Value, QualificationOwnerError> {
         serde_json::to_value(self).map_err(|error| unavailable(&error.to_string()))
     }
+}
+
+pub(crate) fn decode_protected_replay_request_v1(
+    bytes: &[u8],
+) -> Result<ProtectedReplayRequestV1, QualificationOwnerError> {
+    let request: ProtectedReplayRequestV1 =
+        serde_json::from_slice(bytes).map_err(|error| unavailable(&error.to_string()))?;
+    request
+        .as_contract_dto()
+        .validate()
+        .map_err(|error| unavailable(&error.to_string()))?;
+    if serde_json::to_vec(&request.as_json()?).map_err(|error| unavailable(&error.to_string()))?
+        != bytes
+    {
+        return Err(unavailable("stored Protected Replay Request bytes changed"));
+    }
+    Ok(request)
+}
+
+pub(crate) fn decode_request_receipt_v1(
+    value: &serde_json::Value,
+    request: &ProtectedReplayRequestV1,
+) -> Result<ProtectedReplayRequestReceiptV1, QualificationOwnerError> {
+    let receipt: ProtectedReplayRequestReceiptV1 =
+        serde_json::from_value(value.clone()).map_err(|error| unavailable(&error.to_string()))?;
+    if receipt != form_request_receipt_v1(request, receipt.committed_at_epoch_ms)?
+        || receipt.as_json()? != *value
+    {
+        return Err(unavailable(
+            "stored Protected Replay Request receipt changed",
+        ));
+    }
+    Ok(receipt)
 }
 
 impl ProtectedReplayRequestReceiptV1 {
