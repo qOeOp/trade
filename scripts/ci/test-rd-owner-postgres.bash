@@ -2324,8 +2324,13 @@ BEGIN
        'rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb)',
        'EXECUTE'
      )
+     OR NOT pg_catalog.has_function_privilege(
+       'qualification_writer',
+       'rd_owner_api.lock_ready_for_selection_for_qualification_v1(text,text)',
+       'EXECUTE'
+     )
   THEN
-    RAISE EXCEPTION 'qualification_writer lacks the sealed R&D basis API';
+    RAISE EXCEPTION 'qualification_writer lacks an admitted sealed R&D API';
   END IF;
 
   IF EXISTS (
@@ -2333,8 +2338,13 @@ BEGIN
     FROM pg_catalog.pg_proc procedure
     JOIN pg_catalog.pg_namespace namespace ON namespace.oid = procedure.pronamespace
     WHERE namespace.nspname = 'rd_owner_api'
-      AND procedure.oid <> pg_catalog.to_regprocedure(
-        'rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb)'
+      AND procedure.oid NOT IN (
+        pg_catalog.to_regprocedure(
+          'rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb)'
+        ),
+        pg_catalog.to_regprocedure(
+          'rd_owner_api.lock_ready_for_selection_for_qualification_v1(text,text)'
+        )
       )
       AND pg_catalog.has_function_privilege('qualification_writer', procedure.oid, 'EXECUTE')
   ) THEN
@@ -2502,6 +2512,8 @@ BEGIN
   FOREACH qualification_table IN ARRAY ARRAY[
     'qualification_protected_feedback_projections_v1',
     'qualification_protected_feedback_heads_v1',
+    'qualification_candidate_intake_receipts_v1',
+    'qualification_holdout_reservations_v1',
     'qualification_owner_outbox_v1'
   ] LOOP
     IF (SELECT tableowner FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = qualification_table) <> 'qualification_owner' THEN
@@ -2536,6 +2548,8 @@ BEGIN
     FOREACH qualification_table IN ARRAY ARRAY[
       'qualification_protected_feedback_projections_v1',
       'qualification_protected_feedback_heads_v1',
+      'qualification_candidate_intake_receipts_v1',
+      'qualification_holdout_reservations_v1',
       'qualification_owner_outbox_v1'
     ] LOOP
       FOREACH forbidden_privilege IN ARRAY ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER'] LOOP

@@ -326,6 +326,50 @@ pub struct ProtectedDecisionPolicyProposalV1 {
     pub digest: String,
 }
 
+/// One preregistered protected time cell with the interval needed for
+/// Qualification to prove non-overlap without dereferencing protected data.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProtectedTimeWindowV1 {
+    pub evidence: PositiveAssessmentEvidenceReferenceV1,
+    pub start_epoch_ms: u64,
+    pub end_epoch_ms: u64,
+}
+
+/// One preregistered market regime. Qualification needs the adverse marker to
+/// enforce coverage before any protected replay is requested.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProtectedMarketRegimeV1 {
+    pub evidence: PositiveAssessmentEvidenceReferenceV1,
+    pub adverse: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ProtectedInstrumentScopeV1 {
+    SingleInstrument,
+    MultipleInstruments,
+}
+
+/// A material input class and the exact preregistered perturbation that covers it.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProtectedInputPerturbationV1 {
+    pub input_class: PositiveAssessmentEvidenceReferenceV1,
+    pub perturbation: PositiveAssessmentEvidenceReferenceV1,
+}
+
+/// A tunable parameter's bounded neighbourhood.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProtectedParameterNeighborhoodV1 {
+    pub parameter: PositiveAssessmentEvidenceReferenceV1,
+    pub lower: i64,
+    pub center: i64,
+    pub upper: i64,
+}
+
 /// Untrusted analytical shape for the protected checks R&D will preregister for the candidate.
 ///
 /// R&D derives every identity and lifecycle binding from the locked Decision cut; callers can
@@ -333,11 +377,15 @@ pub struct ProtectedDecisionPolicyProposalV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProtectedRobustnessPlanProposalV1 {
-    pub required_time_windows: Vec<PositiveAssessmentEvidenceReferenceV1>,
-    pub required_regimes: Vec<PositiveAssessmentEvidenceReferenceV1>,
+    pub required_time_windows: Vec<ProtectedTimeWindowV1>,
+    pub required_regimes: Vec<ProtectedMarketRegimeV1>,
     pub required_instrument_slices: Vec<PositiveAssessmentEvidenceReferenceV1>,
-    pub required_perturbations: Vec<PositiveAssessmentEvidenceReferenceV1>,
-    pub required_parameter_neighborhoods: Vec<PositiveAssessmentEvidenceReferenceV1>,
+    pub instrument_scope: ProtectedInstrumentScopeV1,
+    pub instrument_non_applicability_basis: Option<PositiveAssessmentEvidenceReferenceV1>,
+    pub required_perturbations: Vec<ProtectedInputPerturbationV1>,
+    pub required_parameter_neighborhoods: Vec<ProtectedParameterNeighborhoodV1>,
+    pub no_tunable_parameters_basis: Option<PositiveAssessmentEvidenceReferenceV1>,
+    pub preregistered_capacity_ceiling: u64,
     pub metric: PositiveAssessmentEvidenceReferenceV1,
     pub coverage_policy: PositiveAssessmentEvidenceReferenceV1,
     pub tolerance_policy: PositiveAssessmentEvidenceReferenceV1,
@@ -2254,12 +2302,62 @@ fn validate_owner_artifact_reference_v1(
 fn validate_protected_robustness_plan_proposal_v1(
     proposal: &ProtectedRobustnessPlanProposalV1,
 ) -> Result<(), IterationDecisionErrorV1> {
+    if proposal
+        .required_time_windows
+        .iter()
+        .any(|window| window.start_epoch_ms >= window.end_epoch_ms)
+        || proposal
+            .required_parameter_neighborhoods
+            .iter()
+            .any(|entry| !(entry.lower < entry.center && entry.center < entry.upper))
+        || (proposal.required_parameter_neighborhoods.is_empty()
+            == proposal.no_tunable_parameters_basis.is_none())
+        || (proposal.instrument_scope == ProtectedInstrumentScopeV1::MultipleInstruments
+            && proposal.instrument_non_applicability_basis.is_some())
+        || proposal.preregistered_capacity_ceiling == 0
+    {
+        return Err(IterationDecisionErrorV1::InvalidStoredDecision(
+            "protected robustness plan typed coverage is invalid",
+        ));
+    }
+    let instrument_cells = if proposal.required_instrument_slices.is_empty() {
+        proposal
+            .instrument_non_applicability_basis
+            .iter()
+            .collect::<Vec<_>>()
+    } else {
+        proposal.required_instrument_slices.iter().collect()
+    };
+    let parameter_cells = if proposal.required_parameter_neighborhoods.is_empty() {
+        proposal
+            .no_tunable_parameters_basis
+            .iter()
+            .collect::<Vec<_>>()
+    } else {
+        proposal
+            .required_parameter_neighborhoods
+            .iter()
+            .map(|entry| &entry.parameter)
+            .collect()
+    };
     let cell_dimensions = [
-        proposal.required_time_windows.as_slice(),
-        proposal.required_regimes.as_slice(),
-        proposal.required_instrument_slices.as_slice(),
-        proposal.required_perturbations.as_slice(),
-        proposal.required_parameter_neighborhoods.as_slice(),
+        proposal
+            .required_time_windows
+            .iter()
+            .map(|entry| &entry.evidence)
+            .collect::<Vec<_>>(),
+        proposal
+            .required_regimes
+            .iter()
+            .map(|entry| &entry.evidence)
+            .collect(),
+        instrument_cells,
+        proposal
+            .required_perturbations
+            .iter()
+            .map(|entry| &entry.perturbation)
+            .collect(),
+        parameter_cells,
     ];
     let mut cell_count = 1usize;
     let mut cell_identities = BTreeSet::new();
@@ -3197,14 +3295,43 @@ pub(crate) mod tests {
             digest: format!("sha256:{}", byte.to_string().repeat(64)),
         };
         ProtectedRobustnessPlanProposalV1 {
-            required_time_windows: vec![reference("protected-time-window-v1", '5')],
-            required_regimes: vec![reference("protected-regime-v1", '6')],
+            required_time_windows: vec![
+                ProtectedTimeWindowV1 {
+                    evidence: reference("protected-time-window-v1-a", '5'),
+                    start_epoch_ms: 1_000,
+                    end_epoch_ms: 2_000,
+                },
+                ProtectedTimeWindowV1 {
+                    evidence: reference("protected-time-window-v1-b", '6'),
+                    start_epoch_ms: 3_000,
+                    end_epoch_ms: 4_000,
+                },
+            ],
+            required_regimes: vec![
+                ProtectedMarketRegimeV1 {
+                    evidence: reference("protected-regime-v1-normal", '6'),
+                    adverse: false,
+                },
+                ProtectedMarketRegimeV1 {
+                    evidence: reference("protected-regime-v1-adverse", '7'),
+                    adverse: true,
+                },
+            ],
             required_instrument_slices: vec![reference("protected-instrument-slice-v1", '7')],
-            required_perturbations: vec![reference("protected-perturbation-v1", '8')],
-            required_parameter_neighborhoods: vec![reference(
-                "protected-parameter-neighborhood-v1",
-                '9',
-            )],
+            instrument_scope: ProtectedInstrumentScopeV1::SingleInstrument,
+            instrument_non_applicability_basis: None,
+            required_perturbations: vec![ProtectedInputPerturbationV1 {
+                input_class: reference("protected-input-class-v1", '8'),
+                perturbation: reference("protected-perturbation-v1", '9'),
+            }],
+            required_parameter_neighborhoods: vec![ProtectedParameterNeighborhoodV1 {
+                parameter: reference("protected-parameter-v1", 'a'),
+                lower: -1,
+                center: 0,
+                upper: 1,
+            }],
+            no_tunable_parameters_basis: None,
+            preregistered_capacity_ceiling: 1_000,
             metric: reference("protected-metric-v1", 'a'),
             coverage_policy: reference("protected-coverage-policy-v1", 'b'),
             tolerance_policy: reference("protected-tolerance-policy-v1", 'c'),

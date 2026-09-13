@@ -192,6 +192,8 @@ for verifier_version in 1 2 3; do
   test "$(grep -Fc -- "-- END INTERNAL_VERIFY_SOURCE_V$verifier_version" "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 1
 done
 grep -Fq 'GRANT EXECUTE ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text), rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text), rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) TO rd_owner;' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+# The dollar-quoted SQL delimiter is intentional literal input.
+# shellcheck disable=SC2016
 grep -Fq 'DO $replay_internal_verifier_acl$' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "pg_catalog.count(*)=1" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "role.rolname='rd_owner'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
@@ -235,9 +237,14 @@ if grep -Fq "tablename LIKE 'rd_%' OR tablename LIKE 'qualification_%'" "$packag
   exit 1
 fi
 grep -Fq 'ALTER TABLE public.qualification_protected_feedback_projections_v1 OWNER TO qualification_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'ALTER TABLE public.qualification_candidate_intake_receipts_v1 OWNER TO qualification_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'ALTER TABLE public.qualification_holdout_reservations_v1 OWNER TO qualification_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'ALTER DEFAULT PRIVILEGES FOR ROLE rd_owner IN SCHEMA public REVOKE SELECT ON TABLES FROM qualification_owner, qualification_writer' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "REVOKE ALL PRIVILEGES ON TABLE %I.%I FROM qualification_owner, qualification_writer" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'GRANT EXECUTE ON FUNCTION rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb) TO qualification_writer' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'GRANT EXECUTE ON FUNCTION rd_owner_api.lock_ready_for_selection_for_qualification_v1(text,text) TO qualification_writer' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "selection.disposition='SELECTED_FOR_QUALIFICATION'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "decision.decision_json->'outcome'->>'outcome'='READY_FOR_SELECTION'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE OR REPLACE FUNCTION qualification_api.lock_projection_for_basis_v1(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "ALTER TABLE %I.%I OWNER TO rd_owner" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'ALTER TABLE %I.%I OWNER TO product_edge_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
@@ -270,7 +277,11 @@ grep -Fq 'CREATE OR REPLACE FUNCTION product_edge_api.lock_source_invocation_sta
 grep -Fq 'GRANT EXECUTE ON FUNCTION product_edge_api.lock_source_invocation_claim_v1(text,text,text) TO rd_owner, product_edge_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'GRANT EXECUTE ON FUNCTION product_edge_api.lock_source_invocation_started_v1(text,text,text) TO rd_owner, product_edge_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'const BACKTEST_LOCK_BOUNDARY_AUTH_SQL_V2: &str' "$package_dir/../../crates/strategy_factory/src/exploratory_replay/postgres.rs"
+# The PostgreSQL parameter token is intentional literal input.
+# shellcheck disable=SC2016
 grep -Fq 'dependency.prosrc=$5' "$package_dir/../../crates/strategy_factory/src/exploratory_replay/postgres.rs"
+# The PostgreSQL parameter token is intentional literal input.
+# shellcheck disable=SC2016
 grep -Fq 'pg_catalog.md5(dependency.prosrc)=$6' "$package_dir/../../crates/strategy_factory/src/exploratory_replay/postgres.rs"
 grep -Fq "pg_catalog.pg_get_userbyid(dependency.proowner)='rd_exploratory_replay_api_owner'" "$package_dir/../../crates/strategy_factory/src/exploratory_replay/postgres.rs"
 grep -Fq "dependency_language.lanname='plpgsql'" "$package_dir/../../crates/strategy_factory/src/exploratory_replay/postgres.rs"
@@ -286,6 +297,8 @@ grep -Fq 'CREATE TABLE IF NOT EXISTS public.backtest_native_replay_semantic_trac
 grep -Fq 'PRIMARY KEY (result_identity, component)' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'UNIQUE (request_identity, attempt_identity, component)' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'GRANT SELECT, INSERT ON TABLE public.backtest_native_replay_source_blobs_v2, public.backtest_native_replay_observations_v2, public.backtest_native_replay_semantic_traces_v2 TO backtest_owner;' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+# The dollar-quoted SQL delimiter is intentional literal input.
+# shellcheck disable=SC2016
 grep -Fq 'DO $backtest_native_replay_evidence_topology_readback$' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "pg_catalog.count(*)=22 AND NOT pg_catalog.bool_or(" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "pg_catalog.count(*) FILTER (WHERE acl.privilege_type='SELECT')=3" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
@@ -313,6 +326,8 @@ fi
 grep -Fq 'AND NOT trigger_fact.tgisinternal' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'SELECT 1 FROM pg_catalog.pg_rewrite rewrite' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "RAISE EXCEPTION 'Backtest native Replay evidence topology mismatch'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+# The dollar-quoted SQL delimiter is intentional literal input.
+# shellcheck disable=SC2016
 backtest_result_resolver_source=$(grep -F 'AS $function$DECLARE locked_result public.backtest_replay_results_v2%ROWTYPE;' "$package_dir/postgres-init/10-migrate-authority-custody.sh")
 if printf '%s' "$backtest_result_resolver_source" | grep -Fq 'FOR SHARE'; then
   echo 'Backtest Result readback must require only SELECT privilege' >&2

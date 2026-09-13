@@ -2464,6 +2464,7 @@ mod postgres_acceptance_tests {
         let mutation = database.mutation();
         let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
         let backtest_pool = mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner);
+        let qualification_pool = mutation.pool(CanonicalOwnerTestRoleV1::QualificationWriter);
         let suffix = unique_suffix();
         let committed_at = current_epoch_ms().expect("test clock");
         let intent_identity = format!("rd-research-intent-ready-{suffix}");
@@ -2636,6 +2637,67 @@ mod postgres_acceptance_tests {
         assert!(
             matches!(unified, ExistingIterationDecisionReadbackV1::ReadyForSelection(value) if value == issued)
         );
+        let qualification = vibe_qualification::PostgresQualificationOwnerV1::connect(
+            &database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+        )
+        .await
+        .expect("Qualification Owner intake custody");
+        let policy = &issued
+            .candidate()
+            .protected_robustness_plan()
+            .proposal()
+            .protected_decision_policy;
+        let intake_request = vibe_qualification::CandidateIntakeRequestV1::new(
+            format!("qualification-review-ready-{suffix}"),
+            issued.decision().decision_identity().to_string(),
+            result_identity.clone(),
+            issued.candidate().candidate_identity().to_string(),
+            issued.selection().selection_identity().to_string(),
+            policy.identity.clone(),
+            policy.version,
+        )
+        .expect("canonical Qualification Candidate Intake request");
+        let intake = qualification
+            .submit_candidate_intake_v1(&intake_request)
+            .await
+            .expect("Qualification Candidate Intake");
+        assert_eq!(
+            intake.status(),
+            vibe_qualification::CandidateIntakeStatusV1::Admitted
+        );
+        assert!(intake.holdout_reservation_identity().is_some());
+        assert_eq!(
+            qualification
+                .submit_candidate_intake_v1(&intake_request)
+                .await
+                .expect("Qualification Candidate Intake response-loss retry"),
+            intake
+        );
+        let intake_counts: (i64, i64, i64) = sqlx::query_as(
+            "SELECT (SELECT COUNT(*) FROM qualification_candidate_intake_receipts_v1 WHERE review_request_identity=$1), (SELECT COUNT(*) FROM qualification_holdout_reservations_v1 WHERE review_request_identity=$1), (SELECT COUNT(*) FROM qualification_owner_outbox_v1 WHERE aggregate_identity=$2 AND event_kind='QUALIFICATION_CANDIDATE_INTAKE_COMMITTED_V1')",
+        )
+        .bind(intake_request.review_request_identity())
+        .bind(intake.receipt_identity())
+        .fetch_one(qualification_pool)
+        .await
+        .expect("Qualification Candidate Intake counts");
+        assert_eq!(intake_counts, (1, 1, 1));
+        let conflicting_intake = vibe_qualification::CandidateIntakeRequestV1::new(
+            intake_request.review_request_identity().to_string(),
+            issued.decision().decision_identity().to_string(),
+            result_identity.clone(),
+            issued.candidate().candidate_identity().to_string(),
+            issued.selection().selection_identity().to_string(),
+            policy.identity.clone(),
+            policy.version + 1,
+        )
+        .expect("changed-meaning Qualification Candidate Intake request");
+        assert!(matches!(
+            qualification
+                .submit_candidate_intake_v1(&conflicting_intake)
+                .await,
+            Err(vibe_qualification::QualificationOwnerError::ConflictingIdentity)
+        ));
 
         let mut changed = composition;
         changed.protected_robustness_plan.metric.identity =
@@ -3036,11 +3098,46 @@ mod postgres_acceptance_tests {
             digest: digest(byte),
         };
         ProtectedRobustnessPlanProposalV1 {
-            required_time_windows: vec![reference("ready-protected-window", '5')],
-            required_regimes: vec![reference("ready-protected-regime", '6')],
-            required_instrument_slices: vec![reference("ready-protected-instrument", '7')],
-            required_perturbations: vec![reference("ready-protected-perturbation", '8')],
-            required_parameter_neighborhoods: vec![reference("ready-protected-parameter", '9')],
+            required_time_windows: vec![
+                crate::iteration_decision::ProtectedTimeWindowV1 {
+                    evidence: reference("ready-protected-window-a", '5'),
+                    start_epoch_ms: 1_000,
+                    end_epoch_ms: 2_000,
+                },
+                crate::iteration_decision::ProtectedTimeWindowV1 {
+                    evidence: reference("ready-protected-window-b", '6'),
+                    start_epoch_ms: 3_000,
+                    end_epoch_ms: 4_000,
+                },
+            ],
+            required_regimes: vec![
+                crate::iteration_decision::ProtectedMarketRegimeV1 {
+                    evidence: reference("ready-protected-regime-normal", '7'),
+                    adverse: false,
+                },
+                crate::iteration_decision::ProtectedMarketRegimeV1 {
+                    evidence: reference("ready-protected-regime-adverse", '8'),
+                    adverse: true,
+                },
+            ],
+            required_instrument_slices: vec![reference("ready-protected-instrument", '9')],
+            instrument_scope:
+                crate::iteration_decision::ProtectedInstrumentScopeV1::SingleInstrument,
+            instrument_non_applicability_basis: None,
+            required_perturbations: vec![crate::iteration_decision::ProtectedInputPerturbationV1 {
+                input_class: reference("ready-protected-input-class", 'a'),
+                perturbation: reference("ready-protected-perturbation", 'b'),
+            }],
+            required_parameter_neighborhoods: vec![
+                crate::iteration_decision::ProtectedParameterNeighborhoodV1 {
+                    parameter: reference("ready-protected-parameter", 'c'),
+                    lower: -1,
+                    center: 0,
+                    upper: 1,
+                },
+            ],
+            no_tunable_parameters_basis: None,
+            preregistered_capacity_ceiling: 1_000,
             metric: reference("ready-protected-metric", 'a'),
             coverage_policy: reference("ready-protected-coverage", 'b'),
             tolerance_policy: reference("ready-protected-tolerance", 'c'),

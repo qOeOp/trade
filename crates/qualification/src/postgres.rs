@@ -4,6 +4,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgRow};
 
+use crate::candidate_intake::{
+    ResolvedRdSelectionStorageV1, decode_intake_receipt_v1, decode_resolved_handoff_v1,
+    form_candidate_intake_receipt_v1,
+};
+use crate::{CandidateIntakeReceiptV1, CandidateIntakeRequestV1, CandidateIntakeStatusV1};
 use crate::{
     ProtectedFeedbackFrontierReadbackV1, ProtectedFeedbackFrontierReceiptV1,
     ProtectedFeedbackResolutionV1, QualificationOwnerError, RdIndependenceBasisLocatorV1,
@@ -37,6 +42,108 @@ impl PostgresQualificationOwnerV1 {
         Ok(owner)
     }
 
+    /// Resolve one sealed R&D Candidate/Selection handoff and commit exactly one
+    /// request-correlated Qualification intake receipt. An adequate plan reserves
+    /// holdout custody in the same transaction; no protected replay is started here.
+    pub async fn submit_candidate_intake_v1(
+        &self,
+        request: &CandidateIntakeRequestV1,
+    ) -> Result<CandidateIntakeReceiptV1, QualificationOwnerError> {
+        let mut transaction = self.pool.begin().await.map_err(storage)?;
+        sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended($1, 0))")
+            .bind(request.review_request_identity())
+            .execute(&mut *transaction)
+            .await
+            .map_err(storage)?;
+        if let Some(row) = sqlx::query(
+            "SELECT review_request_digest,receipt_json FROM public.qualification_candidate_intake_receipts_v1 WHERE review_request_identity=$1 FOR UPDATE",
+        )
+        .bind(request.review_request_identity())
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(storage)?
+        {
+            if row.try_get::<String, _>("review_request_digest").map_err(storage)?
+                != request.review_request_digest()
+            {
+                return Err(QualificationOwnerError::ConflictingIdentity);
+            }
+            let value: serde_json::Value = row.try_get("receipt_json").map_err(storage)?;
+            let receipt = decode_intake_receipt_v1(&value)?;
+            if !receipt.matches_request(request) {
+                return Err(QualificationOwnerError::ConflictingIdentity);
+            }
+            verify_candidate_intake_commit_v1(&mut transaction, &receipt).await?;
+            transaction.commit().await.map_err(storage)?;
+            return Ok(receipt);
+        }
+        let row = sqlx::query(
+            "SELECT * FROM rd_owner_api.lock_ready_for_selection_for_qualification_v1($1,$2)",
+        )
+        .bind(request.decision_identity())
+        .bind(request.result_identity())
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(storage)?
+        .ok_or_else(|| unavailable("R&D Candidate and Selection custody is unavailable"))?;
+        let resolved_storage = ResolvedRdSelectionStorageV1 {
+            candidate_json: row.try_get("candidate_json").map_err(storage)?,
+            candidate_bytes: row.try_get("candidate_storage_bytes").map_err(storage)?,
+            candidate_storage_digest: row.try_get("candidate_storage_digest").map_err(storage)?,
+            selection_json: row.try_get("selection_json").map_err(storage)?,
+            selection_bytes: row.try_get("selection_storage_bytes").map_err(storage)?,
+            selection_storage_digest: row.try_get("selection_storage_digest").map_err(storage)?,
+            selection_receipt_json: row.try_get("selection_receipt_json").map_err(storage)?,
+            selection_receipt_bytes: row
+                .try_get("selection_receipt_storage_bytes")
+                .map_err(storage)?,
+            selection_receipt_storage_digest: row
+                .try_get("selection_receipt_storage_digest")
+                .map_err(storage)?,
+            candidate_outbox_count: row.try_get("candidate_outbox_count").map_err(storage)?,
+            selection_outbox_count: row.try_get("selection_outbox_count").map_err(storage)?,
+            selection_outbox_json: row.try_get("selection_outbox_json").map_err(storage)?,
+            selection_outbox_digest: row.try_get("selection_outbox_digest").map_err(storage)?,
+            selection_outbox_committed_at_epoch_ms: row
+                .try_get("selection_outbox_committed_at_epoch_ms")
+                .map_err(storage)?,
+        };
+        let handoff = decode_resolved_handoff_v1(&resolved_storage)?;
+        let committed_at_epoch_ms = owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
+        let receipt = form_candidate_intake_receipt_v1(request, &handoff, committed_at_epoch_ms)?;
+        if let Some(reservation_identity) = receipt.holdout_reservation_identity() {
+            sqlx::query("INSERT INTO public.qualification_holdout_reservations_v1 (reservation_identity,review_request_identity,candidate_identity,reservation_json,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5)")
+                .bind(reservation_identity)
+                .bind(receipt.review_request_identity())
+                .bind(receipt.candidate_identity())
+                .bind(serde_json::json!({"schema_version":1,"reservation_identity":reservation_identity,"review_request_identity":receipt.review_request_identity(),"candidate_identity":receipt.candidate_identity()}))
+                .bind(i64::try_from(receipt.committed_at_epoch_ms()).map_err(json_storage)?)
+                .execute(&mut *transaction).await.map_err(storage)?;
+        }
+        let receipt_json = receipt.as_json()?;
+        sqlx::query("INSERT INTO public.qualification_candidate_intake_receipts_v1 (review_request_identity,review_request_digest,candidate_identity,receipt_identity,status,receipt_json,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7)")
+            .bind(receipt.review_request_identity())
+            .bind(receipt.review_request_digest())
+            .bind(receipt.candidate_identity())
+            .bind(receipt.receipt_identity())
+            .bind(match receipt.status() { CandidateIntakeStatusV1::Admitted => "ADMITTED", CandidateIntakeStatusV1::NotAdmitted => "NOT_ADMITTED" })
+            .bind(&receipt_json)
+            .bind(i64::try_from(receipt.committed_at_epoch_ms()).map_err(json_storage)?)
+            .execute(&mut *transaction).await.map_err(storage)?;
+        let event_digest =
+            canonical_digest("qualification.candidate-intake-event.v1", &receipt_json)?;
+        sqlx::query("INSERT INTO public.qualification_owner_outbox_v1 (event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms) VALUES ($1,$2,'QUALIFICATION_CANDIDATE_INTAKE_COMMITTED_V1',$3,$4,$5)")
+            .bind(identity("qualification-candidate-intake-event-v1", &event_digest))
+            .bind(receipt.receipt_identity())
+            .bind(event_digest)
+            .bind(&receipt_json)
+            .bind(i64::try_from(receipt.committed_at_epoch_ms()).map_err(json_storage)?)
+            .execute(&mut *transaction).await.map_err(storage)?;
+        verify_candidate_intake_commit_v1(&mut transaction, &receipt).await?;
+        transaction.commit().await.map_err(storage)?;
+        Ok(receipt)
+    }
+
     async fn migrate(&self) -> Result<(), QualificationOwnerError> {
         let admitted: bool = sqlx::query_scalar(
             "SELECT
@@ -45,6 +152,8 @@ impl PostgresQualificationOwnerV1 {
                  FROM pg_catalog.unnest(ARRAY[
                    'public.qualification_protected_feedback_projections_v1',
                    'public.qualification_protected_feedback_heads_v1',
+                   'public.qualification_candidate_intake_receipts_v1',
+                   'public.qualification_holdout_reservations_v1',
                    'public.qualification_owner_outbox_v1'
                 ]) table_name
                  CROSS JOIN pg_catalog.unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE']) privilege_name)
@@ -52,6 +161,8 @@ impl PostgresQualificationOwnerV1 {
                  FROM pg_catalog.unnest(ARRAY[
                    'public.qualification_protected_feedback_projections_v1',
                    'public.qualification_protected_feedback_heads_v1',
+                   'public.qualification_candidate_intake_receipts_v1',
+                   'public.qualification_holdout_reservations_v1',
                    'public.qualification_owner_outbox_v1'
                  ]) table_name
                  CROSS JOIN pg_catalog.unnest(ARRAY['TRUNCATE','REFERENCES','TRIGGER']) privilege_name)
@@ -71,6 +182,7 @@ impl PostgresQualificationOwnerV1 {
                 )
                 AND pg_catalog.has_schema_privilege(current_user, 'rd_owner_api', 'USAGE')
                 AND pg_catalog.has_function_privilege(current_user, 'rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb)', 'EXECUTE')
+                AND pg_catalog.has_function_privilege(current_user, 'rd_owner_api.lock_ready_for_selection_for_qualification_v1(text,text)', 'EXECUTE')
                 AND NOT pg_catalog.pg_has_role(current_user, 'qualification_owner', 'MEMBER')
                 AND NOT pg_catalog.has_schema_privilege(current_user, 'public', 'CREATE')
                 AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_tables WHERE tableowner = current_user)
@@ -258,6 +370,119 @@ impl PostgresQualificationOwnerV1 {
     ) -> Result<Option<ProtectedFeedbackFrontierReadbackV1>, QualificationOwnerError> {
         admit_projection_in_transaction(transaction, locator).await
     }
+}
+
+async fn verify_candidate_intake_commit_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    receipt: &CandidateIntakeReceiptV1,
+) -> Result<(), QualificationOwnerError> {
+    let receipt_rows = sqlx::query("SELECT review_request_digest,candidate_identity,receipt_identity,status,receipt_json,committed_at_epoch_ms FROM public.qualification_candidate_intake_receipts_v1 WHERE review_request_identity=$1 FOR UPDATE")
+        .bind(receipt.review_request_identity())
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    let expected_json = receipt.as_json()?;
+    let expected_status = match receipt.status() {
+        CandidateIntakeStatusV1::Admitted => "ADMITTED",
+        CandidateIntakeStatusV1::NotAdmitted => "NOT_ADMITTED",
+    };
+    if receipt_rows.len() != 1
+        || receipt_rows[0]
+            .try_get::<String, _>("review_request_digest")
+            .map_err(storage)?
+            != receipt.review_request_digest()
+        || receipt_rows[0]
+            .try_get::<String, _>("candidate_identity")
+            .map_err(storage)?
+            != receipt.candidate_identity()
+        || receipt_rows[0]
+            .try_get::<String, _>("receipt_identity")
+            .map_err(storage)?
+            != receipt.receipt_identity()
+        || receipt_rows[0]
+            .try_get::<String, _>("status")
+            .map_err(storage)?
+            != expected_status
+        || receipt_rows[0]
+            .try_get::<serde_json::Value, _>("receipt_json")
+            .map_err(storage)?
+            != expected_json
+        || receipt_rows[0]
+            .try_get::<i64, _>("committed_at_epoch_ms")
+            .map_err(storage)?
+            != i64::try_from(receipt.committed_at_epoch_ms()).map_err(json_storage)?
+        || decode_intake_receipt_v1(&expected_json)? != *receipt
+    {
+        return Err(unavailable("committed Candidate Intake receipt changed"));
+    }
+
+    let reservations = sqlx::query("SELECT reservation_identity,candidate_identity,reservation_json,committed_at_epoch_ms FROM public.qualification_holdout_reservations_v1 WHERE review_request_identity=$1 FOR UPDATE")
+        .bind(receipt.review_request_identity())
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    match receipt.holdout_reservation_identity() {
+        Some(reservation_identity) => {
+            let expected_reservation = serde_json::json!({
+                "schema_version": 1,
+                "reservation_identity": reservation_identity,
+                "review_request_identity": receipt.review_request_identity(),
+                "candidate_identity": receipt.candidate_identity(),
+            });
+            if reservations.len() != 1
+                || reservations[0]
+                    .try_get::<String, _>("reservation_identity")
+                    .map_err(storage)?
+                    != reservation_identity
+                || reservations[0]
+                    .try_get::<String, _>("candidate_identity")
+                    .map_err(storage)?
+                    != receipt.candidate_identity()
+                || reservations[0]
+                    .try_get::<serde_json::Value, _>("reservation_json")
+                    .map_err(storage)?
+                    != expected_reservation
+                || reservations[0]
+                    .try_get::<i64, _>("committed_at_epoch_ms")
+                    .map_err(storage)?
+                    != i64::try_from(receipt.committed_at_epoch_ms()).map_err(json_storage)?
+            {
+                return Err(unavailable("Candidate Intake holdout reservation changed"));
+            }
+        }
+        None if !reservations.is_empty() => {
+            return Err(unavailable("NOT_ADMITTED intake acquired holdout custody"));
+        }
+        None => {}
+    }
+
+    let outbox_rows = sqlx::query("SELECT event_identity,payload_digest,payload_json,committed_at_epoch_ms FROM public.qualification_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind='QUALIFICATION_CANDIDATE_INTAKE_COMMITTED_V1' FOR UPDATE")
+        .bind(receipt.receipt_identity())
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    let event_digest = canonical_digest("qualification.candidate-intake-event.v1", &expected_json)?;
+    if outbox_rows.len() != 1
+        || outbox_rows[0]
+            .try_get::<String, _>("event_identity")
+            .map_err(storage)?
+            != identity("qualification-candidate-intake-event-v1", &event_digest)
+        || outbox_rows[0]
+            .try_get::<String, _>("payload_digest")
+            .map_err(storage)?
+            != event_digest
+        || outbox_rows[0]
+            .try_get::<serde_json::Value, _>("payload_json")
+            .map_err(storage)?
+            != expected_json
+        || outbox_rows[0]
+            .try_get::<i64, _>("committed_at_epoch_ms")
+            .map_err(storage)?
+            != i64::try_from(receipt.committed_at_epoch_ms()).map_err(json_storage)?
+    {
+        return Err(unavailable("Candidate Intake outbox/readback changed"));
+    }
+    Ok(())
 }
 
 /// Direct, locked Qualification Owner reread. The locator is never evidence;

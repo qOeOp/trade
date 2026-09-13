@@ -1024,12 +1024,34 @@ fn valid_ready_for_selection_request(request: &ReadyForSelectionCompositionReque
         request.positive_evidence.information_value.as_slice(),
     ];
     let plan = &request.protected_robustness_plan;
+    let instrument_cells = if plan.required_instrument_slices.is_empty() {
+        plan.instrument_non_applicability_basis.iter().collect()
+    } else {
+        plan.required_instrument_slices.iter().collect()
+    };
+    let parameter_cells = if plan.required_parameter_neighborhoods.is_empty() {
+        plan.no_tunable_parameters_basis.iter().collect()
+    } else {
+        plan.required_parameter_neighborhoods
+            .iter()
+            .map(|entry| &entry.parameter)
+            .collect()
+    };
     let plan_dimensions = [
-        plan.required_time_windows.as_slice(),
-        plan.required_regimes.as_slice(),
-        plan.required_instrument_slices.as_slice(),
-        plan.required_perturbations.as_slice(),
-        plan.required_parameter_neighborhoods.as_slice(),
+        plan.required_time_windows
+            .iter()
+            .map(|entry| &entry.evidence)
+            .collect::<Vec<_>>(),
+        plan.required_regimes
+            .iter()
+            .map(|entry| &entry.evidence)
+            .collect(),
+        instrument_cells,
+        plan.required_perturbations
+            .iter()
+            .map(|entry| &entry.perturbation)
+            .collect(),
+        parameter_cells,
     ];
     let plan_policies = [
         &plan.metric,
@@ -1083,6 +1105,23 @@ fn valid_ready_for_selection_request(request: &ReadyForSelectionCompositionReque
         && assessment_is_finite
         && plan_is_finite
         && plan_policies.into_iter().all(valid_reference)
+        && plan
+            .required_time_windows
+            .iter()
+            .all(|window| window.start_epoch_ms < window.end_epoch_ms)
+        && plan.required_perturbations.iter().all(|entry| {
+            valid_reference(&entry.input_class) && valid_reference(&entry.perturbation)
+        })
+        && plan
+            .required_parameter_neighborhoods
+            .iter()
+            .all(|entry| entry.lower < entry.center && entry.center < entry.upper)
+        && (plan.required_parameter_neighborhoods.is_empty()
+            != plan.no_tunable_parameters_basis.is_none())
+        && !(plan.instrument_scope
+            == vibe_strategy_factory::iteration_decision::ProtectedInstrumentScopeV1::MultipleInstruments
+            && plan.instrument_non_applicability_basis.is_some())
+        && plan.preregistered_capacity_ceiling > 0
         && plan.protected_decision_policy.version > 0
         && is_valid_iteration_decision_locator_v1(&plan.protected_decision_policy.identity)
         && valid_sha256(&plan.protected_decision_policy.digest)

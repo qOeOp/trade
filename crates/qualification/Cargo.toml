@@ -19,6 +19,7 @@ owner-recovery = ["dep:tokio"]
 ignored = ["vibe-testkit"]
 
 [dependencies]
+blake3 = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
