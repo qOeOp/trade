@@ -409,6 +409,12 @@ test("repaired Replay RUN accepts only the exact Owner successor projection", { 
   })
   await withFetch([{ value: {
     ...owner,
+    locator: { ...owner.locator, receipt_identity: [owner.locator.receipt_identity] },
+  } }], async () => {
+    assert.equal((await main("RUN", "REPAIRED_REPLAY", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
+  })
+  await withFetch([{ value: {
+    ...owner,
     repair_resolution_locator: {
       resolution_identity: "unrelated-resolution", repair_request_identity: "unrelated-repair",
     },
@@ -451,6 +457,18 @@ test("repaired Replay RESOLVE uses only its pre-existing request selector", { co
       "/v2/exploratory-replay-requests/replay-successor-1/resolve",
     )
     assert.deepEqual(calls[0].body, { meaning_digest: payload.meaning_digest })
+  })
+  await withFetch([{ value: {
+    ...owner,
+    readback: {
+      ...owner.readback,
+      receipt: {
+        ...owner.readback.receipt,
+        receipt_identity: [owner.readback.receipt.receipt_identity],
+      },
+    },
+  } }], async () => {
+    assert.equal((await main("RESOLVE", "REPAIRED_REPLAY", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
   })
 })
 
