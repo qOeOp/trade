@@ -90,7 +90,7 @@ function evidenceCut(payload) {
     candidate_set_frontier_identity: "candidate-frontier-1",
     candidate_set_frontier_digest: sha("e"),
     request_identity: payload.request_identity,
-    request_digest: sha("f"),
+    request_digest: payload.request_digest ?? sha("f"),
     result_identity: payload.result_identity,
     result_digest: sha("0"),
     attempt_identity: payload.attempt_identity,
@@ -180,6 +180,7 @@ test("Market Data repair RUN validates canonical Owner custody", { concurrency: 
   const decisionEvidence = evidenceCut({
     trial_family_identity: "family-1",
     request_identity: payload.replay.request_identity,
+    request_digest: payload.replay.meaning_digest,
     result_identity: payload.result_identity,
     attempt_identity: payload.attempt_identity,
   })
@@ -200,7 +201,7 @@ test("Market Data repair RUN validates canonical Owner custody", { concurrency: 
     attempt_identity: payload.attempt_identity,
     category: "MARKET_DATA",
     target: "MARKET_DATA",
-    bounded_reason: "BacktestDiagnosticMarketData",
+    bounded_reason: "BACKTEST_DIAGNOSTIC_MARKET_DATA",
     decisive_evidence_component: "PIT_SNAPSHOT",
     decisive_evidence_reference: "evidence-1",
     decisive_evidence_digest: sha("6"),
@@ -237,9 +238,9 @@ test("Market Data repair RUN validates canonical Owner custody", { concurrency: 
       ...payload.shared_time_head,
       clock_identity: "clock-1",
       clock_epoch: "epoch-1",
-      monotonic_sequence: 1,
+      monotonic_sequence: 2,
       wall_observed: 20,
-      decision_cut: 18,
+      decision_cut: 19,
       valid_through: 30,
       restart_continuity_digest: Array(32).fill(17),
       uncertainty_bound: 1,
@@ -299,6 +300,37 @@ test("Market Data repair RUN validates canonical Owner custody", { concurrency: 
     }),
   }
   await withFetch([{ value: staleSharedTime }], async () => {
+    assert.equal((await main("RUN", "MARKET_DATA_REPAIR", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
+  })
+  const foreignSharedClock = {
+    ...owner,
+    canonical_request_bytes: bytes({
+      ...canonical,
+      shared_time_evidence: {
+        ...canonical.shared_time_evidence,
+        clock_identity: "foreign-clock",
+        clock_epoch: "foreign-epoch",
+      },
+    }),
+  }
+  await withFetch([{ value: foreignSharedClock }], async () => {
+    assert.equal((await main("RUN", "MARKET_DATA_REPAIR", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
+  })
+  await withFetch([{ value: { ...owner, committed_at_epoch_ms: 30 } }], async () => {
+    assert.equal((await main("RUN", "MARKET_DATA_REPAIR", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
+  })
+  const foreignDecisionReplay = {
+    ...owner,
+    canonical_request_bytes: bytes({
+      ...canonical,
+      decision_evidence_cut: {
+        ...canonical.decision_evidence_cut,
+        request_identity: "unrelated-request",
+        request_digest: sha("9"),
+      },
+    }),
+  }
+  await withFetch([{ value: foreignDecisionReplay }], async () => {
     assert.equal((await main("RUN", "MARKET_DATA_REPAIR", payload)).resolution, "SUBMITTED_OR_UNKNOWN")
   })
 })

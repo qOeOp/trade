@@ -81,7 +81,11 @@ function validOriginalTimeEvidence(value: unknown): value is Json {
     && value.correction_publication.value <= value.decision_cut.value
 }
 
-function validSharedTimeEvidence(value: unknown): value is Json {
+function validSharedTimeEvidence(
+  value: unknown,
+  original: Json,
+  committedAtEpochMs: unknown,
+): value is Json {
   return object(value) && exactKeys(value, [
     "head_identity", "head_digest", "clock_identity", "clock_epoch", "monotonic_sequence",
     "wall_observed", "decision_cut", "valid_through", "restart_continuity_digest",
@@ -96,6 +100,13 @@ function validSharedTimeEvidence(value: unknown): value is Json {
     && timestamp(value.uncertainty_bound) && timestamp(value.skew_bound) && value.skew_bound > 0
     && value.uncertainty_bound <= value.skew_bound
     && value.comparison_rule === "ExclusiveValidThrough"
+    && value.clock_identity === original.decision_cut.clock_identity
+    && value.clock_epoch === original.decision_cut.clock_epoch
+    && value.monotonic_sequence > original.monotonic_sequence
+    && value.decision_cut > original.decision_cut.value
+    && value.wall_observed >= original.observed_at
+    && timestamp(committedAtEpochMs) && committedAtEpochMs >= value.wall_observed
+    && committedAtEpochMs < value.valid_through
 }
 
 function replayLocator(value: unknown): value is Json {
@@ -317,7 +328,7 @@ function validMarketDataResponse(value: unknown, payload: Json): boolean {
       && timestamp(canonical.provenance_lineage_version)
       && canonical.decisive_evidence_component === "PIT_SNAPSHOT"
       && validOriginalTimeEvidence(canonical.original_time_evidence)
-      && canonical.bounded_reason === "BacktestDiagnosticMarketData"
+      && canonical.bounded_reason === "BACKTEST_DIAGNOSTIC_MARKET_DATA"
       && canonical.request_identity === value.request_identity
       && canonical.request_digest === value.request_digest
       && equalBytes(canonical.correlation_identity, value.correlation_identity)
@@ -330,8 +341,14 @@ function validMarketDataResponse(value: unknown, payload: Json): boolean {
       && canonical.attempt_identity === payload.attempt_identity
       && canonical.replay_request_identity === payload.replay.request_identity
       && canonical.replay_request_digest === payload.replay.meaning_digest
+      && canonical.decision_evidence_cut.request_identity === canonical.replay_request_identity
+      && canonical.decision_evidence_cut.request_digest === canonical.replay_request_digest
       && canonical.category === value.category && canonical.target === value.target
-      && validSharedTimeEvidence(canonical.shared_time_evidence)
+      && validSharedTimeEvidence(
+        canonical.shared_time_evidence,
+        canonical.original_time_evidence,
+        value.committed_at_epoch_ms,
+      )
       && equalBytes(canonical.shared_time_evidence.head_identity, payload.shared_time_head.head_identity)
       && equalBytes(canonical.shared_time_evidence.head_digest, payload.shared_time_head.head_digest)
       && value.action_request_identity === payload.action_request_identity
