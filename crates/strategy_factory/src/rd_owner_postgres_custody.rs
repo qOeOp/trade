@@ -3,7 +3,10 @@
     reason = "R&D Owner custody retains complete typed readbacks across repeatable-read transactions"
 )]
 
-use std::{collections::BTreeMap, fmt::Display};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::Display,
+};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
@@ -15,7 +18,7 @@ pub use vibe_backtest_result_custody::{
 };
 use vibe_product_edge::{
     DownstreamAdmissionModeV1, ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionReadbackV1,
-    resolve_admission_for_downstream_in_transaction,
+    ProductEdgeError, resolve_admission_for_downstream_in_transaction,
 };
 use vibe_qualification::{
     ProtectedFeedbackFrontierReadbackV1, admit_historical_projection_in_transaction,
@@ -1737,6 +1740,13 @@ impl VerifiedResearchCustodyV1 {
         self.request_schema_version
     }
 
+    pub(crate) fn is_legacy_quarantined(&self) -> bool {
+        matches!(
+            self.authority,
+            VerifiedResearchAuthorityV1::LegacyQuarantined
+        )
+    }
+
     pub(crate) fn authority_available_at(&self, read_cut_epoch_ms: u64) -> bool {
         if matches!(
             self.authority,
@@ -1825,6 +1835,28 @@ impl VerifiedResearchCustodyV1 {
             request_identity: self.receipt.request_identity.clone(),
             owner_receipt: Some(self.receipt),
             research_view: None,
+            next_legal_action: ResearchNextLegalAction::ResolveSameRequestIdentity,
+        })
+    }
+
+    pub(crate) fn into_legacy_quarantined_v2_result(
+        self,
+    ) -> Result<ResearchGoalOwnerResultV2, ResearchGoalOwnerError> {
+        if !self.is_legacy_quarantined() || self.request_schema_version != 2 {
+            return Err(ResearchGoalOwnerError::Storage(
+                "research custody is not legacy quarantined V2".into(),
+            ));
+        }
+        Ok(ResearchGoalOwnerResultV2 {
+            schema_version: 2,
+            resolution: ProductEdgeResolution::LegacyTerminalQuarantined,
+            request_identity: self.receipt.request_identity.clone(),
+            owner_receipt: Some(self.receipt),
+            research_view: None,
+            independence_basis: None,
+            protected_feedback: None,
+            trial_family_resolution: TrialFamilyResolutionV1::unavailable(),
+            trial_family: None,
             next_legal_action: ResearchNextLegalAction::ResolveSameRequestIdentity,
         })
     }
@@ -1949,12 +1981,7 @@ pub(crate) async fn admit_research_v2_custody_read_only_in_transaction(
         ResearchGoalOwnerError::Storage("research custody changed across authority cut".into())
     })?;
     let custody = admit_preloaded_research_row_in_transaction(transaction, row, admission).await?;
-    if custody.request_schema_version() != 2
-        || matches!(
-            &custody.authority,
-            VerifiedResearchAuthorityV1::LegacyQuarantined
-        )
-    {
+    if custody.request_schema_version() != 2 {
         return Ok(None);
     }
     Box::pin(complete_research_custody_in_transaction(
@@ -2613,13 +2640,22 @@ async fn resolve_research_admission_hints(
             decode_exact::<LegacyStoredAdmittedResearchRequestV2>(&request_json).ok();
         let legacy_product_edge_rejected_v2 =
             decode_exact::<LegacyStoredRejectedResearchRequestV2>(&request_json).ok();
-        let representation_count = usize::from(v1.is_some())
-            + usize::from(accepted_v2.is_some())
-            + usize::from(rejected_v2.is_some())
-            + usize::from(legacy_self_authorized_v2.is_some())
-            + usize::from(legacy_candidate_v2.is_some())
-            + usize::from(legacy_product_edge_admitted_v2.is_some())
-            + usize::from(legacy_product_edge_rejected_v2.is_some());
+        let legacy_product_edge_fallback = (accepted_v2.is_some()
+            && legacy_product_edge_admitted_v2.is_some())
+            || (rejected_v2.is_some() && legacy_product_edge_rejected_v2.is_some());
+        let legacy_product_edge_admitted_only =
+            accepted_v2.is_none() && legacy_product_edge_admitted_v2.is_some();
+        let legacy_product_edge_rejected_only =
+            rejected_v2.is_none() && legacy_product_edge_rejected_v2.is_some();
+        let representation_count = supported_research_representation_count(
+            v1.is_some(),
+            accepted_v2.is_some(),
+            rejected_v2.is_some(),
+            legacy_self_authorized_v2.is_some(),
+            legacy_candidate_v2.is_some(),
+            legacy_product_edge_admitted_v2.is_some(),
+            legacy_product_edge_rejected_v2.is_some(),
+        );
 
         if representation_count != 1 {
             return Err(ResearchGoalOwnerError::Storage(
@@ -2629,8 +2665,8 @@ async fn resolve_research_admission_hints(
 
         if legacy_self_authorized_v2.is_some()
             || legacy_candidate_v2.is_some()
-            || legacy_product_edge_admitted_v2.is_some()
-            || legacy_product_edge_rejected_v2.is_some()
+            || legacy_product_edge_admitted_only
+            || legacy_product_edge_rejected_only
         {
             if admissions
                 .insert(
@@ -2661,12 +2697,21 @@ async fn resolve_research_admission_hints(
                 "Product Edge admission locator request mismatch".into(),
             ));
         }
-        locators.push((request_identity.clone(), locator, false));
+        locators.push((
+            request_identity.clone(),
+            locator,
+            false,
+            legacy_product_edge_fallback,
+        ));
         let view_json = row
             .try_get::<Option<serde_json::Value>, _>("view_json")
             .map_err(|e| storage(&e))?;
         if let Some(view_json) = view_json {
-            let view: ResearchViewV1 = decode_exact(&view_json)?;
+            let view = match decode_exact::<ResearchViewV1>(&view_json) {
+                Ok(view) => view,
+                Err(_) if legacy_product_edge_fallback => continue,
+                Err(e) => return Err(e),
+            };
             if matches!(
                 view.phase,
                 crate::product_edge::ResearchViewPhase::ArtifactAvailable
@@ -2693,29 +2738,51 @@ async fn resolve_research_admission_hints(
                 let attempt =
                     attempt::decode_attempt_row(&attempt_rows[0], &build_request_identity)
                         .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
-                locators.push((request_identity, attempt.request.admission, true));
+                locators.push((request_identity, attempt.request.admission, true, false));
             }
         }
     }
     locators.sort_by(|left, right| {
-        (&left.1.request_identity, &left.1.admission_identity, left.2).cmp(&(
-            &right.1.request_identity,
-            &right.1.admission_identity,
+        (&left.0, left.2, &left.1.admission_identity).cmp(&(
+            &right.0,
             right.2,
+            &right.1.admission_identity,
         ))
     });
 
     let mut resolved_research = BTreeMap::new();
     let mut resolved_terminal = BTreeMap::new();
+    let mut legacy_fallbacks = BTreeSet::new();
 
-    for (request_identity, locator, terminal) in locators {
-        let admission = resolve_admission_for_downstream_in_transaction(
+    for (request_identity, locator, terminal, legacy_fallback) in locators {
+        if terminal && legacy_fallbacks.contains(&request_identity) {
+            continue;
+        }
+        let admission = match resolve_admission_for_downstream_in_transaction(
             transaction,
             &locator,
             DownstreamAdmissionModeV1::Historical,
         )
         .await
-        .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
+        {
+            Ok(admission) => admission,
+            Err(ProductEdgeError::Unavailable) if !terminal && legacy_fallback => {
+                if admissions
+                    .insert(
+                        request_identity.clone(),
+                        PreadmittedResearchAuthorityV1::LegacyQuarantined,
+                    )
+                    .is_some()
+                    || !legacy_fallbacks.insert(request_identity)
+                {
+                    return Err(ResearchGoalOwnerError::Storage(
+                        "duplicate legacy Product Edge request hint".into(),
+                    ));
+                }
+                continue;
+            }
+            Err(e) => return Err(ResearchGoalOwnerError::Storage(e.to_string())),
+        };
         let target = if terminal {
             &mut resolved_terminal
         } else {
@@ -2752,6 +2819,29 @@ async fn resolve_research_admission_hints(
         ));
     }
     Ok(admissions)
+}
+
+fn supported_research_representation_count(
+    v1: bool,
+    accepted_v2: bool,
+    rejected_v2: bool,
+    legacy_self_authorized_v2: bool,
+    legacy_candidate_v2: bool,
+    legacy_product_edge_admitted_v2: bool,
+    legacy_product_edge_rejected_v2: bool,
+) -> usize {
+    [
+        v1,
+        accepted_v2,
+        rejected_v2,
+        legacy_self_authorized_v2,
+        legacy_candidate_v2,
+        legacy_product_edge_admitted_v2 && !accepted_v2,
+        legacy_product_edge_rejected_v2 && !rejected_v2,
+    ]
+    .into_iter()
+    .filter(|matched| *matched)
+    .count()
 }
 
 async fn complete_research_custody_in_transaction(
@@ -3167,7 +3257,13 @@ pub(crate) use attempt::{
 
 #[cfg(test)]
 mod tests {
-    use super::LegacyProductEdgeChannelV1;
+    use super::{
+        LegacyProductEdgeChannelV1, VerifiedResearchAuthorityV1, VerifiedResearchCustodyV1,
+        supported_research_representation_count,
+    };
+    use crate::product_edge::{
+        ProductEdgeResolution, ResearchRequestDisposition, ResearchRequestReceiptV1,
+    };
 
     #[test]
     fn legacy_research_channels_stay_readable_without_widening_current_admission() {
@@ -3186,5 +3282,51 @@ mod tests {
         assert!(
             serde_json::from_str::<crate::product_edge::ProductEdgeChannel>("\"MCP\"").is_err()
         );
+    }
+
+    #[test]
+    fn current_product_edge_shape_counts_once_when_legacy_decoder_also_matches() {
+        assert_eq!(
+            supported_research_representation_count(false, true, false, false, false, true, false,),
+            1
+        );
+    }
+
+    #[test]
+    fn legacy_v2_point_read_preserves_quarantine_receipt() {
+        let custody = VerifiedResearchCustodyV1 {
+            request_json: None,
+            receipt: ResearchRequestReceiptV1 {
+                schema_version: 1,
+                receipt_identity: "rd-research-request-receipt-v2-test".into(),
+                request_identity: "research-request-v2-test".into(),
+                semantic_digest: format!("sha256:{}", "a".repeat(64)),
+                disposition: ResearchRequestDisposition::Accepted,
+                resulting_research_intent_identity: Some("rd-research-intent-v2-test".into()),
+                committed_at_epoch_ms: 1,
+                rejection_code: None,
+            },
+            intent: None,
+            view: None,
+            family: None,
+            expected_family: None,
+            independence_basis: None,
+            protected_feedback: None,
+            authority: VerifiedResearchAuthorityV1::LegacyQuarantined,
+            effective_principal: "legacy-principal".into(),
+            authorized_scope: vec!["research".into()],
+            request_schema_version: 2,
+            terminal_attempt_admission: None,
+        };
+
+        let result = custody.into_legacy_quarantined_v2_result().unwrap();
+
+        assert_eq!(
+            result.resolution(),
+            ProductEdgeResolution::LegacyTerminalQuarantined
+        );
+        assert_eq!(result.request_identity(), "research-request-v2-test");
+        assert!(result.owner_receipt().is_some());
+        assert!(result.research_view().is_none());
     }
 }
