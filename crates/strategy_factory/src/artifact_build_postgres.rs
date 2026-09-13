@@ -1566,6 +1566,7 @@ async fn read_source_from_pool(
         transaction.commit().await.map_err(storage)?;
         return Ok(None);
     }
+
     if rows.len() != 1 {
         return Err(ArtifactBuildError::Storage(
             "artifact source custody locator is ambiguous".into(),
@@ -1667,6 +1668,7 @@ async fn read_artifact_from_pool(
         transaction.commit().await.map_err(storage)?;
         return Ok(unknown_result(build_request_identity, attempt_identity));
     }
+
     if rows.len() != 1 {
         return Err(ArtifactBuildError::Storage(
             "artifact readback custody locator is ambiguous".into(),
@@ -1948,12 +1950,12 @@ impl ArtifactReadbackOwnerPortV1 for PostgresArtifactReadbackOwnerV1 {
         build_request_identity: &str,
         attempt_identity: &str,
     ) -> Result<ArtifactBuildResultV1, ArtifactBuildError> {
-        read_artifact_from_pool(
+        Box::pin(read_artifact_from_pool(
             &self.pool,
             self.clock.as_ref(),
             build_request_identity,
             attempt_identity,
-        )
+        ))
         .await
     }
 }
