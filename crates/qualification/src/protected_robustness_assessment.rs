@@ -220,7 +220,7 @@ pub(crate) fn form_all_not_applicable_assessment_v1(
     }
 
     let mut census = Vec::with_capacity(request_set.members.len());
-    let mut latest_result_time: Option<&ProtectedEvaluationTimeEvidenceV1> = None;
+    let mut result_times = Vec::with_capacity(results.len());
     for member in &request_set.members {
         let request = requests_by_identity
             .get(member.request_identity.as_str())
@@ -283,18 +283,7 @@ pub(crate) fn form_all_not_applicable_assessment_v1(
                                 == digest
                     });
             every_basis_accepted &= accepted_basis;
-            if let Some(latest) = latest_result_time {
-                if result
-                    .result_time_evidence
-                    .compare_result_cut_within_epoch(latest)
-                    .map_err(contract)?
-                    == Ordering::Greater
-                {
-                    latest_result_time = Some(&result.result_time_evidence);
-                }
-            } else {
-                latest_result_time = Some(&result.result_time_evidence);
-            }
+            result_times.push(&result.result_time_evidence);
             terminal_results.push(ProtectedCellTerminalResultV1 {
                 result_identity: result.result_identity.clone(),
                 result_digest: result.result_digest.clone(),
@@ -328,8 +317,7 @@ pub(crate) fn form_all_not_applicable_assessment_v1(
         });
     }
     census.sort_by(|left, right| left.plan_cell_identity.cmp(&right.plan_cell_identity));
-    let result_time = latest_result_time
-        .ok_or_else(|| unavailable("protected assessment result time evidence is unavailable"))?;
+    let result_time = latest_fresh_comparable_result_time(&result_times, committed_at_epoch_ms)?;
     let assessment_time_evidence = assessment_time_evidence(assessment_successor);
     assessment_time_evidence
         .validate_assessment_successor_of(result_time)
@@ -557,6 +545,45 @@ fn assessment_time_evidence(
     }
 }
 
+fn latest_fresh_comparable_result_time<'a>(
+    result_times: &[&'a ProtectedEvaluationTimeEvidenceV1],
+    committed_at_epoch_ms: u64,
+) -> Result<&'a ProtectedEvaluationTimeEvidenceV1, QualificationOwnerError> {
+    let mut by_sequence = BTreeMap::new();
+    for result_time in result_times {
+        if committed_at_epoch_ms >= result_time.valid_through {
+            return Err(unavailable(
+                "protected result time evidence expired before assessment commit",
+            ));
+        }
+        if let Some(existing) = by_sequence.insert(result_time.monotonic_sequence, *result_time)
+            && existing != *result_time
+        {
+            return Err(unavailable(
+                "protected result time evidence conflicts at one clock sequence",
+            ));
+        }
+    }
+
+    let mut ordered = by_sequence.values();
+    let mut latest = *ordered
+        .next()
+        .ok_or_else(|| unavailable("protected assessment result time evidence is unavailable"))?;
+    for current in ordered {
+        if current
+            .compare_result_cut_within_epoch(latest)
+            .map_err(contract)?
+            != Ordering::Greater
+        {
+            return Err(unavailable(
+                "protected result time evidence is not one ordered assessment epoch",
+            ));
+        }
+        latest = current;
+    }
+    Ok(latest)
+}
+
 impl ProtectedRobustnessAssessmentV1 {
     pub(crate) fn as_json(&self) -> Result<serde_json::Value, QualificationOwnerError> {
         serde_json::to_value(self).map_err(|error| unavailable(&error.to_string()))
@@ -655,4 +682,56 @@ fn contract(
 
 fn unavailable(message: &str) -> QualificationOwnerError {
     QualificationOwnerError::Unavailable(message.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn result_time(
+        sequence: u64,
+        observed: u64,
+        valid_through: u64,
+        head: u8,
+    ) -> ProtectedEvaluationTimeEvidenceV1 {
+        ProtectedEvaluationTimeEvidenceV1 {
+            cut_kind: "PROTECTED_EVALUATION".into(),
+            stage: ProtectedEvaluationStageV1::Result,
+            head_identity: [head; 32],
+            head_digest: [head.saturating_add(1); 32],
+            clock_identity: "clock-identity".into(),
+            clock_epoch: "clock-epoch".into(),
+            monotonic_sequence: sequence,
+            wall_observed: observed,
+            decision_cut: observed,
+            valid_through,
+            restart_continuity_digest: [3; 32],
+            uncertainty_bound: 1,
+            skew_bound: 2,
+            comparison_rule: ProtectedEvaluationComparisonRuleV1::ExclusiveValidThrough,
+            direct_predecessor_head_identity: Some([head.saturating_sub(2); 32]),
+            direct_predecessor_head_digest: Some([head.saturating_sub(1); 32]),
+            epoch_successor_proof: None,
+        }
+    }
+
+    #[test]
+    fn complete_result_time_census_rejects_expiry_and_hidden_sequence_conflict() {
+        let first = result_time(2, 1_010, 1_110, 2);
+        let latest = result_time(4, 1_100, 1_200, 6);
+        assert!(latest_fresh_comparable_result_time(&[&first, &latest], 1_120).is_err());
+
+        let conflicting = result_time(2, 1_020, 1_130, 4);
+        assert!(
+            latest_fresh_comparable_result_time(&[&first, &latest, &conflicting], 1_105).is_err()
+        );
+
+        let middle = result_time(3, 1_050, 1_150, 4);
+        assert_eq!(
+            latest_fresh_comparable_result_time(&[&latest, &first, &middle], 1_105)
+                .unwrap()
+                .head_identity,
+            latest.head_identity
+        );
+    }
 }
