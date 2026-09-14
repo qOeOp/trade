@@ -800,6 +800,14 @@ impl TrialFamilyCensusMemberV2 {
         &self.fact_identity
     }
 
+    pub(crate) fn fact_digest(&self) -> &str {
+        &self.fact_digest
+    }
+
+    pub(crate) fn is_intent(&self) -> bool {
+        self.member_kind == TrialFamilyCensusMemberKindV2::Intent
+    }
+
     pub(crate) fn member_digest(&self) -> &str {
         &self.member_digest
     }
@@ -1556,6 +1564,51 @@ pub(crate) fn form_artifact_binding(
             "intent-family binding mismatch".to_string(),
         ));
     }
+    form_artifact_binding_after_family_check(
+        family,
+        artifact_identity,
+        build_receipt_identity,
+        intent_identity,
+        now_epoch_ms,
+    )
+}
+
+pub(crate) fn form_successor_artifact_binding(
+    family: TrialFamilyReadbackV1,
+    artifact_identity: &str,
+    build_receipt_identity: &str,
+    intent_identity: &str,
+    intent_trial_family_identity: &str,
+    intent_trial_family_policy_digest: &str,
+    now_epoch_ms: u64,
+) -> Result<ArtifactTrialFamilyReadbackV1, TrialFamilyError> {
+    for value in [artifact_identity, build_receipt_identity, intent_identity] {
+        require_identity(value, "ARTIFACT_BINDING_IDENTITY_INVALID")?;
+    }
+    if intent_identity == family.initial_intent_member.fact_identity
+        || family.root.trial_family_identity != intent_trial_family_identity
+        || family.root.policy_digest != intent_trial_family_policy_digest
+    {
+        return Err(TrialFamilyError::Unavailable(
+            "successor intent-family binding mismatch".to_string(),
+        ));
+    }
+    form_artifact_binding_after_family_check(
+        family,
+        artifact_identity,
+        build_receipt_identity,
+        intent_identity,
+        now_epoch_ms,
+    )
+}
+
+fn form_artifact_binding_after_family_check(
+    family: TrialFamilyReadbackV1,
+    artifact_identity: &str,
+    build_receipt_identity: &str,
+    intent_identity: &str,
+    now_epoch_ms: u64,
+) -> Result<ArtifactTrialFamilyReadbackV1, TrialFamilyError> {
     let meaning = BindingMeaningV1 {
         schema_version: 1,
         artifact_identity,
@@ -2558,6 +2611,58 @@ mod tests {
             .unwrap()
             .insert("unknown_authority".to_string(), serde_json::json!(true));
         assert!(admit_stored_artifact_binding(family, &mutated_binding, &receipt_json).is_err());
+    }
+
+    #[rstest]
+    fn successor_artifact_binding_requires_the_exact_family_and_policy() {
+        let initial_intent = "rd-research-intent-v2-initial";
+        let family = form_initial_family(
+            initial_intent,
+            &format!("sha256:{}", "1".repeat(64)),
+            policy(),
+            42,
+        )
+        .unwrap();
+        let successor_intent = "rd-successor-research-intent-v1-exact";
+        let family_identity = family.root.trial_family_identity().to_string();
+        let policy_digest = family.root.policy_digest().to_string();
+        let bound = form_successor_artifact_binding(
+            family.clone(),
+            "blake3:successor-artifact",
+            "rd-build-receipt-v1-successor",
+            successor_intent,
+            &family_identity,
+            &policy_digest,
+            43,
+        )
+        .unwrap();
+        assert_eq!(bound.binding.intent_identity(), successor_intent);
+        assert_eq!(bound.binding.trial_family_identity(), family_identity);
+
+        assert!(
+            form_successor_artifact_binding(
+                family.clone(),
+                "blake3:initial-artifact",
+                "rd-build-receipt-v1-initial",
+                initial_intent,
+                &family_identity,
+                &policy_digest,
+                43,
+            )
+            .is_err()
+        );
+        assert!(
+            form_successor_artifact_binding(
+                family,
+                "blake3:foreign-artifact",
+                "rd-build-receipt-v1-foreign",
+                successor_intent,
+                &family_identity,
+                &format!("sha256:{}", "9".repeat(64)),
+                43,
+            )
+            .is_err()
+        );
     }
 
     #[rstest]
