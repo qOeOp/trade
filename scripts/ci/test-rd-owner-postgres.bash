@@ -2779,21 +2779,21 @@ BEGIN
        FROM pg_catalog.pg_constraint constraint_entry
        WHERE constraint_entry.conrelid = 'public.qualification_public_status_facts_v1'::regclass
          AND constraint_entry.conname = 'qualification_public_status_facts_v1_status_check'
-         AND pg_catalog.position('QUALIFIED' IN pg_catalog.pg_get_constraintdef(constraint_entry.oid)) > 0
+         AND pg_catalog.strpos(pg_catalog.pg_get_constraintdef(constraint_entry.oid), 'QUALIFIED') > 0
      )
      OR NOT EXISTS (
        SELECT 1
        FROM pg_catalog.pg_constraint constraint_entry
        WHERE constraint_entry.conrelid = 'public.qualification_protected_robustness_assessments_v1'::regclass
          AND constraint_entry.conname = 'qualification_protected_robustness_assessments_v1_status_check'
-         AND pg_catalog.position('COMPLETE_PASS' IN pg_catalog.pg_get_constraintdef(constraint_entry.oid)) > 0
+         AND pg_catalog.strpos(pg_catalog.pg_get_constraintdef(constraint_entry.oid), 'COMPLETE_PASS') > 0
      )
      OR NOT EXISTS (
        SELECT 1
        FROM pg_catalog.pg_constraint constraint_entry
        WHERE constraint_entry.conrelid = 'public.qualification_eligibility_facts_v1'::regclass
          AND constraint_entry.conname = 'qualification_eligibility_facts_v1_status_check'
-         AND pg_catalog.position('QUALIFIED' IN pg_catalog.pg_get_constraintdef(constraint_entry.oid)) > 0
+         AND pg_catalog.strpos(pg_catalog.pg_get_constraintdef(constraint_entry.oid), 'QUALIFIED') > 0
      )
   THEN
     RAISE EXCEPTION 'Qualification qualified terminal constraints are unavailable';

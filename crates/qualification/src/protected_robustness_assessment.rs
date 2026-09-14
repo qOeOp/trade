@@ -503,6 +503,7 @@ fn form_assessment_v1(
                 mode,
                 &result.diagnostic_category_set,
                 result.applicability_evidence.observation,
+                None,
             );
             if frontier_member.result.result_digest != result.result_digest
                 || frontier_member.result_time_evidence_digest != result_time_digest
@@ -723,6 +724,7 @@ fn assessment_ready_cell(
     mode: ProtectedAssessmentModeV1,
     diagnostic_categories: &[DiagnosticCategoryV2],
     applicability: ProtectedCellApplicabilityObservationV3,
+    economic_pass: Option<bool>,
 ) -> bool {
     match mode {
         ProtectedAssessmentModeV1::AllNotApplicable => diagnostic_categories
@@ -734,14 +736,13 @@ fn assessment_ready_cell(
                 && applicability
                     == ProtectedCellApplicabilityObservationV3::ApplicableInputsObserved
         }
-        ProtectedAssessmentModeV1::EconomicPass => {
-            diagnostic_categories == [DiagnosticCategoryV2::NoExecutionDefect]
-                && matches!(
-                    applicability,
-                    ProtectedCellApplicabilityObservationV3::ApplicableInputsObserved
-                        | ProtectedCellApplicabilityObservationV3::PreResultNonApplicabilityBasisObserved
-                )
-        }
+        ProtectedAssessmentModeV1::EconomicPass => diagnostic_categories
+            == [DiagnosticCategoryV2::NoExecutionDefect]
+            && (applicability
+                == ProtectedCellApplicabilityObservationV3::PreResultNonApplicabilityBasisObserved
+                || (applicability
+                    == ProtectedCellApplicabilityObservationV3::ApplicableInputsObserved
+                    && economic_pass == Some(true))),
     }
 }
 
@@ -1402,16 +1403,25 @@ mod tests {
             ProtectedAssessmentModeV1::EconomicPass,
             &[DiagnosticCategoryV2::NoExecutionDefect],
             ProtectedCellApplicabilityObservationV3::ApplicableInputsObserved,
+            Some(true),
+        ));
+        assert!(!assessment_ready_cell(
+            ProtectedAssessmentModeV1::EconomicPass,
+            &[DiagnosticCategoryV2::NoExecutionDefect],
+            ProtectedCellApplicabilityObservationV3::ApplicableInputsObserved,
+            None,
         ));
         assert!(assessment_ready_cell(
             ProtectedAssessmentModeV1::EconomicPass,
             &[DiagnosticCategoryV2::NoExecutionDefect],
             ProtectedCellApplicabilityObservationV3::PreResultNonApplicabilityBasisObserved,
+            None,
         ));
         assert!(!assessment_ready_cell(
             ProtectedAssessmentModeV1::EconomicPass,
             &[DiagnosticCategoryV2::ValidEconomicFailure],
             ProtectedCellApplicabilityObservationV3::ApplicableInputsObserved,
+            Some(true),
         ));
     }
 }
