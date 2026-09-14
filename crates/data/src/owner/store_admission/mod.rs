@@ -1115,6 +1115,7 @@ fn validate_shared_time_revalidation_v1(
             AdmissionFailureCode::DirectMeasurementMismatch,
         ));
     }
+
     if !same_snapshot_cut(expected, observed) {
         return Err(rejection(scope, AdmissionFailureCode::AdmissionCutExpired));
     }
@@ -3028,7 +3029,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn shared_time_floor_requires_every_fixed_function_and_relation() {
         let functions = vec![
             "market_data_private.resolve_owner_history_census_custody_v1()".to_string(),
@@ -3074,6 +3075,7 @@ mod tests {
             .expect("bounded incomplete function measurement");
             assert!(!spec.covers_shared_time_floor_v1());
         }
+
         for omitted in 0..relations.len() {
             let mut incomplete = relations.clone();
             incomplete.remove(omitted);

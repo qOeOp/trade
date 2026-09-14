@@ -44,8 +44,8 @@ const stateItems = runListStatesV2.map((value) => ({ value, label: value === "al
 const durationLabels: Record<RunListDurationV2, string> = {
   any: "Any duration",
   lt_1s: "<1 s",
-  "1_10s": "1–10 s",
-  "10_60s": "10–60 s",
+  "1_10s": "1-10 s",
+  "10_60s": "10-60 s",
   gte_60s: "≥60 s",
 };
 const durationItems = runListDurationsV2.map((value) => ({ value, label: durationLabels[value] }));
@@ -66,14 +66,14 @@ function unavailable(reason: string): RunListViewEnvelopeV2 {
 }
 
 function durationLabel(value: number | null) {
-  if (value === null) return "—";
+  if (value === null) return "-";
   if (value < 1_000) return `${value} ms`;
   if (value < 60_000) return `${(value / 1_000).toFixed(1)} s`;
   return `${(value / 60_000).toFixed(1)} min`;
 }
 
 function displayTime(value: string | null) {
-  return value ? new Date(value).toLocaleString() : "—";
+  return value ? new Date(value).toLocaleString() : "-";
 }
 
 function triggerLabel(run: RunListItemV2) {
@@ -176,7 +176,7 @@ export function OperationsRunStorePreview() {
     { id: "trigger", name: <DataTableHeaderLabel>Trigger</DataTableHeaderLabel>, selector: triggerLabel, minWidth: "160px",
       cell: (run) => <span>{triggerLabel(run)}</span> },
     { id: "tag", name: <DataTableHeaderLabel>Tag</DataTableHeaderLabel>, selector: () => "", width: "110px",
-      cell: () => <span title="Tag evidence is not retained by this RunStore">—</span> },
+      cell: () => <span title="Tag evidence is not retained by this RunStore">-</span> },
     { id: "outcome", name: <DataTableHeaderLabel>Owner outcome</DataTableHeaderLabel>, selector: (run) => run.owner_outcome_state, minWidth: "150px",
       cell: (run) => <span>{run.owner_outcome_state === "not_applicable" ? "not applicable" : run.owner_outcome_state}</span> },
     { id: "open", name: <DataTableHeaderLabel>Open</DataTableHeaderLabel>, selector: (run) => run.run_identity, width: "80px", ignoreRowClick: true,
@@ -205,11 +205,11 @@ export function OperationsRunStorePreview() {
         <PanelFrameBody>
           <CompactStatusBar className="operations-run-summaries" aria-label="Run summary">
             <CompactStatusGroup label={kind === "runs" ? "runs" : "dependencies"}>
-              <CompactStatusItem label="queued" value={summary?.queued ?? "—"} />
-              <CompactStatusItem label="running" tone="info" value={summary?.running ?? "—"} />
-              <CompactStatusItem label="unknown" tone={summary?.unknown ? "warning" : "neutral"} value={summary?.unknown ?? "—"} />
-              <CompactStatusItem label="completed" value={summary?.completed ?? "—"} />
-              <CompactStatusItem label="failed" tone={summary?.failed ? "danger" : "neutral"} value={summary?.failed ?? "—"} />
+              <CompactStatusItem label="queued" value={summary?.queued ?? "-"} />
+              <CompactStatusItem label="running" tone="info" value={summary?.running ?? "-"} />
+              <CompactStatusItem label="unknown" tone={summary?.unknown ? "warning" : "neutral"} value={summary?.unknown ?? "-"} />
+              <CompactStatusItem label="completed" value={summary?.completed ?? "-"} />
+              <CompactStatusItem label="failed" tone={summary?.failed ? "danger" : "neutral"} value={summary?.failed ?? "-"} />
             </CompactStatusGroup>
           </CompactStatusBar>
           <DataTableSurface className="operations-run-table-surface" geometry="inner" toolbarLabel="Run table controls" toolbar={
@@ -241,7 +241,7 @@ export function OperationsRunStorePreview() {
                 </DataWorkspaceEmpty>}
                 onRowClicked={(run) => router.push(`/operations/runs/${encodeURIComponent(run.run_identity)}`)} pointerOnHover />
               <PanelFrameFooter layout="split">
-                <PanelFrameFooterSummary primary={`${pageResult.runs.length} shown / ${pageResult.filtered_total ?? "—"} filtered`} />
+                <PanelFrameFooterSummary primary={`${pageResult.runs.length} shown / ${pageResult.filtered_total ?? "-"} filtered`} />
                 <PanelFrameFooterMeta>Page {page} of {totalPages}</PanelFrameFooterMeta>
                 <PanelFrameFooterActions>
                   <TableFilterMenu density="compact" label="Rows per page" sections={[{

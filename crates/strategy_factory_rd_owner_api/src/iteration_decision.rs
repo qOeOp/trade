@@ -1,3 +1,8 @@
+#![expect(
+    clippy::large_futures,
+    reason = "the HTTP adapter retains complete typed Iteration Decision readbacks across Owner awaits"
+)]
+
 use std::{collections::BTreeSet, sync::Arc};
 
 use axum::{
@@ -844,6 +849,7 @@ async fn resolve_repair_input_decision(
             &decision_identity,
         );
     }
+
     match state.owner.resolve(locator).await {
         Ok(Some(result)) => (StatusCode::OK, Json(result)).into_response(),
         Ok(None) => decision_resolution_rejection(
@@ -851,7 +857,7 @@ async fn resolve_repair_input_decision(
             "ITERATION_DECISION_NOT_FOUND",
             &decision_identity,
         ),
-        Err(error) => decision_resolution_owner_error(&error, &decision_identity),
+        Err(e) => decision_resolution_owner_error(&e, &decision_identity),
     }
 }
 
@@ -887,6 +893,7 @@ async fn resolve_iteration_decision(
             &decision_identity,
         );
     }
+
     match state.owner.resolve_decision(locator).await {
         Ok(Some(result)) => (StatusCode::OK, Json(result)).into_response(),
         Ok(None) => decision_resolution_rejection(
@@ -894,7 +901,7 @@ async fn resolve_iteration_decision(
             "ITERATION_DECISION_NOT_FOUND",
             &decision_identity,
         ),
-        Err(error) => decision_resolution_owner_error(&error, &decision_identity),
+        Err(e) => decision_resolution_owner_error(&e, &decision_identity),
     }
 }
 
@@ -930,9 +937,10 @@ async fn resolve_research_iteration_action(
             &decision_identity,
         );
     }
+
     match state.owner.resolve_action(locator).await {
         Ok(result) => (StatusCode::OK, Json(result)).into_response(),
-        Err(error) => decision_resolution_owner_error(&error, &decision_identity),
+        Err(e) => decision_resolution_owner_error(&e, &decision_identity),
     }
 }
 
@@ -974,9 +982,10 @@ async fn compose_repair_input_decision(
             &request_identity,
         );
     }
+
     match state.owner.compose(request).await {
         Ok(result) => (StatusCode::OK, Json(result)).into_response(),
-        Err(error) => owner_error(&error, &request_identity),
+        Err(e) => owner_error(&e, &request_identity),
     }
 }
 
@@ -1018,9 +1027,10 @@ async fn compose_trial_budget_terminal_stop(
             &request_identity,
         );
     }
+
     match state.owner.compose_trial_budget_stop(request).await {
         Ok(result) => (StatusCode::OK, Json(result)).into_response(),
-        Err(error) => trial_budget_terminal_stop_owner_error(&error, &request_identity),
+        Err(e) => trial_budget_terminal_stop_owner_error(&e, &request_identity),
     }
 }
 
@@ -1054,9 +1064,10 @@ async fn compose_candidate_comparison(
             &request_identity,
         );
     }
+
     match state.owner.compose_candidate_comparison(request).await {
         Ok(result) => (StatusCode::OK, Json(result)).into_response(),
-        Err(error) => candidate_comparison_owner_error(&error, &request_identity),
+        Err(e) => candidate_comparison_owner_error(&e, &request_identity),
     }
 }
 
@@ -1097,9 +1108,10 @@ async fn compose_successor_research_intent(
             &request_identity,
         );
     }
+
     match state.owner.compose_successor_intent(request).await {
         Ok(result) => (StatusCode::OK, Json(result)).into_response(),
-        Err(error) => successor_intent_owner_error(&error, &request_identity),
+        Err(e) => successor_intent_owner_error(&e, &request_identity),
     }
 }
 
@@ -1135,6 +1147,7 @@ async fn resolve_successor_research_intent(
             &intent_identity,
         );
     }
+
     match state.owner.resolve_successor_intent(locator).await {
         Ok(Some(result)) => (StatusCode::OK, Json(result)).into_response(),
         Ok(None) => successor_intent_resolution_rejection(
@@ -1142,7 +1155,7 @@ async fn resolve_successor_research_intent(
             "SUCCESSOR_RESEARCH_INTENT_NOT_FOUND",
             &intent_identity,
         ),
-        Err(error) => successor_intent_resolution_owner_error(&error, &intent_identity),
+        Err(e) => successor_intent_resolution_owner_error(&e, &intent_identity),
     }
 }
 
@@ -1176,9 +1189,10 @@ async fn compose_ready_for_selection(
             &request_identity,
         );
     }
+
     match state.owner.compose_ready(request).await {
         Ok(result) => (StatusCode::OK, Json(result)).into_response(),
-        Err(error) => ready_for_selection_owner_error(&error, &request_identity),
+        Err(e) => ready_for_selection_owner_error(&e, &request_identity),
     }
 }
 
@@ -1214,6 +1228,7 @@ async fn resolve_ready_for_selection(
             &decision_identity,
         );
     }
+
     match state.owner.resolve_ready(locator).await {
         Ok(Some(result)) => (StatusCode::OK, Json(result)).into_response(),
         Ok(None) => decision_resolution_rejection(
@@ -1221,7 +1236,7 @@ async fn resolve_ready_for_selection(
             "ITERATION_DECISION_NOT_FOUND",
             &decision_identity,
         ),
-        Err(error) => decision_resolution_owner_error(&error, &decision_identity),
+        Err(e) => decision_resolution_owner_error(&e, &decision_identity),
     }
 }
 
@@ -1257,6 +1272,7 @@ async fn resolve_trial_budget_terminal_stop(
             &decision_identity,
         );
     }
+
     match state.owner.resolve_trial_budget_stop(locator).await {
         Ok(Some(result)) => (StatusCode::OK, Json(result)).into_response(),
         Ok(None) => decision_resolution_rejection(
@@ -1264,7 +1280,7 @@ async fn resolve_trial_budget_terminal_stop(
             "ITERATION_DECISION_NOT_FOUND",
             &decision_identity,
         ),
-        Err(error) => trial_budget_terminal_stop_resolution_owner_error(&error, &decision_identity),
+        Err(e) => trial_budget_terminal_stop_resolution_owner_error(&e, &decision_identity),
     }
 }
 
@@ -1300,6 +1316,7 @@ async fn resolve_candidate_comparison(
             &decision_identity,
         );
     }
+
     match state.owner.resolve_candidate_comparison(locator).await {
         Ok(Some(result)) => (StatusCode::OK, Json(result)).into_response(),
         Ok(None) => decision_resolution_rejection(
@@ -1307,7 +1324,7 @@ async fn resolve_candidate_comparison(
             "ITERATION_DECISION_NOT_FOUND",
             &decision_identity,
         ),
-        Err(error) => decision_resolution_owner_error(&error, &decision_identity),
+        Err(e) => decision_resolution_owner_error(&e, &decision_identity),
     }
 }
 
@@ -1343,9 +1360,10 @@ async fn compose_repair_action_request(
             &decision_identity,
         );
     }
+
     match state.owner.compose_repair_action(request).await {
         Ok(result) => (StatusCode::OK, Json(result)).into_response(),
-        Err(error) => repair_action_owner_error(&error, &decision_identity),
+        Err(e) => repair_action_owner_error(&e, &decision_identity),
     }
 }
 
@@ -1381,6 +1399,7 @@ async fn resolve_repair_action_request(
             &action_request_identity,
         );
     }
+
     match state.owner.resolve_repair_action(locator).await {
         Ok(Some(result)) => (StatusCode::OK, Json(result)).into_response(),
         Ok(None) => repair_action_resolution_rejection(
@@ -1388,7 +1407,7 @@ async fn resolve_repair_action_request(
             "REPAIR_ACTION_REQUEST_NOT_FOUND",
             &action_request_identity,
         ),
-        Err(error) => repair_action_resolution_owner_error(&error, &action_request_identity),
+        Err(e) => repair_action_resolution_owner_error(&e, &action_request_identity),
     }
 }
 
@@ -2029,10 +2048,10 @@ mod tests {
     }
 
     fn ready_request() -> serde_json::Value {
-        let reference = |identity: &str, byte: char| {
+        let reference = |identity: &str, ordinal: u8| {
             json!({
                 "identity": identity,
-                "digest": format!("sha256:{}", byte.to_string().repeat(64)),
+                "digest": format!("sha256:{ordinal:064x}"),
             })
         };
         json!({
@@ -2041,31 +2060,50 @@ mod tests {
             "request_identity": "request-1",
             "attempt_identity": "attempt-1",
             "positive_evidence": {
-                "mechanism_validity": [reference("mechanism-evidence-1", '1')],
-                "economic_viability": [reference("economic-evidence-1", '2')],
-                "robustness": [reference("robustness-evidence-1", '3')],
-                "information_value": [reference("information-evidence-1", '4')]
+                "mechanism_validity": [reference("mechanism-evidence-1", 1)],
+                "economic_viability": [reference("economic-evidence-1", 2)],
+                "robustness": [reference("robustness-evidence-1", 3)],
+                "information_value": [reference("information-evidence-1", 4)]
             },
             "protected_robustness_plan": {
-                "required_time_windows": [reference("protected-time-window-1", '5')],
-                "required_regimes": [reference("protected-regime-1", '6')],
-                "required_instrument_slices": [reference("protected-instrument-slice-1", '7')],
-                "required_perturbations": [reference("protected-perturbation-1", '8')],
-                "required_parameter_neighborhoods": [reference("protected-parameter-neighborhood-1", '9')],
-                "metric": reference("protected-metric-1", 'a'),
-                "coverage_policy": reference("protected-coverage-policy-1", 'b'),
-                "tolerance_policy": reference("protected-tolerance-policy-1", 'c'),
-                "threshold_policy": reference("protected-threshold-policy-1", 'd'),
-                "aggregation_policy": reference("protected-aggregation-policy-1", 'e'),
-                "missing_cell_policy": reference("protected-missing-cell-policy-1", 'f'),
-                "stop_policy": reference("protected-stop-policy-1", '0'),
-                "purge_policy": reference("protected-purge-policy-1", '1'),
-                "embargo_policy": reference("protected-embargo-policy-1", '2'),
-                "multiplicity_policy": reference("protected-multiplicity-policy-1", '3'),
+                "required_time_windows": [{
+                    "evidence": reference("protected-time-window-1", 5),
+                    "start_epoch_ms": 1_000,
+                    "end_epoch_ms": 2_000
+                }],
+                "required_regimes": [{
+                    "evidence": reference("protected-regime-1", 6),
+                    "adverse": true
+                }],
+                "required_instrument_slices": [reference("protected-instrument-slice-1", 7)],
+                "instrument_scope": "SINGLE_INSTRUMENT",
+                "instrument_non_applicability_basis": null,
+                "required_perturbations": [{
+                    "input_class": reference("protected-input-class-1", 8),
+                    "perturbation": reference("protected-perturbation-1", 9)
+                }],
+                "required_parameter_neighborhoods": [{
+                    "parameter": reference("protected-parameter-1", 10),
+                    "lower": -1,
+                    "center": 0,
+                    "upper": 1
+                }],
+                "no_tunable_parameters_basis": null,
+                "preregistered_capacity_ceiling": 1_000,
+                "metric": reference("protected-metric-1", 11),
+                "coverage_policy": reference("protected-coverage-policy-1", 12),
+                "tolerance_policy": reference("protected-tolerance-policy-1", 13),
+                "threshold_policy": reference("protected-threshold-policy-1", 14),
+                "aggregation_policy": reference("protected-aggregation-policy-1", 15),
+                "missing_cell_policy": reference("protected-missing-cell-policy-1", 16),
+                "stop_policy": reference("protected-stop-policy-1", 17),
+                "purge_policy": reference("protected-purge-policy-1", 18),
+                "embargo_policy": reference("protected-embargo-policy-1", 19),
+                "multiplicity_policy": reference("protected-multiplicity-policy-1", 20),
                 "protected_decision_policy": {
                     "identity": "protected-decision-policy-1",
                     "version": 1,
-                    "digest": format!("sha256:{}", "4".repeat(64))
+                    "digest": format!("sha256:{:064x}", 21)
                 }
             }
         })
@@ -2350,6 +2388,10 @@ mod tests {
         send_to("/v1/iteration-decisions/repair-inputs", body, authorization)
     }
 
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "the test helper owns the exact JSON request snapshot used to construct the HTTP body"
+    )]
     fn send_to(
         uri: &str,
         body: serde_json::Value,
@@ -2436,6 +2478,7 @@ mod tests {
             response: Some(expected.clone()),
         });
         let mut bodies = Vec::new();
+
         for _ in 0..2 {
             let response = action_router(owner.clone(), token_digest)
                 .oneshot(send(request(), Some(&format!("Bearer {token}"))))
@@ -2535,6 +2578,7 @@ mod tests {
             response: Some(expected.clone()),
         });
         let mut bodies = Vec::new();
+
         for _ in 0..2 {
             let response = repair_action_router(owner.clone(), token_digest)
                 .oneshot(send_to(
@@ -2782,6 +2826,7 @@ mod tests {
             response: Some(expected.clone()),
         });
         let mut bodies = Vec::new();
+
         for _ in 0..2 {
             let response = trial_budget_terminal_stop_router(owner.clone(), token_digest)
                 .oneshot(send_to(
@@ -2892,6 +2937,7 @@ mod tests {
             response: Some(expected.clone()),
         });
         let mut bodies = Vec::new();
+
         for _ in 0..2 {
             let response = candidate_comparison_router(owner.clone(), token_digest)
                 .oneshot(send_to(

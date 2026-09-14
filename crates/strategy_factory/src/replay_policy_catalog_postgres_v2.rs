@@ -331,6 +331,7 @@ pub(crate) async fn ensure_authenticated_sealed_acceptance_fixture_v3(
         &verifier_public_key_hex,
     )
     .await?;
+
     if current != expected {
         return Err(ReplayPolicyCatalogErrorV2::Unavailable(
             "sealed acceptance Catalog V3 head mismatch".to_owned(),
@@ -348,21 +349,21 @@ fn sealed_acceptance_catalog_command_v3(
     const VERIFIER_IDENTITY: &str = "rd-catalog-sealed-acceptance-verifier-v3";
 
     let economic = ReplayEconomicConfigurationV1::seal(economic_fixture())
-        .map_err(|error| ReplayPolicyCatalogErrorV2::InvalidPolicy(error.to_string()))?;
+        .map_err(|e| ReplayPolicyCatalogErrorV2::InvalidPolicy(e.to_string()))?;
     let mut policy = sealed_acceptance_policy()?;
     policy.replay_configuration.digest =
         vibe_backtest_owner_contracts::CanonicalDigestV2::try_from(format!(
             "sha256:{}",
             bytes_hex(&economic.digest())
         ))
-        .map_err(|error| ReplayPolicyCatalogErrorV2::InvalidPolicy(error.to_string()))?;
+        .map_err(|e| ReplayPolicyCatalogErrorV2::InvalidPolicy(e.to_string()))?;
     let v2 = ReplayPolicyCatalogBindingV2::from_policy(
         "sealed-acceptance-replay-policy-v3",
         1,
         &policy,
     )?;
     let runner = ReplayRunnerOperationalProfileV1::seal(runner_fixture())
-        .map_err(|error| ReplayPolicyCatalogErrorV2::InvalidPolicy(error.to_string()))?;
+        .map_err(|e| ReplayPolicyCatalogErrorV2::InvalidPolicy(e.to_string()))?;
     let binding = ReplayPolicyCatalogBindingV3::issue(v2, &economic, &runner)?;
     let v2 = binding.replay_policy_v2();
     let profiles = binding.execution_profiles_v1();
@@ -397,7 +398,7 @@ fn sealed_acceptance_catalog_command_v3(
     let canonical = admin_command_canonical_bytes_v3(&request, &binding)?;
     request.signature_base64 = BASE64_STANDARD.encode(signing_key.sign(&canonical).to_bytes());
     serde_json::to_vec(&request)
-        .map_err(|error| ReplayPolicyCatalogErrorV2::InvalidPolicy(error.to_string()))
+        .map_err(|e| ReplayPolicyCatalogErrorV2::InvalidPolicy(e.to_string()))
 }
 
 #[cfg(feature = "sealed-develop-composer-acceptance")]
@@ -1789,6 +1790,7 @@ async fn apply_authenticated_replay_policy_catalog_command_v3(
         trusted_verifier_identity,
         trusted_verifier_public_key_hex,
     )?;
+
     if verified.request.command_kind != expected_kind {
         return Err(ReplayPolicyCatalogErrorV2::InvalidRecord(
             "Catalog V3 command kind mismatch",
@@ -1820,6 +1822,7 @@ async fn apply_authenticated_replay_policy_catalog_command_v3(
         &verified.request.administrator_identity,
         verified.authentication_fact_digest.clone(),
     )?;
+
     match expected_kind {
         CatalogAdminCommandKindV3::Create => {
             let current = current_head(&mut transaction).await?;
@@ -1862,6 +1865,7 @@ async fn apply_authenticated_replay_policy_catalog_command_v3(
                 )
                 .await?
             };
+
             if created != *verified.binding.replay_policy_v2() {
                 return rollback_v3_conflict(transaction).await;
             }
@@ -1891,6 +1895,7 @@ async fn apply_authenticated_replay_policy_catalog_command_v3(
     } else {
         load_v3_by_id(&mut transaction, &verified.request.catalog_record_id).await?
     };
+
     if readback != verified.binding {
         return rollback_v3_conflict(transaction).await;
     }
@@ -1904,11 +1909,12 @@ fn verify_admin_command_v3(
     trusted_verifier_public_key_hex: &str,
 ) -> Result<VerifiedReplayPolicyCatalogAdminCommandV3, ReplayPolicyCatalogErrorV2> {
     let request: SealedReplayPolicyCatalogAdminCommandV3 =
-        serde_json::from_slice(sealed_command_json).map_err(|error| {
+        serde_json::from_slice(sealed_command_json).map_err(|e| {
             ReplayPolicyCatalogErrorV2::InvalidPolicy(format!(
-                "Catalog V3 command JSON is invalid: {error}"
+                "Catalog V3 command JSON is invalid: {e}"
             ))
         })?;
+
     if request.schema_version != 3 || request.verifier_identity != trusted_verifier_identity {
         return Err(ReplayPolicyCatalogErrorV2::InvalidRecord(
             "Catalog V3 command schema or verifier mismatch",
@@ -1928,6 +1934,7 @@ fn verify_admin_command_v3(
         decode_lower_hex_32(&request.policy_grammar_parser_digest_hex)?,
         policy_bytes,
     )?;
+
     if bytes_hex(replay_policy_v2.policy_digest()) != request.policy_digest_hex
         || bytes_hex(replay_policy_v2.catalog_record_digest()) != request.catalog_record_digest_hex
     {
@@ -2105,6 +2112,7 @@ async fn apply_catalog_v3_fact(
         .fetch_one(&mut **transaction)
         .await
         .map_err(unavailable)?;
+
     if accepted {
         Ok(())
     } else {
@@ -2123,6 +2131,7 @@ async fn read_catalog_v3_audit(
     .fetch_all(&mut **transaction)
     .await
     .map_err(unavailable)?;
+
     match rows.as_slice() {
         [] => Ok(None),
         [row] => {
@@ -2156,6 +2165,7 @@ async fn load_current_v3(
             "current Catalog V3 head is missing, partial, or duplicate".to_owned(),
         ));
     };
+
     if row.try_get::<bool, _>("revoked").map_err(unavailable)? {
         return Err(ReplayPolicyCatalogErrorV2::Unavailable(
             "current Catalog V3 head is revoked".to_owned(),
@@ -2190,6 +2200,7 @@ fn decode_v3(
     let stored_v2_digest: Vec<u8> = row
         .try_get("v3_catalog_record_digest")
         .map_err(unavailable)?;
+
     if stored_v2_digest.as_slice() != v2.catalog_record_digest() {
         return Err(ReplayPolicyCatalogErrorV2::Unavailable(
             "Catalog V3 sidecar is cross-spliced from its V2 record".to_owned(),
@@ -2226,6 +2237,7 @@ fn decode_v3(
     let audit: CatalogAdminAuditV3 =
         serde_json::from_value(audit_json.clone()).map_err(unavailable)?;
     let profiles = binding.execution_profiles_v1();
+
     if audit_json != serde_json::to_value(&audit).map_err(unavailable)?
         || audit.command_kind != CatalogAdminCommandKindV3::Create
         || audit.catalog_record_id != binding.replay_policy_v2().catalog_record_id()
@@ -2273,6 +2285,7 @@ async fn verify_catalog_storage_authority_v3(
     .fetch_one(pool)
     .await
     .map_err(unavailable)?;
+
     if exact {
         let sources = sqlx::query("SELECT procedure.proname,procedure.prosrc FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace WHERE namespace.nspname='replay_policy_catalog_api' AND procedure.proname=ANY($1) ORDER BY procedure.proname")
             .bind(["apply_replay_policy_catalog_command_v3", "lock_current_replay_policy_catalog_v3", "lock_replay_policy_catalog_census_v3", "lock_replay_policy_catalog_record_v3", "read_replay_policy_catalog_audit_v3"])
@@ -2292,6 +2305,7 @@ async fn verify_catalog_storage_authority_v3(
                 "catalog_audit_read_v3",
             ),
         ];
+
         if sources.len() != expected_sources.len()
             || sources
                 .iter()
@@ -2324,6 +2338,7 @@ async fn lock_catalog_v3(
     .fetch_one(&mut **transaction)
     .await
     .map_err(unavailable)?;
+
     if count < 0 {
         return Err(ReplayPolicyCatalogErrorV2::Unavailable(
             "Catalog V3 census is invalid".to_owned(),
@@ -2813,9 +2828,7 @@ mod postgres_tests {
         .await
         .expect_err("R&D Owner has no direct Catalog V3 write authority");
         assert_eq!(
-            direct_write
-                .as_database_error()
-                .and_then(|error| error.code()),
+            direct_write.as_database_error().and_then(|e| e.code()),
             Some(std::borrow::Cow::Borrowed("42501"))
         );
 

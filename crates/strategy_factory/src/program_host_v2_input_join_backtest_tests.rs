@@ -605,6 +605,7 @@ pub(crate) fn six_role_bar_design() -> crate::strategy_design_v2::StrategyDesign
             value_type: ValueTypeV2::Bytes,
             max_bytes: 308,
         }));
+
     for reaction in &mut design.reactions {
         if reaction.kind != LifecycleKindV2::Bar {
             reaction.nodes.clear();
@@ -612,6 +613,7 @@ pub(crate) fn six_role_bar_design() -> crate::strategy_design_v2::StrategyDesign
             reaction.proposal = None;
             continue;
         }
+
         for node in &mut reaction.nodes {
             for binding in &mut node.input_bindings {
                 if let ValueRefV2::Input { input_id } = &mut binding.source {
@@ -935,6 +937,7 @@ fn timer_price() -> ValueRefV2 {
 
 fn owner_sample_coordinate_port_id(input_role_identity: BindingDigest) -> String {
     let mut value = String::from("strategy.input.sample-coordinate.v1.");
+
     for byte in input_role_identity.as_bytes() {
         use std::fmt::Write as _;
         write!(&mut value, "{byte:02x}").expect("writing lowercase hex to String is infallible");

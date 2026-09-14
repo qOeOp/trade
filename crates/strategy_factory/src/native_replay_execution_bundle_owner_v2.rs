@@ -149,7 +149,7 @@ where
 pub fn prepare_native_replay_execution_prerequisites_v2(
     preparation: NativeReplayPreparationInputsV2,
     replay_cut: ResolvedReplayCompositionCutV1,
-    instrument_terms: [InstrumentEconomicTermsReadbackV1; TARGET_SET_MEMBER_COUNT],
+    instrument_terms: &[InstrumentEconomicTermsReadbackV1; TARGET_SET_MEMBER_COUNT],
 ) -> Result<NativeReplayExecutionPrerequisitesV2, NativeReplayExecutionPrerequisitesErrorV2> {
     let (composition, market_facts, instrument_master) = replay_cut.into_parts();
     validate_available_owner_bindings(
@@ -157,7 +157,7 @@ pub fn prepare_native_replay_execution_prerequisites_v2(
         &market_facts,
         &composition,
         &instrument_master,
-        &instrument_terms,
+        instrument_terms,
     )?;
     let profile_authority = issue_owner_replay_execution_profile_binding_from_readbacks_v1(
         preparation.family(),
@@ -228,6 +228,7 @@ fn validate_available_owner_bindings(
         unique_dependency(facts, ReplayMarketDependencyKindV2::InstrumentMasterCutV1)?;
     let universe_dependency =
         unique_dependency(facts, ReplayMarketDependencyKindV2::UniverseSelectionV1)?;
+
     if instrument_dependency.identity() != instrument_master.cut().identity()
         || instrument_dependency.digest() != instrument_master.cut().digest()
         || universe_dependency.identity() != expected_universe_identity
@@ -316,7 +317,7 @@ fn parse_digest(value: &str) -> Result<BindingDigest, NativeReplayExecutionPrere
 mod tests {
     use super::*;
 
-    #[test]
+    #[rstest::rstest]
     fn digest_parser_rejects_missing_and_noncanonical_inputs() {
         assert_eq!(
             parse_digest("pit-snapshot"),
@@ -341,7 +342,7 @@ mod tests {
         assert!(parse_digest(&format!("blake3:{}", "01".repeat(32))).is_ok());
     }
 
-    #[test]
+    #[rstest::rstest]
     fn cross_spliced_identity_and_digest_are_rejected() {
         let first = BindingDigest::from_untrusted_bytes([1; 32]);
         let second = BindingDigest::from_untrusted_bytes([2; 32]);
@@ -349,7 +350,7 @@ mod tests {
         assert!(!exact_content_matches(first, second, second, first));
     }
 
-    #[test]
+    #[rstest::rstest]
     fn native_projection_remains_an_explicit_fail_closed_boundary() {
         assert_eq!(
             NativeReplayExecutionPrerequisitesErrorV2::NativeInstrumentProjectionUnavailable

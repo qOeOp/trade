@@ -244,6 +244,7 @@ pub(crate) fn decode_intake_receipt_v1(
             committed_at_epoch_ms: receipt.committed_at_epoch_ms,
         },
     )?;
+
     if expected != receipt.receipt_digest
         || identity("qualification-candidate-intake-receipt-v1", &expected)
             != receipt.receipt_identity
@@ -646,6 +647,7 @@ fn validate_request(request: &CandidateIntakeRequestV1) -> Result<(), Qualificat
             protected_decision_policy_version: request.protected_decision_policy_version,
         },
     )?;
+
     if identities.iter().any(|value| value.is_empty())
         || request.review_request_digest != expected_digest
         || request.protected_decision_policy_version == 0
@@ -830,6 +832,7 @@ pub(crate) fn protected_replay_authority_source_v1(
         plan.proposal.protected_decision_policy.version,
         &holdout_treatment,
     )?;
+
     if receipt.holdout_reservation_identity()
         != Some(
             identity(
@@ -978,6 +981,7 @@ fn validate_plan_identity(plan: &ProtectedPlanV1) -> Result<(), QualificationOwn
             proposal: &plan.proposal,
         },
     )?;
+
     if digest != plan.plan_digest
         || identity("rd-protected-robustness-plan-v1", &digest) != plan.plan_identity
     {
@@ -1041,6 +1045,7 @@ fn derive_plan_cells(
             .map(|value| &value.parameter)
             .collect::<Vec<_>>()
     };
+
     for dimension in [
         &mut windows,
         &mut regimes,
@@ -1067,6 +1072,7 @@ fn derive_plan_cells(
     .filter(|count| *count <= 4_096)
     .ok_or_else(|| unavailable("Protected Robustness Plan cell census is unbounded"))?;
     let mut cells = Vec::with_capacity(count);
+
     for window in windows {
         for regime in &regimes {
             for instrument in &instruments {
@@ -1158,6 +1164,7 @@ fn unique_refs<'a>(values: impl Iterator<Item = &'a EvidenceReferenceV1>) -> boo
     let mut count = 0;
     for value in values {
         count += 1;
+
         if !valid_reference(value) || !seen.insert((&value.identity, &value.digest)) {
             return false;
         }
@@ -1316,6 +1323,7 @@ fn verify_rd_meaning_and_outbox_v1(
         protected_plan_identity: candidate.protected_robustness_plan.plan_identity.clone(),
         protected_plan_version: candidate.protected_robustness_plan.plan_version,
     };
+
     if candidate_digest != candidate.candidate_digest
         || identity("rd-qualification-candidate-v1", &candidate_digest)
             != candidate.candidate_identity
@@ -1644,6 +1652,7 @@ mod tests {
                 digest: digest(char::from_digit((index % 10) as u32, 10).unwrap()),
             })
             .collect::<Vec<_>>();
+
         for (index, identity_value, digest_value) in [
             (0, &source.plan_identity, &source.plan_digest),
             (1, &source.artifact_identity, &source.artifact_digest),
@@ -1666,6 +1675,7 @@ mod tests {
             bindings[index].identity = identity_value.clone();
             bindings[index].digest = digest_value.clone();
         }
+
         for (index, identity_value) in [
             (9, &source.cost_model_identity),
             (10, &source.slippage_model_identity),

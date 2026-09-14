@@ -146,7 +146,12 @@ pub(crate) async fn compose_successor_research_intent_v1(
         return Err(storage("successor Decision locator mismatch"));
     }
 
-    let source = source_from_locked_custody(&mut transaction, &census, &decision).await?;
+    let source = Box::pin(source_from_locked_custody(
+        &mut transaction,
+        &census,
+        &decision,
+    ))
+    .await?;
     let issued = issue_successor_research_intent_v1(request.clone(), source, current_epoch_ms()?)?;
     persist(&mut transaction, &request, &issued).await?;
     let readback = load_by_decision_in_transaction(
@@ -222,12 +227,12 @@ async fn source_from_locked_custody(
         return Err(storage("Decision-selected experiment is not unique"));
     }
     let latest_intent = census.latest_intent_binding()?;
-    let predecessor = load_predecessor_context(
+    let predecessor = Box::pin(load_predecessor_context(
         transaction,
         census,
         latest_intent.intent_identity,
         latest_intent.intent_digest,
-    )
+    ))
     .await?;
     let evidence = decision.evidence_cut();
     if predecessor.trial_family_identity != evidence.trial_family_identity
@@ -264,10 +269,10 @@ async fn load_predecessor_context(
     intent_digest: &str,
 ) -> Result<PredecessorContextV1, SuccessorResearchIntentPostgresErrorV1> {
     if intent_identity == census.legacy_family.initial_intent_member().fact_identity() {
-        let custody = admit_research_custody_in_transaction(
+        let custody = Box::pin(admit_research_custody_in_transaction(
             transaction,
             ResearchCustodyLookupV1::Intent(intent_identity),
-        )
+        ))
         .await?
         .ok_or_else(|| storage("predecessor Research Intent custody is missing"))?;
         let FrozenResearchGoalIntent::V2(intent) = custody
@@ -276,6 +281,7 @@ async fn load_predecessor_context(
         else {
             return Err(storage("predecessor Research Intent V2 is required"));
         };
+
         if intent.semantic_digest != intent_digest {
             return Err(storage("predecessor Research Intent digest mismatch"));
         }
@@ -392,6 +398,7 @@ async fn admit_rows(
     if rows.is_empty() {
         return Ok(None);
     }
+
     if rows.len() != 1 {
         return Err(storage("successor Intent identity is not unique"));
     }
@@ -429,6 +436,7 @@ async fn admit_rows(
         admit_stored_successor_research_intent_v1(&request_bytes, &intent_bytes, &receipt_bytes)?;
     let intent = readback.intent();
     let receipt = readback.receipt();
+
     if row
         .try_get::<serde_json::Value, _>("request_json")
         .map_err(storage)?
@@ -634,12 +642,12 @@ fn valid_identity(value: &str) -> bool {
 }
 
 fn current_epoch_ms() -> Result<u64, SuccessorResearchIntentPostgresErrorV1> {
-    Ok(SystemTime::now()
+    SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(storage)?
         .as_millis()
         .try_into()
-        .map_err(storage)?)
+        .map_err(storage)
 }
 
 fn storage_digest(domain: &str, bytes: &[u8]) -> String {

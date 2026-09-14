@@ -1324,6 +1324,7 @@ fn decode_digest(value: &str) -> Option<[u8; 32]> {
         return None;
     }
     let mut bytes = [0_u8; 32];
+
     for (index, pair) in hexadecimal.as_bytes().chunks_exact(2).enumerate() {
         let high = (pair[0] as char).to_digit(16)? as u8;
         let low = (pair[1] as char).to_digit(16)? as u8;
@@ -1807,8 +1808,7 @@ mod tests {
         let economic = ReplayEconomicConfigurationV1::seal(economic_fixture()).unwrap();
         let runner = ReplayRunnerOperationalProfileV1::seal(runner_fixture()).unwrap();
         let catalog_v3 =
-            ReplayPolicyCatalogBindingV3::issue(replay_policy_v2.clone(), &economic, &runner)
-                .unwrap();
+            ReplayPolicyCatalogBindingV3::issue(replay_policy_v2, &economic, &runner).unwrap();
         let profiles = catalog_v3.execution_profiles_v1();
 
         let meaning_digest = envelope.v2_meaning_digest.clone().unwrap();
@@ -1898,7 +1898,7 @@ mod tests {
             schema_version: 1,
             request_identity: frozen.proposal.request_identity.clone(),
             request_digest: frozen.request_digest.clone(),
-            receipt_identity: receipt_v1.receipt_identity.clone(),
+            receipt_identity: receipt_v1.receipt_identity,
             intent_identity: frozen.proposal.intent_identity.clone(),
             trial_family_identity: frozen.proposal.trial_family_identity.clone(),
             artifact_identity: frozen.proposal.artifact_identity.clone(),
@@ -2140,7 +2140,7 @@ mod tests {
         );
         assert!(rejected.readback().is_none());
 
-        let mut spliced = envelope.clone();
+        let mut spliced = envelope;
         let mut receipt: StoredReceiptV2 = exact(spliced.v2_receipt.as_ref().unwrap()).unwrap();
         receipt
             .execution_profile_seal

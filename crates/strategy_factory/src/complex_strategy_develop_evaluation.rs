@@ -1,4 +1,8 @@
 //! R&D-owned pre-Artifact custody for a complex-strategy develop evaluation.
+#![expect(
+    clippy::large_futures,
+    reason = "sealed Develop evaluation keeps one typed transactional cut alive across each awaited Owner read"
+)]
 //!
 //! The public proposal and locator are claims only. A positive readback can only be produced after
 //! the R&D Owner re-admits current research custody and consumes a Market Data Owner-sealed PIT

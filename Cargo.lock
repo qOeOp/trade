@@ -10705,6 +10705,7 @@ dependencies = [
 name = "vibe-market-data-repair-custody"
 version = "0.62.0"
 dependencies = [
+ "rstest",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -11151,6 +11152,7 @@ name = "vibe-rd-market-data-repair-custody"
 version = "0.62.0"
 dependencies = [
  "base64 0.23.1",
+ "rstest",
  "serde",
  "serde_json",
  "sha2 0.10.9",

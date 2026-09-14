@@ -3,6 +3,8 @@
 //! Production construction remains unavailable until the documented Market Data store-admission
 //! capability can own this repository without exposing a raw pool or DSN.
 
+use std::fmt::Display;
+
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Transaction};
@@ -17,7 +19,7 @@ const OUTBOX_EVENT_V1: &str = "MARKET_DATA_REPAIR_TERMINAL_COMMITTED_V1";
 
 /// Exact untrusted locator for one committed repair terminal.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-pub struct MarketDataRepairTerminalLocatorV1 {
+pub(crate) struct MarketDataRepairTerminalLocatorV1 {
     terminal_identity: String,
     terminal_digest: String,
     repair_request_identity: String,
@@ -27,7 +29,7 @@ pub struct MarketDataRepairTerminalLocatorV1 {
 impl MarketDataRepairTerminalLocatorV1 {
     /// Wraps caller-supplied coordinates without granting positive custody.
     #[must_use]
-    pub fn from_untrusted(
+    pub(crate) fn from_untrusted(
         terminal_identity: impl Into<String>,
         terminal_digest: impl Into<String>,
         repair_request_identity: impl Into<String>,
@@ -42,29 +44,14 @@ impl MarketDataRepairTerminalLocatorV1 {
     }
 
     #[must_use]
-    pub fn terminal_identity(&self) -> &str {
-        &self.terminal_identity
-    }
-
-    #[must_use]
-    pub fn terminal_digest(&self) -> &str {
-        &self.terminal_digest
-    }
-
-    #[must_use]
-    pub fn repair_request_identity(&self) -> &str {
+    pub(crate) fn repair_request_identity(&self) -> &str {
         &self.repair_request_identity
-    }
-
-    #[must_use]
-    pub fn repair_request_digest(&self) -> &str {
-        &self.repair_request_digest
     }
 }
 
 /// Move-only exact storage readback. It exposes canonical terminal bytes, not a construction API.
 #[derive(Debug, Eq, PartialEq)]
-pub struct StoredMarketDataRepairTerminalV1 {
+pub(crate) struct StoredMarketDataRepairTerminalV1 {
     locator: MarketDataRepairTerminalLocatorV1,
     disposition: MarketDataRepairDispositionV1,
     terminal_bytes: Vec<u8>,
@@ -73,29 +60,29 @@ pub struct StoredMarketDataRepairTerminalV1 {
 
 impl StoredMarketDataRepairTerminalV1 {
     #[must_use]
-    pub const fn locator(&self) -> &MarketDataRepairTerminalLocatorV1 {
+    pub(crate) const fn locator(&self) -> &MarketDataRepairTerminalLocatorV1 {
         &self.locator
     }
 
     #[must_use]
-    pub const fn disposition(&self) -> MarketDataRepairDispositionV1 {
+    pub(crate) const fn disposition(&self) -> MarketDataRepairDispositionV1 {
         self.disposition
     }
 
     #[must_use]
-    pub fn canonical_terminal_bytes(&self) -> &[u8] {
+    pub(crate) fn canonical_terminal_bytes(&self) -> &[u8] {
         &self.terminal_bytes
     }
 
     #[must_use]
-    pub const fn committed_at_epoch_ms(&self) -> u64 {
+    pub(crate) const fn committed_at_epoch_ms(&self) -> u64 {
         self.committed_at_epoch_ms
     }
 }
 
 /// Market Data-owned append-only terminal store.
 #[derive(Debug)]
-pub struct MarketDataRepairTerminalPostgresV1 {
+pub(crate) struct MarketDataRepairTerminalPostgresV1 {
     pool: PgPool,
 }
 
@@ -105,9 +92,12 @@ impl MarketDataRepairTerminalPostgresV1 {
     /// # Errors
     ///
     /// Returns an error when the principal, role graph, schema ownership, or DDL is unavailable.
-    pub async fn migrate(pool: PgPool) -> Result<Self, MarketDataRepairTerminalPostgresErrorV1> {
+    pub(crate) async fn migrate(
+        pool: PgPool,
+    ) -> Result<Self, MarketDataRepairTerminalPostgresErrorV1> {
         let mut transaction = serializable(&pool).await?;
         validate_owner(&mut transaction).await?;
+
         for statement in [
             "DO $guard$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_namespace namespace JOIN pg_catalog.pg_roles role ON role.oid=namespace.nspowner WHERE namespace.nspname='market_data_private' AND role.rolname='market_data_owner') THEN RAISE EXCEPTION 'Market Data schema ownership is unavailable'; END IF; END $guard$",
             "CREATE TABLE IF NOT EXISTS market_data_private.rd_repair_terminals_v1 (repair_request_identity TEXT PRIMARY KEY CHECK (repair_request_identity<>''), repair_request_digest TEXT NOT NULL CHECK (repair_request_digest<>''), repair_request_receipt_identity TEXT UNIQUE NOT NULL CHECK (repair_request_receipt_identity<>''), repair_request_receipt_digest TEXT NOT NULL CHECK (repair_request_receipt_digest<>''), terminal_identity TEXT UNIQUE NOT NULL CHECK (terminal_identity<>''), terminal_digest TEXT UNIQUE NOT NULL CHECK (terminal_digest<>''), disposition TEXT NOT NULL CHECK (disposition IN ('AVAILABLE','UNAVAILABLE')), terminal_bytes BYTEA NOT NULL CHECK (octet_length(terminal_bytes)>0), storage_digest TEXT NOT NULL CHECK (storage_digest<>''), committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms>0))",
@@ -129,7 +119,7 @@ impl MarketDataRepairTerminalPostgresV1 {
     ///
     /// Returns `Conflict` for changed meaning under an existing request identity and `Unavailable`
     /// for invalid input. Storage and principal failures remain storage errors.
-    pub async fn commit(
+    pub(crate) async fn commit(
         &self,
         terminal: MarketDataRepairTerminalV1,
         committed_at_epoch_ms: u64,
@@ -163,6 +153,7 @@ impl MarketDataRepairTerminalPostgresV1 {
             .execute(&mut *transaction)
             .await
             .map_err(storage)?;
+
         if let Some(stored) =
             load_by_request(&mut transaction, terminal.repair_request_identity(), true).await?
         {
@@ -234,7 +225,7 @@ impl MarketDataRepairTerminalPostgresV1 {
     /// # Errors
     ///
     /// Returns `Unavailable` when the locator is absent or any custody coordinate is inconsistent.
-    pub async fn resolve(
+    pub(crate) async fn resolve(
         &self,
         locator: &MarketDataRepairTerminalLocatorV1,
     ) -> Result<StoredMarketDataRepairTerminalV1, MarketDataRepairTerminalPostgresErrorV1> {
@@ -269,7 +260,7 @@ struct StoredRow {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum MarketDataRepairTerminalPostgresErrorV1 {
+pub(crate) enum MarketDataRepairTerminalPostgresErrorV1 {
     #[error("Market Data repair terminal custody is unavailable")]
     Unavailable,
     #[error("Market Data repair terminal identity already has different meaning")]
@@ -312,6 +303,7 @@ async fn validate_owner(
     .fetch_one(&mut **transaction)
     .await
     .map_err(storage)?;
+
     if exact {
         Ok(())
     } else {
@@ -347,6 +339,7 @@ fn admit_stored(
         "UNAVAILABLE" => MarketDataRepairDispositionV1::Unavailable,
         _ => return Err(MarketDataRepairTerminalPostgresErrorV1::Unavailable),
     };
+
     if value
         .get("schema_version")
         .and_then(serde_json::Value::as_u64)
@@ -424,7 +417,7 @@ fn storage_digest(domain: &str, bytes: &[u8]) -> String {
     format!("sha256:{:x}", digest.finalize())
 }
 
-fn storage(error: impl std::fmt::Display) -> MarketDataRepairTerminalPostgresErrorV1 {
+fn storage(error: impl Display) -> MarketDataRepairTerminalPostgresErrorV1 {
     MarketDataRepairTerminalPostgresErrorV1::Storage(error.to_string())
 }
 
@@ -475,7 +468,7 @@ mod tests {
         )
     }
 
-    #[test]
+    #[rstest::rstest]
     fn exact_storage_and_outbox_issue_readback() {
         let (locator, row) = fixture();
         let readback = admit_stored(&locator, row).expect("stored readback");
@@ -486,7 +479,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn storage_or_outbox_splice_fails_closed() {
         let (locator, mut row) = fixture();
         row.storage_digest = "sha256:tampered".to_owned();

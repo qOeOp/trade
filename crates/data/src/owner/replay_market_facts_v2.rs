@@ -26,7 +26,9 @@ use std::fmt::{Debug, Display};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use super::sample_projection_v4::UntrustedStrategyInputSampleProjectionLocatorV4;
+use super::sample_projection_v4::{
+    StrategyInputSampleProjectionResolverV4, UntrustedStrategyInputSampleProjectionLocatorV4,
+};
 use super::{
     instrument_master::InstrumentMasterReadbackV1, pit_snapshot::UntrustedPitSnapshotLocator,
     source_binding::BindingDigest,
@@ -137,9 +139,7 @@ impl ReplayCompositionBindingResolverV1 for ReplayCompositionOwnerV1 {
 }
 
 #[async_trait::async_trait]
-impl super::sample_projection_v4::StrategyInputSampleProjectionResolverV4
-    for ReplayCompositionOwnerV1
-{
+impl StrategyInputSampleProjectionResolverV4 for ReplayCompositionOwnerV1 {
     async fn resolve_strategy_input_sample_projection_v4(
         &self,
         locator: &UntrustedStrategyInputSampleProjectionLocatorV4,

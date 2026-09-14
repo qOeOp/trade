@@ -436,6 +436,7 @@ async fn rederive_strategy_input_binding_declaration_read_only_v1(
     )?;
     let binding =
         resolve_and_bind_with_mode(transaction, &request, DependencyReadModeV1::ReadOnly).await?;
+
     if binding.digest() != stored.owner_binding_digest {
         return Err(StrategyInputBindingRegistryErrorV1::StoreUntrusted);
     }
@@ -540,6 +541,7 @@ async fn validate_native_instrument_master(
     if readback.digest() != request.instrument_master_digest {
         return Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterDigestUnavailable);
     }
+
     if !native_instrument_cut_matches(
         readback.cut().decision_cut,
         request.decision_cut,
@@ -549,24 +551,29 @@ async fn validate_native_instrument_master(
     ) {
         return Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterCutUnavailable);
     }
+
     if fact.canonical_identity() != instrument {
         return Err(
             StrategyInputBindingRegistryErrorV1::InstrumentMasterCanonicalIdentityUnavailable,
         );
     }
+
     if fact.market_semantics_identity() != request.market_semantics_identity {
         return Err(
             StrategyInputBindingRegistryErrorV1::InstrumentMasterSemanticsIdentityUnavailable,
         );
     }
+
     if fact.source_frontier() != batch.source_frontier_digest() {
         return Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterSourceFrontierUnavailable);
     }
+
     if fact.correction_frontier() != batch.correction_frontier_digest() {
         return Err(
             StrategyInputBindingRegistryErrorV1::InstrumentMasterCorrectionFrontierUnavailable,
         );
     }
+
     if fact.effective_from() > effective
         || fact
             .effective_until()

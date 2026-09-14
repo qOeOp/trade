@@ -957,6 +957,7 @@ impl TrialFamilyCensusReadbackV2 {
                 "latest attempt shape mismatch".to_string(),
             ));
         };
+
         if intent.member_kind != TrialFamilyCensusMemberKindV2::Intent {
             return Err(TrialFamilyError::Unavailable(
                 "latest Intent member is unavailable".to_string(),
@@ -1106,6 +1107,7 @@ pub(crate) fn form_initial_family(
             ));
         }
     }
+
     if let Some(binding_v3) = policy.replay_policy_catalog_v3.as_ref() {
         binding_v3
             .verify()
@@ -1115,12 +1117,14 @@ pub(crate) fn form_initial_family(
                 "Replay Catalog V3 is missing its unchanged V2 policy binding".to_string(),
             )
         })?;
+
         if binding_v3.replay_policy_v2() != binding_v2 {
             return Err(TrialFamilyError::Unavailable(
                 "Replay Catalog V3 family/profile cross-binding mismatch".to_string(),
             ));
         }
     }
+
     if let Some(decision_policy) = policy.decision_policy_v1.as_ref() {
         let catalog = policy.replay_policy_catalog_v3.as_ref().ok_or_else(|| {
             TrialFamilyError::Unavailable(
@@ -1585,6 +1589,7 @@ pub(crate) fn form_successor_artifact_binding(
     for value in [artifact_identity, build_receipt_identity, intent_identity] {
         require_identity(value, "ARTIFACT_BINDING_IDENTITY_INVALID")?;
     }
+
     if intent_identity == family.initial_intent_member.fact_identity
         || family.root.trial_family_identity != intent_trial_family_identity
         || family.root.policy_digest != intent_trial_family_policy_digest
@@ -1781,6 +1786,7 @@ pub(crate) fn verify_census_v2(
                 _ => TrialFamilyCensusMemberKindV2::Result,
             },
         };
+
         match expected_kind {
             TrialFamilyCensusMemberKindV2::Intent => {
                 require_sha256(&member.fact_digest, "CENSUS_INTENT_DIGEST_INVALID")?;
@@ -2260,6 +2266,7 @@ fn require_content_digest(value: &str, code: &'static str) -> Result<(), TrialFa
     let Some((algorithm, hex)) = value.split_once(':') else {
         return Err(TrialFamilyError::InvalidPolicy(code));
     };
+
     if matches!(algorithm, "sha256" | "blake3")
         && hex.len() == 64
         && hex

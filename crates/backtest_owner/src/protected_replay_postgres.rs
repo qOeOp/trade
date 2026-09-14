@@ -363,6 +363,7 @@ impl PostgresReplayResultOwnerV2 {
         }
 
         let mut results = Vec::new();
+
         for member in &request_set.members {
             let request_locator = ProtectedReplayRequestLocatorV1 {
                 request_identity: member.request_identity.clone(),
@@ -385,6 +386,7 @@ impl PostgresReplayResultOwnerV2 {
             if rows.is_empty() {
                 return Err(PostgresReplayResultOwnerErrorV2::ResultNotAdmitted);
             }
+
             for row in rows {
                 let result_identity: String = row
                     .try_get("result_identity")
@@ -515,6 +517,7 @@ impl PostgresReplayResultOwnerV2 {
             request_set_identity: frontier.request_set_identity,
             expected_frontier_bytes: frontier_bytes,
         };
+
         match transaction.commit().await {
             Ok(()) => Ok(
                 ProtectedReplayAttemptFrontierCommitDispositionV1::Committed(Box::new(readback)),
@@ -570,6 +573,7 @@ impl PostgresReplayResultOwnerV2 {
             .map_err(|_| PostgresReplayResultOwnerErrorV2::ResultNotAdmitted)?;
         let result_dto = ProtectedReplayResultDtoV1::from_canonical_bytes(&result_bytes)
             .map_err(|_| PostgresReplayResultOwnerErrorV2::ResultNotAdmitted)?;
+
         if result_dto.request_identity != locator.request_identity
             || result_dto.request_digest != locator.request_digest
             || result_dto.request_receipt_identity != locator.receipt_identity
@@ -707,6 +711,7 @@ impl PostgresReplayResultOwnerV2 {
             attempt_identity: result_dto.attempt_identity,
             expected_result_bytes: result_bytes,
         };
+
         match transaction.commit().await {
             Ok(()) => Ok(ProtectedReplayResultCommitDispositionV1::Committed(
                 Box::new(readback),
@@ -728,6 +733,7 @@ impl PostgresReplayResultOwnerV2 {
             .map_err(|_| PostgresReplayResultOwnerErrorV2::ResultNotAdmitted)?;
         let result_dto = ProtectedReplayResultDtoV2::from_canonical_bytes(&result_bytes)
             .map_err(|_| PostgresReplayResultOwnerErrorV2::ResultNotAdmitted)?;
+
         if result_dto.request_identity != locator.request_identity
             || result_dto.request_digest != locator.request_digest
             || result_dto.request_receipt_identity != locator.receipt_identity
@@ -870,6 +876,7 @@ impl PostgresReplayResultOwnerV2 {
             attempt_identity: result_dto.attempt_identity,
             expected_result_bytes: result_bytes,
         };
+
         match transaction.commit().await {
             Ok(()) => Ok(ProtectedReplayResultCommitDispositionV2::Committed(
                 Box::new(readback),
@@ -889,6 +896,7 @@ impl PostgresReplayResultOwnerV2 {
             .map_err(|_| PostgresReplayResultOwnerErrorV2::ResultNotAdmitted)?;
         let result_dto = ProtectedReplayResultDtoV3::from_canonical_bytes(&result_bytes)
             .map_err(|_| PostgresReplayResultOwnerErrorV2::ResultNotAdmitted)?;
+
         if result_dto.request_identity != locator.request_identity
             || result_dto.request_digest != locator.request_digest
             || result_dto.request_receipt_identity != locator.receipt_identity
@@ -1046,6 +1054,7 @@ impl PostgresReplayResultOwnerV2 {
             attempt_identity: result_dto.attempt_identity,
             expected_result_bytes: result_bytes,
         };
+
         match transaction.commit().await {
             Ok(()) => Ok(ProtectedReplayResultCommitDispositionV3::Committed(
                 Box::new(readback),
@@ -1163,6 +1172,7 @@ async fn lock_qualification_request(
         "qualification-protected-replay-request-frozen-event-v1",
         &payload_digest,
     )?;
+
     if request.request_identity != locator.request_identity
         || request.request_digest != locator.request_digest
         || receipt.schema_version != 1
@@ -1239,6 +1249,7 @@ async fn lock_qualification_request_v2(
         "qualification-protected-replay-request-frozen-event-v1",
         &payload_digest,
     )?;
+
     if request.request_identity != locator.request_identity
         || request.request_digest != locator.request_digest
         || receipt.schema_version != 1
@@ -1296,6 +1307,7 @@ async fn lock_qualification_request_set(
         "qualification-protected-replay-request-set-sealed-event-v1",
         &payload_digest,
     )?;
+
     if request_set.request_set_identity != locator.request_set_identity
         || request_set.request_set_digest != locator.request_set_digest
         || locked.outbox.payload_json != expected_payload
@@ -1315,6 +1327,7 @@ fn decode_locked_bytes(
     let bytes = STANDARD
         .decode(&value.bytes_base64)
         .map_err(|_| PostgresReplayResultOwnerErrorV2::RequestNotAdmitted)?;
+
     if qualification_digest(domain, &bytes)? != value.storage_digest
         || serde_json::from_slice::<serde_json::Value>(&bytes)
             .map_err(|_| PostgresReplayResultOwnerErrorV2::RequestNotAdmitted)?
@@ -1341,6 +1354,7 @@ async fn validate_cross_owner_binding(
     .fetch_one(&mut **transaction)
     .await
     .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+
     if qualification.0 != "qualification_writer"
         || qualification.1 != "qualification_writer"
         || backtest.0 != "backtest_owner"
@@ -1486,6 +1500,7 @@ async fn read_exact_frontier(
     let stored_outbox: ProtectedReplayAttemptFrontierOutboxDtoV1 =
         serde_json::from_slice(&outbox_bytes)
             .map_err(|_| PostgresReplayResultOwnerErrorV2::CorruptReadback)?;
+
     if stored_receipt != receipt
         || stored_outbox != outbox
         || receipt_bytes != expected_receipt_bytes
@@ -1559,6 +1574,7 @@ async fn read_exact_v2(
     let (expected_receipt, expected_receipt_bytes, expected_outbox, expected_outbox_bytes) =
         protected_result_custody_wires_v2(&result, receipt.committed_at_epoch_ms)
             .map_err(|_| PostgresReplayResultOwnerErrorV2::CorruptReadback)?;
+
     if receipt != expected_receipt
         || outbox != expected_outbox
         || receipt_bytes != expected_receipt_bytes
@@ -1631,6 +1647,7 @@ async fn read_exact_v3(
     let (expected_receipt, expected_receipt_bytes, expected_outbox, expected_outbox_bytes) =
         protected_result_custody_wires_v3(&result, receipt.committed_at_epoch_ms)
             .map_err(|_| PostgresReplayResultOwnerErrorV2::CorruptReadback)?;
+
     if receipt != expected_receipt
         || outbox != expected_outbox
         || receipt_bytes != expected_receipt_bytes
@@ -1704,6 +1721,7 @@ async fn read_exact(
     let (expected_receipt, expected_receipt_bytes, expected_outbox, expected_outbox_bytes) =
         protected_result_custody_wires_v1(&result, receipt.committed_at_epoch_ms)
             .map_err(|_| PostgresReplayResultOwnerErrorV2::CorruptReadback)?;
+
     if receipt != expected_receipt
         || outbox != expected_outbox
         || receipt_bytes != expected_receipt_bytes

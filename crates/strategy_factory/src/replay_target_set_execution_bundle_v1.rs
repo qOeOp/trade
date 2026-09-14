@@ -48,14 +48,24 @@ pub struct ReplayTargetSetInstrumentCensusV1 {
     pub(crate) venue_identity: String,
     pub(crate) quote_currency: String,
     pub(crate) account_scope_identity: String,
+    #[serde(serialize_with = "serialize_i128_as_decimal_string")]
     pub(crate) event_time_ns: i128,
+    #[serde(serialize_with = "serialize_i128_as_decimal_string")]
     pub(crate) valid_from_ns: i128,
+    #[serde(serialize_with = "serialize_i128_as_decimal_string")]
     pub(crate) valid_until_ns_exclusive: i128,
     pub(crate) margin_model: String,
     pub(crate) maker_fee: ReplayFixedDecimalV1,
     pub(crate) taker_fee: ReplayFixedDecimalV1,
     pub(crate) initial_margin: ReplayFixedDecimalV1,
     pub(crate) maintenance_margin: ReplayFixedDecimalV1,
+}
+
+fn serialize_i128_as_decimal_string<S>(value: &i128, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(&value.to_string())
 }
 
 impl ReplayTargetSetInstrumentCensusV1 {
@@ -600,6 +610,7 @@ impl ReplayTargetSetExecutionBundleV1 {
 fn digest_census(census: &ReplayTargetSetExecutionCensusV1) -> anyhow::Result<[u8; 32]> {
     let mut hasher = Sha256::new();
     hasher.update(CENSUS_DIGEST_DOMAIN_V1);
+
     for value in [
         census.request_locator.request_identity.as_str(),
         census.request_locator.meaning_digest.as_str(),
@@ -608,6 +619,7 @@ fn digest_census(census: &ReplayTargetSetExecutionCensusV1) -> anyhow::Result<[u
     ] {
         digest_text(&mut hasher, value)?;
     }
+
     for digest in [
         census.owner_authority_digest,
         census.trial_family_digest,
@@ -625,6 +637,7 @@ fn digest_census(census: &ReplayTargetSetExecutionCensusV1) -> anyhow::Result<[u
     ] {
         hasher.update(digest);
     }
+
     if let Some(digest) = census.owner_scheduling_receipt_digest {
         hasher.update(b"OWNER_SCHEDULING_V1\0");
         hasher.update(digest);
@@ -633,6 +646,7 @@ fn digest_census(census: &ReplayTargetSetExecutionCensusV1) -> anyhow::Result<[u
     for instrument in &census.member_instruments {
         digest_text(&mut hasher, instrument)?;
     }
+
     for terms in &census.instrument_terms {
         digest_text(&mut hasher, &terms.instrument_identity)?;
         hasher.update(terms.instrument_fact_digest);
@@ -689,6 +703,7 @@ fn validate_and_digest_scheduling_data(
                 .all(|value| value.ts_init().as_u64() >= window_start_event_ns),
         "request execution bundle scheduling data is outside the Owner request window"
     );
+
     for ordinal in 0..TARGET_SET_MEMBER_COUNT {
         let instrument_id = instruments[ordinal].id();
         anyhow::ensure!(
@@ -727,6 +742,7 @@ fn validate_and_digest_scheduling_data(
     for bar in bars {
         digest_bar(&mut hasher, bar)?;
     }
+
     for event in events {
         digest_quote(&mut hasher, event)?;
     }
@@ -759,6 +775,7 @@ fn digest_quote(hasher: &mut Sha256, quote: &QuoteTick) -> anyhow::Result<()> {
     for value in [quote.bid_price, quote.ask_price] {
         digest_text(hasher, &value.to_string())?;
     }
+
     for value in [quote.bid_size, quote.ask_size] {
         digest_text(hasher, &value.to_string())?;
     }
@@ -839,7 +856,7 @@ mod tests {
         ))
     }
 
-    #[test]
+    #[rstest::rstest]
     fn complete_bar_then_event_schedule_has_stable_census_digest() {
         let (first_instruments, first_bar_types, first_data) = scheduling_fixture();
         let (second_instruments, second_bar_types, second_data) = scheduling_fixture();
@@ -865,7 +882,7 @@ mod tests {
         assert_ne!(first, [0; 32]);
     }
 
-    #[test]
+    #[rstest::rstest]
     fn missing_duplicate_reordered_or_no_liquidity_event_schedule_fails_closed() {
         let (instruments, bar_types, mut missing) = scheduling_fixture();
         missing.pop();
@@ -924,7 +941,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn engine_ts_init_scheduler_reversal_fails_closed() {
         let (instruments, bar_types, mut data) = scheduling_fixture();
         let Data::Quote(first_event) = &data[2] else {

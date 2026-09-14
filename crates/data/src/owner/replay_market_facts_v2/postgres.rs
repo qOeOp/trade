@@ -729,6 +729,7 @@ fn decode_exact_readback_v2(
         },
     )
     .map_err(|_| ReplayMarketFactsPostgresErrorV2::CorruptRecord)?;
+
     if readback.facts().identity().as_bytes() != &row.facts_identity
         || readback.receipt().identity().as_bytes() != &row.receipt_identity
         || readback.facts().canonical_bytes() != row.facts_bytes
@@ -796,6 +797,7 @@ fn decode_frontier_evidence_v2(
     for _ in 0..reference_count {
         reference_cut_identities.push(cursor.binding_digest()?);
     }
+
     if !cursor.is_finished()
         || observation != dependencies[4]
         || joined != dependencies[5]
@@ -851,6 +853,7 @@ fn decode_fact_cuts_v2(
     }
     let mut cuts = Vec::with_capacity(count);
     let mut decoded_identities = Vec::with_capacity(count);
+
     for ordinal in 1_u16..=7 {
         if cursor.u16()? != ordinal {
             return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
@@ -893,6 +896,7 @@ fn decode_cut_proposal_v2(
         }
         facts.push(decode_fact_proposal_v2(fact_bytes, scope_bytes)?);
     }
+
     if !cursor.is_finished() {
         return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
     }
@@ -1965,13 +1969,14 @@ pub(super) fn store_generation_identity_for_test(database_name: &str) -> [u8; DI
 mod resolver_contract_tests {
     use super::*;
 
-    #[test]
+    #[rstest::rstest]
     fn read_contract_authenticates_exact_schema_functions_and_acl() {
         let schema = REPLAY_MARKET_FACTS_SCHEMA_V2.join("\n");
         assert!(schema.contains(RESOLVE_COMPOSITION_BINDING_SOURCE_V1));
         assert!(schema.contains(RESOLVE_BOUND_REPLAY_FACTS_SOURCE_V1));
 
         let source = include_str!("postgres.rs");
+
         for required in [
             "current_user='market_data_owner'",
             "pg_catalog.aclexplode",
@@ -1992,7 +1997,7 @@ mod resolver_contract_tests {
         }
     }
 
-    #[test]
+    #[rstest::rstest]
     fn resolver_requires_binding_and_revalidates_native_chain_before_return() {
         let owner = include_str!("../postgres.rs");
         let ordinary = owner
@@ -2055,6 +2060,7 @@ mod resolver_contract_tests {
             .split("fn encode_record")
             .next()
             .expect("bounded dependency association");
+
         for required in [
             "ReplayCompositionNativeLocatorKindV1::PitSnapshot",
             "ReplayCompositionNativeLocatorKindV1::SourceBinding",
@@ -2085,7 +2091,7 @@ mod resolver_contract_tests {
         }
     }
 
-    #[test]
+    #[rstest::rstest]
     fn resolver_decoder_rejects_unknown_canonical_discriminants() {
         assert_eq!(
             reference_kind(0),

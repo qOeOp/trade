@@ -270,7 +270,7 @@ async fn execute_run_v2(
         .await
     {
         Ok(result) => (StatusCode::OK, Json(result)).into_response(),
-        Err(error) => source_research_owner_error(&error, &request_identity),
+        Err(e) => source_research_owner_error(&e, &request_identity),
     };
     delayed_acceptance_response(&state, &headers, response).await
 }
@@ -299,7 +299,7 @@ async fn admit_research_proposal<T: Serialize>(
             audit_correlation: format!("rd-workbench:{request_identity}"),
         })
         .await
-        .map_err(|error| product_edge_error(&error, request_identity))
+        .map_err(|e| product_edge_error(&e, request_identity))
 }
 
 async fn delayed_acceptance_response(

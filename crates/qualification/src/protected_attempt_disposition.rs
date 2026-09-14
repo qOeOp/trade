@@ -381,7 +381,7 @@ impl ProtectedAttemptDispositionV1 {
     }
 
     pub(crate) fn as_json(&self) -> Result<serde_json::Value, QualificationOwnerError> {
-        serde_json::to_value(self).map_err(|error| unavailable(&error.to_string()))
+        serde_json::to_value(self).map_err(|e| unavailable(&e.to_string()))
     }
     pub(crate) fn disposition_identity(&self) -> &str {
         &self.disposition_identity
@@ -438,7 +438,7 @@ impl ProtectedAttemptDispositionCommitV1 {
 
 impl ProtectedAttemptDispositionReceiptV1 {
     pub(crate) fn as_json(&self) -> Result<serde_json::Value, QualificationOwnerError> {
-        serde_json::to_value(self).map_err(|error| unavailable(&error.to_string()))
+        serde_json::to_value(self).map_err(|e| unavailable(&e.to_string()))
     }
     pub(crate) fn receipt_identity(&self) -> &str {
         &self.receipt_identity

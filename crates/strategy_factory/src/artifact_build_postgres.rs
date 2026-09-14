@@ -915,6 +915,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             transaction.rollback().await.map_err(storage)?;
             return Ok(unavailable_preparation(&request, semantic_digest));
         };
+
         if intent.intent_identity() != request.intent_identity {
             return Err(ArtifactBuildError::Storage(
                 "accepted Develop Intent mismatch".to_string(),
@@ -1259,6 +1260,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             transaction.rollback().await.map_err(storage)?;
             return result_from_verified(custody, now);
         }
+
         if custody.intent != intent {
             return Err(ArtifactBuildError::Storage(
                 "attempt intent changed during build".to_string(),
@@ -1283,6 +1285,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
         {
             return Err(ArtifactBuildError::ConflictingReplay);
         }
+
         if let Some(view) = view.as_mut() {
             view.phase = ResearchViewPhase::ArtifactAvailable;
             view.availability = ResearchViewAvailability::Available;
@@ -1342,6 +1345,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             .execute(&mut *transaction)
             .await
             .map_err(storage)?;
+
         if let (Some(old_view), Some(view)) = (old_view.as_ref(), view.as_ref()) {
             let research_intent = custody.research.intent().ok_or_else(|| {
                 ArtifactBuildError::Storage("initial research intent missing".to_string())
@@ -1370,6 +1374,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             let family = verified_family.clone().ok_or_else(|| {
                 ArtifactBuildError::Storage("V2 family custody missing".to_string())
             })?;
+
             if intent.is_successor() {
                 persist_successor_artifact_binding(
                     &mut transaction,
@@ -1644,7 +1649,12 @@ impl ArtifactSourceOwnerPort for PostgresArtifactBuildOwnerV1 {
         build_request_identity: &str,
         attempt_identity: &str,
     ) -> Result<Option<ArtifactSourceReadbackV1>, ArtifactBuildError> {
-        read_source_from_pool(&self.pool, build_request_identity, attempt_identity).await
+        Box::pin(read_source_from_pool(
+            &self.pool,
+            build_request_identity,
+            attempt_identity,
+        ))
+        .await
     }
 }
 
@@ -1837,7 +1847,12 @@ impl ArtifactSourceOwnerPort for PostgresArtifactReadbackOwnerV1 {
         build_request_identity: &str,
         attempt_identity: &str,
     ) -> Result<Option<ArtifactSourceReadbackV1>, ArtifactBuildError> {
-        read_source_from_pool(&self.pool, build_request_identity, attempt_identity).await
+        Box::pin(read_source_from_pool(
+            &self.pool,
+            build_request_identity,
+            attempt_identity,
+        ))
+        .await
     }
 }
 
@@ -3119,7 +3134,7 @@ mod postgres_freshness_tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     #[ignore = "requires admitted OA/PE/R&D test database URLs"]
     fn legacy_prepared_drain_is_atomic_idempotent_and_read_only() {
         std::thread::Builder::new()
@@ -4287,7 +4302,7 @@ mod postgres_freshness_tests {
         cleanup_research(&mutation, &research_request_identity, &family_identity).await;
     }
 
-    #[test]
+    #[rstest::rstest]
     #[ignore = "requires the disposable canonical OA/PE/R&D/Qualification PostgreSQL topology"]
     fn specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut() {
         std::thread::Builder::new()

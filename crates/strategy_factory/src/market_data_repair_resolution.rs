@@ -1,5 +1,7 @@
 //! Effect-free R&D resolution of one exact Market Data repair terminal.
 
+use std::fmt::Display;
+
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -355,6 +357,7 @@ fn issue_from_evidence(
     {
         return Err(MarketDataRepairResolutionErrorV1::WrongRepairTarget);
     }
+
     if action.decision_identity() != decision.identity()
         || action.decision_digest() != decision.digest()
         || action.result_identity() != decision.result_identity()
@@ -491,7 +494,7 @@ fn digest(value: &impl Serialize) -> Result<String, MarketDataRepairResolutionEr
     .map_err(encoding)
 }
 
-fn encoding(error: impl std::fmt::Display) -> MarketDataRepairResolutionErrorV1 {
+fn encoding(error: impl Display) -> MarketDataRepairResolutionErrorV1 {
     MarketDataRepairResolutionErrorV1::Encoding(error.to_string())
 }
 
@@ -534,13 +537,13 @@ pub(crate) mod tests {
         fn market_data_target(&self) -> bool {
             self.target
         }
-        fn identity(&self) -> &str {
+        fn identity(&self) -> &'static str {
             "decision"
         }
-        fn digest(&self) -> &str {
+        fn digest(&self) -> &'static str {
             "sha256:decision"
         }
-        fn result_identity(&self) -> &str {
+        fn result_identity(&self) -> &'static str {
             "result"
         }
         fn evidence_cut(&self) -> &IterationDecisionEvidenceCutV1 {
@@ -556,19 +559,19 @@ pub(crate) mod tests {
         fn market_data_target(&self) -> bool {
             true
         }
-        fn identity(&self) -> &str {
+        fn identity(&self) -> &'static str {
             "action"
         }
-        fn digest(&self) -> &str {
+        fn digest(&self) -> &'static str {
             "sha256:action"
         }
-        fn decision_identity(&self) -> &str {
+        fn decision_identity(&self) -> &'static str {
             "decision"
         }
         fn decision_digest(&self) -> &str {
             self.decision_digest
         }
-        fn result_identity(&self) -> &str {
+        fn result_identity(&self) -> &'static str {
             "result"
         }
     }
@@ -579,31 +582,31 @@ pub(crate) mod tests {
         fn market_data_target(&self) -> bool {
             true
         }
-        fn identity(&self) -> &str {
+        fn identity(&self) -> &'static str {
             "request"
         }
-        fn digest(&self) -> &str {
+        fn digest(&self) -> &'static str {
             "sha256:request"
         }
-        fn receipt_identity(&self) -> &str {
+        fn receipt_identity(&self) -> &'static str {
             "receipt"
         }
-        fn receipt_digest(&self) -> &str {
+        fn receipt_digest(&self) -> &'static str {
             "sha256:receipt"
         }
-        fn action_identity(&self) -> &str {
+        fn action_identity(&self) -> &'static str {
             "action"
         }
-        fn action_digest(&self) -> &str {
+        fn action_digest(&self) -> &'static str {
             "sha256:action"
         }
-        fn decision_identity(&self) -> &str {
+        fn decision_identity(&self) -> &'static str {
             "decision"
         }
-        fn decision_digest(&self) -> &str {
+        fn decision_digest(&self) -> &'static str {
             "sha256:decision"
         }
-        fn result_identity(&self) -> &str {
+        fn result_identity(&self) -> &'static str {
             "result"
         }
         fn correlation_identity(&self) -> BindingDigest {
@@ -621,22 +624,22 @@ pub(crate) mod tests {
     }
 
     impl TerminalEvidence for Terminal {
-        fn identity(&self) -> &str {
+        fn identity(&self) -> &'static str {
             "terminal"
         }
-        fn digest(&self) -> &str {
+        fn digest(&self) -> &'static str {
             "sha256:terminal"
         }
-        fn request_identity(&self) -> &str {
+        fn request_identity(&self) -> &'static str {
             "request"
         }
         fn request_digest(&self) -> &str {
             self.request_digest
         }
-        fn request_receipt_identity(&self) -> &str {
+        fn request_receipt_identity(&self) -> &'static str {
             "receipt"
         }
-        fn request_receipt_digest(&self) -> &str {
+        fn request_receipt_digest(&self) -> &'static str {
             "sha256:receipt"
         }
         fn correlation_identity(&self) -> BindingDigest {
@@ -744,7 +747,7 @@ pub(crate) mod tests {
         .expect("unavailable resolution fixture")
     }
 
-    #[test]
+    #[rstest::rstest]
     fn available_terminal_deterministically_yields_repaired_without_stop() {
         let first = issue_from_evidence(
             &decision(),
@@ -773,7 +776,7 @@ pub(crate) mod tests {
         assert_eq!(first.to_canonical_bytes(), second.to_canonical_bytes());
     }
 
-    #[test]
+    #[rstest::rstest]
     fn unavailable_terminal_yields_only_input_unavailable_stop() {
         let terminal = Terminal {
             disposition: MarketDataRepairDispositionV1::Unavailable,
@@ -803,7 +806,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn wrong_target_chain_splice_or_terminal_shape_fails_closed() {
         let mut wrong = decision();
         wrong.target = false;

@@ -71,7 +71,7 @@ impl QualificationPublicStatusFactV1 {
     }
 
     pub(crate) fn as_json(&self) -> Result<serde_json::Value, QualificationOwnerError> {
-        serde_json::to_value(self).map_err(|error| unavailable(&error.to_string()))
+        serde_json::to_value(self).map_err(|e| unavailable(&e.to_string()))
     }
 }
 
@@ -166,11 +166,13 @@ pub(crate) fn form_public_status_fact_v1(
             ));
         }
     }
+
     if !is_sha256_digest(input.native_source_digest)
         || !is_sha256_digest(input.source_frontier_digest)
     {
         return Err(unavailable("Qualification public status digest is invalid"));
     }
+
     if digest_from_identity_suffix(input.native_source_identity)? != input.native_source_digest
         || digest_from_identity(
             "qualification-protected-feedback-frontier-v1-",
@@ -227,7 +229,7 @@ pub(crate) fn decode_public_status_fact_v1(
     native_source_digest: &str,
 ) -> Result<QualificationPublicStatusFactV1, QualificationOwnerError> {
     let stored: StoredQualificationPublicStatusFactV1 =
-        serde_json::from_value(value.clone()).map_err(|error| unavailable(&error.to_string()))?;
+        serde_json::from_value(value.clone()).map_err(|e| unavailable(&e.to_string()))?;
     let expected = form_public_status_fact_v1(&PublicStatusFactInputV1 {
         review_request_identity: &stored.review_request_identity,
         candidate_identity: &stored.candidate_identity,
@@ -238,6 +240,7 @@ pub(crate) fn decode_public_status_fact_v1(
         source_frontier_digest: &stored.source_frontier_digest,
         source_frontier_is_current: stored.source_frontier_is_current,
     })?;
+
     if expected.as_json()? != *value {
         return Err(unavailable(
             "stored Qualification public status fact changed",
@@ -250,7 +253,7 @@ pub(crate) fn decode_public_status_readback_v1(
     value: &serde_json::Value,
 ) -> Result<QualificationPublicStatusFactV1, QualificationOwnerError> {
     let envelope: StoredPublicStatusReadEnvelopeV1 =
-        serde_json::from_value(value.clone()).map_err(|error| unavailable(&error.to_string()))?;
+        serde_json::from_value(value.clone()).map_err(|e| unavailable(&e.to_string()))?;
     if envelope.schema_version != 1 {
         return Err(unavailable("Qualification public status envelope changed"));
     }
@@ -261,6 +264,7 @@ pub(crate) fn decode_public_status_readback_v1(
         .map(decode_public_status_public_fact_v1)
         .collect::<Result<Vec<_>, _>>()?;
     let mut previous_status = None;
+
     for historical in &history {
         let transition_is_valid = matches!(
             (previous_status, historical.status()),
@@ -276,6 +280,7 @@ pub(crate) fn decode_public_status_readback_v1(
                     | QualificationPublicStatusV1::Qualified
             )
         );
+
         if !transition_is_valid
             || historical.review_request_identity() != fact.review_request_identity()
             || historical.candidate_identity() != fact.candidate_identity()
@@ -286,9 +291,11 @@ pub(crate) fn decode_public_status_readback_v1(
         }
         previous_status = Some(historical.status());
     }
+
     if history.last() != Some(&fact) {
         return Err(unavailable("Qualification public status head is stale"));
     }
+
     match (fact.terminal_event_v1()?, envelope.terminal_event) {
         (None, None) => {}
         (Some((expected_identity, expected_digest, expected_json)), Some(stored_event))
@@ -306,7 +313,7 @@ fn decode_public_status_public_fact_v1(
     value: &serde_json::Value,
 ) -> Result<QualificationPublicStatusFactV1, QualificationOwnerError> {
     let stored: StoredQualificationPublicStatusFactV1 =
-        serde_json::from_value(value.clone()).map_err(|error| unavailable(&error.to_string()))?;
+        serde_json::from_value(value.clone()).map_err(|e| unavailable(&e.to_string()))?;
     if !is_content_addressed_identity(
         "qualification-public-reference-v1-",
         &stored.opaque_reference,
@@ -336,6 +343,7 @@ fn decode_public_status_public_fact_v1(
             source_frontier_is_current: stored.source_frontier_is_current,
         },
     )?;
+
     if stored.schema_version != 1
         || stored.fact_digest != fact_digest
         || stored.fact_identity != identity("qualification-public-status-fact-v1", &fact_digest)
@@ -354,6 +362,7 @@ fn decode_public_status_public_fact_v1(
         source_frontier_digest: stored.source_frontier_digest,
         source_frontier_is_current: stored.source_frontier_is_current,
     };
+
     if fact.as_json()? != *value {
         return Err(unavailable(
             "Qualification public status JSON is not canonical",
@@ -381,7 +390,7 @@ impl QualificationPublicStatusFactV1 {
             source_frontier_digest: &self.source_frontier_digest,
             source_frontier_is_current: self.source_frontier_is_current,
         })
-        .map_err(|error| unavailable(&error.to_string()))?;
+        .map_err(|e| unavailable(&e.to_string()))?;
         let digest = canonical_digest("qualification.public-status-terminal-event.v1", &payload)?;
         Ok(Some((
             identity("qualification-public-status-terminal-event-v1", &digest),
@@ -398,6 +407,7 @@ pub(crate) fn digest_from_identity(
     let suffix = value
         .strip_prefix(prefix)
         .ok_or_else(|| unavailable("content-addressed identity prefix is invalid"))?;
+
     if suffix.len() != 64
         || !suffix
             .bytes()
@@ -412,6 +422,7 @@ fn digest_from_identity_suffix(value: &str) -> Result<String, QualificationOwner
     let (_, suffix) = value
         .rsplit_once('-')
         .ok_or_else(|| unavailable("content-addressed identity prefix is invalid"))?;
+
     if suffix.len() != 64
         || !suffix
             .bytes()

@@ -19,6 +19,7 @@ vibe-data = { workspace = true }
 vibe-rd-market-data-repair-custody = { workspace = true }
 
 [dev-dependencies]
+rstest = { workspace = true }
 sqlx = { workspace = true }
 tokio = { workspace = true }
 vibe-testkit = { workspace = true, features = ["postgres"] }

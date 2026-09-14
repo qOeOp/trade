@@ -57,13 +57,16 @@ The maturity boundary is explicit:
   one combination checkpoint only after exact-set validation succeeds. A non-default, zero-argument sealed
   acceptance corpus exercises the real Market Data Owner issuance path, exact Plan compilation, one guest call,
   member-causal targets, atomic malformed-output rejection, replay, and restore. This is bounded crate-local
-  acceptance evidence only. The local bounded-plugin producer admits exact, fail-closed macOS arm64 and Linux ARM64
-  host profiles. Linux ARM64 is **CURRENT/PARTIAL** only at a main-bound hosted native A0 evidence boundary: exact
+  acceptance evidence only. The local bounded-plugin producer admits an exact, fail-closed macOS arm64 host profile.
+  Linux ARM64 is **REVALIDATION REQUIRED**: the implementation now freezes the currently observed canonical
+  `wasm32v1-none` sysroot digest, but it does not become CURRENT/PARTIAL again until the main-bound hosted native A0
+  gate succeeds for that digest. The previous evidence boundary was the exact
   workflow [`strategy-factory-linux-a0`](https://github.com/qOeOp/trade/blob/9e5149d4293a800be3a35e6b747a9f3dba304e1f/.github/workflows/strategy-factory-linux-a0.yml),
   `workflow_dispatch` [run 33250411708](https://github.com/qOeOp/trade/actions/runs/33250411708) at head
   `9e5149d4293a800be3a35e6b747a9f3dba304e1f`, and job
   [`strategy factory A0 native gate (linux arm64)`](https://github.com/qOeOp/trade/actions/runs/33250411708/job/99095016988)
-  succeeded on GitHub-hosted `ubuntu-22.04-arm`, bound as `github-hosted/Linux/ARM64/aarch64`. That gate verifies
+  succeeded on GitHub-hosted `ubuntu-22.04-arm`, bound as `github-hosted/Linux/ARM64/aarch64`. That historical gate
+  covered the superseded sysroot digest and is not acceptance for the replacement freeze. The gate verifies
   immutable CI inputs, exact Rust 1.97.1 Cargo/rustc commits and host, the sole `wasm32v1-none` target, the pure-Rust
   canonical sysroot digest, deterministic double build/exact replay, and delivery of the real build into the sole
   Composer and `ProgramHostV2` consumer path. The builder rereads its exact tools and canonical target sysroot before

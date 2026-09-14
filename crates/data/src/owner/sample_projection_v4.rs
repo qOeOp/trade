@@ -494,6 +494,7 @@ pub(super) fn joined_components_match_observation_census_v4(
             )
         })
         .collect::<BTreeMap<_, _>>();
+
     if roles.len() != request.join_claim().roles.len()
         || census
             .record()
@@ -529,6 +530,7 @@ pub(super) fn joined_components_match_observation_census_v4(
         let event_identity = &exact[128..144];
         let trigger_digest = &exact[96..128];
         let value_digest = &exact[144..176];
+
         if logical_time > request.trigger_logical_time()
             || request.trigger_logical_time() - logical_time > request.join_claim().max_staleness_ns
         {
@@ -549,6 +551,7 @@ pub(super) fn joined_components_match_observation_census_v4(
         else {
             return false;
         };
+
         if latest_time != logical_time
             || role_entries
                 .iter()
@@ -601,6 +604,7 @@ pub(super) fn decode_v4(
     let subject_join_identity = bytes[38..70]
         .try_into()
         .map_err(|_| StrategyInputSampleProjectionErrorV4::InvalidLength)?;
+
     if (kind == StrategyInputSampleProjectionKindV4::Frame && subject_join_identity != [0; 32])
         || (kind == StrategyInputSampleProjectionKindV4::JoinedCut
             && subject_join_identity == [0; 32])

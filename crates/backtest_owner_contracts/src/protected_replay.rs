@@ -154,6 +154,7 @@ pub struct ProtectedEvaluationTimeEvidenceV1 {
 impl ProtectedEvaluationTimeEvidenceV1 {
     pub fn validate_request_root(&self) -> Result<(), ProtectedReplayContractErrorV1> {
         self.validate_common()?;
+
         if self.stage != ProtectedEvaluationStageV1::Request
             || self.direct_predecessor_head_identity.is_some()
             || self.direct_predecessor_head_digest.is_some()
@@ -215,6 +216,7 @@ impl ProtectedEvaluationTimeEvidenceV1 {
         {
             return Err(ProtectedReplayContractErrorV1::InvalidResult);
         }
+
         match self.monotonic_sequence.cmp(&other.monotonic_sequence) {
             Ordering::Equal if self == other => Ok(Ordering::Equal),
             Ordering::Greater
@@ -242,6 +244,7 @@ impl ProtectedEvaluationTimeEvidenceV1 {
         e: ProtectedReplayContractErrorV1,
     ) -> Result<(), ProtectedReplayContractErrorV1> {
         self.validate_common()?;
+
         if self.stage != successor_stage
             || self.direct_predecessor_head_identity != Some(predecessor.head_identity)
             || self.direct_predecessor_head_digest != Some(predecessor.head_digest)
@@ -253,6 +256,7 @@ impl ProtectedEvaluationTimeEvidenceV1 {
         {
             return Err(e);
         }
+
         if self.clock_epoch == predecessor.clock_epoch {
             if self.monotonic_sequence != predecessor.monotonic_sequence.saturating_add(1)
                 || self.restart_continuity_digest != predecessor.restart_continuity_digest
@@ -267,6 +271,7 @@ impl ProtectedEvaluationTimeEvidenceV1 {
                 .epoch_successor_proof
                 .as_ref()
                 .ok_or_else(|| e.clone())?;
+
             if proof.proof_identity.iter().all(|byte| *byte == 0)
                 || proof.predecessor_head_digest != predecessor.head_digest
                 || proof.successor_head_digest != self.head_digest
@@ -339,6 +344,7 @@ impl ProtectedReplayRequestDtoV2 {
     pub fn validate(&self) -> Result<(), ProtectedReplayContractErrorV1> {
         self.frozen_basis.validate()?;
         self.request_time_evidence.validate_request_root()?;
+
         if self.schema_version != REQUEST_SCHEMA_V2
             || self.request_identity != self.frozen_basis.request_identity
             || !valid_digest(&self.request_digest)
@@ -423,6 +429,7 @@ impl ProtectedReplayRequestDtoV1 {
         {
             return Err(ProtectedReplayContractErrorV1::InvalidRequest);
         }
+
         for digest in [
             &self.request_digest,
             &self.candidate_digest,
@@ -620,6 +627,7 @@ impl ProtectedEconomicPolicyBundleV1 {
             &self.aggregation_policy,
         ];
         let expected_digest = self.compute_digest()?;
+
         if self.schema_version != 1
             || !valid_identity(&self.protected_decision_policy_identity)
             || self.protected_decision_policy_version == 0
@@ -698,6 +706,7 @@ impl ProtectedEconomicMeasurementV1 {
             &self.result_time_evidence_digest,
         ];
         let expected_digest = self.compute_digest()?;
+
         if self.schema_version != 1
             || identities.iter().any(|value| !valid_identity(value))
             || digests.iter().any(|value| !valid_digest(value))
@@ -1341,6 +1350,7 @@ impl ProtectedReplayResultDtoV1 {
         {
             return Err(ProtectedReplayContractErrorV1::InvalidResult);
         }
+
         for digest in [
             &self.result_digest,
             &self.request_digest,
@@ -1414,6 +1424,7 @@ impl ProtectedReplayResultDtoV1 {
         {
             return Err(ProtectedReplayContractErrorV1::InvalidResult);
         }
+
         for (atom, binding) in self.reconciliation.iter().zip(request.bindings.iter()) {
             if atom.field != binding.field
                 || atom.requested_identity != binding.identity
@@ -1479,6 +1490,7 @@ impl ProtectedReplayResultDtoV2 {
         {
             return Err(ProtectedReplayContractErrorV1::InvalidResult);
         }
+
         for digest in [
             &self.result_digest,
             &self.request_digest,
@@ -1496,6 +1508,7 @@ impl ProtectedReplayResultDtoV2 {
             &self.diagnostic_category_set,
             &self.diagnostic_category_set_digest,
         )?;
+
         if !self
             .reconciliation
             .iter()
@@ -1504,6 +1517,7 @@ impl ProtectedReplayResultDtoV2 {
         {
             return Err(ProtectedReplayContractErrorV1::InvalidResult);
         }
+
         for (evidence, category) in self
             .diagnostic_evidence
             .iter()
@@ -1559,6 +1573,7 @@ impl ProtectedReplayResultDtoV2 {
         {
             return Err(ProtectedReplayContractErrorV1::InvalidResult);
         }
+
         for (atom, binding) in self.reconciliation.iter().zip(request.bindings.iter()) {
             if atom.field != binding.field
                 || atom.requested_identity != binding.identity
@@ -1647,6 +1662,7 @@ impl ProtectedReplayRequestSetSealDtoV1 {
         {
             return Err(ProtectedReplayContractErrorV1::InvalidRequestSet);
         }
+
         for member in &self.members {
             if !valid_identity(&member.request_identity)
                 || !valid_digest(&member.request_digest)
@@ -1659,6 +1675,7 @@ impl ProtectedReplayRequestSetSealDtoV1 {
                 return Err(ProtectedReplayContractErrorV1::InvalidRequestSet);
             }
         }
+
         if self.members.windows(2).any(|pair| pair[0] >= pair[1])
             || self
                 .members
@@ -1740,6 +1757,7 @@ impl ProtectedReplayAttemptFrontierDtoV1 {
             let request = request_members
                 .get(&result.request_identity)
                 .ok_or(ProtectedReplayContractErrorV1::InvalidAttemptFrontier)?;
+
             if result.request_digest != request.request_digest
                 || result.request_receipt_identity != request.request_receipt_identity
                 || result.request_seal_digest != request.request_seal_digest
@@ -1834,6 +1852,7 @@ impl ProtectedReplayAttemptFrontierDtoV1 {
         {
             return Err(ProtectedReplayContractErrorV1::InvalidAttemptFrontier);
         }
+
         for member in &self.members {
             if !valid_identity(&member.request_identity)
                 || !valid_digest(&member.request_digest)
@@ -1887,10 +1906,12 @@ impl ProtectedReplayAttemptFrontierDtoV1 {
             .map(|member| (&member.request_identity, member))
             .collect::<std::collections::BTreeMap<_, _>>();
         let mut observed = BTreeSet::new();
+
         for member in &self.members {
             let request = expected
                 .get(&member.request_identity)
                 .ok_or(ProtectedReplayContractErrorV1::InvalidAttemptFrontier)?;
+
             if member.request_digest != request.request_digest
                 || member.request_receipt_identity != request.request_receipt_identity
                 || member.request_seal_digest != request.request_seal_digest
@@ -1901,6 +1922,7 @@ impl ProtectedReplayAttemptFrontierDtoV1 {
             }
             observed.insert(&member.request_identity);
         }
+
         if observed.len() != expected.len() {
             return Err(ProtectedReplayContractErrorV1::InvalidAttemptFrontier);
         }
@@ -1983,6 +2005,7 @@ impl ProtectedReplayResultDtoV3 {
             &self.diagnostic_category_set,
             &self.diagnostic_category_set_digest,
         )?;
+
         if !self
             .reconciliation
             .iter()
@@ -1991,6 +2014,7 @@ impl ProtectedReplayResultDtoV3 {
         {
             return Err(ProtectedReplayContractErrorV1::InvalidResult);
         }
+
         for (evidence, category) in self
             .diagnostic_evidence
             .iter()
@@ -2012,6 +2036,7 @@ impl ProtectedReplayResultDtoV3 {
         {
             return Err(ProtectedReplayContractErrorV1::InvalidResult);
         }
+
         if let Some(measurement) = &self.protected_economic_measurement {
             measurement.validate()?;
             if measurement.measurement_identity != self.protected_outcome.reference.as_str()
@@ -2075,6 +2100,7 @@ impl ProtectedReplayResultDtoV3 {
         }
         self.result_time_evidence
             .validate_result_successor_of(&request.request_time_evidence)?;
+
         for (atom, binding) in self.reconciliation.iter().zip(basis.bindings.iter()) {
             if atom.field != binding.field
                 || atom.requested_identity != binding.identity
@@ -2150,6 +2176,7 @@ fn validate_reconciliation(
     if atoms.len() != PROTECTED_REPLAY_BINDING_COUNT_V1 {
         return Err(ProtectedReplayContractErrorV1::InvalidBindingCensus);
     }
+
     for (atom, expected) in atoms.iter().zip(ProtectedReplayBindingFieldV1::ALL) {
         if atom.field != expected
             || !valid_identity(&atom.requested_identity)

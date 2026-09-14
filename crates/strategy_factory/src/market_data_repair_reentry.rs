@@ -5,6 +5,8 @@
     reason = "the crate-private repaired-request former awaits T156c Owner composition"
 )]
 
+use std::fmt::Display;
+
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -16,7 +18,9 @@ use vibe_data::owner::source_binding::BindingDigest;
 use crate::{
     MarketDataRepairResolutionReadbackV1,
     exploratory_replay::{ExploratoryReplayRequestLocatorV2, SealedExploratoryReplayReadbackV2},
-    market_data_repair_resolution::MarketDataRepairResolutionDispositionV1,
+    market_data_repair_resolution::{
+        MarketDataRepairResearchTerminalV1, MarketDataRepairResolutionDispositionV1,
+    },
     market_data_repair_resolution_postgres::MarketDataRepairResolutionReentryReadbackV1,
 };
 
@@ -204,6 +208,7 @@ impl MarketDataRepairReplayReentryBindingV1 {
             "rd-market-data-repair-replay-reentry-v1-{}",
             expected_digest.trim_start_matches("sha256:")
         );
+
         if self.authority_digest != expected_digest || self.authority_identity != expected_identity
         {
             return Err(MarketDataRepairReplayReentryErrorV1::CustodyMismatch);
@@ -247,7 +252,7 @@ pub(crate) fn form_market_data_repaired_replay_request_v1(
         digest: canonical_binding(authority.repaired_normalized_records_digest)?,
     };
     let request = ReplayRequestV2::try_from(successor)
-        .map_err(|error| MarketDataRepairReplayReentryErrorV1::Request(error.to_string()))?;
+        .map_err(|e| MarketDataRepairReplayReentryErrorV1::Request(e.to_string()))?;
     Ok(MarketDataRepairedReplayRequestV1 {
         schema_version: 1,
         authority,
@@ -281,6 +286,10 @@ pub fn authorize_market_data_repair_replay_reentry_v1(
 }
 
 /// Issues re-entry authority from the move-only projection produced by the locator-only Owner read.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "the locator-only Owner projection is deliberately consumed at this authority boundary"
+)]
 pub(crate) fn authorize_market_data_repair_replay_reentry_from_locator_v1(
     predecessor: &SealedExploratoryReplayReadbackV2,
     resolution: MarketDataRepairResolutionReentryReadbackV1,
@@ -309,9 +318,7 @@ trait ResolutionAuthorityEvidenceV1 {
     fn correlation_identity(&self) -> BindingDigest;
 }
 
-impl ResolutionAuthorityEvidenceV1
-    for crate::market_data_repair_resolution::MarketDataRepairResearchTerminalV1
-{
+impl ResolutionAuthorityEvidenceV1 for MarketDataRepairResearchTerminalV1 {
     fn resolution_identity(&self) -> &str {
         self.resolution_identity()
     }
@@ -512,21 +519,21 @@ fn repaired_request_identity_from_authority_digest(
         "rd-market-data-repaired-replay-v1-{:x}",
         hasher.finalize()
     ))
-    .map_err(|error| MarketDataRepairReplayReentryErrorV1::Request(error.to_string()))
+    .map_err(|e| MarketDataRepairReplayReentryErrorV1::Request(e.to_string()))
 }
 
 fn opaque_binding(
     value: BindingDigest,
 ) -> Result<OpaqueIdentityV2, MarketDataRepairReplayReentryErrorV1> {
     OpaqueIdentityV2::try_from(binding_identity(value))
-        .map_err(|error| MarketDataRepairReplayReentryErrorV1::Request(error.to_string()))
+        .map_err(|e| MarketDataRepairReplayReentryErrorV1::Request(e.to_string()))
 }
 
 fn canonical_binding(
     value: BindingDigest,
 ) -> Result<CanonicalDigestV2, MarketDataRepairReplayReentryErrorV1> {
     CanonicalDigestV2::try_from(binding_digest(value))
-        .map_err(|error| MarketDataRepairReplayReentryErrorV1::Request(error.to_string()))
+        .map_err(|e| MarketDataRepairReplayReentryErrorV1::Request(e.to_string()))
 }
 
 fn hex(value: BindingDigest) -> String {
@@ -537,7 +544,7 @@ fn hex(value: BindingDigest) -> String {
         .collect()
 }
 
-fn encoding(error: impl std::fmt::Display) -> MarketDataRepairReplayReentryErrorV1 {
+fn encoding(error: impl Display) -> MarketDataRepairReplayReentryErrorV1 {
     MarketDataRepairReplayReentryErrorV1::Encoding(error.to_string())
 }
 
@@ -641,7 +648,7 @@ mod tests {
             .unwrap()
     }
 
-    #[test]
+    #[rstest::rstest]
     fn repaired_resolution_issues_deterministic_reentry_authority() {
         let predecessor = predecessor("replay-request");
         let first = authorize_market_data_repair_replay_reentry_v1(
@@ -658,7 +665,7 @@ mod tests {
         assert_eq!(first.predecessor_replay(), &predecessor.locator());
     }
 
-    #[test]
+    #[rstest::rstest]
     fn unavailable_or_wrong_predecessor_creates_no_reentry_authority() {
         assert_eq!(
             authorize_market_data_repair_replay_reentry_v1(
@@ -677,7 +684,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn repaired_request_changes_only_identity_and_snapshot() {
         let predecessor = predecessor("replay-request");
         let first =

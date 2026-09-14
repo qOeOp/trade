@@ -470,6 +470,7 @@ impl PostgresReplayResultOwnerV2 {
             .request()
             .meaning_digest()
             .map_err(|_| PostgresReplayResultOwnerErrorV2::RequestNotAdmitted)?;
+
         if request.request_identity() != result_dto.request_identity.as_str()
             || request.meaning_digest() != result_dto.request_meaning_digest.as_str()
             || locked_meaning != result_dto.request_meaning_digest
@@ -531,6 +532,7 @@ impl PostgresReplayResultOwnerV2 {
             .request()
             .meaning_digest()
             .map_err(|_| PostgresReplayResultOwnerErrorV2::RequestNotAdmitted)?;
+
         if request.locator() != *locator
             || request.request_identity() != result_dto.request_identity.as_str()
             || request.meaning_digest() != result_dto.request_meaning_digest.as_str()
@@ -895,6 +897,7 @@ async fn persist_native_replay_aggregate(
             .bind(envelope.producer_bytes_digest().as_str()).bind(envelope.producer_bytes())
             .bind(storage_digest(EVIDENCE_SOURCE_STORAGE_DOMAIN, envelope.producer_bytes()))
             .execute(&mut *transaction).await.map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+
         if source_inserted.rows_affected() == 0 {
             let row = sqlx::query("SELECT canonical_bytes,canonical_bytes_blake3 FROM public.backtest_native_replay_source_blobs_v2 WHERE source_digest=$1")
                 .bind(envelope.producer_bytes_digest().as_str()).fetch_one(&mut *transaction).await
@@ -1093,6 +1096,7 @@ async fn read_expected_evidence(
         return Err(PostgresReplayResultOwnerErrorV2::CorruptReadback);
     }
     let mut values = Vec::with_capacity(28);
+
     for item in expected {
         let component = component_text(item.component)?;
         let row = sqlx::query("SELECT observation.request_identity,observation.request_meaning_digest,observation.request_receipt_identity,observation.request_seal_digest,observation.attempt_identity,observation.envelope_reference,observation.envelope_digest,observation.producer_namespace,observation.producer_reference,observation.source_digest,observation.observed_meaning_identity,observation.observed_meaning_digest,observation.canonical_bytes,source.canonical_bytes AS source_bytes,source.canonical_bytes_blake3 FROM public.backtest_native_replay_observations_v2 observation JOIN public.backtest_native_replay_source_blobs_v2 source ON source.source_digest=observation.source_digest WHERE observation.result_identity=$1 AND observation.component=$2")
@@ -1447,6 +1451,7 @@ mod lock_key_tests {
             5
         );
         assert!(!READ_ORPHAN_NATIVE_REPLAY_EVIDENCE.contains("pg_catalog.exists("));
+
         for required_key in [
             "observation.result_identity=$1",
             "observation.request_identity=$2 AND observation.attempt_identity=$3",

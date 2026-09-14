@@ -12,6 +12,7 @@ use strategy_factory_program_sdk::{
 use vibe_backtest::{
     config::{BacktestEngineConfig, SimulatedVenueConfig},
     engine::BacktestEngine,
+    result::CanonicalBacktestResult,
 };
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 use vibe_backtest_owner_contracts::ReplayWindowV2;
@@ -98,7 +99,7 @@ fn owner_bound_profile_drives_bar_signal_then_real_event_fills() {
     .unwrap();
     let readback = run_program_host_sim_event_consumer_v1(capability).unwrap();
     assert_eq!(readback.execution_route(), "EVENT");
-    vibe_backtest::result::CanonicalBacktestResult::from_slice(readback.canonical_result())
+    CanonicalBacktestResult::from_slice(readback.canonical_result())
         .expect("EVENT readback must retain the exact canonical Backtest result");
     assert!(readback.canonical_result_is_exact());
     assert!(

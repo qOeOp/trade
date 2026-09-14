@@ -66,7 +66,7 @@ const LOCK_SOURCE_V2: &str = r#"
         END
         "#;
 const LOCK_SOURCE_V2_MD5: &str = "a8441fed919da5b5c413c6a09d159500";
-const BACKTEST_LOCK_BOUNDARY_AUTH_SQL_V2: &str = r#"
+const BACKTEST_LOCK_BOUNDARY_AUTH_SQL_V2: &str = "
         SELECT wrapper.prosecdef
              AND wrapper.provolatile='v'
              AND wrapper.proparallel='u'
@@ -139,7 +139,7 @@ const BACKTEST_LOCK_BOUNDARY_AUTH_SQL_V2: &str = r#"
           JOIN pg_catalog.pg_language wrapper_language
             ON wrapper_language.oid=wrapper.prolang
          WHERE wrapper.oid=pg_catalog.to_regprocedure($1)
-"#;
+";
 #[expect(
     clippy::needless_raw_strings,
     reason = "fixed SQL source is compared byte-for-byte"
@@ -749,7 +749,7 @@ struct CanonicalStorageRecordV2 {
     mirror: serde_json::Value,
 }
 
-pub(crate) const NATIVE_SOURCE_STORAGE_SOURCE_V2: &str = r#"
+pub(crate) const NATIVE_SOURCE_STORAGE_SOURCE_V2: &str = "
         DECLARE base jsonb;
         DECLARE sealed record;
         DECLARE research record;
@@ -908,7 +908,7 @@ pub(crate) const NATIVE_SOURCE_STORAGE_SOURCE_V2: &str = r#"
         EXCEPTION WHEN no_data_found OR too_many_rows OR data_exception THEN
           RETURN pg_catalog.jsonb_build_object('schema_version',1,'custody_state','CORRUPT_PARTIAL');
         END
-"#;
+";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -1665,6 +1665,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
     .execute(&mut *publication)
     .await
     .map_err(storage)?;
+
     for (version, source) in [
         (1_u8, INTERNAL_VERIFY_SOURCE_V1),
         (2_u8, INTERNAL_VERIFY_SOURCE_V2),
@@ -1922,6 +1923,7 @@ async fn commit_market_data_repaired_with_authority_v2(
     let stored_meaning: String = row.try_get("v2_meaning_digest").map_err(storage)?;
     let stored_seal: String = row.try_get("v2_seal_digest").map_err(storage)?;
     verify_frozen(&frozen)?;
+
     if stored_request != predecessor.canonical_request_bytes()
         || stored_meaning != predecessor.meaning_digest()
         || stored_seal != predecessor.seal_digest()
@@ -2039,6 +2041,7 @@ async fn commit_inner(
         .ok_or_else(|| {
             ExploratoryReplayOwnerError::Unavailable("artifact custody missing".into())
         })?;
+
     if market_data_repair_sources.is_none() {
         verify_replay_admission_for_commit(&replay_admission, &proposal, prepared_v2.as_ref())?;
     }
@@ -2334,6 +2337,7 @@ async fn commit_inner(
                         && exploration.replay_request_seal_digest == predecessor.seal_digest
                         && exploration.replay_receipt_identity == predecessor.receipt_identity
                 });
+
             if old_view.availability != ResearchViewAvailability::Available
                 || (!first_replay_ready && !repaired_replay_ready)
             {
@@ -2393,6 +2397,7 @@ async fn commit_inner(
         .bind(replay_receipt_storage.as_ref().map(|(_, _, digest)| digest.as_str()))
         .bind(if stored_v2.is_some() { 2_i16 } else { 1_i16 })
         .execute(&mut *transaction).await.map_err(storage)?;
+
     if let Some((old_view, new_view)) = research_view_update {
         let updated = sqlx::query("UPDATE public.rd_research_request_receipts_v1 SET view_json=$1 WHERE request_identity=$2 AND view_json=$3")
             .bind(serde_json::to_value(&new_view).map_err(unavailable)?)
@@ -2401,6 +2406,7 @@ async fn commit_inner(
             .execute(&mut *transaction)
             .await
             .map_err(storage)?;
+
         if updated.rows_affected() != 1 {
             return Err(ExploratoryReplayOwnerError::Unavailable(
                 "Research View changed before exploratory replay commit".into(),
@@ -2501,6 +2507,7 @@ async fn verify_market_data_repair_sources_in_transaction(
                 "repaired Replay predecessor is no longer available".into(),
             )
         })?;
+
     if verified.request() != sources.predecessor.request()
         || verified.canonical_request_bytes() != sources.predecessor.canonical_request_bytes()
         || verified.locator() != sources.predecessor.locator()
@@ -2571,6 +2578,7 @@ fn decode_exact_replay_storage_v2(
     let decoded_outbox_payload: StoredOutboxV2 = decode_exact(&decoded_outbox.payload_json)?;
     let canonical_outbox_payload_bytes =
         serde_json::to_vec(&decoded_outbox_payload).map_err(unavailable)?;
+
     if !canonical_storage_record_matches(
         &request,
         crate::native_replay_rd_sources_v2::REPLAY_REQUEST_STORAGE_DOMAIN_V1,
@@ -2660,6 +2668,7 @@ async fn resolve_existing(
     if validated.frozen.market_data_repair_reentry.as_ref() != market_data_repair_reentry {
         return Err(ExploratoryReplayOwnerError::ConflictingReplay);
     }
+
     if let Some(binding) = market_data_repair_reentry {
         binding.verify().map_err(unavailable)?;
     }
@@ -3478,6 +3487,7 @@ fn verify_request_equals_family_sealed_policy(
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>()
     );
+
     if request.models.runtime_kernel != policy.runtime_kernel
         || request.models.simulator != policy.simulator
         || request.models.cost != policy.cost
@@ -3797,6 +3807,7 @@ fn verify_frozen(frozen: &StoredFrozenV1) -> Result<(), ExploratoryReplayOwnerEr
             "Replay admission identity mismatch".into(),
         ));
     }
+
     if frozen.schema_version != 1
         || !valid_sha256(&frozen.exact_code_bytes_sha256_digest)
         || !valid_sha256(&frozen.product_edge_request_semantic_digest)
@@ -4360,7 +4371,7 @@ mod source_tests {
         "../../../../product/rd-workbench/postgres-init/10-migrate-authority-custody.sh"
     );
 
-    #[test]
+    #[rstest::rstest]
     fn authenticated_internal_verifier_sources_equal_migration_prosrc() {
         for (marker, source) in [
             ("INTERNAL_VERIFY_SOURCE_V1", INTERNAL_VERIFY_SOURCE_V1),
@@ -4375,7 +4386,7 @@ mod source_tests {
         }
     }
 
-    #[test]
+    #[rstest::rstest]
     fn replay_storage_digest_is_recomputed_from_exact_bytes() {
         let bytes = br#"{"request_identity":"replay"}"#;
         let domain = crate::native_replay_rd_sources_v2::REPLAY_REQUEST_STORAGE_DOMAIN_V1;
@@ -4390,7 +4401,7 @@ mod source_tests {
         assert!(!canonical_storage_record_matches(&record, domain, bytes));
     }
 
-    #[test]
+    #[rstest::rstest]
     fn replay_receipt_uses_the_writer_typed_canonical_order() {
         let receipt = StoredReceiptV2 {
             schema_version: 2,

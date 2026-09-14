@@ -221,6 +221,7 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
         ];
         let mut readbacks = Vec::with_capacity(rows.len());
         let mut by_scope: BTreeMap<String, [Vec<usize>; 2]> = BTreeMap::new();
+
         for row in rows {
             let readback = decode_row(&row)?;
             let input = readback.fact().input();
@@ -229,6 +230,7 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
                     && expected_digests[index] == input.instrument_public_fact_digest)
                     .then_some(index)
             });
+
             if let Some(member_index) = member_index
                 && input.venue_identity == venue_identity
                 && input.quote_currency == quote_currency

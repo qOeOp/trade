@@ -246,6 +246,7 @@ pub async fn resolve_protected_replay_result_for_qualification_in_transaction(
     .fetch_one(&mut **transaction)
     .await
     .map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
+
     if session_user != "qualification_writer"
         || current_user != "qualification_writer"
         || isolation != "serializable"
@@ -279,6 +280,7 @@ pub async fn resolve_protected_replay_result_for_qualification_in_transaction(
     let (expected_receipt, expected_receipt_bytes, expected_outbox, expected_outbox_bytes) =
         protected_result_custody_wires_v1(&result, receipt.committed_at_epoch_ms)
             .map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
+
     if result.result_identity != locator.result_identity
         || result.request_identity != locator.request_identity
         || result.attempt_identity != locator.attempt_identity
@@ -308,6 +310,7 @@ pub async fn resolve_protected_replay_result_v2_for_qualification_in_transaction
     .fetch_one(&mut **transaction)
     .await
     .map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
+
     if session_user != "qualification_writer"
         || current_user != "qualification_writer"
         || isolation != "serializable"
@@ -341,6 +344,7 @@ pub async fn resolve_protected_replay_result_v2_for_qualification_in_transaction
     let (expected_receipt, expected_receipt_bytes, expected_outbox, expected_outbox_bytes) =
         protected_result_custody_wires_v2(&result, receipt.committed_at_epoch_ms)
             .map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
+
     if result.result_identity != locator.result_identity
         || result.request_identity != locator.request_identity
         || result.attempt_identity != locator.attempt_identity
@@ -370,6 +374,7 @@ pub async fn resolve_protected_replay_result_v3_for_qualification_in_transaction
     .fetch_one(&mut **transaction)
     .await
     .map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
+
     if session_user != "qualification_writer"
         || current_user != "qualification_writer"
         || isolation != "serializable"
@@ -403,6 +408,7 @@ pub async fn resolve_protected_replay_result_v3_for_qualification_in_transaction
     let (expected_receipt, expected_receipt_bytes, expected_outbox, expected_outbox_bytes) =
         protected_result_custody_wires_v3(&result, receipt.committed_at_epoch_ms)
             .map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
+
     if result.result_identity != locator.result_identity
         || result.request_identity != locator.request_identity
         || result.attempt_identity != locator.attempt_identity
@@ -432,6 +438,7 @@ pub async fn resolve_protected_replay_attempt_frontier_for_qualification_in_tran
     .fetch_one(&mut **transaction)
     .await
     .map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
+
     if session_user != "qualification_writer"
         || current_user != "qualification_writer"
         || isolation != "serializable"
@@ -469,6 +476,7 @@ pub async fn resolve_protected_replay_attempt_frontier_for_qualification_in_tran
             receipt.committed_at_epoch_ms,
         )
         .map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
+
     if frontier.frontier_identity != locator.frontier_identity
         || frontier.frontier_digest != locator.frontier_digest
         || receipt.receipt_identity != locator.receipt_identity

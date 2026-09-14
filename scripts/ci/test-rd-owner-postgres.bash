@@ -300,7 +300,7 @@ protected_sql_match = re.search(
     re.DOTALL,
 )
 protected_rust_match = re.search(
-    r'const FUNCTION_SOURCE: &str = r#"(.*?)"#;', protected_rust, re.DOTALL
+    r'const FUNCTION_SOURCE: &str = "(.*?)";', protected_rust, re.DOTALL
 )
 frontier_sql_match = re.search(
     r"CREATE OR REPLACE FUNCTION backtest_owner_api\.resolve_protected_replay_attempt_frontier_v1\("

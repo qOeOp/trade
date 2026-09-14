@@ -3,6 +3,8 @@
 //! The locator is an untrusted query. Positive custody is move-only and is issued only after the
 //! fixed PostgreSQL function returns mutually consistent request, receipt, storage and outbox bytes.
 
+use std::fmt::Display;
+
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -231,6 +233,7 @@ fn admit_envelope(
         .map_err(|_| MarketDataRepairRequestCustodyErrorV1::Unavailable)?;
     let decoded_receipt: serde_json::Value = serde_json::from_slice(&receipt_bytes)
         .map_err(|_| MarketDataRepairRequestCustodyErrorV1::Unavailable)?;
+
     if decoded_request != envelope.request_json
         || decoded_receipt != envelope.receipt_json
         || storage_digest(REQUEST_STORAGE_DOMAIN_V1, &request_bytes)
@@ -304,6 +307,7 @@ async fn validate_call_context(
     .fetch_one(&mut **transaction)
     .await
     .map_err(storage)?;
+
     if exact {
         Ok(())
     } else {
@@ -345,6 +349,7 @@ async fn validate_function_binding(
     .await
     .map_err(storage)?
     .unwrap_or(false);
+
     if exact {
         Ok(())
     } else {
@@ -379,7 +384,7 @@ fn storage_digest(domain: &str, bytes: &[u8]) -> String {
     format!("sha256:{:x}", digest.finalize())
 }
 
-fn storage(error: impl std::fmt::Display) -> MarketDataRepairRequestCustodyErrorV1 {
+fn storage(error: impl Display) -> MarketDataRepairRequestCustodyErrorV1 {
     MarketDataRepairRequestCustodyErrorV1::Storage(error.to_string())
 }
 
@@ -387,7 +392,7 @@ fn storage(error: impl std::fmt::Display) -> MarketDataRepairRequestCustodyError
 mod tests {
     use super::*;
 
-    #[test]
+    #[rstest::rstest]
     fn rejects_empty_locator() {
         assert!(matches!(
             validate_locator(&SealedMarketDataRepairRequestLocatorV1 {
@@ -449,7 +454,7 @@ mod tests {
         )
     }
 
-    #[test]
+    #[rstest::rstest]
     fn exact_envelope_issues_move_only_readback() {
         let (locator, envelope) = fixture();
         let readback = admit_envelope(&locator, envelope).expect("sealed readback");
@@ -461,7 +466,7 @@ mod tests {
         assert!(readback.original_time_evidence_matches(&serde_json::json!({"clock":"fixed"})));
     }
 
-    #[test]
+    #[rstest::rstest]
     fn storage_and_outbox_splices_fail_closed() {
         let (locator, mut storage_tamper) = fixture();
         storage_tamper.request_storage_digest = "sha256:tampered".to_owned();

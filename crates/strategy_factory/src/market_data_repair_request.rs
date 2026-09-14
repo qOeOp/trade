@@ -1,5 +1,7 @@
 //! Effect-free R&D request for Market Data repair.
 
+use std::fmt::Display;
+
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -185,12 +187,13 @@ pub(crate) fn issue_market_data_repair_request_v1(
     decision: &RepairInputIterationDecisionReadbackV1,
     replay: &ReplayRequestV2,
     result: &ReplayResultDtoV2,
-    source: MarketDataRepairSourceV1,
+    source: &MarketDataRepairSourceV1,
     shared_time_evidence: ClockHeadHandoff,
     committed_at_epoch_ms: u64,
 ) -> Result<MarketDataRepairRequestReadbackV1, MarketDataRepairRequestErrorV1> {
     let action = action.request();
     let decision_fact = decision.decision();
+
     if action.category() != IterationRepairCategoryV1::MarketData
         || action.target() != IterationRepairTargetV1::MarketData
         || !matches!(
@@ -240,6 +243,7 @@ pub(crate) fn issue_market_data_repair_request_v1(
     let pit_snapshot_digest = parse_sha256(replay_dto.pit_snapshot.digest.as_str())?;
     let universe_selection_digest = parse_sha256(replay_dto.universe_selection.digest.as_str())?;
     let market_semantics_identity = parse_sha256(replay_dto.market_semantics.identity.as_str())?;
+
     if source.instrument_scope_digest().as_bytes() != &pit_scope_digest
         || source.pit_snapshot_identity().as_bytes() != &pit_snapshot_identity
         || source.pit_snapshot_fact_digest().as_bytes() != &pit_snapshot_digest
@@ -416,7 +420,7 @@ pub(crate) fn admit_stored_market_data_repair_request_v1(
     decision: &RepairInputIterationDecisionReadbackV1,
     replay: &ReplayRequestV2,
     result: &ReplayResultDtoV2,
-    source: MarketDataRepairSourceV1,
+    source: &MarketDataRepairSourceV1,
     shared_time_evidence: ClockHeadHandoff,
     committed_at_epoch_ms: u64,
 ) -> Result<MarketDataRepairRequestReadbackV1, MarketDataRepairRequestErrorV1> {
@@ -429,6 +433,7 @@ pub(crate) fn admit_stored_market_data_repair_request_v1(
         shared_time_evidence,
         committed_at_epoch_ms,
     )?;
+
     if expected.request().to_canonical_bytes()? != request_bytes
         || serde_json::to_vec(expected.receipt()).map_err(encoding)? != receipt_bytes
     {
@@ -466,6 +471,7 @@ fn validate_time(
             .is_none_or(|value| {
                 (value.clock_identity.as_str(), value.clock_epoch.as_str()) == (clock, epoch)
             });
+
     if !same_original_clock
         || current.clock_identity() != clock
         || current.clock_epoch() != epoch
@@ -485,6 +491,7 @@ fn parse_sha256(value: &str) -> Result<[u8; 32], MarketDataRepairRequestErrorV1>
     let hex = value
         .strip_prefix("sha256:")
         .ok_or(MarketDataRepairRequestErrorV1::MarketDataSourceMismatch)?;
+
     if hex.len() != 64
         || !hex
             .bytes()
@@ -519,6 +526,6 @@ fn identity(prefix: &str, digest: &str) -> String {
     format!("{prefix}-{}", digest.trim_start_matches("sha256:"))
 }
 
-fn encoding(error: impl std::fmt::Display) -> MarketDataRepairRequestErrorV1 {
+fn encoding(error: impl Display) -> MarketDataRepairRequestErrorV1 {
     MarketDataRepairRequestErrorV1::Encoding(error.to_string())
 }

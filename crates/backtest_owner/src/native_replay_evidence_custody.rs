@@ -190,6 +190,7 @@ impl SealedNativeReplayEvidenceBatchV2 {
             envelopes.push(seal_envelope(draft)?);
         }
         envelopes.sort_by_key(SealedNativeReplayEvidenceEnvelopeV2::component);
+
         if seen
             != ObservationComponentV2::REQUESTED_MEANING
                 .into_iter()
@@ -211,6 +212,7 @@ impl SealedNativeReplayEvidenceBatchV2 {
             return Err(NativeReplayEvidenceCustodyErrorV2::InvalidBatch);
         }
         let mut seen = BTreeSet::new();
+
         for envelope in &self.envelopes {
             if envelope.request_locator != self.request_locator
                 || envelope.attempt_identity != self.attempt_identity
@@ -232,6 +234,7 @@ impl SealedNativeReplayEvidenceBatchV2 {
                 observed_meaning_digest: &envelope.observed_meaning_digest,
             })
             .map_err(|_| NativeReplayEvidenceCustodyErrorV2::InvalidBatch)?;
+
             if expected_bytes != envelope.canonical_bytes
                 || envelope.envelope_locator.component != envelope.component
                 || envelope.envelope_locator.digest != digest(ENVELOPE_DOMAIN, &expected_bytes)?
@@ -239,6 +242,7 @@ impl SealedNativeReplayEvidenceBatchV2 {
                 return Err(NativeReplayEvidenceCustodyErrorV2::InvalidBatch);
             }
         }
+
         if seen
             != ObservationComponentV2::REQUESTED_MEANING
                 .into_iter()
@@ -368,7 +372,7 @@ mod tests {
             .collect()
     }
 
-    #[test]
+    #[rstest::rstest]
     fn seals_exact_canonical_28_of_28() {
         let request = locator("a");
         let attempt = identity("attempt-a");
@@ -387,7 +391,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn rejects_missing_duplicate_tamper_and_cross_request() {
         let request = locator("a");
         let attempt = identity("attempt-a");
@@ -414,7 +418,7 @@ mod tests {
         assert!(SealedNativeReplayEvidenceBatchV2::seal(request, attempt, cross).is_err());
     }
 
-    #[test]
+    #[rstest::rstest]
     fn validator_rejects_post_seal_byte_and_cross_attempt_tamper() {
         let request = locator("a");
         let attempt = identity("attempt-a");

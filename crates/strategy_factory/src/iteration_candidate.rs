@@ -153,8 +153,7 @@ pub(crate) fn compare_iteration_candidates_v1(
     census: &TrialFamilyCensusReadbackV2,
     evaluations: IterationCandidateEvaluationSetV1,
 ) -> Result<IterationCandidateComparisonV1, IterationCandidateErrorV1> {
-    verify_census_v2(census)
-        .map_err(|error| IterationCandidateErrorV1::Census(error.to_string()))?;
+    verify_census_v2(census).map_err(|e| IterationCandidateErrorV1::Census(e.to_string()))?;
     let decision_policy = census
         .decision_policy_v1()
         .ok_or(IterationCandidateErrorV1::Invalid(
@@ -168,6 +167,7 @@ pub(crate) fn compare_iteration_candidates_v1(
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>()
     );
+
     if evaluations.threshold.identity != decision_policy.information_value_threshold_identity()
         || evaluations.threshold.digest != expected_threshold_digest
     {
@@ -228,6 +228,7 @@ fn compare_candidate_evaluations_v1(
             "candidate evaluation set does not bind the canonical frontier",
         ));
     }
+
     if evaluations.expected_cardinality == 0 {
         return Ok(IterationCandidateComparisonV1::NoDecision {
             reason: IterationCandidateNoDecisionReasonV1::EmptyOrIncompleteCensus,
@@ -237,6 +238,7 @@ fn compare_candidate_evaluations_v1(
     let mut identities = BTreeSet::new();
     let mut digests = BTreeSet::new();
     let mut comparison_keys = BTreeSet::new();
+
     for candidate in &evaluations.candidates {
         validate_candidate(candidate)?;
         if !identities.insert(candidate.candidate_identity.as_str())
@@ -269,11 +271,13 @@ fn compare_candidate_evaluations_v1(
             )
         })
         .collect::<BTreeSet<_>>();
+
     if frontier_members != evaluated_members {
         return Err(IterationCandidateErrorV1::Invalid(
             "candidate evaluation membership is incomplete or cross-spliced",
         ));
     }
+
     if evaluations
         .candidates
         .iter()
@@ -283,6 +287,7 @@ fn compare_candidate_evaluations_v1(
             reason: IterationCandidateNoDecisionReasonV1::UnknownAdmissibility,
         });
     }
+
     if evaluations.candidates.iter().any(|candidate| {
         matches!(
             candidate.admissibility,
@@ -316,11 +321,13 @@ fn compare_candidate_evaluations_v1(
                 &right.candidate_digest,
             ))
     });
+
     if let Some(candidate) = above_threshold.into_iter().next() {
         return Ok(IterationCandidateComparisonV1::Winner {
             candidate: Box::new(candidate),
         });
     }
+
     if evaluations.candidates.iter().all(|candidate| {
         candidate.admissibility == IterationCandidateAdmissibilityV1::AdmissibleBelowThreshold
     }) {
@@ -356,6 +363,7 @@ fn validate_information_value(
     ] {
         validate_reference(reference)?;
     }
+
     if evidence.competing_alternatives.is_empty()
         || evidence.competing_alternatives.len() > MAX_CANDIDATES
     {
@@ -364,6 +372,7 @@ fn validate_information_value(
         ));
     }
     let mut alternatives = BTreeSet::new();
+
     for alternative in &evidence.competing_alternatives {
         validate_reference(alternative)?;
         if !alternatives.insert((alternative.identity.as_str(), alternative.digest.as_str())) {
@@ -386,6 +395,7 @@ fn validate_experiment(
         .iter()
         .copied()
         .collect::<BTreeSet<_>>();
+
     if dimensions.len() != contract.changed_dimensions.len()
         || !(2..=9).contains(&dimensions.len())
         || contract.bounded_combinations.is_empty()
@@ -395,6 +405,7 @@ fn validate_experiment(
             "preregistered finite joint is incomplete",
         ));
     }
+
     for reference in contract.bounded_combinations.iter().chain([
         &contract.attribution_rule,
         &contract.budget,

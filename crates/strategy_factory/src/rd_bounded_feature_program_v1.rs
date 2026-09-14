@@ -1,4 +1,8 @@
 //! R&D Owner joint freeze for one canonical Design and Bounded Feature Program.
+#![expect(
+    clippy::large_futures,
+    reason = "bounded-feature admission retains the typed Owner program cut across its transaction"
+)]
 //!
 //! Public Design and BFP values remain proposals. This module can issue a positive frozen value only
 //! from crate-private, already-verified Research V2 custody. A durable composition root must call it

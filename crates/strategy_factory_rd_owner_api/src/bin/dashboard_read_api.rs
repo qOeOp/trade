@@ -596,6 +596,7 @@ async fn read_exploratory_replay_result(
     if !authorized(&headers, &state.token_digest) {
         return StatusCode::FORBIDDEN.into_response();
     }
+
     if [
         path.result_identity.as_str(),
         query.request_identity.as_str(),

@@ -28,6 +28,10 @@ use vibe_data::owner::{
     native_replay_scheduling_v1::NativeReplaySchedulingResolverV1,
 };
 use vibe_product_edge::{ProductEdgeAdmissionRequestV1, ProductEdgeError};
+#[cfg(test)]
+use vibe_strategy_factory::exploratory_replay::{
+    ExploratoryReplayAvailabilityV1, ExploratoryReplayNextLegalActionV1,
+};
 use vibe_strategy_factory::{
     ExploratoryReplayResultLocatorV2, MarketDataRepairResolutionLocatorV1,
     exploratory_replay::{
@@ -106,6 +110,10 @@ struct MarketDataRepairedReplayActionResponseV1 {
 }
 
 impl MarketDataRepairedReplayActionResponseV1 {
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "the move-only Owner commit result is consumed when projecting the HTTP response"
+    )]
     fn from_owner_result(
         result: ExploratoryReplayCommitResultV2,
         predecessor_request_locator: ExploratoryReplayRequestLocatorV2,
@@ -284,6 +292,7 @@ async fn commit_market_data_repaired_replay(
             &request_identity,
         );
     }
+
     match state
         .owner
         .commit_repaired_replay(
@@ -293,7 +302,7 @@ async fn commit_market_data_repaired_replay(
         .await
     {
         Ok(result) => (StatusCode::OK, Json(result)).into_response(),
-        Err(error) => owner_error(&error, &request_identity),
+        Err(e) => owner_error(&e, &request_identity),
     }
 }
 
@@ -341,6 +350,7 @@ async fn resolve_execution_input_binding(
             &request_identity,
         );
     }
+
     match state
         .owner
         .resolve_native_replay_execution_input_binding_v1(&locator)
@@ -429,6 +439,7 @@ pub(super) async fn issue_execution_input_binding(
             &request_identity,
         );
     };
+
     match state
         .owner
         .issue_native_replay_execution_input_binding_v1(
@@ -509,6 +520,7 @@ async fn run_native_replay(
         &request.request_locator,
         request.attempt_identity,
     ));
+
     match run.await {
         Ok(disposition) => {
             native_replay_execution_response(service, disposition, &request_identity).await
@@ -540,6 +552,7 @@ async fn native_replay_execution_response(
             recovery.resolve(service.result_owner.as_ref()).await
         }
     };
+
     match disposition {
         Ok(Some(NativeReplayCommitDispositionV2::Committed { result, .. })) => {
             canonical_result_response(result.result_canonical_bytes())
@@ -1094,10 +1107,8 @@ mod tests {
             projection: ExploratoryReplayRequestProjectionV1 {
                 schema_version: 1,
                 request_identity: "successor-1".into(),
-                availability:
-                    vibe_strategy_factory::exploratory_replay::ExploratoryReplayAvailabilityV1::Available,
-                next_legal_action:
-                    vibe_strategy_factory::exploratory_replay::ExploratoryReplayNextLegalActionV1::LockByLocator,
+                availability: ExploratoryReplayAvailabilityV1::Available,
+                next_legal_action: ExploratoryReplayNextLegalActionV1::LockByLocator,
             },
             locator: ExploratoryReplayRequestLocatorV2 {
                 request_identity: "successor-1".into(),
@@ -1193,6 +1204,7 @@ mod tests {
                 .expect("HTTP request")
         };
         let mut bodies = Vec::new();
+
         for _ in 0..2 {
             let response = market_data_repaired_replay_router(owner.clone(), token_digest)
                 .oneshot(request())

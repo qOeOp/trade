@@ -426,6 +426,10 @@ pub(crate) struct RawSharedTimeEvidenceSnapshotV1 {
     pub(crate) history_rows: Vec<RawSharedTimeHistoryRowV1>,
 }
 
+#[allow(
+    clippy::struct_field_names,
+    reason = "the row suffix distinguishes raw SQL evidence bytes from decoded Owner facts"
+)]
 pub(crate) struct RawSharedTimeHistoryRowV1 {
     pub(crate) membership_row: Vec<u8>,
     pub(crate) handoff_row: Option<Vec<u8>>,
@@ -436,6 +440,7 @@ pub(crate) async fn read_shared_time_evidence_snapshot_v1(
     lease: &PostgresCredentialLease,
 ) -> Result<RawSharedTimeEvidenceSnapshotV1, PostgresMeasurementError> {
     let target = parse_target(lease.database_url())?;
+
     if ambient_pg_configuration_present() {
         return Err(PostgresMeasurementError::InvalidTarget);
     }
@@ -984,6 +989,7 @@ pub(super) async fn read_bar_schedule_candidate_snapshots_v1(
         })
         .collect::<Result<Vec<_>, _>>()?;
     let mut history_bytes = 0_usize;
+
     for row in &history_rows {
         if row.len() > MAX_EVIDENCE_ROW_BYTES {
             return Err(PostgresMeasurementError::SnapshotUnavailable);

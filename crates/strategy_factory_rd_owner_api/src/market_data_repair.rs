@@ -259,6 +259,7 @@ async fn handle_market_data_repair_request(
         MarketDataRepairRequestActionV1::Compose => service.compose(request).await.map(Some),
         MarketDataRepairRequestActionV1::Resolve => service.resolve(request).await,
     };
+
     match result {
         Ok(Some(result)) => (StatusCode::OK, Json(result)).into_response(),
         Ok(None) => rejection(
@@ -266,7 +267,7 @@ async fn handle_market_data_repair_request(
             "MARKET_DATA_REPAIR_REQUEST_NOT_FOUND",
             &action_request_identity,
         ),
-        Err(error) => owner_error(&error, &action_request_identity),
+        Err(e) => owner_error(&e, &action_request_identity),
     }
 }
 
@@ -430,7 +431,7 @@ mod tests {
         send_to("/v1/market-data-repair-requests", body, token)
     }
 
-    #[test]
+    #[rstest::rstest]
     fn request_accepts_only_owner_locators() {
         serde_json::from_value::<MarketDataRepairCompositionRequestV1>(request()).unwrap();
         let mut injected = request();
@@ -511,6 +512,7 @@ mod tests {
             response: Some(expected.clone()),
         });
         let mut bodies = Vec::new();
+
         for _ in 0..2 {
             let response = router(Some(service.clone()), token_digest)
                 .oneshot(send(request(), Some(&format!("Bearer {token}"))))

@@ -747,6 +747,10 @@ impl ValidatedInstrumentMasterV1StructuralPublicTermsProjection {
     }
 
     /// Fails closed because V1 lacks fields required for native instrument construction.
+    ///
+    /// # Errors
+    ///
+    /// Always returns the exact set of Owner fields unavailable from the V1 projection.
     pub const fn require_complete_native_crypto_perpetual_construction(
         &self,
     ) -> Result<(), NativeCryptoPerpetualConstructionUnavailableV1> {

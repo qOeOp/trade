@@ -216,6 +216,7 @@ pub(crate) fn commit_protected_owner_result_v1(
         .validate()
         .map_err(|_| ProtectedReplayOwnerErrorV1::InvalidResult)?;
     let mut observed = BTreeMap::new();
+
     for observation in draft.observations {
         if observation.request_identity != request.request_identity
             || observation.request_digest != request.request_digest
@@ -223,6 +224,7 @@ pub(crate) fn commit_protected_owner_result_v1(
         {
             return Err(ProtectedReplayOwnerErrorV1::ObservationBindingMismatch);
         }
+
         if observed.insert(observation.field, observation).is_some() {
             return Err(ProtectedReplayOwnerErrorV1::DuplicateObservation);
         }
@@ -262,6 +264,7 @@ pub(crate) fn commit_protected_owner_result_v1(
             }
         })
         .collect::<Vec<_>>();
+
     if !observed.is_empty() || reconciliation.len() != PROTECTED_REPLAY_BINDING_COUNT_V1 {
         return Err(ProtectedReplayOwnerErrorV1::InvalidResult);
     }
@@ -312,6 +315,7 @@ pub(crate) fn commit_protected_owner_result_v2(
         .validate()
         .map_err(|_| ProtectedReplayOwnerErrorV1::InvalidResult)?;
     let mut observed = BTreeMap::new();
+
     for observation in draft.observations {
         if observation.request_identity != request.request_identity
             || observation.request_digest != request.request_digest
@@ -319,6 +323,7 @@ pub(crate) fn commit_protected_owner_result_v2(
         {
             return Err(ProtectedReplayOwnerErrorV1::ObservationBindingMismatch);
         }
+
         if observed.insert(observation.field, observation).is_some() {
             return Err(ProtectedReplayOwnerErrorV1::DuplicateObservation);
         }
@@ -357,6 +362,7 @@ pub(crate) fn commit_protected_owner_result_v2(
             }
         })
         .collect::<Vec<_>>();
+
     if !observed.is_empty()
         || reconciliation.len() != PROTECTED_REPLAY_BINDING_COUNT_V1
         || reconciliation
@@ -435,6 +441,7 @@ pub(crate) fn commit_protected_owner_result_v3(
         .map_err(|_| ProtectedReplayOwnerErrorV1::InvalidResult)?;
     let basis = &request.frozen_basis;
     let mut observed = BTreeMap::new();
+
     for observation in draft.observations {
         if observation.request_identity != request.request_identity
             || observation.request_digest != request.request_digest
@@ -442,6 +449,7 @@ pub(crate) fn commit_protected_owner_result_v3(
         {
             return Err(ProtectedReplayOwnerErrorV1::ObservationBindingMismatch);
         }
+
         if observed.insert(observation.field, observation).is_some() {
             return Err(ProtectedReplayOwnerErrorV1::DuplicateObservation);
         }
@@ -480,6 +488,7 @@ pub(crate) fn commit_protected_owner_result_v3(
             }
         })
         .collect::<Vec<_>>();
+
     if !observed.is_empty()
         || reconciliation.len() != PROTECTED_REPLAY_BINDING_COUNT_V1
         || reconciliation
@@ -534,13 +543,16 @@ pub(crate) fn commit_protected_owner_result_v3(
     let applicable_without_defect = draft.applicability_evidence.observation
         == ProtectedCellApplicabilityObservationV3::ApplicableInputsObserved
         && diagnostic_category_set == [DiagnosticCategoryV2::NoExecutionDefect];
+
     if applicable_without_defect != draft.protected_economic_measurement.is_some() {
         return Err(ProtectedReplayOwnerErrorV1::InvalidResult);
     }
+
     if let Some(measurement) = &draft.protected_economic_measurement {
         measurement
             .validate()
             .map_err(|_| ProtectedReplayOwnerErrorV1::InvalidResult)?;
+
         if measurement.measurement_identity != draft.protected_outcome.reference.as_str()
             || measurement.measurement_digest != draft.protected_outcome.digest.as_str()
             || measurement.request_identity != request.request_identity

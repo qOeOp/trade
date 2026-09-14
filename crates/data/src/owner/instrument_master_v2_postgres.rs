@@ -63,6 +63,10 @@ impl InstrumentMasterV2PostgresOwner {
 
     /// Appends one canonical fact. Identical bytes are idempotent; every conflicting identity,
     /// duplicate sequence, gap, or branch fails before commit.
+    ///
+    /// # Errors
+    ///
+    /// Returns a custody or storage error when validation, persistence, or commit fails.
     pub async fn append_fact(
         &self,
         fact: &InstrumentMasterFactV2,
@@ -79,6 +83,7 @@ impl InstrumentMasterV2PostgresOwner {
             }
             return Err(InstrumentMasterCustodyErrorV2::IdentityConflict);
         }
+
         match chain.last() {
             None if fact.predecessor_fact_digest().is_none() && fact.correction_sequence() == 1 => {
             }
@@ -95,6 +100,7 @@ impl InstrumentMasterV2PostgresOwner {
             .bind(fact.canonical_bytes())
             .bind(custody.as_slice())
             .execute(&mut *tx).await.map_err(classify_insert)?;
+
         if result.rows_affected() != 1 {
             return Err(InstrumentMasterCustodyErrorV2::StoreUnavailable);
         }
@@ -103,6 +109,10 @@ impl InstrumentMasterV2PostgresOwner {
 
     /// Resolves the sealed two-member Universe Selection and atomically appends its cut,
     /// deterministic receipt, and outbox record.
+    ///
+    /// # Errors
+    ///
+    /// Returns a custody or storage error when the selection is invalid or persistence fails.
     pub async fn issue_cut(
         &self,
         request: InstrumentMasterCutRequestV2,
@@ -199,6 +209,10 @@ impl InstrumentMasterV2PostgresOwner {
     }
 
     /// Returns only the exact historical readback bound to the original R&D request.
+    ///
+    /// # Errors
+    ///
+    /// Returns a custody or storage error when the locator is unknown or verification fails.
     pub async fn resolve(
         &self,
         locator: InstrumentMasterCutLocatorV2,
@@ -224,6 +238,10 @@ impl InstrumentMasterV2PostgresOwner {
     }
 
     /// Resolves the one V2 cut whose request key is derived from a sealed R&D Replay identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns a custody or storage error when the request identity or stored cut is unavailable.
     pub async fn resolve_for_native_replay_request(
         &self,
         request_identity: &str,
@@ -331,6 +349,7 @@ fn decode_chain(
         let bytes: Vec<u8> = row.try_get("fact_bytes").map_err(store_error)?;
         let fact = InstrumentMasterFactV2::from_canonical_bytes(&bytes, chain.last())
             .map_err(|_| InstrumentMasterCustodyErrorV2::ChainMismatch)?;
+
         if row_digest(&row, "fact_identity")? != fact.identity()
             || row_optional_digest(&row, "predecessor_fact_identity")?
                 != fact.predecessor_fact_digest()
@@ -440,6 +459,7 @@ async fn assert_complete_ledger(
 ) -> Result<(), InstrumentMasterCustodyErrorV2> {
     let corrupt: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM market_data_instrument_master_v2.cuts c FULL JOIN market_data_instrument_master_v2.receipts r ON r.cut_identity=c.cut_identity FULL JOIN market_data_instrument_master_v2.outbox o ON o.cut_identity=c.cut_identity WHERE c.cut_identity IS NULL OR r.receipt_identity IS NULL OR o.outbox_identity IS NULL OR c.append_sequence<>r.append_sequence OR c.append_sequence<>o.append_sequence) OR (SELECT append_sequence FROM market_data_instrument_master_v2.state WHERE singleton)<>(SELECT COUNT(*) FROM market_data_instrument_master_v2.cuts) OR EXISTS(SELECT 1 FROM market_data_instrument_master_v2.cuts c CROSS JOIN market_data_instrument_master_v2.state s WHERE s.singleton AND (c.append_sequence<1 OR c.append_sequence>s.append_sequence))")
         .fetch_one(&mut **tx).await.map_err(store_error)?;
+
     if corrupt {
         Err(InstrumentMasterCustodyErrorV2::CrossSpliced)
     } else {
@@ -452,6 +472,7 @@ async fn assert_acl_in_transaction(
 ) -> Result<(), InstrumentMasterCustodyErrorV2> {
     let admitted: bool = sqlx::query_scalar("SELECT pg_get_userbyid(n.nspowner)=current_user AND NOT has_schema_privilege('public',n.oid,'USAGE') AND (SELECT COUNT(*)=5 AND bool_and(pg_get_userbyid(c.relowner)=current_user) FROM pg_class c WHERE c.relnamespace=n.oid AND c.relkind='r' AND c.relname IN ('state','facts','cuts','receipts','outbox')) AND NOT EXISTS(SELECT 1 FROM pg_class c CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) a WHERE c.relnamespace=n.oid AND c.relname IN ('state','facts','cuts','receipts','outbox') AND a.grantee<>c.relowner) FROM pg_namespace n WHERE n.nspname='market_data_instrument_master_v2'")
         .fetch_one(&mut **tx).await.map_err(store_error)?;
+
     if admitted {
         Ok(())
     } else {
@@ -523,7 +544,7 @@ fn classify_insert(error: sqlx::Error) -> InstrumentMasterCustodyErrorV2 {
 mod tests {
     use super::*;
 
-    #[test]
+    #[rstest::rstest]
     fn schema_is_v2_only_append_ledger() {
         let schema = SCHEMA.join("\n");
         assert!(schema.contains("instrument_master_v2.facts"));
@@ -533,7 +554,7 @@ mod tests {
         assert!(!schema.contains(" ON DELETE CASCADE"));
     }
 
-    #[test]
+    #[rstest::rstest]
     fn environment_name_is_owner_specific() {
         assert_eq!(
             MARKET_DATA_OWNER_DATABASE_URL_ENV,

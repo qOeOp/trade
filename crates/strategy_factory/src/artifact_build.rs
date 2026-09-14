@@ -82,6 +82,10 @@ pub struct ArtifactBuildRequestV1 {
 /// The enum stays private to the Owner implementation so callers cannot choose
 /// which custody path was accepted. Canonical bytes remain the bytes of the
 /// underlying frozen Intent rather than an enum wrapper.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "the private admission enum preserves the exact frozen Initial and Successor Intent shapes"
+)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ArtifactBuildIntentV1 {
     Initial(FrozenResearchGoalIntent),

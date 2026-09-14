@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, env};
+use std::{collections::BTreeSet, env, fmt::Write as _};
 
 use rstest::rstest;
 use sqlx::{PgPool, Row, postgres::PgPoolOptions};
@@ -117,11 +117,10 @@ fn shared_clock(
 }
 
 fn raw_bytea(digest: BindingDigest) -> Value {
-    let encoded = digest
-        .as_bytes()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
+    let mut encoded = String::with_capacity(64);
+    for byte in digest.as_bytes() {
+        write!(&mut encoded, "{byte:02x}").expect("writing lowercase hex to String is infallible");
+    }
     serde_json::json!(format!("\\x{encoded}"))
 }
 
@@ -178,7 +177,7 @@ fn raw_membership(
     .unwrap()
 }
 
-#[test]
+#[rstest::rstest]
 fn shared_time_raw_history_rejects_tampered_historical_epoch_proof() {
     let root = build_head_fact(
         &shared_clock("market-clock", "epoch-1", 1, 100, d(7), 1, 2),

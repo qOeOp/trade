@@ -317,7 +317,7 @@ pub(super) async fn rederive_observation_census_read_only_v1(
             &role_identities,
         )
         .await
-        .map_err(|error| map_registry_error(&error))?;
+        .map_err(|e| map_registry_error(&e))?;
     authority::issue_observation_census_and_joined_cut_v1(request, &bindings, frames.into_vec())
 }
 
@@ -429,6 +429,7 @@ pub(super) async fn load_observation_census_v1(
     else {
         return Ok(None);
     };
+
     if row_bytes(&row, "request_meaning_digest")? != locator.request_meaning_digest().as_bytes() {
         return Err(ObservationCensusErrorV1::RequestConflict);
     }
@@ -547,6 +548,7 @@ pub(super) async fn load_strategy_input_joined_cut_custody_v1(
     else {
         return Ok(None);
     };
+
     if row_bytes(&row, "joined_cut_identity")? != locator.joined_cut_digest().as_bytes() {
         return Err(ObservationCensusErrorV1::DigestMismatch);
     }

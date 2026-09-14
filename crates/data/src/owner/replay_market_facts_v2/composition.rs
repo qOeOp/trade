@@ -759,6 +759,7 @@ pub(crate) fn validate_replay_composition_readback_association_v1(
     readback: &ReplayMarketFactsReadbackV2,
 ) -> Result<(), ReplayCompositionBindingErrorV1> {
     validate_replay_request_binding_association_v1(request, binding)?;
+
     if !verify_replay_market_facts_readback_v2(readback) {
         return Err(ReplayCompositionBindingErrorV1::DigestMismatch);
     }
@@ -1158,6 +1159,7 @@ fn validate_v2_dependencies(
             )
         })
         .ok_or(ReplayCompositionBindingErrorV1::DependencyMismatch)?;
+
     if observation_census.identity() != binding.census_identity
         || observation_census.digest() != binding.census_digest
         || joined_cut.identity() != binding.joined_cut_identity

@@ -102,7 +102,7 @@ impl BacktestOutcomeEvidenceDtoV1 {
     /// Rejects malformed, unknown, duplicate, noncanonical, or inconsistent input.
     pub fn from_canonical_bytes(bytes: &[u8]) -> Result<Self, BacktestOutcomeEvidenceErrorV1> {
         let evidence: Self = serde_json::from_slice(bytes)
-            .map_err(|error| BacktestOutcomeEvidenceErrorV1::InvalidEncoding(error.to_string()))?;
+            .map_err(|e| BacktestOutcomeEvidenceErrorV1::InvalidEncoding(e.to_string()))?;
         evidence.validate()?;
         if evidence.encode_unchecked()? != bytes {
             return Err(BacktestOutcomeEvidenceErrorV1::NonCanonicalEncoding);
@@ -125,9 +125,11 @@ impl BacktestOutcomeEvidenceDtoV1 {
             });
         }
         self.validate_bindings()?;
+
         if self.evidence_digest != self.compute_evidence_digest()? {
             return Err(BacktestOutcomeEvidenceErrorV1::EvidenceDigestMismatch);
         }
+
         if self.evidence_identity != self.expected_evidence_identity()? {
             return Err(BacktestOutcomeEvidenceErrorV1::EvidenceIdentityMismatch);
         }
@@ -150,9 +152,11 @@ impl BacktestOutcomeEvidenceDtoV1 {
         if self.semantic_trace.component != ObservationComponentV2::SemanticTrace {
             return Err(BacktestOutcomeEvidenceErrorV1::InvalidSemanticTraceComponent);
         }
+
         if self.canonical_result.schema_identity.as_str() != CANONICAL_RESULT_SCHEMA_V1 {
             return Err(BacktestOutcomeEvidenceErrorV1::InvalidCanonicalResultSchema);
         }
+
         if self.canonical_result.canonical_bytes_length == 0 {
             return Err(BacktestOutcomeEvidenceErrorV1::EmptyCanonicalResult);
         }
@@ -186,7 +190,7 @@ impl BacktestOutcomeEvidenceDtoV1 {
             semantic_trace: &self.semantic_trace,
             canonical_result: &self.canonical_result,
         };
-        let bytes = serde_json::to_vec(&preimage).map_err(|error| encoding_error(&error))?;
+        let bytes = serde_json::to_vec(&preimage).map_err(|e| encoding_error(&e))?;
         let mut hasher = blake3::Hasher::new();
         hasher.update(OUTCOME_EVIDENCE_DIGEST_DOMAIN_V1);
         hasher.update(&bytes);
@@ -207,7 +211,7 @@ impl BacktestOutcomeEvidenceDtoV1 {
     }
 
     fn encode_unchecked(&self) -> Result<Vec<u8>, BacktestOutcomeEvidenceErrorV1> {
-        serde_json::to_vec(self).map_err(|error| encoding_error(&error))
+        serde_json::to_vec(self).map_err(|e| encoding_error(&e))
     }
 }
 
@@ -283,7 +287,7 @@ mod tests {
         .expect("fixture evidence must be valid")
     }
 
-    #[test]
+    #[rstest::rstest]
     fn canonical_round_trip_is_stable_but_not_authoritative() {
         let evidence = evidence();
         let bytes = evidence.to_canonical_bytes().expect("fixture must encode");
@@ -293,7 +297,7 @@ mod tests {
         assert_eq!(decoded.to_canonical_bytes().unwrap(), bytes);
     }
 
-    #[test]
+    #[rstest::rstest]
     fn changed_binding_without_new_content_digest_is_rejected() {
         let mut evidence = evidence();
         evidence.attempt_identity = identity("attempt-2");
@@ -303,7 +307,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn tampered_digest_and_identity_are_rejected_independently() {
         let mut digest_tampered = evidence();
         digest_tampered.evidence_digest = digest('a');
@@ -320,7 +324,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn decoder_rejects_unknown_fields() {
         let bytes = evidence()
             .to_canonical_bytes()
@@ -335,7 +339,7 @@ mod tests {
         ));
     }
 
-    #[test]
+    #[rstest::rstest]
     fn zero_length_canonical_result_is_rejected() {
         let mut evidence = evidence();
         evidence.canonical_result.canonical_bytes_length = 0;
@@ -345,7 +349,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn wrong_semantic_trace_component_is_rejected() {
         let mut evidence = evidence();
         evidence.semantic_trace.component = ObservationComponentV2::Artifact;

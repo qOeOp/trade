@@ -1,3 +1,8 @@
+#![expect(
+    clippy::large_futures,
+    reason = "the read-only HTTP handlers retain complete typed Owner readbacks across preflight and resolve awaits"
+)]
+
 use std::{env, future::Future, sync::Arc, time::Duration};
 
 use axum::{
@@ -373,7 +378,7 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(feature = "sealed-develop-composer-acceptance")]
     let native_replay_execution = match env::var("BACKTEST_OWNER_DATABASE_URL") {
         Err(env::VarError::NotPresent) => None,
-        Err(error) => return Err(error.into()),
+        Err(e) => return Err(e.into()),
         Ok(backtest_database_url) => {
             if backtest_database_url.is_empty()
                 || backtest_database_url.trim() != backtest_database_url

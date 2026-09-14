@@ -391,6 +391,10 @@ impl NativeReplayInitialMarketReadbackV1 {
     }
 
     /// Converts the same freshly resolved Owner cut into the native scheduling capability.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Owner cut cannot form one exact native scheduling readback.
     pub fn into_execution_parts(
         self,
     ) -> Result<
@@ -411,6 +415,10 @@ impl NativeReplayInitialMarketReadbackV1 {
     }
 }
 
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "forming the repair source consumes the move-only verified Owner batch"
+)]
 pub(crate) fn market_data_repair_source_from_verified_batch(
     batch: VerifiedPitObservationBatch,
 ) -> MarketDataRepairSourceV1 {
@@ -525,6 +533,7 @@ pub(crate) fn issue_native_replay_initial_market_readback_v1(
     let timeframe = request
         .schedule_timeframe()
         .ok_or(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
+
     for (index, schedule) in schedules.iter().enumerate() {
         validated_bar_type(
             schedule,
@@ -532,7 +541,8 @@ pub(crate) fn issue_native_replay_initial_market_readback_v1(
             request.member_instruments[index],
             request.frame_time_ns,
         )?;
-        if schedule_timeframe(schedule.fact())? != timeframe {
+
+        if schedule_timeframe(schedule.fact()) != timeframe {
             return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
         }
     }
@@ -603,7 +613,7 @@ pub(crate) fn native_replay_schedule_matches_request_v1(
     frame_time_ns: u64,
 ) -> bool {
     validated_bar_type(schedule, batch, instrument, frame_time_ns).is_ok()
-        && schedule_timeframe(schedule.fact()).is_ok_and(|value| value == timeframe)
+        && schedule_timeframe(schedule.fact()) == timeframe
 }
 
 /// Seals one exact `[BAR0, BAR1, QUOTE0, QUOTE1]` native schedule from Owner readbacks.
@@ -612,6 +622,10 @@ pub(crate) fn native_replay_schedule_matches_request_v1(
 ///
 /// Fails when either schedule, member, field census, provenance coordinate, time, or native value
 /// is missing, duplicated, mismatched, or not exactly representable.
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "sealing native scheduling consumes the Owner batch and exact schedule set"
+)]
 pub fn seal_native_replay_scheduling_v1(
     batch: VerifiedPitObservationBatch,
     schedules: [BarScheduleReadbackV1; TARGET_SET_MEMBER_COUNT],
@@ -632,14 +646,14 @@ pub fn seal_native_replay_scheduling_v1(
         member_instruments[0],
         bar_types[0],
         frame_time_ns,
-        schedule_timeframe(schedules[0].fact())?,
+        &schedule_timeframe(schedules[0].fact()),
     )?;
     let second_bar = project_bar(
         &batch,
         member_instruments[1],
         bar_types[1],
         frame_time_ns,
-        schedule_timeframe(schedules[1].fact())?,
+        &schedule_timeframe(schedules[1].fact()),
     )?;
     let first_quote = project_first_quote(
         &batch,
@@ -659,7 +673,7 @@ pub fn seal_native_replay_scheduling_v1(
         Data::Quote(first_quote),
         Data::Quote(second_quote),
     ];
-    let bar_schedule_digests = schedules.each_ref().map(|value| value.digest());
+    let bar_schedule_digests = schedules.each_ref().map(BarScheduleReadbackV1::digest);
     let receipt_digest = digest_receipt(
         batch.digest(),
         bar_schedule_digests,
@@ -722,16 +736,14 @@ fn validated_bar_type(
     ))
 }
 
-fn schedule_timeframe(
-    fact: &super::bar_schedule::BarScheduleFactV1,
-) -> Result<String, NativeReplaySchedulingErrorV1> {
+fn schedule_timeframe(fact: &super::bar_schedule::BarScheduleFactV1) -> String {
     let suffix = match fact.unit() {
         BarScheduleUnitV1::Second => "S",
         BarScheduleUnitV1::Minute => "M",
         BarScheduleUnitV1::Hour => "H",
         BarScheduleUnitV1::ExchangeSessionDay => "D",
     };
-    Ok(format!("{}{suffix}", fact.step()))
+    format!("{}{suffix}", fact.step())
 }
 
 fn project_bar(
@@ -739,7 +751,7 @@ fn project_bar(
     instrument_id: InstrumentId,
     bar_type: BarType,
     frame_time_ns: u64,
-    timeframe: String,
+    timeframe: &str,
 ) -> Result<Bar, NativeReplaySchedulingErrorV1> {
     let instrument = instrument_id.to_string();
     let rows = exact_fields(
@@ -757,6 +769,7 @@ fn project_bar(
     let low = native_price(rows["LOW"])?;
     let close = native_price(rows["CLOSE"])?;
     let volume = native_quantity(rows["VOLUME"], true)?;
+
     if [high, low, close]
         .into_iter()
         .any(|value| value.precision != open.precision)
@@ -784,6 +797,7 @@ fn project_first_quote(
 ) -> Result<QuoteTick, NativeReplaySchedulingErrorV1> {
     let instrument = instrument_id.to_string();
     let mut by_event = BTreeMap::<u64, Vec<&VerifiedPitObservation>>::new();
+
     for row in batch.observations().iter().filter(|row| {
         row.instrument() == instrument
             && row.data_kind() == "QUOTE"
@@ -793,6 +807,7 @@ fn project_first_quote(
     }) {
         by_event.entry(row.event_effective()).or_default().push(row);
     }
+
     for (event_time_ns, candidates) in by_event {
         let mut rows = BTreeMap::new();
         for row in candidates {
@@ -800,6 +815,7 @@ fn project_first_quote(
                 return Err(NativeReplaySchedulingErrorV1::FieldCensusMismatch);
             }
         }
+
         if rows.len() != QUOTE_FIELDS.len()
             || QUOTE_FIELDS.iter().any(|field| !rows.contains_key(field))
         {
@@ -810,6 +826,7 @@ fn project_first_quote(
         let ask_price = native_price(rows["ASK_PRICE"])?;
         let bid_size = native_quantity(rows["BID_SIZE"], false)?;
         let ask_size = native_quantity(rows["ASK_SIZE"], false)?;
+
         if bid_price > ask_price
             || bid_price.precision != ask_price.precision
             || bid_size.precision != ask_size.precision
@@ -840,6 +857,7 @@ fn exact_fields<'a>(
             return Err(NativeReplaySchedulingErrorV1::FieldCensusMismatch);
         }
     }
+
     if values.len() != required.len() || required.iter().any(|field| !values.contains_key(field)) {
         return Err(NativeReplaySchedulingErrorV1::FieldCensusMismatch);
     }
@@ -852,6 +870,7 @@ fn verify_same_event_coordinate<'a>(
     let first = rows
         .next()
         .ok_or(NativeReplaySchedulingErrorV1::FieldCensusMismatch)?;
+
     if rows.any(|row| {
         row.instrument() != first.instrument()
             || row.channel() != first.channel()
@@ -925,11 +944,13 @@ fn digest_receipt(
     for digest in schedule_digests {
         hasher.update(digest.as_bytes());
     }
+
     for instrument in instruments {
         hash_text(&mut hasher, &instrument.to_string())?;
     }
     hasher.update(frame_time_ns.to_be_bytes());
     hasher.update(window_end_ns_exclusive.to_be_bytes());
+
     for value in data {
         match value {
             Data::Bar(bar) => {
@@ -948,6 +969,7 @@ fn digest_receipt(
                 for price in [quote.bid_price, quote.ask_price] {
                     hash_text(&mut hasher, &price.to_string())?;
                 }
+
                 for quantity in [quote.bid_size, quote.ask_size] {
                     hash_text(&mut hasher, &quantity.to_string())?;
                 }
@@ -1022,6 +1044,7 @@ mod tests {
 
     fn rows_for(instrument: &str, quote_event: u64) -> Vec<VerifiedPitObservation> {
         let mut rows = Vec::new();
+
         for (field, mantissa, scale) in [
             ("OPEN", 10_000, 2),
             ("HIGH", 10_100, 2),
@@ -1031,6 +1054,7 @@ mod tests {
         ] {
             rows.push(row(instrument, "BAR", "1M", field, mantissa, scale, 100));
         }
+
         for (field, mantissa, scale) in [
             ("BID_PRICE", 10_000, 2),
             ("ASK_PRICE", 10_001, 2),
@@ -1144,7 +1168,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest::rstest]
     fn seals_exact_two_bar_then_two_quote_schedule() {
         let first = InstrumentId::from("AAA-PERP.SIM");
         let second = InstrumentId::from("BBB-PERP.SIM");
@@ -1172,7 +1196,7 @@ mod tests {
         ));
     }
 
-    #[test]
+    #[rstest::rstest]
     fn initial_market_readback_projects_exact_repair_scope_and_correlation() {
         let first = InstrumentId::from("AAA-PERP.SIM");
         let second = InstrumentId::from("BBB-PERP.SIM");
@@ -1227,7 +1251,7 @@ mod tests {
         assert_eq!(source.pit_snapshot_fact_digest(), digest(13));
     }
 
-    #[test]
+    #[rstest::rstest]
     fn missing_quote_field_cannot_mint_scheduling_authority() {
         let first = InstrumentId::from("AAA-PERP.SIM");
         let second = InstrumentId::from("BBB-PERP.SIM");
@@ -1251,7 +1275,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn duplicate_quote_field_cannot_be_skipped_for_a_later_event() {
         let first = InstrumentId::from("AAA-PERP.SIM");
         let second = InstrumentId::from("BBB-PERP.SIM");

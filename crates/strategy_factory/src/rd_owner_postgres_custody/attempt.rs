@@ -1,3 +1,8 @@
+#![expect(
+    clippy::large_futures,
+    reason = "attempt admission retains its typed family and evidence cut across the atomic transaction"
+)]
+
 use super::*;
 use crate::{
     artifact_build::{
@@ -366,7 +371,7 @@ pub(crate) async fn admit_develop_intent_custody_in_transaction(
         ResearchCustodyLookupV1::Intent(intent_identity),
     )
     .await
-    .map_err(|error| ArtifactBuildError::Storage(error.to_string()))?;
+    .map_err(|e| ArtifactBuildError::Storage(e.to_string()))?;
     if let Some(research) = initial {
         let intent = research.intent().cloned().ok_or_else(|| {
             ArtifactBuildError::Storage("accepted research intent missing".into())
@@ -376,7 +381,7 @@ pub(crate) async fn admit_develop_intent_custody_in_transaction(
 
     let Some(successor) = load_by_intent_in_transaction(transaction, intent_identity)
         .await
-        .map_err(|error| ArtifactBuildError::Storage(error.to_string()))?
+        .map_err(|e| ArtifactBuildError::Storage(e.to_string()))?
     else {
         return Ok(None);
     };
@@ -386,14 +391,14 @@ pub(crate) async fn admit_develop_intent_custody_in_transaction(
         successor_intent.trial_family_identity(),
     )
     .await
-    .map_err(|error| ArtifactBuildError::Storage(error.to_string()))?;
+    .map_err(|e| ArtifactBuildError::Storage(e.to_string()))?;
     let initial_intent_identity = census.legacy_family.initial_intent_member().fact_identity();
     let mut research = admit_research_row_in_transaction(
         transaction,
         ResearchCustodyLookupV1::Intent(initial_intent_identity),
     )
     .await
-    .map_err(|error| ArtifactBuildError::Storage(error.to_string()))?
+    .map_err(|e| ArtifactBuildError::Storage(e.to_string()))?
     .ok_or_else(|| ArtifactBuildError::Storage("successor authority anchor missing".into()))?;
     load_research_family_for_attempt(transaction, &mut research).await?;
     let initial_intent = match research.intent() {
@@ -404,6 +409,7 @@ pub(crate) async fn admit_develop_intent_custody_in_transaction(
             ));
         }
     };
+
     if research.family() != Some(&census.legacy_family)
         || successor_intent.trial_family_identity() != initial_intent.trial_family_identity
         || successor_intent.trial_family_policy_digest()
@@ -433,6 +439,7 @@ pub(crate) async fn admit_develop_intent_custody_in_transaction(
             && member.fact_identity() == successor_intent.intent_identity()
             && member.fact_digest() == successor_intent.intent_digest()
     });
+
     if (require_current_successor && !(current_frontier && current_predecessor))
         || (!require_current_successor
             && !((current_frontier && current_predecessor) || successor_is_consumed))
@@ -497,6 +504,7 @@ pub(crate) async fn admit_attempt_with_develop_intent_in_transaction(
             "attempt Intent custody mismatch".to_string(),
         ));
     }
+
     if matches!(intent, ArtifactBuildIntentV1::Initial(_))
         && research
             .receipt()
