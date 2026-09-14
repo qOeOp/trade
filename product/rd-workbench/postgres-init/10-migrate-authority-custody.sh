@@ -2042,8 +2042,7 @@ BEGIN
        'request_set_identity',request_set.request_set_identity,
        'request_set_digest',request_set.request_set_digest,
        'plan_cell_set_identity',request_set.plan_cell_set_identity,
-       'plan_cell_set_digest',request_set.plan_cell_set_digest,
-       'seal_storage_digest',request_set.storage_digest
+       'plan_cell_set_digest',request_set.plan_cell_set_digest
      )
    FOR SHARE OF request_set,outbox;
   RETURN locked;
@@ -2297,14 +2296,28 @@ AS $function$
        'request_set_identity',request_set.request_set_identity,
        'request_set_digest',request_set.request_set_digest,
        'plan_cell_set_identity',request_set.plan_cell_set_identity,
-       'plan_cell_set_digest',request_set.plan_cell_set_digest,
-       'seal_storage_digest',request_set.storage_digest
+       'plan_cell_set_digest',request_set.plan_cell_set_digest
      )
      AND native_outbox.payload_digest=qualification_api.canonical_json_digest_v1(
        'qualification.protected-replay-request-set-sealed-event.v1', native_outbox.payload_json
      )
      AND native_outbox.event_identity='qualification-protected-replay-request-set-sealed-event-v1-' ||
        pg_catalog.replace(native_outbox.payload_digest,'sha256:','')
+    JOIN public.qualification_owner_outbox_v1 custody_outbox
+      ON custody_outbox.aggregate_identity=request_set.request_set_identity
+     AND custody_outbox.event_kind='QUALIFICATION_PROTECTED_REPLAY_REQUEST_SET_CUSTODY_V1'
+     AND custody_outbox.committed_at_epoch_ms=request_set.committed_at_epoch_ms
+     AND custody_outbox.payload_json=pg_catalog.jsonb_build_object(
+       'schema_version',1,
+       'request_set_identity',request_set.request_set_identity,
+       'request_set_digest',request_set.request_set_digest,
+       'seal_storage_digest',request_set.storage_digest
+     )
+     AND custody_outbox.payload_digest=qualification_api.canonical_json_digest_v1(
+       'qualification.protected-replay-request-set-custody-event.v1', custody_outbox.payload_json
+     )
+     AND custody_outbox.event_identity='qualification-protected-replay-request-set-custody-event-v1-' ||
+       pg_catalog.replace(custody_outbox.payload_digest,'sha256:','')
     WHERE request_set.request_set_identity=requested_request_set_identity
       AND request_set.request_set_identity='qualification-protected-request-set-v1-' ||
         pg_catalog.replace(request_set.request_set_digest,'blake3:','')
@@ -2864,8 +2877,9 @@ AS $function$
           OR prior.fact_json->'source_frontier_digest' IS DISTINCT FROM pg_catalog.to_jsonb(prior.source_frontier_digest)
           OR prior.fact_json->'source_frontier_is_current' IS DISTINCT FROM pg_catalog.to_jsonb(prior.source_frontier_is_current)
           OR pg_catalog.jsonb_typeof(prior.fact_json->'opaque_reference') IS DISTINCT FROM 'string'
+          OR prior.source_frontier_digest !~ '^sha256:[0-9a-f]{64}$'
           OR prior.source_frontier_identity IS DISTINCT FROM 'qualification-protected-feedback-frontier-v1-' ||
-            pg_catalog.replace(prior.source_frontier_digest,'sha256:','')
+            pg_catalog.substr(prior.source_frontier_digest,8)
           OR prior.fact_json->>'opaque_reference' IS DISTINCT FROM qualification_api.public_status_expected_opaque_reference_v1(
             prior.review_request_identity,
             prior.candidate_identity,

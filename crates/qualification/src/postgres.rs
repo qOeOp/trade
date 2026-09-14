@@ -1347,7 +1347,6 @@ impl PostgresQualificationOwnerV1 {
             "request_set_digest": commit.request_set_digest(),
             "plan_cell_set_identity": source.plan_cell_set_identity,
             "plan_cell_set_digest": source.plan_cell_set_digest,
-            "seal_storage_digest": storage_digest,
         });
         let event_digest = canonical_digest(
             "qualification.protected-replay-request-set-sealed-event.v1",
@@ -1365,6 +1364,32 @@ impl PostgresQualificationOwnerV1 {
         .bind(commit.request_set_identity())
         .bind(&event_digest)
         .bind(&payload)
+        .bind(i64::try_from(committed_at_epoch_ms).map_err(json_storage)?)
+        .execute(&mut *transaction)
+        .await
+        .map_err(storage)?;
+        let custody_payload = serde_json::json!({
+            "schema_version": 1,
+            "request_set_identity": commit.request_set_identity(),
+            "request_set_digest": commit.request_set_digest(),
+            "seal_storage_digest": storage_digest,
+        });
+        let custody_digest = canonical_digest(
+            "qualification.protected-replay-request-set-custody-event.v1",
+            &custody_payload,
+        )?;
+        sqlx::query(
+            "INSERT INTO public.qualification_owner_outbox_v1 \
+             (event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms) \
+             VALUES ($1,$2,'QUALIFICATION_PROTECTED_REPLAY_REQUEST_SET_CUSTODY_V1',$3,$4,$5)",
+        )
+        .bind(identity(
+            "qualification-protected-replay-request-set-custody-event-v1",
+            &custody_digest,
+        ))
+        .bind(commit.request_set_identity())
+        .bind(&custody_digest)
+        .bind(&custody_payload)
         .bind(i64::try_from(committed_at_epoch_ms).map_err(json_storage)?)
         .execute(&mut *transaction)
         .await
@@ -2249,7 +2274,6 @@ async fn verify_protected_replay_request_set_commit_v1(
         "request_set_digest": commit.request_set_digest(),
         "plan_cell_set_identity": commit.seal().plan_cell_set_identity,
         "plan_cell_set_digest": commit.seal().plan_cell_set_digest,
-        "seal_storage_digest": storage_digest,
     });
     let expected_payload_digest = canonical_digest(
         "qualification.protected-replay-request-set-sealed-event.v1",
@@ -2270,6 +2294,44 @@ async fn verify_protected_replay_request_set_commit_v1(
             != committed_at
     {
         return Err(unavailable("Protected Replay Request set outbox changed"));
+    }
+    let custody_rows = sqlx::query(
+        "SELECT payload_digest,payload_json,committed_at_epoch_ms \
+         FROM public.qualification_owner_outbox_v1 \
+         WHERE aggregate_identity=$1 \
+           AND event_kind='QUALIFICATION_PROTECTED_REPLAY_REQUEST_SET_CUSTODY_V1' FOR UPDATE",
+    )
+    .bind(commit.request_set_identity())
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    let expected_custody_payload = serde_json::json!({
+        "schema_version": 1,
+        "request_set_identity": commit.request_set_identity(),
+        "request_set_digest": commit.request_set_digest(),
+        "seal_storage_digest": storage_digest,
+    });
+    let expected_custody_digest = canonical_digest(
+        "qualification.protected-replay-request-set-custody-event.v1",
+        &expected_custody_payload,
+    )?;
+    if custody_rows.len() != 1
+        || custody_rows[0]
+            .try_get::<String, _>("payload_digest")
+            .map_err(storage)?
+            != expected_custody_digest
+        || custody_rows[0]
+            .try_get::<serde_json::Value, _>("payload_json")
+            .map_err(storage)?
+            != expected_custody_payload
+        || custody_rows[0]
+            .try_get::<i64, _>("committed_at_epoch_ms")
+            .map_err(storage)?
+            != committed_at
+    {
+        return Err(unavailable(
+            "Protected Replay Request set custody outbox changed",
+        ));
     }
     Ok(())
 }
