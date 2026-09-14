@@ -59,6 +59,17 @@ test("Owner candidate projection preserves point-read-only semantics", () => {
   assert.equal(parseHistoricalCustodyOwnerV1(ownerReadback({
     research: [{ ...ownerReadback().research[0], committed_at_epoch_ms: 1_501 }],
   }), 1_000, 2_000), null);
+  for (const requestIdentity of [".", ".."]) {
+    assert.equal(parseHistoricalCustodyOwnerV1(ownerReadback({
+      research: [{ ...ownerReadback().research[0], request_identity: requestIdentity }],
+    }), 1_000, 2_000), null);
+  }
+  assert.equal(parseHistoricalCustodyOwnerV1(ownerReadback({
+    artifact_attempts: [{ ...ownerReadback().artifact_attempts[0], attempt_identity: "." }],
+  }), 1_000, 2_000), null);
+  assert.equal(parseHistoricalCustodyOwnerV1(ownerReadback({
+    bindings: [{ ...ownerReadback().bindings[0], trial_family_identity: ".." }],
+  }), 1_000, 2_000), null);
 });
 
 test("missing configuration is an explicit zero-effect unavailable projection", async () => {
