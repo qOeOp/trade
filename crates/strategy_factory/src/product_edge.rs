@@ -4,6 +4,10 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 use vibe_product_edge::{ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionReadbackV1};
 
+use crate::iteration_decision::{
+    ExistingIterationDecisionReadbackV1, IterationDecisionOutcomeV1, IterationRepairCategoryV1,
+    IterationRepairTargetV1, IterationTerminalStopReasonV1,
+};
 use crate::trial_family::{
     TrialFamilyError, TrialFamilyIndependenceDispositionV1, TrialFamilyPolicyV1,
     TrialFamilyReadbackV1, TrialFamilyResolutionV1, form_initial_family,
@@ -451,6 +455,150 @@ pub enum ResearchNextLegalAction {
     CorrectInputAndCreateSuccessorRequest,
     ReviewArtifact,
     ViewExploratoryRun,
+}
+
+/// Product Edge projection of the only action admitted by one exact Iteration Decision lookup.
+///
+/// The projection is serialize-only. It neither creates first Decision custody nor performs the
+/// repair, stop, or Qualification intake action.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResearchIterationActionProjectionV1 {
+    schema_version: u16,
+    decision_identity: String,
+    result_identity: String,
+    action: ResearchIterationActionV1,
+}
+
+impl ResearchIterationActionProjectionV1 {
+    pub const fn schema_version(&self) -> u16 {
+        self.schema_version
+    }
+
+    pub fn decision_identity(&self) -> &str {
+        &self.decision_identity
+    }
+
+    pub fn result_identity(&self) -> &str {
+        &self.result_identity
+    }
+
+    pub fn action(&self) -> &ResearchIterationActionV1 {
+        &self.action
+    }
+}
+
+/// The next legal Product Edge action. Every positive branch repeats only public Owner facts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "next_legal_action", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ResearchIterationActionV1 {
+    WaitForCommittedDecision,
+    SubmitRepairRequest {
+        decision_digest: String,
+        decision_receipt_identity: String,
+        category: IterationRepairCategoryV1,
+        target: IterationRepairTargetV1,
+    },
+    StopOnCommittedDecision {
+        decision_digest: String,
+        decision_receipt_identity: String,
+        reason: IterationTerminalStopReasonV1,
+    },
+    SubmitSelectedCandidateToQualification {
+        decision_digest: String,
+        decision_receipt_identity: String,
+        candidate_identity: String,
+        candidate_digest: String,
+        selection_identity: String,
+        selection_digest: String,
+        selection_receipt_identity: String,
+    },
+}
+
+pub(crate) fn project_research_iteration_action_v1(
+    decision_identity: &str,
+    result_identity: &str,
+    decision: Option<&ExistingIterationDecisionReadbackV1>,
+) -> Result<ResearchIterationActionProjectionV1, &'static str> {
+    let action = match decision {
+        None => ResearchIterationActionV1::WaitForCommittedDecision,
+        Some(ExistingIterationDecisionReadbackV1::RepairInputs(readback)) => {
+            let IterationDecisionOutcomeV1::RepairInputs { category, target } =
+                readback.decision().outcome()
+            else {
+                return Err("repair Decision readback outcome is inconsistent");
+            };
+            if readback.decision().decision_identity() != decision_identity
+                || readback.receipt().decision_identity() != decision_identity
+                || readback.receipt().result_identity() != result_identity
+            {
+                return Err("repair Decision readback locator is inconsistent");
+            }
+            ResearchIterationActionV1::SubmitRepairRequest {
+                decision_digest: readback.decision().decision_digest().to_string(),
+                decision_receipt_identity: readback.receipt().receipt_identity().to_string(),
+                category: *category,
+                target: *target,
+            }
+        }
+        Some(ExistingIterationDecisionReadbackV1::TrialBudgetTerminalStop(readback)) => {
+            let IterationDecisionOutcomeV1::TerminalStop { reason } = readback.decision().outcome()
+            else {
+                return Err("terminal Decision readback outcome is inconsistent");
+            };
+            if readback.decision().decision_identity() != decision_identity
+                || readback.receipt().decision_identity() != decision_identity
+                || readback.receipt().result_identity() != result_identity
+            {
+                return Err("terminal Decision readback locator is inconsistent");
+            }
+            ResearchIterationActionV1::StopOnCommittedDecision {
+                decision_digest: readback.decision().decision_digest().to_string(),
+                decision_receipt_identity: readback.receipt().receipt_identity().to_string(),
+                reason: *reason,
+            }
+        }
+        Some(ExistingIterationDecisionReadbackV1::ReadyForSelection(readback)) => {
+            let IterationDecisionOutcomeV1::ReadyForSelection {
+                candidate_identity,
+                candidate_digest,
+            } = readback.decision().outcome()
+            else {
+                return Err("selection Decision readback outcome is inconsistent");
+            };
+            if readback.decision().decision_identity() != decision_identity
+                || readback.receipt().decision_identity() != decision_identity
+                || readback.receipt().result_identity() != result_identity
+                || readback.candidate().candidate_identity() != candidate_identity
+                || readback.candidate().candidate_digest() != candidate_digest
+                || readback.selection().candidate_identity() != candidate_identity
+                || readback.selection().candidate_digest() != candidate_digest
+                || readback.selection().decision_identity() != decision_identity
+                || readback.selection_receipt().selection_identity()
+                    != readback.selection().selection_identity()
+            {
+                return Err("selection Decision readback locator is inconsistent");
+            }
+            ResearchIterationActionV1::SubmitSelectedCandidateToQualification {
+                decision_digest: readback.decision().decision_digest().to_string(),
+                decision_receipt_identity: readback.receipt().receipt_identity().to_string(),
+                candidate_identity: candidate_identity.clone(),
+                candidate_digest: candidate_digest.clone(),
+                selection_identity: readback.selection().selection_identity().to_string(),
+                selection_digest: readback.selection().selection_digest().to_string(),
+                selection_receipt_identity: readback
+                    .selection_receipt()
+                    .receipt_identity()
+                    .to_string(),
+            }
+        }
+    };
+    Ok(ResearchIterationActionProjectionV1 {
+        schema_version: 1,
+        decision_identity: decision_identity.to_string(),
+        result_identity: result_identity.to_string(),
+        action,
+    })
 }
 
 pub use crate::exploratory_replay::{
