@@ -1555,6 +1555,19 @@ fn validate_goal_fields(
     Ok(())
 }
 
+pub(crate) fn validate_successor_goal_v1(goal: &SourcedResearchGoalV2) -> Result<(), &'static str> {
+    validate_goal_fields(
+        &goal.hypothesis,
+        &goal.mechanism,
+        &goal.falsification_question,
+        &goal.expected_observation,
+        &goal.required_data,
+        &goal.cost_assumption,
+        &goal.capacity_assumption,
+        &goal.sources,
+    )
+}
+
 pub(crate) fn validate_goal_request_v2(
     request: ProductEdgeResearchGoalRequestV2,
 ) -> Result<ValidatedResearchGoalRequestV2, RejectedResearchGoalRequestV2> {

@@ -78,6 +78,8 @@ pub mod intent;
 mod iteration_candidate;
 pub mod iteration_decision;
 mod iteration_decision_postgres;
+pub mod successor_intent;
+mod successor_intent_postgres;
 pub use iteration_candidate::{
     IterationCandidateAdmissibilityV1, IterationCandidateEvaluationSetV1,
     IterationCandidateEvaluationV1, IterationCandidateInadmissibilityV1,
@@ -109,6 +111,9 @@ pub use market_data_repair_request_postgres::{
 pub use market_data_repair_resolution_postgres::{
     MarketDataRepairResolutionLocatorV1, MarketDataRepairResolutionPostgresErrorV1,
     MarketDataRepairResolutionReadbackV1,
+};
+pub use successor_intent_postgres::{
+    SuccessorResearchIntentPostgresErrorV1, SuccessorResearchIntentResolutionLocatorV1,
 };
 mod legacy_prepared_attempt_drain;
 #[allow(
