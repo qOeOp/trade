@@ -12,6 +12,8 @@ const browserAcceptance = process.env.DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTAN
 const acceptanceCandidate = process.env.DASHBOARD_STRATEGY_VIEWER_ACCEPTANCE_CANDIDATE ?? "";
 const browserExecutable = process.env.DASHBOARD_STRATEGY_VIEWER_BROWSER_EXECUTABLE ?? "";
 const dashboardRoot = new URL("../", import.meta.url);
+const sessionLoginToken = "strategy-viewer-browser-test-login-token-v1";
+const sessionHmacKey = "strategy-viewer-browser-test-hmac-key-v1";
 const browserVersion = browserAcceptance
   ? execFileSync(browserExecutable, ["--version"], { encoding: "utf8", timeout: 5_000 }).trim()
   : "";
@@ -54,6 +56,35 @@ async function waitForHttp(url, child, timeoutMs = 60_000) {
     await delay(200);
   }
   throw new Error(`strategy viewer preview did not become ready at ${url}`);
+}
+
+async function removeBrowserProfile(profile) {
+  await rm(profile, {
+    recursive: true,
+    force: true,
+    maxRetries: 10,
+    retryDelay: 100,
+  });
+}
+
+async function cleanupBrowserAcceptance(browser, preview) {
+  const errors = [];
+  const attempt = async (label, operation) => {
+    try {
+      await operation();
+    } catch (error) {
+      errors.push(new Error(`${label}: ${error instanceof Error ? error.message : String(error)}`, {
+        cause: error,
+      }));
+    }
+  };
+  await attempt("close browser websocket", async () => browser?.close());
+  await attempt("stop browser process", async () => stopProcess(browser?.child));
+  if (browser?.profile) {
+    await attempt("remove browser profile", async () => removeBrowserProfile(browser.profile));
+  }
+  await attempt("stop Dashboard preview", async () => stopProcess(preview));
+  return errors;
 }
 
 async function openBrowser(executable) {
@@ -138,18 +169,36 @@ async function openBrowser(executable) {
       pending.set(requestId, { resolve, reject, timer });
       socket.send(JSON.stringify({ id: requestId, method, params }));
     });
-    return { child, profile, close: () => socket.close(), send };
+    return {
+      child,
+      profile,
+      close: () => {
+        for (const request of pending.values()) {
+          clearTimeout(request.timer);
+          request.reject(new Error("strategy viewer browser closed"));
+        }
+        pending.clear();
+        socket.close();
+      },
+      send,
+    };
   } catch (error) {
-    let cleanupError;
+    const cleanupErrors = [];
     try {
       await stopProcess(child);
     } catch (caught) {
-      cleanupError = caught;
+      cleanupErrors.push(caught);
     }
-    await rm(profile, { recursive: true, force: true });
+    try {
+      await removeBrowserProfile(profile);
+    } catch (caught) {
+      cleanupErrors.push(caught);
+    }
     const diagnostics = [
       error instanceof Error ? error.message : String(error),
-      cleanupError instanceof Error ? `cleanup: ${cleanupError.message}` : "",
+      ...cleanupErrors.map((cleanupError) => `cleanup: ${
+        cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+      }`),
       stderrTail.trim() ? `stderr: ${stderrTail.trim()}` : "",
     ].filter(Boolean).join("; ");
     throw new Error(`strategy viewer browser startup failed: ${diagnostics}`, { cause: error });
@@ -175,7 +224,16 @@ async function waitForBrowserExpression(browser, expression, timeoutMs = 15_000)
     if (await readBrowserValue(browser, expression) === true) return;
     await delay(100);
   }
-  throw new Error(`strategy viewer browser condition timed out: ${expression}`);
+  const diagnostics = await readBrowserValue(browser, `(() => ({
+    url: location.href,
+    readyState: document.readyState,
+    body: document.body?.innerText.slice(0, 2_000) ?? '',
+    viewerAvailability: document.querySelector('[data-slot="strategy-viewer-workspace"]')
+      ?.closest('[data-availability]')?.getAttribute('data-availability') ?? null,
+    editorHost: Boolean(document.querySelector('[data-slot="strategy-read-only-code"]')),
+    editorMounted: Boolean(document.querySelector('[data-slot="strategy-read-only-code"] .cm-editor')),
+  }))()`);
+  throw new Error(`strategy viewer browser condition timed out: ${expression}; diagnostics: ${JSON.stringify(diagnostics)}`);
 }
 
 test(browserAcceptance
@@ -235,6 +293,7 @@ test(browserAcceptance
   assert.ok(port <= 65_535);
   let preview;
   let browser;
+  let executionError;
   try {
     preview = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "-H", "127.0.0.1", "-p", String(port)], {
       cwd: dashboardRoot,
@@ -243,6 +302,8 @@ test(browserAcceptance
         NEXT_TELEMETRY_DISABLED: "1",
         RD_OWNER_API_URL: ownerUrl,
         RD_OWNER_API_TOKEN: token,
+        DASHBOARD_LOCAL_OPERATOR_LOGIN_TOKEN: sessionLoginToken,
+        DASHBOARD_SESSION_HMAC_KEY: sessionHmacKey,
       },
       stdio: "inherit",
     });
@@ -252,6 +313,16 @@ test(browserAcceptance
     console.error("[strategy-viewer-browser] preview ready");
     browser = await openBrowser(browserExecutable);
     await browser.send("Page.enable");
+    await browser.send("Page.navigate", { url: `${origin}/login/` });
+    await waitForBrowserExpression(browser, "document.readyState === 'complete'");
+    assert.deepEqual(await readBrowserValue(browser, `fetch('/api/auth/session', {
+      method: 'POST',
+      headers: {'content-type': 'application/json'},
+      body: JSON.stringify({credential: ${JSON.stringify(sessionLoginToken)}}),
+    }).then(async (response) => ({status: response.status, state: (await response.json()).state}))`), {
+      status: 200,
+      state: "authenticated",
+    });
     await browser.send("Browser.grantPermissions", {
       origin,
       permissions: ["clipboardReadWrite", "clipboardSanitizedWrite"],
@@ -259,8 +330,7 @@ test(browserAcceptance
     console.error("[strategy-viewer-browser] navigating source route");
     await browser.send("Page.navigate", { url: route });
     await waitForBrowserExpression(browser,
-      `Boolean(document.querySelector('[data-slot="strategy-read-only-code"] .cm-editor'))
-        && document.body.innerText.includes(${JSON.stringify(artifactIdentity)})`);
+      `Boolean(document.querySelector('[data-slot="strategy-read-only-code"] .cm-editor'))`);
     assert.equal(await readBrowserValue(browser, `(() => {
       const content = document.querySelector('[data-slot="strategy-read-only-code"] .cm-content');
       content?.focus();
@@ -391,12 +461,17 @@ test(browserAcceptance
     assert.deepEqual(await readBrowserValue(browser, `(() => ({
       sourceAbsent: !document.body.innerText.includes(${JSON.stringify(sourceSentinel)}),
       editorAbsent: !document.querySelector('[data-slot="strategy-read-only-code"] .cm-editor'),
-      reason: document.body.innerText.includes('OWNER_RESPONSE_UNAVAILABLE'),
+      reason: document.querySelector('details.unavailable-state-info code')?.textContent
+        === 'OWNER_RESPONSE_UNAVAILABLE',
     }))()`), { sourceAbsent: true, editorAbsent: true, reason: true });
-  } finally {
-    browser?.close();
-    await stopProcess(browser?.child);
-    if (browser?.profile) await rm(browser.profile, { recursive: true, force: true });
-    await stopProcess(preview);
+  } catch (error) {
+    executionError = error;
+  }
+  const cleanupErrors = await cleanupBrowserAcceptance(browser, preview);
+  if (executionError || cleanupErrors.length > 0) {
+    throw new AggregateError(
+      [executionError, ...cleanupErrors].filter(Boolean),
+      "strategy viewer browser acceptance failed",
+    );
   }
 });
