@@ -2036,10 +2036,15 @@ BEGIN
      AND outbox.event_kind='QUALIFICATION_PROTECTED_REPLAY_REQUEST_SET_SEALED_V1'
    WHERE request_set.request_set_identity=requested_request_set_identity
      AND request_set.request_set_digest=requested_request_set_digest
-     AND outbox.payload_json->>'request_set_identity'=request_set.request_set_identity
-     AND outbox.payload_json->>'request_set_digest'=request_set.request_set_digest
-     AND outbox.payload_json->>'plan_cell_set_identity'=request_set.plan_cell_set_identity
-     AND outbox.payload_json->>'plan_cell_set_digest'=request_set.plan_cell_set_digest
+     AND outbox.committed_at_epoch_ms=request_set.committed_at_epoch_ms
+     AND outbox.payload_json=pg_catalog.jsonb_build_object(
+       'schema_version',1,
+       'request_set_identity',request_set.request_set_identity,
+       'request_set_digest',request_set.request_set_digest,
+       'plan_cell_set_identity',request_set.plan_cell_set_identity,
+       'plan_cell_set_digest',request_set.plan_cell_set_digest,
+       'seal_storage_digest',request_set.storage_digest
+     )
    FOR SHARE OF request_set,outbox;
   RETURN locked;
 EXCEPTION WHEN no_data_found OR too_many_rows OR data_exception THEN
@@ -2292,7 +2297,8 @@ AS $function$
        'request_set_identity',request_set.request_set_identity,
        'request_set_digest',request_set.request_set_digest,
        'plan_cell_set_identity',request_set.plan_cell_set_identity,
-       'plan_cell_set_digest',request_set.plan_cell_set_digest
+       'plan_cell_set_digest',request_set.plan_cell_set_digest,
+       'seal_storage_digest',request_set.storage_digest
      )
      AND native_outbox.payload_digest=qualification_api.canonical_json_digest_v1(
        'qualification.protected-replay-request-set-sealed-event.v1', native_outbox.payload_json
@@ -2327,6 +2333,14 @@ AS $function$
       AND pg_catalog.jsonb_typeof(request_set.seal_json->'members')='array'
       AND pg_catalog.jsonb_array_length(request_set.seal_json->'members')>0
       AND pg_catalog.jsonb_array_length(request_set.seal_json->'members')=(
+        SELECT pg_catalog.count(DISTINCT member->>'request_identity')
+        FROM pg_catalog.jsonb_array_elements(request_set.seal_json->'members') member
+      )
+      AND pg_catalog.jsonb_array_length(request_set.seal_json->'members')=(
+        SELECT pg_catalog.count(DISTINCT member->>'plan_cell_identity')
+        FROM pg_catalog.jsonb_array_elements(request_set.seal_json->'members') member
+      )
+      AND pg_catalog.jsonb_array_length(request_set.seal_json->'members')=(
         SELECT pg_catalog.count(*)
         FROM public.qualification_protected_replay_requests_v1 census_request
         WHERE census_request.review_request_identity=request_set.review_request_identity
@@ -2337,6 +2351,26 @@ AS $function$
           AND census_request.request_json->>'schema_version'='2'
           AND census_request.request_json#>>'{frozen_basis,plan_cell_set_identity}'=request_set.plan_cell_set_identity
           AND census_request.request_json#>>'{frozen_basis,plan_cell_set_digest}'=request_set.plan_cell_set_digest
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM public.qualification_protected_replay_requests_v1 census_request
+        WHERE census_request.review_request_identity=request_set.review_request_identity
+          AND census_request.intake_receipt_identity=request_set.intake_receipt_identity
+          AND census_request.holdout_reservation_identity=request_set.holdout_reservation_identity
+          AND census_request.protected_plan_identity=request_set.protected_plan_identity
+          AND census_request.protected_plan_digest=request_set.protected_plan_digest
+          AND census_request.request_json->>'schema_version'='2'
+          AND census_request.request_json#>>'{frozen_basis,plan_cell_set_identity}'=request_set.plan_cell_set_identity
+          AND census_request.request_json#>>'{frozen_basis,plan_cell_set_digest}'=request_set.plan_cell_set_digest
+          AND NOT EXISTS (
+            SELECT 1
+            FROM pg_catalog.jsonb_array_elements(request_set.seal_json->'members') member
+            WHERE member->>'request_identity'=census_request.request_identity
+              AND member->>'request_digest'=census_request.request_digest
+              AND member->>'plan_cell_identity'=census_request.plan_cell_identity
+              AND member->>'plan_cell_digest'=census_request.plan_cell_digest
+          )
       )
       AND NOT EXISTS (
         SELECT 1
@@ -2365,6 +2399,7 @@ AS $function$
            OR request.request_json->>'schema_version'<>'2'
            OR request.request_json#>>'{frozen_basis,plan_cell_set_identity}'<>request_set.plan_cell_set_identity
            OR request.request_json#>>'{frozen_basis,plan_cell_set_digest}'<>request_set.plan_cell_set_digest
+           OR member->>'request_time_evidence_digest' !~ '^blake3:[0-9a-f]{64}$'
            OR NOT qualification_api.protected_replay_request_semantic_digest_is_valid_v1(
              request.request_json,request.canonical_request_bytes,request.request_identity,request.request_digest
            )
@@ -2829,6 +2864,8 @@ AS $function$
           OR prior.fact_json->'source_frontier_digest' IS DISTINCT FROM pg_catalog.to_jsonb(prior.source_frontier_digest)
           OR prior.fact_json->'source_frontier_is_current' IS DISTINCT FROM pg_catalog.to_jsonb(prior.source_frontier_is_current)
           OR pg_catalog.jsonb_typeof(prior.fact_json->'opaque_reference') IS DISTINCT FROM 'string'
+          OR prior.source_frontier_identity IS DISTINCT FROM 'qualification-protected-feedback-frontier-v1-' ||
+            pg_catalog.replace(prior.source_frontier_digest,'sha256:','')
           OR prior.fact_json->>'opaque_reference' IS DISTINCT FROM qualification_api.public_status_expected_opaque_reference_v1(
             prior.review_request_identity,
             prior.candidate_identity,

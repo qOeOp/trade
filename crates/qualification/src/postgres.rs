@@ -1347,6 +1347,7 @@ impl PostgresQualificationOwnerV1 {
             "request_set_digest": commit.request_set_digest(),
             "plan_cell_set_identity": source.plan_cell_set_identity,
             "plan_cell_set_digest": source.plan_cell_set_digest,
+            "seal_storage_digest": storage_digest,
         });
         let event_digest = canonical_digest(
             "qualification.protected-replay-request-set-sealed-event.v1",
@@ -2248,6 +2249,7 @@ async fn verify_protected_replay_request_set_commit_v1(
         "request_set_digest": commit.request_set_digest(),
         "plan_cell_set_identity": commit.seal().plan_cell_set_identity,
         "plan_cell_set_digest": commit.seal().plan_cell_set_digest,
+        "seal_storage_digest": storage_digest,
     });
     let expected_payload_digest = canonical_digest(
         "qualification.protected-replay-request-set-sealed-event.v1",
