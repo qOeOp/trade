@@ -1,3 +1,8 @@
+#![expect(
+    clippy::large_futures,
+    reason = "Product Edge admission intentionally retains typed Owner evidence across atomic transaction boundaries"
+)]
+
 use std::{
     fmt::{Debug, Display},
     sync::Arc,
@@ -59,7 +64,10 @@ use vibe_data::owner::{
     instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresOwnerV1,
     instrument_master_v2_postgres::InstrumentMasterV2PostgresOwner,
     native_replay_scheduling_v1::NativeReplaySchedulingResolverV1,
+    shared_time_evidence::SharedTimeEvidenceResolver,
 };
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+use vibe_model::identifiers::StrategyId;
 
 use crate::source_intake::{
     SOURCE_INTAKE_IDENTITY_PREREQUISITE_SQL_V1, SourceIntakePolicyEvidencePort,
@@ -734,6 +742,7 @@ impl PostgresResearchGoalOwnerV1 {
                 serde_json::from_value(binding_json).map_err(|_| {
                     ResearchGoalOwnerError::Unauthorized("Source Intake policy locator unavailable")
                 })?;
+
             if binding.request_identity != ancestry.request_identity
                 || binding.binding_identity != ancestry.attempt_identity
             {
@@ -1676,7 +1685,7 @@ impl PostgresResearchGoalOwnerV1 {
     where
         P: crate::develop_composer_postgres_v2::DevelopComposerSealedReadPortV2 + ?Sized,
         M: NativeReplaySchedulingResolverV1 + ?Sized,
-        T: vibe_data::owner::shared_time_evidence::SharedTimeEvidenceResolver + ?Sized,
+        T: SharedTimeEvidenceResolver + ?Sized,
     {
         crate::market_data_repair_request_postgres::compose_market_data_repair_request_v1(
             &self.pool,
@@ -1705,7 +1714,7 @@ impl PostgresResearchGoalOwnerV1 {
     where
         P: crate::develop_composer_postgres_v2::DevelopComposerSealedReadPortV2 + ?Sized,
         M: NativeReplaySchedulingResolverV1 + ?Sized,
-        T: vibe_data::owner::shared_time_evidence::SharedTimeEvidenceResolver + ?Sized,
+        T: SharedTimeEvidenceResolver + ?Sized,
     {
         crate::market_data_repair_request_postgres::resolve_market_data_repair_request_v1(
             &self.pool,
@@ -1934,7 +1943,7 @@ impl PostgresResearchGoalOwnerV1 {
         instrument_master_owner: &InstrumentMasterV2PostgresOwner,
         instrument_terms_owner: &InstrumentEconomicTermsPostgresOwnerV1,
         market_data: &R,
-        strategy_id: vibe_model::identifiers::StrategyId,
+        strategy_id: StrategyId,
         run_id: String,
     ) -> Result<
         crate::replay_target_set_execution_bundle_v1::ReplayTargetSetExecutionBundleV1,
@@ -3449,7 +3458,7 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             crate::iteration_decision::IterationDecisionPolicyBindingV1::seal(
                 &replay_policy_catalog_v3,
             )
-            .map_err(|error| trial_family_storage(&error))?,
+            .map_err(|e| trial_family_storage(&e))?,
         );
         canonical_policy.replay_policy_catalog_v3 = Some(replay_policy_catalog_v3);
         let stored_request = StoredAdmittedResearchRequestV2 {
@@ -4405,7 +4414,7 @@ mod tests {
             .unwrap();
     }
 
-    #[test]
+    #[rstest::rstest]
     #[ignore = "requires admitted OA/PE/R&D test database URLs"]
     fn bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed() {
         std::thread::Builder::new()

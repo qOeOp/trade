@@ -136,6 +136,7 @@ impl ReplayNativeExecutionProfileV1 {
         engine
             .add_venue(self.venue_config)
             .map_err(|_| ReplayNativeExecutionProfileErrorV1::NativeConfiguration)?;
+
         for instrument in instruments {
             engine
                 .add_instrument(instrument)
@@ -153,6 +154,7 @@ impl ReplayNativeExecutionProfileV1 {
         {
             return Err(ReplayNativeExecutionProfileErrorV1::InstrumentTermsMismatch);
         }
+
         for (instrument, terms) in instruments.iter().zip(&self.instrument_terms) {
             self.validate_instrument(instrument, terms)?;
         }
@@ -184,6 +186,7 @@ impl ReplayNativeExecutionProfileV1 {
 
     pub(crate) fn validate_account_scope(&self) -> Result<(), ReplayNativeExecutionProfileErrorV1> {
         let expected = format!("{}-001", self.venue_config.venue);
+
         if self
             .instrument_terms
             .iter()
@@ -200,6 +203,7 @@ impl ReplayNativeExecutionProfileV1 {
     ) -> Result<(), ReplayNativeExecutionProfileErrorV1> {
         let mut signal_time = [None; TARGET_SET_MEMBER_COUNT];
         let mut event_time = [None; TARGET_SET_MEMBER_COUNT];
+
         for datum in data {
             let instrument_id = datum.instrument_id();
             let ordinal = self
@@ -212,6 +216,7 @@ impl ReplayNativeExecutionProfileV1 {
             if ts_event < terms.valid_from_ns || ts_event >= terms.valid_until_ns_exclusive {
                 return Err(ReplayNativeExecutionProfileErrorV1::EventTimeOutsideOwnerValidity);
             }
+
             match datum {
                 Data::Bar(_) => {
                     if signal_time[ordinal].replace(ts_event).is_some() {
@@ -230,6 +235,7 @@ impl ReplayNativeExecutionProfileV1 {
                 _ => return Err(ReplayNativeExecutionProfileErrorV1::EventInputMismatch),
             }
         }
+
         if signal_time
             .iter()
             .zip(event_time)
@@ -261,19 +267,20 @@ pub(crate) fn materialize_crypto_perpetual_target_set_v2(
     let [first, second] = public_terms;
     let economic_terms = binding.instrument_terms();
     Ok([
-        materialize_crypto_perpetual_v2(&economic_terms[0], first)?,
-        materialize_crypto_perpetual_v2(&economic_terms[1], second)?,
+        materialize_crypto_perpetual_v2(&economic_terms[0], &first)?,
+        materialize_crypto_perpetual_v2(&economic_terms[1], &second)?,
     ])
 }
 
 fn materialize_crypto_perpetual_v2(
     economic: &BoundInstrumentEconomicTermsV1,
-    public: ValidatedCryptoPerpetualPublicTermsV2,
+    public: &ValidatedCryptoPerpetualPublicTermsV2,
 ) -> Result<InstrumentAny, ReplayNativeExecutionProfileErrorV1> {
     let expected_instrument_id = format!(
         "{}.{}",
         economic.instrument_identity, economic.venue_identity
     );
+
     if public.instrument_class() != PublicInstrumentClassV2::CryptoPerpetual
         || public.canonical_identity() != expected_instrument_id
         || public.venue_identity() != economic.venue_identity
@@ -369,6 +376,7 @@ pub(crate) fn materialize_event_replay_execution_profile_v1(
     if env!("CARGO_PKG_VERSION") != EXPECTED_NATIVE_WORKSPACE_VERSION_V1 {
         return Err(ReplayNativeExecutionProfileErrorV1::NativeVersionMismatch);
     }
+
     if binding.economic_configuration_digest() != economic.digest()
         || binding.runner_operational_profile_digest() != runner.digest()
     {
@@ -478,6 +486,7 @@ pub(crate) fn materialize_event_replay_execution_profile_v1(
     }) else {
         return Err(ReplayNativeExecutionProfileErrorV1::InstrumentTermsMismatch);
     };
+
     if primary_terms.venue_identity != economic_input.venue_identity
         || primary_terms.margin_model != InstrumentMarginModelSelectionV1::StandardMarginModel
         || primary_terms.maker_fee != economic_input.instrument_terms.maker_fee
@@ -616,6 +625,7 @@ fn materialize_engine_config(
             mantissa: limit.mantissa,
             scale: limit.scale,
         })?;
+
         if max_notional_per_order
             .insert(instrument_id, value)
             .is_some()
@@ -1121,9 +1131,9 @@ mod tests {
                 contract_multiplier: FactValue::Value(decimal(2, 0)),
                 lot_size: FactValue::Value(decimal(5, 3)),
                 minimum_price: FactValue::Value(decimal(1, 2)),
-                maximum_price: FactValue::Value(decimal(1_000_000, 2)),
+                maximum_price: FactValue::Value(decimal(10_000, 0)),
                 minimum_quantity: FactValue::Value(decimal(5, 3)),
-                maximum_quantity: FactValue::Value(decimal(100_000, 3)),
+                maximum_quantity: FactValue::Value(decimal(100, 0)),
                 minimum_notional: FactValue::Value(decimal(10, 0)),
                 maximum_notional: FactValue::Value(decimal(1_000_000, 0)),
             },
@@ -1176,7 +1186,7 @@ mod tests {
         let public = validated_public_terms("ETHUSDT-PERP.SIM");
         let economic = matching_economic_terms(&public);
 
-        let instrument = materialize_crypto_perpetual_v2(&economic, public).unwrap();
+        let instrument = materialize_crypto_perpetual_v2(&economic, &public).unwrap();
         let InstrumentAny::CryptoPerpetual(instrument) = instrument else {
             panic!("expected crypto perpetual")
         };
@@ -1202,7 +1212,7 @@ mod tests {
         economic.instrument_fact_digest = [99; 32];
 
         assert_eq!(
-            materialize_crypto_perpetual_v2(&economic, public),
+            materialize_crypto_perpetual_v2(&economic, &public),
             Err(ReplayNativeExecutionProfileErrorV1::InstrumentTermsMismatch)
         );
     }

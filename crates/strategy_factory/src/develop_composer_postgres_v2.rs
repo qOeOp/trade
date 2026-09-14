@@ -752,6 +752,7 @@ pub(crate) async fn resolve_develop_composer_locator_for_replay_v2_in_transactio
     .await
     .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?
     .unwrap_or(false);
+
     if !authority_is_exact || artifact_locator.is_empty() {
         return Err(DevelopComposerSealedReadErrorV2::Unavailable);
     }

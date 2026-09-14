@@ -2450,6 +2450,7 @@ impl ProductEdgePostgresOwnerV1 {
             .execute(&mut *transaction)
             .await
             .map_err(storage)?;
+
         if persisted.rows_affected() != 1 {
             return Err(ProductEdgeError::Unavailable);
         }

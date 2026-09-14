@@ -106,9 +106,11 @@ impl ProtectedReplayRequestProposalV1 {
                 return Err(unavailable("Protected Replay Request identity is invalid"));
             }
         }
+
         if !valid_digest(&self.intake_receipt_digest) {
             return Err(unavailable("Candidate Intake receipt digest is invalid"));
         }
+
         for (binding, expected) in self.bindings.iter().zip(ProtectedReplayBindingFieldV1::ALL) {
             if binding.field != expected
                 || binding.identity.len() < 4
@@ -184,6 +186,7 @@ pub(crate) fn form_protected_replay_request_v1(
     let reservation = intake
         .holdout_reservation_identity()
         .ok_or_else(|| unavailable("ADMITTED holdout reservation is unavailable"))?;
+
     if intake.receipt_identity() != proposal.intake_receipt_identity
         || intake.receipt_digest() != proposal.intake_receipt_digest
         || intake.review_request_identity() != proposal.review_request_identity
@@ -284,7 +287,7 @@ pub(crate) fn form_protected_replay_request_v2(
     let request_time_evidence = request_time_evidence(&proposal.request_time_handoff);
     request_time_evidence
         .validate_request_root()
-        .map_err(|error| unavailable(&error.to_string()))?;
+        .map_err(|e| unavailable(&e.to_string()))?;
     let mut dto = ProtectedReplayRequestDtoV2 {
         schema_version: 2,
         request_identity: frozen_basis.request_identity.clone(),
@@ -294,9 +297,8 @@ pub(crate) fn form_protected_replay_request_v2(
     };
     dto.request_digest = dto
         .compute_request_digest()
-        .map_err(|error| unavailable(&error.to_string()))?;
-    dto.validate()
-        .map_err(|error| unavailable(&error.to_string()))?;
+        .map_err(|e| unavailable(&e.to_string()))?;
+    dto.validate().map_err(|e| unavailable(&e.to_string()))?;
     Ok(ProtectedReplayRequestV2(dto))
 }
 
@@ -368,11 +370,11 @@ impl ProtectedReplayRequestSetCommitV1 {
     pub(crate) fn to_canonical_bytes(&self) -> Result<Vec<u8>, QualificationOwnerError> {
         self.0
             .to_canonical_bytes()
-            .map_err(|error| unavailable(&error.to_string()))
+            .map_err(|e| unavailable(&e.to_string()))
     }
 
     pub(crate) fn as_json(&self) -> Result<serde_json::Value, QualificationOwnerError> {
-        serde_json::to_value(&self.0).map_err(|error| unavailable(&error.to_string()))
+        serde_json::to_value(&self.0).map_err(|e| unavailable(&e.to_string()))
     }
 }
 
@@ -381,7 +383,7 @@ pub(crate) fn decode_protected_replay_request_set_v1(
 ) -> Result<ProtectedReplayRequestSetCommitV1, QualificationOwnerError> {
     ProtectedReplayRequestSetSealDtoV1::from_canonical_bytes(bytes)
         .map(ProtectedReplayRequestSetCommitV1)
-        .map_err(|error| unavailable(&error.to_string()))
+        .map_err(|e| unavailable(&e.to_string()))
 }
 
 pub(crate) fn form_protected_replay_request_set_v1(
@@ -429,7 +431,7 @@ pub(crate) fn form_protected_replay_request_set_v1(
             request_time_evidence_digest: protected_evaluation_time_evidence_digest_v1(
                 &dto.request_time_evidence,
             )
-            .map_err(|error| unavailable(&error.to_string()))?,
+            .map_err(|e| unavailable(&e.to_string()))?,
         });
     }
 
@@ -447,6 +449,7 @@ pub(crate) fn form_protected_replay_request_set_v1(
         .iter()
         .cloned()
         .collect::<std::collections::BTreeSet<_>>();
+
     if observed_cells != expected_cells {
         return Err(unavailable(
             "Protected Replay Request set does not match the frozen plan cell set",
@@ -476,7 +479,7 @@ pub(crate) fn form_protected_replay_request_set_v1(
         members,
     }
     .seal()
-    .map_err(|error| unavailable(&error.to_string()))?;
+    .map_err(|e| unavailable(&e.to_string()))?;
     Ok(ProtectedReplayRequestSetCommitV1(seal))
 }
 
@@ -490,8 +493,7 @@ pub(crate) fn form_request_receipt_v1(
     request: &ProtectedReplayRequestV1,
     committed_at_epoch_ms: u64,
 ) -> Result<ProtectedReplayRequestReceiptV1, QualificationOwnerError> {
-    let request_bytes =
-        serde_json::to_vec(request).map_err(|error| unavailable(&error.to_string()))?;
+    let request_bytes = serde_json::to_vec(request).map_err(|e| unavailable(&e.to_string()))?;
     let seal_digest = canonical_digest(
         "qualification.protected-replay-request-seal.v1",
         &request_bytes,
@@ -528,8 +530,7 @@ pub(crate) fn form_request_receipt_v2(
             "Protected Replay Request time evidence expired before commit",
         ));
     }
-    let request_bytes =
-        serde_json::to_vec(request).map_err(|error| unavailable(&error.to_string()))?;
+    let request_bytes = serde_json::to_vec(request).map_err(|e| unavailable(&e.to_string()))?;
     let seal_digest = canonical_digest(
         "qualification.protected-replay-request-seal.v1",
         &request_bytes,
@@ -611,7 +612,7 @@ impl ProtectedReplayRequestV1 {
         &self.plan_cell_digest
     }
     pub(crate) fn as_json(&self) -> Result<serde_json::Value, QualificationOwnerError> {
-        serde_json::to_value(self).map_err(|error| unavailable(&error.to_string()))
+        serde_json::to_value(self).map_err(|e| unavailable(&e.to_string()))
     }
 }
 
@@ -647,12 +648,12 @@ impl ProtectedReplayRequestV2 {
         &self.0.frozen_basis.plan_cell_digest
     }
     pub(crate) fn as_json(&self) -> Result<serde_json::Value, QualificationOwnerError> {
-        serde_json::to_value(self).map_err(|error| unavailable(&error.to_string()))
+        serde_json::to_value(self).map_err(|e| unavailable(&e.to_string()))
     }
     pub(crate) fn to_canonical_bytes(&self) -> Result<Vec<u8>, QualificationOwnerError> {
         self.0
             .to_canonical_bytes()
-            .map_err(|error| unavailable(&error.to_string()))
+            .map_err(|e| unavailable(&e.to_string()))
     }
 }
 
@@ -660,14 +661,12 @@ pub(crate) fn decode_protected_replay_request_v1(
     bytes: &[u8],
 ) -> Result<ProtectedReplayRequestV1, QualificationOwnerError> {
     let request: ProtectedReplayRequestV1 =
-        serde_json::from_slice(bytes).map_err(|error| unavailable(&error.to_string()))?;
+        serde_json::from_slice(bytes).map_err(|e| unavailable(&e.to_string()))?;
     request
         .as_contract_dto()
         .validate()
-        .map_err(|error| unavailable(&error.to_string()))?;
-    if serde_json::to_vec(&request.as_json()?).map_err(|error| unavailable(&error.to_string()))?
-        != bytes
-    {
+        .map_err(|e| unavailable(&e.to_string()))?;
+    if serde_json::to_vec(&request.as_json()?).map_err(|e| unavailable(&e.to_string()))? != bytes {
         return Err(unavailable("stored Protected Replay Request bytes changed"));
     }
     Ok(request)
@@ -678,7 +677,7 @@ pub(crate) fn decode_protected_replay_request_v2(
 ) -> Result<ProtectedReplayRequestV2, QualificationOwnerError> {
     ProtectedReplayRequestDtoV2::from_canonical_bytes(bytes)
         .map(ProtectedReplayRequestV2)
-        .map_err(|error| unavailable(&error.to_string()))
+        .map_err(|e| unavailable(&e.to_string()))
 }
 
 pub(crate) fn decode_request_receipt_v1(
@@ -686,7 +685,7 @@ pub(crate) fn decode_request_receipt_v1(
     request: &ProtectedReplayRequestV1,
 ) -> Result<ProtectedReplayRequestReceiptV1, QualificationOwnerError> {
     let receipt: ProtectedReplayRequestReceiptV1 =
-        serde_json::from_value(value.clone()).map_err(|error| unavailable(&error.to_string()))?;
+        serde_json::from_value(value.clone()).map_err(|e| unavailable(&e.to_string()))?;
     if receipt != form_request_receipt_v1(request, receipt.committed_at_epoch_ms)?
         || receipt.as_json()? != *value
     {
@@ -702,7 +701,7 @@ pub(crate) fn decode_request_receipt_v2(
     request: &ProtectedReplayRequestV2,
 ) -> Result<ProtectedReplayRequestReceiptV1, QualificationOwnerError> {
     let receipt: ProtectedReplayRequestReceiptV1 =
-        serde_json::from_value(value.clone()).map_err(|error| unavailable(&error.to_string()))?;
+        serde_json::from_value(value.clone()).map_err(|e| unavailable(&e.to_string()))?;
     if receipt != form_request_receipt_v2(request, receipt.committed_at_epoch_ms)?
         || receipt.as_json()? != *value
     {
@@ -730,7 +729,7 @@ impl ProtectedReplayRequestReceiptV1 {
         self.committed_at_epoch_ms
     }
     pub(crate) fn as_json(&self) -> Result<serde_json::Value, QualificationOwnerError> {
-        serde_json::to_value(self).map_err(|error| unavailable(&error.to_string()))
+        serde_json::to_value(self).map_err(|e| unavailable(&e.to_string()))
     }
 }
 

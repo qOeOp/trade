@@ -10,6 +10,8 @@
     reason = "the isolated EVENT resolver is intentionally deferred until its full acceptance composition exists"
 )]
 
+use std::fmt::Debug;
+
 use sha2::{Digest, Sha256};
 #[cfg(feature = "isolated-event-replay-acceptance")]
 use sqlx::PgPool;
@@ -204,7 +206,7 @@ const EXPECTED_CHECKS_V1: &[(&str, &str)] = &[
         "(octet_length(custody_digest)=32)",
     ),
 ];
-const VERIFY_TOPOLOGY_V1: &str = r#"
+const VERIFY_TOPOLOGY_V1: &str = "
 WITH family AS (
   SELECT relation.oid,relation.relname
     FROM pg_catalog.pg_class relation
@@ -272,7 +274,7 @@ SELECT
           OR constraint_fact.coninhcount<>0 OR constraint_fact.connoinherit<>(constraint_fact.contype IN ('p','u','f')))
   AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint inbound WHERE inbound.confrelid IN (SELECT oid FROM family) AND inbound.conrelid NOT IN (SELECT oid FROM family))
   AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint outbound WHERE outbound.conrelid IN (SELECT oid FROM family) AND outbound.contype='f' AND outbound.confrelid NOT IN (SELECT oid FROM family))
-"#;
+";
 
 pub(super) const STRATEGY_INPUT_EVENT_BINDING_SCHEMA_V1: &[&str] = &[
     super::OWNER_SCHEMA_GUARD_V1,
@@ -291,6 +293,10 @@ pub(super) const STRATEGY_INPUT_EVENT_BINDING_SCHEMA_V1: &[&str] = &[
 ///
 /// This module intentionally has no production constructor until a neutral composition crate can
 /// pass the move-only fixed-port readback without reversing the `vibe-data` dependency direction.
+#[allow(
+    clippy::struct_field_names,
+    reason = "the request prefix preserves the exact R&D custody coordinate namespace"
+)]
 struct AuthenticatedRdReplayRequestV1 {
     request_identity: Box<str>,
     request_meaning_digest: Box<str>,
@@ -311,6 +317,7 @@ impl AuthenticatedRdReplayRequestV1 {
             .request()
             .meaning_digest()
             .map_err(|_| StrategyInputEventBindingErrorV1::InvalidRequest)?;
+
         if readback.request().request_identity().as_str() != locator.request_identity
             || readback.meaning_digest() != locator.meaning_digest
             || request_meaning.as_str() != locator.meaning_digest
@@ -381,6 +388,7 @@ impl AuthenticatedRdReplayRequestV1 {
             self.request_bytes.as_ref(),
             self.request_receipt_bytes.as_ref(),
         ];
+
         if coordinates
             .iter()
             .any(|value| value.is_empty() || value.len() > MAX_RD_COORDINATE_BYTES)
@@ -426,6 +434,10 @@ struct StrategyInputEventBindingPreparationV1 {
 }
 
 impl StrategyInputEventBindingPreparationV1 {
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "forming custody consumes the move-only Owner corpus"
+    )]
     fn from_owner_corpus(
         rd: AuthenticatedRdReplayRequestV1,
         replay_start_event_ns: i128,
@@ -434,6 +446,7 @@ impl StrategyInputEventBindingPreparationV1 {
         corpus: StrategyInputEventCorpusV1,
     ) -> Result<Self, StrategyInputEventBindingErrorV1> {
         rd.validate()?;
+
         if !corpus.has_valid_digest()
             || corpus.expected_count() < 2
             || corpus.expected_count() > MAX_EVENT_COUNT
@@ -444,6 +457,7 @@ impl StrategyInputEventBindingPreparationV1 {
         }
         let mut events = Vec::with_capacity(corpus.expected_count());
         let mut previous = None;
+
         for member in corpus.members() {
             let order = member.order_key();
             let key = (
@@ -452,6 +466,7 @@ impl StrategyInputEventBindingPreparationV1 {
                 order.owner_sequence(),
                 order.event_identity(),
             );
+
             if previous.is_some_and(|prior| prior >= key)
                 || i128::from(order.event_time()) < replay_start_event_ns
                 || i128::from(order.event_time()) >= replay_end_event_ns_exclusive
@@ -530,6 +545,7 @@ impl StrategyInputEventBindingPreparationV1 {
             u32::try_from(events.len())
                 .map_err(|_| StrategyInputEventBindingErrorV1::InvalidEventCensus)?,
         );
+
         for event in &events {
             put_bytes(&mut census, &event.canonical_bytes)?;
         }
@@ -537,6 +553,7 @@ impl StrategyInputEventBindingPreparationV1 {
         let selected = &events[selected_event_ordinal];
         let mut binding = Vec::new();
         put_u16(&mut binding, 1);
+
         for value in [
             rd.request_identity.as_bytes(),
             rd.request_meaning_digest.as_bytes(),
@@ -806,6 +823,7 @@ async fn resolve_strategy_input_sample_event_from_pool_v1(
     .await
     .map_err(|_| StrategyInputEventBindingErrorV1::ProjectionUnavailable)?
     .ok_or(StrategyInputEventBindingErrorV1::ProjectionUnavailable)?;
+
     if projection.kind_tag() != JOINED_CUT_KIND_V2
         || projection.receipt_digest() != *binding.projection_receipt_digest().as_bytes()
     {
@@ -825,6 +843,7 @@ async fn resolve_strategy_input_sample_event_from_pool_v1(
             stored.prepared.receipt_digest,
         )
         .map_err(|_| StrategyInputEventBindingErrorV1::ProjectionUnavailable)?;
+
         if sample.receipt().sample_identity() != component.sample_identity()
             || sample.receipt().digest() != component.sample_receipt_digest()
             || stored.prepared.projection_receipt_digest != component.timeframe_projection_digest()
@@ -858,6 +877,7 @@ async fn resolve_strategy_input_sample_event_from_pool_v1(
             market_semantics_identity: sample.receipt().market_semantics_identity(),
         });
     }
+
     if values.len() < 2
         || values
             .windows(2)
@@ -906,6 +926,7 @@ fn validate_rd_request_against_package(
         .first()
         .map(|member| member.joined_cut().strategy_design_identity())
         .ok_or(StrategyInputEventBindingErrorV1::InvalidEventCensus)?;
+
     if !strategy_identity_matches(
         request.strategy_design.identity.as_str(),
         corpus_strategy_design,
@@ -954,6 +975,7 @@ fn terminal_replay_event_ordinal(
         .members()
         .get(ordinal)
         .ok_or(StrategyInputEventBindingErrorV1::InvalidEventCensus)?;
+
     if replay.observation_start_event_time() != replay.observation_end_event_time()
         || terminal.order_key().event_time() != replay.observation_start_event_time()
     {
@@ -969,6 +991,7 @@ fn parse_owner_digest(value: &str) -> Result<BindingDigest, StrategyInputEventBi
         .or_else(|| value.strip_prefix("blake3:"))
         .ok_or(StrategyInputEventBindingErrorV1::InvalidRequest)?
         .as_bytes();
+
     if hex.len() != 64
         || !hex
             .iter()
@@ -1018,6 +1041,7 @@ async fn commit_strategy_input_event_binding_in_transaction_v1(
         }
         return Ok(existing);
     }
+
     if let Some(conflict) = load_by_binding(transaction, prepared.binding_identity, true).await? {
         if !readback_matches_prepared(&conflict, prepared) {
             return Err(StrategyInputEventBindingErrorV1::ReplayConflict);
@@ -1068,6 +1092,7 @@ async fn persist(
         .execute(&mut **transaction)
         .await
         .map_err(map_insert)?;
+
     for (ordinal, event) in prepared.events.iter().enumerate() {
         sqlx::query("INSERT INTO market_data_private.strategy_input_event_binding_census_v1(binding_identity,event_ordinal,logical_time,event_time,owner_sequence,event_identity,trigger_digest,projection_receipt_digest,projection_receipt_bytes,entry_bytes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
             .bind(prepared.binding_identity.as_bytes().as_slice())
@@ -1110,6 +1135,7 @@ async fn load_by_request(
         .fetch_optional(&mut **transaction)
         .await
         .map_err(|_| StrategyInputEventBindingErrorV1::StoreUnavailable)?;
+
     match row {
         Some(row) => decode_stored(transaction, row, lock).await.map(Some),
         None => Ok(None),
@@ -1131,6 +1157,7 @@ async fn load_by_binding(
         .fetch_optional(&mut **transaction)
         .await
         .map_err(|_| StrategyInputEventBindingErrorV1::StoreUnavailable)?;
+
     match row {
         Some(row) => decode_stored(transaction, row, lock).await.map(Some),
         None => Ok(None),
@@ -1188,6 +1215,7 @@ async fn decode_stored(
         .ok_or(StrategyInputEventBindingErrorV1::StoreUnavailable)?;
     let mut expected_binding = Vec::new();
     put_u16(&mut expected_binding, 1);
+
     for value in [
         request_identity.as_slice(),
         request_meaning.as_slice(),
@@ -1225,6 +1253,7 @@ async fn decode_stored(
     put_bytes(&mut expected_readback, &expected_binding)?;
     put_bytes(&mut expected_readback, &expected_receipt)?;
     put_bytes(&mut expected_readback, &census_bytes)?;
+
     if events.len() != event_count
         || replay_start_event_ns >= replay_end_event_ns_exclusive
         || selected.projection_receipt_digest != projection
@@ -1355,6 +1384,7 @@ async fn validate_projection_custody(
         .await
         .map_err(|_| StrategyInputEventBindingErrorV1::ProjectionUnavailable)?
         .ok_or(StrategyInputEventBindingErrorV1::ProjectionUnavailable)?;
+
         if stored.kind_tag() != JOINED_CUT_KIND_V2
             || stored.canonical_bytes() != event.projection_receipt_bytes.as_ref()
         {
@@ -1380,6 +1410,7 @@ async fn verify_contract(
         .fetch_one(&mut **transaction)
         .await
         .map_err(store_error)?;
+
     if !topology_is_exact {
         return Err(StrategyInputEventBindingErrorV1::StoreUnavailable);
     }
@@ -1387,6 +1418,7 @@ async fn verify_contract(
         .fetch_one(&mut **transaction)
         .await
         .map_err(store_error)?;
+
     if trusted_search_path != "pg_catalog" {
         return Err(StrategyInputEventBindingErrorV1::StoreUnavailable);
     }
@@ -1409,6 +1441,7 @@ async fn verify_contract(
     if !check_predicates_are_exact(&checks) {
         return Err(StrategyInputEventBindingErrorV1::StoreUnavailable);
     }
+
     for (table, expected) in [
         (
             "strategy_input_event_bindings_v1",
@@ -1430,6 +1463,7 @@ async fn verify_contract(
         .fetch_one(&mut **transaction)
         .await
         .map_err(store_error)?;
+
         if signature.as_deref() != Some(expected) {
             return Err(StrategyInputEventBindingErrorV1::StoreUnavailable);
         }
@@ -1438,6 +1472,7 @@ async fn verify_contract(
         .fetch_one(&mut **transaction).await.map_err(store_error)?;
     let census_source: String = sqlx::query_scalar("SELECT prosrc FROM pg_catalog.pg_proc WHERE oid=pg_catalog.to_regprocedure('market_data_private.resolve_strategy_input_event_binding_census_v1(bytea)')")
         .fetch_one(&mut **transaction).await.map_err(store_error)?;
+
     if binding_source.trim() != RESOLVE_BINDING_SOURCE_V1
         || census_source.trim() != RESOLVE_CENSUS_SOURCE_V1
     {
@@ -1481,6 +1516,7 @@ fn validate_event_set(
         return Err(StrategyInputEventBindingErrorV1::InvalidEventCensus);
     }
     let mut previous = None;
+
     for event in events {
         let key = (
             event.logical_time,
@@ -1488,6 +1524,7 @@ fn validate_event_set(
             event.owner_sequence,
             event.event_identity,
         );
+
         if previous.is_some_and(|prior| prior >= key)
             || event.logical_time == 0
             || event.owner_sequence == 0
@@ -1541,6 +1578,7 @@ fn encode_census(events: &[PreparedEventV1]) -> Result<Vec<u8>, StrategyInputEve
         u32::try_from(events.len())
             .map_err(|_| StrategyInputEventBindingErrorV1::InvalidEventCensus)?,
     );
+
     for event in events {
         put_bytes(&mut bytes, &event.canonical_bytes)?;
     }
@@ -1629,10 +1667,14 @@ fn to_i64(value: impl TryInto<i64>) -> Result<i64, StrategyInputEventBindingErro
         .map_err(|_| StrategyInputEventBindingErrorV1::InvalidEventCensus)
 }
 
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "the map_err callback owns the SQL error while classification reads its metadata"
+)]
 fn map_insert(error: sqlx::Error) -> StrategyInputEventBindingErrorV1 {
     if error
         .as_database_error()
-        .and_then(|error| error.code())
+        .and_then(sqlx::error::DatabaseError::code)
         .as_deref()
         == Some("23505")
     {
@@ -1642,7 +1684,7 @@ fn map_insert(error: sqlx::Error) -> StrategyInputEventBindingErrorV1 {
     }
 }
 
-fn store_error(_: impl std::fmt::Debug) -> StrategyInputEventBindingErrorV1 {
+fn store_error(_: impl Debug) -> StrategyInputEventBindingErrorV1 {
     StrategyInputEventBindingErrorV1::StoreUnavailable
 }
 
@@ -1709,7 +1751,7 @@ mod tests {
         .unwrap()
     }
 
-    #[test]
+    #[rstest::rstest]
     fn same_meaning_replay_has_byte_identical_locator_and_readback() {
         let first = prepared();
         let second = prepared();
@@ -1720,7 +1762,7 @@ mod tests {
         assert_eq!(first.census_bytes, second.census_bytes);
     }
 
-    #[test]
+    #[rstest::rstest]
     fn same_identity_with_changed_meaning_conflicts_without_equivalence() {
         let first = prepared();
         let mut changed = prepared();
@@ -1754,12 +1796,12 @@ mod tests {
             selected_event_identity: first.events[1].event_identity,
             census_digest: first.census_digest,
             event_count: first.events.len(),
-            canonical_bytes: first.readback_bytes.clone(),
+            canonical_bytes: first.readback_bytes,
         };
         assert!(!readback_matches_prepared(&stored, &changed));
     }
 
-    #[test]
+    #[rstest::rstest]
     fn request_a_with_valid_event_corpus_b_is_rejected() {
         let request_a_corpus_a = prepared();
         let request_a_corpus_b = StrategyInputEventBindingPreparationV1::from_parts(
@@ -1791,12 +1833,12 @@ mod tests {
             selected_event_identity: request_a_corpus_a.events[1].event_identity,
             census_digest: request_a_corpus_a.census_digest,
             event_count: request_a_corpus_a.events.len(),
-            canonical_bytes: request_a_corpus_a.readback_bytes.clone(),
+            canonical_bytes: request_a_corpus_a.readback_bytes,
         };
         assert!(!readback_matches_prepared(&stored_a, &request_a_corpus_b));
     }
 
-    #[test]
+    #[rstest::rstest]
     fn reordered_duplicate_or_out_of_window_census_fails_closed() {
         assert_eq!(
             validate_event_set(&[event(2), event(1)], 10, 20, 0),
@@ -1812,7 +1854,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn corruption_changes_every_aggregate_identity() {
         let original = prepared();
         let mut corrupt_events = vec![event(1), event(2)];
@@ -1834,7 +1876,7 @@ mod tests {
         assert_ne!(original.readback_identity, corrupt.readback_identity);
     }
 
-    #[test]
+    #[rstest::rstest]
     fn schema_authenticates_ordered_census_and_private_exact_resolvers() {
         let schema = STRATEGY_INPUT_EVENT_BINDING_SCHEMA_V1.join("\n");
         assert!(schema.contains("PRIMARY KEY(binding_identity,event_ordinal)"));
@@ -1853,7 +1895,7 @@ mod tests {
         assert!(!implementation.contains(&forbidden_constructor));
     }
 
-    #[test]
+    #[rstest::rstest]
     fn topology_contract_drift_is_not_equivalent() {
         assert_eq!(VERIFY_TOPOLOGY_V1.matches("EXCEPT ALL").count(), 6);
         for relation in ["expected_pu", "expected_fk", "expected_indexes"] {
@@ -1902,12 +1944,13 @@ mod tests {
     }
 
     #[cfg(feature = "isolated-event-replay-acceptance")]
-    #[test]
+    #[rstest::rstest]
     fn fixed_port_rejects_noncanonical_owner_digests() {
         assert_eq!(
             parse_owner_digest(&format!("sha256:{}", "ab".repeat(32))),
             Ok(BindingDigest::from_untrusted_bytes([0xab; 32]))
         );
+
         for invalid in [
             "sha256:00",
             "sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
@@ -1923,7 +1966,7 @@ mod tests {
     }
 
     #[cfg(feature = "isolated-event-replay-acceptance")]
-    #[test]
+    #[rstest::rstest]
     fn fixed_port_rejects_request_a_with_strategy_corpus_b() {
         let strategy_a = d(0x11);
         let strategy_b = d(0x22);
@@ -1944,7 +1987,7 @@ mod tests {
     }
 
     #[cfg(feature = "isolated-event-replay-acceptance")]
-    #[test]
+    #[rstest::rstest]
     fn fixed_positive_port_retains_transaction_and_derives_caller_forbidden_fields() {
         let implementation = include_str!("strategy_input_event_binding_v1.rs");
         let method = implementation
@@ -1957,6 +2000,7 @@ mod tests {
         let signature = method.split('{').next().unwrap();
         assert!(signature.contains("SealedExploratoryReplayRequestLocatorV2"));
         assert!(signature.contains("StrategyInputEventReplayPackageV1"));
+
         for forbidden in [
             "selected_event_ordinal",
             "replay_start_event_ns",
@@ -1989,7 +2033,7 @@ mod tests {
     }
 
     #[cfg(feature = "isolated-event-replay-acceptance")]
-    #[test]
+    #[rstest::rstest]
     fn resolver_public_operation_has_no_event_query_parameter() {
         let contract = include_str!("../strategy_input_event_corpus_v1.rs");
         let resolver = contract

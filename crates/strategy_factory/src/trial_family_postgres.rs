@@ -1,3 +1,11 @@
+#![cfg_attr(
+    test,
+    expect(
+        clippy::large_futures,
+        reason = "transactional TrialFamily tests retain complete typed append readbacks across awaited checks"
+    )
+)]
+
 use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
@@ -136,6 +144,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), TrialFamilyError> {
             .await
             .map_err(storage)?;
     }
+
     for statement in [
         "ALTER TABLE rd_trial_families_v1 ADD COLUMN IF NOT EXISTS root_storage_bytes BYTEA",
         "ALTER TABLE rd_trial_families_v1 ADD COLUMN IF NOT EXISTS root_storage_digest TEXT",
@@ -279,6 +288,10 @@ pub(crate) async fn persist_artifact_binding(
     persist_artifact_binding_readback(transaction, readback, now_epoch_ms).await
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the custody boundary verifies the successor Intent and TrialFamily bindings independently"
+)]
 pub(crate) async fn persist_successor_artifact_binding(
     transaction: &mut Transaction<'_, Postgres>,
     family: TrialFamilyReadbackV1,
@@ -422,6 +435,7 @@ async fn load_artifact_trial_family_with_intent_in_transaction(
         }
         None => intent_identity == family.root_receipt.intent_identity(),
     };
+
     if row_intent_identity != intent_identity
         || !intent_family_matches
         || trial_family_identity != family.root.trial_family_identity()
@@ -904,6 +918,7 @@ pub(crate) async fn load_trial_family_census_v2_by_family_in_transaction(
     .fetch_all(&mut **transaction)
     .await
     .map_err(storage)?;
+
     if family_rows.len() != 1 || outbox_rows.len() != 1 {
         return Err(TrialFamilyError::Unavailable(
             "TrialFamily locator custody is incomplete".to_string(),
@@ -933,6 +948,7 @@ pub(crate) async fn load_trial_family_census_v2_by_family_in_transaction(
         &payload.research_receipt_identity,
     )
     .await?;
+
     if census.census_frontier.trial_family_identity() != trial_family_identity {
         return Err(TrialFamilyError::Unavailable(
             "TrialFamily locator resolved a different family".to_string(),

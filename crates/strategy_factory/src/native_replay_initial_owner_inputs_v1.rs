@@ -44,6 +44,7 @@ where
     let snapshot_identity = parse_sha256(replay.pit_snapshot.identity.as_str())?;
     let snapshot_fact_digest = parse_sha256(replay.pit_snapshot.digest.as_str())?;
     let master_members = instrument_master.cut().members();
+
     if selection.selection_identity().as_bytes() != &request_selection_identity
         || selection.selection_digest().as_bytes() != &request_selection_digest
         || selection.members().len() != MEMBER_COUNT
@@ -126,6 +127,7 @@ fn parse_sha256(value: &str) -> Result<[u8; 32], NativeReplayInitialOwnerInputsE
     let hex = value
         .strip_prefix("sha256:")
         .ok_or(NativeReplayInitialOwnerInputsErrorV1::Unavailable)?;
+
     if hex.len() != 64
         || !hex
             .bytes()

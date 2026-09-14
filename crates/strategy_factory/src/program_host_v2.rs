@@ -958,6 +958,7 @@ fn admit_market_data_resolved_sample_event_v1(
     readback: &StrategyInputSampleEventReadbackV1,
 ) -> Result<AdmittedProgramEventV2, ProgramHostV2Error> {
     let zero = BindingDigest::from_untrusted_bytes([0; 32]);
+
     if readback.request_identity().is_empty()
         || readback.request_meaning_digest().is_empty()
         || readback.strategy_design_identity() != plan.design_identity()
@@ -1005,6 +1006,7 @@ fn admit_market_data_resolved_sample_event_v1(
             .iter()
             .find(|value| value.role_identity() == *role_identity.as_bytes())
             .ok_or(ProgramHostV2Error::InputCoverage)?;
+
         if value.binding_receipt_digest() != *binding.receipt_digest().as_bytes()
             || value.value_scale() != role.scale
             || role.value_type != ValueTypeV2::I128
@@ -1042,6 +1044,7 @@ fn admit_market_data_resolved_sample_event_v1(
         let component =
             LifecycleEnvelopeV1::new_bound(component_key, lifecycle_v1::EnvelopePayloadV1::Event)
                 .map_err(ProgramHostV2Error::Kernel)?;
+
         if role.semantic_id == join.trigger_input_id
             && (component != driver || value.value_trigger_digest() == zero)
         {
@@ -1089,6 +1092,7 @@ fn admit_market_data_resolved_sample_event_v1(
             version: value.source_binding_lineage_version(),
         });
     }
+
     if !inputs
         .iter()
         .any(|input| input.role_semantic_id == join.trigger_input_id)
@@ -1153,6 +1157,7 @@ fn resolved_sample_event_receipt_digest_v1(
     value: &vibe_data::owner::strategy_input_event_corpus_v1::StrategyInputSampleEventValueV1,
 ) -> BindingDigest {
     let mut bytes = Vec::new();
+
     for text in [
         readback.request_identity(),
         readback.request_meaning_digest(),
@@ -1160,6 +1165,7 @@ fn resolved_sample_event_receipt_digest_v1(
         bytes.extend_from_slice(&(text.len() as u32).to_le_bytes());
         bytes.extend_from_slice(text.as_bytes());
     }
+
     for digest in [
         readback.binding_identity(),
         readback.binding_receipt_identity(),

@@ -85,8 +85,8 @@ repository = "https://github.com/qOeOp/trade"
 strategy-factory-program-sdk = { path = "crates/strategy_factory/programs/sdk", version = "0.1.0" }
 vibe-analysis = { path = "crates/analysis", version = "0.62.0" }
 vibe-backtest = { path = "crates/backtest", version = "0.62.0" }
-vibe-backtest-owner-contracts = { path = "crates/backtest_owner_contracts", version = "0.62.0" }
 vibe-backtest-owner = { path = "crates/backtest_owner", version = "0.62.0" }
+vibe-backtest-owner-contracts = { path = "crates/backtest_owner_contracts", version = "0.62.0" }
 vibe-backtest-result-custody = { path = "crates/backtest_result_custody", version = "0.62.0" }
 vibe-cli = { path = "crates/cli", version = "0.62.0" }
 vibe-common = { path = "crates/common", version = "0.62.0" }
@@ -339,11 +339,11 @@ tokio-tungstenite = { version = "0.30.0", features = [
   "rustls-tls-webpki-roots",
 ] }
 tokio-util = { version = "0.7.19", default-features = false, features = ["io"] }
-tower = "0.5.3"
 toml = { version = "1.1.4", default-features = false, features = [
   "parse",
   "serde",
 ] }
+tower = "0.5.3"
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = [
   "std",

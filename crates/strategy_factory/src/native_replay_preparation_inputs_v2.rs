@@ -83,7 +83,7 @@ where
 {
     let resolved = resolve_native_replay_rd_cut_v2_in_transaction(transaction, replay_locator)
         .await
-        .map_err(|error| NativeReplayPreparationInputsErrorV2::Unavailable(error.to_string()))?;
+        .map_err(|e| NativeReplayPreparationInputsErrorV2::Unavailable(e.to_string()))?;
     let request = resolved.replay.request().as_dto();
     let composer_locator = resolve_develop_composer_locator_for_replay_v2_in_transaction(
         transaction,

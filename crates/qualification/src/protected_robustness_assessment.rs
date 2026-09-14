@@ -441,6 +441,7 @@ fn form_assessment_v1(
     frontier
         .validate_against_request_set(request_set)
         .map_err(contract)?;
+
     if request_set.candidate_identity != source.candidate_identity
         || request_set.candidate_digest != source.candidate_digest
         || request_set.protected_plan_identity != source.plan_identity
@@ -456,6 +457,7 @@ fn form_assessment_v1(
             "protected request set changed its frozen authority",
         ));
     }
+
     if requests.len() != request_set.members.len() || results.len() != frontier.members.len() {
         return Err(unavailable(
             "protected assessment source census is incomplete",
@@ -470,6 +472,7 @@ fn form_assessment_v1(
         .iter()
         .map(|result| (result.result_identity.as_str(), result))
         .collect::<BTreeMap<_, _>>();
+
     if requests_by_identity.len() != requests.len() || results_by_identity.len() != results.len() {
         return Err(unavailable(
             "protected assessment census contains duplicate identity",
@@ -478,6 +481,7 @@ fn form_assessment_v1(
 
     let mut census = Vec::with_capacity(request_set.members.len());
     let mut result_times = Vec::with_capacity(results.len());
+
     for member in &request_set.members {
         let request = requests_by_identity
             .get(member.request_identity.as_str())
@@ -487,11 +491,13 @@ fn form_assessment_v1(
             .iter()
             .filter(|candidate| candidate.request_identity == member.request_identity)
             .collect::<Vec<_>>();
+
         if frontier_members.is_empty() {
             return Err(unavailable(
                 "protected assessment frontier member is missing",
             ));
         }
+
         if !valid_terminal_result_count(mode, frontier_members.len()) {
             return Err(unavailable(
                 "protected economic assessment contains duplicate cell attempts",
@@ -506,6 +512,7 @@ fn form_assessment_v1(
         let mut terminal_results = Vec::with_capacity(frontier_members.len());
         let mut every_basis_accepted = true;
         let mut cell_has_applicable = false;
+
         for frontier_member in frontier_members {
             let result = results_by_identity
                 .get(frontier_member.result.result_identity.as_str())
@@ -536,6 +543,7 @@ fn form_assessment_v1(
                 result.applicability_evidence.observation,
                 economic_pass,
             );
+
             if frontier_member.result.result_digest != result.result_digest
                 || frontier_member.result_time_evidence_digest != result_time_digest
                 || !assessment_ready
@@ -641,6 +649,7 @@ fn form_assessment_v1(
     assessment_time_evidence
         .validate_assessment_successor_of(result_time)
         .map_err(contract)?;
+
     if committed_at_epoch_ms >= assessment_time_evidence.valid_through {
         return Err(unavailable(
             "protected assessment time evidence expired before commit",
@@ -835,6 +844,7 @@ fn economic_measurement_pass(
             "protected economic measurement changed the frozen policy",
         ));
     }
+
     if measurement.observed_coverage_bps < policy.minimum_coverage_bps {
         return Ok(false);
     }
@@ -1249,12 +1259,14 @@ fn latest_fresh_comparable_result_time<'a>(
     committed_at_epoch_ms: u64,
 ) -> Result<&'a ProtectedEvaluationTimeEvidenceV1, QualificationOwnerError> {
     let mut by_sequence = BTreeMap::new();
+
     for result_time in result_times {
         if committed_at_epoch_ms >= result_time.valid_through {
             return Err(unavailable(
                 "protected result time evidence expired before assessment commit",
             ));
         }
+
         if let Some(existing) = by_sequence.insert(result_time.monotonic_sequence, *result_time)
             && existing != *result_time
         {
@@ -1268,6 +1280,7 @@ fn latest_fresh_comparable_result_time<'a>(
     let mut latest = *ordered
         .next()
         .ok_or_else(|| unavailable("protected assessment result time evidence is unavailable"))?;
+
     for current in ordered {
         if current
             .compare_result_cut_within_epoch(latest)
@@ -1285,7 +1298,7 @@ fn latest_fresh_comparable_result_time<'a>(
 
 impl ProtectedRobustnessAssessmentV1 {
     pub(crate) fn as_json(&self) -> Result<serde_json::Value, QualificationOwnerError> {
-        serde_json::to_value(self).map_err(|error| unavailable(&error.to_string()))
+        serde_json::to_value(self).map_err(|e| unavailable(&e.to_string()))
     }
 
     pub(crate) fn assessment_identity(&self) -> &str {
@@ -1327,7 +1340,7 @@ impl ProtectedRobustnessAssessmentV1 {
 
 impl ProtectedAssessmentInvalidDispositionV2 {
     pub(crate) fn as_json(&self) -> Result<serde_json::Value, QualificationOwnerError> {
-        serde_json::to_value(self).map_err(|error| unavailable(&error.to_string()))
+        serde_json::to_value(self).map_err(|e| unavailable(&e.to_string()))
     }
 
     pub(crate) fn disposition_identity(&self) -> &str {
@@ -1361,7 +1374,7 @@ impl ProtectedAssessmentInvalidDispositionV2 {
 
 impl ProtectedAssessmentInvalidDispositionReceiptV2 {
     pub(crate) fn as_json(&self) -> Result<serde_json::Value, QualificationOwnerError> {
-        serde_json::to_value(self).map_err(|error| unavailable(&error.to_string()))
+        serde_json::to_value(self).map_err(|e| unavailable(&e.to_string()))
     }
 
     pub(crate) fn receipt_identity(&self) -> &str {
@@ -1375,7 +1388,7 @@ impl ProtectedAssessmentInvalidDispositionReceiptV2 {
 
 impl ProtectedEligibilityFactV1 {
     pub(crate) fn as_json(&self) -> Result<serde_json::Value, QualificationOwnerError> {
-        serde_json::to_value(self).map_err(|error| unavailable(&error.to_string()))
+        serde_json::to_value(self).map_err(|e| unavailable(&e.to_string()))
     }
 
     pub(crate) fn eligibility_identity(&self) -> &str {
@@ -1413,7 +1426,7 @@ impl ProtectedEligibilityFactV1 {
 
 impl ProtectedEligibilityFactReceiptV1 {
     pub(crate) fn as_json(&self) -> Result<serde_json::Value, QualificationOwnerError> {
-        serde_json::to_value(self).map_err(|error| unavailable(&error.to_string()))
+        serde_json::to_value(self).map_err(|e| unavailable(&e.to_string()))
     }
 
     pub(crate) fn receipt_identity(&self) -> &str {

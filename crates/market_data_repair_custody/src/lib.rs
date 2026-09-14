@@ -3,6 +3,8 @@
 //! Issuance consumes both positive inputs by value. A locator, delivery acknowledgement, changed
 //! digest, or caller-authored terminal fields cannot create this result.
 
+use std::fmt::Display;
+
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -404,6 +406,7 @@ fn issue_from_evidence(
     {
         return Err(MarketDataRepairTerminalErrorV1::BindingMismatch);
     }
+
     if pit.snapshot_identity() == original_pit_snapshot_identity
         && pit.fact_digest() == original_pit_proof_digest
     {
@@ -572,7 +575,7 @@ fn digest(value: &impl Serialize) -> Result<String, MarketDataRepairTerminalErro
     .map_err(encoding)
 }
 
-fn encoding(error: impl std::fmt::Display) -> MarketDataRepairTerminalErrorV1 {
+fn encoding(error: impl Display) -> MarketDataRepairTerminalErrorV1 {
     MarketDataRepairTerminalErrorV1::Encoding(error.to_string())
 }
 
@@ -617,16 +620,16 @@ mod tests {
         fn is_market_data_target(&self) -> bool {
             self.target
         }
-        fn request_identity(&self) -> &str {
+        fn request_identity(&self) -> &'static str {
             "repair-request"
         }
-        fn request_digest(&self) -> &str {
+        fn request_digest(&self) -> &'static str {
             "sha256:repair-request"
         }
-        fn receipt_identity(&self) -> &str {
+        fn receipt_identity(&self) -> &'static str {
             "repair-receipt"
         }
-        fn receipt_digest(&self) -> &str {
+        fn receipt_digest(&self) -> &'static str {
             "sha256:repair-receipt"
         }
         fn coordinate(&self, coordinate: MarketDataRepairDigestCoordinateV1) -> Option<[u8; 32]> {
@@ -784,7 +787,7 @@ mod tests {
         issue_from_evidence(&request, &pit).expect("available repair terminal fixture")
     }
 
-    #[test]
+    #[rstest::rstest]
     fn exact_available_terminal_is_deterministic() {
         let first = available_terminal_fixture(20);
         let second = available_terminal_fixture(20);
@@ -796,7 +799,7 @@ mod tests {
         assert_eq!(first.to_canonical_bytes(), second.to_canonical_bytes());
     }
 
-    #[test]
+    #[rstest::rstest]
     fn canonical_non_available_terminal_maps_to_unavailable() {
         let (request, mut pit) = fixtures();
         pit.disposition = ResearchPitDisposition::Insufficient;
@@ -819,7 +822,7 @@ mod tests {
         assert!(terminal.available().is_none());
     }
 
-    #[test]
+    #[rstest::rstest]
     fn spliced_or_prior_terminal_fails_closed() {
         let (request, mut pit) = fixtures();
         pit.correlation_identity = d(99);

@@ -78,7 +78,13 @@ schema:
     marketData:
       type: object
       additionalProperties: false
-      required: [action_request_identity, decision_identity, result_identity, attempt_identity, replay, shared_time_head]
+      required:
+        - action_request_identity
+        - decision_identity
+        - result_identity
+        - attempt_identity
+        - replay
+        - shared_time_head
       properties:
         action_request_identity: {$ref: "#/$defs/identity"}
         decision_identity: {$ref: "#/$defs/identity"}

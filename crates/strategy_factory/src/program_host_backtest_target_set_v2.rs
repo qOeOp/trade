@@ -238,7 +238,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
                 && bar_types[1].instrument_id() == instrument_ids[1],
             "Backtest target-set members must be distinct and canonical"
         );
-        let host = ProgramHostV2::new(plan.clone(), artifact.clone())?;
+        let host = ProgramHostV2::new(plan.clone(), artifact)?;
         let mut frames = BTreeMap::new();
 
         for frame in universe_frames {
@@ -323,6 +323,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
                 "Backtest target-set actual venue account mismatches Owner scope"
             );
         }
+
         for instrument_id in self.instrument_ids {
             self.cache().try_instrument(&instrument_id)?;
         }
@@ -828,6 +829,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
             .host
             .apply_backtest_member_fill_event(&binding.instrument_id.to_string(), &event)?;
         let checkpoint_after = self.host.checkpoint().digest();
+
         if matches!(
             disposition,
             FillDispositionV1::PartiallyFilled | FillDispositionV1::Filled

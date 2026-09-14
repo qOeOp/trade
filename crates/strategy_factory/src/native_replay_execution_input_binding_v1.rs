@@ -321,13 +321,14 @@ pub(crate) async fn issue_native_replay_execution_input_binding_v1_in_transactio
     }
     validate_storage_boundary(transaction).await?;
     let prepared = prepare_rows(verified, replay.owner_cut_epoch_ms())?;
+
     if let Some(existing) = load_rows(
         transaction,
         &prepared.binding.request_locator.request_identity,
     )
     .await?
     {
-        let readback = recover_rows(existing)?;
+        let readback = recover_rows(&existing)?;
         return if readback == prepared {
             Ok(readback)
         } else {
@@ -392,7 +393,7 @@ pub async fn resolve_native_replay_execution_input_binding_v1_in_transaction(
     else {
         return Ok(None);
     };
-    let readback = recover_rows(rows)?;
+    let readback = recover_rows(&rows)?;
     if readback.binding.request_locator != locator.request_locator
         || readback.binding.binding_identity != locator.binding_identity
     {
@@ -416,7 +417,7 @@ pub(crate) async fn resolve_native_replay_execution_input_binding_for_request_v1
     let Some(rows) = load_rows(transaction, &request_locator.request_identity).await? else {
         return Ok(None);
     };
-    let readback = recover_rows(rows)?;
+    let readback = recover_rows(&rows)?;
     if &readback.binding.request_locator != request_locator {
         return Ok(None);
     }
@@ -616,7 +617,7 @@ fn prepare_rows(
 }
 
 fn recover_rows(
-    rows: StoredRowsV1,
+    rows: &StoredRowsV1,
 ) -> Result<NativeReplayExecutionInputBindingReadbackV1, NativeReplayExecutionInputBindingErrorV1> {
     let mut decoder = CanonicalDecoder::new(&rows.binding_bytes);
     if decoder.u16()? != SCHEMA_VERSION {
@@ -826,6 +827,7 @@ fn verify_owner_readbacks(
             .validate_native_crypto_perpetual_public_terms()
             .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
         let event_time = i128::from(request.window.start_event_ns);
+
         if selected.instrument() != public_fact.canonical_identity()
             || economic_input.instrument_identity != public_fact.canonical_identity()
             || economic_input.instrument_public_fact_digest != *public_fact.identity().as_bytes()
@@ -865,6 +867,7 @@ fn verify_owner_readbacks(
             },
         });
     }
+
     if members[0].account_scope_identity != members[1].account_scope_identity {
         return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
     }
@@ -911,6 +914,7 @@ fn parse_sha256(value: &str) -> Result<[u8; 32], NativeReplayExecutionInputBindi
     let hex = value
         .strip_prefix("sha256:")
         .ok_or(NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+
     if hex.len() != 64
         || !hex
             .bytes()
@@ -1245,10 +1249,10 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest::rstest]
     fn exact_two_member_binding_round_trips_byte_identically() {
         let prepared = prepare_rows(verified(), 17).expect("prepared");
-        let recovered = recover_rows(stored(&prepared)).expect("recovered");
+        let recovered = recover_rows(&stored(&prepared)).expect("recovered");
         assert_eq!(prepared, recovered);
         assert_eq!(recovered.binding.member_keys(), ["AAPL", "MSFT"]);
         let locators = recovered
@@ -1260,7 +1264,7 @@ mod tests {
         assert_eq!(locators[1].receipt_identity(), d(44));
     }
 
-    #[test]
+    #[rstest::rstest]
     fn reordered_or_changed_constituent_cannot_join_same_request_custody() {
         let canonical = prepare_rows(verified(), 17).expect("canonical");
         let mut reordered = verified();
@@ -1275,7 +1279,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn duplicate_member_and_corrupt_recovery_fail_closed() {
         let mut duplicate = verified();
         duplicate.members[1].member_key = duplicate.members[0].member_key.clone();
@@ -1284,10 +1288,10 @@ mod tests {
         let prepared = prepare_rows(verified(), 17).expect("prepared");
         let mut corrupt = stored(&prepared);
         corrupt.binding_bytes[5] ^= 1;
-        assert!(recover_rows(corrupt).is_err());
+        assert!(recover_rows(&corrupt).is_err());
 
         let mut wrong_request = stored(&prepared);
         wrong_request.request_identity = "another-request".into();
-        assert!(recover_rows(wrong_request).is_err());
+        assert!(recover_rows(&wrong_request).is_err());
     }
 }

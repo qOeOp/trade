@@ -101,6 +101,7 @@ fn exact_result_binding(
         .ok_or(BacktestOutcomeEvidenceOwnerErrorV1::MissingResultBinding(
             component,
         ))?;
+
     if matches.next().is_some()
         || atom.status() != ReconciliationStatusV2::Exact
         || atom.observed_meaning_identity() != Some(atom.requested_meaning_identity())

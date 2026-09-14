@@ -246,11 +246,11 @@ pub(crate) fn admit_stored_successor_research_intent_v1(
 ) -> Result<SuccessorResearchIntentReadbackV1, SuccessorResearchIntentErrorV1> {
     let request: SuccessorResearchIntentCompositionRequestV1 =
         serde_json::from_slice(request_bytes)
-            .map_err(|error| SuccessorResearchIntentErrorV1::Encoding(error.to_string()))?;
+            .map_err(|e| SuccessorResearchIntentErrorV1::Encoding(e.to_string()))?;
     let intent: StoredFrozenSuccessorResearchIntentV1 = serde_json::from_slice(intent_bytes)
-        .map_err(|error| SuccessorResearchIntentErrorV1::Encoding(error.to_string()))?;
+        .map_err(|e| SuccessorResearchIntentErrorV1::Encoding(e.to_string()))?;
     let receipt: StoredSuccessorResearchIntentReceiptV1 = serde_json::from_slice(receipt_bytes)
-        .map_err(|error| SuccessorResearchIntentErrorV1::Encoding(error.to_string()))?;
+        .map_err(|e| SuccessorResearchIntentErrorV1::Encoding(e.to_string()))?;
     if intent.schema_version != 1
         || receipt.schema_version != 1
         || intent.request_identity != request.request_identity
@@ -320,6 +320,7 @@ fn validate_request(
             ));
         }
     }
+
     for digest in [
         source.predecessor_intent_digest.as_str(),
         source.decision_digest.as_str(),
@@ -333,6 +334,7 @@ fn validate_request(
             return Err(SuccessorResearchIntentErrorV1::Invalid("digest is invalid"));
         }
     }
+
     if request.decision_identity != source.decision_identity
         || request.result_identity != source.result_identity
     {
@@ -361,7 +363,7 @@ fn canonical_digest(
     value: &impl Serialize,
 ) -> Result<String, SuccessorResearchIntentErrorV1> {
     let bytes = serde_json::to_vec(value)
-        .map_err(|error| SuccessorResearchIntentErrorV1::Encoding(error.to_string()))?;
+        .map_err(|e| SuccessorResearchIntentErrorV1::Encoding(e.to_string()))?;
     let mut hasher = Sha256::new();
     hasher.update(domain.as_bytes());
     hasher.update([0]);
@@ -373,6 +375,10 @@ fn identity(prefix: &str, digest: &str) -> String {
     format!("{prefix}-{}", digest.trim_start_matches("sha256:"))
 }
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "the serde map_err adapter receives and consumes its owned error value"
+)]
 fn encoding(error: serde_json::Error) -> SuccessorResearchIntentErrorV1 {
     SuccessorResearchIntentErrorV1::Encoding(error.to_string())
 }

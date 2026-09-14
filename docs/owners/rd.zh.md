@@ -176,14 +176,15 @@ trigger string、maximum staleness `u64BE`。不得有 trailing bytes。`receipt
 既有 Composer custody 重新 projection，并且必须返回 byte-identical canonical bytes 与 digest。caller 自建
 的 bytes 或 hash 即使 self-consistent 仍不可信，不能进入固定 resolver path。
 
-**CURRENT/PARTIAL - 本地 bounded-plugin build producer：** 对准确一个当前 `PluginManifestV2`，R&D 只接纳
+**macOS 为 CURRENT/PARTIAL；hosted Linux ARM64 为 REVALIDATION REQUIRED - 本地 bounded-plugin build
+producer：** 对准确一个当前 `PluginManifestV2`，R&D 只接纳
 固定 `rust.no_std.fixed-abi-source.v2` 语言中一份有内容上限的 `src/lib.rs`，拒绝其他路径、symlink、文件、
 dependency、build script、toolchain、target 或 command。它物化两个相互独立的私有临时 Cargo project；
 每次构建在定位任何 tool 之前先选择一个 frozen host profile，把准确 host、三项 executable digest 与唯一
 `wasm32v1-none` target admission 一次性绑定。CURRENT macOS arm64 profile 绑定 canonical Cargo 1.97.1
 （`c980f486…bf5`，SHA-256 `7672ead3…bbf5`）、rustc 1.97.1（`8bab26f…452`，SHA-256
-`210df679…a4da`）、rust-lld（SHA-256 `8f5fe507…548d`）及 `aarch64-apple-darwin`。CURRENT/PARTIAL hosted
-Linux ARM64 A0 profile 记录了 `aarch64-unknown-linux-gnu` 的相同准确 release/commit，Cargo SHA-256 为
+`210df679…a4da`）、rust-lld（SHA-256 `8f5fe507…548d`）及 `aarch64-apple-darwin`。hosted Linux ARM64 A0
+候选 profile 记录了 `aarch64-unknown-linux-gnu` 的相同准确 release/commit，Cargo SHA-256 为
 `c5dcff70…1808`、rustc SHA-256 为 `a3d4dfcd…e78`、rust-lld SHA-256 为 `533dffee…eb7`。每次已接纳构建
 都拒绝 ambient ancestor Cargo 配置，并要求每个 tool 的 `-Vv` host 与所选 profile 一致。`RUSTUP_HOME` 或
 `HOME/.rustup` 只定位该 profile 的准确 release 候选 toolchain；路径字节不具 authority 且不进入
@@ -195,12 +196,15 @@ receipt 且不重新构建，同一 plugin identity 的冲突 capsule fail close
 root，cleanup failure 优先于原始终态。这只证明本地隔离确定性 producer 与 consumer contract；Cargo
 offline mode 与固定的无依赖 source 不证明 kernel-level network confinement，也不证明持久 PostgreSQL
 custody、provider/API/Windmill 执行、部署或生产 readiness。
-Linux pins 来自一次隔离的 Linux/arm64 BuildKit readback：index
+已被替换的 Linux pins 来自一次隔离的 Linux/arm64 BuildKit readback：index
 `sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8`、platform manifest
 `sha256:5a8cd84cb3fcfd082789a08f92bd36f8e745c6231edd78e24a3bf34fd471a823`，以及 normalized exact
 `lib/rustlib/wasm32v1-none` sysroot tar SHA-256
-`92fcee2e35330d22e879b640064e2e4b4e47157af1a7e05fc942dc6cc12b8faf`。BuildKit observation 仍只是
-pin-generation evidence；基础 Rust image 仍由 Dockerfile pin，带 created timestamp 的 local OCI manifest
+`92fcee2e35330d22e879b640064e2e4b4e47157af1a7e05fc942dc6cc12b8faf`。2026-09-14，现有准确 Rust 1.97.1
+安装与使用相同 rustc/cargo commit 的全新隔离安装均产生 canonical digest
+`830cb504e83fd5cc9a5ba451b555cd3c9fb177b39647f3a775ce0d5f1d63300f`；因此 replacement freeze 拒绝已被
+替换的字节，Linux 只有经过新的 hosted A0 回读后才能恢复 CURRENT/PARTIAL。旧 BuildKit observation
+只保留为历史 pin-generation evidence；基础 Rust image 仍由 Dockerfile pin，带 created timestamp 的 local OCI manifest
 不是 registry、deployment 或 reproducible-image pin。runtime authority 现在来自 pure-Rust canonical sysroot
 verifier：它复现 frozen GNU tar normalization，把 digest 绑定进每份 Linux build receipt，并与 executable
 的 build 前后重读一起，在两个相互独立的 build 每次执行前后重读准确 sysroot。准确 workflow
@@ -208,9 +212,10 @@ verifier：它复现 frozen GNU tar normalization，把 digest 绑定进每份 L
 已通过准确 main head `9e5149d4293a800be3a35e6b747a9f3dba304e1f` 上的 `workflow_dispatch`
 [run 33250411708](https://github.com/qOeOp/trade/actions/runs/33250411708) 回读。其
 [`strategy factory A0 native gate (linux arm64)`](https://github.com/qOeOp/trade/actions/runs/33250411708/job/99095016988)
-job 在 GitHub-hosted `ubuntu-22.04-arm` 上成功，绑定为 `github-hosted/Linux/ARM64/aarch64`；immutable input
-verification、Rust 1.97.1 Cargo/rustc 的准确 commit 与 host、唯一 `wasm32v1-none` target、三项准确 consumer
-及 post step 均成功。三项准确 consumer 是
+job 在 GitHub-hosted `ubuntu-22.04-arm` 上成功，绑定为 `github-hosted/Linux/ARM64/aarch64`；该运行针对已被
+替换的 digest 完成 immutable input verification、Rust 1.97.1 Cargo/rustc 的准确 commit 与 host、唯一
+`wasm32v1-none` target、三项准确 consumer 及 post step，因此不能验收 replacement freeze；仍需新的准确
+main-bound hosted run。三项准确 consumer 是
 `develop_plugin_build_v2_tests::canonical_linux_sysroot_matches_the_frozen_generator_digest`、
 `develop_plugin_build_v2_tests::real_bounded_plugin_builds_twice_and_exact_replay_joins` 与
 `develop_composer_v2_tests::real_local_plugin_builder_supplies_composer_and_program_host`：它们分别证明已安装

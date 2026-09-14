@@ -1,5 +1,7 @@
 //! Effect-free R&D repair action requests derived from exact Iteration Decision custody.
 
+use std::fmt::Display;
+
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -235,6 +237,6 @@ fn identity(prefix: &str, digest: &str) -> String {
     format!("{prefix}-{}", digest.trim_start_matches("sha256:"))
 }
 
-fn encoding(error: impl std::fmt::Display) -> RepairActionErrorV1 {
+fn encoding(error: impl Display) -> RepairActionErrorV1 {
     RepairActionErrorV1::Encoding(error.to_string())
 }

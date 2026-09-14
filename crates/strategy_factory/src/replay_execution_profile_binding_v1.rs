@@ -13,6 +13,8 @@ use vibe_data::owner::instrument_economic_terms_v1::{
     InstrumentEconomicAccountApplicabilityV1, InstrumentEconomicTermsReadbackV1,
     InstrumentMarginMeaningV1,
 };
+#[cfg(test)]
+use vibe_data::owner::strategy_input_binding::StrategyInputUniverseFrameReceipt;
 
 use crate::{
     exploratory_replay::{ExploratoryReplayRequestLocatorV2, SealedExploratoryReplayReadbackV2},
@@ -654,7 +656,7 @@ pub(crate) fn issue_owner_replay_execution_profile_binding_for_test_v1(
 pub(crate) fn owner_replay_execution_profile_binding_fixture_v1(
     plan: &crate::strategy_plan_v2::StrategyPlanV2,
     artifact: &crate::artifact_v2::StrategyArtifactV2,
-    universe_frame: &vibe_data::owner::strategy_input_binding::StrategyInputUniverseFrameReceipt,
+    universe_frame: &StrategyInputUniverseFrameReceipt,
     window: ReplayWindowV2,
 ) -> OwnerIssuedReplayExecutionProfileBindingV1 {
     use crate::{
@@ -1255,6 +1257,10 @@ pub(crate) fn instrument_terms_provenance_fixture_v1(
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the fixture names every independent sealed Instrument Owner provenance field"
+)]
 fn instrument_terms_provenance_for_fixture(
     economic: &ReplayEconomicConfigurationV1,
     instrument_identity: String,
@@ -1314,6 +1320,7 @@ fn decode_canonical_digest(value: &str) -> Result<[u8; 32], ReplayExecutionProfi
     let Some((algorithm, hexadecimal)) = value.split_once(':') else {
         return Err(ReplayExecutionProfileBindingErrorV1::InvalidDigest);
     };
+
     if !matches!(algorithm, "sha256" | "blake3")
         || hexadecimal.len() != 64
         || !hexadecimal

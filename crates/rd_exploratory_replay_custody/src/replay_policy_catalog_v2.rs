@@ -88,11 +88,11 @@ impl ReplayExecutionProfileSealsV1 {
         let economic = ReplayEconomicConfigurationV1::parse_canonical(
             &self.economic_configuration_canonical_bytes,
         )
-        .map_err(|error| ReplayPolicyCatalogErrorV2::InvalidPolicy(error.to_string()))?;
+        .map_err(|e| ReplayPolicyCatalogErrorV2::InvalidPolicy(e.to_string()))?;
         let runner = ReplayRunnerOperationalProfileV1::parse_canonical(
             &self.runner_operational_profile_canonical_bytes,
         )
-        .map_err(|error| ReplayPolicyCatalogErrorV2::InvalidPolicy(error.to_string()))?;
+        .map_err(|e| ReplayPolicyCatalogErrorV2::InvalidPolicy(e.to_string()))?;
         let expected = execution_profiles_binding_digest(
             expected_catalog_record_digest,
             economic.digest(),
@@ -100,6 +100,7 @@ impl ReplayExecutionProfileSealsV1 {
             runner.digest(),
             runner.canonical_bytes(),
         )?;
+
         if self.catalog_record_digest != expected_catalog_record_digest
             || self.economic_configuration_digest != economic.digest()
             || self.runner_operational_profile_digest != runner.digest()
@@ -209,6 +210,7 @@ impl ReplayPolicyCatalogBindingV3 {
         let profiles = self
             .execution_profiles_v1
             .verify(*self.replay_policy_v2.catalog_record_digest())?;
+
         if self.binding_digest
             != catalog_v3_binding_digest(
                 self.replay_policy_v2.catalog_record_digest,

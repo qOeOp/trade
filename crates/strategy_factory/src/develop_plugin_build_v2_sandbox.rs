@@ -20,7 +20,7 @@ pub(super) const CARGO_RELEASE: &str = "1.97.1";
 pub(super) const CARGO_COMMIT: &str = "c980f4866141969fab6254a680546a277789d6f0";
 pub(super) const TARGET: &str = "wasm32v1-none";
 pub(super) const LINUX_TARGET_SYSROOT_SHA256: [u8; 32] =
-    hex_bytes("92fcee2e35330d22e879b640064e2e4b4e47157af1a7e05fc942dc6cc12b8faf");
+    hex_bytes("830cb504e83fd5cc9a5ba451b555cd3c9fb177b39647f3a775ce0d5f1d63300f");
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct FrozenHostProfileV2 {

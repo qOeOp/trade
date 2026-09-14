@@ -1,4 +1,8 @@
 //! PostgreSQL custody for R&D-owned `REPAIR_INPUTS` Iteration Decisions.
+#![expect(
+    clippy::large_futures,
+    reason = "decision custody keeps the typed repeatable-read transaction state alive across Owner admission"
+)]
 
 use std::fmt::Display;
 
@@ -318,10 +322,10 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), IterationDecisionPostgr
     .map_err(storage)?;
     crate::market_data_repair_request_postgres::migrate(pool)
         .await
-        .map_err(|error| storage(error.to_string()))?;
+        .map_err(|e| storage(e.to_string()))?;
     crate::successor_intent_postgres::migrate(pool)
         .await
-        .map_err(|error| storage(error.to_string()))
+        .map_err(|e| storage(e.to_string()))
 }
 
 pub(crate) async fn compose_repair_input_decision_v1(
@@ -393,6 +397,7 @@ pub(crate) async fn compose_repair_input_decision_v1(
             ))?;
             let interpretation =
                 issue_interpretation_context_v1(&census, &research_custody, &locked_outcome)?;
+
             if !interpretation.has_unresolved_diagnosis() {
                 transaction.rollback().await.map_err(storage)?;
                 return Err(IterationDecisionPostgresErrorV1::Decision(
@@ -482,6 +487,7 @@ pub(crate) async fn compose_trial_budget_terminal_stop_decision_v1(
     )
     .await?
     .ok_or(BacktestResultCustodyErrorV2::Unavailable)?;
+
     match gate_locked_exploratory_result_v1(&census, &locked_result)? {
         IterationDecisionGateV1::NoDecision { reason } => {
             transaction.rollback().await.map_err(storage)?;
@@ -521,7 +527,7 @@ pub(crate) async fn compose_trial_budget_terminal_stop_decision_v1(
         issue_interpretation_context_v1(&census, &research_custody, &locked_outcome)?;
     let issued =
         issue_trial_budget_terminal_stop_decision_v1(&census, interpretation, current_epoch_ms()?)
-            .map_err(|error| match error {
+            .map_err(|e| match e {
                 IterationDecisionErrorV1::InvalidStoredDecision(
                     "TrialFamily budget is not exhausted",
                 ) => IterationDecisionPostgresErrorV1::TrialBudgetStopNotApplicable,
@@ -560,6 +566,7 @@ pub(crate) async fn resolve_trial_budget_terminal_stop_decision_v1(
         None,
     )
     .await?;
+
     if let Some(value) = readback.as_ref()
         && value.decision().decision_identity() != locator.decision_identity
     {
@@ -609,6 +616,7 @@ pub(crate) async fn compose_ready_for_selection_decision_v1(
         crate::resolve_exploratory_replay_result_for_rd_in_transaction(&mut transaction, locator)
             .await?
             .ok_or(BacktestResultCustodyErrorV2::Unavailable)?;
+
     match gate_locked_exploratory_result_v1(&census, &locked_result)? {
         IterationDecisionGateV1::NoDecision { reason } => {
             transaction.rollback().await.map_err(storage)?;
@@ -655,7 +663,7 @@ pub(crate) async fn compose_ready_for_selection_decision_v1(
         request.protected_robustness_plan.clone(),
         current_epoch_ms()?,
     )
-    .map_err(|error| match error {
+    .map_err(|e| match e {
         IterationDecisionErrorV1::InvalidStoredDecision(_) => {
             IterationDecisionPostgresErrorV1::ReadyForSelectionNotApplicable
         }
@@ -692,6 +700,7 @@ pub(crate) async fn resolve_ready_for_selection_decision_v1(
         None,
     )
     .await?;
+
     if let Some(value) = readback.as_ref()
         && value.decision().decision_identity() != locator.decision_identity
     {
@@ -714,6 +723,7 @@ pub(crate) async fn compose_candidate_comparison_decision_v1(
         &request.trial_family_identity,
     )
     .await?;
+
     if sqlx::query("SELECT 1 FROM rd_iteration_decisions_v1 WHERE result_identity=$1 FOR SHARE")
         .bind(&request.result_identity)
         .fetch_optional(&mut *transaction)
@@ -742,6 +752,7 @@ pub(crate) async fn compose_candidate_comparison_decision_v1(
         crate::resolve_exploratory_replay_result_for_rd_in_transaction(&mut transaction, locator)
             .await?
             .ok_or(BacktestResultCustodyErrorV2::Unavailable)?;
+
     match gate_locked_exploratory_result_v1(&census, &locked_result)? {
         IterationDecisionGateV1::NoDecision { reason } => {
             transaction.rollback().await.map_err(storage)?;
@@ -785,7 +796,7 @@ pub(crate) async fn compose_candidate_comparison_decision_v1(
         request.candidate_evaluations.clone(),
         current_epoch_ms()?,
     )
-    .map_err(|error| match error {
+    .map_err(|e| match e {
         IterationDecisionErrorV1::InvalidStoredDecision(_)
         | IterationDecisionErrorV1::CandidateComparisonUnavailable(_) => {
             IterationDecisionPostgresErrorV1::CandidateComparisonNotApplicable
@@ -845,6 +856,7 @@ pub(crate) async fn resolve_candidate_comparison_decision_v1(
         None,
     )
     .await?;
+
     if let Some(value) = readback.as_ref()
         && value.decision().decision_identity() != locator.decision_identity
     {
@@ -955,6 +967,7 @@ pub(crate) async fn resolve_iteration_decision_v1(
         }
         None => return Err(storage("stored Decision readback is missing")),
     };
+
     if resolved_identity != locator.decision_identity {
         return Err(storage("Decision resolution locator mismatch"));
     }
@@ -1014,6 +1027,7 @@ pub(crate) async fn resolve_repair_action_request_v1(
     let readback =
         load_repair_action_in_transaction(&mut transaction, &locator.decision_identity, None)
             .await?;
+
     if let Some(value) = readback.as_ref()
         && value.request().action_request_identity() != locator.action_request_identity
     {
@@ -1089,9 +1103,11 @@ pub(crate) async fn load_repair_action_in_transaction(
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
+
     if rows.is_empty() {
         return Ok(None);
     }
+
     if rows.len() != 1 {
         return Err(storage("repair action Decision identity is not unique"));
     }
@@ -1103,6 +1119,7 @@ pub(crate) async fn load_repair_action_in_transaction(
             .await?
             .ok_or_else(|| storage("repair action predecessor Decision is missing"))?,
     };
+
     if decision.decision().decision_identity() != decision_identity {
         return Err(storage("repair action predecessor Decision mismatch"));
     }
@@ -1129,6 +1146,7 @@ pub(crate) async fn load_repair_action_in_transaction(
         admit_stored_repair_action_request_v1(&request_bytes, &receipt_bytes, &decision)?;
     let request = readback.request();
     let receipt = readback.receipt();
+
     if row
         .try_get::<String, _>("action_request_identity")
         .map_err(storage)?
@@ -1186,6 +1204,7 @@ async fn verify_repair_action_outbox(
         category: request.category(),
         target: request.target(),
     };
+
     if rows[0]
         .try_get::<String, _>("aggregate_identity")
         .map_err(storage)?
@@ -1506,9 +1525,11 @@ pub(crate) async fn load_by_result_in_transaction(
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
+
     if rows.is_empty() {
         return Ok(None);
     }
+
     if rows.len() != 1 {
         return Err(storage("Decision result identity is not unique"));
     }
@@ -1571,6 +1592,7 @@ pub(crate) async fn load_by_result_in_transaction(
     {
         return Err(storage("Decision row/readback mismatch"));
     }
+
     if let Some(request) = composition
         && (request.trial_family_identity != evidence.trial_family_identity
             || request.request_identity != evidence.request_identity
@@ -1593,9 +1615,11 @@ async fn load_trial_budget_terminal_stop_by_result_in_transaction(
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
+
     if rows.is_empty() {
         return Ok(None);
     }
+
     if rows.len() != 1 {
         return Err(storage("Decision result identity is not unique"));
     }
@@ -1659,6 +1683,7 @@ async fn load_trial_budget_terminal_stop_by_result_in_transaction(
     {
         return Err(storage("Decision row/readback mismatch"));
     }
+
     if let Some(request) = composition
         && (request.trial_family_identity != evidence.trial_family_identity
             || request.request_identity != evidence.request_identity
@@ -1682,9 +1707,11 @@ pub(crate) async fn load_candidate_comparison_by_result_in_transaction(
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
+
     if rows.is_empty() {
         return Ok(None);
     }
+
     if rows.len() != 1 {
         return Err(storage("Decision result identity is not unique"));
     }
@@ -1748,6 +1775,7 @@ pub(crate) async fn load_candidate_comparison_by_result_in_transaction(
     {
         return Err(storage("Decision row/readback mismatch"));
     }
+
     if let Some(request) = composition
         && (request.trial_family_identity != evidence.trial_family_identity
             || request.request_identity != evidence.request_identity
@@ -1771,6 +1799,7 @@ async fn load_ready_for_selection_by_result_in_transaction(
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
+
     if rows.is_empty() {
         let partial_rows = sqlx::query("SELECT decision_identity FROM rd_iteration_decisions_v1 WHERE result_identity=$1 FOR SHARE")
             .bind(result_identity)
@@ -1784,6 +1813,7 @@ async fn load_ready_for_selection_by_result_in_transaction(
         }
         return Ok(None);
     }
+
     if rows.len() != 1 {
         return Err(storage("positive assessment result identity is not unique"));
     }
@@ -1796,6 +1826,7 @@ async fn load_ready_for_selection_by_result_in_transaction(
     let selection_receipt_bytes: Vec<u8> = row
         .try_get("selection_receipt_storage_bytes")
         .map_err(storage)?;
+
     if row
         .try_get::<String, _>("assessment_storage_digest")
         .map_err(storage)?
@@ -1876,6 +1907,7 @@ async fn load_ready_for_selection_by_result_in_transaction(
     let candidate = readback.candidate();
     let selection = readback.selection();
     let selection_receipt = readback.selection_receipt();
+
     if row
         .try_get::<serde_json::Value, _>("assessment_json")
         .map_err(storage)?
@@ -1990,6 +2022,7 @@ async fn load_ready_for_selection_by_result_in_transaction(
             "READY assessment, Decision, Candidate, or Selection row/readback mismatch",
         ));
     }
+
     if let Some(request) = composition
         && (request.trial_family_identity != decision.evidence_cut().trial_family_identity
             || request.request_identity != decision.evidence_cut().request_identity
@@ -2032,6 +2065,7 @@ async fn verify_outbox_in_transaction(
     let payload: DecisionCommittedOutboxV1 =
         serde_json::from_value(rows[0].try_get("payload_json").map_err(storage)?)
             .map_err(storage)?;
+
     if payload != expected
         || rows[0]
             .try_get::<String, _>("aggregate_identity")
@@ -2082,6 +2116,7 @@ async fn verify_trial_budget_terminal_stop_outbox_in_transaction(
     let payload: DecisionCommittedOutboxV1 =
         serde_json::from_value(rows[0].try_get("payload_json").map_err(storage)?)
             .map_err(storage)?;
+
     if payload != expected
         || rows[0]
             .try_get::<String, _>("aggregate_identity")
@@ -2132,6 +2167,7 @@ async fn verify_candidate_comparison_outbox_in_transaction(
     let payload: DecisionCommittedOutboxV1 =
         serde_json::from_value(rows[0].try_get("payload_json").map_err(storage)?)
             .map_err(storage)?;
+
     if payload != expected
         || rows[0]
             .try_get::<String, _>("aggregate_identity")
@@ -2176,6 +2212,7 @@ async fn verify_ready_for_selection_outbox_in_transaction(
         result_identity: evidence.result_identity.clone(),
         decision_policy_binding_digest: evidence.decision_policy_binding_digest,
     };
+
     if rows.len() != 1
         || rows[0]
             .try_get::<String, _>("aggregate_identity")
@@ -2227,6 +2264,7 @@ async fn verify_ready_for_selection_outbox_in_transaction(
             .to_string(),
         protected_plan_version: candidate.protected_robustness_plan().plan_version(),
     };
+
     if selection_rows.len() != 1
         || selection_rows[0]
             .try_get::<String, _>("aggregate_identity")
@@ -2350,7 +2388,7 @@ fn storage(error: impl Display) -> IterationDecisionPostgresErrorV1 {
     IterationDecisionPostgresErrorV1::Storage(error.to_string())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "sealed-develop-composer-acceptance"))]
 mod postgres_acceptance_tests {
     use super::*;
     use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};

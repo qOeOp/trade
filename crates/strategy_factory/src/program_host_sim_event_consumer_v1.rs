@@ -277,6 +277,7 @@ fn validate_actual_consumption(
         .collect::<BTreeSet<_>>();
     let mut consumed = BTreeSet::new();
     let mut filled_members = BTreeSet::new();
+
     for fill in actual_fills {
         let native_fill_observed = observed.native_order_observations.iter().any(|event| {
             event.event == "FILLED"
@@ -392,7 +393,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest::rstest]
     fn accepted_native_fill_is_exact_actual_consumption() {
         let census = test_census();
         validate_actual_consumption(
@@ -403,7 +404,7 @@ mod tests {
         .unwrap();
     }
 
-    #[test]
+    #[rstest::rstest]
     fn rejected_or_canceled_observation_cannot_count_as_actual_fill() {
         for terminal in ["REJECTED", "CANCELED", "EXPIRED"] {
             assert!(
@@ -417,7 +418,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest::rstest]
     fn prior_partial_fill_remains_consumed_when_order_later_cancels() {
         let mut trace = observed("FILLED");
         trace
@@ -431,7 +432,7 @@ mod tests {
         .unwrap();
     }
 
-    #[test]
+    #[rstest::rstest]
     fn zero_or_unchanged_fill_evidence_fails_closed() {
         let mut zero = actual_fill();
         zero.cumulative_filled_grid_units = 0;
@@ -455,7 +456,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn missing_or_duplicate_member_consumption_fails_closed() {
         assert!(
             validate_actual_consumption(&observed("FILLED"), &[actual_fill()], &test_census())

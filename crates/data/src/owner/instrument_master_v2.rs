@@ -649,6 +649,10 @@ impl InstrumentMasterCutRequestV2 {
     /// Derives the fixed Market Data request coordinate from one sealed R&D Replay identity.
     ///
     /// The operation caller supplies no digest, symbol, member order, or latest selector.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidRequest` when the supplied Replay identity is not canonical.
     pub fn for_native_replay_request(
         request_identity: &str,
         decision_cut: u64,
@@ -679,6 +683,10 @@ impl InstrumentMasterCutRequestV2 {
 }
 
 /// Maps one canonical sealed R&D Replay identity into the fixed Market Data V2 request key.
+///
+/// # Errors
+///
+/// Returns `InvalidRequest` when the identity is empty, padded, or exceeds the fixed bound.
 pub fn native_replay_request_identity_v2(
     request_identity: &str,
 ) -> Result<BindingDigest, InstrumentMasterCustodyErrorV2> {
@@ -779,6 +787,7 @@ impl InstrumentMasterCutV2 {
         mut facts: [InstrumentMasterFactV2; 2],
     ) -> Result<Self, InstrumentMasterCustodyErrorV2> {
         request.validate()?;
+
         if [
             universe_selection_identity,
             universe_selection_receipt_identity,
@@ -859,6 +868,7 @@ impl InstrumentMasterCutV2 {
             return Err(InstrumentMasterCustodyErrorV2::CodecMismatch);
         }
         let mut encoded_members = Vec::with_capacity(2);
+
         for _ in 0..2 {
             let canonical_identity = decoder.string().map_err(custody_codec)?;
             let identity = decoder.digest().map_err(custody_codec)?;
@@ -866,6 +876,7 @@ impl InstrumentMasterCutV2 {
             encoded_members.push((canonical_identity, identity, fact_bytes));
         }
         decoder.finish().map_err(custody_codec)?;
+
         for ((canonical_identity, identity, fact_bytes), fact) in
             encoded_members.iter().zip(facts.iter())
         {
@@ -883,6 +894,7 @@ impl InstrumentMasterCutV2 {
             universe_selection_outbox_identity,
             facts,
         )?;
+
         if cut.request_binding_digest != request_binding_digest || cut.canonical_bytes != bytes {
             return Err(InstrumentMasterCustodyErrorV2::CodecMismatch);
         }
@@ -2443,7 +2455,7 @@ mod tests {
         InstrumentMasterFactV2::from_exchange_info_baseline(input).unwrap()
     }
 
-    #[test]
+    #[rstest::rstest]
     fn fixed_cut_canonicalizes_two_members_and_binds_request() {
         let btc = fact_for("BTCUSDT-PERP.BINANCE", "BTCUSDT", 10);
         let eth = fact_for("ETHUSDT-PERP.BINANCE", "ETHUSDT", 20);
@@ -2485,7 +2497,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn exact_cut_parse_rejects_reorder_and_changed_bytes() {
         let btc = fact_for("BTCUSDT-PERP.BINANCE", "BTCUSDT", 10);
         let eth = fact_for("ETHUSDT-PERP.BINANCE", "ETHUSDT", 20);
@@ -2525,7 +2537,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn readback_locator_is_exact_and_receipt_outbox_are_deterministic() {
         let cut = InstrumentMasterCutV2::issue(
             InstrumentMasterCutRequestV2::new(id(30), 7),

@@ -5,7 +5,7 @@
 //! PostgreSQL write and readback paths. The returned fixture is move-only and exposes no database
 //! handle, URL, raw row, writer, or constructor for an authenticated native-join capability.
 
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, fmt::Debug};
 
 use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
@@ -95,7 +95,7 @@ pub struct OwnerBarJoinedCutAcceptanceBasisV1 {
     input_bindings: Vec<StrategyInputBindingReceipt>,
 }
 
-impl std::fmt::Debug for OwnerBarJoinedCutAcceptanceBasisV1 {
+impl Debug for OwnerBarJoinedCutAcceptanceBasisV1 {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct(stringify!(OwnerBarJoinedCutAcceptanceBasisV1))
@@ -456,6 +456,7 @@ pub async fn complete_owner_bar_joined_cut_acceptance_fixture_v1(
     } = basis;
 
     let mut registered_bindings = Vec::with_capacity(6);
+
     for request in &binding_requests {
         let mut transaction = owner
             .pool
@@ -465,13 +466,14 @@ pub async fn complete_owner_bar_joined_cut_acceptance_fixture_v1(
         let declaration =
             register_acceptance_binding(&mut transaction, request, &binding_requests, &role_set)
                 .await
-                .map_err(|error| map_registry_completion_error(&error))?;
+                .map_err(|e| map_registry_completion_error(&e))?;
         transaction
             .commit()
             .await
             .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryStore)?;
         registered_bindings.push(declaration.binding().clone());
     }
+
     if registered_bindings != input_bindings {
         return Err(BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryReadback);
     }
@@ -642,6 +644,7 @@ fn validate_initial_claims(
 ) -> Result<(), BarJoinedCutAcceptanceUnavailableV1> {
     let mut identities = claims.input_role_identities;
     identities.sort_unstable();
+
     if claims.research_request_identity.as_bytes() == &[0; 32]
         || claims.strategy_design_identity.as_bytes() == &[0; 32]
         || identities[0].as_bytes() == &[0; 32]
@@ -677,6 +680,7 @@ fn validate_design_role_set(
         "minute-close",
         1,
     );
+
     if !role_set.has_valid_integrity()
         || claims.research_request_identity.as_bytes() == &[0; 32]
         || claims.strategy_design_identity.as_bytes() == &[0; 32]
@@ -686,12 +690,14 @@ fn validate_design_role_set(
     {
         return Err(BarJoinedCutAcceptanceUnavailableV1);
     }
+
     for ((semantic_id, field, timeframe), role_identity) in
         semantics.iter().zip(&claims.input_role_identities)
     {
         let Some(role) = role_set.role(*role_identity) else {
             return Err(BarJoinedCutAcceptanceUnavailableV1);
         };
+
         if role.semantic_id != *semantic_id
             || role.fact_class != "MARKET_DATA"
             || role.instrument != INSTRUMENT
@@ -715,6 +721,7 @@ fn validate_design_role_set(
     let [join] = role_set.joins.as_slice() else {
         return Err(BarJoinedCutAcceptanceUnavailableV1);
     };
+
     if join.join_identity != expected_join_identity
         || join.semantic_id != "replay-composition-six-role-v1"
         || join.alignment_semantic_id != "strategy.input-join.latest-not-after-trigger.v1"
@@ -1238,6 +1245,7 @@ async fn persist_market_semantics(
     let [fact] = readback.facts() else {
         return Err(BarJoinedCutAcceptanceUnavailableV1);
     };
+
     if fact.compatibility_scope_identity() != digest(84) || fact.value() != value {
         return Err(BarJoinedCutAcceptanceUnavailableV1);
     }
@@ -1370,6 +1378,7 @@ async fn persist_schedules_and_v3_frames(
         schedule_indices.push(index);
     }
     let mut digests = Vec::with_capacity(6);
+
     for (((binding, frame), _proposal), schedule_index) in bindings
         .iter()
         .zip(frames)

@@ -204,6 +204,7 @@ impl PreparedProgramHostBarCapabilityV1 {
             native_join,
             binding,
         } = self;
+
         if !prepared_bar_binding_matches_v1(
             &binding,
             &plan,
@@ -463,6 +464,7 @@ impl PreparedProgramHostBarHandoffV1 {
             native_join,
             binding,
         } = self;
+
         if !prepared_bar_binding_matches_v1(
             &binding,
             host.plan(),
@@ -646,6 +648,7 @@ where
         joined_cut,
         native_join,
     } = inputs;
+
     if !verify_instrument_master_readback(&instrument_master) {
         return Err(ProgramPreparationFaultV2::Unavailable);
     }

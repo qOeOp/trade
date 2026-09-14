@@ -534,6 +534,7 @@ pub(crate) fn project_research_iteration_action_v1(
             else {
                 return Err("repair Decision readback outcome is inconsistent");
             };
+
             if readback.decision().decision_identity() != decision_identity
                 || readback.receipt().decision_identity() != decision_identity
                 || readback.receipt().result_identity() != result_identity
@@ -552,6 +553,7 @@ pub(crate) fn project_research_iteration_action_v1(
             else {
                 return Err("terminal Decision readback outcome is inconsistent");
             };
+
             if readback.decision().decision_identity() != decision_identity
                 || readback.receipt().decision_identity() != decision_identity
                 || readback.receipt().result_identity() != result_identity
@@ -571,6 +573,7 @@ pub(crate) fn project_research_iteration_action_v1(
             {
                 return Err("candidate-comparison Decision readback locator is inconsistent");
             }
+
             match readback.decision().outcome() {
                 IterationDecisionOutcomeV1::SuccessorExperiment {
                     experiment_identity,
@@ -606,6 +609,7 @@ pub(crate) fn project_research_iteration_action_v1(
             else {
                 return Err("selection Decision readback outcome is inconsistent");
             };
+
             if readback.decision().decision_identity() != decision_identity
                 || readback.receipt().decision_identity() != decision_identity
                 || readback.receipt().result_identity() != result_identity
@@ -1068,6 +1072,7 @@ pub(crate) fn verify_source_bound_research_admission_v2(
         RESEARCH_GOAL_SCHEMA_V2,
         &transport_neutral_payload,
     );
+
     if transport_neutral.is_err() {
         // Transitional compatibility for V1 Windmill requests and durable
         // admissions created before the transport-neutral V2 surface.
@@ -1885,7 +1890,7 @@ mod v2_sealing_tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn legacy_research_view_wire_and_v2_identity_do_not_gain_empty_exploration() {
         let mut view = research_view(1_000, 601_000);
         view.projection_identity = canonical_research_view_identity_v2(&view);
@@ -1900,7 +1905,7 @@ mod v2_sealing_tests {
         assert_eq!(stale.projection_identity, view.projection_identity);
     }
 
-    #[test]
+    #[rstest::rstest]
     fn active_research_view_identity_binds_exact_replay_custody() {
         let mut view = research_view(2_000, 602_000);
         view.schema_version = 2;

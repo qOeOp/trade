@@ -223,9 +223,9 @@ endif
 # Core crates (excludes adapters/* and workspace members without tests)
 CORE_CRATES := vibe-analysis vibe-backtest vibe-backtest-owner vibe-backtest-owner-contracts vibe-backtest-result-custody vibe-common vibe-core \
     vibe-cryptography vibe-data vibe-deployment-attestation vibe-event-store vibe-execution \
-    vibe-indicators vibe-indicators-kernel vibe-infrastructure vibe-live vibe-model vibe-scanner \
+    vibe-indicators vibe-indicators-kernel vibe-infrastructure vibe-live vibe-market-data-repair-custody vibe-model vibe-scanner \
     vibe-network vibe-observability vibe-persistence vibe-persistence-macros \
-    vibe-operator-authorization vibe-plugin vibe-portfolio vibe-product-edge vibe-product-edge-admin vibe-product-edge-claim-custody vibe-product-edge-contracts vibe-qualification vibe-risk vibe-rd-artifact-invocation-custody vibe-rd-exploratory-replay-custody vibe-rd-source-intake-invocation-custody vibe-runtime vibe-serialization \
+    vibe-operator-authorization vibe-plugin vibe-portfolio vibe-product-edge vibe-product-edge-admin vibe-product-edge-claim-custody vibe-product-edge-contracts vibe-qualification vibe-risk vibe-rd-artifact-invocation-custody vibe-rd-exploratory-replay-custody vibe-rd-market-data-repair-custody vibe-rd-source-intake-invocation-custody vibe-runtime vibe-serialization \
     strategy-factory-program-sdk vibe-strategy-factory vibe-strategy-factory-rd-owner-api vibe-strategy-governance vibe-system vibe-testkit vibe-trader vibe-trading
 
 # Crates tested in the workspace-compiled adapter lane
@@ -745,9 +745,15 @@ regen-capnp:
 
 #== Rust Testing
 
+.PHONY: cargo-fetch-strategy-factory-programs
+cargo-fetch-strategy-factory-programs:
+	$(info $(M) Fetching locked standalone Strategy Factory program dependencies...)
+	cargo fetch --locked --manifest-path crates/strategy_factory/programs/channel_control/Cargo.toml
+	cargo fetch --locked --manifest-path crates/strategy_factory/programs/pilot/Cargo.toml
+
 .PHONY: cargo-test
 cargo-test: export RUST_BACKTRACE=1
-cargo-test: check-nextest-installed
+cargo-test: check-nextest-installed cargo-fetch-strategy-factory-programs
 cargo-test:  #-- Run all Rust tests (use EXTRA_FEATURES="feature1 feature2" or HYPERSYNC=true)
 ifeq ($(NEXTEST_VERBOSE),true)
 	$(info $(M) Running Rust tests with verbose output...)

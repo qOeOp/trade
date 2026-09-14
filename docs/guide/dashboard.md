@@ -2,7 +2,7 @@
 
 ## Bounded admission: local operator browser session
 
-The user admits one first-party local operator session shell and the read-only `/settings/access` surface as
+The user admits one first-party local operator session shell and the read‑only `/settings/access` surface as
 `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED`. This narrow slice replaces the inert login presentation only. It does
 not admit OAuth, account creation, password import, transport-token issuance, Operator Authorization or Product
 Edge binding mutation, authorization successor selection, a role-administration product, or any Owner/provider
@@ -29,7 +29,7 @@ mutation control or secret value. Dynamic acceptance covers unavailable configur
 wrong credential, cookie attributes, authenticated page/API, tampering, expiry and logout. The fixed local preview
 port must not replace its listener until isolated acceptance passes and both session secrets are provisioned.
 
-## Bounded admission: read-only shadow schedule calendar
+## Bounded admission: read‑only shadow schedule calendar
 
 The user admits `/operations/schedules` as `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED` for the
 first-party zero-effect shadow-read schedules only. This narrow exception supersedes the generic
@@ -91,7 +91,7 @@ keyboard operation, both themes and narrow/desktop layouts. Fixtures alone are n
 
 ## Bounded admission: Backtest return-band presentation atom
 
-`BacktestReturnBand` is a `TARGET_DRAFT / IMPLEMENTATION_ADMITTED` read-only presentation atom for
+`BacktestReturnBand` is a `TARGET_DRAFT / IMPLEMENTATION_ADMITTED` read‑only presentation atom for
 the already documented `/backtest` and `/backtest/compare` surfaces. Its source-fidelity reference is
 Vibe Trading commit `48c8315f74536d9d308347d63ac9c4e96c9a7120`, tree
 `d226b620dc699c9e8e382274434b324a5fefe0e1`, specifically the factor home daily-return band chart.
@@ -165,12 +165,12 @@ so the page renders no `BacktestReturnBand`, invented strategy line, benchmark, 
 download and provider actions have no slot. This slice does not establish S3 deployment availability,
 Backtest execution, Windmill replacement or real-trading authority.
 
-## Bounded admission: read-only strategy code viewer
+## Bounded admission: read‑only strategy code viewer
 
 `StrategyCodeViewer` is a `TARGET_DRAFT / IMPLEMENTATION_ADMITTED` presentation atom for the
 `ArtifactReviewPanel` source/Wasm region. Its source-fidelity reference is Vibe Trading commit
 `48c8315f74536d9d308347d63ac9c4e96c9a7120`, tree
-`d226b620dc699c9e8e382274434b324a5fefe0e1`, specifically the CodeMirror 6 editor shell and read-only
+`d226b620dc699c9e8e382274434b324a5fefe0e1`, specifically the CodeMirror 6 editor shell and read‑only
 code surfaces under `apps/web/src/features/lab`. The Trade adaptation keeps the real CodeMirror
 line-number gutter, syntax highlighting, folding, text selection, bounded scrolling, file tab,
 editor chrome, output pane, responsive layout, reduced-motion transition, and Lucide actions. It is
@@ -210,7 +210,7 @@ Windmill replacement.
 
 ## Bounded admission: Source Intake exact-readback workbench
 
-`SourceIntakeReadbackWorkbench` is the exact `P` surface for `/rd`. It is a bounded read-only recovery
+`SourceIntakeReadbackWorkbench` is the exact `P` surface for `/rd`. It is a bounded read‑only recovery
 surface, not the future Source Intake composer. The route uses one full-width `PanelFrame` and no summary
 strip, split detail pane, table, timeline, pagination, or reserved empty height. The frame header contains
 the `SOURCE INTAKE` eyebrow, `Source intake` title, one-line purpose, and a `Refresh` action that is disabled
@@ -314,7 +314,7 @@ sealed-custody verification fail closed to one unavailable state and erase stale
 presentation state. No source, design bytes, canonical plan bytes, Wasm/module bytes, receipt bytes, request
 payload, binding request, plugin capsule, principal, policy, outbox, or storage fields cross this boundary. The
 workbench has no `Run`, `Resolve`, `Edit`, `Save`, `Compile`, `Preview`, or provider action and does not render the
-read-only code viewer because this contract carries no source text. Artifact source remains available only through
+read‑only code viewer because this contract carries no source text. Artifact source remains available only through
 its separately admitted exact Artifact source route and identities; an Artifact locator alone is not converted
 into those identities. This slice cannot mutate Windmill, write business state, invoke a provider, or authorize
 trading. The broader Intake composer and authority-resolution panels remain future blueprint content.
@@ -368,7 +368,7 @@ admitted GETs. Dashboard binds them
 through the atomically configured `RD_DASHBOARD_OWNER_READ_API_URL` and
 `RD_DASHBOARD_OWNER_READ_API_TOKEN` pair. A partial pair fails closed and never borrows the write API's credential.
 The adapters reuse the canonical locking verifiers and expose no submit, resolve, sandbox, or mutation port.
-The Source Intake adapter additionally binds a read-only Product Edge admission port and the existing request-proof
+The Source Intake adapter additionally binds a read‑only Product Edge admission port and the existing request-proof
 digest before projecting terminal custody; missing or incompatible internal configuration disables only this route.
 Composer joins this same process through its own typed read port and adds no per-domain container. Its adapter owns
 only an `rd_owner` read pool, reuses the existing sealed routine and current Research/Market evidence verification,
@@ -427,7 +427,7 @@ control at the left and search at the right; `Verified` is always the default. C
 order: `Artifact`, `Strategy intent`,
 `Verification`, and `Created`. Column headings have no decorative icons and there is no View/column-chooser button,
 registered/visible count, multi-level filter popover, or backend-only field. Opening the Artifact identity navigates
-to the exact read-only source-viewer URL. The table header is sticky inside the bounded scroll viewport; loading,
+to the exact read‑only source-viewer URL. The table header is sticky inside the bounded scroll viewport; loading,
 valid empty, unavailable, and partial states preserve the same card geometry. At narrow widths the table scrolls
 horizontally; it does not collapse identities into invented mobile facts.
 
@@ -441,7 +441,7 @@ attempt, Artifact, and strategy-intent identities, committed time, build target,
 security state. Nonterminal or non-success attempts are withheld and make the page explicitly partial. Any malformed
 custody, database/verification error, unknown wire key, contradictory completeness/count, invalid identity/time,
 oversized response, or transport/configuration failure makes the affected read unavailable; it never becomes an
-empty successful page. The candidate view uses the same authenticated GET `/v1/historical-custodies` and read-only
+empty successful page. The candidate view uses the same authenticated GET `/v1/historical-custodies` and read‑only
 Owner cut as Research. It exposes at most 200 attempt and 200 TrialFamily-binding identities, their custody times,
 and only `POINT_READ_REQUIRED`. Counts are custody-index counts, never verified Artifact or valid-binding counts.
 No Artifact outcome, binding validity, current authority, raw receipt, payload, or storage field is inferred.
@@ -453,7 +453,7 @@ Artifact mutation port. The exact readback GET reuses verified attempt custody t
 calls `ArtifactBuildOwnerPort::resolve`; it cannot terminalize an expired attempt, submit a Building candidate, drain
 legacy custody, invoke a provider, or otherwise write business state. The
 PostgreSQL adapter remains a normal read-committed locking reader because the canonical verifier requires
-`FOR SHARE`; changing it to a read-only transaction would reject the verifier itself. Dashboard binds these
+`FOR SHARE`; changing it to a read‑only transaction would reject the verifier itself. Dashboard binds these
 endpoints through the same atomically configured `RD_DASHBOARD_OWNER_READ_API_URL` and
 `RD_DASHBOARD_OWNER_READ_API_TOKEN` pair. If either value is present without the other, the read fails closed and
 never borrows the other credential from the write API.
@@ -506,12 +506,12 @@ Current Trade main `e12adde09754e20953ac81ce86ffa5e7b3a05c99` contains the compl
 Windmill, and Scanner cuts. PR #356, merged as `82c4f59fc600a1d5d0a9bc94eac83234c531e490`, restored the isolated
 Source Intake acceptance through the real Windmill entry, PostgreSQL Owner custody, and cleanup/readback. PR #361,
 merged as `a7260f6563fbdf1c1b497087d638c0c406e4cefb`, made the checked-in Windmill workspace lock a deterministic,
-read-only-verifiable projection; that is repository tooling evidence, not deployment evidence. PR #360, merged as
+read‑only-verifiable projection; that is repository tooling evidence, not deployment evidence. PR #360, merged as
 `67d31f5398922680714827206ceb2583437a869b`, added a sealed Scanner terminal-receipt read boundary for Product Edge;
 it remains a static Owner contract and does not establish a Scanner operation or Windmill journey.
 
 PR #362 is the current Source Intake-to-Research cut. The default Windmill operation now sends the admitted Source
-terminal to the canonical R&D Owner API: `RUN` owns the first mutation, while `RESOLVE` is read-only and returns
+terminal to the canonical R&D Owner API: `RUN` owns the first mutation, while `RESOLVE` is read‑only and returns
 submitted-or-unknown unless the exact durable receipt already exists. On its final tree, focused Source/Windmill
 checks passed `5/5`, Workbench default checks passed `164/164`, and focused API checks passed `5/5`. The disposable
 Windmill/PostgreSQL sealed acceptance passed on the pre-final tree, but was not rerun after the final `RESOLVE`
@@ -563,7 +563,7 @@ effects remain unpromoted.
 ### 2026-08-23 merged Observability readback
 
 PR #327 is merged on current Trade main as `3ec29c7a4662efb2d4d28e2bb3e4181570a815b7`. The new workspace-owned
-`vibe-observability` crate and root consumer test make the read-only, rebuildable status projection source contract
+`vibe-observability` crate and root consumer test make the read‑only, rebuildable status projection source contract
 `CURRENT/PARTIAL`: it preserves per-Owner/source frontiers, freshness, partial/rebuilding/unavailable visibility,
 identity-content conflict quarantine, an opaque restart checkpoint, and a query-only `GlobalStatusReadPort`. Crate
 tests passed `18/18` and the root consumer passed `1/1`, with focused fmt/check/clippy/doc and independent review.
@@ -954,7 +954,7 @@ creates no current Research View, provider action, successor action, or TrialFam
 discriminant, request/attempt identity, terminal receipt, custody generation, quarantine reason, and original
 disposition must survive the shared consumer projector as one strict legacy-only branch. Its exact accepted set is
 `SUCCESS | FAILED_NO_ARTIFACT | REJECTED_NO_WRITE | OUTCOME_UNKNOWN`; sparse legacy rejection may omit Intent
-identity/digest exactly as the Rust Owner wire does. Every variant remains read-only with family/provider/actions
+identity/digest exactly as the Rust Owner wire does. Every variant remains read‑only with family/provider/actions
 absent. If that branch is missing or malformed, the fixed legacy slot renders `Unavailable` with same-attempt
 Resolve; it must not silently collapse into an untyped generic unknown.
 
@@ -1051,7 +1051,7 @@ native default page size, missing-job-span lookup or redacted parameter bytes as
 `OperationAuditStore` and Product Edge receipt panels below remain TARGET contracts, and neither source layout nor
 extra read can create Owner business truth or an effect action.
 
-A 2026-08-22 read-only Docker-label audit found one live Compose project whose server came from worktree `5781`,
+A 2026-08-22 read‑only Docker-label audit found one live Compose project whose server came from worktree `5781`,
 Backtest Owner from `dc01`, and PostgreSQL, worker, R&D Owner and build sandbox from
 `trial-family-custody-replacement`. All containers can be healthy while no canonical artifact cross-binds those
 sources, App/script hashes and Owner compatibility. The Dashboard therefore treats this as deployment provenance
@@ -1060,7 +1060,7 @@ bind multiple service artifacts, but a mixed runtime with no such envelope canno
 
 The `TARGET_DRAFT` local entry topology keeps every Owner, Windmill and PostgreSQL container exclusively on one
 sealed internal network, with no published port or external route. The sole ingress is a credential-free,
-read-only-filesystem TCP sidecar attached to that network and a separate bridge with IP masquerading disabled. It
+read‑only-filesystem TCP sidecar attached to that network and a separate bridge with IP masquerading disabled. It
 drops all Linux capabilities, runs a fixed command, and forwards only the host-bound `127.0.0.1:<port>` to internal
 Windmill. Acceptance requires dynamic proof that the host can reach Windmill through that loopback port while each
 business container still has no external route; any additional published address, forwarding target, credential,
@@ -1421,7 +1421,7 @@ B  sealed basis stage -> basis receipt/identity -> basis head/outbox -> commit c
 K  Qualification response loss -> committed projection -> expiry -> Owner-issued verified renewal/successor ->
    fresh locked readback; R&D/Product Edge/Dashboard cannot extend validity or create that recovery fact
 D  verified terminal custody -> Research receipt/Intent -> TrialFamily root/member/census stays visible after
-   linked-view expiry as STALE/read-only; remove positive actions, never return SUBMITTED_OR_UNKNOWN
+   linked-view expiry as STALE/read‑only; remove positive actions, never return SUBMITTED_OR_UNKNOWN
 R1 native receipt -> disposition -> Research Intent
 R2 availability/phase -> linked Artifact availability -> source cut -> projection/valid-through ->
    Owner‑projected read-time freshness/action
@@ -1590,7 +1590,7 @@ its sixth row. The list has no bulk rerun, bulk delete,
 editor link, checkbox, or other overflow action. Empty, filtered-empty, permission-denied, and backend-unavailable
 remain distinct as specified above.
 
-#### Exact Workers read-only skeleton
+#### Exact Workers read‑only skeleton
 
 `/operations/workers` and `/operations/workers/:workerId` are `DRAWABLE_EXACT` and
 `IMPLEMENTATION_ADMITTED` for first-party RunStore GET readback only. This Workers-specific closure supersedes
@@ -1656,7 +1656,7 @@ D  Identity + lease badge -> Lease -> Activity -> Last run -> Capabilities
   There is no mutating action or operational/domain action envelope on this surface. Create/edit config,
   restart, cache-clean, REPL, autoscaling, host/group/version and heartbeat-history fabrication stay excluded.
 
-#### Service Logs exact read-only skeleton
+#### Service Logs exact read‑only skeleton
 
 `/operations/service-logs` is `DRAWABLE_EXACT` and `IMPLEMENTATION_ADMITTED` only as a first-party
 RunStore GET projection of bounded operational evidence. This closure supersedes the earlier Windmill
@@ -1736,7 +1736,7 @@ proving zero Windmill, Owner, provider, scheduler, dispatcher, production, and t
 Owner health, business success, worker readiness for an unbound run, Telemetry availability, or replacement
 readiness.
 
-#### Exact Operations Audit read-only skeleton
+#### Exact Operations Audit read‑only skeleton
 
 `/operations/audit` is `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED` only for the first-party, append-only
 control-plane evidence defined here. It never reads Windmill's partitioned table as a positive first-party source:
@@ -1748,7 +1748,7 @@ identity. The admitted producers are exactly successful `dashboard.dependency.ca
 `develop_composer.submit_or_resolve.v2`, and `exploratory_replay.submit_or_resolve.v2`. Each cancellation or
 deletion inserts its audit event in the same serializable PostgreSQL transaction as its immutable action receipt.
 Each Source-to-Research, Artifact, Composer, or Replay request inserts a typed `dashboard-control-plane-admission-v1-*` receipt and
-its audit event in the same RunStore begin transaction before any Owner or provider effect. Replay's read-only
+its audit event in the same RunStore begin transaction before any Owner or provider effect. Replay's read‑only
 identify preflight may precede that transaction only after compatibility and routing admission; a missing, conflicting,
 or rejected receipt/audit insert rolls back the run/binding transition and no downstream effect begins. The
 receipt binds the authenticated principal and authorization digest, original requested action, resolved execution
@@ -1822,7 +1822,7 @@ S  Semantic status | operational status | duration | received/started/completed
 P  Run identity, path, kind, tag, trigger, principal, worker, version, hash, language,
    memory peak, parent/root correlation, retention; then allowlisted Inputs key/value table
    and `n fields withheld` disclosure with reason chips; RunWorkerCompatibilityMatrix is bound to this run ID
-   OperationalCancellationReceiptCard is the fixed read-only post-attempt location: pending/unavailable/receipt
+   OperationalCancellationReceiptCard is the fixed read‑only post-attempt location: pending/unavailable/receipt
 Q  Owner Outcome: availability, source Owner, next legal action, receipt identity, source cut
 T  Result: allowlisted/redacted bounded JSON/tree view with Copy field, Copy JSON,
    Download bounded result, and the same withheld-field disclosure
@@ -1931,11 +1931,11 @@ A route name, an `S/P/Q/T` slot assignment, or a PascalCase label is not by itse
 contract. The following status is normative and prevents the experimental chapter from overstating how much of the
 Dashboard can already be drawn:
 
-| Completeness status                   | Current pages or surfaces                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Admission meaning                                                                                                                                                                                                                                                                                      |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Completeness status                   | Current pages or surfaces                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Admission meaning                                                                                                                                                                                                                                                                                      |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `DRAWABLE_EXACT`                      | Operations Runs `/operations`, Run Detail `/operations/runs/:runId`, Workers `/operations/workers` and `/operations/workers/:workerId`, Schedules `/operations/schedules`, Service Logs `/operations/service-logs`, Audit `/operations/audit`; R&D Intake `/rd` and Develop Composer `/rd/composer` exact‑readback workbenches, Research directory `/rd/research` and exact readback `/rd/research/:requestIdentity`, and Artifacts `/rd/artifacts`; Backtest Replay request and result readback `/backtest`; Market Data `/data` and `/data/pit-catalog`; all four Runtime routes | The chapter fixes route slots, internal field/column order, dimensions or responsive transformation, state geometry, and button order. Fail‑closed routes are drawable with fixed unavailable/not‑ready values; this status does not make their backend or Dashboard consumer available                |
-| `DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` | R&D Intake `/rd` composer and authority‑resolution panels beyond the admitted exact‑readback workbench                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | The named content/detail region is exact, but its enclosing route list still lacks one or more of summary labels, table columns, row actions, sort, pagination or loading‑row geometry; the broader surface is not drawable or implementable                                                           |
-| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`    | Every other complete route in the registry, explicitly including Event Rail, Telemetry, and Alerts                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | The registry fixes navigation position, route slots, named page‑local composites, and button intent only. An unattended agent must not infer missing list behavior, timeline rows, responsive table transformation, or internal geometry from a component‑like name or excluded Windmill/native layout |
+| `DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` | R&D Intake `/rd` composer and authority‑resolution panels beyond the admitted exact‑readback workbench                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | The named content/detail region is exact, but its enclosing route list still lacks one or more of summary labels, table columns, row actions, sort, pagination or loading‑row geometry; the broader surface is not drawable or implementable                                                           |
+| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`    | Every other complete route in the registry, explicitly including Event Rail, Telemetry, and Alerts                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | The registry fixes navigation position, route slots, named page‑local composites, and button intent only. An unattended agent must not infer missing list behavior, timeline rows, responsive table transformation, or internal geometry from a component‑like name or excluded Windmill/native layout |
 
 Names referenced by a route but absent from the reusable component inventory are page-local composite labels, not
 hidden reusable atoms. Promoting one blueprint to `DRAWABLE_EXACT` requires this chapter to specify, in both
@@ -1963,7 +1963,7 @@ custody, and actual provider execution remains `NOT_ADMITTED`. This rule resolve
 the fixed panel, button, or state geometry in the registry.
 
 The currently admitted `/rd`, `/rd/composer`, `/rd/research`, `/rd/research/:requestIdentity`, and
-`/rd/artifacts` routes and the Artifact operational exact-readback are bounded read-only surfaces and
+`/rd/artifacts` routes and the Artifact operational exact-readback are bounded read‑only surfaces and
 supersede the broader future Intake, Research, and Artifacts registry rows below for implementation. None has a
 summary strip or split detail pane. Their only `P` surfaces are `SourceIntakeReadbackWorkbench`,
 `DevelopComposerReadbackWorkbench`, `ResearchDirectory`, `ResearchReadbackWorkspace`, and `ArtifactDirectory`.
@@ -1989,18 +1989,18 @@ these slices.
 
 #### Backtest, Qualification, and Scanner
 
-| Tab and route                                          | Fixed `S / P / Q / T` contents                                                                                                                                                                                       | Buttons in order                                                                                      | Default evidence state                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Exploratory `/backtest`                                | No summary strip; `P=ExploratoryReplayReadbackWorkbench` first renders `Request`, `Custody`, and `Replay basis`, then an exact Result/Attempt lookup and one compact shared `FactGroup` for terminal, diagnosis, reconciliation, semantic trace, and result identity; no chart or historical rows without an admitted return-series contract | Open readback, Open result, Refresh. Run/Resolve/Create successor/edit/compare/download have no browser slot | `ACTIVE_OBSERVATION / IMPLEMENTATION_ADMITTED` covers exact Replay V2 request and canonical result readback through the consolidated read API. The separately authenticated HTTP/MCP request-custody path is `IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`; the archived Windmill S3 entry and native replay execution remain unavailable. The result summary is read-only, and the page cannot invent returns or imply native-execution or cutover parity                                                                                                                                                                                                                                                      |
-| Compare `/backtest/compare`                            | Selected‑run count and comparable cuts; `P=RunPicker`; `Q=ComparisonBasis`; `T=RunComparePanel`                                                                                                                      | Add run, Remove run, Swap baseline, Open run detail                                                   | Read‑only; compare 2-4 exact compatible runs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| Diagnostics `/backtest/diagnostics`                    | Diagnostic category counts; `P=DiagnosticFilter`; `Q=ModelIdentityList`; `T=DiagnosticTable + bounded summary`                                                                                                       | Filter, Copy identity, Open source receipt                                                            | Only allowed categories; no protected Qualification data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| Intake `/qualification`                                | Submitted/pending/evaluating/unknown/not‑admitted/semantic‑conflict/unavailable counts; `P=QualificationIntakeTable`; `Q=EvidenceCompleteness + QualificationIntakeConflictPanel`; `T=IntakeReceiptTimeline`         | Submit intake, Refresh, Resolve exact same meaning, Open original receipt, Prepare admitted successor | Pending/evaluating requires a separately allowed intake projection and never implies a public terminal. Exact replay may resolve; any changed valid or invalid meaning under the same identity is `RequestSemanticConflict`. `OBSERVED_CANDIDATE_NOT_CURRENT`; no real Product Edge consumer yet                                                                                                                                                                                                                                                    |
-| Protected feedback `/qualification/protected-feedback` | Current/genesis‑empty/unknown/corrupt counts; `P=QualificationFrontierTable`; `Q=QualificationFrontierReceiptPanel + IndependenceBasisLink`; `T=OpaqueFrontierTimeline`                                              | Refresh, Resolve current by exact basis, Open R&D basis receipt, Copy opaque frontier reference       | `RESTORED_REVALIDATION_PENDING / NOT_ADMITTED`; exhaustive canonical Owner history verification and direct `1/1/1 + receipt` readback succeeded, but the reconstructed original frontier is stale/`UNAVAILABLE` at the current cut and consumer revalidation has not run. The page renders unavailable, hides Copy frontier, and exposes only read‑only incident evidence. Identity/cut/digest/state remain visible; protected content, candidate Intake, protected attempts, eligibility, holdout, and cross‑family ancestry remain `NOT_ADMITTED` |
-| Outcomes `/qualification/outcomes`                     | Qualified/ineligible/expired/revoked public‑terminal counts only; `P=PublicOutcomeTable`; `Q=QualificationPublicOutcome`; `T=PublicFrontierTimeline`                                                                 | Refresh, Open public outcome, Copy opaque reference                                                   | `Admitted/Evaluating` create no row, terminal count, receipt, color, notification, or action. Public redaction only; protected fields have no slots. `OBSERVED_CANDIDATE_NOT_CURRENT`                                                                                                                                                                                                                                                                                                                                                               |
-| Eligibility `/qualification/eligibility`               | Current/pending/expired/conflict counts; `P=EligibilityIntervalTable`; `Q=HeadFrontierCard`; `T=TransitionTimeline`                                                                                                  | Refresh, Resolve current head                                                                         | Foundation only; empty or dual‑current intervals are unavailable                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| Schedules `/scanner`                                   | Due/unknown/unavailable/failed counts; `P=ScheduleTable`; `Q=DueSlotEvidence`; `T=AttemptTimeline`                                                                                                                   | Open schedule, Resolve same due‑slot                                                                  | Creation/editing deferred until a real schedule consumer exists                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| Runs `/scanner/runs`                                   | Running/unknown/rejected/terminal counts; `P=ScannerAttemptTable`; `Q=AttemptReceipt + ScannerPublicReceiptIntegrityPanel`; `T=MatcherInvocationEvidence`                                                            | Open run, Resolve same attempt                                                                        | `CURRENT/PARTIAL · STATIC_CONTRACT_CLOSED_NOT_RUNTIME`: PR #334 requires sealed Scanner Owner admission. No row/count/badge/receipt or Matcher/Proposal evidence appears without a separately admitted direct Owner consumer and runtime adapter                                                                                                                                                                                                                                                                                                    |
-| Proposals `/scanner/proposals`                         | New/accepted/rejected/unavailable counts; `P=ProposalTable`; `Q=ProposalEvidence`; `T=ProposalLineage`                                                                                                               | Open proposal, Prepare admitted lifecycle request                                                     | Proposal never authorizes Governance or Runtime                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Tab and route                                          | Fixed `S / P / Q / T` contents                                                                                                                                                                                                                                                                                                               | Buttons in order                                                                                             | Default evidence state                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Exploratory `/backtest`                                | No summary strip; `P=ExploratoryReplayReadbackWorkbench` first renders `Request`, `Custody`, and `Replay basis`, then an exact Result/Attempt lookup and one compact shared `FactGroup` for terminal, diagnosis, reconciliation, semantic trace, and result identity; no chart or historical rows without an admitted return‑series contract | Open readback, Open result, Refresh. Run/Resolve/Create successor/edit/compare/download have no browser slot | `ACTIVE_OBSERVATION / IMPLEMENTATION_ADMITTED` covers exact Replay V2 request and canonical result readback through the consolidated read API. The separately authenticated HTTP/MCP request‑custody path is `IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`; the archived Windmill S3 entry and native replay execution remain unavailable. The result summary is read‑only, and the page cannot invent returns or imply native‑execution or cutover parity                                                                                               |
+| Compare `/backtest/compare`                            | Selected‑run count and comparable cuts; `P=RunPicker`; `Q=ComparisonBasis`; `T=RunComparePanel`                                                                                                                                                                                                                                              | Add run, Remove run, Swap baseline, Open run detail                                                          | Read‑only; compare 2-4 exact compatible runs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Diagnostics `/backtest/diagnostics`                    | Diagnostic category counts; `P=DiagnosticFilter`; `Q=ModelIdentityList`; `T=DiagnosticTable + bounded summary`                                                                                                                                                                                                                               | Filter, Copy identity, Open source receipt                                                                   | Only allowed categories; no protected Qualification data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Intake `/qualification`                                | Submitted/pending/evaluating/unknown/not‑admitted/semantic‑conflict/unavailable counts; `P=QualificationIntakeTable`; `Q=EvidenceCompleteness + QualificationIntakeConflictPanel`; `T=IntakeReceiptTimeline`                                                                                                                                 | Submit intake, Refresh, Resolve exact same meaning, Open original receipt, Prepare admitted successor        | Pending/evaluating requires a separately allowed intake projection and never implies a public terminal. Exact replay may resolve; any changed valid or invalid meaning under the same identity is `RequestSemanticConflict`. `OBSERVED_CANDIDATE_NOT_CURRENT`; no real Product Edge consumer yet                                                                                                                                                                                                                                                    |
+| Protected feedback `/qualification/protected-feedback` | Current/genesis‑empty/unknown/corrupt counts; `P=QualificationFrontierTable`; `Q=QualificationFrontierReceiptPanel + IndependenceBasisLink`; `T=OpaqueFrontierTimeline`                                                                                                                                                                      | Refresh, Resolve current by exact basis, Open R&D basis receipt, Copy opaque frontier reference              | `RESTORED_REVALIDATION_PENDING / NOT_ADMITTED`; exhaustive canonical Owner history verification and direct `1/1/1 + receipt` readback succeeded, but the reconstructed original frontier is stale/`UNAVAILABLE` at the current cut and consumer revalidation has not run. The page renders unavailable, hides Copy frontier, and exposes only read‑only incident evidence. Identity/cut/digest/state remain visible; protected content, candidate Intake, protected attempts, eligibility, holdout, and cross‑family ancestry remain `NOT_ADMITTED` |
+| Outcomes `/qualification/outcomes`                     | Qualified/ineligible/expired/revoked public‑terminal counts only; `P=PublicOutcomeTable`; `Q=QualificationPublicOutcome`; `T=PublicFrontierTimeline`                                                                                                                                                                                         | Refresh, Open public outcome, Copy opaque reference                                                          | `Admitted/Evaluating` create no row, terminal count, receipt, color, notification, or action. Public redaction only; protected fields have no slots. `OBSERVED_CANDIDATE_NOT_CURRENT`                                                                                                                                                                                                                                                                                                                                                               |
+| Eligibility `/qualification/eligibility`               | Current/pending/expired/conflict counts; `P=EligibilityIntervalTable`; `Q=HeadFrontierCard`; `T=TransitionTimeline`                                                                                                                                                                                                                          | Refresh, Resolve current head                                                                                | Foundation only; empty or dual‑current intervals are unavailable                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Schedules `/scanner`                                   | Due/unknown/unavailable/failed counts; `P=ScheduleTable`; `Q=DueSlotEvidence`; `T=AttemptTimeline`                                                                                                                                                                                                                                           | Open schedule, Resolve same due‑slot                                                                         | Creation/editing deferred until a real schedule consumer exists                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Runs `/scanner/runs`                                   | Running/unknown/rejected/terminal counts; `P=ScannerAttemptTable`; `Q=AttemptReceipt + ScannerPublicReceiptIntegrityPanel`; `T=MatcherInvocationEvidence`                                                                                                                                                                                    | Open run, Resolve same attempt                                                                               | `CURRENT/PARTIAL · STATIC_CONTRACT_CLOSED_NOT_RUNTIME`: PR #334 requires sealed Scanner Owner admission. No row/count/badge/receipt or Matcher/Proposal evidence appears without a separately admitted direct Owner consumer and runtime adapter                                                                                                                                                                                                                                                                                                    |
+| Proposals `/scanner/proposals`                         | New/accepted/rejected/unavailable counts; `P=ProposalTable`; `Q=ProposalEvidence`; `T=ProposalLineage`                                                                                                                                                                                                                                       | Open proposal, Prepare admitted lifecycle request                                                            | Proposal never authorizes Governance or Runtime                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 #### Strategy, Runtime, and Portfolio
 
@@ -2087,7 +2087,7 @@ or pasted-receipt control appears at any viewport.
 - Every effect‑capable button is wrapped by `ActionAdmissionGate`, whose branch tag has exactly the `domain` and
   `operational` variants. The domain branch requires the current `NextLegalActionBar` operation and an `admitted` envelope
   for the same principal, scope, Owner, operation, schema, exact effect set, binding head, authorization and manifest
-  digest. `Check & Run` is a composite domain control whose first click is read-only preflight; only its internal
+  digest. `Check & Run` is a composite domain control whose first click is read‑only preflight; only its internal
   dispatch transition may cross into `ADMITTING`. The operational branch exists only for a registered disposable
   control such as `dependency.cancel.queued`; it requires a current `OperationalActionEnvelope` binding principal,
   capability, exact operational identity, dispatcher transition version, zero domain effects, claim-absence cut and
@@ -2317,7 +2317,7 @@ The required backend target is `ProductEdgeDownstreamAdmissionResolverV1`, a Pro
 is callable by R&D within R&D's physical PostgreSQL transaction. Its SQL boundary uses non-locking normalized hints
 only to build the complete bounded OA locator plan, obtains the sorted/deduplicated OA shared locks first, then
 locks the complete Product Edge binding/history/head/supersession/manifest/admission/receipt/outbox set and returns
-a provenance-bearing read-only envelope with no table handle. SQL performs no business admission, writes no fact,
+a provenance-bearing read‑only envelope with no table handle. SQL performs no business admission, writes no fact,
 and never constructs sealed authority. The Product Edge Rust boundary reuses OA's explicitly non-authoritative
 canonical-envelope parser, verifies the complete OA and PE row/digest/receipt/outbox/cross-binding set, and alone
 privately constructs the non-deserializable sealed downstream admission readback that R&D may consume. A changed or
@@ -2466,7 +2466,7 @@ cut. It may deliberately compose multiple service artifacts; availability requir
 equal that one envelope, not merely share a Compose project, report healthy, or resemble source text. Mixed
 config-file sources, missing App/script hashes, or any expected/observed mismatch render the operation unavailable
 with the exact failed predicate. `archived` removes dispatch and domain mutation actions from UI and MCP while
-preserving route geometry, capability identity and read-only Owner-linked historical runs. Only an externally
+preserving route geometry, capability identity and read‑only Owner-linked historical runs. Only an externally
 completed, version-matched deployment plus consumer revalidation may return it to `available`; the Dashboard never
 creates the envelope, performs archive/restore, or infers availability from source code or a historical run.
 
@@ -2510,14 +2510,14 @@ claim, never re-evaluates a fresh Windmill/Dashboard choice, and never creates a
 retry. Exact-identity `RESOLVE` remains effect-free and does not require a current Dashboard routing binding.
 
 Exploratory Replay custody is narrower than native replay execution. The public HTTP/MCP request represents every
-unsigned 64-bit integer as a decimal string; the Dashboard first calls the read-only Owner identify port, verifies
+unsigned 64-bit integer as a decimal string; the Dashboard first calls the read‑only Owner identify port, verifies
 the returned canonical bytes and freezes `request_identity`, `meaning_digest`, and the canonical-byte digest. The
 effect worker then resolves that exact selector, submits only when absent and only on the first claim, and persists
 `REPLAY_OWNER_SUBMISSION_STARTED` before the one permitted submit. Any response-loss or restart retry identifies
 and resolves only; it never submits again. Completion requires exact Owner readback. The native
 `/v2/exploratory-replays` execution endpoint, provider work, and economic-result claims are outside this admission.
 
-Develop Composer custody begins with the read-only Owner projection for one bounded Research request locator. The
+Develop Composer custody begins with the read‑only Owner projection for one bounded Research request locator. The
 Dashboard freezes the returned request identity and complete projection digest before enqueue. The effect worker
 re-projects for exact equality, resolves first, submits only on the exact absent sentinel and first claim, persists
 `COMPOSER_OWNER_SUBMISSION_STARTED` before transport, then resolves again. A response-loss or restart retry is
@@ -2544,7 +2544,7 @@ effects.
 ## Unattended implementation sequence
 
 The backend dependency wave is a `TARGET_DRAFT` development-custody constraint and does not authorize Dashboard
-implementation. PR #327 has already merged the F1 read-only Observability source projection as `CURRENT/PARTIAL`
+implementation. PR #327 has already merged the F1 read‑only Observability source projection as `CURRENT/PARTIAL`
 after independent exact-head review and repository gates. Its real Owner canonical-outbox adapter, telemetry
 backend, runtime/default-Windmill consumer, and every Dashboard implementation remain unavailable or
 `NOT_ADMITTED`. PR #332 separately supersedes the planned Portfolio static Scope skeleton with the

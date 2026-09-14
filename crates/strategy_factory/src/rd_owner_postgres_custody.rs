@@ -1,3 +1,8 @@
+#![expect(
+    clippy::large_futures,
+    reason = "R&D Owner custody retains complete typed readbacks across repeatable-read transactions"
+)]
+
 use std::{collections::BTreeMap, fmt::Display};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
@@ -63,6 +68,7 @@ pub(crate) async fn resolve_native_replay_rd_cut_v2_in_transaction(
             "R&D Owner source storage schema mismatch",
         ));
     }
+
     match source_storage.custody_state.as_str() {
         "LEGACY_MISSING" => {
             return Err(native_source_unavailable(
@@ -92,7 +98,7 @@ pub(crate) async fn resolve_native_replay_rd_cut_v2_in_transaction(
         Some(locator),
         source_storage.replay.clone(),
     )
-    .map_err(|error| native_source_unavailable(error.to_string()))?;
+    .map_err(|e| native_source_unavailable(e.to_string()))?;
     let mut replay = replay_result
         .readback
         .ok_or_else(|| native_source_unavailable("sealed Replay request unavailable"))?;
@@ -122,10 +128,11 @@ pub(crate) async fn resolve_native_replay_rd_cut_v2_in_transaction(
         DownstreamAdmissionModeV1::Historical,
     )
     .await
-    .map_err(|error| native_source_unavailable(error.to_string()))?;
+    .map_err(|e| native_source_unavailable(e.to_string()))?;
     let research =
         native_research_custody_from_boundary(transaction, &source_storage, &replay_admission)
             .await?;
+
     if !research.authority_available_at(replay.owner_cut_epoch_ms()) {
         return Err(
             crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2::Unavailable(
@@ -191,7 +198,7 @@ pub(crate) async fn resolve_native_replay_rd_cut_v2_in_transaction(
         &replay,
         &replay_admission,
         &research,
-        stored,
+        &stored,
     )?;
     Ok(ResolvedNativeReplayRdCutV2 {
         replay,
@@ -206,6 +213,10 @@ fn native_source_unavailable(
     crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2::Unavailable(message.into())
 }
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Result::map_err transfers sqlx error ownership into this canonical boundary mapper"
+)]
 fn native_source_storage(
     error: sqlx::Error,
 ) -> crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2 {
@@ -303,6 +314,7 @@ async fn resolve_native_source_storage_boundary(
     .await
     .map_err(native_source_storage)?
     .unwrap_or(false);
+
     if !boundary_is_exact {
         return Err(native_source_unavailable(
             "R&D Owner Native Replay source boundary unavailable",
@@ -321,7 +333,7 @@ async fn resolve_native_source_storage_boundary(
     let value =
         value.ok_or_else(|| native_source_unavailable("R&D Owner source read unavailable"))?;
     serde_json::from_value(value)
-        .map_err(|error| native_source_unavailable(format!("R&D Owner source envelope: {error}")))
+        .map_err(|e| native_source_unavailable(format!("R&D Owner source envelope: {e}")))
 }
 
 async fn native_research_custody_from_boundary(
@@ -339,11 +351,9 @@ async fn native_research_custody_from_boundary(
     let stored_request: StoredAdmittedResearchRequestV2 = serde_json::from_slice(
         &BASE64
             .decode(&request_record.bytes_base64)
-            .map_err(|error| {
-                native_source_unavailable(format!("research_request base64: {error}"))
-            })?,
+            .map_err(|e| native_source_unavailable(format!("research_request base64: {e}")))?,
     )
-    .map_err(|error| native_source_unavailable(format!("research_request decode: {error}")))?;
+    .map_err(|e| native_source_unavailable(format!("research_request decode: {e}")))?;
     if stored_request.schema_version != 1
         || envelope.research_request_identity.as_deref()
             != Some(stored_request.request.request_identity.as_str())
@@ -359,9 +369,9 @@ async fn native_research_custody_from_boundary(
         DownstreamAdmissionModeV1::Historical,
     )
     .await
-    .map_err(|error| native_source_unavailable(error.to_string()))?;
+    .map_err(|e| native_source_unavailable(e.to_string()))?;
     verify_research_admission_v2(&research_admission, &stored_request.request)
-        .map_err(|error| native_source_unavailable(error.to_string()))?;
+        .map_err(|e| native_source_unavailable(e.to_string()))?;
     if !crate::exploratory_replay::postgres::same_product_edge_authority(
         replay_admission,
         &research_admission,
@@ -372,7 +382,7 @@ async fn native_research_custody_from_boundary(
     }
 
     let semantic_digest = semantic_digest_v2(&stored_request.request)
-        .map_err(|error| native_source_unavailable(error.to_string()))?;
+        .map_err(|e| native_source_unavailable(e.to_string()))?;
     let receipt_record = envelope
         .research_receipt
         .as_ref()
@@ -426,7 +436,7 @@ async fn native_research_custody_from_boundary(
         stored_request.canonical_trial_family_policy.clone(),
         receipt.committed_at_epoch_ms,
     )
-    .map_err(|error| native_source_unavailable(error.to_string()))?;
+    .map_err(|e| native_source_unavailable(e.to_string()))?;
     if intent_v2.trial_family_identity != family.root().trial_family_identity()
         || intent_v2.trial_family_policy_digest != family.root().policy_digest()
     {
@@ -439,7 +449,7 @@ async fn native_research_custody_from_boundary(
             .clone()
             .ok_or_else(|| native_source_unavailable("Research view missing"))?,
     )
-    .map_err(|error| native_source_unavailable(format!("Research view decode: {error}")))?;
+    .map_err(|e| native_source_unavailable(format!("Research view decode: {e}")))?;
     let view_identity_is_valid =
         if view.phase == crate::product_edge::ResearchViewPhase::ExplorationActive {
             view.schema_version == 2
@@ -453,6 +463,7 @@ async fn native_research_custody_from_boundary(
                 && view.exploration.is_none()
                 && view.projection_identity == canonical_research_view_identity_v2(&view)
         };
+
     if !view_identity_is_valid
         || view.request_identity != receipt.request_identity
         || view.trusted_principal != research_admission.effective_principal()
@@ -491,8 +502,8 @@ fn decode_native_record_value<T: serde::de::DeserializeOwned>(
 ) -> Result<T, crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2> {
     let bytes = BASE64
         .decode(&record.bytes_base64)
-        .map_err(|error| native_source_unavailable(error.to_string()))?;
-    serde_json::from_slice(&bytes).map_err(|error| native_source_unavailable(error.to_string()))
+        .map_err(|e| native_source_unavailable(e.to_string()))?;
+    serde_json::from_slice(&bytes).map_err(|e| native_source_unavailable(e.to_string()))
 }
 
 fn native_source_record(
@@ -508,9 +519,9 @@ fn native_source_record(
         record.ok_or_else(|| native_source_unavailable(format!("{source_name} missing")))?;
     let bytes = BASE64
         .decode(&record.bytes_base64)
-        .map_err(|error| native_source_unavailable(error.to_string()))?;
-    let decoded: serde_json::Value = serde_json::from_slice(&bytes)
-        .map_err(|error| native_source_unavailable(error.to_string()))?;
+        .map_err(|e| native_source_unavailable(e.to_string()))?;
+    let decoded: serde_json::Value =
+        serde_json::from_slice(&bytes).map_err(|e| native_source_unavailable(e.to_string()))?;
     if bytes.is_empty()
         || decoded != record.mirror
         || decoded != *expected_json
@@ -535,8 +546,8 @@ fn native_source_record_value(
     crate::native_replay_rd_sources_v2::StoredSourceRecordV2,
     crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2,
 > {
-    let expected_json = serde_json::to_value(expected)
-        .map_err(|error| native_source_unavailable(error.to_string()))?;
+    let expected_json =
+        serde_json::to_value(expected).map_err(|e| native_source_unavailable(e.to_string()))?;
     native_source_record(record, source_name, &expected_json, domain)
 }
 

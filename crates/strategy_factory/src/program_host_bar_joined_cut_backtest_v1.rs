@@ -278,8 +278,8 @@ impl OwnerBarJoinedCutBacktestStrategyV1 {
     }
 
     fn finish_callback(&self, result: anyhow::Result<()>) -> anyhow::Result<()> {
-        if let Err(error) = &result {
-            self.trace.borrow_mut().callback_failure = Some(format!("{error:#}"));
+        if let Err(e) = &result {
+            self.trace.borrow_mut().callback_failure = Some(format!("{e:#}"));
         }
         result
     }
@@ -362,9 +362,9 @@ fn lifecycle_envelope(
         owner_sequence,
         event_identity,
     )
-    .map_err(|error| anyhow::anyhow!("V4 BAR lifecycle key rejected: {error:?}"))?;
+    .map_err(|e| anyhow::anyhow!("V4 BAR lifecycle key rejected: {e:?}"))?;
     LifecycleEnvelopeV1::new_bound(key, payload)
-        .map_err(|error| anyhow::anyhow!("V4 BAR lifecycle rejected: {error:?}"))
+        .map_err(|e| anyhow::anyhow!("V4 BAR lifecycle rejected: {e:?}"))
 }
 
 fn stable_identity(domain: &[u8], digest: &[u8; 32]) -> [u8; 16] {

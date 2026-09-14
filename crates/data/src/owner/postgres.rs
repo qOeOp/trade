@@ -342,6 +342,10 @@ impl MarketDataOwnerPostgres {
         Ok(Self { pool })
     }
 
+    #[allow(
+        clippy::unused_async,
+        reason = "the fail-closed legacy resolver retains the asynchronous Owner resolver seam"
+    )]
     pub(crate) async fn resolve_replay_market_facts_readback_v2(
         &self,
         _request: &UntrustedReplayMarketFactsRequestV2,
@@ -940,6 +944,7 @@ async fn validate_replay_market_native_dependencies_read_only_v2(
     let outbox_receipt: Vec<u8> = universe_row
         .try_get("outbox_receipt_bytes")
         .map_err(|_| Error::CorruptRecord)?;
+
     if universe.identity() != universe.digest()
         || indexed_universe != universe.identity()
         || universe_readback.record().identity() != universe.identity()
@@ -992,6 +997,7 @@ async fn validate_replay_market_native_dependencies_read_only_v2(
         observation_census::rederive_observation_census_read_only_v1(transaction, &joined_request)
             .await
             .map_err(|_| Error::JoinedCutUnavailable)?;
+
     if persisted_census != rederived_census
         || persisted_census.record().identity() != observation.identity()
         || persisted_census.record().digest() != observation.digest()
@@ -1006,6 +1012,7 @@ async fn validate_replay_market_native_dependencies_read_only_v2(
         joined_receipt_digest,
     )
     .map_err(|_| Error::CorruptRecord)?;
+
     if rederived_joined.record().identity() != joined.identity()
         || rederived_joined.record().digest() != joined.digest()
         || rederived_joined.record().canonical_bytes() != joined_custody.as_ref()
@@ -1062,6 +1069,7 @@ async fn validate_replay_sample_projection_read_only_v4(
             .try_into()
             .map_err(|_| Error::CorruptRecord)
     };
+
     if decoded.kind() != StrategyInputSampleProjectionKindV4::JoinedCut
         || decoded.subject_identity() != joined_receipt_digest
         || row_digest("receipt_digest")? != sample_identity
@@ -1101,11 +1109,13 @@ async fn validate_replay_sample_projection_read_only_v4(
         })
     })
     .collect::<Result<Vec<_>, Error>>()?;
+
     if dependencies.len() != decoded.component_count() as usize
         || schedule_set_digest(&dependencies) != decoded.schedule_dependency_set_digest()
     {
         return Err(Error::CorruptRecord);
     }
+
     for (exact_v4, dependency) in decoded.canonical_bytes()[HEADER_LEN_V4..]
         .chunks_exact(COMPONENT_LEN_V4)
         .zip(&dependencies)
@@ -1138,6 +1148,7 @@ async fn validate_replay_sample_projection_read_only_v4(
                     && stored_dependency.binding_receipt_digest == dependency.binding_receipt_digest
             })
             .ok_or(Error::CorruptRecord)?;
+
         if stored_dependency.schedule_readback_identity.as_bytes()
             != &dependency.schedule_readback_identity
             || stored_dependency.schedule_fact_digest.as_bytes() != &dependency.schedule_fact_digest
@@ -1161,6 +1172,7 @@ async fn validate_replay_sample_projection_read_only_v4(
             })
             .ok_or(Error::CorruptRecord)?;
         let start = V3_HEADER_LEN + index * COMPONENT_LEN_V4;
+
         if stored
             .decoded
             .canonical_bytes()
@@ -6493,6 +6505,7 @@ impl SharedTimeEvidenceResolver for MarketDataReadPostgres {
             .iter()
             .find(|entry| entry.fact.handoff.head_identity() == successor.head_identity())
             .ok_or(SharedTimeEvidenceError::LocatorMismatch)?;
+
         if successor_entry.fact.handoff.locator() != successor
             || successor_entry.fact.predecessor_head_digest != Some(prior.head_digest())
         {
@@ -6546,9 +6559,11 @@ fn verify_raw_clock_history_v1(
             proof,
         });
     }
+
     if expected_count != Some(entries.len()) || entries.is_empty() {
         return Err(SharedTimeEvidenceError::StoreUnavailable);
     }
+
     for entry in &entries {
         if entries
             .iter()
@@ -6563,6 +6578,7 @@ fn verify_raw_clock_history_v1(
         {
             return Err(SharedTimeEvidenceError::StoreUnavailable);
         }
+
         if entry.membership.ordinal == 1 {
             if entry.membership.root_identity != entry.membership.identity
                 || entry.membership.prior_identity.is_some()
@@ -6579,12 +6595,14 @@ fn verify_raw_clock_history_v1(
                 Some(candidate.membership.identity) == entry.membership.prior_identity
             })
             .ok_or(SharedTimeEvidenceError::StoreUnavailable)?;
+
         if entry.membership.root_identity != prior.membership.root_identity
             || prior.membership.ordinal.checked_add(1) != Some(entry.membership.ordinal)
             || entry.fact.predecessor_head_digest != Some(prior.fact.handoff.head_digest())
         {
             return Err(SharedTimeEvidenceError::StoreUnavailable);
         }
+
         if entry.fact.handoff.clock_epoch() == prior.fact.handoff.clock_epoch() {
             validate_same_epoch_successor(&prior.fact, &entry.fact.clock())
                 .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
@@ -6795,6 +6813,7 @@ impl NativeReplaySchedulingResolverV1 for MarketDataReadPostgres {
             .ok_or(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?
             .to_owned();
         let mut schedules = Vec::with_capacity(2);
+
         for instrument in request.member_instruments() {
             let candidates = self
                 .admitted_port
@@ -7700,19 +7719,19 @@ fn verify_admitted_pit_evidence_by_identity_v1(
     evidence: &MarketDataPitEvaluationStorageEvidence,
 ) -> Result<VerifiedPitObservationBatch, PitSnapshotError> {
     let mut selected = None;
+
     for raw in evidence.pit_lineage_rows() {
         let envelope = decode_raw_pit_envelope(raw)?;
         let aggregate: PitSnapshotCommitAggregate = serde_json::from_value(envelope.aggregate)
             .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+
         if aggregate.fact().snapshot_identity() == snapshot_identity
             && aggregate.fact().digest() == fact_digest
-        {
-            if selected
+            && selected
                 .replace(aggregate.receipt().locator().clone())
                 .is_some()
-            {
-                return Err(PitSnapshotError::PersistenceUnavailable);
-            }
+        {
+            return Err(PitSnapshotError::PersistenceUnavailable);
         }
     }
     let locator = selected.ok_or(PitSnapshotError::LocatorMismatch)?;
@@ -8219,6 +8238,7 @@ fn decode_raw_epoch_proof(raw: &[u8]) -> Result<EpochSuccessorProof, SharedTimeE
             .map(str::to_owned)
             .ok_or(SharedTimeEvidenceError::StoreUnavailable)
     };
+
     if object.get("comparison_rule").and_then(Value::as_i64) != Some(1) {
         return Err(SharedTimeEvidenceError::StoreUnavailable);
     }

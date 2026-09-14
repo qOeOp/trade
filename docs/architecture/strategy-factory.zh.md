@@ -56,13 +56,16 @@ R&D 内的 Develop 能力返回内容寻址 Strategy Artifact 和 Build Receipt�
   set；只有完整集合校验成功后，host 才同时提交两个成员的生命周期状态和单一组合 checkpoint。一份
   non-default、零参数 sealed acceptance corpus 会执行真实 Market Data Owner issuance、准确 Plan 编译、单次
   guest 调用、member-causal target、malformed output 原子拒绝、replay 与 restore；这只属于有界 crate-local
-  acceptance 证据。本地 bounded-plugin producer 接纳准确且 fail-closed 的 macOS arm64 与 Linux ARM64 host
-  profile。Linux ARM64 只在 main-bound hosted native A0 证据边界达到 **CURRENT/PARTIAL**：准确 workflow
+  acceptance 证据。本地 bounded-plugin producer 接纳准确且 fail-closed 的 macOS arm64 host profile。
+  Linux ARM64 当前为 **REVALIDATION REQUIRED**：实现已冻结当前观测到的 canonical `wasm32v1-none` sysroot
+  digest，但只有该 digest 通过 main-bound hosted native A0 gate 后才能重新达到 CURRENT/PARTIAL。此前的证据
+  边界是准确 workflow
   [`strategy-factory-linux-a0`](https://github.com/qOeOp/trade/blob/9e5149d4293a800be3a35e6b747a9f3dba304e1f/.github/workflows/strategy-factory-linux-a0.yml)、
   head `9e5149d4293a800be3a35e6b747a9f3dba304e1f` 上的 `workflow_dispatch`
   [run 33250411708](https://github.com/qOeOp/trade/actions/runs/33250411708)，以及 job
   [`strategy factory A0 native gate (linux arm64)`](https://github.com/qOeOp/trade/actions/runs/33250411708/job/99095016988)
-  已在 GitHub-hosted `ubuntu-22.04-arm` 成功，并绑定为 `github-hosted/Linux/ARM64/aarch64`。该 gate 校验
+  已在 GitHub-hosted `ubuntu-22.04-arm` 成功，并绑定为 `github-hosted/Linux/ARM64/aarch64`。该历史 gate
+  覆盖的是已被替换的 sysroot digest，不能作为新 freeze 的验收证据。该 gate 校验
   immutable CI input、Rust 1.97.1 Cargo/rustc 的准确 commit 与 host、唯一 `wasm32v1-none` target、pure-Rust
   canonical sysroot digest、确定性双构建/准确 replay，以及真实 build 进入唯一 Composer 与 `ProgramHostV2`
   consumer 路径；builder 在每次 build 前后重读准确 tool 与 canonical target sysroot。hosted job 成功不是

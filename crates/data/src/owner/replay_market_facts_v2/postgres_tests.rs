@@ -6,6 +6,193 @@ use super::postgres::{
 };
 use rstest::rstest;
 
+const EXACT_V4_CUSTODY_RELOAD: &str = "let stored = load( transaction, \
+    prepared.receipt_digest(), DependencyValidationModeV4::LockRows, )";
+const EXACT_V4_OUTBOX_INSERT: &str = "sqlx::query(\"INSERT INTO \
+    market_data_private.strategy_input_sample_projection_outbox_v4(outbox_identity,payload,custody_digest) \
+    VALUES($1,$2,$3)\") .bind(prepared.receipt_digest().as_slice()).bind(prepared.canonical_bytes()).bind(custody.as_slice()) \
+    .execute(&mut **transaction).await.map_err(|e| map_insert(&e))?;";
+
+fn source_without_comments(source: &str) -> String {
+    let bytes = source.as_bytes();
+    let mut output = Vec::with_capacity(source.len());
+    let mut index = 0;
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut block_comment_depth = 0_u32;
+
+    while index < bytes.len() {
+        let byte = bytes[index];
+        let next = bytes.get(index + 1).copied();
+        if block_comment_depth > 0 {
+            if byte == b'/' && next == Some(b'*') {
+                block_comment_depth += 1;
+                output.extend_from_slice(b"  ");
+                index += 2;
+            } else if byte == b'*' && next == Some(b'/') {
+                block_comment_depth -= 1;
+                output.extend_from_slice(b"  ");
+                index += 2;
+            } else {
+                output.push(if byte == b'\n' { b'\n' } else { b' ' });
+                index += 1;
+            }
+            continue;
+        }
+
+        if !in_string && byte == b'/' && next == Some(b'/') {
+            while index < bytes.len() && bytes[index] != b'\n' {
+                output.push(b' ');
+                index += 1;
+            }
+            continue;
+        }
+
+        if !in_string && byte == b'/' && next == Some(b'*') {
+            block_comment_depth = 1;
+            output.extend_from_slice(b"  ");
+            index += 2;
+            continue;
+        }
+
+        output.push(byte);
+
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
+            }
+        } else if byte == b'"' {
+            in_string = true;
+        }
+        index += 1;
+    }
+    String::from_utf8_lossy(&output).into_owned()
+}
+
+fn exact_v4_post_outbox_suffix() -> String {
+    format!(
+        "{EXACT_V4_OUTBOX_INSERT} {EXACT_V4_CUSTODY_RELOAD} .await? \
+        .ok_or(StrategyInputSampleProjectionErrorV4::CommitInterrupted)?; \
+        if stored.canonical_bytes() != prepared.canonical_bytes() \
+        || stored.kind() != prepared.kind() \
+        || stored.subject_identity() != prepared.subject_identity() \
+        || stored.schedule_dependency_set_digest() != prepared.schedule_dependency_set_digest() \
+        || stored.component_count() != prepared.component_count() \
+        {{ return Err(StrategyInputSampleProjectionErrorV4::StoreUntrusted); }} Ok(stored) }}"
+    )
+}
+
+fn reloads_exact_v4_custody_after_outbox(source: &str) -> bool {
+    let body = source.split_once('{').map_or(source, |(_, body)| body);
+    let uncommented = source_without_comments(body);
+    let normalized = uncommented.split_whitespace().collect::<Vec<_>>().join(" ");
+    normalized.ends_with(&exact_v4_post_outbox_suffix())
+}
+
+fn bounded_v4_persist_source(source: &str) -> Option<String> {
+    let uncommented = source_without_comments(source);
+    uncommented
+        .split("pub(super) async fn persist_strategy_input_sample_projection_in_transaction_v4")
+        .nth(1)?
+        .split("async fn validate_joined_subject")
+        .next()
+        .map(str::to_owned)
+}
+
+#[rstest]
+fn exact_v4_custody_reload_oracle_rejects_authority_drift() {
+    let accepted = format!("fn persist() {{ {}", exact_v4_post_outbox_suffix());
+    let cases = [
+        (accepted.clone(), true),
+        (
+            accepted.replace("transaction, prepared", "other_transaction, prepared"),
+            false,
+        ),
+        (
+            accepted.replace("prepared.receipt_digest()", "caller_receipt_digest"),
+            false,
+        ),
+        (
+            accepted.replace(
+                "DependencyValidationModeV4::LockRows",
+                "DependencyValidationModeV4::ReadOnly",
+            ),
+            false,
+        ),
+        (
+            accepted.replacen(EXACT_V4_OUTBOX_INSERT, "", 1),
+            false,
+        ),
+        (
+            accepted.replace(
+                "Ok(stored) }",
+                "let stored = load( transaction, caller_receipt_digest, DependencyValidationModeV4::ReadOnly, ).await?; Ok(stored) }",
+            ),
+            false,
+        ),
+        (
+            accepted.replace(
+                "Ok(stored) }",
+                "let stored: _ = load( transaction, caller_receipt_digest, DependencyValidationModeV4::ReadOnly, ).await?; Ok(stored) }",
+            ),
+            false,
+        ),
+        (
+            accepted.replace(
+                "Ok(stored) }",
+                "let mut stored = load( transaction, caller_receipt_digest, DependencyValidationModeV4::ReadOnly, ).await?; Ok(stored) }",
+            ),
+            false,
+        ),
+        (
+            accepted.replace(
+                "Ok(stored) }",
+                "let Some(stored) = load( transaction, caller_receipt_digest, DependencyValidationModeV4::ReadOnly, ).await?; Ok(stored) }",
+            ),
+            false,
+        ),
+        (
+            format!(
+                "fn persist() {{ // {EXACT_V4_OUTBOX_INSERT}\n{EXACT_V4_CUSTODY_RELOAD}.await?; Ok(stored) }}"
+            ),
+            false,
+        ),
+    ];
+
+    for (source, expected) in cases {
+        assert_eq!(reloads_exact_v4_custody_after_outbox(&source), expected);
+    }
+}
+
+#[rstest]
+fn v4_source_boundary_is_comment_insensitive_and_rejects_later_reload() {
+    let complete_mutant = format!(
+        "pub(super) async fn persist_strategy_input_sample_projection_in_transaction_v4() {{ \
+        let _ = async {{ {} // async fn validate_joined_subject\n\
+        .await?; let stored = load( transaction, caller_receipt_digest, \
+        DependencyValidationModeV4::ReadOnly, ).await? \
+        .ok_or(StrategyInputSampleProjectionErrorV4::CommitInterrupted)?; Ok(stored) }} \
+        async fn validate_joined_subject() {{}}",
+        exact_v4_post_outbox_suffix()
+    );
+    let pre_elision_boundary = complete_mutant
+        .split("pub(super) async fn persist_strategy_input_sample_projection_in_transaction_v4")
+        .nth(1)
+        .expect("mutant persistence entry")
+        .split("async fn validate_joined_subject")
+        .next()
+        .expect("pre-elision persistence boundary");
+    let bounded = bounded_v4_persist_source(&complete_mutant)
+        .expect("comment-insensitive persistence boundary");
+
+    assert!(reloads_exact_v4_custody_after_outbox(pre_elision_boundary));
+    assert!(!reloads_exact_v4_custody_after_outbox(&bounded));
+}
+
 #[rstest]
 fn schema_is_private_opaque_and_has_no_native_authority_foreign_keys() {
     let schema = REPLAY_MARKET_FACTS_SCHEMA_V2.join("\n");
@@ -279,21 +466,9 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
                 .expect("Market transaction commit")
     );
     assert!(!native_issue_body.contains("commit_strategy_input_sample_projection_v4"));
-    let v4_persist = v4_source
-        .split("pub(super) async fn persist_strategy_input_sample_projection_in_transaction_v4")
-        .nth(1)
-        .expect("caller-transaction V4 persistence")
-        .split("async fn validate_joined_subject")
-        .next()
-        .expect("bounded V4 persistence body");
-    assert!(
-        v4_persist
-            .find("strategy_input_sample_projection_outbox_v4")
-            .expect("final V4 insert")
-            < v4_persist
-                .rfind("let stored = load(transaction, prepared.receipt_digest())")
-                .expect("same-transaction exact custody reload")
-    );
+    let v4_persist =
+        bounded_v4_persist_source(v4_source).expect("caller-transaction V4 persistence");
+    assert!(reloads_exact_v4_custody_after_outbox(&v4_persist));
     assert!(v4_persist.contains("Ok(stored)"));
     assert!(
         issue_body

@@ -1,5 +1,7 @@
 //! Append-only PostgreSQL custody for R&D's Market Data repair terminal.
 
+use std::fmt::Display;
+
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -361,6 +363,7 @@ pub(crate) async fn verify_repaired_readback_in_transaction(
             "Replay re-entry requires a REPAIRED resolution",
         ));
     }
+
     for identity in [
         resolution_identity,
         repair_request_identity,
@@ -384,6 +387,7 @@ pub(crate) async fn verify_repaired_readback_in_transaction(
             .map_err(unavailable)?,
     )
     .map_err(unavailable)?;
+
     if stored_bytes != expected_resolution_bytes
         || stored_json != expected_json
         || serde_json::from_slice::<serde_json::Value>(&stored_bytes).map_err(unavailable)?
@@ -541,9 +545,11 @@ fn admit_row(
             .try_get::<String, _>("disposition")
             .map_err(unavailable)?
             == json_string(&stored_json, "disposition")?;
+
     if !storage_is_exact {
         return Err(unavailable("resolution row storage is inconsistent"));
     }
+
     if stored_bytes != expected_bytes
         || stored_json != serde_json::to_value(&resolution).map_err(unavailable)?
     {
@@ -615,9 +621,11 @@ fn admit_reentry_row(
             .try_get::<String, _>("disposition")
             .map_err(unavailable)?
             == projection.disposition;
+
     if !exact_storage {
         return Err(unavailable("resolution row storage is inconsistent"));
     }
+
     if projection.schema_version != 1
         || projection.disposition != "REPAIRED"
         || projection.stop_reason.is_some()
@@ -633,6 +641,7 @@ fn admit_reentry_row(
         "rd-market-data-repair-resolution-v1-{}",
         expected_digest.trim_start_matches("sha256:")
     );
+
     if projection.resolution_digest != expected_digest
         || projection.resolution_identity != expected_identity
     {
@@ -851,7 +860,7 @@ fn current_epoch_ms() -> Result<u64, MarketDataRepairResolutionPostgresErrorV1> 
         .and_then(|duration| u64::try_from(duration.as_millis()).map_err(unavailable))
 }
 
-fn unavailable(error: impl std::fmt::Display) -> MarketDataRepairResolutionPostgresErrorV1 {
+fn unavailable(error: impl Display) -> MarketDataRepairResolutionPostgresErrorV1 {
     MarketDataRepairResolutionPostgresErrorV1::Unavailable(error.to_string())
 }
 
@@ -860,7 +869,7 @@ mod tests {
     use super::*;
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
-    #[test]
+    #[rstest::rstest]
     fn repaired_projection_recomputes_the_owner_resolution_digest() {
         let resolution = crate::market_data_repair_resolution::tests::repaired_resolution_fixture();
         let bytes = resolution
@@ -872,7 +881,7 @@ mod tests {
             stored_resolution_digest(&projection).expect("resolution digest"),
             resolution.resolution_digest()
         );
-        let mut noncanonical = bytes.clone();
+        let mut noncanonical = bytes;
         noncanonical.push(b' ');
         assert!(decode_canonical_resolution_projection(&noncanonical).is_err());
 

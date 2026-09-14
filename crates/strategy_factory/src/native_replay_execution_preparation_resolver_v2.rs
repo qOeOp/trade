@@ -1,4 +1,8 @@
 //! Production Strategy Factory resolver for Backtest-owned Native Replay preparation.
+#![expect(
+    clippy::large_futures,
+    reason = "native Replay preparation retains its complete typed custody cut across the transactional resolve"
+)]
 
 use std::{future::Future, pin::Pin, sync::Arc};
 
@@ -18,7 +22,8 @@ use crate::{
         resolve_native_replay_execution_bundle_v1_in_transaction,
     },
     native_replay_preparation_owner_v2::{
-        NativeReplayExecutionPreparationErrorV2, NativeReplayExecutionPreparationResolverV2,
+        NativeReplayExecutionPreparationErrorV2,
+        NativeReplayExecutionPreparationResolverV2 as PreparationResolverV2,
         NativeReplayExecutionPreparationV2, NativeReplayOwnerObservationV2, sealed,
     },
     native_replay_rd_sources_v2::NativeReplayRdSourcesV2,
@@ -59,9 +64,7 @@ impl PostgresNativeReplayExecutionPreparationResolverV2 {
 
 impl sealed::Sealed for PostgresNativeReplayExecutionPreparationResolverV2 {}
 
-impl NativeReplayExecutionPreparationResolverV2
-    for PostgresNativeReplayExecutionPreparationResolverV2
-{
+impl PreparationResolverV2 for PostgresNativeReplayExecutionPreparationResolverV2 {
     fn resolve_native_replay_execution_preparation_v2<'a>(
         &'a self,
         locator: &'a ExploratoryReplayRequestLocatorV2,
@@ -82,12 +85,12 @@ impl NativeReplayExecutionPreparationResolverV2
                 "strategy-factory.native-replay.strategy.v2",
                 locator,
                 attempt_identity,
-            )?;
+            );
             let run_identity = derived_identity(
                 "strategy-factory.native-replay.run.v2",
                 locator,
                 attempt_identity,
-            )?;
+            );
             let transaction = self
                 .research_owner
                 .native_replay_pool_v2()
@@ -241,10 +244,11 @@ fn derived_identity(
     domain: &str,
     locator: &ExploratoryReplayRequestLocatorV2,
     attempt_identity: &OpaqueIdentityV2,
-) -> Result<String, NativeReplayExecutionPreparationErrorV2> {
+) -> String {
     let mut hasher = blake3::Hasher::new();
     hasher.update(domain.as_bytes());
     hasher.update(&[0]);
+
     for value in [
         locator.request_identity.as_bytes(),
         locator.meaning_digest.as_bytes(),
@@ -254,10 +258,7 @@ fn derived_identity(
     ] {
         hash_field(&mut hasher, value);
     }
-    Ok(format!(
-        "rdq-native-replay-v2-{}",
-        hasher.finalize().to_hex()
-    ))
+    format!("rdq-native-replay-v2-{}", hasher.finalize().to_hex())
 }
 
 fn opaque_derived_identity(
@@ -265,7 +266,7 @@ fn opaque_derived_identity(
     locator: &ExploratoryReplayRequestLocatorV2,
     attempt_identity: &OpaqueIdentityV2,
 ) -> Result<OpaqueIdentityV2, NativeReplayExecutionPreparationErrorV2> {
-    OpaqueIdentityV2::try_from(derived_identity(domain, locator, attempt_identity)?)
+    OpaqueIdentityV2::try_from(derived_identity(domain, locator, attempt_identity))
         .map_err(unavailable)
 }
 

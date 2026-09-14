@@ -413,6 +413,7 @@ async fn load(
     {
         return Err(StrategyInputSampleProjectionErrorV4::StoreUntrusted);
     }
+
     if decoded.kind()
         == crate::owner::sample_projection_v4::StrategyInputSampleProjectionKindV4::JoinedCut
     {
@@ -486,6 +487,7 @@ async fn load_and_validate_joined_custody(
     )
     .map_err(|_| StrategyInputSampleProjectionErrorV4::SubjectMismatch)?;
     validate_joined_design_bindings(transaction, decoded, &request, validation_mode).await?;
+
     if rederived_census != census
         || rederived_joined.record().canonical_bytes() != custody.as_ref()
         || rederived_joined.record().joined_cut_receipt().digest() != receipt_digest
@@ -555,6 +557,7 @@ async fn validate_joined_design_bindings(
             )
             .await
             .map_err(|_| StrategyInputSampleProjectionErrorV4::SubjectMismatch)?;
+
         if binding_request.pit_request_identity != request.pit_locator().request_identity
             || binding_request.strategy_design_identity
                 != request.join_claim().strategy_design_identity

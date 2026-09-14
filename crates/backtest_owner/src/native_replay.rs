@@ -543,7 +543,7 @@ fn execute_native_replay_preparation(
     validate_execution_request_locator(execution.request_locator(), locator)?;
 
     let execution_readback = run_program_host_sim_event_consumer_v1(execution)
-        .map_err(|error| NativeReplayRunErrorV2::NativeExecution(error.to_string()))?;
+        .map_err(|e| NativeReplayRunErrorV2::NativeExecution(e.to_string()))?;
     validate_execution_request_locator(
         execution_readback.consumption_census().request_locator(),
         locator,
@@ -637,6 +637,7 @@ fn validate_evidence_batch_readback(
     if actual.envelopes().len() != expected.envelopes().len() {
         return Err(NativeReplayRunErrorV2::IncompleteReconciliation);
     }
+
     for (actual, expected) in actual.envelopes().iter().zip(expected.envelopes()) {
         if actual.component() != expected.component()
             || actual.envelope_locator() != expected.envelope_locator()
@@ -700,6 +701,7 @@ fn validate_request_readback(
         .request()
         .to_canonical_bytes()
         .map_err(|_| NativeReplayRunErrorV2::IncompleteReconciliation)?;
+
     if request.locator() != *locator
         || request.canonical_request_bytes() != canonical
         || request.request_identity() != locator.request_identity
@@ -733,6 +735,7 @@ fn validate_component_evidence_inputs(
     }
     let requested = requested_component_meanings(request)?;
     let mut seen = BTreeSet::new();
+
     for item in &evidence {
         let Some(expected) = requested.get(&item.component) else {
             return Err(NativeReplayRunErrorV2::IncompleteReconciliation);
@@ -741,6 +744,7 @@ fn validate_component_evidence_inputs(
             OWNER_OBSERVATION_BYTES_DOMAIN_V2,
             &item.canonical_observation_bytes,
         )?;
+
         if item.canonical_observation_bytes.is_empty()
             || item.request_identity != *request.request_identity()
             || item.request_meaning_digest != *request_meaning_digest
@@ -754,6 +758,7 @@ fn validate_component_evidence_inputs(
             return Err(NativeReplayRunErrorV2::IncompleteReconciliation);
         }
     }
+
     if seen.len() != ObservationComponentV2::REQUESTED_MEANING.len() {
         return Err(NativeReplayRunErrorV2::IncompleteReconciliation);
     }
@@ -780,6 +785,7 @@ fn seal_component_evidence_after_event(
         execution.consumption_census().request_locator(),
         request_locator,
     )?;
+
     if execution.actual_fills().is_empty() {
         return Err(NativeReplayRunErrorV2::IncompleteReconciliation);
     }
@@ -832,7 +838,7 @@ fn digest_bytes(domain: &[u8], bytes: &[u8]) -> Result<CanonicalDigestV2, Native
 mod tests {
     use super::*;
 
-    #[test]
+    #[rstest::rstest]
     fn observation_byte_digest_is_domain_separated_and_exact() {
         let first = digest_bytes(OWNER_OBSERVATION_BYTES_DOMAIN_V2, b"owner observation").unwrap();
         let repeated =
@@ -848,7 +854,7 @@ mod tests {
         assert_ne!(first, semantic);
     }
 
-    #[test]
+    #[rstest::rstest]
     fn cross_request_execution_locator_is_rejected() {
         let request_a = request_locator("request-a", "receipt-a", 'a');
         let mut request_b = request_a.clone();
@@ -861,7 +867,7 @@ mod tests {
         ));
     }
 
-    #[test]
+    #[rstest::rstest]
     fn committed_semantic_trace_requires_byte_identical_owner_readback() {
         let bytes = b"actual EVENT semantic trace".to_vec();
         let digest = digest_bytes(SEMANTIC_TRACE_BYTES_DOMAIN_V2, &bytes).unwrap();
@@ -893,7 +899,7 @@ mod tests {
         ));
     }
 
-    #[test]
+    #[rstest::rstest]
     fn committed_result_requires_this_invocations_canonical_result_bytes() {
         let current = br#"{"schema_version":2,"result_identity":"result-current"}"#;
         let stale = br#"{"schema_version":2,"result_identity":"result-stale"}"#;

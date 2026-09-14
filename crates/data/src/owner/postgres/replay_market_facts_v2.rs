@@ -1093,6 +1093,10 @@ impl ReplayCompositionOwnerV1 {
     /// The binding identity is the only lookup coordinate. Market Data recovers the bound PIT
     /// aggregate, reuses its original complete locator, and reissues the typed readback from the
     /// byte-identical durable facts inside one transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the binding, PIT aggregate, facts, or transaction is unavailable.
     pub async fn resolve_bound_replay_cut_v1(
         &self,
         locator: ReplayCompositionBindingLocatorV1,
@@ -1155,6 +1159,7 @@ impl ReplayCompositionOwnerV1 {
         .await
         .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?
         .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
+
         if instrument_master.cut().identity() != instrument.identity
             || instrument_master.cut().digest() != instrument.digest
         {

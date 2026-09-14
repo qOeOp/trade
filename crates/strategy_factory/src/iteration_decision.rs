@@ -75,11 +75,11 @@ impl IterationDecisionPolicyBindingV1 {
     pub(crate) fn seal(catalog: &ReplayPolicyCatalogBindingV3) -> Result<Self, TrialFamilyError> {
         catalog
             .verify()
-            .map_err(|error| TrialFamilyError::Unavailable(error.to_string()))?;
+            .map_err(|e| TrialFamilyError::Unavailable(e.to_string()))?;
         let replay_policy = catalog
             .replay_policy_v2()
             .verify()
-            .map_err(|error| TrialFamilyError::Unavailable(error.to_string()))?;
+            .map_err(|e| TrialFamilyError::Unavailable(e.to_string()))?;
         let policy_digest: [u8; 32] =
             Sha256::digest(ITERATION_DECISION_POLICY_DESCRIPTOR_V1).into();
         let replay_catalog = catalog.replay_policy_v2();
@@ -173,8 +173,8 @@ impl IterationDecisionPolicyBindingV1 {
 }
 
 fn update_len_prefixed(digest: &mut Sha256, value: &[u8]) -> Result<(), TrialFamilyError> {
-    let length = u64::try_from(value.len())
-        .map_err(|error| TrialFamilyError::Unavailable(error.to_string()))?;
+    let length =
+        u64::try_from(value.len()).map_err(|e| TrialFamilyError::Unavailable(e.to_string()))?;
     digest.update(length.to_le_bytes());
     digest.update(value);
     Ok(())
@@ -625,6 +625,10 @@ pub struct ReadyForSelectionDecisionReadbackV1 {
 }
 
 /// One already-committed Iteration Decision resolved without guessing its concrete branch.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "the readback preserves the four stable typed decision variants without changing their public or serialized shape"
+)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(
     tag = "decision_kind",
@@ -1245,6 +1249,7 @@ fn issue_interpretation_context_from_result_v1(
         IterationDiagnosisDimensionV1::FailureAttribution,
         IterationDiagnosisDimensionV1::InformationValue,
     ];
+
     if required_dimensions != canonical_dimensions
         || result.namespace != ReplayNamespaceV2::Exploratory
         || result.terminal != ReplayTerminalV2::TerminalResult
@@ -1271,6 +1276,7 @@ fn issue_interpretation_context_from_result_v1(
             "diagnostic census is not the exact singleton selected by the gate",
         ));
     };
+
     if diagnostic_fact.category != expected_diagnostic
         || diagnostic_fact.request_identity != result.request_identity
         || diagnostic_fact.request_meaning_digest != result.request_meaning_digest
@@ -1299,6 +1305,7 @@ fn issue_interpretation_context_from_result_v1(
                 .ok_or(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
                     "requested Replay component is missing",
                 ))?;
+
         if matching.next().is_some()
             || atom.status != ReconciliationStatusV2::Exact
             || atom.observed_meaning_identity.as_ref() != Some(&atom.requested_meaning_identity)
@@ -1313,6 +1320,7 @@ fn issue_interpretation_context_from_result_v1(
                 "requested Replay component evidence is missing",
             ),
         )?;
+
         if locator.component != component {
             return Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
                 "requested Replay component evidence is cross-spliced",
@@ -1330,6 +1338,7 @@ fn issue_interpretation_context_from_result_v1(
     let semantic_trace_observation = result.semantic_trace.as_ref().ok_or(
         IterationDecisionErrorV1::InterpretationEvidenceUnavailable("semantic trace is missing"),
     )?;
+
     if semantic_trace_observation.component != ObservationComponentV2::SemanticTrace
         || semantic_trace_observation.locator.component != ObservationComponentV2::SemanticTrace
         || semantic_trace_observation.request_identity != result.request_identity
@@ -1522,6 +1531,7 @@ fn validate_outcome_evidence_cut_v1(
         owner_bindings,
         ObservationComponentV2::TrialFamilyCensusFrontier,
     )?;
+
     if outcome.frozen_research_intent.identity != intent.intent_identity
         || outcome.frozen_research_intent.digest != intent.semantic_digest
         || outcome.frozen_research_intent != intent_binding
@@ -1686,6 +1696,7 @@ pub(crate) fn issue_repair_input_decision_v1(
             .map(repair_diagnostic_category)
             .collect::<Vec<_>>(),
     );
+
     if supported_defects.is_empty() || supported_defects != expected_supported {
         return Err(IterationDecisionErrorV1::InvalidStoredDecision(
             "repair category set mismatch",
@@ -1746,9 +1757,9 @@ pub(crate) fn admit_stored_repair_input_decision_v1(
 ) -> Result<RepairInputIterationDecisionReadbackV1, IterationDecisionErrorV1> {
     let stored_decision: StoredRepairInputIterationDecisionV1 =
         serde_json::from_slice(decision_bytes)
-            .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+            .map_err(|e| IterationDecisionErrorV1::Encoding(e.to_string()))?;
     let stored_receipt: StoredIterationDecisionReceiptV1 = serde_json::from_slice(receipt_bytes)
-        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+        .map_err(|e| IterationDecisionErrorV1::Encoding(e.to_string()))?;
     let IterationDecisionOutcomeV1::RepairInputs { category, target } = stored_decision.outcome
     else {
         return Err(IterationDecisionErrorV1::InvalidStoredDecision(
@@ -1763,9 +1774,9 @@ pub(crate) fn admit_stored_repair_input_decision_v1(
         stored_receipt.committed_at_epoch_ms,
     )?;
     let canonical_decision = serde_json::to_vec(expected.decision())
-        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+        .map_err(|e| IterationDecisionErrorV1::Encoding(e.to_string()))?;
     let canonical_receipt = serde_json::to_vec(expected.receipt())
-        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+        .map_err(|e| IterationDecisionErrorV1::Encoding(e.to_string()))?;
     if canonical_decision != decision_bytes || canonical_receipt != receipt_bytes {
         return Err(IterationDecisionErrorV1::InvalidStoredDecision(
             "stored canonical bytes or digest mismatch",
@@ -1801,9 +1812,9 @@ pub(crate) fn admit_stored_trial_budget_terminal_stop_decision_v1(
 ) -> Result<TrialBudgetTerminalStopDecisionReadbackV1, IterationDecisionErrorV1> {
     let stored_decision: StoredTrialBudgetTerminalStopDecisionV1 =
         serde_json::from_slice(decision_bytes)
-            .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+            .map_err(|e| IterationDecisionErrorV1::Encoding(e.to_string()))?;
     let stored_receipt: StoredIterationDecisionReceiptV1 = serde_json::from_slice(receipt_bytes)
-        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+        .map_err(|e| IterationDecisionErrorV1::Encoding(e.to_string()))?;
     let expected = issue_trial_budget_terminal_stop_from_parts_v1(
         stored_decision.interpretation,
         stored_decision.consumed_trial_budget,
@@ -1811,9 +1822,9 @@ pub(crate) fn admit_stored_trial_budget_terminal_stop_decision_v1(
         stored_receipt.committed_at_epoch_ms,
     )?;
     let canonical_decision = serde_json::to_vec(expected.decision())
-        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+        .map_err(|e| IterationDecisionErrorV1::Encoding(e.to_string()))?;
     let canonical_receipt = serde_json::to_vec(expected.receipt())
-        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+        .map_err(|e| IterationDecisionErrorV1::Encoding(e.to_string()))?;
     if canonical_decision != decision_bytes || canonical_receipt != receipt_bytes {
         return Err(IterationDecisionErrorV1::InvalidStoredDecision(
             "stored canonical bytes or digest mismatch",
@@ -1914,9 +1925,9 @@ pub(crate) fn admit_stored_candidate_comparison_decision_v1(
 ) -> Result<CandidateComparisonDecisionReadbackV1, IterationDecisionErrorV1> {
     let stored_decision: StoredCandidateComparisonIterationDecisionV1 =
         serde_json::from_slice(decision_bytes)
-            .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+            .map_err(|e| IterationDecisionErrorV1::Encoding(e.to_string()))?;
     let stored_receipt: StoredIterationDecisionReceiptV1 = serde_json::from_slice(receipt_bytes)
-        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+        .map_err(|e| IterationDecisionErrorV1::Encoding(e.to_string()))?;
     validate_interpretation_cut_against_census_v1(census, &stored_decision.interpretation)?;
     let expected = issue_candidate_comparison_from_parts_v1(
         census,
@@ -1925,9 +1936,9 @@ pub(crate) fn admit_stored_candidate_comparison_decision_v1(
         stored_receipt.committed_at_epoch_ms,
     )?;
     let canonical_decision = serde_json::to_vec(expected.decision())
-        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+        .map_err(|e| IterationDecisionErrorV1::Encoding(e.to_string()))?;
     let canonical_receipt = serde_json::to_vec(expected.receipt())
-        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+        .map_err(|e| IterationDecisionErrorV1::Encoding(e.to_string()))?;
     if canonical_decision != decision_bytes || canonical_receipt != receipt_bytes {
         return Err(IterationDecisionErrorV1::InvalidStoredDecision(
             "stored canonical bytes or digest mismatch",
@@ -1949,9 +1960,7 @@ fn issue_candidate_comparison_from_parts_v1(
     }
     validate_complete_interpretation_v1(&interpretation)?;
     let comparison = compare_iteration_candidates_v1(census, candidate_evaluations.clone())
-        .map_err(|error| {
-            IterationDecisionErrorV1::CandidateComparisonUnavailable(error.to_string())
-        })?;
+        .map_err(|e| IterationDecisionErrorV1::CandidateComparisonUnavailable(e.to_string()))?;
     let outcome = match comparison {
         IterationCandidateComparisonV1::Winner { candidate } => {
             IterationDecisionOutcomeV1::SuccessorExperiment {
@@ -2029,6 +2038,7 @@ fn validate_complete_interpretation_v1(
         IterationDiagnosisDimensionV1::FailureAttribution,
         IterationDiagnosisDimensionV1::InformationValue,
     ];
+
     if interpretation.required_dimensions.as_slice() != dimensions
         || interpretation.diagnosis_findings.len() != dimensions.len()
         || interpretation
@@ -2065,6 +2075,7 @@ fn validate_interpretation_cut_against_census_v1(
     let decision_policy = census
         .decision_policy_v1()
         .ok_or(IterationDecisionErrorV1::DecisionPolicyUnavailable)?;
+
     if evidence.decision_policy_identity != decision_policy.policy_identity()
         || evidence.decision_policy_version != decision_policy.policy_version()
         || evidence.decision_policy_digest != decision_policy.policy_digest()
@@ -2089,6 +2100,7 @@ pub(crate) fn issue_ready_for_selection_decision_v1(
             "TrialFamily hard stop preempts readiness",
         ));
     }
+
     if interpretation.diagnostic != IterationInterpretationDiagnosticV1::NoExecutionDefect {
         return Err(IterationDecisionErrorV1::InvalidStoredDecision(
             "positive assessment requires NO_EXECUTION_DEFECT",
@@ -2103,6 +2115,7 @@ pub(crate) fn issue_ready_for_selection_decision_v1(
         IterationDiagnosisDispositionV1::NoExecutionDefect,
         IterationDiagnosisDispositionV1::Unresolved,
     ];
+
     if interpretation
         .diagnosis_findings
         .iter()
@@ -2125,6 +2138,10 @@ pub(crate) fn issue_ready_for_selection_decision_v1(
     )
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the admission boundary verifies eight independently stored canonical custody cells"
+)]
 pub(crate) fn admit_stored_ready_for_selection_decision_v1(
     census: &TrialFamilyCensusReadbackV2,
     artifact: &PositiveAssessmentEvidenceReferenceV1,
@@ -2136,17 +2153,17 @@ pub(crate) fn admit_stored_ready_for_selection_decision_v1(
     selection_receipt_bytes: &[u8],
 ) -> Result<ReadyForSelectionDecisionReadbackV1, IterationDecisionErrorV1> {
     let assessment: StoredPositiveIterationAssessmentV1 = serde_json::from_slice(assessment_bytes)
-        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+        .map_err(|e| IterationDecisionErrorV1::Encoding(e.to_string()))?;
     let _: serde_json::Value = serde_json::from_slice(decision_bytes)
-        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+        .map_err(|e| IterationDecisionErrorV1::Encoding(e.to_string()))?;
     let _: serde_json::Value = serde_json::from_slice(candidate_bytes)
-        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+        .map_err(|e| IterationDecisionErrorV1::Encoding(e.to_string()))?;
     let _: serde_json::Value = serde_json::from_slice(selection_bytes)
-        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+        .map_err(|e| IterationDecisionErrorV1::Encoding(e.to_string()))?;
     let _: serde_json::Value = serde_json::from_slice(selection_receipt_bytes)
-        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+        .map_err(|e| IterationDecisionErrorV1::Encoding(e.to_string()))?;
     let stored_receipt: StoredIterationDecisionReceiptV1 = serde_json::from_slice(receipt_bytes)
-        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+        .map_err(|e| IterationDecisionErrorV1::Encoding(e.to_string()))?;
     let expected = issue_ready_for_selection_decision_v1(
         census,
         assessment.interpretation,
@@ -2155,23 +2172,24 @@ pub(crate) fn admit_stored_ready_for_selection_decision_v1(
         assessment.protected_robustness_plan.proposal,
         stored_receipt.committed_at_epoch_ms,
     )?;
+
     if serde_json::to_vec(expected.assessment())
-        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?
+        .map_err(|e| IterationDecisionErrorV1::Encoding(e.to_string()))?
         != assessment_bytes
         || serde_json::to_vec(expected.decision())
-            .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?
+            .map_err(|e| IterationDecisionErrorV1::Encoding(e.to_string()))?
             != decision_bytes
         || serde_json::to_vec(expected.receipt())
-            .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?
+            .map_err(|e| IterationDecisionErrorV1::Encoding(e.to_string()))?
             != receipt_bytes
         || serde_json::to_vec(expected.candidate())
-            .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?
+            .map_err(|e| IterationDecisionErrorV1::Encoding(e.to_string()))?
             != candidate_bytes
         || serde_json::to_vec(expected.selection())
-            .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?
+            .map_err(|e| IterationDecisionErrorV1::Encoding(e.to_string()))?
             != selection_bytes
         || serde_json::to_vec(expected.selection_receipt())
-            .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?
+            .map_err(|e| IterationDecisionErrorV1::Encoding(e.to_string()))?
             != selection_receipt_bytes
     {
         return Err(IterationDecisionErrorV1::InvalidStoredDecision(
@@ -2419,12 +2437,14 @@ fn validate_positive_assessment_evidence_v1(
     ];
     let mut identities = BTreeSet::new();
     let mut digests = BTreeSet::new();
+
     for dimension in dimensions {
         if dimension.is_empty() || dimension.len() > 16 {
             return Err(IterationDecisionErrorV1::InvalidStoredDecision(
                 "positive assessment dimension evidence is empty or unbounded",
             ));
         }
+
         for reference in dimension {
             if !is_valid_iteration_decision_locator_v1(&reference.identity)
                 || reference.digest.len() != 71
@@ -2457,6 +2477,7 @@ pub(crate) fn ready_candidate_artifact_v1(
             .ok_or(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
                 "locked Replay result is missing the requested Artifact",
             ))?;
+
     if artifacts.next().is_some()
         || artifact.status != ReconciliationStatusV2::Exact
         || artifact.observed_meaning_identity.as_ref() != Some(&artifact.requested_meaning_identity)
@@ -2472,6 +2493,10 @@ pub(crate) fn ready_candidate_artifact_v1(
     })
 }
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "the positive Artifact reference is consumed at the sealed robustness-plan authority boundary"
+)]
 fn issue_protected_robustness_plan_v1(
     census: &TrialFamilyCensusReadbackV2,
     artifact: PositiveAssessmentEvidenceReferenceV1,
@@ -2606,6 +2631,7 @@ fn validate_protected_robustness_plan_proposal_v1(
     let mut cell_count = 1usize;
     let mut cell_identities = BTreeSet::new();
     let mut cell_digests = BTreeSet::new();
+
     for dimension in cell_dimensions {
         if dimension.is_empty() || dimension.len() > 16 {
             return Err(IterationDecisionErrorV1::InvalidStoredDecision(
@@ -2617,11 +2643,13 @@ fn validate_protected_robustness_plan_proposal_v1(
                 "protected robustness plan cell census is unbounded",
             ),
         )?;
+
         if cell_count > 4_096 {
             return Err(IterationDecisionErrorV1::InvalidStoredDecision(
                 "protected robustness plan cell census is unbounded",
             ));
         }
+
         for reference in dimension {
             validate_evidence_reference_v1(reference)?;
             if !cell_identities.insert(reference.identity.as_str())
@@ -2633,6 +2661,7 @@ fn validate_protected_robustness_plan_proposal_v1(
             }
         }
     }
+
     for policy in [
         &proposal.metric,
         &proposal.coverage_policy,
@@ -2651,6 +2680,7 @@ fn validate_protected_robustness_plan_proposal_v1(
         identity: proposal.protected_decision_policy.identity.clone(),
         digest: proposal.protected_decision_policy.digest.clone(),
     })?;
+
     if proposal.protected_decision_policy.version == 0 {
         return Err(IterationDecisionErrorV1::InvalidStoredDecision(
             "protected decision policy version is invalid",
@@ -2813,7 +2843,7 @@ fn canonical_digest(
     }
     serde_json::to_vec(&Envelope { domain, value })
         .map(|bytes| format!("sha256:{:x}", Sha256::digest(bytes)))
-        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))
+        .map_err(|e| IterationDecisionErrorV1::Encoding(e.to_string()))
 }
 
 /// Applies R&D's mandatory diagnosis precedence to one Owner-locked exploratory Result.
@@ -2850,6 +2880,7 @@ fn gate_result(
         TrialFamilyAttemptTerminalDispositionV2::Invalid => ReplayTerminalV2::InvalidReplayEvidence,
         TrialFamilyAttemptTerminalDispositionV2::Unknown => ReplayTerminalV2::InProgressOrUnknown,
     };
+
     if latest.request_identity != result.request_identity.as_str()
         || latest.request_digest != result.request_meaning_digest.as_str()
         || latest.result_identity != result.result_identity.as_str()
@@ -2858,6 +2889,7 @@ fn gate_result(
     {
         return Err(IterationDecisionErrorV1::ResultBindingMismatch);
     }
+
     if result.terminal == ReplayTerminalV2::InProgressOrUnknown {
         return Ok(IterationDecisionGateV1::NoDecision {
             reason: IterationNoDecisionReasonV1::UnknownOrNonterminalResult,
@@ -2868,6 +2900,7 @@ fn gate_result(
         .iter()
         .map(|diagnostic| diagnostic.category)
         .collect::<Vec<_>>();
+
     if categories.contains(&DiagnosticCategoryV2::UnresolvedFailure) {
         return Ok(IterationDecisionGateV1::NoDecision {
             reason: IterationNoDecisionReasonV1::UnresolvedFailure,
@@ -2883,6 +2916,7 @@ fn gate_result(
             target: repair_target(selected_category),
         });
     }
+
     if result.terminal != ReplayTerminalV2::TerminalResult {
         return Ok(IterationDecisionGateV1::NoDecision {
             reason: IterationNoDecisionReasonV1::RejectedOrInvalidWithoutRepairDiagnosis,
@@ -3640,66 +3674,67 @@ pub(crate) mod tests {
     }
 
     fn protected_robustness_plan() -> ProtectedRobustnessPlanProposalV1 {
-        let reference = |name: &str, byte: char| PositiveAssessmentEvidenceReferenceV1 {
+        let reference = |name: &str, ordinal: u8| PositiveAssessmentEvidenceReferenceV1 {
             identity: name.to_string(),
-            digest: format!("sha256:{}", byte.to_string().repeat(64)),
+            digest: format!("sha256:{ordinal:064x}"),
         };
         ProtectedRobustnessPlanProposalV1 {
             required_time_windows: vec![
                 ProtectedTimeWindowV1 {
-                    evidence: reference("protected-time-window-v1-a", '5'),
+                    evidence: reference("protected-time-window-v1-a", 5),
                     start_epoch_ms: 1_000,
                     end_epoch_ms: 2_000,
                 },
                 ProtectedTimeWindowV1 {
-                    evidence: reference("protected-time-window-v1-b", '6'),
+                    evidence: reference("protected-time-window-v1-b", 6),
                     start_epoch_ms: 3_000,
                     end_epoch_ms: 4_000,
                 },
             ],
             required_regimes: vec![
                 ProtectedMarketRegimeV1 {
-                    evidence: reference("protected-regime-v1-normal", '6'),
+                    evidence: reference("protected-regime-v1-normal", 7),
                     adverse: false,
                 },
                 ProtectedMarketRegimeV1 {
-                    evidence: reference("protected-regime-v1-adverse", '7'),
+                    evidence: reference("protected-regime-v1-adverse", 8),
                     adverse: true,
                 },
             ],
-            required_instrument_slices: vec![reference("protected-instrument-slice-v1", '7')],
+            required_instrument_slices: vec![reference("protected-instrument-slice-v1", 9)],
             instrument_scope: ProtectedInstrumentScopeV1::SingleInstrument,
             instrument_non_applicability_basis: None,
             required_perturbations: vec![ProtectedInputPerturbationV1 {
-                input_class: reference("protected-input-class-v1", '8'),
-                perturbation: reference("protected-perturbation-v1", '9'),
+                input_class: reference("protected-input-class-v1", 10),
+                perturbation: reference("protected-perturbation-v1", 11),
             }],
             required_parameter_neighborhoods: vec![ProtectedParameterNeighborhoodV1 {
-                parameter: reference("protected-parameter-v1", 'a'),
+                parameter: reference("protected-parameter-v1", 12),
                 lower: -1,
                 center: 0,
                 upper: 1,
             }],
             no_tunable_parameters_basis: None,
             preregistered_capacity_ceiling: 1_000,
-            metric: reference("protected-metric-v1", 'a'),
-            coverage_policy: reference("protected-coverage-policy-v1", 'b'),
-            tolerance_policy: reference("protected-tolerance-policy-v1", 'c'),
-            threshold_policy: reference("protected-threshold-policy-v1", 'd'),
-            aggregation_policy: reference("protected-aggregation-policy-v1", 'e'),
-            missing_cell_policy: reference("protected-missing-cell-policy-v1", 'f'),
-            stop_policy: reference("protected-stop-policy-v1", '0'),
-            purge_policy: reference("protected-purge-policy-v1", '1'),
-            embargo_policy: reference("protected-embargo-policy-v1", '2'),
-            multiplicity_policy: reference("protected-multiplicity-policy-v1", '3'),
+            metric: reference("protected-metric-v1", 13),
+            coverage_policy: reference("protected-coverage-policy-v1", 14),
+            tolerance_policy: reference("protected-tolerance-policy-v1", 15),
+            threshold_policy: reference("protected-threshold-policy-v1", 16),
+            aggregation_policy: reference("protected-aggregation-policy-v1", 17),
+            missing_cell_policy: reference("protected-missing-cell-policy-v1", 18),
+            stop_policy: reference("protected-stop-policy-v1", 19),
+            purge_policy: reference("protected-purge-policy-v1", 20),
+            embargo_policy: reference("protected-embargo-policy-v1", 21),
+            multiplicity_policy: reference("protected-multiplicity-policy-v1", 22),
             protected_decision_policy: ProtectedDecisionPolicyProposalV1 {
                 identity: "protected-decision-policy-v1".to_string(),
                 version: 1,
-                digest: format!("sha256:{}", "4".repeat(64)),
+                digest: format!("sha256:{:064x}", 23),
             },
         }
     }
 
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
     pub(crate) fn ready_storage_acceptance_fixture_v1(
         census: &TrialFamilyCensusReadbackV2,
         result: &ReplayResultDtoV2,
@@ -3774,7 +3809,7 @@ pub(crate) mod tests {
             outbox_storage_digest: format!("sha256:{}", "2".repeat(64)),
         };
         let result_bytes = serde_json::to_vec(result)
-            .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+            .map_err(|e| IterationDecisionErrorV1::Encoding(e.to_string()))?;
         let interpretation = issue_interpretation_context_from_result_v1(
             census,
             &intent,

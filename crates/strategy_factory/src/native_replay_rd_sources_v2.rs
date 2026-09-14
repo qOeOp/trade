@@ -212,6 +212,7 @@ fn verify_rd_lineage_v2(
     let root = family.root();
     let member = family.initial_intent_member();
     let frontier = family.census_frontier();
+
     if research_receipt.disposition != ResearchRequestDisposition::Accepted
         || research_receipt.request_identity != intent.request_identity()
         || research_receipt.semantic_digest != intent.semantic_digest()
@@ -246,7 +247,7 @@ pub(crate) fn issue_native_replay_rd_sources_v2(
     replay: &SealedExploratoryReplayReadbackV2,
     replay_admission: &ProductEdgeAdmissionReadbackV1,
     research: &VerifiedResearchCustodyV1,
-    stored: NativeReplayStoredRowsV2,
+    stored: &NativeReplayStoredRowsV2,
 ) -> Result<NativeReplayRdSourcesV2, NativeReplayRdSourcesErrorV2> {
     let request = replay.request();
     let intent = research.intent().ok_or_else(|| {
@@ -264,11 +265,12 @@ pub(crate) fn issue_native_replay_rd_sources_v2(
         )
     })?;
     let research_receipt = research.receipt();
-    let exact_request_bytes = request.to_canonical_bytes().map_err(|error| {
+    let exact_request_bytes = request.to_canonical_bytes().map_err(|e| {
         NativeReplayRdSourcesErrorV2::Unavailable(format!(
-            "Replay request canonicalization failed: {error}"
+            "Replay request canonicalization failed: {e}"
         ))
     })?;
+
     if exact_request_bytes != replay.canonical_request_bytes()
         || replay.product_edge_admission() != replay_admission.locator()
         || replay_admission.locator().request_identity != replay.request_identity()
@@ -531,7 +533,7 @@ mod tests {
         .unwrap()
     }
 
-    #[test]
+    #[rstest::rstest]
     fn exact_lineage_accepts_and_tampered_intent_fails_closed() {
         let intent_digest = digest('0');
         let family = family("intent-v2", &intent_digest);
@@ -540,7 +542,7 @@ mod tests {
         let receipt = receipt("intent-v2", &intent_digest);
         verify_rd_lineage_v2(&replay, &intent, &receipt, &family).unwrap();
 
-        let mut tampered = intent.clone();
+        let mut tampered = intent;
         let FrozenResearchGoalIntent::V2(tampered_v2) = &mut tampered else {
             unreachable!()
         };
@@ -548,7 +550,7 @@ mod tests {
         assert!(verify_rd_lineage_v2(&replay, &tampered, &receipt, &family).is_err());
     }
 
-    #[test]
+    #[rstest::rstest]
     fn cross_family_splice_and_missing_exact_bytes_fail_closed() {
         let intent_digest = digest('0');
         let family_a = family("intent-v2", &intent_digest);
@@ -568,7 +570,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn stored_record_preserves_exact_canonical_bytes_and_digest() {
         let value = serde_json::json!({"request_identity":"research-request-v2","ordinal":1});
         let expected = serde_json::to_vec(&value).unwrap();

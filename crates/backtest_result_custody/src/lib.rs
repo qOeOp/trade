@@ -1812,6 +1812,7 @@ fn validate_outcome_envelope(
         && outbox.payload.attempt_identity == result.attempt_identity
         && outbox.committed_at_epoch_ms == receipt.committed_at_epoch_ms
         && outbox.payload.committed_at_epoch_ms == receipt.committed_at_epoch_ms;
+
     if !exact {
         return Err(BacktestResultCustodyErrorV2::Unavailable);
     }
@@ -1967,6 +1968,7 @@ mod tests {
             NATIVE_REPLAY_EVIDENCE_TABLE_CENSUS_QUERY
                 .contains("pg_catalog.count(*) FILTER (WHERE acl.privilege_type='INSERT')=3")
         );
+
         for rejected_acl in [
             "acl.grantee=0",
             "role.oid IS NULL",
@@ -2083,6 +2085,7 @@ mod tests {
             readback.contains(OUTCOME_EVIDENCE_TABLE_CENSUS_QUERY.trim()),
             "migration readback must embed the runtime outcome topology census"
         );
+
         for required in [
             "pg_catalog.count(*)=38",
             "attribute.attcollation<>attribute_type.typcollation",
