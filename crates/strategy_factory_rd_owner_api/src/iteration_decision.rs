@@ -15,6 +15,7 @@ use vibe_strategy_factory::{
     IterationCandidateEvaluationSetV1, IterationDecisionPostgresErrorV1,
     IterationDecisionResolutionLocatorV1, ReadyForSelectionCompositionRequestV1,
     RepairActionCompositionRequestV1, RepairActionResolutionLocatorV1,
+    SuccessorResearchIntentPostgresErrorV1, SuccessorResearchIntentResolutionLocatorV1,
     iteration_decision::{
         CandidateComparisonDecisionReadbackV1, ExistingIterationDecisionReadbackV1,
         IterationDecisionEvidenceCutV1, IterationDecisionOutcomeV1, IterationRepairCategoryV1,
@@ -25,6 +26,10 @@ use vibe_strategy_factory::{
     product_edge::{ResearchIterationActionProjectionV1, ResearchIterationActionV1},
     product_edge_postgres::PostgresResearchGoalOwnerV1,
     repair_action::RepairActionRequestReadbackV1,
+    successor_intent::{
+        SuccessorResearchIntentCompositionRequestV1, SuccessorResearchIntentErrorV1,
+        SuccessorResearchIntentReadbackV1,
+    },
 };
 
 use super::{authorized, insert_rejection_code};
@@ -130,6 +135,47 @@ impl CandidateComparisonDecisionActionPort for PostgresResearchGoalOwnerV1 {
         self.resolve_candidate_comparison_decision_v1(locator)
             .await
             .map(|readback| readback.map(CandidateComparisonDecisionActionResponseV1::from))
+    }
+}
+
+#[async_trait::async_trait]
+trait SuccessorResearchIntentActionPort: Send + Sync {
+    async fn compose_successor_intent(
+        &self,
+        request: SuccessorResearchIntentCompositionRequestV1,
+    ) -> Result<SuccessorResearchIntentActionResponseV1, SuccessorResearchIntentPostgresErrorV1>;
+
+    async fn resolve_successor_intent(
+        &self,
+        locator: SuccessorResearchIntentResolutionLocatorV1,
+    ) -> Result<
+        Option<SuccessorResearchIntentActionResponseV1>,
+        SuccessorResearchIntentPostgresErrorV1,
+    >;
+}
+
+#[async_trait::async_trait]
+impl SuccessorResearchIntentActionPort for PostgresResearchGoalOwnerV1 {
+    async fn compose_successor_intent(
+        &self,
+        request: SuccessorResearchIntentCompositionRequestV1,
+    ) -> Result<SuccessorResearchIntentActionResponseV1, SuccessorResearchIntentPostgresErrorV1>
+    {
+        self.compose_successor_research_intent_v1(request)
+            .await
+            .map(SuccessorResearchIntentActionResponseV1::from)
+    }
+
+    async fn resolve_successor_intent(
+        &self,
+        locator: SuccessorResearchIntentResolutionLocatorV1,
+    ) -> Result<
+        Option<SuccessorResearchIntentActionResponseV1>,
+        SuccessorResearchIntentPostgresErrorV1,
+    > {
+        self.resolve_successor_research_intent_v1(locator)
+            .await
+            .map(|readback| readback.map(SuccessorResearchIntentActionResponseV1::from))
     }
 }
 
@@ -260,6 +306,12 @@ struct CandidateComparisonDecisionApiState {
 }
 
 #[derive(Clone)]
+struct SuccessorResearchIntentApiState {
+    owner: Arc<dyn SuccessorResearchIntentActionPort>,
+    token_digest: [u8; 32],
+}
+
+#[derive(Clone)]
 struct ReadyForSelectionApiState {
     owner: Arc<dyn ReadyForSelectionActionPort>,
     token_digest: [u8; 32],
@@ -376,6 +428,72 @@ impl From<CandidateComparisonDecisionReadbackV1> for CandidateComparisonDecision
             candidate_evaluations: decision.candidate_evaluations().clone(),
             receipt_identity: receipt.receipt_identity().to_string(),
             result_identity: receipt.result_identity().to_string(),
+            committed_at_epoch_ms: receipt.committed_at_epoch_ms(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+struct SuccessorResearchIntentActionResponseV1 {
+    schema_version: u16,
+    intent_identity: String,
+    intent_digest: String,
+    request_identity: String,
+    goal: vibe_strategy_factory::product_edge::SourcedResearchGoalV2,
+    predecessor_intent_identity: String,
+    predecessor_intent_digest: String,
+    decision_identity: String,
+    decision_digest: String,
+    result_identity: String,
+    trial_family_identity: String,
+    trial_family_policy_digest: String,
+    census_frontier_identity: String,
+    census_frontier_digest: String,
+    independence_basis_identity: String,
+    independence_basis_digest: String,
+    protected_feedback_projection_identity: String,
+    protected_feedback_projection_digest: String,
+    experiment_identity: String,
+    experiment_digest: String,
+    experiment: vibe_strategy_factory::IterationExperimentModeV1,
+    frozen_at_epoch_ms: u64,
+    receipt_identity: String,
+    committed_at_epoch_ms: u64,
+}
+
+impl From<SuccessorResearchIntentReadbackV1> for SuccessorResearchIntentActionResponseV1 {
+    fn from(readback: SuccessorResearchIntentReadbackV1) -> Self {
+        let intent = readback.intent();
+        let receipt = readback.receipt();
+        Self {
+            schema_version: 1,
+            intent_identity: intent.intent_identity().to_string(),
+            intent_digest: intent.intent_digest().to_string(),
+            request_identity: intent.request_identity().to_string(),
+            goal: intent.goal().clone(),
+            predecessor_intent_identity: intent.predecessor_intent_identity().to_string(),
+            predecessor_intent_digest: intent.predecessor_intent_digest().to_string(),
+            decision_identity: intent.decision_identity().to_string(),
+            decision_digest: intent.decision_digest().to_string(),
+            result_identity: intent.result_identity().to_string(),
+            trial_family_identity: intent.trial_family_identity().to_string(),
+            trial_family_policy_digest: intent.trial_family_policy_digest().to_string(),
+            census_frontier_identity: intent.census_frontier_identity().to_string(),
+            census_frontier_digest: intent.census_frontier_digest().to_string(),
+            independence_basis_identity: intent.independence_basis_identity().to_string(),
+            independence_basis_digest: intent.independence_basis_digest().to_string(),
+            protected_feedback_projection_identity: intent
+                .protected_feedback_projection_identity()
+                .to_string(),
+            protected_feedback_projection_digest: intent
+                .protected_feedback_projection_digest()
+                .to_string(),
+            experiment_identity: intent.experiment_identity().to_string(),
+            experiment_digest: intent.experiment_digest().to_string(),
+            experiment: intent.experiment().clone(),
+            frozen_at_epoch_ms: intent.frozen_at_epoch_ms(),
+            receipt_identity: receipt.receipt_identity().to_string(),
             committed_at_epoch_ms: receipt.committed_at_epoch_ms(),
         }
     }
@@ -541,12 +659,35 @@ pub(super) fn router(owner: Arc<PostgresResearchGoalOwnerV1>, token_digest: [u8;
             token_digest,
         ))
         .merge(candidate_comparison_router(owner.clone(), token_digest))
+        .merge(successor_research_intent_router(
+            owner.clone(),
+            token_digest,
+        ))
         .merge(ready_for_selection_router(owner.clone(), token_digest))
         .merge(trial_budget_terminal_stop_router(
             owner.clone(),
             token_digest,
         ))
         .merge(repair_action_router(owner, token_digest))
+}
+
+fn successor_research_intent_router(
+    owner: Arc<dyn SuccessorResearchIntentActionPort>,
+    token_digest: [u8; 32],
+) -> Router {
+    Router::new()
+        .route(
+            "/v1/successor-research-intents",
+            post(compose_successor_research_intent),
+        )
+        .route(
+            "/v1/successor-research-intents/resolve",
+            post(resolve_successor_research_intent),
+        )
+        .with_state(SuccessorResearchIntentApiState {
+            owner,
+            token_digest,
+        })
 }
 
 fn research_iteration_action_read_router(
@@ -919,6 +1060,92 @@ async fn compose_candidate_comparison(
     }
 }
 
+async fn compose_successor_research_intent(
+    State(state): State<SuccessorResearchIntentApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return successor_intent_rejection(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            "unbound",
+        );
+    }
+    let request: SuccessorResearchIntentCompositionRequestV1 = match serde_json::from_slice(&body) {
+        Ok(request) => request,
+        Err(_) => {
+            return successor_intent_rejection(
+                StatusCode::BAD_REQUEST,
+                "MALFORMED_TYPED_REQUEST",
+                "unbound",
+            );
+        }
+    };
+    let request_identity = request.request_identity.clone();
+    if [
+        request.request_identity.as_str(),
+        request.decision_identity.as_str(),
+        request.result_identity.as_str(),
+    ]
+    .into_iter()
+    .any(|identity| !is_valid_iteration_decision_locator_v1(identity))
+    {
+        return successor_intent_rejection(
+            StatusCode::BAD_REQUEST,
+            "INVALID_SUCCESSOR_RESEARCH_INTENT_PROPOSAL",
+            &request_identity,
+        );
+    }
+    match state.owner.compose_successor_intent(request).await {
+        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
+        Err(error) => successor_intent_owner_error(&error, &request_identity),
+    }
+}
+
+async fn resolve_successor_research_intent(
+    State(state): State<SuccessorResearchIntentApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return successor_intent_resolution_rejection(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            "unbound",
+        );
+    }
+    let locator: SuccessorResearchIntentResolutionLocatorV1 = match serde_json::from_slice(&body) {
+        Ok(locator) => locator,
+        Err(_) => {
+            return successor_intent_resolution_rejection(
+                StatusCode::BAD_REQUEST,
+                "MALFORMED_TYPED_REQUEST",
+                "unbound",
+            );
+        }
+    };
+    let intent_identity = locator.intent_identity.clone();
+    if !is_valid_iteration_decision_locator_v1(&locator.intent_identity)
+        || !is_valid_iteration_decision_locator_v1(&locator.decision_identity)
+    {
+        return successor_intent_resolution_rejection(
+            StatusCode::BAD_REQUEST,
+            "INVALID_SUCCESSOR_RESEARCH_INTENT_LOCATORS",
+            &intent_identity,
+        );
+    }
+    match state.owner.resolve_successor_intent(locator).await {
+        Ok(Some(result)) => (StatusCode::OK, Json(result)).into_response(),
+        Ok(None) => successor_intent_resolution_rejection(
+            StatusCode::NOT_FOUND,
+            "SUCCESSOR_RESEARCH_INTENT_NOT_FOUND",
+            &intent_identity,
+        ),
+        Err(error) => successor_intent_resolution_owner_error(&error, &intent_identity),
+    }
+}
+
 async fn compose_ready_for_selection(
     State(state): State<ReadyForSelectionApiState>,
     headers: HeaderMap,
@@ -1222,6 +1449,52 @@ fn candidate_comparison_owner_error(
     )
 }
 
+fn successor_intent_owner_error(
+    error: &SuccessorResearchIntentPostgresErrorV1,
+    request_identity: &str,
+) -> Response {
+    successor_intent_owner_error_with(error, request_identity, successor_intent_rejection)
+}
+
+fn successor_intent_resolution_owner_error(
+    error: &SuccessorResearchIntentPostgresErrorV1,
+    intent_identity: &str,
+) -> Response {
+    successor_intent_owner_error_with(
+        error,
+        intent_identity,
+        successor_intent_resolution_rejection,
+    )
+}
+
+fn successor_intent_owner_error_with(
+    error: &SuccessorResearchIntentPostgresErrorV1,
+    correlation_identity: &str,
+    reject: fn(StatusCode, &str, &str) -> Response,
+) -> Response {
+    match error {
+        SuccessorResearchIntentPostgresErrorV1::InvalidLocator
+        | SuccessorResearchIntentPostgresErrorV1::Intent(
+            SuccessorResearchIntentErrorV1::Invalid(_),
+        ) => reject(
+            StatusCode::BAD_REQUEST,
+            "INVALID_SUCCESSOR_RESEARCH_INTENT_PROPOSAL",
+            correlation_identity,
+        ),
+        SuccessorResearchIntentPostgresErrorV1::TrialFamily(_)
+        | SuccessorResearchIntentPostgresErrorV1::ResearchCustody(_)
+        | SuccessorResearchIntentPostgresErrorV1::Decision(_)
+        | SuccessorResearchIntentPostgresErrorV1::Intent(
+            SuccessorResearchIntentErrorV1::Encoding(_),
+        )
+        | SuccessorResearchIntentPostgresErrorV1::Storage(_) => reject(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "SUCCESSOR_RESEARCH_INTENT_OWNER_UNAVAILABLE",
+            correlation_identity,
+        ),
+    }
+}
+
 fn trial_budget_terminal_stop_resolution_owner_error(
     error: &IterationDecisionPostgresErrorV1,
     decision_identity: &str,
@@ -1500,6 +1773,18 @@ fn repair_action_resolution_rejection(
     )
 }
 
+fn successor_intent_rejection(status: StatusCode, code: &str, request_identity: &str) -> Response {
+    correlated_rejection(status, code, "request_identity", request_identity)
+}
+
+fn successor_intent_resolution_rejection(
+    status: StatusCode,
+    code: &str,
+    intent_identity: &str,
+) -> Response {
+    correlated_rejection(status, code, "intent_identity", intent_identity)
+}
+
 fn correlated_rejection(
     status: StatusCode,
     code: &str,
@@ -1547,6 +1832,12 @@ mod tests {
         calls: AtomicUsize,
         resolve_calls: AtomicUsize,
         response: Option<CandidateComparisonDecisionActionResponseV1>,
+    }
+
+    struct SuccessorResearchIntentOwnerStub {
+        calls: AtomicUsize,
+        resolve_calls: AtomicUsize,
+        response: Option<SuccessorResearchIntentActionResponseV1>,
     }
 
     struct ReadyForSelectionOwnerStub {
@@ -1649,6 +1940,33 @@ mod tests {
         ) -> Result<
             Option<CandidateComparisonDecisionActionResponseV1>,
             IterationDecisionPostgresErrorV1,
+        > {
+            self.resolve_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(self.response.clone())
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl SuccessorResearchIntentActionPort for SuccessorResearchIntentOwnerStub {
+        async fn compose_successor_intent(
+            &self,
+            _request: SuccessorResearchIntentCompositionRequestV1,
+        ) -> Result<SuccessorResearchIntentActionResponseV1, SuccessorResearchIntentPostgresErrorV1>
+        {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.response.clone().ok_or_else(|| {
+                SuccessorResearchIntentPostgresErrorV1::Storage(
+                    "test successor Intent unavailable".into(),
+                )
+            })
+        }
+
+        async fn resolve_successor_intent(
+            &self,
+            _locator: SuccessorResearchIntentResolutionLocatorV1,
+        ) -> Result<
+            Option<SuccessorResearchIntentActionResponseV1>,
+            SuccessorResearchIntentPostgresErrorV1,
         > {
             self.resolve_calls.fetch_add(1, Ordering::SeqCst);
             Ok(self.response.clone())
@@ -1796,6 +2114,30 @@ mod tests {
         })
     }
 
+    fn successor_research_intent_request() -> serde_json::Value {
+        json!({
+            "request_identity": "successor-intent-request-1",
+            "decision_identity": "decision-successor-1",
+            "result_identity": "result-1",
+            "goal": {
+                "hypothesis": "A narrower entry signal improves net returns.",
+                "mechanism": "The entry filter removes low-conviction observations.",
+                "falsification_question": "Does the filtered signal fail after costs?",
+                "expected_observation": "Higher net expectancy with bounded turnover.",
+                "required_data": ["sealed market bars"],
+                "cost_assumption": "Canonical cost model remains fixed.",
+                "capacity_assumption": "Canonical capacity model remains fixed."
+            }
+        })
+    }
+
+    fn successor_research_intent_resolution_locator() -> serde_json::Value {
+        json!({
+            "intent_identity": "successor-intent-1",
+            "decision_identity": "decision-successor-1",
+        })
+    }
+
     fn response() -> RepairInputDecisionActionResponseV1 {
         let evidence_cut = IterationDecisionEvidenceCutV1 {
             decision_policy_identity: "policy-1".into(),
@@ -1936,6 +2278,54 @@ mod tests {
             receipt_identity: "decision-successor-receipt-1".into(),
             result_identity: "result-1".into(),
             committed_at_epoch_ms: 31,
+        }
+    }
+
+    fn successor_research_intent_response() -> SuccessorResearchIntentActionResponseV1 {
+        SuccessorResearchIntentActionResponseV1 {
+            schema_version: 1,
+            intent_identity: "successor-intent-1".into(),
+            intent_digest: format!("sha256:{}", "1".repeat(64)),
+            request_identity: "successor-intent-request-1".into(),
+            goal: vibe_strategy_factory::product_edge::SourcedResearchGoalV2 {
+                hypothesis: "A narrower entry signal improves net returns.".into(),
+                mechanism: "The entry filter removes low-conviction observations.".into(),
+                falsification_question: "Does the filtered signal fail after costs?".into(),
+                expected_observation: "Higher net expectancy with bounded turnover.".into(),
+                required_data: vec!["sealed market bars".into()],
+                cost_assumption: "Canonical cost model remains fixed.".into(),
+                capacity_assumption: "Canonical capacity model remains fixed.".into(),
+                sources: vec![vibe_strategy_factory::product_edge::ResearchSourceV1 {
+                    locator: "urn:research:source:1".into(),
+                    content_digest: format!("sha256:{}", "2".repeat(64)),
+                    observed_at: "2026-09-14T00:00:00Z".into(),
+                    source_cut: "sealed-source-cut".into(),
+                    license_basis: "internal research evidence".into(),
+                    interpretation: "Inherited from predecessor Intent custody.".into(),
+                }],
+            },
+            predecessor_intent_identity: "predecessor-intent-1".into(),
+            predecessor_intent_digest: format!("sha256:{}", "3".repeat(64)),
+            decision_identity: "decision-successor-1".into(),
+            decision_digest: format!("sha256:{}", "4".repeat(64)),
+            result_identity: "result-1".into(),
+            trial_family_identity: "family-1".into(),
+            trial_family_policy_digest: format!("sha256:{}", "5".repeat(64)),
+            census_frontier_identity: "census-1".into(),
+            census_frontier_digest: format!("sha256:{}", "6".repeat(64)),
+            independence_basis_identity: "basis-1".into(),
+            independence_basis_digest: format!("sha256:{}", "7".repeat(64)),
+            protected_feedback_projection_identity: "protected-feedback-1".into(),
+            protected_feedback_projection_digest: format!("sha256:{}", "8".repeat(64)),
+            experiment_identity: "candidate-successor-1".into(),
+            experiment_digest: format!("sha256:{}", "9".repeat(64)),
+            experiment: vibe_strategy_factory::IterationExperimentModeV1::SingleDimension {
+                changed_dimension:
+                    vibe_strategy_factory::IterationHypothesisDimensionV1::ReturnMechanism,
+            },
+            frozen_at_epoch_ms: 37,
+            receipt_identity: "successor-intent-receipt-1".into(),
+            committed_at_epoch_ms: 37,
         }
     }
 
@@ -2534,6 +2924,95 @@ mod tests {
             serde_json::to_value(expected).unwrap()
         );
         assert_eq!(owner.resolve_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn successor_intent_compose_and_resolve_are_authenticated_and_preserve_owner_custody() {
+        let token = "successor-intent-success-test";
+        let token_digest: [u8; 32] = sha2::Sha256::digest(token.as_bytes()).into();
+        let expected = successor_research_intent_response();
+        let owner = Arc::new(SuccessorResearchIntentOwnerStub {
+            calls: AtomicUsize::new(0),
+            resolve_calls: AtomicUsize::new(0),
+            response: Some(expected.clone()),
+        });
+
+        let unauthorized = successor_research_intent_router(owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/successor-research-intents",
+                successor_research_intent_request(),
+                None,
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(unauthorized.status(), StatusCode::FORBIDDEN);
+        assert_eq!(owner.calls.load(Ordering::SeqCst), 0);
+
+        let mut injected = successor_research_intent_request();
+        injected["decision_digest"] = json!(format!("sha256:{}", "a".repeat(64)));
+        let rejected = successor_research_intent_router(owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/successor-research-intents",
+                injected,
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(rejected.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(owner.calls.load(Ordering::SeqCst), 0);
+
+        let composed = successor_research_intent_router(owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/successor-research-intents",
+                successor_research_intent_request(),
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(composed.status(), StatusCode::OK);
+        assert_eq!(
+            response_json(composed).await,
+            serde_json::to_value(&expected).unwrap()
+        );
+        assert_eq!(owner.calls.load(Ordering::SeqCst), 1);
+
+        let resolved = successor_research_intent_router(owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/successor-research-intents/resolve",
+                successor_research_intent_resolution_locator(),
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(resolved.status(), StatusCode::OK);
+        assert_eq!(
+            response_json(resolved).await,
+            serde_json::to_value(expected).unwrap()
+        );
+        assert_eq!(owner.resolve_calls.load(Ordering::SeqCst), 1);
+
+        let missing = Arc::new(SuccessorResearchIntentOwnerStub {
+            calls: AtomicUsize::new(0),
+            resolve_calls: AtomicUsize::new(0),
+            response: None,
+        });
+        let absent = successor_research_intent_router(missing.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/successor-research-intents/resolve",
+                successor_research_intent_resolution_locator(),
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(absent.status(), StatusCode::NOT_FOUND);
+        assert_eq!(
+            response_json(absent).await,
+            json!({
+                "intent_identity": "successor-intent-1",
+                "error": "SUCCESSOR_RESEARCH_INTENT_NOT_FOUND",
+            })
+        );
+        assert_eq!(missing.resolve_calls.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
