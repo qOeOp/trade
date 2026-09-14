@@ -49,6 +49,7 @@ use crate::{
     successor_intent_postgres::{
         advance_successor_research_view_in_transaction, lock_successor_research_view_in_transaction,
     },
+    trial_family_postgres::load_trial_family_census_v2_by_family_in_transaction,
 };
 
 const LOCK_FUNCTION: &str = "rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)";
@@ -2234,6 +2235,26 @@ async fn commit_inner(
     } else {
         None
     };
+    let successor_census = if let Some((readback, _)) = successor_view_custody.as_ref() {
+        let census = load_trial_family_census_v2_by_family_in_transaction(
+            &mut transaction,
+            readback.intent().trial_family_identity(),
+        )
+        .await
+        .map_err(|error| ExploratoryReplayOwnerError::Unavailable(error.to_string()))?;
+        if census.census_frontier.frontier_identity()
+            != readback.intent().census_frontier_identity()
+            || census.census_frontier.frontier_digest()
+                != readback.intent().census_frontier_digest()
+        {
+            return Err(ExploratoryReplayOwnerError::Unavailable(
+                "successor TrialFamily Census Frontier changed".into(),
+            ));
+        }
+        Some(census)
+    } else {
+        None
+    };
 
     if market_data_repair_sources.is_none() {
         verify_replay_admission_for_commit(&replay_admission, &proposal, prepared_v2.as_ref())?;
@@ -2267,6 +2288,14 @@ async fn commit_inner(
     let research_receipt = custody.research.receipt();
     let root = family.trial_family().root();
     let frontier = family.trial_family().census_frontier();
+    let current_frontier_identity = successor_census.as_ref().map_or_else(
+        || frontier.frontier_identity(),
+        |census| census.census_frontier.frontier_identity(),
+    );
+    let current_frontier_digest = successor_census.as_ref().map_or_else(
+        || frontier.frontier_digest(),
+        |census| census.census_frontier.frontier_digest(),
+    );
     let binding = family.binding();
     let binding_receipt = family.binding_receipt();
 
@@ -2293,7 +2322,7 @@ async fn commit_inner(
         || receipt.build_receipt_identity.as_deref()
             != Some(proposal.build_receipt_identity.as_str())
         || proposal.artifact_family_binding_identity != binding.binding_identity()
-        || proposal.census_frontier_identity != frontier.frontier_identity()
+        || proposal.census_frontier_identity != current_frontier_identity
         || proposal.exact_code_bytes_digest != review.build_receipt.wasm_digest
         || proposal.cost_model_identity != root.policy().cost_model_identity
         || proposal.slippage_model_identity != root.policy().slippage_model_identity
@@ -2302,8 +2331,7 @@ async fn commit_inner(
             let request = &prepared.proposal.request;
             request.frozen_research_intent.digest.as_str() != intent.semantic_digest()
                 || request.trial_family.digest.as_str() != root.root_digest()
-                || request.trial_family_census_frontier.digest.as_str()
-                    != frontier.frontier_digest()
+                || request.trial_family_census_frontier.digest.as_str() != current_frontier_digest
                 || request.artifact.digest.as_str() != review.build_receipt.wasm_digest
         })
     {
@@ -2341,7 +2369,7 @@ async fn commit_inner(
                 .membership_receipt()
                 .receipt_identity()
                 .to_string(),
-            census_frontier_identity: proposal.census_frontier_identity.clone(),
+            census_frontier_identity: frontier.frontier_identity().to_string(),
             census_frontier_digest: frontier.frontier_digest().to_string(),
             replay_execution_policy_v2: family
                 .trial_family()
@@ -2447,7 +2475,7 @@ async fn commit_inner(
         research_receipt_identity: current_research_receipt_identity,
         intent_semantic_digest: intent.semantic_digest().to_string(),
         trial_family_root_digest: root.root_digest().to_string(),
-        census_frontier_digest: frontier.frontier_digest().to_string(),
+        census_frontier_digest: current_frontier_digest.to_string(),
         artifact_family_binding_digest: binding.binding_digest().to_string(),
         artifact_family_binding_receipt_identity: binding_receipt.receipt_identity().to_string(),
         artifact_review_identity: review.review_identity.clone(),
@@ -2581,7 +2609,7 @@ async fn commit_inner(
             new_view.exploration = Some(ResearchExplorationViewV1 {
                 trial_family_identity: proposal.trial_family_identity.clone(),
                 census_frontier_identity: proposal.census_frontier_identity.clone(),
-                census_frontier_digest: frontier.frontier_digest().to_string(),
+                census_frontier_digest: current_frontier_digest.to_string(),
                 replay_request_identity: proposal.request_identity.clone(),
                 replay_request_meaning_digest: replay_receipt.meaning_digest.clone(),
                 replay_request_seal_digest: replay_receipt.seal_digest.clone(),
