@@ -1611,7 +1611,7 @@ mod tests {
         )
     }
 
-    #[test]
+    #[rstest::rstest]
     fn adequate_plan_admits_once_with_holdout_reservation() {
         let (request, envelope) = fixture();
         let receipt = form_candidate_intake_receipt_v1(&request, &envelope, 20, true).unwrap();
@@ -1630,7 +1630,7 @@ mod tests {
         assert!(stale_frontier.holdout_reservation_identity().is_none());
     }
 
-    #[test]
+    #[rstest::rstest]
     fn protected_request_freezes_one_canonical_cell_and_all_sixteen_bindings() {
         use crate::protected_replay_request::{
             ProtectedReplayBindingFieldV1, ProtectedReplayBindingV1,
@@ -1719,7 +1719,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn inadequate_plan_closes_without_holdout_and_cross_splice_is_unavailable() {
         let (request, mut envelope) = fixture();
         envelope

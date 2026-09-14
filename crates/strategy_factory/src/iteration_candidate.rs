@@ -534,7 +534,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest::rstest]
     fn unique_highest_ranked_admissible_candidate_wins() {
         let candidates = vec![
             candidate(
@@ -558,7 +558,7 @@ mod tests {
         assert_eq!(candidate.candidate_identity, "candidate-winner");
     }
 
-    #[test]
+    #[rstest::rstest]
     fn low_information_stop_requires_complete_all_below_threshold_census() {
         let candidates = vec![candidate(
             "candidate-below",
@@ -587,7 +587,7 @@ mod tests {
         ));
     }
 
-    #[test]
+    #[rstest::rstest]
     fn cross_spliced_candidate_membership_is_rejected() {
         let frontier_candidates = vec![candidate(
             "candidate-frontier-member",
@@ -609,7 +609,7 @@ mod tests {
         ));
     }
 
-    #[test]
+    #[rstest::rstest]
     fn inadmissible_member_prevents_another_member_from_winning() {
         let candidates = vec![
             candidate(

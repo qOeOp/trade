@@ -3057,7 +3057,7 @@ mod postgres_acceptance_tests {
         bytes
     }
 
-    #[test]
+    #[rstest::rstest]
     #[ignore = "requires the canonical disposable R&D and Backtest Owner PostgreSQL topology"]
     fn repair_decision_action_and_market_data_request_commit_retry_resolve_and_rejection_are_atomic()
      {

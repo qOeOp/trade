@@ -2452,7 +2452,7 @@ mod tests {
         result
     }
 
-    #[test]
+    #[rstest::rstest]
     fn economic_policy_and_measurement_are_fixed_point_and_content_addressed() {
         let mut policy = ProtectedEconomicPolicyBundleV1 {
             schema_version: 1,
@@ -2550,7 +2550,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn v3_binds_complete_cell_set_and_direct_result_time_successor() {
         let request = request_v2();
         let result = result_v3(&request);
@@ -2573,7 +2573,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn v3_seals_economic_measurement_and_rejects_cross_result_mutation() {
         let request = request_v2();
         let mut result = result_v3(&request);
@@ -2653,7 +2653,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn v3_rejects_cross_cell_set_and_nonadvancing_time() {
         let request = request_v2();
         let mut result = result_v3(&request);
@@ -2681,13 +2681,13 @@ mod tests {
         assert!(result.validate_against_request(&request, &locator).is_err());
     }
 
-    #[test]
+    #[rstest::rstest]
     fn v1_request_bytes_never_decode_as_v2() {
         let bytes = serde_json::to_vec(&request_v1()).unwrap();
         assert!(ProtectedReplayRequestDtoV2::from_canonical_bytes(&bytes).is_err());
     }
 
-    #[test]
+    #[rstest::rstest]
     fn v3_custody_rejects_commit_at_or_after_result_expiry() {
         let result = result_v3(&request_v2());
         assert!(
@@ -2759,7 +2759,7 @@ mod tests {
         result
     }
 
-    #[test]
+    #[rstest::rstest]
     fn request_set_and_frontier_are_sorted_digest_bound_and_canonical() {
         let request = request_v2();
         let request_set = request_set(&request);
@@ -2787,7 +2787,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn frontier_rejects_duplicate_results_and_incomplete_request_sets() {
         let request = request_v2();
         let request_set = request_set(&request);
@@ -2820,7 +2820,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn assessment_time_is_a_direct_successor_of_result_time() {
         let result = time_evidence(ProtectedEvaluationStageV1::Result);
         let assessment = time_evidence(ProtectedEvaluationStageV1::Assessment);
@@ -2849,7 +2849,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn result_cuts_are_comparable_within_one_epoch() {
         let earlier = time_evidence(ProtectedEvaluationStageV1::Result);
         let mut later = earlier.clone();
