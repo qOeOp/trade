@@ -8,7 +8,8 @@ use thiserror::Error;
 use vibe_backtest_owner_contracts::{CanonicalDigestV2, OpaqueIdentityV2};
 use vibe_backtest_owner_contracts::{
     DiagnosticCategoryV2, PROTECTED_REPLAY_BINDING_COUNT_V1, ProtectedCellApplicabilityEvidenceV3,
-    ProtectedConsumedInputLocatorV1, ProtectedDiagnosticEvidenceV2,
+    ProtectedCellApplicabilityObservationV3, ProtectedConsumedInputLocatorV1,
+    ProtectedDiagnosticEvidenceV2, ProtectedEconomicMeasurementV1,
     ProtectedEvaluationComparisonRuleV1, ProtectedEvaluationEpochSuccessorProofV1,
     ProtectedEvaluationStageV1, ProtectedEvaluationTimeEvidenceV1, ProtectedReplayBindingFieldV1,
     ProtectedReplayReconciliationAtomV1, ProtectedReplayRequestDtoV1, ProtectedReplayRequestDtoV2,
@@ -30,7 +31,8 @@ pub enum ProtectedReplayOwnerErrorV1 {
 }
 
 /// Caller-supplied Backtest observation. It becomes Owner evidence only after exact reconciliation
-/// with the locked Qualification request inside [`PostgresReplayResultOwnerV2`](crate::PostgresReplayResultOwnerV2).
+/// with the locked Qualification request inside
+/// [`PostgresReplayResultOwnerV2`](crate::postgres::PostgresReplayResultOwnerV2).
 #[derive(Debug)]
 pub struct ProtectedConsumedBindingObservationProposalV3 {
     pub field: ProtectedReplayBindingFieldV1,
@@ -50,6 +52,7 @@ pub struct ProtectedReplayResultProposalV3 {
     pub diagnostic_evidence: Vec<ProtectedDiagnosticEvidenceV2>,
     pub applicability_evidence: ProtectedCellApplicabilityEvidenceV3,
     pub protected_outcome: ProtectedResultOutcomeLocatorV1,
+    pub protected_economic_measurement: Option<ProtectedEconomicMeasurementV1>,
     pub time_successor: ClockHeadSuccessorReadback,
 }
 
@@ -94,6 +97,7 @@ pub(crate) struct ProtectedReplayResultDraftV3 {
     pub(crate) diagnostic_evidence: Vec<ProtectedDiagnosticEvidenceV2>,
     pub(crate) applicability_evidence: ProtectedCellApplicabilityEvidenceV3,
     pub(crate) protected_outcome: ProtectedResultOutcomeLocatorV1,
+    pub(crate) protected_economic_measurement: Option<ProtectedEconomicMeasurementV1>,
     pub(crate) time_successor: ClockHeadSuccessorReadback,
 }
 
@@ -527,6 +531,34 @@ pub(crate) fn commit_protected_owner_result_v3(
     let request_time_evidence_digest =
         protected_evaluation_time_evidence_digest_v1(&request.request_time_evidence)
             .map_err(|_| ProtectedReplayOwnerErrorV1::InvalidResult)?;
+    let applicable_without_defect = draft.applicability_evidence.observation
+        == ProtectedCellApplicabilityObservationV3::ApplicableInputsObserved
+        && diagnostic_category_set == [DiagnosticCategoryV2::NoExecutionDefect];
+    if applicable_without_defect != draft.protected_economic_measurement.is_some() {
+        return Err(ProtectedReplayOwnerErrorV1::InvalidResult);
+    }
+    if let Some(measurement) = &draft.protected_economic_measurement {
+        measurement
+            .validate()
+            .map_err(|_| ProtectedReplayOwnerErrorV1::InvalidResult)?;
+        if measurement.measurement_identity != draft.protected_outcome.reference.as_str()
+            || measurement.measurement_digest != draft.protected_outcome.digest.as_str()
+            || measurement.request_identity != request.request_identity
+            || measurement.request_digest != request.request_digest
+            || measurement.attempt_identity != draft.attempt_identity
+            || measurement.protected_plan_identity != basis.protected_plan_identity
+            || measurement.protected_plan_digest != basis.protected_plan_digest
+            || measurement.plan_cell_set_identity != basis.plan_cell_set_identity
+            || measurement.plan_cell_set_digest != basis.plan_cell_set_digest
+            || measurement.plan_cell_identity != basis.plan_cell_identity
+            || measurement.plan_cell_digest != basis.plan_cell_digest
+            || measurement.result_time_evidence_digest
+                != protected_evaluation_time_evidence_digest_v1(&result_time_evidence)
+                    .map_err(|_| ProtectedReplayOwnerErrorV1::InvalidResult)?
+        {
+            return Err(ProtectedReplayOwnerErrorV1::InvalidResult);
+        }
+    }
     let mut dto = ProtectedReplayResultDtoV3 {
         schema_version: 3,
         result_identity: "pending-result-identity".to_string(),
@@ -551,6 +583,7 @@ pub(crate) fn commit_protected_owner_result_v3(
         diagnostic_evidence: draft.diagnostic_evidence,
         applicability_evidence: draft.applicability_evidence,
         protected_outcome: draft.protected_outcome,
+        protected_economic_measurement: draft.protected_economic_measurement,
         request_time_evidence_digest,
         result_time_evidence,
     };
@@ -604,6 +637,7 @@ pub(crate) fn commit_protected_owner_result_proposal_v3(
             diagnostic_evidence: proposal.diagnostic_evidence,
             applicability_evidence: proposal.applicability_evidence,
             protected_outcome: proposal.protected_outcome,
+            protected_economic_measurement: proposal.protected_economic_measurement,
             time_successor: proposal.time_successor,
         },
     )

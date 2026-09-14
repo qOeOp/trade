@@ -239,7 +239,7 @@ impl ProtectedEvaluationTimeEvidenceV1 {
         &self,
         predecessor: &Self,
         successor_stage: ProtectedEvaluationStageV1,
-        error: ProtectedReplayContractErrorV1,
+        e: ProtectedReplayContractErrorV1,
     ) -> Result<(), ProtectedReplayContractErrorV1> {
         self.validate_common()?;
         if self.stage != successor_stage
@@ -251,7 +251,7 @@ impl ProtectedEvaluationTimeEvidenceV1 {
             || self.wall_observed >= predecessor.valid_through
             || self.valid_through <= predecessor.valid_through
         {
-            return Err(error);
+            return Err(e);
         }
         if self.clock_epoch == predecessor.clock_epoch {
             if self.monotonic_sequence != predecessor.monotonic_sequence.saturating_add(1)
@@ -260,13 +260,13 @@ impl ProtectedEvaluationTimeEvidenceV1 {
                 || self.skew_bound != predecessor.skew_bound
                 || self.epoch_successor_proof.is_some()
             {
-                return Err(error);
+                return Err(e);
             }
         } else {
             let proof = self
                 .epoch_successor_proof
                 .as_ref()
-                .ok_or_else(|| error.clone())?;
+                .ok_or_else(|| e.clone())?;
             if proof.proof_identity.iter().all(|byte| *byte == 0)
                 || proof.predecessor_head_digest != predecessor.head_digest
                 || proof.successor_head_digest != self.head_digest
@@ -278,7 +278,7 @@ impl ProtectedEvaluationTimeEvidenceV1 {
                 || proof.commit_cut != self.decision_cut
                 || proof.comparison_rule != self.comparison_rule
             {
-                return Err(error);
+                return Err(e);
             }
         }
         Ok(())
@@ -512,8 +512,8 @@ pub struct ProtectedEconomicPolicyReferenceV1 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ProtectedEconomicComparisonV1 {
-    AtLeast,
-    AtMost,
+    GreaterThanOrEqual,
+    LessThanOrEqual,
 }
 
 /// Aggregation rule frozen before protected execution.
@@ -811,6 +811,8 @@ pub struct ProtectedReplayResultDtoV3 {
     pub diagnostic_evidence: Vec<ProtectedDiagnosticEvidenceV2>,
     pub applicability_evidence: ProtectedCellApplicabilityEvidenceV3,
     pub protected_outcome: ProtectedResultOutcomeLocatorV1,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protected_economic_measurement: Option<ProtectedEconomicMeasurementV1>,
     pub request_time_evidence_digest: String,
     pub result_time_evidence: ProtectedEvaluationTimeEvidenceV1,
 }
@@ -1288,6 +1290,8 @@ struct ResultMeaningV3<'a> {
     diagnostic_evidence: &'a [ProtectedDiagnosticEvidenceV2],
     applicability_evidence: &'a ProtectedCellApplicabilityEvidenceV3,
     protected_outcome: &'a ProtectedResultOutcomeLocatorV1,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    protected_economic_measurement: &'a Option<ProtectedEconomicMeasurementV1>,
     request_time_evidence_digest: &'a str,
     result_time_evidence: &'a ProtectedEvaluationTimeEvidenceV1,
 }
@@ -1990,6 +1994,25 @@ impl ProtectedReplayResultDtoV3 {
         {
             return Err(ProtectedReplayContractErrorV1::InvalidResult);
         }
+        if let Some(measurement) = &self.protected_economic_measurement {
+            measurement.validate()?;
+            if measurement.measurement_identity != self.protected_outcome.reference.as_str()
+                || measurement.measurement_digest != self.protected_outcome.digest.as_str()
+                || measurement.request_identity != self.request_identity
+                || measurement.request_digest != self.request_digest
+                || measurement.attempt_identity != self.attempt_identity
+                || measurement.protected_plan_identity != self.protected_plan_identity
+                || measurement.protected_plan_digest != self.protected_plan_digest
+                || measurement.plan_cell_set_identity != self.plan_cell_set_identity
+                || measurement.plan_cell_set_digest != self.plan_cell_set_digest
+                || measurement.plan_cell_identity != self.plan_cell_identity
+                || measurement.plan_cell_digest != self.plan_cell_digest
+                || measurement.result_time_evidence_digest
+                    != protected_evaluation_time_evidence_digest_v1(&self.result_time_evidence)?
+            {
+                return Err(ProtectedReplayContractErrorV1::InvalidEconomicMeasurement);
+            }
+        }
         let expected = self.compute_result_digest()?;
         if self.result_digest != expected
             || self.result_identity
@@ -2070,6 +2093,7 @@ impl ProtectedReplayResultDtoV3 {
                 diagnostic_evidence: &self.diagnostic_evidence,
                 applicability_evidence: &self.applicability_evidence,
                 protected_outcome: &self.protected_outcome,
+                protected_economic_measurement: &self.protected_economic_measurement,
                 request_time_evidence_digest: &self.request_time_evidence_digest,
                 result_time_evidence: &self.result_time_evidence,
             },
@@ -2368,6 +2392,7 @@ mod tests {
                 reference: identity("protected-outcome"),
                 digest: canonical_digest('b'),
             },
+            protected_economic_measurement: None,
             request_time_evidence_digest: protected_evaluation_time_evidence_digest_v1(
                 &request.request_time_evidence,
             )
@@ -2412,7 +2437,7 @@ mod tests {
             },
             unit: "basis-points".into(),
             decimal_scale: 4,
-            comparison: ProtectedEconomicComparisonV1::AtLeast,
+            comparison: ProtectedEconomicComparisonV1::GreaterThanOrEqual,
             threshold_raw: 250,
             tolerance_raw: 5,
             minimum_coverage_bps: 9_500,
@@ -2439,7 +2464,7 @@ mod tests {
             plan_cell_set_identity: request.frozen_basis.plan_cell_set_identity.clone(),
             plan_cell_set_digest: request.frozen_basis.plan_cell_set_digest.clone(),
             plan_cell_identity: request.frozen_basis.plan_cell_identity.clone(),
-            plan_cell_digest: request.frozen_basis.plan_cell_digest.clone(),
+            plan_cell_digest: request.frozen_basis.plan_cell_digest,
             metric_identity: policy.metric.identity.clone(),
             metric_digest: policy.metric.digest.clone(),
             unit: policy.unit.clone(),
@@ -2488,6 +2513,91 @@ mod tests {
             ProtectedReplayResultDtoV3::from_canonical_bytes(&result.to_canonical_bytes().unwrap())
                 .unwrap(),
             result
+        );
+        assert!(
+            !String::from_utf8(result.to_canonical_bytes().unwrap())
+                .unwrap()
+                .contains("protected_economic_measurement")
+        );
+    }
+
+    #[test]
+    fn v3_seals_economic_measurement_and_rejects_cross_result_mutation() {
+        let request = request_v2();
+        let mut result = result_v3(&request);
+        let mut measurement = ProtectedEconomicMeasurementV1 {
+            schema_version: 1,
+            measurement_identity: "pending-measurement".into(),
+            measurement_digest: format!("blake3:{}", "0".repeat(64)),
+            request_identity: result.request_identity.clone(),
+            request_digest: result.request_digest.clone(),
+            attempt_identity: result.attempt_identity.clone(),
+            protected_plan_identity: result.protected_plan_identity.clone(),
+            protected_plan_digest: result.protected_plan_digest.clone(),
+            plan_cell_set_identity: result.plan_cell_set_identity.clone(),
+            plan_cell_set_digest: result.plan_cell_set_digest.clone(),
+            plan_cell_identity: result.plan_cell_identity.clone(),
+            plan_cell_digest: result.plan_cell_digest.clone(),
+            metric_identity: "net-return".into(),
+            metric_digest: canonical_digest('1').as_str().into(),
+            unit: "basis-points".into(),
+            decimal_scale: 4,
+            observed_raw: 249,
+            observed_coverage_bps: 10_000,
+            decisive_evidence: ProtectedConsumedInputLocatorV1 {
+                owner: identity("backtest-owner"),
+                reference: identity("economic-measurement-evidence"),
+                digest: canonical_digest('6'),
+            },
+            result_time_evidence_digest: protected_evaluation_time_evidence_digest_v1(
+                &result.result_time_evidence,
+            )
+            .unwrap(),
+        };
+        measurement.measurement_digest = measurement.compute_digest().unwrap();
+        measurement.measurement_identity = derived_identity(
+            "backtest-protected-economic-measurement-v1",
+            &measurement.measurement_digest,
+        )
+        .unwrap();
+        result.protected_outcome = ProtectedResultOutcomeLocatorV1 {
+            reference: identity(&measurement.measurement_identity),
+            digest: CanonicalDigestV2::try_from(measurement.measurement_digest.clone())
+                .expect("measurement digest"),
+        };
+        result.protected_economic_measurement = Some(measurement);
+        result.result_digest = result.compute_result_digest().unwrap();
+        result.result_identity =
+            derived_identity("backtest-protected-replay-result-v3", &result.result_digest).unwrap();
+
+        let locator = crate::ProtectedReplayRequestLocatorV1 {
+            request_identity: request.request_identity.clone(),
+            request_digest: request.request_digest.clone(),
+            receipt_identity: result.request_receipt_identity.clone(),
+            seal_digest: result.request_seal_digest.clone(),
+        };
+        result.validate_against_request(&request, &locator).unwrap();
+        assert_eq!(
+            ProtectedReplayResultDtoV3::from_canonical_bytes(&result.to_canonical_bytes().unwrap())
+                .unwrap(),
+            result
+        );
+
+        let mut mutated = result;
+        mutated
+            .protected_economic_measurement
+            .as_mut()
+            .unwrap()
+            .observed_raw += 1;
+        mutated.result_digest = mutated.compute_result_digest().unwrap();
+        mutated.result_identity = derived_identity(
+            "backtest-protected-replay-result-v3",
+            &mutated.result_digest,
+        )
+        .unwrap();
+        assert_eq!(
+            mutated.validate_against_request(&request, &locator),
+            Err(ProtectedReplayContractErrorV1::InvalidEconomicMeasurement)
         );
     }
 
@@ -2638,7 +2748,7 @@ mod tests {
             .is_err()
         );
 
-        let mut incomplete = request_set.clone();
+        let mut incomplete = request_set;
         incomplete.members.push(ProtectedReplayRequestSetMemberV1 {
             request_identity: "second-request".to_string(),
             request_digest: format!("blake3:{}", "1".repeat(64)),
@@ -2665,7 +2775,7 @@ mod tests {
         assert!(assessment.validate_assessment_successor_of(&result).is_ok());
         assert!(assessment.validate_result_successor_of(&result).is_err());
 
-        let mut next_epoch = assessment.clone();
+        let mut next_epoch = assessment;
         next_epoch.clock_epoch = "next-clock-epoch".into();
         next_epoch.restart_continuity_digest = [7; 32];
         next_epoch.epoch_successor_proof = Some(ProtectedEvaluationEpochSuccessorProofV1 {
