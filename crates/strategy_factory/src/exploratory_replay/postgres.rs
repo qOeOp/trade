@@ -249,17 +249,46 @@ const INTERNAL_VERIFY_SOURCE_V1: &str = r#"
           ) AND NOT EXISTS (
             SELECT 1
               FROM public.rd_trial_families_v1 family
-              JOIN public.rd_research_request_receipts_v1 research
-                ON research.intent_json->>'intent_identity'=family.intent_identity
+              JOIN public.rd_research_request_receipts_v1 root_research
+                ON root_research.intent_json->>'intent_identity'=family.intent_identity
+              JOIN public.rd_successor_research_intents_v1 successor
+                ON successor.intent_identity=sealed.intent_identity
+               AND successor.trial_family_identity=family.trial_family_identity
+               AND successor.predecessor_intent_identity=family.intent_identity
               JOIN public.rd_owner_outbox_v1 successor_outbox
                 ON successor_outbox.aggregate_identity=sealed.intent_identity
                AND successor_outbox.event_kind='SUCCESSOR_RESEARCH_INTENT_COMMITTED_V1'
              WHERE family.trial_family_identity=sealed.trial_family_identity
                AND family.root_digest=sealed.frozen_json->>'trial_family_root_digest'
                AND family.intent_identity<>sealed.intent_identity
-               AND research.receipt_json->>'receipt_identity'=sealed.frozen_json->>'research_receipt_identity'
-               AND research.receipt_json->>'disposition'='ACCEPTED'
-               AND research.view_json->>'availability'='AVAILABLE'
+               AND root_research.receipt_json->>'disposition'='ACCEPTED'
+               AND root_research.view_json->>'availability'='AVAILABLE'
+               AND successor.intent_digest=sealed.frozen_json->>'intent_semantic_digest'
+               AND successor.receipt_json->>'receipt_identity'=sealed.frozen_json->>'research_receipt_identity'
+               AND successor.view_json->>'availability'='AVAILABLE'
+               AND successor.view_json->>'attempt_identity'=sealed.attempt_identity
+               AND successor.view_json->>'artifact_identity'=sealed.artifact_identity
+               AND successor.view_json->>'build_receipt_identity'=sealed.build_receipt_identity
+               AND successor.view_json->>'artifact_review_identity'=sealed.frozen_json->>'artifact_review_identity'
+               AND successor.view_json->>'schema_version'='2'
+               AND successor.view_json->>'phase'='EXPLORATION_ACTIVE'
+               AND EXISTS (
+                 SELECT 1
+                   FROM public.rd_sealed_exploratory_replay_requests_v1 active
+                  WHERE active.request_identity=successor.view_json->'exploration'->>'replay_request_identity'
+                    AND active.request_schema_version=2
+                    AND active.lifecycle_state IN ('FROZEN','REVOKED')
+                    AND active.trial_family_identity=sealed.trial_family_identity
+                    AND active.census_frontier_identity=sealed.census_frontier_identity
+                    AND active.artifact_identity=sealed.artifact_identity
+                    AND active.v2_meaning_digest=successor.view_json->'exploration'->>'replay_request_meaning_digest'
+                    AND active.v2_seal_digest=successor.view_json->'exploration'->>'replay_request_seal_digest'
+                    AND active.v2_receipt_json->>'receipt_identity'=successor.view_json->'exploration'->>'replay_receipt_identity'
+                    AND active.frozen_json->>'census_frontier_digest'=successor.view_json->'exploration'->>'census_frontier_digest'
+                    AND active.trial_family_identity=successor.view_json->'exploration'->>'trial_family_identity'
+                    AND active.census_frontier_identity=successor.view_json->'exploration'->>'census_frontier_identity'
+                    AND successor.view_json->>'source_cut'='rd-exploration-cut-v1-' || pg_catalog.substring(active.v2_seal_digest,8)
+               )
                AND successor_outbox.payload_json->>'schema_version'='1'
                AND successor_outbox.payload_json->>'intent_identity'=sealed.intent_identity
                AND successor_outbox.payload_json->>'intent_digest'=sealed.frozen_json->>'intent_semantic_digest'
@@ -327,6 +356,8 @@ const INTERNAL_VERIFY_SOURCE_V1: &str = r#"
               FROM public.rd_owner_outbox_v1 family_outbox
               JOIN public.rd_trial_families_v1 family
                 ON family.trial_family_identity=family_outbox.aggregate_identity
+              JOIN public.rd_research_request_receipts_v1 root_research
+                ON root_research.intent_json->>'intent_identity'=family.intent_identity
               JOIN public.rd_trial_family_members_v1 member
                 ON member.trial_family_identity=family.trial_family_identity
                AND member.ordinal=0
@@ -340,7 +371,7 @@ const INTERNAL_VERIFY_SOURCE_V1: &str = r#"
                AND family_outbox.payload_json=(
                  pg_catalog.jsonb_build_object(
                    'schema_version',1,
-                   'research_receipt_identity',sealed.frozen_json->>'research_receipt_identity',
+                   'research_receipt_identity',root_research.receipt_json->>'receipt_identity',
                    'intent_identity',family.intent_identity,
                    'trial_family_identity',sealed.trial_family_identity,
                    'root_receipt_identity',family.root_receipt_json->>'receipt_identity',
