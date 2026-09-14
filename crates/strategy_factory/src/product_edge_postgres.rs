@@ -1562,6 +1562,27 @@ impl PostgresResearchGoalOwnerV1 {
         crate::iteration_decision_postgres::resolve_iteration_decision_v1(&self.pool, locator).await
     }
 
+    /// Projects the only Product Edge action admitted by exact existing Decision custody.
+    pub async fn resolve_research_iteration_action_v1(
+        &self,
+        locator: crate::IterationDecisionResolutionLocatorV1,
+    ) -> Result<
+        crate::product_edge::ResearchIterationActionProjectionV1,
+        crate::IterationDecisionPostgresErrorV1,
+    > {
+        let decision_identity = locator.decision_identity.clone();
+        let result_identity = locator.result_identity.clone();
+        let decision =
+            crate::iteration_decision_postgres::resolve_iteration_decision_v1(&self.pool, locator)
+                .await?;
+        crate::product_edge::project_research_iteration_action_v1(
+            &decision_identity,
+            &result_identity,
+            decision.as_ref(),
+        )
+        .map_err(|message| crate::IterationDecisionPostgresErrorV1::Storage(message.to_string()))
+    }
+
     /// Commits an effect-free repair request from exact stored Decision custody.
     pub async fn compose_repair_action_request_v1(
         &self,
