@@ -469,7 +469,7 @@ fn unavailable(message: &str) -> QualificationOwnerError {
 mod tests {
     use super::*;
 
-    #[test]
+    #[rstest::rstest]
     fn postgres_canonical_digest_interop_vector_is_stable() {
         let value = serde_json::json!({
             "z": [2, {"b": true, "a": "x"}],
@@ -527,7 +527,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn native_negative_kinds_share_one_public_shape() {
         let replay_source_digest = format!("sha256:{}", "a".repeat(64));
         let source_frontier_digest = format!("sha256:{}", "b".repeat(64));
@@ -593,7 +593,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn public_readback_rejects_stale_head_and_terminal_event_drift() {
         let frontier_digest = format!("sha256:{}", "f".repeat(64));
         let frontier_identity = format!(

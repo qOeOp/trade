@@ -3475,7 +3475,7 @@ pub(crate) mod tests {
         }
     }
 
-    #[test]
+    #[rstest::rstest]
     fn defect_diagnosis_preserves_all_categories_and_applies_frozen_precedence() {
         let census = census(TrialFamilyAttemptTerminalDispositionV2::TerminalResult);
         let result = result(
@@ -3509,7 +3509,7 @@ pub(crate) mod tests {
         assert_eq!(target, IterationRepairTargetV1::MarketData);
     }
 
-    #[test]
+    #[rstest::rstest]
     fn valid_economic_result_requires_all_six_rd_diagnosis_dimensions() {
         let census = census(TrialFamilyAttemptTerminalDispositionV2::TerminalResult);
         let result = result(
@@ -3533,7 +3533,7 @@ pub(crate) mod tests {
         assert_eq!(required_dimensions.len(), 6);
     }
 
-    #[test]
+    #[rstest::rstest]
     fn interpretation_context_binds_complete_custody_with_distinct_diagnostic_evidence() {
         let census = census(TrialFamilyAttemptTerminalDispositionV2::TerminalResult);
         let result = interpretation_result(DiagnosticCategoryV2::NoExecutionDefect);
@@ -3617,7 +3617,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn exhausted_budget_issues_canonical_terminal_stop_with_complete_diagnosis() {
         let census = census_with_budget(
             TrialFamilyAttemptTerminalDispositionV2::TerminalResult,
@@ -3833,7 +3833,7 @@ pub(crate) mod tests {
         )
     }
 
-    #[test]
+    #[rstest::rstest]
     fn positive_assessment_issues_canonical_ready_decision_and_replays_exact_bytes() {
         let census = census(TrialFamilyAttemptTerminalDispositionV2::TerminalResult);
         let result = interpretation_result(DiagnosticCategoryV2::NoExecutionDefect);
@@ -3894,7 +3894,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn incomplete_positive_assessment_or_hard_stop_creates_no_ready_decision() {
         let census = census(TrialFamilyAttemptTerminalDispositionV2::TerminalResult);
         let result = interpretation_result(DiagnosticCategoryV2::NoExecutionDefect);
@@ -3939,7 +3939,7 @@ pub(crate) mod tests {
         ));
     }
 
-    #[test]
+    #[rstest::rstest]
     fn incomplete_protected_plan_or_non_exact_artifact_creates_no_ready_decision() {
         let census = census(TrialFamilyAttemptTerminalDispositionV2::TerminalResult);
         let result = interpretation_result(DiagnosticCategoryV2::NoExecutionDefect);
@@ -3977,7 +3977,7 @@ pub(crate) mod tests {
         ));
     }
 
-    #[test]
+    #[rstest::rstest]
     fn remaining_budget_creates_no_terminal_stop() {
         let census = census(TrialFamilyAttemptTerminalDispositionV2::TerminalResult);
         let result = interpretation_result(DiagnosticCategoryV2::ValidEconomicFailure);
@@ -3992,7 +3992,7 @@ pub(crate) mod tests {
         ));
     }
 
-    #[test]
+    #[rstest::rstest]
     fn cross_spliced_interpretation_cut_creates_no_terminal_stop() {
         let census = census_with_budget(
             TrialFamilyAttemptTerminalDispositionV2::TerminalResult,
@@ -4010,7 +4010,7 @@ pub(crate) mod tests {
         ));
     }
 
-    #[test]
+    #[rstest::rstest]
     fn candidate_comparison_commits_only_the_computed_unique_winner() {
         let candidates = [("candidate-lower", '2'), ("candidate-winner", '3')];
         let census = census_with_candidate_set(
@@ -4081,7 +4081,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn candidate_comparison_low_information_stop_requires_frozen_complete_census() {
         let candidates = [("candidate-below", '2')];
         let census = census_with_candidate_set(
@@ -4124,7 +4124,7 @@ pub(crate) mod tests {
         ));
     }
 
-    #[test]
+    #[rstest::rstest]
     fn cross_spliced_outcome_evidence_creates_no_interpretation_context() {
         let census = census(TrialFamilyAttemptTerminalDispositionV2::TerminalResult);
         let result = interpretation_result(DiagnosticCategoryV2::NoExecutionDefect);
@@ -4140,7 +4140,7 @@ pub(crate) mod tests {
         ));
     }
 
-    #[test]
+    #[rstest::rstest]
     fn duplicate_or_missing_replay_component_creates_no_interpretation_context() {
         let census = census(TrialFamilyAttemptTerminalDispositionV2::TerminalResult);
         let mut result = interpretation_result(DiagnosticCategoryV2::ValidEconomicFailure);
@@ -4155,7 +4155,7 @@ pub(crate) mod tests {
         ));
     }
 
-    #[test]
+    #[rstest::rstest]
     fn cross_spliced_semantic_trace_creates_no_interpretation_context() {
         let census = census(TrialFamilyAttemptTerminalDispositionV2::TerminalResult);
         let mut result = interpretation_result(DiagnosticCategoryV2::NoExecutionDefect);
@@ -4174,7 +4174,7 @@ pub(crate) mod tests {
         ));
     }
 
-    #[test]
+    #[rstest::rstest]
     fn changed_diagnostic_evidence_changes_the_bound_result_custody() {
         let census = census(TrialFamilyAttemptTerminalDispositionV2::TerminalResult);
         let mut result = interpretation_result(DiagnosticCategoryV2::NoExecutionDefect);
@@ -4194,7 +4194,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn unknown_result_remains_census_only() {
         let census = census(TrialFamilyAttemptTerminalDispositionV2::Unknown);
         let result = result(ReplayTerminalV2::InProgressOrUnknown, &[]);
@@ -4207,7 +4207,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn cross_spliced_result_is_rejected_before_diagnosis() {
         let census = census(TrialFamilyAttemptTerminalDispositionV2::TerminalResult);
         let mut result = result(

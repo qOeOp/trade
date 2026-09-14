@@ -1487,7 +1487,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest::rstest]
     fn complete_result_time_census_rejects_expiry_and_hidden_sequence_conflict() {
         let first = result_time(2, 1_010, 1_110, 2);
         let latest = result_time(4, 1_100, 1_200, 6);
@@ -1579,7 +1579,7 @@ mod tests {
         measurement
     }
 
-    #[test]
+    #[rstest::rstest]
     fn economic_measurement_uses_frozen_tolerance_coverage_and_metric() {
         let policy = economic_policy();
         let mut measurement = economic_measurement(&policy);
@@ -1620,7 +1620,7 @@ mod tests {
         assert!(economic_measurement_pass(&policy, &measurement).is_err());
     }
 
-    #[test]
+    #[rstest::rstest]
     fn passing_cell_requires_one_no_defect_terminal_and_accepts_preregistered_nonapp() {
         assert!(valid_terminal_result_count(
             ProtectedAssessmentModeV1::EconomicPass,

@@ -540,7 +540,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest::rstest]
     fn freezes_exact_decision_selected_successor_and_round_trips_stored_bytes() {
         let request = request();
         let readback = issue_successor_research_intent_v1(request.clone(), source(), 42)
@@ -563,7 +563,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn rejects_a_request_that_repeats_a_different_decision() {
         let mut request = request();
         request.decision_identity = "decision-other".into();

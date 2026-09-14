@@ -2416,7 +2416,7 @@ mod tests {
         serde_json::from_slice(&body).expect("response JSON")
     }
 
-    #[test]
+    #[rstest::rstest]
     fn request_accepts_only_the_four_owner_locators() {
         serde_json::from_value::<DecisionCompositionRequestV1>(request())
             .expect("exact decision request");
@@ -2499,7 +2499,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn repair_action_request_accepts_only_decision_and_result_locators() {
         serde_json::from_value::<RepairActionCompositionRequestV1>(repair_action_request())
             .expect("exact repair action request");
