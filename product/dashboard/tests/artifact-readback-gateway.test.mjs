@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 
 import {
@@ -10,6 +11,11 @@ import {
 const buildRequestIdentity = "artifact-build-1";
 const attemptIdentity = "artifact-attempt-1";
 const observedAtEpochMs = 1_788_669_700_000;
+const requestSemanticDigest = `sha256:${"a".repeat(64)}`;
+const failureCode = "INVALID_BUILD_REQUEST";
+const receiptIdentity = `rd-artifact-build-receipt-v1-${createHash("sha256")
+  .update(`${requestSemanticDigest}:${failureCode}`)
+  .digest("hex")}`;
 const ownerReadback = {
   schema_version: 1,
   resolution: "LEGACY_TERMINAL_QUARANTINED",
@@ -17,16 +23,16 @@ const ownerReadback = {
   attempt_identity: attemptIdentity,
   owner_receipt: {
     schema_version: 1,
-    receipt_identity: "rd-artifact-build-receipt-v1-a",
+    receipt_identity: receiptIdentity,
     build_request_identity: buildRequestIdentity,
     attempt_identity: attemptIdentity,
-    request_semantic_digest: `sha256:${"a".repeat(64)}`,
+    request_semantic_digest: requestSemanticDigest,
     intent_identity: "intent-1",
     intent_semantic_digest: `sha256:${"b".repeat(64)}`,
     disposition: "REJECTED_NO_WRITE",
     artifact_identity: null,
     build_receipt_identity: null,
-    failure_code: "INVALID_BUILD_REQUEST",
+    failure_code: failureCode,
     committed_at_epoch_ms: 1_788_669_600_000,
   },
   research_view: null,
@@ -70,6 +76,10 @@ test("current, successful, widened and identity-drifted responses fail closed", 
     { ...ownerReadback, attempt_identity: "other-attempt" },
     { ...ownerReadback, smuggled: true },
     { ...ownerReadback, artifact_review: {} },
+    {
+      ...ownerReadback,
+      owner_receipt: { ...ownerReadback.owner_receipt, receipt_identity: "unrelated-receipt" },
+    },
   ]) {
     assert.equal(projectArtifactHistoricalOwnerReadbackV1(
       candidate,
@@ -78,6 +88,26 @@ test("current, successful, widened and identity-drifted responses fail closed", 
       observedAtEpochMs,
     ), null);
   }
+});
+
+test("gateway does not borrow the write-side Owner target", async () => {
+  let calls = 0;
+  const result = await readArtifactHistoricalGatewayV1({
+    buildRequestIdentity,
+    attemptIdentity,
+    environment: {
+      RD_OWNER_API_URL: "http://write-owner:8080/",
+      RD_OWNER_API_TOKEN: "write-secret",
+    },
+    fetcher: async () => {
+      calls += 1;
+      return new Response(JSON.stringify(ownerReadback));
+    },
+  });
+  assert.equal(result.status, 503);
+  assert.equal(result.projection.availability, "unavailable");
+  assert.equal(result.projection.reason, "OWNER_CONFIGURATION_UNAVAILABLE");
+  assert.equal(calls, 0);
 });
 
 test("gateway binds one no-store GET to the consolidated read target", async () => {

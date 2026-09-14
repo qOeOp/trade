@@ -1,4 +1,6 @@
-import { dashboardReadApiTargetV1 } from "./owner-api-target.ts";
+import { createHash } from "node:crypto";
+
+import { dedicatedDashboardReadApiTargetV1 } from "./owner-api-target.ts";
 
 const IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/u;
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
@@ -87,6 +89,13 @@ function canonicalTime(value: unknown): value is string {
   return !Number.isNaN(date.getTime()) && date.toISOString() === value;
 }
 
+function legacyNoArtifactReceiptIdentity(requestSemanticDigest: string, failureCode: string): string {
+  const suffix = createHash("sha256")
+    .update(`${requestSemanticDigest}:${failureCode}`)
+    .digest("hex");
+  return `rd-artifact-build-receipt-v1-${suffix}`;
+}
+
 function unavailable(
   buildRequestIdentity: string,
   attemptIdentity: string,
@@ -150,6 +159,11 @@ export function projectArtifactHistoricalOwnerReadbackV1(
     || !identity(value.owner_receipt.failure_code)
     || !safeEpoch(value.owner_receipt.committed_at_epoch_ms)
     || !safeEpoch(observedAtEpochMs)) return null;
+
+  if (value.owner_receipt.receipt_identity !== legacyNoArtifactReceiptIdentity(
+    value.owner_receipt.request_semantic_digest,
+    value.owner_receipt.failure_code,
+  )) return null;
 
   const disposition = value.owner_receipt.disposition === "FAILED_NO_ARTIFACT"
     ? "failed" as const
@@ -229,7 +243,7 @@ export async function readArtifactHistoricalGatewayV1({
   }
   const target = baseUrl !== undefined || token !== undefined
     ? { baseUrl, token }
-    : dashboardReadApiTargetV1(environment);
+    : dedicatedDashboardReadApiTargetV1(environment);
   const url = target.baseUrl ? endpoint(target.baseUrl, buildRequestIdentity, attemptIdentity) : null;
   if (!url || !target.token) {
     return unavailable(buildRequestIdentity, attemptIdentity, "OWNER_CONFIGURATION_UNAVAILABLE", 503);

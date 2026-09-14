@@ -137,7 +137,7 @@ pub(crate) async fn require_existing_public_tables(
     }
 
     for spec in specs {
-        require_existing_public_table(pool, spec, spec.runtime_read_grantees, true).await?;
+        require_existing_public_table(pool, spec, spec.runtime_read_grantees).await?;
     }
     Ok(())
 }
@@ -150,7 +150,13 @@ pub(crate) async fn require_existing_public_tables_for_readback(
     specs: &[PublicTableSpec],
 ) -> Result<(), sqlx::Error> {
     for spec in specs {
-        require_existing_public_table(pool, spec, &[], false).await?;
+        match require_existing_public_table(pool, spec, &[]).await {
+            Ok(()) => {}
+            Err(sqlx::Error::Protocol(_)) if !spec.runtime_read_grantees.is_empty() => {
+                require_existing_public_table(pool, spec, spec.runtime_read_grantees).await?;
+            }
+            Err(error) => return Err(error),
+        }
     }
     Ok(())
 }
@@ -166,7 +172,7 @@ pub(crate) async fn verify_materialized_public_tables(
     }
 
     for spec in specs {
-        require_existing_public_table(pool, spec, &[], true).await?;
+        require_existing_public_table(pool, spec, &[]).await?;
     }
     Ok(())
 }
@@ -175,7 +181,6 @@ async fn require_existing_public_table(
     pool: &PgPool,
     spec: &PublicTableSpec,
     runtime_read_grantees: &[&str],
-    require_exact_acl: bool,
 ) -> Result<(), sqlx::Error> {
     let relation_is_exact: Option<bool> = sqlx::query_scalar(
         "SELECT relation.relkind='r'
@@ -188,8 +193,7 @@ async fn require_existing_public_table(
            AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite WHERE rewrite.ev_class=relation.oid AND rewrite.rulename<>'_RETURN')
            AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_inherits inheritance WHERE inheritance.inhrelid=relation.oid OR inheritance.inhparent=relation.oid)
            AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_publication_rel publication WHERE publication.prrelid=relation.oid)
-           AND ((NOT $3::boolean AND pg_catalog.has_table_privilege(current_user,relation.oid,'SELECT'))
-             OR ($3::boolean AND (SELECT count(*)=7+cardinality($2::text[])
+           AND (SELECT count(*)=7+cardinality($2::text[])
                   AND count(*) FILTER (WHERE acl.grantee=relation.relowner)=7
                   AND count(DISTINCT acl.privilege_type) FILTER (WHERE acl.grantee=relation.relowner)=7
                   AND bool_and(acl.grantor=relation.relowner AND NOT acl.is_grantable)
@@ -199,7 +203,7 @@ async fn require_existing_public_table(
                   )
                   AND count(*) FILTER (WHERE acl.grantee<>relation.relowner)=cardinality($2::text[])
                   AND count(DISTINCT pg_catalog.pg_get_userbyid(acl.grantee)) FILTER (WHERE acl.grantee<>relation.relowner)=cardinality($2::text[])
-                  FROM pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl)))
+                  FROM pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl)
            AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute attribute WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped AND attribute.attacl IS NOT NULL)
           FROM pg_catalog.pg_class relation
           JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
@@ -207,7 +211,6 @@ async fn require_existing_public_table(
     )
     .bind(spec.name)
     .bind(runtime_read_grantees)
-    .bind(require_exact_acl)
     .fetch_optional(pool)
     .await?;
 
@@ -370,6 +373,9 @@ fn incompatible(relation_name: &str, aspect: &str) -> Result<(), sqlx::Error> {
 
 #[cfg(test)]
 mod tests {
+    use super::{
+        ColumnSpec, PublicTableSpec, require_existing_public_tables_for_readback, required,
+    };
     use rstest::rstest;
 
     #[rstest]
@@ -388,6 +394,7 @@ mod tests {
             .next()
             .expect("runtime validator boundary");
         assert!(!runtime.contains("CREATE TABLE"));
+        assert!(!runtime.contains("has_table_privilege(current_user,relation.oid,'SELECT')"));
 
         for required in [
             "column manifest",
@@ -402,5 +409,51 @@ mod tests {
         ] {
             assert!(runtime.contains(required), "missing {required}");
         }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an explicitly supplied disposable PostgreSQL database"]
+    async fn readback_accepts_only_declared_exact_acl_topologies() {
+        const COLUMNS: &[ColumnSpec] = &[required("id", "bigint")];
+        let database_url = std::env::var("RD_SCHEMA_READBACK_ACL_TEST_DATABASE_URL")
+            .expect("RD_SCHEMA_READBACK_ACL_TEST_DATABASE_URL must be explicitly supplied");
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&database_url)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE public.rbm_schema_readback_acl_probe_v1 (id bigint NOT NULL)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let specs = [PublicTableSpec {
+            name: "rbm_schema_readback_acl_probe_v1",
+            runtime_read_grantees: &["rd_schema_reader"],
+            columns: COLUMNS,
+            constraints: &[],
+            indexes: &[],
+        }];
+
+        require_existing_public_tables_for_readback(&pool, &specs)
+            .await
+            .unwrap();
+        sqlx::query(
+            "GRANT SELECT ON TABLE public.rbm_schema_readback_acl_probe_v1 TO rd_schema_reader",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        require_existing_public_tables_for_readback(&pool, &specs)
+            .await
+            .unwrap();
+        sqlx::query("GRANT UPDATE ON TABLE public.rbm_schema_readback_acl_probe_v1 TO PUBLIC")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(
+            require_existing_public_tables_for_readback(&pool, &specs)
+                .await
+                .is_err()
+        );
     }
 }
