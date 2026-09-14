@@ -435,6 +435,7 @@ check_exploratory_replay_read_fence_source() {
   python3 - \
     "$repository_root/crates/strategy_factory/src/exploratory_replay/postgres.rs" \
     "$repository_root/crates/rd_exploratory_replay_custody/src/lib.rs" \
+    "$repository_root/product/rd-workbench/postgres-init/10-migrate-authority-custody.sh" \
     "$repository_root/scripts/ci/test-rd-owner-postgres.bash" << 'PY'
 from hashlib import sha256
 from pathlib import Path
@@ -443,10 +444,12 @@ import sys
 
 postgres = Path(sys.argv[1]).read_text(encoding="utf-8")
 custody = Path(sys.argv[2]).read_text(encoding="utf-8")
-test_script = Path(sys.argv[3]).read_text(encoding="utf-8")
+migration = Path(sys.argv[3]).read_text(encoding="utf-8")
+test_script = Path(sys.argv[4]).read_text(encoding="utf-8")
 helper_signatures = (
     "verify_exploratory_replay_request_internal_v1",
     "verify_exploratory_replay_request_internal_v2",
+    "verify_exploratory_replay_request_internal_v3",
 )
 shared_lock = (
     "pg_catalog.pg_advisory_xact_lock_shared(\n"
@@ -470,6 +473,13 @@ for helper in helper_signatures:
     digest = sha256(source.encode("utf-8")).hexdigest()
     if f'"{digest}"' not in custody:
         raise SystemExit(f"ERROR: {helper} authenticated source digest is stale")
+    migration_source = re.search(
+        rf'-- BEGIN INTERNAL_VERIFY_SOURCE_V{version}.*?AS \$function\$(.*?)\$function\$;',
+        migration,
+        re.DOTALL,
+    )
+    if migration_source is None or migration_source.group(1) != source:
+        raise SystemExit(f"ERROR: {helper} authority migration source is stale")
 exclusive_lock = (
     'sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock('
     'pg_catalog.hashtextextended($1,0))")\n'

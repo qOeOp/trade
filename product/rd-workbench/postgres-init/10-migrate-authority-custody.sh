@@ -272,11 +272,53 @@ AS $function$
                        AND research.view_json->>'source_cut'='rd-exploration-cut-v1-' || pg_catalog.substring(active.v2_seal_digest,8)
                   ))
                )
+          ) AND NOT EXISTS (
+            SELECT 1
+              FROM public.rd_trial_families_v1 family
+              JOIN public.rd_research_request_receipts_v1 research
+                ON research.intent_json->>'intent_identity'=family.intent_identity
+              JOIN public.rd_owner_outbox_v1 successor_outbox
+                ON successor_outbox.aggregate_identity=sealed.intent_identity
+               AND successor_outbox.event_kind='SUCCESSOR_RESEARCH_INTENT_COMMITTED_V1'
+             WHERE family.trial_family_identity=sealed.trial_family_identity
+               AND family.root_digest=sealed.frozen_json->>'trial_family_root_digest'
+               AND family.intent_identity<>sealed.intent_identity
+               AND research.receipt_json->>'receipt_identity'=sealed.frozen_json->>'research_receipt_identity'
+               AND research.receipt_json->>'disposition'='ACCEPTED'
+               AND research.view_json->>'availability'='AVAILABLE'
+               AND successor_outbox.payload_json->>'schema_version'='1'
+               AND successor_outbox.payload_json->>'intent_identity'=sealed.intent_identity
+               AND successor_outbox.payload_json->>'intent_digest'=sealed.frozen_json->>'intent_semantic_digest'
+               AND successor_outbox.payload_json->>'predecessor_intent_identity'=family.intent_identity
+               AND successor_outbox.payload_json->>'trial_family_identity'=family.trial_family_identity
+               AND successor_outbox.payload_json->>'census_frontier_identity'=sealed.census_frontier_identity
+               AND successor_outbox.payload_json->>'receipt_identity'<>''
+               AND successor_outbox.payload_json->>'request_identity'<>''
+               AND successor_outbox.payload_json->>'decision_identity'<>''
+               AND successor_outbox.payload_json->>'decision_digest' ~ '^sha256:[0-9a-f]{64}$'
+               AND successor_outbox.payload_json->>'result_identity'<>''
+               AND successor_outbox.payload_json->>'experiment_identity'<>''
+               AND successor_outbox.payload_json->>'experiment_digest' ~ '^sha256:[0-9a-f]{64}$'
+               AND successor_outbox.payload_digest ~ '^blake3:[0-9a-f]{64}$'
+               AND successor_outbox.event_identity='rd-owner-outbox-successor-research-intent-v1-' || successor_outbox.payload_digest
+               AND successor_outbox.committed_at_epoch_ms<=sealed.committed_at_epoch_ms
           ) OR NOT EXISTS (
             SELECT 1 FROM public.rd_trial_families_v1 family
              WHERE family.trial_family_identity=sealed.trial_family_identity
-               AND family.intent_identity=sealed.intent_identity
                AND family.root_digest=sealed.frozen_json->>'trial_family_root_digest'
+               AND (
+                 family.intent_identity=sealed.intent_identity
+                 OR EXISTS (
+                   SELECT 1 FROM public.rd_owner_outbox_v1 successor_outbox
+                    WHERE successor_outbox.aggregate_identity=sealed.intent_identity
+                      AND successor_outbox.event_kind='SUCCESSOR_RESEARCH_INTENT_COMMITTED_V1'
+                      AND successor_outbox.payload_json->>'schema_version'='1'
+                      AND successor_outbox.payload_json->>'intent_identity'=sealed.intent_identity
+                      AND successor_outbox.payload_json->>'intent_digest'=sealed.frozen_json->>'intent_semantic_digest'
+                      AND successor_outbox.payload_json->>'predecessor_intent_identity'=family.intent_identity
+                      AND successor_outbox.payload_json->>'trial_family_identity'=family.trial_family_identity
+                 )
+               )
           ) OR NOT EXISTS (
             SELECT 1 FROM public.rd_artifact_trial_family_bindings_v1 binding
              WHERE binding.binding_identity=sealed.artifact_family_binding_identity
@@ -325,7 +367,7 @@ AS $function$
                  pg_catalog.jsonb_build_object(
                    'schema_version',1,
                    'research_receipt_identity',sealed.frozen_json->>'research_receipt_identity',
-                   'intent_identity',sealed.intent_identity,
+                   'intent_identity',family.intent_identity,
                    'trial_family_identity',sealed.trial_family_identity,
                    'root_receipt_identity',family.root_receipt_json->>'receipt_identity',
                    'membership_receipt_identity',member.membership_receipt_json->>'receipt_identity',

@@ -243,51 +243,31 @@ const INTERNAL_VERIFY_SOURCE_V1: &str = r#"
               FROM public.rd_trial_families_v1 family
               JOIN public.rd_research_request_receipts_v1 research
                 ON research.intent_json->>'intent_identity'=family.intent_identity
-              JOIN public.rd_successor_research_intents_v1 successor
-                ON successor.intent_identity=sealed.intent_identity
-               AND successor.trial_family_identity=family.trial_family_identity
+              JOIN public.rd_owner_outbox_v1 successor_outbox
+                ON successor_outbox.aggregate_identity=sealed.intent_identity
+               AND successor_outbox.event_kind='SUCCESSOR_RESEARCH_INTENT_COMMITTED_V1'
              WHERE family.trial_family_identity=sealed.trial_family_identity
                AND family.root_digest=sealed.frozen_json->>'trial_family_root_digest'
                AND family.intent_identity<>sealed.intent_identity
                AND research.receipt_json->>'receipt_identity'=sealed.frozen_json->>'research_receipt_identity'
                AND research.receipt_json->>'disposition'='ACCEPTED'
                AND research.view_json->>'availability'='AVAILABLE'
-               AND successor.intent_digest=sealed.frozen_json->>'intent_semantic_digest'
-               AND successor.request_json->>'request_identity'=successor.request_identity
-               AND successor.request_json->>'decision_identity'=successor.decision_identity
-               AND successor.request_json->>'result_identity'=successor.result_identity
-               AND successor.intent_json->>'intent_identity'=successor.intent_identity
-               AND successor.intent_json->>'intent_digest'=successor.intent_digest
-               AND successor.intent_json->>'request_identity'=successor.request_identity
-               AND successor.intent_json->>'decision_identity'=successor.decision_identity
-               AND successor.intent_json->>'result_identity'=successor.result_identity
-               AND successor.intent_json->>'trial_family_identity'=successor.trial_family_identity
-               AND successor.intent_json->>'predecessor_intent_identity'=successor.predecessor_intent_identity
-               AND successor.receipt_json->>'intent_identity'=successor.intent_identity
-               AND successor.receipt_json->>'intent_digest'=successor.intent_digest
-               AND successor.receipt_json->>'request_identity'=successor.request_identity
-               AND successor.receipt_json->>'decision_identity'=successor.decision_identity
-               AND successor.receipt_json->>'result_identity'=successor.result_identity
-               AND successor.receipt_json->>'committed_at_epoch_ms'=successor.committed_at_epoch_ms::text
-               AND pg_catalog.convert_from(successor.request_storage_bytes,'UTF8')::jsonb=successor.request_json
-               AND pg_catalog.convert_from(successor.intent_storage_bytes,'UTF8')::jsonb=successor.intent_json
-               AND pg_catalog.convert_from(successor.receipt_storage_bytes,'UTF8')::jsonb=successor.receipt_json
-               AND successor.request_storage_digest ~ '^blake3:[0-9a-f]{64}$'
-               AND successor.intent_storage_digest ~ '^blake3:[0-9a-f]{64}$'
-               AND successor.receipt_storage_digest ~ '^blake3:[0-9a-f]{64}$'
-               AND EXISTS (
-                 SELECT 1 FROM public.rd_owner_outbox_v1 successor_outbox
-                  WHERE successor_outbox.aggregate_identity=successor.intent_identity
-                    AND successor_outbox.event_kind='SUCCESSOR_RESEARCH_INTENT_COMMITTED_V1'
-                    AND successor_outbox.payload_json->>'intent_identity'=successor.intent_identity
-                    AND successor_outbox.payload_json->>'intent_digest'=successor.intent_digest
-                    AND successor_outbox.payload_json->>'receipt_identity'=successor.receipt_json->>'receipt_identity'
-                    AND successor_outbox.payload_json->>'request_identity'=successor.request_identity
-                    AND successor_outbox.payload_json->>'decision_identity'=successor.decision_identity
-                    AND successor_outbox.payload_json->>'result_identity'=successor.result_identity
-                    AND successor_outbox.payload_json->>'trial_family_identity'=successor.trial_family_identity
-                    AND successor_outbox.committed_at_epoch_ms=successor.committed_at_epoch_ms
-               )
+               AND successor_outbox.payload_json->>'schema_version'='1'
+               AND successor_outbox.payload_json->>'intent_identity'=sealed.intent_identity
+               AND successor_outbox.payload_json->>'intent_digest'=sealed.frozen_json->>'intent_semantic_digest'
+               AND successor_outbox.payload_json->>'predecessor_intent_identity'=family.intent_identity
+               AND successor_outbox.payload_json->>'trial_family_identity'=family.trial_family_identity
+               AND successor_outbox.payload_json->>'census_frontier_identity'=sealed.census_frontier_identity
+               AND successor_outbox.payload_json->>'receipt_identity'<>''
+               AND successor_outbox.payload_json->>'request_identity'<>''
+               AND successor_outbox.payload_json->>'decision_identity'<>''
+               AND successor_outbox.payload_json->>'decision_digest' ~ '^sha256:[0-9a-f]{64}$'
+               AND successor_outbox.payload_json->>'result_identity'<>''
+               AND successor_outbox.payload_json->>'experiment_identity'<>''
+               AND successor_outbox.payload_json->>'experiment_digest' ~ '^sha256:[0-9a-f]{64}$'
+               AND successor_outbox.payload_digest ~ '^blake3:[0-9a-f]{64}$'
+               AND successor_outbox.event_identity='rd-owner-outbox-successor-research-intent-v1-' || successor_outbox.payload_digest
+               AND successor_outbox.committed_at_epoch_ms<=sealed.committed_at_epoch_ms
           ) OR NOT EXISTS (
             SELECT 1 FROM public.rd_trial_families_v1 family
              WHERE family.trial_family_identity=sealed.trial_family_identity
@@ -295,10 +275,14 @@ const INTERNAL_VERIFY_SOURCE_V1: &str = r#"
                AND (
                  family.intent_identity=sealed.intent_identity
                  OR EXISTS (
-                   SELECT 1 FROM public.rd_successor_research_intents_v1 successor
-                    WHERE successor.intent_identity=sealed.intent_identity
-                      AND successor.intent_digest=sealed.frozen_json->>'intent_semantic_digest'
-                      AND successor.trial_family_identity=family.trial_family_identity
+                   SELECT 1 FROM public.rd_owner_outbox_v1 successor_outbox
+                    WHERE successor_outbox.aggregate_identity=sealed.intent_identity
+                      AND successor_outbox.event_kind='SUCCESSOR_RESEARCH_INTENT_COMMITTED_V1'
+                      AND successor_outbox.payload_json->>'schema_version'='1'
+                      AND successor_outbox.payload_json->>'intent_identity'=sealed.intent_identity
+                      AND successor_outbox.payload_json->>'intent_digest'=sealed.frozen_json->>'intent_semantic_digest'
+                      AND successor_outbox.payload_json->>'predecessor_intent_identity'=family.intent_identity
+                      AND successor_outbox.payload_json->>'trial_family_identity'=family.trial_family_identity
                  )
                )
           ) OR NOT EXISTS (
@@ -1461,51 +1445,31 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
               FROM public.rd_trial_families_v1 family
               JOIN public.rd_research_request_receipts_v1 research
                 ON research.intent_json->>'intent_identity'=family.intent_identity
-              JOIN public.rd_successor_research_intents_v1 successor
-                ON successor.intent_identity=sealed.intent_identity
-               AND successor.trial_family_identity=family.trial_family_identity
+              JOIN public.rd_owner_outbox_v1 successor_outbox
+                ON successor_outbox.aggregate_identity=sealed.intent_identity
+               AND successor_outbox.event_kind='SUCCESSOR_RESEARCH_INTENT_COMMITTED_V1'
              WHERE family.trial_family_identity=sealed.trial_family_identity
                AND family.root_digest=sealed.frozen_json->>'trial_family_root_digest'
                AND family.intent_identity<>sealed.intent_identity
                AND research.receipt_json->>'receipt_identity'=sealed.frozen_json->>'research_receipt_identity'
                AND research.receipt_json->>'disposition'='ACCEPTED'
                AND research.view_json->>'availability'='AVAILABLE'
-               AND successor.intent_digest=sealed.frozen_json->>'intent_semantic_digest'
-               AND successor.request_json->>'request_identity'=successor.request_identity
-               AND successor.request_json->>'decision_identity'=successor.decision_identity
-               AND successor.request_json->>'result_identity'=successor.result_identity
-               AND successor.intent_json->>'intent_identity'=successor.intent_identity
-               AND successor.intent_json->>'intent_digest'=successor.intent_digest
-               AND successor.intent_json->>'request_identity'=successor.request_identity
-               AND successor.intent_json->>'decision_identity'=successor.decision_identity
-               AND successor.intent_json->>'result_identity'=successor.result_identity
-               AND successor.intent_json->>'trial_family_identity'=successor.trial_family_identity
-               AND successor.intent_json->>'predecessor_intent_identity'=successor.predecessor_intent_identity
-               AND successor.receipt_json->>'intent_identity'=successor.intent_identity
-               AND successor.receipt_json->>'intent_digest'=successor.intent_digest
-               AND successor.receipt_json->>'request_identity'=successor.request_identity
-               AND successor.receipt_json->>'decision_identity'=successor.decision_identity
-               AND successor.receipt_json->>'result_identity'=successor.result_identity
-               AND successor.receipt_json->>'committed_at_epoch_ms'=successor.committed_at_epoch_ms::text
-               AND pg_catalog.convert_from(successor.request_storage_bytes,'UTF8')::jsonb=successor.request_json
-               AND pg_catalog.convert_from(successor.intent_storage_bytes,'UTF8')::jsonb=successor.intent_json
-               AND pg_catalog.convert_from(successor.receipt_storage_bytes,'UTF8')::jsonb=successor.receipt_json
-               AND successor.request_storage_digest ~ '^blake3:[0-9a-f]{64}$'
-               AND successor.intent_storage_digest ~ '^blake3:[0-9a-f]{64}$'
-               AND successor.receipt_storage_digest ~ '^blake3:[0-9a-f]{64}$'
-               AND EXISTS (
-                 SELECT 1 FROM public.rd_owner_outbox_v1 successor_outbox
-                  WHERE successor_outbox.aggregate_identity=successor.intent_identity
-                    AND successor_outbox.event_kind='SUCCESSOR_RESEARCH_INTENT_COMMITTED_V1'
-                    AND successor_outbox.payload_json->>'intent_identity'=successor.intent_identity
-                    AND successor_outbox.payload_json->>'intent_digest'=successor.intent_digest
-                    AND successor_outbox.payload_json->>'receipt_identity'=successor.receipt_json->>'receipt_identity'
-                    AND successor_outbox.payload_json->>'request_identity'=successor.request_identity
-                    AND successor_outbox.payload_json->>'decision_identity'=successor.decision_identity
-                    AND successor_outbox.payload_json->>'result_identity'=successor.result_identity
-                    AND successor_outbox.payload_json->>'trial_family_identity'=successor.trial_family_identity
-                    AND successor_outbox.committed_at_epoch_ms=successor.committed_at_epoch_ms
-               )
+               AND successor_outbox.payload_json->>'schema_version'='1'
+               AND successor_outbox.payload_json->>'intent_identity'=sealed.intent_identity
+               AND successor_outbox.payload_json->>'intent_digest'=sealed.frozen_json->>'intent_semantic_digest'
+               AND successor_outbox.payload_json->>'predecessor_intent_identity'=family.intent_identity
+               AND successor_outbox.payload_json->>'trial_family_identity'=family.trial_family_identity
+               AND successor_outbox.payload_json->>'census_frontier_identity'=sealed.census_frontier_identity
+               AND successor_outbox.payload_json->>'receipt_identity'<>''
+               AND successor_outbox.payload_json->>'request_identity'<>''
+               AND successor_outbox.payload_json->>'decision_identity'<>''
+               AND successor_outbox.payload_json->>'decision_digest' ~ '^sha256:[0-9a-f]{64}$'
+               AND successor_outbox.payload_json->>'result_identity'<>''
+               AND successor_outbox.payload_json->>'experiment_identity'<>''
+               AND successor_outbox.payload_json->>'experiment_digest' ~ '^sha256:[0-9a-f]{64}$'
+               AND successor_outbox.payload_digest ~ '^blake3:[0-9a-f]{64}$'
+               AND successor_outbox.event_identity='rd-owner-outbox-successor-research-intent-v1-' || successor_outbox.payload_digest
+               AND successor_outbox.committed_at_epoch_ms<=sealed.committed_at_epoch_ms
           ) OR NOT EXISTS (
             SELECT 1 FROM public.rd_trial_families_v1 family
              WHERE family.trial_family_identity=sealed.trial_family_identity
@@ -1513,10 +1477,14 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
                AND (
                  family.intent_identity=sealed.intent_identity
                  OR EXISTS (
-                   SELECT 1 FROM public.rd_successor_research_intents_v1 successor
-                    WHERE successor.intent_identity=sealed.intent_identity
-                      AND successor.intent_digest=sealed.frozen_json->>'intent_semantic_digest'
-                      AND successor.trial_family_identity=family.trial_family_identity
+                   SELECT 1 FROM public.rd_owner_outbox_v1 successor_outbox
+                    WHERE successor_outbox.aggregate_identity=sealed.intent_identity
+                      AND successor_outbox.event_kind='SUCCESSOR_RESEARCH_INTENT_COMMITTED_V1'
+                      AND successor_outbox.payload_json->>'schema_version'='1'
+                      AND successor_outbox.payload_json->>'intent_identity'=sealed.intent_identity
+                      AND successor_outbox.payload_json->>'intent_digest'=sealed.frozen_json->>'intent_semantic_digest'
+                      AND successor_outbox.payload_json->>'predecessor_intent_identity'=family.intent_identity
+                      AND successor_outbox.payload_json->>'trial_family_identity'=family.trial_family_identity
                  )
                )
           ) OR NOT EXISTS (
