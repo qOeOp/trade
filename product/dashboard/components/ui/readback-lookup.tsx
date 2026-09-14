@@ -20,7 +20,7 @@ export function ReadbackLookup({
   validationId,
   ...props
 }: FormHTMLAttributes<HTMLFormElement> & {
-  columns?: "single" | "double";
+  columns?: "single" | "double" | "triple";
   validation?: ReactNode;
   validationId?: string;
 }) {

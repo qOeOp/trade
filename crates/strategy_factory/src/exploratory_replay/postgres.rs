@@ -23,9 +23,12 @@ use crate::{
         ExploratoryReplayRecoverySelectorV2, ExploratoryReplayRequestLocatorV1,
         ExploratoryReplayRequestLocatorV2, ExploratoryReplayRequestProjectionV1,
         ExploratoryReplayRequestProposalV1, ExploratoryReplayRequestProposalV2,
-        FrozenExploratoryReplayRequestV1, IdentityDigestV1, SealedExploratoryReplayReadbackV1,
-        SealedExploratoryReplayReadbackV2, VersionedIdentityV1,
+        FrozenExploratoryReplayRequestV1, HistoricalExploratoryReplayChannelV1,
+        HistoricalExploratoryReplayRejectionReadbackV1,
+        HistoricalExploratoryReplayRejectionSelectorV1, IdentityDigestV1,
+        SealedExploratoryReplayReadbackV1, SealedExploratoryReplayReadbackV2, VersionedIdentityV1,
         exploratory_replay_admission_payload_v1, exploratory_replay_admission_payload_v2,
+        historical_replay_selector_parts_valid,
     },
     market_data_repair_reentry::{
         MarketDataRepairReplayReentryAuthorityV1, MarketDataRepairReplayReentryBindingV1,
@@ -599,6 +602,37 @@ const INTERNAL_VERIFY_SOURCE_V3: &str = r#"
 #[derive(Debug, Clone)]
 pub(crate) struct BoundBacktestReadV1 {
     pool: PgPool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredHistoricalReplayOperationV1 {
+    replay_request_identity: String,
+    run_attempt_identity: String,
+    artifact_identity: String,
+    build_receipt_identity: String,
+    channel: HistoricalExploratoryReplayChannelV1,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum StoredHistoricalReplayDispositionV1 {
+    RejectedNoWrite,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredHistoricalReplayRejectionReceiptV1 {
+    schema_version: u32,
+    receipt_identity: String,
+    replay_request_identity: String,
+    run_attempt_identity: String,
+    semantic_digest: String,
+    disposition: StoredHistoricalReplayDispositionV1,
+    artifact_identity: Option<String>,
+    build_receipt_identity: Option<String>,
+    committed_at_epoch_ms: u64,
+    rejection_code: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -3063,6 +3097,195 @@ pub(crate) async fn resolve_for_rd_v2(
     Ok(result)
 }
 
+pub(crate) async fn read_historical_rejection_for_dashboard_v1(
+    rd_pool: &PgPool,
+    selector: &HistoricalExploratoryReplayRejectionSelectorV1,
+) -> Result<Option<HistoricalExploratoryReplayRejectionReadbackV1>, ExploratoryReplayOwnerError> {
+    if !historical_replay_selector_parts_valid(
+        &selector.request_identity,
+        &selector.attempt_identity,
+        &selector.semantic_digest,
+    ) {
+        return Err(ExploratoryReplayOwnerError::InvalidProposal(
+            "invalid historical Replay rejection selector",
+        ));
+    }
+
+    let mut transaction = rd_pool.begin().await.map_err(storage)?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .execute(&mut *transaction)
+        .await
+        .map_err(storage)?;
+    require_historical_rejection_relation_v1(&mut transaction).await?;
+    let row = sqlx::query(
+        "SELECT replay_request_identity,run_attempt_identity,semantic_digest,operation_json,receipt_json,committed_at_epoch_ms FROM public.rd_exploratory_replay_rejections_v1 WHERE replay_request_identity=$1 AND run_attempt_identity=$2 AND semantic_digest=$3",
+    )
+    .bind(&selector.request_identity)
+    .bind(&selector.attempt_identity)
+    .bind(&selector.semantic_digest)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(storage)?;
+    transaction.rollback().await.map_err(storage)?;
+
+    row.map(|row| decode_historical_rejection_row_v1(&row, selector))
+        .transpose()
+}
+
+async fn require_historical_rejection_relation_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), ExploratoryReplayOwnerError> {
+    let compatible: Option<bool> = sqlx::query_scalar(
+        "SELECT relation.relkind='r'
+             AND relation.relpersistence='p'
+             AND pg_catalog.pg_get_userbyid(relation.relowner)='rd_owner'
+             AND pg_catalog.has_table_privilege(current_user,relation.oid,'SELECT')
+             AND (SELECT pg_catalog.count(*)=6
+                       AND pg_catalog.bool_and(CASE attribute.attname
+                         WHEN 'replay_request_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+                         WHEN 'run_attempt_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+                         WHEN 'semantic_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+                         WHEN 'operation_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND attribute.attnotnull
+                         WHEN 'receipt_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND attribute.attnotnull
+                         WHEN 'committed_at_epoch_ms' THEN attribute.atttypid='pg_catalog.int8'::pg_catalog.regtype AND attribute.attnotnull
+                         ELSE false
+                       END)
+                    FROM pg_catalog.pg_attribute attribute
+                   WHERE attribute.attrelid=relation.oid
+                     AND attribute.attnum>0
+                     AND NOT attribute.attisdropped)
+             AND EXISTS (
+               SELECT 1 FROM pg_catalog.pg_constraint constraint_entry
+                WHERE constraint_entry.conrelid=relation.oid
+                  AND constraint_entry.contype='p'
+                  AND constraint_entry.conkey=ARRAY[(
+                    SELECT attribute.attnum FROM pg_catalog.pg_attribute attribute
+                     WHERE attribute.attrelid=relation.oid
+                       AND attribute.attname='replay_request_identity'
+                  )]::smallint[]
+             )
+             AND EXISTS (
+               SELECT 1 FROM pg_catalog.pg_constraint constraint_entry
+                WHERE constraint_entry.conrelid=relation.oid
+                  AND constraint_entry.contype='u'
+                  AND constraint_entry.conkey=ARRAY[(
+                    SELECT attribute.attnum FROM pg_catalog.pg_attribute attribute
+                     WHERE attribute.attrelid=relation.oid
+                       AND attribute.attname='run_attempt_identity'
+                  )]::smallint[]
+             )
+          FROM pg_catalog.pg_class relation
+          JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+         WHERE namespace.nspname='public'
+           AND relation.relname='rd_exploratory_replay_rejections_v1'",
+    )
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(storage)?;
+
+    if compatible != Some(true) {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "historical Replay rejection relation is unavailable or incompatible".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn decode_historical_rejection_row_v1(
+    row: &sqlx::postgres::PgRow,
+    selector: &HistoricalExploratoryReplayRejectionSelectorV1,
+) -> Result<HistoricalExploratoryReplayRejectionReadbackV1, ExploratoryReplayOwnerError> {
+    let request_identity: String = row.try_get("replay_request_identity").map_err(storage)?;
+    let attempt_identity: String = row.try_get("run_attempt_identity").map_err(storage)?;
+    let semantic_digest: String = row.try_get("semantic_digest").map_err(storage)?;
+    let committed_at_epoch_ms = u64::try_from(
+        row.try_get::<i64, _>("committed_at_epoch_ms")
+            .map_err(storage)?,
+    )
+    .map_err(unavailable)?;
+    let operation: StoredHistoricalReplayOperationV1 = decode_exact(
+        &row.try_get::<serde_json::Value, _>("operation_json")
+            .map_err(storage)?,
+    )?;
+    let receipt: StoredHistoricalReplayRejectionReceiptV1 = decode_exact(
+        &row.try_get::<serde_json::Value, _>("receipt_json")
+            .map_err(storage)?,
+    )?;
+
+    validate_historical_rejection_v1(
+        request_identity,
+        attempt_identity,
+        semantic_digest,
+        committed_at_epoch_ms,
+        operation,
+        receipt,
+        selector,
+    )
+}
+
+fn validate_historical_rejection_v1(
+    request_identity: String,
+    attempt_identity: String,
+    semantic_digest: String,
+    committed_at_epoch_ms: u64,
+    operation: StoredHistoricalReplayOperationV1,
+    receipt: StoredHistoricalReplayRejectionReceiptV1,
+    selector: &HistoricalExploratoryReplayRejectionSelectorV1,
+) -> Result<HistoricalExploratoryReplayRejectionReadbackV1, ExploratoryReplayOwnerError> {
+    let artifact_identity = receipt.artifact_identity.as_deref();
+    let build_receipt_identity = receipt.build_receipt_identity.as_deref();
+    let rejection_code = receipt.rejection_code.as_deref();
+    let expected_receipt_identity = format!(
+        "rd-exploratory-request-rejection-v1-{}",
+        semantic_digest.trim_start_matches("sha256:")
+    );
+
+    if request_identity != selector.request_identity
+        || attempt_identity != selector.attempt_identity
+        || semantic_digest != selector.semantic_digest
+        || operation.replay_request_identity != request_identity
+        || operation.run_attempt_identity != attempt_identity
+        || receipt.schema_version != 1
+        || receipt.replay_request_identity != request_identity
+        || receipt.run_attempt_identity != attempt_identity
+        || receipt.semantic_digest != semantic_digest
+        || receipt.receipt_identity != expected_receipt_identity
+        || receipt.committed_at_epoch_ms != committed_at_epoch_ms
+        || rejection_code != Some("INVALID_REPLAY_EVIDENCE")
+        || artifact_identity != Some(operation.artifact_identity.as_str())
+        || build_receipt_identity != Some(operation.build_receipt_identity.as_str())
+        || !valid_blake3(&operation.artifact_identity)
+        || !historical_replay_identity(&operation.build_receipt_identity)
+        || !historical_replay_identity(&receipt.receipt_identity)
+    {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "historical Replay rejection custody is inconsistent".into(),
+        ));
+    }
+
+    Ok(HistoricalExploratoryReplayRejectionReadbackV1 {
+        schema_version: 1,
+        resolution: "LEGACY_REJECTION_QUARANTINED",
+        disposition: "REJECTED_NO_WRITE",
+        rejection_code: "INVALID_REPLAY_EVIDENCE",
+        request_identity,
+        attempt_identity,
+        semantic_digest,
+        receipt_identity: receipt.receipt_identity,
+        artifact_identity: operation.artifact_identity,
+        build_receipt_identity: operation.build_receipt_identity,
+        channel: operation.channel,
+        committed_at_epoch_ms,
+    })
+}
+
+fn historical_replay_identity(value: &str) -> bool {
+    (16..=200).contains(&value.len())
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b':' | b'.'))
+}
+
 pub(crate) fn decode_v2_read_result(
     expected_request_identity: &str,
     expected_meaning_digest: &str,
@@ -4528,8 +4751,13 @@ mod source_tests {
 
     use super::{
         CanonicalStorageRecordV2, INTERNAL_VERIFY_SOURCE_V1, INTERNAL_VERIFY_SOURCE_V2,
-        INTERNAL_VERIFY_SOURCE_V3, NATIVE_SOURCE_STORAGE_SOURCE_V2, StoredReceiptV2,
-        canonical_storage_record_matches,
+        INTERNAL_VERIFY_SOURCE_V3, NATIVE_SOURCE_STORAGE_SOURCE_V2,
+        StoredHistoricalReplayDispositionV1, StoredHistoricalReplayOperationV1,
+        StoredHistoricalReplayRejectionReceiptV1, StoredReceiptV2,
+        canonical_storage_record_matches, validate_historical_rejection_v1,
+    };
+    use crate::exploratory_replay::{
+        HistoricalExploratoryReplayChannelV1, HistoricalExploratoryReplayRejectionSelectorV1,
     };
 
     const AUTHORITY_MIGRATION: &str = include_str!(
@@ -4593,6 +4821,64 @@ mod source_tests {
             domain,
             &value_bytes
         ));
+    }
+
+    #[rstest::rstest]
+    fn historical_replay_rejection_requires_exact_cross_record_custody() {
+        let digest = format!("sha256:{}", "3".repeat(64));
+        let selector = HistoricalExploratoryReplayRejectionSelectorV1 {
+            request_identity: "s3-final-reject-request-v1".into(),
+            attempt_identity: "s3-final-reject-attempt-v1".into(),
+            semantic_digest: digest.clone(),
+        };
+        let operation = StoredHistoricalReplayOperationV1 {
+            replay_request_identity: selector.request_identity.clone(),
+            run_attempt_identity: selector.attempt_identity.clone(),
+            artifact_identity: format!("blake3:{}", "a".repeat(64)),
+            build_receipt_identity: format!("rd-build-receipt-v1-{}", "a".repeat(64)),
+            channel: HistoricalExploratoryReplayChannelV1::Mcp,
+        };
+        let receipt = StoredHistoricalReplayRejectionReceiptV1 {
+            schema_version: 1,
+            receipt_identity: format!("rd-exploratory-request-rejection-v1-{}", "3".repeat(64)),
+            replay_request_identity: selector.request_identity.clone(),
+            run_attempt_identity: selector.attempt_identity.clone(),
+            semantic_digest: digest.clone(),
+            disposition: StoredHistoricalReplayDispositionV1::RejectedNoWrite,
+            artifact_identity: Some(operation.artifact_identity.clone()),
+            build_receipt_identity: Some(operation.build_receipt_identity.clone()),
+            committed_at_epoch_ms: 1_787_266_713_583,
+            rejection_code: Some("INVALID_REPLAY_EVIDENCE".into()),
+        };
+
+        let readback = validate_historical_rejection_v1(
+            selector.request_identity.clone(),
+            selector.attempt_identity.clone(),
+            digest,
+            receipt.committed_at_epoch_ms,
+            operation.clone(),
+            receipt.clone(),
+            &selector,
+        )
+        .expect("exact historical rejection");
+        assert_eq!(readback.resolution, "LEGACY_REJECTION_QUARANTINED");
+        assert_eq!(readback.disposition, "REJECTED_NO_WRITE");
+
+        let mut cross_spliced = receipt;
+        cross_spliced.build_receipt_identity =
+            Some(format!("rd-build-receipt-v1-{}", "b".repeat(64)));
+        assert!(
+            validate_historical_rejection_v1(
+                selector.request_identity.clone(),
+                selector.attempt_identity.clone(),
+                selector.semantic_digest.clone(),
+                cross_spliced.committed_at_epoch_ms,
+                operation,
+                cross_spliced,
+                &selector,
+            )
+            .is_err()
+        );
     }
 
     fn migration_prosrc(marker: &str) -> &'static str {

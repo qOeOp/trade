@@ -25,6 +25,32 @@
   border-top: 1px solid color-mix(in srgb, var(--border-default) 72%, transparent);
 }
 
+.historicalSection {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid color-mix(in srgb, var(--border-default) 72%, transparent);
+}
+
+.sectionTitle {
+  margin: 0 0 10px 11px;
+  color: var(--text-muted);
+  font: 720 9px/1.2 var(--font-mono);
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.historicalResult {
+  min-height: 0;
+  margin-top: 10px;
+}
+
+.historicalResult :global(.unavailable-state) {
+  min-height: 104px;
+  border: 1px solid color-mix(in srgb, var(--border-default) 72%, transparent);
+  border-radius: var(--panel-inner-radius);
+  background: var(--surface-panel);
+}
+
 .resultReadback {
   min-height: 0;
   margin-top: 10px;

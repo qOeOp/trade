@@ -15,6 +15,10 @@
   grid-template-columns: minmax(180px, .75fr) minmax(280px, 1.25fr) auto;
 }
 
+.rail[data-columns="triple"] {
+  grid-template-columns: minmax(180px, .8fr) minmax(180px, .8fr) minmax(280px, 1.4fr) auto;
+}
+
 .field {
   min-width: 0;
   display: grid;
@@ -41,7 +45,8 @@
 
 @container readback-lookup (max-width: 640px) {
   .rail,
-  .rail[data-columns="double"] {
+  .rail[data-columns="double"],
+  .rail[data-columns="triple"] {
     grid-template-columns: 1fr;
     align-items: stretch;
   }

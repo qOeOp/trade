@@ -31,9 +31,10 @@ test("ReadbackLookup owns reusable exact-selector form geometry", async () => {
   assert.match(atom, /typography=\{typography\} variant="surface"/u);
   assert.doesNotMatch(atom, /<button\b|<input\b/u);
   assert.match(atom, /data-ui="readback-lookup"/u);
-  assert.match(atom, /columns\?: "single" \| "double"/u);
+  assert.match(atom, /columns\?: "single" \| "double" \| "triple"/u);
   assert.doesNotMatch(atom, /Source Intake|Develop Composer|Exploratory Replay|Owner|\.\.\/lib/iu);
   assert.match(css, /\.rail\[data-columns="double"\]/u);
+  assert.match(css, /\.rail\[data-columns="triple"\]/u);
   assert.match(css, /container:\s*readback-lookup\s*\/\s*inline-size/u);
   assert.match(css, /@container readback-lookup \(max-width: 640px\)/u);
   assert.doesNotMatch(css, /@media \(max-width: 720px\)/u);

@@ -15,8 +15,9 @@ use vibe_backtest_owner_contracts::{CanonicalDigestV2, OpaqueIdentityV2};
 use vibe_strategy_factory::{
     BacktestResultCustodyErrorV2, ExploratoryReplayResultLocatorV2,
     artifact_build::{
-        ArtifactBuildError, ArtifactDirectoryCursorV1, ArtifactDirectoryOwnerPort,
-        ArtifactReadbackOwnerPortV1, ArtifactSourceOwnerPort,
+        ArtifactBuildError, ArtifactBuildResultV1, ArtifactDirectoryCursorV1,
+        ArtifactDirectoryOwnerPort, ArtifactDirectoryReadbackV1, ArtifactReadbackOwnerPortV1,
+        ArtifactSourceOwnerPort, ArtifactSourceReadbackV1,
     },
     artifact_build_postgres::PostgresArtifactReadbackOwnerV1,
     develop_composer_operation_v2::{
@@ -24,8 +25,10 @@ use vibe_strategy_factory::{
         DevelopComposerReadbackOwnerPortV2,
     },
     exploratory_replay::{
-        ExploratoryReplayOwnerError, ExploratoryReplayReadResultV2,
-        ExploratoryReplayRecoverySelectorV2, ExploratoryReplaySealedReadPortV2,
+        ExploratoryReplayHistoricalRejectionReadPortV1, ExploratoryReplayOwnerError,
+        ExploratoryReplayReadResultV2, ExploratoryReplayRecoverySelectorV2,
+        ExploratoryReplaySealedReadPortV2, HistoricalExploratoryReplayRejectionReadbackV1,
+        HistoricalExploratoryReplayRejectionSelectorV1,
     },
     product_edge::{
         ResearchDirectoryCursorV1, ResearchDirectoryOwnerPort, ResearchReadbackOwnerPortV1,
@@ -53,6 +56,8 @@ struct ApiState {
     composer_readback: Option<Arc<dyn DevelopComposerReadbackOwnerPortV2>>,
     exploratory_replay_readback: Arc<dyn ExploratoryReplayReadbackOwnerPortV2>,
     exploratory_replay_result_readback: Arc<dyn ExploratoryReplayResultReadbackOwnerPortV2>,
+    exploratory_replay_historical_rejection_readback:
+        Arc<dyn ExploratoryReplayHistoricalRejectionOwnerPortV1>,
     token_digest: [u8; 32],
 }
 
@@ -88,6 +93,26 @@ trait ExploratoryReplayResultReadbackOwnerPortV2: Send + Sync {
 }
 
 #[async_trait::async_trait]
+trait ExploratoryReplayHistoricalRejectionOwnerPortV1: Send + Sync {
+    async fn read_historical_rejection(
+        &self,
+        selector: &HistoricalExploratoryReplayRejectionSelectorV1,
+    ) -> Result<Option<HistoricalExploratoryReplayRejectionReadbackV1>, ExploratoryReplayOwnerError>;
+}
+
+#[async_trait::async_trait]
+impl ExploratoryReplayHistoricalRejectionOwnerPortV1 for PostgresExploratoryReplayReadbackOwnerV2 {
+    async fn read_historical_rejection(
+        &self,
+        selector: &HistoricalExploratoryReplayRejectionSelectorV1,
+    ) -> Result<Option<HistoricalExploratoryReplayRejectionReadbackV1>, ExploratoryReplayOwnerError>
+    {
+        self.read_historical_exploratory_replay_rejection_v1(selector)
+            .await
+    }
+}
+
+#[async_trait::async_trait]
 impl ExploratoryReplayResultReadbackOwnerPortV2 for PostgresExploratoryReplayReadbackOwnerV2 {
     async fn read_exploratory_replay_result(
         &self,
@@ -102,6 +127,86 @@ impl ExploratoryReplayResultReadbackOwnerPortV2 for PostgresExploratoryReplayRea
         })
         .await
         .map(|result| result.map(|locked| locked.result_canonical_bytes().to_vec()))
+    }
+}
+
+#[derive(Clone)]
+struct UnavailableArtifactReadbackV1;
+
+fn artifact_unavailable() -> ArtifactBuildError {
+    ArtifactBuildError::Storage("Artifact Dashboard readback capability unavailable".to_owned())
+}
+
+#[async_trait::async_trait]
+impl ArtifactDirectoryOwnerPort for UnavailableArtifactReadbackV1 {
+    async fn list_artifacts(
+        &self,
+        _after: Option<&ArtifactDirectoryCursorV1>,
+        _limit: u32,
+    ) -> Result<ArtifactDirectoryReadbackV1, ArtifactBuildError> {
+        Err(artifact_unavailable())
+    }
+}
+
+#[async_trait::async_trait]
+impl ArtifactReadbackOwnerPortV1 for UnavailableArtifactReadbackV1 {
+    async fn read_artifact(
+        &self,
+        _build_request_identity: &str,
+        _attempt_identity: &str,
+    ) -> Result<ArtifactBuildResultV1, ArtifactBuildError> {
+        Err(artifact_unavailable())
+    }
+}
+
+#[async_trait::async_trait]
+impl ArtifactSourceOwnerPort for UnavailableArtifactReadbackV1 {
+    async fn read_source(
+        &self,
+        _build_request_identity: &str,
+        _attempt_identity: &str,
+    ) -> Result<Option<ArtifactSourceReadbackV1>, ArtifactBuildError> {
+        Err(artifact_unavailable())
+    }
+}
+
+#[derive(Clone)]
+struct UnavailableExploratoryReplayReadbackV2;
+
+#[async_trait::async_trait]
+impl ExploratoryReplayReadbackOwnerPortV2 for UnavailableExploratoryReplayReadbackV2 {
+    async fn read_exploratory_replay(
+        &self,
+        _selector: &ExploratoryReplayRecoverySelectorV2,
+    ) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError> {
+        Err(ExploratoryReplayOwnerError::Unavailable(
+            "Exploratory Replay Dashboard readback capability unavailable".to_owned(),
+        ))
+    }
+}
+
+#[async_trait::async_trait]
+impl ExploratoryReplayResultReadbackOwnerPortV2 for UnavailableExploratoryReplayReadbackV2 {
+    async fn read_exploratory_replay_result(
+        &self,
+        _result_identity: &str,
+        _request_identity: &str,
+        _attempt_identity: &str,
+    ) -> Result<Option<Vec<u8>>, BacktestResultCustodyErrorV2> {
+        Err(BacktestResultCustodyErrorV2::Unavailable)
+    }
+}
+
+#[async_trait::async_trait]
+impl ExploratoryReplayHistoricalRejectionOwnerPortV1 for UnavailableExploratoryReplayReadbackV2 {
+    async fn read_historical_rejection(
+        &self,
+        _selector: &HistoricalExploratoryReplayRejectionSelectorV1,
+    ) -> Result<Option<HistoricalExploratoryReplayRejectionReadbackV1>, ExploratoryReplayOwnerError>
+    {
+        Err(ExploratoryReplayOwnerError::Unavailable(
+            "Historical Replay rejection Dashboard readback capability unavailable".to_owned(),
+        ))
     }
 }
 
@@ -130,6 +235,14 @@ struct ExploratoryReplayReadbackQueryV2 {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ExploratoryReplayHistoricalRejectionQueryV1 {
+    request_identity: String,
+    attempt_identity: String,
+    semantic_digest: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ExploratoryReplayResultPathV2 {
     result_identity: String,
 }
@@ -152,34 +265,55 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let database_url = required_env("RD_DASHBOARD_OWNER_READ_DATABASE_URL")?;
-    let artifact = Arc::new(
-        PostgresArtifactReadbackOwnerV1::connect(&database_url)
-            .await
-            .context("Artifact Dashboard readback adapter unavailable")?,
-    );
+    let (artifact_directory, artifact_readback, artifact_source): (
+        Arc<dyn ArtifactDirectoryOwnerPort>,
+        Arc<dyn ArtifactReadbackOwnerPortV1>,
+        Arc<dyn ArtifactSourceOwnerPort>,
+    ) = match PostgresArtifactReadbackOwnerV1::connect(&database_url).await {
+        Ok(readback) => {
+            let readback = Arc::new(readback);
+            (readback.clone(), readback.clone(), readback)
+        }
+        Err(_) => {
+            tracing::warn!("Artifact Dashboard readback capability unavailable");
+            let readback = Arc::new(UnavailableArtifactReadbackV1);
+            (readback.clone(), readback.clone(), readback)
+        }
+    };
     let research = Arc::new(
         PostgresResearchReadbackOwnerV1::connect(&database_url)
             .await
             .context("Research Dashboard readback adapter unavailable")?,
     );
-    let exploratory_replay = Arc::new(
-        PostgresExploratoryReplayReadbackOwnerV2::connect(&database_url)
-            .await
-            .context("Exploratory Replay Dashboard readback adapter unavailable")?,
-    );
+    let (exploratory_replay, exploratory_replay_result, exploratory_replay_historical_rejection): (
+        Arc<dyn ExploratoryReplayReadbackOwnerPortV2>,
+        Arc<dyn ExploratoryReplayResultReadbackOwnerPortV2>,
+        Arc<dyn ExploratoryReplayHistoricalRejectionOwnerPortV1>,
+    ) = match PostgresExploratoryReplayReadbackOwnerV2::connect(&database_url).await {
+        Ok(readback) => {
+            let readback = Arc::new(readback);
+            (readback.clone(), readback.clone(), readback)
+        }
+        Err(_) => {
+            tracing::warn!("Exploratory Replay Dashboard readback capability unavailable");
+            let readback = Arc::new(UnavailableExploratoryReplayReadbackV2);
+            (readback.clone(), readback.clone(), readback)
+        }
+    };
     let source_intake_readback = source_intake_readback(&database_url).await;
     let composer_readback = composer_readback(&database_url).await;
     let token = required_env("RD_DASHBOARD_OWNER_READ_API_TOKEN")?;
     let state = ApiState {
-        artifact_directory: artifact.clone(),
-        artifact_readback: artifact.clone(),
-        artifact_source: artifact,
+        artifact_directory,
+        artifact_readback,
+        artifact_source,
         research_directory: research.clone(),
         research_readback: research,
         source_intake_readback,
         composer_readback,
-        exploratory_replay_readback: exploratory_replay.clone(),
-        exploratory_replay_result_readback: exploratory_replay,
+        exploratory_replay_readback: exploratory_replay,
+        exploratory_replay_result_readback: exploratory_replay_result,
+        exploratory_replay_historical_rejection_readback: exploratory_replay_historical_rejection,
         token_digest: Sha256::digest(token.as_bytes()).into(),
     };
     let address =
@@ -225,6 +359,10 @@ fn router(state: ApiState) -> Router {
         .route(
             "/v2/exploratory-replay-results/{result_identity}",
             get(read_exploratory_replay_result),
+        )
+        .route(
+            "/v1/exploratory-replay-rejections/readback",
+            get(read_exploratory_replay_historical_rejection),
         )
         .with_state(state)
 }
@@ -409,7 +547,10 @@ async fn read_research_directory(
         .await
     {
         Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        Err(e) => {
+            tracing::warn!(%e, "Research Dashboard directory read unavailable");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
     }
 }
 
@@ -432,7 +573,10 @@ async fn read_research_v2(
         .await
     {
         Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        Err(e) => {
+            tracing::warn!(%e, "Research Dashboard point read unavailable");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
     }
 }
 
@@ -628,6 +772,36 @@ async fn read_exploratory_replay_result(
     }
 }
 
+async fn read_exploratory_replay_historical_rejection(
+    State(state): State<ApiState>,
+    Query(query): Query<ExploratoryReplayHistoricalRejectionQueryV1>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let Some(selector) = HistoricalExploratoryReplayRejectionSelectorV1::try_new(
+        query.request_identity,
+        query.attempt_identity,
+        query.semantic_digest,
+    ) else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
+
+    match state
+        .exploratory_replay_historical_rejection_readback
+        .read_historical_rejection(&selector)
+        .await
+    {
+        Ok(Some(readback)) => (StatusCode::OK, Json(readback)).into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(ExploratoryReplayOwnerError::InvalidProposal(_)) => {
+            StatusCode::BAD_REQUEST.into_response()
+        }
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+}
+
 fn valid_identity(value: &str) -> bool {
     (1..=192).contains(&value.len())
         && value.bytes().all(|byte| {
@@ -814,6 +988,7 @@ mod tests {
     struct RecordingReplay {
         readback_calls: AtomicUsize,
         result_calls: AtomicUsize,
+        historical_rejection_calls: AtomicUsize,
     }
 
     #[async_trait]
@@ -846,6 +1021,22 @@ mod tests {
                 }))
                 .expect("recording result bytes"),
             ))
+        }
+    }
+
+    #[async_trait]
+    impl ExploratoryReplayHistoricalRejectionOwnerPortV1 for RecordingReplay {
+        async fn read_historical_rejection(
+            &self,
+            selector: &HistoricalExploratoryReplayRejectionSelectorV1,
+        ) -> Result<
+            Option<HistoricalExploratoryReplayRejectionReadbackV1>,
+            ExploratoryReplayOwnerError,
+        > {
+            self.historical_rejection_calls
+                .fetch_add(1, Ordering::SeqCst);
+            let _ = selector;
+            Ok(None)
         }
     }
 
@@ -895,6 +1086,7 @@ mod tests {
             composer_readback: Some(Arc::new(RecordingComposer::default())),
             exploratory_replay_readback: Arc::new(RecordingReplay::default()),
             exploratory_replay_result_readback: Arc::new(RecordingReplay::default()),
+            exploratory_replay_historical_rejection_readback: Arc::new(RecordingReplay::default()),
             token_digest: Sha256::digest(b"test-token").into(),
         }
     }
@@ -1245,6 +1437,49 @@ mod tests {
         .await;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(replay.result_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn historical_replay_rejection_requires_auth_and_exact_selector() {
+        let replay = Arc::new(RecordingReplay::default());
+        let mut api = state(
+            Arc::new(RecordingArtifact::default()),
+            Arc::new(RecordingResearch::default()),
+            Arc::new(RecordingSourceIntake::default()),
+        );
+        api.exploratory_replay_historical_rejection_readback = replay.clone();
+        let query = || ExploratoryReplayHistoricalRejectionQueryV1 {
+            request_identity: "historical-replay-request-v1".to_owned(),
+            attempt_identity: "historical-replay-attempt-v1".to_owned(),
+            semantic_digest: format!("sha256:{}", "a".repeat(64)),
+        };
+
+        let forbidden = read_exploratory_replay_historical_rejection(
+            State(api.clone()),
+            Query(query()),
+            HeaderMap::new(),
+        )
+        .await;
+        assert_eq!(forbidden.status(), StatusCode::FORBIDDEN);
+        assert_eq!(replay.historical_rejection_calls.load(Ordering::SeqCst), 0);
+
+        let invalid = read_exploratory_replay_historical_rejection(
+            State(api.clone()),
+            Query(ExploratoryReplayHistoricalRejectionQueryV1 {
+                semantic_digest: format!("blake3:{}", "a".repeat(64)),
+                ..query()
+            }),
+            headers(),
+        )
+        .await;
+        assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(replay.historical_rejection_calls.load(Ordering::SeqCst), 0);
+
+        let missing =
+            read_exploratory_replay_historical_rejection(State(api), Query(query()), headers())
+                .await;
+        assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+        assert_eq!(replay.historical_rejection_calls.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

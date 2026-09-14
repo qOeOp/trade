@@ -23,11 +23,13 @@ use crate::complex_strategy_develop_evaluation::{
     UntrustedComplexStrategyDevelopEvaluationProposalV1,
 };
 use crate::exploratory_replay::{
-    ExploratoryReplayCommitResultV1, ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError,
+    ExploratoryReplayCommitResultV1, ExploratoryReplayCommitResultV2,
+    ExploratoryReplayHistoricalRejectionReadPortV1, ExploratoryReplayOwnerError,
     ExploratoryReplayReadResultV1, ExploratoryReplayReadResultV2,
     ExploratoryReplayRecoverySelectorV2, ExploratoryReplayRequestLocatorV1,
     ExploratoryReplayRequestLocatorV2, ExploratoryReplayRequestProposalV1,
     ExploratoryReplayRequestProposalV2, ExploratoryReplaySealedReadPortV2,
+    HistoricalExploratoryReplayRejectionReadbackV1, HistoricalExploratoryReplayRejectionSelectorV1,
     sealed_read_port::RdOwned,
 };
 use crate::product_edge::{
@@ -237,6 +239,20 @@ impl ExploratoryReplaySealedReadPortV2 for PostgresExploratoryReplayReadbackOwne
         selector: &ExploratoryReplayRecoverySelectorV2,
     ) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError> {
         crate::exploratory_replay::postgres::resolve_for_rd_v2(&self.pool, selector).await
+    }
+}
+
+#[async_trait]
+impl ExploratoryReplayHistoricalRejectionReadPortV1 for PostgresExploratoryReplayReadbackOwnerV2 {
+    async fn read_historical_exploratory_replay_rejection_v1(
+        &self,
+        selector: &HistoricalExploratoryReplayRejectionSelectorV1,
+    ) -> Result<Option<HistoricalExploratoryReplayRejectionReadbackV1>, ExploratoryReplayOwnerError>
+    {
+        crate::exploratory_replay::postgres::read_historical_rejection_for_dashboard_v1(
+            &self.pool, selector,
+        )
+        .await
     }
 }
 
@@ -2786,6 +2802,9 @@ async fn read_research_v2_from_pool(
     ))
     .await?;
     let result = match custody {
+        Some(custody) if custody.is_legacy_quarantined() => {
+            custody.into_legacy_quarantined_v2_result()?
+        }
         Some(custody) => custody.into_v2_result(read_cut_epoch_ms)?,
         None => unresolved_result_v2(request_identity),
     };
@@ -2888,7 +2907,7 @@ async fn list_research_from_pool(
         ))
         .await?;
 
-        if let Some(custody) = custody {
+        if let Some(custody) = custody.filter(|custody| !custody.is_legacy_quarantined()) {
             let result = custody.into_v2_result(read_cut_epoch_ms)?;
             let receipt = result.owner_receipt.as_ref().ok_or_else(|| {
                 ResearchGoalOwnerError::Storage(
