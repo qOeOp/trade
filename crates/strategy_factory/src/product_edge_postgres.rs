@@ -1440,6 +1440,7 @@ impl PostgresResearchGoalOwnerV1 {
             RD_CORE_TABLES,
             crate::trial_family_postgres::TABLES,
             crate::iteration_decision_postgres::TABLES,
+            crate::successor_intent_postgres::TABLES,
             crate::market_data_repair_request_postgres::TABLES,
             crate::market_data_repair_resolution_postgres::TABLES,
             crate::complex_strategy_develop_evaluation::TABLES,
@@ -1609,6 +1610,30 @@ impl PostgresResearchGoalOwnerV1 {
             decision.as_ref(),
         )
         .map_err(|message| crate::IterationDecisionPostgresErrorV1::Storage(message.to_string()))
+    }
+
+    /// Atomically freezes the Decision-selected next Research Intent in the same TrialFamily.
+    pub async fn compose_successor_research_intent_v1(
+        &self,
+        request: crate::successor_intent::SuccessorResearchIntentCompositionRequestV1,
+    ) -> Result<
+        crate::successor_intent::SuccessorResearchIntentReadbackV1,
+        crate::SuccessorResearchIntentPostgresErrorV1,
+    > {
+        crate::successor_intent_postgres::compose_successor_research_intent_v1(&self.pool, request)
+            .await
+    }
+
+    /// Resolves exact successor Intent custody without creating first custody.
+    pub async fn resolve_successor_research_intent_v1(
+        &self,
+        locator: crate::SuccessorResearchIntentResolutionLocatorV1,
+    ) -> Result<
+        Option<crate::successor_intent::SuccessorResearchIntentReadbackV1>,
+        crate::SuccessorResearchIntentPostgresErrorV1,
+    > {
+        crate::successor_intent_postgres::resolve_successor_research_intent_v1(&self.pool, locator)
+            .await
     }
 
     /// Commits an effect-free repair request from exact stored Decision custody.

@@ -318,6 +318,9 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), IterationDecisionPostgr
     .map_err(storage)?;
     crate::market_data_repair_request_postgres::migrate(pool)
         .await
+        .map_err(|error| storage(error.to_string()))?;
+    crate::successor_intent_postgres::migrate(pool)
+        .await
         .map_err(|error| storage(error.to_string()))
 }
 
@@ -1668,7 +1671,7 @@ async fn load_trial_budget_terminal_stop_by_result_in_transaction(
     Ok(Some(readback))
 }
 
-async fn load_candidate_comparison_by_result_in_transaction(
+pub(crate) async fn load_candidate_comparison_by_result_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     census: &crate::trial_family::TrialFamilyCensusReadbackV2,
     result_identity: &str,

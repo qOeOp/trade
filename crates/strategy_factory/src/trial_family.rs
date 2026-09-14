@@ -126,6 +126,11 @@ pub(crate) struct TrialFamilyLatestAttemptBindingV2<'a> {
     pub(crate) terminal_disposition: TrialFamilyAttemptTerminalDispositionV2,
 }
 
+pub(crate) struct TrialFamilyLatestIntentBindingV2<'a> {
+    pub(crate) intent_identity: &'a str,
+    pub(crate) intent_digest: &'a str,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct TrialFamilyCensusMemberV2 {
@@ -928,6 +933,30 @@ impl TrialFamilyCensusReadbackV2 {
             result_identity: &result.fact_identity,
             result_digest: &result.fact_digest,
             terminal_disposition,
+        })
+    }
+
+    pub(crate) fn latest_intent_binding(
+        &self,
+    ) -> Result<TrialFamilyLatestIntentBindingV2<'_>, TrialFamilyError> {
+        verify_census_v2(self)?;
+        let [intent, _, _] = self
+            .members
+            .get(self.members.len().saturating_sub(3)..)
+            .ok_or_else(|| TrialFamilyError::Unavailable("latest attempt missing".to_string()))?
+        else {
+            return Err(TrialFamilyError::Unavailable(
+                "latest attempt shape mismatch".to_string(),
+            ));
+        };
+        if intent.member_kind != TrialFamilyCensusMemberKindV2::Intent {
+            return Err(TrialFamilyError::Unavailable(
+                "latest Intent member is unavailable".to_string(),
+            ));
+        }
+        Ok(TrialFamilyLatestIntentBindingV2 {
+            intent_identity: &intent.fact_identity,
+            intent_digest: &intent.fact_digest,
         })
     }
 }
