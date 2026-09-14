@@ -11,15 +11,16 @@ use axum::{
 use serde::Serialize;
 use serde_json::json;
 use vibe_strategy_factory::{
-    DecisionCompositionRequestV1, IterationDecisionPostgresErrorV1,
+    CandidateComparisonCompositionRequestV1, DecisionCompositionRequestV1,
+    IterationCandidateEvaluationSetV1, IterationDecisionPostgresErrorV1,
     IterationDecisionResolutionLocatorV1, ReadyForSelectionCompositionRequestV1,
     RepairActionCompositionRequestV1, RepairActionResolutionLocatorV1,
     iteration_decision::{
-        ExistingIterationDecisionReadbackV1, IterationDecisionEvidenceCutV1,
-        IterationDecisionOutcomeV1, IterationRepairCategoryV1, PositiveAssessmentEvidenceV1,
-        ReadyForSelectionDecisionReadbackV1, RepairInputIterationDecisionReadbackV1,
-        ResearchSelectionDispositionV1, TrialBudgetTerminalStopDecisionReadbackV1,
-        is_valid_iteration_decision_locator_v1,
+        CandidateComparisonDecisionReadbackV1, ExistingIterationDecisionReadbackV1,
+        IterationDecisionEvidenceCutV1, IterationDecisionOutcomeV1, IterationRepairCategoryV1,
+        PositiveAssessmentEvidenceV1, ReadyForSelectionDecisionReadbackV1,
+        RepairInputIterationDecisionReadbackV1, ResearchSelectionDispositionV1,
+        TrialBudgetTerminalStopDecisionReadbackV1, is_valid_iteration_decision_locator_v1,
     },
     product_edge_postgres::PostgresResearchGoalOwnerV1,
     repair_action::RepairActionRequestReadbackV1,
@@ -93,6 +94,41 @@ impl TrialBudgetTerminalStopActionPort for PostgresResearchGoalOwnerV1 {
         self.resolve_trial_budget_terminal_stop_decision_v1(locator)
             .await
             .map(|readback| readback.map(TrialBudgetTerminalStopActionResponseV1::from))
+    }
+}
+
+#[async_trait::async_trait]
+trait CandidateComparisonDecisionActionPort: Send + Sync {
+    async fn compose_candidate_comparison(
+        &self,
+        request: CandidateComparisonCompositionRequestV1,
+    ) -> Result<CandidateComparisonDecisionActionResponseV1, IterationDecisionPostgresErrorV1>;
+
+    async fn resolve_candidate_comparison(
+        &self,
+        locator: IterationDecisionResolutionLocatorV1,
+    ) -> Result<Option<CandidateComparisonDecisionActionResponseV1>, IterationDecisionPostgresErrorV1>;
+}
+
+#[async_trait::async_trait]
+impl CandidateComparisonDecisionActionPort for PostgresResearchGoalOwnerV1 {
+    async fn compose_candidate_comparison(
+        &self,
+        request: CandidateComparisonCompositionRequestV1,
+    ) -> Result<CandidateComparisonDecisionActionResponseV1, IterationDecisionPostgresErrorV1> {
+        self.compose_candidate_comparison_decision_v1(request)
+            .await
+            .map(CandidateComparisonDecisionActionResponseV1::from)
+    }
+
+    async fn resolve_candidate_comparison(
+        &self,
+        locator: IterationDecisionResolutionLocatorV1,
+    ) -> Result<Option<CandidateComparisonDecisionActionResponseV1>, IterationDecisionPostgresErrorV1>
+    {
+        self.resolve_candidate_comparison_decision_v1(locator)
+            .await
+            .map(|readback| readback.map(CandidateComparisonDecisionActionResponseV1::from))
     }
 }
 
@@ -197,6 +233,12 @@ struct TrialBudgetTerminalStopApiState {
 }
 
 #[derive(Clone)]
+struct CandidateComparisonDecisionApiState {
+    owner: Arc<dyn CandidateComparisonDecisionActionPort>,
+    token_digest: [u8; 32],
+}
+
+#[derive(Clone)]
 struct ReadyForSelectionApiState {
     owner: Arc<dyn ReadyForSelectionActionPort>,
     token_digest: [u8; 32],
@@ -282,6 +324,38 @@ impl From<TrialBudgetTerminalStopDecisionReadbackV1> for TrialBudgetTerminalStop
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
+struct CandidateComparisonDecisionActionResponseV1 {
+    schema_version: u16,
+    decision_identity: String,
+    decision_digest: String,
+    evidence_cut: IterationDecisionEvidenceCutV1,
+    outcome: IterationDecisionOutcomeV1,
+    candidate_evaluations: IterationCandidateEvaluationSetV1,
+    receipt_identity: String,
+    result_identity: String,
+    committed_at_epoch_ms: u64,
+}
+
+impl From<CandidateComparisonDecisionReadbackV1> for CandidateComparisonDecisionActionResponseV1 {
+    fn from(readback: CandidateComparisonDecisionReadbackV1) -> Self {
+        let decision = readback.decision();
+        let receipt = readback.receipt();
+        Self {
+            schema_version: 1,
+            decision_identity: decision.decision_identity().to_string(),
+            decision_digest: decision.decision_digest().to_string(),
+            evidence_cut: decision.evidence_cut().clone(),
+            outcome: decision.outcome().clone(),
+            candidate_evaluations: decision.candidate_evaluations().clone(),
+            receipt_identity: receipt.receipt_identity().to_string(),
+            result_identity: receipt.result_identity().to_string(),
+            committed_at_epoch_ms: receipt.committed_at_epoch_ms(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 struct ReadyForSelectionActionResponseV1 {
     schema_version: u16,
     assessment_identity: String,
@@ -353,6 +427,7 @@ impl From<ReadyForSelectionDecisionReadbackV1> for ReadyForSelectionActionRespon
 enum UnifiedIterationDecisionResponseV1 {
     RepairInputs(RepairInputDecisionActionResponseV1),
     TrialBudgetTerminalStop(TrialBudgetTerminalStopActionResponseV1),
+    CandidateComparison(CandidateComparisonDecisionActionResponseV1),
     ReadyForSelection(ReadyForSelectionActionResponseV1),
 }
 
@@ -364,6 +439,9 @@ impl From<ExistingIterationDecisionReadbackV1> for UnifiedIterationDecisionRespo
             }
             ExistingIterationDecisionReadbackV1::TrialBudgetTerminalStop(value) => {
                 Self::TrialBudgetTerminalStop(value.into())
+            }
+            ExistingIterationDecisionReadbackV1::CandidateComparison(value) => {
+                Self::CandidateComparison(value.into())
             }
             ExistingIterationDecisionReadbackV1::ReadyForSelection(value) => {
                 Self::ReadyForSelection(value.into())
@@ -411,12 +489,32 @@ impl From<RepairActionRequestReadbackV1> for RepairActionRequestActionResponseV1
 pub(super) fn router(owner: Arc<PostgresResearchGoalOwnerV1>, token_digest: [u8; 32]) -> Router {
     action_router(owner.clone(), token_digest)
         .merge(iteration_decision_read_router(owner.clone(), token_digest))
+        .merge(candidate_comparison_router(owner.clone(), token_digest))
         .merge(ready_for_selection_router(owner.clone(), token_digest))
         .merge(trial_budget_terminal_stop_router(
             owner.clone(),
             token_digest,
         ))
         .merge(repair_action_router(owner, token_digest))
+}
+
+fn candidate_comparison_router(
+    owner: Arc<dyn CandidateComparisonDecisionActionPort>,
+    token_digest: [u8; 32],
+) -> Router {
+    Router::new()
+        .route(
+            "/v1/iteration-decisions/candidate-comparison",
+            post(compose_candidate_comparison),
+        )
+        .route(
+            "/v1/iteration-decisions/candidate-comparison/resolve",
+            post(resolve_candidate_comparison),
+        )
+        .with_state(CandidateComparisonDecisionApiState {
+            owner,
+            token_digest,
+        })
 }
 
 fn ready_for_selection_router(
@@ -681,6 +779,42 @@ async fn compose_trial_budget_terminal_stop(
     }
 }
 
+async fn compose_candidate_comparison(
+    State(state): State<CandidateComparisonDecisionApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            "unbound",
+        );
+    }
+    let request: CandidateComparisonCompositionRequestV1 = match serde_json::from_slice(&body) {
+        Ok(request) => request,
+        Err(_) => {
+            return rejection(
+                StatusCode::BAD_REQUEST,
+                "MALFORMED_TYPED_REQUEST",
+                "unbound",
+            );
+        }
+    };
+    let request_identity = request.request_identity.clone();
+    if !valid_candidate_comparison_request(&request) {
+        return rejection(
+            StatusCode::BAD_REQUEST,
+            "INVALID_CANDIDATE_COMPARISON_PROPOSAL",
+            &request_identity,
+        );
+    }
+    match state.owner.compose_candidate_comparison(request).await {
+        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
+        Err(error) => candidate_comparison_owner_error(&error, &request_identity),
+    }
+}
+
 async fn compose_ready_for_selection(
     State(state): State<ReadyForSelectionApiState>,
     headers: HeaderMap,
@@ -800,6 +934,49 @@ async fn resolve_trial_budget_terminal_stop(
             &decision_identity,
         ),
         Err(error) => trial_budget_terminal_stop_resolution_owner_error(&error, &decision_identity),
+    }
+}
+
+async fn resolve_candidate_comparison(
+    State(state): State<CandidateComparisonDecisionApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return decision_resolution_rejection(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            "unbound",
+        );
+    }
+    let locator: IterationDecisionResolutionLocatorV1 = match serde_json::from_slice(&body) {
+        Ok(locator) => locator,
+        Err(_) => {
+            return decision_resolution_rejection(
+                StatusCode::BAD_REQUEST,
+                "MALFORMED_TYPED_REQUEST",
+                "unbound",
+            );
+        }
+    };
+    let decision_identity = locator.decision_identity.clone();
+    if !is_valid_iteration_decision_locator_v1(&locator.decision_identity)
+        || !is_valid_iteration_decision_locator_v1(&locator.result_identity)
+    {
+        return decision_resolution_rejection(
+            StatusCode::BAD_REQUEST,
+            "INVALID_ITERATION_DECISION_LOCATORS",
+            &decision_identity,
+        );
+    }
+    match state.owner.resolve_candidate_comparison(locator).await {
+        Ok(Some(result)) => (StatusCode::OK, Json(result)).into_response(),
+        Ok(None) => decision_resolution_rejection(
+            StatusCode::NOT_FOUND,
+            "ITERATION_DECISION_NOT_FOUND",
+            &decision_identity,
+        ),
+        Err(error) => decision_resolution_owner_error(&error, &decision_identity),
     }
 }
 
@@ -929,6 +1106,18 @@ fn ready_for_selection_owner_error(
     )
 }
 
+fn candidate_comparison_owner_error(
+    error: &IterationDecisionPostgresErrorV1,
+    request_identity: &str,
+) -> Response {
+    owner_error_with(
+        error,
+        request_identity,
+        "INVALID_CANDIDATE_COMPARISON_PROPOSAL",
+        rejection,
+    )
+}
+
 fn trial_budget_terminal_stop_resolution_owner_error(
     error: &IterationDecisionPostgresErrorV1,
     decision_identity: &str,
@@ -997,6 +1186,11 @@ fn owner_error_with(
             "READY_FOR_SELECTION_NOT_APPLICABLE",
             correlation_identity,
         ),
+        IterationDecisionPostgresErrorV1::CandidateComparisonNotApplicable => reject(
+            StatusCode::CONFLICT,
+            "CANDIDATE_COMPARISON_NOT_APPLICABLE",
+            correlation_identity,
+        ),
         IterationDecisionPostgresErrorV1::TrialFamily(_)
         | IterationDecisionPostgresErrorV1::Backtest(_)
         | IterationDecisionPostgresErrorV1::ResearchCustody(_)
@@ -1008,6 +1202,46 @@ fn owner_error_with(
             correlation_identity,
         ),
     }
+}
+
+fn valid_candidate_comparison_request(request: &CandidateComparisonCompositionRequestV1) -> bool {
+    let evaluations = &request.candidate_evaluations;
+    let valid_reference = |reference: &vibe_strategy_factory::IterationEvidenceReferenceV1| {
+        is_valid_iteration_decision_locator_v1(&reference.identity)
+            && valid_sha256(&reference.digest)
+    };
+    [
+        request.trial_family_identity.as_str(),
+        request.result_identity.as_str(),
+        request.request_identity.as_str(),
+        request.attempt_identity.as_str(),
+        evaluations.frontier_identity.as_str(),
+        evaluations.generation_rule_identity.as_str(),
+    ]
+    .into_iter()
+    .all(is_valid_iteration_decision_locator_v1)
+        && valid_sha256(&evaluations.frontier_digest)
+        && valid_sha256(&evaluations.generation_rule_digest)
+        && valid_reference(&evaluations.threshold)
+        && evaluations.expected_cardinality > 0
+        && usize::try_from(evaluations.expected_cardinality)
+            .is_ok_and(|expected| expected == evaluations.candidates.len())
+        && evaluations.candidates.len() <= 4_096
+        && evaluations.candidates.iter().all(|candidate| {
+            let evidence = &candidate.information_value;
+            is_valid_iteration_decision_locator_v1(&candidate.candidate_identity)
+                && valid_sha256(&candidate.candidate_digest)
+                && is_valid_iteration_decision_locator_v1(&candidate.tie_break_key)
+                && valid_reference(&evidence.decision_uncertainty)
+                && valid_reference(&evidence.distinguishing_observation_or_falsifier)
+                && valid_reference(&evidence.result_to_action_map)
+                && valid_reference(&evidence.bounded_acquisition_cost)
+                && valid_reference(&evidence.remaining_family_budget_effect)
+                && valid_reference(&evidence.ordinal_rationale)
+                && !evidence.competing_alternatives.is_empty()
+                && evidence.competing_alternatives.len() <= 4_096
+                && evidence.competing_alternatives.iter().all(valid_reference)
+        })
 }
 
 fn valid_ready_for_selection_request(request: &ReadyForSelectionCompositionRequestV1) -> bool {
@@ -1205,6 +1439,12 @@ mod tests {
         response: Option<TrialBudgetTerminalStopActionResponseV1>,
     }
 
+    struct CandidateComparisonOwnerStub {
+        calls: AtomicUsize,
+        resolve_calls: AtomicUsize,
+        response: Option<CandidateComparisonDecisionActionResponseV1>,
+    }
+
     struct ReadyForSelectionOwnerStub {
         calls: AtomicUsize,
         resolve_calls: AtomicUsize,
@@ -1265,6 +1505,31 @@ mod tests {
             _locator: IterationDecisionResolutionLocatorV1,
         ) -> Result<Option<TrialBudgetTerminalStopActionResponseV1>, IterationDecisionPostgresErrorV1>
         {
+            self.resolve_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(self.response.clone())
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl CandidateComparisonDecisionActionPort for CandidateComparisonOwnerStub {
+        async fn compose_candidate_comparison(
+            &self,
+            _request: CandidateComparisonCompositionRequestV1,
+        ) -> Result<CandidateComparisonDecisionActionResponseV1, IterationDecisionPostgresErrorV1>
+        {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.response
+                .clone()
+                .ok_or(IterationDecisionPostgresErrorV1::CandidateComparisonNotApplicable)
+        }
+
+        async fn resolve_candidate_comparison(
+            &self,
+            _locator: IterationDecisionResolutionLocatorV1,
+        ) -> Result<
+            Option<CandidateComparisonDecisionActionResponseV1>,
+            IterationDecisionPostgresErrorV1,
+        > {
             self.resolve_calls.fetch_add(1, Ordering::SeqCst);
             Ok(self.response.clone())
         }
@@ -1364,6 +1629,49 @@ mod tests {
                     "version": 1,
                     "digest": format!("sha256:{}", "4".repeat(64))
                 }
+            }
+        })
+    }
+
+    fn candidate_comparison_request() -> serde_json::Value {
+        let reference = |identity: &str, byte: char| {
+            json!({
+                "identity": identity,
+                "digest": format!("sha256:{}", byte.to_string().repeat(64)),
+            })
+        };
+        json!({
+            "trial_family_identity": "family-1",
+            "result_identity": "result-1",
+            "request_identity": "request-1",
+            "attempt_identity": "attempt-1",
+            "candidate_evaluations": {
+                "frontier_identity": "candidate-frontier-1",
+                "frontier_digest": format!("sha256:{}", "1".repeat(64)),
+                "generation_rule_identity": "candidate-generation-rule-1",
+                "generation_rule_digest": format!("sha256:{}", "2".repeat(64)),
+                "expected_cardinality": 1,
+                "threshold": reference("rd.iteration-information-value-threshold.v1", '3'),
+                "candidates": [{
+                    "candidate_identity": "candidate-successor-1",
+                    "candidate_digest": format!("sha256:{}", "4".repeat(64)),
+                    "admissibility": { "status": "ADMISSIBLE_ABOVE_THRESHOLD" },
+                    "information_value": {
+                        "decision_uncertainty": reference("decision-uncertainty-1", '5'),
+                        "distinguishing_observation_or_falsifier": reference("falsifier-1", '6'),
+                        "result_to_action_map": reference("result-action-map-1", '7'),
+                        "bounded_acquisition_cost": reference("acquisition-cost-1", '8'),
+                        "remaining_family_budget_effect": reference("family-budget-effect-1", '9'),
+                        "competing_alternatives": [reference("alternative-1", 'a')],
+                        "ordinal_rationale": reference("ordinal-rationale-1", 'b')
+                    },
+                    "uncertainty_reduction_rank": 1,
+                    "tie_break_key": "successor-order-1",
+                    "experiment": {
+                        "mode": "SINGLE_DIMENSION",
+                        "changed_dimension": "RETURN_MECHANISM"
+                    }
+                }]
             }
         })
     }
@@ -1488,6 +1796,26 @@ mod tests {
             selection_receipt_identity: "research-selection-receipt-ready-1".into(),
             result_identity: "result-1".into(),
             committed_at_epoch_ms: 29,
+        }
+    }
+
+    fn candidate_comparison_response() -> CandidateComparisonDecisionActionResponseV1 {
+        let repair_response = response();
+        let parsed: CandidateComparisonCompositionRequestV1 =
+            serde_json::from_value(candidate_comparison_request()).expect("candidate request");
+        CandidateComparisonDecisionActionResponseV1 {
+            schema_version: 1,
+            decision_identity: "decision-successor-1".into(),
+            decision_digest: format!("sha256:{}", "c".repeat(64)),
+            evidence_cut: repair_response.evidence_cut,
+            outcome: IterationDecisionOutcomeV1::SuccessorExperiment {
+                experiment_identity: "candidate-successor-1".into(),
+                experiment_digest: format!("sha256:{}", "4".repeat(64)),
+            },
+            candidate_evaluations: parsed.candidate_evaluations,
+            receipt_identity: "decision-successor-receipt-1".into(),
+            result_identity: "result-1".into(),
+            committed_at_epoch_ms: 31,
         }
     }
 
@@ -1965,6 +2293,116 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn candidate_comparison_rejects_outcome_authority_before_owner() {
+        let token = "candidate-comparison-test";
+        let token_digest: [u8; 32] = sha2::Sha256::digest(token.as_bytes()).into();
+        let owner = Arc::new(CandidateComparisonOwnerStub {
+            calls: AtomicUsize::new(0),
+            resolve_calls: AtomicUsize::new(0),
+            response: None,
+        });
+        let unauthorized = candidate_comparison_router(owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/iteration-decisions/candidate-comparison",
+                candidate_comparison_request(),
+                None,
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(unauthorized.status(), StatusCode::FORBIDDEN);
+        assert_eq!(owner.calls.load(Ordering::SeqCst), 0);
+
+        let mut injected = candidate_comparison_request();
+        injected["outcome"] = json!({"experiment_identity": "caller-selected"});
+        let rejected = candidate_comparison_router(owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/iteration-decisions/candidate-comparison",
+                injected,
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(rejected.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(owner.calls.load(Ordering::SeqCst), 0);
+
+        let mut incomplete = candidate_comparison_request();
+        incomplete["candidate_evaluations"]["expected_cardinality"] = json!(2);
+        let rejected = candidate_comparison_router(owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/iteration-decisions/candidate-comparison",
+                incomplete,
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(rejected.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(owner.calls.load(Ordering::SeqCst), 0);
+
+        let not_applicable = candidate_comparison_router(owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/iteration-decisions/candidate-comparison",
+                candidate_comparison_request(),
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(not_applicable.status(), StatusCode::CONFLICT);
+        assert_eq!(
+            response_json(not_applicable).await,
+            json!({
+                "request_identity": "request-1",
+                "error": "CANDIDATE_COMPARISON_NOT_APPLICABLE",
+            })
+        );
+        assert_eq!(owner.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn candidate_comparison_compose_and_resolve_return_exact_owner_custody() {
+        let token = "candidate-comparison-success-test";
+        let token_digest: [u8; 32] = sha2::Sha256::digest(token.as_bytes()).into();
+        let expected = candidate_comparison_response();
+        let owner = Arc::new(CandidateComparisonOwnerStub {
+            calls: AtomicUsize::new(0),
+            resolve_calls: AtomicUsize::new(0),
+            response: Some(expected.clone()),
+        });
+        let mut bodies = Vec::new();
+        for _ in 0..2 {
+            let response = candidate_comparison_router(owner.clone(), token_digest)
+                .oneshot(send_to(
+                    "/v1/iteration-decisions/candidate-comparison",
+                    candidate_comparison_request(),
+                    Some(&format!("Bearer {token}")),
+                ))
+                .await
+                .expect("router response");
+            assert_eq!(response.status(), StatusCode::OK);
+            bodies.push(response_json(response).await);
+        }
+        assert_eq!(bodies, vec![serde_json::to_value(&expected).unwrap(); 2]);
+        assert_eq!(owner.calls.load(Ordering::SeqCst), 2);
+
+        let resolved = candidate_comparison_router(owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/iteration-decisions/candidate-comparison/resolve",
+                json!({
+                    "decision_identity": "decision-successor-1",
+                    "result_identity": "result-1",
+                }),
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(resolved.status(), StatusCode::OK);
+        assert_eq!(
+            response_json(resolved).await,
+            serde_json::to_value(expected).unwrap()
+        );
+        assert_eq!(owner.resolve_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
     async fn unified_resolve_is_authenticated_and_preserves_all_owner_variants() {
         let token = "unified-iteration-decision-readback-test";
         let token_digest: [u8; 32] = sha2::Sha256::digest(token.as_bytes()).into();
@@ -2037,6 +2475,31 @@ mod tests {
             serde_json::to_value(budget).unwrap()
         );
         assert_eq!(budget_owner.resolve_calls.load(Ordering::SeqCst), 1);
+
+        let candidate = UnifiedIterationDecisionResponseV1::CandidateComparison(
+            candidate_comparison_response(),
+        );
+        let candidate_owner = Arc::new(UnifiedDecisionOwnerStub {
+            resolve_calls: AtomicUsize::new(0),
+            response: Some(candidate.clone()),
+        });
+        let resolved = iteration_decision_read_router(candidate_owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/iteration-decisions/resolve",
+                json!({
+                    "decision_identity": "decision-successor-1",
+                    "result_identity": "result-1",
+                }),
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(resolved.status(), StatusCode::OK);
+        assert_eq!(
+            response_json(resolved).await,
+            serde_json::to_value(candidate).unwrap()
+        );
+        assert_eq!(candidate_owner.resolve_calls.load(Ordering::SeqCst), 1);
 
         let ready = UnifiedIterationDecisionResponseV1::ReadyForSelection(ready_response());
         let ready_owner = Arc::new(UnifiedDecisionOwnerStub {
