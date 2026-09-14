@@ -39,7 +39,7 @@ const SUCCESSOR_INTENT_COMMITTED_EVENT_V1: &str = "SUCCESSOR_RESEARCH_INTENT_COM
 pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
     crate::schema_materialization::PublicTableSpec {
         name: "rd_successor_research_intents_v1",
-        runtime_read_grantees: &[],
+        runtime_read_grantees: &["rd_exploratory_replay_api_owner"],
         columns: &[
             crate::schema_materialization::required("intent_identity", "text"),
             crate::schema_materialization::required("intent_digest", "text"),
