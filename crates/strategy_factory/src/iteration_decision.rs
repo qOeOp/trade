@@ -12,6 +12,10 @@ use vibe_backtest_owner_contracts::{
 
 use crate::{
     LockedExploratoryReplayResultV2, ReplayPolicyCatalogBindingV3,
+    iteration_candidate::{
+        IterationCandidateComparisonV1, IterationCandidateEvaluationSetV1,
+        compare_iteration_candidates_v1,
+    },
     product_edge::FrozenResearchGoalIntent,
     rd_owner_postgres_custody::{LockedExploratoryReplayResultV3, VerifiedResearchCustodyV1},
     trial_family::{
@@ -22,6 +26,12 @@ use crate::{
 
 const ITERATION_DECISION_POLICY_ID_V1: &str = "rd.iteration-decision-policy.v1";
 const ITERATION_DECISION_POLICY_VERSION_V1: u64 = 1;
+const ITERATION_INFORMATION_VALUE_THRESHOLD_ID_V1: &str =
+    "rd.iteration-information-value-threshold.v1";
+const ITERATION_INFORMATION_VALUE_THRESHOLD_DESCRIPTOR_V1: &[u8] =
+    b"ordinal-admissibility=ABOVE_THRESHOLD|BELOW_THRESHOLD;stop=COMPLETE_ALL_BELOW_ONLY";
+const ITERATION_TIE_BREAK_POLICY_ID_V1: &str = "rd.iteration-candidate-tie-break.v1";
+const ITERATION_TIE_BREAK_POLICY_DESCRIPTOR_V1: &[u8] = b"order=UNCERTAINTY_REDUCTION_RANK_ASC,TIE_BREAK_KEY_ASC,CANDIDATE_IDENTITY_ASC,CANDIDATE_DIGEST_ASC;collisions=NO_DECISION";
 const ITERATION_DECISION_POLICY_DESCRIPTOR_V1: &[u8] = concat!(
     "dimensions=EVIDENCE_INTEGRITY,MECHANISM_VALIDITY,ECONOMIC_VIABILITY,ROBUSTNESS,",
     "FAILURE_ATTRIBUTION,INFORMATION_VALUE\n",
@@ -35,6 +45,9 @@ const ITERATION_DECISION_POLICY_DESCRIPTOR_V1: &[u8] = concat!(
     "decision_precedence=REPAIR_INPUTS,HARD_STOP,READY_FOR_SELECTION,LOW_INFORMATION_STOP,",
     "ONE_CHANGE_SUCCESSOR\n",
     "selection=READY_FOR_SELECTION_ONLY\n",
+    "candidate_threshold=rd.iteration-information-value-threshold.v1\n",
+    "candidate_tie_break=UNCERTAINTY_REDUCTION_RANK_ASC,TIE_BREAK_KEY_ASC,",
+    "CANDIDATE_IDENTITY_ASC,CANDIDATE_DIGEST_ASC;COLLISION:NO_DECISION\n",
 )
 .as_bytes();
 
@@ -51,6 +64,10 @@ pub struct IterationDecisionPolicyBindingV1 {
     replay_catalog_record_id: String,
     replay_catalog_version: u64,
     replay_catalog_record_digest: [u8; 32],
+    information_value_threshold_identity: String,
+    information_value_threshold_digest: [u8; 32],
+    tie_break_policy_identity: String,
+    tie_break_policy_digest: [u8; 32],
     binding_digest: [u8; 32],
 }
 
@@ -80,6 +97,15 @@ impl IterationDecisionPolicyBindingV1 {
             replay_catalog_record_id: replay_catalog.catalog_record_id().to_string(),
             replay_catalog_version: replay_catalog.catalog_version(),
             replay_catalog_record_digest: *replay_catalog.catalog_record_digest(),
+            information_value_threshold_identity: ITERATION_INFORMATION_VALUE_THRESHOLD_ID_V1
+                .to_string(),
+            information_value_threshold_digest: Sha256::digest(
+                ITERATION_INFORMATION_VALUE_THRESHOLD_DESCRIPTOR_V1,
+            )
+            .into(),
+            tie_break_policy_identity: ITERATION_TIE_BREAK_POLICY_ID_V1.to_string(),
+            tie_break_policy_digest: Sha256::digest(ITERATION_TIE_BREAK_POLICY_DESCRIPTOR_V1)
+                .into(),
             binding_digest: [0; 32],
         };
         binding.binding_digest = binding.expected_binding_digest()?;
@@ -111,6 +137,13 @@ impl IterationDecisionPolicyBindingV1 {
         update_len_prefixed(&mut digest, self.replay_catalog_record_id.as_bytes())?;
         digest.update(self.replay_catalog_version.to_le_bytes());
         digest.update(self.replay_catalog_record_digest);
+        update_len_prefixed(
+            &mut digest,
+            self.information_value_threshold_identity.as_bytes(),
+        )?;
+        digest.update(self.information_value_threshold_digest);
+        update_len_prefixed(&mut digest, self.tie_break_policy_identity.as_bytes())?;
+        digest.update(self.tie_break_policy_digest);
         Ok(digest.finalize().into())
     }
 
@@ -128,6 +161,14 @@ impl IterationDecisionPolicyBindingV1 {
 
     pub const fn binding_digest(&self) -> [u8; 32] {
         self.binding_digest
+    }
+
+    pub(crate) fn information_value_threshold_identity(&self) -> &str {
+        &self.information_value_threshold_identity
+    }
+
+    pub(crate) const fn information_value_threshold_digest(&self) -> [u8; 32] {
+        self.information_value_threshold_digest
     }
 }
 
@@ -296,6 +337,31 @@ pub struct TrialBudgetTerminalStopDecisionV1 {
 #[serde(deny_unknown_fields)]
 pub struct TrialBudgetTerminalStopDecisionReadbackV1 {
     decision: TrialBudgetTerminalStopDecisionV1,
+    receipt: IterationDecisionReceiptV1,
+}
+
+/// R&D-owned Decision derived from one complete next-experiment comparison.
+///
+/// The caller supplies analytical evidence, but cannot select the committed outcome. The Owner
+/// recomputes either the unique successor or the complete-census low-information stop against the
+/// exact canonical TrialFamily frontier.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CandidateComparisonIterationDecisionV1 {
+    schema_version: u16,
+    decision_identity: String,
+    decision_digest: String,
+    evidence_cut: IterationDecisionEvidenceCutV1,
+    outcome: IterationDecisionOutcomeV1,
+    candidate_evaluations: IterationCandidateEvaluationSetV1,
+    interpretation: IterationInterpretationContextV1,
+}
+
+/// Move-only positive custody for a successor or low-information terminal Decision.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CandidateComparisonDecisionReadbackV1 {
+    decision: CandidateComparisonIterationDecisionV1,
     receipt: IterationDecisionReceiptV1,
 }
 
@@ -568,6 +634,7 @@ pub struct ReadyForSelectionDecisionReadbackV1 {
 pub enum ExistingIterationDecisionReadbackV1 {
     RepairInputs(RepairInputIterationDecisionReadbackV1),
     TrialBudgetTerminalStop(TrialBudgetTerminalStopDecisionReadbackV1),
+    CandidateComparison(CandidateComparisonDecisionReadbackV1),
     ReadyForSelection(ReadyForSelectionDecisionReadbackV1),
 }
 
@@ -653,6 +720,38 @@ impl TrialBudgetTerminalStopDecisionV1 {
 
 impl TrialBudgetTerminalStopDecisionReadbackV1 {
     pub fn decision(&self) -> &TrialBudgetTerminalStopDecisionV1 {
+        &self.decision
+    }
+
+    pub fn receipt(&self) -> &IterationDecisionReceiptV1 {
+        &self.receipt
+    }
+}
+
+impl CandidateComparisonIterationDecisionV1 {
+    pub fn decision_identity(&self) -> &str {
+        &self.decision_identity
+    }
+
+    pub fn decision_digest(&self) -> &str {
+        &self.decision_digest
+    }
+
+    pub fn evidence_cut(&self) -> &IterationDecisionEvidenceCutV1 {
+        &self.evidence_cut
+    }
+
+    pub fn outcome(&self) -> &IterationDecisionOutcomeV1 {
+        &self.outcome
+    }
+
+    pub fn candidate_evaluations(&self) -> &IterationCandidateEvaluationSetV1 {
+        &self.candidate_evaluations
+    }
+}
+
+impl CandidateComparisonDecisionReadbackV1 {
+    pub fn decision(&self) -> &CandidateComparisonIterationDecisionV1 {
         &self.decision
     }
 
@@ -909,6 +1008,18 @@ struct StoredTrialBudgetTerminalStopDecisionV1 {
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+struct StoredCandidateComparisonIterationDecisionV1 {
+    schema_version: u16,
+    decision_identity: String,
+    decision_digest: String,
+    evidence_cut: IterationDecisionEvidenceCutV1,
+    outcome: IterationDecisionOutcomeV1,
+    candidate_evaluations: IterationCandidateEvaluationSetV1,
+    interpretation: IterationInterpretationContextV1,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct StoredIterationDecisionReceiptV1 {
     schema_version: u16,
     receipt_identity: String,
@@ -1068,6 +1179,8 @@ pub enum IterationDecisionErrorV1 {
     InterpretationGateRequired,
     #[error("locked Result interpretation evidence is unavailable: {0}")]
     InterpretationEvidenceUnavailable(&'static str),
+    #[error("R&D candidate comparison is unavailable: {0}")]
+    CandidateComparisonUnavailable(String),
     #[error("stored R&D Iteration Decision is invalid: {0}")]
     InvalidStoredDecision(&'static str),
     #[error("R&D Iteration Decision encoding is unavailable: {0}")]
@@ -1774,6 +1887,137 @@ fn issue_trial_budget_terminal_stop_from_parts_v1(
     Ok(TrialBudgetTerminalStopDecisionReadbackV1 { decision, receipt })
 }
 
+pub(crate) fn issue_candidate_comparison_decision_v1(
+    census: &TrialFamilyCensusReadbackV2,
+    interpretation: IterationInterpretationContextV1,
+    candidate_evaluations: IterationCandidateEvaluationSetV1,
+    committed_at_epoch_ms: u64,
+) -> Result<CandidateComparisonDecisionReadbackV1, IterationDecisionErrorV1> {
+    validate_interpretation_cut_against_census_v1(census, &interpretation)?;
+    if census.consumed_trial_budget() >= census.legacy_family.root().policy().trial_budget {
+        return Err(IterationDecisionErrorV1::InvalidStoredDecision(
+            "TrialFamily hard stop preempts candidate comparison",
+        ));
+    }
+    issue_candidate_comparison_from_parts_v1(
+        census,
+        interpretation,
+        candidate_evaluations,
+        committed_at_epoch_ms,
+    )
+}
+
+pub(crate) fn admit_stored_candidate_comparison_decision_v1(
+    census: &TrialFamilyCensusReadbackV2,
+    decision_bytes: &[u8],
+    receipt_bytes: &[u8],
+) -> Result<CandidateComparisonDecisionReadbackV1, IterationDecisionErrorV1> {
+    let stored_decision: StoredCandidateComparisonIterationDecisionV1 =
+        serde_json::from_slice(decision_bytes)
+            .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+    let stored_receipt: StoredIterationDecisionReceiptV1 = serde_json::from_slice(receipt_bytes)
+        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+    validate_interpretation_cut_against_census_v1(census, &stored_decision.interpretation)?;
+    let expected = issue_candidate_comparison_from_parts_v1(
+        census,
+        stored_decision.interpretation,
+        stored_decision.candidate_evaluations,
+        stored_receipt.committed_at_epoch_ms,
+    )?;
+    let canonical_decision = serde_json::to_vec(expected.decision())
+        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+    let canonical_receipt = serde_json::to_vec(expected.receipt())
+        .map_err(|error| IterationDecisionErrorV1::Encoding(error.to_string()))?;
+    if canonical_decision != decision_bytes || canonical_receipt != receipt_bytes {
+        return Err(IterationDecisionErrorV1::InvalidStoredDecision(
+            "stored canonical bytes or digest mismatch",
+        ));
+    }
+    Ok(expected)
+}
+
+fn issue_candidate_comparison_from_parts_v1(
+    census: &TrialFamilyCensusReadbackV2,
+    interpretation: IterationInterpretationContextV1,
+    candidate_evaluations: IterationCandidateEvaluationSetV1,
+    committed_at_epoch_ms: u64,
+) -> Result<CandidateComparisonDecisionReadbackV1, IterationDecisionErrorV1> {
+    if census.consumed_trial_budget() >= census.legacy_family.root().policy().trial_budget {
+        return Err(IterationDecisionErrorV1::InvalidStoredDecision(
+            "TrialFamily hard stop preempts candidate comparison",
+        ));
+    }
+    validate_complete_interpretation_v1(&interpretation)?;
+    let comparison = compare_iteration_candidates_v1(census, candidate_evaluations.clone())
+        .map_err(|error| {
+            IterationDecisionErrorV1::CandidateComparisonUnavailable(error.to_string())
+        })?;
+    let outcome = match comparison {
+        IterationCandidateComparisonV1::Winner { candidate } => {
+            IterationDecisionOutcomeV1::SuccessorExperiment {
+                experiment_identity: candidate.candidate_identity,
+                experiment_digest: candidate.candidate_digest,
+            }
+        }
+        IterationCandidateComparisonV1::AllBelowThreshold { .. } => {
+            IterationDecisionOutcomeV1::TerminalStop {
+                reason: IterationTerminalStopReasonV1::LowInformationValue,
+            }
+        }
+        IterationCandidateComparisonV1::NoDecision { reason } => {
+            return Err(IterationDecisionErrorV1::CandidateComparisonUnavailable(
+                format!("{reason:?}"),
+            ));
+        }
+    };
+    let evidence_cut = interpretation.evidence_cut.clone();
+    let decision_digest = canonical_digest(
+        "rd.iteration-decision.candidate-comparison.v1",
+        &CandidateComparisonDecisionMeaningV1 {
+            schema_version: 1,
+            evidence_cut: &evidence_cut,
+            outcome: &outcome,
+            candidate_evaluations: &candidate_evaluations,
+            interpretation: &interpretation,
+        },
+    )?;
+    let decision_identity = format!(
+        "rd-iteration-decision-v1-{}",
+        decision_digest.trim_start_matches("sha256:")
+    );
+    let decision = CandidateComparisonIterationDecisionV1 {
+        schema_version: 1,
+        decision_identity: decision_identity.clone(),
+        decision_digest: decision_digest.clone(),
+        evidence_cut,
+        outcome,
+        candidate_evaluations,
+        interpretation,
+    };
+    let receipt_digest = canonical_digest(
+        "rd.iteration-decision-receipt.v1",
+        &DecisionReceiptMeaningV1 {
+            schema_version: 1,
+            decision_identity: &decision_identity,
+            decision_digest: &decision_digest,
+            result_identity: &decision.evidence_cut.result_identity,
+            committed_at_epoch_ms,
+        },
+    )?;
+    let receipt = IterationDecisionReceiptV1 {
+        schema_version: 1,
+        receipt_identity: format!(
+            "rd-iteration-decision-receipt-v1-{}",
+            receipt_digest.trim_start_matches("sha256:")
+        ),
+        decision_identity,
+        decision_digest,
+        result_identity: decision.evidence_cut.result_identity.clone(),
+        committed_at_epoch_ms,
+    };
+    Ok(CandidateComparisonDecisionReadbackV1 { decision, receipt })
+}
+
 fn validate_complete_interpretation_v1(
     interpretation: &IterationInterpretationContextV1,
 ) -> Result<(), IterationDecisionErrorV1> {
@@ -2451,6 +2695,15 @@ struct TrialBudgetTerminalStopDecisionMeaningV1<'a> {
 }
 
 #[derive(Serialize)]
+struct CandidateComparisonDecisionMeaningV1<'a> {
+    schema_version: u16,
+    evidence_cut: &'a IterationDecisionEvidenceCutV1,
+    outcome: &'a IterationDecisionOutcomeV1,
+    candidate_evaluations: &'a IterationCandidateEvaluationSetV1,
+    interpretation: &'a IterationInterpretationContextV1,
+}
+
+#[derive(Serialize)]
 struct PositiveAssessmentMeaningV1<'a> {
     schema_version: u16,
     evidence_cut: &'a IterationDecisionEvidenceCutV1,
@@ -2769,6 +3022,11 @@ pub(crate) mod tests {
         TrialFamilyIndependenceDispositionV1, TrialFamilyPolicyV1, append_attempt_to_census_v2,
         form_initial_family,
     };
+    use crate::{
+        IterationCandidateAdmissibilityV1, IterationCandidateEvaluationV1,
+        IterationEvidenceReferenceV1, IterationExperimentModeV1, IterationHypothesisDimensionV1,
+        IterationInformationValueEvidenceV1,
+    };
 
     fn identity(value: &str) -> OpaqueIdentityV2 {
         value.to_string().try_into().expect("valid identity")
@@ -2862,6 +3120,25 @@ pub(crate) mod tests {
         trial_budget: u32,
         consumed_trial_budget: u32,
     ) -> TrialFamilyCensusReadbackV2 {
+        census_with_candidate_set(
+            disposition,
+            trial_budget,
+            consumed_trial_budget,
+            TrialFamilyCandidateSetProposalV2 {
+                generation_rule_identity: "candidate-rule-v1".to_string(),
+                generation_rule_digest: format!("sha256:{}", "4".repeat(64)),
+                expected_cardinality: 0,
+                candidates: Vec::new(),
+            },
+        )
+    }
+
+    fn census_with_candidate_set(
+        disposition: TrialFamilyAttemptTerminalDispositionV2,
+        trial_budget: u32,
+        consumed_trial_budget: u32,
+        candidate_set: TrialFamilyCandidateSetProposalV2,
+    ) -> TrialFamilyCensusReadbackV2 {
         let mut family_policy = policy();
         family_policy.trial_budget = trial_budget;
         let family = form_initial_family(
@@ -2883,16 +3160,89 @@ pub(crate) mod tests {
                 result_digest: format!("blake3:{}", "3".repeat(64)),
                 terminal_disposition: disposition,
                 consumed_trial_budget,
-                candidate_set: TrialFamilyCandidateSetProposalV2 {
-                    generation_rule_identity: "candidate-rule-v1".to_string(),
-                    generation_rule_digest: format!("sha256:{}", "4".repeat(64)),
-                    expected_cardinality: 0,
-                    candidates: Vec::new(),
-                },
+                candidate_set,
             },
             2,
         )
         .expect("valid census")
+    }
+
+    fn candidate_set(entries: &[(&str, char)]) -> TrialFamilyCandidateSetProposalV2 {
+        serde_json::from_value(serde_json::json!({
+            "generation_rule_identity": "candidate-rule-v1",
+            "generation_rule_digest": format!("sha256:{}", "4".repeat(64)),
+            "expected_cardinality": entries.len(),
+            "candidates": entries.iter().map(|(identity, byte)| serde_json::json!({
+                "candidate_identity": identity,
+                "candidate_digest": format!("sha256:{}", byte.to_string().repeat(64)),
+            })).collect::<Vec<_>>(),
+        }))
+        .expect("valid candidate set")
+    }
+
+    fn candidate_evaluations(
+        census: &TrialFamilyCensusReadbackV2,
+        entries: &[(&str, char, IterationCandidateAdmissibilityV1, u32)],
+    ) -> IterationCandidateEvaluationSetV1 {
+        let reference = |identity: &str, byte: char| IterationEvidenceReferenceV1 {
+            identity: identity.to_string(),
+            digest: format!("sha256:{}", byte.to_string().repeat(64)),
+        };
+        let policy = census.decision_policy_v1().expect("decision policy");
+        IterationCandidateEvaluationSetV1 {
+            frontier_identity: census
+                .candidate_set_frontier
+                .frontier_identity()
+                .to_string(),
+            frontier_digest: census.candidate_set_frontier.frontier_digest().to_string(),
+            generation_rule_identity: census
+                .candidate_set_frontier
+                .generation_rule_identity()
+                .to_string(),
+            generation_rule_digest: census
+                .candidate_set_frontier
+                .generation_rule_digest()
+                .to_string(),
+            expected_cardinality: u32::try_from(entries.len()).expect("bounded fixture"),
+            threshold: IterationEvidenceReferenceV1 {
+                identity: policy.information_value_threshold_identity().to_string(),
+                digest: format!(
+                    "sha256:{}",
+                    policy
+                        .information_value_threshold_digest()
+                        .iter()
+                        .map(|byte| format!("{byte:02x}"))
+                        .collect::<String>()
+                ),
+            },
+            candidates: entries
+                .iter()
+                .map(|(candidate_identity, byte, admissibility, rank)| {
+                    IterationCandidateEvaluationV1 {
+                        candidate_identity: (*candidate_identity).to_string(),
+                        candidate_digest: format!("sha256:{}", byte.to_string().repeat(64)),
+                        admissibility: admissibility.clone(),
+                        information_value: IterationInformationValueEvidenceV1 {
+                            decision_uncertainty: reference("decision-uncertainty", 'a'),
+                            distinguishing_observation_or_falsifier: reference(
+                                "distinguishing-falsifier",
+                                'b',
+                            ),
+                            result_to_action_map: reference("result-action-map", 'c'),
+                            bounded_acquisition_cost: reference("bounded-cost", 'd'),
+                            remaining_family_budget_effect: reference("budget-effect", 'e'),
+                            competing_alternatives: vec![reference("alternative", 'f')],
+                            ordinal_rationale: reference("ordinal-rationale", '1'),
+                        },
+                        uncertainty_reduction_rank: *rank,
+                        tie_break_key: (*candidate_identity).to_string(),
+                        experiment: IterationExperimentModeV1::SingleDimension {
+                            changed_dimension: IterationHypothesisDimensionV1::ReturnMechanism,
+                        },
+                    }
+                })
+                .collect(),
+        }
     }
 
     fn diagnostic(category: DiagnosticCategoryV2) -> DiagnosticEvidenceDtoV2 {
@@ -3622,6 +3972,120 @@ pub(crate) mod tests {
         assert!(matches!(
             issue_trial_budget_terminal_stop_decision_v1(&census, context, 3),
             Err(IterationDecisionErrorV1::ResultBindingMismatch)
+        ));
+    }
+
+    #[test]
+    fn candidate_comparison_commits_only_the_computed_unique_winner() {
+        let candidates = [("candidate-lower", '2'), ("candidate-winner", '3')];
+        let census = census_with_candidate_set(
+            TrialFamilyAttemptTerminalDispositionV2::TerminalResult,
+            2,
+            1,
+            candidate_set(&candidates),
+        );
+        let result = interpretation_result(DiagnosticCategoryV2::NoExecutionDefect);
+        let gate = gate_result(&census, &result, &decision_policy()).expect("interpretation gate");
+        let context = interpretation_context(&census, gate, &result).expect("complete context");
+        let evaluations = candidate_evaluations(
+            &census,
+            &[
+                (
+                    "candidate-lower",
+                    '2',
+                    IterationCandidateAdmissibilityV1::AdmissibleAboveThreshold,
+                    2,
+                ),
+                (
+                    "candidate-winner",
+                    '3',
+                    IterationCandidateAdmissibilityV1::AdmissibleAboveThreshold,
+                    1,
+                ),
+            ],
+        );
+        let issued = issue_candidate_comparison_decision_v1(&census, context, evaluations, 3)
+            .expect("computed successor");
+        assert_eq!(
+            issued.decision().outcome(),
+            &IterationDecisionOutcomeV1::SuccessorExperiment {
+                experiment_identity: "candidate-winner".to_string(),
+                experiment_digest: format!("sha256:{}", "3".repeat(64)),
+            }
+        );
+
+        let decision_identity = issued.decision().decision_identity().to_string();
+        let result_identity = issued.receipt().result_identity().to_string();
+        let decision = ExistingIterationDecisionReadbackV1::CandidateComparison(issued.clone());
+        let projection = crate::product_edge::project_research_iteration_action_v1(
+            &decision_identity,
+            &result_identity,
+            Some(&decision),
+        )
+        .expect("successor Product Edge action");
+        assert_eq!(
+            projection.action(),
+            &crate::product_edge::ResearchIterationActionV1::CreateSuccessorIntent {
+                decision_digest: issued.decision().decision_digest().to_string(),
+                decision_receipt_identity: issued.receipt().receipt_identity().to_string(),
+                experiment_identity: "candidate-winner".to_string(),
+                experiment_digest: format!("sha256:{}", "3".repeat(64)),
+            }
+        );
+
+        let decision_bytes = serde_json::to_vec(issued.decision()).expect("decision bytes");
+        let receipt_bytes = serde_json::to_vec(issued.receipt()).expect("receipt bytes");
+        assert_eq!(
+            admit_stored_candidate_comparison_decision_v1(
+                &census,
+                &decision_bytes,
+                &receipt_bytes,
+            )
+            .expect("canonical replay"),
+            issued
+        );
+    }
+
+    #[test]
+    fn candidate_comparison_low_information_stop_requires_frozen_complete_census() {
+        let candidates = [("candidate-below", '2')];
+        let census = census_with_candidate_set(
+            TrialFamilyAttemptTerminalDispositionV2::TerminalResult,
+            2,
+            1,
+            candidate_set(&candidates),
+        );
+        let result = interpretation_result(DiagnosticCategoryV2::ValidEconomicFailure);
+        let gate = gate_result(&census, &result, &decision_policy()).expect("interpretation gate");
+        let context = interpretation_context(&census, gate, &result).expect("complete context");
+        let evaluations = candidate_evaluations(
+            &census,
+            &[(
+                "candidate-below",
+                '2',
+                IterationCandidateAdmissibilityV1::AdmissibleBelowThreshold,
+                1,
+            )],
+        );
+        let issued = issue_candidate_comparison_decision_v1(
+            &census,
+            context.clone(),
+            evaluations.clone(),
+            3,
+        )
+        .expect("complete low-information stop");
+        assert_eq!(
+            issued.decision().outcome(),
+            &IterationDecisionOutcomeV1::TerminalStop {
+                reason: IterationTerminalStopReasonV1::LowInformationValue,
+            }
+        );
+
+        let mut changed_threshold = evaluations;
+        changed_threshold.threshold.identity = "caller-chosen-threshold".to_string();
+        assert!(matches!(
+            issue_candidate_comparison_decision_v1(&census, context, changed_threshold, 3),
+            Err(IterationDecisionErrorV1::CandidateComparisonUnavailable(_))
         ));
     }
 

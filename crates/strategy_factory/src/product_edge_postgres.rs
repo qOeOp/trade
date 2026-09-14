@@ -1523,6 +1523,34 @@ impl PostgresResearchGoalOwnerV1 {
         .await
     }
 
+    /// Computes and seals the unique successor or complete-census low-information stop.
+    pub async fn compose_candidate_comparison_decision_v1(
+        &self,
+        request: crate::CandidateComparisonCompositionRequestV1,
+    ) -> Result<
+        crate::iteration_decision::CandidateComparisonDecisionReadbackV1,
+        crate::IterationDecisionPostgresErrorV1,
+    > {
+        crate::iteration_decision_postgres::compose_candidate_comparison_decision_v1(
+            &self.pool, request,
+        )
+        .await
+    }
+
+    /// Resolves existing successor or low-information Decision custody without creating it.
+    pub async fn resolve_candidate_comparison_decision_v1(
+        &self,
+        locator: crate::IterationDecisionResolutionLocatorV1,
+    ) -> Result<
+        Option<crate::iteration_decision::CandidateComparisonDecisionReadbackV1>,
+        crate::IterationDecisionPostgresErrorV1,
+    > {
+        crate::iteration_decision_postgres::resolve_candidate_comparison_decision_v1(
+            &self.pool, locator,
+        )
+        .await
+    }
+
     /// Seals one positive assessment and READY Decision from the exact locked R&D cut.
     pub async fn compose_ready_for_selection_decision_v1(
         &self,

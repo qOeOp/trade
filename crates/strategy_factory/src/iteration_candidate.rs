@@ -18,14 +18,14 @@ const MAX_TEXT_BYTES: usize = 256;
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct IterationEvidenceReferenceV1 {
-    pub(crate) identity: String,
-    pub(crate) digest: String,
+pub struct IterationEvidenceReferenceV1 {
+    pub identity: String,
+    pub digest: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub(crate) enum IterationHypothesisDimensionV1 {
+pub enum IterationHypothesisDimensionV1 {
     ReturnMechanism,
     MarketRegime,
     InstrumentScope,
@@ -39,18 +39,18 @@ pub(crate) enum IterationHypothesisDimensionV1 {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct IterationPreregisteredFiniteJointV1 {
-    pub(crate) changed_dimensions: Vec<IterationHypothesisDimensionV1>,
-    pub(crate) bounded_combinations: Vec<IterationEvidenceReferenceV1>,
-    pub(crate) attribution_rule: IterationEvidenceReferenceV1,
-    pub(crate) budget: IterationEvidenceReferenceV1,
-    pub(crate) falsifier: IterationEvidenceReferenceV1,
-    pub(crate) stop_rule: IterationEvidenceReferenceV1,
+pub struct IterationPreregisteredFiniteJointV1 {
+    pub changed_dimensions: Vec<IterationHypothesisDimensionV1>,
+    pub bounded_combinations: Vec<IterationEvidenceReferenceV1>,
+    pub attribution_rule: IterationEvidenceReferenceV1,
+    pub budget: IterationEvidenceReferenceV1,
+    pub falsifier: IterationEvidenceReferenceV1,
+    pub stop_rule: IterationEvidenceReferenceV1,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(tag = "mode", rename_all = "SCREAMING_SNAKE_CASE")]
-pub(crate) enum IterationExperimentModeV1 {
+pub enum IterationExperimentModeV1 {
     SingleDimension {
         changed_dimension: IterationHypothesisDimensionV1,
     },
@@ -61,7 +61,7 @@ pub(crate) enum IterationExperimentModeV1 {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub(crate) enum IterationCandidateInadmissibilityV1 {
+pub enum IterationCandidateInadmissibilityV1 {
     BudgetExceeded,
     MissingBinding,
     NotPreregistered,
@@ -74,7 +74,7 @@ pub(crate) enum IterationCandidateInadmissibilityV1 {
     content = "reason",
     rename_all = "SCREAMING_SNAKE_CASE"
 )]
-pub(crate) enum IterationCandidateAdmissibilityV1 {
+pub enum IterationCandidateAdmissibilityV1 {
     AdmissibleAboveThreshold,
     AdmissibleBelowThreshold,
     Inadmissible(IterationCandidateInadmissibilityV1),
@@ -83,38 +83,38 @@ pub(crate) enum IterationCandidateAdmissibilityV1 {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct IterationInformationValueEvidenceV1 {
-    pub(crate) decision_uncertainty: IterationEvidenceReferenceV1,
-    pub(crate) distinguishing_observation_or_falsifier: IterationEvidenceReferenceV1,
-    pub(crate) result_to_action_map: IterationEvidenceReferenceV1,
-    pub(crate) bounded_acquisition_cost: IterationEvidenceReferenceV1,
-    pub(crate) remaining_family_budget_effect: IterationEvidenceReferenceV1,
-    pub(crate) competing_alternatives: Vec<IterationEvidenceReferenceV1>,
-    pub(crate) ordinal_rationale: IterationEvidenceReferenceV1,
+pub struct IterationInformationValueEvidenceV1 {
+    pub decision_uncertainty: IterationEvidenceReferenceV1,
+    pub distinguishing_observation_or_falsifier: IterationEvidenceReferenceV1,
+    pub result_to_action_map: IterationEvidenceReferenceV1,
+    pub bounded_acquisition_cost: IterationEvidenceReferenceV1,
+    pub remaining_family_budget_effect: IterationEvidenceReferenceV1,
+    pub competing_alternatives: Vec<IterationEvidenceReferenceV1>,
+    pub ordinal_rationale: IterationEvidenceReferenceV1,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct IterationCandidateEvaluationV1 {
-    pub(crate) candidate_identity: String,
-    pub(crate) candidate_digest: String,
-    pub(crate) admissibility: IterationCandidateAdmissibilityV1,
-    pub(crate) information_value: IterationInformationValueEvidenceV1,
-    pub(crate) uncertainty_reduction_rank: u32,
-    pub(crate) tie_break_key: String,
-    pub(crate) experiment: IterationExperimentModeV1,
+pub struct IterationCandidateEvaluationV1 {
+    pub candidate_identity: String,
+    pub candidate_digest: String,
+    pub admissibility: IterationCandidateAdmissibilityV1,
+    pub information_value: IterationInformationValueEvidenceV1,
+    pub uncertainty_reduction_rank: u32,
+    pub tie_break_key: String,
+    pub experiment: IterationExperimentModeV1,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct IterationCandidateEvaluationSetV1 {
-    pub(crate) frontier_identity: String,
-    pub(crate) frontier_digest: String,
-    pub(crate) generation_rule_identity: String,
-    pub(crate) generation_rule_digest: String,
-    pub(crate) expected_cardinality: u32,
-    pub(crate) threshold: IterationEvidenceReferenceV1,
-    pub(crate) candidates: Vec<IterationCandidateEvaluationV1>,
+pub struct IterationCandidateEvaluationSetV1 {
+    pub frontier_identity: String,
+    pub frontier_digest: String,
+    pub generation_rule_identity: String,
+    pub generation_rule_digest: String,
+    pub expected_cardinality: u32,
+    pub threshold: IterationEvidenceReferenceV1,
+    pub candidates: Vec<IterationCandidateEvaluationV1>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -155,6 +155,26 @@ pub(crate) fn compare_iteration_candidates_v1(
 ) -> Result<IterationCandidateComparisonV1, IterationCandidateErrorV1> {
     verify_census_v2(census)
         .map_err(|error| IterationCandidateErrorV1::Census(error.to_string()))?;
+    let decision_policy = census
+        .decision_policy_v1()
+        .ok_or(IterationCandidateErrorV1::Invalid(
+            "frozen candidate comparison policy is unavailable",
+        ))?;
+    let expected_threshold_digest = format!(
+        "sha256:{}",
+        decision_policy
+            .information_value_threshold_digest()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    );
+    if evaluations.threshold.identity != decision_policy.information_value_threshold_identity()
+        || evaluations.threshold.digest != expected_threshold_digest
+    {
+        return Err(IterationCandidateErrorV1::Invalid(
+            "candidate evaluation threshold does not match the frozen policy",
+        ));
+    }
     compare_bound_candidate_set_v1(&census.candidate_set_frontier, evaluations)
 }
 

@@ -78,6 +78,12 @@ pub mod intent;
 mod iteration_candidate;
 pub mod iteration_decision;
 mod iteration_decision_postgres;
+pub use iteration_candidate::{
+    IterationCandidateAdmissibilityV1, IterationCandidateEvaluationSetV1,
+    IterationCandidateEvaluationV1, IterationCandidateInadmissibilityV1,
+    IterationEvidenceReferenceV1, IterationExperimentModeV1, IterationHypothesisDimensionV1,
+    IterationInformationValueEvidenceV1, IterationPreregisteredFiniteJointV1,
+};
 pub mod market_data_repair_reentry;
 #[allow(
     dead_code,
@@ -92,9 +98,10 @@ mod market_data_repair_request_postgres;
 pub mod market_data_repair_resolution;
 mod market_data_repair_resolution_postgres;
 pub use iteration_decision_postgres::{
-    DecisionCompositionRequestV1, IterationDecisionPostgresErrorV1,
-    IterationDecisionResolutionLocatorV1, ReadyForSelectionCompositionRequestV1,
-    RepairActionCompositionRequestV1, RepairActionResolutionLocatorV1,
+    CandidateComparisonCompositionRequestV1, DecisionCompositionRequestV1,
+    IterationDecisionPostgresErrorV1, IterationDecisionResolutionLocatorV1,
+    ReadyForSelectionCompositionRequestV1, RepairActionCompositionRequestV1,
+    RepairActionResolutionLocatorV1,
 };
 pub use market_data_repair_request_postgres::{
     MarketDataRepairCompositionRequestV1, MarketDataRepairPostgresErrorV1,
