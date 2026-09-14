@@ -21,8 +21,11 @@ use crate::{
         RUSTC_COMMIT, RUSTC_RELEASE, SANDBOX_POLICY_V1, SandboxedCargoBuildEvidence, TARGET,
         VerifiedCargoBuild,
     },
-    product_edge::{FrozenResearchGoalIntent, ProductEdgeChannel, ResearchViewV1},
+    product_edge::{
+        FrozenResearchGoalIntent, ProductEdgeChannel, ResearchSourceV1, ResearchViewV1,
+    },
     program_runtime::ProgramRuntimeBudget,
+    successor_intent::FrozenSuccessorResearchIntentV1,
     trial_family::{ArtifactTrialFamilyReadbackV1, TrialFamilyResolutionV1},
 };
 
@@ -72,6 +75,71 @@ pub struct ArtifactBuildRequestV1 {
     pub intent_identity: String,
     pub channel: ProductEdgeChannel,
     pub admission: ProductEdgeAdmissionLocatorV1,
+}
+
+/// Exact Research-owned Intent admitted for one Develop attempt.
+///
+/// The enum stays private to the Owner implementation so callers cannot choose
+/// which custody path was accepted. Canonical bytes remain the bytes of the
+/// underlying frozen Intent rather than an enum wrapper.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ArtifactBuildIntentV1 {
+    Initial(FrozenResearchGoalIntent),
+    Successor(FrozenSuccessorResearchIntentV1),
+}
+
+impl ArtifactBuildIntentV1 {
+    pub(crate) fn intent_identity(&self) -> &str {
+        match self {
+            Self::Initial(intent) => intent.intent_identity(),
+            Self::Successor(intent) => intent.intent_identity(),
+        }
+    }
+
+    pub(crate) fn request_identity(&self) -> &str {
+        match self {
+            Self::Initial(intent) => intent.request_identity(),
+            Self::Successor(intent) => intent.request_identity(),
+        }
+    }
+
+    pub(crate) fn semantic_digest(&self) -> &str {
+        match self {
+            Self::Initial(intent) => intent.semantic_digest(),
+            Self::Successor(intent) => intent.intent_digest(),
+        }
+    }
+
+    pub(crate) fn source_frontier(&self) -> &[ResearchSourceV1] {
+        match self {
+            Self::Initial(intent) => intent.source_frontier(),
+            Self::Successor(intent) => &intent.goal().sources,
+        }
+    }
+
+    pub(crate) fn family_binding(&self) -> Option<(&str, &str)> {
+        match self {
+            Self::Initial(FrozenResearchGoalIntent::V2(intent)) => Some((
+                intent.trial_family_identity.as_str(),
+                intent.trial_family_policy_digest.as_str(),
+            )),
+            Self::Successor(intent) => Some((
+                intent.trial_family_identity(),
+                intent.trial_family_policy_digest(),
+            )),
+            Self::Initial(FrozenResearchGoalIntent::V1(_)) => None,
+        }
+    }
+
+    pub(crate) fn is_successor(&self) -> bool {
+        matches!(self, Self::Successor(_))
+    }
+}
+
+impl From<FrozenResearchGoalIntent> for ArtifactBuildIntentV1 {
+    fn from(value: FrozenResearchGoalIntent) -> Self {
+        Self::Initial(value)
+    }
 }
 
 /// Owner-issued proof that an exact Product Edge invocation claim is durably
@@ -1094,7 +1162,7 @@ fn append_capsule_entry(
 
 pub(crate) fn validate_candidate(
     candidate: &ArtifactBuildCandidateV1,
-    intent: &FrozenResearchGoalIntent,
+    intent: &ArtifactBuildIntentV1,
 ) -> Result<String, ArtifactBuildError> {
     if candidate.schema_version != 1
         || candidate.intent_identity != intent.intent_identity()
@@ -1220,10 +1288,13 @@ pub(crate) fn issue_artifact(
 }
 
 pub(crate) fn canonical_intent_bytes(
-    intent: &FrozenResearchGoalIntent,
+    intent: &ArtifactBuildIntentV1,
 ) -> Result<Vec<u8>, ArtifactBuildError> {
-    let mut bytes =
-        serde_json::to_vec(intent).map_err(|e| ArtifactBuildError::Storage(e.to_string()))?;
+    let mut bytes = match intent {
+        ArtifactBuildIntentV1::Initial(intent) => serde_json::to_vec(intent),
+        ArtifactBuildIntentV1::Successor(intent) => serde_json::to_vec(intent),
+    }
+    .map_err(|e| ArtifactBuildError::Storage(e.to_string()))?;
     bytes.push(b'\n');
     Ok(bytes)
 }
@@ -1323,7 +1394,7 @@ pub(crate) fn build_receipt(
 }
 
 pub(crate) fn artifact_review(
-    intent: &FrozenResearchGoalIntent,
+    intent: &ArtifactBuildIntentV1,
     candidate: &ArtifactBuildCandidateV1,
     artifact: &StrategyArtifact,
     receipt: BuildReceiptV1,
@@ -1429,8 +1500,16 @@ fn sandbox(error: impl Display) -> ArtifactBuildError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::product_edge::{
-        FrozenResearchGoalIntentV1, ResearchSourceV1, SourcedResearchGoalV1,
+    use crate::{
+        IterationExperimentModeV1, IterationHypothesisDimensionV1,
+        product_edge::{
+            FrozenResearchGoalIntentV1, ResearchSourceV1, SourcedResearchGoalV1,
+            UnsourcedResearchGoalV1,
+        },
+        successor_intent::{
+            SuccessorResearchIntentCompositionRequestV1, SuccessorResearchIntentSourceV1,
+            issue_successor_research_intent_v1,
+        },
     };
     use rstest::rstest;
 
@@ -1465,7 +1544,7 @@ mod tests {
         }
     }
 
-    fn intent(identity: &str, digest: &str) -> FrozenResearchGoalIntent {
+    fn intent(identity: &str, digest: &str) -> ArtifactBuildIntentV1 {
         FrozenResearchGoalIntent::V1(FrozenResearchGoalIntentV1 {
             schema_version: 1,
             intent_identity: identity.to_string(),
@@ -1492,9 +1571,10 @@ mod tests {
             },
             frozen_at_epoch_ms: 1,
         })
+        .into()
     }
 
-    fn candidate(intent: &FrozenResearchGoalIntent) -> ArtifactBuildCandidateV1 {
+    fn candidate(intent: &ArtifactBuildIntentV1) -> ArtifactBuildCandidateV1 {
         ArtifactBuildCandidateV1 {
             schema_version: 1,
             candidate_identity: "agent-program-candidate-v1-momentum-001".to_string(),
@@ -1526,6 +1606,78 @@ mod tests {
             "rd-research-intent-v1-foreign",
             &format!("sha256:{}", "c".repeat(64)),
         );
+        assert!(validate_candidate(&candidate, &foreign).is_err());
+    }
+
+    #[rstest]
+    fn successor_intent_is_a_first_class_artifact_build_input_without_wrapper_bytes() {
+        let digest = |byte: char| format!("sha256:{}", byte.to_string().repeat(64));
+        let request = SuccessorResearchIntentCompositionRequestV1 {
+            request_identity: "successor-request-artifact-0001".into(),
+            decision_identity: "decision-artifact-0001".into(),
+            result_identity: "result-artifact-0001".into(),
+            goal: UnsourcedResearchGoalV1 {
+                hypothesis: "A narrower entry signal improves net returns.".into(),
+                mechanism: "The entry filter removes low-conviction observations.".into(),
+                falsification_question: "Does the filtered signal fail after costs?".into(),
+                expected_observation: "Higher net expectancy with bounded turnover.".into(),
+                required_data: vec!["sealed market bars".into()],
+                cost_assumption: "Canonical cost model remains fixed.".into(),
+                capacity_assumption: "Canonical capacity model remains fixed.".into(),
+            },
+        };
+        let readback = issue_successor_research_intent_v1(
+            request,
+            SuccessorResearchIntentSourceV1 {
+                predecessor_intent_identity: "intent-artifact-0001".into(),
+                predecessor_intent_digest: digest('1'),
+                source_frontier: vec![ResearchSourceV1 {
+                    locator: "urn:research:artifact-source:1".into(),
+                    content_digest: digest('2'),
+                    observed_at: "2026-09-14T00:00:00Z".into(),
+                    source_cut: "sealed-source-cut".into(),
+                    license_basis: "internal research evidence".into(),
+                    interpretation: "Evidence retained from the predecessor Intent.".into(),
+                }],
+                decision_identity: "decision-artifact-0001".into(),
+                decision_digest: digest('3'),
+                decision_receipt_identity: "decision-receipt-artifact-0001".into(),
+                result_identity: "result-artifact-0001".into(),
+                trial_family_identity: "family-artifact-0001".into(),
+                trial_family_policy_digest: digest('4'),
+                census_frontier_identity: "census-artifact-0001".into(),
+                census_frontier_digest: digest('5'),
+                independence_basis_identity: "basis-artifact-0001".into(),
+                independence_basis_digest: digest('6'),
+                protected_feedback_projection_identity: "protected-artifact-0001".into(),
+                protected_feedback_projection_digest: digest('7'),
+                experiment_identity: "experiment-artifact-0001".into(),
+                experiment_digest: digest('8'),
+                experiment: IterationExperimentModeV1::SingleDimension {
+                    changed_dimension: IterationHypothesisDimensionV1::EntryRule,
+                },
+            },
+            42,
+        )
+        .expect("successor Intent");
+        let successor = readback.intent().clone();
+        let build_intent = ArtifactBuildIntentV1::Successor(successor.clone());
+        let candidate = candidate(&build_intent);
+        let family_policy_digest = digest('4');
+
+        assert!(validate_candidate(&candidate, &build_intent).is_ok());
+        assert_eq!(
+            build_intent.family_binding(),
+            Some(("family-artifact-0001", family_policy_digest.as_str()))
+        );
+        let mut expected = serde_json::to_vec(&successor).expect("successor bytes");
+        expected.push(b'\n');
+        assert_eq!(
+            canonical_intent_bytes(&build_intent).expect("canonical bytes"),
+            expected
+        );
+
+        let foreign = intent("rd-research-intent-v1-foreign", &digest('9'));
         assert!(validate_candidate(&candidate, &foreign).is_err());
     }
 

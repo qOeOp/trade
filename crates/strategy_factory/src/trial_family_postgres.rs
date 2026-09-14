@@ -12,8 +12,9 @@ use crate::{
         TrialFamilyCensusReadbackV2, TrialFamilyError, TrialFamilyReadbackV1,
         admit_stored_artifact_binding, admit_stored_census_member_v2, admit_stored_family,
         admit_stored_legacy_family_without_frontier, append_attempt_to_census_v2,
-        form_artifact_binding, legacy_initial_member_for_census_v2, verify_artifact_binding,
-        verify_census_v2, verify_family,
+        form_artifact_binding, form_successor_artifact_binding,
+        legacy_initial_member_for_census_v2, verify_artifact_binding, verify_census_v2,
+        verify_family,
     },
 };
 
@@ -275,13 +276,43 @@ pub(crate) async fn persist_artifact_binding(
         intent_identity,
         now_epoch_ms,
     )?;
+    persist_artifact_binding_readback(transaction, readback, now_epoch_ms).await
+}
+
+pub(crate) async fn persist_successor_artifact_binding(
+    transaction: &mut Transaction<'_, Postgres>,
+    family: TrialFamilyReadbackV1,
+    artifact_identity: &str,
+    build_receipt_identity: &str,
+    intent_identity: &str,
+    intent_trial_family_identity: &str,
+    intent_trial_family_policy_digest: &str,
+    now_epoch_ms: u64,
+) -> Result<ArtifactTrialFamilyReadbackV1, TrialFamilyError> {
+    let readback = form_successor_artifact_binding(
+        family,
+        artifact_identity,
+        build_receipt_identity,
+        intent_identity,
+        intent_trial_family_identity,
+        intent_trial_family_policy_digest,
+        now_epoch_ms,
+    )?;
+    persist_artifact_binding_readback(transaction, readback, now_epoch_ms).await
+}
+
+async fn persist_artifact_binding_readback(
+    transaction: &mut Transaction<'_, Postgres>,
+    readback: ArtifactTrialFamilyReadbackV1,
+    now_epoch_ms: u64,
+) -> Result<ArtifactTrialFamilyReadbackV1, TrialFamilyError> {
     verify_artifact_binding(&readback)?;
     let committed_at = i64::try_from(now_epoch_ms).map_err(unavailable)?;
     sqlx::query("INSERT INTO rd_artifact_trial_family_bindings_v1 (binding_identity, artifact_identity, build_receipt_identity, intent_identity, trial_family_identity, binding_digest, binding_json, binding_receipt_json, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)")
         .bind(readback.binding.binding_identity())
         .bind(readback.binding.artifact_identity())
         .bind(readback.binding.build_receipt_identity())
-        .bind(intent_identity)
+        .bind(readback.binding.intent_identity())
         .bind(readback.binding.trial_family_identity())
         .bind(readback.binding.binding_digest())
         .bind(encode(&readback.binding)?)
@@ -292,8 +323,8 @@ pub(crate) async fn persist_artifact_binding(
         .map_err(storage)?;
     let payload = ArtifactBoundOutboxV1 {
         schema_version: 1,
-        artifact_identity: artifact_identity.to_string(),
-        build_receipt_identity: build_receipt_identity.to_string(),
+        artifact_identity: readback.binding.artifact_identity().to_string(),
+        build_receipt_identity: readback.binding.build_receipt_identity().to_string(),
         trial_family_identity: readback.binding.trial_family_identity().to_string(),
         binding_identity: readback.binding.binding_identity().to_string(),
         binding_receipt_identity: readback.binding_receipt.receipt_identity().to_string(),
@@ -301,7 +332,7 @@ pub(crate) async fn persist_artifact_binding(
     persist_outbox(
         transaction,
         binding_event_identity(&readback),
-        artifact_identity,
+        readback.binding.artifact_identity(),
         ARTIFACT_BOUND_EVENT,
         &payload,
         now_epoch_ms,
@@ -316,6 +347,48 @@ pub(crate) async fn load_artifact_trial_family_in_transaction(
     build_receipt_identity: &str,
     intent_identity: &str,
     family: &TrialFamilyReadbackV1,
+) -> Result<ArtifactTrialFamilyReadbackV1, TrialFamilyError> {
+    load_artifact_trial_family_with_intent_in_transaction(
+        transaction,
+        artifact_identity,
+        build_receipt_identity,
+        intent_identity,
+        family,
+        None,
+    )
+    .await
+}
+
+pub(crate) async fn load_successor_artifact_trial_family_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    artifact_identity: &str,
+    build_receipt_identity: &str,
+    intent_identity: &str,
+    intent_trial_family_identity: &str,
+    intent_trial_family_policy_digest: &str,
+    family: &TrialFamilyReadbackV1,
+) -> Result<ArtifactTrialFamilyReadbackV1, TrialFamilyError> {
+    load_artifact_trial_family_with_intent_in_transaction(
+        transaction,
+        artifact_identity,
+        build_receipt_identity,
+        intent_identity,
+        family,
+        Some((
+            intent_trial_family_identity,
+            intent_trial_family_policy_digest,
+        )),
+    )
+    .await
+}
+
+async fn load_artifact_trial_family_with_intent_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    artifact_identity: &str,
+    build_receipt_identity: &str,
+    intent_identity: &str,
+    family: &TrialFamilyReadbackV1,
+    successor_family: Option<(&str, &str)>,
 ) -> Result<ArtifactTrialFamilyReadbackV1, TrialFamilyError> {
     let rows = sqlx::query("SELECT binding_identity, artifact_identity, build_receipt_identity, intent_identity, trial_family_identity, binding_digest, binding_json, binding_receipt_json, committed_at_epoch_ms FROM rd_artifact_trial_family_bindings_v1 WHERE artifact_identity = $1 AND build_receipt_identity = $2 FOR SHARE")
         .bind(artifact_identity)
@@ -341,8 +414,16 @@ pub(crate) async fn load_artifact_trial_family_in_transaction(
     let binding_digest: String = row.try_get("binding_digest").map_err(storage)?;
     let committed_at_epoch_ms: i64 = row.try_get("committed_at_epoch_ms").map_err(storage)?;
 
+    let intent_family_matches = match successor_family {
+        Some((family_identity, policy_digest)) => {
+            intent_identity != family.root_receipt.intent_identity()
+                && family_identity == family.root.trial_family_identity()
+                && policy_digest == family.root.policy_digest()
+        }
+        None => intent_identity == family.root_receipt.intent_identity(),
+    };
     if row_intent_identity != intent_identity
-        || intent_identity != family.root_receipt.intent_identity()
+        || !intent_family_matches
         || trial_family_identity != family.root.trial_family_identity()
     {
         return Err(TrialFamilyError::Unavailable(

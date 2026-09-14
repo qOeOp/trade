@@ -372,7 +372,7 @@ async fn load_by_decision_in_transaction(
     admit_rows(transaction, rows, composition).await
 }
 
-async fn load_by_intent_in_transaction(
+pub(crate) async fn load_by_intent_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     intent_identity: &str,
 ) -> Result<Option<SuccessorResearchIntentReadbackV1>, SuccessorResearchIntentPostgresErrorV1> {
