@@ -1611,6 +1611,7 @@ pub(crate) fn validate_goal_request_v2_meaning(
         &goal.capacity_assumption,
         &goal.sources,
     )?;
+
     if !(1..=10_000).contains(&proposal.trial_budget) {
         return Err("TRIAL_BUDGET_INVALID");
     }

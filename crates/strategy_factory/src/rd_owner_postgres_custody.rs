@@ -1378,6 +1378,7 @@ async fn verify_legacy_admitted_v2(
             lineage_digest: &basis_snapshot.lineage_digest,
         },
     )?;
+
     if basis_snapshot.schema_version != 1
         || basis_snapshot.request_identity != request_identity
         || basis_snapshot.principal != effective_principal
@@ -1561,6 +1562,7 @@ fn verify_legacy_research_view(
         view.phase == "INTENT_FROZEN" && view.valid_through_epoch_ms == snapshot
     }) || view.valid_through_epoch_ms
         == projection_valid_through_epoch_ms;
+
     if view.schema_version != 1
         || view.request_identity != receipt.request_identity
         || view.trusted_principal.trim().is_empty()
@@ -2744,6 +2746,7 @@ async fn resolve_research_admission_hints(
             }
             Err(e) => return Err(ResearchGoalOwnerError::Storage(e.to_string())),
         };
+
         if resolved_research
             .insert(request_identity, admission)
             .is_some()
@@ -2755,6 +2758,7 @@ async fn resolve_research_admission_hints(
     }
 
     let mut terminal_locators = Vec::new();
+
     for request_identity in resolved_research.keys() {
         let Some(view_json) = view_json_by_request.get(request_identity) else {
             continue;
@@ -2794,6 +2798,7 @@ async fn resolve_research_admission_hints(
     });
 
     let mut resolved_terminal = BTreeMap::new();
+
     for (request_identity, locator) in terminal_locators {
         let admission = resolve_admission_for_downstream_in_transaction(
             transaction,
@@ -3281,7 +3286,7 @@ mod tests {
         ProductEdgeResolution, ResearchRequestDisposition, ResearchRequestReceiptV1,
     };
 
-    #[test]
+    #[rstest::rstest]
     fn legacy_research_channels_stay_readable_without_widening_current_admission() {
         for channel in ["APP", "MCP", "WINDMILL_PRODUCT_EDGE"] {
             let decoded: LegacyProductEdgeChannelV1 =
@@ -3300,7 +3305,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn current_product_edge_shape_counts_once_when_legacy_decoder_also_matches() {
         assert_eq!(
             supported_research_representation_count(false, true, false, false, false, true, false,),
@@ -3308,7 +3313,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn legacy_v2_point_read_preserves_quarantine_receipt() {
         let custody = VerifiedResearchCustodyV1 {
             request_json: None,
