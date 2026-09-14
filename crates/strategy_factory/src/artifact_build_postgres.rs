@@ -42,8 +42,8 @@ use crate::{
         admit_attempt_custody_in_transaction,
         admit_attempt_custody_with_admission_mode_in_transaction,
         admit_attempt_reservation_header_in_transaction,
-        admit_attempt_with_research_in_transaction, no_artifact_receipt,
-        require_rd_owner_api_schema,
+        admit_attempt_with_research_in_transaction, admit_research_custody_in_transaction,
+        no_artifact_receipt, require_rd_owner_api_schema,
     },
     trial_family::{TrialFamilyError, TrialFamilyResolutionV1},
     trial_family_postgres::{
@@ -1401,20 +1401,46 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             .map_err(|e| trial_family_storage(&e))?;
         }
         persist_attempt(&mut transaction, &custody.attempt, &current).await?;
-        let (refreshed_research, refreshed_intent) = Box::pin(
-            VerifiedAttemptCustodyV1::admit_develop_intent_in_transaction(
-                &mut transaction,
-                &request.intent_identity,
-                false,
-            ),
-        )
-        .await
-        .map_err(|e| ArtifactBuildError::Storage(e.to_string()))?
-        .ok_or_else(|| {
-            ArtifactBuildError::Storage(
-                "successful artifact Intent custody missing after write".to_string(),
+        let (refreshed_research, refreshed_intent) = if intent.is_successor() {
+            Box::pin(
+                VerifiedAttemptCustodyV1::admit_develop_intent_in_transaction(
+                    &mut transaction,
+                    &request.intent_identity,
+                    false,
+                ),
             )
-        })?;
+            .await
+            .map_err(|e| ArtifactBuildError::Storage(e.to_string()))?
+            .ok_or_else(|| {
+                ArtifactBuildError::Storage(
+                    "successful successor artifact Intent custody missing after write".to_string(),
+                )
+            })?
+        } else {
+            let research = Box::pin(admit_research_custody_in_transaction(
+                &mut transaction,
+                crate::rd_owner_postgres_custody::ResearchCustodyLookupV1::Intent(
+                    &request.intent_identity,
+                ),
+            ))
+            .await
+            .map_err(|e| ArtifactBuildError::Storage(e.to_string()))?
+            .ok_or_else(|| {
+                ArtifactBuildError::Storage(
+                    "successful initial artifact Intent custody missing after write".to_string(),
+                )
+            })?;
+            let refreshed_intent = research
+                .intent()
+                .cloned()
+                .ok_or_else(|| {
+                    ArtifactBuildError::Storage(
+                        "successful initial artifact Intent missing after write".to_string(),
+                    )
+                })?
+                .into();
+            (research, refreshed_intent)
+        };
 
         if refreshed_research.receipt() != &locked_research_receipt
             || refreshed_intent != intent
