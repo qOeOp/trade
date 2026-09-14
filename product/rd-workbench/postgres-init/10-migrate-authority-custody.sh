@@ -679,13 +679,38 @@ AS $function$
           SELECT * INTO STRICT sealed
             FROM public.rd_sealed_exploratory_replay_requests_v1
            WHERE request_identity=requested_request_identity;
-          SELECT * INTO STRICT research
-            FROM public.rd_research_request_receipts_v1
-           WHERE intent_json->>'intent_identity'=sealed.intent_identity;
-          SELECT * INTO STRICT family
-            FROM public.rd_trial_families_v1
-           WHERE trial_family_identity=sealed.trial_family_identity
-             AND intent_identity=sealed.intent_identity;
+          SELECT source.* INTO STRICT research
+            FROM (
+              SELECT initial.request_identity,initial.view_json,
+                     initial.request_json,initial.receipt_json,initial.intent_json,
+                     initial.request_storage_bytes,initial.request_storage_digest,
+                     initial.receipt_storage_bytes,initial.receipt_storage_digest,
+                     initial.intent_storage_bytes,initial.intent_storage_digest
+                FROM public.rd_research_request_receipts_v1 initial
+               WHERE initial.intent_json->>'intent_identity'=sealed.intent_identity
+              UNION ALL
+              SELECT successor.request_identity,successor.view_json,
+                     successor.request_json,successor.receipt_json,successor.intent_json,
+                     successor.request_storage_bytes,successor.request_storage_digest,
+                     successor.receipt_storage_bytes,successor.receipt_storage_digest,
+                     successor.intent_storage_bytes,successor.intent_storage_digest
+                FROM public.rd_successor_research_intents_v1 successor
+               WHERE successor.intent_identity=sealed.intent_identity
+                 AND successor.trial_family_identity=sealed.trial_family_identity
+            ) source;
+          SELECT root.* INTO STRICT family
+            FROM public.rd_trial_families_v1 root
+           WHERE root.trial_family_identity=sealed.trial_family_identity
+             AND (
+               root.intent_identity=sealed.intent_identity
+               OR EXISTS (
+                 SELECT 1
+                   FROM public.rd_successor_research_intents_v1 successor
+                  WHERE successor.intent_identity=sealed.intent_identity
+                    AND successor.trial_family_identity=sealed.trial_family_identity
+                    AND successor.predecessor_intent_identity=root.intent_identity
+               )
+             );
           SELECT * INTO STRICT member
             FROM public.rd_trial_family_members_v1
            WHERE trial_family_identity=sealed.trial_family_identity AND ordinal=0;
