@@ -2834,6 +2834,7 @@ BEGIN
   FOREACH qualification_table IN ARRAY ARRAY[
     'qualification_public_status_facts_v1',
     'qualification_protected_replay_request_sets_v1',
+    'qualification_protected_economic_policy_bundles_v1',
     'qualification_protected_attempt_dispositions_v1',
     'qualification_protected_robustness_assessments_v1',
     'qualification_eligibility_facts_v1',
@@ -2883,6 +2884,7 @@ BEGIN
       'qualification_protected_replay_requests_v1',
       'qualification_protected_replay_request_receipts_v1',
       'qualification_protected_replay_request_sets_v1',
+      'qualification_protected_economic_policy_bundles_v1',
       'qualification_protected_attempt_dispositions_v1',
       'qualification_protected_robustness_assessments_v1',
       'qualification_eligibility_facts_v1',

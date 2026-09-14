@@ -575,6 +575,19 @@ pub struct ProtectedEconomicMeasurementV1 {
 }
 
 impl ProtectedEconomicPolicyBundleV1 {
+    pub fn from_canonical_bytes(bytes: &[u8]) -> Result<Self, ProtectedReplayContractErrorV1> {
+        let value: Self = serde_json::from_slice(bytes)
+            .map_err(|_| ProtectedReplayContractErrorV1::InvalidEncoding)?;
+        value.validate()?;
+        if serde_json::to_vec(&value)
+            .map_err(|_| ProtectedReplayContractErrorV1::InvalidEncoding)?
+            != bytes
+        {
+            return Err(ProtectedReplayContractErrorV1::InvalidEncoding);
+        }
+        Ok(value)
+    }
+
     pub fn compute_digest(&self) -> Result<String, ProtectedReplayContractErrorV1> {
         digest_json(
             ECONOMIC_POLICY_DIGEST_DOMAIN_V1,
@@ -627,6 +640,11 @@ impl ProtectedEconomicPolicyBundleV1 {
             return Err(ProtectedReplayContractErrorV1::InvalidEconomicPolicy);
         }
         Ok(())
+    }
+
+    pub fn to_canonical_bytes(&self) -> Result<Vec<u8>, ProtectedReplayContractErrorV1> {
+        self.validate()?;
+        serde_json::to_vec(self).map_err(|_| ProtectedReplayContractErrorV1::InvalidEncoding)
     }
 }
 
@@ -2450,6 +2468,13 @@ mod tests {
         )
         .unwrap();
         policy.validate().unwrap();
+        assert_eq!(
+            ProtectedEconomicPolicyBundleV1::from_canonical_bytes(
+                &policy.to_canonical_bytes().unwrap()
+            )
+            .unwrap(),
+            policy
+        );
 
         let request = request_v2();
         let mut measurement = ProtectedEconomicMeasurementV1 {

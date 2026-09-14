@@ -3,7 +3,8 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 use vibe_backtest_owner_contracts::{
-    DiagnosticCategoryV2, ProtectedCellApplicabilityObservationV3,
+    DiagnosticCategoryV2, ProtectedCellApplicabilityObservationV3, ProtectedEconomicAggregationV1,
+    ProtectedEconomicComparisonV1, ProtectedEconomicMeasurementV1, ProtectedEconomicPolicyBundleV1,
     ProtectedEvaluationComparisonRuleV1, ProtectedEvaluationEpochSuccessorProofV1,
     ProtectedEvaluationStageV1, ProtectedEvaluationTimeEvidenceV1,
     ProtectedReplayAttemptFrontierDtoV1, ProtectedReplayRequestDtoV2,
@@ -43,7 +44,7 @@ pub enum ProtectedEligibilityStatusV1 {
     Qualified,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum ProtectedAssessmentModeV1 {
     AllNotApplicable,
     EconomicFailure,
@@ -59,6 +60,10 @@ struct ProtectedCellTerminalResultV1 {
     applicability_evidence_reference: String,
     applicability_evidence_digest: String,
     result_time_evidence_digest: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    economic_measurement_identity: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    economic_measurement_digest: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -84,6 +89,8 @@ struct ProtectedCensusFinalizationProofV1 {
     attempt_frontier_digest: String,
     plan_cell_set_identity: String,
     plan_cell_set_digest: String,
+    economic_policy_bundle_identity: String,
+    economic_policy_bundle_digest: String,
     missing_cell_policy_identity: String,
     missing_cell_policy_digest: String,
     stop_policy_identity: String,
@@ -108,6 +115,8 @@ pub(crate) struct ProtectedRobustnessAssessmentV1 {
     holdout_reservation_identity: String,
     protected_decision_policy_identity: String,
     protected_decision_policy_version: u64,
+    economic_policy_bundle_identity: String,
+    economic_policy_bundle_digest: String,
     protected_plan_identity: String,
     protected_plan_digest: String,
     plan_cell_set_identity: String,
@@ -330,6 +339,7 @@ pub(crate) fn form_all_not_applicable_assessment_v1(
     requests: &[ProtectedReplayRequestDtoV2],
     results: &[ProtectedReplayResultDtoV3],
     source: &ProtectedReplayAuthoritySourceV1,
+    economic_policy: &ProtectedEconomicPolicyBundleV1,
     assessment_successor: &ClockHeadSuccessorReadback,
     holdout_treatment: &PreregisteredHoldoutTreatmentV1,
     committed_at_epoch_ms: u64,
@@ -340,6 +350,7 @@ pub(crate) fn form_all_not_applicable_assessment_v1(
         requests,
         results,
         source,
+        economic_policy,
         assessment_successor,
         committed_at_epoch_ms,
         ProtectedAssessmentModeV1::AllNotApplicable,
@@ -354,6 +365,7 @@ pub(crate) fn form_economic_failure_assessment_v1(
     requests: &[ProtectedReplayRequestDtoV2],
     results: &[ProtectedReplayResultDtoV3],
     source: &ProtectedReplayAuthoritySourceV1,
+    economic_policy: &ProtectedEconomicPolicyBundleV1,
     assessment_successor: &ClockHeadSuccessorReadback,
     holdout_treatment: &PreregisteredHoldoutTreatmentV1,
     committed_at_epoch_ms: u64,
@@ -364,6 +376,7 @@ pub(crate) fn form_economic_failure_assessment_v1(
         requests,
         results,
         source,
+        economic_policy,
         assessment_successor,
         committed_at_epoch_ms,
         ProtectedAssessmentModeV1::EconomicFailure,
@@ -385,6 +398,7 @@ pub(crate) fn form_economic_pass_assessment_v1(
     requests: &[ProtectedReplayRequestDtoV2],
     results: &[ProtectedReplayResultDtoV3],
     source: &ProtectedReplayAuthoritySourceV1,
+    economic_policy: &ProtectedEconomicPolicyBundleV1,
     assessment_successor: &ClockHeadSuccessorReadback,
     holdout_treatment: &PreregisteredHoldoutTreatmentV1,
     committed_at_epoch_ms: u64,
@@ -395,6 +409,7 @@ pub(crate) fn form_economic_pass_assessment_v1(
         requests,
         results,
         source,
+        economic_policy,
         assessment_successor,
         committed_at_epoch_ms,
         ProtectedAssessmentModeV1::EconomicPass,
@@ -416,11 +431,13 @@ fn form_assessment_v1(
     requests: &[ProtectedReplayRequestDtoV2],
     results: &[ProtectedReplayResultDtoV3],
     source: &ProtectedReplayAuthoritySourceV1,
+    economic_policy: &ProtectedEconomicPolicyBundleV1,
     assessment_successor: &ClockHeadSuccessorReadback,
     committed_at_epoch_ms: u64,
     mode: ProtectedAssessmentModeV1,
 ) -> Result<ProtectedRobustnessAssessmentV1, QualificationOwnerError> {
     request_set.validate().map_err(contract)?;
+    validate_economic_policy_bundle(economic_policy, request_set, source)?;
     frontier
         .validate_against_request_set(request_set)
         .map_err(contract)?;
@@ -499,11 +516,25 @@ fn form_assessment_v1(
             let result_time_digest =
                 protected_evaluation_time_evidence_digest_v1(&result.result_time_evidence)
                     .map_err(contract)?;
+            let economic_pass = if mode == ProtectedAssessmentModeV1::EconomicPass
+                && result.applicability_evidence.observation
+                    == ProtectedCellApplicabilityObservationV3::ApplicableInputsObserved
+            {
+                Some(economic_measurement_pass(
+                    economic_policy,
+                    result
+                        .protected_economic_measurement
+                        .as_ref()
+                        .ok_or_else(|| unavailable("protected economic measurement is missing"))?,
+                )?)
+            } else {
+                None
+            };
             let assessment_ready = assessment_ready_cell(
                 mode,
                 &result.diagnostic_category_set,
                 result.applicability_evidence.observation,
-                None,
+                economic_pass,
             );
             if frontier_member.result.result_digest != result.result_digest
                 || frontier_member.result_time_evidence_digest != result_time_digest
@@ -556,6 +587,14 @@ fn form_assessment_v1(
                     .as_str()
                     .to_string(),
                 result_time_evidence_digest: result_time_digest,
+                economic_measurement_identity: result
+                    .protected_economic_measurement
+                    .as_ref()
+                    .map(|measurement| measurement.measurement_identity.clone()),
+                economic_measurement_digest: result
+                    .protected_economic_measurement
+                    .as_ref()
+                    .map(|measurement| measurement.measurement_digest.clone()),
             });
         }
         census.push(ProtectedCellCensusEntryV1 {
@@ -623,6 +662,8 @@ fn form_assessment_v1(
             &frontier.frontier_digest,
             &request_set.plan_cell_set_identity,
             &request_set.plan_cell_set_digest,
+            &economic_policy.bundle_identity,
+            &economic_policy.bundle_digest,
             &request_set.missing_cell_policy_identity,
             &request_set.missing_cell_policy_digest,
             &request_set.stop_policy_identity,
@@ -646,6 +687,8 @@ fn form_assessment_v1(
         attempt_frontier_digest: frontier.frontier_digest.clone(),
         plan_cell_set_identity: request_set.plan_cell_set_identity.clone(),
         plan_cell_set_digest: request_set.plan_cell_set_digest.clone(),
+        economic_policy_bundle_identity: economic_policy.bundle_identity.clone(),
+        economic_policy_bundle_digest: economic_policy.bundle_digest.clone(),
         missing_cell_policy_identity: request_set.missing_cell_policy_identity.clone(),
         missing_cell_policy_digest: request_set.missing_cell_policy_digest.clone(),
         stop_policy_identity: request_set.stop_policy_identity.clone(),
@@ -700,6 +743,8 @@ fn form_assessment_v1(
         holdout_reservation_identity: request_set.holdout_reservation_identity.clone(),
         protected_decision_policy_identity: request_set.protected_decision_policy_identity.clone(),
         protected_decision_policy_version: request_set.protected_decision_policy_version,
+        economic_policy_bundle_identity: economic_policy.bundle_identity.clone(),
+        economic_policy_bundle_digest: economic_policy.bundle_digest.clone(),
         protected_plan_identity: request_set.protected_plan_identity.clone(),
         protected_plan_digest: request_set.protected_plan_digest.clone(),
         plan_cell_set_identity: request_set.plan_cell_set_identity.clone(),
@@ -744,6 +789,62 @@ fn assessment_ready_cell(
                     == ProtectedCellApplicabilityObservationV3::ApplicableInputsObserved
                     && economic_pass == Some(true))),
     }
+}
+
+pub(crate) fn validate_economic_policy_bundle(
+    policy: &ProtectedEconomicPolicyBundleV1,
+    request_set: &ProtectedReplayRequestSetSealDtoV1,
+    source: &ProtectedReplayAuthoritySourceV1,
+) -> Result<(), QualificationOwnerError> {
+    policy.validate().map_err(contract)?;
+    if policy.protected_decision_policy_identity != request_set.protected_decision_policy_identity
+        || policy.protected_decision_policy_version != request_set.protected_decision_policy_version
+        || policy.protected_decision_policy_identity != source.protected_decision_policy_identity
+        || policy.protected_decision_policy_version != source.protected_decision_policy_version
+        || policy.metric.identity != source.metric_policy_identity
+        || policy.metric.digest != source.metric_policy_digest
+        || policy.coverage_policy.identity != source.coverage_policy_identity
+        || policy.coverage_policy.digest != source.coverage_policy_digest
+        || policy.tolerance_policy.identity != source.tolerance_policy_identity
+        || policy.tolerance_policy.digest != source.tolerance_policy_digest
+        || policy.threshold_policy.identity != source.threshold_policy_identity
+        || policy.threshold_policy.digest != source.threshold_policy_digest
+        || policy.aggregation_policy.identity != source.aggregation_policy_identity
+        || policy.aggregation_policy.digest != source.aggregation_policy_digest
+    {
+        return Err(unavailable(
+            "protected economic policy changed its frozen authority",
+        ));
+    }
+    Ok(())
+}
+
+fn economic_measurement_pass(
+    policy: &ProtectedEconomicPolicyBundleV1,
+    measurement: &ProtectedEconomicMeasurementV1,
+) -> Result<bool, QualificationOwnerError> {
+    policy.validate().map_err(contract)?;
+    measurement.validate().map_err(contract)?;
+    if policy.aggregation != ProtectedEconomicAggregationV1::EveryApplicableCell
+        || measurement.metric_identity != policy.metric.identity
+        || measurement.metric_digest != policy.metric.digest
+        || measurement.unit != policy.unit
+        || measurement.decimal_scale != policy.decimal_scale
+    {
+        return Err(unavailable(
+            "protected economic measurement changed the frozen policy",
+        ));
+    }
+    if measurement.observed_coverage_bps < policy.minimum_coverage_bps {
+        return Ok(false);
+    }
+    let observed = i128::from(measurement.observed_raw);
+    let threshold = i128::from(policy.threshold_raw);
+    let tolerance = i128::from(policy.tolerance_raw);
+    Ok(match policy.comparison {
+        ProtectedEconomicComparisonV1::GreaterThanOrEqual => observed + tolerance >= threshold,
+        ProtectedEconomicComparisonV1::LessThanOrEqual => observed - tolerance <= threshold,
+    })
 }
 
 fn form_invalid_disposition(
@@ -1341,6 +1442,10 @@ fn unavailable(message: &str) -> QualificationOwnerError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vibe_backtest_owner_contracts::{
+        CanonicalDigestV2, OpaqueIdentityV2, ProtectedConsumedInputLocatorV1,
+        ProtectedEconomicPolicyReferenceV1,
+    };
 
     fn result_time(
         sequence: u64,
@@ -1387,6 +1492,119 @@ mod tests {
                 .head_identity,
             latest.head_identity
         );
+    }
+
+    fn economic_policy() -> ProtectedEconomicPolicyBundleV1 {
+        let reference = |name: &str, byte: char| ProtectedEconomicPolicyReferenceV1 {
+            identity: name.into(),
+            digest: format!("sha256:{}", byte.to_string().repeat(64)),
+        };
+        let mut policy = ProtectedEconomicPolicyBundleV1 {
+            schema_version: 1,
+            bundle_identity: "pending-policy".into(),
+            bundle_digest: format!("blake3:{}", "0".repeat(64)),
+            protected_decision_policy_identity: "protected-policy".into(),
+            protected_decision_policy_version: 1,
+            metric: reference("net-return", '1'),
+            coverage_policy: reference("coverage", '2'),
+            tolerance_policy: reference("tolerance", '3'),
+            threshold_policy: reference("threshold", '4'),
+            aggregation_policy: reference("aggregation", '5'),
+            unit: "basis-points".into(),
+            decimal_scale: 4,
+            comparison: ProtectedEconomicComparisonV1::GreaterThanOrEqual,
+            threshold_raw: 250,
+            tolerance_raw: 5,
+            minimum_coverage_bps: 9_500,
+            aggregation: ProtectedEconomicAggregationV1::EveryApplicableCell,
+        };
+        policy.bundle_digest = policy.compute_digest().unwrap();
+        policy.bundle_identity = format!(
+            "qualification-protected-economic-policy-v1-{}",
+            policy.bundle_digest.strip_prefix("blake3:").unwrap()
+        );
+        policy
+    }
+
+    fn economic_measurement(
+        policy: &ProtectedEconomicPolicyBundleV1,
+    ) -> ProtectedEconomicMeasurementV1 {
+        let mut measurement = ProtectedEconomicMeasurementV1 {
+            schema_version: 1,
+            measurement_identity: "pending-measurement".into(),
+            measurement_digest: format!("blake3:{}", "0".repeat(64)),
+            request_identity: "request".into(),
+            request_digest: format!("sha256:{}", "6".repeat(64)),
+            attempt_identity: "attempt".into(),
+            protected_plan_identity: "plan".into(),
+            protected_plan_digest: format!("sha256:{}", "7".repeat(64)),
+            plan_cell_set_identity: "cell-set".into(),
+            plan_cell_set_digest: format!("sha256:{}", "8".repeat(64)),
+            plan_cell_identity: "cell".into(),
+            plan_cell_digest: format!("sha256:{}", "9".repeat(64)),
+            metric_identity: policy.metric.identity.clone(),
+            metric_digest: policy.metric.digest.clone(),
+            unit: policy.unit.clone(),
+            decimal_scale: policy.decimal_scale,
+            observed_raw: 245,
+            observed_coverage_bps: 9_500,
+            decisive_evidence: ProtectedConsumedInputLocatorV1 {
+                owner: OpaqueIdentityV2::try_from("backtest-owner".to_string()).unwrap(),
+                reference: OpaqueIdentityV2::try_from("measurement-evidence".to_string()).unwrap(),
+                digest: CanonicalDigestV2::try_from(format!("sha256:{}", "a".repeat(64))).unwrap(),
+            },
+            result_time_evidence_digest: format!("sha256:{}", "b".repeat(64)),
+        };
+        measurement.measurement_digest = measurement.compute_digest().unwrap();
+        measurement.measurement_identity = format!(
+            "backtest-protected-economic-measurement-v1-{}",
+            measurement
+                .measurement_digest
+                .strip_prefix("blake3:")
+                .unwrap()
+        );
+        measurement
+    }
+
+    #[test]
+    fn economic_measurement_uses_frozen_tolerance_coverage_and_metric() {
+        let policy = economic_policy();
+        let mut measurement = economic_measurement(&policy);
+        assert!(economic_measurement_pass(&policy, &measurement).unwrap());
+
+        measurement.observed_raw = 244;
+        measurement.measurement_digest = measurement.compute_digest().unwrap();
+        measurement.measurement_identity = format!(
+            "backtest-protected-economic-measurement-v1-{}",
+            measurement
+                .measurement_digest
+                .strip_prefix("blake3:")
+                .unwrap()
+        );
+        assert!(!economic_measurement_pass(&policy, &measurement).unwrap());
+
+        measurement.observed_raw = 250;
+        measurement.observed_coverage_bps = 9_499;
+        measurement.measurement_digest = measurement.compute_digest().unwrap();
+        measurement.measurement_identity = format!(
+            "backtest-protected-economic-measurement-v1-{}",
+            measurement
+                .measurement_digest
+                .strip_prefix("blake3:")
+                .unwrap()
+        );
+        assert!(!economic_measurement_pass(&policy, &measurement).unwrap());
+
+        measurement.metric_identity = "post-result-substitute".into();
+        measurement.measurement_digest = measurement.compute_digest().unwrap();
+        measurement.measurement_identity = format!(
+            "backtest-protected-economic-measurement-v1-{}",
+            measurement
+                .measurement_digest
+                .strip_prefix("blake3:")
+                .unwrap()
+        );
+        assert!(economic_measurement_pass(&policy, &measurement).is_err());
     }
 
     #[test]

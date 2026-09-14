@@ -4,8 +4,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgRow};
 use vibe_backtest_owner_contracts::{
-    ProtectedReplayAttemptFrontierDtoV1, ProtectedReplayAttemptFrontierLocatorV1,
-    ProtectedReplayRequestDtoV1, ProtectedReplayRequestDtoV2, ProtectedReplayRequestLocatorV1,
+    ProtectedEconomicPolicyBundleV1, ProtectedReplayAttemptFrontierDtoV1,
+    ProtectedReplayAttemptFrontierLocatorV1, ProtectedReplayRequestDtoV1,
+    ProtectedReplayRequestDtoV2, ProtectedReplayRequestLocatorV1,
     ProtectedReplayRequestSetSealDtoV1, ProtectedReplayResultDtoV3,
 };
 use vibe_backtest_result_custody::{
@@ -39,7 +40,7 @@ use crate::protected_replay_request::{
 use crate::protected_robustness_assessment::{
     ProtectedAssessmentInvalidCommitV1, ProtectedIneligibleCommitV1, ProtectedQualifiedCommitV1,
     form_all_not_applicable_assessment_v1, form_economic_failure_assessment_v1,
-    form_economic_pass_assessment_v1,
+    form_economic_pass_assessment_v1, validate_economic_policy_bundle,
 };
 use crate::status_summary::{
     PublicStatusFactInputV1, QualificationPublicStatusV1, decode_public_status_fact_v1,
@@ -1226,12 +1227,13 @@ impl PostgresQualificationOwnerV1 {
     }
 
     /// Seal the complete, duplicate-free V2 request membership for one admitted protected plan.
-    /// The caller names only the admitted intake; Qualification re-derives the plan and locks every
-    /// request before it closes the registration fence.
+    /// Qualification re-derives the admitted plan, validates the typed economic policy against its
+    /// frozen references, and locks every request before it closes the registration fence.
     pub async fn seal_protected_replay_request_set_v1(
         &self,
         review_request_identity: &str,
         intake_receipt_identity: &str,
+        economic_policy: &ProtectedEconomicPolicyBundleV1,
     ) -> Result<ProtectedReplayRequestSetCommitV1, QualificationOwnerError> {
         let mut transaction = self.pool.begin().await.map_err(storage)?;
         sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
@@ -1303,6 +1305,7 @@ impl PostgresQualificationOwnerV1 {
             requests.push((request, receipt));
         }
         let commit = form_protected_replay_request_set_v1(&intake, &source, &requests)?;
+        validate_economic_policy_bundle(economic_policy, commit.seal(), &source)?;
 
         if let Some(row) = sqlx::query(
             "SELECT seal_json,canonical_seal_bytes,storage_digest \
@@ -1331,6 +1334,14 @@ impl PostgresQualificationOwnerV1 {
                 return Err(QualificationOwnerError::ConflictingIdentity);
             }
             verify_protected_replay_request_set_commit_v1(&mut transaction, &stored).await?;
+            verify_protected_economic_policy_bundle_v1(
+                &mut transaction,
+                review_request_identity,
+                stored.seal(),
+                economic_policy,
+                &source,
+            )
+            .await?;
             transaction.commit().await.map_err(storage)?;
             return Ok(stored);
         }
@@ -1365,6 +1376,15 @@ impl PostgresQualificationOwnerV1 {
         .execute(&mut *transaction)
         .await
         .map_err(storage)?;
+        persist_protected_economic_policy_bundle_v1(
+            &mut transaction,
+            review_request_identity,
+            &commit,
+            economic_policy,
+            &source,
+            committed_at_epoch_ms,
+        )
+        .await?;
         let payload = serde_json::json!({
             "schema_version": 1,
             "request_set_identity": commit.request_set_identity(),
@@ -1626,6 +1646,14 @@ impl PostgresQualificationOwnerV1 {
         )
         .await?;
         let source = protected_replay_authority_source_v1(&intake, &handoff)?;
+        let economic_policy = load_protected_economic_policy_bundle_v1(
+            &mut transaction,
+            &review_request_identity,
+            request_set.request_set_identity(),
+            request_set.seal(),
+            &source,
+        )
+        .await?;
 
         if let Some(committed_at) = sqlx::query_scalar::<_, i64>(
             "SELECT committed_at_epoch_ms FROM public.qualification_protected_robustness_assessments_v1 \
@@ -1643,6 +1671,7 @@ impl PostgresQualificationOwnerV1 {
                 &requests,
                 &results,
                 &source,
+                &economic_policy,
                 assessment_successor,
                 &holdout_treatment,
                 u64::try_from(committed_at).map_err(json_storage)?,
@@ -1669,6 +1698,7 @@ impl PostgresQualificationOwnerV1 {
             &requests,
             &results,
             &source,
+            &economic_policy,
             assessment_successor,
             &holdout_treatment,
             committed_at_epoch_ms,
@@ -2385,6 +2415,208 @@ async fn verify_protected_replay_request_set_commit_v1(
     Ok(())
 }
 
+async fn persist_protected_economic_policy_bundle_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    review_request_identity: &str,
+    request_set: &ProtectedReplayRequestSetCommitV1,
+    policy: &ProtectedEconomicPolicyBundleV1,
+    source: &ProtectedReplayAuthoritySourceV1,
+    committed_at_epoch_ms: u64,
+) -> Result<(), QualificationOwnerError> {
+    validate_economic_policy_bundle(policy, request_set.seal(), source)?;
+    let bytes = policy
+        .to_canonical_bytes()
+        .map_err(|e| unavailable(e.to_string()))?;
+    let policy_json = serde_json::to_value(policy).map_err(json_storage)?;
+    let storage_digest = canonical_digest(
+        "qualification.protected-economic-policy-bundle.storage.v1",
+        &bytes,
+    )?;
+    sqlx::query(
+        "INSERT INTO public.qualification_protected_economic_policy_bundles_v1 (request_set_identity,bundle_identity,bundle_digest,review_request_identity,protected_plan_identity,protected_plan_digest,policy_json,canonical_policy_bytes,storage_digest,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+    )
+    .bind(request_set.request_set_identity())
+    .bind(&policy.bundle_identity)
+    .bind(&policy.bundle_digest)
+    .bind(review_request_identity)
+    .bind(&source.plan_identity)
+    .bind(&source.plan_digest)
+    .bind(&policy_json)
+    .bind(&bytes)
+    .bind(&storage_digest)
+    .bind(i64::try_from(committed_at_epoch_ms).map_err(json_storage)?)
+    .execute(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    let custody_payload = serde_json::json!({
+        "schema_version": 1,
+        "request_set_identity": request_set.request_set_identity(),
+        "bundle_identity": policy.bundle_identity,
+        "bundle_digest": policy.bundle_digest,
+        "policy_storage_digest": storage_digest,
+    });
+    let custody_digest = canonical_digest(
+        "qualification.protected-economic-policy-bundle-frozen-event.v1",
+        &custody_payload,
+    )?;
+    sqlx::query(
+        "INSERT INTO public.qualification_owner_outbox_v1 \
+         (event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms) \
+         VALUES ($1,$2,'QUALIFICATION_PROTECTED_ECONOMIC_POLICY_BUNDLE_FROZEN_V1',$3,$4,$5)",
+    )
+    .bind(identity(
+        "qualification-protected-economic-policy-bundle-frozen-event-v1",
+        &custody_digest,
+    ))
+    .bind(request_set.request_set_identity())
+    .bind(&custody_digest)
+    .bind(&custody_payload)
+    .bind(i64::try_from(committed_at_epoch_ms).map_err(json_storage)?)
+    .execute(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    verify_protected_economic_policy_bundle_v1(
+        transaction,
+        review_request_identity,
+        request_set.seal(),
+        policy,
+        source,
+    )
+    .await
+}
+
+async fn load_protected_economic_policy_bundle_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    review_request_identity: &str,
+    request_set_identity: &str,
+    request_set: &ProtectedReplayRequestSetSealDtoV1,
+    source: &ProtectedReplayAuthoritySourceV1,
+) -> Result<ProtectedEconomicPolicyBundleV1, QualificationOwnerError> {
+    if request_set_identity != request_set.request_set_identity {
+        return Err(unavailable(
+            "protected economic policy request set identity changed",
+        ));
+    }
+    let row = sqlx::query(
+        "SELECT bundle_identity,bundle_digest,review_request_identity,protected_plan_identity,protected_plan_digest,policy_json,canonical_policy_bytes,storage_digest,committed_at_epoch_ms FROM public.qualification_protected_economic_policy_bundles_v1 WHERE request_set_identity=$1",
+    )
+    .bind(request_set_identity)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(storage)?
+    .ok_or_else(|| unavailable("frozen protected economic policy is unavailable"))?;
+    let bytes: Vec<u8> = row.try_get("canonical_policy_bytes").map_err(storage)?;
+    let policy = ProtectedEconomicPolicyBundleV1::from_canonical_bytes(&bytes)
+        .map_err(|e| unavailable(e.to_string()))?;
+    let policy_json = serde_json::to_value(&policy).map_err(json_storage)?;
+    let storage_digest = canonical_digest(
+        "qualification.protected-economic-policy-bundle.storage.v1",
+        &bytes,
+    )?;
+    let committed_at_epoch_ms = row
+        .try_get::<i64, _>("committed_at_epoch_ms")
+        .map_err(storage)?;
+    if row
+        .try_get::<String, _>("bundle_identity")
+        .map_err(storage)?
+        != policy.bundle_identity
+        || row.try_get::<String, _>("bundle_digest").map_err(storage)? != policy.bundle_digest
+        || row
+            .try_get::<String, _>("review_request_identity")
+            .map_err(storage)?
+            != review_request_identity
+        || row
+            .try_get::<String, _>("protected_plan_identity")
+            .map_err(storage)?
+            != source.plan_identity
+        || row
+            .try_get::<String, _>("protected_plan_digest")
+            .map_err(storage)?
+            != source.plan_digest
+        || row
+            .try_get::<serde_json::Value, _>("policy_json")
+            .map_err(storage)?
+            != policy_json
+        || row
+            .try_get::<String, _>("storage_digest")
+            .map_err(storage)?
+            != storage_digest
+    {
+        return Err(unavailable(
+            "frozen protected economic policy custody changed",
+        ));
+    }
+    let custody_payload = serde_json::json!({
+        "schema_version": 1,
+        "request_set_identity": request_set_identity,
+        "bundle_identity": policy.bundle_identity,
+        "bundle_digest": policy.bundle_digest,
+        "policy_storage_digest": storage_digest,
+    });
+    let custody_digest = canonical_digest(
+        "qualification.protected-economic-policy-bundle-frozen-event.v1",
+        &custody_payload,
+    )?;
+    let custody_rows = sqlx::query(
+        "SELECT event_identity,payload_digest,payload_json,committed_at_epoch_ms \
+         FROM public.qualification_owner_outbox_v1 \
+         WHERE aggregate_identity=$1 \
+           AND event_kind='QUALIFICATION_PROTECTED_ECONOMIC_POLICY_BUNDLE_FROZEN_V1'",
+    )
+    .bind(request_set_identity)
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    if custody_rows.len() != 1
+        || custody_rows[0]
+            .try_get::<String, _>("event_identity")
+            .map_err(storage)?
+            != identity(
+                "qualification-protected-economic-policy-bundle-frozen-event-v1",
+                &custody_digest,
+            )
+        || custody_rows[0]
+            .try_get::<String, _>("payload_digest")
+            .map_err(storage)?
+            != custody_digest
+        || custody_rows[0]
+            .try_get::<serde_json::Value, _>("payload_json")
+            .map_err(storage)?
+            != custody_payload
+        || custody_rows[0]
+            .try_get::<i64, _>("committed_at_epoch_ms")
+            .map_err(storage)?
+            != committed_at_epoch_ms
+    {
+        return Err(unavailable(
+            "frozen protected economic policy custody outbox changed",
+        ));
+    }
+    validate_economic_policy_bundle(&policy, request_set, source)?;
+    Ok(policy)
+}
+
+async fn verify_protected_economic_policy_bundle_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    review_request_identity: &str,
+    request_set: &ProtectedReplayRequestSetSealDtoV1,
+    expected: &ProtectedEconomicPolicyBundleV1,
+    source: &ProtectedReplayAuthoritySourceV1,
+) -> Result<(), QualificationOwnerError> {
+    let stored = load_protected_economic_policy_bundle_v1(
+        transaction,
+        review_request_identity,
+        &request_set.request_set_identity,
+        request_set,
+        source,
+    )
+    .await?;
+    if stored != *expected {
+        return Err(QualificationOwnerError::ConflictingIdentity);
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn form_protected_assessment_commit_v1(
     kind: ProtectedAssessmentClosureKindV1,
@@ -2393,6 +2625,7 @@ fn form_protected_assessment_commit_v1(
     requests: &[ProtectedReplayRequestDtoV2],
     results: &[ProtectedReplayResultDtoV3],
     source: &ProtectedReplayAuthoritySourceV1,
+    economic_policy: &ProtectedEconomicPolicyBundleV1,
     assessment_successor: &ClockHeadSuccessorReadback,
     holdout_treatment: &PreregisteredHoldoutTreatmentV1,
     committed_at_epoch_ms: u64,
@@ -2405,6 +2638,7 @@ fn form_protected_assessment_commit_v1(
                 requests,
                 results,
                 source,
+                economic_policy,
                 assessment_successor,
                 holdout_treatment,
                 committed_at_epoch_ms,
@@ -2418,6 +2652,7 @@ fn form_protected_assessment_commit_v1(
             requests,
             results,
             source,
+            economic_policy,
             assessment_successor,
             holdout_treatment,
             committed_at_epoch_ms,
@@ -2430,6 +2665,7 @@ fn form_protected_assessment_commit_v1(
             requests,
             results,
             source,
+            economic_policy,
             assessment_successor,
             holdout_treatment,
             committed_at_epoch_ms,
