@@ -12,14 +12,22 @@ pub use outcome_evidence::{
 };
 pub use protected_replay::{
     ProtectedCellApplicabilityEvidenceV3, ProtectedCellApplicabilityObservationV3,
-    ProtectedConsumedInputLocatorV1, ProtectedDiagnosticEvidenceV2,
-    ProtectedEvaluationComparisonRuleV1, ProtectedEvaluationEpochSuccessorProofV1,
-    ProtectedEvaluationStageV1, ProtectedEvaluationTimeEvidenceV1, ProtectedReplayContractErrorV1,
+    ProtectedConsumedInputLocatorV1, ProtectedDiagnosticEvidenceV2, ProtectedEconomicAggregationV1,
+    ProtectedEconomicComparisonV1, ProtectedEconomicMeasurementV1, ProtectedEconomicPolicyBundleV1,
+    ProtectedEconomicPolicyReferenceV1, ProtectedEvaluationComparisonRuleV1,
+    ProtectedEvaluationEpochSuccessorProofV1, ProtectedEvaluationStageV1,
+    ProtectedEvaluationTimeEvidenceV1, ProtectedReplayAttemptFrontierDtoV1,
+    ProtectedReplayAttemptFrontierLocatorV1, ProtectedReplayAttemptFrontierMemberV1,
+    ProtectedReplayAttemptFrontierOutboxDtoV1, ProtectedReplayAttemptFrontierOutboxPayloadDtoV1,
+    ProtectedReplayAttemptFrontierReceiptDtoV1, ProtectedReplayContractErrorV1,
     ProtectedReplayReconciliationAtomV1, ProtectedReplayRequestDtoV1, ProtectedReplayRequestDtoV2,
-    ProtectedReplayResultDtoV1, ProtectedReplayResultDtoV2, ProtectedReplayResultDtoV3,
-    ProtectedResultOutboxDtoV1, ProtectedResultOutboxPayloadDtoV1, ProtectedResultOutcomeLocatorV1,
+    ProtectedReplayRequestSetLocatorV1, ProtectedReplayRequestSetMemberV1,
+    ProtectedReplayRequestSetSealDtoV1, ProtectedReplayResultDtoV1, ProtectedReplayResultDtoV2,
+    ProtectedReplayResultDtoV3, ProtectedReplayResultLocatorV3, ProtectedResultOutboxDtoV1,
+    ProtectedResultOutboxPayloadDtoV1, ProtectedResultOutcomeLocatorV1,
     ProtectedResultReceiptDtoV1, protected_diagnostic_category_set_digest_v1,
-    protected_evaluation_time_evidence_digest_v1, protected_result_custody_wires_v1,
+    protected_evaluation_time_evidence_digest_v1,
+    protected_replay_attempt_frontier_custody_wires_v1, protected_result_custody_wires_v1,
     protected_result_custody_wires_v2, protected_result_custody_wires_v3,
 };
 

@@ -181,6 +181,12 @@ check_nextest_graph_contract() {
     echo "ERROR: Program Host acceptance must use its canonical fresh PostgreSQL clone." >&2
     return 1
   fi
+  if ! rg -Uq \
+    "strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody'.*\n[[:space:]]+RUST_MIN_STACK=16777216.*\n[[:space:]]+cargo nextest run" \
+    "${BASH_SOURCE[0]}"; then
+    echo "ERROR: strategy source browser acceptance must use its admitted test-thread stack." >&2
+    return 1
+  fi
 }
 
 check_static_isolation() {
@@ -296,6 +302,15 @@ protected_sql_match = re.search(
 protected_rust_match = re.search(
     r'const FUNCTION_SOURCE: &str = r#"(.*?)"#;', protected_rust, re.DOTALL
 )
+frontier_sql_match = re.search(
+    r"CREATE OR REPLACE FUNCTION backtest_owner_api\.resolve_protected_replay_attempt_frontier_v1\("
+    r".*?AS \$function\$(.*?)\$function\$;",
+    migration,
+    re.DOTALL,
+)
+frontier_rust_match = re.search(
+    r'const FRONTIER_FUNCTION_SOURCE: &str = r#"(.*?)"#;', protected_rust, re.DOTALL
+)
 if (
     sql_match is None
     or rust_match is None
@@ -303,6 +318,8 @@ if (
     or lock_rust_match is None
     or protected_sql_match is None
     or protected_rust_match is None
+    or frontier_sql_match is None
+    or frontier_rust_match is None
 ):
     raise SystemExit("ERROR: Backtest Result locked-read source identity is unavailable")
 if sql_match.group(1) != rust_match.group(1):
@@ -311,6 +328,8 @@ if lock_sql_match.group(1) != lock_rust_match.group(1):
     raise SystemExit("ERROR: Backtest Result authority-lock source identity mismatch")
 if protected_sql_match.group(1) != protected_rust_match.group(1):
     raise SystemExit("ERROR: protected Backtest Result locked-read source identity mismatch")
+if frontier_sql_match.group(1) != frontier_rust_match.group(1):
+    raise SystemExit("ERROR: protected Backtest frontier locked-read source identity mismatch")
 required_isolation = (
     "CREATE SCHEMA IF NOT EXISTS backtest_authority_lock_api AUTHORIZATION postgres;",
     "misplaced Backtest authority-lock function provenance mismatch",
@@ -330,16 +349,18 @@ runtime_census = (
 if any(required not in rust for required in runtime_census):
     raise SystemExit("ERROR: Backtest Result runtime namespace census is unavailable")
 materializer_owner_api_routine_census = (
-    "pg_catalog.count(*) BETWEEN 1 AND 3",
+    "pg_catalog.count(*) BETWEEN 1 AND 4",
     "procedure.oid IN (",
     "backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text)",
     "backtest_owner_api.resolve_exploratory_replay_result_v3(text,text,text)",
     "backtest_owner_api.resolve_protected_replay_result_v1(text,text,text)",
+    "backtest_owner_api.resolve_protected_replay_attempt_frontier_v1(text,text)",
 )
 runtime_owner_api_routine_census = (
     "WITH expected_function AS (",
     "expected_sibling_function AS (",
     "expected_protected_function AS (",
+    "expected_protected_frontier_function AS (",
     "namespace.nspname='backtest_owner_api'",
     "procedure.proname=$2",
     "procedure.proname=$4",
@@ -347,6 +368,7 @@ runtime_owner_api_routine_census = (
     "procedure.oid=(SELECT oid FROM expected_function)",
     "SELECT oid FROM expected_sibling_function",
     "SELECT oid FROM expected_protected_function",
+    "SELECT oid FROM expected_protected_frontier_function",
 )
 if any(required not in migration for required in materializer_owner_api_routine_census) or any(
     required not in rust for required in runtime_owner_api_routine_census
@@ -2275,6 +2297,13 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       --profile "$nextest_profile" \
       "${nextest_execution_args[@]}" \
       -E "$test_filter"
+  elif [[ "$test_name" == 'tests::strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody' ]]; then
+    RUST_MIN_STACK=16777216 \
+      cargo nextest run \
+      --archive-file "$nextest_archive_file" \
+      --profile "$nextest_profile" \
+      "${nextest_execution_args[@]}" \
+      -E "$test_filter"
   elif [[ "$test_name" == 'program_host_bar_joined_cut_postgres_acceptance_tests::owner_postgres_v4_moves_through_program_host_and_real_backtest' ]]; then
     env \
       VIBE_POSTGRES_TEST_DATABASE_NAME="$program_host_acceptance_database" \
@@ -2373,6 +2402,114 @@ BEGIN
     'EXECUTE'
   ) THEN
     RAISE EXCEPTION 'rd_owner lacks the sealed Qualification admission API';
+  END IF;
+
+  IF NOT pg_catalog.has_schema_privilege('product_edge_owner', 'qualification_api', 'USAGE')
+     OR NOT pg_catalog.has_schema_privilege('qualification_owner', 'qualification_api', 'USAGE')
+     OR NOT pg_catalog.has_function_privilege(
+       'product_edge_owner',
+       'qualification_api.read_public_status_v1(text)',
+       'EXECUTE'
+     )
+     OR pg_catalog.has_function_privilege(
+       'qualification_writer',
+       'qualification_api.read_public_status_v1(text)',
+       'EXECUTE'
+     )
+     OR pg_catalog.has_function_privilege(
+       'product_edge_owner',
+       'qualification_api.public_status_native_source_is_custodied_v1(text,text,bigint,text,text,text,bigint)',
+       'EXECUTE'
+     )
+     OR pg_catalog.has_function_privilege(
+       'qualification_writer',
+       'qualification_api.public_status_native_source_is_custodied_v1(text,text,bigint,text,text,text,bigint)',
+       'EXECUTE'
+     )
+     OR pg_catalog.has_function_privilege('product_edge_owner', 'qualification_api.canonical_json_text_v1(jsonb)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('product_edge_owner', 'qualification_api.canonical_json_digest_v1(text,jsonb)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('product_edge_owner', 'qualification_api.canonical_bytes_storage_digest_v1(text,bytea)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('qualification_writer', 'qualification_api.canonical_json_text_v1(jsonb)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('qualification_writer', 'qualification_api.canonical_json_digest_v1(text,jsonb)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('qualification_writer', 'qualification_api.canonical_bytes_storage_digest_v1(text,bytea)', 'EXECUTE')
+     OR EXISTS (
+       SELECT 1
+       FROM pg_catalog.unnest(ARRAY[
+         'qualification_api.canonical_ordered_json_digest_v1(text,text)',
+         'qualification_api.protected_replay_request_semantic_digest_is_valid_v1(jsonb,bytea,text,text)',
+         'qualification_api.protected_replay_request_set_is_custodied_v1(text)',
+         'qualification_api.public_status_expected_opaque_reference_v1(text,text,text,text)',
+         'qualification_api.public_status_expected_fact_digest_v1(text,text,text,text,text,text,boolean)'
+       ]) helper
+       WHERE pg_catalog.has_function_privilege('product_edge_owner', helper, 'EXECUTE')
+          OR pg_catalog.has_function_privilege('qualification_writer', helper, 'EXECUTE')
+     )
+  THEN
+    RAISE EXCEPTION 'Qualification public status API boundary is unavailable';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_proc procedure
+    JOIN pg_catalog.pg_roles role ON role.oid = procedure.proowner
+    WHERE procedure.oid = pg_catalog.to_regprocedure(
+      'qualification_api.read_public_status_v1(text)'
+    )
+      AND role.rolname = 'qualification_owner'
+      AND procedure.prosecdef
+      AND procedure.proisstrict
+      AND procedure.provolatile = 's'
+      AND procedure.proparallel = 's'
+      AND procedure.proconfig = ARRAY['search_path=pg_catalog']
+  ) THEN
+    RAISE EXCEPTION 'Qualification public status API metadata mismatch';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_proc procedure
+    JOIN pg_catalog.pg_roles role ON role.oid = procedure.proowner
+    WHERE procedure.oid = pg_catalog.to_regprocedure(
+      'qualification_api.public_status_native_source_is_custodied_v1(text,text,bigint,text,text,text,bigint)'
+    )
+      AND role.rolname = 'qualification_owner'
+      AND procedure.prosecdef
+      AND procedure.proisstrict
+      AND procedure.provolatile = 's'
+      AND procedure.proparallel = 's'
+      AND procedure.proconfig = ARRAY['search_path=pg_catalog']
+  ) THEN
+    RAISE EXCEPTION 'Qualification public status native-custody validator metadata mismatch';
+  END IF;
+
+  IF qualification_api.canonical_json_text_v1(
+       '{"z":[2,{"b":true,"a":"x"}],"a":null}'::jsonb
+     ) <> '{"a":null,"z":[2,{"a":"x","b":true}]}'
+     OR qualification_api.canonical_json_digest_v1(
+       'test.domain',
+       '{"z":[2,{"b":true,"a":"x"}],"a":null}'::jsonb
+     ) <> 'sha256:9d00d10c5eafa9ac29b9367ed0c7cd299d0077017025789d17bfca0b280da223'
+     OR qualification_api.canonical_bytes_storage_digest_v1(
+       'test.bytes',
+       pg_catalog.convert_to('{"a":1}','UTF8')
+     ) <> 'sha256:fc36c838cbb3673d095a291739429a7fdb5850c2f42a16bd48ac90a8e5b343fc'
+     OR qualification_api.canonical_ordered_json_digest_v1(
+       'test.ordered',
+       '{"z":2,"a":1}'
+     ) <> 'sha256:262facb6b6e6f92395f67fcf62d1d95b5b8698f9cead9f7eb9adad94108a263c'
+     OR qualification_api.public_status_expected_opaque_reference_v1(
+       'review-r5','candidate-r5','native-r5',
+       'sha256:1111111111111111111111111111111111111111111111111111111111111111'
+     ) <> 'qualification-public-reference-v1-d7324219d241aae0353a49d08abe33e0b9608ff587933b8fe5e530a48fa776f7'
+     OR qualification_api.public_status_expected_fact_digest_v1(
+       'review-r5','candidate-r5','CLOSED_NOT_QUALIFIED',
+       'qualification-public-reference-v1-d7324219d241aae0353a49d08abe33e0b9608ff587933b8fe5e530a48fa776f7',
+       'frontier-r5',
+       'sha256:2222222222222222222222222222222222222222222222222222222222222222',
+       true
+     ) <> 'sha256:a2894972d1f29cfd9ad53674183017788f3d541fba0f33075a4d462d7f2bb111'
+  THEN
+    RAISE EXCEPTION 'Qualification canonical digest SQL/Rust interoperability changed';
   END IF;
 
   IF NOT pg_catalog.has_schema_privilege('qualification_writer', 'rd_owner_api', 'USAGE')
@@ -2516,6 +2653,29 @@ BEGIN
     RAISE EXCEPTION 'sealed protected replay Backtest API metadata or ACL mismatch';
   END IF;
 
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_proc procedure
+    JOIN pg_catalog.pg_roles role ON role.oid = procedure.proowner
+    WHERE procedure.oid = pg_catalog.to_regprocedure(
+      'qualification_api.lock_protected_replay_request_set_v1(text,text)'
+    )
+      AND role.rolname = 'qualification_owner'
+      AND procedure.prosecdef
+      AND procedure.proisstrict
+      AND procedure.provolatile = 'v'
+      AND procedure.proparallel = 'u'
+      AND procedure.proconfig = ARRAY['search_path=pg_catalog']
+  )
+     OR NOT pg_catalog.has_function_privilege(
+       'backtest_owner',
+       'qualification_api.lock_protected_replay_request_set_v1(text,text)',
+       'EXECUTE'
+     )
+  THEN
+    RAISE EXCEPTION 'sealed protected replay request-set API metadata or ACL mismatch';
+  END IF;
+
   FOREACH role_name IN ARRAY ARRAY[
     'public',
     'rd_owner',
@@ -2530,6 +2690,13 @@ BEGIN
       'EXECUTE'
     ) THEN
       RAISE EXCEPTION '% can execute the sealed protected replay API', role_name;
+    END IF;
+    IF pg_catalog.has_function_privilege(
+      role_name,
+      'qualification_api.lock_protected_replay_request_set_v1(text,text)',
+      'EXECUTE'
+    ) THEN
+      RAISE EXCEPTION '% can execute the sealed protected replay request-set API', role_name;
     END IF;
   END LOOP;
 
@@ -2607,6 +2774,31 @@ BEGIN
     END IF;
   END LOOP;
 
+  IF NOT EXISTS (
+       SELECT 1
+       FROM pg_catalog.pg_constraint constraint_entry
+       WHERE constraint_entry.conrelid = 'public.qualification_public_status_facts_v1'::regclass
+         AND constraint_entry.conname = 'qualification_public_status_facts_v1_status_check'
+         AND pg_catalog.strpos(pg_catalog.pg_get_constraintdef(constraint_entry.oid), 'QUALIFIED') > 0
+     )
+     OR NOT EXISTS (
+       SELECT 1
+       FROM pg_catalog.pg_constraint constraint_entry
+       WHERE constraint_entry.conrelid = 'public.qualification_protected_robustness_assessments_v1'::regclass
+         AND constraint_entry.conname = 'qualification_protected_robustness_assessments_v1_status_check'
+         AND pg_catalog.strpos(pg_catalog.pg_get_constraintdef(constraint_entry.oid), 'COMPLETE_PASS') > 0
+     )
+     OR NOT EXISTS (
+       SELECT 1
+       FROM pg_catalog.pg_constraint constraint_entry
+       WHERE constraint_entry.conrelid = 'public.qualification_eligibility_facts_v1'::regclass
+         AND constraint_entry.conname = 'qualification_eligibility_facts_v1_status_check'
+         AND pg_catalog.strpos(pg_catalog.pg_get_constraintdef(constraint_entry.oid), 'QUALIFIED') > 0
+     )
+  THEN
+    RAISE EXCEPTION 'Qualification qualified terminal constraints are unavailable';
+  END IF;
+
   FOREACH qualification_table IN ARRAY ARRAY[
     'qualification_protected_feedback_projections_v1',
     'qualification_protected_feedback_heads_v1',
@@ -2640,9 +2832,18 @@ BEGIN
   END LOOP;
 
   FOREACH qualification_table IN ARRAY ARRAY[
+    'qualification_public_status_facts_v1',
+    'qualification_protected_replay_request_sets_v1',
+    'qualification_protected_economic_policy_bundles_v1',
     'qualification_protected_attempt_dispositions_v1',
+    'qualification_protected_robustness_assessments_v1',
+    'qualification_eligibility_facts_v1',
+    'qualification_eligibility_fact_receipts_v1',
+    'qualification_protected_attempt_dispositions_v2',
     'qualification_holdout_closures_v1',
-    'qualification_protected_attempt_disposition_receipts_v1'
+    'qualification_holdout_closures_v2',
+    'qualification_protected_attempt_disposition_receipts_v1',
+    'qualification_protected_attempt_disposition_receipts_v2'
   ] LOOP
     IF (SELECT tableowner FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = qualification_table) <> 'qualification_owner' THEN
       RAISE EXCEPTION 'Qualification append-only table custody mismatch for %', qualification_table;
@@ -2659,6 +2860,13 @@ BEGIN
     END LOOP;
   END LOOP;
 
+  IF (SELECT tableowner FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = 'qualification_public_status_heads_v1') <> 'qualification_owner'
+     OR NOT pg_catalog.has_table_privilege('qualification_writer', 'public.qualification_public_status_heads_v1', 'SELECT,INSERT,UPDATE')
+     OR pg_catalog.has_table_privilege('qualification_writer', 'public.qualification_public_status_heads_v1', 'DELETE,TRUNCATE,REFERENCES,TRIGGER')
+  THEN
+    RAISE EXCEPTION 'Qualification public status head custody mismatch';
+  END IF;
+
   FOREACH role_name IN ARRAY ARRAY[
     'rd_owner',
     'backtest_owner',
@@ -2670,12 +2878,22 @@ BEGIN
       'qualification_protected_feedback_projections_v1',
       'qualification_protected_feedback_heads_v1',
       'qualification_candidate_intake_receipts_v1',
+      'qualification_public_status_facts_v1',
+      'qualification_public_status_heads_v1',
       'qualification_holdout_reservations_v1',
       'qualification_protected_replay_requests_v1',
       'qualification_protected_replay_request_receipts_v1',
+      'qualification_protected_replay_request_sets_v1',
+      'qualification_protected_economic_policy_bundles_v1',
       'qualification_protected_attempt_dispositions_v1',
+      'qualification_protected_robustness_assessments_v1',
+      'qualification_eligibility_facts_v1',
+      'qualification_eligibility_fact_receipts_v1',
+      'qualification_protected_attempt_dispositions_v2',
       'qualification_holdout_closures_v1',
+      'qualification_holdout_closures_v2',
       'qualification_protected_attempt_disposition_receipts_v1',
+      'qualification_protected_attempt_disposition_receipts_v2',
       'qualification_owner_outbox_v1'
     ] LOOP
       FOREACH forbidden_privilege IN ARRAY ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER'] LOOP

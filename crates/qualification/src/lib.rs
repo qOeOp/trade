@@ -7,6 +7,8 @@ mod candidate_intake;
 mod postgres;
 mod protected_attempt_disposition;
 mod protected_replay_request;
+mod protected_robustness_assessment;
+mod status_summary;
 
 #[cfg(feature = "owner-recovery")]
 mod recovery;
@@ -15,8 +17,8 @@ pub use candidate_intake::{
     CandidateIntakeReceiptV1, CandidateIntakeRequestV1, CandidateIntakeStatusV1,
 };
 pub use postgres::{
-    PostgresQualificationOwnerV1, admit_historical_projection_in_transaction,
-    admit_projection_in_transaction,
+    PostgresQualificationOwnerV1, PostgresQualificationPublicStatusReadPortV1,
+    admit_historical_projection_in_transaction, admit_projection_in_transaction,
 };
 pub use protected_attempt_disposition::{
     HoldoutClosureDispositionV1, ProtectedAttemptDispositionCommitV1,
@@ -24,11 +26,16 @@ pub use protected_attempt_disposition::{
 };
 pub use protected_replay_request::{
     ProtectedReplayRequestCommitV1, ProtectedReplayRequestProposalV1,
-    ProtectedReplayRequestProposalV2,
+    ProtectedReplayRequestProposalV2, ProtectedReplayRequestSetCommitV1,
+};
+pub use protected_robustness_assessment::{
+    ProtectedAssessmentInvalidCommitV1, ProtectedAssessmentStatusV1, ProtectedCellAssessmentV1,
+    ProtectedEligibilityStatusV1, ProtectedIneligibleCommitV1, ProtectedQualifiedCommitV1,
 };
 #[cfg(feature = "owner-recovery")]
 pub use recovery::{RecoveryReceiptV1, run_owner_recovery_cli};
 use serde::{Deserialize, Serialize};
+pub use status_summary::{QualificationPublicStatusFactV1, QualificationPublicStatusV1};
 use thiserror::Error;
 pub use vibe_backtest_owner_contracts::{
     PROTECTED_REPLAY_BINDING_COUNT_V1, ProtectedReplayBindingFieldV1, ProtectedReplayBindingV1,

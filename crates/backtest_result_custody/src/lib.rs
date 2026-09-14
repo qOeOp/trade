@@ -15,8 +15,9 @@ use vibe_backtest_owner_contracts::{
 
 mod protected_replay;
 pub use protected_replay::{
-    LockedProtectedReplayResultV1, LockedProtectedReplayResultV2, LockedProtectedReplayResultV3,
-    ProtectedReplayResultLocatorV1,
+    LockedProtectedReplayAttemptFrontierV1, LockedProtectedReplayResultV1,
+    LockedProtectedReplayResultV2, LockedProtectedReplayResultV3, ProtectedReplayResultLocatorV1,
+    resolve_protected_replay_attempt_frontier_for_qualification_in_transaction,
     resolve_protected_replay_result_for_qualification_in_transaction,
     resolve_protected_replay_result_v2_for_qualification_in_transaction,
     resolve_protected_replay_result_v3_for_qualification_in_transaction,
@@ -1146,16 +1147,28 @@ async fn validate_topology(
                    'pg_catalog.text'::pg_catalog.regtype,
                    'pg_catalog.text'::pg_catalog.regtype
                  ]::pg_catalog.oidvector
+        ), expected_protected_frontier_function AS (
+          SELECT procedure.oid
+            FROM pg_catalog.pg_proc procedure
+            JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
+           WHERE namespace.nspname='backtest_owner_api'
+             AND procedure.proname='resolve_protected_replay_attempt_frontier_v1'
+             AND procedure.proargtypes=ARRAY[
+                   'pg_catalog.text'::pg_catalog.regtype,
+                   'pg_catalog.text'::pg_catalog.regtype
+                 ]::pg_catalog.oidvector
         )
         SELECT session_user=$3 AND current_user=$3
         AND (SELECT pg_catalog.pg_get_userbyid(namespace.nspowner)='backtest_custodian'
                FROM pg_catalog.pg_namespace namespace WHERE namespace.nspname='backtest_owner_api')
-        AND (SELECT pg_catalog.count(*)=3 AND pg_catalog.bool_and(procedure.oid IN (
+        AND (SELECT pg_catalog.count(*)=4 AND pg_catalog.bool_and(procedure.oid IN (
                   SELECT oid FROM expected_function
                   UNION ALL
                   SELECT oid FROM expected_sibling_function
                   UNION ALL
                   SELECT oid FROM expected_protected_function
+                  UNION ALL
+                  SELECT oid FROM expected_protected_frontier_function
                 ))
                FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
               WHERE namespace.nspname='backtest_owner_api')
