@@ -22,6 +22,7 @@ use vibe_strategy_factory::{
         RepairInputIterationDecisionReadbackV1, ResearchSelectionDispositionV1,
         TrialBudgetTerminalStopDecisionReadbackV1, is_valid_iteration_decision_locator_v1,
     },
+    product_edge::{ResearchIterationActionProjectionV1, ResearchIterationActionV1},
     product_edge_postgres::PostgresResearchGoalOwnerV1,
     repair_action::RepairActionRequestReadbackV1,
 };
@@ -187,6 +188,26 @@ impl IterationDecisionReadPort for PostgresResearchGoalOwnerV1 {
 }
 
 #[async_trait::async_trait]
+trait ResearchIterationActionReadPort: Send + Sync {
+    async fn resolve_action(
+        &self,
+        locator: IterationDecisionResolutionLocatorV1,
+    ) -> Result<ResearchIterationActionResponseV1, IterationDecisionPostgresErrorV1>;
+}
+
+#[async_trait::async_trait]
+impl ResearchIterationActionReadPort for PostgresResearchGoalOwnerV1 {
+    async fn resolve_action(
+        &self,
+        locator: IterationDecisionResolutionLocatorV1,
+    ) -> Result<ResearchIterationActionResponseV1, IterationDecisionPostgresErrorV1> {
+        self.resolve_research_iteration_action_v1(locator)
+            .await
+            .map(ResearchIterationActionResponseV1::from)
+    }
+}
+
+#[async_trait::async_trait]
 trait RepairActionRequestActionPort: Send + Sync {
     async fn compose_repair_action(
         &self,
@@ -247,6 +268,12 @@ struct ReadyForSelectionApiState {
 #[derive(Clone)]
 struct IterationDecisionReadApiState {
     owner: Arc<dyn IterationDecisionReadPort>,
+    token_digest: [u8; 32],
+}
+
+#[derive(Clone)]
+struct ResearchIterationActionReadApiState {
+    owner: Arc<dyn ResearchIterationActionReadPort>,
     token_digest: [u8; 32],
 }
 
@@ -431,6 +458,26 @@ enum UnifiedIterationDecisionResponseV1 {
     ReadyForSelection(ReadyForSelectionActionResponseV1),
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ResearchIterationActionResponseV1 {
+    schema_version: u16,
+    decision_identity: String,
+    result_identity: String,
+    action: ResearchIterationActionV1,
+}
+
+impl From<ResearchIterationActionProjectionV1> for ResearchIterationActionResponseV1 {
+    fn from(projection: ResearchIterationActionProjectionV1) -> Self {
+        Self {
+            schema_version: projection.schema_version(),
+            decision_identity: projection.decision_identity().to_string(),
+            result_identity: projection.result_identity().to_string(),
+            action: projection.action().clone(),
+        }
+    }
+}
+
 impl From<ExistingIterationDecisionReadbackV1> for UnifiedIterationDecisionResponseV1 {
     fn from(readback: ExistingIterationDecisionReadbackV1) -> Self {
         match readback {
@@ -489,6 +536,10 @@ impl From<RepairActionRequestReadbackV1> for RepairActionRequestActionResponseV1
 pub(super) fn router(owner: Arc<PostgresResearchGoalOwnerV1>, token_digest: [u8; 32]) -> Router {
     action_router(owner.clone(), token_digest)
         .merge(iteration_decision_read_router(owner.clone(), token_digest))
+        .merge(research_iteration_action_read_router(
+            owner.clone(),
+            token_digest,
+        ))
         .merge(candidate_comparison_router(owner.clone(), token_digest))
         .merge(ready_for_selection_router(owner.clone(), token_digest))
         .merge(trial_budget_terminal_stop_router(
@@ -496,6 +547,21 @@ pub(super) fn router(owner: Arc<PostgresResearchGoalOwnerV1>, token_digest: [u8;
             token_digest,
         ))
         .merge(repair_action_router(owner, token_digest))
+}
+
+fn research_iteration_action_read_router(
+    owner: Arc<dyn ResearchIterationActionReadPort>,
+    token_digest: [u8; 32],
+) -> Router {
+    Router::new()
+        .route(
+            "/v1/research-iteration-actions/resolve",
+            post(resolve_research_iteration_action),
+        )
+        .with_state(ResearchIterationActionReadApiState {
+            owner,
+            token_digest,
+        })
 }
 
 fn candidate_comparison_router(
@@ -687,6 +753,44 @@ async fn resolve_iteration_decision(
             "ITERATION_DECISION_NOT_FOUND",
             &decision_identity,
         ),
+        Err(error) => decision_resolution_owner_error(&error, &decision_identity),
+    }
+}
+
+async fn resolve_research_iteration_action(
+    State(state): State<ResearchIterationActionReadApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return decision_resolution_rejection(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            "unbound",
+        );
+    }
+    let locator: IterationDecisionResolutionLocatorV1 = match serde_json::from_slice(&body) {
+        Ok(locator) => locator,
+        Err(_) => {
+            return decision_resolution_rejection(
+                StatusCode::BAD_REQUEST,
+                "MALFORMED_TYPED_REQUEST",
+                "unbound",
+            );
+        }
+    };
+    let decision_identity = locator.decision_identity.clone();
+    if !is_valid_iteration_decision_locator_v1(&locator.decision_identity)
+        || !is_valid_iteration_decision_locator_v1(&locator.result_identity)
+    {
+        return decision_resolution_rejection(
+            StatusCode::BAD_REQUEST,
+            "INVALID_ITERATION_DECISION_LOCATORS",
+            &decision_identity,
+        );
+    }
+    match state.owner.resolve_action(locator).await {
+        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
         Err(error) => decision_resolution_owner_error(&error, &decision_identity),
     }
 }
@@ -1475,6 +1579,11 @@ mod tests {
         response: Option<UnifiedIterationDecisionResponseV1>,
     }
 
+    struct ResearchIterationActionOwnerStub {
+        resolve_calls: AtomicUsize,
+        response: ResearchIterationActionResponseV1,
+    }
+
     #[async_trait::async_trait]
     impl IterationDecisionReadPort for UnifiedDecisionOwnerStub {
         async fn resolve_decision(
@@ -1482,6 +1591,17 @@ mod tests {
             _locator: IterationDecisionResolutionLocatorV1,
         ) -> Result<Option<UnifiedIterationDecisionResponseV1>, IterationDecisionPostgresErrorV1>
         {
+            self.resolve_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(self.response.clone())
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ResearchIterationActionReadPort for ResearchIterationActionOwnerStub {
+        async fn resolve_action(
+            &self,
+            _locator: IterationDecisionResolutionLocatorV1,
+        ) -> Result<ResearchIterationActionResponseV1, IterationDecisionPostgresErrorV1> {
             self.resolve_calls.fetch_add(1, Ordering::SeqCst);
             Ok(self.response.clone())
         }
@@ -1816,6 +1936,20 @@ mod tests {
             receipt_identity: "decision-successor-receipt-1".into(),
             result_identity: "result-1".into(),
             committed_at_epoch_ms: 31,
+        }
+    }
+
+    fn research_iteration_action_response() -> ResearchIterationActionResponseV1 {
+        ResearchIterationActionResponseV1 {
+            schema_version: 1,
+            decision_identity: "decision-successor-1".into(),
+            result_identity: "result-1".into(),
+            action: ResearchIterationActionV1::CreateSuccessorIntent {
+                decision_digest: format!("sha256:{}", "c".repeat(64)),
+                decision_receipt_identity: "decision-successor-receipt-1".into(),
+                experiment_identity: "candidate-successor-1".into(),
+                experiment_digest: format!("sha256:{}", "4".repeat(64)),
+            },
         }
     }
 
@@ -2386,6 +2520,59 @@ mod tests {
         let resolved = candidate_comparison_router(owner.clone(), token_digest)
             .oneshot(send_to(
                 "/v1/iteration-decisions/candidate-comparison/resolve",
+                json!({
+                    "decision_identity": "decision-successor-1",
+                    "result_identity": "result-1",
+                }),
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(resolved.status(), StatusCode::OK);
+        assert_eq!(
+            response_json(resolved).await,
+            serde_json::to_value(expected).unwrap()
+        );
+        assert_eq!(owner.resolve_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn research_iteration_action_resolve_is_authenticated_and_preserves_owner_action() {
+        let token = "research-iteration-action-test";
+        let token_digest: [u8; 32] = sha2::Sha256::digest(token.as_bytes()).into();
+        let expected = research_iteration_action_response();
+        let owner = Arc::new(ResearchIterationActionOwnerStub {
+            resolve_calls: AtomicUsize::new(0),
+            response: expected.clone(),
+        });
+
+        let unauthorized = research_iteration_action_read_router(owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/research-iteration-actions/resolve",
+                decision_resolution_locator(),
+                None,
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(unauthorized.status(), StatusCode::FORBIDDEN);
+        assert_eq!(owner.resolve_calls.load(Ordering::SeqCst), 0);
+
+        let mut invalid = decision_resolution_locator();
+        invalid["result_identity"] = json!("result/1");
+        let rejected = research_iteration_action_read_router(owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/research-iteration-actions/resolve",
+                invalid,
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(rejected.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(owner.resolve_calls.load(Ordering::SeqCst), 0);
+
+        let resolved = research_iteration_action_read_router(owner.clone(), token_digest)
+            .oneshot(send_to(
+                "/v1/research-iteration-actions/resolve",
                 json!({
                     "decision_identity": "decision-successor-1",
                     "result_identity": "result-1",
