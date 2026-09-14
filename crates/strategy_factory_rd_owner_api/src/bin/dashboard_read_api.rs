@@ -15,8 +15,9 @@ use vibe_backtest_owner_contracts::{CanonicalDigestV2, OpaqueIdentityV2};
 use vibe_strategy_factory::{
     BacktestResultCustodyErrorV2, ExploratoryReplayResultLocatorV2,
     artifact_build::{
-        ArtifactBuildError, ArtifactDirectoryCursorV1, ArtifactDirectoryOwnerPort,
-        ArtifactReadbackOwnerPortV1, ArtifactSourceOwnerPort,
+        ArtifactBuildError, ArtifactBuildResultV1, ArtifactDirectoryCursorV1,
+        ArtifactDirectoryOwnerPort, ArtifactDirectoryReadbackV1, ArtifactReadbackOwnerPortV1,
+        ArtifactSourceOwnerPort, ArtifactSourceReadbackV1,
     },
     artifact_build_postgres::PostgresArtifactReadbackOwnerV1,
     develop_composer_operation_v2::{
@@ -105,6 +106,73 @@ impl ExploratoryReplayResultReadbackOwnerPortV2 for PostgresExploratoryReplayRea
     }
 }
 
+#[derive(Clone)]
+struct UnavailableArtifactReadbackV1;
+
+fn artifact_unavailable() -> ArtifactBuildError {
+    ArtifactBuildError::Storage("Artifact Dashboard readback capability unavailable".to_owned())
+}
+
+#[async_trait::async_trait]
+impl ArtifactDirectoryOwnerPort for UnavailableArtifactReadbackV1 {
+    async fn list_artifacts(
+        &self,
+        _after: Option<&ArtifactDirectoryCursorV1>,
+        _limit: u32,
+    ) -> Result<ArtifactDirectoryReadbackV1, ArtifactBuildError> {
+        Err(artifact_unavailable())
+    }
+}
+
+#[async_trait::async_trait]
+impl ArtifactReadbackOwnerPortV1 for UnavailableArtifactReadbackV1 {
+    async fn read_artifact(
+        &self,
+        _build_request_identity: &str,
+        _attempt_identity: &str,
+    ) -> Result<ArtifactBuildResultV1, ArtifactBuildError> {
+        Err(artifact_unavailable())
+    }
+}
+
+#[async_trait::async_trait]
+impl ArtifactSourceOwnerPort for UnavailableArtifactReadbackV1 {
+    async fn read_source(
+        &self,
+        _build_request_identity: &str,
+        _attempt_identity: &str,
+    ) -> Result<Option<ArtifactSourceReadbackV1>, ArtifactBuildError> {
+        Err(artifact_unavailable())
+    }
+}
+
+#[derive(Clone)]
+struct UnavailableExploratoryReplayReadbackV2;
+
+#[async_trait::async_trait]
+impl ExploratoryReplayReadbackOwnerPortV2 for UnavailableExploratoryReplayReadbackV2 {
+    async fn read_exploratory_replay(
+        &self,
+        _selector: &ExploratoryReplayRecoverySelectorV2,
+    ) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError> {
+        Err(ExploratoryReplayOwnerError::Unavailable(
+            "Exploratory Replay Dashboard readback capability unavailable".to_owned(),
+        ))
+    }
+}
+
+#[async_trait::async_trait]
+impl ExploratoryReplayResultReadbackOwnerPortV2 for UnavailableExploratoryReplayReadbackV2 {
+    async fn read_exploratory_replay_result(
+        &self,
+        _result_identity: &str,
+        _request_identity: &str,
+        _attempt_identity: &str,
+    ) -> Result<Option<Vec<u8>>, BacktestResultCustodyErrorV2> {
+        Err(BacktestResultCustodyErrorV2::Unavailable)
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ArtifactDirectoryQueryV1 {
@@ -152,34 +220,53 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let database_url = required_env("RD_DASHBOARD_OWNER_READ_DATABASE_URL")?;
-    let artifact = Arc::new(
-        PostgresArtifactReadbackOwnerV1::connect(&database_url)
-            .await
-            .context("Artifact Dashboard readback adapter unavailable")?,
-    );
+    let (artifact_directory, artifact_readback, artifact_source): (
+        Arc<dyn ArtifactDirectoryOwnerPort>,
+        Arc<dyn ArtifactReadbackOwnerPortV1>,
+        Arc<dyn ArtifactSourceOwnerPort>,
+    ) = match PostgresArtifactReadbackOwnerV1::connect(&database_url).await {
+        Ok(readback) => {
+            let readback = Arc::new(readback);
+            (readback.clone(), readback.clone(), readback)
+        }
+        Err(_) => {
+            tracing::warn!("Artifact Dashboard readback capability unavailable");
+            let readback = Arc::new(UnavailableArtifactReadbackV1);
+            (readback.clone(), readback.clone(), readback)
+        }
+    };
     let research = Arc::new(
         PostgresResearchReadbackOwnerV1::connect(&database_url)
             .await
             .context("Research Dashboard readback adapter unavailable")?,
     );
-    let exploratory_replay = Arc::new(
-        PostgresExploratoryReplayReadbackOwnerV2::connect(&database_url)
-            .await
-            .context("Exploratory Replay Dashboard readback adapter unavailable")?,
-    );
+    let (exploratory_replay, exploratory_replay_result): (
+        Arc<dyn ExploratoryReplayReadbackOwnerPortV2>,
+        Arc<dyn ExploratoryReplayResultReadbackOwnerPortV2>,
+    ) = match PostgresExploratoryReplayReadbackOwnerV2::connect(&database_url).await {
+        Ok(readback) => {
+            let readback = Arc::new(readback);
+            (readback.clone(), readback)
+        }
+        Err(_) => {
+            tracing::warn!("Exploratory Replay Dashboard readback capability unavailable");
+            let readback = Arc::new(UnavailableExploratoryReplayReadbackV2);
+            (readback.clone(), readback)
+        }
+    };
     let source_intake_readback = source_intake_readback(&database_url).await;
     let composer_readback = composer_readback(&database_url).await;
     let token = required_env("RD_DASHBOARD_OWNER_READ_API_TOKEN")?;
     let state = ApiState {
-        artifact_directory: artifact.clone(),
-        artifact_readback: artifact.clone(),
-        artifact_source: artifact,
+        artifact_directory,
+        artifact_readback,
+        artifact_source,
         research_directory: research.clone(),
         research_readback: research,
         source_intake_readback,
         composer_readback,
-        exploratory_replay_readback: exploratory_replay.clone(),
-        exploratory_replay_result_readback: exploratory_replay,
+        exploratory_replay_readback: exploratory_replay,
+        exploratory_replay_result_readback: exploratory_replay_result,
         token_digest: Sha256::digest(token.as_bytes()).into(),
     };
     let address =
@@ -409,7 +496,10 @@ async fn read_research_directory(
         .await
     {
         Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        Err(e) => {
+            tracing::warn!(%e, "Research Dashboard directory read unavailable");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
     }
 }
 
@@ -432,7 +522,10 @@ async fn read_research_v2(
         .await
     {
         Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        Err(e) => {
+            tracing::warn!(%e, "Research Dashboard point read unavailable");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
     }
 }
 

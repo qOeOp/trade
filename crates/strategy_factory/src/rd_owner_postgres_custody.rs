@@ -14,8 +14,8 @@ pub use vibe_backtest_result_custody::{
     BacktestResultCustodyErrorV2, ExploratoryReplayResultLocatorV2, LockedExploratoryReplayResultV2,
 };
 use vibe_product_edge::{
-    DownstreamAdmissionModeV1, ProductEdgeAdmissionReadbackV1,
-    resolve_admission_for_downstream_in_transaction,
+    DownstreamAdmissionModeV1, ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionReadbackV1,
+    ProductEdgeError, resolve_admission_for_downstream_in_transaction,
 };
 use vibe_qualification::{
     ProtectedFeedbackFrontierReadbackV1, admit_historical_projection_in_transaction,
@@ -592,7 +592,8 @@ use crate::{
         TrialFamilyProposalV1, canonical_research_view_identity_v2,
         canonical_research_view_identity_v3, canonical_v2_intent_identity, decide_commit,
         decide_commit_v2, decide_rejected_commit_v2, semantic_digest, semantic_digest_v2,
-        terminal_research_view_identity, validate_goal_request_v2, validate_legacy_goal_meaning,
+        terminal_research_view_identity, validate_goal_request_v2,
+        validate_goal_request_v2_meaning, validate_legacy_goal_meaning,
         verify_research_admission_v1, verify_research_admission_v2,
         verify_source_bound_research_admission_v2,
     },
@@ -752,7 +753,7 @@ struct LegacySelfAuthorizedTrialFamilyPolicyV1 {
 #[serde(deny_unknown_fields)]
 struct LegacySelfAuthorizedResearchRequestV2 {
     request_identity: String,
-    channel: crate::product_edge::ProductEdgeChannel,
+    channel: LegacyProductEdgeChannelV1,
     context: LegacySelfAuthorizedContextV2,
     goal: LegacySelfAuthorizedGoalV2,
     trial_family_policy: LegacySelfAuthorizedTrialFamilyPolicyV1,
@@ -776,10 +777,18 @@ struct LegacySelfAuthorizedIntentV2 {
 #[serde(deny_unknown_fields)]
 struct LegacyCandidateResearchRequestV2 {
     request_identity: String,
-    channel: crate::product_edge::ProductEdgeChannel,
+    channel: LegacyProductEdgeChannelV1,
     context: LegacySelfAuthorizedContextV2,
     goal: SourcedResearchGoalV2,
     trial_family_proposal: TrialFamilyProposalV1,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum LegacyProductEdgeChannelV1 {
+    App,
+    Mcp,
+    WindmillProductEdge,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -787,6 +796,34 @@ struct LegacyCandidateResearchRequestV2 {
 struct LegacyCandidateStoredAdmittedResearchRequestV2 {
     schema_version: u32,
     request: LegacyCandidateResearchRequestV2,
+    independence_basis: StoredIndependenceBasisV1,
+    protected_feedback: StoredProtectedFeedbackProjectionV1,
+    canonical_trial_family_policy: TrialFamilyPolicyV1,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LegacyProductEdgeResearchGoalRequestV2 {
+    request_identity: String,
+    channel: LegacyProductEdgeChannelV1,
+    admission: ProductEdgeAdmissionLocatorV1,
+    goal: SourcedResearchGoalV2,
+    trial_family_proposal: TrialFamilyProposalV1,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LegacyStoredRejectedResearchRequestV2 {
+    schema_version: u32,
+    request: LegacyProductEdgeResearchGoalRequestV2,
+    rejection_code: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LegacyStoredAdmittedResearchRequestV2 {
+    schema_version: u32,
+    request: LegacyProductEdgeResearchGoalRequestV2,
     independence_basis: StoredIndependenceBasisV1,
     protected_feedback: StoredProtectedFeedbackProjectionV1,
     canonical_trial_family_policy: TrialFamilyPolicyV1,
@@ -914,6 +951,8 @@ fn verify_legacy_quarantined_commit(
                 &intent.intent_identity,
                 &intent.source_frontier,
                 "v1",
+                None,
+                None,
                 view_json,
             )?;
             Ok(VerifiedLegacyResearchCommitV1 {
@@ -1030,6 +1069,8 @@ async fn verify_legacy_missing_request_v2(
                 &intent.intent_identity,
                 &intent.source_frontier,
                 "v2",
+                None,
+                None,
                 view_json.ok_or_else(|| {
                     ResearchGoalOwnerError::Storage("legacy V2 research view missing".into())
                 })?,
@@ -1150,6 +1191,8 @@ async fn verify_legacy_self_authorized_v2(
                 &intent.intent_identity,
                 &intent.source_frontier,
                 "v2",
+                Some(&request.context.authorized_scope),
+                None,
                 view_json.ok_or_else(|| {
                     ResearchGoalOwnerError::Storage("legacy self-authorized view missing".into())
                 })?,
@@ -1172,13 +1215,9 @@ async fn verify_legacy_self_authorized_v2(
     }
 }
 
-async fn verify_legacy_candidate_admitted_v2(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    receipt: &ResearchRequestReceiptV1,
-    stored: &LegacyCandidateStoredAdmittedResearchRequestV2,
-    intent_json: Option<&serde_json::Value>,
-    view_json: Option<&serde_json::Value>,
-) -> Result<VerifiedLegacyResearchCommitV1, ResearchGoalOwnerError> {
+fn legacy_candidate_semantic_digest(
+    request: &LegacyCandidateResearchRequestV2,
+) -> Result<String, ResearchGoalOwnerError> {
     #[derive(Serialize)]
     struct Meaning<'a> {
         request_identity: &'a str,
@@ -1186,8 +1225,7 @@ async fn verify_legacy_candidate_admitted_v2(
         goal: &'a SourcedResearchGoalV2,
         trial_family_proposal: &'a TrialFamilyProposalV1,
     }
-    let request = &stored.request;
-    let semantic_digest = format!(
+    Ok(format!(
         "sha256:{:x}",
         Sha256::digest(
             serde_json::to_vec(&Meaning {
@@ -1198,18 +1236,125 @@ async fn verify_legacy_candidate_admitted_v2(
             })
             .map_err(json_storage)?
         )
-    );
+    ))
+}
+
+fn legacy_product_edge_semantic_digest(
+    request: &LegacyProductEdgeResearchGoalRequestV2,
+) -> Result<String, ResearchGoalOwnerError> {
+    #[derive(Serialize)]
+    struct Meaning<'a> {
+        request_identity: &'a str,
+        admission: &'a ProductEdgeAdmissionLocatorV1,
+        goal: &'a SourcedResearchGoalV2,
+        trial_family_proposal: &'a TrialFamilyProposalV1,
+    }
+    Ok(format!(
+        "sha256:{:x}",
+        Sha256::digest(
+            serde_json::to_vec(&Meaning {
+                request_identity: &request.request_identity,
+                admission: &request.admission,
+                goal: &request.goal,
+                trial_family_proposal: &request.trial_family_proposal,
+            })
+            .map_err(json_storage)?
+        )
+    ))
+}
+
+async fn verify_legacy_candidate_admitted_v2(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    receipt: &ResearchRequestReceiptV1,
+    stored: &LegacyCandidateStoredAdmittedResearchRequestV2,
+    intent_json: Option<&serde_json::Value>,
+    view_json: Option<&serde_json::Value>,
+) -> Result<VerifiedLegacyResearchCommitV1, ResearchGoalOwnerError> {
+    let request = &stored.request;
+    let semantic_digest = legacy_candidate_semantic_digest(request)?;
+    verify_legacy_admitted_v2(
+        transaction,
+        receipt,
+        stored.schema_version,
+        &stored.independence_basis,
+        &stored.protected_feedback,
+        &stored.canonical_trial_family_policy,
+        &request.request_identity,
+        &request.goal,
+        &semantic_digest,
+        &request.context.effective_principal,
+        &request.context.authorized_scope,
+        Some(&request.context.authorization_policy_version),
+        intent_json,
+        view_json,
+    )
+    .await
+}
+
+async fn verify_legacy_product_edge_admitted_v2(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    receipt: &ResearchRequestReceiptV1,
+    stored: &LegacyStoredAdmittedResearchRequestV2,
+    intent_json: Option<&serde_json::Value>,
+    view_json: Option<&serde_json::Value>,
+) -> Result<VerifiedLegacyResearchCommitV1, ResearchGoalOwnerError> {
+    let request = &stored.request;
+    if request.admission.request_identity != request.request_identity
+        || request.admission.admission_identity.trim().is_empty()
+        || !is_sha256_digest(&request.admission.admission_digest)
+    {
+        return Err(ResearchGoalOwnerError::Storage(
+            "legacy Product Edge admission locator mismatch".into(),
+        ));
+    }
+    let semantic_digest = legacy_product_edge_semantic_digest(request)?;
+    verify_legacy_admitted_v2(
+        transaction,
+        receipt,
+        stored.schema_version,
+        &stored.independence_basis,
+        &stored.protected_feedback,
+        &stored.canonical_trial_family_policy,
+        &request.request_identity,
+        &request.goal,
+        &semantic_digest,
+        &stored.independence_basis.principal,
+        &stored.independence_basis.request_scope,
+        None,
+        intent_json,
+        view_json,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn verify_legacy_admitted_v2(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    receipt: &ResearchRequestReceiptV1,
+    stored_schema_version: u32,
+    basis_snapshot: &StoredIndependenceBasisV1,
+    protected_snapshot: &StoredProtectedFeedbackProjectionV1,
+    canonical_policy: &TrialFamilyPolicyV1,
+    request_identity: &str,
+    goal: &SourcedResearchGoalV2,
+    semantic_digest: &str,
+    effective_principal: &str,
+    authorized_scope: &[String],
+    authorization_policy_cut: Option<&str>,
+    intent_json: Option<&serde_json::Value>,
+    view_json: Option<&serde_json::Value>,
+) -> Result<VerifiedLegacyResearchCommitV1, ResearchGoalOwnerError> {
     let suffix = format!(
         "{:x}",
-        Sha256::digest(format!("v2:{}:{semantic_digest}", request.request_identity).as_bytes())
+        Sha256::digest(format!("v2:{request_identity}:{semantic_digest}").as_bytes())
     );
     let intent_identity = format!("rd-research-intent-v2-{suffix}");
 
-    if stored.schema_version != 1
+    if stored_schema_version != 1
         || receipt.schema_version != 1
         || receipt.disposition != ResearchRequestDisposition::Accepted
         || receipt.rejection_code.is_some()
-        || request.request_identity != receipt.request_identity
+        || request_identity != receipt.request_identity
         || semantic_digest != receipt.semantic_digest
         || receipt.receipt_identity != format!("rd-research-request-receipt-v2-{suffix}")
         || receipt.resulting_research_intent_identity.as_deref() != Some(intent_identity.as_str())
@@ -1219,7 +1364,6 @@ async fn verify_legacy_candidate_admitted_v2(
         ));
     }
 
-    let basis_snapshot = &stored.independence_basis;
     let basis_digest = owner_digest(
         "rd.independence-basis.v1",
         &BasisMeaningV1 {
@@ -1234,12 +1378,11 @@ async fn verify_legacy_candidate_admitted_v2(
             lineage_digest: &basis_snapshot.lineage_digest,
         },
     )?;
-    let protected_snapshot = &stored.protected_feedback;
 
     if basis_snapshot.schema_version != 1
-        || basis_snapshot.request_identity != request.request_identity
-        || basis_snapshot.principal != request.context.effective_principal
-        || basis_snapshot.request_scope != request.context.authorized_scope
+        || basis_snapshot.request_identity != request_identity
+        || basis_snapshot.principal != effective_principal
+        || basis_snapshot.request_scope != authorized_scope
         || basis_snapshot.basis_digest != basis_digest
         || basis_snapshot.basis_identity
             != owner_identity("rd-independence-basis-v1", &basis_digest)
@@ -1251,22 +1394,11 @@ async fn verify_legacy_candidate_admitted_v2(
         || !is_sha256_digest(&protected_snapshot.projection_digest)
         || protected_snapshot.source_cut.trim().is_empty()
         || protected_snapshot.valid_through_epoch_ms <= receipt.committed_at_epoch_ms
-        || stored
-            .canonical_trial_family_policy
-            .semantic_predecessor_frontier
+        || canonical_policy.semantic_predecessor_frontier
             != basis_snapshot.semantic_predecessor_frontier
-        || stored
-            .canonical_trial_family_policy
-            .independence_disposition
-            != basis_snapshot.independence_disposition
-        || stored
-            .canonical_trial_family_policy
-            .independence_basis_identity
-            != basis_snapshot.basis_identity
-        || stored
-            .canonical_trial_family_policy
-            .protected_feedback_frontier
-            != protected_snapshot.projection_identity
+        || canonical_policy.independence_disposition != basis_snapshot.independence_disposition
+        || canonical_policy.independence_basis_identity != basis_snapshot.basis_identity
+        || canonical_policy.protected_feedback_frontier != protected_snapshot.projection_identity
     {
         return Err(ResearchGoalOwnerError::Storage(
             "legacy candidate archived authority snapshot mismatch".into(),
@@ -1278,8 +1410,8 @@ async fn verify_legacy_candidate_admitted_v2(
     })?)?;
     let expected_family = form_initial_family(
         &intent_identity,
-        &semantic_digest,
-        stored.canonical_trial_family_policy.clone(),
+        semantic_digest,
+        canonical_policy.clone(),
         receipt.committed_at_epoch_ms,
     )
     .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
@@ -1290,10 +1422,10 @@ async fn verify_legacy_candidate_admitted_v2(
     if family != expected_family
         || intent.schema_version != 2
         || intent.intent_identity != intent_identity
-        || intent.request_identity != request.request_identity
+        || intent.request_identity != request_identity
         || intent.semantic_digest != semantic_digest
-        || intent.source_frontier != request.goal.sources
-        || intent.goal != request.goal
+        || intent.source_frontier != goal.sources
+        || intent.goal != *goal
         || intent.independence_basis_identity != basis_snapshot.basis_identity
         || intent.independence_basis_digest != basis_snapshot.basis_digest
         || intent.protected_feedback_projection_identity != protected_snapshot.projection_identity
@@ -1312,14 +1444,17 @@ async fn verify_legacy_candidate_admitted_v2(
         &intent.intent_identity,
         &intent.source_frontier,
         "v2",
+        Some(authorized_scope),
+        Some(protected_snapshot.valid_through_epoch_ms),
         view_json.ok_or_else(|| {
             ResearchGoalOwnerError::Storage("legacy candidate view missing".into())
         })?,
     )?;
 
-    if view.trusted_principal != request.context.effective_principal
-        || view.authorized_scope != request.context.authorized_scope
-        || view.authorization_policy_cut != request.context.authorization_policy_version
+    if view.trusted_principal != effective_principal
+        || view.authorized_scope != authorized_scope
+        || authorization_policy_cut
+            .is_some_and(|expected| view.authorization_policy_cut != expected)
     {
         return Err(ResearchGoalOwnerError::Storage(
             "legacy candidate view context mismatch".into(),
@@ -1333,30 +1468,112 @@ async fn verify_legacy_candidate_admitted_v2(
     })
 }
 
+async fn verify_legacy_product_edge_rejected_v2(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    receipt: &ResearchRequestReceiptV1,
+    stored: &LegacyStoredRejectedResearchRequestV2,
+    intent_json: Option<&serde_json::Value>,
+    view_json: Option<&serde_json::Value>,
+) -> Result<VerifiedLegacyResearchCommitV1, ResearchGoalOwnerError> {
+    let request = &stored.request;
+    let semantic_digest = legacy_product_edge_semantic_digest(request)?;
+    let suffix = format!(
+        "{:x}",
+        Sha256::digest(format!("v2:{}:{semantic_digest}", request.request_identity).as_bytes())
+    );
+    let rejection_code = validate_goal_request_v2_meaning(
+        &request.request_identity,
+        &request.goal,
+        &request.trial_family_proposal,
+    )
+    .err()
+    .ok_or_else(|| {
+        ResearchGoalOwnerError::Storage(
+            "legacy Product Edge rejected request is semantically valid".into(),
+        )
+    })?;
+
+    if stored.schema_version != 1
+        || receipt.schema_version != 1
+        || receipt.disposition != ResearchRequestDisposition::RejectedNoWrite
+        || request.request_identity != receipt.request_identity
+        || request.admission.request_identity != request.request_identity
+        || request.admission.admission_identity.trim().is_empty()
+        || !is_sha256_digest(&request.admission.admission_digest)
+        || semantic_digest != receipt.semantic_digest
+        || receipt.receipt_identity != format!("rd-research-request-receipt-v2-{suffix}")
+        || receipt.resulting_research_intent_identity.is_some()
+        || receipt.rejection_code.as_deref() != Some(rejection_code)
+        || stored.rejection_code != rejection_code
+        || intent_json.is_some()
+        || view_json.is_some()
+    {
+        return Err(ResearchGoalOwnerError::Storage(
+            "legacy Product Edge rejected custody mismatch".into(),
+        ));
+    }
+
+    let positive_prerequisites: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM rd_independence_bases_v1 WHERE request_identity = $1",
+    )
+    .bind(&request.request_identity)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|e| storage(&e))?;
+    let would_be_intent = canonical_v2_intent_identity(&request.request_identity, &semantic_digest);
+    let family_rows: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM rd_trial_families_v1 WHERE intent_identity = $1")
+            .bind(would_be_intent)
+            .fetch_one(&mut **transaction)
+            .await
+            .map_err(|e| storage(&e))?;
+    if positive_prerequisites != 0 || family_rows != 0 {
+        return Err(ResearchGoalOwnerError::Storage(
+            "legacy Product Edge rejected request has positive authority prerequisites".into(),
+        ));
+    }
+
+    Ok(VerifiedLegacyResearchCommitV1 {
+        intent: None,
+        effective_principal: String::new(),
+        authorized_scope: Vec::new(),
+        request_schema_version: 2,
+    })
+}
+
 fn verify_legacy_research_view(
     receipt: &ResearchRequestReceiptV1,
     suffix: &str,
     intent_identity: &str,
     source_frontier: &[crate::product_edge::ResearchSourceV1],
     initial_source_version: &str,
+    expected_authorized_scope: Option<&[String]>,
+    expected_valid_through_epoch_ms: Option<u64>,
     view_json: &serde_json::Value,
 ) -> Result<LegacyResearchViewV1, ResearchGoalOwnerError> {
     let view: LegacyResearchViewV1 = decode_exact(view_json)?;
+    let baseline_scope = [
+        RESEARCH_SCOPE_V1.to_string(),
+        RESEARCH_VIEW_SCOPE_V1.to_string(),
+    ];
+    let expected_authorized_scope = expected_authorized_scope.unwrap_or(&baseline_scope);
+    let projection_valid_through_epoch_ms = view.projection_at_epoch_ms.saturating_add(600_000);
+    let valid_through_matches = expected_valid_through_epoch_ms.is_some_and(|snapshot| {
+        view.phase == "INTENT_FROZEN" && view.valid_through_epoch_ms == snapshot
+    }) || view.valid_through_epoch_ms
+        == projection_valid_through_epoch_ms;
+
     if view.schema_version != 1
         || view.request_identity != receipt.request_identity
         || view.trusted_principal.trim().is_empty()
-        || view.authorized_scope
-            != [
-                RESEARCH_SCOPE_V1.to_string(),
-                RESEARCH_VIEW_SCOPE_V1.to_string(),
-            ]
+        || view.authorized_scope != expected_authorized_scope
         || view.authorization_policy_cut.trim().is_empty()
         || view.source_owner != RESEARCH_OWNER_V1
         || view.intent_identity != intent_identity
         || view.source_frontier != source_frontier
         || view.availability != "AVAILABLE"
         || view.observed_at_epoch_ms != view.projection_at_epoch_ms
-        || view.valid_through_epoch_ms != view.projection_at_epoch_ms.saturating_add(600_000)
+        || !valid_through_matches
         || serde_json::to_value(&view).map_err(json_storage)? != *view_json
     {
         return Err(ResearchGoalOwnerError::Storage(
@@ -1522,6 +1739,13 @@ impl VerifiedResearchCustodyV1 {
         self.request_schema_version
     }
 
+    pub(crate) fn is_legacy_quarantined(&self) -> bool {
+        matches!(
+            self.authority,
+            VerifiedResearchAuthorityV1::LegacyQuarantined
+        )
+    }
+
     pub(crate) fn authority_available_at(&self, read_cut_epoch_ms: u64) -> bool {
         if matches!(
             self.authority,
@@ -1610,6 +1834,28 @@ impl VerifiedResearchCustodyV1 {
             request_identity: self.receipt.request_identity.clone(),
             owner_receipt: Some(self.receipt),
             research_view: None,
+            next_legal_action: ResearchNextLegalAction::ResolveSameRequestIdentity,
+        })
+    }
+
+    pub(crate) fn into_legacy_quarantined_v2_result(
+        self,
+    ) -> Result<ResearchGoalOwnerResultV2, ResearchGoalOwnerError> {
+        if !self.is_legacy_quarantined() || self.request_schema_version != 2 {
+            return Err(ResearchGoalOwnerError::Storage(
+                "research custody is not legacy quarantined V2".into(),
+            ));
+        }
+        Ok(ResearchGoalOwnerResultV2 {
+            schema_version: 2,
+            resolution: ProductEdgeResolution::LegacyTerminalQuarantined,
+            request_identity: self.receipt.request_identity.clone(),
+            owner_receipt: Some(self.receipt),
+            research_view: None,
+            independence_basis: None,
+            protected_feedback: None,
+            trial_family_resolution: TrialFamilyResolutionV1::unavailable(),
+            trial_family: None,
             next_legal_action: ResearchNextLegalAction::ResolveSameRequestIdentity,
         })
     }
@@ -1975,8 +2221,17 @@ async fn admit_preloaded_research_row_in_transaction(
             decode_exact::<LegacySelfAuthorizedResearchRequestV2>(&request_json).ok();
         let candidate_wrapped =
             decode_exact::<LegacyCandidateStoredAdmittedResearchRequestV2>(&request_json).ok();
+        let product_edge_admitted =
+            decode_exact::<LegacyStoredAdmittedResearchRequestV2>(&request_json).ok();
+        let product_edge_rejected =
+            decode_exact::<LegacyStoredRejectedResearchRequestV2>(&request_json).ok();
 
-        if usize::from(self_authorized.is_some()) + usize::from(candidate_wrapped.is_some()) != 1 {
+        if usize::from(self_authorized.is_some())
+            + usize::from(candidate_wrapped.is_some())
+            + usize::from(product_edge_admitted.is_some())
+            + usize::from(product_edge_rejected.is_some())
+            != 1
+        {
             return Err(ResearchGoalOwnerError::Storage(
                 "legacy V2 request has no unique supported representation".into(),
             ));
@@ -1990,11 +2245,29 @@ async fn admit_preloaded_research_row_in_transaction(
                 view_json.as_ref(),
             )
             .await?
-        } else {
+        } else if let Some(stored) = candidate_wrapped {
             verify_legacy_candidate_admitted_v2(
                 transaction,
                 &receipt,
-                &candidate_wrapped.expect("unique legacy candidate representation"),
+                &stored,
+                intent_json.as_ref(),
+                view_json.as_ref(),
+            )
+            .await?
+        } else if let Some(stored) = product_edge_admitted {
+            verify_legacy_product_edge_admitted_v2(
+                transaction,
+                &receipt,
+                &stored,
+                intent_json.as_ref(),
+                view_json.as_ref(),
+            )
+            .await?
+        } else {
+            verify_legacy_product_edge_rejected_v2(
+                transaction,
+                &receipt,
+                &product_edge_rejected.expect("unique legacy rejected representation"),
                 intent_json.as_ref(),
                 view_json.as_ref(),
             )
@@ -2333,7 +2606,8 @@ async fn resolve_research_admission_hints(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     rows: &[PgRow],
 ) -> Result<BTreeMap<String, PreadmittedResearchAuthorityV1>, ResearchGoalOwnerError> {
-    let mut locators = Vec::with_capacity(rows.len());
+    let mut research_locators = Vec::with_capacity(rows.len());
+    let mut view_json_by_request = BTreeMap::new();
     let mut admissions = BTreeMap::new();
 
     for row in rows {
@@ -2362,11 +2636,26 @@ async fn resolve_research_admission_hints(
             decode_exact::<LegacySelfAuthorizedResearchRequestV2>(&request_json).ok();
         let legacy_candidate_v2 =
             decode_exact::<LegacyCandidateStoredAdmittedResearchRequestV2>(&request_json).ok();
-        let representation_count = usize::from(v1.is_some())
-            + usize::from(accepted_v2.is_some())
-            + usize::from(rejected_v2.is_some())
-            + usize::from(legacy_self_authorized_v2.is_some())
-            + usize::from(legacy_candidate_v2.is_some());
+        let legacy_product_edge_admitted_v2 =
+            decode_exact::<LegacyStoredAdmittedResearchRequestV2>(&request_json).ok();
+        let legacy_product_edge_rejected_v2 =
+            decode_exact::<LegacyStoredRejectedResearchRequestV2>(&request_json).ok();
+        let legacy_product_edge_fallback = (accepted_v2.is_some()
+            && legacy_product_edge_admitted_v2.is_some())
+            || (rejected_v2.is_some() && legacy_product_edge_rejected_v2.is_some());
+        let legacy_product_edge_admitted_only =
+            accepted_v2.is_none() && legacy_product_edge_admitted_v2.is_some();
+        let legacy_product_edge_rejected_only =
+            rejected_v2.is_none() && legacy_product_edge_rejected_v2.is_some();
+        let representation_count = supported_research_representation_count(
+            v1.is_some(),
+            accepted_v2.is_some(),
+            rejected_v2.is_some(),
+            legacy_self_authorized_v2.is_some(),
+            legacy_candidate_v2.is_some(),
+            legacy_product_edge_admitted_v2.is_some(),
+            legacy_product_edge_rejected_v2.is_some(),
+        );
 
         if representation_count != 1 {
             return Err(ResearchGoalOwnerError::Storage(
@@ -2374,7 +2663,11 @@ async fn resolve_research_admission_hints(
             ));
         }
 
-        if legacy_self_authorized_v2.is_some() || legacy_candidate_v2.is_some() {
+        if legacy_self_authorized_v2.is_some()
+            || legacy_candidate_v2.is_some()
+            || legacy_product_edge_admitted_only
+            || legacy_product_edge_rejected_only
+        {
             if admissions
                 .insert(
                     request_identity,
@@ -2404,54 +2697,109 @@ async fn resolve_research_admission_hints(
                 "Product Edge admission locator request mismatch".into(),
             ));
         }
-        locators.push((request_identity.clone(), locator, false));
+        research_locators.push((
+            request_identity.clone(),
+            locator,
+            legacy_product_edge_fallback,
+        ));
         let view_json = row
             .try_get::<Option<serde_json::Value>, _>("view_json")
             .map_err(|e| storage(&e))?;
-        if let Some(view_json) = view_json {
-            let view: ResearchViewV1 = decode_exact(&view_json)?;
-            if matches!(
-                view.phase,
-                crate::product_edge::ResearchViewPhase::ArtifactAvailable
-                    | crate::product_edge::ResearchViewPhase::ExplorationActive
-            ) {
-                let attempt_identity = view.attempt_identity.as_deref().ok_or_else(|| {
-                    ResearchGoalOwnerError::Storage(
-                        "terminal research view attempt identity missing".into(),
-                    )
-                })?;
-                let attempt_rows = sqlx::query("SELECT build_request_identity, attempt_identity, semantic_digest, attempt_json, prepared_at_epoch_ms FROM rd_artifact_build_attempts_v1 WHERE attempt_identity=$1")
-                    .bind(attempt_identity)
-                    .fetch_all(&mut **transaction)
-                    .await
-                    .map_err(|e| storage(&e))?;
-                if attempt_rows.len() != 1 {
-                    return Err(ResearchGoalOwnerError::Storage(
-                        "terminal research attempt hint unavailable".into(),
-                    ));
-                }
-                let build_request_identity: String = attempt_rows[0]
-                    .try_get("build_request_identity")
-                    .map_err(|e| storage(&e))?;
-                let attempt =
-                    attempt::decode_attempt_row(&attempt_rows[0], &build_request_identity)
-                        .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
-                locators.push((request_identity, attempt.request.admission, true));
-            }
+        if let Some(view_json) = view_json
+            && view_json_by_request
+                .insert(request_identity, view_json)
+                .is_some()
+        {
+            return Err(ResearchGoalOwnerError::Storage(
+                "duplicate research view hint".into(),
+            ));
         }
     }
-    locators.sort_by(|left, right| {
-        (&left.1.request_identity, &left.1.admission_identity, left.2).cmp(&(
-            &right.1.request_identity,
-            &right.1.admission_identity,
-            right.2,
-        ))
+    research_locators.sort_by(|left, right| {
+        (&left.0, &left.1.admission_identity).cmp(&(&right.0, &right.1.admission_identity))
     });
 
     let mut resolved_research = BTreeMap::new();
+
+    for (request_identity, locator, legacy_fallback) in research_locators {
+        let admission = match resolve_admission_for_downstream_in_transaction(
+            transaction,
+            &locator,
+            DownstreamAdmissionModeV1::Historical,
+        )
+        .await
+        {
+            Ok(admission) => admission,
+            Err(ProductEdgeError::Unavailable) if legacy_fallback => {
+                if admissions
+                    .insert(
+                        request_identity.clone(),
+                        PreadmittedResearchAuthorityV1::LegacyQuarantined,
+                    )
+                    .is_some()
+                {
+                    return Err(ResearchGoalOwnerError::Storage(
+                        "duplicate legacy Product Edge request hint".into(),
+                    ));
+                }
+                continue;
+            }
+            Err(e) => return Err(ResearchGoalOwnerError::Storage(e.to_string())),
+        };
+
+        if resolved_research
+            .insert(request_identity, admission)
+            .is_some()
+        {
+            return Err(ResearchGoalOwnerError::Storage(
+                "duplicate research request authority hint".into(),
+            ));
+        }
+    }
+
+    let mut terminal_locators = Vec::new();
+
+    for request_identity in resolved_research.keys() {
+        let Some(view_json) = view_json_by_request.get(request_identity) else {
+            continue;
+        };
+        let view = decode_exact::<ResearchViewV1>(view_json)?;
+        if !matches!(
+            view.phase,
+            crate::product_edge::ResearchViewPhase::ArtifactAvailable
+                | crate::product_edge::ResearchViewPhase::ExplorationActive
+        ) {
+            continue;
+        }
+        let attempt_identity = view.attempt_identity.as_deref().ok_or_else(|| {
+            ResearchGoalOwnerError::Storage(
+                "terminal research view attempt identity missing".into(),
+            )
+        })?;
+        let attempt_rows = sqlx::query("SELECT build_request_identity, attempt_identity, semantic_digest, attempt_json, prepared_at_epoch_ms FROM rd_artifact_build_attempts_v1 WHERE attempt_identity=$1")
+            .bind(attempt_identity)
+            .fetch_all(&mut **transaction)
+            .await
+            .map_err(|e| storage(&e))?;
+        if attempt_rows.len() != 1 {
+            return Err(ResearchGoalOwnerError::Storage(
+                "terminal research attempt hint unavailable".into(),
+            ));
+        }
+        let build_request_identity: String = attempt_rows[0]
+            .try_get("build_request_identity")
+            .map_err(|e| storage(&e))?;
+        let attempt = attempt::decode_attempt_row(&attempt_rows[0], &build_request_identity)
+            .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
+        terminal_locators.push((request_identity.clone(), attempt.request.admission));
+    }
+    terminal_locators.sort_by(|left, right| {
+        (&left.0, &left.1.admission_identity).cmp(&(&right.0, &right.1.admission_identity))
+    });
+
     let mut resolved_terminal = BTreeMap::new();
 
-    for (request_identity, locator, terminal) in locators {
+    for (request_identity, locator) in terminal_locators {
         let admission = resolve_admission_for_downstream_in_transaction(
             transaction,
             &locator,
@@ -2459,13 +2807,10 @@ async fn resolve_research_admission_hints(
         )
         .await
         .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
-        let target = if terminal {
-            &mut resolved_terminal
-        } else {
-            &mut resolved_research
-        };
-
-        if target.insert(request_identity, admission).is_some() {
+        if resolved_terminal
+            .insert(request_identity, admission)
+            .is_some()
+        {
             return Err(ResearchGoalOwnerError::Storage(
                 "duplicate research request authority hint".into(),
             ));
@@ -2495,6 +2840,29 @@ async fn resolve_research_admission_hints(
         ));
     }
     Ok(admissions)
+}
+
+fn supported_research_representation_count(
+    v1: bool,
+    accepted_v2: bool,
+    rejected_v2: bool,
+    legacy_self_authorized_v2: bool,
+    legacy_candidate_v2: bool,
+    legacy_product_edge_admitted_v2: bool,
+    legacy_product_edge_rejected_v2: bool,
+) -> usize {
+    [
+        v1,
+        accepted_v2,
+        rejected_v2,
+        legacy_self_authorized_v2,
+        legacy_candidate_v2,
+        legacy_product_edge_admitted_v2 && !accepted_v2,
+        legacy_product_edge_rejected_v2 && !rejected_v2,
+    ]
+    .into_iter()
+    .filter(|matched| *matched)
+    .count()
 }
 
 async fn complete_research_custody_in_transaction(
@@ -2907,3 +3275,79 @@ pub(crate) use attempt::{
     admit_attempt_reservation_header_in_transaction, admit_attempt_with_research_in_transaction,
     no_artifact_receipt, resolve_verified_artifact_family,
 };
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        LegacyProductEdgeChannelV1, VerifiedResearchAuthorityV1, VerifiedResearchCustodyV1,
+        supported_research_representation_count,
+    };
+    use crate::product_edge::{
+        ProductEdgeResolution, ResearchRequestDisposition, ResearchRequestReceiptV1,
+    };
+
+    #[rstest::rstest]
+    fn legacy_research_channels_stay_readable_without_widening_current_admission() {
+        for channel in ["APP", "MCP", "WINDMILL_PRODUCT_EDGE"] {
+            let decoded: LegacyProductEdgeChannelV1 =
+                serde_json::from_str(&format!("\"{channel}\"")).unwrap();
+            assert_eq!(
+                serde_json::to_string(&decoded).unwrap(),
+                format!("\"{channel}\"")
+            );
+        }
+
+        assert!(
+            serde_json::from_str::<crate::product_edge::ProductEdgeChannel>("\"APP\"").is_err()
+        );
+        assert!(
+            serde_json::from_str::<crate::product_edge::ProductEdgeChannel>("\"MCP\"").is_err()
+        );
+    }
+
+    #[rstest::rstest]
+    fn current_product_edge_shape_counts_once_when_legacy_decoder_also_matches() {
+        assert_eq!(
+            supported_research_representation_count(false, true, false, false, false, true, false,),
+            1
+        );
+    }
+
+    #[rstest::rstest]
+    fn legacy_v2_point_read_preserves_quarantine_receipt() {
+        let custody = VerifiedResearchCustodyV1 {
+            request_json: None,
+            receipt: ResearchRequestReceiptV1 {
+                schema_version: 1,
+                receipt_identity: "rd-research-request-receipt-v2-test".into(),
+                request_identity: "research-request-v2-test".into(),
+                semantic_digest: format!("sha256:{}", "a".repeat(64)),
+                disposition: ResearchRequestDisposition::Accepted,
+                resulting_research_intent_identity: Some("rd-research-intent-v2-test".into()),
+                committed_at_epoch_ms: 1,
+                rejection_code: None,
+            },
+            intent: None,
+            view: None,
+            family: None,
+            expected_family: None,
+            independence_basis: None,
+            protected_feedback: None,
+            authority: VerifiedResearchAuthorityV1::LegacyQuarantined,
+            effective_principal: "legacy-principal".into(),
+            authorized_scope: vec!["research".into()],
+            request_schema_version: 2,
+            terminal_attempt_admission: None,
+        };
+
+        let result = custody.into_legacy_quarantined_v2_result().unwrap();
+
+        assert_eq!(
+            result.resolution(),
+            ProductEdgeResolution::LegacyTerminalQuarantined
+        );
+        assert_eq!(result.request_identity(), "research-request-v2-test");
+        assert!(result.owner_receipt().is_some());
+        assert!(result.research_view().is_none());
+    }
+}

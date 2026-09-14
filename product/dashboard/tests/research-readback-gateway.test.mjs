@@ -87,6 +87,75 @@ test("verified unknown stays available without inventing an outcome", async () =
   assert.equal(result.projection.technical, null);
 });
 
+test("verified legacy terminal custody stays visible without becoming current Research authority", async () => {
+  const quarantined = {
+    ...accepted,
+    resolution: "LEGACY_TERMINAL_QUARANTINED",
+    research_view: null,
+    independence_basis: null,
+    protected_feedback: null,
+    trial_family_resolution: "UNAVAILABLE",
+    trial_family: null,
+    next_legal_action: "RESOLVE_SAME_REQUEST_IDENTITY",
+  };
+  const result = await readResearchReadbackGatewayV1({
+    requestIdentity: quarantined.request_identity,
+    environment: {
+      RD_DASHBOARD_OWNER_READ_API_URL: "http://dashboard-read:8082/",
+      RD_DASHBOARD_OWNER_READ_API_TOKEN: "secret",
+    },
+    fetcher: async () => new Response(JSON.stringify(quarantined), { status: 200 }),
+  });
+
+  assert.equal(result.status, 200);
+  assert.equal(result.projection.outcome?.resolution, "quarantined");
+  assert.equal(result.projection.outcome?.historicalDisposition, "accepted");
+  assert.equal(result.projection.outcome?.intentIdentity, null);
+  assert.equal(result.projection.view, null);
+  assert.equal(
+    result.projection.technical?.ownerReceiptIdentity,
+    accepted.owner_receipt.receipt_identity,
+  );
+  assert.equal(result.projection.technical?.trialFamilyIdentity, null);
+  assert.deepEqual(parseResearchReadbackBrowserProjectionV1(result.projection), result.projection);
+
+  const promoted = await readResearchReadbackGatewayV1({
+    requestIdentity: quarantined.request_identity,
+    environment: {
+      RD_DASHBOARD_OWNER_READ_API_URL: "http://dashboard-read:8082/",
+      RD_DASHBOARD_OWNER_READ_API_TOKEN: "secret",
+    },
+    fetcher: async () => new Response(JSON.stringify({
+      ...quarantined,
+      research_view: accepted.research_view,
+    }), { status: 200 }),
+  });
+  assert.equal(promoted.status, 502);
+  assert.equal(promoted.projection.availability, "unavailable");
+
+  const rejected = await readResearchReadbackGatewayV1({
+    requestIdentity: quarantined.request_identity,
+    environment: {
+      RD_DASHBOARD_OWNER_READ_API_URL: "http://dashboard-read:8082/",
+      RD_DASHBOARD_OWNER_READ_API_TOKEN: "secret",
+    },
+    fetcher: async () => new Response(JSON.stringify({
+      ...quarantined,
+      owner_receipt: {
+        ...quarantined.owner_receipt,
+        disposition: "REJECTED_NO_WRITE",
+        resulting_research_intent_identity: null,
+        rejection_code: "INVALID_RESEARCH_REQUEST",
+      },
+    }), { status: 200 }),
+  });
+  assert.equal(rejected.status, 200);
+  assert.equal(rejected.projection.outcome?.resolution, "quarantined");
+  assert.equal(rejected.projection.outcome?.historicalDisposition, "rejected");
+  assert.equal(rejected.projection.outcome?.rejectionCode, "INVALID_RESEARCH_REQUEST");
+  assert.deepEqual(parseResearchReadbackBrowserProjectionV1(rejected.projection), rejected.projection);
+});
+
 test("invalid identity, missing config and malformed Owner data fail closed", async () => {
   let calls = 0;
   const fetcher = async () => { calls += 1; return new Response("not json", { status: 200 }); };

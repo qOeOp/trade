@@ -1588,18 +1588,30 @@ pub(crate) fn validate_goal_request_v2(
 fn validate_goal_request_v2_fields(
     request: &ProductEdgeResearchGoalRequestV2,
 ) -> Result<(), &'static str> {
-    validate_request_identity(&request.request_identity)?;
+    validate_goal_request_v2_meaning(
+        &request.request_identity,
+        &request.goal,
+        &request.trial_family_proposal,
+    )
+}
+
+pub(crate) fn validate_goal_request_v2_meaning(
+    request_identity: &str,
+    goal: &SourcedResearchGoalV2,
+    proposal: &TrialFamilyProposalV1,
+) -> Result<(), &'static str> {
+    validate_request_identity(request_identity)?;
     validate_goal_fields(
-        &request.goal.hypothesis,
-        &request.goal.mechanism,
-        &request.goal.falsification_question,
-        &request.goal.expected_observation,
-        &request.goal.required_data,
-        &request.goal.cost_assumption,
-        &request.goal.capacity_assumption,
-        &request.goal.sources,
+        &goal.hypothesis,
+        &goal.mechanism,
+        &goal.falsification_question,
+        &goal.expected_observation,
+        &goal.required_data,
+        &goal.cost_assumption,
+        &goal.capacity_assumption,
+        &goal.sources,
     )?;
-    let proposal = &request.trial_family_proposal;
+
     if !(1..=10_000).contains(&proposal.trial_budget) {
         return Err("TRIAL_BUDGET_INVALID");
     }

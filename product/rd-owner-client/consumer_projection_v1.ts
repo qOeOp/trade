@@ -339,6 +339,22 @@ export async function deriveResearchConsumerProjectionV1(value: unknown, request
   const unknown = unknownResearchProjectionV1(requestIdentity)
   const raw = rawEnvelope(value, researchOwnerKeys, researchStamp)
   if (!raw || raw.schema_version !== 2 || raw.request_identity !== requestIdentity) return unknown
+  if (raw.resolution === "LEGACY_TERMINAL_QUARANTINED") {
+    const receiptDisposition = object(raw.owner_receipt)
+      ? String(raw.owner_receipt.disposition)
+      : ""
+    if (!await validResearchReceipt(raw.owner_receipt, requestIdentity, receiptDisposition)
+      || !["ACCEPTED", "REJECTED_NO_WRITE"].includes(receiptDisposition)
+      || raw.research_view !== null || raw.independence_basis !== null
+      || raw.protected_feedback !== null || raw.trial_family_resolution !== "UNAVAILABLE"
+      || raw.trial_family !== null
+      || raw.next_legal_action !== "RESOLVE_SAME_REQUEST_IDENTITY") return unknown
+    return {
+      ...unknown,
+      resolution: "LEGACY_TERMINAL_QUARANTINED",
+      owner_receipt: raw.owner_receipt,
+    }
+  }
   if (raw.resolution === "REJECTED_NO_WRITE") {
     if (!await validResearchReceipt(raw.owner_receipt, requestIdentity, raw.resolution)
       || raw.research_view !== null || raw.independence_basis !== null || raw.protected_feedback !== null

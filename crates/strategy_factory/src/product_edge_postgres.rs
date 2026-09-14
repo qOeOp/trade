@@ -2786,6 +2786,9 @@ async fn read_research_v2_from_pool(
     ))
     .await?;
     let result = match custody {
+        Some(custody) if custody.is_legacy_quarantined() => {
+            custody.into_legacy_quarantined_v2_result()?
+        }
         Some(custody) => custody.into_v2_result(read_cut_epoch_ms)?,
         None => unresolved_result_v2(request_identity),
     };
@@ -2888,7 +2891,7 @@ async fn list_research_from_pool(
         ))
         .await?;
 
-        if let Some(custody) = custody {
+        if let Some(custody) = custody.filter(|custody| !custody.is_legacy_quarantined()) {
             let result = custody.into_v2_result(read_cut_epoch_ms)?;
             let receipt = result.owner_receipt.as_ref().ok_or_else(|| {
                 ResearchGoalOwnerError::Storage(
