@@ -7,6 +7,10 @@ import {
   type ExploratoryReplayBrowserProjectionV1,
 } from "../lib/exploratory-replay-readback-gateway";
 import {
+  parseExploratoryReplayHistoricalRejectionBrowserProjectionV1,
+  type ExploratoryReplayHistoricalRejectionBrowserProjectionV1,
+} from "../lib/exploratory-replay-historical-rejection-gateway";
+import {
   parseExploratoryReplayResultBrowserProjectionV1,
   type ExploratoryReplayResultBrowserProjectionV1,
 } from "../lib/exploratory-replay-result-gateway";
@@ -18,12 +22,22 @@ import { EmptyState, UnavailableState } from "./ui/evidence-strip";
 import { FactGroup, FactGroupGrid, FactGroupSkeletonGrid, FactItem } from "./ui/fact-group";
 import { FilterButton } from "./ui/filter-toolbar";
 import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
-import { PanelFrame, PanelFrameBody, PanelFrameHeader, PanelFrameInfo } from "./ui/panel-frame";
+import {
+  PanelFrame,
+  PanelFrameBody,
+  PanelFrameHeader,
+  PanelFrameInfo,
+  PanelFrameInfoFact,
+  PanelFrameInfoList,
+  PanelSection,
+} from "./ui/panel-frame";
 import { ReadbackLookup, ReadbackLookupAction, ReadbackLookupField, ReadbackLookupInput } from "./ui/readback-lookup";
 import { StatusBadge } from "./ui/status-badge";
 import styles from "./exploratory-replay-readback-workbench.module.css";
 
 const DIGEST = /^(?:sha256|blake3):[0-9a-f]{64}$/;
+const LEGACY_IDENTITY = /^[A-Za-z0-9._:-]{16,200}$/u;
+const SHA256 = /^sha256:[0-9a-f]{64}$/u;
 
 function AvailableReadback({ projection }: { projection: ExploratoryReplayBrowserProjectionV1 }) {
   if (!projection.request || !projection.custody || !projection.replayBasis) return null;
@@ -96,12 +110,42 @@ function AvailableResult({ projection }: { projection: ExploratoryReplayResultBr
   );
 }
 
+function AvailableHistoricalRejection({
+  projection,
+}: {
+  projection: ExploratoryReplayHistoricalRejectionBrowserProjectionV1;
+}) {
+  if (!projection.outcome) return null;
+  return (
+    <FactGroupGrid>
+      <FactGroup title="Outcome">
+        <FactItem label="Record"><StatusBadge tone="warning">Historical</StatusBadge></FactItem>
+        <FactItem label="Result"><StatusBadge tone="danger">Rejected</StatusBadge></FactItem>
+      </FactGroup>
+      <FactGroup title="Custody">
+        <FactItem label="Verification"><StatusBadge tone="warning">Quarantined</StatusBadge></FactItem>
+        <FactItem label="Reason">Invalid replay evidence</FactItem>
+      </FactGroup>
+      <FactGroup title="Timing">
+        <FactItem label="Committed">{new Date(projection.outcome.committedAt).toLocaleString()}</FactItem>
+        <FactItem label="Observed">{new Date(projection.observedAt!).toLocaleString()}</FactItem>
+      </FactGroup>
+    </FactGroupGrid>
+  );
+}
+
 export function ExploratoryReplayReadbackWorkbench({
   initialRequestIdentity,
   initialMeaningDigest,
+  initialHistoricalRequestIdentity,
+  initialHistoricalAttemptIdentity,
+  initialHistoricalSemanticDigest,
 }: {
   initialRequestIdentity?: string;
   initialMeaningDigest?: string;
+  initialHistoricalRequestIdentity?: string;
+  initialHistoricalAttemptIdentity?: string;
+  initialHistoricalSemanticDigest?: string;
 }) {
   const [requestInput, setRequestInput] = useState(initialRequestIdentity ?? "");
   const [meaningInput, setMeaningInput] = useState(initialMeaningDigest ?? "");
@@ -117,8 +161,30 @@ export function ExploratoryReplayReadbackWorkbench({
   const [resultProjection, setResultProjection] = useState<ExploratoryReplayResultBrowserProjectionV1 | null>(null);
   const [resultValidation, setResultValidation] = useState<string | null>(null);
   const [validation, setValidation] = useState<string | null>(null);
+  const [historicalRequestInput, setHistoricalRequestInput] = useState(
+    initialHistoricalRequestIdentity ?? "",
+  );
+  const [historicalAttemptInput, setHistoricalAttemptInput] = useState(
+    initialHistoricalAttemptIdentity ?? "",
+  );
+  const [historicalSemanticInput, setHistoricalSemanticInput] = useState(
+    initialHistoricalSemanticDigest ?? "",
+  );
+  const [historicalOpenedSelector, setHistoricalOpenedSelector] = useState<Readonly<{
+    requestIdentity: string;
+    attemptIdentity: string;
+    semanticDigest: string;
+  }> | null>(null);
+  const [historicalStatus, setHistoricalStatus] = useState<
+    "idle" | "loading" | "available" | "unavailable"
+  >("idle");
+  const [historicalProjection, setHistoricalProjection] = useState<
+    ExploratoryReplayHistoricalRejectionBrowserProjectionV1 | null
+  >(null);
+  const [historicalValidation, setHistoricalValidation] = useState<string | null>(null);
   const requestSequence = useRef(0);
   const resultSequence = useRef(0);
+  const historicalSequence = useRef(0);
 
   const read = useCallback(async (requestCandidate: string, meaningCandidate: string) => {
     const requestIdentity = requestCandidate;
@@ -204,6 +270,55 @@ export function ExploratoryReplayReadbackWorkbench({
     }
   }, [attemptIdentity, openedSelector, resultIdentity]);
 
+  const readHistorical = useCallback(async (
+    requestCandidate: string,
+    attemptCandidate: string,
+    semanticCandidate: string,
+  ) => {
+    const sequence = ++historicalSequence.current;
+    setHistoricalProjection(null);
+    if (!LEGACY_IDENTITY.test(requestCandidate) || !LEGACY_IDENTITY.test(attemptCandidate)
+      || !SHA256.test(semanticCandidate)) {
+      setHistoricalOpenedSelector(null);
+      setHistoricalStatus("idle");
+      setHistoricalValidation("Enter the exact historical request, attempt, and sha256 digest.");
+      return;
+    }
+    const selector = {
+      requestIdentity: requestCandidate,
+      attemptIdentity: attemptCandidate,
+      semanticDigest: semanticCandidate,
+    };
+    setHistoricalOpenedSelector(selector);
+    setHistoricalValidation(null);
+    setHistoricalStatus("loading");
+    try {
+      const requestIdentityB64 = encodeExploratoryReplayOpaqueIdentityV2(requestCandidate);
+      const attemptIdentityB64 = encodeExploratoryReplayOpaqueIdentityV2(attemptCandidate);
+      if (!requestIdentityB64 || !attemptIdentityB64) throw new Error("invalid historical selector");
+      const query = new URLSearchParams({
+        requestIdentityB64,
+        attemptIdentityB64,
+        semanticDigest: semanticCandidate,
+      });
+      const response = await fetch(`/api/backtest/rejections?${query.toString()}`, {
+        method: "GET",
+        cache: "no-store",
+      });
+      const parsed = parseExploratoryReplayHistoricalRejectionBrowserProjectionV1(
+        await response.json(), requestCandidate, attemptCandidate, semanticCandidate,
+      );
+      if (historicalSequence.current !== sequence) return;
+      setHistoricalProjection(parsed);
+      setHistoricalStatus(response.ok && parsed?.availability === "available"
+        ? "available" : "unavailable");
+    } catch {
+      if (historicalSequence.current !== sequence) return;
+      setHistoricalProjection(null);
+      setHistoricalStatus("unavailable");
+    }
+  }, []);
+
   return (
     <PanelFrame className={styles.panel} aria-labelledby="exploratory-replay-title">
       <PanelFrameHeader
@@ -214,13 +329,31 @@ export function ExploratoryReplayReadbackWorkbench({
           <PanelFrameInfo label="View Replay read boundary">
             <b>Read boundary</b>
             <p>Opens one sealed request and one exact Owner-verified result. Run and Resolve remain unavailable.</p>
+            {historicalOpenedSelector ? (
+              <PanelFrameInfoList>
+                <PanelFrameInfoFact label="Historical request"><code>{historicalOpenedSelector.requestIdentity}</code></PanelFrameInfoFact>
+                <PanelFrameInfoFact label="Attempt"><code>{historicalOpenedSelector.attemptIdentity}</code></PanelFrameInfoFact>
+                <PanelFrameInfoFact label="Semantic digest"><code>{historicalOpenedSelector.semanticDigest}</code></PanelFrameInfoFact>
+                <PanelFrameInfoFact label="Owner receipt"><code>{historicalProjection?.technical?.receiptIdentity ?? "Not available"}</code></PanelFrameInfoFact>
+                <PanelFrameInfoFact label="Artifact"><code>{historicalProjection?.technical?.artifactIdentity ?? "Not available"}</code></PanelFrameInfoFact>
+                <PanelFrameInfoFact label="Build receipt"><code>{historicalProjection?.technical?.buildReceiptIdentity ?? "Not available"}</code></PanelFrameInfoFact>
+                <PanelFrameInfoFact label="Source channel">{historicalProjection?.technical?.channel ?? "Not available"}</PanelFrameInfoFact>
+              </PanelFrameInfoList>
+            ) : null}
           </PanelFrameInfo>
           <FilterButton
             density="compact"
             variant="secondary"
-            disabled={!openedSelector || status === "loading"}
-            onClick={() => openedSelector
-              && void read(openedSelector.requestIdentity, openedSelector.meaningDigest)}
+            disabled={(!openedSelector && !historicalOpenedSelector)
+              || status === "loading" || historicalStatus === "loading"}
+            onClick={() => {
+              if (openedSelector) void read(openedSelector.requestIdentity, openedSelector.meaningDigest);
+              if (historicalOpenedSelector) void readHistorical(
+                historicalOpenedSelector.requestIdentity,
+                historicalOpenedSelector.attemptIdentity,
+                historicalOpenedSelector.semanticDigest,
+              );
+            }}
             type="button"
           >
             <InterfaceIcons.refresh aria-hidden="true" size={14} /> Refresh
@@ -293,6 +426,91 @@ export function ExploratoryReplayReadbackWorkbench({
                   Enter the immutable request identity and meaning digest to inspect its sealed request basis.
                 </EmptyState>}
         </div>
+        <PanelSection className={styles.historicalSection}>
+          <h3 className={styles.sectionTitle}>Historical rejection</h3>
+          <ReadbackLookup
+            columns="triple"
+            validation={historicalValidation}
+            validationId="exploratory-replay-historical-validation"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void readHistorical(
+                historicalRequestInput,
+                historicalAttemptInput,
+                historicalSemanticInput,
+              );
+            }}
+          >
+            <ReadbackLookupField label="Request identity">
+              <ReadbackLookupInput
+                aria-describedby={historicalValidation
+                  ? "exploratory-replay-historical-validation" : undefined}
+                aria-invalid={Boolean(historicalValidation)}
+                autoComplete="off"
+                onChange={(event) => {
+                  setHistoricalRequestInput(event.target.value);
+                  setHistoricalValidation(null);
+                }}
+                placeholder="historical request"
+                spellCheck={false}
+                typography="mono"
+                value={historicalRequestInput}
+              />
+            </ReadbackLookupField>
+            <ReadbackLookupField label="Attempt identity">
+              <ReadbackLookupInput
+                aria-describedby={historicalValidation
+                  ? "exploratory-replay-historical-validation" : undefined}
+                aria-invalid={Boolean(historicalValidation)}
+                autoComplete="off"
+                onChange={(event) => {
+                  setHistoricalAttemptInput(event.target.value);
+                  setHistoricalValidation(null);
+                }}
+                placeholder="historical attempt"
+                spellCheck={false}
+                typography="mono"
+                value={historicalAttemptInput}
+              />
+            </ReadbackLookupField>
+            <ReadbackLookupField label="Semantic digest">
+              <ReadbackLookupInput
+                aria-describedby={historicalValidation
+                  ? "exploratory-replay-historical-validation" : undefined}
+                aria-invalid={Boolean(historicalValidation)}
+                autoComplete="off"
+                onChange={(event) => {
+                  setHistoricalSemanticInput(event.target.value);
+                  setHistoricalValidation(null);
+                }}
+                placeholder="sha256:…"
+                spellCheck={false}
+                typography="mono"
+                value={historicalSemanticInput}
+              />
+            </ReadbackLookupField>
+            <ReadbackLookupAction disabled={historicalStatus === "loading"}>
+              Open historical <EvidenceIcons.next aria-hidden="true" size={12} />
+            </ReadbackLookupAction>
+          </ReadbackLookup>
+          <div className={styles.historicalResult} aria-live="polite">
+            {historicalStatus === "loading" ? (
+              <FactGroupSkeletonGrid
+                aria-label="Loading historical Replay rejection"
+                titles={["Outcome", "Custody", "Timing"]}
+              />
+            ) : historicalStatus === "available" && historicalProjection ? (
+              <AvailableHistoricalRejection projection={historicalProjection} />
+            ) : historicalStatus === "unavailable" ? (
+              <UnavailableState
+                density="compact"
+                icon={<EvidenceIcons.warning aria-hidden="true" size={20} />}
+                title="Historical rejection unavailable"
+                reason={historicalProjection?.reason ?? "HISTORICAL_REPLAY_REJECTION_TRANSPORT_UNAVAILABLE"}
+              />
+            ) : null}
+          </div>
+        </PanelSection>
         {status === "available" && openedSelector ? (
           <div className={styles.resultLookup}>
             <ReadbackLookup

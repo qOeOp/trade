@@ -23,11 +23,13 @@ use crate::complex_strategy_develop_evaluation::{
     UntrustedComplexStrategyDevelopEvaluationProposalV1,
 };
 use crate::exploratory_replay::{
-    ExploratoryReplayCommitResultV1, ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError,
+    ExploratoryReplayCommitResultV1, ExploratoryReplayCommitResultV2,
+    ExploratoryReplayHistoricalRejectionReadPortV1, ExploratoryReplayOwnerError,
     ExploratoryReplayReadResultV1, ExploratoryReplayReadResultV2,
     ExploratoryReplayRecoverySelectorV2, ExploratoryReplayRequestLocatorV1,
     ExploratoryReplayRequestLocatorV2, ExploratoryReplayRequestProposalV1,
     ExploratoryReplayRequestProposalV2, ExploratoryReplaySealedReadPortV2,
+    HistoricalExploratoryReplayRejectionReadbackV1, HistoricalExploratoryReplayRejectionSelectorV1,
     sealed_read_port::RdOwned,
 };
 use crate::product_edge::{
@@ -237,6 +239,20 @@ impl ExploratoryReplaySealedReadPortV2 for PostgresExploratoryReplayReadbackOwne
         selector: &ExploratoryReplayRecoverySelectorV2,
     ) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError> {
         crate::exploratory_replay::postgres::resolve_for_rd_v2(&self.pool, selector).await
+    }
+}
+
+#[async_trait]
+impl ExploratoryReplayHistoricalRejectionReadPortV1 for PostgresExploratoryReplayReadbackOwnerV2 {
+    async fn read_historical_exploratory_replay_rejection_v1(
+        &self,
+        selector: &HistoricalExploratoryReplayRejectionSelectorV1,
+    ) -> Result<Option<HistoricalExploratoryReplayRejectionReadbackV1>, ExploratoryReplayOwnerError>
+    {
+        crate::exploratory_replay::postgres::read_historical_rejection_for_dashboard_v1(
+            &self.pool, selector,
+        )
+        .await
     }
 }
 

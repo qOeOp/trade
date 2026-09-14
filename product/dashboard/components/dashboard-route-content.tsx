@@ -103,6 +103,8 @@ export function DashboardRouteContent({
   composerRequestIdentity,
   replayRequestIdentity,
   replayMeaningDigest,
+  replayAttemptIdentity,
+  replayHistoricalCustody = false,
   researchRequestIdentity,
 }: {
   current: string;
@@ -115,6 +117,8 @@ export function DashboardRouteContent({
   composerRequestIdentity?: string;
   replayRequestIdentity?: string;
   replayMeaningDigest?: string;
+  replayAttemptIdentity?: string;
+  replayHistoricalCustody?: boolean;
   researchRequestIdentity?: string;
 }) {
   const activeModule = moduleFor(current);
@@ -217,8 +221,14 @@ export function DashboardRouteContent({
               : sourceIntakeReadback ? <SourceIntakeReadbackWorkbench initialRequestIdentity={sourceIntakeRequestIdentity} />
               : composerReadback ? <DevelopComposerReadbackWorkbench initialRequestIdentity={composerRequestIdentity} />
               : exploratoryReplayReadback ? <ExploratoryReplayReadbackWorkbench
-                initialRequestIdentity={replayRequestIdentity}
-                initialMeaningDigest={replayMeaningDigest}
+                initialRequestIdentity={replayHistoricalCustody ? undefined : replayRequestIdentity}
+                initialMeaningDigest={replayHistoricalCustody ? undefined : replayMeaningDigest}
+                initialHistoricalRequestIdentity={replayHistoricalCustody
+                  ? replayRequestIdentity : undefined}
+                initialHistoricalAttemptIdentity={replayHistoricalCustody
+                  ? replayAttemptIdentity : undefined}
+                initialHistoricalSemanticDigest={replayHistoricalCustody
+                  ? replayMeaningDigest : undefined}
               />
               : researchReadback ? <ResearchReadbackWorkspace requestIdentity={researchRequestIdentity!} />
               : researchDirectory ? <ResearchDirectory />

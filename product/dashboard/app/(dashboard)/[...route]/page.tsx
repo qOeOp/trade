@@ -32,11 +32,17 @@ export default async function DashboardPage({
   const replayMeaningDigest = typeof query.meaningDigest === "string"
     ? query.meaningDigest
     : undefined;
+  const replayAttemptIdentity = typeof query.attemptIdentity === "string"
+    ? query.attemptIdentity
+    : undefined;
+  const replayHistoricalCustody = query.custody === "historical";
   return <DashboardRouteContent
     current={current === "/market" ? "/dashboard" : current}
     sourceIntakeRequestIdentity={sourceIntakeRequestIdentity}
     composerRequestIdentity={composerRequestIdentity}
     replayRequestIdentity={replayRequestIdentity}
     replayMeaningDigest={replayMeaningDigest}
+    replayAttemptIdentity={replayAttemptIdentity}
+    replayHistoricalCustody={replayHistoricalCustody}
   />;
 }
