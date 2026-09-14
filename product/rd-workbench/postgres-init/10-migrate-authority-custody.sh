@@ -1720,7 +1720,7 @@ CREATE TABLE IF NOT EXISTS public.qualification_public_status_facts_v1 (
   review_request_identity TEXT NOT NULL REFERENCES public.qualification_candidate_intake_receipts_v1(review_request_identity) DEFERRABLE INITIALLY DEFERRED,
   candidate_identity TEXT NOT NULL,
   phase_sequence BIGINT NOT NULL CHECK (phase_sequence BETWEEN 1 AND 3),
-  status TEXT NOT NULL CHECK (status IN ('NOT_ADMITTED','ADMITTED','EVALUATING','CLOSED_NOT_QUALIFIED')),
+  status TEXT NOT NULL CHECK (status IN ('NOT_ADMITTED','ADMITTED','EVALUATING','CLOSED_NOT_QUALIFIED','QUALIFIED')),
   native_source_identity TEXT NOT NULL,
   native_source_digest TEXT NOT NULL,
   source_frontier_identity TEXT NOT NULL,
@@ -1730,6 +1730,11 @@ CREATE TABLE IF NOT EXISTS public.qualification_public_status_facts_v1 (
   committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0),
   UNIQUE (review_request_identity, phase_sequence)
 );
+ALTER TABLE public.qualification_public_status_facts_v1
+  DROP CONSTRAINT IF EXISTS qualification_public_status_facts_v1_status_check;
+ALTER TABLE public.qualification_public_status_facts_v1
+  ADD CONSTRAINT qualification_public_status_facts_v1_status_check
+  CHECK (status IN ('NOT_ADMITTED','ADMITTED','EVALUATING','CLOSED_NOT_QUALIFIED','QUALIFIED'));
 CREATE TABLE IF NOT EXISTS public.qualification_public_status_heads_v1 (
   review_request_identity TEXT PRIMARY KEY REFERENCES public.qualification_candidate_intake_receipts_v1(review_request_identity) DEFERRABLE INITIALLY DEFERRED,
   candidate_identity TEXT NOT NULL,
@@ -1808,7 +1813,7 @@ CREATE TABLE IF NOT EXISTS public.qualification_protected_robustness_assessments
   holdout_reservation_identity TEXT NOT NULL UNIQUE REFERENCES public.qualification_holdout_reservations_v1(reservation_identity) DEFERRABLE INITIALLY DEFERRED,
   plan_cell_set_identity TEXT NOT NULL,
   plan_cell_set_digest TEXT NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('INCOMPLETE_INVALID','COMPLETE_FAIL')),
+  status TEXT NOT NULL CHECK (status IN ('INCOMPLETE_INVALID','COMPLETE_FAIL','COMPLETE_PASS')),
   assessment_json JSONB NOT NULL,
   committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0)
 );
@@ -1816,11 +1821,11 @@ ALTER TABLE public.qualification_protected_robustness_assessments_v1
   DROP CONSTRAINT IF EXISTS qualification_protected_robustness_assessments_v1_status_check;
 ALTER TABLE public.qualification_protected_robustness_assessments_v1
   ADD CONSTRAINT qualification_protected_robustness_assessments_v1_status_check
-  CHECK (status IN ('INCOMPLETE_INVALID','COMPLETE_FAIL'));
+  CHECK (status IN ('INCOMPLETE_INVALID','COMPLETE_FAIL','COMPLETE_PASS'));
 CREATE TABLE IF NOT EXISTS public.qualification_eligibility_facts_v1 (
   eligibility_identity TEXT PRIMARY KEY,
   eligibility_digest TEXT NOT NULL UNIQUE,
-  status TEXT NOT NULL CHECK (status='INELIGIBLE'),
+  status TEXT NOT NULL CHECK (status IN ('INELIGIBLE','QUALIFIED')),
   candidate_identity TEXT NOT NULL,
   assessment_identity TEXT NOT NULL UNIQUE REFERENCES public.qualification_protected_robustness_assessments_v1(assessment_identity) DEFERRABLE INITIALLY DEFERRED,
   holdout_reservation_identity TEXT NOT NULL UNIQUE REFERENCES public.qualification_holdout_reservations_v1(reservation_identity) DEFERRABLE INITIALLY DEFERRED,
@@ -1830,6 +1835,11 @@ CREATE TABLE IF NOT EXISTS public.qualification_eligibility_facts_v1 (
   eligibility_json JSONB NOT NULL,
   committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0)
 );
+ALTER TABLE public.qualification_eligibility_facts_v1
+  DROP CONSTRAINT IF EXISTS qualification_eligibility_facts_v1_status_check;
+ALTER TABLE public.qualification_eligibility_facts_v1
+  ADD CONSTRAINT qualification_eligibility_facts_v1_status_check
+  CHECK (status IN ('INELIGIBLE','QUALIFIED'));
 CREATE TABLE IF NOT EXISTS public.qualification_eligibility_fact_receipts_v1 (
   eligibility_identity TEXT PRIMARY KEY REFERENCES public.qualification_eligibility_facts_v1(eligibility_identity) DEFERRABLE INITIALLY DEFERRED,
   receipt_identity TEXT NOT NULL UNIQUE,
@@ -2640,7 +2650,7 @@ AS $function$
         AND receipt.receipt_json->'seal_digest'=pg_catalog.to_jsonb(receipt.seal_digest)
         AND receipt.receipt_json->'committed_at_epoch_ms'=pg_catalog.to_jsonb(receipt.committed_at_epoch_ms)
     )
-    WHEN 3 THEN requested_status='CLOSED_NOT_QUALIFIED' AND (
+    WHEN 3 THEN requested_status IN ('CLOSED_NOT_QUALIFIED','QUALIFIED') AND (
       EXISTS (
         SELECT 1
         FROM public.qualification_protected_attempt_dispositions_v1 disposition
@@ -2660,6 +2670,7 @@ AS $function$
            'qualification.protected-attempt-disposition-event.v1', native_outbox.payload_json
          )
         WHERE request.review_request_identity=requested_review_request_identity
+          AND requested_status='CLOSED_NOT_QUALIFIED'
           AND intake.candidate_identity=requested_candidate_identity
           AND disposition.disposition_identity=requested_native_source_identity
           AND disposition.disposition_digest=requested_native_source_digest
@@ -2706,6 +2717,7 @@ AS $function$
            'qualification.protected-assessment-invalid-event.v1', native_outbox.payload_json
          )
         WHERE request_set.review_request_identity=requested_review_request_identity
+          AND requested_status='CLOSED_NOT_QUALIFIED'
           AND qualification_api.protected_replay_request_set_is_custodied_v1(request_set.request_set_identity)
           AND intake.candidate_identity=requested_candidate_identity
           AND disposition.disposition_identity=requested_native_source_identity
@@ -2747,17 +2759,31 @@ AS $function$
           ON receipt.eligibility_identity=eligibility.eligibility_identity
         JOIN public.qualification_owner_outbox_v1 native_outbox
           ON native_outbox.aggregate_identity=eligibility.eligibility_identity
-         AND native_outbox.event_kind='QUALIFICATION_PROTECTED_INELIGIBLE_COMMITTED_V1'
+         AND native_outbox.event_kind=CASE eligibility.status
+           WHEN 'INELIGIBLE' THEN 'QUALIFICATION_PROTECTED_INELIGIBLE_COMMITTED_V1'
+           WHEN 'QUALIFIED' THEN 'QUALIFICATION_PROTECTED_QUALIFIED_COMMITTED_V1'
+         END
          AND native_outbox.committed_at_epoch_ms=eligibility.committed_at_epoch_ms
-         AND native_outbox.event_identity='qualification-protected-eligibility-ineligible-event-v1-' || pg_catalog.replace(native_outbox.payload_digest,'sha256:','')
+         AND native_outbox.event_identity=CASE eligibility.status
+           WHEN 'INELIGIBLE' THEN 'qualification-protected-eligibility-ineligible-event-v1-'
+           WHEN 'QUALIFIED' THEN 'qualification-protected-eligibility-qualified-event-v1-'
+         END || pg_catalog.replace(native_outbox.payload_digest,'sha256:','')
          AND native_outbox.payload_json->'assessment'=assessment.assessment_json
          AND native_outbox.payload_json->'eligibility'=eligibility.eligibility_json
          AND native_outbox.payload_json->'receipt'=receipt.receipt_json
          AND (SELECT pg_catalog.count(*)=3 FROM pg_catalog.jsonb_object_keys(native_outbox.payload_json))
          AND native_outbox.payload_digest=qualification_api.canonical_json_digest_v1(
-           'qualification.protected-eligibility-ineligible-event.v1', native_outbox.payload_json
+           CASE eligibility.status
+             WHEN 'INELIGIBLE' THEN 'qualification.protected-eligibility-ineligible-event.v1'
+             WHEN 'QUALIFIED' THEN 'qualification.protected-eligibility-qualified-event.v1'
+           END,
+           native_outbox.payload_json
          )
         WHERE request_set.review_request_identity=requested_review_request_identity
+          AND (
+            (requested_status='CLOSED_NOT_QUALIFIED' AND eligibility.status='INELIGIBLE')
+            OR (requested_status='QUALIFIED' AND eligibility.status='QUALIFIED')
+          )
           AND qualification_api.protected_replay_request_set_is_custodied_v1(request_set.request_set_identity)
           AND intake.candidate_identity=requested_candidate_identity
           AND eligibility.eligibility_identity=requested_native_source_identity
@@ -2767,6 +2793,16 @@ AS $function$
           AND eligibility.eligibility_json->'eligibility_identity'=pg_catalog.to_jsonb(eligibility.eligibility_identity)
           AND eligibility.eligibility_json->'eligibility_digest'=pg_catalog.to_jsonb(eligibility.eligibility_digest)
           AND eligibility.eligibility_json->'status'=pg_catalog.to_jsonb(eligibility.status)
+          AND assessment.status=CASE eligibility.status
+            WHEN 'INELIGIBLE' THEN 'COMPLETE_FAIL'
+            WHEN 'QUALIFIED' THEN 'COMPLETE_PASS'
+          END
+          AND (
+            (eligibility.status='INELIGIBLE' AND NOT eligibility.eligibility_json ? 'qualified_capacity_ceiling')
+            OR (eligibility.status='QUALIFIED'
+                AND pg_catalog.jsonb_typeof(eligibility.eligibility_json->'qualified_capacity_ceiling')='number'
+                AND (eligibility.eligibility_json->>'qualified_capacity_ceiling')::numeric > 0)
+          )
           AND eligibility.eligibility_json->'candidate_identity'=pg_catalog.to_jsonb(eligibility.candidate_identity)
           AND eligibility.eligibility_json->'assessment_identity'=pg_catalog.to_jsonb(eligibility.assessment_identity)
           AND eligibility.eligibility_json->'holdout_reservation_identity'=pg_catalog.to_jsonb(eligibility.holdout_reservation_identity)
@@ -2813,7 +2849,7 @@ AS $function$
              WHERE prior.review_request_identity=head.review_request_identity
            ),
            'terminal_event', CASE
-             WHEN fact.status='CLOSED_NOT_QUALIFIED' THEN pg_catalog.jsonb_build_object(
+             WHEN fact.status IN ('CLOSED_NOT_QUALIFIED','QUALIFIED') THEN pg_catalog.jsonb_build_object(
                'event_identity', outbox.event_identity,
                'payload_digest', outbox.payload_digest,
                'payload_json', pg_catalog.jsonb_build_object(
@@ -2900,11 +2936,11 @@ AS $function$
         )
     )
     AND (
-      (fact.status='CLOSED_NOT_QUALIFIED' AND outbox.event_identity IS NOT NULL)
-      OR (fact.status<>'CLOSED_NOT_QUALIFIED' AND outbox.event_identity IS NULL)
+      (fact.status IN ('CLOSED_NOT_QUALIFIED','QUALIFIED') AND outbox.event_identity IS NOT NULL)
+      OR (fact.status NOT IN ('CLOSED_NOT_QUALIFIED','QUALIFIED') AND outbox.event_identity IS NULL)
     )
     AND (
-      fact.status<>'CLOSED_NOT_QUALIFIED'
+      fact.status NOT IN ('CLOSED_NOT_QUALIFIED','QUALIFIED')
       OR (
         CASE WHEN pg_catalog.jsonb_typeof(outbox.payload_json)='object'
           THEN (SELECT pg_catalog.count(*)=6 FROM pg_catalog.jsonb_object_keys(outbox.payload_json))

@@ -769,6 +769,7 @@ pub(crate) struct ProtectedReplayAuthoritySourceV1 {
     pub multiplicity_basis_digest: String,
     pub alternatives_thresholds_identity: String,
     pub alternatives_thresholds_digest: String,
+    pub preregistered_capacity_ceiling: u64,
     pub protected_decision_policy_identity: String,
     pub protected_decision_policy_version: u64,
 }
@@ -905,6 +906,7 @@ pub(crate) fn protected_replay_authority_source_v1(
             &alternatives_thresholds_digest,
         ),
         alternatives_thresholds_digest,
+        preregistered_capacity_ceiling: plan.proposal.preregistered_capacity_ceiling,
         protected_decision_policy_identity: plan
             .proposal
             .protected_decision_policy

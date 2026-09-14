@@ -10,6 +10,7 @@ pub enum QualificationPublicStatusV1 {
     Admitted,
     Evaluating,
     ClosedNotQualified,
+    Qualified,
 }
 
 /// Qualification-owned, serialize-only public phase fact.
@@ -272,6 +273,7 @@ pub(crate) fn decode_public_status_readback_v1(
             ) | (
                 Some(QualificationPublicStatusV1::Evaluating),
                 QualificationPublicStatusV1::ClosedNotQualified
+                    | QualificationPublicStatusV1::Qualified
             )
         );
         if !transition_is_valid
@@ -364,7 +366,11 @@ impl QualificationPublicStatusFactV1 {
     pub(crate) fn terminal_event_v1(
         &self,
     ) -> Result<Option<(String, String, serde_json::Value)>, QualificationOwnerError> {
-        if self.status != QualificationPublicStatusV1::ClosedNotQualified {
+        if !matches!(
+            self.status,
+            QualificationPublicStatusV1::ClosedNotQualified
+                | QualificationPublicStatusV1::Qualified
+        ) {
             return Ok(None);
         }
         let payload = serde_json::to_value(PublicTerminalEventMeaningV1 {
@@ -422,6 +428,7 @@ pub(crate) const fn public_status_name(status: QualificationPublicStatusV1) -> &
         QualificationPublicStatusV1::Admitted => "ADMITTED",
         QualificationPublicStatusV1::Evaluating => "EVALUATING",
         QualificationPublicStatusV1::ClosedNotQualified => "CLOSED_NOT_QUALIFIED",
+        QualificationPublicStatusV1::Qualified => "QUALIFIED",
     }
 }
 
@@ -602,6 +609,9 @@ mod tests {
         let admitted = fact(QualificationPublicStatusV1::Admitted, 'a');
         let evaluating = fact(QualificationPublicStatusV1::Evaluating, 'b');
         let closed = fact(QualificationPublicStatusV1::ClosedNotQualified, 'c');
+        let qualified = fact(QualificationPublicStatusV1::Qualified, 'd');
+        assert!(qualified.terminal_event_v1().unwrap().is_some());
+        assert_ne!(closed.fact_digest(), qualified.fact_digest());
         let (event_identity, payload_digest, payload_json) =
             closed.terminal_event_v1().unwrap().unwrap();
         let history = vec![
@@ -620,6 +630,27 @@ mod tests {
             },
         });
         assert_eq!(decode_public_status_readback_v1(&valid).unwrap(), closed);
+
+        let (qualified_event_identity, qualified_payload_digest, qualified_payload_json) =
+            qualified.terminal_event_v1().unwrap().unwrap();
+        let qualified_readback = serde_json::json!({
+            "schema_version": 1,
+            "fact": qualified.as_json().unwrap(),
+            "history": [
+                admitted.as_json().unwrap(),
+                evaluating.as_json().unwrap(),
+                qualified.as_json().unwrap(),
+            ],
+            "terminal_event": {
+                "event_identity": qualified_event_identity,
+                "payload_digest": qualified_payload_digest,
+                "payload_json": qualified_payload_json,
+            },
+        });
+        assert_eq!(
+            decode_public_status_readback_v1(&qualified_readback).unwrap(),
+            qualified
+        );
 
         let mut stale = valid.clone();
         stale["fact"] = admitted.as_json().unwrap();
