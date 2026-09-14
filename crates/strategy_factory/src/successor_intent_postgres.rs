@@ -282,7 +282,7 @@ async fn migrate_successor_artifact_read_port(
              OR envelope#>>'{evidence,evidence_identity}' <> requested_evidence_identity
           THEN RETURN NULL; END IF;
           owner_cut_epoch_ms := pg_catalog.floor(
-            pg_catalog.extract(epoch FROM pg_catalog.clock_timestamp()) * 1000
+            extract(epoch FROM pg_catalog.clock_timestamp()) * 1000
           )::bigint;
           IF (envelope#>>'{evidence,projection_at_epoch_ms}')::bigint > owner_cut_epoch_ms
              OR owner_cut_epoch_ms >= (envelope#>>'{evidence,valid_through_epoch_ms}')::bigint
