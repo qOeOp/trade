@@ -1073,16 +1073,40 @@ pub(crate) fn admit_stored_artifact_binding(
     binding_json: &serde_json::Value,
     binding_receipt_json: &serde_json::Value,
 ) -> Result<ArtifactTrialFamilyReadbackV1, TrialFamilyError> {
+    let readback = decode_stored_artifact_binding(family, binding_json, binding_receipt_json)?;
+    verify_artifact_binding(&readback)?;
+    Ok(readback)
+}
+
+pub(crate) fn admit_stored_successor_artifact_binding(
+    family: TrialFamilyReadbackV1,
+    binding_json: &serde_json::Value,
+    binding_receipt_json: &serde_json::Value,
+    intent_trial_family_identity: &str,
+    intent_trial_family_policy_digest: &str,
+) -> Result<ArtifactTrialFamilyReadbackV1, TrialFamilyError> {
+    let readback = decode_stored_artifact_binding(family, binding_json, binding_receipt_json)?;
+    verify_successor_artifact_binding(
+        &readback,
+        intent_trial_family_identity,
+        intent_trial_family_policy_digest,
+    )?;
+    Ok(readback)
+}
+
+fn decode_stored_artifact_binding(
+    family: TrialFamilyReadbackV1,
+    binding_json: &serde_json::Value,
+    binding_receipt_json: &serde_json::Value,
+) -> Result<ArtifactTrialFamilyReadbackV1, TrialFamilyError> {
     let stored_binding: StoredArtifactTrialFamilyBindingV1 = decode_stored(binding_json)?;
     let stored_binding_receipt: StoredArtifactTrialFamilyBindingReceiptV1 =
         decode_stored(binding_receipt_json)?;
-    let readback = ArtifactTrialFamilyReadbackV1 {
+    Ok(ArtifactTrialFamilyReadbackV1 {
         trial_family: family,
         binding: stored_binding.into(),
         binding_receipt: stored_binding_receipt.into(),
-    };
-    verify_artifact_binding(&readback)?;
-    Ok(readback)
+    })
 }
 
 pub(crate) fn form_initial_family(
@@ -1957,6 +1981,39 @@ pub(crate) fn verify_census_v2(
 pub(crate) fn verify_artifact_binding(
     readback: &ArtifactTrialFamilyReadbackV1,
 ) -> Result<(), TrialFamilyError> {
+    verify_artifact_binding_receipt(readback)?;
+    let expected = form_artifact_binding(
+        readback.trial_family.clone(),
+        &readback.binding.artifact_identity,
+        &readback.binding.build_receipt_identity,
+        &readback.binding.intent_identity,
+        readback.binding_receipt.committed_at_epoch_ms,
+    )?;
+
+    verify_expected_artifact_binding(readback, &expected)
+}
+
+pub(crate) fn verify_successor_artifact_binding(
+    readback: &ArtifactTrialFamilyReadbackV1,
+    intent_trial_family_identity: &str,
+    intent_trial_family_policy_digest: &str,
+) -> Result<(), TrialFamilyError> {
+    verify_artifact_binding_receipt(readback)?;
+    let expected = form_successor_artifact_binding(
+        readback.trial_family.clone(),
+        &readback.binding.artifact_identity,
+        &readback.binding.build_receipt_identity,
+        &readback.binding.intent_identity,
+        intent_trial_family_identity,
+        intent_trial_family_policy_digest,
+        readback.binding_receipt.committed_at_epoch_ms,
+    )?;
+    verify_expected_artifact_binding(readback, &expected)
+}
+
+fn verify_artifact_binding_receipt(
+    readback: &ArtifactTrialFamilyReadbackV1,
+) -> Result<(), TrialFamilyError> {
     verify_family(&readback.trial_family)?;
     if readback.binding.schema_version != 1
         || readback.binding_receipt.schema_version != 1
@@ -1967,15 +2024,14 @@ pub(crate) fn verify_artifact_binding(
             "artifact binding receipt mismatch".to_string(),
         ));
     }
-    let expected = form_artifact_binding(
-        readback.trial_family.clone(),
-        &readback.binding.artifact_identity,
-        &readback.binding.build_receipt_identity,
-        &readback.binding.intent_identity,
-        readback.binding_receipt.committed_at_epoch_ms,
-    )?;
+    Ok(())
+}
 
-    if &expected != readback {
+fn verify_expected_artifact_binding(
+    readback: &ArtifactTrialFamilyReadbackV1,
+    expected: &ArtifactTrialFamilyReadbackV1,
+) -> Result<(), TrialFamilyError> {
+    if expected != readback {
         return Err(TrialFamilyError::Unavailable(
             "artifact binding content digest mismatch".to_string(),
         ));
@@ -2645,6 +2701,19 @@ mod tests {
         .unwrap();
         assert_eq!(bound.binding.intent_identity(), successor_intent);
         assert_eq!(bound.binding.trial_family_identity(), family_identity);
+        verify_successor_artifact_binding(&bound, &family_identity, &policy_digest).unwrap();
+        assert_eq!(
+            admit_stored_successor_artifact_binding(
+                family.clone(),
+                &serde_json::to_value(&bound.binding).unwrap(),
+                &serde_json::to_value(&bound.binding_receipt).unwrap(),
+                &family_identity,
+                &policy_digest,
+            )
+            .unwrap(),
+            bound
+        );
+        assert!(verify_artifact_binding(&bound).is_err());
 
         assert!(
             form_successor_artifact_binding(

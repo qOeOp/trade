@@ -19,10 +19,10 @@ use crate::{
         TrialFamilyCandidateSetFrontierV2, TrialFamilyCensusFrontierV2,
         TrialFamilyCensusReadbackV2, TrialFamilyError, TrialFamilyReadbackV1,
         admit_stored_artifact_binding, admit_stored_census_member_v2, admit_stored_family,
-        admit_stored_legacy_family_without_frontier, append_attempt_to_census_v2,
-        form_artifact_binding, form_successor_artifact_binding,
+        admit_stored_legacy_family_without_frontier, admit_stored_successor_artifact_binding,
+        append_attempt_to_census_v2, form_artifact_binding, form_successor_artifact_binding,
         legacy_initial_member_for_census_v2, verify_artifact_binding, verify_census_v2,
-        verify_family,
+        verify_family, verify_successor_artifact_binding,
     },
 };
 
@@ -285,7 +285,7 @@ pub(crate) async fn persist_artifact_binding(
         intent_identity,
         now_epoch_ms,
     )?;
-    persist_artifact_binding_readback(transaction, readback, now_epoch_ms).await
+    persist_artifact_binding_readback(transaction, readback, now_epoch_ms, None).await
 }
 
 #[expect(
@@ -311,15 +311,30 @@ pub(crate) async fn persist_successor_artifact_binding(
         intent_trial_family_policy_digest,
         now_epoch_ms,
     )?;
-    persist_artifact_binding_readback(transaction, readback, now_epoch_ms).await
+    persist_artifact_binding_readback(
+        transaction,
+        readback,
+        now_epoch_ms,
+        Some((
+            intent_trial_family_identity,
+            intent_trial_family_policy_digest,
+        )),
+    )
+    .await
 }
 
 async fn persist_artifact_binding_readback(
     transaction: &mut Transaction<'_, Postgres>,
     readback: ArtifactTrialFamilyReadbackV1,
     now_epoch_ms: u64,
+    successor_family: Option<(&str, &str)>,
 ) -> Result<ArtifactTrialFamilyReadbackV1, TrialFamilyError> {
-    verify_artifact_binding(&readback)?;
+    match successor_family {
+        Some((family_identity, policy_digest)) => {
+            verify_successor_artifact_binding(&readback, family_identity, policy_digest)?;
+        }
+        None => verify_artifact_binding(&readback)?,
+    }
     let committed_at = i64::try_from(now_epoch_ms).map_err(unavailable)?;
     sqlx::query("INSERT INTO rd_artifact_trial_family_bindings_v1 (binding_identity, artifact_identity, build_receipt_identity, intent_identity, trial_family_identity, binding_digest, binding_json, binding_receipt_json, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)")
         .bind(readback.binding.binding_identity())
@@ -444,8 +459,18 @@ async fn load_artifact_trial_family_with_intent_in_transaction(
             "artifact binding intent mismatch".to_string(),
         ));
     }
-    let readback =
-        admit_stored_artifact_binding(family.clone(), &binding_json, &binding_receipt_json)?;
+    let readback = match successor_family {
+        Some((family_identity, policy_digest)) => admit_stored_successor_artifact_binding(
+            family.clone(),
+            &binding_json,
+            &binding_receipt_json,
+            family_identity,
+            policy_digest,
+        )?,
+        None => {
+            admit_stored_artifact_binding(family.clone(), &binding_json, &binding_receipt_json)?
+        }
+    };
 
     if readback.binding.binding_identity() != binding_identity
         || readback.binding_receipt.binding_identity() != binding_identity
@@ -464,7 +489,12 @@ async fn load_artifact_trial_family_with_intent_in_transaction(
             "artifact binding row mismatch".to_string(),
         ));
     }
-    verify_artifact_binding(&readback)?;
+    match successor_family {
+        Some((family_identity, policy_digest)) => {
+            verify_successor_artifact_binding(&readback, family_identity, policy_digest)?;
+        }
+        None => verify_artifact_binding(&readback)?,
+    }
     verify_binding_outbox_in_transaction(transaction, &readback).await?;
     Ok(readback)
 }
