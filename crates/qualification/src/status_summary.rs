@@ -452,6 +452,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn postgres_canonical_digest_interop_vector_is_stable() {
+        let value = serde_json::json!({
+            "z": [2, {"b": true, "a": "x"}],
+            "a": null,
+        });
+        assert_eq!(
+            canonical_digest("test.domain", &value).unwrap(),
+            "sha256:9d00d10c5eafa9ac29b9367ed0c7cd299d0077017025789d17bfca0b280da223"
+        );
+        assert_eq!(
+            canonical_digest("test.bytes", &br#"{"a":1}"#.to_vec()).unwrap(),
+            "sha256:fc36c838cbb3673d095a291739429a7fdb5850c2f42a16bd48ac90a8e5b343fc"
+        );
+    }
+
+    #[test]
     fn native_negative_kinds_share_one_public_shape() {
         let replay_source_digest = format!("sha256:{}", "a".repeat(64));
         let source_frontier_digest = format!("sha256:{}", "b".repeat(64));

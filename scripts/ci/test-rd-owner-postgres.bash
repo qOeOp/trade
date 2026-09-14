@@ -2405,6 +2405,7 @@ BEGIN
   END IF;
 
   IF NOT pg_catalog.has_schema_privilege('product_edge_owner', 'qualification_api', 'USAGE')
+     OR NOT pg_catalog.has_schema_privilege('qualification_owner', 'qualification_api', 'USAGE')
      OR NOT pg_catalog.has_function_privilege(
        'product_edge_owner',
        'qualification_api.read_public_status_v1(text)',
@@ -2425,6 +2426,12 @@ BEGIN
        'qualification_api.public_status_native_source_is_custodied_v1(text,text,bigint,text,text,text,bigint)',
        'EXECUTE'
      )
+     OR pg_catalog.has_function_privilege('product_edge_owner', 'qualification_api.canonical_json_text_v1(jsonb)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('product_edge_owner', 'qualification_api.canonical_json_digest_v1(text,jsonb)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('product_edge_owner', 'qualification_api.canonical_bytes_storage_digest_v1(text,bytea)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('qualification_writer', 'qualification_api.canonical_json_text_v1(jsonb)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('qualification_writer', 'qualification_api.canonical_json_digest_v1(text,jsonb)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('qualification_writer', 'qualification_api.canonical_bytes_storage_digest_v1(text,bytea)', 'EXECUTE')
   THEN
     RAISE EXCEPTION 'Qualification public status API boundary is unavailable';
   END IF;
@@ -2461,6 +2468,21 @@ BEGIN
       AND procedure.proconfig = ARRAY['search_path=pg_catalog']
   ) THEN
     RAISE EXCEPTION 'Qualification public status native-custody validator metadata mismatch';
+  END IF;
+
+  IF qualification_api.canonical_json_text_v1(
+       '{"z":[2,{"b":true,"a":"x"}],"a":null}'::jsonb
+     ) <> '{"a":null,"z":[2,{"a":"x","b":true}]}'
+     OR qualification_api.canonical_json_digest_v1(
+       'test.domain',
+       '{"z":[2,{"b":true,"a":"x"}],"a":null}'::jsonb
+     ) <> 'sha256:9d00d10c5eafa9ac29b9367ed0c7cd299d0077017025789d17bfca0b280da223'
+     OR qualification_api.canonical_bytes_storage_digest_v1(
+       'test.bytes',
+       pg_catalog.convert_to('{"a":1}','UTF8')
+     ) <> 'sha256:fc36c838cbb3673d095a291739429a7fdb5850c2f42a16bd48ac90a8e5b343fc'
+  THEN
+    RAISE EXCEPTION 'Qualification canonical digest SQL/Rust interoperability changed';
   END IF;
 
   IF NOT pg_catalog.has_schema_privilege('qualification_writer', 'rd_owner_api', 'USAGE')
