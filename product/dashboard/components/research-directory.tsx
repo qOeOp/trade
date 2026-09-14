@@ -205,8 +205,10 @@ export function ResearchDirectory() {
       minWidth: "360px",
       grow: 1.6,
       cell: (item) => <div className={styles.identityCell}>
-        <strong title={item.requestIdentity}>{displayIdentity(item.requestIdentity)}</strong>
-        <span>Candidate identity only</span>
+        <Link className={styles.identityLink} href={`/rd/research/${encodeURIComponent(item.requestIdentity)}`}
+          title={`Open exact Owner readback for ${item.requestIdentity}`}>
+          <strong>{displayIdentity(item.requestIdentity)}</strong>
+        </Link>
       </div>,
     },
     {

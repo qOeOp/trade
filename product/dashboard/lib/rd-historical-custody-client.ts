@@ -48,7 +48,7 @@ function exactKeys(value: Json, keys: string[]) {
   return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
 }
 function identity(value: unknown): value is string {
-  return typeof value === "string" && IDENTITY.test(value);
+  return typeof value === "string" && IDENTITY.test(value) && value !== "." && value !== "..";
 }
 function count(value: unknown): value is number {
   return Number.isSafeInteger(value) && Number(value) >= 0;

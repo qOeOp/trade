@@ -21,7 +21,10 @@ test("Research directory uses the shared compact read-only table surface", async
   assert.match(component, /requestGuard\.current\.isCurrent\(requestIdentity\)/u);
   assert.match(component, /RESEARCH_DIRECTORY_PAGE_IDENTITY_CONFLICT/u);
   assert.match(component, /researchAvailabilityTone\(item\.availability\)/u);
-  assert.match(component, /href=\{`\/rd\/research\/\$\{encodeURIComponent\(item\.requestIdentity\)\}`\}/u);
+  assert.equal([
+    ...component.matchAll(/href=\{`\/rd\/research\/\$\{encodeURIComponent\(item\.requestIdentity\)\}`\}/gu),
+  ].length, 2);
+  assert.match(component, /Open exact Owner readback for/u);
   assert.match(route, /readResearchDirectoryGatewayV1/u);
   assert.match(route, /search\.getAll\(key\)\.length !== 1/u);
   assert.match(shell, /<ResearchDirectory \/>/u);
