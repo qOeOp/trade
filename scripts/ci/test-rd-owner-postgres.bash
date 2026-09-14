@@ -2432,6 +2432,18 @@ BEGIN
      OR pg_catalog.has_function_privilege('qualification_writer', 'qualification_api.canonical_json_text_v1(jsonb)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('qualification_writer', 'qualification_api.canonical_json_digest_v1(text,jsonb)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('qualification_writer', 'qualification_api.canonical_bytes_storage_digest_v1(text,bytea)', 'EXECUTE')
+     OR EXISTS (
+       SELECT 1
+       FROM pg_catalog.unnest(ARRAY[
+         'qualification_api.canonical_ordered_json_digest_v1(text,text)',
+         'qualification_api.protected_replay_request_semantic_digest_is_valid_v1(jsonb,bytea,text,text)',
+         'qualification_api.protected_replay_request_set_is_custodied_v1(text)',
+         'qualification_api.public_status_expected_opaque_reference_v1(text,text,text,text)',
+         'qualification_api.public_status_expected_fact_digest_v1(text,text,text,text,text,text,boolean)'
+       ]) helper
+       WHERE pg_catalog.has_function_privilege('product_edge_owner', helper, 'EXECUTE')
+          OR pg_catalog.has_function_privilege('qualification_writer', helper, 'EXECUTE')
+     )
   THEN
     RAISE EXCEPTION 'Qualification public status API boundary is unavailable';
   END IF;
@@ -2481,6 +2493,21 @@ BEGIN
        'test.bytes',
        pg_catalog.convert_to('{"a":1}','UTF8')
      ) <> 'sha256:fc36c838cbb3673d095a291739429a7fdb5850c2f42a16bd48ac90a8e5b343fc'
+     OR qualification_api.canonical_ordered_json_digest_v1(
+       'test.ordered',
+       '{"z":2,"a":1}'
+     ) <> 'sha256:262facb6b6e6f92395f67fcf62d1d95b5b8698f9cead9f7eb9adad94108a263c'
+     OR qualification_api.public_status_expected_opaque_reference_v1(
+       'review-r5','candidate-r5','native-r5',
+       'sha256:1111111111111111111111111111111111111111111111111111111111111111'
+     ) <> 'qualification-public-reference-v1-d7324219d241aae0353a49d08abe33e0b9608ff587933b8fe5e530a48fa776f7'
+     OR qualification_api.public_status_expected_fact_digest_v1(
+       'review-r5','candidate-r5','CLOSED_NOT_QUALIFIED',
+       'qualification-public-reference-v1-d7324219d241aae0353a49d08abe33e0b9608ff587933b8fe5e530a48fa776f7',
+       'frontier-r5',
+       'sha256:2222222222222222222222222222222222222222222222222222222222222222',
+       true
+     ) <> 'sha256:a2894972d1f29cfd9ad53674183017788f3d541fba0f33075a4d462d7f2bb111'
   THEN
     RAISE EXCEPTION 'Qualification canonical digest SQL/Rust interoperability changed';
   END IF;

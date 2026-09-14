@@ -465,6 +465,48 @@ mod tests {
             canonical_digest("test.bytes", &br#"{"a":1}"#.to_vec()).unwrap(),
             "sha256:fc36c838cbb3673d095a291739429a7fdb5850c2f42a16bd48ac90a8e5b343fc"
         );
+        let opaque_digest = canonical_digest(
+            "qualification.public-status-opaque-reference.v1",
+            &OpaqueReferenceMeaningV1 {
+                schema_version: 1,
+                review_request_identity: "review-r5",
+                candidate_identity: "candidate-r5",
+                native_source_identity: "native-r5",
+                native_source_digest: concat!(
+                    "sha256:",
+                    "1111111111111111111111111111111111111111111111111111111111111111"
+                ),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            opaque_digest,
+            "sha256:d7324219d241aae0353a49d08abe33e0b9608ff587933b8fe5e530a48fa776f7"
+        );
+        let opaque_reference = format!(
+            "qualification-public-reference-v1-{}",
+            opaque_digest.strip_prefix("sha256:").unwrap()
+        );
+        assert_eq!(
+            canonical_digest(
+                "qualification.public-status-fact.v1",
+                &PublicFactMeaningV1 {
+                    schema_version: 1,
+                    review_request_identity: "review-r5",
+                    candidate_identity: "candidate-r5",
+                    status: QualificationPublicStatusV1::ClosedNotQualified,
+                    opaque_reference: &opaque_reference,
+                    source_frontier_identity: "frontier-r5",
+                    source_frontier_digest: concat!(
+                        "sha256:",
+                        "2222222222222222222222222222222222222222222222222222222222222222"
+                    ),
+                    source_frontier_is_current: true,
+                },
+            )
+            .unwrap(),
+            "sha256:a2894972d1f29cfd9ad53674183017788f3d541fba0f33075a4d462d7f2bb111"
+        );
     }
 
     #[test]

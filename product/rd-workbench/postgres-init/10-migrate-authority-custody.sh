@@ -2178,6 +2178,300 @@ $function$;
 ALTER FUNCTION qualification_api.canonical_bytes_storage_digest_v1(text,bytea) OWNER TO qualification_owner;
 REVOKE ALL ON FUNCTION qualification_api.canonical_bytes_storage_digest_v1(text,bytea) FROM PUBLIC, rd_owner, qualification_writer, backtest_owner, product_edge_owner, operator_authorization_owner, operator_authorization_writer;
 
+CREATE OR REPLACE FUNCTION qualification_api.canonical_ordered_json_digest_v1(domain text, value_text text)
+RETURNS text LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+  SELECT CASE WHEN value_text::jsonb IS NULL THEN NULL ELSE
+    'sha256:' || pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(
+      '{"domain":' || pg_catalog.to_json(domain)::text || ',"value":' || value_text || '}',
+      'UTF8'
+    )), 'hex')
+  END
+$function$;
+ALTER FUNCTION qualification_api.canonical_ordered_json_digest_v1(text,text) OWNER TO qualification_owner;
+REVOKE ALL ON FUNCTION qualification_api.canonical_ordered_json_digest_v1(text,text) FROM PUBLIC, rd_owner, qualification_writer, backtest_owner, product_edge_owner, operator_authorization_owner, operator_authorization_writer;
+
+CREATE OR REPLACE FUNCTION qualification_api.protected_replay_request_semantic_digest_is_valid_v1(
+  request_json jsonb,
+  canonical_request_bytes bytea,
+  requested_request_identity text,
+  requested_request_digest text
+)
+RETURNS boolean LANGUAGE plpgsql IMMUTABLE STRICT PARALLEL SAFE SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+DECLARE
+  request_text text := pg_catalog.convert_from(canonical_request_bytes, 'UTF8');
+  expected_prefix text;
+  meaning_text text;
+  request_tail text;
+  time_marker constant text := ',"request_time_evidence":';
+  marker_position integer;
+  frozen_basis_text text;
+  time_evidence_text text;
+BEGIN
+  IF request_text::jsonb IS DISTINCT FROM request_json
+     OR request_json->>'request_identity' IS DISTINCT FROM requested_request_identity
+     OR request_json->>'request_digest' IS DISTINCT FROM requested_request_digest
+  THEN
+    RETURN false;
+  END IF;
+  IF request_json->>'schema_version'='1' THEN
+    expected_prefix := '{"schema_version":1,"request_identity":' ||
+      pg_catalog.to_json(requested_request_identity)::text || ',"request_digest":' ||
+      pg_catalog.to_json(requested_request_digest)::text || ',';
+    IF pg_catalog.left(request_text, pg_catalog.length(expected_prefix)) IS DISTINCT FROM expected_prefix THEN
+      RETURN false;
+    END IF;
+    meaning_text := '{"schema_version":1,"request_identity":' ||
+      pg_catalog.to_json(requested_request_identity)::text || ',' ||
+      pg_catalog.substr(request_text, pg_catalog.length(expected_prefix) + 1);
+    RETURN requested_request_digest=qualification_api.canonical_ordered_json_digest_v1(
+      'qualification.protected-replay-request.v1', meaning_text
+    );
+  ELSIF request_json->>'schema_version'='2' THEN
+    expected_prefix := '{"schema_version":2,"request_identity":' ||
+      pg_catalog.to_json(requested_request_identity)::text || ',"request_digest":' ||
+      pg_catalog.to_json(requested_request_digest)::text || ',"frozen_basis":';
+    IF pg_catalog.left(request_text, pg_catalog.length(expected_prefix)) IS DISTINCT FROM expected_prefix
+       OR pg_catalog.right(request_text, 1) <> '}'
+    THEN
+      RETURN false;
+    END IF;
+    request_tail := pg_catalog.substr(request_text, pg_catalog.length(expected_prefix) + 1);
+    marker_position := pg_catalog.strpos(request_tail, time_marker);
+    IF marker_position <= 1 THEN
+      RETURN false;
+    END IF;
+    frozen_basis_text := pg_catalog.left(request_tail, marker_position - 1);
+    time_evidence_text := pg_catalog.substr(
+      request_tail, marker_position + pg_catalog.length(time_marker)
+    );
+    time_evidence_text := pg_catalog.left(time_evidence_text, pg_catalog.length(time_evidence_text) - 1);
+    IF NOT qualification_api.protected_replay_request_semantic_digest_is_valid_v1(
+      frozen_basis_text::jsonb,
+      pg_catalog.convert_to(frozen_basis_text, 'UTF8'),
+      frozen_basis_text::jsonb->>'request_identity',
+      frozen_basis_text::jsonb->>'request_digest'
+    ) THEN
+      RETURN false;
+    END IF;
+    meaning_text := '[2,' || pg_catalog.to_json(requested_request_identity)::text || ',' ||
+      frozen_basis_text || ',' || time_evidence_text || ']';
+    RETURN requested_request_digest=qualification_api.canonical_ordered_json_digest_v1(
+      'qualification.protected-replay-request.v2', meaning_text
+    );
+  END IF;
+  RETURN false;
+EXCEPTION WHEN data_exception THEN
+  RETURN false;
+END
+$function$;
+ALTER FUNCTION qualification_api.protected_replay_request_semantic_digest_is_valid_v1(jsonb,bytea,text,text) OWNER TO qualification_owner;
+REVOKE ALL ON FUNCTION qualification_api.protected_replay_request_semantic_digest_is_valid_v1(jsonb,bytea,text,text) FROM PUBLIC, rd_owner, qualification_writer, backtest_owner, product_edge_owner, operator_authorization_owner, operator_authorization_writer;
+
+CREATE OR REPLACE FUNCTION qualification_api.protected_replay_request_set_is_custodied_v1(
+  requested_request_set_identity text
+)
+RETURNS boolean LANGUAGE sql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.qualification_protected_replay_request_sets_v1 request_set
+    JOIN public.qualification_candidate_intake_receipts_v1 intake
+      ON intake.review_request_identity=request_set.review_request_identity
+     AND intake.receipt_identity=request_set.intake_receipt_identity
+    JOIN public.qualification_owner_outbox_v1 native_outbox
+      ON native_outbox.aggregate_identity=request_set.request_set_identity
+     AND native_outbox.event_kind='QUALIFICATION_PROTECTED_REPLAY_REQUEST_SET_SEALED_V1'
+     AND native_outbox.committed_at_epoch_ms=request_set.committed_at_epoch_ms
+     AND native_outbox.payload_json=pg_catalog.jsonb_build_object(
+       'schema_version',1,
+       'request_set_identity',request_set.request_set_identity,
+       'request_set_digest',request_set.request_set_digest,
+       'plan_cell_set_identity',request_set.plan_cell_set_identity,
+       'plan_cell_set_digest',request_set.plan_cell_set_digest
+     )
+     AND native_outbox.payload_digest=qualification_api.canonical_json_digest_v1(
+       'qualification.protected-replay-request-set-sealed-event.v1', native_outbox.payload_json
+     )
+     AND native_outbox.event_identity='qualification-protected-replay-request-set-sealed-event-v1-' ||
+       pg_catalog.replace(native_outbox.payload_digest,'sha256:','')
+    WHERE request_set.request_set_identity=requested_request_set_identity
+      AND request_set.request_set_identity='qualification-protected-request-set-v1-' ||
+        pg_catalog.replace(request_set.request_set_digest,'blake3:','')
+      AND pg_catalog.convert_from(request_set.canonical_seal_bytes,'UTF8')::jsonb=request_set.seal_json
+      AND request_set.storage_digest=qualification_api.canonical_bytes_storage_digest_v1(
+        'qualification.protected-replay-request-set.storage.v1', request_set.canonical_seal_bytes
+      )
+      AND CASE WHEN pg_catalog.jsonb_typeof(request_set.seal_json)='object'
+        THEN (SELECT pg_catalog.count(*)=20 FROM pg_catalog.jsonb_object_keys(request_set.seal_json))
+        ELSE false
+      END
+      AND request_set.seal_json->'schema_version'=pg_catalog.to_jsonb(1)
+      AND request_set.seal_json->>'request_set_identity'=request_set.request_set_identity
+      AND request_set.seal_json->>'request_set_digest'=request_set.request_set_digest
+      AND request_set.seal_json->>'candidate_identity'=intake.candidate_identity
+      AND request_set.seal_json->>'candidate_digest'=intake.receipt_json->>'candidate_digest'
+      AND request_set.seal_json->>'intake_receipt_identity'=request_set.intake_receipt_identity
+      AND request_set.seal_json->>'intake_receipt_digest'=intake.receipt_json->>'receipt_digest'
+      AND request_set.seal_json->>'holdout_reservation_identity'=request_set.holdout_reservation_identity
+      AND request_set.seal_json->>'protected_decision_policy_identity'=intake.receipt_json->>'protected_decision_policy_identity'
+      AND request_set.seal_json->>'protected_decision_policy_version'=intake.receipt_json->>'protected_decision_policy_version'
+      AND request_set.seal_json->>'protected_plan_identity'=request_set.protected_plan_identity
+      AND request_set.seal_json->>'protected_plan_digest'=request_set.protected_plan_digest
+      AND request_set.seal_json->>'plan_cell_set_identity'=request_set.plan_cell_set_identity
+      AND request_set.seal_json->>'plan_cell_set_digest'=request_set.plan_cell_set_digest
+      AND pg_catalog.jsonb_typeof(request_set.seal_json->'members')='array'
+      AND pg_catalog.jsonb_array_length(request_set.seal_json->'members')>0
+      AND pg_catalog.jsonb_array_length(request_set.seal_json->'members')=(
+        SELECT pg_catalog.count(*)
+        FROM public.qualification_protected_replay_requests_v1 census_request
+        WHERE census_request.review_request_identity=request_set.review_request_identity
+          AND census_request.intake_receipt_identity=request_set.intake_receipt_identity
+          AND census_request.holdout_reservation_identity=request_set.holdout_reservation_identity
+          AND census_request.protected_plan_identity=request_set.protected_plan_identity
+          AND census_request.protected_plan_digest=request_set.protected_plan_digest
+          AND census_request.request_json->>'schema_version'='2'
+          AND census_request.request_json#>>'{frozen_basis,plan_cell_set_identity}'=request_set.plan_cell_set_identity
+          AND census_request.request_json#>>'{frozen_basis,plan_cell_set_digest}'=request_set.plan_cell_set_digest
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM pg_catalog.jsonb_array_elements(request_set.seal_json->'members') member
+        LEFT JOIN public.qualification_protected_replay_requests_v1 request
+          ON request.request_identity=member->>'request_identity'
+         AND request.request_digest=member->>'request_digest'
+         AND request.plan_cell_identity=member->>'plan_cell_identity'
+         AND request.plan_cell_digest=member->>'plan_cell_digest'
+        LEFT JOIN public.qualification_protected_replay_request_receipts_v1 receipt
+          ON receipt.request_identity=request.request_identity
+         AND receipt.request_digest=request.request_digest
+         AND receipt.receipt_identity=member->>'request_receipt_identity'
+         AND receipt.seal_digest=member->>'request_seal_digest'
+        WHERE request.request_identity IS NULL
+           OR receipt.request_identity IS NULL
+           OR NOT CASE WHEN pg_catalog.jsonb_typeof(member)='object'
+             THEN (SELECT pg_catalog.count(*)=7 FROM pg_catalog.jsonb_object_keys(member))
+             ELSE false
+           END
+           OR request.review_request_identity<>request_set.review_request_identity
+           OR request.intake_receipt_identity<>request_set.intake_receipt_identity
+           OR request.holdout_reservation_identity<>request_set.holdout_reservation_identity
+           OR request.protected_plan_identity<>request_set.protected_plan_identity
+           OR request.protected_plan_digest<>request_set.protected_plan_digest
+           OR request.request_json->>'schema_version'<>'2'
+           OR request.request_json#>>'{frozen_basis,plan_cell_set_identity}'<>request_set.plan_cell_set_identity
+           OR request.request_json#>>'{frozen_basis,plan_cell_set_digest}'<>request_set.plan_cell_set_digest
+           OR NOT qualification_api.protected_replay_request_semantic_digest_is_valid_v1(
+             request.request_json,request.canonical_request_bytes,request.request_identity,request.request_digest
+           )
+           OR request.storage_digest<>qualification_api.canonical_bytes_storage_digest_v1(
+             'qualification.protected-replay-request.storage.v1',request.canonical_request_bytes
+           )
+           OR receipt.seal_digest<>qualification_api.canonical_bytes_storage_digest_v1(
+             'qualification.protected-replay-request-seal.v1',request.canonical_request_bytes
+           )
+           OR pg_catalog.convert_from(receipt.canonical_receipt_bytes,'UTF8')::jsonb<>receipt.receipt_json
+           OR receipt.committed_at_epoch_ms<>request.committed_at_epoch_ms
+           OR receipt.receipt_json<>pg_catalog.jsonb_build_object(
+             'schema_version',1,
+             'receipt_identity',receipt.receipt_identity,
+             'receipt_digest',receipt.receipt_digest,
+             'request_identity',request.request_identity,
+             'request_digest',request.request_digest,
+             'seal_digest',receipt.seal_digest,
+             'committed_at_epoch_ms',receipt.committed_at_epoch_ms
+           )
+           OR receipt.storage_digest<>qualification_api.canonical_bytes_storage_digest_v1(
+             'qualification.protected-replay-request-receipt.storage.v1',receipt.canonical_receipt_bytes
+           )
+           OR receipt.receipt_digest<>qualification_api.canonical_ordered_json_digest_v1(
+             'qualification.protected-replay-request-receipt.v1',
+             '[' || pg_catalog.to_json(request.request_identity)::text || ',' ||
+             pg_catalog.to_json(request.request_digest)::text || ',' ||
+             pg_catalog.to_json(receipt.seal_digest)::text || ',' ||
+             receipt.committed_at_epoch_ms::text || ']'
+           )
+           OR receipt.receipt_identity<>'qualification-protected-replay-request-receipt-v1-' ||
+             pg_catalog.replace(receipt.receipt_digest,'sha256:','')
+           OR NOT EXISTS (
+             SELECT 1
+             FROM public.qualification_owner_outbox_v1 request_outbox
+             WHERE request_outbox.aggregate_identity=request.request_identity
+               AND request_outbox.event_kind='QUALIFICATION_PROTECTED_REPLAY_REQUEST_FROZEN_V1'
+               AND request_outbox.committed_at_epoch_ms=request.committed_at_epoch_ms
+               AND request_outbox.payload_json=pg_catalog.jsonb_build_object(
+                 'schema_version',1,
+                 'request_identity',request.request_identity,
+                 'request_digest',request.request_digest,
+                 'receipt_identity',receipt.receipt_identity,
+                 'seal_digest',receipt.seal_digest
+               )
+               AND request_outbox.payload_digest=qualification_api.canonical_json_digest_v1(
+                 'qualification.protected-replay-request-frozen-event.v1',request_outbox.payload_json
+               )
+               AND request_outbox.event_identity='qualification-protected-replay-request-frozen-event-v1-' ||
+                 pg_catalog.replace(request_outbox.payload_digest,'sha256:','')
+           )
+      )
+  )
+$function$;
+ALTER FUNCTION qualification_api.protected_replay_request_set_is_custodied_v1(text) OWNER TO qualification_owner;
+REVOKE ALL ON FUNCTION qualification_api.protected_replay_request_set_is_custodied_v1(text) FROM PUBLIC, rd_owner, qualification_writer, backtest_owner, product_edge_owner, operator_authorization_owner, operator_authorization_writer;
+
+CREATE OR REPLACE FUNCTION qualification_api.public_status_expected_opaque_reference_v1(
+  review_request_identity text,
+  candidate_identity text,
+  native_source_identity text,
+  native_source_digest text
+)
+RETURNS text LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+  SELECT 'qualification-public-reference-v1-' || pg_catalog.replace(
+    qualification_api.canonical_ordered_json_digest_v1(
+      'qualification.public-status-opaque-reference.v1',
+      '{"schema_version":1,"review_request_identity":' || pg_catalog.to_json(review_request_identity)::text ||
+      ',"candidate_identity":' || pg_catalog.to_json(candidate_identity)::text ||
+      ',"native_source_identity":' || pg_catalog.to_json(native_source_identity)::text ||
+      ',"native_source_digest":' || pg_catalog.to_json(native_source_digest)::text || '}'
+    ),
+    'sha256:',
+    ''
+  )
+$function$;
+ALTER FUNCTION qualification_api.public_status_expected_opaque_reference_v1(text,text,text,text) OWNER TO qualification_owner;
+REVOKE ALL ON FUNCTION qualification_api.public_status_expected_opaque_reference_v1(text,text,text,text) FROM PUBLIC, rd_owner, qualification_writer, backtest_owner, product_edge_owner, operator_authorization_owner, operator_authorization_writer;
+
+CREATE OR REPLACE FUNCTION qualification_api.public_status_expected_fact_digest_v1(
+  review_request_identity text,
+  candidate_identity text,
+  status text,
+  opaque_reference text,
+  source_frontier_identity text,
+  source_frontier_digest text,
+  source_frontier_is_current boolean
+)
+RETURNS text LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+  SELECT qualification_api.canonical_ordered_json_digest_v1(
+    'qualification.public-status-fact.v1',
+    '{"schema_version":1,"review_request_identity":' || pg_catalog.to_json(review_request_identity)::text ||
+    ',"candidate_identity":' || pg_catalog.to_json(candidate_identity)::text ||
+    ',"status":' || pg_catalog.to_json(status)::text ||
+    ',"opaque_reference":' || pg_catalog.to_json(opaque_reference)::text ||
+    ',"source_frontier_identity":' || pg_catalog.to_json(source_frontier_identity)::text ||
+    ',"source_frontier_digest":' || pg_catalog.to_json(source_frontier_digest)::text ||
+    ',"source_frontier_is_current":' || pg_catalog.to_json(source_frontier_is_current)::text || '}'
+  )
+$function$;
+ALTER FUNCTION qualification_api.public_status_expected_fact_digest_v1(text,text,text,text,text,text,boolean) OWNER TO qualification_owner;
+REVOKE ALL ON FUNCTION qualification_api.public_status_expected_fact_digest_v1(text,text,text,text,text,text,boolean) FROM PUBLIC, rd_owner, qualification_writer, backtest_owner, product_edge_owner, operator_authorization_owner, operator_authorization_writer;
+
 CREATE OR REPLACE FUNCTION qualification_api.public_status_native_source_is_custodied_v1(
   requested_review_request_identity text,
   requested_candidate_identity text,
@@ -2261,6 +2555,21 @@ AS $function$
         AND request.storage_digest=qualification_api.canonical_bytes_storage_digest_v1(
           'qualification.protected-replay-request.storage.v1', request.canonical_request_bytes
         )
+        AND qualification_api.protected_replay_request_semantic_digest_is_valid_v1(
+          request.request_json,request.canonical_request_bytes,request.request_identity,request.request_digest
+        )
+        AND receipt.seal_digest=qualification_api.canonical_bytes_storage_digest_v1(
+          'qualification.protected-replay-request-seal.v1',request.canonical_request_bytes
+        )
+        AND receipt.receipt_digest=qualification_api.canonical_ordered_json_digest_v1(
+          'qualification.protected-replay-request-receipt.v1',
+          '[' || pg_catalog.to_json(request.request_identity)::text || ',' ||
+          pg_catalog.to_json(request.request_digest)::text || ',' ||
+          pg_catalog.to_json(receipt.seal_digest)::text || ',' ||
+          receipt.committed_at_epoch_ms::text || ']'
+        )
+        AND receipt.receipt_identity='qualification-protected-replay-request-receipt-v1-' ||
+          pg_catalog.replace(receipt.receipt_digest,'sha256:','')
         AND request.request_json->'schema_version' IN (pg_catalog.to_jsonb(1),pg_catalog.to_jsonb(2))
         AND request.request_json->'request_identity'=pg_catalog.to_jsonb(request.request_identity)
         AND request.request_json->'request_digest'=pg_catalog.to_jsonb(request.request_digest)
@@ -2349,6 +2658,7 @@ AS $function$
            'qualification.protected-assessment-invalid-event.v1', native_outbox.payload_json
          )
         WHERE request_set.review_request_identity=requested_review_request_identity
+          AND qualification_api.protected_replay_request_set_is_custodied_v1(request_set.request_set_identity)
           AND intake.candidate_identity=requested_candidate_identity
           AND disposition.disposition_identity=requested_native_source_identity
           AND disposition.disposition_digest=requested_native_source_digest
@@ -2400,6 +2710,7 @@ AS $function$
            'qualification.protected-eligibility-ineligible-event.v1', native_outbox.payload_json
          )
         WHERE request_set.review_request_identity=requested_review_request_identity
+          AND qualification_api.protected_replay_request_set_is_custodied_v1(request_set.request_set_identity)
           AND intake.candidate_identity=requested_candidate_identity
           AND eligibility.eligibility_identity=requested_native_source_identity
           AND eligibility.eligibility_digest=requested_native_source_digest
@@ -2518,6 +2829,23 @@ AS $function$
           OR prior.fact_json->'source_frontier_digest' IS DISTINCT FROM pg_catalog.to_jsonb(prior.source_frontier_digest)
           OR prior.fact_json->'source_frontier_is_current' IS DISTINCT FROM pg_catalog.to_jsonb(prior.source_frontier_is_current)
           OR pg_catalog.jsonb_typeof(prior.fact_json->'opaque_reference') IS DISTINCT FROM 'string'
+          OR prior.fact_json->>'opaque_reference' IS DISTINCT FROM qualification_api.public_status_expected_opaque_reference_v1(
+            prior.review_request_identity,
+            prior.candidate_identity,
+            prior.native_source_identity,
+            prior.native_source_digest
+          )
+          OR prior.fact_digest IS DISTINCT FROM qualification_api.public_status_expected_fact_digest_v1(
+            prior.review_request_identity,
+            prior.candidate_identity,
+            prior.status,
+            prior.fact_json->>'opaque_reference',
+            prior.source_frontier_identity,
+            prior.source_frontier_digest,
+            prior.source_frontier_is_current
+          )
+          OR prior.fact_identity IS DISTINCT FROM 'qualification-public-status-fact-v1-' ||
+            pg_catalog.replace(prior.fact_digest,'sha256:','')
         )
     )
     AND (
