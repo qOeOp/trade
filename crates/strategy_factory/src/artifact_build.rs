@@ -25,7 +25,7 @@ use crate::{
         FrozenResearchGoalIntent, ProductEdgeChannel, ResearchSourceV1, ResearchViewV1,
     },
     program_runtime::ProgramRuntimeBudget,
-    successor_intent::FrozenSuccessorResearchIntentV1,
+    successor_intent::SuccessorResearchIntentReadbackV1,
     trial_family::{ArtifactTrialFamilyReadbackV1, TrialFamilyResolutionV1},
 };
 
@@ -89,35 +89,35 @@ pub struct ArtifactBuildRequestV1 {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ArtifactBuildIntentV1 {
     Initial(FrozenResearchGoalIntent),
-    Successor(FrozenSuccessorResearchIntentV1),
+    Successor(SuccessorResearchIntentReadbackV1),
 }
 
 impl ArtifactBuildIntentV1 {
     pub(crate) fn intent_identity(&self) -> &str {
         match self {
             Self::Initial(intent) => intent.intent_identity(),
-            Self::Successor(intent) => intent.intent_identity(),
+            Self::Successor(readback) => readback.intent().intent_identity(),
         }
     }
 
     pub(crate) fn request_identity(&self) -> &str {
         match self {
             Self::Initial(intent) => intent.request_identity(),
-            Self::Successor(intent) => intent.request_identity(),
+            Self::Successor(readback) => readback.intent().request_identity(),
         }
     }
 
     pub(crate) fn semantic_digest(&self) -> &str {
         match self {
             Self::Initial(intent) => intent.semantic_digest(),
-            Self::Successor(intent) => intent.intent_digest(),
+            Self::Successor(readback) => readback.intent().intent_digest(),
         }
     }
 
     pub(crate) fn source_frontier(&self) -> &[ResearchSourceV1] {
         match self {
             Self::Initial(intent) => intent.source_frontier(),
-            Self::Successor(intent) => &intent.goal().sources,
+            Self::Successor(readback) => &readback.intent().goal().sources,
         }
     }
 
@@ -127,9 +127,9 @@ impl ArtifactBuildIntentV1 {
                 intent.trial_family_identity.as_str(),
                 intent.trial_family_policy_digest.as_str(),
             )),
-            Self::Successor(intent) => Some((
-                intent.trial_family_identity(),
-                intent.trial_family_policy_digest(),
+            Self::Successor(readback) => Some((
+                readback.intent().trial_family_identity(),
+                readback.intent().trial_family_policy_digest(),
             )),
             Self::Initial(FrozenResearchGoalIntent::V1(_)) => None,
         }
@@ -1296,7 +1296,7 @@ pub(crate) fn canonical_intent_bytes(
 ) -> Result<Vec<u8>, ArtifactBuildError> {
     let mut bytes = match intent {
         ArtifactBuildIntentV1::Initial(intent) => serde_json::to_vec(intent),
-        ArtifactBuildIntentV1::Successor(intent) => serde_json::to_vec(intent),
+        ArtifactBuildIntentV1::Successor(readback) => serde_json::to_vec(readback.intent()),
     }
     .map_err(|e| ArtifactBuildError::Storage(e.to_string()))?;
     bytes.push(b'\n');
@@ -1665,7 +1665,7 @@ mod tests {
         )
         .expect("successor Intent");
         let successor = readback.intent().clone();
-        let build_intent = ArtifactBuildIntentV1::Successor(successor.clone());
+        let build_intent = ArtifactBuildIntentV1::Successor(readback.clone());
         let candidate = candidate(&build_intent);
         let family_policy_digest = digest('4');
 
