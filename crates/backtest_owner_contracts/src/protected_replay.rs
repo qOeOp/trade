@@ -41,6 +41,9 @@ const RECEIPT_DIGEST_DOMAIN: &str = "vibe.backtest.protected-result-receipt.v1";
 const OUTBOX_PAYLOAD_DIGEST_DOMAIN: &str = "vibe.backtest.protected-result-outbox-payload.v1";
 const OUTBOX_EVENT_DIGEST_DOMAIN: &str = "vibe.backtest.protected-result-outbox-event.v1";
 const EVENT_KIND: &str = "PROTECTED_BACKTEST_RESULT_COMMITTED_V1";
+const ECONOMIC_POLICY_DIGEST_DOMAIN_V1: &str = "qualification.protected-economic-policy-bundle.v1";
+const ECONOMIC_MEASUREMENT_DIGEST_DOMAIN_V1: &str =
+    "vibe.backtest.protected-economic-measurement.v1";
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ProtectedReplayContractErrorV1 {
@@ -60,6 +63,10 @@ pub enum ProtectedReplayContractErrorV1 {
     InvalidRequestSet,
     #[error("protected replay attempt frontier is incomplete or noncanonical")]
     InvalidAttemptFrontier,
+    #[error("protected economic policy is incomplete or noncanonical")]
+    InvalidEconomicPolicy,
+    #[error("protected economic measurement is incomplete or noncanonical")]
+    InvalidEconomicMeasurement,
 }
 
 /// Forgeable wire form of the Qualification-owned frozen request.
@@ -491,6 +498,205 @@ pub struct ProtectedReplayReconciliationAtomV1 {
 pub struct ProtectedResultOutcomeLocatorV1 {
     pub reference: OpaqueIdentityV2,
     pub digest: CanonicalDigestV2,
+}
+
+/// One exact frozen policy artifact referenced by the admitted protected plan.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProtectedEconomicPolicyReferenceV1 {
+    pub identity: String,
+    pub digest: String,
+}
+
+/// Direction of the fixed-point threshold comparison performed by Qualification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ProtectedEconomicComparisonV1 {
+    AtLeast,
+    AtMost,
+}
+
+/// Aggregation rule frozen before protected execution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ProtectedEconomicAggregationV1 {
+    EveryApplicableCell,
+}
+
+/// Qualification-owned, write-once interpretation of the protected plan's policy references.
+///
+/// All numeric values are scaled integers. No floating-point value crosses this boundary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProtectedEconomicPolicyBundleV1 {
+    pub schema_version: u16,
+    pub bundle_identity: String,
+    pub bundle_digest: String,
+    pub protected_decision_policy_identity: String,
+    pub protected_decision_policy_version: u64,
+    pub metric: ProtectedEconomicPolicyReferenceV1,
+    pub coverage_policy: ProtectedEconomicPolicyReferenceV1,
+    pub tolerance_policy: ProtectedEconomicPolicyReferenceV1,
+    pub threshold_policy: ProtectedEconomicPolicyReferenceV1,
+    pub aggregation_policy: ProtectedEconomicPolicyReferenceV1,
+    pub unit: String,
+    pub decimal_scale: u8,
+    pub comparison: ProtectedEconomicComparisonV1,
+    pub threshold_raw: i64,
+    pub tolerance_raw: u64,
+    pub minimum_coverage_bps: u16,
+    pub aggregation: ProtectedEconomicAggregationV1,
+}
+
+/// Backtest-owned measurement evidence. It carries no Qualification verdict.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProtectedEconomicMeasurementV1 {
+    pub schema_version: u16,
+    pub measurement_identity: String,
+    pub measurement_digest: String,
+    pub request_identity: String,
+    pub request_digest: String,
+    pub attempt_identity: String,
+    pub protected_plan_identity: String,
+    pub protected_plan_digest: String,
+    pub plan_cell_set_identity: String,
+    pub plan_cell_set_digest: String,
+    pub plan_cell_identity: String,
+    pub plan_cell_digest: String,
+    pub metric_identity: String,
+    pub metric_digest: String,
+    pub unit: String,
+    pub decimal_scale: u8,
+    pub observed_raw: i64,
+    pub observed_coverage_bps: u16,
+    pub decisive_evidence: ProtectedConsumedInputLocatorV1,
+    pub result_time_evidence_digest: String,
+}
+
+impl ProtectedEconomicPolicyBundleV1 {
+    pub fn compute_digest(&self) -> Result<String, ProtectedReplayContractErrorV1> {
+        digest_json(
+            ECONOMIC_POLICY_DIGEST_DOMAIN_V1,
+            &(
+                self.schema_version,
+                &self.protected_decision_policy_identity,
+                self.protected_decision_policy_version,
+                &self.metric,
+                &self.coverage_policy,
+                &self.tolerance_policy,
+                &self.threshold_policy,
+                &self.aggregation_policy,
+                &self.unit,
+                self.decimal_scale,
+                self.comparison,
+                self.threshold_raw,
+                self.tolerance_raw,
+                self.minimum_coverage_bps,
+                self.aggregation,
+            ),
+        )
+    }
+
+    pub fn validate(&self) -> Result<(), ProtectedReplayContractErrorV1> {
+        let references = [
+            &self.metric,
+            &self.coverage_policy,
+            &self.tolerance_policy,
+            &self.threshold_policy,
+            &self.aggregation_policy,
+        ];
+        let expected_digest = self.compute_digest()?;
+        if self.schema_version != 1
+            || !valid_identity(&self.protected_decision_policy_identity)
+            || self.protected_decision_policy_version == 0
+            || references
+                .iter()
+                .any(|value| !valid_identity(&value.identity) || !valid_digest(&value.digest))
+            || !valid_identity(&self.unit)
+            || self.decimal_scale > 18
+            || self.tolerance_raw > i64::MAX as u64
+            || !(1..=10_000).contains(&self.minimum_coverage_bps)
+            || self.bundle_digest != expected_digest
+            || self.bundle_identity
+                != derived_identity(
+                    "qualification-protected-economic-policy-v1",
+                    &expected_digest,
+                )?
+        {
+            return Err(ProtectedReplayContractErrorV1::InvalidEconomicPolicy);
+        }
+        Ok(())
+    }
+}
+
+impl ProtectedEconomicMeasurementV1 {
+    pub fn compute_digest(&self) -> Result<String, ProtectedReplayContractErrorV1> {
+        digest_json(
+            ECONOMIC_MEASUREMENT_DIGEST_DOMAIN_V1,
+            &(
+                (
+                    self.schema_version,
+                    &self.request_identity,
+                    &self.request_digest,
+                    &self.attempt_identity,
+                ),
+                (
+                    &self.protected_plan_identity,
+                    &self.protected_plan_digest,
+                    &self.plan_cell_set_identity,
+                    &self.plan_cell_set_digest,
+                    &self.plan_cell_identity,
+                    &self.plan_cell_digest,
+                ),
+                (
+                    &self.metric_identity,
+                    &self.metric_digest,
+                    &self.unit,
+                    self.decimal_scale,
+                ),
+                (self.observed_raw, self.observed_coverage_bps),
+                (&self.decisive_evidence, &self.result_time_evidence_digest),
+            ),
+        )
+    }
+
+    pub fn validate(&self) -> Result<(), ProtectedReplayContractErrorV1> {
+        let identities = [
+            &self.request_identity,
+            &self.attempt_identity,
+            &self.protected_plan_identity,
+            &self.plan_cell_set_identity,
+            &self.plan_cell_identity,
+            &self.metric_identity,
+            &self.unit,
+        ];
+        let digests = [
+            &self.request_digest,
+            &self.protected_plan_digest,
+            &self.plan_cell_set_digest,
+            &self.plan_cell_digest,
+            &self.metric_digest,
+            &self.result_time_evidence_digest,
+        ];
+        let expected_digest = self.compute_digest()?;
+        if self.schema_version != 1
+            || identities.iter().any(|value| !valid_identity(value))
+            || digests.iter().any(|value| !valid_digest(value))
+            || self.decimal_scale > 18
+            || self.observed_coverage_bps > 10_000
+            || !valid_consumed_locator(&self.decisive_evidence)
+            || self.measurement_digest != expected_digest
+            || self.measurement_identity
+                != derived_identity(
+                    "backtest-protected-economic-measurement-v1",
+                    &expected_digest,
+                )?
+        {
+            return Err(ProtectedReplayContractErrorV1::InvalidEconomicMeasurement);
+        }
+        Ok(())
+    }
 }
 
 /// One Backtest-owned protected diagnostic category and its decisive evidence cut.
@@ -1962,6 +2168,12 @@ fn valid_digest(value: &str) -> bool {
     CanonicalDigestV2::try_from(value.to_string()).is_ok()
 }
 
+fn valid_consumed_locator(value: &ProtectedConsumedInputLocatorV1) -> bool {
+    valid_identity(value.owner.as_str())
+        && valid_identity(value.reference.as_str())
+        && valid_digest(value.digest.as_str())
+}
+
 fn derived_identity(prefix: &str, digest: &str) -> Result<String, ProtectedReplayContractErrorV1> {
     digest
         .strip_prefix("blake3:")
@@ -2168,6 +2380,97 @@ mod tests {
             result.result_digest.strip_prefix("blake3:").unwrap()
         );
         result
+    }
+
+    #[test]
+    fn economic_policy_and_measurement_are_fixed_point_and_content_addressed() {
+        let mut policy = ProtectedEconomicPolicyBundleV1 {
+            schema_version: 1,
+            bundle_identity: "pending-policy".into(),
+            bundle_digest: format!("blake3:{}", "0".repeat(64)),
+            protected_decision_policy_identity: "protected-policy".into(),
+            protected_decision_policy_version: 1,
+            metric: ProtectedEconomicPolicyReferenceV1 {
+                identity: "net-return".into(),
+                digest: canonical_digest('1').as_str().into(),
+            },
+            coverage_policy: ProtectedEconomicPolicyReferenceV1 {
+                identity: "coverage-policy".into(),
+                digest: canonical_digest('2').as_str().into(),
+            },
+            tolerance_policy: ProtectedEconomicPolicyReferenceV1 {
+                identity: "tolerance-policy".into(),
+                digest: canonical_digest('3').as_str().into(),
+            },
+            threshold_policy: ProtectedEconomicPolicyReferenceV1 {
+                identity: "threshold-policy".into(),
+                digest: canonical_digest('4').as_str().into(),
+            },
+            aggregation_policy: ProtectedEconomicPolicyReferenceV1 {
+                identity: "aggregation-policy".into(),
+                digest: canonical_digest('5').as_str().into(),
+            },
+            unit: "basis-points".into(),
+            decimal_scale: 4,
+            comparison: ProtectedEconomicComparisonV1::AtLeast,
+            threshold_raw: 250,
+            tolerance_raw: 5,
+            minimum_coverage_bps: 9_500,
+            aggregation: ProtectedEconomicAggregationV1::EveryApplicableCell,
+        };
+        policy.bundle_digest = policy.compute_digest().unwrap();
+        policy.bundle_identity = derived_identity(
+            "qualification-protected-economic-policy-v1",
+            &policy.bundle_digest,
+        )
+        .unwrap();
+        policy.validate().unwrap();
+
+        let request = request_v2();
+        let mut measurement = ProtectedEconomicMeasurementV1 {
+            schema_version: 1,
+            measurement_identity: "pending-measurement".into(),
+            measurement_digest: format!("blake3:{}", "0".repeat(64)),
+            request_identity: request.request_identity.clone(),
+            request_digest: request.request_digest.clone(),
+            attempt_identity: "backtest-attempt".into(),
+            protected_plan_identity: request.frozen_basis.protected_plan_identity.clone(),
+            protected_plan_digest: request.frozen_basis.protected_plan_digest.clone(),
+            plan_cell_set_identity: request.frozen_basis.plan_cell_set_identity.clone(),
+            plan_cell_set_digest: request.frozen_basis.plan_cell_set_digest.clone(),
+            plan_cell_identity: request.frozen_basis.plan_cell_identity.clone(),
+            plan_cell_digest: request.frozen_basis.plan_cell_digest.clone(),
+            metric_identity: policy.metric.identity.clone(),
+            metric_digest: policy.metric.digest.clone(),
+            unit: policy.unit.clone(),
+            decimal_scale: policy.decimal_scale,
+            observed_raw: 249,
+            observed_coverage_bps: 10_000,
+            decisive_evidence: ProtectedConsumedInputLocatorV1 {
+                owner: identity("backtest-owner"),
+                reference: identity("economic-measurement-evidence"),
+                digest: canonical_digest('6'),
+            },
+            result_time_evidence_digest: protected_evaluation_time_evidence_digest_v1(
+                &time_evidence(ProtectedEvaluationStageV1::Result),
+            )
+            .unwrap(),
+        };
+        measurement.measurement_digest = measurement.compute_digest().unwrap();
+        measurement.measurement_identity = derived_identity(
+            "backtest-protected-economic-measurement-v1",
+            &measurement.measurement_digest,
+        )
+        .unwrap();
+        measurement.validate().unwrap();
+
+        let original = measurement.measurement_digest.clone();
+        measurement.observed_raw = 250;
+        assert_ne!(measurement.compute_digest().unwrap(), original);
+        assert_eq!(
+            measurement.validate(),
+            Err(ProtectedReplayContractErrorV1::InvalidEconomicMeasurement)
+        );
     }
 
     #[test]
