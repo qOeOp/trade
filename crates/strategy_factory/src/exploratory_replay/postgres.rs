@@ -2434,13 +2434,17 @@ async fn commit_inner(
         .request()
         .semantic_digest()
         .map_err(unavailable)?;
+    let current_research_receipt_identity = successor_view_custody.as_ref().map_or_else(
+        || research_receipt.receipt_identity.clone(),
+        |(successor, _)| successor.receipt().receipt_identity().to_string(),
+    );
 
     let expected = StoredFrozenV1 {
         schema_version: 1,
         request_schema_version: prepared_v2.as_ref().map(|_| 2),
         proposal: proposal.clone(),
         product_edge_request_semantic_digest,
-        research_receipt_identity: research_receipt.receipt_identity.clone(),
+        research_receipt_identity: current_research_receipt_identity,
         intent_semantic_digest: intent.semantic_digest().to_string(),
         trial_family_root_digest: root.root_digest().to_string(),
         census_frontier_digest: frontier.frontier_digest().to_string(),
