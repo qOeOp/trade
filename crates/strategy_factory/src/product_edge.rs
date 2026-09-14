@@ -504,6 +504,12 @@ pub enum ResearchIterationActionV1 {
         decision_receipt_identity: String,
         reason: IterationTerminalStopReasonV1,
     },
+    CreateSuccessorIntent {
+        decision_digest: String,
+        decision_receipt_identity: String,
+        experiment_identity: String,
+        experiment_digest: String,
+    },
     SubmitSelectedCandidateToQualification {
         decision_digest: String,
         decision_receipt_identity: String,
@@ -556,6 +562,40 @@ pub(crate) fn project_research_iteration_action_v1(
                 decision_digest: readback.decision().decision_digest().to_string(),
                 decision_receipt_identity: readback.receipt().receipt_identity().to_string(),
                 reason: *reason,
+            }
+        }
+        Some(ExistingIterationDecisionReadbackV1::CandidateComparison(readback)) => {
+            if readback.decision().decision_identity() != decision_identity
+                || readback.receipt().decision_identity() != decision_identity
+                || readback.receipt().result_identity() != result_identity
+            {
+                return Err("candidate-comparison Decision readback locator is inconsistent");
+            }
+            match readback.decision().outcome() {
+                IterationDecisionOutcomeV1::SuccessorExperiment {
+                    experiment_identity,
+                    experiment_digest,
+                } => ResearchIterationActionV1::CreateSuccessorIntent {
+                    decision_digest: readback.decision().decision_digest().to_string(),
+                    decision_receipt_identity: readback.receipt().receipt_identity().to_string(),
+                    experiment_identity: experiment_identity.clone(),
+                    experiment_digest: experiment_digest.clone(),
+                },
+                IterationDecisionOutcomeV1::TerminalStop { reason }
+                    if *reason == IterationTerminalStopReasonV1::LowInformationValue =>
+                {
+                    ResearchIterationActionV1::StopOnCommittedDecision {
+                        decision_digest: readback.decision().decision_digest().to_string(),
+                        decision_receipt_identity: readback
+                            .receipt()
+                            .receipt_identity()
+                            .to_string(),
+                        reason: *reason,
+                    }
+                }
+                _ => {
+                    return Err("candidate-comparison Decision readback outcome is inconsistent");
+                }
             }
         }
         Some(ExistingIterationDecisionReadbackV1::ReadyForSelection(readback)) => {
