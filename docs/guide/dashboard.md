@@ -444,31 +444,43 @@ oversized response, or transport/configuration failure makes the affected read u
 empty successful page. The candidate view uses the same authenticated GET `/v1/historical-custodies` and read‑only
 Owner cut as Research. It exposes at most 200 attempt and 200 TrialFamily-binding identities, their custody times,
 and only `POINT_READ_REQUIRED`. Counts are custody-index counts, never verified Artifact or valid-binding counts.
-No Artifact outcome, binding validity, current authority, raw receipt, payload, or storage field is inferred.
+No Artifact outcome, binding validity, current authority, raw receipt, payload, or storage field is inferred by the
+directory cut. An attempt candidate is a link to an exact historical point read; only that point read may classify
+the candidate from its complete stored custody.
 
 The verified-directory, exact-readback, and exact-source GETs are packaged in the consolidated
 `strategy-factory-rd-dashboard-read-api` described above. Its Artifact state holds only the typed
 `ArtifactDirectoryOwnerPort`, `ArtifactReadbackOwnerPortV1`, and `ArtifactSourceOwnerPort`, never a sandbox or an
-Artifact mutation port. The exact readback GET reuses verified attempt custody to project the current result but never
-calls `ArtifactBuildOwnerPort::resolve`; it cannot terminalize an expired attempt, submit a Building candidate, drain
-legacy custody, invoke a provider, or otherwise write business state. The
+Artifact mutation port. The exact readback GET is current-first: an exact current stored shape always enters the
+existing complete Artifact verifier, and a current verification failure never downgrades to a historical decoder.
+An exact non-current shape may enter the historical quarantine verifier. Only a terminal
+`FAILED_NO_ARTIFACT`, `REJECTED_NO_WRITE`, or `OUTCOME_UNKNOWN` receipt with canonical identity, semantic digest,
+time, and no-Artifact relations becomes `LEGACY_TERMINAL_QUARANTINED`; historical `SUCCESS` remains unavailable
+because it lacks the sealed build-security evidence required by current Artifact custody. The verified directory
+omits non-current shapes and marks the cut partial instead of making verified current rows unavailable. Source reads
+remain current-only. The adapter never calls `ArtifactBuildOwnerPort::resolve`; it cannot terminalize an expired
+attempt, submit a Building candidate, drain legacy custody, invoke a provider, or otherwise write business state. The
 PostgreSQL adapter remains a normal read-committed locking reader because the canonical verifier requires
 `FOR SHARE`; changing it to a read‑only transaction would reject the verifier itself. Dashboard binds these
 endpoints through the same atomically configured `RD_DASHBOARD_OWNER_READ_API_URL` and
 `RD_DASHBOARD_OWNER_READ_API_TOKEN` pair. If either value is present without the other, the read fails closed and
 never borrows the other credential from the write API.
 
-`Refresh`, switching the local directory/kind views, local search/sort/pagination, `Load older`, and opening one
-exact verified Artifact are the only actions. This
+`Refresh`, switching the local directory/kind views, local search/sort/pagination, `Load older`, opening one exact
+verified Artifact, and opening one exact historical attempt outcome are the only actions. Historical detail uses the
+same `PanelFrame`, `FactGroup`, `FactItem`, `StatusBadge`, and compact filter-button atoms as the other readbacks. It
+shows only business-facing outcome, quarantine, reason, and timing facts; exact identities and the Owner receipt stay
+behind the existing info affordance. This
 directory does not submit or resolve an attempt, build source, run a sandbox/Wasm module, invoke a provider, mutate
 Windmill, write business state, or authorize trading. `WASM_PREVIEW_NOT_RUN` in the linked source viewer remains
 unchanged until a separate real Owner-backed preview contract is admitted.
 
 The authenticated GET
-`/v1/artifact-builds/{build_request_identity}/attempts/{attempt_identity}/readback` is admitted only as the exact
-Owner-outcome source for the effect-free `artifact_build.shadow_resolve.v1` operational read. It preserves the
-existing strict Research dependency and Artifact result verification before RunStore records a replacement read.
-It does not admit the broader Artifact detail outcome, action, review, binding, replay, or security panels below.
+`/v1/artifact-builds/{build_request_identity}/attempts/{attempt_identity}/readback` is admitted as both the exact
+Owner-outcome source for the effect-free `artifact_build.shadow_resolve.v1` operational read and the exact source for
+the bounded historical quarantine detail above. It preserves strict current Artifact verification and exposes only
+verified terminal legacy no-Artifact outcomes to that historical detail. This admission does not extend to Artifact
+actions, review, binding, replay, security panels, or any mutation.
 
 This chapter is the living implementation and phased-admission contract for the Trade-owned Dashboard. It defines
 the product shell, information architecture, reusable UI system, and the current evidence-backed hypothesis for the

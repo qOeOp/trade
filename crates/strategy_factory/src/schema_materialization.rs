@@ -142,6 +142,25 @@ pub(crate) async fn require_existing_public_tables(
     Ok(())
 }
 
+/// Verifies the same immutable relation manifest for a capability that exposes
+/// only Owner reads, without requiring the later runtime-role cutover to have
+/// happened already.
+pub(crate) async fn require_existing_public_tables_for_readback(
+    pool: &PgPool,
+    specs: &[PublicTableSpec],
+) -> Result<(), sqlx::Error> {
+    for spec in specs {
+        match require_existing_public_table(pool, spec, &[]).await {
+            Ok(()) => {}
+            Err(sqlx::Error::Protocol(_)) if !spec.runtime_read_grantees.is_empty() => {
+                require_existing_public_table(pool, spec, spec.runtime_read_grantees).await?;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
+
 pub(crate) async fn verify_materialized_public_tables(
     pool: &PgPool,
     specs: &[PublicTableSpec],
@@ -354,6 +373,9 @@ fn incompatible(relation_name: &str, aspect: &str) -> Result<(), sqlx::Error> {
 
 #[cfg(test)]
 mod tests {
+    use super::{
+        ColumnSpec, PublicTableSpec, require_existing_public_tables_for_readback, required,
+    };
     use rstest::rstest;
 
     #[rstest]
@@ -372,6 +394,7 @@ mod tests {
             .next()
             .expect("runtime validator boundary");
         assert!(!runtime.contains("CREATE TABLE"));
+        assert!(!runtime.contains("has_table_privilege(current_user,relation.oid,'SELECT')"));
 
         for required in [
             "column manifest",
@@ -386,5 +409,51 @@ mod tests {
         ] {
             assert!(runtime.contains(required), "missing {required}");
         }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an explicitly supplied disposable PostgreSQL database"]
+    async fn readback_accepts_only_declared_exact_acl_topologies() {
+        const COLUMNS: &[ColumnSpec] = &[required("id", "bigint")];
+        let database_url = std::env::var("RD_SCHEMA_READBACK_ACL_TEST_DATABASE_URL")
+            .expect("RD_SCHEMA_READBACK_ACL_TEST_DATABASE_URL must be explicitly supplied");
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&database_url)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE public.rbm_schema_readback_acl_probe_v1 (id bigint NOT NULL)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let specs = [PublicTableSpec {
+            name: "rbm_schema_readback_acl_probe_v1",
+            runtime_read_grantees: &["rd_schema_reader"],
+            columns: COLUMNS,
+            constraints: &[],
+            indexes: &[],
+        }];
+
+        require_existing_public_tables_for_readback(&pool, &specs)
+            .await
+            .unwrap();
+        sqlx::query(
+            "GRANT SELECT ON TABLE public.rbm_schema_readback_acl_probe_v1 TO rd_schema_reader",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        require_existing_public_tables_for_readback(&pool, &specs)
+            .await
+            .unwrap();
+        sqlx::query("GRANT UPDATE ON TABLE public.rbm_schema_readback_acl_probe_v1 TO PUBLIC")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(
+            require_existing_public_tables_for_readback(&pool, &specs)
+                .await
+                .is_err()
+        );
     }
 }

@@ -32,6 +32,15 @@ export function dashboardReadApiTargetV1(
   };
 }
 
+export function dedicatedDashboardReadApiTargetV1(
+  environment: OwnerApiEnvironmentV1 = process.env,
+): OwnerApiTargetV1 {
+  return {
+    baseUrl: environment.RD_DASHBOARD_OWNER_READ_API_URL || undefined,
+    token: environment.RD_DASHBOARD_OWNER_READ_API_TOKEN || undefined,
+  };
+}
+
 export function ownerApiTargetAvailableV1(target: OwnerApiTargetV1): boolean {
   if (!target.baseUrl || !target.token || !BEARER_CREDENTIAL.test(target.token)
     || Buffer.byteLength(target.token, "utf8") > 4_096) {

@@ -2,7 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { ARTIFACT_SHADOW_RESOLVE_OPERATION } from "../lib/operation-registry.ts";
-import { ownerApiTargetForOperationV1 } from "../lib/owner-api-target.ts";
+import {
+  dedicatedDashboardReadApiTargetV1,
+  ownerApiTargetForOperationV1,
+} from "../lib/owner-api-target.ts";
+
+test("Dedicated Dashboard reads never borrow write-side configuration", () => {
+  assert.deepEqual(dedicatedDashboardReadApiTargetV1({
+    RD_OWNER_API_URL: "http://owner-write:8080",
+    RD_OWNER_API_TOKEN: "write-token",
+  }), { baseUrl: undefined, token: undefined });
+});
 
 test("Artifact shadow read uses only the atomic consolidated Dashboard read target", () => {
   assert.deepEqual(ownerApiTargetForOperationV1(ARTIFACT_SHADOW_RESOLVE_OPERATION, {
