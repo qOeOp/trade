@@ -1629,6 +1629,11 @@ mod tests {
                 cost_assumption: "Canonical cost model remains fixed.".into(),
                 capacity_assumption: "Canonical capacity model remains fixed.".into(),
             },
+            admission: ProductEdgeAdmissionLocatorV1 {
+                request_identity: "successor-request-artifact-0001".into(),
+                admission_identity: "successor-admission-artifact-0001".into(),
+                admission_digest: digest('9'),
+            },
         };
         let readback = issue_successor_research_intent_v1(
             request,

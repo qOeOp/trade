@@ -2458,7 +2458,10 @@ mod postgres_acceptance_tests {
         replay_execution_policy_v2::ReplayExecutionPolicyV2,
         replay_policy_catalog_v2::{ReplayPolicyCatalogBindingV2, ReplayPolicyCatalogBindingV3},
         replay_runner_operational_profile_v1::{ReplayRunnerOperationalProfileV1, runner_fixture},
-        successor_intent::SuccessorResearchIntentCompositionRequestV1,
+        successor_intent::{
+            SUCCESSOR_RESEARCH_INTENT_MUTATION_EFFECT_V1, SUCCESSOR_RESEARCH_INTENT_OPERATION_V1,
+            SUCCESSOR_RESEARCH_INTENT_SCHEMA_V1, SuccessorResearchIntentOperationRequestV1,
+        },
         trial_family::{
             TrialFamilyAttemptAppendV2, TrialFamilyAttemptTerminalDispositionV2,
             TrialFamilyCandidateSetProposalV2, TrialFamilyCensusReadbackV2,
@@ -2587,6 +2590,13 @@ mod postgres_acceptance_tests {
                 RESEARCH_GOAL_OPERATION_V2,
                 RESEARCH_GOAL_SCHEMA_V2,
                 vec!["R_AND_D_RESEARCH_MUTATION_V1".to_string()],
+                now,
+                valid_through,
+            ),
+            repair_replay_manifest(
+                SUCCESSOR_RESEARCH_INTENT_OPERATION_V1,
+                SUCCESSOR_RESEARCH_INTENT_SCHEMA_V1,
+                vec![SUCCESSOR_RESEARCH_INTENT_MUTATION_EFFECT_V1.to_string()],
                 now,
                 valid_through,
             ),
@@ -3641,26 +3651,77 @@ mod postgres_acceptance_tests {
             .commit()
             .await
             .expect("Decision commit");
+        let successor_operation = SuccessorResearchIntentOperationRequestV1 {
+            request_identity: format!("successor-intent-request-{suffix}"),
+            decision_identity: decision.decision().decision_identity().to_string(),
+            result_identity,
+            goal: UnsourcedResearchGoalV1 {
+                hypothesis: "PIT momentum with a volatility-conditioned return mechanism"
+                    .to_string(),
+                mechanism: "bounded information diffusion".to_string(),
+                falsification_question: "does exact cost remove the effect".to_string(),
+                expected_observation: "net continuation remains positive".to_string(),
+                required_data: vec!["PIT bars".to_string()],
+                cost_assumption: "frozen cost model".to_string(),
+                capacity_assumption: "frozen capacity model".to_string(),
+            },
+        };
+        let successor_admission = harness
+            .edge
+            .admit_request(ProductEdgeAdmissionRequestV1 {
+                request_identity: successor_operation.request_identity.clone(),
+                typed_payload: serde_json::to_value(&successor_operation)
+                    .expect("successor typed payload"),
+                operation: SUCCESSOR_RESEARCH_INTENT_OPERATION_V1.to_string(),
+                operation_schema: SUCCESSOR_RESEARCH_INTENT_SCHEMA_V1.to_string(),
+                target_owner: RESEARCH_OWNER_V1.to_string(),
+                requested_effects: vec![SUCCESSOR_RESEARCH_INTENT_MUTATION_EFFECT_V1.to_string()],
+                request_proof_digest: harness.request_proof_digest.clone(),
+                audit_correlation: format!("test:{}", successor_operation.request_identity),
+            })
+            .await
+            .expect("successor Product Edge admission")
+            .locator()
+            .clone();
+        let rejected = crate::successor_intent_postgres::compose_successor_research_intent_v1(
+            rd_pool,
+            successor_operation
+                .clone()
+                .with_admission(placeholder_product_edge_admission(
+                    &successor_operation.request_identity,
+                )),
+        )
+        .await;
+        assert!(rejected.is_err());
+        let counts_after_rejection: (i64, i64) = sqlx::query_as(
+            "SELECT (SELECT COUNT(*) FROM rd_successor_research_intents_v1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind='SUCCESSOR_RESEARCH_INTENT_COMMITTED_V1')",
+        )
+        .fetch_one(rd_pool)
+        .await
+        .expect("successor rejection counts");
+        assert_eq!(counts_after_rejection, (0, 0));
         let successor = crate::successor_intent_postgres::compose_successor_research_intent_v1(
             rd_pool,
-            SuccessorResearchIntentCompositionRequestV1 {
-                request_identity: format!("successor-intent-request-{suffix}"),
-                decision_identity: decision.decision().decision_identity().to_string(),
-                result_identity,
-                goal: UnsourcedResearchGoalV1 {
-                    hypothesis: "PIT momentum with a volatility-conditioned return mechanism"
-                        .to_string(),
-                    mechanism: "bounded information diffusion".to_string(),
-                    falsification_question: "does exact cost remove the effect".to_string(),
-                    expected_observation: "net continuation remains positive".to_string(),
-                    required_data: vec!["PIT bars".to_string()],
-                    cost_assumption: "frozen cost model".to_string(),
-                    capacity_assumption: "frozen capacity model".to_string(),
-                },
-            },
+            successor_operation
+                .clone()
+                .with_admission(successor_admission.clone()),
         )
         .await
         .expect("successor Intent custody");
+        let retry = crate::successor_intent_postgres::compose_successor_research_intent_v1(
+            rd_pool,
+            successor_operation.with_admission(successor_admission),
+        )
+        .await
+        .expect("exact successor retry");
+        assert_eq!(retry, successor);
+        let counts_after_retry: (i64, i64) = sqlx::query_as(
+            "SELECT (SELECT COUNT(*) FROM rd_successor_research_intents_v1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind='SUCCESSOR_RESEARCH_INTENT_COMMITTED_V1')",
+        )
+        .fetch_one(rd_pool)
+        .await
+        .expect("successor retry counts");
+        assert_eq!(counts_after_retry, (1, 1));
         assert_eq!(
             successor.intent().predecessor_intent_identity(),
             harness.intent_identity
