@@ -3735,13 +3735,10 @@ pub(crate) mod tests {
     }
 
     #[cfg(feature = "sealed-develop-composer-acceptance")]
-    pub(crate) fn ready_storage_acceptance_fixture_v1(
+    fn storage_acceptance_interpretation_v1(
         census: &TrialFamilyCensusReadbackV2,
         result: &ReplayResultDtoV2,
-        positive_evidence: PositiveAssessmentEvidenceV1,
-        protected_plan: ProtectedRobustnessPlanProposalV1,
-        committed_at_epoch_ms: u64,
-    ) -> Result<ReadyForSelectionDecisionReadbackV1, IterationDecisionErrorV1> {
+    ) -> Result<IterationInterpretationContextV1, IterationDecisionErrorV1> {
         let decision_policy = census
             .decision_policy_v1()
             .ok_or(IterationDecisionErrorV1::DecisionPolicyUnavailable)?;
@@ -3810,7 +3807,7 @@ pub(crate) mod tests {
         };
         let result_bytes = serde_json::to_vec(result)
             .map_err(|e| IterationDecisionErrorV1::Encoding(e.to_string()))?;
-        let interpretation = issue_interpretation_context_from_result_v1(
+        issue_interpretation_context_from_result_v1(
             census,
             &intent,
             gate,
@@ -3822,10 +3819,35 @@ pub(crate) mod tests {
                 b"ready-storage-acceptance-semantic-trace",
             ),
             outcome_evidence,
-        )?;
+        )
+    }
+
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    pub(crate) fn candidate_comparison_storage_acceptance_fixture_v1(
+        census: &TrialFamilyCensusReadbackV2,
+        result: &ReplayResultDtoV2,
+        candidate_evaluations: IterationCandidateEvaluationSetV1,
+        committed_at_epoch_ms: u64,
+    ) -> Result<CandidateComparisonDecisionReadbackV1, IterationDecisionErrorV1> {
+        issue_candidate_comparison_decision_v1(
+            census,
+            storage_acceptance_interpretation_v1(census, result)?,
+            candidate_evaluations,
+            committed_at_epoch_ms,
+        )
+    }
+
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    pub(crate) fn ready_storage_acceptance_fixture_v1(
+        census: &TrialFamilyCensusReadbackV2,
+        result: &ReplayResultDtoV2,
+        positive_evidence: PositiveAssessmentEvidenceV1,
+        protected_plan: ProtectedRobustnessPlanProposalV1,
+        committed_at_epoch_ms: u64,
+    ) -> Result<ReadyForSelectionDecisionReadbackV1, IterationDecisionErrorV1> {
         issue_ready_for_selection_decision_v1(
             census,
-            interpretation,
+            storage_acceptance_interpretation_v1(census, result)?,
             ready_candidate_artifact_v1(result)?,
             positive_evidence,
             protected_plan,

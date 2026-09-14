@@ -3537,7 +3537,6 @@ mod postgres_acceptance_tests {
             .expect("canonical disposable topology");
         let mutation = database.mutation();
         let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
-        let backtest_pool = mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner);
         let suffix = unique_suffix();
         let committed_at = current_epoch_ms().expect("test clock");
         let market_data_evidence =
@@ -3560,7 +3559,6 @@ mod postgres_acceptance_tests {
             &harness.intent_digest,
             &suffix,
         );
-        let result_bytes = result.to_canonical_bytes().expect("canonical Result");
         let result_identity = result.result_identity.as_str().to_string();
         let result_digest = result.result_digest.as_str().to_string();
         let candidate_identity = format!("successor-experiment-{suffix}");
@@ -3597,7 +3595,6 @@ mod postgres_acceptance_tests {
         .await
         .expect("terminal attempt census");
         family_transaction.commit().await.expect("family commit");
-        persist_backtest_result(backtest_pool, &result, &result_bytes, committed_at + 2).await;
 
         let mut census_transaction = rd_pool.begin().await.expect("census transaction");
         let census = load_trial_family_census_v2_by_family_in_transaction(
@@ -3607,22 +3604,43 @@ mod postgres_acceptance_tests {
         .await
         .expect("candidate frontier census");
         census_transaction.commit().await.expect("census commit");
-        let decision = compose_candidate_comparison_decision_v1(
-            rd_pool,
-            CandidateComparisonCompositionRequestV1 {
-                trial_family_identity: harness.family_identity.clone(),
-                result_identity: result_identity.clone(),
-                request_identity: request_identity.clone(),
-                attempt_identity,
-                candidate_evaluations: successor_candidate_evaluations(
-                    &census,
-                    &candidate_identity,
-                    &candidate_digest,
-                ),
-            },
+        let composition = CandidateComparisonCompositionRequestV1 {
+            trial_family_identity: harness.family_identity.clone(),
+            result_identity: result_identity.clone(),
+            request_identity: request_identity.clone(),
+            attempt_identity,
+            candidate_evaluations: successor_candidate_evaluations(
+                &census,
+                &candidate_identity,
+                &candidate_digest,
+            ),
+        };
+        let issued =
+            crate::iteration_decision::tests::candidate_comparison_storage_acceptance_fixture_v1(
+                &census,
+                &result,
+                composition.candidate_evaluations.clone(),
+                committed_at + 2,
+            )
+            .expect("sealed predecessor Decision fixture");
+        let mut decision_transaction = rd_pool.begin().await.expect("Decision transaction");
+        persist_candidate_comparison_decision(&mut decision_transaction, &issued)
+            .await
+            .expect("persisted predecessor Decision");
+        let decision = load_candidate_comparison_by_result_in_transaction(
+            &mut decision_transaction,
+            &census,
+            &result_identity,
+            Some(&composition),
         )
         .await
-        .expect("successor Decision custody");
+        .expect("predecessor Decision custody")
+        .expect("predecessor Decision readback");
+        assert_eq!(decision, issued);
+        decision_transaction
+            .commit()
+            .await
+            .expect("Decision commit");
         let successor = crate::successor_intent_postgres::compose_successor_research_intent_v1(
             rd_pool,
             SuccessorResearchIntentCompositionRequestV1 {
