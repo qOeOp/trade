@@ -8,7 +8,9 @@ use vibe_backtest_owner_contracts::{ReplayNamespaceV2, ReplayRequestDtoV2, Repla
 use vibe_product_edge::ProductEdgeAdmissionReadbackV1;
 
 use crate::{
-    artifact_build::{ArtifactBuildDisposition, verify_artifact_build_admission},
+    artifact_build::{
+        ArtifactBuildDisposition, ArtifactBuildIntentV1, verify_artifact_build_admission,
+    },
     exploratory_replay::{
         EXPLORATORY_REPLAY_MUTATION_EFFECT_V1, EXPLORATORY_REPLAY_MUTATION_EFFECT_V2,
         EXPLORATORY_REPLAY_OPERATION_V1, EXPLORATORY_REPLAY_OPERATION_V2,
@@ -41,6 +43,9 @@ use crate::{
     },
     rd_owner_postgres_custody::{AttemptState, VerifiedAttemptCustodyV1},
     replay_execution_profile_binding_v1::ReplayExecutionProfileRequestSealV1,
+    successor_intent_postgres::{
+        advance_successor_research_view_in_transaction, lock_successor_research_view_in_transaction,
+    },
 };
 
 const LOCK_FUNCTION: &str = "rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)";
@@ -2126,15 +2131,34 @@ async fn commit_inner(
             ExploratoryReplayOwnerError::Unavailable("artifact custody missing".into())
         })?;
 
+    let successor_view_custody = if market_data_repair_sources.is_none() {
+        match &custody.intent {
+            ArtifactBuildIntentV1::Successor(readback) => Some((
+                readback.clone(),
+                lock_successor_research_view_in_transaction(&mut transaction, readback)
+                    .await
+                    .map_err(|error| ExploratoryReplayOwnerError::Unavailable(error.to_string()))?,
+            )),
+            ArtifactBuildIntentV1::Initial(_) => None,
+        }
+    } else {
+        None
+    };
+
     if market_data_repair_sources.is_none() {
         verify_replay_admission_for_commit(&replay_admission, &proposal, prepared_v2.as_ref())?;
     }
 
     if market_data_repair_sources.is_none()
-        && (!custody.research.authority_available_at(now)
-            || !custody
-                .product_edge_admission
-                .authorizes_first_mutation_at(now))
+        && (!successor_view_custody.as_ref().map_or_else(
+            || custody.research.authority_available_at(now),
+            |(_, successor)| {
+                successor.view().availability == ResearchViewAvailability::Available
+                    && now < successor.view().valid_through_epoch_ms
+            },
+        ) || !custody
+            .product_edge_admission
+            .authorizes_first_mutation_at(now))
     {
         return Err(ExploratoryReplayOwnerError::Unavailable(
             "current R&D lineage authority unavailable".into(),
@@ -2299,8 +2323,13 @@ async fn commit_inner(
     })?;
 
     if (market_data_repair_sources.is_none()
-        && (!custody.research.authority_available_at(final_cut)
-            || !replay_admission.authorizes_first_mutation_at(final_cut)
+        && (!successor_view_custody.as_ref().map_or_else(
+            || custody.research.authority_available_at(final_cut),
+            |(_, successor)| {
+                successor.view().availability == ResearchViewAvailability::Available
+                    && final_cut < successor.view().valid_through_epoch_ms
+            },
+        ) || !replay_admission.authorizes_first_mutation_at(final_cut)
             || !custody
                 .product_edge_admission
                 .authorizes_first_mutation_at(final_cut)))
@@ -2401,9 +2430,13 @@ async fn commit_inner(
     let research_view_update = stored_v2
         .as_ref()
         .map(|(_, replay_receipt)| {
-            let old_view = custody.research.view().cloned().ok_or_else(|| {
-                ExploratoryReplayOwnerError::Unavailable("research view missing".into())
-            })?;
+            let old_view = successor_view_custody
+                .as_ref()
+                .map(|(_, successor)| successor.view().clone())
+                .or_else(|| custody.research.view().cloned())
+                .ok_or_else(|| {
+                    ExploratoryReplayOwnerError::Unavailable("research view missing".into())
+                })?;
             let first_replay_ready = frozen.market_data_repair_reentry.is_none()
                 && old_view.phase == ResearchViewPhase::ArtifactAvailable
                 && old_view.exploration.is_none();
@@ -2423,8 +2456,18 @@ async fn commit_inner(
                         && exploration.replay_request_seal_digest == predecessor.seal_digest
                         && exploration.replay_receipt_identity == predecessor.receipt_identity
                 });
+            let successor_artifact_ready = successor_view_custody.as_ref().is_none_or(|_| {
+                old_view.attempt_identity.as_deref() == Some(proposal.attempt_identity.as_str())
+                    && old_view.artifact_identity.as_deref()
+                        == Some(proposal.artifact_identity.as_str())
+                    && old_view.build_receipt_identity.as_deref()
+                        == Some(proposal.build_receipt_identity.as_str())
+                    && old_view.artifact_review_identity.as_deref()
+                        == Some(review.review_identity.as_str())
+            });
 
             if old_view.availability != ResearchViewAvailability::Available
+                || !successor_artifact_ready
                 || (!first_replay_ready && !repaired_replay_ready)
             {
                 return Err(ExploratoryReplayOwnerError::Unavailable(
@@ -2485,18 +2528,29 @@ async fn commit_inner(
         .execute(&mut *transaction).await.map_err(storage)?;
 
     if let Some((old_view, new_view)) = research_view_update {
-        let updated = sqlx::query("UPDATE public.rd_research_request_receipts_v1 SET view_json=$1 WHERE request_identity=$2 AND view_json=$3")
-            .bind(serde_json::to_value(&new_view).map_err(unavailable)?)
-            .bind(&research_receipt.request_identity)
-            .bind(serde_json::to_value(&old_view).map_err(unavailable)?)
-            .execute(&mut *transaction)
+        if let Some((readback, successor)) = successor_view_custody.as_ref() {
+            advance_successor_research_view_in_transaction(
+                &mut transaction,
+                readback,
+                successor,
+                &new_view,
+            )
             .await
-            .map_err(storage)?;
+            .map_err(|error| ExploratoryReplayOwnerError::Unavailable(error.to_string()))?;
+        } else {
+            let updated = sqlx::query("UPDATE public.rd_research_request_receipts_v1 SET view_json=$1 WHERE request_identity=$2 AND view_json=$3")
+                .bind(serde_json::to_value(&new_view).map_err(unavailable)?)
+                .bind(&research_receipt.request_identity)
+                .bind(serde_json::to_value(&old_view).map_err(unavailable)?)
+                .execute(&mut *transaction)
+                .await
+                .map_err(storage)?;
 
-        if updated.rows_affected() != 1 {
-            return Err(ExploratoryReplayOwnerError::Unavailable(
-                "Research View changed before exploratory replay commit".into(),
-            ));
+            if updated.rows_affected() != 1 {
+                return Err(ExploratoryReplayOwnerError::Unavailable(
+                    "Research View changed before exploratory replay commit".into(),
+                ));
+            }
         }
     }
     sqlx::query("INSERT INTO public.rd_owner_outbox_v1 (event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6)")

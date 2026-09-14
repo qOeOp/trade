@@ -2570,7 +2570,7 @@ async fn load_research_family_in_transaction(
     Ok(())
 }
 
-fn validate_historical_view(
+pub(crate) fn validate_historical_view(
     view: &ResearchViewV1,
     initial: &ResearchViewV1,
 ) -> Result<(), ResearchGoalOwnerError> {

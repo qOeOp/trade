@@ -21,7 +21,9 @@ use crate::{
         ResearchNextLegalAction, ResearchViewAvailability, ResearchViewPhase, ResearchViewV1,
         canonical_research_view_identity_v2,
     },
-    rd_owner_postgres_custody::{ResearchCustodyLookupV1, admit_research_custody_in_transaction},
+    rd_owner_postgres_custody::{
+        ResearchCustodyLookupV1, admit_research_custody_in_transaction, validate_historical_view,
+    },
     successor_intent::{
         FrozenSuccessorResearchIntentV1, SuccessorResearchIntentCompositionRequestV1,
         SuccessorResearchIntentErrorV1, SuccessorResearchIntentReadbackV1,
@@ -461,6 +463,17 @@ struct SuccessorArtifactCustodyV1 {
     evidence: SuccessorCurrentResearchArtifactEvidenceV1,
 }
 
+pub(crate) struct SuccessorResearchViewCustodyV1 {
+    initial_view: ResearchViewV1,
+    view: ResearchViewV1,
+}
+
+impl SuccessorResearchViewCustodyV1 {
+    pub(crate) const fn view(&self) -> &ResearchViewV1 {
+        &self.view
+    }
+}
+
 fn issue_successor_artifact_custody(
     request: &SuccessorResearchIntentCompositionRequestV1,
     readback: &SuccessorResearchIntentReadbackV1,
@@ -542,6 +555,147 @@ fn issue_successor_artifact_custody(
         evidence_digest,
         evidence,
     })
+}
+
+pub(crate) async fn lock_successor_research_view_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    readback: &SuccessorResearchIntentReadbackV1,
+) -> Result<SuccessorResearchViewCustodyV1, SuccessorResearchIntentPostgresErrorV1> {
+    let rows = sqlx::query("SELECT request_storage_bytes,request_semantic_digest,effective_principal,authorized_scope_json,view_json,artifact_evidence_digest,artifact_evidence_json,intent_json,receipt_json FROM rd_successor_research_intents_v1 WHERE intent_identity=$1 FOR UPDATE")
+        .bind(readback.intent().intent_identity())
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    if rows.len() != 1 {
+        return Err(storage("successor Research View custody is incomplete"));
+    }
+    let row = &rows[0];
+    let request_bytes: Vec<u8> = row.try_get("request_storage_bytes").map_err(storage)?;
+    let request: SuccessorResearchIntentCompositionRequestV1 =
+        serde_json::from_slice(&request_bytes).map_err(storage)?;
+    let request_semantic_digest = successor_research_intent_semantic_digest_v1(&request)?;
+    let effective_principal: String = row
+        .try_get::<Option<String>, _>("effective_principal")
+        .map_err(storage)?
+        .ok_or_else(|| storage("successor Research View principal is missing"))?;
+    let authorized_scope: Vec<String> = serde_json::from_value(
+        row.try_get::<Option<serde_json::Value>, _>("authorized_scope_json")
+            .map_err(storage)?
+            .ok_or_else(|| storage("successor Research View scope is missing"))?,
+    )
+    .map_err(storage)?;
+    let view: ResearchViewV1 = serde_json::from_value(
+        row.try_get::<Option<serde_json::Value>, _>("view_json")
+            .map_err(storage)?
+            .ok_or_else(|| storage("successor Research View is missing"))?,
+    )
+    .map_err(storage)?;
+    let evidence: SuccessorCurrentResearchArtifactEvidenceV1 = serde_json::from_value(
+        row.try_get::<Option<serde_json::Value>, _>("artifact_evidence_json")
+            .map_err(storage)?
+            .ok_or_else(|| storage("successor Research View evidence is missing"))?,
+    )
+    .map_err(storage)?;
+    let intent = readback.intent();
+    let receipt = readback.receipt();
+    let mut initial_view = ResearchViewV1 {
+        schema_version: 1,
+        projection_identity: String::new(),
+        request_identity: request.request_identity.clone(),
+        trusted_principal: effective_principal.clone(),
+        authorized_scope: authorized_scope.clone(),
+        authorization_policy_cut: view.authorization_policy_cut.clone(),
+        source_owner: RESEARCH_OWNER_V1.to_string(),
+        source_cut: format!(
+            "rd-successor-source-cut-v1-{}",
+            intent
+                .census_frontier_digest()
+                .trim_start_matches("sha256:")
+        ),
+        observed_at_epoch_ms: receipt.committed_at_epoch_ms(),
+        projection_at_epoch_ms: receipt.committed_at_epoch_ms(),
+        valid_through_epoch_ms: receipt.committed_at_epoch_ms().saturating_add(600_000),
+        availability: ResearchViewAvailability::Available,
+        phase: ResearchViewPhase::IntentFrozen,
+        intent_identity: intent.intent_identity().to_string(),
+        source_frontier: intent.goal().sources.clone(),
+        attempt_identity: None,
+        artifact_identity: None,
+        build_receipt_identity: None,
+        artifact_review_identity: None,
+        exploration: None,
+        next_legal_action: ResearchNextLegalAction::WaitForRAndDExecution,
+    };
+    initial_view.projection_identity = canonical_research_view_identity_v2(&initial_view);
+    let evidence_bytes = serde_json::to_vec(&serde_json::json!({
+        "domain": "rd-owner.current-research-artifact-evidence.v1",
+        "evidence": evidence,
+    }))
+    .map_err(storage)?;
+    let evidence_digest = format!("sha256:{:x}", Sha256::digest(evidence_bytes));
+    let expected_evidence_identity = format!(
+        "rd-current-research-artifact-evidence-v1-{}:{}:{}",
+        receipt.receipt_identity(),
+        intent.intent_identity(),
+        initial_view.projection_identity
+    );
+    if row
+        .try_get::<Option<String>, _>("request_semantic_digest")
+        .map_err(storage)?
+        .as_deref()
+        != Some(request_semantic_digest.as_str())
+        || row
+            .try_get::<Option<String>, _>("artifact_evidence_digest")
+            .map_err(storage)?
+            .as_deref()
+            != Some(evidence_digest.as_str())
+        || row
+            .try_get::<serde_json::Value, _>("intent_json")
+            .map_err(storage)?
+            != serde_json::to_value(intent).map_err(storage)?
+        || row
+            .try_get::<serde_json::Value, _>("receipt_json")
+            .map_err(storage)?
+            != serde_json::to_value(receipt).map_err(storage)?
+        || evidence.schema_version != 1
+        || evidence.evidence_identity != expected_evidence_identity
+        || evidence.request_identity != request.request_identity
+        || evidence.semantic_digest != request_semantic_digest
+        || evidence.source_admission != request.admission
+        || evidence.effective_principal != effective_principal
+        || evidence.authorized_scope != authorized_scope
+        || evidence.receipt_identity != receipt.receipt_identity()
+        || evidence.intent_identity != intent.intent_identity()
+        || evidence.view_identity != initial_view.projection_identity
+        || evidence.projection_at_epoch_ms != initial_view.projection_at_epoch_ms
+        || evidence.valid_through_epoch_ms != initial_view.valid_through_epoch_ms
+    {
+        return Err(storage("successor Research View evidence changed"));
+    }
+    validate_historical_view(&view, &initial_view)?;
+    Ok(SuccessorResearchViewCustodyV1 { initial_view, view })
+}
+
+pub(crate) async fn advance_successor_research_view_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    readback: &SuccessorResearchIntentReadbackV1,
+    custody: &SuccessorResearchViewCustodyV1,
+    new_view: &ResearchViewV1,
+) -> Result<(), SuccessorResearchIntentPostgresErrorV1> {
+    validate_historical_view(new_view, &custody.initial_view)?;
+    let updated = sqlx::query("UPDATE rd_successor_research_intents_v1 SET view_json=$1 WHERE intent_identity=$2 AND intent_json=$3 AND receipt_json=$4 AND view_json=$5")
+        .bind(serde_json::to_value(new_view).map_err(storage)?)
+        .bind(readback.intent().intent_identity())
+        .bind(serde_json::to_value(readback.intent()).map_err(storage)?)
+        .bind(serde_json::to_value(readback.receipt()).map_err(storage)?)
+        .bind(serde_json::to_value(custody.view()).map_err(storage)?)
+        .execute(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    if updated.rows_affected() != 1 {
+        return Err(storage("successor Research View changed before transition"));
+    }
+    Ok(())
 }
 
 async fn source_from_locked_custody(
@@ -736,6 +890,12 @@ async fn verify_persisted_product_edge_custody(
         return Err(storage("successor Product Edge custody is incomplete"));
     }
     let row = &rows[0];
+    let persisted_view: ResearchViewV1 = serde_json::from_value(
+        row.try_get::<Option<serde_json::Value>, _>("view_json")
+            .map_err(storage)?
+            .ok_or_else(|| storage("successor Product Edge Research View is missing"))?,
+    )
+    .map_err(storage)?;
     if row
         .try_get::<Option<String>, _>("request_semantic_digest")
         .map_err(storage)?
@@ -756,10 +916,6 @@ async fn verify_persisted_product_edge_custody(
             .map_err(storage)?
             != Some(serde_json::to_value(&expected.evidence.authorized_scope).map_err(storage)?)
         || row
-            .try_get::<Option<serde_json::Value>, _>("view_json")
-            .map_err(storage)?
-            != Some(serde_json::to_value(&expected.view).map_err(storage)?)
-        || row
             .try_get::<Option<String>, _>("artifact_evidence_digest")
             .map_err(storage)?
             .as_deref()
@@ -771,6 +927,7 @@ async fn verify_persisted_product_edge_custody(
     {
         return Err(storage("successor Product Edge custody changed"));
     }
+    validate_historical_view(&persisted_view, &expected.view)?;
     Ok(())
 }
 
