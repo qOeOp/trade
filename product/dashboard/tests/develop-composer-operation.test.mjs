@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  canonicalDevelopComposerOperationResponseV2,
   canonicalDevelopComposerProjectionV2,
   developComposerOwnerRunBodyV2,
   developComposerProjectionDigestV2,
+  parseDevelopComposerOperationResponseV2,
 } from "../lib/develop-composer-action-contract.ts";
 import {
   enqueueDevelopComposerOperationV2,
@@ -107,6 +109,37 @@ test("Composer contract keeps the exact Owner projection and run body", () => {
   assert.equal(developComposerOwnerRunBodyV2("research-request-1"),
     '{"research_request_locator":"research-request-1"}');
   assert.equal(canonicalDevelopComposerProjectionV2({ ...projection(), smuggled: true }), null);
+});
+
+test("Composer response disposition is closed and bound to its HTTP status", () => {
+  const cases = [
+    [200, ownerResponse("SUCCESS", {
+      receipt_identity: bytes(8),
+      artifact: {
+        artifact_locator: "artifact-1",
+        artifact_digest: bytes(9),
+        canonical_plan_digest: bytes(10),
+        design_digest: bytes(7),
+      },
+    })],
+    [202, ownerResponse("SUBMITTED_OR_UNKNOWN")],
+    [409, ownerResponse("CONFLICT")],
+    [422, ownerResponse("UNSUPPORTED")],
+    [422, ownerResponse("NEEDS_RESEARCH_REFINEMENT")],
+    [503, ownerResponse("UNAVAILABLE")],
+  ];
+  for (const [status, response] of cases) {
+    assert.equal(
+      parseDevelopComposerOperationResponseV2(status, response, "composer-request-1")?.disposition,
+      response.disposition,
+    );
+  }
+  assert.equal(canonicalDevelopComposerOperationResponseV2(
+    ownerResponse("RUNNING"), "composer-request-1",
+  ), null);
+  assert.equal(parseDevelopComposerOperationResponseV2(
+    200, ownerResponse("CONFLICT"), "composer-request-1",
+  ), null);
 });
 
 test("Composer enqueue stops a Windmill-owned route before Owner or RunStore", async () => {

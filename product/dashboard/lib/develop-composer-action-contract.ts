@@ -5,6 +5,17 @@ const DIGEST_BYTES = 32;
 
 type Json = Record<string, unknown>;
 
+const DEVELOP_COMPOSER_DISPOSITIONS = [
+  "SUCCESS",
+  "CONFLICT",
+  "UNSUPPORTED",
+  "NEEDS_RESEARCH_REFINEMENT",
+  "UNAVAILABLE",
+  "SUBMITTED_OR_UNKNOWN",
+] as const;
+
+export type DevelopComposerDispositionV2 = typeof DEVELOP_COMPOSER_DISPOSITIONS[number];
+
 export type DevelopComposerRunRequestV2 = {
   action: "RUN";
   research_request_locator: string;
@@ -31,8 +42,7 @@ export type DevelopComposerDispatchRequestV2 = DevelopComposerRunRequestV2 & {
 export type DevelopComposerOperationResponseV2 = {
   schema_version: 2;
   request_identity: string;
-  disposition: "SUCCESS" | "CONFLICT" | "UNSUPPORTED"
-    | "NEEDS_RESEARCH_REFINEMENT" | "UNAVAILABLE" | "SUBMITTED_OR_UNKNOWN";
+  disposition: DevelopComposerDispositionV2;
   receipt_identity: number[] | null;
   artifact: {
     artifact_locator: string;
@@ -60,6 +70,11 @@ export function validDevelopComposerIdentityV2(value: unknown): value is string 
 function digestBytes(value: unknown): value is number[] {
   return Array.isArray(value) && value.length === DIGEST_BYTES
     && value.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255);
+}
+
+function developComposerDisposition(value: unknown): value is DevelopComposerDispositionV2 {
+  return typeof value === "string"
+    && (DEVELOP_COMPOSER_DISPOSITIONS as readonly string[]).includes(value);
 }
 
 export function canonicalDevelopComposerRunRequestV2(
@@ -160,14 +175,13 @@ export function canonicalDevelopComposerOperationResponseV2(
     "schema_version", "request_identity", "disposition", "receipt_identity", "artifact",
     "coordinate", "reason",
   ]) || value.schema_version !== 2 || value.request_identity !== requestIdentity
-    || !["SUCCESS", "CONFLICT", "UNSUPPORTED", "NEEDS_RESEARCH_REFINEMENT", "UNAVAILABLE",
-      "SUBMITTED_OR_UNKNOWN"].includes(String(value.disposition))
+    || !developComposerDisposition(value.disposition)
     || !(value.receipt_identity === null || digestBytes(value.receipt_identity))
     || !(value.coordinate === null || typeof value.coordinate === "string")
     || !(value.reason === null || typeof value.reason === "string")) return null;
   const parsedArtifact = value.artifact === null ? null : artifact(value.artifact);
   if (value.artifact !== null && parsedArtifact === null) return null;
-  const disposition = value.disposition as DevelopComposerOperationResponseV2["disposition"];
+  const disposition = value.disposition;
   if (disposition === "SUCCESS") {
     if (!digestBytes(value.receipt_identity) || !parsedArtifact
       || value.coordinate !== null || value.reason !== null) return null;
@@ -178,8 +192,8 @@ export function canonicalDevelopComposerOperationResponseV2(
     disposition,
     receipt_identity: value.receipt_identity === null ? null : [...value.receipt_identity],
     artifact: parsedArtifact,
-    coordinate: value.coordinate as string | null,
-    reason: value.reason as string | null,
+    coordinate: value.coordinate,
+    reason: value.reason,
   };
 }
 
