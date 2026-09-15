@@ -1613,11 +1613,11 @@ Metrics, Traces, and Assets remain run-scoped tabs and never become global route
 ```text
 H  Operations / Runs                        [Refresh] [Auto-refresh: Off v]
 N  [Runs] [Workers] [Schedules] [Service Logs] [Audit] [Event Rail] [Telemetry] [Alerts]
-F  [Runs|Dependencies] [All|Queued|Running|Succeeded|Failed|Unknown]
+F  [Runs|Owner reads] [All|Queued|Running|Succeeded|Failed|Unknown]
    [Search path / run ID] [Duration v] [Concurrency v] [More filters]
 S  Queued | Running | Unknown | Completed/Failed
 T  RunTable / date group
-   Status | Started | Duration | Path | Trigger/principal | Tag | Owner outcome
+   Status | Started | Duration | Operation | Trigger/principal | Owner outcome
    row selection -> D; final column [Open] -> /operations/runs/:runId
 D  RunSummaryCard: statuses, immutable run/operation/Owner locators, retention
    [Open run] [Resolve Owner outcome]
@@ -1626,17 +1626,18 @@ B  shown rows / filtered total | Rows per page [25|50|100] | Page n of m
 ```
 
 The Runs table uses fixed layout at `>=1280 px`: sticky header 40 px, date-group header 32 px, body row minimum
-44 px, 8 px horizontal cell padding, and column shares `Status 10 / Started 14 / Duration 9 / Path 21 /
-Trigger-principal 14 / Tag 10 / Owner outcome 14 / Open 8`. Path, trigger/principal, tag, and Owner outcome use one
-line plus ellipsis; hover/focus reveals the same redacted value, never raw payload. Default order is effective run
+44 px, 8 px horizontal cell padding, and column shares `Status 11 / Started 15 / Duration 10 / Operation 23 /
+Trigger-principal 16 / Owner outcome 16 / Open 9`. Operation renders the shared business label; hover/focus reveals
+its same exact registered operation ID. Operation, trigger/principal, and Owner outcome use one line plus ellipsis,
+never raw payload. Default order is effective run
 time descending, then immutable run ID ascending. Effective time is `started_at`, falling back to `received_at`
 for an unstarted run; its Started cell remains an em dash. Only Started and Duration headers expose sort controls,
 each cycling descending then ascending then back to the default order. Date groups use the selected display time
 zone and remain newest first; changing filter, time zone, grouping, or sort returns to page one.
 
 The four `S` cards never change count or position. In the `Runs` segment their labels are exactly `Queued`,
-`Running`, `Unknown`, and `Completed / Failed`; in `Dependencies` they are
-`Queued dependencies`, `Running dependencies`, `Unknown dependencies`, and `Completed / Failed dependencies`. The first three values are one
+`Running`, `Unknown`, and `Completed / Failed`; in `Owner reads` they are
+`Queued`, `Running`, `Unknown`, and `Completed / Failed` under the `owner reads` group shoulder. The first three values are one
 integer count and the fourth is `completed / failed` as two integer counts in that order. A missing count is an em
 dash in its existing value slot. Counts use the selected kind plus every applied non-status filter but ignore the
 selected status, so choosing one status never erases the other three summaries.
@@ -1651,7 +1652,7 @@ are shown and older history is outside this view. A filtered empty partial view 
 it never claims that no matching historical row exists.
 
 The control contract is closed rather than inherited from Windmill defaults. `Runs` is the default kind segment;
-`Dependencies` is its only peer. `All` is the default status. Search is empty by default and matches only redacted
+`Owner reads` is its only peer and maps only to the typed wire value `kind=dependencies`. `All` is the default status. Search is empty by default and matches only redacted
 path or immutable run ID. `Duration` is `Any` by default, followed by `<1 s`, `1-10 s`, `10-60 s`, and `>=60 s`.
 `Concurrency` is `Any` by default, followed by `Has key` and `No key`; it describes the presence of the immutable
 dispatcher concurrency key, not live worker count. The header auto-refresh menu is `Off` by default, followed by
@@ -1681,8 +1682,10 @@ em dashes and disable page movement. Loading is exactly four summary skeletons, 
 header, three 32 px date-group bars for the default `Day` grouping, ten 44 px rows, and the complete pager skeleton.
 `Hour` uses the same three group bars; `None` uses no group bar and still exactly ten rows. Unfiltered empty, filtered
 empty, permission denied, and backend unavailable each occupy one 96 px full-width table row with a distinct title,
-one-line explanation, and no fabricated count. Only backend unavailable exposes Refresh through the existing route
-header.
+one-line explanation, and no fabricated count. An unfiltered empty Runs view exposes one compact `View Owner reads`
+secondary action that selects the existing Owner reads segment; it creates no run and issues no effect. Only backend
+unavailable exposes Refresh through the existing route header. Tag and concurrency evidence remain unavailable behind
+the information control and do not consume business-table columns.
 
 At `768-1279 px` the table retains the same order in a 960 px minimum-width bounded horizontal scroller. Its 8%
 action cell keeps the standard 8 px horizontal padding and contains a 32 px text Open button, a 4 px gap, and the
@@ -2155,7 +2158,7 @@ these slices.
 
 | Tab and route                                                     | Fixed `S / P / Q / T` contents                                                                                                                                                                                                                                                                                                                                                                                     | Buttons in order                                                                                                  | Default evidence state                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Runs `/operations`                                                | Four fixed status cards scoped by the selected Runs/Dependencies kind: queued, running, unknown, and completed/failed; `T=RunTable` with status/date/path/trigger/principal/tag/duration; `D=RunSummaryCard` after row selection; `P/Q` omitted                                                                                                                                                                    | Refresh, Filter, Open run, Resolve Owner outcome, Delete disposable completed cache                               | Real Windmill use; operational only and deletion never changes business truth                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Runs `/operations`                                                | Four fixed status cards scoped by the selected Runs/Owner reads kind: queued, running, unknown, and completed/failed; `T=RunTable` with status/date/operation/trigger/principal/duration/Owner outcome; `D=RunSummaryCard` after row selection; `P/Q` omitted                                                                                                                                                    | Refresh, Filter, Open run, Resolve Owner outcome, Delete disposable completed cache                               | Real Windmill use; operational only and deletion never changes business truth                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | Run Detail `/operations/runs/:runId`                              | Semantic/operational/timing summaries; `P=RunMetadataAndInputs + RunWorkerCompatibilityMatrix + OperationalCancellationReceiptCard` bound to `:runId`; `Q=OwnerViewCard`; `T=RunResultView` followed by fixed nested `Logs/Metrics/Traces/Assets` tabs                                                                                                                                                             | Copy locator, Refresh, conditionally Cancel queued dependency, Resolve same identity, Download bounded result/log | Exact fixed skeleton above; Cancel occupies the third slot only for a queued, unclaimed, zero‑domain‑effect dependency run and is otherwise absent. `Cancelling…` disables it during CAS; after terminal transition the action/panel disappear while P preserves receipt or unavailable readback. Worker readiness is derived only for this exact run. No batch cancel or generic rerun/edit/share                                                                                                                                                                                                                 |
 | Workers `/operations/workers` and `/operations/workers/:workerId` | Exact Workers read‑only skeleton above: Fleet/Workload summary; P/Q absent; T columns Worker, Lease, Jobs, Last run, Operations; identity‑bound D in four clusters                                                                                                                                                                                                                                                 | Refresh, Open exact worker, Open last run, Back to worker list                                                    | `IMPLEMENTATION_ADMITTED · FIRST_PARTY_RUN_STORE_GET_ONLY`; registration/lease/claim observation only, independent list/detail fail‑closed states; no Windmill administration, unbound‑run readiness, Owner acceptance or cutover                                                                                                                                                                                                                                                                                                                                                                                  |
 | Service Logs `/operations/service-logs`                           | Exact skeleton above: severity/instance summary; canonical filter cut; `P=ServiceInstanceList`; identity‑bound `Q=ServiceInstanceCard`; `T=ServiceLogPanel` composed with `BoundedLogViewport`; explicit complete/partial/empty/filtered‑empty/unavailable states                                                                                                                                                  | Refresh, Toggle auto‑refresh, Download bounded logs                                                               | `IMPLEMENTATION_ADMITTED · FIRST_PARTY_RUN_STORE_GET_ONLY`; real Windmill use is replaced only as a bounded operational read. One repeatable‑read PostgreSQL cut, strict echo/digest/cursor binding, no host/message invention, no administration, Owner fact, effect route or cutover                                                                                                                                                                                                                                                                                                                             |

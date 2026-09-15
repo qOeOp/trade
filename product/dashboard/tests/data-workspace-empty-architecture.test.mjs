@@ -28,6 +28,9 @@ test("table empty rows compose the shared DataWorkspaceEmpty atom", async () => 
   assert.match(atom, /export type DataWorkspaceEmptyProps/u);
   assert.match(atom, /DataWorkspaceEmptyState = "empty" \| "loading" \| "unavailable"/u);
   assert.match(atom, /data-state=\{state\}/u);
+  assert.match(atom, /action\?: ReactNode/u);
+  assert.match(atom, /data-has-action=\{action \? "true" : undefined\}/u);
+  assert.match(atom, /\{action \? <div className=\{styles\.action\}>\{action\}<\/div> : null\}/u);
   assert.match(atom, /data-ui="data-workspace-empty"/u);
   assert.match(atom, /styles\.root/u);
   assert.match(atomStyles, /\.root \{[^}]*min-height: 180px;[^}]*align-items: center;[^}]*justify-content: center;/u);

@@ -1485,11 +1485,11 @@ tab row 中；Run Detail 的 Metrics、Traces、Assets 只是 run-scoped tab，�
 ```text
 H  Operations / Runs                        [Refresh] [Auto-refresh: Off v]
 N  [Runs] [Workers] [Schedules] [Service Logs] [Audit] [Event Rail] [Telemetry] [Alerts]
-F  [Runs|Dependencies] [All|Queued|Running|Succeeded|Failed|Unknown]
+F  [Runs|Owner reads] [All|Queued|Running|Succeeded|Failed|Unknown]
    [Search path / run ID] [Duration v] [Concurrency v] [More filters]
 S  Queued | Running | Unknown | Completed/Failed
 T  RunTable / date group
-   Status | Started | Duration | Path | Trigger/principal | Tag | Owner outcome
+   Status | Started | Duration | Operation | Trigger/principal | Owner outcome
    row selection -> D; final column [Open] -> /operations/runs/:runId
 D  RunSummaryCard: statuses, immutable run/operation/Owner locators, retention
    [Open run] [Resolve Owner outcome]
@@ -1498,17 +1498,18 @@ B  shown rows / filtered total | Rows per page [25|50|100] | Page n of m
 ```
 
 Runs table 在 `>=1280 px` 使用 fixed layout：sticky header 40 px、date-group header 32 px、body row 最小
-44 px、horizontal cell padding 8 px；column 比例固定为 `Status 10 / Started 14 / Duration 9 / Path 21 /
-Trigger-principal 14 / Tag 10 / Owner outcome 14 / Open 8`。Path、trigger/principal、tag、Owner outcome 只显示
-一行并 ellipsis；hover/focus 只揭示同一 redacted value，绝不读取 raw payload。默认按 effective run time
+44 px、horizontal cell padding 8 px；column 比例固定为 `Status 11 / Started 15 / Duration 10 / Operation 23 /
+Trigger-principal 16 / Owner outcome 16 / Open 9`。Operation 使用共享业务名称，hover/focus 才揭示同一个
+exact registered operation ID。Operation、trigger/principal、Owner outcome 只显示一行并 ellipsis，绝不读取
+raw payload。默认按 effective run time
 descending，再按 immutable run ID ascending。Effective time 优先 `started_at`，未开始 run 回退到
 `received_at`，但 Started cell 仍显示 em dash。只有 Started 与 Duration header 暴露 sort control，顺序都是
 descending、ascending、恢复 default。Date group 使用 selected display time zone 且 newest first；filter、time
 zone、grouping 或 sort 改变时回到第一页。
 
 四个 `S` card 的数量与位置绝不改变。选择 `Runs` 时 label 精确为 `Queued`、`Running`、`Unknown`、
-`Completed / Failed`；选择 `Dependencies` 时为 `Queued dependencies`、`Running dependencies`、
-`Unknown dependencies`、`Completed / Failed dependencies`。前三个 value 各为一个 integer count，第四个按
+`Completed / Failed`；选择 `Owner reads` 时仍为 `Queued`、`Running`、`Unknown`、`Completed / Failed`，并统一放在
+`owner reads` group shoulder 下。前三个 value 各为一个 integer count，第四个按
 `completed / failed` 顺序显示两个 integer count。缺失的 count 在原 value slot 显示 em dash。Count 使用 selected
 kind 与所有已应用的 non-status filter，但忽略 selected status，因此选择一个 status 不会清空其他三张 summary。
 
@@ -1520,7 +1521,7 @@ Summary count、filtered total、pagination 与 page frontier 只对这个 retai
 变化会使既有 snapshot 失效。Partial footer 明确说明只展示最新 512 条、更早历史不在当前 view；partial
 状态下筛选为空只能说明 retained rows 中没有匹配项，不能声称全历史不存在匹配项。
 
-Control contract 是闭合的，不继承 Windmill default。Kind segment 默认 `Runs`，唯一 peer 是 `Dependencies`；
+Control contract 是闭合的，不继承 Windmill default。Kind segment 默认 `Runs`，唯一 peer 是 `Owner reads`，且只映射到 typed wire value `kind=dependencies`；
 status 默认 `All`。Search 默认为空，只匹配 redacted path 或 immutable run ID。`Duration` 默认 `Any`，其后固定为
 `<1 s`、`1-10 s`、`10-60 s`、`>=60 s`。`Concurrency` 默认 `Any`，其后为 `Has key`、`No key`；它描述
 immutable dispatcher concurrency key 是否存在，不表示 live worker count。Header auto-refresh menu 默认 `Off`，
@@ -1548,8 +1549,10 @@ Pagination 默认 50 行，只提供 25、50、100。Footer 依次保持 shown r
 Loading 精确为四个 summary skeleton、两行 filter、一个 40 px header、默认 `Day` grouping 的三个 32 px
 date-group bar、十个 44 px row 与完整 pager skeleton。`Hour` 同样使用三个 group bar；`None` 不使用 group bar，
 但仍精确保留十行。Unfiltered empty、filtered empty、permission denied、backend unavailable 各占一个
-96 px full-width table row，包含不同 title、单行 explanation，不制造 count；只有 backend unavailable 通过既有
-route header 暴露 Refresh。
+96 px full-width table row，包含不同 title、单行 explanation，不制造 count。未筛选且为空的 Runs view 只暴露
+一个紧凑的 secondary `View Owner reads` action，选择既有 Owner reads segment，不创建 run、也不发出 effect；
+只有 backend unavailable 通过既有 route header 暴露 Refresh。Tag 与 concurrency evidence 仍只在 info control
+中说明 unavailable，不占用业务表格列。
 
 `768-1279 px` 时保持同序并放入最小宽 960 px 的 bounded horizontal scroller。8% action cell 保持标准的 8 px
 horizontal padding，内部依次是 32 px text Open button、4 px gap，以及获准入时出现的 24 px More button。Button
@@ -2001,7 +2004,7 @@ replay 与 security-evidence panel 仍是未来 blueprint，不能被推断进�
 
 | Tab 与 route                                                     | 固定 `S / P / Q / T` 内容                                                                                                                                                                                                                                                                                                                                                                                    | Button 顺序                                                                                                    | 默认证据状态                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Runs `/operations`                                               | 四张固定 status card 按 selected Runs/Dependencies kind 限定 scope：queued、running、unknown、completed/failed；`T=RunTable`，含 status/date/path/trigger/principal/tag/duration；row selection 后 `D=RunSummaryCard`；省略 `P/Q`                                                                                                                                                                            | Refresh、Filter、Open run、Resolve Owner outcome、Delete disposable completed cache                            | Windmill 真实使用；仅 operational，删除不改变业务 truth                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Runs `/operations`                                               | 四张固定 status card 按 selected Runs/Owner reads kind 限定 scope：queued、running、unknown、completed/failed；`T=RunTable`，含 status/date/operation/trigger/principal/duration/Owner outcome；row selection 后 `D=RunSummaryCard`；省略 `P/Q`                                                                                                                                                                  | Refresh、Filter、Open run、Resolve Owner outcome、Delete disposable completed cache                            | Windmill 真实使用；仅 operational，删除不改变业务 truth                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Run Detail `/operations/runs/:runId`                             | Semantic/operational/timing summary；`P=RunMetadataAndInputs + RunWorkerCompatibilityMatrix + OperationalCancellationReceiptCard` 并绑定 `:runId`；`Q=OwnerViewCard`；`T=RunResultView`，后接固定嵌套 `Logs/Metrics/Traces/Assets` tabs                                                                                                                                                                      | Copy locator、Refresh、条件成立时 Cancel queued dependency、Resolve same identity、Download bounded result/log | 使用上方精确固定 skeleton；Cancel 只在 queued、unclaimed、zero‑domain‑effect dependency run 中占据第三个按钮位，其余状态该 slot 缺席。CAS 中以 disabled `Cancelling…` 显示；terminal transition 后 action/panel 缺席，P 保留 receipt 或 unavailable readback。Worker readiness 只针对这个精确 run 推导。无 batch cancel 或通用 rerun/edit/share                                                                                                                                                                                                                            |
 | Workers `/operations/workers` 与 `/operations/workers/:workerId` | 使用上方 Workers 精确只读 skeleton：Fleet/Workload summary；P/Q 缺席；T 列为 Worker、Lease、Jobs、Last run、Operations；D 按 identity 绑定四簇事实                                                                                                                                                                                                                                                           | Refresh、Open exact worker、Open last run、Back to worker list                                                 | `IMPLEMENTATION_ADMITTED · FIRST_PARTY_RUN_STORE_GET_ONLY`；仅 registration/lease/claim observation；list/detail 独立 fail closed；无 Windmill 管理、未绑定 run 的 readiness、Owner acceptance 或切换                                                                                                                                                                                                                                                                                                                                                                      |
 | Service Logs `/operations/service-logs`                          | 使用上方精确 skeleton：severity/instance summary、canonical filter cut、`P=ServiceInstanceList`、identity‑bound `Q=ServiceInstanceCard`、`T=ServiceLogPanel`（组合 `BoundedLogViewport`），以及明确 complete/partial/empty/filtered‑empty/unavailable 状态                                                                                                                                                   | Refresh、Toggle auto‑refresh、Download bounded logs                                                            | `IMPLEMENTATION_ADMITTED · FIRST_PARTY_RUN_STORE_GET_ONLY`；只以有界 operational read 替代 Windmill 真实使用。一个 repeatable‑read PostgreSQL cut，严格 echo/digest/cursor 绑定；不编造 host/message，无 administration、Owner fact、effect route 或 cutover                                                                                                                                                                                                                                                                                                               |

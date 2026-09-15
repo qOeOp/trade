@@ -1,5 +1,9 @@
 import { isRunIdentityV1, isRunTerminalCodeV1, type RunTerminalCodeV1 } from "./run-contract.ts";
-import { isRunListOperationBindingV1, isRunListOperationIdV1 } from "./run-list-contract.ts";
+import {
+  isRunListOperationBindingV1,
+  isRunListOperationIdV1,
+  type RunListOperationIdV1,
+} from "./run-list-contract.ts";
 
 const IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
@@ -41,7 +45,7 @@ export type RunListSummaryV2 = {
 export type RunListItemV2 = {
   schema_version: 1;
   run_identity: string;
-  operation_id: string;
+  operation_id: RunListOperationIdV1;
   workload_kind: RunListKindV2;
   trigger_kind: "dashboard_bff" | "dashboard_api" | "dashboard_scheduler";
   state: Exclude<RunListStateV2, "all">;
@@ -49,7 +53,7 @@ export type RunListItemV2 = {
   effective_at: string;
   started_at: string | null;
   duration_ms: number | null;
-  path: string;
+  path: RunListOperationIdV1;
   principal_ref: string | null;
   tag: null;
   concurrency_key_present: null;

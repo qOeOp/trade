@@ -18,6 +18,7 @@ import {
   type RunListStateV2,
   type RunListViewEnvelopeV2,
 } from "../lib/run-list-view-contract";
+import { runOperationLabel } from "../lib/run-operation-presentation";
 import { CompactStatusBar, CompactStatusGroup, CompactStatusItem } from "./ui/compact-status-bar";
 import { UnavailableState } from "./ui/evidence-strip";
 import { FilterButton, FilterSearch, FilterTabs, TableFilterMenu, TableToolbar } from "./ui/filter-toolbar";
@@ -173,12 +174,10 @@ export function OperationsRunStorePreview() {
       cell: (run) => <time className="table-cell-time" dateTime={run.started_at ?? undefined}>{displayTime(run.started_at)}</time> },
     { id: "duration", name: <DataTableHeaderLabel>Duration</DataTableHeaderLabel>, selector: (run) => run.duration_ms ?? -1, width: "112px",
       cell: (run) => <span className="table-cell-numeric">{durationLabel(run.duration_ms)}</span> },
-    { id: "path", name: <DataTableHeaderLabel>Path</DataTableHeaderLabel>, selector: (run) => run.path, minWidth: "260px", grow: 1.4,
-      cell: (run) => <code title={run.path}>{run.path}</code> },
+    { id: "path", name: <DataTableHeaderLabel>Operation</DataTableHeaderLabel>, selector: (run) => run.path, minWidth: "260px", grow: 1.4,
+      cell: (run) => <span title={run.path}>{runOperationLabel(run.path)}</span> },
     { id: "trigger", name: <DataTableHeaderLabel>Trigger</DataTableHeaderLabel>, selector: triggerLabel, minWidth: "160px",
       cell: (run) => <span>{triggerLabel(run)}</span> },
-    { id: "tag", name: <DataTableHeaderLabel>Tag</DataTableHeaderLabel>, selector: () => "", width: "110px",
-      cell: () => <span title="Tag evidence is not retained by this RunStore">-</span> },
     { id: "outcome", name: <DataTableHeaderLabel>Owner outcome</DataTableHeaderLabel>, selector: (run) => run.owner_outcome_state, minWidth: "150px",
       cell: (run) => <span>{run.owner_outcome_state === "not_applicable" ? "not applicable" : run.owner_outcome_state}</span> },
     { id: "open", name: <DataTableHeaderLabel>Open</DataTableHeaderLabel>, selector: (run) => run.run_identity, width: "80px", ignoreRowClick: true,
@@ -206,7 +205,7 @@ export function OperationsRunStorePreview() {
         </>} />
         <PanelFrameBody>
           <CompactStatusBar className="operations-run-summaries" aria-label="Run summary">
-            <CompactStatusGroup label={kind === "runs" ? "runs" : "dependencies"}>
+            <CompactStatusGroup label={kind === "runs" ? "runs" : "owner reads"}>
               <CompactStatusItem label="queued" value={summary?.queued ?? "-"} />
               <CompactStatusItem label="running" tone="info" value={summary?.running ?? "-"} />
               <CompactStatusItem label="unknown" tone={summary?.unknown ? "warning" : "neutral"} value={summary?.unknown ?? "-"} />
@@ -216,7 +215,7 @@ export function OperationsRunStorePreview() {
           </CompactStatusBar>
           <DataTableSurface className="operations-run-table-surface" geometry="inner" toolbarLabel="Run table controls" toolbar={
             <TableToolbar filter={<>
-              <FilterTabs label="Run kind" items={[{ value: "runs", label: "Runs" }, { value: "dependencies", label: "Dependencies" }]}
+              <FilterTabs label="Run kind" items={[{ value: "runs", label: "Runs" }, { value: "dependencies", label: "Owner reads" }]}
                 selected={kind} onSelect={(value) => setKind(value as RunListKindV2)} />
               <TableFilterMenu density="compact" label="Run filters" sections={[
                 { id: "state", label: "State", selected: state, items: stateItems, onSelect: (value) => setState(value as RunListStateV2) },
@@ -238,10 +237,14 @@ export function OperationsRunStorePreview() {
             {pageResult ? <>
               <DataWorkspaceTable<RunListItemV2> ariaLabel="Dashboard operation runs" className="operations-run-table"
                 columns={columns} data={pageResult.runs} keyField="run_identity"
-                noDataComponent={<DataWorkspaceEmpty icon={<RunIcons.loaded aria-hidden="true" size={18} />}>
+                noDataComponent={<DataWorkspaceEmpty icon={<RunIcons.loaded aria-hidden="true" size={18} />}
+                  action={kind === "runs" && !search && state === "all" && duration === "any"
+                    ? <FilterButton density="compact" variant="secondary" type="button"
+                        onClick={() => setKind("dependencies")}>View Owner reads</FilterButton>
+                    : undefined}>
                   {search || state !== "all" || duration !== "any"
                     ? `No retained ${kind === "runs" ? "run" : "dependency"} matches these filters.`
-                    : `No ${kind} are retained.`}
+                    : kind === "runs" ? "No action runs yet." : "No Owner reads are retained."}
                 </DataWorkspaceEmpty>}
                 onRowClicked={(run) => router.push(`/operations/runs/${encodeURIComponent(run.run_identity)}`)} pointerOnHover />
               <PanelFrameFooter layout="split">

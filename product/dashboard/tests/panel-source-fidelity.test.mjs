@@ -96,7 +96,7 @@ test("operational summaries preserve a legible metric hierarchy across viewports
   assert.match(css, /.operations-runs-panel > \.panel-frame-header \.panel-frame-heading \{[^}]+max-width: 820px;/u);
   assert.match(css, /.operations-runs-panel > \.panel-frame-header p \{[^}]+margin-top: 10px;[^}]+font-size: 11px;/u);
   assert.match(runStorePreview, /<CompactStatusBar className="operations-run-summaries" aria-label="Run summary">/u);
-  assert.match(runStorePreview, /<CompactStatusGroup label=\{kind === "runs" \? "runs" : "dependencies"\}>/u);
+  assert.match(runStorePreview, /<CompactStatusGroup label=\{kind === "runs" \? "runs" : "owner reads"\}>/u);
   for (const label of ["queued", "running", "unknown", "completed", "failed"]) {
     assert.match(runStorePreview, new RegExp(`<CompactStatusItem label="${label}"`, "u"));
   }
@@ -181,7 +181,14 @@ test("operational surfaces keep implementation language behind information contr
   }
   assert.doesNotMatch(logs, /description="[^"]*(?:RunStore|observation cut|inferred)/u);
   assert.doesNotMatch(runs, />\{run\.run_identity\}<\/code>/u);
-  assert.match(runs, /<CompactStatusGroup label=\{kind === "runs" \? "runs" : "dependencies"\}>[\s\S]+?<CompactStatusItem label="queued"/u);
+  assert.match(runs, /<CompactStatusGroup label=\{kind === "runs" \? "runs" : "owner reads"\}>[\s\S]+?<CompactStatusItem label="queued"/u);
+  assert.match(runs, /value: "dependencies", label: "Owner reads"/u);
+  assert.match(runs, /No action runs yet\./u);
+  assert.match(runs, />View Owner reads<\/FilterButton>/u);
+  assert.doesNotMatch(runs, /id: "tag"/u);
+  assert.match(runs, /<DataTableHeaderLabel>Operation<\/DataTableHeaderLabel>/u);
+  assert.match(runs, /title=\{run\.path\}>\{runOperationLabel\(run\.path\)\}/u);
+  assert.doesNotMatch(runs, />\{run\.path\}<\/code>/u);
   assert.doesNotMatch(runs, /label="(?:Queued|Running|Unknown|Completed|Failed)"/u);
   assert.match(logs, /<FilterButton density="compact" variant="secondary"[\s\S]+?Auto-refresh/u);
   assert.match(logs, /<PanelFrameInfo><b>Technical reason<\/b><code>/u);
