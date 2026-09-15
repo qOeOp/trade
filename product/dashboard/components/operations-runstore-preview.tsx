@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -83,7 +82,6 @@ function displayTime(value: string | null) {
 }
 
 export function OperationsRunStorePreview() {
-  const router = useRouter();
   const [result, setResult] = useState<RunListViewEnvelopeV2 | null>(null);
   const [kind, setKind] = useState<RunListKindV2>("runs");
   const [state, setState] = useState<RunListStateV2>("all");
@@ -181,8 +179,8 @@ export function OperationsRunStorePreview() {
       cell: (run) => <StatusBadge tone={ownerOutcomeTone(run.owner_outcome_state)}>{sourceResultLabel(run.owner_outcome_state)}</StatusBadge> },
     { id: "open", name: <DataTableHeaderLabel>Open</DataTableHeaderLabel>, selector: (run) => run.run_identity, width: "80px", ignoreRowClick: true,
       cell: (run) => <FilterButton density="compact" variant="secondary" type="button"
-        onClick={() => router.push(`/operations/runs/${encodeURIComponent(run.run_identity)}`)}>Open</FilterButton> },
-  ], [router]);
+        onClick={() => setSelectedRun(run)}>Open</FilterButton> },
+  ], []);
 
   const move = (nextPage: number) => {
     if (pending || nextPage < 1 || nextPage > totalPages || nextPage === page) return;

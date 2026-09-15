@@ -31,6 +31,8 @@ test("the shared detail sheet owns focus, responsive geometry, and canonical fal
   assert.match(styles, /prefers-reduced-motion/u);
   assert.match(runs, /onRowClicked=\{setSelectedRun\}/u);
   assert.match(runs, /<DetailSheet[\s\S]*canonicalHref=/u);
+  assert.match(runs, /onClick=\{\(\) => setSelectedRun\(run\)\}>Open<\/FilterButton>/u);
+  assert.equal((runs.match(/<DetailSheet/g) ?? []).length, 1);
   assert.doesNotMatch(runs, /onRowClicked=\{\(run\) => router\.push/u);
   assert.match(workers, /useMediaQuery\("\(max-width: 1279px\)"\)/u);
   assert.match(workers, /onRowClicked=\{\(worker\)[\s\S]*setDetailOpen\(true\)/u);

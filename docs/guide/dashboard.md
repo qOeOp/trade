@@ -1741,12 +1741,16 @@ F  [Action runs|Data reads] [All|Waiting|Running|Completed|Failed|Cancelled|Unkn
 S  Waiting | Running | Unknown | Completed | Failed
 T  RunTable / date group
    Status | Started | Duration | Activity | Started by | Source result
-   row selection -> D; final column [Open] -> /operations/runs/:runId
+   row selection or final-column [Open] -> D
 D  shared DetailSheet: status, activity, trigger, started, duration, source result
    [Open full details] -> /operations/runs/:runId
 B  shown rows / filtered total | Rows per page [25|50|100] | Page n of m
    [First] [Previous] [Next] [Last]
 ```
+
+The row and its compact `Open` action are two accessible origins for the same contextual inspection; both open the
+single shared `DetailSheet` and preserve the Runs URL, filters, page, scroll position, and origin focus. Only the
+explicit `Open full details` action inside that sheet may navigate to the canonical run workspace.
 
 The Runs table uses fixed layout at `>=1280 px`: sticky header 40 px, date-group header 32 px, body row minimum
 44 px, and 8 px horizontal cell padding. `Activity` renders the shared business label; hover/focus reveals

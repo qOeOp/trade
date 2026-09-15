@@ -1595,12 +1595,16 @@ F  [Action runs|Data reads] [All|Waiting|Running|Completed|Failed|Cancelled|Unkn
 S  Waiting | Running | Unknown | Completed | Failed
 T  RunTable / date group
    Status | Started | Duration | Activity | Started by | Source result
-   row selection -> D; final column [Open] -> /operations/runs/:runId
+   row selection 或末列 [Open] -> D
 D  shared DetailSheet: status, activity, trigger, started, duration, source result
    [Open full details] -> /operations/runs/:runId
 B  shown rows / filtered total | Rows per page [25|50|100] | Page n of m
    [First] [Previous] [Next] [Last]
 ```
+
+整行与紧凑 `Open` 动作是进入同一上下文检查的两个无障碍入口；两者都只打开唯一的共享
+`DetailSheet`，并保留 Runs URL、筛选、页码、滚动位置和来源焦点。只有 sheet 内明确的
+`Open full details` 动作可以导航到 canonical run workspace。
 
 Runs table 在 `>=1280 px` 使用 fixed layout：sticky header 40 px、date-group header 32 px、body row 最小
 44 px、horizontal cell padding 8 px。`Activity` 使用共享业务名称，hover/focus 才揭示同一个

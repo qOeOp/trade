@@ -38,9 +38,9 @@ test("internal Dashboard navigation does not bypass the route loading boundary",
   }
   assert.doesNotMatch(navigation, /<a\b/u);
   assert.doesNotMatch(workers, /<a\b/u);
-  assert.match(runs, /import \{ useRouter \} from "next\/navigation"/u);
   assert.match(runs, /onRowClicked=\{setSelectedRun\}/u);
-  assert.match(runs, /onClick=\{\(\) => router\.push\(`/u);
+  assert.match(runs, /onClick=\{\(\) => setSelectedRun\(run\)\}>Open<\/FilterButton>/u);
+  assert.doesNotMatch(runs, /useRouter|router\.push/u);
   assert.match(runs, /<DetailSheet[\s\S]*canonicalHref=/u);
   assert.doesNotMatch(runs, /window\.location/u);
   assert.doesNotMatch(schedules, /<a\b/u);
