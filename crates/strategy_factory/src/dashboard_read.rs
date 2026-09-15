@@ -28,6 +28,49 @@ const FORMATION_LIMIT: u32 = 20;
 const ARTIFACT_LIMIT: u32 = 20;
 const ITERATION_LIMIT: i64 = 128;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ResearchQuestionAvailabilityV1 {
+    Available,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResearchQuestionV1 {
+    pub hypothesis: String,
+    pub falsification_question: String,
+    pub expected_observation: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResearchQuestionDirectoryItemV1 {
+    pub request_identity: String,
+    pub semantic_digest: String,
+    pub committed_at_epoch_ms: u64,
+    pub availability: ResearchQuestionAvailabilityV1,
+    pub unavailable_reason: Option<&'static str>,
+    pub question: Option<ResearchQuestionV1>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResearchQuestionDirectoryReadbackV1 {
+    pub schema_version: u16,
+    pub operation: &'static str,
+    pub observed_at_epoch_ms: u64,
+    pub total: u64,
+    pub items: Vec<ResearchQuestionDirectoryItemV1>,
+}
+
+#[async_trait]
+pub trait ResearchQuestionDirectoryOwnerPortV1: Send + Sync {
+    async fn read_research_question_directory(
+        &self,
+    ) -> Result<ResearchQuestionDirectoryReadbackV1, DashboardReadErrorV1>;
+}
+
 #[derive(Debug, Error)]
 pub enum DashboardReadErrorV1 {
     #[error("Dashboard Owner projection unavailable: {0}")]

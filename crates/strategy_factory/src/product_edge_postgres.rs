@@ -22,6 +22,10 @@ use crate::complex_strategy_develop_evaluation::{
     ComplexStrategyDevelopEvaluationError, ComplexStrategyDevelopEvaluationReadbackV1,
     UntrustedComplexStrategyDevelopEvaluationProposalV1,
 };
+use crate::dashboard_read::{
+    DashboardReadErrorV1, ResearchQuestionAvailabilityV1, ResearchQuestionDirectoryItemV1,
+    ResearchQuestionDirectoryOwnerPortV1, ResearchQuestionDirectoryReadbackV1, ResearchQuestionV1,
+};
 use crate::exploratory_replay::{
     ExploratoryReplayCommitResultV1, ExploratoryReplayCommitResultV2,
     ExploratoryReplayHistoricalRejectionReadPortV1, ExploratoryReplayOwnerError,
@@ -2975,6 +2979,111 @@ impl ResearchDirectoryOwnerPort for PostgresResearchReadbackOwnerV1 {
         limit: u32,
     ) -> Result<ResearchDirectoryReadbackV1, ResearchGoalOwnerError> {
         list_research_from_pool(&self.pool, after, limit).await
+    }
+}
+
+#[async_trait]
+impl ResearchQuestionDirectoryOwnerPortV1 for PostgresResearchReadbackOwnerV1 {
+    async fn read_research_question_directory(
+        &self,
+    ) -> Result<ResearchQuestionDirectoryReadbackV1, DashboardReadErrorV1> {
+        const MAX_QUESTIONS: i64 = 200;
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|error| DashboardReadErrorV1::Unavailable(error.to_string()))?;
+        let observed_at_epoch_ms = u64::try_from(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT floor(extract(epoch FROM statement_timestamp()) * 1000)::bigint",
+            )
+            .fetch_one(&mut *transaction)
+            .await
+            .map_err(|error| DashboardReadErrorV1::Unavailable(error.to_string()))?,
+        )
+        .map_err(|error| DashboardReadErrorV1::Unavailable(error.to_string()))?;
+        let total = u64::try_from(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM rd_research_request_receipts_v1")
+                .fetch_one(&mut *transaction)
+                .await
+                .map_err(|error| DashboardReadErrorV1::Unavailable(error.to_string()))?,
+        )
+        .map_err(|error| DashboardReadErrorV1::Unavailable(error.to_string()))?;
+        if total > MAX_QUESTIONS as u64 {
+            return Err(DashboardReadErrorV1::Unavailable(
+                "Research question directory exceeds bounded read cut".into(),
+            ));
+        }
+        let rows = sqlx::query(
+            "SELECT request_identity, semantic_digest, committed_at_epoch_ms FROM rd_research_request_receipts_v1 ORDER BY committed_at_epoch_ms DESC, request_identity COLLATE \"C\" DESC LIMIT $1",
+        )
+        .bind(MAX_QUESTIONS)
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(|error| DashboardReadErrorV1::Unavailable(error.to_string()))?;
+        let mut items = Vec::with_capacity(rows.len());
+        for row in rows {
+            let request_identity: String = row
+                .try_get("request_identity")
+                .map_err(|error| DashboardReadErrorV1::Unavailable(error.to_string()))?;
+            let semantic_digest: String = row
+                .try_get("semantic_digest")
+                .map_err(|error| DashboardReadErrorV1::Unavailable(error.to_string()))?;
+            let committed_at_epoch_ms = u64::try_from(
+                row.try_get::<i64, _>("committed_at_epoch_ms")
+                    .map_err(|error| DashboardReadErrorV1::Unavailable(error.to_string()))?,
+            )
+            .map_err(|error| DashboardReadErrorV1::Unavailable(error.to_string()))?;
+            let custody = Box::pin(admit_research_custody_in_transaction(
+                &mut transaction,
+                ResearchCustodyLookupV1::RequestAny(&request_identity),
+            ))
+            .await
+            .map_err(|error| DashboardReadErrorV1::Unavailable(error.to_string()))?;
+            let question = if let Some(custody) = custody {
+                if custody.receipt().semantic_digest != semantic_digest
+                    || custody.receipt().committed_at_epoch_ms != committed_at_epoch_ms
+                {
+                    return Err(DashboardReadErrorV1::Unavailable(
+                        "Research question custody changed inside read cut".into(),
+                    ));
+                }
+                custody
+                    .verified_question()
+                    .map(|question| ResearchQuestionV1 {
+                        hypothesis: question.hypothesis,
+                        falsification_question: question.falsification_question,
+                        expected_observation: question.expected_observation,
+                    })
+            } else {
+                None
+            };
+            items.push(ResearchQuestionDirectoryItemV1 {
+                request_identity,
+                semantic_digest,
+                committed_at_epoch_ms,
+                availability: if question.is_some() {
+                    ResearchQuestionAvailabilityV1::Available
+                } else {
+                    ResearchQuestionAvailabilityV1::Unavailable
+                },
+                unavailable_reason: question
+                    .is_none()
+                    .then_some("VERIFIED_QUESTION_UNAVAILABLE"),
+                question,
+            });
+        }
+        transaction
+            .commit()
+            .await
+            .map_err(|error| DashboardReadErrorV1::Unavailable(error.to_string()))?;
+        Ok(ResearchQuestionDirectoryReadbackV1 {
+            schema_version: 1,
+            operation: "rd.research_question_directory.read.v1",
+            observed_at_epoch_ms,
+            total,
+            items,
+        })
     }
 }
 

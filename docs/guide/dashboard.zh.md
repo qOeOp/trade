@@ -318,8 +318,8 @@ cutover。
 
 `ResearchDirectory` 是 `/rd/research` 的精确 `P` surface。route 使用一个全宽 `PanelFrame`，不为无内容的
 detail column 预留空间。frame header 包含 eyebrow、title、单行 purpose 与一个 `Refresh` action。body
-只有一行 table toolbar：左侧是 `Request history / Current intents` segmented control，右侧 search。默认使用
-`Request history`，因为它是当前完整可用的 request workload；`Current intents` 是更窄的 verified-current view。
+只有一行 table toolbar：左侧是 `Research history / Current intents` segmented control，右侧 search。默认使用
+`Research history`，因为它是当前完整可用的 request workload；`Current intents` 是更窄的 verified-current view。
 verified 表格按顺序只有四个 plain、左对齐
 column：`Research request`、`State`、`Intent`、`Updated`。表头文字前不放装饰性 icon；不存在 View/column
 chooser、registered/visible 数量、多级 filter popover、row action 或 backend-only 字段。表头固定在有界
@@ -328,7 +328,16 @@ scroll viewport 内；loading、合法 empty、unavailable、partial 保持相�
 
 两个 Research view 都使用共享的 domain-neutral `EntityReference` 原子：业务实体是主 label，opaque identity
 只作为紧凑次级引用，并把完整值保留为 title 与 search key。默认 history 文案使用 `Result`、`Recorded` 与
-用户可读 availability；Owner、custody、point-read、candidate 与 wire-state 术语只保留在信息披露或 contract。
+用户可读 availability；默认 history 的首列使用 `Research question`。Owner、custody、point-read、candidate 与
+wire-state 术语只保留在信息披露或 contract。
+
+默认 history view 从只读 R&D Dashboard Owner 获取一个有界的
+`rd.research_question_directory.read.v1` 投影。问题文本必须先通过 canonical Research custody 校验，且只可暴露
+`hypothesis`、`falsification_question` 与 `expected_observation`；不受支持的历史行只保留 directory identity、
+time 与明确 unavailable 状态。只有该投影与完整 historical-custody 的
+identity 和 commit-time 集合精确绑定后，页面才显示问题文本。此时 hypothesis 替换通用 request label 并参与
+搜索，opaque request identity 仍是次级信息。缺少可恢复历史语义时显示 `Research question unavailable`，不得
+从 execution 或 outcome 推断。
 
 精确 `/rd/research/{requestIdentity}` 页面只回答一个用户任务：理解已保存的 research result 以及下一步。
 Journey 与 `Result / Strategy / Timing` 分组使用 `Needs current review`、`Not available`、`Refresh this request`

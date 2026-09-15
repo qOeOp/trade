@@ -23,7 +23,8 @@ use vibe_strategy_factory::{
     dashboard_read::{
         ComposedFormationCatalogOwnerV1, DashboardReadErrorV1, FormationCatalogOwnerPortV1,
         FormationCatalogReadbackV1, IterationTimelineOwnerPortV1, IterationTimelineReadbackV1,
-        PostgresIterationTimelineOwnerV1,
+        PostgresIterationTimelineOwnerV1, ResearchQuestionDirectoryOwnerPortV1,
+        ResearchQuestionDirectoryReadbackV1,
     },
     develop_composer_operation_v2::{
         DevelopComposerOperationDispositionV2, DevelopComposerOperationResponseV2,
@@ -57,6 +58,7 @@ struct ApiState {
     artifact_source: Arc<dyn ArtifactSourceOwnerPort>,
     research_directory: Arc<dyn ResearchDirectoryOwnerPort>,
     research_readback: Arc<dyn ResearchReadbackOwnerPortV1>,
+    research_questions: Arc<dyn ResearchQuestionDirectoryOwnerPortV1>,
     formation_catalog: Arc<dyn FormationCatalogOwnerPortV1>,
     iteration_timeline: Arc<dyn IterationTimelineOwnerPortV1>,
     source_intake_readback: Option<Arc<dyn SourceIntakeReadbackOwnerPort>>,
@@ -202,6 +204,17 @@ impl IterationTimelineOwnerPortV1 for UnavailableDashboardJourneyReadbackV1 {
     ) -> Result<IterationTimelineReadbackV1, DashboardReadErrorV1> {
         Err(DashboardReadErrorV1::Unavailable(
             "Iteration Timeline Dashboard capability unavailable".to_owned(),
+        ))
+    }
+}
+
+#[async_trait::async_trait]
+impl ResearchQuestionDirectoryOwnerPortV1 for UnavailableDashboardJourneyReadbackV1 {
+    async fn read_research_question_directory(
+        &self,
+    ) -> Result<ResearchQuestionDirectoryReadbackV1, DashboardReadErrorV1> {
+        Err(DashboardReadErrorV1::Unavailable(
+            "Research question directory Dashboard capability unavailable".to_owned(),
         ))
     }
 }
@@ -356,7 +369,8 @@ async fn main() -> anyhow::Result<()> {
         artifact_readback,
         artifact_source,
         research_directory: research.clone(),
-        research_readback: research,
+        research_readback: research.clone(),
+        research_questions: research,
         formation_catalog,
         iteration_timeline,
         source_intake_readback,
@@ -390,6 +404,10 @@ fn router(state: ApiState) -> Router {
             get(read_artifact),
         )
         .route("/v1/research-goals/directory", get(read_research_directory))
+        .route(
+            "/v1/research-goals/question-directory",
+            get(read_research_question_directory),
+        )
         .route("/v1/formation-catalog", get(read_formation_catalog))
         .route(
             "/v1/trial-families/{trial_family_identity}/iterations",
@@ -604,6 +622,26 @@ async fn read_research_directory(
         Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
         Err(e) => {
             tracing::warn!(%e, "Research Dashboard directory read unavailable");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
+    }
+}
+
+async fn read_research_question_directory(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    match state
+        .research_questions
+        .read_research_question_directory()
+        .await
+    {
+        Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
+        Err(error) => {
+            tracing::warn!(%error, "Research question directory read unavailable");
             StatusCode::SERVICE_UNAVAILABLE.into_response()
         }
     }
@@ -1219,6 +1257,7 @@ mod tests {
             artifact_source: artifact,
             research_directory: research.clone(),
             research_readback: research,
+            research_questions: Arc::new(UnavailableDashboardJourneyReadbackV1),
             formation_catalog: Arc::new(UnavailableDashboardJourneyReadbackV1),
             iteration_timeline: Arc::new(UnavailableDashboardJourneyReadbackV1),
             source_intake_readback: Some(source_intake),

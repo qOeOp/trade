@@ -33,15 +33,17 @@ test("Research directory uses the shared compact read-only table surface", async
   assert.match(statusAtom, /data-interactive=\{href \? true : undefined\}/u);
   assert.match(statusAtom, /className="compact-status-item-link"/u);
   assert.match(component, /<DataWorkspaceTable<HistoricalResearchCandidateV1>/u);
-  assert.match(component, /label: "Request history"/u);
+  assert.match(component, /label: "Research history"/u);
   assert.match(component, /label: "Current intents"/u);
   assert.match(component, /label: "Results ready"/u);
   assert.match(component, /label: "Waiting"/u);
   assert.match(component, /label: "All"/u);
   assert.match(component, /outcome=\$\{nextOutcome\}/u);
-  assert.match(component, /Requests are grouped by result status\./u);
-  assert.match(component, /"Request, intent, or state"/u);
+  assert.match(component, /Research questions are grouped by result status\./u);
+  assert.match(component, /"Search research questions"/u);
   assert.match(component, /<EntityReference/u);
+  assert.match(component, /question\?\.hypothesis/u);
+  assert.match(component, /Search research questions/u);
   assert.match(component, /label="Research request"/u);
   assert.match(component, /label="Strategy intent"/u);
   for (const header of ["Research request", "State", "Intent", "Updated"]) {
@@ -89,7 +91,7 @@ test("bilingual Research directory contract fixes layout, fields and no-effect b
     assert.ok(start >= 0);
     const specification = doc.slice(start, doc.indexOf("\n## ", start + heading.length));
     for (const token of [
-      "ResearchDirectory", "/rd/research", "PanelFrame", "Refresh", "Request history", "Current intents", "search",
+      "ResearchDirectory", "/rd/research", "PanelFrame", "Refresh", "Research history", "Current intents", "search",
       "Research request", "State", "Intent", "Updated", "20", "60",
       "committed_at_epoch_ms", "request_identity", "Load older", "partial",
       "unavailable", "POINT_READ_REQUIRED", "/v1/historical-custodies", "Submit", "Resolve", "Windmill",

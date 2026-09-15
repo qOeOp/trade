@@ -13,15 +13,17 @@ export function EntityReference({
   detail,
   href,
   exactTitle,
+  labelTitle,
 }: {
   label: ReactNode;
   identity: string;
   detail?: ReactNode;
   href?: string;
   exactTitle?: string;
+  labelTitle?: string;
 }) {
   const content = <>
-    <strong>{label}</strong>
+    <strong title={labelTitle}>{label}</strong>
     <span title={exactTitle ?? identity}>
       {compactEntityIdentity(identity)}{detail ? <> · {detail}</> : null}
     </span>

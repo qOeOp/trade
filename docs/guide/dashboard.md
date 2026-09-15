@@ -370,8 +370,8 @@ authorize trading, or establish cutover.
 
 `ResearchDirectory` is the exact `P` surface for `/rd/research`. The route uses one full-width `PanelFrame` and
 does not reserve an empty detail column. Its frame header contains an eyebrow, title, one-line purpose, and one
-`Refresh` action. The body contains one horizontal table toolbar with a `Request history / Current intents` segmented
-control at the left and search at the right. `Request history` is the default because it is the complete available
+`Refresh` action. The body contains one horizontal table toolbar with a `Research history / Current intents` segmented
+control at the left and search at the right. `Research history` is the default because it is the complete available
 request workload; `Current intents` is the narrower verified-current view. The verified table has four plain,
 left-aligned columns in this order: `Research request`, `State`,
 `Intent`, and `Updated`. Column headings have no decorative icons and there is no View/column-chooser button,
@@ -381,8 +381,16 @@ card geometry; narrow layouts scroll horizontally rather than inventing a reduce
 
 Both Research views use the shared domain-neutral `EntityReference` atom: the business entity is the primary
 label, while its opaque identity is a compact secondary reference with the exact value retained as title and search
-key. Default history copy says `Result`, `Recorded`, and user-readable availability; Owner, custody, point-read,
+key. Default history copy says `Research question`, `Result`, `Recorded`, and user-readable availability; Owner, custody, point-read,
 candidate, and wire-state terms remain in the information disclosure or contract.
+
+The default history view obtains one bounded `rd.research_question_directory.read.v1` projection from the
+read-only R&D Dashboard Owner. Question text is admitted only after canonical Research custody verification and may
+expose exactly `hypothesis`, `falsification_question`, and `expected_observation`; unsupported historical rows retain
+only their directory identity and time with explicit unavailable state. The projection must bind the
+complete historical-custody identity and commit-time set before any question text is rendered. The hypothesis then
+replaces the generic request label and participates in search; the opaque request identity stays secondary. Missing
+legacy meaning is rendered as `Research question unavailable`. It is never inferred from execution or outcome.
 
 The exact `/rd/research/{requestIdentity}` page frames one user task: understand the saved research result and what
 can happen next. Its journey and `Result / Strategy / Timing` groups use business copy such as `Needs current review`,
