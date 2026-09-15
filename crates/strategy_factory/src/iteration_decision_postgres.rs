@@ -2449,27 +2449,21 @@ mod postgres_acceptance_tests {
         iteration_decision::PositiveAssessmentEvidenceReferenceV1,
         product_edge::{
             ProductEdgeChannel, ProductEdgeResearchGoalRequestV2, RESEARCH_GOAL_OPERATION_V2,
-            RESEARCH_GOAL_SCHEMA_V2, RESEARCH_OWNER_V1, ResearchGoalOwnerPortV2,
-            ResearchRequestDisposition, ResearchRequestReceiptV1, ResearchSourceV1,
+            RESEARCH_GOAL_SCHEMA_V2, RESEARCH_OWNER_V1, ResearchGoalOwnerPortV2, ResearchSourceV1,
             SourcedResearchGoalV2, TrialFamilyProposalV1, UnsourcedResearchGoalV1,
         },
         product_edge_postgres::PostgresResearchGoalOwnerV1,
-        replay_economic_configuration_v1::{ReplayEconomicConfigurationV1, economic_fixture},
-        replay_execution_policy_v2::ReplayExecutionPolicyV2,
-        replay_policy_catalog_v2::{ReplayPolicyCatalogBindingV2, ReplayPolicyCatalogBindingV3},
-        replay_runner_operational_profile_v1::{ReplayRunnerOperationalProfileV1, runner_fixture},
         successor_intent::{
             SUCCESSOR_RESEARCH_INTENT_MUTATION_EFFECT_V1, SUCCESSOR_RESEARCH_INTENT_OPERATION_V1,
             SUCCESSOR_RESEARCH_INTENT_SCHEMA_V1, SuccessorResearchIntentOperationRequestV1,
         },
         trial_family::{
             TrialFamilyAttemptAppendV2, TrialFamilyAttemptTerminalDispositionV2,
-            TrialFamilyCandidateSetProposalV2, TrialFamilyCensusReadbackV2,
-            TrialFamilyIndependenceDispositionV1, TrialFamilyPolicyV1, form_initial_family,
+            TrialFamilyCandidateSetProposalV2, TrialFamilyCensusReadbackV2, TrialFamilyPolicyV1,
         },
         trial_family_postgres::{
             append_trial_family_attempt_in_transaction,
-            load_trial_family_census_v2_by_family_in_transaction, persist_initial_family,
+            load_trial_family_census_v2_by_family_in_transaction,
         },
     };
 
@@ -2488,6 +2482,8 @@ mod postgres_acceptance_tests {
         intent_identity: String,
         intent_digest: String,
         family_identity: String,
+        family_policy: TrialFamilyPolicyV1,
+        independence_basis_locator: vibe_qualification::RdIndependenceBasisLocatorV1,
         research_receipt_identity: String,
         request_proof_digest: String,
     }
@@ -2753,6 +2749,16 @@ mod postgres_acceptance_tests {
             .await
             .expect("persisted Research acceptance");
         let research_receipt = accepted.owner_receipt().expect("Research receipt");
+        let independence_basis_locator = accepted
+            .independence_basis()
+            .expect("R&D Independence Basis")
+            .locator();
+        let family_policy = accepted
+            .trial_family()
+            .expect("R&D TrialFamily")
+            .root()
+            .policy()
+            .clone();
         let intent_identity = research_receipt
             .resulting_research_intent_identity
             .as_deref()
@@ -3001,6 +3007,8 @@ mod postgres_acceptance_tests {
             intent_identity,
             intent_digest,
             family_identity,
+            family_policy,
+            independence_basis_locator,
             research_receipt_identity,
             request_proof_digest,
         }
@@ -4106,41 +4114,47 @@ mod postgres_acceptance_tests {
         let backtest_pool = mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner);
         let qualification_pool = mutation.pool(CanonicalOwnerTestRoleV1::QualificationWriter);
         let suffix = unique_suffix();
-        let committed_at = current_epoch_ms().expect("test clock");
-        let intent_identity = format!("rd-research-intent-ready-{suffix}");
-        let intent_digest = digest('a');
-        let family = form_initial_family(
-            &intent_identity,
-            &intent_digest,
-            decision_family_policy(),
-            committed_at,
-        )
-        .expect("sealed READY family");
-        let family_identity = family.root().trial_family_identity().to_string();
-        let research_receipt = ResearchRequestReceiptV1 {
-            schema_version: 1,
-            receipt_identity: format!("rd-research-request-receipt-ready-{suffix}"),
-            request_identity: format!("rd-research-request-ready-{suffix}"),
-            semantic_digest: intent_digest.clone(),
-            disposition: ResearchRequestDisposition::Accepted,
-            resulting_research_intent_identity: Some(intent_identity.clone()),
-            committed_at_epoch_ms: committed_at,
-            rejection_code: None,
-        };
-        let request_identity = format!("rd-replay-request-ready-{suffix}");
         let market_data_evidence =
             issue_market_data_repair_evidence_v1().expect("sealed Market Data evidence");
-        let replay = repair_replay(
+        let PersistedReplayPredecessorV1 {
+            predecessor,
+            intent_identity,
+            intent_digest,
+            family_identity,
+            family_policy,
+            independence_basis_locator,
+            research_receipt_identity,
+            ..
+        } = Box::pin(persist_repair_replay_predecessor(
+            &database,
             &market_data_evidence,
-            &request_identity,
-            &family_identity,
             &suffix,
+        ))
+        .await;
+        let qualification = vibe_qualification::PostgresQualificationOwnerV1::connect(
+            &database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+        )
+        .await
+        .expect("Qualification Owner projection custody");
+        let protected_feedback = qualification
+            .resolve_or_create_for_basis(&independence_basis_locator)
+            .await
+            .expect("current Qualification feedback projection");
+        assert_eq!(
+            protected_feedback.projection_identity(),
+            family_policy.protected_feedback_frontier
         );
-        let request_digest = replay
-            .meaning_digest()
-            .expect("Replay request meaning")
-            .as_str()
-            .to_string();
+        assert_eq!(
+            protected_feedback.basis_identity(),
+            family_policy.independence_basis_identity
+        );
+        assert_eq!(
+            protected_feedback.basis_identity(),
+            independence_basis_locator.basis_identity
+        );
+        let committed_at = current_epoch_ms().expect("test clock");
+        let request_identity = predecessor.request_identity().to_string();
+        let request_digest = predecessor.meaning_digest().to_string();
         let attempt_identity = format!("backtest-attempt-ready-{suffix}");
         let result = positive_result(
             &request_identity,
@@ -4155,13 +4169,10 @@ mod postgres_acceptance_tests {
         let result_digest = result.result_digest.as_str().to_string();
 
         let mut family_transaction = rd_pool.begin().await.expect("family transaction");
-        persist_initial_family(&mut family_transaction, &family, &research_receipt)
-            .await
-            .expect("family custody");
         append_trial_family_attempt_in_transaction(
             &mut family_transaction,
             &intent_identity,
-            &research_receipt.receipt_identity,
+            &research_receipt_identity,
             TrialFamilyAttemptAppendV2 {
                 intent_identity: intent_identity.clone(),
                 intent_digest: intent_digest.clone(),
@@ -4277,11 +4288,6 @@ mod postgres_acceptance_tests {
         assert!(
             matches!(unified, ExistingIterationDecisionReadbackV1::ReadyForSelection(value) if value == issued)
         );
-        let qualification = vibe_qualification::PostgresQualificationOwnerV1::connect(
-            &database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
-        )
-        .await
-        .expect("Qualification Owner intake custody");
         let policy = &issued
             .candidate()
             .protected_robustness_plan()
@@ -4398,71 +4404,6 @@ mod postgres_acceptance_tests {
             .expect("post-tamper resolve")
             .is_some()
         );
-    }
-
-    fn decision_family_policy() -> TrialFamilyPolicyV1 {
-        let economic = ReplayEconomicConfigurationV1::seal(economic_fixture()).unwrap();
-        let runner = ReplayRunnerOperationalProfileV1::seal(runner_fixture()).unwrap();
-        let versioned = |value: &str| VersionedIdentityV2 {
-            identity: identity(value),
-            version: identity("v1"),
-        };
-        let content = |value: &str, digest: CanonicalDigestV2| ContentIdentityV2 {
-            identity: identity(value),
-            digest,
-        };
-        let execution = ReplayExecutionPolicyV2 {
-            runtime_kernel: versioned("runtime-kernel-v2"),
-            simulator: versioned("simulator-v2"),
-            cost: versioned("cost-model-v1"),
-            slippage: versioned("slippage-model-v1"),
-            capacity: versioned("capacity-model-v1"),
-            runner_operational_profile: versioned("runner-profile-v1"),
-            diagnostic_policy: versioned("diagnostic-policy-v1"),
-            deterministic_seed: 17,
-            window: ReplayWindowV2 {
-                start_event_ns: 1,
-                end_event_ns_exclusive: 2,
-            },
-            calendar: versioned("calendar-v1"),
-            session: versioned("session-v1"),
-            time_zone: versioned("time-zone-v1"),
-            correction_rule: versioned("correction-rule-v1"),
-            market_semantics: versioned("market-semantics-v1"),
-            replay_configuration: content(
-                "economic-profile-v1",
-                CanonicalDigestV2::try_from(format!("sha256:{}", hex(&economic.digest()))).unwrap(),
-            ),
-            corporate_action_cut: content("corporate-action-cut-v1", canonical_digest_value('d')),
-            historical_membership_cut: content("membership-cut-v1", canonical_digest_value('e')),
-        };
-        let catalog_v2 = ReplayPolicyCatalogBindingV2::from_policy(
-            "replay-policy-catalog-decision-v2",
-            1,
-            &execution,
-        )
-        .unwrap();
-        let catalog_v3 =
-            ReplayPolicyCatalogBindingV3::issue(catalog_v2.clone(), &economic, &runner).unwrap();
-        TrialFamilyPolicyV1 {
-            trial_budget: 2,
-            stop_rule: "stop on falsifier or bounded budget".to_string(),
-            pit_rule_identity: "pit-rule-v1".to_string(),
-            cost_model_identity: "cost-model-v1".to_string(),
-            slippage_model_identity: "slippage-model-v1".to_string(),
-            capacity_model_identity: "capacity-model-v1".to_string(),
-            semantic_predecessor_frontier: Vec::new(),
-            protected_feedback_frontier: "protected-feedback-frontier-v1".to_string(),
-            independence_disposition: TrialFamilyIndependenceDispositionV1::Independent,
-            independence_basis_identity: "independence-basis-v1".to_string(),
-            frozen_falsifier_binding: digest('f'),
-            replay_execution_policy_v2: Some(catalog_v2),
-            replay_policy_catalog_v3: Some(catalog_v3.clone()),
-            decision_policy_v1: Some(
-                crate::iteration_decision::IterationDecisionPolicyBindingV1::seal(&catalog_v3)
-                    .unwrap(),
-            ),
-        }
     }
 
     fn repair_replay(
