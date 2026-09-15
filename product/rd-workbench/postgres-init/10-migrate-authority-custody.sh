@@ -391,7 +391,14 @@ AS $function$
                AND family_outbox.event_kind='TRIAL_FAMILY_FROZEN_V1'
                AND family_outbox.payload_digest=sealed.frozen_json->>'trial_family_outbox_digest'
                AND family_outbox.event_identity=sealed.frozen_json->>'trial_family_outbox_event_identity'
-               AND family_outbox.event_identity='rd-owner-outbox-v1-' || pg_catalog.replace(sealed.frozen_json->>'census_frontier_digest','sha256:','')
+               AND family_outbox.event_identity='rd-owner-outbox-v1-' || pg_catalog.replace(
+                 CASE WHEN family.intent_identity=sealed.intent_identity
+                   THEN sealed.frozen_json->>'census_frontier_digest'
+                   ELSE pg_catalog.convert_from(family.initial_frontier_storage_bytes,'UTF8')::jsonb->>'frontier_digest'
+                 END,
+                 'sha256:',
+                 ''
+               )
                AND family_outbox.committed_at_epoch_ms=(sealed.frozen_json->>'trial_family_outbox_committed_at_epoch_ms')::bigint
                AND family_outbox.committed_at_epoch_ms=family.committed_at_epoch_ms
                AND family_outbox.payload_json=(
@@ -402,8 +409,14 @@ AS $function$
                    'trial_family_identity',sealed.trial_family_identity,
                    'root_receipt_identity',family.root_receipt_json->>'receipt_identity',
                    'membership_receipt_identity',member.membership_receipt_json->>'receipt_identity',
-                   'census_frontier_identity',sealed.census_frontier_identity,
-                   'census_frontier_digest',sealed.frozen_json->>'census_frontier_digest'
+                   'census_frontier_identity',CASE WHEN family.intent_identity=sealed.intent_identity
+                     THEN sealed.census_frontier_identity
+                     ELSE pg_catalog.convert_from(family.initial_frontier_storage_bytes,'UTF8')::jsonb->>'frontier_identity'
+                   END,
+                   'census_frontier_digest',CASE WHEN family.intent_identity=sealed.intent_identity
+                     THEN sealed.frozen_json->>'census_frontier_digest'
+                     ELSE pg_catalog.convert_from(family.initial_frontier_storage_bytes,'UTF8')::jsonb->>'frontier_digest'
+                   END
                  ) || CASE
                    WHEN family.root_json->'policy' ? 'replay_execution_policy_v2'
                    THEN pg_catalog.jsonb_build_object(
@@ -421,6 +434,57 @@ AS $function$
                    ELSE '{}'::pg_catalog.jsonb
                  END
                )
+          ) OR (
+            EXISTS (
+              SELECT 1 FROM public.rd_successor_research_intents_v1 successor
+               WHERE successor.intent_identity=sealed.intent_identity
+                 AND successor.trial_family_identity=sealed.trial_family_identity
+            )
+            AND NOT EXISTS (
+              SELECT 1
+                FROM public.rd_trial_family_heads_v1 family_head
+                JOIN public.rd_trial_family_attempt_cuts_v2 census_cut
+                  ON census_cut.trial_family_identity=family_head.trial_family_identity
+                 AND census_cut.census_frontier_identity=family_head.frontier_identity
+                JOIN public.rd_owner_outbox_v1 census_outbox
+                  ON census_outbox.aggregate_identity=census_cut.census_frontier_identity
+                 AND census_outbox.event_kind='TRIAL_FAMILY_CENSUS_ADVANCED_V2'
+               WHERE family_head.trial_family_identity=sealed.trial_family_identity
+                 AND family_head.frontier_identity=sealed.census_frontier_identity
+                 AND family_head.frontier_digest=sealed.frozen_json->>'census_frontier_digest'
+                 AND family_head.frontier_json=census_cut.census_frontier_json
+                 AND family_head.frontier_storage_bytes=census_cut.census_frontier_storage_bytes
+                 AND family_head.frontier_storage_digest=census_cut.census_frontier_storage_digest
+                 AND census_cut.census_frontier_json->>'schema_version'='2'
+                 AND census_cut.census_frontier_json->>'trial_family_identity'=sealed.trial_family_identity
+                 AND census_cut.census_frontier_json->>'frontier_identity'=sealed.census_frontier_identity
+                 AND census_cut.census_frontier_json->>'frontier_digest'=sealed.frozen_json->>'census_frontier_digest'
+                 AND census_cut.census_frontier_json->>'attempt_frontier_identity'=census_cut.attempt_frontier_identity
+                 AND census_cut.census_frontier_json->>'candidate_set_frontier_identity'=census_cut.candidate_set_frontier_identity
+                 AND census_outbox.event_identity='rd-owner-outbox-v2-' || pg_catalog.replace(family_head.frontier_digest,'sha256:','')
+                 AND census_outbox.payload_digest ~ '^sha256:[0-9a-f]{64}$'
+                 AND census_outbox.committed_at_epoch_ms=census_cut.committed_at_epoch_ms
+                 AND census_outbox.payload_json=(
+                   pg_catalog.jsonb_build_object(
+                     'schema_version',2,
+                     'research_receipt_identity',family_outbox.payload_json->>'research_receipt_identity',
+                     'trial_family_identity',sealed.trial_family_identity,
+                     'census_frontier_identity',sealed.census_frontier_identity,
+                     'census_frontier_digest',sealed.frozen_json->>'census_frontier_digest',
+                     'attempt_frontier_identity',census_cut.attempt_frontier_identity,
+                     'attempt_frontier_digest',census_cut.attempt_frontier_json->>'frontier_digest',
+                     'candidate_set_frontier_identity',census_cut.candidate_set_frontier_identity,
+                     'candidate_set_frontier_digest',census_cut.candidate_set_frontier_json->>'frontier_digest'
+                   ) || CASE
+                     WHEN census_cut.census_frontier_json ? 'replay_policy_catalog_v3'
+                     THEN pg_catalog.jsonb_build_object(
+                       'replay_policy_catalog_v3',
+                       census_cut.census_frontier_json->'replay_policy_catalog_v3'
+                     )
+                     ELSE '{}'::pg_catalog.jsonb
+                   END
+                 )
+            )
           ) OR NOT EXISTS (
             SELECT 1
               FROM public.rd_owner_outbox_v1 artifact_outbox

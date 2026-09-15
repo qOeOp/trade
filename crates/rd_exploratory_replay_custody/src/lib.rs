@@ -36,7 +36,7 @@ const INTERNAL_VERIFY_FUNCTION_SOURCE_SHA256_V2: &str =
 const INTERNAL_VERIFY_FUNCTION_SOURCE_SHA256_V3: &str =
     "f43248e47ed56e7623c627d9239f674a863606759ecabb41743209004081f4b8";
 const INTERNAL_VERIFY_FUNCTION_SOURCE_SHA256_V1: &str =
-    "19898a54e0215acf44ffc81e89bd82e393da194cd1d4c649f9727dc0dfc614fe";
+    "b309642b52834f66095be8fb482811c58a23d77c97187ce4f1f3b76874a38986";
 const MARKET_DATA_LOCK_FUNCTION_V1: &str =
     "rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text)";
 const MARKET_DATA_LOCK_FUNCTION_SOURCE_V1: &str = "DECLARE result jsonb; BEGIN IF session_user <> 'market_data_owner' OR current_user <> 'rd_exploratory_replay_api_owner' OR pg_catalog.current_setting('transaction_isolation') <> 'serializable' THEN RETURN NULL; END IF; result := rd_owner_api.verify_exploratory_replay_request_internal_v3(requested_request_identity,requested_meaning_digest,requested_receipt_identity,requested_seal_digest); IF result IS NOT NULL THEN RETURN result; END IF; RETURN rd_owner_api.verify_exploratory_replay_request_internal_v2(requested_request_identity,requested_meaning_digest,requested_receipt_identity,requested_seal_digest); END";
