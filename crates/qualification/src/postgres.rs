@@ -403,7 +403,7 @@ async fn verify_public_status_history_in_transaction(
     let rows = sqlx::query(
         "SELECT fact_identity,fact_digest,candidate_identity,phase_sequence,status,native_source_identity,native_source_digest,source_frontier_identity,source_frontier_digest,source_frontier_is_current,fact_json,committed_at_epoch_ms \
          FROM public.qualification_public_status_facts_v1 \
-         WHERE review_request_identity=$1 ORDER BY phase_sequence FOR SHARE",
+         WHERE review_request_identity=$1 ORDER BY phase_sequence",
     )
     .bind(review_request_identity)
     .fetch_all(&mut **transaction)
@@ -576,7 +576,7 @@ async fn verify_initial_public_status_fact_v1(
     let rows = sqlx::query(
         "SELECT native_source_identity,native_source_digest,fact_json,committed_at_epoch_ms \
          FROM public.qualification_public_status_facts_v1 \
-         WHERE review_request_identity=$1 AND phase_sequence=1 FOR SHARE",
+         WHERE review_request_identity=$1 AND phase_sequence=1",
     )
     .bind(review_request_identity)
     .fetch_all(&mut **transaction)
