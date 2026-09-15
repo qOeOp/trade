@@ -20,6 +20,11 @@ use vibe_strategy_factory::{
         ArtifactSourceOwnerPort, ArtifactSourceReadbackV1,
     },
     artifact_build_postgres::PostgresArtifactReadbackOwnerV1,
+    dashboard_read::{
+        ComposedFormationCatalogOwnerV1, DashboardReadErrorV1, FormationCatalogOwnerPortV1,
+        FormationCatalogReadbackV1, IterationTimelineOwnerPortV1, IterationTimelineReadbackV1,
+        PostgresIterationTimelineOwnerV1,
+    },
     develop_composer_operation_v2::{
         DevelopComposerOperationDispositionV2, DevelopComposerOperationResponseV2,
         DevelopComposerReadbackOwnerPortV2,
@@ -52,6 +57,8 @@ struct ApiState {
     artifact_source: Arc<dyn ArtifactSourceOwnerPort>,
     research_directory: Arc<dyn ResearchDirectoryOwnerPort>,
     research_readback: Arc<dyn ResearchReadbackOwnerPortV1>,
+    formation_catalog: Arc<dyn FormationCatalogOwnerPortV1>,
+    iteration_timeline: Arc<dyn IterationTimelineOwnerPortV1>,
     source_intake_readback: Option<Arc<dyn SourceIntakeReadbackOwnerPort>>,
     composer_readback: Option<Arc<dyn DevelopComposerReadbackOwnerPortV2>>,
     exploratory_replay_readback: Arc<dyn ExploratoryReplayReadbackOwnerPortV2>,
@@ -173,6 +180,32 @@ impl ArtifactSourceOwnerPort for UnavailableArtifactReadbackV1 {
 #[derive(Clone)]
 struct UnavailableExploratoryReplayReadbackV2;
 
+#[derive(Clone)]
+struct UnavailableDashboardJourneyReadbackV1;
+
+#[async_trait::async_trait]
+impl FormationCatalogOwnerPortV1 for UnavailableDashboardJourneyReadbackV1 {
+    async fn read_formation_catalog(
+        &self,
+    ) -> Result<FormationCatalogReadbackV1, DashboardReadErrorV1> {
+        Err(DashboardReadErrorV1::Unavailable(
+            "Formation Catalog Dashboard capability unavailable".to_owned(),
+        ))
+    }
+}
+
+#[async_trait::async_trait]
+impl IterationTimelineOwnerPortV1 for UnavailableDashboardJourneyReadbackV1 {
+    async fn read_iteration_timeline(
+        &self,
+        _trial_family_identity: &str,
+    ) -> Result<IterationTimelineReadbackV1, DashboardReadErrorV1> {
+        Err(DashboardReadErrorV1::Unavailable(
+            "Iteration Timeline Dashboard capability unavailable".to_owned(),
+        ))
+    }
+}
+
 #[async_trait::async_trait]
 impl ExploratoryReplayReadbackOwnerPortV2 for UnavailableExploratoryReplayReadbackV2 {
     async fn read_exploratory_replay(
@@ -285,6 +318,21 @@ async fn main() -> anyhow::Result<()> {
             .await
             .context("Research Dashboard readback adapter unavailable")?,
     );
+    let formation_catalog: Arc<dyn FormationCatalogOwnerPortV1> =
+        Arc::new(ComposedFormationCatalogOwnerV1::new(
+            research.clone(),
+            research.clone(),
+            artifact_directory.clone(),
+            artifact_readback.clone(),
+        ));
+    let iteration_timeline: Arc<dyn IterationTimelineOwnerPortV1> =
+        match PostgresIterationTimelineOwnerV1::connect(&database_url).await {
+            Ok(readback) => Arc::new(readback),
+            Err(_) => {
+                tracing::warn!("Iteration Timeline Dashboard readback capability unavailable");
+                Arc::new(UnavailableDashboardJourneyReadbackV1)
+            }
+        };
     let (exploratory_replay, exploratory_replay_result, exploratory_replay_historical_rejection): (
         Arc<dyn ExploratoryReplayReadbackOwnerPortV2>,
         Arc<dyn ExploratoryReplayResultReadbackOwnerPortV2>,
@@ -309,6 +357,8 @@ async fn main() -> anyhow::Result<()> {
         artifact_source,
         research_directory: research.clone(),
         research_readback: research,
+        formation_catalog,
+        iteration_timeline,
         source_intake_readback,
         composer_readback,
         exploratory_replay_readback: exploratory_replay,
@@ -340,6 +390,11 @@ fn router(state: ApiState) -> Router {
             get(read_artifact),
         )
         .route("/v1/research-goals/directory", get(read_research_directory))
+        .route("/v1/formation-catalog", get(read_formation_catalog))
+        .route(
+            "/v1/trial-families/{trial_family_identity}/iterations",
+            get(read_iteration_timeline),
+        )
         .route(
             "/v2/research-goals/{request_identity}/readback",
             get(read_research_v2),
@@ -575,6 +630,44 @@ async fn read_research_v2(
         Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
         Err(e) => {
             tracing::warn!(%e, "Research Dashboard point read unavailable");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
+    }
+}
+
+async fn read_formation_catalog(State(state): State<ApiState>, headers: HeaderMap) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    match state.formation_catalog.read_formation_catalog().await {
+        Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
+        Err(error) => {
+            tracing::warn!(%error, "Formation Catalog Dashboard read unavailable");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
+    }
+}
+
+async fn read_iteration_timeline(
+    State(state): State<ApiState>,
+    Path(trial_family_identity): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    if !valid_identity(&trial_family_identity) {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    match state
+        .iteration_timeline
+        .read_iteration_timeline(&trial_family_identity)
+        .await
+    {
+        Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
+        Err(DashboardReadErrorV1::NotFound) => StatusCode::NOT_FOUND.into_response(),
+        Err(error) => {
+            tracing::warn!(%error, "Iteration Timeline Dashboard read unavailable");
             StatusCode::SERVICE_UNAVAILABLE.into_response()
         }
     }
@@ -863,6 +956,7 @@ mod tests {
             ArtifactBuildResultV1, ArtifactDirectoryCompletenessV1, ArtifactDirectoryReadbackV1,
             ArtifactSourceReadbackV1,
         },
+        dashboard_read::{FormationCatalogCompletenessV1, IterationTimelineStateV1},
         develop_composer_operation_v2::{
             DevelopComposerOperationDispositionV2, DevelopComposerOperationResponseV2,
             DevelopComposerReadbackOwnerErrorV2, DevelopComposerReadbackOwnerPortV2,
@@ -991,6 +1085,49 @@ mod tests {
         historical_rejection_calls: AtomicUsize,
     }
 
+    #[derive(Default)]
+    struct RecordingJourney {
+        formation_calls: AtomicUsize,
+        iteration_calls: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl FormationCatalogOwnerPortV1 for RecordingJourney {
+        async fn read_formation_catalog(
+            &self,
+        ) -> Result<FormationCatalogReadbackV1, DashboardReadErrorV1> {
+            self.formation_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(FormationCatalogReadbackV1 {
+                schema_version: 1,
+                operation: "rd.formation_catalog.read.v1",
+                completeness: FormationCatalogCompletenessV1::Complete,
+                observed_at_epoch_ms: 1,
+                families: Vec::new(),
+            })
+        }
+    }
+
+    #[async_trait]
+    impl IterationTimelineOwnerPortV1 for RecordingJourney {
+        async fn read_iteration_timeline(
+            &self,
+            trial_family_identity: &str,
+        ) -> Result<IterationTimelineReadbackV1, DashboardReadErrorV1> {
+            self.iteration_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(IterationTimelineReadbackV1 {
+                schema_version: 1,
+                trial_family_identity: trial_family_identity.to_owned(),
+                census_frontier_identity: "frontier-1".to_owned(),
+                census_frontier_digest: format!("sha256:{}", "1".repeat(64)),
+                consumed_trial_budget: 0,
+                trial_budget: 2,
+                state: IterationTimelineStateV1::AwaitingReplayResult,
+                decisions: Vec::new(),
+                observed_at_epoch_ms: 1,
+            })
+        }
+    }
+
     #[async_trait]
     impl ExploratoryReplayReadbackOwnerPortV2 for RecordingReplay {
         async fn read_exploratory_replay(
@@ -1082,6 +1219,8 @@ mod tests {
             artifact_source: artifact,
             research_directory: research.clone(),
             research_readback: research,
+            formation_catalog: Arc::new(UnavailableDashboardJourneyReadbackV1),
+            iteration_timeline: Arc::new(UnavailableDashboardJourneyReadbackV1),
             source_intake_readback: Some(source_intake),
             composer_readback: Some(Arc::new(RecordingComposer::default())),
             exploratory_replay_readback: Arc::new(RecordingReplay::default()),
@@ -1103,6 +1242,10 @@ mod tests {
         let research = Arc::new(RecordingResearch::default());
         let source_intake = Arc::new(RecordingSourceIntake::default());
         let api = state(artifact.clone(), research.clone(), source_intake.clone());
+        let journey = Arc::new(RecordingJourney::default());
+        let mut api = api;
+        api.formation_catalog = journey.clone();
+        api.iteration_timeline = journey.clone();
         let response = read_artifact_directory(
             State(api.clone()),
             Query(ArtifactDirectoryQueryV1 {
@@ -1129,16 +1272,34 @@ mod tests {
         .await;
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
         let response = read_source_intake(
-            State(api),
+            State(api.clone()),
             Path("source-request-test".to_string()),
             HeaderMap::new(),
         )
         .await;
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(
+            read_formation_catalog(State(api.clone()), HeaderMap::new())
+                .await
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            read_iteration_timeline(
+                State(api),
+                Path("trial-family-1".to_owned()),
+                HeaderMap::new(),
+            )
+            .await
+            .status(),
+            StatusCode::FORBIDDEN
+        );
         assert_eq!(artifact.directory_calls.load(Ordering::SeqCst), 0);
         assert_eq!(artifact.readback_calls.load(Ordering::SeqCst), 0);
         assert_eq!(research.readback_calls.load(Ordering::SeqCst), 0);
         assert_eq!(source_intake.readback_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(journey.formation_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(journey.iteration_calls.load(Ordering::SeqCst), 0);
         let response = read_develop_composer(
             State(state(
                 Arc::new(RecordingArtifact::default()),
@@ -1168,6 +1329,42 @@ mod tests {
         .await;
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
         assert_eq!(replay.readback_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn journey_routes_dispatch_only_after_auth_and_identity_validation() {
+        let journey = Arc::new(RecordingJourney::default());
+        let mut api = state(
+            Arc::new(RecordingArtifact::default()),
+            Arc::new(RecordingResearch::default()),
+            Arc::new(RecordingSourceIntake::default()),
+        );
+        api.formation_catalog = journey.clone();
+        api.iteration_timeline = journey.clone();
+        assert_eq!(
+            read_formation_catalog(State(api.clone()), headers())
+                .await
+                .status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            read_iteration_timeline(
+                State(api.clone()),
+                Path("bad identity".to_owned()),
+                headers(),
+            )
+            .await
+            .status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            read_iteration_timeline(State(api), Path("trial-family-1".to_owned()), headers(),)
+                .await
+                .status(),
+            StatusCode::OK
+        );
+        assert_eq!(journey.formation_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(journey.iteration_calls.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

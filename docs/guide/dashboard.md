@@ -383,9 +383,11 @@ Develop Composer exact-readback, and Exploratory Replay V2 exact point-read GETs
 source GETs, while its state retains separate typed `ResearchDirectoryOwnerPort`, `ResearchReadbackOwnerPortV1`,
 `ArtifactDirectoryOwnerPort`, `ArtifactReadbackOwnerPortV1`, `ArtifactSourceOwnerPort`,
 `SourceIntakeReadbackOwnerPort`, and
-`DevelopComposerReadbackOwnerPortV2` and `ExploratoryReplayReadbackOwnerPortV2` capabilities rather than collapsing
-domain boundaries into a generic repository. Its router exposes only `/health` and those eight
-admitted GETs. Dashboard binds them
+`DevelopComposerReadbackOwnerPortV2`, `ExploratoryReplayReadbackOwnerPortV2`,
+`FormationCatalogOwnerPortV1`, and `IterationTimelineOwnerPortV1` capabilities rather than collapsing
+domain boundaries into a generic repository. Its router exposes only `/health` and twelve admitted GETs after adding
+`GET /v1/formation-catalog` and
+`GET /v1/trial-families/{trial_family_identity}/iterations`; no write route is added. Dashboard binds them
 through the atomically configured `RD_DASHBOARD_OWNER_READ_API_URL` and
 `RD_DASHBOARD_OWNER_READ_API_TOKEN` pair. A partial pair fails closed and never borrows the write API's credential.
 The adapters reuse the canonical locking verifiers and expose no submit, resolve, sandbox, or mutation port.
@@ -397,6 +399,34 @@ and carries no fact-writer pool or mutation method.
 Replay delegates through an independent Dashboard typed point-read port to the existing sealed Replay V2 read port.
 Its adapter owns only the same `rd_owner` read pool, never assembles the legacy write-Owner composition root, and
 exposes no identify, submit, resolve, run, or result operation.
+
+`GET /v1/formation-catalog` is a bounded, read-only composition of the verified Research and Artifact directory and
+exact-readback ports. It returns at most 20 accepted TrialFamilies, ordered by
+`(research.committed_at_epoch_ms, trial_family_identity)` descending. Each row contains only the exact Research
+request/receipt/intent identities, current Research-view availability and next legal action, the frozen trial budget,
+the verified consumed budget, and zero or more current-custody successful Artifact attempts. Successful attempt rows
+contain their build request, attempt, Owner receipt, Artifact review, and TrialFamily binding identities plus the
+Owner commit time. The existing Artifact directory deliberately withholds failed, rejected, unknown, and in-flight
+attempts; therefore any non-empty catalog is explicitly `PARTIAL_UNAVAILABLE`. It never converts a commit time into a
+prepared time, and it never invents a negative attempt. A malformed cross-binding, changed identity, verifier error,
+or unavailable constituent read makes the whole catalog unavailable rather than silently dropping a family.
+
+`GET /v1/trial-families/{trial_family_identity}/iterations` is served by a separate typed read-only projection port.
+It freezes one bounded set of immutable Decision locators from the requested family, then resolves every locator
+through the canonical unified Decision resolver. The response exposes only the verified TrialFamily/census identities,
+trial and consumed budgets, observation time, and an ordered list of exact Decision identity/digest, round, request,
+Result, attempt, receipt, commit time, canonical `IterationDecisionOutcomeV1`, and its corresponding Product Edge
+action class. The action classes are exactly `SUBMIT_REPAIR_REQUEST`, `CREATE_SUCCESSOR_INTENT`,
+`STOP_ON_COMMITTED_DECISION`, and `SUBMIT_SELECTED_CANDIDATE_TO_QUALIFICATION`; the Dashboard does not rename all
+repairs as Replay repairs or manufacture an evidence state absent from Owner custody. Duplicate, non-monotonic,
+cross-family, oversized, malformed, or concurrently inconsistent cuts fail closed. An empty verified Decision list is
+valid and means `AWAITING_REPLAY_RESULT`.
+
+The `/rd/research` surface may render the shared `JourneyProgress` atom only after both the Formation row and its
+exact Iteration projection are available and identity-consistent. The Journey summarizes the current loop; it is not
+a second business state machine. While either projection is loading, unavailable, partial in a way that removes the
+selected family, or malformed, the route preserves its ordinary Research directory and renders no placeholder,
+synthetic stages, stale prior Journey, or explanatory filler.
 
 The browser receives only request identity, optional intent identity, accepted or rejected-no-write disposition,
 current Research-view availability and phase when accepted, and committed time. Rejected-no-write rows carry no

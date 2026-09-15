@@ -332,8 +332,11 @@ Develop Composer exact readback 与 Exploratory Replay V2 exact point-read GET �
 GET，但其 state 仍按域分别持有 typed `ResearchDirectoryOwnerPort`、`ResearchReadbackOwnerPortV1`、
 `ArtifactDirectoryOwnerPort`、`ArtifactReadbackOwnerPortV1`、`ArtifactSourceOwnerPort`、
 `SourceIntakeReadbackOwnerPort` 与
-`DevelopComposerReadbackOwnerPortV2`、`ExploratoryReplayReadbackOwnerPortV2`，不把业务边界合并为一个通用
-repository。router 只暴露 `/health` 及这八个已准入 GET。Dashboard 通过必须原子成对配置的
+`DevelopComposerReadbackOwnerPortV2`、`ExploratoryReplayReadbackOwnerPortV2`、
+`FormationCatalogOwnerPortV1` 与 `IterationTimelineOwnerPortV1`，不把业务边界合并为一个通用
+repository。加入 `GET /v1/formation-catalog` 和
+`GET /v1/trial-families/{trial_family_identity}/iterations` 后，router 只暴露 `/health` 及十二个精确准入的
+GET，不增加任何 write route。Dashboard 通过必须原子成对配置的
 `RD_DASHBOARD_OWNER_READ_API_URL` 与 `RD_DASHBOARD_OWNER_READ_API_TOKEN` 绑定；只配置一半时必须 fail closed，
 不能借用 write API credential。adapter 复用 canonical locking verifier，不暴露 submit、resolve、sandbox 或
 mutation port。Source Intake adapter 还必须绑定只读 Product Edge admission port 与现有 request-proof digest，
@@ -342,6 +345,31 @@ mutation port。Source Intake adapter 还必须绑定只读 Product Edge admissi
 Research/Market evidence 校验，不持有 fact-writer pool 或任何 mutation method。
 Replay 通过独立的 Dashboard typed point-read port 委托既有 sealed Replay V2 read port；其 adapter 只持有同一
 `rd_owner` read pool，不装配旧 write Owner composition root，也不暴露 identify、submit、resolve、run 或 result。
+
+`GET /v1/formation-catalog` 是 verified Research/Artifact directory 与 exact-readback port 的有界只读组合。
+它最多返回 20 个已接受 TrialFamily，并按
+`(research.committed_at_epoch_ms, trial_family_identity)` 降序排列。每行只包含精确的 Research
+request/receipt/intent identity、当前 Research-view availability 与 next legal action、冻结 trial budget、已验证
+consumed budget，以及零个或多个 current-custody 的成功 Artifact attempt。成功 attempt 只包含 build request、
+attempt、Owner receipt、Artifact review、TrialFamily binding identity 与 Owner commit time。既有 Artifact directory
+本来就隐藏 failed、rejected、unknown 和 in-flight attempt，所以任何非空 catalog 都必须明确标为
+`PARTIAL_UNAVAILABLE`。不得把 commit time 冒充 prepared time，也不得编造负向 attempt。cross-binding malformed、
+identity 漂移、verifier error 或任一组成 read unavailable 时，整个 catalog fail closed，而不是静默丢掉某个 family。
+
+`GET /v1/trial-families/{trial_family_identity}/iterations` 由独立 typed 只读 projection port 提供。它先冻结请求
+family 的一组有界 immutable Decision locator，再通过 canonical unified Decision resolver 逐个解析。response
+只暴露 verified TrialFamily/census identity、trial/consumed budget、observation time，以及按顺序排列的精确
+Decision identity/digest、round、request、Result、attempt、receipt、commit time、canonical
+`IterationDecisionOutcomeV1` 与对应 Product Edge action class。action class 只有
+`SUBMIT_REPAIR_REQUEST`、`CREATE_SUCCESSOR_INTENT`、`STOP_ON_COMMITTED_DECISION` 和
+`SUBMIT_SELECTED_CANDIDATE_TO_QUALIFICATION`；Dashboard 不会把所有 repair 改名为 Replay repair，也不会制造
+Owner custody 中不存在的 evidence state。duplicate、non-monotonic、cross-family、oversized、malformed 或并发不一致
+的 cut 全部 fail closed。经过验证但为空的 Decision list 合法，表示 `AWAITING_REPLAY_RESULT`。
+
+`/rd/research` 只有在 Formation row 与该 family 的 exact Iteration projection 都 available 且 identity 一致时，
+才可以渲染共享 `JourneyProgress` 原子。Journey 只总结当前 loop，不是第二套业务状态机。任一 projection 仍在
+loading、unavailable、partial 到缺少所选 family，或 malformed 时，route 保留普通 Research directory，且不渲染
+placeholder、synthetic stage、stale 旧 Journey 或解释性填充短句。
 
 browser 只接收 request identity、可选 intent identity、accepted 或 rejected-no-write disposition、accepted
 时的当前 Research-view availability/phase，以及 committed time。rejected-no-write row 不会编造 intent 或

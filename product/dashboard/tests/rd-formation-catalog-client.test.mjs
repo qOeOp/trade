@@ -29,10 +29,9 @@ function completeFamily() {
     attempt_history: [{
       build_request_identity: "build-request-1",
       attempt_identity: "attempt-1",
-      prepared_at_epoch_ms: 9_950,
+      committed_at_epoch_ms: 9_950,
       resolution: "SUCCESS",
       receipt_identity: "build-receipt-1",
-      disposition: "SUCCESS",
       artifact_identity: "artifact-1",
       review_identity: "review-1",
       family_binding_identity: "binding-1",
@@ -79,13 +78,13 @@ test("typed formation catalog retains exact attempt and Research enums", async (
   assert.equal(family.research.viewAvailability, "AVAILABLE");
   assert.equal(family.research.nextLegalAction, "REVIEW_ARTIFACT");
   assert.equal(family.attemptHistory[0].resolution, "SUCCESS");
-  assert.equal(family.attemptHistory[0].disposition, "SUCCESS");
+  assert.equal(family.attemptHistory[0].committedAtEpochMs, 9_950);
 });
 
 test("unknown attempt and Research enums fail closed", async () => {
   for (const mutate of [
     (family) => { family.attempt_history[0].resolution = "COMPLETED"; },
-    (family) => { family.attempt_history[0].disposition = "COMPLETED"; },
+    (family) => { family.attempt_history[0].resolution = "FAILED_NO_ARTIFACT"; },
     (family) => { family.research.view_availability = "CURRENT"; },
     (family) => { family.research.next_legal_action = "RUN_AGAIN"; },
   ]) {

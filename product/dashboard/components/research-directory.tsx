@@ -30,6 +30,7 @@ import { researchAvailabilityTone } from "./ui/status-tone-policy";
 import { useDelayedPending } from "./ui/use-delayed-pending";
 import { useHistoricalCustodyDirectory } from "./use-historical-custody-directory";
 import { OwnerDirectoryInfo, OwnerDirectoryUnavailable } from "./owner-directory-state";
+import { ResearchLoopJourney } from "./research-loop-journey";
 import styles from "./owner-directory.module.css";
 
 function displayIdentity(value: string): string {
@@ -66,6 +67,7 @@ export function ResearchDirectory() {
   const [partial, setPartial] = useState(false);
   const [reason, setReason] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [journeyRefreshKey, setJourneyRefreshKey] = useState(0);
   const [pendingOlder, setPendingOlder] = useState(false);
   const itemsRef = useRef<readonly ResearchDirectoryItemV1[]>([]);
   const requestGuard = useRef(createResearchDirectoryRequestGuardV1());
@@ -238,10 +240,14 @@ export function ResearchDirectory() {
     ? availability === "loading"
     : custodyCandidates.availability === "loading";
   const showPending = useDelayedPending(pending);
-  const refresh = () => view === "verified" ? readPage() : custodyCandidates.read();
+  const refresh = () => {
+    setJourneyRefreshKey((value) => value + 1);
+    return view === "verified" ? readPage() : custodyCandidates.read();
+  };
 
   return (
     <PageStack>
+      {view === "verified" ? <ResearchLoopJourney refreshKey={journeyRefreshKey} /> : null}
       <PanelFrame aria-labelledby="research-directory-title">
         <PanelFrameHeader
           eyebrow="Research"

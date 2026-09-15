@@ -7,19 +7,14 @@ import { validOperationalRunReferenceV1 } from "./operational-run-reference.ts";
 
 const MAX_OWNER_RESPONSE_BYTES = 1_048_576;
 const IDENTITY = /^[A-Za-z0-9._:/-]{1,256}$/;
-const ATTEMPT_RESOLUTIONS = [
-  "SUCCESS", "FAILED_NO_ARTIFACT", "REJECTED_NO_WRITE", "OUTCOME_UNKNOWN",
-  "SUBMITTED_OR_UNKNOWN",
-] as const;
-const ATTEMPT_DISPOSITIONS = [
-  "SUCCESS", "FAILED_NO_ARTIFACT", "REJECTED_NO_WRITE", "OUTCOME_UNKNOWN",
-] as const;
+const ATTEMPT_RESOLUTIONS = ["SUCCESS"] as const;
 const RESEARCH_VIEW_AVAILABILITIES = ["AVAILABLE", "STALE", "UNAVAILABLE"] as const;
 const RESEARCH_NEXT_LEGAL_ACTIONS = [
   "RESOLVE_SAME_REQUEST_IDENTITY",
   "WAIT_FOR_R_AND_D_EXECUTION",
   "CORRECT_INPUT_AND_CREATE_SUCCESSOR_REQUEST",
   "REVIEW_ARTIFACT",
+  "VIEW_EXPLORATORY_RUN",
 ] as const;
 
 type Json = Record<string, unknown>;
@@ -30,20 +25,18 @@ type ObservationWindowV1 = {
 };
 
 export type RdFormationCatalogAttemptResolutionV1 = typeof ATTEMPT_RESOLUTIONS[number];
-export type RdFormationCatalogAttemptDispositionV1 = typeof ATTEMPT_DISPOSITIONS[number];
 export type RdFormationCatalogResearchViewAvailabilityV1 = typeof RESEARCH_VIEW_AVAILABILITIES[number];
 export type RdFormationCatalogResearchNextLegalActionV1 = typeof RESEARCH_NEXT_LEGAL_ACTIONS[number];
 
 export type RdFormationCatalogAttemptV1 = {
   buildRequestIdentity: string;
   attemptIdentity: string;
-  preparedAtEpochMs: number;
+  committedAtEpochMs: number;
   resolution: RdFormationCatalogAttemptResolutionV1;
-  receiptIdentity: string | null;
-  disposition: RdFormationCatalogAttemptDispositionV1 | null;
-  artifactIdentity: string | null;
-  reviewIdentity: string | null;
-  familyBindingIdentity: string | null;
+  receiptIdentity: string;
+  artifactIdentity: string;
+  reviewIdentity: string;
+  familyBindingIdentity: string;
 };
 
 export type RdFormationCatalogFamilyV1 = {
@@ -106,20 +99,12 @@ function isoInstant(value: unknown): value is string {
   return Number.isFinite(parsed) && new Date(parsed).toISOString() === value;
 }
 
-function optionalIdentity(value: unknown): value is string | null {
-  return value === null || identity(value);
-}
-
 function memberOf<const T extends readonly string[]>(values: T, value: unknown): value is T[number] {
   return typeof value === "string" && (values as readonly string[]).includes(value);
 }
 
 function attemptResolution(value: unknown): value is RdFormationCatalogAttemptResolutionV1 {
   return memberOf(ATTEMPT_RESOLUTIONS, value);
-}
-
-function attemptDisposition(value: unknown): value is RdFormationCatalogAttemptDispositionV1 | null {
-  return value === null || memberOf(ATTEMPT_DISPOSITIONS, value);
 }
 
 function researchViewAvailability(
@@ -136,40 +121,23 @@ function researchNextLegalAction(
 
 function parseAttempt(value: unknown): RdFormationCatalogAttemptV1 | null {
   if (!object(value) || !exactKeys(value, [
-    "build_request_identity", "attempt_identity", "prepared_at_epoch_ms", "resolution",
-    "receipt_identity", "disposition", "artifact_identity", "review_identity",
+    "build_request_identity", "attempt_identity", "committed_at_epoch_ms", "resolution",
+    "receipt_identity", "artifact_identity", "review_identity",
     "family_binding_identity",
   ])) return null;
   if (!identity(value.build_request_identity) || !identity(value.attempt_identity)
-    || !epoch(value.prepared_at_epoch_ms)
+    || !epoch(value.committed_at_epoch_ms)
     || !attemptResolution(value.resolution)
-    || !optionalIdentity(value.receipt_identity)
-    || !attemptDisposition(value.disposition)
-    || !optionalIdentity(value.artifact_identity)
-    || !optionalIdentity(value.review_identity)
-    || !optionalIdentity(value.family_binding_identity)) return null;
-  const resolution = value.resolution;
-  const disposition = value.disposition;
-  const hasReceipt = value.receipt_identity !== null;
-  const hasArtifact = value.artifact_identity !== null;
-  const hasReview = value.review_identity !== null;
-  const hasFamilyBinding = value.family_binding_identity !== null;
-  if (resolution === "SUBMITTED_OR_UNKNOWN") {
-    if (hasReceipt || disposition !== null || hasArtifact || hasReview || hasFamilyBinding) return null;
-  } else if (!hasReceipt || disposition !== resolution) {
-    return null;
-  } else if (resolution === "SUCCESS") {
-    if (!hasArtifact || !hasReview || !hasFamilyBinding) return null;
-  } else if (hasArtifact || hasReview || hasFamilyBinding) {
-    return null;
-  }
+    || !identity(value.receipt_identity)
+    || !identity(value.artifact_identity)
+    || !identity(value.review_identity)
+    || !identity(value.family_binding_identity)) return null;
   return {
     buildRequestIdentity: value.build_request_identity,
     attemptIdentity: value.attempt_identity,
-    preparedAtEpochMs: value.prepared_at_epoch_ms,
-    resolution,
+    committedAtEpochMs: value.committed_at_epoch_ms,
+    resolution: value.resolution,
     receiptIdentity: value.receipt_identity,
-    disposition,
     artifactIdentity: value.artifact_identity,
     reviewIdentity: value.review_identity,
     familyBindingIdentity: value.family_binding_identity,
@@ -193,10 +161,11 @@ function parseFamily(value: unknown): RdFormationCatalogFamilyV1 | null {
   const attemptHistory = value.attempt_history.map(parseAttempt);
   if (attemptHistory.some((entry) => entry === null)) return null;
   const availableAction = research.view_availability === "AVAILABLE"
-    && ["WAIT_FOR_R_AND_D_EXECUTION", "REVIEW_ARTIFACT"].includes(research.next_legal_action);
-  const staleAction = research.view_availability === "STALE"
+    && ["WAIT_FOR_R_AND_D_EXECUTION", "REVIEW_ARTIFACT", "VIEW_EXPLORATORY_RUN"]
+      .includes(research.next_legal_action);
+  const refreshAction = ["STALE", "UNAVAILABLE"].includes(research.view_availability)
     && research.next_legal_action === "RESOLVE_SAME_REQUEST_IDENTITY";
-  if (!availableAction && !staleAction) return null;
+  if (!availableAction && !refreshAction) return null;
   if (research.view_availability === "AVAILABLE"
     && research.next_legal_action === "WAIT_FOR_R_AND_D_EXECUTION"
     && attemptHistory.some((attempt) => attempt?.resolution === "SUCCESS")) return null;
@@ -238,19 +207,15 @@ export function parseRdFormationCatalogOwnerV1(
   const familyIdentities = new Set(parsed.map((family) => family.trialFamilyIdentity));
   const researchIdentities = new Set(parsed.map((family) => family.research.requestIdentity));
   const attempts = parsed.flatMap((family) => family.attemptHistory);
-  const uniqueNonNull = (values: Array<string | null>) => {
-    const present = values.filter((value): value is string => value !== null);
-    return new Set(present).size === present.length;
-  };
   if (familyIdentities.size !== parsed.length || researchIdentities.size !== parsed.length
     || new Set(attempts.map((attempt) => attempt.attemptIdentity)).size !== attempts.length
     || new Set(attempts.map((attempt) => attempt.buildRequestIdentity)).size !== attempts.length
-    || !uniqueNonNull(attempts.map((attempt) => attempt.receiptIdentity))
-    || !uniqueNonNull(attempts.map((attempt) => attempt.artifactIdentity))
-    || !uniqueNonNull(attempts.map((attempt) => attempt.reviewIdentity))
-    || !uniqueNonNull(attempts.map((attempt) => attempt.familyBindingIdentity))) return null;
+    || new Set(attempts.map((attempt) => attempt.receiptIdentity)).size !== attempts.length
+    || new Set(attempts.map((attempt) => attempt.artifactIdentity)).size !== attempts.length
+    || new Set(attempts.map((attempt) => attempt.reviewIdentity)).size !== attempts.length
+    || new Set(attempts.map((attempt) => attempt.familyBindingIdentity)).size !== attempts.length) return null;
   if (parsed.some((family) => family.research.committedAtEpochMs > observedAtEpochMs
-    || family.attemptHistory.some((attempt) => attempt.preparedAtEpochMs > observedAtEpochMs))) return null;
+    || family.attemptHistory.some((attempt) => attempt.committedAtEpochMs > observedAtEpochMs))) return null;
   for (let index = 1; index < parsed.length; index += 1) {
     const previous = parsed[index - 1];
     const current = parsed[index];
@@ -262,8 +227,8 @@ export function parseRdFormationCatalogOwnerV1(
     for (let index = 1; index < family.attemptHistory.length; index += 1) {
       const previous = family.attemptHistory[index - 1];
       const current = family.attemptHistory[index];
-      if (previous.preparedAtEpochMs < current.preparedAtEpochMs
-        || (previous.preparedAtEpochMs === current.preparedAtEpochMs
+      if (previous.committedAtEpochMs < current.committedAtEpochMs
+        || (previous.committedAtEpochMs === current.committedAtEpochMs
           && previous.attemptIdentity > current.attemptIdentity)) return null;
     }
   }
@@ -301,17 +266,16 @@ function parseDashboardProjection(
     ]) || !Array.isArray(family.attemptHistory)) return null;
     const attempts = family.attemptHistory.map((attempt) => {
       if (!object(attempt) || !exactKeys(attempt, [
-        "buildRequestIdentity", "attemptIdentity", "preparedAtEpochMs", "resolution",
-        "receiptIdentity", "disposition", "artifactIdentity", "reviewIdentity",
+        "buildRequestIdentity", "attemptIdentity", "committedAtEpochMs", "resolution",
+        "receiptIdentity", "artifactIdentity", "reviewIdentity",
         "familyBindingIdentity",
       ])) return null;
       return {
         build_request_identity: attempt.buildRequestIdentity,
         attempt_identity: attempt.attemptIdentity,
-        prepared_at_epoch_ms: attempt.preparedAtEpochMs,
+        committed_at_epoch_ms: attempt.committedAtEpochMs,
         resolution: attempt.resolution,
         receipt_identity: attempt.receiptIdentity,
-        disposition: attempt.disposition,
         artifact_identity: attempt.artifactIdentity,
         review_identity: attempt.reviewIdentity,
         family_binding_identity: attempt.familyBindingIdentity,
@@ -346,6 +310,19 @@ function parseDashboardProjection(
     requestStartedAtEpochMs: transportObservedAtEpochMs - operation.timeout_class.milliseconds,
     responseObservedAtEpochMs: transportObservedAtEpochMs,
   });
+}
+
+export function parseRdFormationCatalogDirectEnvelopeV1(
+  value: unknown,
+): RdFormationCatalogProjectionV1 | null {
+  if (!object(value) || !exactKeys(value, [
+    "schema_version", "operation", "channel", "transport_observed_at", "availability",
+    "unavailable_reason", "projection",
+  ]) || value.schema_version !== 1
+    || value.operation !== RD_FORMATION_CATALOG_SHADOW_READ_OPERATION
+    || value.channel !== "DASHBOARD_SHADOW_READ" || !isoInstant(value.transport_observed_at)
+    || value.availability !== "available" || value.unavailable_reason !== null) return null;
+  return parseDashboardProjection(value.projection, Date.parse(value.transport_observed_at));
 }
 
 export function parseRdFormationCatalogShadowEnvelopeV1(

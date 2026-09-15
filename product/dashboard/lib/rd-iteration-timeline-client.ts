@@ -8,54 +8,55 @@ import { validOperationalRunReferenceV1 } from "./operational-run-reference.ts";
 const MAX_OWNER_RESPONSE_BYTES = 1_048_576;
 const IDENTITY = /^[A-Za-z0-9._:/-]{1,256}$/;
 const DIGEST = /^(?:sha256|blake3):[0-9a-f]{64}$/;
-const DIAGNOSTIC_CATEGORIES = [
-  "NO_EXECUTION_DEFECT", "MARKET_DATA", "ARTIFACT", "RUNTIME_KERNEL",
-  "BACKTEST_OPERATIONAL", "SIMULATOR", "REPLAY_CONFIGURATION",
-  "VALID_ECONOMIC_FAILURE", "UNRESOLVED_FAILURE",
+const REPAIR_CATEGORIES = [
+  "MARKET_DATA", "ARTIFACT", "RUNTIME_KERNEL", "BACKTEST_OPERATIONAL", "SIMULATOR",
+  "REPLAY_CONFIGURATION",
 ] as const;
-const DECISION_TRANSITIONS = {
-  REPLAY_REPAIR_REQUIRED: ["RESOLVE_REPLAY_DEFECT", "REPLAY_REPAIR_REQUIRED"],
-  SUCCESSOR_INPUT_REQUIRED: ["AUTHOR_SUCCESSOR_INTENT", "AWAITING_SUCCESSOR_INTENT"],
-  TERMINAL_STOP: ["NONE_TERMINAL", "TERMINAL"],
-  RESEARCH_REVIEW_REQUIRED: ["REVIEW_ECONOMIC_EVIDENCE", "RESEARCH_REVIEW_REQUIRED"],
-  EVIDENCE_UNRESOLVED: ["RESOLVE_EVIDENCE", "EVIDENCE_UNRESOLVED"],
-} as const;
-
-const TIMELINE_STATES = [
-  "AWAITING_REPLAY_RESULT",
-  ...Object.values(DECISION_TRANSITIONS).map((transition) => transition[1]),
+const REPAIR_TARGETS = [
+  "MARKET_DATA", "RESEARCH_DEVELOP", "RUNTIME", "BACKTEST_RUNNER_SERVICE", "SIM_EXCHANGE",
+  "RESEARCH_REPLAY_CONFIGURATION",
+] as const;
+const TERMINAL_REASONS = [
+  "FALSIFIER_SATISFIED", "FROZEN_STOP_RULE_SATISFIED", "TRIAL_BUDGET_EXHAUSTED",
+  "ECONOMIC_IMPOSSIBILITY", "LOW_INFORMATION_VALUE", "INPUT_UNAVAILABLE",
+] as const;
+const ACTIONS = [
+  "SUBMIT_REPAIR_REQUEST", "CREATE_SUCCESSOR_INTENT", "STOP_ON_COMMITTED_DECISION",
+  "SUBMIT_SELECTED_CANDIDATE_TO_QUALIFICATION",
+] as const;
+const STATES = [
+  "AWAITING_REPLAY_RESULT", "REPAIR_REQUIRED", "SUCCESSOR_REQUIRED", "TERMINAL",
+  "READY_FOR_QUALIFICATION",
 ] as const;
 
 type Json = Record<string, unknown>;
 type Fetcher = typeof fetch;
+type RepairCategory = typeof REPAIR_CATEGORIES[number];
+type RepairTarget = typeof REPAIR_TARGETS[number];
+type TerminalReason = typeof TERMINAL_REASONS[number];
 
-export type RdIterationDiagnosticCategoryV1 = typeof DIAGNOSTIC_CATEGORIES[number];
-export type RdIterationDecisionDispositionV1 = keyof typeof DECISION_TRANSITIONS;
-type RdIterationDecisionTransitionV1 = typeof DECISION_TRANSITIONS[RdIterationDecisionDispositionV1];
-export type RdIterationNextLegalActionV1 = RdIterationDecisionTransitionV1[0];
-export type RdIterationTimelineStateV1 = typeof TIMELINE_STATES[number];
+export type RdIterationNextLegalActionV1 = typeof ACTIONS[number];
+export type RdIterationTimelineStateV1 = typeof STATES[number];
+export type RdIterationDecisionOutcomeV1 =
+  | { outcome: "REPAIR_INPUTS"; category: RepairCategory; target: RepairTarget }
+  | { outcome: "SUCCESSOR_EXPERIMENT"; experiment_identity: string; experiment_digest: string }
+  | { outcome: "READY_FOR_SELECTION"; candidate_identity: string; candidate_digest: string }
+  | { outcome: "TERMINAL_STOP"; reason: TerminalReason };
 
 export type RdIterationDecisionV1 = {
   decisionIdentity: string;
   decisionDigest: string;
   roundOrdinal: number;
-  predecessorDecisionIdentity: string | null;
   trialFamilyIdentity: string;
-  intentIdentity: string;
-  intentDigest: string;
-  artifactIdentity: string;
   censusFrontierIdentity: string;
   censusFrontierDigest: string;
-  replayRequestIdentity: string;
-  replayRequestMeaningDigest: string;
-  replayResultIdentity: string;
-  replayResultDigest: string;
-  diagnosticCategories: RdIterationDiagnosticCategoryV1[];
-  disposition: RdIterationDecisionDispositionV1;
+  requestIdentity: string;
+  resultIdentity: string;
+  attemptIdentity: string;
+  outcome: RdIterationDecisionOutcomeV1;
   nextLegalAction: RdIterationNextLegalActionV1;
   committedAtEpochMs: number;
   receiptIdentity: string;
-  receiptDigest: string;
 };
 
 export type RdIterationTimelineProjectionV1 = {
@@ -88,11 +89,8 @@ function object(value: unknown): value is Json {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function exactKeys(value: Json, keys: string[]): boolean {
-  const actual = Object.keys(value).sort();
-  const expected = [...keys].sort();
-  return actual.length === expected.length
-    && actual.every((key, index) => key === expected[index]);
+function exactKeys(value: Json, keys: readonly string[]): boolean {
+  return Object.keys(value).sort().join("|") === [...keys].sort().join("|");
 }
 
 function identity(value: unknown): value is string {
@@ -111,67 +109,73 @@ function memberOf<const T extends readonly string[]>(values: T, value: unknown):
   return typeof value === "string" && (values as readonly string[]).includes(value);
 }
 
-function diagnosticCategory(value: unknown): value is RdIterationDiagnosticCategoryV1 {
-  return memberOf(DIAGNOSTIC_CATEGORIES, value);
+function parseOutcome(value: unknown): RdIterationDecisionOutcomeV1 | null {
+  if (!object(value) || typeof value.outcome !== "string") return null;
+  switch (value.outcome) {
+    case "REPAIR_INPUTS":
+      return exactKeys(value, ["outcome", "category", "target"])
+        && memberOf(REPAIR_CATEGORIES, value.category) && memberOf(REPAIR_TARGETS, value.target)
+        ? value as RdIterationDecisionOutcomeV1 : null;
+    case "SUCCESSOR_EXPERIMENT":
+      return exactKeys(value, ["outcome", "experiment_identity", "experiment_digest"])
+        && identity(value.experiment_identity) && digest(value.experiment_digest)
+        ? value as RdIterationDecisionOutcomeV1 : null;
+    case "READY_FOR_SELECTION":
+      return exactKeys(value, ["outcome", "candidate_identity", "candidate_digest"])
+        && identity(value.candidate_identity) && digest(value.candidate_digest)
+        ? value as RdIterationDecisionOutcomeV1 : null;
+    case "TERMINAL_STOP":
+      return exactKeys(value, ["outcome", "reason"]) && memberOf(TERMINAL_REASONS, value.reason)
+        ? value as RdIterationDecisionOutcomeV1 : null;
+    default:
+      return null;
+  }
 }
 
-function decisionDisposition(value: unknown): value is RdIterationDecisionDispositionV1 {
-  return typeof value === "string" && Object.hasOwn(DECISION_TRANSITIONS, value);
+function expectedAction(outcome: RdIterationDecisionOutcomeV1): RdIterationNextLegalActionV1 {
+  if (outcome.outcome === "REPAIR_INPUTS") return "SUBMIT_REPAIR_REQUEST";
+  if (outcome.outcome === "SUCCESSOR_EXPERIMENT") return "CREATE_SUCCESSOR_INTENT";
+  if (outcome.outcome === "READY_FOR_SELECTION") return "SUBMIT_SELECTED_CANDIDATE_TO_QUALIFICATION";
+  return "STOP_ON_COMMITTED_DECISION";
 }
 
-function nextLegalAction(value: unknown): value is RdIterationNextLegalActionV1 {
-  return typeof value === "string"
-    && Object.values(DECISION_TRANSITIONS).some((transition) => transition[0] === value);
-}
-
-function timelineState(value: unknown): value is RdIterationTimelineStateV1 {
-  return memberOf(TIMELINE_STATES, value);
+function expectedState(decisions: readonly RdIterationDecisionV1[]): RdIterationTimelineStateV1 {
+  const action = decisions.at(-1)?.nextLegalAction;
+  if (!action) return "AWAITING_REPLAY_RESULT";
+  if (action === "SUBMIT_REPAIR_REQUEST") return "REPAIR_REQUIRED";
+  if (action === "CREATE_SUCCESSOR_INTENT") return "SUCCESSOR_REQUIRED";
+  if (action === "SUBMIT_SELECTED_CANDIDATE_TO_QUALIFICATION") return "READY_FOR_QUALIFICATION";
+  return "TERMINAL";
 }
 
 function parseDecision(value: unknown): RdIterationDecisionV1 | null {
   if (!object(value) || !exactKeys(value, [
-    "schema_version", "decision_identity", "decision_digest", "trial_family_identity",
-    "round_ordinal", "predecessor_decision_identity", "intent_identity", "intent_digest",
-    "artifact_identity", "census_frontier_identity", "census_frontier_digest",
-    "replay_request_identity", "replay_request_meaning_digest", "replay_result_identity",
-    "replay_result_digest", "diagnostic_categories", "disposition", "next_legal_action",
-    "committed_at_epoch_ms", "receipt_identity", "receipt_digest",
-  ]) || value.schema_version !== 1 || !identity(value.decision_identity)
-    || !digest(value.decision_digest) || !identity(value.trial_family_identity)
+    "decision_identity", "decision_digest", "round_ordinal", "trial_family_identity",
+    "census_frontier_identity", "census_frontier_digest", "request_identity", "result_identity",
+    "attempt_identity", "outcome", "next_legal_action", "committed_at_epoch_ms", "receipt_identity",
+  ]) || !identity(value.decision_identity) || !digest(value.decision_digest)
     || !Number.isSafeInteger(value.round_ordinal) || Number(value.round_ordinal) <= 0
-    || !(value.predecessor_decision_identity === null || identity(value.predecessor_decision_identity))
-    || !identity(value.intent_identity) || !digest(value.intent_digest)
-    || !identity(value.artifact_identity) || !identity(value.census_frontier_identity)
-    || !digest(value.census_frontier_digest) || !identity(value.replay_request_identity)
-    || !digest(value.replay_request_meaning_digest) || !identity(value.replay_result_identity)
-    || !digest(value.replay_result_digest) || !Array.isArray(value.diagnostic_categories)
-    || !value.diagnostic_categories.every(diagnosticCategory)
-    || new Set(value.diagnostic_categories).size !== value.diagnostic_categories.length
-    || !decisionDisposition(value.disposition)
-    || !nextLegalAction(value.next_legal_action)
-    || !epoch(value.committed_at_epoch_ms) || !identity(value.receipt_identity)
-    || !digest(value.receipt_digest)) return null;
+    || !identity(value.trial_family_identity) || !identity(value.census_frontier_identity)
+    || !digest(value.census_frontier_digest) || !identity(value.request_identity)
+    || !identity(value.result_identity) || !identity(value.attempt_identity)
+    || !memberOf(ACTIONS, value.next_legal_action) || !epoch(value.committed_at_epoch_ms)
+    || !identity(value.receipt_identity)) return null;
+  const outcome = parseOutcome(value.outcome);
+  if (!outcome || expectedAction(outcome) !== value.next_legal_action) return null;
   return {
     decisionIdentity: value.decision_identity,
     decisionDigest: value.decision_digest,
     roundOrdinal: Number(value.round_ordinal),
-    predecessorDecisionIdentity: value.predecessor_decision_identity as string | null,
     trialFamilyIdentity: value.trial_family_identity,
-    intentIdentity: value.intent_identity,
-    intentDigest: value.intent_digest,
-    artifactIdentity: value.artifact_identity,
     censusFrontierIdentity: value.census_frontier_identity,
     censusFrontierDigest: value.census_frontier_digest,
-    replayRequestIdentity: value.replay_request_identity,
-    replayRequestMeaningDigest: value.replay_request_meaning_digest,
-    replayResultIdentity: value.replay_result_identity,
-    replayResultDigest: value.replay_result_digest,
-    diagnosticCategories: [...value.diagnostic_categories],
-    disposition: value.disposition,
+    requestIdentity: value.request_identity,
+    resultIdentity: value.result_identity,
+    attemptIdentity: value.attempt_identity,
+    outcome,
     nextLegalAction: value.next_legal_action,
     committedAtEpochMs: Number(value.committed_at_epoch_ms),
     receiptIdentity: value.receipt_identity,
-    receiptDigest: value.receipt_digest,
   };
 }
 
@@ -183,58 +187,32 @@ export function parseRdIterationTimelineOwnerV1(
 ): RdIterationTimelineProjectionV1 | null {
   if (!object(value) || !exactKeys(value, [
     "schema_version", "trial_family_identity", "census_frontier_identity",
-    "census_frontier_digest", "consumed_trial_budget", "trial_budget", "state",
-    "decisions", "observed_at_epoch_ms",
+    "census_frontier_digest", "consumed_trial_budget", "trial_budget", "state", "decisions",
+    "observed_at_epoch_ms",
   ]) || value.schema_version !== 1 || value.trial_family_identity !== expectedTrialFamilyIdentity
     || !identity(value.trial_family_identity) || !identity(value.census_frontier_identity)
-    || !digest(value.census_frontier_digest) || !Number.isSafeInteger(value.consumed_trial_budget)
-    || Number(value.consumed_trial_budget) <= 0 || !Number.isSafeInteger(value.trial_budget)
-    || Number(value.trial_budget) < Number(value.consumed_trial_budget)
-    || !timelineState(value.state)
-    || !Array.isArray(value.decisions) || !epoch(value.observed_at_epoch_ms)
+    || !digest(value.census_frontier_digest) || !epoch(value.consumed_trial_budget)
+    || !epoch(value.trial_budget) || Number(value.consumed_trial_budget) > Number(value.trial_budget)
+    || !memberOf(STATES, value.state) || !Array.isArray(value.decisions)
+    || value.decisions.length > 128 || !epoch(value.observed_at_epoch_ms)
     || value.observed_at_epoch_ms < requestStartedAtEpochMs
     || value.observed_at_epoch_ms > responseObservedAtEpochMs) return null;
   const decisions = value.decisions.map(parseDecision);
   if (decisions.some((decision) => decision === null)) return null;
   const parsed = decisions as RdIterationDecisionV1[];
-  const decisionIdentities = new Set<string>();
-  const decisionDigests = new Set<string>();
-  const replayRequestIdentities = new Set<string>();
-  const replayResultIdentities = new Set<string>();
-  const receiptIdentities = new Set<string>();
-  const receiptDigests = new Set<string>();
-  let predecessor: string | null = null;
-  let priorRound = 0;
-  let priorCommittedAt = 0;
-  for (const decision of parsed) {
-    if (decisionIdentities.has(decision.decisionIdentity)
-      || decisionDigests.has(decision.decisionDigest)
-      || replayRequestIdentities.has(decision.replayRequestIdentity)
-      || replayResultIdentities.has(decision.replayResultIdentity)
-      || receiptIdentities.has(decision.receiptIdentity)
-      || receiptDigests.has(decision.receiptDigest)
-      || decision.predecessorDecisionIdentity !== predecessor
+  const identities = new Set<string>();
+  let priorCommit = 0;
+  for (const [index, decision] of parsed.entries()) {
+    const unique = [decision.decisionIdentity, decision.decisionDigest, decision.resultIdentity,
+      decision.attemptIdentity, decision.receiptIdentity];
+    if (unique.some((entry) => identities.has(entry)) || decision.roundOrdinal !== index + 1
       || decision.trialFamilyIdentity !== value.trial_family_identity
-      || decision.roundOrdinal !== priorRound + 1
-      || decision.roundOrdinal > Number(value.consumed_trial_budget)
-      || decision.committedAtEpochMs < priorCommittedAt
+      || decision.committedAtEpochMs < priorCommit
       || decision.committedAtEpochMs > Number(value.observed_at_epoch_ms)) return null;
-    const transition = DECISION_TRANSITIONS[decision.disposition];
-    if (decision.nextLegalAction !== transition[0]) return null;
-    decisionIdentities.add(decision.decisionIdentity);
-    decisionDigests.add(decision.decisionDigest);
-    replayRequestIdentities.add(decision.replayRequestIdentity);
-    replayResultIdentities.add(decision.replayResultIdentity);
-    receiptIdentities.add(decision.receiptIdentity);
-    receiptDigests.add(decision.receiptDigest);
-    predecessor = decision.decisionIdentity;
-    priorRound = decision.roundOrdinal;
-    priorCommittedAt = decision.committedAtEpochMs;
+    unique.forEach((entry) => identities.add(entry));
+    priorCommit = decision.committedAtEpochMs;
   }
-  const expectedState = parsed.length === 0
-    ? "AWAITING_REPLAY_RESULT"
-    : DECISION_TRANSITIONS[parsed.at(-1)!.disposition][1];
-  if (value.state !== expectedState) return null;
+  if (value.state !== expectedState(parsed)) return null;
   return {
     trialFamilyIdentity: value.trial_family_identity,
     censusFrontierIdentity: value.census_frontier_identity,
@@ -253,27 +231,20 @@ function unavailable(
   status: number,
   nowEpochMs: number,
 ): RdIterationTimelineShadowResponseV1 {
-  return {
-    status,
-    envelope: {
-      schema_version: 1,
-      operation: RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION,
-      channel: "DASHBOARD_SHADOW_READ",
-      trial_family_identity: trialFamilyIdentity,
-      transport_observed_at: new Date(nowEpochMs).toISOString(),
-      availability: "unavailable",
-      unavailable_reason: reason,
-      projection: null,
-    },
-  };
+  return { status, envelope: {
+    schema_version: 1,
+    operation: RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION,
+    channel: "DASHBOARD_SHADOW_READ",
+    trial_family_identity: trialFamilyIdentity,
+    transport_observed_at: new Date(nowEpochMs).toISOString(),
+    availability: "unavailable",
+    unavailable_reason: reason,
+    projection: null,
+  } };
 }
 
 export async function resolveRdIterationTimelineShadowV1({
-  trialFamilyIdentity,
-  baseUrl,
-  token,
-  fetcher = fetch,
-  now = Date.now,
+  trialFamilyIdentity, baseUrl, token, fetcher = fetch, now = Date.now,
 }: {
   trialFamilyIdentity: string;
   baseUrl: string | undefined;
@@ -293,7 +264,7 @@ export async function resolveRdIterationTimelineShadowV1({
   if (!endpoint || !token) {
     return unavailable(trialFamilyIdentity, "OWNER_CONFIGURATION_UNAVAILABLE", 503, now());
   }
-  const requestStartedAtEpochMs = now();
+  const startedAt = now();
   try {
     const response = await fetcher(endpoint, {
       method: "GET",
@@ -302,117 +273,117 @@ export async function resolveRdIterationTimelineShadowV1({
       signal: AbortSignal.timeout(operation.timeout_class.milliseconds),
     });
     const body = await response.text();
-    const responseObservedAtEpochMs = now();
+    const observedAt = now();
     if (new TextEncoder().encode(body).byteLength > MAX_OWNER_RESPONSE_BYTES) {
-      return unavailable(trialFamilyIdentity, "OWNER_RESPONSE_UNAVAILABLE", 502, responseObservedAtEpochMs);
+      return unavailable(trialFamilyIdentity, "OWNER_RESPONSE_UNAVAILABLE", 502, observedAt);
     }
     if (response.status >= 500) {
-      return unavailable(trialFamilyIdentity, "OWNER_TRANSPORT_UNAVAILABLE", 503, responseObservedAtEpochMs);
+      return unavailable(trialFamilyIdentity, "OWNER_TRANSPORT_UNAVAILABLE", 503, observedAt);
     }
     if (!response.ok) {
-      return unavailable(trialFamilyIdentity, "OWNER_RESPONSE_UNAVAILABLE", 502, responseObservedAtEpochMs);
+      return unavailable(trialFamilyIdentity, "OWNER_RESPONSE_UNAVAILABLE", 502, observedAt);
     }
     let raw: unknown;
     try { raw = JSON.parse(body); } catch {
-      return unavailable(trialFamilyIdentity, "OWNER_RESPONSE_UNAVAILABLE", 502, responseObservedAtEpochMs);
+      return unavailable(trialFamilyIdentity, "OWNER_RESPONSE_UNAVAILABLE", 502, observedAt);
     }
     const projection = parseRdIterationTimelineOwnerV1(
-      raw,
-      trialFamilyIdentity,
-      Math.max(0, requestStartedAtEpochMs - operation.timeout_class.milliseconds),
-      responseObservedAtEpochMs,
+      raw, trialFamilyIdentity,
+      Math.max(0, startedAt - operation.timeout_class.milliseconds), observedAt,
     );
     if (!projection) {
-      return unavailable(trialFamilyIdentity, "OWNER_RESPONSE_UNAVAILABLE", 502, responseObservedAtEpochMs);
+      return unavailable(trialFamilyIdentity, "OWNER_RESPONSE_UNAVAILABLE", 502, observedAt);
     }
-    return {
-      status: 200,
-      envelope: {
-        schema_version: 1,
-        operation: RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION,
-        channel: "DASHBOARD_SHADOW_READ",
-        trial_family_identity: trialFamilyIdentity,
-        transport_observed_at: new Date(responseObservedAtEpochMs).toISOString(),
-        availability: "available",
-        unavailable_reason: null,
-        projection,
-      },
-    };
+    return { status: 200, envelope: {
+      schema_version: 1,
+      operation: RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION,
+      channel: "DASHBOARD_SHADOW_READ",
+      trial_family_identity: trialFamilyIdentity,
+      transport_observed_at: new Date(observedAt).toISOString(),
+      availability: "available",
+      unavailable_reason: null,
+      projection,
+    } };
   } catch {
     return unavailable(trialFamilyIdentity, "OWNER_TRANSPORT_UNAVAILABLE", 503, now());
   }
+}
+
+export function parseRdIterationTimelineDirectEnvelopeV1(
+  value: unknown,
+  expectedTrialFamilyIdentity: string,
+): RdIterationTimelineProjectionV1 | null {
+  if (!object(value) || !exactKeys(value, [
+    "schema_version", "operation", "channel", "trial_family_identity", "transport_observed_at",
+    "availability", "unavailable_reason", "projection",
+  ]) || value.schema_version !== 1 || value.operation !== RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION
+    || value.channel !== "DASHBOARD_SHADOW_READ"
+    || value.trial_family_identity !== expectedTrialFamilyIdentity
+    || typeof value.transport_observed_at !== "string"
+    || !Number.isFinite(Date.parse(value.transport_observed_at))
+    || value.availability !== "available" || value.unavailable_reason !== null
+    || !object(value.projection)) return null;
+  return parseBrowserProjection(
+    value.projection,
+    expectedTrialFamilyIdentity,
+    Date.parse(value.transport_observed_at),
+  );
 }
 
 export function parseRdIterationTimelineShadowEnvelopeV1(
   value: unknown,
 ): RdIterationTimelineProjectionV1 | null {
   if (!object(value) || !exactKeys(value, [
-    "schema_version", "operation", "channel", "trial_family_identity",
-    "transport_observed_at", "availability", "unavailable_reason", "projection",
-    "operational_run",
-  ]) || value.schema_version !== 1
-    || value.operation !== RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION
+    "schema_version", "operation", "channel", "trial_family_identity", "transport_observed_at",
+    "availability", "unavailable_reason", "projection", "operational_run",
+  ]) || value.schema_version !== 1 || value.operation !== RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION
     || value.channel !== "DASHBOARD_SHADOW_READ" || !identity(value.trial_family_identity)
     || typeof value.transport_observed_at !== "string"
     || !Number.isFinite(Date.parse(value.transport_observed_at))
-    || !validOperationalRunReferenceV1(
-      value.operational_run,
-      value.availability === "available" ? "available" : "unavailable",
-    )) return null;
-  if (value.availability === "unavailable") return null;
+    || !validOperationalRunReferenceV1(value.operational_run,
+      value.availability === "available" ? "available" : "unavailable")) return null;
   if (value.availability !== "available" || value.unavailable_reason !== null
-    || !object(value.projection) || !exactKeys(value.projection, [
-      "trialFamilyIdentity", "censusFrontierIdentity", "censusFrontierDigest",
-      "consumedTrialBudget", "trialBudget", "state", "decisions", "observedAtEpochMs",
-    ]) || !Array.isArray(value.projection.decisions)
-    || !value.projection.decisions.every((decision) => object(decision) && exactKeys(decision, [
-      "decisionIdentity", "decisionDigest", "roundOrdinal", "predecessorDecisionIdentity",
-      "trialFamilyIdentity", "intentIdentity", "intentDigest", "artifactIdentity",
-      "censusFrontierIdentity", "censusFrontierDigest", "replayRequestIdentity",
-      "replayRequestMeaningDigest", "replayResultIdentity", "replayResultDigest",
-      "diagnosticCategories", "disposition", "nextLegalAction", "committedAtEpochMs",
-      "receiptIdentity", "receiptDigest",
-    ]))) return null;
-  const observed = Date.parse(value.transport_observed_at);
-  const operation = operationByIdV1(RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION);
-  const ownerShape = {
-      schema_version: 1,
-      trial_family_identity: value.projection.trialFamilyIdentity,
-      census_frontier_identity: value.projection.censusFrontierIdentity,
-      census_frontier_digest: value.projection.censusFrontierDigest,
-      consumed_trial_budget: value.projection.consumedTrialBudget,
-      trial_budget: value.projection.trialBudget,
-      state: value.projection.state,
-      decisions: value.projection.decisions
-        .map((decision) => object(decision) ? {
-          schema_version: 1,
-          decision_identity: decision.decisionIdentity,
-          decision_digest: decision.decisionDigest,
-          trial_family_identity: decision.trialFamilyIdentity,
-          round_ordinal: decision.roundOrdinal,
-          predecessor_decision_identity: decision.predecessorDecisionIdentity,
-          intent_identity: decision.intentIdentity,
-          intent_digest: decision.intentDigest,
-          artifact_identity: decision.artifactIdentity,
-          census_frontier_identity: decision.censusFrontierIdentity,
-          census_frontier_digest: decision.censusFrontierDigest,
-          replay_request_identity: decision.replayRequestIdentity,
-          replay_request_meaning_digest: decision.replayRequestMeaningDigest,
-          replay_result_identity: decision.replayResultIdentity,
-          replay_result_digest: decision.replayResultDigest,
-          diagnostic_categories: decision.diagnosticCategories,
-          disposition: decision.disposition,
-          next_legal_action: decision.nextLegalAction,
-          committed_at_epoch_ms: decision.committedAtEpochMs,
-          receipt_identity: decision.receiptIdentity,
-          receipt_digest: decision.receiptDigest,
-        } : null),
-      observed_at_epoch_ms: value.projection.observedAtEpochMs,
-    };
-  return parseRdIterationTimelineOwnerV1(
-    ownerShape,
+    || !object(value.projection)) return null;
+  return parseBrowserProjection(
+    value.projection,
     value.trial_family_identity,
-    observed - operation.timeout_class.milliseconds,
-    observed,
+    Date.parse(value.transport_observed_at),
+  );
+}
+
+function parseBrowserProjection(
+  projection: Json,
+  trialFamilyIdentity: string,
+  observedAt: number,
+): RdIterationTimelineProjectionV1 | null {
+  const ownerShape = {
+    schema_version: 1,
+    trial_family_identity: projection.trialFamilyIdentity,
+    census_frontier_identity: projection.censusFrontierIdentity,
+    census_frontier_digest: projection.censusFrontierDigest,
+    consumed_trial_budget: projection.consumedTrialBudget,
+    trial_budget: projection.trialBudget,
+    state: projection.state,
+    decisions: Array.isArray(projection.decisions) ? projection.decisions.map((decision) => object(decision) ? ({
+      decision_identity: decision.decisionIdentity,
+      decision_digest: decision.decisionDigest,
+      round_ordinal: decision.roundOrdinal,
+      trial_family_identity: decision.trialFamilyIdentity,
+      census_frontier_identity: decision.censusFrontierIdentity,
+      census_frontier_digest: decision.censusFrontierDigest,
+      request_identity: decision.requestIdentity,
+      result_identity: decision.resultIdentity,
+      attempt_identity: decision.attemptIdentity,
+      outcome: decision.outcome,
+      next_legal_action: decision.nextLegalAction,
+      committed_at_epoch_ms: decision.committedAtEpochMs,
+      receipt_identity: decision.receiptIdentity,
+    }) : null) : null,
+    observed_at_epoch_ms: projection.observedAtEpochMs,
+  };
+  const operation = operationByIdV1(RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION);
+  return parseRdIterationTimelineOwnerV1(
+    ownerShape, trialFamilyIdentity,
+    observedAt - operation.timeout_class.milliseconds, observedAt,
   );
 }
