@@ -46,7 +46,6 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|vibe_strategy_factory|iteration_decision_postgres::postgres_acceptance_tests::successor_artifact_enters_exploratory_replay_with_exact_owner_custody'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody'
   'vibe-strategy-factory|vibe_strategy_factory|iteration_decision_postgres::postgres_acceptance_tests::repair_decision_action_and_market_data_request_commit_retry_resolve_and_rejection_are_atomic'
-  'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
   'vibe-strategy-factory|vibe_strategy_factory|replay_execution_profile_binding_v1::tests::verified_owner_readback_mints_provenance_and_wrong_coordinates_fail'
   'vibe-product-edge|vibe_product_edge|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation'
   'vibe-data|instrument_economic_terms_postgres_v1|atomic_exact_replay_restart_tamper_and_acl_fail_closed'
@@ -57,6 +56,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-qualification|vibe_qualification|postgres::postgres_tests::negative_protected_attempt_closure_is_atomic_retry_exact_and_eligibility_absent'
   'vibe-qualification|vibe_qualification|postgres::postgres_tests::diagnostic_protected_attempt_closure_is_atomic_and_creates_no_assessment_or_eligibility'
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed'
+  'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
   --locked
@@ -105,17 +105,17 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[25]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::successor_artifact_enters_exploratory_replay_with_exact_owner_custody' ]] ||
     [[ "${rd_owner_postgres_tests[26]}" != *'|tests::strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody' ]] ||
     [[ "${rd_owner_postgres_tests[27]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::repair_decision_action_and_market_data_request_commit_retry_resolve_and_rejection_are_atomic' ]] ||
-    [[ "${rd_owner_postgres_tests[28]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]] ||
-    [[ "${rd_owner_postgres_tests[29]}" != *'|replay_execution_profile_binding_v1::tests::verified_owner_readback_mints_provenance_and_wrong_coordinates_fail' ]] ||
-    [[ "${rd_owner_postgres_tests[30]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]] ||
-    [[ "${rd_owner_postgres_tests[31]}" != *'|atomic_exact_replay_restart_tamper_and_acl_fail_closed' ]] ||
-    [[ "${rd_owner_postgres_tests[32]}" != *'|program_host_bar_joined_cut_postgres_acceptance_tests::owner_postgres_v4_moves_through_program_host_and_real_backtest' ]] ||
-    [[ "${rd_owner_postgres_tests[33]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic' ]] ||
-    [[ "${rd_owner_postgres_tests[34]}" != *'|postgres::postgres_tests::protected_replay_request_is_atomic_retry_exact_and_backtest_sealed' ]] ||
-    [[ "${rd_owner_postgres_tests[35]}" != *'|tests::postgres_protected_result_is_atomic_request_bound_and_qualification_sealed' ]] ||
-    [[ "${rd_owner_postgres_tests[36]}" != *'|postgres::postgres_tests::negative_protected_attempt_closure_is_atomic_retry_exact_and_eligibility_absent' ]] ||
-    [[ "${rd_owner_postgres_tests[37]}" != *'|postgres::postgres_tests::diagnostic_protected_attempt_closure_is_atomic_and_creates_no_assessment_or_eligibility' ]] ||
-    [[ "${rd_owner_postgres_tests[38]}" != *'|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed' ]]; then
+    [[ "${rd_owner_postgres_tests[28]}" != *'|replay_execution_profile_binding_v1::tests::verified_owner_readback_mints_provenance_and_wrong_coordinates_fail' ]] ||
+    [[ "${rd_owner_postgres_tests[29]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]] ||
+    [[ "${rd_owner_postgres_tests[30]}" != *'|atomic_exact_replay_restart_tamper_and_acl_fail_closed' ]] ||
+    [[ "${rd_owner_postgres_tests[31]}" != *'|program_host_bar_joined_cut_postgres_acceptance_tests::owner_postgres_v4_moves_through_program_host_and_real_backtest' ]] ||
+    [[ "${rd_owner_postgres_tests[32]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic' ]] ||
+    [[ "${rd_owner_postgres_tests[33]}" != *'|postgres::postgres_tests::protected_replay_request_is_atomic_retry_exact_and_backtest_sealed' ]] ||
+    [[ "${rd_owner_postgres_tests[34]}" != *'|tests::postgres_protected_result_is_atomic_request_bound_and_qualification_sealed' ]] ||
+    [[ "${rd_owner_postgres_tests[35]}" != *'|postgres::postgres_tests::negative_protected_attempt_closure_is_atomic_retry_exact_and_eligibility_absent' ]] ||
+    [[ "${rd_owner_postgres_tests[36]}" != *'|postgres::postgres_tests::diagnostic_protected_attempt_closure_is_atomic_and_creates_no_assessment_or_eligibility' ]] ||
+    [[ "${rd_owner_postgres_tests[37]}" != *'|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed' ]] ||
+    [[ "${rd_owner_postgres_tests[38]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
     return 1
   fi
