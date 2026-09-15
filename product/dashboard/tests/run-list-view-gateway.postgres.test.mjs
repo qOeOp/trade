@@ -155,6 +155,20 @@ test("Runs v2 keeps summary, filters, and pages on one fail-closed PostgreSQL cu
       queued: 0, running: 1, unknown: 0, succeeded: 512, cancelled: 0, completed: 512, failed: 0,
     });
 
+    await pool.query(`UPDATE dashboard_operation_runs_v1
+      SET started_at = '-infinity'::timestamptz
+      WHERE run_identity = (
+        SELECT run_identity
+          FROM dashboard_operation_runs_v1
+         WHERE run_kind = 'owner_read'
+         ORDER BY COALESCE(started_at, created_at), run_identity
+         LIMIT 1
+      )`);
+    await assert.rejects(
+      gateway.read({ kind: "dependencies", pageSize: 25 }),
+      /RUN_LIST_ROW_INVALID/u,
+    );
+
     const appendedRun = await insertRun(pool, {
       kind: "owner_effect", state: "queued", offset: 90,
       operation: "artifact_build.formation_execute.v1",

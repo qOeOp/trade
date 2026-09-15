@@ -48,6 +48,7 @@ type SnapshotV2 = {
 
 type RunListAggregateRow = pg.QueryResultRow & {
   row_count: string;
+  invalid_projection_rows: string;
   transition_sum: string;
   fingerprint_sum_a: string;
   fingerprint_sum_b: string;
@@ -266,6 +267,15 @@ export class PostgresRunListViewGatewayV2 {
 
       const aggregate = (await client.query<RunListAggregateRow>(
         `SELECT COUNT(*)::text AS row_count,
+                COUNT(*) FILTER (WHERE
+                  NOT isfinite(r.created_at)
+                  OR NOT isfinite(r.updated_at)
+                  OR (r.started_at IS NOT NULL AND NOT isfinite(r.started_at))
+                  OR (r.finished_at IS NOT NULL AND NOT isfinite(r.finished_at))
+                  OR (COALESCE(q.principal_ref, admission.principal_ref) IS NOT NULL
+                    AND COALESCE(q.principal_ref, admission.principal_ref)
+                      !~ '^[A-Za-z0-9._:/-]{1,192}$')
+                )::text AS invalid_projection_rows,
                 COALESCE(SUM(r.transition_version), 0)::text AS transition_sum,
                 COALESCE(SUM(hashtextextended(row_fingerprint.value, 0)::numeric), 0)::text
                   AS fingerprint_sum_a,
@@ -299,7 +309,9 @@ export class PostgresRunListViewGatewayV2 {
           WHERE ${where}`,
         values,
       )).rows[0];
-      if (!aggregate) throw new Error("RUN_LIST_ROW_INVALID");
+      if (!aggregate || exactCount(aggregate.invalid_projection_rows) !== 0) {
+        throw new Error("RUN_LIST_ROW_INVALID");
+      }
       const summary = {
         queued: exactCount(aggregate.queued),
         running: exactCount(aggregate.running),
