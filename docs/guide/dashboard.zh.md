@@ -333,14 +333,16 @@ scroll viewport 内；loading、合法 empty、unavailable、partial 保持相�
 用户可读 availability；默认 history 的首列使用 `Research question`。Owner、custody、point-read、candidate 与
 wire-state 术语只保留在信息披露或 contract。
 
-在 `Research history` 中，点击 row 的非链接区域会打开共享右侧 `DetailSheet`，不改变 directory URL，也不卸载
+在 `Research history` 中，激活主要 research-question reference 或点击 row 都会打开同一个共享右侧
+`DetailSheet`，不改变 directory URL，也不卸载
 filter、search、pagination 或 scroll context。Sheet 复用既有 `ResearchQuestionBrief`、`DetailFactGrid`、
 `StatusBadge` 与 `PanelFrameInfo` 原子，且只展示已经存在于已绑定 directory projection 中的 verified hypothesis、
 falsifier、expected observation、`Ready to review / Awaiting result / Result unavailable` availability 与
 recorded time；精确 request identity 以及分别观测的
 question/result cut 只保留在 information disclosure。打开 sheet 不会触发额外 read。只有显式的
-`Open full research details` action 会进入 `/rd/research/{requestIdentity}`，完整 result evidence、receipt、
-strategy state 与既有 formation control 继续留在该 canonical route。关闭后 focus 返回原 row。Sheet 在 desktop
+`Open full research details` action 是从 Research history 进入 `/rd/research/{requestIdentity}` 的唯一入口；
+完整 result evidence、receipt、
+strategy state 与既有 formation control 继续留在该 canonical route。关闭后 focus 返回原 reference 或 row。Sheet 在 desktop
 保持右侧 geometry，低于 768 px 时变为 full-screen。本切片中的 `Current intents` 仍保持普通 exact-directory table。
 
 默认 history view 从只读 R&D Dashboard Owner 获取一个有界的

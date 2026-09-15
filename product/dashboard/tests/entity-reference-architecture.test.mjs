@@ -15,7 +15,10 @@ test("EntityReference keeps opaque identities secondary across R&D tables", asyn
   assert.match(atom, /export function compactEntityIdentity/u);
   assert.match(atom, /identity\.slice\(-8\)/u);
   assert.match(atom, /title=\{exactTitle \?\? identity\}/u);
-  assert.match(atom, /return href\s*\? <Link/u);
+  assert.match(atom, /if \(href\) return <Link/u);
+  assert.match(atom, /onActivate: \(\) => void/u);
+  assert.match(atom, /onActivate\?: never/u);
+  assert.match(atom, /<button[^>]+type="button"[^>]+onClick=\{onActivate\}/u);
   assert.match(research, /import \{ EntityReference \} from "\.\/ui\/entity-reference"/u);
   assert.match(artifacts, /import \{ EntityReference \} from "\.\/ui\/entity-reference"/u);
   assert.doesNotMatch(research, /function displayIdentity/u);
@@ -26,6 +29,7 @@ test("EntityReference owns shared compact geometry without literal colors", asyn
   const css = await readFile(cssUrl, "utf8");
   assert.match(css, /\.reference \{[\s\S]*display: grid;[\s\S]*gap: 4px;/u);
   assert.match(css, /\.reference span \{[\s\S]*font-family: var\(--font-mono\);[\s\S]*font-size: 10px;/u);
-  assert.match(css, /a\.reference:focus-visible/u);
+  assert.match(css, /button\.reference \{[\s\S]*background: transparent;[\s\S]*text-align: left;/u);
+  assert.match(css, /:is\(a, button\)\.reference:focus-visible/u);
   assert.doesNotMatch(css, /#[\da-f]{3,8}\b|\brgb\(|\bhsl\(/iu);
 });

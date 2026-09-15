@@ -37,9 +37,12 @@ test("Research directory uses the shared compact read-only table surface", async
   assert.match(statusAtom, /data-interactive=\{href \? true : undefined\}/u);
   assert.match(statusAtom, /className="compact-status-item-link"/u);
   assert.match(component, /<DataWorkspaceTable<HistoricalResearchCandidateV1>/u);
-  assert.match(component, /onRowClicked=\{\(item\)[\s\S]*setDetailOpen\(true\)/u);
+  assert.match(component, /const openCandidateDetail = useCallback[\s\S]*setSelectedRequestIdentity\(requestIdentity\);[\s\S]*setDetailOpen\(true\)/u);
+  assert.match(component, /onActivate=\{\(\) => openCandidateDetail\(item\.requestIdentity\)\}/u);
+  assert.match(component, /onRowClicked=\{\(item\) => openCandidateDetail\(item\.requestIdentity\)\}/u);
+  assert.doesNotMatch(component, /onActivate=\{\(\) => router\.push/u);
   assert.match(component, /<ResearchRequestPreview/u);
-  assert.match(component, /canonicalHref=\{selectedCandidate/u);
+  assert.match(component, /canonicalHref=\{selectedCandidate\s*&& outcomeAvailability === "available"\s*&& \["outcome_ready", "awaiting_outcome"\]\.includes/u);
   assert.match(component, /label: "Research history"/u);
   assert.match(component, /label: "Current intents"/u);
   assert.match(component, /label: "Results ready"/u);
@@ -59,7 +62,8 @@ test("Research directory uses the shared compact read-only table surface", async
   assert.match(component, /requestGuard\.current\.isCurrent\(requestIdentity\)/u);
   assert.match(component, /RESEARCH_DIRECTORY_PAGE_IDENTITY_CONFLICT/u);
   assert.match(component, /researchAvailabilityTone\(item\.availability\)/u);
-  assert.match(component, /Open result/u);
+  assert.match(component, /Review summary/u);
+  assert.match(component, /View record/u);
   assert.match(component, /No result yet/u);
   assert.match(component, /Status unavailable/u);
   assert.match(component, /detail=\{detail\}/u);

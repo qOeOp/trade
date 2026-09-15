@@ -43,6 +43,7 @@ test("the shared detail sheet owns focus, responsive geometry, and canonical fal
   }
   assert.match(research, /<DataWorkspaceTable<HistoricalResearchCandidateV1>[\s\S]*onRowClicked=/u);
   assert.match(research, /<DetailSheet[\s\S]*canonicalLabel="Open full research details"/u);
+  assert.match(research, /canonicalHref=\{selectedCandidate\s*&& outcomeAvailability === "available"\s*&& \["outcome_ready", "awaiting_outcome"\]\.includes/u);
   assert.match(artifacts, /<DataWorkspaceTable<HistoricalArtifactCandidateV1>[\s\S]*onRowClicked=/u);
   assert.match(artifacts, /<DetailSheet[\s\S]*canonicalLabel="Open full build result"/u);
   assert.match(artifacts, /canonicalHref=\{selectedAttempt && selectedReview\?\.availability === "reviewable"/u);

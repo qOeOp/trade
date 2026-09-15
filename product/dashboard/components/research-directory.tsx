@@ -212,6 +212,11 @@ export function ResearchDirectory({
     if (detailOpen && !selectedCandidate) setDetailOpen(false);
   }, [detailOpen, selectedCandidate]);
 
+  const openCandidateDetail = useCallback((requestIdentity: string) => {
+    setSelectedRequestIdentity(requestIdentity);
+    setDetailOpen(true);
+  }, []);
+
   const columns = useMemo<DataWorkspaceColumn<ResearchDirectoryItemV1>[]>(() => [
     {
       id: "request",
@@ -275,20 +280,18 @@ export function ResearchDirectory({
         const outcome = outcomeByRequest.get(item.requestIdentity);
         const question = questionByRequest.get(item.requestIdentity)?.question;
         const detail = outcome?.status === "outcome_ready"
-          ? "Open result"
+          ? "Review summary"
           : outcome?.status === "awaiting_outcome"
-          ? "Open request"
+          ? "View request"
           : outcome?.status === "unavailable"
-          ? "Status unavailable"
-          : "Check status";
+          ? "View record"
+          : "View summary";
         return <EntityReference
           label={question?.hypothesis ?? "Research question unavailable"}
           labelTitle={question?.hypothesis}
           identity={item.requestIdentity}
           detail={detail}
-          href={outcome?.status === "unavailable"
-            ? undefined
-            : `/rd/research/${encodeURIComponent(item.requestIdentity)}`}
+          onActivate={() => openCandidateDetail(item.requestIdentity)}
         />;
       },
       ignoreRowClick: true,
@@ -335,7 +338,7 @@ export function ResearchDirectory({
         {new Date(item.committedAtEpochMs).toLocaleString()}
       </time>,
     },
-  ], [outcomeAvailability, outcomeByRequest, questionByRequest]);
+  ], [openCandidateDetail, outcomeAvailability, outcomeByRequest, questionByRequest]);
 
   const pending = view === "verified"
     ? availability === "loading" || outcomeInventory.availability === "loading"
@@ -490,10 +493,7 @@ export function ResearchDirectory({
               paginationPerPage={20}
               paginationResetKey={normalizedSearch}
               paginationRowsPerPageOptions={[20, 50]}
-              onRowClicked={(item) => {
-                setSelectedRequestIdentity(item.requestIdentity);
-                setDetailOpen(true);
-              }}
+              onRowClicked={(item) => openCandidateDetail(item.requestIdentity)}
               pointerOnHover
               noDataComponent={<DataWorkspaceEmpty state={custodyCandidates.availability === "loading"
                 || outcomeAvailability === "loading" ? "loading" : "empty"}
@@ -550,6 +550,10 @@ export function ResearchDirectory({
             : "Review the saved question without leaving this list."
           : undefined}
         canonicalHref={selectedCandidate
+          && outcomeAvailability === "available"
+          && ["outcome_ready", "awaiting_outcome"].includes(
+            outcomeByRequest.get(selectedCandidate.requestIdentity)?.status ?? "",
+          )
           ? `/rd/research/${encodeURIComponent(selectedCandidate.requestIdentity)}`
           : undefined}
         canonicalLabel="Open full research details"

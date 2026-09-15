@@ -6,6 +6,16 @@
   text-decoration: none;
 }
 
+button.reference {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
 .reference strong,
 .reference span {
   overflow: hidden;
@@ -24,13 +34,13 @@
   font-size: 10px;
 }
 
-a.reference:hover strong {
+:is(a, button).reference:hover strong {
   text-decoration: underline;
   text-decoration-color: var(--border-strong);
   text-underline-offset: 3px;
 }
 
-a.reference:focus-visible {
+:is(a, button).reference:focus-visible {
   border-radius: 3px;
   outline: 2px solid var(--control-focus-ring);
   outline-offset: 3px;
