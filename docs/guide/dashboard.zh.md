@@ -140,7 +140,7 @@ fail closed，并清除之前的 result。
 三个字段必须同时提供，并且必须匹配 R&D Owner 持有的 `rd_exploratory_replay_rejections_v1` 中同一行。
 query-only Owner port 启动 repeatable-read、read-only transaction，先校验固定 persistent relation shape、
 Owner、主键/唯一 identity constraint 与 SELECT access，再校验 canonical operation/receipt 完整一致性。
-只有 schema V1 `REJECTED_NO_WRITE + INVALID_REPLAY_EVIDENCE`、由 digest 派生的 receipt identity、匹配的
+只有 schema V1 `REJECTED_NO_WRITE` 且 `INVALID_REPLAY_EVIDENCE`、由 digest 派生的 receipt identity、匹配的
 Artifact/build receipt、匹配的 commit time 与原始 `APP | MCP` channel 才可投影。missing、widened、
 current-success、cross-spliced 或 malformed custody 一律 unavailable。
 
