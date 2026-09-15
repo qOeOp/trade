@@ -13,6 +13,7 @@ test("contextual run inspection is one shared GET-only fail-closed component", a
   assert.match(preview, /cache: "no-store"/u);
   assert.match(preview, /parsed\.run_identity !== runIdentity/u);
   assert.match(preview, /parsed\.run\.run_identity !== runIdentity/u);
+  assert.match(preview, /else if \(!response\.ok \|\| !parsed\.run/u);
   assert.match(preview, /requestGeneration\.current/u);
   assert.match(preview, /controller\.abort\(\)/u);
   assert.match(preview, /setState\(\{ status: "loading" \}\)/u);
