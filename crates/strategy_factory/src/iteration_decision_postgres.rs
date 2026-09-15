@@ -4106,6 +4106,13 @@ mod postgres_acceptance_tests {
     #[tokio::test]
     #[ignore = "requires the canonical disposable R&D and Backtest Owner PostgreSQL topology"]
     async fn positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic() {
+        Box::pin(
+            run_positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic(),
+        )
+        .await;
+    }
+
+    async fn run_positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic() {
         let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
             .await
             .expect("canonical disposable topology");
