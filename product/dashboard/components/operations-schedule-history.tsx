@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import {
@@ -44,6 +43,7 @@ import { PageStack } from "./ui/page-stack";
 import { SplitBento } from "./ui/split-bento";
 import { StatusBadge } from "./ui/status-badge";
 import { useMediaQuery } from "./ui/use-media-query";
+import { OperationsRunPreviewContent, OperationsRunPreviewTrigger, restoreRunPreviewTriggerFocus } from "./operations-run-preview";
 
 function displayTime(value: string | null) {
   return value ? new Date(value).toLocaleString() : "Not observed";
@@ -57,7 +57,10 @@ function compactRunLabel(identity: string) {
   return `#${identity.slice(-8)}`;
 }
 
-function ScheduleHistoryDetailContent({ schedule }: { schedule: ScheduleHistoryProjectionV1 }) {
+function ScheduleHistoryDetailContent({ schedule, onOpenRun }: {
+  schedule: ScheduleHistoryProjectionV1;
+  onOpenRun: (runIdentity: string, returnScheduleIdentity: string | null) => void;
+}) {
   return <DetailClusterGrid>
     <DetailCluster label="Registration" meta={cadence(schedule.cadence_seconds)}>
       <DetailClusterFact label="Added"><time dateTime={schedule.registered_at}>{displayTime(schedule.registered_at)}</time></DetailClusterFact>
@@ -66,9 +69,10 @@ function ScheduleHistoryDetailContent({ schedule }: { schedule: ScheduleHistoryP
     <DetailCluster label="Observed run" meta={schedule.last_run_identity ? "Available" : "Not observed"}>
       <DetailClusterFact label="Last observed">{displayTime(schedule.last_observed_at)}</DetailClusterFact>
       <DetailClusterFact label="Run">{schedule.last_run_identity
-        ? <Link className="detail-cluster-link" href={`/operations/runs/${encodeURIComponent(schedule.last_run_identity)}`}>
-          <span>{compactRunLabel(schedule.last_run_identity)}</span><InterfaceIcons.open aria-hidden="true" size={12} />
-        </Link> : <span>Unavailable</span>}</DetailClusterFact>
+        ? <OperationsRunPreviewTrigger className="detail-cluster-link" runIdentity={schedule.last_run_identity}
+          onOpen={(runIdentity) => onOpenRun(runIdentity, schedule.schedule_identity)}>
+          <span>{compactRunLabel(schedule.last_run_identity)}</span>
+        </OperationsRunPreviewTrigger> : <span>Unavailable</span>}</DetailClusterFact>
     </DetailCluster>
   </DetailClusterGrid>;
 }
@@ -88,12 +92,28 @@ export function OperationsScheduleHistory({ viewControl }: { viewControl: ReactN
   const [operation, setOperation] = useState("all");
   const [selectedIdentity, setSelectedIdentity] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [previewRunIdentity, setPreviewRunIdentity] = useState<string | null>(null);
+  const [previewReturnScheduleIdentity, setPreviewReturnScheduleIdentity] = useState<string | null>(null);
   const compactDetail = useMediaQuery("(max-width: 1279px)");
+  const openRunPreview = useCallback((runIdentity: string, returnScheduleIdentity: string | null) => {
+    setPreviewRunIdentity(runIdentity);
+    setPreviewReturnScheduleIdentity(returnScheduleIdentity);
+    setDetailOpen(true);
+  }, []);
+  const returnToSchedule = useCallback(() => {
+    if (!previewRunIdentity || !previewReturnScheduleIdentity) return;
+    const runIdentity = previewRunIdentity;
+    setPreviewRunIdentity(null);
+    setPreviewReturnScheduleIdentity(null);
+    restoreRunPreviewTriggerFocus(runIdentity);
+  }, [previewReturnScheduleIdentity, previewRunIdentity]);
 
   const refresh = useCallback(async () => {
     setPending(true);
     setResult(null);
     setSelectedIdentity(null);
+    setPreviewRunIdentity(null);
+    setPreviewReturnScheduleIdentity(null);
     try {
       const response = await fetch("/api/operations/schedules/history/", { method: "GET", cache: "no-store" });
       const parsed = parseScheduleHistoryEnvelopeV1(await response.json());
@@ -135,10 +155,13 @@ export function OperationsScheduleHistory({ viewControl }: { viewControl: ReactN
       cell: (row) => <span className="table-cell-numeric">{cadence(row.cadence_seconds)}</span>,
     },
     {
-      id: "last-observed", name: <DataTableHeaderLabel>Last observed</DataTableHeaderLabel>,
+      id: "last-observed", name: <DataTableHeaderLabel>Last observed</DataTableHeaderLabel>, ignoreRowClick: true,
       selector: (row) => row.last_observed_at ?? row.registered_at, sortable: true, minWidth: "190px",
       cell: (row) => row.last_run_identity
-        ? <Link href={`/operations/runs/${encodeURIComponent(row.last_run_identity)}`}>{displayTime(row.last_observed_at)}</Link>
+        ? <OperationsRunPreviewTrigger runIdentity={row.last_run_identity}
+          onOpen={(runIdentity) => openRunPreview(runIdentity, null)}>
+          {displayTime(row.last_observed_at)}
+        </OperationsRunPreviewTrigger>
         : <span>Not observed</span>,
     },
     {
@@ -146,7 +169,7 @@ export function OperationsScheduleHistory({ viewControl }: { viewControl: ReactN
       selector: (row) => row.recorded_at, sortable: true, minWidth: "190px",
       cell: (row) => <time dateTime={row.recorded_at}>{displayTime(row.recorded_at)}</time>,
     },
-  ], []);
+  ], [openRunPreview]);
 
   return <PageStack className="operations-schedule-history-page" gap="compact">
     <PanelFrame className="operations-schedule-history-panel bento-page-frame" aria-labelledby="schedule-history-title">
@@ -186,6 +209,8 @@ export function OperationsScheduleHistory({ viewControl }: { viewControl: ReactN
               conditionalRowStyles={dataWorkspaceSelectedRowStyles((row: ScheduleHistoryProjectionV1) => row.schedule_identity === selected?.schedule_identity)}
               onRowClicked={(row) => {
                 setSelectedIdentity(row.schedule_identity);
+                setPreviewRunIdentity(null);
+                setPreviewReturnScheduleIdentity(null);
                 if (compactDetail) setDetailOpen(true);
               }} pointerOnHover pagination paginationPerPage={20}
               paginationResetKey={JSON.stringify([operation, search])} paginationRowsPerPageOptions={[20, 50, 100]}
@@ -196,7 +221,7 @@ export function OperationsScheduleHistory({ viewControl }: { viewControl: ReactN
           {selected && !compactDetail ? <DetailInspector aria-label="Selected historical schedule">
             <DetailInspectorHeader eyebrow="historical registration" title={runOperationLabel(selected.operation_id)}
               status={<StatusBadge tone="neutral">recorded</StatusBadge>} />
-            <DetailInspectorBody><ScheduleHistoryDetailContent schedule={selected} /></DetailInspectorBody>
+            <DetailInspectorBody><ScheduleHistoryDetailContent schedule={selected} onOpenRun={openRunPreview} /></DetailInspectorBody>
             <DetailInspectorFooter><ScheduleHistoryInfo schedule={selected} /></DetailInspectorFooter>
           </DetailInspector> : !compactDetail ? <DetailEmpty icon={<InterfaceIcons.calendar aria-hidden="true" size={18} />}>
             No historical registration matches this view.
@@ -212,13 +237,19 @@ export function OperationsScheduleHistory({ viewControl }: { viewControl: ReactN
       </PanelFrameBody>
     </PanelFrame>
     <DetailSheet
-      open={compactDetail && detailOpen && Boolean(selected)}
-      onClose={() => setDetailOpen(false)}
-      eyebrow="Schedule history preview"
-      title={selected ? runOperationLabel(selected.operation_id) : "Schedule registration"}
-      description="Persisted registration and its latest observed run."
+      open={Boolean(previewRunIdentity) || (compactDetail && detailOpen && Boolean(selected))}
+      onClose={() => { setDetailOpen(false); setPreviewRunIdentity(null); setPreviewReturnScheduleIdentity(null); }}
+      eyebrow={previewRunIdentity ? "Related run" : "Schedule history preview"}
+      title={previewRunIdentity ? "Observed run" : selected ? runOperationLabel(selected.operation_id) : "Schedule registration"}
+      description={previewRunIdentity
+        ? "Read-only status for the run produced by this schedule."
+        : "Persisted registration and its latest observed run."}
     >
-      {selected ? <><ScheduleHistoryDetailContent schedule={selected} /><ScheduleHistoryInfo schedule={selected} /></> : null}
+      {previewRunIdentity
+        ? <OperationsRunPreviewContent runIdentity={previewRunIdentity}
+          onBack={compactDetail && selected?.schedule_identity === previewReturnScheduleIdentity
+            ? returnToSchedule : undefined} />
+        : selected ? <><ScheduleHistoryDetailContent schedule={selected} onOpenRun={openRunPreview} /><ScheduleHistoryInfo schedule={selected} /></> : null}
     </DetailSheet>
   </PageStack>;
 }

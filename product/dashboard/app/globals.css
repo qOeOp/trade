@@ -928,6 +928,8 @@ button.rd-research-item { cursor: pointer; }
 .detail-fact-grid span, .detail-fact-grid time, .detail-fact-grid b { display: block; }
 .detail-fact-grid span { color: var(--text-muted); font-size: 10px; line-height: 1.35; }
 .detail-fact-grid time, .detail-fact-grid b { margin-top: 0; overflow: hidden; color: var(--text-primary); font: 600 11px/1.35 ui-monospace, monospace; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.operations-run-preview-content { display: grid; gap: 12px; }
+.operations-run-preview-content > [data-slot="button"] { justify-self: start; }
 .detail-section { padding: var(--panel-content-padding); }
 .detail-section > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .detail-section > header b { color: var(--text-primary); font-size: 9px; }

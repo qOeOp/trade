@@ -99,10 +99,20 @@ body, subtle separators and restrained orange selection/focus. Icons use Lucide.
 140-180ms and respect reduced motion. Keyboard users can navigate controls, open/close overflow,
 select entries and follow observed-run links without pointer gestures.
 
+The History table and selected-registration detail reuse one read-only related-run preview instead of changing
+the Schedules URL. It re-reads the exact `RunDetailEnvelopeV1`, shows only run state, activity, trigger, started
+time, duration and source result, and offers one explicit `Open full run details` canonical escalation. It never
+embeds logs or run actions. A trigger inside the compact registration sheet replaces that sheet body and provides
+`Back to schedule`; the interaction never stacks a second overlay. A table-origin preview has no synthetic Back
+target: Close returns focus to that exact table trigger. Returning preserves filters, pagination, scroll and the
+selected registration.
+
 Loading occupies six 48px skeleton rows in the primary body; empty/search-empty shows one 160px
 message without fabricated events. Unavailable, incompatible, malformed and denied responses use
-that same bounded message region, a concise reason and Refresh; no stale positive detail survives.
-Dynamic acceptance requires disposable PostgreSQL bound reads reaching the browser, mismatch/HTTP
+that same bounded message region, a concise reason and Refresh; no stale positive detail survives. History related-run
+reads are on demand and clear prior positive data before every identity change. Non-success positive responses,
+malformed envelopes and request/envelope/run identity mismatch fail closed; an aborted or late read cannot refill
+a closed or newer preview. Dynamic acceptance requires disposable PostgreSQL bound reads reaching the browser, mismatch/HTTP
 failure rejection, distinction between predicted and observed entries, all five views, overflow,
 keyboard operation, both themes and narrow/desktop layouts. Fixtures alone are not dynamic acceptance.
 

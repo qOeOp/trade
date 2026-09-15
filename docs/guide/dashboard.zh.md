@@ -81,9 +81,16 @@ table 占满 inset；低于 768px，同一个 sheet 转为全屏。关闭后焦�
 分割线及克制橙色选中/焦点。图标使用 Lucide。动画 140-180ms 并遵循 reduced motion；键盘可操作
 控件、开关溢出、选中条目及访问已观测运行链接，不依赖指针手势。
 
+History table 与选中登记详情复用同一个只读关联 Run 速览，不改变 Schedules URL。速览重新读取精确
+`RunDetailEnvelopeV1`，只展示运行状态、活动、触发来源、开始时间、时长与 source result，并提供唯一显式的
+`Open full run details` canonical 升级入口；不得嵌入日志或 Run action。在窄屏登记 sheet 内激活关联 Run
+时替换同一个 sheet body 并提供 `Back to schedule`，不得叠第二层 overlay。从 table 直接打开时不得伪造
+Back 目标；Close 必须把焦点返回到该 table trigger。返回后保留筛选、分页、滚动与选中登记。
+
 加载时主 body 展示六行 48px skeleton；空数据/搜索无结果使用单个 160px 提示区，不伪造事件。
 不可用、兼容失败、格式错误及拒绝访问使用同样有界提示区、简短原因与 Refresh，不保留旧正向详情。
-动态验收必须覆盖 disposable PostgreSQL 绑定读取到浏览器、失配/HTTP 失败拒绝、预计与观测区分、
+History 关联 Run 只按需读取，每次 identity 变化前先清除旧正向数据；非成功响应携带正向数据、非法 envelope、
+request/envelope/run identity 失配都 fail closed，中止或迟到读取不得回填已关闭或更新的速览。动态验收必须覆盖 disposable PostgreSQL 绑定读取到浏览器、失配/HTTP 失败拒绝、预计与观测区分、
 五视图、溢出、键盘、双主题与窄/宽屏布局；fixture 不能替代动态验收。
 
 ## 有界准入：Backtest 收益带展示原子
