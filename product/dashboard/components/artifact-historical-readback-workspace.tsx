@@ -6,6 +6,7 @@ import {
   parseArtifactHistoricalBrowserProjectionV1,
   type ArtifactHistoricalReadbackProjectionV1,
 } from "../lib/artifact-readback-gateway";
+import { projectArtifactJourneyV1 } from "../lib/artifact-journey";
 import { UnavailableState } from "./ui/evidence-strip";
 import { FactGroup, FactGroupGrid, FactGroupSkeletonGrid, FactItem } from "./ui/fact-group";
 import { FilterButton, FilterLink } from "./ui/filter-toolbar";
@@ -19,6 +20,7 @@ import {
   PanelFrameInfoList,
 } from "./ui/panel-frame";
 import { StatusBadge } from "./ui/status-badge";
+import { JourneyProgress } from "./ui/journey-progress";
 import styles from "./research-readback-workspace.module.css";
 
 function displayTime(value: string): string {
@@ -69,6 +71,7 @@ export function ArtifactHistoricalReadbackWorkspace({
   useEffect(() => { void read(); }, [read]);
 
   const outcome = projection?.outcome;
+  const journey = projection ? projectArtifactJourneyV1(projection) : null;
   return (
     <PanelFrame className={styles.panel} aria-labelledby="artifact-readback-title">
       <PanelFrameHeader
@@ -96,24 +99,32 @@ export function ArtifactHistoricalReadbackWorkspace({
           {status === "loading" ? (
             <FactGroupSkeletonGrid aria-label="Loading Artifact readback" titles={["Outcome", "Custody", "Timing"]} />
           ) : status === "available" && projection && outcome ? (
-            <FactGroupGrid>
-              <FactGroup title="Outcome">
-                <FactItem label="Record"><StatusBadge tone="warning">Historical</StatusBadge></FactItem>
-                <FactItem label="Result">
-                  <StatusBadge tone={outcome.historicalDisposition === "unknown" ? "warning" : "danger"}>
-                    {dispositionLabel(outcome.historicalDisposition)}
-                  </StatusBadge>
-                </FactItem>
-              </FactGroup>
-              <FactGroup title="Custody">
-                <FactItem label="Verification"><StatusBadge tone="warning">Quarantined</StatusBadge></FactItem>
-                <FactItem label="Reason" mono title={outcome.failureCode}>{outcome.failureCode}</FactItem>
-              </FactGroup>
-              <FactGroup title="Timing">
-                <FactItem label="Committed">{displayTime(outcome.committedAt)}</FactItem>
-                <FactItem label="Observed">{displayTime(projection.observedAt!)}</FactItem>
-              </FactGroup>
-            </FactGroupGrid>
+            <>
+              {journey ? <JourneyProgress
+                eyebrow="Build journey"
+                summary={journey.summary}
+                stages={journey.stages}
+                aria-label="Artifact build journey"
+              /> : null}
+              <FactGroupGrid>
+                <FactGroup title="Outcome">
+                  <FactItem label="Record"><StatusBadge tone="warning">Historical</StatusBadge></FactItem>
+                  <FactItem label="Result">
+                    <StatusBadge tone={outcome.historicalDisposition === "unknown" ? "warning" : "danger"}>
+                      {dispositionLabel(outcome.historicalDisposition)}
+                    </StatusBadge>
+                  </FactItem>
+                </FactGroup>
+                <FactGroup title="Custody">
+                  <FactItem label="Verification"><StatusBadge tone="warning">Quarantined</StatusBadge></FactItem>
+                  <FactItem label="Reason" mono title={outcome.failureCode}>{outcome.failureCode}</FactItem>
+                </FactGroup>
+                <FactGroup title="Timing">
+                  <FactItem label="Committed">{displayTime(outcome.committedAt)}</FactItem>
+                  <FactItem label="Observed">{displayTime(projection.observedAt!)}</FactItem>
+                </FactGroup>
+              </FactGroupGrid>
+            </>
           ) : (
             <UnavailableState
               icon={<EvidenceIcons.warning aria-hidden="true" size={20} />}

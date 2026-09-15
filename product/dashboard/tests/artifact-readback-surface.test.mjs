@@ -12,7 +12,7 @@ test("historical Artifact detail composes the shared panel and fact atoms", asyn
   const workspace = await source("components/artifact-historical-readback-workspace.tsx");
   for (const atom of [
     "PanelFrame", "PanelFrameHeader", "PanelFrameBody", "FactGroupGrid", "FactGroup",
-    "FactGroupSkeletonGrid", "FactItem", "StatusBadge", "FilterButton", "FilterLink",
+    "FactGroupSkeletonGrid", "FactItem", "StatusBadge", "FilterButton", "FilterLink", "JourneyProgress",
   ]) {
     assert.match(workspace, new RegExp(`\\b${atom}\\b`, "u"));
   }
@@ -20,6 +20,8 @@ test("historical Artifact detail composes the shared panel and fact atoms", asyn
   assert.match(workspace, /<FactGroup title="Outcome">/u);
   assert.match(workspace, /<FactGroup title="Custody">/u);
   assert.match(workspace, /<FactGroup title="Timing">/u);
+  assert.match(workspace, /projectArtifactJourneyV1/u);
+  assert.match(workspace, /aria-label="Artifact build journey"/u);
   assert.doesNotMatch(workspace, /IMPLEMENTATION_ADMITTED|OWNER_POINT_READ_ONLY/u);
 });
 
