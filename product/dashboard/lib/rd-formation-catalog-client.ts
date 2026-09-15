@@ -7,6 +7,20 @@ import { validOperationalRunReferenceV1 } from "./operational-run-reference.ts";
 
 const MAX_OWNER_RESPONSE_BYTES = 1_048_576;
 const IDENTITY = /^[A-Za-z0-9._:/-]{1,256}$/;
+const ATTEMPT_RESOLUTIONS = [
+  "SUCCESS", "FAILED_NO_ARTIFACT", "REJECTED_NO_WRITE", "OUTCOME_UNKNOWN",
+  "SUBMITTED_OR_UNKNOWN",
+] as const;
+const ATTEMPT_DISPOSITIONS = [
+  "SUCCESS", "FAILED_NO_ARTIFACT", "REJECTED_NO_WRITE", "OUTCOME_UNKNOWN",
+] as const;
+const RESEARCH_VIEW_AVAILABILITIES = ["AVAILABLE", "STALE", "UNAVAILABLE"] as const;
+const RESEARCH_NEXT_LEGAL_ACTIONS = [
+  "RESOLVE_SAME_REQUEST_IDENTITY",
+  "WAIT_FOR_R_AND_D_EXECUTION",
+  "CORRECT_INPUT_AND_CREATE_SUCCESSOR_REQUEST",
+  "REVIEW_ARTIFACT",
+] as const;
 
 type Json = Record<string, unknown>;
 type Fetcher = typeof fetch;
@@ -15,13 +29,18 @@ type ObservationWindowV1 = {
   responseObservedAtEpochMs: number;
 };
 
+export type RdFormationCatalogAttemptResolutionV1 = typeof ATTEMPT_RESOLUTIONS[number];
+export type RdFormationCatalogAttemptDispositionV1 = typeof ATTEMPT_DISPOSITIONS[number];
+export type RdFormationCatalogResearchViewAvailabilityV1 = typeof RESEARCH_VIEW_AVAILABILITIES[number];
+export type RdFormationCatalogResearchNextLegalActionV1 = typeof RESEARCH_NEXT_LEGAL_ACTIONS[number];
+
 export type RdFormationCatalogAttemptV1 = {
   buildRequestIdentity: string;
   attemptIdentity: string;
   preparedAtEpochMs: number;
-  resolution: string;
+  resolution: RdFormationCatalogAttemptResolutionV1;
   receiptIdentity: string | null;
-  disposition: string | null;
+  disposition: RdFormationCatalogAttemptDispositionV1 | null;
   artifactIdentity: string | null;
   reviewIdentity: string | null;
   familyBindingIdentity: string | null;
@@ -34,8 +53,8 @@ export type RdFormationCatalogFamilyV1 = {
     receiptIdentity: string;
     intentIdentity: string;
     committedAtEpochMs: number;
-    viewAvailability: "AVAILABLE" | "STALE" | "UNAVAILABLE";
-    nextLegalAction: string;
+    viewAvailability: RdFormationCatalogResearchViewAvailabilityV1;
+    nextLegalAction: RdFormationCatalogResearchNextLegalActionV1;
     trialBudget: number;
     consumedTrialBudget: number;
   };
@@ -91,6 +110,30 @@ function optionalIdentity(value: unknown): value is string | null {
   return value === null || identity(value);
 }
 
+function memberOf<const T extends readonly string[]>(values: T, value: unknown): value is T[number] {
+  return typeof value === "string" && (values as readonly string[]).includes(value);
+}
+
+function attemptResolution(value: unknown): value is RdFormationCatalogAttemptResolutionV1 {
+  return memberOf(ATTEMPT_RESOLUTIONS, value);
+}
+
+function attemptDisposition(value: unknown): value is RdFormationCatalogAttemptDispositionV1 | null {
+  return value === null || memberOf(ATTEMPT_DISPOSITIONS, value);
+}
+
+function researchViewAvailability(
+  value: unknown,
+): value is RdFormationCatalogResearchViewAvailabilityV1 {
+  return memberOf(RESEARCH_VIEW_AVAILABILITIES, value);
+}
+
+function researchNextLegalAction(
+  value: unknown,
+): value is RdFormationCatalogResearchNextLegalActionV1 {
+  return memberOf(RESEARCH_NEXT_LEGAL_ACTIONS, value);
+}
+
 function parseAttempt(value: unknown): RdFormationCatalogAttemptV1 | null {
   if (!object(value) || !exactKeys(value, [
     "build_request_identity", "attempt_identity", "prepared_at_epoch_ms", "resolution",
@@ -99,11 +142,9 @@ function parseAttempt(value: unknown): RdFormationCatalogAttemptV1 | null {
   ])) return null;
   if (!identity(value.build_request_identity) || !identity(value.attempt_identity)
     || !epoch(value.prepared_at_epoch_ms)
-    || typeof value.resolution !== "string"
-    || !["SUCCESS", "FAILED_NO_ARTIFACT", "REJECTED_NO_WRITE", "OUTCOME_UNKNOWN", "SUBMITTED_OR_UNKNOWN"].includes(value.resolution)
+    || !attemptResolution(value.resolution)
     || !optionalIdentity(value.receipt_identity)
-    || !(value.disposition === null || (typeof value.disposition === "string"
-      && ["SUCCESS", "FAILED_NO_ARTIFACT", "REJECTED_NO_WRITE", "OUTCOME_UNKNOWN"].includes(value.disposition)))
+    || !attemptDisposition(value.disposition)
     || !optionalIdentity(value.artifact_identity)
     || !optionalIdentity(value.review_identity)
     || !optionalIdentity(value.family_binding_identity)) return null;
@@ -145,15 +186,8 @@ function parseFamily(value: unknown): RdFormationCatalogFamilyV1 | null {
   const research = value.research;
   if (!identity(research.request_identity) || !identity(research.receipt_identity)
     || !identity(research.intent_identity) || !epoch(research.committed_at_epoch_ms)
-    || typeof research.view_availability !== "string"
-    || !["AVAILABLE", "STALE", "UNAVAILABLE"].includes(research.view_availability)
-    || typeof research.next_legal_action !== "string"
-    || ![
-      "RESOLVE_SAME_REQUEST_IDENTITY",
-      "WAIT_FOR_R_AND_D_EXECUTION",
-      "CORRECT_INPUT_AND_CREATE_SUCCESSOR_REQUEST",
-      "REVIEW_ARTIFACT",
-    ].includes(research.next_legal_action)
+    || !researchViewAvailability(research.view_availability)
+    || !researchNextLegalAction(research.next_legal_action)
     || !epoch(research.trial_budget) || !epoch(research.consumed_trial_budget)
     || Number(research.consumed_trial_budget) > Number(research.trial_budget)) return null;
   const attemptHistory = value.attempt_history.map(parseAttempt);
@@ -173,7 +207,7 @@ function parseFamily(value: unknown): RdFormationCatalogFamilyV1 | null {
       receiptIdentity: research.receipt_identity,
       intentIdentity: research.intent_identity,
       committedAtEpochMs: research.committed_at_epoch_ms,
-      viewAvailability: research.view_availability as "AVAILABLE" | "STALE" | "UNAVAILABLE",
+      viewAvailability: research.view_availability,
       nextLegalAction: research.next_legal_action,
       trialBudget: research.trial_budget,
       consumedTrialBudget: research.consumed_trial_budget,
