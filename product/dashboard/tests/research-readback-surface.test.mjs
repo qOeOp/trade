@@ -3,8 +3,9 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("Research detail reuses shared atoms and exposes the admitted Artifact control", async () => {
-  const [component, control, gate, route, page, shell, navigation, css] = await Promise.all([
+  const [component, questionBrief, control, gate, route, page, shell, navigation, css] = await Promise.all([
     readFile(new URL("../components/research-readback-workspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/research-question-brief.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/artifact-formation-control.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/ui/action-admission-gate.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/rd/research/[requestIdentity]/route.ts", import.meta.url), "utf8"),
@@ -22,6 +23,14 @@ test("Research detail reuses shared atoms and exposes the admitted Artifact cont
   assert.match(component, /const decision = quarantined \? outcome\.historicalDisposition : outcome\.resolution/u);
   assert.match(component, /decision === "accepted" \? "success"/u);
   assert.match(component, /projectResearchJourneyV1\(projection\)/u);
+  assert.match(component, /researchQuestionForReadbackV1\(questions\.projection, projection\)/u);
+  assert.match(component, /useResearchQuestionDirectory\(true\)/u);
+  assert.match(component, /Promise\.all\(\[read\(\), questions\.read\(\)\]\)/u);
+  assert.match(component, /<ResearchQuestionBrief item=\{question\}/u);
+  assert.match(questionBrief, /SummaryList/u);
+  for (const label of ["Research question", "Falsifier", "Expected observation"]) {
+    assert.match(questionBrief, new RegExp(label, "u"));
+  }
   assert.match(component, /PanelFrameInfo/u);
   assert.doesNotMatch(component, /projection\?\.technical\s*\?\s*<PanelFrameInfo/u);
   assert.match(component, /variant="ghost" href="\/rd\/research"/u);
@@ -57,6 +66,7 @@ test("bilingual Research detail contract closes geometry and the Authorization B
       "GET", "research_goal.shadow_resolve.v1", "ActionAdmissionGate", "PREFLIGHTING", "ADMITTING",
       "Resolve", "Windmill", "Owner", "write", "trading",
       "Needs current review", "Raw outcome", "Raw reason",
+      "hypothesis", "falsification_question", "expected_observation", "semantic_digest", "committed_at_epoch_ms",
     ]) assert.ok(specification.includes(token), `${suffix || "en"} missing ${token}`);
   }
 });

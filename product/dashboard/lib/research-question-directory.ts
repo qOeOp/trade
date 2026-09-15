@@ -1,5 +1,6 @@
 import { dashboardReadApiTargetV1 } from "./owner-api-target.ts";
 import type { HistoricalCustodyProjectionV1 } from "./rd-historical-custody-client.ts";
+import type { ResearchReadbackProjectionV1 } from "./research-readback-gateway.ts";
 
 const MAX_RESPONSE_BYTES = 512 * 1024;
 const IDENTITY = /^[A-Za-z0-9._:/-]{16,128}$/u;
@@ -92,6 +93,22 @@ export function researchQuestionsMatchCustodyV1(
     || questions.total !== custody.researchTotal || questions.items.length !== custody.research.length) return false;
   const questionTimes = new Map(questions.items.map((item) => [item.requestIdentity, item.committedAtEpochMs]));
   return custody.research.every((item) => questionTimes.get(item.requestIdentity) === item.committedAtEpochMs);
+}
+
+export function researchQuestionForReadbackV1(
+  questions: ResearchQuestionDirectoryV1 | null,
+  readback: ResearchReadbackProjectionV1 | null,
+): ResearchQuestionItemV1 | null {
+  if (!questions || !readback || readback.availability !== "available"
+    || !readback.outcome || !readback.technical) return null;
+  const committedAtEpochMs = Date.parse(readback.outcome.committedAt);
+  if (!Number.isSafeInteger(committedAtEpochMs)) return null;
+  const item = questions.items.find((candidate) => candidate.requestIdentity === readback.requestIdentity);
+  return item?.availability === "available" && item.question
+    && item.semanticDigest === readback.technical.semanticDigest
+    && item.committedAtEpochMs === committedAtEpochMs
+    ? item
+    : null;
 }
 
 export async function readResearchQuestionDirectoryV1({ fetcher = fetch }: { fetcher?: Fetcher } = {}) {

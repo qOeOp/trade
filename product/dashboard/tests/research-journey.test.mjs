@@ -24,6 +24,7 @@ const accepted = {
   },
   technical: {
     ownerReceiptIdentity: "receipt-example",
+    semanticDigest: `sha256:${"a".repeat(64)}`,
     projectionIdentity: "projection-example",
     sourceCut: "source-cut-example",
     trialFamilyIdentity: "trial-family-example",

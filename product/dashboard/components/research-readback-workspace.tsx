@@ -7,6 +7,7 @@ import {
   type ResearchReadbackProjectionV1,
 } from "../lib/research-readback-gateway";
 import { projectResearchJourneyV1 } from "../lib/research-journey";
+import { researchQuestionForReadbackV1, type ResearchQuestionItemV1 } from "../lib/research-question-directory";
 import { humanizeReasonCode } from "../lib/reason-presentation";
 import { EmptyState, UnavailableState } from "./ui/evidence-strip";
 import { FactGroup, FactGroupGrid, FactGroupSkeletonGrid, FactItem } from "./ui/fact-group";
@@ -24,6 +25,8 @@ import {
 import { StatusBadge } from "./ui/status-badge";
 import { compactEntityIdentity } from "./ui/entity-reference";
 import { ArtifactFormationControl } from "./artifact-formation-control";
+import { ResearchQuestionBrief } from "./research-question-brief";
+import { useResearchQuestionDirectory } from "./use-research-question-directory";
 import styles from "./research-readback-workspace.module.css";
 
 function displayTime(value: string): string {
@@ -40,12 +43,19 @@ function nextStepLabel(value: NonNullable<ResearchReadbackProjectionV1["view"]>[
   return "Awaiting R&D";
 }
 
-function AvailableReadback({ projection }: { projection: ResearchReadbackProjectionV1 }) {
+function AvailableReadback({
+  projection,
+  question,
+}: {
+  projection: ResearchReadbackProjectionV1;
+  question: ResearchQuestionItemV1 | null;
+}) {
   const outcome = projection.outcome;
   if (!outcome) {
     const journey = projectResearchJourneyV1(projection);
     return (
       <>
+        {question ? <ResearchQuestionBrief item={question} /> : null}
         <JourneyProgress eyebrow="Research journey" summary={journey.summary} stages={journey.stages} />
         <EmptyState icon={<EvidenceIcons.pending aria-hidden="true" size={20} />} title="No research result yet" density="compact">
           {null}
@@ -59,6 +69,7 @@ function AvailableReadback({ projection }: { projection: ResearchReadbackProject
   const journey = projectResearchJourneyV1(projection);
   return (
     <>
+      {question ? <ResearchQuestionBrief item={question} /> : null}
       <JourneyProgress eyebrow="Research journey" summary={journey.summary} stages={journey.stages} />
       <FactGroupGrid>
         <FactGroup title="Result">
@@ -106,6 +117,8 @@ export function ResearchReadbackWorkspace({ requestIdentity }: { requestIdentity
   const [status, setStatus] = useState<"loading" | "available" | "unavailable">("loading");
   const [projection, setProjection] = useState<ResearchReadbackProjectionV1 | null>(null);
   const requestSequence = useRef(0);
+  const questions = useResearchQuestionDirectory(true);
+  const question = researchQuestionForReadbackV1(questions.projection, projection);
 
   const read = useCallback(async () => {
     const sequence = ++requestSequence.current;
@@ -145,13 +158,14 @@ export function ResearchReadbackWorkspace({ requestIdentity }: { requestIdentity
           <FilterLink density="compact" variant="ghost" href="/rd/research">
             <InterfaceIcons.previous aria-hidden="true" size={14} /> Back to requests
           </FilterLink>
-          <FilterButton density="compact" variant="secondary" type="button" onClick={() => void read()} disabled={status === "loading"}>
+          <FilterButton density="compact" variant="secondary" type="button" onClick={() => void Promise.all([read(), questions.read()])} disabled={status === "loading"}>
             <InterfaceIcons.refresh aria-hidden="true" size={14} /> {status === "loading" ? "Reading…" : "Refresh"}
           </FilterButton>
           <PanelFrameInfo label="View Research custody details">
             <PanelFrameInfoList>
               <PanelFrameInfoFact label="Request"><code>{requestIdentity}</code></PanelFrameInfoFact>
               <PanelFrameInfoFact label="Owner receipt"><code>{projection?.technical?.ownerReceiptIdentity ?? "Not available"}</code></PanelFrameInfoFact>
+              <PanelFrameInfoFact label="Semantic digest"><code>{projection?.technical?.semanticDigest ?? "Not available"}</code></PanelFrameInfoFact>
               <PanelFrameInfoFact label="Projection"><code>{projection?.technical?.projectionIdentity ?? "Not available"}</code></PanelFrameInfoFact>
               <PanelFrameInfoFact label="Source cut"><code>{projection?.technical?.sourceCut ?? "Not available"}</code></PanelFrameInfoFact>
               <PanelFrameInfoFact label="Trial family"><code>{projection?.technical?.trialFamilyIdentity ?? "Not available"}</code></PanelFrameInfoFact>
@@ -167,7 +181,7 @@ export function ResearchReadbackWorkspace({ requestIdentity }: { requestIdentity
             <FactGroupSkeletonGrid aria-label="Loading Research readback" titles={["Result", "Strategy", "Timing"]} />
           ) : status === "available" && projection ? (
             <>
-              <AvailableReadback projection={projection} />
+              <AvailableReadback projection={projection} question={question} />
               {projection.outcome?.resolution === "accepted"
                 && projection.view?.availability === "available"
                 && projection.view.phase === "intent_frozen"

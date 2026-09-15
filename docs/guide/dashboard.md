@@ -398,6 +398,12 @@ can happen next. Its journey and `Result / Strategy / Timing` groups use busines
 the task itself. `Raw outcome` and `Raw reason`, together with exact identities and receipts, remain available only
 inside the technical information disclosure.
 
+Before that journey, the page may render the verified research question through the shared `SummaryList` atom. It
+shows exactly `hypothesis`, `falsification_question`, and `expected_observation` only when the question-directory
+item matches the readback's request identity, Owner-receipt `semantic_digest`, and `committed_at_epoch_ms`. Any
+mismatch, unavailable question, or missing receipt field withdraws the whole question brief rather than showing
+stale meaning. `Refresh` re-reads both projections; neither read authorizes a write.
+
 When the historical-custody Owner projection is available, the route places one shared compact Bento status card
 before the directory. It organizes the user's R&D workspace into three thin-shoulder groups: `research`, `build`,
 and `families`. When the Research outcome inventory is complete and identity-bound to that same separately rendered

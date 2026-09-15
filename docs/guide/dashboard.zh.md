@@ -344,6 +344,11 @@ Journey 与 `Result / Strategy / Timing` 分组使用 `Needs current review`、`
 等业务文案，不把 quarantine 或 same-identity 术语当作任务本身。`Raw outcome`、`Raw reason` 以及精确 identity、
 receipt 只保留在技术信息披露中。
 
+Journey 之前可以通过共享 `SummaryList` 原子展示已验证的 research question。只有 question-directory item 与
+readback 的 request identity、Owner receipt `semantic_digest` 和 `committed_at_epoch_ms` 全部精确一致时，才展示
+`hypothesis`、`falsification_question` 与 `expected_observation`。任何 mismatch、question unavailable 或 receipt
+字段缺失都会撤回整段问题摘要，不显示可能过期的语义。`Refresh` 同时重读两个 projection；两次读取都不授权写入。
+
 Historical-custody Owner projection available 时，route 在 directory 前放置一张共享 compact Bento status card，
 把用户的 R&D workspace 组织成三个细肩分组：`research`、`build`、`families`。当 Research outcome inventory
 完整且 identity set 与页面独立渲染的同一 custody set 精确绑定时，`research` 分开显示 `results ready` 与
