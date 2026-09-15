@@ -1394,7 +1394,7 @@ impl PostgresResearchGoalOwnerV1 {
               locked_basis record;
               locked_outbox record;
             BEGIN
-              IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
+              IF pg_catalog.current_setting('transaction_isolation') NOT IN ('read committed','serializable') THEN RETURN NULL; END IF;
               SELECT basis_identity, request_identity, principal, request_scope_json, lineage_digest,
                      basis_digest, basis_json, receipt_json, committed_at_epoch_ms
                 INTO locked_basis
@@ -1412,6 +1412,7 @@ impl PostgresResearchGoalOwnerV1 {
                WHERE aggregate_identity = requested_basis_identity
                  AND event_kind = 'INDEPENDENCE_BASIS_PRECOMMITTED_V1'
                FOR SHARE;
+              IF NOT FOUND THEN RETURN NULL; END IF;
               RETURN pg_catalog.jsonb_build_object(
                 'schema_version', 1,
                 'basis', pg_catalog.jsonb_build_object(
@@ -3789,6 +3790,39 @@ mod tests {
                     .find("rd_owner_api.derive_source_intake_identity_v1(")
                     .expect("dependent research SQL")
         );
+    }
+
+    #[rstest]
+    fn independence_basis_lock_definitions_admit_exact_isolations_and_remain_in_parity() {
+        const SIGNATURE: &str =
+            "CREATE OR REPLACE FUNCTION rd_owner_api.lock_independence_basis_for_qualification_v1(";
+        const BODY_START: &str = "AS $function$";
+        const BODY_END: &str = "$function$";
+        const ISOLATION_GUARD: &str = "pg_catalog.current_setting('transaction_isolation') NOT IN ('read committed','serializable')";
+
+        fn body(source: &str) -> String {
+            source
+                .split_once(SIGNATURE)
+                .expect("R&D Independence Basis function")
+                .1
+                .split_once(BODY_START)
+                .expect("R&D Independence Basis function body")
+                .1
+                .split_once(BODY_END)
+                .expect("R&D Independence Basis function body end")
+                .0
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+        }
+
+        let runtime = body(include_str!("product_edge_postgres.rs"));
+        let cutover = body(include_str!(
+            "../../../product/rd-workbench/postgres-init/10-migrate-authority-custody.sh"
+        ));
+        assert_eq!(runtime, cutover);
+        assert_eq!(runtime.matches("transaction_isolation").count(), 1);
+        assert_eq!(runtime.matches(ISOLATION_GUARD).count(), 1);
     }
 
     #[async_trait]

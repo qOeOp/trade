@@ -3301,7 +3301,7 @@ DECLARE
   locked_basis record;
   locked_outbox record;
 BEGIN
-  IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
+  IF pg_catalog.current_setting('transaction_isolation') NOT IN ('read committed','serializable') THEN RETURN NULL; END IF;
   SELECT basis_identity, request_identity, principal, request_scope_json, lineage_digest,
          basis_digest, basis_json, receipt_json, committed_at_epoch_ms
     INTO locked_basis
