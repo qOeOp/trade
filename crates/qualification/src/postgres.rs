@@ -684,6 +684,145 @@ impl LockedProtectedAttemptResultV1 {
     }
 }
 
+async fn persist_protected_attempt_public_terminal_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    request: &ProtectedReplayRequestDtoV1,
+    request_locator: &ProtectedReplayRequestLocatorV1,
+    treatment: &PreregisteredHoldoutTreatmentV1,
+    commit: &ProtectedAttemptDispositionCommitV1,
+) -> Result<(), QualificationOwnerError> {
+    let current = verify_public_status_history_in_transaction(
+        transaction,
+        &request.review_request_identity,
+        &request.candidate_identity,
+    )
+    .await?;
+
+    if let Some(current) = current {
+        if current.fact.status() == QualificationPublicStatusV1::ClosedNotQualified {
+            let source_is_exact_retry = current.native_source_identity
+                == commit.disposition_identity()
+                && current.native_source_digest == commit.disposition().disposition_digest()
+                && current.committed_at_epoch_ms == commit.disposition().committed_at_epoch_ms();
+
+            if !source_is_exact_retry {
+                verify_existing_attempt_public_terminal_source_v1(
+                    transaction,
+                    request,
+                    request_locator,
+                    treatment,
+                    &current,
+                )
+                .await?;
+            }
+            return Ok(());
+        }
+
+        if current.fact.status() == QualificationPublicStatusV1::Qualified {
+            return Err(QualificationOwnerError::ConflictingIdentity);
+        }
+    }
+
+    persist_public_status_transition_v1(
+        transaction,
+        &request.review_request_identity,
+        &request.candidate_identity,
+        QualificationPublicStatusV1::ClosedNotQualified,
+        PublicStatusSourceV1 {
+            identity: commit.disposition_identity(),
+            digest: commit.disposition().disposition_digest(),
+            committed_at_epoch_ms: commit.disposition().committed_at_epoch_ms(),
+        },
+        None,
+    )
+    .await
+}
+
+async fn verify_existing_attempt_public_terminal_source_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    request: &ProtectedReplayRequestDtoV1,
+    request_locator: &ProtectedReplayRequestLocatorV1,
+    treatment: &PreregisteredHoldoutTreatmentV1,
+    current: &VerifiedPublicStatusHeadV1,
+) -> Result<(), QualificationOwnerError> {
+    let row = sqlx::query(
+        "SELECT disposition_digest,status,request_identity,result_identity,attempt_identity,holdout_reservation_identity,committed_at_epoch_ms \
+         FROM public.qualification_protected_attempt_dispositions_v1 \
+         WHERE disposition_identity=$1 FOR SHARE",
+    )
+    .bind(&current.native_source_identity)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(storage)?
+    .ok_or(QualificationOwnerError::ConflictingIdentity)?;
+    let disposition_digest: String = row.try_get("disposition_digest").map_err(storage)?;
+    let status: String = row.try_get("status").map_err(storage)?;
+    let request_identity: String = row.try_get("request_identity").map_err(storage)?;
+    let result_identity: String = row.try_get("result_identity").map_err(storage)?;
+    let attempt_identity: String = row.try_get("attempt_identity").map_err(storage)?;
+    let holdout_reservation_identity: String = row
+        .try_get("holdout_reservation_identity")
+        .map_err(storage)?;
+    let committed_at_epoch_ms = u64::try_from(
+        row.try_get::<i64, _>("committed_at_epoch_ms")
+            .map_err(storage)?,
+    )
+    .map_err(json_storage)?;
+
+    if disposition_digest != current.native_source_digest
+        || request_identity != request.request_identity
+        || holdout_reservation_identity != request.holdout_reservation_identity
+        || committed_at_epoch_ms != current.committed_at_epoch_ms
+    {
+        return Err(QualificationOwnerError::ConflictingIdentity);
+    }
+
+    let prior_locator = ProtectedReplayResultLocatorV1 {
+        result_identity: &result_identity,
+        request_identity: &request_identity,
+        attempt_identity: &attempt_identity,
+    };
+    let locked = match status.as_str() {
+        "REPLAY_REJECTED" | "REPLAY_INVALID" => LockedProtectedAttemptResultV1::Negative(
+            resolve_protected_replay_result_for_qualification_in_transaction(
+                transaction,
+                prior_locator,
+            )
+            .await
+            .map_err(|_| QualificationOwnerError::ConflictingIdentity)?
+            .ok_or(QualificationOwnerError::ConflictingIdentity)?,
+        ),
+        "DIAGNOSTIC_INVALID" | "DIAGNOSTIC_UNRESOLVED" => {
+            LockedProtectedAttemptResultV1::Diagnostic(
+                resolve_protected_replay_result_v2_for_qualification_in_transaction(
+                    transaction,
+                    prior_locator,
+                )
+                .await
+                .map_err(|_| QualificationOwnerError::ConflictingIdentity)?
+                .ok_or(QualificationOwnerError::ConflictingIdentity)?,
+            )
+        }
+        _ => return Err(QualificationOwnerError::ConflictingIdentity),
+    };
+    locked
+        .validate_against_request(request, request_locator)
+        .map_err(|_| QualificationOwnerError::ConflictingIdentity)?;
+    let prior = locked
+        .form_disposition(request, treatment, committed_at_epoch_ms)
+        .map_err(|_| QualificationOwnerError::ConflictingIdentity)?;
+
+    if prior.disposition_identity() != current.native_source_identity
+        || prior.disposition().disposition_digest() != current.native_source_digest
+        || prior.disposition().committed_at_epoch_ms() != current.committed_at_epoch_ms
+    {
+        return Err(QualificationOwnerError::ConflictingIdentity);
+    }
+    verify_negative_protected_attempt_commit_v1(transaction, &prior)
+        .await
+        .map_err(|_| QualificationOwnerError::ConflictingIdentity)
+}
+
 impl PostgresQualificationOwnerV1 {
     pub async fn connect(database_url: &str) -> Result<Self, QualificationOwnerError> {
         let pool = sqlx::postgres::PgPoolOptions::new()
@@ -1891,17 +2030,12 @@ impl PostgresQualificationOwnerV1 {
                 u64::try_from(committed_at).map_err(json_storage)?,
             )?;
             verify_negative_protected_attempt_commit_v1(&mut transaction, &commit).await?;
-            persist_public_status_transition_v1(
+            persist_protected_attempt_public_terminal_v1(
                 &mut transaction,
-                &request_dto.review_request_identity,
-                intake.candidate_identity(),
-                QualificationPublicStatusV1::ClosedNotQualified,
-                PublicStatusSourceV1 {
-                    identity: commit.disposition_identity(),
-                    digest: commit.disposition().disposition_digest(),
-                    committed_at_epoch_ms: commit.disposition().committed_at_epoch_ms(),
-                },
-                None,
+                &request_dto,
+                &request_locator,
+                &holdout_treatment,
+                &commit,
             )
             .await?;
             transaction
@@ -1957,17 +2091,12 @@ impl PostgresQualificationOwnerV1 {
             .bind(&payload)
             .bind(i64::try_from(committed_at_epoch_ms).map_err(json_storage)?)
             .execute(&mut *transaction).await.map_err(negative_closure_storage)?;
-        persist_public_status_transition_v1(
+        persist_protected_attempt_public_terminal_v1(
             &mut transaction,
-            &request_dto.review_request_identity,
-            intake.candidate_identity(),
-            QualificationPublicStatusV1::ClosedNotQualified,
-            PublicStatusSourceV1 {
-                identity: commit.disposition_identity(),
-                digest: commit.disposition().disposition_digest(),
-                committed_at_epoch_ms: commit.disposition().committed_at_epoch_ms(),
-            },
-            None,
+            &request_dto,
+            &request_locator,
+            &holdout_treatment,
+            &commit,
         )
         .await?;
         verify_negative_protected_attempt_commit_v1(&mut transaction, &commit).await?;
@@ -6033,6 +6162,33 @@ mod postgres_tests {
                 .await
                 .is_err()
         );
+        let public_terminal_before: serde_json::Value = sqlx::query_scalar(
+            "SELECT pg_catalog.jsonb_build_object( \
+               'fact',pg_catalog.to_jsonb(fact), \
+               'head',pg_catalog.to_jsonb(head), \
+               'event',pg_catalog.to_jsonb(event)) \
+             FROM public.qualification_protected_replay_requests_v1 request \
+             JOIN public.qualification_public_status_facts_v1 fact \
+               ON fact.review_request_identity=request.review_request_identity \
+              AND fact.phase_sequence=3 \
+             JOIN public.qualification_public_status_heads_v1 head \
+               ON head.review_request_identity=fact.review_request_identity \
+              AND head.fact_identity=fact.fact_identity \
+              AND head.fact_digest=fact.fact_digest \
+              AND head.phase_sequence=fact.phase_sequence \
+             JOIN public.qualification_owner_outbox_v1 event \
+               ON event.aggregate_identity=fact.fact_identity \
+              AND event.event_kind='QUALIFICATION_PUBLIC_STATUS_TERMINAL_V1' \
+             WHERE request.request_identity=$1",
+        )
+        .bind(&request_identity)
+        .fetch_one(&owner.pool)
+        .await
+        .expect("first negative public terminal custody");
+        assert_eq!(
+            public_terminal_before["fact"]["native_source_identity"],
+            serde_json::json!(first.disposition_identity())
+        );
         let (rejected_result_identity, rejected_attempt_identity): (String, String) =
             sqlx::query_as(
                 "SELECT result_identity,attempt_identity FROM public.backtest_protected_replay_results_v1 \
@@ -6059,17 +6215,242 @@ mod postgres_tests {
             rejected.holdout_closure_disposition(),
             HoldoutClosureDispositionV1::Consumed
         );
-        let same_request_counts: (i64, i64) = sqlx::query_as(
+        let rejected_retry = owner
+            .close_negative_protected_attempt_v1(ProtectedReplayResultLocatorV1 {
+                result_identity: &rejected_result_identity,
+                request_identity: &request_identity,
+                attempt_identity: &rejected_attempt_identity,
+            })
+            .await
+            .expect("same request second attempt exact retry");
+        assert_eq!(rejected_retry, rejected);
+        let same_request_counts: (i64, i64, i64, i64, i64, i64, bool, bool) = sqlx::query_as(
             "SELECT \
              (SELECT count(*) FROM public.qualification_protected_attempt_dispositions_v1 WHERE request_identity=$1), \
-             (SELECT count(*) FROM public.qualification_holdout_closures_v1 WHERE reservation_identity=$2)",
+             (SELECT count(*) FROM public.qualification_holdout_closures_v1 WHERE reservation_identity=$2), \
+             (SELECT count(*) FROM public.qualification_protected_attempt_disposition_receipts_v1 receipt JOIN public.qualification_protected_attempt_dispositions_v1 disposition USING(disposition_identity) WHERE disposition.request_identity=$1), \
+             (SELECT count(*) FROM public.qualification_owner_outbox_v1 event JOIN public.qualification_protected_attempt_dispositions_v1 disposition ON disposition.disposition_identity=event.aggregate_identity WHERE disposition.request_identity=$1 AND event.event_kind='QUALIFICATION_PROTECTED_ATTEMPT_DISPOSITION_COMMITTED_V1'), \
+             (SELECT count(*) FROM public.qualification_public_status_facts_v1 fact JOIN public.qualification_protected_replay_requests_v1 request ON request.review_request_identity=fact.review_request_identity WHERE request.request_identity=$1 AND fact.phase_sequence=3), \
+             (SELECT count(*) FROM public.qualification_owner_outbox_v1 event JOIN public.qualification_public_status_facts_v1 fact ON fact.fact_identity=event.aggregate_identity JOIN public.qualification_protected_replay_requests_v1 request ON request.review_request_identity=fact.review_request_identity WHERE request.request_identity=$1 AND event.event_kind='QUALIFICATION_PUBLIC_STATUS_TERMINAL_V1'), \
+             NOT EXISTS (SELECT 1 FROM public.qualification_eligibility_facts_v1), \
+             NOT EXISTS (SELECT 1 FROM public.qualification_owner_outbox_v1 WHERE event_kind ILIKE '%ELIGIBILITY%')",
         )
         .bind(&request_identity)
         .bind(first.disposition().holdout_reservation_identity())
         .fetch_one(&owner.pool)
         .await
         .expect("same request and reservation close every negative attempt");
-        assert_eq!(same_request_counts, (2, 2));
+        assert_eq!(same_request_counts, (2, 2, 2, 2, 1, 1, true, true));
+        let public_terminal_after: serde_json::Value = sqlx::query_scalar(
+            "SELECT pg_catalog.jsonb_build_object( \
+               'fact',pg_catalog.to_jsonb(fact), \
+               'head',pg_catalog.to_jsonb(head), \
+               'event',pg_catalog.to_jsonb(event)) \
+             FROM public.qualification_protected_replay_requests_v1 request \
+             JOIN public.qualification_public_status_facts_v1 fact \
+               ON fact.review_request_identity=request.review_request_identity \
+              AND fact.phase_sequence=3 \
+             JOIN public.qualification_public_status_heads_v1 head \
+               ON head.review_request_identity=fact.review_request_identity \
+              AND head.fact_identity=fact.fact_identity \
+              AND head.fact_digest=fact.fact_digest \
+              AND head.phase_sequence=fact.phase_sequence \
+             JOIN public.qualification_owner_outbox_v1 event \
+               ON event.aggregate_identity=fact.fact_identity \
+              AND event.event_kind='QUALIFICATION_PUBLIC_STATUS_TERMINAL_V1' \
+             WHERE request.request_identity=$1",
+        )
+        .bind(&request_identity)
+        .fetch_one(&owner.pool)
+        .await
+        .expect("preserved first negative public terminal custody");
+        assert_eq!(public_terminal_after, public_terminal_before);
+        assert!(
+            owner
+                .close_negative_protected_attempt_v1(ProtectedReplayResultLocatorV1 {
+                    result_identity: &rejected_result_identity,
+                    request_identity: &request_identity,
+                    attempt_identity: &attempt_identity,
+                })
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT count(*) FROM public.qualification_protected_attempt_dispositions_v1 WHERE request_identity=$1",
+            )
+            .bind(&request_identity)
+            .fetch_one(&owner.pool)
+            .await
+            .expect("cross-attempt rejection preserves disposition count"),
+            2
+        );
+        let frozen_request = decode_protected_replay_request_v1(&original_request.0)
+            .expect("frozen request for terminal-source negative oracles");
+        let request_receipt_json: serde_json::Value = sqlx::query_scalar(
+            "SELECT receipt_json FROM public.qualification_protected_replay_request_receipts_v1 WHERE request_identity=$1",
+        )
+        .bind(&request_identity)
+        .fetch_one(&owner.pool)
+        .await
+        .expect("frozen request receipt for terminal-source negative oracles");
+        let request_receipt = decode_request_receipt_v1(&request_receipt_json, &frozen_request)
+            .expect("canonical request receipt for terminal-source negative oracles");
+        let request_locator = ProtectedReplayRequestLocatorV1 {
+            request_identity: frozen_request.request_identity().to_string(),
+            request_digest: frozen_request.request_digest().to_string(),
+            receipt_identity: request_receipt.receipt_identity().to_string(),
+            seal_digest: request_receipt.seal_digest().to_string(),
+        };
+        let request_dto = frozen_request.as_contract_dto();
+        let intake_json: serde_json::Value = sqlx::query_scalar(
+            "SELECT receipt_json FROM public.qualification_candidate_intake_receipts_v1 WHERE review_request_identity=$1",
+        )
+        .bind(&request_dto.review_request_identity)
+        .fetch_one(&owner.pool)
+        .await
+        .expect("intake for terminal-source negative oracles");
+        let intake = decode_intake_receipt_v1(&intake_json)
+            .expect("canonical intake for terminal-source negative oracles");
+        let treatment = preregistered_holdout_treatment_v1(
+            intake.protected_decision_policy_identity(),
+            intake.protected_decision_policy_version(),
+        )
+        .expect("preregistered treatment for terminal-source negative oracles");
+
+        for (
+            native_source_identity,
+            native_source_digest,
+            committed_at_delta,
+            request_delta,
+            candidate_delta,
+        ) in [
+            (
+                None,
+                Some("sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
+                0_i64,
+                None,
+                None,
+            ),
+            (None, None, 1, None, None),
+            (
+                Some("qualification-protected-eligibility-fact-v1-missing"),
+                None,
+                0,
+                None,
+                None,
+            ),
+            (
+                Some("qualification-protected-attempt-disposition-v2-missing"),
+                None,
+                0,
+                None,
+                None,
+            ),
+            (None, None, 0, Some("cross-request"), None),
+            (None, None, 0, None, Some("cross-candidate")),
+        ] {
+            let mut transaction = owner
+                .pool
+                .begin()
+                .await
+                .expect("negative oracle transaction");
+            sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+                .execute(&mut *transaction)
+                .await
+                .expect("negative oracle isolation");
+            let mut current = verify_public_status_history_in_transaction(
+                &mut transaction,
+                &request_dto.review_request_identity,
+                &request_dto.candidate_identity,
+            )
+            .await
+            .expect("canonical public history for negative oracle")
+            .expect("terminal public head for negative oracle");
+            if let Some(identity) = native_source_identity {
+                current.native_source_identity = identity.to_string();
+            }
+            if let Some(digest) = native_source_digest {
+                current.native_source_digest = digest.to_string();
+            }
+            current.committed_at_epoch_ms = current
+                .committed_at_epoch_ms
+                .checked_add_signed(committed_at_delta)
+                .expect("bounded negative oracle time");
+            let mut checked_request = request_dto.clone();
+            if let Some(identity) = request_delta {
+                checked_request.request_identity = identity.to_string();
+            }
+            if let Some(identity) = candidate_delta {
+                checked_request.candidate_identity = identity.to_string();
+            }
+            assert!(matches!(
+                verify_existing_attempt_public_terminal_source_v1(
+                    &mut transaction,
+                    &checked_request,
+                    &request_locator,
+                    &treatment,
+                    &current,
+                )
+                .await,
+                Err(QualificationOwnerError::ConflictingIdentity)
+            ));
+            transaction
+                .rollback()
+                .await
+                .expect("negative oracle rollback");
+        }
+
+        let mut outbox_tamper = owner.pool.begin().await.expect("outbox tamper transaction");
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *outbox_tamper)
+            .await
+            .expect("outbox tamper isolation");
+        let current = verify_public_status_history_in_transaction(
+            &mut outbox_tamper,
+            &request_dto.review_request_identity,
+            &request_dto.candidate_identity,
+        )
+        .await
+        .expect("canonical public history before outbox tamper")
+        .expect("terminal public head before outbox tamper");
+        sqlx::query(
+            "UPDATE public.qualification_owner_outbox_v1 SET payload_digest='sha256:tampered' WHERE aggregate_identity=$1 AND event_kind='QUALIFICATION_PROTECTED_ATTEMPT_DISPOSITION_COMMITTED_V1'",
+        )
+        .bind(&current.native_source_identity)
+        .execute(&mut *outbox_tamper)
+        .await
+        .expect("tamper mutable prior disposition outbox in rollback transaction");
+        assert!(matches!(
+            verify_existing_attempt_public_terminal_source_v1(
+                &mut outbox_tamper,
+                &request_dto,
+                &request_locator,
+                &treatment,
+                &current,
+            )
+            .await,
+            Err(QualificationOwnerError::ConflictingIdentity)
+        ));
+        outbox_tamper
+            .rollback()
+            .await
+            .expect("restore prior disposition outbox by rollback");
+
+        for statement in [
+            "UPDATE public.qualification_protected_attempt_dispositions_v1 SET disposition_json=disposition_json WHERE disposition_identity=$1",
+            "UPDATE public.qualification_protected_attempt_disposition_receipts_v1 SET receipt_json=receipt_json WHERE disposition_identity=$1",
+        ] {
+            let error = sqlx::query(statement)
+                .bind(first.disposition_identity())
+                .execute(&owner.pool)
+                .await
+                .expect_err("runtime writer cannot tamper append-only prior disposition custody");
+            assert_eq!(
+                error.as_database_error().and_then(|value| value.code()),
+                Some(std::borrow::Cow::Borrowed("42501"))
+            );
+        }
         let error = sqlx::query(
             "SELECT disposition_identity FROM public.qualification_protected_attempt_dispositions_v1 LIMIT 1",
         )
