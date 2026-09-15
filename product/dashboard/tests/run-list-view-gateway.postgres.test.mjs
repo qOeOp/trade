@@ -155,22 +155,22 @@ test("Runs v2 keeps summary, filters, and pages on one fail-closed PostgreSQL cu
       queued: 0, running: 1, unknown: 0, succeeded: 512, cancelled: 0, completed: 512, failed: 0,
     });
 
+    const malformedRun = (await pool.query(`SELECT run_identity
+      FROM dashboard_operation_runs_v1
+      WHERE run_kind = 'owner_read'
+      ORDER BY COALESCE(started_at, created_at), run_identity
+      LIMIT 1`)).rows[0];
+    assert.ok(malformedRun?.run_identity);
     await pool.query(`UPDATE dashboard_operation_runs_v1
       SET started_at = '-infinity'::timestamptz
-      WHERE run_identity = (
-        SELECT run_identity
-          FROM dashboard_operation_runs_v1
-         WHERE run_kind = 'owner_read'
-         ORDER BY COALESCE(started_at, created_at), run_identity
-         LIMIT 1
-      )`);
+      WHERE run_identity = $1`, [malformedRun.run_identity]);
     await assert.rejects(
       gateway.read({ kind: "dependencies", pageSize: 25 }),
       /RUN_LIST_ROW_INVALID/u,
     );
     await pool.query(`UPDATE dashboard_operation_runs_v1
       SET started_at = created_at, finished_at = clock_timestamp() + interval '1 day'
-      WHERE started_at = '-infinity'::timestamptz`);
+      WHERE run_identity = $1`, [malformedRun.run_identity]);
     await assert.rejects(
       gateway.read({ kind: "dependencies", pageSize: 25 }),
       /RUN_LIST_ROW_INVALID/u,
@@ -178,16 +178,30 @@ test("Runs v2 keeps summary, filters, and pages on one fail-closed PostgreSQL cu
     await pool.query(`UPDATE dashboard_operation_runs_v1
       SET state = 'running', owner_outcome_state = 'not_applicable',
           finished_at = NULL, terminal_code = 'OWNER_AVAILABLE'
-      WHERE finished_at > clock_timestamp()`);
+      WHERE run_identity = $1`, [malformedRun.run_identity]);
     await assert.rejects(
       gateway.read({ kind: "dependencies", pageSize: 25 }),
       /RUN_LIST_ROW_INVALID/u,
     );
     await pool.query(`UPDATE dashboard_operation_runs_v1
       SET terminal_code = NULL
-      WHERE state = 'running' AND terminal_code = 'OWNER_AVAILABLE'`);
+      WHERE run_identity = $1`, [malformedRun.run_identity]);
     const validNonterminal = await gateway.read({ kind: "dependencies", pageSize: 25 });
     assert.equal(validNonterminal.filtered_total, 513);
+    await pool.query(`UPDATE dashboard_operation_runs_v1
+      SET state = 'succeeded', owner_outcome_state = 'available',
+          created_at = '2026-09-01T00:00:00Z', updated_at = '2026-09-01T00:00:01.000001Z',
+          started_at = '2026-09-01T00:00:00.000999Z',
+          finished_at = '2026-09-01T00:00:01.000001Z', terminal_code = 'OWNER_AVAILABLE'
+      WHERE run_identity = $1`, [malformedRun.run_identity]);
+    const shorterThanOneSecond = await gateway.read({
+      kind: "dependencies", duration: "lt_1s", pageSize: 25,
+    });
+    const oneToTenSeconds = await gateway.read({
+      kind: "dependencies", duration: "1_10s", pageSize: 25,
+    });
+    assert.equal(shorterThanOneSecond.filtered_total, 509);
+    assert.equal(oneToTenSeconds.filtered_total, 4);
 
     const appendedRun = await insertRun(pool, {
       kind: "owner_effect", state: "queued", offset: 90,

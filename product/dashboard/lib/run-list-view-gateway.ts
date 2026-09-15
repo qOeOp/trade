@@ -152,7 +152,8 @@ function durationMatches(value: number | null, filter: RunListDurationV2) {
 
 function durationPredicate(filter: RunListDurationV2) {
   if (filter === "any") return null;
-  const duration = "COALESCE(r.finished_at, r.updated_at) - r.started_at";
+  const duration = `date_trunc('milliseconds', COALESCE(r.finished_at, r.updated_at))
+    - date_trunc('milliseconds', r.started_at)`;
   if (filter === "lt_1s") return `r.started_at IS NOT NULL AND ${duration} < interval '1 second'`;
   if (filter === "1_10s") return `r.started_at IS NOT NULL AND ${duration} >= interval '1 second'
     AND ${duration} < interval '10 seconds'`;
