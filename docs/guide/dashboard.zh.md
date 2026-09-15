@@ -1552,8 +1552,8 @@ S  Waiting | Running | Unknown | Completed | Failed
 T  RunTable / date group
    Status | Started | Duration | Activity | Started by | Source result
    row selection -> D; final column [Open] -> /operations/runs/:runId
-D  RunSummaryCard: statuses, immutable run/operation/Owner locators, retention
-   [Open run] [Resolve Owner outcome]
+D  共享 DetailSheet：status、activity、trigger、started、duration、source result
+   [Open full details] -> /operations/runs/:runId
 B  shown rows / filtered total | Rows per page [25|50|100] | Page n of m
    [First] [Previous] [Next] [Last]
 ```

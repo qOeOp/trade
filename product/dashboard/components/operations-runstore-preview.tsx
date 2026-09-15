@@ -26,6 +26,8 @@ import { FilterButton, FilterSearch, FilterTabs, TableFilterMenu, TableToolbar }
 import { DataTableHeaderLabel, DataTableSurface } from "./ui/data-table";
 import { DataWorkspaceEmpty } from "./ui/data-workspace-empty";
 import { DataWorkspaceTable, type DataWorkspaceColumn } from "./ui/data-workspace-table";
+import { DetailFact, DetailFactGrid } from "./ui/detail-inspector";
+import { DetailSheet } from "./ui/detail-sheet";
 import {
   PanelFrame,
   PanelFrameBody,
@@ -92,6 +94,7 @@ export function OperationsRunStorePreview() {
   const [search, setSearch] = useState("");
   const [cadence, setCadence] = useState(0);
   const [pending, setPending] = useState(true);
+  const [selectedRun, setSelectedRun] = useState<RunListItemV2 | null>(null);
   const requestVersion = useRef(0);
   const snapshotRef = useRef<string | null>(null);
 
@@ -236,7 +239,7 @@ export function OperationsRunStorePreview() {
                     ? `No ${kind === "runs" ? "action run" : "data read"} matches these filters.`
                     : kind === "runs" ? "No action runs yet." : "No data reads are available."}
                 </DataWorkspaceEmpty>}
-                onRowClicked={(run) => router.push(`/operations/runs/${encodeURIComponent(run.run_identity)}`)} pointerOnHover />
+                onRowClicked={setSelectedRun} pointerOnHover />
               <PanelFrameFooter layout="split">
                 <PanelFrameFooterSummary
                   primary={`${pageResult.runs.length} shown / ${pageResult.filtered_total ?? "-"} matching`}
@@ -262,6 +265,25 @@ export function OperationsRunStorePreview() {
           </DataTableSurface>
         </PanelFrameBody>
       </PanelFrame>
+      <DetailSheet
+        open={selectedRun !== null}
+        onClose={() => setSelectedRun(null)}
+        eyebrow="Run preview"
+        title={selectedRun ? runOperationLabel(selectedRun.path) : "Run"}
+        description="Read-only summary from the current activity list."
+        canonicalHref={selectedRun
+          ? `/operations/runs/${encodeURIComponent(selectedRun.run_identity)}`
+          : undefined}
+      >
+        {selectedRun ? <DetailFactGrid>
+          <DetailFact label="Status"><StatusBadge tone={executionStateTone(selectedRun.state)}>{runStateLabel(selectedRun.state)}</StatusBadge></DetailFact>
+          <DetailFact label="Activity"><b>{runOperationLabel(selectedRun.path)}</b></DetailFact>
+          <DetailFact label="Started by"><b>{runTriggerLabel(selectedRun.trigger_kind)}</b></DetailFact>
+          <DetailFact label="Started"><time dateTime={selectedRun.started_at ?? undefined}>{displayTime(selectedRun.started_at)}</time></DetailFact>
+          <DetailFact label="Duration"><b>{durationLabel(selectedRun.duration_ms)}</b></DetailFact>
+          <DetailFact label="Source result"><StatusBadge tone={ownerOutcomeTone(selectedRun.owner_outcome_state)}>{sourceResultLabel(selectedRun.owner_outcome_state)}</StatusBadge></DetailFact>
+        </DetailFactGrid> : null}
+      </DetailSheet>
     </PageStack>
   );
 }

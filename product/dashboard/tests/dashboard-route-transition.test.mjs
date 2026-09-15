@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const [layout, loading, chrome, route, navigation, workers, runs, schedules, artifacts, entityReference, dialog, filterToolbar, runDetail, css] = await Promise.all([
+const [layout, loading, chrome, route, navigation, workers, runs, schedules, artifacts, entityReference, dialog, detailSheet, filterToolbar, runDetail, css] = await Promise.all([
   readFile(new URL("../app/(dashboard)/layout.tsx", import.meta.url), "utf8"),
   readFile(new URL("../app/(dashboard)/loading.tsx", import.meta.url), "utf8"),
   readFile(new URL("../components/dashboard-chrome.tsx", import.meta.url), "utf8"),
@@ -14,6 +14,7 @@ const [layout, loading, chrome, route, navigation, workers, runs, schedules, art
   readFile(new URL("../components/artifact-directory.tsx", import.meta.url), "utf8"),
   readFile(new URL("../components/ui/entity-reference.tsx", import.meta.url), "utf8"),
   readFile(new URL("../components/ui/schedule-calendar/dialogs/schedule-inspection-dialog.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../components/ui/detail-sheet.tsx", import.meta.url), "utf8"),
   readFile(new URL("../components/ui/filter-toolbar.tsx", import.meta.url), "utf8"),
   readFile(new URL("../components/operations-run-detail.tsx", import.meta.url), "utf8"),
   readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
@@ -32,13 +33,15 @@ test("Dashboard chrome persists while one route outlet owns loading and content"
 });
 
 test("internal Dashboard navigation does not bypass the route loading boundary", () => {
-  for (const source of [navigation, workers, schedules, entityReference, dialog]) {
+  for (const source of [navigation, workers, schedules, entityReference, dialog, detailSheet]) {
     assert.match(source, /import Link from "next\/link"/u);
   }
   assert.doesNotMatch(navigation, /<a\b/u);
   assert.doesNotMatch(workers, /<a\b/u);
   assert.match(runs, /import \{ useRouter \} from "next\/navigation"/u);
-  assert.match(runs, /onRowClicked=\{\(run\) => router\.push\(`/u);
+  assert.match(runs, /onRowClicked=\{setSelectedRun\}/u);
+  assert.match(runs, /onClick=\{\(\) => router\.push\(`/u);
+  assert.match(runs, /<DetailSheet[\s\S]*canonicalHref=/u);
   assert.doesNotMatch(runs, /window\.location/u);
   assert.doesNotMatch(schedules, /<a\b/u);
   assert.match(artifacts, /<EntityReference/u);
