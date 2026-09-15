@@ -3972,11 +3972,9 @@ mod postgres_acceptance_tests {
                 .expect("family root digest"),
         };
         replay_request.trial_family_census_frontier = ContentIdentityV2 {
-            identity: identity(family.census_frontier().frontier_identity()),
-            digest: CanonicalDigestV2::try_from(
-                family.census_frontier().frontier_digest().to_string(),
-            )
-            .expect("family frontier digest"),
+            identity: identity(intent.census_frontier_identity()),
+            digest: CanonicalDigestV2::try_from(intent.census_frontier_digest().to_string())
+                .expect("successor census frontier digest"),
         };
         replay_request.artifact = ContentIdentityV2 {
             identity: identity(artifact_identity),
