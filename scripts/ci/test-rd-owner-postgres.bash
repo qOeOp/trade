@@ -185,11 +185,25 @@ check_nextest_graph_contract() {
   fi
   python3 - "${BASH_SOURCE[0]}" << 'PY'
 from pathlib import Path
+import re
 import sys
 
 source = Path(sys.argv[1]).read_text(encoding="utf-8")
 catalog_test = "catalog_admin_and_family_formation_are_atomic_and_fail_closed"
 poison_test = "postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation"
+array_open = "readonly rd_owner_postgres_tests=(\n"
+array_close = "\n)\nreadonly nextest_graph_args=("
+if source.count(array_open) != 1:
+    raise SystemExit("ERROR: ordered PostgreSQL test literal is unavailable.")
+array_start = source.index(array_open) + len(array_open)
+array_end = source.find(array_close, array_start)
+if array_end < 0:
+    raise SystemExit("ERROR: ordered PostgreSQL test literal boundary is unavailable.")
+array_body = source[array_start:array_end]
+if array_body.count(poison_test) != 1:
+    raise SystemExit(
+        "ERROR: recovery-sidecar poison test must occur exactly once in the ordered test literal."
+    )
 route = (
     f'''if [[ "$test_name" == '{catalog_test}' ]] ||\n'''
     f'''    [[ "$test_name" == '{poison_test}' ]]; then'''
@@ -204,28 +218,52 @@ if route_end < 0:
     raise SystemExit("ERROR: catalog-admin clone route boundary is unavailable.")
 route_body = source[route_start:route_end]
 expected_overrides = (
-    'VIBE_POSTGRES_TEST_DATABASE_NAME="$catalog_admin_database"',
-    'OPERATOR_AUTHORIZATION_TEST_DATABASE_URL="postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"',
-    'PRODUCT_EDGE_TEST_DATABASE_URL="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"',
-    'RD_OWNER_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"',
-    'RD_FACT_WRITER_TEST_DATABASE_URL="postgresql://rd_fact_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"',
-    'MARKET_DATA_OWNER_TEST_DATABASE_URL="postgresql://market_data_owner:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"',
-    'REPLAY_POLICY_CATALOG_ADMIN_TEST_DATABASE_URL="postgresql://replay_policy_catalog_admin_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"',
-    'MARKET_DATA_RD_ROLE_SET_TEST_DATABASE_URL="postgresql://market_data_reader:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"',
-    'VIBE_TEST_OWNER_TOPOLOGY_ADMIN_DATABASE_URL="postgresql://vibe_test_owner_topology_admin:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"',
-    'QUALIFICATION_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"',
-    'BACKTEST_TEST_DATABASE_URL="postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"',
-    'INSTRUMENT_OWNER_TEST_DATABASE_URL="postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"',
-    'INSTRUMENT_OWNER_DATABASE_URL="postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"',
+    ("VIBE_POSTGRES_TEST_DATABASE_NAME", '"$catalog_admin_database"'),
+    ("OPERATOR_AUTHORIZATION_TEST_DATABASE_URL", '"postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("PRODUCT_EDGE_TEST_DATABASE_URL", '"postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("RD_OWNER_TEST_DATABASE_URL", '"postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("RD_FACT_WRITER_TEST_DATABASE_URL", '"postgresql://rd_fact_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("MARKET_DATA_OWNER_TEST_DATABASE_URL", '"postgresql://market_data_owner:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("REPLAY_POLICY_CATALOG_ADMIN_TEST_DATABASE_URL", '"postgresql://replay_policy_catalog_admin_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("MARKET_DATA_RD_ROLE_SET_TEST_DATABASE_URL", '"postgresql://market_data_reader:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("VIBE_TEST_OWNER_TOPOLOGY_ADMIN_DATABASE_URL", '"postgresql://vibe_test_owner_topology_admin:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("QUALIFICATION_TEST_DATABASE_URL", '"postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("BACKTEST_TEST_DATABASE_URL", '"postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("INSTRUMENT_OWNER_TEST_DATABASE_URL", '"postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("INSTRUMENT_OWNER_DATABASE_URL", '"postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
 )
-if any(route_body.count(override) != 1 for override in expected_overrides):
-    raise SystemExit(
-        "ERROR: catalog-admin clone route must retain the complete exact database URL override set."
+route_lines = route_body.splitlines()
+if route_lines[:2] != ["", "    env \\"]:
+    raise SystemExit("ERROR: catalog-admin clone route env preamble is unavailable.")
+try:
+    invocation_start = next(
+        index for index, line in enumerate(route_lines) if line.strip() == "cargo nextest run \\"
     )
-if "$test_database" in route_body or "${test_database}" in route_body:
-    raise SystemExit("ERROR: catalog-admin poison route fell back to the shared database.")
-if route_body.count("cargo nextest run") != 1:
-    raise SystemExit("ERROR: catalog-admin clone route must execute exactly one selected test.")
+except StopIteration:
+    raise SystemExit("ERROR: catalog-admin clone route nextest invocation is unavailable.")
+assignment_pattern = re.compile("\\s*([A-Z][A-Z0-9_]*)=(.*) \\\\")
+assignments = []
+for line in route_lines[2:invocation_start]:
+    match = assignment_pattern.fullmatch(line)
+    if match is None:
+        raise SystemExit("ERROR: catalog-admin clone route env preamble contains a non-assignment.")
+    assignments.append((match.group(1), match.group(2)))
+if tuple(assignments) != expected_overrides:
+    raise SystemExit(
+        "ERROR: catalog-admin clone route must retain the complete ordered database URL override set."
+    )
+expected_invocation = (
+    "cargo nextest run \\",
+    '--archive-file "$nextest_archive_file" \\',
+    '--profile "$nextest_profile" \\',
+    '"${nextest_execution_args[@]}" \\',
+    '-E "$test_filter"',
+)
+invocation = tuple(line.strip() for line in route_lines[invocation_start:])
+if invocation != expected_invocation:
+    raise SystemExit(
+        "ERROR: catalog-admin clone route must retain one exact selected-test nextest invocation."
+    )
 PY
   if ! rg -Uq \
     "strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody'.*\n[[:space:]]+\[\[.*successor_artifact_enters_exploratory_replay_with_exact_owner_custody'.*\n[[:space:]]+\[\[.*positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic'.*\n[[:space:]]+RUST_MIN_STACK=16777216.*\n[[:space:]]+cargo nextest run" \
