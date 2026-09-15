@@ -248,7 +248,7 @@ export function OperationsScheduleHistory({ viewControl }: { viewControl: ReactN
       {previewRunIdentity
         ? <OperationsRunPreviewContent runIdentity={previewRunIdentity}
           onBack={compactDetail && selected?.schedule_identity === previewReturnScheduleIdentity
-            ? returnToSchedule : undefined} />
+            ? returnToSchedule : undefined} backLabel="Back to schedule" />
         : selected ? <><ScheduleHistoryDetailContent schedule={selected} onOpenRun={openRunPreview} /><ScheduleHistoryInfo schedule={selected} /></> : null}
     </DetailSheet>
   </PageStack>;

@@ -4,7 +4,7 @@ import test from "node:test";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
-test("schedule run inspection is one shared GET-only fail-closed component", async () => {
+test("contextual run inspection is one shared GET-only fail-closed component", async () => {
   const preview = await read("components/operations-run-preview.tsx");
 
   assert.match(preview, /parseRunDetailEnvelopeV1/);
@@ -19,6 +19,8 @@ test("schedule run inspection is one shared GET-only fail-closed component", asy
   assert.doesNotMatch(preview, /method: "(?:POST|PUT|PATCH|DELETE)"/u);
   assert.doesNotMatch(preview, /logs|resolveOwner|cancelQueued|deleteCache/u);
   assert.match(preview, /Open full run details/u);
+  assert.match(preview, /backLabel = "Back"/u);
+  assert.match(preview, /\{backLabel\}/u);
 });
 
 test("schedule history reuses one contextual preview for table and detail origins", async () => {

@@ -43,6 +43,7 @@ import { InterfaceIcons, ModuleIcons, RunIcons } from "./ui/iconography";
 import { StatusBadge } from "./ui/status-badge";
 import { availabilityTone } from "./ui/status-tone-policy";
 import { useMediaQuery } from "./ui/use-media-query";
+import { OperationsRunPreviewContent, OperationsRunPreviewTrigger, restoreRunPreviewTriggerFocus } from "./operations-run-preview";
 
 type LeaseFilter = "all" | "available" | "expired";
 
@@ -60,7 +61,10 @@ function compactRunLabel(identity: string) {
   return `#${tail.slice(-8)}`;
 }
 
-function WorkerDetailClusters({ worker }: { worker: WorkerBrowserProjectionV1 }) {
+function WorkerDetailClusters({ worker, onOpenRun }: {
+  worker: WorkerBrowserProjectionV1;
+  onOpenRun: (runIdentity: string) => void;
+}) {
   return (
     <DetailClusterGrid>
       <DetailCluster label="Availability" meta={workerAvailabilityLabel(worker.lease_state)}>
@@ -73,9 +77,10 @@ function WorkerDetailClusters({ worker }: { worker: WorkerBrowserProjectionV1 })
       </DetailCluster>
       <DetailCluster label="Recent activity" meta={worker.last_run_state ? runStateLabel(worker.last_run_state) : "No activity"}>
         <DetailClusterFact label="Run">
-          {worker.last_run_identity ? <Link className="detail-cluster-link" href={`/operations/runs/${encodeURIComponent(worker.last_run_identity)}`}>
-            <span title={worker.last_run_identity}>{compactRunLabel(worker.last_run_identity)}</span><InterfaceIcons.open aria-hidden="true" size={12} />
-          </Link> : <span>Unavailable</span>}
+          {worker.last_run_identity ? <OperationsRunPreviewTrigger className="detail-cluster-link"
+            runIdentity={worker.last_run_identity} onOpen={onOpenRun}>
+            <span title={worker.last_run_identity}>{compactRunLabel(worker.last_run_identity)}</span>
+          </OperationsRunPreviewTrigger> : <span>Unavailable</span>}
         </DetailClusterFact>
         <DetailClusterFact label="Started">{worker.last_run_at
           ? <time dateTime={worker.last_run_at}>{displayTime(worker.last_run_at)}</time>
@@ -93,7 +98,11 @@ function WorkerDetailClusters({ worker }: { worker: WorkerBrowserProjectionV1 })
   );
 }
 
-function WorkerDetail({ worker, exact = false }: { worker: WorkerBrowserProjectionV1; exact?: boolean }) {
+function WorkerDetail({ worker, exact = false, onOpenRun }: {
+  worker: WorkerBrowserProjectionV1;
+  exact?: boolean;
+  onOpenRun: (runIdentity: string) => void;
+}) {
   return (
     <DetailInspector aria-label={`Background service ${worker.worker_identity}`}>
       <DetailInspectorHeader
@@ -105,7 +114,7 @@ function WorkerDetail({ worker, exact = false }: { worker: WorkerBrowserProjecti
         </StatusBadge>}
       />
       <DetailInspectorBody>
-        <WorkerDetailClusters worker={worker} />
+        <WorkerDetailClusters worker={worker} onOpenRun={onOpenRun} />
         <DetailInspectorFooter layout={exact ? "split" : "stack"}>
           <PanelFrameInfo label="View service information"><PanelFrameInfoList>
             <PanelFrameInfoFact label="Service ID"><code>{worker.worker_identity}</code></PanelFrameInfoFact>
@@ -144,9 +153,13 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
   const [search, setSearch] = useState("");
   const [pending, setPending] = useState(true);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [previewRunIdentity, setPreviewRunIdentity] = useState<string | null>(null);
+  const [previewReturnWorkerIdentity, setPreviewReturnWorkerIdentity] = useState<string | null>(null);
   const compactDetail = useMediaQuery("(max-width: 1279px)");
   const refresh = useCallback(async () => {
     setPending(true);
+    setPreviewRunIdentity(null);
+    setPreviewReturnWorkerIdentity(null);
     try {
       const { list: parsed, detail: parsedDetail } = await readWorkerBrowserResponsesV1(fetch, initialWorkerIdentity);
       setResult(parsed);
@@ -196,6 +209,18 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
   useEffect(() => {
     if (!compactDetail || !selected) setDetailOpen(false);
   }, [compactDetail, selected]);
+  const openRunPreview = useCallback((runIdentity: string, returnWorkerIdentity: string | null) => {
+    setPreviewRunIdentity(runIdentity);
+    setPreviewReturnWorkerIdentity(returnWorkerIdentity);
+    setDetailOpen(true);
+  }, []);
+  const returnToWorker = useCallback(() => {
+    if (!previewRunIdentity || !previewReturnWorkerIdentity) return;
+    const runIdentity = previewRunIdentity;
+    setPreviewRunIdentity(null);
+    setPreviewReturnWorkerIdentity(null);
+    restoreRunPreviewTriggerFocus(runIdentity);
+  }, [previewReturnWorkerIdentity, previewRunIdentity]);
   const summaries = useMemo(() => ({
     ready: workers.filter(({ lease_state }) => lease_state === "available").length,
     offline: workers.filter(({ lease_state }) => lease_state === "expired").length,
@@ -313,6 +338,8 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
                 onRowClicked={(worker) => {
                   if (initialWorkerIdentity) return;
                   setSelectedIdentity(worker.worker_identity);
+                  setPreviewRunIdentity(null);
+                  setPreviewReturnWorkerIdentity(null);
                   if (compactDetail) setDetailOpen(true);
                 }}
                 pointerOnHover
@@ -325,7 +352,9 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
                 </DataWorkspaceEmpty>}
               />
             </DataTableSurface>
-            {selected && (!compactDetail || initialWorkerIdentity) ? <WorkerDetail worker={selected} exact={Boolean(initialWorkerIdentity)} />
+            {selected && (!compactDetail || initialWorkerIdentity) ? <WorkerDetail worker={selected}
+              exact={Boolean(initialWorkerIdentity)}
+              onOpenRun={(runIdentity) => openRunPreview(runIdentity, null)} />
               : initialWorkerIdentity
                 ? <ExactWorkerUnavailable workerIdentity={initialWorkerIdentity} reason={detail?.unavailable_reason ?? "WORKER_DETAIL_RESPONSE_UNAVAILABLE"} />
                 : !compactDetail ? <DetailEmpty icon={<RunIcons.state aria-hidden="true" size={16} />}>No service matches this view and filter.</DetailEmpty> : null}
@@ -340,7 +369,8 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
             columns="minmax(560px, 1.55fr) minmax(300px, .8fr)">
             <UnavailableState density="compact" icon={<ModuleIcons.cpu aria-hidden="true" size={16} />}
               title="Service capacity unavailable" reason={result?.unavailable_reason ?? "WORKER_STORE_RESPONSE_UNAVAILABLE"} />
-            {selected ? <WorkerDetail worker={selected} exact />
+            {selected ? <WorkerDetail worker={selected} exact
+              onOpenRun={(runIdentity) => openRunPreview(runIdentity, null)} />
               : <ExactWorkerUnavailable workerIdentity={initialWorkerIdentity}
                 reason={detail?.unavailable_reason ?? "WORKER_DETAIL_RESPONSE_UNAVAILABLE"} />}
           </SplitBento> : <UnavailableState density="compact" icon={<ModuleIcons.cpu aria-hidden="true" size={16} />}
@@ -349,13 +379,25 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
         </PanelFrameBody>
       </PanelFrame>
       <DetailSheet
-        open={!initialWorkerIdentity && compactDetail && detailOpen && selected !== null}
-        onClose={() => setDetailOpen(false)}
-        eyebrow="Service preview"
-        title={selected ? compactWorkerLabel(selected.worker_identity) : "Service"}
-        description="Read-only capacity and recent activity from the current service list."
+        open={Boolean(previewRunIdentity)
+          || (!initialWorkerIdentity && compactDetail && detailOpen && selected !== null)}
+        onClose={() => {
+          setDetailOpen(false);
+          setPreviewRunIdentity(null);
+          setPreviewReturnWorkerIdentity(null);
+        }}
+        eyebrow={previewRunIdentity ? "Related run" : "Service preview"}
+        title={previewRunIdentity ? "Observed run" : selected ? compactWorkerLabel(selected.worker_identity) : "Service"}
+        description={previewRunIdentity
+          ? "Read-only status for recent activity handled by this service."
+          : "Read-only capacity and recent activity from the current service list."}
       >
-        {selected ? <WorkerDetailClusters worker={selected} /> : null}
+        {previewRunIdentity
+          ? <OperationsRunPreviewContent runIdentity={previewRunIdentity}
+            onBack={compactDetail && selected?.worker_identity === previewReturnWorkerIdentity
+              ? returnToWorker : undefined} backLabel="Back to service" />
+          : selected ? <WorkerDetailClusters worker={selected}
+            onOpenRun={(runIdentity) => openRunPreview(runIdentity, selected.worker_identity)} /> : null}
       </DetailSheet>
     </PageStack>
   );

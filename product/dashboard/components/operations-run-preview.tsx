@@ -59,9 +59,11 @@ export function restoreRunPreviewTriggerFocus(runIdentity: string) {
 export function OperationsRunPreviewContent({
   runIdentity,
   onBack,
+  backLabel = "Back",
 }: {
   runIdentity: string;
   onBack?: () => void;
+  backLabel?: ReactNode;
 }) {
   const requestGeneration = useRef(0);
   const [state, setState] = useState<PreviewState>({ status: "loading" });
@@ -103,7 +105,7 @@ export function OperationsRunPreviewContent({
 
   return <div className="operations-run-preview-content">
     {onBack ? <Button type="button" variant="text" size="tool" onClick={onBack}>
-      <InterfaceIcons.previous aria-hidden="true" size={12} />Back to schedule
+      <InterfaceIcons.previous aria-hidden="true" size={12} />{backLabel}
     </Button> : null}
     {state.status === "loading" ? <LoadingState density="compact"
       icon={<InterfaceIcons.refresh aria-hidden="true" size={16} />}

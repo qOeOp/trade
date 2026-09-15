@@ -116,12 +116,26 @@ test("Workers uses the shared Vibe, table, and Lucide-backed atoms", async () =>
   ]) assert.match(workers, new RegExp(shared));
   assert.match(workers, /from "\.\/ui\/iconography"/);
   assert.match(workers, /function WorkerDetailClusters[\s\S]*label="Last seen"[\s\S]*label="Activities"/u);
-  assert.equal(workers.match(/<WorkerDetailClusters worker=\{worker\} \/>/gu)?.length, 1);
-  assert.equal(workers.match(/<WorkerDetailClusters worker=\{selected\} \/>/gu)?.length, 1);
+  assert.equal(workers.match(/<WorkerDetailClusters worker=\{worker\} onOpenRun=\{onOpenRun\} \/>/gu)?.length, 1);
+  assert.equal(workers.match(/<WorkerDetailClusters worker=\{selected\}/gu)?.length, 1);
   assert.doesNotMatch(workers, /encodeWorkerIdentitySegmentV1\(worker\.worker_identity\)/);
   assert.doesNotMatch(workers, /canonicalLabel="Open service details"/);
   assert.doesNotMatch(workers, /from "lucide-react"/);
   assert.doesNotMatch(workers, /#[0-9a-fA-F]{3,8}/);
+});
+
+test("Workers reuses one contextual Run preview without creating another route or overlay", async () => {
+  const workers = await source("components/operations-workers-preview.tsx");
+
+  assert.match(workers, /OperationsRunPreviewTrigger/);
+  assert.match(workers, /OperationsRunPreviewContent/);
+  assert.match(workers, /restoreRunPreviewTriggerFocus/);
+  assert.doesNotMatch(workers, /href=\{`\/operations\/runs\//u);
+  assert.match(workers, /onOpenRun=\{\(runIdentity\) => openRunPreview\(runIdentity, null\)\}/u);
+  assert.match(workers, /openRunPreview\(runIdentity, selected\.worker_identity\)/u);
+  assert.match(workers, /selected\?\.worker_identity === previewReturnWorkerIdentity/u);
+  assert.match(workers, /backLabel="Back to service"/u);
+  assert.equal((workers.match(/<DetailSheet/g) ?? []).length, 1);
 });
 
 test("Next worker page and API decode the same normalized identity and reject aliases before store reads", async () => {
