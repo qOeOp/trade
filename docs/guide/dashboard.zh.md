@@ -435,6 +435,16 @@ card，但只保留 `build attempts` 与 `family bindings`。两个 value 仍是
 时 card 消失；任一 directory view 的 Refresh 都刷新同一 Owner cut，不增加 scheduler、operational write 或
 Artifact action。
 
+Dashboard-only GET `/api/rd/artifacts/review-inventory` 使用最多 6 个并发 read，把上述有界 custody cut 与
+现有 identity-bound Artifact readback GET 组合。它不创建新 Owner fact，也不声称跨记录单一 snapshot：
+每个 candidate 保留自己的 `reviewable | unavailable` point-read 结果，同时 projection 分别保留 custody
+observation time、scanned count、total count 与 truncation。只有完整 candidate identity tuple set 仍与页面
+单独读取的 custody cut 一致时，client 才准入这层组合；发生 drift 时撤回 reviewability overlay，但不隐藏
+普通 candidate directory。完整 cut available 时，compact card 回答
+`reviewable outcomes / build attempts`，并进入 canonical `availability=reviewable` candidate view；只有
+reviewable row 才链接到 Historical build outcome。Unavailable row 仍在 `All attempts` 中可见，但不伪装成
+可执行 link。组合 unavailable 时，普通 candidate directory 仍可使用，且不能推断“零条可审”。
+
 经认证的 Owner GET `/v1/artifact-builds/directory` 每页最多返回 20 个 verified item。每页最多检查 60 个
 attempt candidate，按 `(prepared_at_epoch_ms, build_request_identity)` 降序，其中有界 ASCII identity 使用
 PostgreSQL `C` collation；并仅把同一 tuple 作为 opaque、

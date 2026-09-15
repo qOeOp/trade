@@ -500,6 +500,17 @@ counts and quiet links to their canonical candidate views; they are not verified
 The card disappears on an unavailable projection, and Refresh in either directory view refreshes that same Owner
 cut without adding a scheduler, operational write, or Artifact action.
 
+The Dashboard-only GET `/api/rd/artifacts/review-inventory` composes that bounded custody cut with the existing
+identity-bound Artifact readback GETs using at most six concurrent reads. It does not create a new Owner fact or
+claim one cross-record snapshot: every candidate retains its own `reviewable | unavailable` point-read result,
+while the projection separately preserves the custody observation time, scanned count, total count, and truncation.
+The client admits the composition only when the complete candidate identity tuple set still matches its separately
+rendered custody cut; drift withdraws the reviewability overlay without hiding the ordinary candidate directory.
+When the complete cut is available, the compact card answers `reviewable outcomes / build attempts`; its link opens
+the canonical `availability=reviewable` candidate view. Only reviewable rows link to Historical build outcome.
+Unavailable rows remain visible under `All attempts` but are not presented as actionable links. If the composition
+is unavailable, the ordinary candidate directory remains usable and no zero-reviewable claim is inferred.
+
 The authenticated Owner GET `/v1/artifact-builds/directory` returns at most 20 verified items. It considers at most
 60 attempt candidates per page, ordered by `(prepared_at_epoch_ms, build_request_identity)` descending with
 PostgreSQL `C` collation for the bounded ASCII identity, and exposes

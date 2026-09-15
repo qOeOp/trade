@@ -38,6 +38,7 @@ export default async function DashboardPage({
   const replayHistoricalCustody = query.custody === "historical";
   const directoryView = query.view === "candidates" ? "candidates" : "verified";
   const artifactCandidateKind = query.kind === "bindings" ? "bindings" : "attempts";
+  const artifactCandidateAvailability = query.availability === "reviewable" ? "reviewable" : "all";
   return <DashboardRouteContent
     current={current === "/market" ? "/dashboard" : current}
     sourceIntakeRequestIdentity={sourceIntakeRequestIdentity}
@@ -48,5 +49,6 @@ export default async function DashboardPage({
     replayHistoricalCustody={replayHistoricalCustody}
     directoryView={directoryView}
     artifactCandidateKind={artifactCandidateKind}
+    artifactCandidateAvailability={artifactCandidateAvailability}
   />;
 }

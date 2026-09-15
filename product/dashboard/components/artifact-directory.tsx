@@ -11,6 +11,7 @@ import {
   type ArtifactDirectoryCursorV1,
   type ArtifactDirectoryItemV1,
 } from "../lib/artifact-directory-gateway";
+import { artifactReviewInventoryMatchesCustodyV1 } from "../lib/artifact-review-inventory";
 import type {
   HistoricalArtifactCandidateV1,
   HistoricalBindingCandidateV1,
@@ -32,6 +33,7 @@ import {
 import { StatusBadge } from "./ui/status-badge";
 import { useDelayedPending } from "./ui/use-delayed-pending";
 import { useHistoricalCustodyDirectory } from "./use-historical-custody-directory";
+import { useArtifactReviewInventory } from "./use-artifact-review-inventory";
 import { OwnerDirectoryInfo, OwnerDirectoryUnavailable } from "./owner-directory-state";
 import { RdCustodyReviewSummary } from "./rd-custody-review-summary";
 import styles from "./owner-directory.module.css";
@@ -56,13 +58,18 @@ function directoryUrl(cursor?: ArtifactDirectoryCursorV1): string {
 export function ArtifactDirectory({
   initialView = "verified",
   initialCandidateKind = "attempts",
+  initialCandidateAvailability = "all",
 }: {
   initialView?: "verified" | "candidates";
   initialCandidateKind?: "attempts" | "bindings";
+  initialCandidateAvailability?: "all" | "reviewable";
 }) {
   const router = useRouter();
   const [view, setView] = useState<"verified" | "candidates">(initialView);
   const [candidateKind, setCandidateKind] = useState<"attempts" | "bindings">(initialCandidateKind);
+  const [candidateAvailability, setCandidateAvailability] = useState<"all" | "reviewable">(
+    initialCandidateAvailability,
+  );
   const [items, setItems] = useState<readonly ArtifactDirectoryItemV1[]>([]);
   const [nextCursor, setNextCursor] = useState<ArtifactDirectoryCursorV1 | null>(null);
   const [availability, setAvailability] = useState<"loading" | "available" | "unavailable">("loading");
@@ -73,6 +80,7 @@ export function ArtifactDirectory({
   const itemsRef = useRef<readonly ArtifactDirectoryItemV1[]>([]);
   const requestGuard = useRef(createArtifactDirectoryRequestGuardV1());
   const custodyCandidates = useHistoricalCustodyDirectory(true);
+  const reviewInventory = useArtifactReviewInventory(true);
 
   const readPage = useCallback(async (cursor?: ArtifactDirectoryCursorV1) => {
     const requestIdentity = requestGuard.current.begin();
@@ -142,13 +150,38 @@ export function ArtifactDirectory({
       item.buildTarget,
     ].some((value) => value.toLowerCase().includes(normalizedSearch)))
     : items, [items, normalizedSearch]);
+  const projectedReviewByAttempt = useMemo(() => new Map(
+    (reviewInventory.projection?.items ?? []).map((item) => [
+      `${item.buildRequestIdentity}\u0000${item.attemptIdentity}`,
+      item,
+    ]),
+  ), [reviewInventory.projection]);
+  const reviewInventoryBound = useMemo(() => {
+    return artifactReviewInventoryMatchesCustodyV1(
+      reviewInventory.projection,
+      custodyCandidates.projection,
+    );
+  }, [custodyCandidates.projection, reviewInventory.projection]);
+  const reviewByAttempt = useMemo(() => reviewInventoryBound
+    ? projectedReviewByAttempt
+    : new Map(), [projectedReviewByAttempt, reviewInventoryBound]);
+  const reviewAvailability = reviewInventory.availability === "loading"
+    ? "loading"
+    : reviewInventory.availability === "available" && reviewInventoryBound
+    ? "available"
+    : "unavailable";
   const visibleAttemptCandidates = useMemo(() => {
     const candidates = custodyCandidates.projection?.artifactAttempts ?? [];
-    return normalizedSearch
+    const searched = normalizedSearch
       ? candidates.filter((item) => `${item.buildRequestIdentity} ${item.attemptIdentity}`
         .toLowerCase().includes(normalizedSearch))
       : candidates;
-  }, [custodyCandidates.projection, normalizedSearch]);
+    return candidateAvailability === "reviewable"
+      ? searched.filter((item) => reviewByAttempt.get(
+        `${item.buildRequestIdentity}\u0000${item.attemptIdentity}`,
+      )?.availability === "reviewable")
+      : searched;
+  }, [candidateAvailability, custodyCandidates.projection, normalizedSearch, reviewByAttempt]);
   const visibleBindingCandidates = useMemo(() => {
     const candidates = custodyCandidates.projection?.bindings ?? [];
     return normalizedSearch
@@ -211,13 +244,23 @@ export function ArtifactDirectory({
       sortable: true,
       minWidth: "310px",
       grow: 1.4,
-      cell: (item) => <Link
-        className={styles.identityCell}
-        href={`/rd/artifacts/${encodeURIComponent(item.buildRequestIdentity)}/attempts/${encodeURIComponent(item.attemptIdentity)}?custody=historical`}
-      >
-        <strong title={item.buildRequestIdentity}>{displayIdentity(item.buildRequestIdentity)}</strong>
-        <span>Open historical outcome</span>
-      </Link>,
+      cell: (item) => {
+        const review = reviewByAttempt.get(`${item.buildRequestIdentity}\u0000${item.attemptIdentity}`);
+        const content = <>
+          <strong title={item.buildRequestIdentity}>{displayIdentity(item.buildRequestIdentity)}</strong>
+          <span>{review?.availability === "reviewable"
+            ? "Open historical outcome"
+            : review?.availability === "unavailable"
+            ? "Outcome unavailable"
+            : "Check historical outcome"}</span>
+        </>;
+        return review?.availability === "unavailable"
+          ? <div className={styles.identityCell}>{content}</div>
+          : <Link
+            className={styles.identityCell}
+            href={`/rd/artifacts/${encodeURIComponent(item.buildRequestIdentity)}/attempts/${encodeURIComponent(item.attemptIdentity)}?custody=historical`}
+          >{content}</Link>;
+      },
       ignoreRowClick: true,
     },
     {
@@ -234,12 +277,29 @@ export function ArtifactDirectory({
     {
       id: "verification",
       name: <DataTableHeaderLabel>Verification</DataTableHeaderLabel>,
-      selector: (item) => item.projectionState,
+      selector: (item) => reviewByAttempt.get(
+        `${item.buildRequestIdentity}\u0000${item.attemptIdentity}`,
+      )?.availability ?? item.projectionState,
       minWidth: "220px",
-      cell: () => <div className={styles.verification}>
-        <StatusBadge tone="unavailable">Not verified</StatusBadge>
-        <span>Point read required</span>
-      </div>,
+      cell: (item) => {
+        const review = reviewByAttempt.get(`${item.buildRequestIdentity}\u0000${item.attemptIdentity}`);
+        return <div className={styles.verification}>
+          <StatusBadge tone={review?.availability === "reviewable" ? "warning" : "unavailable"}>
+            {review?.availability === "reviewable"
+              ? "Review ready"
+              : review?.availability === "unavailable"
+              ? "Unavailable"
+              : reviewAvailability === "loading"
+              ? "Checking…"
+              : "Not checked"}
+          </StatusBadge>
+          <span>{review?.availability === "reviewable"
+            ? review.disposition
+            : review?.availability === "unavailable"
+            ? "Owner read unavailable"
+            : "Point read required"}</span>
+        </div>;
+      },
     },
     {
       id: "observed",
@@ -251,7 +311,7 @@ export function ArtifactDirectory({
         {new Date(item.preparedAtEpochMs).toLocaleString()}
       </time>,
     },
-  ], []);
+  ], [reviewAvailability, reviewByAttempt]);
   const bindingCandidateColumns = useMemo<DataWorkspaceColumn<HistoricalBindingCandidateV1>[]>(() => [
     {
       id: "family",
@@ -299,10 +359,11 @@ export function ArtifactDirectory({
   ], []);
 
   const pending = view === "verified"
-    ? availability === "loading"
-    : custodyCandidates.availability === "loading";
+    ? availability === "loading" || reviewInventory.availability === "loading"
+    : custodyCandidates.availability === "loading" || reviewInventory.availability === "loading";
   const showPending = useDelayedPending(pending);
   const refresh = () => {
+    void reviewInventory.read();
     if (view === "verified") {
       void custodyCandidates.read();
       return readPage();
@@ -316,18 +377,31 @@ export function ArtifactDirectory({
     const nextView = value === "candidates" ? "candidates" : "verified";
     setView(nextView);
     router.replace(nextView === "candidates"
-      ? `/rd/artifacts/?view=candidates&kind=${candidateKind}`
+      ? `/rd/artifacts/?view=candidates&kind=${candidateKind}${candidateKind === "attempts" && candidateAvailability === "reviewable"
+        ? "&availability=reviewable"
+        : ""}`
       : "/rd/artifacts/", { scroll: false });
   };
-  const selectCandidateKind = (value: string) => {
+  const selectCandidateCut = (value: string) => {
     const nextKind = value === "bindings" ? "bindings" : "attempts";
+    const nextAvailability = value === "reviewable" ? "reviewable" : "all";
     setCandidateKind(nextKind);
-    router.replace(`/rd/artifacts/?view=candidates&kind=${nextKind}`, { scroll: false });
+    setCandidateAvailability(nextAvailability);
+    router.replace(`/rd/artifacts/?view=candidates&kind=${nextKind}${nextKind === "attempts" && nextAvailability === "reviewable"
+      ? "&availability=reviewable"
+      : ""}`, { scroll: false });
   };
 
   return (
     <PageStack>
-      <RdCustodyReviewSummary projection={custodyCandidates.projection} scope="artifacts" />
+      <RdCustodyReviewSummary
+        projection={custodyCandidates.projection}
+        scope="artifacts"
+        artifactReviewableTotal={reviewInventoryBound
+          && reviewInventory.projection?.completeness === "complete"
+          ? reviewInventory.projection.reviewableTotal
+          : null}
+      />
       <PanelFrame aria-labelledby="artifact-directory-title">
         <PanelFrameHeader
           eyebrow="Artifacts"
@@ -360,13 +434,18 @@ export function ArtifactDirectory({
                 onSelect={selectView}
               />
               {view === "candidates" ? <FilterTabs
-                label="Candidate custody kind"
+                label="Candidate review cut"
                 items={[
-                  { value: "attempts", label: "Attempts" },
+                  { value: "reviewable", label: "Reviewable" },
+                  { value: "attempts", label: "All attempts" },
                   { value: "bindings", label: "Bindings" },
                 ]}
-                selected={candidateKind}
-                onSelect={selectCandidateKind}
+                selected={candidateKind === "bindings"
+                  ? "bindings"
+                  : candidateAvailability === "reviewable"
+                  ? "reviewable"
+                  : "attempts"}
+                onSelect={selectCandidateCut}
                 variant="rail"
               /> : null}
             </div>}>
@@ -413,7 +492,17 @@ export function ArtifactDirectory({
                 detail="Artifact candidates could not be loaded. Try refreshing."
                 reason={custodyCandidates.reason ?? "CUSTODY_CANDIDATE_DIRECTORY_UNAVAILABLE"}
               />
-            ) : candidateKind === "attempts" ? <DataWorkspaceTable<HistoricalArtifactCandidateV1>
+            ) : candidateKind === "attempts" && candidateAvailability === "reviewable"
+              && reviewAvailability === "unavailable" ? (
+                <OwnerDirectoryUnavailable
+                  icon={<EvidenceIcons.warning aria-hidden="true" size={18} />}
+                  title="Review availability unavailable"
+                  detail="Candidate identities remain visible in All attempts, but readable outcomes could not be verified."
+                  reason={reviewInventory.availability === "available"
+                    ? "ARTIFACT_REVIEW_INVENTORY_CUSTODY_MISMATCH"
+                    : reviewInventory.reason ?? "ARTIFACT_REVIEW_INVENTORY_UNAVAILABLE"}
+                />
+              ) : candidateKind === "attempts" ? <DataWorkspaceTable<HistoricalArtifactCandidateV1>
               ariaLabel="Artifact custody candidates"
               columns={attemptCandidateColumns}
               data={visibleAttemptCandidates}
@@ -427,7 +516,11 @@ export function ArtifactDirectory({
               noDataComponent={<DataWorkspaceEmpty state={custodyCandidates.availability === "loading" ? "loading" : "empty"}
                 className={custodyCandidates.availability === "loading" && !showPending ? styles.pendingQuiet : undefined}
                 icon={<EvidenceIcons.pending aria-hidden="true" size={18} />}>
-                {custodyCandidates.availability === "loading" ? "Reading custody candidates…" : "No attempt candidate matches this cut."}
+                {custodyCandidates.availability === "loading" || reviewAvailability === "loading"
+                  ? "Reading custody candidates…"
+                  : candidateAvailability === "reviewable"
+                  ? "No readable build outcome matches this cut."
+                  : "No attempt candidate matches this cut."}
               </DataWorkspaceEmpty>}
             /> : <DataWorkspaceTable<HistoricalBindingCandidateV1>
               ariaLabel="TrialFamily binding custody candidates"
@@ -451,8 +544,12 @@ export function ArtifactDirectory({
         {view === "candidates" && custodyCandidates.availability === "available" ? (
           <PanelFrameFooter layout="split">
             <PanelFrameFooterSummary
-              primary={`${candidateTotal} ${candidateKind === "attempts" ? "attempt" : "binding"} candidates`}
-              secondary="Candidates remain unverified until their exact record is opened."
+              primary={candidateKind === "attempts" && candidateAvailability === "reviewable"
+                ? `${reviewInventory.projection?.reviewableTotal ?? 0} reviewable outcomes`
+                : `${candidateTotal} ${candidateKind === "attempts" ? "attempt" : "binding"} candidates`}
+              secondary={candidateKind === "attempts" && candidateAvailability === "reviewable"
+                ? "Each row has a current typed Owner readback."
+                : "Candidates remain unverified until their exact record is opened."}
             />
           </PanelFrameFooter>
         ) : availability === "available" && (partial || nextCursor) ? (

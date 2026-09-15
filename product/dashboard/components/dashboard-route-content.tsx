@@ -108,6 +108,7 @@ export function DashboardRouteContent({
   researchRequestIdentity,
   directoryView = "verified",
   artifactCandidateKind = "attempts",
+  artifactCandidateAvailability = "all",
 }: {
   current: string;
   runIdentity?: string;
@@ -124,6 +125,7 @@ export function DashboardRouteContent({
   researchRequestIdentity?: string;
   directoryView?: "verified" | "candidates";
   artifactCandidateKind?: "attempts" | "bindings";
+  artifactCandidateAvailability?: "all" | "reviewable";
 }) {
   const activeModule = moduleFor(current);
   const page = pageFor(current);
@@ -237,9 +239,10 @@ export function DashboardRouteContent({
               : researchReadback ? <ResearchReadbackWorkspace requestIdentity={researchRequestIdentity!} />
               : researchDirectory ? <ResearchDirectory key={directoryView} initialView={directoryView} />
               : artifactDirectory ? <ArtifactDirectory
-                key={`${directoryView}:${artifactCandidateKind}`}
+                key={`${directoryView}:${artifactCandidateKind}:${artifactCandidateAvailability}`}
                 initialView={directoryView}
                 initialCandidateKind={artifactCandidateKind}
+                initialCandidateAvailability={artifactCandidateAvailability}
               />
               : artifactSourceDetail ? artifactHistoricalCustody
                 ? <ArtifactHistoricalReadbackWorkspace

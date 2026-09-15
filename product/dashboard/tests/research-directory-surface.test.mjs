@@ -21,7 +21,8 @@ test("Research directory uses the shared compact read-only table surface", async
   assert.match(summary, /build attempts/u);
   assert.match(summary, /family bindings/u);
   assert.match(summary, /href="\/rd\/research\/\?view=candidates"/u);
-  assert.match(summary, /href="\/rd\/artifacts\/\?view=candidates&kind=attempts"/u);
+  assert.match(summary, /"\/rd\/artifacts\/\?view=candidates&kind=attempts"/u);
+  assert.match(summary, /"\/rd\/artifacts\/\?view=candidates&kind=attempts&availability=reviewable"/u);
   assert.match(summary, /href="\/rd\/artifacts\/\?view=candidates&kind=bindings"/u);
   assert.match(statusAtom, /data-interactive=\{href \? true : undefined\}/u);
   assert.match(statusAtom, /className="compact-status-item-link"/u);
@@ -45,6 +46,7 @@ test("Research directory uses the shared compact read-only table surface", async
   assert.match(shell, /<ResearchDirectory key=\{directoryView\} initialView=\{directoryView\} \/>/u);
   assert.match(page, /query\.view === "candidates" \? "candidates" : "verified"/u);
   assert.match(page, /query\.kind === "bindings" \? "bindings" : "attempts"/u);
+  assert.match(page, /query\.availability === "reviewable" \? "reviewable" : "all"/u);
   assert.match(shell, /OWNER_CUSTODY_READ_ONLY - NO_SUBMIT_OR_RESOLVE/u);
   assert.match(css, /\.tableSurface :global\(\.data-workspace-viewport\)[^{]*\{[^}]*max-height:/su);
   assert.match(component, /availability === "unavailable"[\s\S]+<OwnerDirectoryUnavailable/u);
