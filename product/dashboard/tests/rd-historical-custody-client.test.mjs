@@ -176,4 +176,25 @@ test("browser envelope accepts only the exact journal-bound projection", () => {
     ...envelope,
     projection: { ...projection, research: [null] },
   }), null);
+  assert.equal(parseHistoricalCustodyBrowserEnvelopeV1({
+    ...envelope,
+    projection: {
+      ...projection,
+      research: [{ ...projection.research[0], projectionState: "VERIFIED" }],
+    },
+  }), null);
+  assert.equal(parseHistoricalCustodyBrowserEnvelopeV1({
+    ...envelope,
+    projection: {
+      ...projection,
+      artifactAttempts: [{ ...projection.artifactAttempts[0], preparedAtEpochMs: "1200" }],
+    },
+  }), null);
+  assert.equal(parseHistoricalCustodyBrowserEnvelopeV1({
+    ...envelope,
+    projection: {
+      ...projection,
+      bindings: [{ ...projection.bindings[0], smuggled: true }],
+    },
+  }), null);
 });
