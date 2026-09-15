@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import { moduleFor, modules, parentTabFor } from "../lib/navigation.js";
 import { ModuleTabLinks } from "./module-tab-links";
+import { Button } from "./ui/button";
 import { InterfaceIcons, ModuleIcons } from "./ui/iconography";
 
 const iconByName = ModuleIcons;
@@ -43,7 +44,7 @@ export function DesktopModuleNavigation({ current }: { current: string }) {
     <aside className="desktop-side-column" aria-label="Dashboard navigation">
       <div className="module-launcher">
         <BrandMark />
-        <span aria-hidden="true" className="module-trigger"><InterfaceIcons.menu size={14} /></span>
+        <span aria-hidden="true" className="module-trigger-mark"><InterfaceIcons.menu size={14} /></span>
       </div>
       <ModuleRail current={current} />
     </aside>
@@ -98,17 +99,19 @@ export function MobileModuleDrawer({ current }: { current: string }) {
     <div className="mobile-module-navigation">
       <nav className="module-launcher" aria-label="Dashboard navigation">
         <BrandMark />
-        <button
+        <Button
           aria-controls={drawerId}
           aria-expanded={open}
           aria-label={open ? "Close modules" : "Open modules"}
           className="module-trigger"
           onClick={() => open ? closeDrawer() : setOpen(true)}
           ref={triggerRef}
+          size="icon-xs"
           type="button"
+          variant="text"
         >
           <InterfaceIcons.menu aria-hidden="true" size={14} />
-        </button>
+        </Button>
       </nav>
       {portalReady && createPortal(
         <>

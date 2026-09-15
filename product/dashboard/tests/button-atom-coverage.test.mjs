@@ -35,12 +35,15 @@ function jsxElements(source, path) {
 }
 
 test("conventional Dashboard actions use shared button size atoms", async () => {
-  const [button, access, errorBoundary, dialog, calendarCss, heatmap, heatmapCss, chrome, theme, runstore, runDetail, readback, viewerChrome] = await Promise.all([
+  const [button, access, errorBoundary, dialog, calendarCss, schedules, kpiDemo, navigation, heatmap, heatmapCss, chrome, theme, runstore, runDetail, readback, viewerChrome] = await Promise.all([
     read("components/ui/button.tsx"),
     read("components/local-operator-access.tsx"),
     read("components/error-boundary.tsx"),
     read("components/ui/schedule-calendar/dialogs/schedule-inspection-dialog.tsx"),
     read("components/ui/schedule-calendar.module.css"),
+    read("components/operations-schedules-preview.tsx"),
+    read("components/kpi-display-demo.tsx"),
+    read("components/module-navigation.tsx"),
     read("components/ui/market-heatmap.tsx"),
     read("components/ui/market-heatmap.module.css"),
     read("components/dashboard-chrome.tsx"),
@@ -65,6 +68,12 @@ test("conventional Dashboard actions use shared button size atoms", async () => 
   assert.match(dialog, /size="icon-tool"[^>]*aria-label="Close schedule inspection"/u);
   assert.equal(dialog.match(/size="tool"/gu)?.length, 2);
   assert.doesNotMatch(calendarCss, /\.iconButton|\.dialogFooter button/u);
+  assert.match(schedules, /<Button[^>]*variant="text"[^>]*size="xs"[^>]*className=\{styles\.operation\}/u);
+  assert.doesNotMatch(schedules, /<button\b/u);
+  assert.doesNotMatch(calendarCss, /\.operation\s*\{[^}]*\b(?:border|padding|background|cursor)\s*:/u);
+  assert.match(kpiDemo, /<FilterTabs[\s\S]*?variant="rail"/u);
+  assert.doesNotMatch(kpiDemo, /<button\b/u);
+  assert.match(navigation, /<Button[\s\S]*?className="module-trigger"[\s\S]*?size="icon-xs"[\s\S]*?variant="text"/u);
 
   assert.match(heatmap, /import \{ Button \} from "\.\/button"/u);
   assert.match(heatmap, /variant="ghost" size="icon-xs" aria-label="Clear search"/u);
