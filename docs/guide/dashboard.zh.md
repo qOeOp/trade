@@ -307,8 +307,9 @@ cutover。
 
 `ResearchDirectory` 是 `/rd/research` 的精确 `P` surface。route 使用一个全宽 `PanelFrame`，不为无内容的
 detail column 预留空间。frame header 包含 eyebrow、title、单行 purpose 与一个 `Refresh` action。body
-只有一行 table toolbar：左侧是 `Verified / Custody candidates` segmented control，右侧 search，且默认始终为
-`Verified`。verified 表格按顺序只有四个 plain、左对齐
+只有一行 table toolbar：左侧是 `Request history / Current intents` segmented control，右侧 search。默认使用
+`Request history`，因为它是当前完整可用的 request workload；`Current intents` 是更窄的 verified-current view。
+verified 表格按顺序只有四个 plain、左对齐
 column：`Research request`、`State`、`Intent`、`Updated`。表头文字前不放装饰性 icon；不存在 View/column
 chooser、registered/visible 数量、多级 filter popover、row action 或 backend-only 字段。表头固定在有界
 scroll viewport 内；loading、合法 empty、unavailable、partial 保持相同 card geometry。窄屏只横向滚动，
@@ -321,11 +322,12 @@ Historical-custody Owner projection available 时，route 在 directory 前放�
 lifecycle、verified journey，也不声称三个集合一一对应。Projection unavailable 时整张 card 消失，不能替代
 独立 verified R&D loop。任一 directory view 的 Refresh 都刷新 custody projection。每个 metric 都只是同一
 Owner cut 上的安静导航入口：已知 `research outcomes` 打开
-`/rd/research/?view=candidates&outcome=ready`，fallback `research requests` 打开
-`/rd/research/?view=candidates`，`build attempts` 打开
+`/rd/research/?outcome=ready`，fallback `research requests` 打开
+`/rd/research/`，`build attempts` 打开
 `/rd/artifacts/?view=candidates&kind=attempts`，`family bindings` 打开
-`/rd/artifacts/?view=candidates&kind=bindings`。未知或缺失 query value 必须退回 verified 默认态；这些 link
-不准入任何新的 read/write contract，对应 `Custody candidates` segment 仍是可见 drill-down interaction。
+`/rd/artifacts/?view=candidates&kind=bindings`。未知或缺失 query value 必须退回有用的
+`Request history / All` 默认态；`view=verified` 显式选择 `Current intents`。这些 link 不准入任何新的
+read/write contract。Query 切换保持 directory surface mounted，URL settle 时不会闪过另一个 view。
 
 经认证的 Owner GET `/v1/research-goals/directory` 每页最多返回 20 个已验证 V2 request outcome。每页最多
 检查 60 个 receipt candidate，按 `(committed_at_epoch_ms, request_identity)` 降序，其中有界 ASCII identity
@@ -334,7 +336,7 @@ candidate 都在独立的 canonical read-committed transaction 中以 `FOR SHARE
 custody verifier，覆盖 stored request、receipt、frozen intent、Research view、authority lineage、independence
 basis、protected-feedback projection 与 TrialFamily custody。legacy 或 quarantined request schema 被隐藏并使
 cut 明确标为 partial。任何 malformed 或跨读变化的 candidate 都使整次读取 unavailable，绝不能伪装成成功空页。
-次级 candidate view 使用经认证的 GET `/v1/historical-custodies`。其独立 Owner port 只建立
+默认 all-research view 使用经认证的 GET `/v1/historical-custodies`。其独立 Owner port 只建立
 `default_transaction_read_only=on` session，并在一个有界 repeatable-read transaction 中读取；最多返回 200 个
 request identity、custody time 与精确的 `POINT_READ_REQUIRED` state，不暴露 request meaning、disposition、
 availability、receipt、authority，也不判断 current/legacy；超限必须显式 truncated。
@@ -345,7 +347,7 @@ Dashboard-only authenticated GET `/api/rd/research/outcome-inventory` 把该有�
 projection 保留 source 与 composition observation time、scanned/source total、completeness、三类状态 total 和
 每个 request identity。它不是跨记录的单一原子 Owner snapshot，也不会创造 Research-to-Artifact 或 TrialFamily
 join。只有 inventory request-identity set 与页面独立渲染的 custody set 精确一致时，browser 才能显示
-`With outcome / Awaiting / All requests`；mismatch 或 composition unavailable 只禁用 filtered cut，不能把原始
+`All / Results ready / Waiting`；mismatch 或 composition unavailable 只禁用 filtered cut，不能把原始
 candidate directory 伪装成成功空集。只有 `outcome_ready` row 可以声称已有 Owner outcome；awaiting row 打开
 精确 request status，unavailable row 不提供 false action。未知 `outcome` value fail back 到 `All requests`。
 

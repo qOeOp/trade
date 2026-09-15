@@ -36,7 +36,8 @@ export default async function DashboardPage({
     ? query.attemptIdentity
     : undefined;
   const replayHistoricalCustody = query.custody === "historical";
-  const directoryView = query.view === "candidates" ? "candidates" : "verified";
+  const researchDirectoryView = query.view === "verified" ? "verified" : "candidates";
+  const artifactDirectoryView = query.view === "candidates" ? "candidates" : "verified";
   const researchCandidateOutcome = query.outcome === "ready"
     ? "ready"
     : query.outcome === "awaiting" ? "awaiting" : "all";
@@ -50,7 +51,8 @@ export default async function DashboardPage({
     replayMeaningDigest={replayMeaningDigest}
     replayAttemptIdentity={replayAttemptIdentity}
     replayHistoricalCustody={replayHistoricalCustody}
-    directoryView={directoryView}
+    researchDirectoryView={researchDirectoryView}
+    artifactDirectoryView={artifactDirectoryView}
     researchCandidateOutcome={researchCandidateOutcome}
     artifactCandidateKind={artifactCandidateKind}
     artifactCandidateAvailability={artifactCandidateAvailability}

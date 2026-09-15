@@ -356,8 +356,9 @@ authorize trading, or establish cutover.
 
 `ResearchDirectory` is the exact `P` surface for `/rd/research`. The route uses one full-width `PanelFrame` and
 does not reserve an empty detail column. Its frame header contains an eyebrow, title, one-line purpose, and one
-`Refresh` action. The body contains one horizontal table toolbar with a `Verified / Custody candidates` segmented
-control at the left and search at the right; `Verified` is always the default. The verified table has four plain,
+`Refresh` action. The body contains one horizontal table toolbar with a `Request history / Current intents` segmented
+control at the left and search at the right. `Request history` is the default because it is the complete available
+request workload; `Current intents` is the narrower verified-current view. The verified table has four plain,
 left-aligned columns in this order: `Research request`, `State`,
 `Intent`, and `Updated`. Column headings have no decorative icons and there is no View/column-chooser button,
 registered/visible count, multi-level filter popover, row action, or backend-only field. The table header remains
@@ -372,12 +373,13 @@ fails back to the raw `research requests` total. This is a review inventory,
 not a conversion funnel, lifecycle, verified journey, or claim that the three sets are one-to-one. It disappears
 when that projection is unavailable and never replaces the separately verified R&D loop. Refresh on either directory
 view refreshes the custody projection. Each metric is one quiet navigation target over the same Owner cut:
-known `research outcomes` opens `/rd/research/?view=candidates&outcome=ready`, the fallback `research requests`
-opens `/rd/research/?view=candidates`, and `build attempts` opens
+known `research outcomes` opens `/rd/research/?outcome=ready`, the fallback `research requests`
+opens `/rd/research/`, and `build attempts` opens
 `/rd/artifacts/?view=candidates&kind=attempts`, and `family bindings` opens
-`/rd/artifacts/?view=candidates&kind=bindings`. Unknown or missing query values fail back to the verified default;
-the links admit no new read or write contract, and the corresponding `Custody candidates` segment remains the
-visible drill-down interaction.
+`/rd/artifacts/?view=candidates&kind=bindings`. Unknown or missing query values fail back to the useful
+`Request history / All` default; `view=verified` explicitly selects `Current intents`. The links admit no new
+read or write contract. Query changes preserve the mounted directory surface so the table does not flash through
+another view while the URL settles.
 
 The authenticated Owner GET `/v1/research-goals/directory` returns at most 20 verified V2 request outcomes. It
 considers at most 60 receipt candidates per page, ordered by `(committed_at_epoch_ms, request_identity)` descending
@@ -386,8 +388,8 @@ with PostgreSQL `C` collation for the bounded ASCII identity, and exposes the sa
 passes the existing complete Research custody verifier, including its stored request, receipt, frozen intent,
 Research view, authority lineage, independence basis, protected-feedback projection, and TrialFamily custody.
 Legacy or quarantined request schemas are omitted and make the cut explicitly partial. A malformed or changed
-candidate fails the entire read unavailable; it is never treated as an empty successful page. The secondary
-candidate view uses authenticated GET `/v1/historical-custodies`. Its dedicated Owner port opens only
+candidate fails the entire read unavailable; it is never treated as an empty successful page. The default
+all-research view uses authenticated GET `/v1/historical-custodies`. Its dedicated Owner port opens only
 `default_transaction_read_only=on` sessions and reads one bounded repeatable-read transaction. It returns at most
 200 request identities with their custody time and the exact state `POINT_READ_REQUIRED`; it exposes no request
 meaning, disposition, availability, receipt, authority, or current/legacy classification. Truncation is explicit.
@@ -397,7 +399,7 @@ existing identity-bound Research exact read per scanned request, with at most si
 `outcome_ready`, `awaiting_outcome`, and `unavailable`; an available read with no outcome is explicitly awaiting,
 not unavailable. The projection preserves source and composition observation times, scanned and source totals,
 completeness, all three state totals, and each request identity. It is not one atomic cross-record Owner snapshot and
-creates no Research-to-Artifact or TrialFamily join. The browser may show `With outcome / Awaiting / All requests`
+creates no Research-to-Artifact or TrialFamily join. The browser may show `All / Results ready / Waiting`
 only after the inventory request-identity set exactly matches the separately rendered custody set. A mismatch or
 unavailable composition disables the filtered cuts without turning the raw candidate directory into an empty result.
 Only `outcome_ready` rows claim an Owner outcome; awaiting rows open their exact request status, and unavailable rows

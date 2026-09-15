@@ -28,8 +28,8 @@ export function RdCustodyReviewSummary({
             ? `${researchOutcomeReadyTotal} / ${projection.researchTotal}`
             : projection.researchTotal}
           href={researchOutcomesKnown
-            ? "/rd/research/?view=candidates&outcome=ready"
-            : "/rd/research/?view=candidates"}
+            ? "/rd/research/?outcome=ready"
+            : "/rd/research/"}
           actionLabel={researchOutcomesKnown
             ? "Review research requests with an Owner outcome"
             : "Review research request candidates"}

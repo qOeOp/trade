@@ -73,7 +73,7 @@ function directoryUrl(cursor?: ResearchDirectoryCursorV1): string {
 }
 
 export function ResearchDirectory({
-  initialView = "verified",
+  initialView = "candidates",
   initialCandidateOutcome = "all",
 }: {
   initialView?: "verified" | "candidates";
@@ -96,6 +96,11 @@ export function ResearchDirectory({
   const requestGuard = useRef(createResearchDirectoryRequestGuardV1());
   const custodyCandidates = useHistoricalCustodyDirectory(true);
   const outcomeInventory = useResearchOutcomeInventory(true);
+
+  useEffect(() => {
+    setView(initialView);
+    setCandidateOutcome(initialCandidateOutcome);
+  }, [initialCandidateOutcome, initialView]);
 
   const readPage = useCallback(async (cursor?: ResearchDirectoryCursorV1) => {
     const requestIdentity = requestGuard.current.begin();
@@ -335,13 +340,13 @@ export function ResearchDirectory({
     const nextView = value === "candidates" ? "candidates" : "verified";
     setView(nextView);
     router.replace(nextView === "candidates"
-      ? `/rd/research/?view=candidates${candidateOutcome === "all" ? "" : `&outcome=${candidateOutcome}`}`
-      : "/rd/research/", { scroll: false });
+      ? `/rd/research/${candidateOutcome === "all" ? "" : `?outcome=${candidateOutcome}`}`
+      : "/rd/research/?view=verified", { scroll: false });
   };
   const selectCandidateOutcome = (value: string) => {
     const nextOutcome = value === "ready" ? "ready" : value === "awaiting" ? "awaiting" : "all";
     setCandidateOutcome(nextOutcome);
-    router.replace(`/rd/research/?view=candidates${nextOutcome === "all" ? "" : `&outcome=${nextOutcome}`}`, {
+    router.replace(`/rd/research/${nextOutcome === "all" ? "" : `?outcome=${nextOutcome}`}`, {
       scroll: false,
     });
   };
@@ -359,7 +364,7 @@ export function ResearchDirectory({
       <PanelFrame aria-labelledby="research-directory-title">
         <PanelFrameHeader
           eyebrow="Research"
-          title="Research requests"
+          title="Research activity"
           titleId="research-directory-title"
           description={view === "verified"
             ? "Review accepted requests and their current strategy intent."
@@ -381,8 +386,8 @@ export function ResearchDirectory({
               <FilterTabs
                 label="Research directory view"
                 items={[
-                  { value: "verified", label: "Verified" },
-                  { value: "candidates", label: "Custody candidates" },
+                  { value: "candidates", label: "Request history" },
+                  { value: "verified", label: "Current intents" },
                 ]}
                 selected={view}
                 onSelect={selectView}
@@ -390,9 +395,9 @@ export function ResearchDirectory({
               {view === "candidates" ? <FilterTabs
                 label="Research outcome cut"
                 items={[
-                  { value: "ready", label: "With outcome" },
-                  { value: "awaiting", label: "Awaiting" },
-                  { value: "all", label: "All requests" },
+                  { value: "all", label: "All" },
+                  { value: "ready", label: "Results ready" },
+                  { value: "awaiting", label: "Waiting" },
                 ]}
                 selected={candidateOutcome}
                 onSelect={selectCandidateOutcome}

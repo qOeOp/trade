@@ -33,7 +33,7 @@ test("Artifact directory uses the shared compact read-only table surface", async
   assert.match(component, /requestGuard\.current\.isCurrent\(requestIdentity\)/u);
   assert.match(component, /ARTIFACT_DIRECTORY_PAGE_IDENTITY_CONFLICT/u);
   assert.match(route, /readArtifactDirectoryGatewayV1/u);
-  assert.match(shell, /<ArtifactDirectory[\s\S]+initialView=\{directoryView\}[\s\S]+initialCandidateKind=\{artifactCandidateKind\}[\s\S]+initialCandidateAvailability=\{artifactCandidateAvailability\}/u);
+  assert.match(shell, /<ArtifactDirectory[\s\S]+initialView=\{artifactDirectoryView\}[\s\S]+initialCandidateKind=\{artifactCandidateKind\}[\s\S]+initialCandidateAvailability=\{artifactCandidateAvailability\}/u);
   assert.match(shell, /OWNER_CUSTODY_READ_ONLY - NO_BUILD_OR_EXECUTION/u);
   assert.match(css, /\.tableSurface :global\(\.data-workspace-viewport\)[^{]*\{[^}]*max-height:/su);
   assert.match(component, /availability === "unavailable"[\s\S]+<OwnerDirectoryUnavailable/u);

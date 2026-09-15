@@ -23,18 +23,19 @@ test("Research directory uses the shared compact read-only table surface", async
   assert.match(summary, /research outcomes/u);
   assert.match(summary, /build attempts/u);
   assert.match(summary, /family bindings/u);
-  assert.match(summary, /: "\/rd\/research\/\?view=candidates"/u);
-  assert.match(summary, /"\/rd\/research\/\?view=candidates&outcome=ready"/u);
+  assert.match(summary, /: "\/rd\/research\/"/u);
+  assert.match(summary, /"\/rd\/research\/\?outcome=ready"/u);
   assert.match(summary, /"\/rd\/artifacts\/\?view=candidates&kind=attempts"/u);
   assert.match(summary, /"\/rd\/artifacts\/\?view=candidates&kind=attempts&availability=reviewable"/u);
   assert.match(summary, /href="\/rd\/artifacts\/\?view=candidates&kind=bindings"/u);
   assert.match(statusAtom, /data-interactive=\{href \? true : undefined\}/u);
   assert.match(statusAtom, /className="compact-status-item-link"/u);
   assert.match(component, /<DataWorkspaceTable<HistoricalResearchCandidateV1>/u);
-  assert.match(component, /label: "Custody candidates"/u);
-  assert.match(component, /label: "With outcome"/u);
-  assert.match(component, /label: "Awaiting"/u);
-  assert.match(component, /label: "All requests"/u);
+  assert.match(component, /label: "Request history"/u);
+  assert.match(component, /label: "Current intents"/u);
+  assert.match(component, /label: "Results ready"/u);
+  assert.match(component, /label: "Waiting"/u);
+  assert.match(component, /label: "All"/u);
   assert.match(component, /outcome=\$\{nextOutcome\}/u);
   assert.match(component, /Requests are grouped by result status\./u);
   assert.match(component, /"Request, intent, or state"/u);
@@ -50,8 +51,10 @@ test("Research directory uses the shared compact read-only table surface", async
   assert.match(component, /Open exact Owner readback for/u);
   assert.match(route, /readResearchDirectoryGatewayV1/u);
   assert.match(route, /search\.getAll\(key\)\.length !== 1/u);
-  assert.match(shell, /<ResearchDirectory[\s\S]+initialView=\{directoryView\}[\s\S]+initialCandidateOutcome=\{researchCandidateOutcome\}/u);
-  assert.match(page, /query\.view === "candidates" \? "candidates" : "verified"/u);
+  assert.match(shell, /<ResearchDirectory[\s\S]+initialView=\{researchDirectoryView\}[\s\S]+initialCandidateOutcome=\{researchCandidateOutcome\}/u);
+  assert.match(page, /const researchDirectoryView = query\.view === "verified" \? "verified" : "candidates"/u);
+  assert.match(page, /const artifactDirectoryView = query\.view === "candidates" \? "candidates" : "verified"/u);
+  assert.doesNotMatch(shell, /<ResearchDirectory\s+key=/u);
   assert.match(page, /query\.outcome === "ready"/u);
   assert.match(page, /query\.kind === "bindings" \? "bindings" : "attempts"/u);
   assert.match(page, /query\.availability === "reviewable" \? "reviewable" : "all"/u);
@@ -81,15 +84,15 @@ test("bilingual Research directory contract fixes layout, fields and no-effect b
     assert.ok(start >= 0);
     const specification = doc.slice(start, doc.indexOf("\n## ", start + heading.length));
     for (const token of [
-      "ResearchDirectory", "/rd/research", "PanelFrame", "Refresh", "Custody candidates", "search",
+      "ResearchDirectory", "/rd/research", "PanelFrame", "Refresh", "Request history", "Current intents", "search",
       "Research request", "State", "Intent", "Updated", "20", "60",
       "committed_at_epoch_ms", "request_identity", "Load older", "partial",
       "unavailable", "POINT_READ_REQUIRED", "/v1/historical-custodies", "Submit", "Resolve", "Windmill",
       "work to review", "research requests", "build attempts", "family bindings",
-      "/rd/research/?view=candidates", "/rd/artifacts/?view=candidates&kind=attempts",
+      "/rd/research/?outcome=ready", "/rd/artifacts/?view=candidates&kind=attempts",
       "/rd/artifacts/?view=candidates&kind=bindings",
       "/api/rd/research/outcome-inventory", "outcome_ready", "awaiting_outcome",
-      "With outcome / Awaiting / All requests",
+      "All / Results ready / Waiting",
     ]) assert.ok(specification.includes(token), `${suffix || "en"} missing ${token}`);
   }
 });
