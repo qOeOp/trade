@@ -7,6 +7,7 @@ import {
   type ArtifactHistoricalReadbackProjectionV1,
 } from "../lib/artifact-readback-gateway";
 import { projectArtifactJourneyV1 } from "../lib/artifact-journey";
+import { humanizeReasonCode } from "../lib/reason-presentation";
 import { UnavailableState } from "./ui/evidence-strip";
 import { FactGroup, FactGroupGrid, FactGroupSkeletonGrid, FactItem } from "./ui/fact-group";
 import { FilterButton, FilterLink } from "./ui/filter-toolbar";
@@ -76,7 +77,7 @@ export function ArtifactHistoricalReadbackWorkspace({
     <PanelFrame className={styles.panel} aria-labelledby="artifact-readback-title">
       <PanelFrameHeader
         eyebrow="Artifact"
-        title="Historical build outcome"
+        title="Build result"
         titleId="artifact-readback-title"
         actions={<>
           <FilterLink density="compact" variant="ghost" href="/rd/artifacts">
@@ -90,6 +91,8 @@ export function ArtifactHistoricalReadbackWorkspace({
               <PanelFrameInfoFact label="Build request"><code>{buildRequestIdentity}</code></PanelFrameInfoFact>
               <PanelFrameInfoFact label="Attempt"><code>{attemptIdentity}</code></PanelFrameInfoFact>
               <PanelFrameInfoFact label="Owner receipt"><code>{projection?.technical?.ownerReceiptIdentity ?? "Not available"}</code></PanelFrameInfoFact>
+              <PanelFrameInfoFact label="Raw result"><code>{projection?.outcome?.historicalDisposition ?? "Not available"}</code></PanelFrameInfoFact>
+              <PanelFrameInfoFact label="Raw reason"><code>{projection?.outcome?.failureCode ?? "Not available"}</code></PanelFrameInfoFact>
             </PanelFrameInfoList>
           </PanelFrameInfo>
         </>}
@@ -97,7 +100,7 @@ export function ArtifactHistoricalReadbackWorkspace({
       <PanelFrameBody className={styles.body}>
         <div className={styles.result} aria-live="polite">
           {status === "loading" ? (
-            <FactGroupSkeletonGrid aria-label="Loading Artifact readback" titles={["Outcome", "Custody", "Timing"]} />
+            <FactGroupSkeletonGrid aria-label="Loading Artifact readback" titles={["Result", "Review", "Timing"]} />
           ) : status === "available" && projection && outcome ? (
             <>
               {journey ? <JourneyProgress
@@ -107,17 +110,17 @@ export function ArtifactHistoricalReadbackWorkspace({
                 aria-label="Artifact build journey"
               /> : null}
               <FactGroupGrid>
-                <FactGroup title="Outcome">
+                <FactGroup title="Result">
                   <FactItem label="Record"><StatusBadge tone="warning">Historical</StatusBadge></FactItem>
-                  <FactItem label="Result">
+                  <FactItem label="Outcome">
                     <StatusBadge tone={outcome.historicalDisposition === "unknown" ? "warning" : "danger"}>
                       {dispositionLabel(outcome.historicalDisposition)}
                     </StatusBadge>
                   </FactItem>
                 </FactGroup>
-                <FactGroup title="Custody">
-                  <FactItem label="Verification"><StatusBadge tone="warning">Quarantined</StatusBadge></FactItem>
-                  <FactItem label="Reason" mono title={outcome.failureCode}>{outcome.failureCode}</FactItem>
+                <FactGroup title="Review">
+                  <FactItem label="Availability"><StatusBadge tone="warning">Historical only</StatusBadge></FactItem>
+                  <FactItem label="Reason" mono title={outcome.failureCode}>{humanizeReasonCode(outcome.failureCode)}</FactItem>
                 </FactGroup>
                 <FactGroup title="Timing">
                   <FactItem label="Committed">{displayTime(outcome.committedAt)}</FactItem>

@@ -16,13 +16,30 @@ test("historical Artifact detail composes the shared panel and fact atoms", asyn
   ]) {
     assert.match(workspace, new RegExp(`\\b${atom}\\b`, "u"));
   }
-  assert.match(workspace, /title="Historical build outcome"/u);
-  assert.match(workspace, /<FactGroup title="Outcome">/u);
-  assert.match(workspace, /<FactGroup title="Custody">/u);
+  assert.match(workspace, /title="Build result"/u);
+  assert.match(workspace, /<FactGroup title="Result">/u);
+  assert.match(workspace, /<FactGroup title="Review">/u);
   assert.match(workspace, /<FactGroup title="Timing">/u);
+  assert.match(workspace, /Historical only/u);
+  assert.match(workspace, /humanizeReasonCode/u);
+  assert.match(workspace, /label="Raw result"/u);
+  assert.match(workspace, /label="Raw reason"/u);
   assert.match(workspace, /projectArtifactJourneyV1/u);
   assert.match(workspace, /aria-label="Artifact build journey"/u);
   assert.doesNotMatch(workspace, /IMPLEMENTATION_ADMITTED|OWNER_POINT_READ_ONLY/u);
+});
+
+test("bilingual historical Artifact detail keeps business copy primary", async () => {
+  for (const suffix of ["", ".zh"]) {
+    const doc = await source(`../../docs/guide/dashboard${suffix}.md`);
+    const heading = suffix ? "## 有界准入：已验证 Artifact 目录" : "## Bounded admission: verified Artifact directory";
+    const start = doc.indexOf(heading);
+    assert.ok(start >= 0);
+    const specification = doc.slice(start, doc.indexOf("\n## ", start + heading.length));
+    for (const token of ["Build result", "Result / Review / Timing", "Historical only", "Raw result", "Raw reason"]) {
+      assert.ok(specification.includes(token), `${suffix || "en"} missing ${token}`);
+    }
+  }
 });
 
 test("candidate identities link to historical point read while verified detail stays unchanged", async () => {

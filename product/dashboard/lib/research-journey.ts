@@ -2,7 +2,7 @@ import type { ResearchReadbackProjectionV1 } from "./research-readback-gateway.t
 
 export type ResearchJourneyStageV1 = Readonly<{
   id: "request" | "intent" | "artifact";
-  label: "Request" | "Intent" | "Artifact";
+  label: "Request" | "Strategy" | "Artifact";
   detail: string;
   state: "complete" | "current" | "pending" | "warning" | "blocked";
 }>;
@@ -15,51 +15,51 @@ export type ResearchJourneyV1 = Readonly<{
 export function projectResearchJourneyV1(projection: ResearchReadbackProjectionV1): ResearchJourneyV1 {
   const outcome = projection.outcome;
   if (!outcome) return {
-    summary: "Waiting for the R&D Owner",
+    summary: "Waiting for a research result",
     stages: [
-      { id: "request", label: "Request", detail: "Awaiting Owner outcome", state: "current" },
-      { id: "intent", label: "Intent", detail: "Not available yet", state: "pending" },
+      { id: "request", label: "Request", detail: "In review", state: "current" },
+      { id: "intent", label: "Strategy", detail: "Not available yet", state: "pending" },
       { id: "artifact", label: "Artifact", detail: "Not available yet", state: "pending" },
     ],
   };
   if (outcome.resolution === "rejected") return {
-    summary: "Request rejected with no Research write",
+    summary: "Research request was not accepted",
     stages: [
-      { id: "request", label: "Request", detail: "Rejected", state: "blocked" },
-      { id: "intent", label: "Intent", detail: "Not created", state: "pending" },
+      { id: "request", label: "Request", detail: "Not accepted", state: "blocked" },
+      { id: "intent", label: "Strategy", detail: "Not created", state: "pending" },
       { id: "artifact", label: "Artifact", detail: "Not created", state: "pending" },
     ],
   };
   if (outcome.resolution === "quarantined") return {
-    summary: "Historical custody needs same-identity review",
+    summary: "Saved result needs a current review",
     stages: [
-      { id: "request", label: "Request", detail: "Historical outcome", state: "warning" },
-      { id: "intent", label: "Intent", detail: "Not promoted", state: "pending" },
+      { id: "request", label: "Request", detail: "Result recorded", state: "warning" },
+      { id: "intent", label: "Strategy", detail: "Not available", state: "pending" },
       { id: "artifact", label: "Artifact", detail: "Not available", state: "pending" },
     ],
   };
   if (projection.view?.availability === "stale") return {
-    summary: "Refresh the same request before continuing",
+    summary: "Update this request before continuing",
     stages: [
-      { id: "request", label: "Request", detail: "Owner accepted", state: "complete" },
-      { id: "intent", label: "Intent", detail: "Current view expired", state: "warning" },
+      { id: "request", label: "Request", detail: "Accepted", state: "complete" },
+      { id: "intent", label: "Strategy", detail: "Update needed", state: "warning" },
       { id: "artifact", label: "Artifact", detail: "Waiting for a current view", state: "pending" },
     ],
   };
   if (projection.view?.phase === "artifact_available") return {
     summary: "Artifact is ready for review",
     stages: [
-      { id: "request", label: "Request", detail: "Owner accepted", state: "complete" },
-      { id: "intent", label: "Intent", detail: "Frozen", state: "complete" },
+      { id: "request", label: "Request", detail: "Accepted", state: "complete" },
+      { id: "intent", label: "Strategy", detail: "Ready", state: "complete" },
       { id: "artifact", label: "Artifact", detail: "Ready for review", state: "complete" },
     ],
   };
   return {
-    summary: "Intent is frozen; Artifact formation is next",
+    summary: "Strategy is ready for build",
     stages: [
-      { id: "request", label: "Request", detail: "Owner accepted", state: "complete" },
-      { id: "intent", label: "Intent", detail: "Frozen", state: "complete" },
-      { id: "artifact", label: "Artifact", detail: "Ready to form", state: "current" },
+      { id: "request", label: "Request", detail: "Accepted", state: "complete" },
+      { id: "intent", label: "Strategy", detail: "Ready", state: "complete" },
+      { id: "artifact", label: "Artifact", detail: "Ready to build", state: "current" },
     ],
   };
 }

@@ -319,6 +319,11 @@ scroll viewport 内；loading、合法 empty、unavailable、partial 保持相�
 只作为紧凑次级引用，并把完整值保留为 title 与 search key。默认 history 文案使用 `Result`、`Recorded` 与
 用户可读 availability；Owner、custody、point-read、candidate 与 wire-state 术语只保留在信息披露或 contract。
 
+精确 `/rd/research/{requestIdentity}` 页面只回答一个用户任务：理解已保存的 research result 以及下一步。
+Journey 与 `Result / Strategy / Timing` 分组使用 `Needs current review`、`Not available`、`Refresh this request`
+等业务文案，不把 quarantine 或 same-identity 术语当作任务本身。`Raw outcome`、`Raw reason` 以及精确 identity、
+receipt 只保留在技术信息披露中。
+
 Historical-custody Owner projection available 时，route 在 directory 前放置一张共享 compact status card。
 左肩 label 固定为 `work to review`，三个同权重 value 覆盖 Research outcome、build attempt 与 family binding。
 当 Research outcome inventory 完整且 identity set 与页面独立渲染的同一 custody set 精确绑定时，第一项显示
@@ -454,6 +459,11 @@ Research 与 Artifact directory 共用 domain-neutral `EntityReference` 原子�
 `Strategy family`）；opaque identity 退为紧凑次级引用，完整值仍作为 title 与 search key 保留。默认表格
 使用 `Result`/`Outcome`、`Recorded` 与用户可读 availability；Owner、custody、point-read、candidate 和 wire-state
 措辞只留在信息披露或 contract 中。
+
+精确 historical-attempt route 的标题为 `Build result`，只回答本次 build 是否产出 Artifact。共享 journey 与
+`Result / Review / Timing` 分组展示 `Historical only` 和人类可读的 failure reason；精确 `Raw result`、
+`Raw reason`、build request、attempt 与 receipt 只保留在信息披露中。页面不会把历史读取伪装成 current
+Artifact 或 action。
 
 Historical-custody Owner projection available 时，route 在 directory 前复用同一张 compact `work to review`
 card，但只保留 `build attempts` 与 `family bindings`。两个 value 仍是精确 custody count，并作为安静 link

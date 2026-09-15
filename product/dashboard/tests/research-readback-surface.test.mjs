@@ -16,7 +16,11 @@ test("Research detail reuses shared atoms and exposes the admitted Artifact cont
   for (const atom of ["PanelFrame", "PanelFrameHeader", "PanelFrameBody", "JourneyProgress", "FactGroupGrid", "FactGroup", "FactItem", "StatusBadge"]) {
     assert.ok(component.includes(atom), `missing shared atom ${atom}`);
   }
-  for (const title of ["Outcome", "Intent", "Timing"]) assert.match(component, new RegExp(`title="${title}"`, "u"));
+  for (const title of ["Result", "Strategy", "Timing"]) assert.match(component, new RegExp(`title="${title}"`, "u"));
+  assert.match(component, /Needs current review/u);
+  assert.match(component, /humanizeReasonCode/u);
+  assert.match(component, /const decision = quarantined \? outcome\.historicalDisposition : outcome\.resolution/u);
+  assert.match(component, /decision === "accepted" \? "success"/u);
   assert.match(component, /projectResearchJourneyV1\(projection\)/u);
   assert.match(component, /PanelFrameInfo/u);
   assert.doesNotMatch(component, /projection\?\.technical\s*\?\s*<PanelFrameInfo/u);
@@ -48,10 +52,11 @@ test("bilingual Research detail contract closes geometry and the Authorization B
     assert.ok(start >= 0);
     const specification = doc.slice(start, doc.indexOf("\n## ", start + heading.length));
     for (const token of [
-      "/rd/research/{requestIdentity}", "PanelFrame", "FactGroup", "Outcome", "Intent", "Timing",
+      "/rd/research/{requestIdentity}", "PanelFrame", "FactGroup", "Result", "Strategy", "Timing",
       "Back to requests", "Refresh", suffix ? "技术" : "technical", "unavailable", "SUBMITTED_OR_UNKNOWN",
       "GET", "research_goal.shadow_resolve.v1", "ActionAdmissionGate", "PREFLIGHTING", "ADMITTING",
       "Resolve", "Windmill", "Owner", "write", "trading",
+      "Needs current review", "Raw outcome", "Raw reason",
     ]) assert.ok(specification.includes(token), `${suffix || "en"} missing ${token}`);
   }
 });

@@ -7,6 +7,7 @@ import {
   type ResearchReadbackProjectionV1,
 } from "../lib/research-readback-gateway";
 import { projectResearchJourneyV1 } from "../lib/research-journey";
+import { humanizeReasonCode } from "../lib/reason-presentation";
 import { EmptyState, UnavailableState } from "./ui/evidence-strip";
 import { FactGroup, FactGroupGrid, FactGroupSkeletonGrid, FactItem } from "./ui/fact-group";
 import { FilterButton, FilterLink } from "./ui/filter-toolbar";
@@ -21,6 +22,7 @@ import {
   PanelFrameInfoList,
 } from "./ui/panel-frame";
 import { StatusBadge } from "./ui/status-badge";
+import { compactEntityIdentity } from "./ui/entity-reference";
 import { ArtifactFormationControl } from "./artifact-formation-control";
 import styles from "./research-readback-workspace.module.css";
 
@@ -45,7 +47,7 @@ function AvailableReadback({ projection }: { projection: ResearchReadbackProject
     return (
       <>
         <JourneyProgress eyebrow="Research journey" summary={journey.summary} stages={journey.stages} />
-        <EmptyState icon={<EvidenceIcons.pending aria-hidden="true" size={20} />} title="No Owner outcome" density="compact">
+        <EmptyState icon={<EvidenceIcons.pending aria-hidden="true" size={20} />} title="No research result yet" density="compact">
           {null}
         </EmptyState>
       </>
@@ -53,42 +55,41 @@ function AvailableReadback({ projection }: { projection: ResearchReadbackProject
   }
   const view = projection.view;
   const quarantined = outcome.resolution === "quarantined";
+  const decision = quarantined ? outcome.historicalDisposition : outcome.resolution;
   const journey = projectResearchJourneyV1(projection);
   return (
     <>
       <JourneyProgress eyebrow="Research journey" summary={journey.summary} stages={journey.stages} />
       <FactGroupGrid>
-        <FactGroup title="Outcome">
+        <FactGroup title="Result">
+          <FactItem label="Record">
+            <StatusBadge tone={quarantined ? "warning" : "neutral"}>{quarantined ? "Historical" : "Current"}</StatusBadge>
+          </FactItem>
           <FactItem label="Decision">
-            <StatusBadge tone={outcome.resolution === "accepted" ? "success" : quarantined ? "warning" : "danger"}>
-              {outcome.resolution === "accepted" ? "Accepted" : quarantined ? "Historical" : "Rejected"}
+            <StatusBadge tone={decision === "accepted" ? "success" : decision === "rejected" ? "danger" : "warning"}>
+              {decision === "accepted" ? "Accepted" : decision === "rejected" ? "Rejected" : "Needs review"}
             </StatusBadge>
           </FactItem>
-          <FactItem label="Research state">
+          <FactItem label="Availability">
             {view ? <StatusBadge tone={view.phase === "artifact_available" ? "success" : "info"}>
               {phaseLabel(view.phase)}
-            </StatusBadge> : quarantined ? "Quarantined" : "Not created"}
+            </StatusBadge> : quarantined ? "Needs current review" : "Not available"}
           </FactItem>
-          {outcome.historicalDisposition ? <FactItem label="Historical result">
-            <StatusBadge tone={outcome.historicalDisposition === "accepted" ? "success" : "danger"}>
-              {outcome.historicalDisposition === "accepted" ? "Accepted" : "Rejected"}
-            </StatusBadge>
-          </FactItem> : null}
           {outcome.rejectionCode ? <FactItem label="Reason" mono title={outcome.rejectionCode}>
-            {outcome.rejectionCode}
+            {humanizeReasonCode(outcome.rejectionCode)}
           </FactItem> : null}
         </FactGroup>
-        <FactGroup title="Intent">
-          <FactItem label="Identity" mono title={outcome.intentIdentity ?? undefined}>
-            {outcome.intentIdentity ?? (quarantined ? "Not promoted" : "Not created")}
+        <FactGroup title="Strategy">
+          <FactItem label="Intent" mono title={outcome.intentIdentity ?? undefined}>
+            {outcome.intentIdentity ? compactEntityIdentity(outcome.intentIdentity) : "Not available"}
           </FactItem>
-          <FactItem label="Freshness">
+          <FactItem label="Current view">
             {view ? <StatusBadge tone={view.availability === "available" ? "success" : "warning"}>
               {view.availability === "available" ? "Current" : "Stale"}
-            </StatusBadge> : "Unavailable"}
+            </StatusBadge> : "Not available"}
           </FactItem>
           <FactItem label="Next step">
-            {view ? nextStepLabel(view.nextStep) : quarantined ? "Refresh same request" : "Correct input"}
+            {view ? nextStepLabel(view.nextStep) : quarantined ? "Refresh this request" : "Correct input"}
           </FactItem>
         </FactGroup>
         <FactGroup title="Timing">
@@ -154,6 +155,8 @@ export function ResearchReadbackWorkspace({ requestIdentity }: { requestIdentity
               <PanelFrameInfoFact label="Projection"><code>{projection?.technical?.projectionIdentity ?? "Not available"}</code></PanelFrameInfoFact>
               <PanelFrameInfoFact label="Source cut"><code>{projection?.technical?.sourceCut ?? "Not available"}</code></PanelFrameInfoFact>
               <PanelFrameInfoFact label="Trial family"><code>{projection?.technical?.trialFamilyIdentity ?? "Not available"}</code></PanelFrameInfoFact>
+              <PanelFrameInfoFact label="Raw outcome"><code>{projection?.outcome?.resolution ?? "Not available"}</code></PanelFrameInfoFact>
+              <PanelFrameInfoFact label="Raw reason"><code>{projection?.outcome?.rejectionCode ?? "Not available"}</code></PanelFrameInfoFact>
             </PanelFrameInfoList>
           </PanelFrameInfo>
         </>}
@@ -161,7 +164,7 @@ export function ResearchReadbackWorkspace({ requestIdentity }: { requestIdentity
       <PanelFrameBody className={styles.body}>
         <div className={styles.result} aria-live="polite">
           {status === "loading" ? (
-            <FactGroupSkeletonGrid aria-label="Loading Research readback" titles={["Outcome", "Intent", "Timing"]} />
+            <FactGroupSkeletonGrid aria-label="Loading Research readback" titles={["Result", "Strategy", "Timing"]} />
           ) : status === "available" && projection ? (
             <>
               <AvailableReadback projection={projection} />

@@ -24,13 +24,14 @@ test("failed and rejected outcomes stop before Artifact creation", () => {
   for (const disposition of ["failed", "rejected"]) {
     const journey = projectArtifactJourneyV1(projection(disposition));
     assert.deepEqual(journey?.stages.map((stage) => stage.state), ["complete", "blocked", "pending"]);
+    assert.deepEqual(journey?.stages.map((stage) => stage.label), ["Attempt", "Result", "Artifact"]);
     assert.equal(journey?.stages[2].detail, "Not created");
   }
 });
 
 test("unknown outcome warns without claiming an Artifact", () => {
   const journey = projectArtifactJourneyV1(projection("unknown"));
-  assert.equal(journey?.summary, "Artifact outcome needs same-attempt review");
+  assert.equal(journey?.summary, "Build result needs review");
   assert.deepEqual(journey?.stages.map((stage) => stage.state), ["complete", "warning", "pending"]);
   assert.equal(journey?.stages[2].detail, "Not verified");
 });

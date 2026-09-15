@@ -2,7 +2,7 @@ import type { ArtifactHistoricalReadbackProjectionV1 } from "./artifact-readback
 
 export type ArtifactJourneyStageV1 = Readonly<{
   id: "attempt" | "outcome" | "artifact";
-  label: "Attempt" | "Owner outcome" | "Artifact";
+  label: "Attempt" | "Result" | "Artifact";
   detail: string;
   state: "complete" | "pending" | "warning" | "blocked";
 }>;
@@ -21,16 +21,16 @@ export function projectArtifactJourneyV1(
   const unknown = disposition === "unknown";
   return {
     summary: unknown
-      ? "Artifact outcome needs same-attempt review"
+      ? "Build result needs review"
       : disposition === "rejected"
-        ? "Build request was rejected with no write"
-        : "Build ended without an Artifact",
+        ? "Build request was not accepted"
+        : "Build did not produce an artifact",
     stages: [
-      { id: "attempt", label: "Attempt", detail: "Exact identity", state: "complete" },
+      { id: "attempt", label: "Attempt", detail: "Recorded", state: "complete" },
       {
         id: "outcome",
-        label: "Owner outcome",
-        detail: unknown ? "Outcome unknown" : disposition === "rejected" ? "Rejected" : "Failed",
+        label: "Result",
+        detail: unknown ? "Needs review" : disposition === "rejected" ? "Not accepted" : "Failed",
         state: unknown ? "warning" : "blocked",
       },
       {

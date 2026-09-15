@@ -38,11 +38,11 @@ test("Research journey projects the exact typed Owner state without advancing mi
     view: null,
     technical: null,
   });
-  assert.equal(waiting.summary, "Waiting for the R&D Owner");
+  assert.equal(waiting.summary, "Waiting for a research result");
   assert.deepEqual(waiting.stages.map(({ state }) => state), ["current", "pending", "pending"]);
 
   const intentFrozen = projectResearchJourneyV1(accepted);
-  assert.equal(intentFrozen.summary, "Intent is frozen; Artifact formation is next");
+  assert.equal(intentFrozen.summary, "Strategy is ready for build");
   assert.deepEqual(intentFrozen.stages.map(({ state }) => state), ["complete", "complete", "current"]);
 
   const artifactReady = projectResearchJourneyV1({
@@ -76,12 +76,14 @@ test("Research journey keeps rejection, historical custody, and stale views fail
     },
     view: null,
   });
+  assert.equal(quarantined.summary, "Saved result needs a current review");
+  assert.deepEqual(quarantined.stages.map(({ label }) => label), ["Request", "Strategy", "Artifact"]);
   assert.deepEqual(quarantined.stages.map(({ state }) => state), ["warning", "pending", "pending"]);
 
   const stale = projectResearchJourneyV1({
     ...accepted,
     view: { ...accepted.view, availability: "stale", nextStep: "refresh_same_request" },
   });
-  assert.equal(stale.summary, "Refresh the same request before continuing");
+  assert.equal(stale.summary, "Update this request before continuing");
   assert.deepEqual(stale.stages.map(({ state }) => state), ["complete", "warning", "pending"]);
 });

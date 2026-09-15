@@ -370,6 +370,12 @@ label, while its opaque identity is a compact secondary reference with the exact
 key. Default history copy says `Result`, `Recorded`, and user-readable availability; Owner, custody, point-read,
 candidate, and wire-state terms remain in the information disclosure or contract.
 
+The exact `/rd/research/{requestIdentity}` page frames one user task: understand the saved research result and what
+can happen next. Its journey and `Result / Strategy / Timing` groups use business copy such as `Needs current review`,
+`Not available`, and `Refresh this request`; they do not present quarantine or same-identity terminology as
+the task itself. `Raw outcome` and `Raw reason`, together with exact identities and receipts, remain available only
+inside the technical information disclosure.
+
 When the historical-custody Owner projection is available, the route places one shared compact status card before
 the directory. Its shoulder label is `work to review`; its three same-weight values cover Research outcomes,
 build attempts, and family bindings. When the Research outcome inventory is complete and identity-bound to that
@@ -521,6 +527,11 @@ business entity (`Research request`, `Build request`, `Build attempt`, `Strategy
 `Strategy family`); the opaque identity is a compact secondary reference and the exact value remains available as
 its title and search key. Default table copy uses `Result`/`Outcome`, `Recorded`, and user-readable availability;
 Owner, custody, point-read, candidate, and wire-state language stays in the information disclosure or contract.
+
+The exact historical-attempt route is titled `Build result` and answers whether the build produced an Artifact.
+Its shared journey plus `Result / Review / Timing` groups render `Historical only` and a human-readable failure
+reason. Exact `Raw result`, `Raw reason`, build request, attempt, and receipt values remain in the information
+disclosure; the page does not turn a historical read into a current Artifact or action.
 
 When the historical-custody Owner projection is available, the route reuses the same compact `work to review`
 card before the directory, narrowed to `build attempts` and `family bindings`. Both values remain exact custody
