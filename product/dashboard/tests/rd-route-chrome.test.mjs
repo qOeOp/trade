@@ -29,10 +29,8 @@ test("only admitted R&D surfaces embed their route chrome", async () => {
     shell,
     /\{suppressShellPageHeader \? <h1 className="sr-only">\{page\.label\}<\/h1> : <header className="page-header">/u,
   );
-  assert.match(
-    shell,
-    /\{!ownsRouteChrome && !operationsConnected && !marketDataFoundation[\s\S]*&& !runtimeFoundation && !portfolioUnavailable && !connected/u,
-  );
+  assert.match(shell, /<UnavailableBlueprint maturity=\{maturity as/u);
+  assert.doesNotMatch(shell, /prototype-notice/u);
   assert.doesNotMatch(shell, /Only one exact sealed Replay request is exposed/u);
   assert.match(css, /\.module-tabs \{[^}]*justify-self: end;/u);
   assert.doesNotMatch(predicate, /hypoth|decision|backtest|market|runtime|portfolio|operation/iu);

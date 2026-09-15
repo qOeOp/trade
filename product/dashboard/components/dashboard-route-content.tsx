@@ -25,8 +25,9 @@ import { MarketDataOwnerFoundationCard } from "./market-data-owner-foundation-ca
 import { RuntimeFoundationNotReadyCard } from "./runtime-foundation-not-ready-card";
 import { PortfolioViewUnavailableCard } from "./portfolio-view-unavailable-card";
 import { LocalOperatorAccess } from "./local-operator-access";
-import { InterfaceIcons } from "./ui/iconography";
-import { PanelFrame, PanelFrameBody, PanelFrameFooter, PanelFrameHeader } from "./ui/panel-frame";
+import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
+import { PanelFrame, PanelFrameBody, PanelFrameHeader } from "./ui/panel-frame";
+import { UnavailableState } from "./ui/evidence-strip";
 
 type ExactRouteBlueprint = {
   summaries: string[];
@@ -74,20 +75,20 @@ function UnavailableBlueprint({
   routeLabel?: string;
 }) {
   const unavailable = (
-    <section className="not-implementable" aria-label={maturity}>
-      <span>Navigation placeholder only</span>
-      <h2>{maturity}</h2>
-      <p>{maturity === "DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY" ? "Named detail regions exist, but the enclosing route list contract is incomplete." : "Navigation position and named composites exist, but whole-page geometry is not drawable or implementable."}</p>
-      <b>No summary, P/Q/T surface, action, or product availability is asserted.</b>
-    </section>
+    <UnavailableState
+      icon={<EvidenceIcons.pending aria-hidden="true" size={20} />}
+      title={`${routeLabel ?? "This workspace"} isn't connected yet`}
+      detail="No Dashboard data or actions are available here yet."
+      reason={maturity}
+      density="compact"
+      surface="card"
+    />
   );
   if (!routeLabel) return unavailable;
   return (
     <PanelFrame className="rd-placeholder-panel">
-      <PanelFrameHeader eyebrow="R&D" title={routeLabel}
-        description="This route remains unavailable until its documented product contract is admitted." />
+      <PanelFrameHeader eyebrow="R&D" title={routeLabel} />
       <PanelFrameBody density="compact">{unavailable}</PanelFrameBody>
-      <PanelFrameFooter>Navigation only · No Dashboard consumer or action is connected.</PanelFrameFooter>
     </PanelFrame>
   );
 }
@@ -163,9 +164,6 @@ export function DashboardRouteContent({
   const rdPlaceholderRoute = current === "/rd/hypotheses" || current === "/rd/decisions";
   const ownsRouteChrome = embedsRouteChrome || rdPlaceholderRoute || settingsAccess;
   const suppressShellPageHeader = operationsSchedules || operationsServiceLogs || operationsAudit || ownsRouteChrome;
-  const connected = operationsConnected || sourceIntakeReadback || sourceResearchControl || composerReadback
-    || exploratoryReplayReadback || researchDirectory || researchReadback || artifactDirectory || artifactSourceDetail
-    || marketDataFoundation || runtimeFoundation || portfolioUnavailable || settingsAccess;
   const drawableExact = maturity === "DRAWABLE_EXACT";
 
   return (
@@ -268,10 +266,6 @@ export function DashboardRouteContent({
               : drawableExact && exactBlueprint ? <ExactRouteGrid blueprint={exactBlueprint} />
                 : <UnavailableBlueprint maturity={maturity as "DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY" | "BLUEPRINT_ONLY_NOT_IMPLEMENTABLE"}
                   routeLabel={rdPlaceholderRoute ? page.label : undefined} />}
-          {!ownsRouteChrome && !operationsConnected && !marketDataFoundation
-            && !runtimeFoundation && !portfolioUnavailable && !connected
-            ? <footer className="prototype-notice">Foundation prototype. Named placeholders preserve documented geometry without asserting product availability.</footer>
-            : null}
     </div>
   );
 }

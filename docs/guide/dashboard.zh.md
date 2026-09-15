@@ -1962,6 +1962,10 @@ Route name、`S/P/Q/T` slot assignment 或 PascalCase label 本身都不是可�
 | `DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` | R&D Intake `/rd` 已准入精确回读工作台之外的 composer 与 authority‑resolution panel                                                                                                                                                                                                                                                                                                                                                                                                                                                        | 具名 content/detail region 已精确，但其外围 route list 仍缺少 summary label、table column、row action、sort、pagination 或 loading‑row geometry 中的一项或多项；更广 surface 不可绘制、不可实现                                                                  |
 | `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`    | Registry 中其他全部完整 route，明确包括 Event Rail、Telemetry 与 Alerts                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Registry 只固定 navigation position、route slot、具名 page‑local composite 与 button intent。无人值守 Agent 不得从 component‑like name 或已排除的 Windmill/native layout 推断缺失的 list behavior、timeline row、responsive table transformation 或内部 geometry |
 
+navigation-only route 只使用共享 `UnavailableState`：主文案只说明 workspace 尚未连接，当前没有 Dashboard 数据或
+动作；完整度 code 仅保留在该原子的技术信息披露中。页面不再绘制私有 placeholder card，不直接展示 `S/P/Q/T`
+术语，不重复 prototype footer，也不会因此被提升为已实现的产品 surface。
+
 Route 引用但 reusable component inventory 中缺席的名称只是 page-local composite label，不是隐藏的 reusable
 atom。将一个 blueprint 晋升为 `DRAWABLE_EXACT`，要求本章以双语指定：全部 summary label 与 value state；有序且带
 尺寸的 `P/Q` child；每个 `T` column、row action、grouping、sort、filter、pagination 与 loading-row count；有序

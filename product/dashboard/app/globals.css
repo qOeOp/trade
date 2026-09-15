@@ -826,14 +826,6 @@ button.rd-research-item { cursor: pointer; }
 .rd-intake-footer > span { min-width: 0; display: inline-flex; align-items: center; gap: 7px; line-height: 1.45; }
 .rd-intake-footer > span[data-state="available"], .rd-intake-footer > span[data-state="unavailable"] { color: var(--text-primary); }
 .rd-intake-actions { display: flex; flex: 0 0 auto; gap: 7px; }
-.prototype-notice { margin-top: 16px; padding: 12px 14px; border: .5px solid var(--border-default); border-left: 3px solid var(--status-warning); border-radius: var(--panel-inner-radius); background: color-mix(in oklab, var(--status-warning) 8%, var(--surface-card)); color: var(--text-muted); font-size: 12px; }
-
-.not-implementable { min-height: 240px; padding: 24px; display: flex; flex-direction: column; justify-content: center; border: 1px dashed var(--status-unavailable); border-radius: var(--card-radius); background: var(--surface-card); }
-.not-implementable span { color: var(--text-muted); font: 700 10px/1.2 ui-monospace, monospace; text-transform: uppercase; letter-spacing: .06em; }
-.not-implementable h2 { margin: 14px 0 10px; font: 750 15px/1.3 ui-monospace, monospace; overflow-wrap: anywhere; }
-.not-implementable p { max-width: 680px; margin: 0 0 18px; color: var(--text-muted); font-size: 13px; line-height: 1.55; }
-.not-implementable b { color: var(--text-muted); font-size: 12px; }
-
 .panel-frame, .detail-inspector { min-width: 0; padding: var(--panel-inset); overflow: hidden; border: 0; border-radius: var(--panel-radius); background: var(--panel-frame-bg); box-shadow: var(--inset-frame); }
 .panel-frame[data-variant="flat"] { padding: 0; overflow: visible; border-radius: 0; background: transparent; box-shadow: none; }
 .panel-frame[data-variant="flat"] > .panel-frame-header { background: transparent; }
@@ -889,7 +881,7 @@ button.rd-research-item { cursor: pointer; }
   .run-result-actions { width: 100%; justify-content: flex-start; flex-wrap: wrap; overflow: visible; }
 }
 
-.unavailable-state { min-height: 130px; padding: 24px; display: flex; align-items: center; gap: 12px; color: var(--text-muted); border-top: 1px solid var(--border-default); background: var(--surface-card); }
+.unavailable-state { min-height: 130px; padding: 24px; display: flex; align-items: center; flex-wrap: wrap; gap: 12px; color: var(--text-muted); border-top: 1px solid var(--border-default); background: var(--surface-card); }
 .unavailable-state b, .unavailable-state p, .unavailable-state code { display: block; }
 .unavailable-state b { color: var(--text-primary); }
 .unavailable-state p { max-width: 760px; margin: 5px 0 0; color: var(--text-muted); font-size: 9px; line-height: 1.45; }
@@ -900,6 +892,9 @@ button.rd-research-item { cursor: pointer; }
 .unavailable-state-info > summary:hover,
 .unavailable-state-info[open] > summary { color: var(--text-primary); background: var(--surface-hover); }
 .unavailable-state-info > code { position: absolute; z-index: 20; top: 34px; right: 0; width: max-content; max-width: min(360px, calc(100vw - 80px)); padding: 10px 12px; overflow: hidden; border-radius: var(--panel-inner-radius); color: var(--text-primary); background: var(--surface-elevated); box-shadow: var(--elevation-floating); text-overflow: ellipsis; white-space: nowrap; }
+.unavailable-state-info[open] { flex: 1 1 100%; margin-left: 32px; display: grid; grid-template-columns: minmax(0, 1fr) 28px; align-items: center; gap: 8px; }
+.unavailable-state-info[open] > summary { grid-area: 1 / 2; }
+.unavailable-state-info[open] > code { position: static; grid-area: 1 / 1; width: auto; max-width: none; margin: 0; overflow-wrap: anywhere; text-overflow: clip; white-space: normal; }
 .unavailable-state[data-density="compact"] { min-height: 72px; padding: 16px; }
 .unavailable-state[data-surface="card"] { border: .5px solid var(--border-default); border-radius: var(--panel-inner-radius); box-shadow: var(--elevation-hairline); }
 .empty-state { min-height: 150px; padding: 24px; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--text-muted); border-top: 1px solid var(--border-default); background: var(--surface-card); text-align: left; }
