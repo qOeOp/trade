@@ -246,6 +246,14 @@ if loop_body.count(route) != 1:
 route_start = loop_body.index(route)
 if loop_body.index(exact_filter) >= route_start:
     raise SystemExit("ERROR: exact test filter must be defined before database routing.")
+pre_route_prefix = loop_body[:route_start]
+test_filter_tokens = re.findall(
+    r"(?<![A-Za-z0-9_])test_filter(?![A-Za-z0-9_])", pre_route_prefix
+)
+if len(test_filter_tokens) != 1:
+    raise SystemExit(
+        "ERROR: ordered PostgreSQL loop may touch test_filter only in its exact assignment."
+    )
 route_start += len(route)
 route_end = loop_body.find('\n  elif [[ "$test_name"', route_start)
 if route_end < 0:
