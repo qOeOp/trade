@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -58,6 +59,7 @@ export function ArtifactDirectory({
   initialView?: "verified" | "candidates";
   initialCandidateKind?: "attempts" | "bindings";
 }) {
+  const router = useRouter();
   const [view, setView] = useState<"verified" | "candidates">(initialView);
   const [candidateKind, setCandidateKind] = useState<"attempts" | "bindings">(initialCandidateKind);
   const [items, setItems] = useState<readonly ArtifactDirectoryItemV1[]>([]);
@@ -303,6 +305,18 @@ export function ArtifactDirectory({
   const candidateTotal = candidateKind === "attempts"
     ? custodyCandidates.projection?.artifactAttemptTotal ?? 0
     : custodyCandidates.projection?.bindingTotal ?? 0;
+  const selectView = (value: string) => {
+    const nextView = value === "candidates" ? "candidates" : "verified";
+    setView(nextView);
+    router.replace(nextView === "candidates"
+      ? `/rd/artifacts/?view=candidates&kind=${candidateKind}`
+      : "/rd/artifacts/", { scroll: false });
+  };
+  const selectCandidateKind = (value: string) => {
+    const nextKind = value === "bindings" ? "bindings" : "attempts";
+    setCandidateKind(nextKind);
+    router.replace(`/rd/artifacts/?view=candidates&kind=${nextKind}`, { scroll: false });
+  };
 
   return (
     <PageStack>
@@ -335,7 +349,7 @@ export function ArtifactDirectory({
                   { value: "candidates", label: "Custody candidates" },
                 ]}
                 selected={view}
-                onSelect={(value) => setView(value === "candidates" ? "candidates" : "verified")}
+                onSelect={selectView}
               />
               {view === "candidates" ? <FilterTabs
                 label="Candidate custody kind"
@@ -344,7 +358,7 @@ export function ArtifactDirectory({
                   { value: "bindings", label: "Bindings" },
                 ]}
                 selected={candidateKind}
-                onSelect={(value) => setCandidateKind(value === "bindings" ? "bindings" : "attempts")}
+                onSelect={selectCandidateKind}
                 variant="rail"
               /> : null}
             </div>}>

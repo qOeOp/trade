@@ -27,6 +27,7 @@ test("Research directory uses the shared compact read-only table surface", async
   assert.match(statusAtom, /className="compact-status-item-link"/u);
   assert.match(component, /<DataWorkspaceTable<HistoricalResearchCandidateV1>/u);
   assert.match(component, /label: "Custody candidates"/u);
+  assert.match(component, /router\.replace\(nextView === "candidates" \? "\/rd\/research\/\?view=candidates" : "\/rd\/research\/", \{ scroll: false \}\)/u);
   assert.match(component, /Candidates remain unverified until their exact request is opened\./u);
   assert.match(component, /"Request, intent, or state"/u);
   for (const header of ["Research request", "State", "Intent", "Updated"]) {

@@ -15,6 +15,8 @@ test("Artifact directory uses the shared compact read-only table surface", async
   assert.match(component, /<DataWorkspaceTable<HistoricalBindingCandidateV1>/u);
   assert.match(component, /label: "Custody candidates"/u);
   assert.match(component, /label: "Bindings"/u);
+  assert.match(component, /router\.replace\(`\/rd\/artifacts\/\?view=candidates&kind=\$\{nextKind\}`/u);
+  assert.match(component, /router\.replace\(nextView === "candidates"/u);
   assert.match(component, /Candidates remain unverified until their exact record is opened\./u);
   assert.match(component, /"Artifact, intent, or request"/u);
   for (const header of ["Artifact", "Strategy intent", "Verification", "Created"]) {

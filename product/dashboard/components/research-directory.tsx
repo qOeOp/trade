@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 import {
   createResearchDirectoryRequestGuardV1,
@@ -65,6 +66,7 @@ export function ResearchDirectory({
 }: {
   initialView?: "verified" | "candidates";
 }) {
+  const router = useRouter();
   const [view, setView] = useState<"verified" | "candidates">(initialView);
   const [items, setItems] = useState<readonly ResearchDirectoryItemV1[]>([]);
   const [nextCursor, setNextCursor] = useState<ResearchDirectoryCursorV1 | null>(null);
@@ -253,6 +255,11 @@ export function ResearchDirectory({
     }
     return custodyCandidates.read();
   };
+  const selectView = (value: string) => {
+    const nextView = value === "candidates" ? "candidates" : "verified";
+    setView(nextView);
+    router.replace(nextView === "candidates" ? "/rd/research/?view=candidates" : "/rd/research/", { scroll: false });
+  };
 
   return (
     <PageStack>
@@ -286,7 +293,7 @@ export function ResearchDirectory({
                 { value: "candidates", label: "Custody candidates" },
               ]}
               selected={view}
-              onSelect={(value) => setView(value === "candidates" ? "candidates" : "verified")}
+              onSelect={selectView}
             />}>
               <FilterSearch
                 label="Search research requests"
