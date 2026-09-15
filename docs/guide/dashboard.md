@@ -434,6 +434,36 @@ unavailable composition disables the filtered cuts without turning the raw candi
 Only `outcome_ready` rows claim an Owner outcome; awaiting rows open their exact request status, and unavailable rows
 offer no false action. Unknown `outcome` values fail back to `All requests`.
 
+### Research decision history
+
+`ResearchDecisionDirectory` is the exact read-only `P` surface for `/rd/decisions`. It answers one user question:
+which completed Research decisions were accepted or rejected, while keeping requests without a result visibly
+separate. It reuses the same authenticated `/api/rd/research/outcome-inventory` and
+`/api/rd/historical-custodies` GETs; it adds no Owner route, database query, effect, or decision state machine.
+
+Positive rendering requires both projections to be available and complete, the inventory to contain zero
+unavailable item reads, and its exact request-identity set to match the separately read custody set. Every
+`outcome_ready` item must project exactly one `accepted | rejected` decision. A current Owner resolution is marked
+`Current`; a quarantined pre-current result uses only its exact `historicalDisposition` and is visibly marked
+`Historical`. It never becomes a current Iteration decision. Any missing decision, identity mismatch, partial cut,
+unavailable item, malformed response, or transport failure withdraws all positive counts and rows into one
+shape-preserving unavailable state.
+
+The route starts with one shared two-group CompactStatusBar: `decisions` contains `accepted` and `rejected`, while
+`requests` contains `decided` and `waiting`. Accepted, rejected, and waiting use the shared semantic status colors.
+Each value is a quiet canonical link: accepted/rejected select `?decision=accepted|rejected`, decided returns to the
+unfiltered directory, and waiting opens `/rd/research/?outcome=awaiting`. Unknown query values fail back to `All`.
+
+The full-width PanelFrame header contains eyebrow, `Research decisions`, one-line purpose, the shared information
+control, then compact `Refresh`. The body toolbar contains `All / Accepted / Rejected` at the left and one request
+search at the right. The table has exactly four left-aligned columns in this order: `Research request`, `Decision`,
+`Record`, and `Request recorded`. Research request uses the shared EntityReference atom and opens the existing exact
+readback route. `Request recorded` is the immutable custody timestamp and is not presented as decision time. The
+table defaults to newest request custody first, paginates at 20 with 20/50 options, scrolls horizontally at narrow
+widths, and preserves the same card geometry for reading, valid empty, filtered empty, and unavailable states. The
+footer reports completed decisions and waiting requests. There is no approve, reject, resolve, successor, edit,
+submit, or Windmill action.
+
 The verified Research directory, Research exact-readback, Artifact exact-readback, Source Intake exact-readback,
 Develop Composer exact-readback, and Exploratory Replay V2 exact point-read GETs are packaged in the consolidated
 `strategy-factory-rd-dashboard-read-api`. This first-party Dashboard reader also serves the Artifact directory and
@@ -2100,7 +2130,7 @@ Dashboard can already be drawn:
 
 | Completeness status                   | Current pages or surfaces                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Admission meaning                                                                                                                                                                                                                                                                                      |
 | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `DRAWABLE_EXACT`                      | Operations Runs `/operations`, Run Detail `/operations/runs/:runId`, Workers `/operations/workers` and `/operations/workers/:workerId`, Schedules `/operations/schedules`, Service Logs `/operations/service-logs`, Audit `/operations/audit`; R&D Intake `/rd` and Develop Composer `/rd/composer` exact‑readback workbenches, Research directory `/rd/research` and exact readback `/rd/research/:requestIdentity`, and Artifacts `/rd/artifacts`; Backtest Replay request and result readback `/backtest`; Market Data `/data` and `/data/pit-catalog`; all four Runtime routes | The chapter fixes route slots, internal field/column order, dimensions or responsive transformation, state geometry, and button order. Fail‑closed routes are drawable with fixed unavailable/not‑ready values; this status does not make their backend or Dashboard consumer available                |
+| `DRAWABLE_EXACT`                      | Operations Runs `/operations`, Run Detail `/operations/runs/:runId`, Workers `/operations/workers` and `/operations/workers/:workerId`, Schedules `/operations/schedules`, Service Logs `/operations/service-logs`, Audit `/operations/audit`; R&D Intake `/rd` and Develop Composer `/rd/composer` exact‑readback workbenches, Research directory `/rd/research`, exact readback `/rd/research/:requestIdentity`, Research decision history `/rd/decisions`, and Artifacts `/rd/artifacts`; Backtest Replay request and result readback `/backtest`; Market Data `/data` and `/data/pit-catalog`; all four Runtime routes | The chapter fixes route slots, internal field/column order, dimensions or responsive transformation, state geometry, and button order. Fail‑closed routes are drawable with fixed unavailable/not‑ready values; this status does not make their backend or Dashboard consumer available                |
 | `DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` | R&D Intake `/rd` composer and authority‑resolution panels beyond the admitted exact‑readback workbench                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | The named content/detail region is exact, but its enclosing route list still lacks one or more of summary labels, table columns, row actions, sort, pagination or loading‑row geometry; the broader surface is not drawable or implementable                                                           |
 | `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`    | Every other complete route in the registry, explicitly including Event Rail, Telemetry, and Alerts                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | The registry fixes navigation position, route slots, named page‑local composites, and button intent only. An unattended agent must not infer missing list behavior, timeline rows, responsive table transformation, or internal geometry from a component‑like name or excluded Windmill/native layout |
 
@@ -2129,11 +2159,12 @@ source contracts are `CURRENT/PARTIAL`, their exact default-Web deployment remai
 custody, and actual provider execution remains `NOT_ADMITTED`. This rule resolves status only; it does not change
 the fixed panel, button, or state geometry in the registry.
 
-The currently admitted `/rd`, `/rd/composer`, `/rd/research`, `/rd/research/:requestIdentity`, and
+The currently admitted `/rd`, `/rd/composer`, `/rd/research`, `/rd/research/:requestIdentity`, `/rd/decisions`, and
 `/rd/artifacts` routes and the Artifact operational exact-readback are bounded read‑only surfaces and
 supersede the broader future Intake, Research, and Artifacts registry rows below for implementation. None has a
 summary strip or split detail pane. Their only `P` surfaces are `SourceIntakeReadbackWorkbench`,
-`DevelopComposerReadbackWorkbench`, `ResearchDirectory`, `ResearchReadbackWorkspace`, and `ArtifactDirectory`.
+`DevelopComposerReadbackWorkbench`, `ResearchDirectory`, `ResearchReadbackWorkspace`,
+`ResearchDecisionDirectory`, and `ArtifactDirectory`.
 Intake has no directory, editable composer, or positive action in its admitted slice; Research detail remains a
 separate identity-bound URL and has no positive action; Artifact detail also remains a separate identity-bound
 URL. The broader composer, Research admission/outcome actions, receipt timeline, S1 custody, review, binding,

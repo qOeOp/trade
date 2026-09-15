@@ -16,6 +16,7 @@ import { ArtifactDirectory } from "./artifact-directory";
 import { ArtifactSourceWorkspace } from "./artifact-source-workspace";
 import { ArtifactHistoricalReadbackWorkspace } from "./artifact-historical-readback-workspace";
 import { ResearchDirectory } from "./research-directory";
+import { ResearchDecisionDirectory } from "./research-decision-directory";
 import { ResearchReadbackWorkspace } from "./research-readback-workspace";
 import { SourceIntakeReadbackWorkbench } from "./source-intake-readback-workbench";
 import { SourceResearchControl } from "./source-research-control";
@@ -109,6 +110,7 @@ export function DashboardRouteContent({
   researchDirectoryView = "candidates",
   artifactDirectoryView = "candidates",
   researchCandidateOutcome = "all",
+  researchDecisionFilter = "all",
   artifactCandidateKind = "attempts",
   artifactCandidateAvailability = "all",
   scheduleView = "history",
@@ -129,6 +131,7 @@ export function DashboardRouteContent({
   researchDirectoryView?: "verified" | "candidates";
   artifactDirectoryView?: "verified" | "candidates";
   researchCandidateOutcome?: "all" | "ready" | "awaiting";
+  researchDecisionFilter?: "all" | "accepted" | "rejected";
   artifactCandidateKind?: "attempts" | "bindings";
   artifactCandidateAvailability?: "all" | "reviewable";
   scheduleView?: "history" | "current";
@@ -148,6 +151,7 @@ export function DashboardRouteContent({
   const artifactDirectory = current === "/rd/artifacts" && !artifactSourceDetail;
   const researchReadback = current === "/rd/research" && Boolean(researchRequestIdentity);
   const researchDirectory = current === "/rd/research" && !researchReadback;
+  const researchDecisionDirectory = current === "/rd/decisions";
   const sourceIntakeReadback = current === "/rd";
   const sourceResearchControl = current === "/rd/intake/new";
   const composerReadback = current === "/rd/composer";
@@ -159,12 +163,14 @@ export function DashboardRouteContent({
   const operationsConnected = operationsRuns || operationsRunDetail || operationsWorkers
     || operationsSchedules || operationsServiceLogs || operationsAudit;
   const embedsRouteChrome = sourceIntakeReadback || sourceResearchControl || composerReadback || researchDirectory || researchReadback
+    || researchDecisionDirectory
     || artifactDirectory || artifactSourceDetail;
-  const rdPlaceholderRoute = current === "/rd/hypotheses" || current === "/rd/decisions";
+  const rdPlaceholderRoute = current === "/rd/hypotheses";
   const ownsRouteChrome = embedsRouteChrome || rdPlaceholderRoute || settingsAccess;
   const suppressShellPageHeader = operationsSchedules || operationsServiceLogs || operationsAudit || ownsRouteChrome;
   const connected = operationsConnected || sourceIntakeReadback || sourceResearchControl || composerReadback
-    || exploratoryReplayReadback || researchDirectory || researchReadback || artifactDirectory || artifactSourceDetail
+    || exploratoryReplayReadback || researchDirectory || researchReadback || researchDecisionDirectory
+    || artifactDirectory || artifactSourceDetail
     || marketDataFoundation || runtimeFoundation || portfolioUnavailable || settingsAccess;
   const drawableExact = maturity === "DRAWABLE_EXACT";
 
@@ -243,6 +249,7 @@ export function DashboardRouteContent({
                   ? replayMeaningDigest : undefined}
               />
               : researchReadback ? <ResearchReadbackWorkspace requestIdentity={researchRequestIdentity!} />
+              : researchDecisionDirectory ? <ResearchDecisionDirectory initialDecision={researchDecisionFilter} />
               : researchDirectory ? <ResearchDirectory
                 initialView={researchDirectoryView}
                 initialCandidateOutcome={researchCandidateOutcome}
