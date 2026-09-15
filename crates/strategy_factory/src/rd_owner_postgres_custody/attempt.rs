@@ -13,7 +13,7 @@ use crate::{
         issue_artifact, render_program_source, validate_candidate, verify_artifact_build_admission,
         verify_sandbox_product,
     },
-    successor_intent_postgres::load_by_intent_in_transaction,
+    successor_intent_postgres::lock_by_intent_in_transaction,
     trial_family::{ArtifactTrialFamilyReadbackV1, TrialFamilyError},
     trial_family_postgres::{
         load_artifact_trial_family_in_transaction,
@@ -380,7 +380,10 @@ pub(crate) async fn admit_develop_intent_custody_in_transaction(
         return Ok(Some((research, intent.into())));
     }
 
-    let Some(successor) = load_by_intent_in_transaction(transaction, intent_identity)
+    // Take exclusive successor custody before locking the Artifact attempt. This gives every
+    // Artifact/Replay consumer the same row order and prevents concurrent requests from retaining
+    // a shared successor lock while one waits to upgrade it after taking the attempt lock.
+    let Some(successor) = lock_by_intent_in_transaction(transaction, intent_identity)
         .await
         .map_err(|e| ArtifactBuildError::Storage(e.to_string()))?
     else {

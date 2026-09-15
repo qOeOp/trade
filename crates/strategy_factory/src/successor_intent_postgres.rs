@@ -956,6 +956,18 @@ pub(crate) async fn load_by_intent_in_transaction(
     admit_rows(transaction, rows, None).await
 }
 
+pub(crate) async fn lock_by_intent_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    intent_identity: &str,
+) -> Result<Option<SuccessorResearchIntentReadbackV1>, SuccessorResearchIntentPostgresErrorV1> {
+    let rows = sqlx::query("SELECT intent_identity,intent_digest,request_identity,decision_identity,result_identity,trial_family_identity,predecessor_intent_identity,request_json,intent_json,receipt_json,request_storage_bytes,request_storage_digest,intent_storage_bytes,intent_storage_digest,receipt_storage_bytes,receipt_storage_digest,committed_at_epoch_ms FROM rd_successor_research_intents_v1 WHERE intent_identity=$1 FOR UPDATE")
+        .bind(intent_identity)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    admit_rows(transaction, rows, None).await
+}
+
 async fn admit_rows(
     transaction: &mut Transaction<'_, Postgres>,
     rows: Vec<sqlx::postgres::PgRow>,

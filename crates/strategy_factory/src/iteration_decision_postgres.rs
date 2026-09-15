@@ -3727,6 +3727,64 @@ mod postgres_acceptance_tests {
             harness.intent_identity
         );
 
+        let mut first_successor_consumer = rd_pool
+            .begin()
+            .await
+            .expect("first successor consumer transaction");
+        crate::rd_owner_postgres_custody::VerifiedAttemptCustodyV1::admit_develop_intent_in_transaction(
+            &mut first_successor_consumer,
+            successor.intent().intent_identity(),
+            true,
+        )
+        .await
+        .expect("first successor custody lock")
+        .expect("first successor custody");
+        let mut competing_successor_consumer = rd_pool
+            .begin()
+            .await
+            .expect("competing successor consumer transaction");
+        sqlx::query("SET LOCAL lock_timeout = '100ms'")
+            .execute(&mut *competing_successor_consumer)
+            .await
+            .expect("bounded competing lock wait");
+        let competing = match
+            crate::rd_owner_postgres_custody::VerifiedAttemptCustodyV1::admit_develop_intent_in_transaction(
+                &mut competing_successor_consumer,
+                successor.intent().intent_identity(),
+                true,
+            )
+            .await
+        {
+            Err(error) => error,
+            Ok(_) => panic!("successor custody must serialize before later attempt locks"),
+        };
+        assert!(competing.to_string().contains("lock timeout"));
+        competing_successor_consumer
+            .rollback()
+            .await
+            .expect("competing successor consumer rollback");
+        first_successor_consumer
+            .rollback()
+            .await
+            .expect("first successor consumer rollback");
+
+        let mut successor_retry = rd_pool
+            .begin()
+            .await
+            .expect("successor custody retry transaction");
+        crate::rd_owner_postgres_custody::VerifiedAttemptCustodyV1::admit_develop_intent_in_transaction(
+            &mut successor_retry,
+            successor.intent().intent_identity(),
+            true,
+        )
+        .await
+        .expect("successor custody retry after lock release")
+        .expect("successor custody retry");
+        successor_retry
+            .rollback()
+            .await
+            .expect("successor custody retry rollback");
+
         let successor_replay = persist_successor_artifact_replay(
             &database,
             &harness,
