@@ -106,6 +106,8 @@ export function DashboardRouteContent({
   replayAttemptIdentity,
   replayHistoricalCustody = false,
   researchRequestIdentity,
+  directoryView = "verified",
+  artifactCandidateKind = "attempts",
 }: {
   current: string;
   runIdentity?: string;
@@ -120,6 +122,8 @@ export function DashboardRouteContent({
   replayAttemptIdentity?: string;
   replayHistoricalCustody?: boolean;
   researchRequestIdentity?: string;
+  directoryView?: "verified" | "candidates";
+  artifactCandidateKind?: "attempts" | "bindings";
 }) {
   const activeModule = moduleFor(current);
   const page = pageFor(current);
@@ -231,8 +235,12 @@ export function DashboardRouteContent({
                   ? replayMeaningDigest : undefined}
               />
               : researchReadback ? <ResearchReadbackWorkspace requestIdentity={researchRequestIdentity!} />
-              : researchDirectory ? <ResearchDirectory />
-              : artifactDirectory ? <ArtifactDirectory />
+              : researchDirectory ? <ResearchDirectory key={directoryView} initialView={directoryView} />
+              : artifactDirectory ? <ArtifactDirectory
+                key={`${directoryView}:${artifactCandidateKind}`}
+                initialView={directoryView}
+                initialCandidateKind={artifactCandidateKind}
+              />
               : artifactSourceDetail ? artifactHistoricalCustody
                 ? <ArtifactHistoricalReadbackWorkspace
                   buildRequestIdentity={artifactBuildRequestIdentity!}

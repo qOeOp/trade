@@ -318,8 +318,11 @@ Historical-custody Owner projection available 时，route 在 directory 前放�
 左肩 label 固定为 `work to review`，三个同权重 value 固定为 `research requests`、`build attempts` 与
 `family bindings`，且只读取 projection 的 exact total。它是 review inventory，不是 conversion funnel、
 lifecycle、verified journey，也不声称三个集合一一对应。Projection unavailable 时整张 card 消失，不能替代
-独立 verified R&D loop。任一 directory view 的 Refresh 都刷新 custody projection；`Custody candidates`
-segment 仍是 drill-down interaction。
+独立 verified R&D loop。任一 directory view 的 Refresh 都刷新 custody projection。每个 metric 都只是同一
+Owner cut 上的安静导航入口：`research requests` 打开 `/rd/research/?view=candidates`，`build attempts` 打开
+`/rd/artifacts/?view=candidates&kind=attempts`，`family bindings` 打开
+`/rd/artifacts/?view=candidates&kind=bindings`。未知或缺失 query value 必须退回 verified 默认态；这些 link
+不准入任何新的 read/write contract，对应 `Custody candidates` segment 仍是可见 drill-down interaction。
 
 经认证的 Owner GET `/v1/research-goals/directory` 每页最多返回 20 个已验证 V2 request outcome。每页最多
 检查 60 个 receipt candidate，按 `(committed_at_epoch_ms, request_identity)` 降序，其中有界 ASCII identity

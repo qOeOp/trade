@@ -1,4 +1,5 @@
 import { Children, cloneElement, isValidElement, type CSSProperties, type HTMLAttributes, type ReactElement, type ReactNode } from "react";
+import Link from "next/link";
 import type { StatusBadgeTone } from "./status-badge";
 
 type CompactStatusTone = StatusBadgeTone;
@@ -55,19 +56,31 @@ export function CompactStatusGroup({
   );
 }
 
+type CompactStatusItemProps = {
+  label: ReactNode;
+  value: ReactNode;
+  tone?: CompactStatusTone;
+} & (
+  | { href: string; actionLabel: string }
+  | { href?: never; actionLabel?: never }
+);
+
 export function CompactStatusItem({
   label,
   value,
   tone = "neutral",
-}: {
-  label: ReactNode;
-  value: ReactNode;
-  tone?: CompactStatusTone;
-}) {
+  href,
+  actionLabel,
+}: CompactStatusItemProps) {
   return (
-    <div className="compact-status-item" data-tone={tone}>
+    <div className="compact-status-item" data-interactive={href ? true : undefined} data-tone={tone}>
       <dt>{label}</dt>
-      <dd>{value}</dd>
+      <dd>
+        {value}
+        {href ? <Link className="compact-status-item-link" href={href} aria-label={actionLabel}>
+          <span className="sr-only">{actionLabel}</span>
+        </Link> : null}
+      </dd>
     </div>
   );
 }

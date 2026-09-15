@@ -3,12 +3,14 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("Research directory uses the shared compact read-only table surface", async () => {
-  const [component, state, route, shell, css] = await Promise.all([
+  const [component, state, route, shell, page, css, statusAtom] = await Promise.all([
     readFile(new URL("../components/research-directory.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/owner-directory-state.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/rd/research/directory/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../components/dashboard-route-content.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/(dashboard)/[...route]/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/owner-directory.module.css", import.meta.url), "utf8"),
+    readFile(new URL("../components/ui/compact-status-bar.tsx", import.meta.url), "utf8"),
   ]);
   assert.match(component, /<DataWorkspaceTable<ResearchDirectoryItemV1>/u);
   assert.match(component, /<RdCustodyReviewSummary projection=\{custodyCandidates\.projection\}/u);
@@ -18,6 +20,11 @@ test("Research directory uses the shared compact read-only table surface", async
   assert.match(summary, /research requests/u);
   assert.match(summary, /build attempts/u);
   assert.match(summary, /family bindings/u);
+  assert.match(summary, /href="\/rd\/research\/\?view=candidates"/u);
+  assert.match(summary, /href="\/rd\/artifacts\/\?view=candidates&kind=attempts"/u);
+  assert.match(summary, /href="\/rd\/artifacts\/\?view=candidates&kind=bindings"/u);
+  assert.match(statusAtom, /data-interactive=\{href \? true : undefined\}/u);
+  assert.match(statusAtom, /className="compact-status-item-link"/u);
   assert.match(component, /<DataWorkspaceTable<HistoricalResearchCandidateV1>/u);
   assert.match(component, /label: "Custody candidates"/u);
   assert.match(component, /Candidates remain unverified until their exact request is opened\./u);
@@ -34,7 +41,9 @@ test("Research directory uses the shared compact read-only table surface", async
   assert.match(component, /Open exact Owner readback for/u);
   assert.match(route, /readResearchDirectoryGatewayV1/u);
   assert.match(route, /search\.getAll\(key\)\.length !== 1/u);
-  assert.match(shell, /<ResearchDirectory \/>/u);
+  assert.match(shell, /<ResearchDirectory key=\{directoryView\} initialView=\{directoryView\} \/>/u);
+  assert.match(page, /query\.view === "candidates" \? "candidates" : "verified"/u);
+  assert.match(page, /query\.kind === "bindings" \? "bindings" : "attempts"/u);
   assert.match(shell, /OWNER_CUSTODY_READ_ONLY - NO_SUBMIT_OR_RESOLVE/u);
   assert.match(css, /\.tableSurface :global\(\.data-workspace-viewport\)[^{]*\{[^}]*max-height:/su);
   assert.match(component, /availability === "unavailable"[\s\S]+<OwnerDirectoryUnavailable/u);
@@ -66,6 +75,8 @@ test("bilingual Research directory contract fixes layout, fields and no-effect b
       "committed_at_epoch_ms", "request_identity", "Load older", "partial",
       "unavailable", "POINT_READ_REQUIRED", "/v1/historical-custodies", "Submit", "Resolve", "Windmill",
       "work to review", "research requests", "build attempts", "family bindings",
+      "/rd/research/?view=candidates", "/rd/artifacts/?view=candidates&kind=attempts",
+      "/rd/artifacts/?view=candidates&kind=bindings",
     ]) assert.ok(specification.includes(token), `${suffix || "en"} missing ${token}`);
   }
 });

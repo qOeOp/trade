@@ -51,9 +51,15 @@ function directoryUrl(cursor?: ArtifactDirectoryCursorV1): string {
   return `/api/rd/artifacts/directory/?${search}`;
 }
 
-export function ArtifactDirectory() {
-  const [view, setView] = useState<"verified" | "candidates">("verified");
-  const [candidateKind, setCandidateKind] = useState<"attempts" | "bindings">("attempts");
+export function ArtifactDirectory({
+  initialView = "verified",
+  initialCandidateKind = "attempts",
+}: {
+  initialView?: "verified" | "candidates";
+  initialCandidateKind?: "attempts" | "bindings";
+}) {
+  const [view, setView] = useState<"verified" | "candidates">(initialView);
+  const [candidateKind, setCandidateKind] = useState<"attempts" | "bindings">(initialCandidateKind);
   const [items, setItems] = useState<readonly ArtifactDirectoryItemV1[]>([]);
   const [nextCursor, setNextCursor] = useState<ArtifactDirectoryCursorV1 | null>(null);
   const [availability, setAvailability] = useState<"loading" | "available" | "unavailable">("loading");

@@ -369,7 +369,12 @@ the directory. Its shoulder label is `work to review`; its three same-weight val
 `build attempts`, and `family bindings`, sourced only from the projection's exact totals. This is a review inventory,
 not a conversion funnel, lifecycle, verified journey, or claim that the three sets are one-to-one. It disappears
 when that projection is unavailable and never replaces the separately verified R&D loop. Refresh on either directory
-view refreshes the custody projection; the `Custody candidates` segment remains the drill-down interaction.
+view refreshes the custody projection. Each metric is one quiet navigation target over the same Owner cut:
+`research requests` opens `/rd/research/?view=candidates`, `build attempts` opens
+`/rd/artifacts/?view=candidates&kind=attempts`, and `family bindings` opens
+`/rd/artifacts/?view=candidates&kind=bindings`. Unknown or missing query values fail back to the verified default;
+the links admit no new read or write contract, and the corresponding `Custody candidates` segment remains the
+visible drill-down interaction.
 
 The authenticated Owner GET `/v1/research-goals/directory` returns at most 20 verified V2 request outcomes. It
 considers at most 60 receipt candidates per page, ordered by `(committed_at_epoch_ms, request_identity)` descending

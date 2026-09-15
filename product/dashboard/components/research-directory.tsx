@@ -60,8 +60,12 @@ function directoryUrl(cursor?: ResearchDirectoryCursorV1): string {
   return `/api/rd/research/directory/?${search}`;
 }
 
-export function ResearchDirectory() {
-  const [view, setView] = useState<"verified" | "candidates">("verified");
+export function ResearchDirectory({
+  initialView = "verified",
+}: {
+  initialView?: "verified" | "candidates";
+}) {
+  const [view, setView] = useState<"verified" | "candidates">(initialView);
   const [items, setItems] = useState<readonly ResearchDirectoryItemV1[]>([]);
   const [nextCursor, setNextCursor] = useState<ResearchDirectoryCursorV1 | null>(null);
   const [availability, setAvailability] = useState<"loading" | "available" | "unavailable">("loading");
