@@ -8,11 +8,11 @@ import { validOperationalRunReferenceV1 } from "./operational-run-reference.ts";
 const MAX_OWNER_RESPONSE_BYTES = 1_048_576;
 const IDENTITY = /^[A-Za-z0-9._:/-]{1,256}$/;
 const DIGEST = /^(?:sha256|blake3):[0-9a-f]{64}$/;
-const DIAGNOSTIC_CATEGORIES = new Set([
+const DIAGNOSTIC_CATEGORIES = [
   "NO_EXECUTION_DEFECT", "MARKET_DATA", "ARTIFACT", "RUNTIME_KERNEL",
   "BACKTEST_OPERATIONAL", "SIMULATOR", "REPLAY_CONFIGURATION",
   "VALID_ECONOMIC_FAILURE", "UNRESOLVED_FAILURE",
-]);
+] as const;
 const DECISION_TRANSITIONS = {
   REPLAY_REPAIR_REQUIRED: ["RESOLVE_REPLAY_DEFECT", "REPLAY_REPAIR_REQUIRED"],
   SUCCESSOR_INPUT_REQUIRED: ["AUTHOR_SUCCESSOR_INTENT", "AWAITING_SUCCESSOR_INTENT"],
@@ -21,8 +21,19 @@ const DECISION_TRANSITIONS = {
   EVIDENCE_UNRESOLVED: ["RESOLVE_EVIDENCE", "EVIDENCE_UNRESOLVED"],
 } as const;
 
+const TIMELINE_STATES = [
+  "AWAITING_REPLAY_RESULT",
+  ...Object.values(DECISION_TRANSITIONS).map((transition) => transition[1]),
+] as const;
+
 type Json = Record<string, unknown>;
 type Fetcher = typeof fetch;
+
+export type RdIterationDiagnosticCategoryV1 = typeof DIAGNOSTIC_CATEGORIES[number];
+export type RdIterationDecisionDispositionV1 = keyof typeof DECISION_TRANSITIONS;
+type RdIterationDecisionTransitionV1 = typeof DECISION_TRANSITIONS[RdIterationDecisionDispositionV1];
+export type RdIterationNextLegalActionV1 = RdIterationDecisionTransitionV1[0];
+export type RdIterationTimelineStateV1 = typeof TIMELINE_STATES[number];
 
 export type RdIterationDecisionV1 = {
   decisionIdentity: string;
@@ -39,9 +50,9 @@ export type RdIterationDecisionV1 = {
   replayRequestMeaningDigest: string;
   replayResultIdentity: string;
   replayResultDigest: string;
-  diagnosticCategories: string[];
-  disposition: string;
-  nextLegalAction: string;
+  diagnosticCategories: RdIterationDiagnosticCategoryV1[];
+  disposition: RdIterationDecisionDispositionV1;
+  nextLegalAction: RdIterationNextLegalActionV1;
   committedAtEpochMs: number;
   receiptIdentity: string;
   receiptDigest: string;
@@ -53,8 +64,7 @@ export type RdIterationTimelineProjectionV1 = {
   censusFrontierDigest: string;
   consumedTrialBudget: number;
   trialBudget: number;
-  state: "AWAITING_REPLAY_RESULT" | "REPLAY_REPAIR_REQUIRED" | "AWAITING_SUCCESSOR_INTENT"
-    | "TERMINAL" | "RESEARCH_REVIEW_REQUIRED" | "EVIDENCE_UNRESOLVED";
+  state: RdIterationTimelineStateV1;
   decisions: RdIterationDecisionV1[];
   observedAtEpochMs: number;
 };
@@ -97,6 +107,27 @@ function epoch(value: unknown): value is number {
   return Number.isSafeInteger(value) && Number(value) >= 0;
 }
 
+function memberOf<const T extends readonly string[]>(values: T, value: unknown): value is T[number] {
+  return typeof value === "string" && (values as readonly string[]).includes(value);
+}
+
+function diagnosticCategory(value: unknown): value is RdIterationDiagnosticCategoryV1 {
+  return memberOf(DIAGNOSTIC_CATEGORIES, value);
+}
+
+function decisionDisposition(value: unknown): value is RdIterationDecisionDispositionV1 {
+  return typeof value === "string" && Object.hasOwn(DECISION_TRANSITIONS, value);
+}
+
+function nextLegalAction(value: unknown): value is RdIterationNextLegalActionV1 {
+  return typeof value === "string"
+    && Object.values(DECISION_TRANSITIONS).some((transition) => transition[0] === value);
+}
+
+function timelineState(value: unknown): value is RdIterationTimelineStateV1 {
+  return memberOf(TIMELINE_STATES, value);
+}
+
 function parseDecision(value: unknown): RdIterationDecisionV1 | null {
   if (!object(value) || !exactKeys(value, [
     "schema_version", "decision_identity", "decision_digest", "trial_family_identity",
@@ -114,14 +145,10 @@ function parseDecision(value: unknown): RdIterationDecisionV1 | null {
     || !digest(value.census_frontier_digest) || !identity(value.replay_request_identity)
     || !digest(value.replay_request_meaning_digest) || !identity(value.replay_result_identity)
     || !digest(value.replay_result_digest) || !Array.isArray(value.diagnostic_categories)
-    || !value.diagnostic_categories.every((category) => (
-      typeof category === "string" && DIAGNOSTIC_CATEGORIES.has(category)
-    ))
+    || !value.diagnostic_categories.every(diagnosticCategory)
     || new Set(value.diagnostic_categories).size !== value.diagnostic_categories.length
-    || !["REPLAY_REPAIR_REQUIRED", "SUCCESSOR_INPUT_REQUIRED", "TERMINAL_STOP",
-      "RESEARCH_REVIEW_REQUIRED", "EVIDENCE_UNRESOLVED"].includes(String(value.disposition))
-    || !["RESOLVE_REPLAY_DEFECT", "AUTHOR_SUCCESSOR_INTENT", "NONE_TERMINAL",
-      "REVIEW_ECONOMIC_EVIDENCE", "RESOLVE_EVIDENCE"].includes(String(value.next_legal_action))
+    || !decisionDisposition(value.disposition)
+    || !nextLegalAction(value.next_legal_action)
     || !epoch(value.committed_at_epoch_ms) || !identity(value.receipt_identity)
     || !digest(value.receipt_digest)) return null;
   return {
@@ -139,9 +166,9 @@ function parseDecision(value: unknown): RdIterationDecisionV1 | null {
     replayRequestMeaningDigest: value.replay_request_meaning_digest,
     replayResultIdentity: value.replay_result_identity,
     replayResultDigest: value.replay_result_digest,
-    diagnosticCategories: value.diagnostic_categories as string[],
-    disposition: String(value.disposition),
-    nextLegalAction: String(value.next_legal_action),
+    diagnosticCategories: [...value.diagnostic_categories],
+    disposition: value.disposition,
+    nextLegalAction: value.next_legal_action,
     committedAtEpochMs: Number(value.committed_at_epoch_ms),
     receiptIdentity: value.receipt_identity,
     receiptDigest: value.receipt_digest,
@@ -163,8 +190,7 @@ export function parseRdIterationTimelineOwnerV1(
     || !digest(value.census_frontier_digest) || !Number.isSafeInteger(value.consumed_trial_budget)
     || Number(value.consumed_trial_budget) <= 0 || !Number.isSafeInteger(value.trial_budget)
     || Number(value.trial_budget) < Number(value.consumed_trial_budget)
-    || !["AWAITING_REPLAY_RESULT", "REPLAY_REPAIR_REQUIRED", "AWAITING_SUCCESSOR_INTENT",
-      "TERMINAL", "RESEARCH_REVIEW_REQUIRED", "EVIDENCE_UNRESOLVED"].includes(String(value.state))
+    || !timelineState(value.state)
     || !Array.isArray(value.decisions) || !epoch(value.observed_at_epoch_ms)
     || value.observed_at_epoch_ms < requestStartedAtEpochMs
     || value.observed_at_epoch_ms > responseObservedAtEpochMs) return null;
@@ -193,10 +219,8 @@ export function parseRdIterationTimelineOwnerV1(
       || decision.roundOrdinal > Number(value.consumed_trial_budget)
       || decision.committedAtEpochMs < priorCommittedAt
       || decision.committedAtEpochMs > Number(value.observed_at_epoch_ms)) return null;
-    const transition = DECISION_TRANSITIONS[
-      decision.disposition as keyof typeof DECISION_TRANSITIONS
-    ];
-    if (!transition || decision.nextLegalAction !== transition[0]) return null;
+    const transition = DECISION_TRANSITIONS[decision.disposition];
+    if (decision.nextLegalAction !== transition[0]) return null;
     decisionIdentities.add(decision.decisionIdentity);
     decisionDigests.add(decision.decisionDigest);
     replayRequestIdentities.add(decision.replayRequestIdentity);
@@ -209,7 +233,7 @@ export function parseRdIterationTimelineOwnerV1(
   }
   const expectedState = parsed.length === 0
     ? "AWAITING_REPLAY_RESULT"
-    : DECISION_TRANSITIONS[parsed.at(-1)!.disposition as keyof typeof DECISION_TRANSITIONS]?.[1];
+    : DECISION_TRANSITIONS[parsed.at(-1)!.disposition][1];
   if (value.state !== expectedState) return null;
   return {
     trialFamilyIdentity: value.trial_family_identity,
@@ -217,7 +241,7 @@ export function parseRdIterationTimelineOwnerV1(
     censusFrontierDigest: value.census_frontier_digest,
     consumedTrialBudget: Number(value.consumed_trial_budget),
     trialBudget: Number(value.trial_budget),
-    state: value.state as RdIterationTimelineProjectionV1["state"],
+    state: value.state,
     decisions: parsed,
     observedAtEpochMs: Number(value.observed_at_epoch_ms),
   };
