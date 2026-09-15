@@ -200,23 +200,57 @@ array_end = source.find(array_close, array_start)
 if array_end < 0:
     raise SystemExit("ERROR: ordered PostgreSQL test literal boundary is unavailable.")
 array_body = source[array_start:array_end]
-if array_body.count(poison_test) != 1:
+entry_pattern = re.compile(r"  '([A-Za-z0-9_|:-]+)'")
+entries = []
+for line in array_body.splitlines():
+    if not line.strip():
+        continue
+    match = entry_pattern.fullmatch(line)
+    if match is None:
+        raise SystemExit(
+            "ERROR: every ordered PostgreSQL test must be one strict single-quoted literal."
+        )
+    fields = match.group(1).split("|")
+    if len(fields) != 3 or any(not field for field in fields):
+        raise SystemExit("ERROR: ordered PostgreSQL test literal must contain three fields.")
+    entries.append(tuple(fields))
+if len(entries) != 39:
+    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain thirty-nine entries.")
+if sum(test_name == poison_test for _, _, test_name in entries) != 1:
     raise SystemExit(
-        "ERROR: recovery-sidecar poison test must occur exactly once in the ordered test literal."
+        "ERROR: recovery-sidecar poison test must occur exactly once as a parsed test name."
     )
+loop_open = 'for test_selection in "${rd_owner_postgres_tests[@]}"; do\n'
+loop_close = "\ndone\n\nlegacy_replay_fingerprint_after="
+if source.count(loop_open) != 1:
+    raise SystemExit("ERROR: ordered PostgreSQL execution loop is unavailable.")
+loop_start = source.index(loop_open) + len(loop_open)
+loop_end = source.find(loop_close, loop_start)
+if loop_end < 0:
+    raise SystemExit("ERROR: ordered PostgreSQL execution loop boundary is unavailable.")
+loop_body = source[loop_start:loop_end]
+exact_filter = '  test_filter="package(${test_package}) & binary(${test_binary}) & test(=${test_name})"'
+filter_definitions = [
+    line for line in loop_body.splitlines() if re.match(r"\s*test_filter=", line)
+]
+if filter_definitions != [exact_filter]:
+    raise SystemExit("ERROR: ordered PostgreSQL loop must define one exact test filter.")
 route = (
     f'''if [[ "$test_name" == '{catalog_test}' ]] ||\n'''
     f'''    [[ "$test_name" == '{poison_test}' ]]; then'''
 )
-if source.count(route) != 1:
+if loop_body.count(route) != 1:
     raise SystemExit(
         "ERROR: Product Edge recovery-sidecar poison test must share the catalog-admin clone route."
     )
-route_start = source.index(route) + len(route)
-route_end = source.find('\n  elif [[ "$test_name"', route_start)
+route_start = loop_body.index(route)
+if loop_body.index(exact_filter) >= route_start:
+    raise SystemExit("ERROR: exact test filter must be defined before database routing.")
+route_start += len(route)
+route_end = loop_body.find('\n  elif [[ "$test_name"', route_start)
 if route_end < 0:
     raise SystemExit("ERROR: catalog-admin clone route boundary is unavailable.")
-route_body = source[route_start:route_end]
+route_body = loop_body[route_start:route_end]
 expected_overrides = (
     ("VIBE_POSTGRES_TEST_DATABASE_NAME", '"$catalog_admin_database"'),
     ("OPERATOR_AUTHORIZATION_TEST_DATABASE_URL", '"postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
