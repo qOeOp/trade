@@ -15,6 +15,7 @@ use vibe_data::owner::{
 
 use crate::{
     artifact_v2::StrategyArtifactV2,
+    bounded_feature_program_lowerer_v1::prepare_frozen_bounded_feature_source_inputs_v1,
     develop_composer_v2::{
         CurrentResearchDevelopCustodyV2, DevelopComposerEvidencePortV2, DevelopComposerPositiveV2,
         DevelopComposerReceiptV2, DevelopComposerResultV2, DevelopComposerTerminalKindV2,
@@ -26,8 +27,12 @@ use crate::{
         UntrustedDevelopPluginCapsuleV2, VerifiedDevelopPluginBuildReadV2,
         validated_capsule_digest_v2,
     },
-    develop_plugin_build_v3::VerifiedDevelopPluginBuildV3,
+    develop_plugin_build_v3::{
+        DevelopPluginBuildProducerV3, DevelopPluginBuildResultV3, DevelopPluginBuildTerminalKindV3,
+        VerifiedDevelopPluginBuildV3,
+    },
     program_host_v2::ProgramHostV2,
+    rd_bounded_feature_program_v1::FrozenResearchBoundedFeatureProgramV1,
     strategy_design_v2::{PluginManifestV2, StrategyDesignV2},
     strategy_plan_v2::{
         StrategyDesignPreparationV2, StrategyPlanV2, VerifiedStrategyInputBindingsV2,
@@ -594,7 +599,8 @@ pub(crate) struct DevelopComposerPreflightV2 {
 /// Opaque, move-only A0 state. Its verified builds can only be consumed by the finishing boundary.
 pub(crate) struct PreparedDevelopComposerA0V2 {
     preflight: DevelopComposerPreflightV2,
-    build_reads: Vec<VerifiedDevelopPluginBuildReadV2>,
+    build_reads: Vec<VerifiedDevelopPluginBuildV2OrV3>,
+    build_receipt_identities: Vec<BindingDigest>,
     build_receipt_tags: Vec<u16>,
     build_receipt_bytes: Vec<Vec<u8>>,
 }
@@ -602,6 +608,7 @@ pub(crate) struct PreparedDevelopComposerA0V2 {
 struct BuildReceiptCustodyV2 {
     attempt_identities: Vec<BindingDigest>,
     capsule_identities: Vec<BindingDigest>,
+    receipt_identities: Vec<BindingDigest>,
     tags: Vec<u16>,
     bytes: Vec<Vec<u8>>,
 }
@@ -609,6 +616,10 @@ struct BuildReceiptCustodyV2 {
 impl PreparedDevelopComposerA0V2 {
     pub(crate) fn design_identity(&self) -> BindingDigest {
         self.preflight.design_identity
+    }
+
+    pub(crate) const fn preflight(&self) -> &DevelopComposerPreflightV2 {
+        &self.preflight
     }
 }
 
@@ -723,18 +734,87 @@ pub(crate) fn prepare_develop_composer_a0_v2(
     let mut manifests = request.design.plugins.iter().collect::<Vec<_>>();
     manifests.sort_by(|left, right| left.semantic_id.cmp(&right.semantic_id));
     let mut build_reads = Vec::with_capacity(manifests.len());
+    let mut build_receipt_identities = Vec::with_capacity(manifests.len());
     let mut build_receipt_bytes = Vec::with_capacity(manifests.len());
     for (manifest, capsule) in manifests.iter().zip(&request.plugin_source_capsules) {
         let build = builder.build(manifest, capsule)?;
+        let receipt_identity = build.receipt().receipt_digest();
         build_receipt_bytes.push(build.canonical_receipt_bytes());
-        build_reads.push(build);
+        build_reads.push(VerifiedDevelopPluginBuildV2OrV3::from(
+            build.into_composer_build(),
+        ));
+        build_receipt_identities.push(receipt_identity);
     }
 
     Ok(PreparedDevelopComposerA0V2 {
         preflight,
         build_receipt_tags: vec![BUILD_RECEIPT_TAG_V2; build_receipt_bytes.len()],
         build_reads,
+        build_receipt_identities,
         build_receipt_bytes,
+    })
+}
+
+pub(crate) fn prepare_develop_composer_bfp_v3(
+    producer: &mut DevelopPluginBuildProducerV3,
+    request: &DevelopComposerRunRequestV2,
+    frozen: &FrozenResearchBoundedFeatureProgramV1,
+    mut preflight: DevelopComposerPreflightV2,
+) -> Result<PreparedDevelopComposerA0V2, DevelopComposerTerminalV2> {
+    let mut manifests = request.design.plugins.iter().collect::<Vec<_>>();
+    manifests.sort_by(|left, right| left.semantic_id.cmp(&right.semantic_id));
+    let [manifest] = manifests.as_slice() else {
+        return Err(unavailable(
+            "design.plugins",
+            "one frozen BFP must exactly cover one V3 plugin",
+        ));
+    };
+    if manifest.abi_version != BUILD_RECEIPT_TAG_V3
+        || durable_encode(&request.design) != frozen.design_bytes()
+        || preflight.design_identity != frozen.design_identity()
+        || preflight.research_request_identity != frozen.research_request_identity()
+        || preflight.intent_identity != frozen.intent_identity()
+    {
+        return Err(unavailable(
+            "bounded_feature_program",
+            "current frozen BFP does not exactly bind the Composer request and ABI3 Design",
+        ));
+    }
+    let first = prepare_frozen_bounded_feature_source_inputs_v1(frozen).map_err(|error| {
+        unavailable(
+            "bounded_feature_program.lowering",
+            &format!("first current BFP lowering failed: {error}"),
+        )
+    })?;
+    let second = prepare_frozen_bounded_feature_source_inputs_v1(frozen).map_err(|error| {
+        unavailable(
+            "bounded_feature_program.lowering",
+            &format!("second current BFP lowering failed: {error}"),
+        )
+    })?;
+    let build = match producer.build(manifest, first, second) {
+        DevelopPluginBuildResultV3::Verified(build) => *build,
+        DevelopPluginBuildResultV3::Terminal(terminal) => {
+            return Err(map_v3_build_terminal(terminal));
+        }
+    };
+    let capsule_identity = build.build().capsule_digest();
+    let build_receipt_identity = build.build().verified_build_receipt_digest();
+    let build_receipt_bytes = build.canonical_receipt_bytes().to_vec();
+    preflight.capsule_identities = vec![capsule_identity];
+    preflight.build_attempt_identities = vec![build_attempt_identity_v2(
+        &manifest.semantic_id,
+        capsule_identity,
+    )];
+
+    Ok(PreparedDevelopComposerA0V2 {
+        preflight,
+        build_reads: vec![VerifiedDevelopPluginBuildV2OrV3::from(
+            build.into_composer_build(),
+        )],
+        build_receipt_identities: vec![build_receipt_identity],
+        build_receipt_tags: vec![BUILD_RECEIPT_TAG_V3],
+        build_receipt_bytes: vec![build_receipt_bytes],
     })
 }
 
@@ -752,6 +832,7 @@ pub(crate) fn finish_positive_record_from_prepared_a0_v2(
     let PreparedDevelopComposerA0V2 {
         preflight,
         build_reads,
+        build_receipt_identities,
         build_receipt_tags,
         build_receipt_bytes,
     } = prepared;
@@ -767,20 +848,18 @@ pub(crate) fn finish_positive_record_from_prepared_a0_v2(
     manifests.sort_by(|left, right| left.semantic_id.cmp(&right.semantic_id));
     let plugin_builds = build_reads
         .iter()
+        .zip(&build_receipt_identities)
         .zip(manifests.iter())
-        .map(|(build, manifest)| UntrustedPluginBuildLocatorV2 {
-            plugin_semantic_id: manifest.semantic_id.clone(),
-            verified_build_receipt_digest: build.receipt().receipt_digest(),
-        })
+        .map(
+            |((_build, receipt_identity), manifest)| UntrustedPluginBuildLocatorV2 {
+                plugin_semantic_id: manifest.semantic_id.clone(),
+                verified_build_receipt_digest: *receipt_identity,
+            },
+        )
         .collect::<Vec<_>>();
-    let verified_builds = build_reads
-        .into_iter()
-        .map(VerifiedDevelopPluginBuildReadV2::into_composer_build)
-        .map(VerifiedDevelopPluginBuildV2OrV3::from)
-        .collect();
     let composer_evidence = ComposerEvidenceV2 {
         locked: final_locked.clone(),
-        builds: RefCell::new(verified_builds),
+        builds: RefCell::new(build_reads),
     };
     let proposal = UntrustedDevelopComposerProposalV2 {
         research_request_locator: request.research_custody_reference.clone(),
@@ -804,6 +883,7 @@ pub(crate) fn finish_positive_record_from_prepared_a0_v2(
         BuildReceiptCustodyV2 {
             attempt_identities: preflight.build_attempt_identities,
             capsule_identities: preflight.capsule_identities,
+            receipt_identities: build_receipt_identities,
             tags: build_receipt_tags,
             bytes: build_receipt_bytes,
         },
@@ -821,6 +901,7 @@ fn finish_positive(
     let BuildReceiptCustodyV2 {
         attempt_identities: build_attempt_identities,
         capsule_identities,
+        receipt_identities: build_receipt_identities,
         tags: build_receipt_tags,
         bytes: build_receipt_bytes,
     } = build_custody;
@@ -931,14 +1012,6 @@ fn finish_positive(
         artifact_identity: positive.artifact().identity(),
         payload_digest,
     };
-    let build_receipt_identities = build_receipt_bytes
-        .iter()
-        .map(|bytes| {
-            DevelopPluginBuildReceiptV2::parse_canonical(bytes)
-                .expect("fresh A0 receipt validates")
-                .receipt_digest()
-        })
-        .collect();
     let record = StoredDevelopComposerPositiveV2 {
         request_identity: request.request_identity.clone(),
         request_digest,
@@ -1554,6 +1627,20 @@ fn map_build_terminal(
     };
     DevelopComposerTerminalV2 {
         kind,
+        coordinate: terminal.coordinate,
+        reason: terminal.reason,
+    }
+}
+
+fn map_v3_build_terminal(
+    terminal: crate::develop_plugin_build_v3::DevelopPluginBuildTerminalV3,
+) -> DevelopComposerTerminalV2 {
+    DevelopComposerTerminalV2 {
+        kind: if terminal.kind == DevelopPluginBuildTerminalKindV3::Conflict {
+            DevelopComposerTerminalKindV2::Conflict
+        } else {
+            DevelopComposerTerminalKindV2::Unavailable
+        },
         coordinate: terminal.coordinate,
         reason: terminal.reason,
     }

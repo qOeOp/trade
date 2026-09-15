@@ -30,6 +30,9 @@ use crate::{
         durable_decode, durable_encode, issue_plugin_implementation_receipt_v2,
         plugin_manifest_digest, prepare_strategy_design_v2,
     },
+    successor_intent::SuccessorResearchIntentReadbackV1,
+    successor_intent_postgres::SuccessorResearchViewCustodyV1,
+    trial_family::TrialFamilyCensusReadbackV2,
 };
 
 const RECEIPT_SCHEMA_V2: u16 = 2;
@@ -385,6 +388,85 @@ impl CurrentResearchDevelopCustodyV2 {
         value.custody_digest = domain_digest(
             b"rd.develop.current-research-custody.v2\0",
             &serde_json::to_vec(&value).expect("research custody serialization"),
+        );
+        Ok(value)
+    }
+
+    pub(crate) fn from_verified_successor(
+        readback: &SuccessorResearchIntentReadbackV1,
+        custody: &SuccessorResearchViewCustodyV1,
+        family: &TrialFamilyCensusReadbackV2,
+        read_cut_epoch_ms: u64,
+    ) -> Result<Self, DevelopComposerTerminalV2> {
+        let intent = readback.intent();
+        let receipt = readback.receipt();
+        let view = custody.view();
+        let latest_intent = family.latest_intent_binding().map_err(|_| {
+            DevelopComposerTerminalV2::unavailable(
+                "research_custody.trial_family",
+                "complete current successor TrialFamily custody is unavailable",
+            )
+        })?;
+
+        if receipt.request_identity() != intent.request_identity()
+            || receipt.intent_identity() != intent.intent_identity()
+            || receipt.intent_digest() != intent.intent_digest()
+            || view.availability != ResearchViewAvailability::Available
+            || view.phase != ResearchViewPhase::IntentFrozen
+            || view.request_identity != intent.request_identity()
+            || view.intent_identity != intent.intent_identity()
+            || view.projection_at_epoch_ms > read_cut_epoch_ms
+            || read_cut_epoch_ms >= view.valid_through_epoch_ms
+            || family.census_frontier.trial_family_identity() != intent.trial_family_identity()
+            || family.census_frontier.frontier_identity() != intent.census_frontier_identity()
+            || family.census_frontier.frontier_digest() != intent.census_frontier_digest()
+            || latest_intent.intent_identity != intent.predecessor_intent_identity()
+            || latest_intent.intent_digest != intent.predecessor_intent_digest()
+        {
+            return Err(DevelopComposerTerminalV2::unavailable(
+                "research_custody",
+                "successor Research custody is not exact, current, and ready for Develop",
+            ));
+        }
+
+        let research_request_identity = domain_digest(
+            b"rd.develop.request-identity.v2\0",
+            intent.request_identity().as_bytes(),
+        );
+        let intent_identity =
+            parse_digest_suffix(intent.intent_identity(), "rd-successor-research-intent-v1-")
+                .ok_or_else(|| {
+                    DevelopComposerTerminalV2::unavailable(
+                        "research_custody.intent_identity",
+                        "successor Research Intent identity is not canonical",
+                    )
+                })?;
+        let intent_digest =
+            parse_digest_suffix(intent.intent_digest(), "sha256:").ok_or_else(|| {
+                DevelopComposerTerminalV2::unavailable(
+                    "research_custody.intent_digest",
+                    "successor Research Intent digest is not canonical SHA-256",
+                )
+            })?;
+        let mut value = Self {
+            request_locator: intent.intent_identity().to_owned(),
+            research_request_identity,
+            intent_identity,
+            intent_digest,
+            falsifier: intent.goal().falsification_question.clone(),
+            research_receipt_identity: receipt.receipt_identity().to_owned(),
+            research_receipt_semantic_digest: custody.request_semantic_digest().to_owned(),
+            research_view_identity: view.projection_identity.clone(),
+            research_view_source_cut: view.source_cut.clone(),
+            trial_family_identity: intent.trial_family_identity().to_owned(),
+            trial_family_root_digest: family.legacy_family.root().root_digest().to_owned(),
+            trial_family_frontier_identity: family.census_frontier.frontier_identity().to_owned(),
+            trial_family_frontier_digest: family.census_frontier.frontier_digest().to_owned(),
+            custody_digest: BindingDigest::from_untrusted_bytes([0; 32]),
+        };
+        value.custody_digest = domain_digest(
+            b"rd.develop.current-research-custody.v2\0",
+            &serde_json::to_vec(&value).expect("successor research custody serialization"),
         );
         Ok(value)
     }
@@ -1034,5 +1116,156 @@ mod version_dispatch_tests {
             3,
             PLUGIN_FAILURE_SEMANTIC_ID_V2,
         ));
+    }
+}
+
+#[cfg(test)]
+mod successor_custody_tests {
+    use super::*;
+    use crate::{
+        IterationExperimentModeV1, IterationHypothesisDimensionV1,
+        product_edge::{ResearchSourceV1, UnsourcedResearchGoalV1},
+        successor_intent::{
+            SuccessorResearchIntentCompositionRequestV1, SuccessorResearchIntentSourceV1,
+            issue_successor_research_intent_v1, successor_research_intent_semantic_digest_v1,
+        },
+        trial_family::{
+            TrialFamilyAttemptAppendV2, TrialFamilyAttemptTerminalDispositionV2,
+            TrialFamilyCandidateSetProposalV2, TrialFamilyIndependenceDispositionV1,
+            TrialFamilyPolicyV1, append_attempt_to_census_v2, form_initial_family,
+        },
+    };
+    use vibe_product_edge::ProductEdgeAdmissionLocatorV1;
+
+    fn digest(byte: char) -> String {
+        format!("sha256:{}", byte.to_string().repeat(64))
+    }
+
+    #[rstest::rstest]
+    fn successor_custody_admits_the_exact_current_family_and_rejects_an_expired_view() {
+        let falsifier = "Does the filtered signal fail after exact costs?";
+        let predecessor_identity = "rd-research-intent-v2-predecessor";
+        let predecessor_digest = digest('1');
+        let family = form_initial_family(
+            predecessor_identity,
+            &predecessor_digest,
+            TrialFamilyPolicyV1 {
+                trial_budget: 2,
+                stop_rule: "stop after the bounded falsifier".to_owned(),
+                pit_rule_identity: "pit-rule-v1".to_owned(),
+                cost_model_identity: "cost-model-v1".to_owned(),
+                slippage_model_identity: "slippage-model-v1".to_owned(),
+                capacity_model_identity: "capacity-model-v1".to_owned(),
+                semantic_predecessor_frontier: Vec::new(),
+                protected_feedback_frontier: "qualification-frontier-v1".to_owned(),
+                independence_disposition: TrialFamilyIndependenceDispositionV1::Independent,
+                independence_basis_identity: "independence-basis-v1".to_owned(),
+                frozen_falsifier_binding: TrialFamilyPolicyV1::expected_falsifier_binding(
+                    falsifier,
+                )
+                .expect("falsifier binding"),
+                replay_execution_policy_v2: None,
+                replay_policy_catalog_v3: None,
+                decision_policy_v1: None,
+            },
+            42,
+        )
+        .expect("initial family");
+        let census = append_attempt_to_census_v2(
+            family.clone(),
+            None,
+            TrialFamilyAttemptAppendV2 {
+                intent_identity: predecessor_identity.to_owned(),
+                intent_digest: predecessor_digest.clone(),
+                request_identity: "backtest-request-predecessor".to_owned(),
+                request_digest: digest('2'),
+                result_identity: "backtest-result-predecessor".to_owned(),
+                result_digest: digest('3'),
+                terminal_disposition: TrialFamilyAttemptTerminalDispositionV2::TerminalResult,
+                consumed_trial_budget: 1,
+                candidate_set: TrialFamilyCandidateSetProposalV2 {
+                    generation_rule_identity: "candidate-generation-rule-v1".to_owned(),
+                    generation_rule_digest: digest('4'),
+                    expected_cardinality: 0,
+                    candidates: Vec::new(),
+                },
+            },
+            100,
+        )
+        .expect("current predecessor census");
+        let request = SuccessorResearchIntentCompositionRequestV1 {
+            request_identity: "successor-request-0001".to_owned(),
+            decision_identity: "decision-0001".to_owned(),
+            result_identity: "result-0001".to_owned(),
+            goal: UnsourcedResearchGoalV1 {
+                hypothesis: "A narrower entry signal improves net returns.".to_owned(),
+                mechanism: "The entry filter removes low-conviction observations.".to_owned(),
+                falsification_question: falsifier.to_owned(),
+                expected_observation: "Higher net expectancy with bounded turnover.".to_owned(),
+                required_data: vec!["sealed market bars".to_owned()],
+                cost_assumption: "Canonical cost model remains fixed.".to_owned(),
+                capacity_assumption: "Canonical capacity model remains fixed.".to_owned(),
+            },
+            admission: ProductEdgeAdmissionLocatorV1 {
+                request_identity: "successor-request-0001".to_owned(),
+                admission_identity: "successor-admission-0001".to_owned(),
+                admission_digest: digest('5'),
+            },
+        };
+        let request_semantic_digest = successor_research_intent_semantic_digest_v1(&request)
+            .expect("request semantic digest");
+        let readback = issue_successor_research_intent_v1(
+            request,
+            SuccessorResearchIntentSourceV1 {
+                predecessor_intent_identity: predecessor_identity.to_owned(),
+                predecessor_intent_digest: predecessor_digest,
+                source_frontier: vec![ResearchSourceV1 {
+                    locator: "urn:research:source:predecessor".to_owned(),
+                    content_digest: digest('6'),
+                    observed_at: "2026-09-15T00:00:00Z".to_owned(),
+                    source_cut: "sealed-source-cut".to_owned(),
+                    license_basis: "internal research evidence".to_owned(),
+                    interpretation: "Evidence retained from the predecessor Intent.".to_owned(),
+                }],
+                decision_identity: "decision-0001".to_owned(),
+                decision_digest: digest('7'),
+                decision_receipt_identity: "decision-receipt-0001".to_owned(),
+                result_identity: "result-0001".to_owned(),
+                trial_family_identity: family.root().trial_family_identity().to_owned(),
+                trial_family_policy_digest: family.root().policy_digest().to_owned(),
+                census_frontier_identity: census.census_frontier.frontier_identity().to_owned(),
+                census_frontier_digest: census.census_frontier.frontier_digest().to_owned(),
+                independence_basis_identity: "independence-basis-v1".to_owned(),
+                independence_basis_digest: digest('8'),
+                protected_feedback_projection_identity: "protected-feedback-v1".to_owned(),
+                protected_feedback_projection_digest: digest('9'),
+                experiment_identity: "experiment-0001".to_owned(),
+                experiment_digest: digest('a'),
+                experiment: IterationExperimentModeV1::SingleDimension {
+                    changed_dimension: IterationHypothesisDimensionV1::EntryRule,
+                },
+            },
+            120,
+        )
+        .expect("successor Intent");
+        let custody =
+            SuccessorResearchViewCustodyV1::fixture(&readback, request_semantic_digest, 120, 720);
+
+        let admitted = CurrentResearchDevelopCustodyV2::from_verified_successor(
+            &readback, &custody, &census, 121,
+        )
+        .expect("current successor custody");
+        assert_eq!(
+            admitted.request_locator(),
+            readback.intent().intent_identity()
+        );
+        assert_eq!(admitted.falsifier(), falsifier);
+
+        let expired = CurrentResearchDevelopCustodyV2::from_verified_successor(
+            &readback, &custody, &census, 720,
+        )
+        .expect_err("expired successor custody must fail closed");
+        assert_eq!(expired.kind, DevelopComposerTerminalKindV2::Unavailable);
+        assert_eq!(expired.coordinate, "research_custody");
     }
 }

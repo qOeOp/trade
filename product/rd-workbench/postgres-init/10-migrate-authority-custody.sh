@@ -162,6 +162,22 @@ ALTER TABLE IF EXISTS public.rd_trial_family_attempt_cuts_v2 ADD COLUMN IF NOT E
 ALTER TABLE IF EXISTS public.rd_trial_family_attempt_cuts_v2 ADD COLUMN IF NOT EXISTS attempt_frontier_storage_digest TEXT;
 ALTER TABLE IF EXISTS public.rd_trial_family_attempt_cuts_v2 ADD COLUMN IF NOT EXISTS candidate_set_frontier_storage_bytes BYTEA;
 ALTER TABLE IF EXISTS public.rd_trial_family_attempt_cuts_v2 ADD COLUMN IF NOT EXISTS candidate_set_frontier_storage_digest TEXT;
+CREATE TABLE IF NOT EXISTS public.rd_trial_family_candidate_experiments_v1 (
+  experiment_identity TEXT PRIMARY KEY,
+  trial_family_identity TEXT NOT NULL REFERENCES public.rd_trial_families_v1(trial_family_identity),
+  attempt_ordinal INTEGER NOT NULL,
+  candidate_set_frontier_identity TEXT NOT NULL REFERENCES public.rd_trial_family_attempt_cuts_v2(candidate_set_frontier_identity),
+  candidate_identity TEXT NOT NULL,
+  candidate_digest TEXT NOT NULL,
+  experiment_json JSONB NOT NULL,
+  receipt_json JSONB NOT NULL,
+  experiment_storage_bytes BYTEA NOT NULL,
+  experiment_storage_digest TEXT NOT NULL,
+  receipt_storage_bytes BYTEA NOT NULL,
+  receipt_storage_digest TEXT NOT NULL,
+  committed_at_epoch_ms BIGINT NOT NULL,
+  UNIQUE (trial_family_identity, attempt_ordinal, candidate_identity)
+);
 ALTER TABLE IF EXISTS public.rd_sealed_exploratory_replay_requests_v1 ADD COLUMN IF NOT EXISTS v2_request_storage_digest TEXT;
 ALTER TABLE IF EXISTS public.rd_sealed_exploratory_replay_requests_v1 ADD COLUMN IF NOT EXISTS v2_receipt_storage_bytes BYTEA;
 ALTER TABLE IF EXISTS public.rd_sealed_exploratory_replay_requests_v1 ADD COLUMN IF NOT EXISTS v2_receipt_storage_digest TEXT;
@@ -3268,6 +3284,53 @@ BEGIN
   END LOOP;
 END
 $rd_ownership$;
+
+DO $candidate_experiment_acl_cutover$
+DECLARE grant_fact record;
+BEGIN
+  FOR grant_fact IN
+    SELECT DISTINCT acl.grantee, role.rolname
+    FROM pg_catalog.pg_class relation
+    CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl
+    LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+    WHERE relation.oid='public.rd_trial_family_candidate_experiments_v1'::pg_catalog.regclass
+      AND acl.grantee<>relation.relowner
+  LOOP
+    IF grant_fact.grantee=0 THEN
+      EXECUTE 'REVOKE ALL PRIVILEGES ON TABLE public.rd_trial_family_candidate_experiments_v1 FROM PUBLIC CASCADE';
+    ELSE
+      EXECUTE pg_catalog.format(
+        'REVOKE ALL PRIVILEGES ON TABLE public.rd_trial_family_candidate_experiments_v1 FROM %I CASCADE',
+        grant_fact.rolname
+      );
+    END IF;
+  END LOOP;
+  FOR grant_fact IN
+    SELECT DISTINCT attribute.attname, acl.grantee, role.rolname
+    FROM pg_catalog.pg_class relation
+    JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=relation.oid
+    CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+    LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+    WHERE relation.oid='public.rd_trial_family_candidate_experiments_v1'::pg_catalog.regclass
+      AND attribute.attnum>0
+      AND NOT attribute.attisdropped
+      AND acl.grantee<>relation.relowner
+  LOOP
+    IF grant_fact.grantee=0 THEN
+      EXECUTE pg_catalog.format(
+        'REVOKE ALL (%I) ON TABLE public.rd_trial_family_candidate_experiments_v1 FROM PUBLIC CASCADE',
+        grant_fact.attname
+      );
+    ELSE
+      EXECUTE pg_catalog.format(
+        'REVOKE ALL (%I) ON TABLE public.rd_trial_family_candidate_experiments_v1 FROM %I CASCADE',
+        grant_fact.attname,
+        grant_fact.rolname
+      );
+    END IF;
+  END LOOP;
+END
+$candidate_experiment_acl_cutover$;
 
 ALTER DEFAULT PRIVILEGES FOR ROLE rd_owner IN SCHEMA public REVOKE SELECT ON TABLES FROM qualification_owner, qualification_writer;
 DO $qualification_basis_reads$

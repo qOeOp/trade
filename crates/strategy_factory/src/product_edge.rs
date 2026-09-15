@@ -2,11 +2,20 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
+use vibe_backtest_owner_contracts::{
+    CanonicalDigestV2, ConsumedComponentObservationDtoV2, DiagnosticEvidenceDtoV2,
+    OpaqueIdentityV2, ReconciliationAtomDtoV2, ReplayNamespaceV2, ReplayTerminalV2,
+};
+use vibe_backtest_result_custody::{
+    ExploratoryReplayResultReceiptReferenceV1, LockedExploratoryReplayResultV2,
+};
 use vibe_product_edge::{ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionReadbackV1};
 
 use crate::iteration_decision::{
-    ExistingIterationDecisionReadbackV1, IterationDecisionOutcomeV1, IterationRepairCategoryV1,
-    IterationRepairTargetV1, IterationTerminalStopReasonV1,
+    ExistingIterationDecisionReadbackV1, IterationDecisionEvidenceCutV1, IterationDecisionGateV1,
+    IterationDecisionOutcomeV1, IterationDiagnosisDimensionV1, IterationInterpretationDiagnosticV1,
+    IterationNoDecisionReasonV1, IterationRepairCategoryV1, IterationRepairTargetV1,
+    IterationTerminalStopReasonV1,
 };
 use crate::trial_family::{
     TrialFamilyError, TrialFamilyIndependenceDispositionV1, TrialFamilyPolicyV1,
@@ -21,6 +30,7 @@ pub const RESEARCH_GOAL_SCHEMA_V2: &str = "sourced-research-goal-v2";
 pub const RESEARCH_OWNER_V1: &str = "R_AND_D";
 pub const RESEARCH_SCOPE_V1: &str = "research:submit";
 pub const RESEARCH_VIEW_SCOPE_V1: &str = "research:view";
+pub const BACKTEST_OWNER_V1: &str = "BACKTEST";
 const RESEARCH_MUTATION_EFFECT_V1: &str = "R_AND_D_RESEARCH_MUTATION_V1";
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -428,6 +438,247 @@ pub struct ResearchExplorationViewV1 {
     pub replay_request_meaning_digest: String,
     pub replay_request_seal_digest: String,
     pub replay_receipt_identity: String,
+}
+
+/// Read-only Product Edge projection of one validated Backtest exploratory Result aggregate.
+///
+/// This type is serialize-only. Its sole public constructor accepts the non-forgeable locked
+/// Backtest Owner readback, so caller bytes cannot supply a Result, receipt, diagnosis, or trace.
+/// Raw Result bytes, economic interpretation, Iteration Decision, and next-action inference are
+/// deliberately absent.
+///
+/// ```compile_fail
+/// use vibe_strategy_factory::product_edge::ResearchExploratoryRunEvidenceProjectionV1;
+/// let _: ResearchExploratoryRunEvidenceProjectionV1 = serde_json::from_str("{}").unwrap();
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResearchExploratoryRunEvidenceProjectionV1 {
+    schema_version: u16,
+    source_owner: String,
+    replay_namespace: ReplayNamespaceV2,
+    request_identity: OpaqueIdentityV2,
+    request_meaning_digest: CanonicalDigestV2,
+    result_identity: OpaqueIdentityV2,
+    result_digest: CanonicalDigestV2,
+    attempt_identity: OpaqueIdentityV2,
+    terminal: ReplayTerminalV2,
+    receipt_reference: ExploratoryReplayResultReceiptReferenceV1,
+    reconciliation: Vec<ReconciliationAtomDtoV2>,
+    semantic_trace: Option<ConsumedComponentObservationDtoV2>,
+    diagnostic_census: Vec<DiagnosticEvidenceDtoV2>,
+}
+
+impl ResearchExploratoryRunEvidenceProjectionV1 {
+    /// Projects only facts carried by the validated Backtest Owner readback.
+    #[must_use]
+    pub fn from_locked_owner_readback(readback: &LockedExploratoryReplayResultV2) -> Self {
+        let result = readback.result();
+        Self {
+            schema_version: 1,
+            source_owner: BACKTEST_OWNER_V1.to_string(),
+            replay_namespace: result.namespace,
+            request_identity: result.request_identity.clone(),
+            request_meaning_digest: result.request_meaning_digest.clone(),
+            result_identity: result.result_identity.clone(),
+            result_digest: result.result_digest.clone(),
+            attempt_identity: result.attempt_identity.clone(),
+            terminal: result.terminal,
+            receipt_reference: readback.receipt_reference().clone(),
+            reconciliation: result.reconciliation.clone(),
+            semantic_trace: result.semantic_trace.clone(),
+            diagnostic_census: result.diagnostic_census.clone(),
+        }
+    }
+
+    #[must_use]
+    pub const fn schema_version(&self) -> u16 {
+        self.schema_version
+    }
+
+    #[must_use]
+    pub fn source_owner(&self) -> &str {
+        &self.source_owner
+    }
+
+    #[must_use]
+    pub const fn replay_namespace(&self) -> ReplayNamespaceV2 {
+        self.replay_namespace
+    }
+
+    #[must_use]
+    pub fn request_identity(&self) -> &OpaqueIdentityV2 {
+        &self.request_identity
+    }
+
+    #[must_use]
+    pub fn result_identity(&self) -> &OpaqueIdentityV2 {
+        &self.result_identity
+    }
+
+    #[must_use]
+    pub fn attempt_identity(&self) -> &OpaqueIdentityV2 {
+        &self.attempt_identity
+    }
+
+    #[must_use]
+    pub const fn terminal(&self) -> ReplayTerminalV2 {
+        self.terminal
+    }
+
+    #[must_use]
+    pub fn receipt_reference(&self) -> &ExploratoryReplayResultReceiptReferenceV1 {
+        &self.receipt_reference
+    }
+
+    #[must_use]
+    pub fn reconciliation(&self) -> &[ReconciliationAtomDtoV2] {
+        &self.reconciliation
+    }
+
+    #[must_use]
+    pub fn semantic_trace(&self) -> Option<&ConsumedComponentObservationDtoV2> {
+        self.semantic_trace.as_ref()
+    }
+
+    #[must_use]
+    pub fn diagnostic_census(&self) -> &[DiagnosticEvidenceDtoV2] {
+        &self.diagnostic_census
+    }
+}
+
+/// Caller-owned coordinates for one R&D diagnosis read. They carry no diagnosis or Decision
+/// authority.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResearchExploratoryDiagnosisLocatorV1 {
+    pub trial_family_identity: String,
+    pub result_identity: String,
+    pub request_identity: String,
+    pub attempt_identity: String,
+}
+
+/// Read-only Product Edge projection of R&D's mandatory diagnosis gate.
+///
+/// This type is serialize-only and has no public constructor. A positive value can therefore be
+/// produced only after R&D joins the current TrialFamily Census to the locked Backtest Result.
+/// It neither commits an Iteration Decision nor accepts caller-supplied diagnosis fields.
+///
+/// ```compile_fail
+/// use vibe_strategy_factory::product_edge::ResearchExploratoryDiagnosisGateProjectionV1;
+/// let _: ResearchExploratoryDiagnosisGateProjectionV1 = serde_json::from_str("{}").unwrap();
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResearchExploratoryDiagnosisGateProjectionV1 {
+    schema_version: u16,
+    source_owner: String,
+    locator: ResearchExploratoryDiagnosisLocatorV1,
+    action: ResearchExploratoryDiagnosisGateActionV1,
+}
+
+/// The only client actions admitted by one exact R&D diagnosis read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "next_legal_action", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ResearchExploratoryDiagnosisGateActionV1 {
+    WaitForTerminalResult {
+        reason: IterationNoDecisionReasonV1,
+    },
+    NoDecision {
+        reason: IterationNoDecisionReasonV1,
+    },
+    SubmitRepairInputDecision {
+        decision_request: crate::DecisionCompositionRequestV1,
+        evidence_cut: IterationDecisionEvidenceCutV1,
+        supported_defects: Vec<IterationRepairCategoryV1>,
+        selected_category: IterationRepairCategoryV1,
+        target: IterationRepairTargetV1,
+    },
+    InterpretationRequired {
+        evidence_cut: IterationDecisionEvidenceCutV1,
+        diagnostic: IterationInterpretationDiagnosticV1,
+        required_dimensions: Vec<IterationDiagnosisDimensionV1>,
+    },
+}
+
+impl ResearchExploratoryDiagnosisGateProjectionV1 {
+    pub(crate) fn from_owner_gate(
+        locator: ResearchExploratoryDiagnosisLocatorV1,
+        gate: IterationDecisionGateV1,
+    ) -> Self {
+        let decision_request = crate::DecisionCompositionRequestV1 {
+            trial_family_identity: locator.trial_family_identity.clone(),
+            result_identity: locator.result_identity.clone(),
+            request_identity: locator.request_identity.clone(),
+            attempt_identity: locator.attempt_identity.clone(),
+        };
+        let action = match gate {
+            IterationDecisionGateV1::RepairInputs {
+                evidence_cut,
+                supported_defects,
+                selected_category,
+                target,
+            } => ResearchExploratoryDiagnosisGateActionV1::SubmitRepairInputDecision {
+                decision_request,
+                evidence_cut,
+                supported_defects,
+                selected_category,
+                target,
+            },
+            IterationDecisionGateV1::InterpretationRequired {
+                evidence_cut,
+                diagnostic,
+                required_dimensions,
+            } => ResearchExploratoryDiagnosisGateActionV1::InterpretationRequired {
+                evidence_cut,
+                diagnostic,
+                required_dimensions,
+            },
+            IterationDecisionGateV1::NoDecision { reason } => {
+                if reason == IterationNoDecisionReasonV1::UnknownOrNonterminalResult {
+                    ResearchExploratoryDiagnosisGateActionV1::WaitForTerminalResult { reason }
+                } else {
+                    ResearchExploratoryDiagnosisGateActionV1::NoDecision { reason }
+                }
+            }
+        };
+        Self {
+            schema_version: 1,
+            source_owner: RESEARCH_OWNER_V1.to_string(),
+            locator,
+            action,
+        }
+    }
+
+    #[must_use]
+    pub const fn schema_version(&self) -> u16 {
+        self.schema_version
+    }
+
+    #[must_use]
+    pub fn source_owner(&self) -> &str {
+        &self.source_owner
+    }
+
+    #[must_use]
+    pub const fn locator(&self) -> &ResearchExploratoryDiagnosisLocatorV1 {
+        &self.locator
+    }
+
+    #[must_use]
+    pub const fn action(&self) -> &ResearchExploratoryDiagnosisGateActionV1 {
+        &self.action
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum ResearchExploratoryDiagnosisGateErrorV1 {
+    #[error("exploratory diagnosis-gate Owner facts are unavailable")]
+    Unavailable,
+    #[error("exploratory diagnosis-gate evidence is invalid")]
+    InvalidEvidence,
+    #[error("exploratory diagnosis-gate storage is unavailable: {0}")]
+    Storage(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -1797,6 +2048,93 @@ fn trial_family_storage(error: &TrialFamilyError) -> ResearchGoalOwnerError {
 mod v2_sealing_tests {
     use super::*;
     use rstest::rstest;
+
+    fn diagnosis_locator() -> ResearchExploratoryDiagnosisLocatorV1 {
+        ResearchExploratoryDiagnosisLocatorV1 {
+            trial_family_identity: "family-1".into(),
+            result_identity: "result-1".into(),
+            request_identity: "request-1".into(),
+            attempt_identity: "attempt-1".into(),
+        }
+    }
+
+    fn diagnosis_evidence_cut() -> IterationDecisionEvidenceCutV1 {
+        IterationDecisionEvidenceCutV1 {
+            decision_policy_identity: "policy-1".into(),
+            decision_policy_version: 1,
+            decision_policy_digest: [1; 32],
+            decision_policy_binding_digest: [2; 32],
+            trial_family_identity: "family-1".into(),
+            census_frontier_identity: "census-1".into(),
+            census_frontier_digest: "census-digest-1".into(),
+            attempt_frontier_identity: "attempt-frontier-1".into(),
+            attempt_frontier_digest: "attempt-frontier-digest-1".into(),
+            candidate_set_frontier_identity: "candidate-set-1".into(),
+            candidate_set_frontier_digest: "candidate-set-digest-1".into(),
+            request_identity: "request-1".into(),
+            request_digest: "request-digest-1".into(),
+            result_identity: "result-1".into(),
+            result_digest: "result-digest-1".into(),
+            attempt_identity: "attempt-1".into(),
+        }
+    }
+
+    #[rstest]
+    fn diagnosis_projection_distinguishes_wait_from_terminal_no_decision() {
+        let waiting = ResearchExploratoryDiagnosisGateProjectionV1::from_owner_gate(
+            diagnosis_locator(),
+            IterationDecisionGateV1::NoDecision {
+                reason: IterationNoDecisionReasonV1::UnknownOrNonterminalResult,
+            },
+        );
+        assert!(matches!(
+            waiting.action(),
+            ResearchExploratoryDiagnosisGateActionV1::WaitForTerminalResult { .. }
+        ));
+        let waiting_wire = serde_json::to_value(&waiting).expect("diagnosis projection wire");
+        assert_eq!(
+            waiting_wire["action"]["next_legal_action"],
+            "WAIT_FOR_TERMINAL_RESULT"
+        );
+        assert!(waiting_wire.get("next_legal_action").is_none());
+
+        let terminal = ResearchExploratoryDiagnosisGateProjectionV1::from_owner_gate(
+            diagnosis_locator(),
+            IterationDecisionGateV1::NoDecision {
+                reason: IterationNoDecisionReasonV1::UnresolvedFailure,
+            },
+        );
+        assert!(matches!(
+            terminal.action(),
+            ResearchExploratoryDiagnosisGateActionV1::NoDecision { .. }
+        ));
+        assert_eq!(terminal.source_owner(), RESEARCH_OWNER_V1);
+        assert_eq!(terminal.locator(), &diagnosis_locator());
+
+        let repair = ResearchExploratoryDiagnosisGateProjectionV1::from_owner_gate(
+            diagnosis_locator(),
+            IterationDecisionGateV1::RepairInputs {
+                evidence_cut: diagnosis_evidence_cut(),
+                supported_defects: vec![IterationRepairCategoryV1::MarketData],
+                selected_category: IterationRepairCategoryV1::MarketData,
+                target: IterationRepairTargetV1::MarketData,
+            },
+        );
+        let repair_wire = serde_json::to_value(repair).expect("repair gate projection wire");
+        assert_eq!(
+            repair_wire["action"]["next_legal_action"],
+            "SUBMIT_REPAIR_INPUT_DECISION"
+        );
+        assert_eq!(
+            repair_wire["action"]["decision_request"],
+            serde_json::json!({
+                "trial_family_identity": "family-1",
+                "result_identity": "result-1",
+                "request_identity": "request-1",
+                "attempt_identity": "attempt-1",
+            })
+        );
+    }
 
     #[rstest]
     fn research_directory_wire_exposes_only_verified_summary_fields() {

@@ -464,13 +464,56 @@ struct SuccessorArtifactCustodyV1 {
 }
 
 pub(crate) struct SuccessorResearchViewCustodyV1 {
+    request_semantic_digest: String,
     initial_view: ResearchViewV1,
     view: ResearchViewV1,
 }
 
 impl SuccessorResearchViewCustodyV1 {
+    pub(crate) fn request_semantic_digest(&self) -> &str {
+        &self.request_semantic_digest
+    }
+
     pub(crate) const fn view(&self) -> &ResearchViewV1 {
         &self.view
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fixture(
+        readback: &SuccessorResearchIntentReadbackV1,
+        request_semantic_digest: String,
+        projection_at_epoch_ms: u64,
+        valid_through_epoch_ms: u64,
+    ) -> Self {
+        let intent = readback.intent();
+        let view = ResearchViewV1 {
+            schema_version: 1,
+            projection_identity: "rd-successor-research-view-test".to_owned(),
+            request_identity: intent.request_identity().to_owned(),
+            trusted_principal: "rd-owner-test".to_owned(),
+            authorized_scope: vec![crate::product_edge::RESEARCH_SCOPE_V1.to_owned()],
+            authorization_policy_cut: "rd-successor-authorization-cut-test".to_owned(),
+            source_owner: RESEARCH_OWNER_V1.to_owned(),
+            source_cut: "rd-successor-source-cut-test".to_owned(),
+            observed_at_epoch_ms: projection_at_epoch_ms,
+            projection_at_epoch_ms,
+            valid_through_epoch_ms,
+            availability: ResearchViewAvailability::Available,
+            phase: ResearchViewPhase::IntentFrozen,
+            intent_identity: intent.intent_identity().to_owned(),
+            source_frontier: intent.goal().sources.clone(),
+            attempt_identity: None,
+            artifact_identity: None,
+            build_receipt_identity: None,
+            artifact_review_identity: None,
+            exploration: None,
+            next_legal_action: ResearchNextLegalAction::WaitForRAndDExecution,
+        };
+        Self {
+            request_semantic_digest,
+            initial_view: view.clone(),
+            view,
+        }
     }
 }
 
@@ -673,7 +716,11 @@ pub(crate) async fn lock_successor_research_view_in_transaction(
         return Err(storage("successor Research View evidence changed"));
     }
     validate_historical_view(&view, &initial_view)?;
-    Ok(SuccessorResearchViewCustodyV1 { initial_view, view })
+    Ok(SuccessorResearchViewCustodyV1 {
+        request_semantic_digest,
+        initial_view,
+        view,
+    })
 }
 
 pub(crate) async fn advance_successor_research_view_in_transaction(

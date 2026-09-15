@@ -26,6 +26,10 @@ use crate::{
         canonical_intent_bytes, issue_artifact, sandbox_request, validate_candidate,
         verify_artifact_build_admission, verify_sandbox_product,
     },
+    governance_artifact_membership::{
+        GovernanceArtifactMembershipLocatorV1, GovernanceArtifactMembershipReadErrorV1,
+        GovernanceArtifactMembershipReadPortV1, GovernanceArtifactMembershipReadbackV1,
+    },
     legacy_prepared_attempt_drain::{
         LegacyPreparedAttemptBindingV1, append_receipt_and_outbox_in_transaction,
         attempt_json_digest, form_receipt, materialize_family as materialize_legacy_drain_family,
@@ -1825,6 +1829,12 @@ impl PostgresArtifactReadbackOwnerV1 {
         )
         .await
         .map_err(storage)?;
+        crate::schema_materialization::require_existing_public_tables_for_readback(
+            &pool,
+            crate::trial_family_postgres::TABLES,
+        )
+        .await
+        .map_err(storage)?;
         Ok(Self {
             pool,
             clock: Arc::new(current_epoch_ms),
@@ -1962,6 +1972,170 @@ impl PostgresArtifactReadbackOwnerV1 {
             next_cursor,
             items,
         })
+    }
+}
+
+impl crate::governance_artifact_membership::sealed_read_port::RdOwned
+    for PostgresArtifactReadbackOwnerV1
+{
+}
+
+#[async_trait]
+impl GovernanceArtifactMembershipReadPortV1 for PostgresArtifactReadbackOwnerV1 {
+    async fn read_governance_artifact_membership(
+        &self,
+        locator: &GovernanceArtifactMembershipLocatorV1,
+    ) -> Result<GovernanceArtifactMembershipReadbackV1, GovernanceArtifactMembershipReadErrorV1>
+    {
+        if !locator.is_complete() {
+            return Err(GovernanceArtifactMembershipReadErrorV1::Unavailable);
+        }
+
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| GovernanceArtifactMembershipReadErrorV1::Unavailable)?;
+        let custody = Box::pin(admit_attempt_custody_in_transaction(
+            &mut transaction,
+            &locator.build_request_identity,
+        ))
+        .await
+        .map_err(|_| GovernanceArtifactMembershipReadErrorV1::Unavailable)?
+        .ok_or(GovernanceArtifactMembershipReadErrorV1::Unavailable)?;
+        let receipt = custody
+            .attempt
+            .receipt
+            .as_ref()
+            .ok_or(GovernanceArtifactMembershipReadErrorV1::Unavailable)?;
+        let review = custody
+            .artifact_review
+            .as_ref()
+            .ok_or(GovernanceArtifactMembershipReadErrorV1::Unavailable)?;
+        let family = custody
+            .artifact_family
+            .as_ref()
+            .ok_or(GovernanceArtifactMembershipReadErrorV1::Unavailable)?;
+        let build_receipt = &review.build_receipt;
+        let family_readback = family.trial_family();
+        let binding = family.binding();
+        let binding_receipt = family.binding_receipt();
+
+        let head_rows = sqlx::query(
+            "SELECT frontier_json FROM rd_trial_family_heads_v1 WHERE trial_family_identity=$1 FOR SHARE",
+        )
+        .bind(&locator.trial_family_identity)
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(|_| GovernanceArtifactMembershipReadErrorV1::Unavailable)?;
+        if head_rows.len() != 1 {
+            return Err(GovernanceArtifactMembershipReadErrorV1::Unavailable);
+        }
+        let head_frontier_json: serde_json::Value = head_rows[0]
+            .try_get("frontier_json")
+            .map_err(|_| GovernanceArtifactMembershipReadErrorV1::Unavailable)?;
+        let head_schema_version = head_frontier_json
+            .get("schema_version")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or(GovernanceArtifactMembershipReadErrorV1::Unavailable)?;
+        let current_census = match head_schema_version {
+            1 => None,
+            2 => Some(
+                crate::trial_family_postgres::load_trial_family_census_v2_by_family_in_transaction(
+                    &mut transaction,
+                    &locator.trial_family_identity,
+                )
+                .await
+                .map_err(|_| GovernanceArtifactMembershipReadErrorV1::Unavailable)?,
+            ),
+            _ => return Err(GovernanceArtifactMembershipReadErrorV1::Unavailable),
+        };
+        let (current_frontier_identity, current_frontier_digest) =
+            current_census.as_ref().map_or_else(
+                || {
+                    (
+                        family_readback.census_frontier().frontier_identity(),
+                        family_readback.census_frontier().frontier_digest(),
+                    )
+                },
+                |census| {
+                    (
+                        census.census_frontier.frontier_identity(),
+                        census.census_frontier.frontier_digest(),
+                    )
+                },
+            );
+
+        if custody.attempt.state != AttemptState::Terminal
+            || custody.attempt.request.build_request_identity != locator.build_request_identity
+            || custody.attempt.request.attempt_identity != locator.attempt_identity
+            || custody.attempt.request.intent_identity != locator.intent_identity
+            || custody.attempt.candidate_digest.as_deref() != Some(&locator.candidate_digest)
+            || receipt.disposition != ArtifactBuildDisposition::Success
+            || receipt.receipt_identity != locator.artifact_build_owner_receipt_identity
+            || receipt.artifact_identity.as_deref() != Some(&locator.artifact_identity)
+            || receipt.build_receipt_identity.as_deref() != Some(&locator.build_receipt_identity)
+            || receipt.intent_identity.as_deref() != Some(&locator.intent_identity)
+            || review.review_identity
+                != format!(
+                    "rd-artifact-review-v1-{}",
+                    locator.artifact_identity.trim_start_matches("blake3:")
+                )
+            || review.artifact_identity.artifact_digest != locator.artifact_identity
+            || review.intent_identity != locator.intent_identity
+            || build_receipt.build_receipt_identity != locator.build_receipt_identity
+            || build_receipt.attempt_identity != locator.attempt_identity
+            || build_receipt.intent_identity != locator.intent_identity
+            || build_receipt.candidate_digest != locator.candidate_digest
+            || !build_receipt.deterministic_double_build
+            || build_receipt.artifact_security_admission != "ADMITTED"
+            || review.build_security_state != "ADMITTED"
+            || family_readback.root().trial_family_identity() != locator.trial_family_identity
+            || family_readback.root().root_digest() != locator.trial_family_root_digest
+            || family_readback.census_frontier().frontier_identity()
+                != locator.artifact_binding_census_frontier_identity
+            || family_readback.census_frontier().frontier_digest()
+                != locator.artifact_binding_census_frontier_digest
+            || binding.binding_identity() != locator.artifact_family_binding_identity
+            || binding.binding_digest() != locator.artifact_family_binding_digest
+            || binding.artifact_identity() != locator.artifact_identity
+            || binding.build_receipt_identity() != locator.build_receipt_identity
+            || binding.trial_family_identity() != locator.trial_family_identity
+            || binding_receipt.receipt_identity()
+                != locator.artifact_family_binding_receipt_identity
+            || current_census
+                .as_ref()
+                .is_some_and(|census| census.legacy_family != *family_readback)
+            || current_frontier_identity != locator.census_frontier_identity
+            || current_frontier_digest != locator.census_frontier_digest
+        {
+            return Err(GovernanceArtifactMembershipReadErrorV1::Unavailable);
+        }
+
+        let readback = GovernanceArtifactMembershipReadbackV1 {
+            schema_version: 1,
+            locator: locator.clone(),
+            request_semantic_digest: custody.attempt.request_semantic_digest.clone(),
+            intent_semantic_digest: review.intent_semantic_digest.clone(),
+            artifact_review_identity: review.review_identity.clone(),
+            wasm_digest: build_receipt.wasm_digest.clone(),
+            source_capsule_digest: build_receipt.source_capsule_digest.clone(),
+            build_recipe_digest: build_receipt.build_recipe_digest.clone(),
+            dependency_identity: build_receipt.dependency_identity.clone(),
+            rustc_release: build_receipt.rustc_release.clone(),
+            rustc_commit: build_receipt.rustc_commit.clone(),
+            target: build_receipt.target.clone(),
+            sandbox_policy: build_receipt.sandbox_policy.clone(),
+            deterministic_double_build: build_receipt.deterministic_double_build,
+            artifact_security_admission: build_receipt.artifact_security_admission.clone(),
+            build_security_state: review.build_security_state.clone(),
+            committed_at_epoch_ms: receipt.committed_at_epoch_ms,
+        };
+        transaction
+            .commit()
+            .await
+            .map_err(|_| GovernanceArtifactMembershipReadErrorV1::Unavailable)?;
+        Ok(readback)
     }
 }
 
@@ -3071,6 +3245,11 @@ mod postgres_freshness_tests {
         product_edge_postgres::{
             PostgresResearchGoalOwnerV1, reseal_current_research_artifact_evidence_for_test,
         },
+        trial_family::{
+            TrialFamilyAttemptAppendV2, TrialFamilyAttemptTerminalDispositionV2,
+            TrialFamilyCandidateSetProposalV2,
+        },
+        trial_family_postgres::append_trial_family_attempt_in_transaction,
     };
     use rstest::rstest;
     use sha2::{Digest, Sha256};
@@ -4483,6 +4662,597 @@ mod postgres_freshness_tests {
             .unwrap()
             .join()
             .unwrap();
+    }
+
+    #[rstest::rstest]
+    #[ignore = "requires the disposable canonical OA/PE/R&D/Qualification PostgreSQL topology"]
+    fn governance_artifact_membership_readback_is_restart_exact_and_fail_closed() {
+        std::thread::Builder::new()
+            .name("governance-artifact-membership-test".into())
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(run_governance_artifact_membership_readback());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    async fn run_governance_artifact_membership_readback() {
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let _mutation = test_database.mutation();
+        let rd_url = test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner);
+        let rd_pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(4)
+            .connect(rd_url)
+            .await
+            .unwrap();
+        let suffix = unique_suffix();
+        let research_request_identity = format!("research-governance-artifact-{suffix}");
+        let (product_edge, research_admission) = bootstrap_authority(
+            test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+            test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+            &research_request_identity,
+            &suffix,
+        )
+        .await;
+        let research_owner = PostgresResearchGoalOwnerV1::connect(
+            rd_url,
+            test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+        )
+        .await
+        .unwrap();
+        let accepted = research_owner
+            .submit_v2(research_request(
+                &research_request_identity,
+                research_admission,
+            ))
+            .await
+            .unwrap();
+        let research_receipt_identity = accepted.owner_receipt().unwrap().receipt_identity.clone();
+        let intent_identity = accepted
+            .owner_receipt()
+            .unwrap()
+            .resulting_research_intent_identity
+            .as_deref()
+            .unwrap()
+            .to_string();
+        let intent_json: serde_json::Value = sqlx::query_scalar(
+            "SELECT intent_json FROM rd_research_request_receipts_v1 WHERE request_identity=$1",
+        )
+        .bind(&research_request_identity)
+        .fetch_one(&rd_pool)
+        .await
+        .unwrap();
+        let intent_digest =
+            serde_json::from_value::<crate::product_edge::FrozenResearchGoalIntentV2>(intent_json)
+                .unwrap()
+                .semantic_digest;
+        let request = artifact_request(
+            &product_edge,
+            &suffix,
+            &intent_identity,
+            "governance-membership",
+        )
+        .await;
+        let mut artifact_owner =
+            PostgresArtifactBuildOwnerV1::connect(rd_url, "/tmp/unused-rd-sandbox.sock", u64::MAX)
+                .await
+                .unwrap();
+        assert_eq!(
+            artifact_owner
+                .prepare(request.clone())
+                .await
+                .unwrap()
+                .resolution(),
+            ArtifactBuildResolution::Prepared
+        );
+        let claim = product_edge
+            .claim_provider_invocation(ProductEdgeInvocationClaimRequestV1 {
+                admission: request.admission.clone(),
+                attempt_identity: request.attempt_identity.clone(),
+            })
+            .await
+            .unwrap();
+        let reserved = artifact_owner
+            .reserve_provider_invocation_custody(
+                &request.build_request_identity,
+                &request.attempt_identity,
+                claim,
+            )
+            .await
+            .unwrap();
+        let (start_reservation, _) = reserved.into_parts();
+        product_edge
+            .start_provider_invocation(start_reservation)
+            .await
+            .unwrap();
+        let started_claim = product_edge
+            .resolve_provider_invocation_claim(&request.admission, &request.attempt_identity)
+            .await
+            .unwrap()
+            .unwrap();
+        let built_candidate = candidate(&intent_identity, &intent_digest);
+        let built_candidate_digest = candidate_digest(&built_candidate).unwrap();
+        artifact_owner.sandbox = Arc::new(ValidSandbox);
+        let terminal = artifact_owner
+            .submit_candidate(request.clone(), built_candidate, Some(&started_claim))
+            .await
+            .unwrap();
+        assert_eq!(terminal.resolution(), ArtifactBuildResolution::Success);
+        let owner_receipt = terminal.owner_receipt().unwrap();
+        let review = terminal.artifact_review().unwrap();
+        let family = terminal.artifact_trial_family().unwrap();
+        let mut locator = GovernanceArtifactMembershipLocatorV1 {
+            schema_version: 1,
+            build_request_identity: request.build_request_identity.clone(),
+            attempt_identity: request.attempt_identity.clone(),
+            artifact_identity: owner_receipt.artifact_identity.clone().unwrap(),
+            artifact_build_owner_receipt_identity: owner_receipt.receipt_identity.clone(),
+            build_receipt_identity: review.build_receipt.build_receipt_identity.clone(),
+            candidate_digest: built_candidate_digest,
+            intent_identity: intent_identity.clone(),
+            trial_family_identity: family
+                .trial_family()
+                .root()
+                .trial_family_identity()
+                .to_string(),
+            trial_family_root_digest: family.trial_family().root().root_digest().to_string(),
+            artifact_binding_census_frontier_identity: family
+                .trial_family()
+                .census_frontier()
+                .frontier_identity()
+                .to_string(),
+            artifact_binding_census_frontier_digest: family
+                .trial_family()
+                .census_frontier()
+                .frontier_digest()
+                .to_string(),
+            census_frontier_identity: family
+                .trial_family()
+                .census_frontier()
+                .frontier_identity()
+                .to_string(),
+            census_frontier_digest: family
+                .trial_family()
+                .census_frontier()
+                .frontier_digest()
+                .to_string(),
+            artifact_family_binding_identity: family.binding().binding_identity().to_string(),
+            artifact_family_binding_digest: family.binding().binding_digest().to_string(),
+            artifact_family_binding_receipt_identity: family
+                .binding_receipt()
+                .receipt_identity()
+                .to_string(),
+        };
+        let before = governance_artifact_membership_snapshot(&rd_pool, &locator).await;
+
+        let first_reader = PostgresArtifactReadbackOwnerV1::connect(rd_url)
+            .await
+            .unwrap();
+        let first = first_reader
+            .read_governance_artifact_membership(&locator)
+            .await
+            .unwrap();
+        assert_eq!(first.schema_version(), 1);
+        assert_eq!(first.locator(), &locator);
+        assert_eq!(first.artifact_review_identity(), review.review_identity);
+        assert_eq!(first.wasm_digest(), review.build_receipt.wasm_digest);
+        assert_eq!(first.target(), review.build_receipt.target);
+        assert_eq!(first.sandbox_policy(), review.build_receipt.sandbox_policy);
+        assert!(first.deterministic_double_build());
+        assert_eq!(first.build_security_state(), "ADMITTED");
+        let first_bytes = serde_json::to_vec(&first).unwrap();
+        drop(first_reader);
+        let restarted_reader = PostgresArtifactReadbackOwnerV1::connect(rd_url)
+            .await
+            .unwrap();
+        let restarted_bytes = serde_json::to_vec(
+            &restarted_reader
+                .read_governance_artifact_membership(&locator)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(restarted_bytes, first_bytes);
+        assert_eq!(
+            governance_artifact_membership_snapshot(&rd_pool, &locator).await,
+            before,
+            "positive and restarted reads must write no R&D row"
+        );
+
+        let mut transaction = rd_pool.begin().await.unwrap();
+        let advanced = append_trial_family_attempt_in_transaction(
+            &mut transaction,
+            &intent_identity,
+            &research_receipt_identity,
+            TrialFamilyAttemptAppendV2 {
+                intent_identity: intent_identity.clone(),
+                intent_digest: intent_digest.clone(),
+                request_identity: format!("governance-replay-request-{suffix}"),
+                request_digest: format!("sha256:{}", "1".repeat(64)),
+                result_identity: format!("governance-backtest-result-{suffix}"),
+                result_digest: format!("sha256:{}", "2".repeat(64)),
+                terminal_disposition: TrialFamilyAttemptTerminalDispositionV2::Rejected,
+                consumed_trial_budget: 1,
+                candidate_set: TrialFamilyCandidateSetProposalV2 {
+                    generation_rule_identity: format!("governance-generation-rule-{suffix}"),
+                    generation_rule_digest: format!("sha256:{}", "3".repeat(64)),
+                    expected_cardinality: 0,
+                    candidates: Vec::new(),
+                },
+            },
+            owner_receipt.committed_at_epoch_ms + 1,
+        )
+        .await
+        .unwrap();
+        transaction.commit().await.unwrap();
+        assert_ne!(
+            advanced.census_frontier.frontier_identity(),
+            locator.artifact_binding_census_frontier_identity
+        );
+        locator.census_frontier_identity = advanced.census_frontier.frontier_identity().to_string();
+        locator.census_frontier_digest = advanced.census_frontier.frontier_digest().to_string();
+        let before = governance_artifact_membership_snapshot(&rd_pool, &locator).await;
+        let advanced_bytes = serde_json::to_vec(
+            &restarted_reader
+                .read_governance_artifact_membership(&locator)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        drop(restarted_reader);
+        let restarted_reader = PostgresArtifactReadbackOwnerV1::connect(rd_url)
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::to_vec(
+                &restarted_reader
+                    .read_governance_artifact_membership(&locator)
+                    .await
+                    .unwrap()
+            )
+            .unwrap(),
+            advanced_bytes,
+            "immutable Artifact membership must survive an advanced current Census and restart"
+        );
+        assert_eq!(
+            governance_artifact_membership_snapshot(&rd_pool, &locator).await,
+            before,
+            "advanced positive reads must write no R&D row"
+        );
+
+        for field in 0..17 {
+            let mut wrong = locator.clone();
+            match field {
+                0 => wrong.schema_version = 2,
+                1 => wrong.build_request_identity.push_str("-wrong"),
+                2 => wrong.attempt_identity.push_str("-wrong"),
+                3 => wrong.artifact_identity.push_str("-wrong"),
+                4 => wrong
+                    .artifact_build_owner_receipt_identity
+                    .push_str("-wrong"),
+                5 => wrong.build_receipt_identity.push_str("-wrong"),
+                6 => wrong.candidate_digest.push_str("-wrong"),
+                7 => wrong.intent_identity.push_str("-wrong"),
+                8 => wrong.trial_family_identity.push_str("-wrong"),
+                9 => wrong.trial_family_root_digest.push_str("-wrong"),
+                10 => wrong
+                    .artifact_binding_census_frontier_identity
+                    .push_str("-wrong"),
+                11 => wrong
+                    .artifact_binding_census_frontier_digest
+                    .push_str("-wrong"),
+                12 => wrong.census_frontier_identity.push_str("-wrong"),
+                13 => wrong.census_frontier_digest.push_str("-wrong"),
+                14 => wrong.artifact_family_binding_identity.push_str("-wrong"),
+                15 => wrong.artifact_family_binding_digest.push_str("-wrong"),
+                16 => wrong
+                    .artifact_family_binding_receipt_identity
+                    .push_str("-wrong"),
+                _ => unreachable!(),
+            }
+            assert!(matches!(
+                restarted_reader
+                    .read_governance_artifact_membership(&wrong)
+                    .await,
+                Err(GovernanceArtifactMembershipReadErrorV1::Unavailable)
+            ));
+            assert_eq!(
+                governance_artifact_membership_snapshot(&rd_pool, &locator).await,
+                before,
+                "wrong locator component must write nothing"
+            );
+
+            let mut missing = locator.clone();
+            match field {
+                0 => missing.schema_version = 0,
+                1 => missing.build_request_identity.clear(),
+                2 => missing.attempt_identity.clear(),
+                3 => missing.artifact_identity.clear(),
+                4 => missing.artifact_build_owner_receipt_identity.clear(),
+                5 => missing.build_receipt_identity.clear(),
+                6 => missing.candidate_digest.clear(),
+                7 => missing.intent_identity.clear(),
+                8 => missing.trial_family_identity.clear(),
+                9 => missing.trial_family_root_digest.clear(),
+                10 => missing.artifact_binding_census_frontier_identity.clear(),
+                11 => missing.artifact_binding_census_frontier_digest.clear(),
+                12 => missing.census_frontier_identity.clear(),
+                13 => missing.census_frontier_digest.clear(),
+                14 => missing.artifact_family_binding_identity.clear(),
+                15 => missing.artifact_family_binding_digest.clear(),
+                16 => missing.artifact_family_binding_receipt_identity.clear(),
+                _ => unreachable!(),
+            }
+            assert!(matches!(
+                restarted_reader
+                    .read_governance_artifact_membership(&missing)
+                    .await,
+                Err(GovernanceArtifactMembershipReadErrorV1::Unavailable)
+            ));
+            assert_eq!(
+                governance_artifact_membership_snapshot(&rd_pool, &locator).await,
+                before,
+                "missing locator component must write nothing"
+            );
+        }
+
+        let tamper_cases = [
+            (
+                "UPDATE rd_artifact_build_attempts_v1 SET attempt_json=jsonb_set(attempt_json,'{state}','\"BUILDING\"') WHERE build_request_identity=$1",
+                "UPDATE rd_artifact_build_attempts_v1 SET attempt_json=jsonb_set(attempt_json,'{state}','\"TERMINAL\"') WHERE build_request_identity=$1",
+                locator.build_request_identity.as_str(),
+            ),
+            (
+                "UPDATE rd_artifact_build_attempts_v1 SET attempt_json=jsonb_set(attempt_json,'{receipt,receipt_identity}',to_jsonb((attempt_json#>>'{receipt,receipt_identity}') || '-tampered')) WHERE build_request_identity=$1",
+                "UPDATE rd_artifact_build_attempts_v1 SET attempt_json=jsonb_set(attempt_json,'{receipt,receipt_identity}',to_jsonb(regexp_replace(attempt_json#>>'{receipt,receipt_identity}','-tampered$',''))) WHERE build_request_identity=$1",
+                locator.build_request_identity.as_str(),
+            ),
+            (
+                "UPDATE rd_artifact_build_attempts_v1 SET attempt_json=jsonb_set(attempt_json,'{candidate_digest}',to_jsonb((attempt_json->>'candidate_digest') || '-tampered')) WHERE build_request_identity=$1",
+                "UPDATE rd_artifact_build_attempts_v1 SET attempt_json=jsonb_set(attempt_json,'{candidate_digest}',to_jsonb(regexp_replace(attempt_json->>'candidate_digest','-tampered$',''))) WHERE build_request_identity=$1",
+                locator.build_request_identity.as_str(),
+            ),
+            (
+                "UPDATE rd_strategy_artifacts_v1 SET identity_json=jsonb_set(identity_json,'{artifact_digest}',to_jsonb((identity_json->>'artifact_digest') || '-tampered')) WHERE artifact_digest=$1",
+                "UPDATE rd_strategy_artifacts_v1 SET identity_json=jsonb_set(identity_json,'{artifact_digest}',to_jsonb(regexp_replace(identity_json->>'artifact_digest','-tampered$',''))) WHERE artifact_digest=$1",
+                locator.artifact_identity.as_str(),
+            ),
+            (
+                "UPDATE rd_strategy_artifacts_v1 SET wasm_bytes=wasm_bytes || decode('00','hex') WHERE artifact_digest=$1",
+                "UPDATE rd_strategy_artifacts_v1 SET wasm_bytes=substring(wasm_bytes FROM 1 FOR octet_length(wasm_bytes)-1) WHERE artifact_digest=$1",
+                locator.artifact_identity.as_str(),
+            ),
+            (
+                "UPDATE rd_strategy_artifacts_v1 SET build_receipt_json=jsonb_set(build_receipt_json,'{target}',to_jsonb((build_receipt_json->>'target') || '-tampered')) WHERE artifact_digest=$1",
+                "UPDATE rd_strategy_artifacts_v1 SET build_receipt_json=jsonb_set(build_receipt_json,'{target}',to_jsonb(regexp_replace(build_receipt_json->>'target','-tampered$',''))) WHERE artifact_digest=$1",
+                locator.artifact_identity.as_str(),
+            ),
+            (
+                "UPDATE rd_strategy_artifacts_v1 SET artifact_review_json=jsonb_set(artifact_review_json,'{review_identity}',to_jsonb((artifact_review_json->>'review_identity') || '-tampered')) WHERE artifact_digest=$1",
+                "UPDATE rd_strategy_artifacts_v1 SET artifact_review_json=jsonb_set(artifact_review_json,'{review_identity}',to_jsonb(regexp_replace(artifact_review_json->>'review_identity','-tampered$',''))) WHERE artifact_digest=$1",
+                locator.artifact_identity.as_str(),
+            ),
+            (
+                "UPDATE rd_trial_family_heads_v1 SET frontier_digest=frontier_digest || '-tampered' WHERE trial_family_identity=$1",
+                "UPDATE rd_trial_family_heads_v1 SET frontier_digest=regexp_replace(frontier_digest,'-tampered$','') WHERE trial_family_identity=$1",
+                locator.trial_family_identity.as_str(),
+            ),
+            (
+                "UPDATE rd_trial_families_v1 SET root_storage_bytes=root_storage_bytes || decode('00','hex') WHERE trial_family_identity=$1",
+                "UPDATE rd_trial_families_v1 SET root_storage_bytes=substring(root_storage_bytes FROM 1 FOR octet_length(root_storage_bytes)-1) WHERE trial_family_identity=$1",
+                locator.trial_family_identity.as_str(),
+            ),
+            (
+                "UPDATE rd_trial_families_v1 SET root_receipt_storage_digest=root_receipt_storage_digest || '-tampered' WHERE trial_family_identity=$1",
+                "UPDATE rd_trial_families_v1 SET root_receipt_storage_digest=regexp_replace(root_receipt_storage_digest,'-tampered$','') WHERE trial_family_identity=$1",
+                locator.trial_family_identity.as_str(),
+            ),
+            (
+                "UPDATE rd_trial_families_v1 SET initial_frontier_storage_bytes=initial_frontier_storage_bytes || decode('00','hex') WHERE trial_family_identity=$1",
+                "UPDATE rd_trial_families_v1 SET initial_frontier_storage_bytes=substring(initial_frontier_storage_bytes FROM 1 FOR octet_length(initial_frontier_storage_bytes)-1) WHERE trial_family_identity=$1",
+                locator.trial_family_identity.as_str(),
+            ),
+            (
+                "UPDATE rd_trial_family_members_v1 SET member_storage_digest=member_storage_digest || '-tampered' WHERE trial_family_identity=$1 AND ordinal=0",
+                "UPDATE rd_trial_family_members_v1 SET member_storage_digest=regexp_replace(member_storage_digest,'-tampered$','') WHERE trial_family_identity=$1 AND ordinal=0",
+                locator.trial_family_identity.as_str(),
+            ),
+            (
+                "UPDATE rd_trial_family_members_v1 SET membership_receipt_storage_bytes=membership_receipt_storage_bytes || decode('00','hex') WHERE trial_family_identity=$1 AND ordinal=1",
+                "UPDATE rd_trial_family_members_v1 SET membership_receipt_storage_bytes=substring(membership_receipt_storage_bytes FROM 1 FOR octet_length(membership_receipt_storage_bytes)-1) WHERE trial_family_identity=$1 AND ordinal=1",
+                locator.trial_family_identity.as_str(),
+            ),
+            (
+                "UPDATE rd_trial_family_attempt_cuts_v2 SET census_frontier_storage_digest=census_frontier_storage_digest || '-tampered' WHERE trial_family_identity=$1 AND attempt_ordinal=0",
+                "UPDATE rd_trial_family_attempt_cuts_v2 SET census_frontier_storage_digest=regexp_replace(census_frontier_storage_digest,'-tampered$','') WHERE trial_family_identity=$1 AND attempt_ordinal=0",
+                locator.trial_family_identity.as_str(),
+            ),
+            (
+                "UPDATE rd_trial_family_attempt_cuts_v2 SET attempt_frontier_storage_bytes=attempt_frontier_storage_bytes || decode('00','hex') WHERE trial_family_identity=$1 AND attempt_ordinal=0",
+                "UPDATE rd_trial_family_attempt_cuts_v2 SET attempt_frontier_storage_bytes=substring(attempt_frontier_storage_bytes FROM 1 FOR octet_length(attempt_frontier_storage_bytes)-1) WHERE trial_family_identity=$1 AND attempt_ordinal=0",
+                locator.trial_family_identity.as_str(),
+            ),
+            (
+                "UPDATE rd_trial_family_attempt_cuts_v2 SET candidate_set_frontier_storage_digest=candidate_set_frontier_storage_digest || '-tampered' WHERE trial_family_identity=$1 AND attempt_ordinal=0",
+                "UPDATE rd_trial_family_attempt_cuts_v2 SET candidate_set_frontier_storage_digest=regexp_replace(candidate_set_frontier_storage_digest,'-tampered$','') WHERE trial_family_identity=$1 AND attempt_ordinal=0",
+                locator.trial_family_identity.as_str(),
+            ),
+            (
+                "UPDATE rd_trial_family_heads_v1 SET frontier_storage_bytes=frontier_storage_bytes || decode('00','hex') WHERE trial_family_identity=$1",
+                "UPDATE rd_trial_family_heads_v1 SET frontier_storage_bytes=substring(frontier_storage_bytes FROM 1 FOR octet_length(frontier_storage_bytes)-1) WHERE trial_family_identity=$1",
+                locator.trial_family_identity.as_str(),
+            ),
+            (
+                "UPDATE rd_artifact_trial_family_bindings_v1 SET binding_digest=binding_digest || '-tampered' WHERE artifact_identity=$1",
+                "UPDATE rd_artifact_trial_family_bindings_v1 SET binding_digest=regexp_replace(binding_digest,'-tampered$','') WHERE artifact_identity=$1",
+                locator.artifact_identity.as_str(),
+            ),
+            (
+                "UPDATE rd_artifact_trial_family_bindings_v1 SET binding_receipt_json=jsonb_set(binding_receipt_json,'{receipt_identity}',to_jsonb((binding_receipt_json->>'receipt_identity') || '-tampered')) WHERE artifact_identity=$1",
+                "UPDATE rd_artifact_trial_family_bindings_v1 SET binding_receipt_json=jsonb_set(binding_receipt_json,'{receipt_identity}',to_jsonb(regexp_replace(binding_receipt_json->>'receipt_identity','-tampered$',''))) WHERE artifact_identity=$1",
+                locator.artifact_identity.as_str(),
+            ),
+            (
+                "UPDATE rd_owner_outbox_v1 SET payload_digest=payload_digest || '-tampered' WHERE aggregate_identity=$1 AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'",
+                "UPDATE rd_owner_outbox_v1 SET payload_digest=regexp_replace(payload_digest,'-tampered$','') WHERE aggregate_identity=$1 AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'",
+                locator.artifact_identity.as_str(),
+            ),
+            (
+                "UPDATE rd_owner_outbox_v1 SET payload_digest=payload_digest || '-tampered' WHERE aggregate_identity=$1 AND event_kind='TRIAL_FAMILY_FROZEN_V1'",
+                "UPDATE rd_owner_outbox_v1 SET payload_digest=regexp_replace(payload_digest,'-tampered$','') WHERE aggregate_identity=$1 AND event_kind='TRIAL_FAMILY_FROZEN_V1'",
+                locator.trial_family_identity.as_str(),
+            ),
+            (
+                "UPDATE rd_owner_outbox_v1 SET canonical_payload_bytes=canonical_payload_bytes || decode('00','hex') WHERE aggregate_identity=$1 AND event_kind='TRIAL_FAMILY_FROZEN_V1'",
+                "UPDATE rd_owner_outbox_v1 SET canonical_payload_bytes=substring(canonical_payload_bytes FROM 1 FOR octet_length(canonical_payload_bytes)-1) WHERE aggregate_identity=$1 AND event_kind='TRIAL_FAMILY_FROZEN_V1'",
+                locator.trial_family_identity.as_str(),
+            ),
+            (
+                "UPDATE rd_owner_outbox_v1 SET canonical_payload_storage_digest=canonical_payload_storage_digest || '-tampered' WHERE aggregate_identity=$1 AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'",
+                "UPDATE rd_owner_outbox_v1 SET canonical_payload_storage_digest=regexp_replace(canonical_payload_storage_digest,'-tampered$','') WHERE aggregate_identity=$1 AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'",
+                locator.artifact_identity.as_str(),
+            ),
+            (
+                "UPDATE rd_owner_outbox_v1 SET canonical_envelope_bytes=canonical_envelope_bytes || decode('00','hex') WHERE aggregate_identity=$1 AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'",
+                "UPDATE rd_owner_outbox_v1 SET canonical_envelope_bytes=substring(canonical_envelope_bytes FROM 1 FOR octet_length(canonical_envelope_bytes)-1) WHERE aggregate_identity=$1 AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'",
+                locator.artifact_identity.as_str(),
+            ),
+            (
+                "UPDATE rd_owner_outbox_v1 SET canonical_envelope_storage_digest=canonical_envelope_storage_digest || '-tampered' WHERE aggregate_identity=$1 AND event_kind='TRIAL_FAMILY_CENSUS_ADVANCED_V2'",
+                "UPDATE rd_owner_outbox_v1 SET canonical_envelope_storage_digest=regexp_replace(canonical_envelope_storage_digest,'-tampered$','') WHERE aggregate_identity=$1 AND event_kind='TRIAL_FAMILY_CENSUS_ADVANCED_V2'",
+                locator.census_frontier_identity.as_str(),
+            ),
+            (
+                "UPDATE rd_artifact_trial_family_bindings_v1 SET artifact_identity=artifact_identity || '-tampered' WHERE artifact_identity=$1",
+                "UPDATE rd_artifact_trial_family_bindings_v1 SET artifact_identity=regexp_replace(artifact_identity,'-tampered$','') WHERE artifact_identity=$1 || '-tampered'",
+                locator.artifact_identity.as_str(),
+            ),
+        ];
+        for (tamper, restore, identity) in tamper_cases {
+            sqlx::query(tamper)
+                .bind(identity)
+                .execute(&rd_pool)
+                .await
+                .unwrap();
+            assert!(matches!(
+                restarted_reader
+                    .read_governance_artifact_membership(&locator)
+                    .await,
+                Err(GovernanceArtifactMembershipReadErrorV1::Unavailable)
+            ));
+            sqlx::query(restore)
+                .bind(identity)
+                .execute(&rd_pool)
+                .await
+                .unwrap();
+            restarted_reader
+                .read_governance_artifact_membership(&locator)
+                .await
+                .unwrap();
+        }
+        let historical_outbox_custody = sqlx::query_as::<_, (Vec<u8>, String, Vec<u8>, String)>(
+            "SELECT canonical_payload_bytes,canonical_payload_storage_digest,canonical_envelope_bytes,canonical_envelope_storage_digest FROM rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind='TRIAL_FAMILY_FROZEN_V1'",
+        )
+        .bind(&locator.trial_family_identity)
+        .fetch_one(&rd_pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE rd_owner_outbox_v1 SET canonical_payload_bytes=NULL,canonical_payload_storage_digest=NULL,canonical_envelope_bytes=NULL,canonical_envelope_storage_digest=NULL WHERE aggregate_identity=$1 AND event_kind='TRIAL_FAMILY_FROZEN_V1'",
+        )
+        .bind(&locator.trial_family_identity)
+        .execute(&rd_pool)
+        .await
+        .unwrap();
+        assert!(matches!(
+            restarted_reader
+                .read_governance_artifact_membership(&locator)
+                .await,
+            Err(GovernanceArtifactMembershipReadErrorV1::Unavailable)
+        ));
+        sqlx::query(
+            "UPDATE rd_owner_outbox_v1 SET canonical_payload_bytes=$2,canonical_payload_storage_digest=$3,canonical_envelope_bytes=$4,canonical_envelope_storage_digest=$5 WHERE aggregate_identity=$1 AND event_kind='TRIAL_FAMILY_FROZEN_V1'",
+        )
+        .bind(&locator.trial_family_identity)
+        .bind(historical_outbox_custody.0)
+        .bind(historical_outbox_custody.1)
+        .bind(historical_outbox_custody.2)
+        .bind(historical_outbox_custody.3)
+        .execute(&rd_pool)
+        .await
+        .unwrap();
+        restarted_reader
+            .read_governance_artifact_membership(&locator)
+            .await
+            .unwrap();
+        let historical_root_storage: Vec<u8> = sqlx::query_scalar(
+            "SELECT root_storage_bytes FROM rd_trial_families_v1 WHERE trial_family_identity=$1",
+        )
+        .bind(&locator.trial_family_identity)
+        .fetch_one(&rd_pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE rd_trial_families_v1 SET root_storage_bytes=NULL WHERE trial_family_identity=$1",
+        )
+        .bind(&locator.trial_family_identity)
+        .execute(&rd_pool)
+        .await
+        .unwrap();
+        assert!(matches!(
+            restarted_reader
+                .read_governance_artifact_membership(&locator)
+                .await,
+            Err(GovernanceArtifactMembershipReadErrorV1::Unavailable)
+        ));
+        sqlx::query(
+            "UPDATE rd_trial_families_v1 SET root_storage_bytes=$2 WHERE trial_family_identity=$1",
+        )
+        .bind(&locator.trial_family_identity)
+        .bind(historical_root_storage)
+        .execute(&rd_pool)
+        .await
+        .unwrap();
+        restarted_reader
+            .read_governance_artifact_membership(&locator)
+            .await
+            .unwrap();
+        assert_eq!(
+            governance_artifact_membership_snapshot(&rd_pool, &locator).await,
+            before,
+            "all tamper probes must restore exactly and the read port must write nothing"
+        );
+    }
+
+    async fn governance_artifact_membership_snapshot(
+        pool: &PgPool,
+        locator: &GovernanceArtifactMembershipLocatorV1,
+    ) -> serde_json::Value {
+        sqlx::query_scalar(
+            "SELECT jsonb_build_object(
+               'attempt',(SELECT to_jsonb(a) FROM rd_artifact_build_attempts_v1 a WHERE build_request_identity=$1),
+               'artifact',(SELECT to_jsonb(a) FROM rd_strategy_artifacts_v1 a WHERE artifact_digest=$2),
+               'family',(SELECT to_jsonb(f) FROM rd_trial_families_v1 f WHERE trial_family_identity=$3),
+               'members',(SELECT COALESCE(jsonb_agg(to_jsonb(m) ORDER BY ordinal),'[]'::jsonb) FROM rd_trial_family_members_v1 m WHERE trial_family_identity=$3),
+               'cuts',(SELECT COALESCE(jsonb_agg(to_jsonb(c) ORDER BY attempt_ordinal),'[]'::jsonb) FROM rd_trial_family_attempt_cuts_v2 c WHERE trial_family_identity=$3),
+               'head',(SELECT to_jsonb(h) FROM rd_trial_family_heads_v1 h WHERE trial_family_identity=$3),
+               'binding',(SELECT to_jsonb(b) FROM rd_artifact_trial_family_bindings_v1 b WHERE artifact_identity=$2),
+               'outboxes',(SELECT COALESCE(jsonb_agg(to_jsonb(o) ORDER BY event_identity),'[]'::jsonb) FROM rd_owner_outbox_v1 o WHERE aggregate_identity IN ($2,$3,$4))
+             )",
+        )
+        .bind(&locator.build_request_identity)
+        .bind(&locator.artifact_identity)
+        .bind(&locator.trial_family_identity)
+        .bind(&locator.census_frontier_identity)
+        .fetch_one(pool)
+        .await
+        .unwrap()
     }
 
     async fn run_specialized_artifact_admission_rechecks_locked_rd_view() {
