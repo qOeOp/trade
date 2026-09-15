@@ -494,6 +494,12 @@ to the exact read‑only source-viewer URL. The table header is sticky inside th
 valid empty, unavailable, and partial states preserve the same card geometry. At narrow widths the table scrolls
 horizontally; it does not collapse identities into invented mobile facts.
 
+When the historical-custody Owner projection is available, the route reuses the same compact `work to review`
+card before the directory, narrowed to `build attempts` and `family bindings`. Both values remain exact custody
+counts and quiet links to their canonical candidate views; they are not verified Artifact totals or a lifecycle.
+The card disappears on an unavailable projection, and Refresh in either directory view refreshes that same Owner
+cut without adding a scheduler, operational write, or Artifact action.
+
 The authenticated Owner GET `/v1/artifact-builds/directory` returns at most 20 verified items. It considers at most
 60 attempt candidates per page, ordered by `(prepared_at_epoch_ms, build_request_identity)` descending with
 PostgreSQL `C` collation for the bounded ASCII identity, and exposes

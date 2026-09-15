@@ -11,6 +11,9 @@ test("Artifact directory uses the shared compact read-only table surface", async
     readFile(new URL("../components/owner-directory.module.css", import.meta.url), "utf8"),
   ]);
   assert.match(component, /<DataWorkspaceTable<ArtifactDirectoryItemV1>/u);
+  assert.match(component, /<RdCustodyReviewSummary projection=\{custodyCandidates\.projection\} scope="artifacts" \/>/u);
+  assert.match(component, /useHistoricalCustodyDirectory\(true\)/u);
+  assert.match(component, /void custodyCandidates\.read\(\);[\s\S]+return readPage\(\);/u);
   assert.match(component, /<DataWorkspaceTable<HistoricalArtifactCandidateV1>/u);
   assert.match(component, /<DataWorkspaceTable<HistoricalBindingCandidateV1>/u);
   assert.match(component, /label: "Custody candidates"/u);
@@ -57,6 +60,7 @@ test("bilingual Artifact directory contract fixes layout, fields and no-effect b
       "Artifact", "Strategy intent", "Verification", "Created", "20", "60",
       "prepared_at_epoch_ms", "build_request_identity", "Load older", "partial",
       "unavailable", "POINT_READ_REQUIRED", "/v1/historical-custodies", "WASM_PREVIEW_NOT_RUN", "Windmill",
+      "work to review", "build attempts", "family bindings",
     ]) assert.ok(specification.includes(token), `${suffix || "en"} missing ${token}`);
   }
 });

@@ -429,6 +429,12 @@ View/column chooser、registered/visible 数量、多级 filter popover 或 back
 进入精确只读 source-viewer URL。表头固定在有界 scroll viewport 内；loading、合法 empty、unavailable、
 partial 保持相同 card geometry。窄屏只横向滚动，不把 identity 折叠成编造的 mobile fact。
 
+Historical-custody Owner projection available 时，route 在 directory 前复用同一张 compact `work to review`
+card，但只保留 `build attempts` 与 `family bindings`。两个 value 仍是精确 custody count，并作为安静 link
+进入各自 canonical candidate view；它们不是 verified Artifact total，也不是 lifecycle。Projection unavailable
+时 card 消失；任一 directory view 的 Refresh 都刷新同一 Owner cut，不增加 scheduler、operational write 或
+Artifact action。
+
 经认证的 Owner GET `/v1/artifact-builds/directory` 每页最多返回 20 个 verified item。每页最多检查 60 个
 attempt candidate，按 `(prepared_at_epoch_ms, build_request_identity)` 降序，其中有界 ASCII identity 使用
 PostgreSQL `C` collation；并仅把同一 tuple 作为 opaque、

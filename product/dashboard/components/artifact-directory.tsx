@@ -33,6 +33,7 @@ import { StatusBadge } from "./ui/status-badge";
 import { useDelayedPending } from "./ui/use-delayed-pending";
 import { useHistoricalCustodyDirectory } from "./use-historical-custody-directory";
 import { OwnerDirectoryInfo, OwnerDirectoryUnavailable } from "./owner-directory-state";
+import { RdCustodyReviewSummary } from "./rd-custody-review-summary";
 import styles from "./owner-directory.module.css";
 
 function displayIdentity(value: string): string {
@@ -71,7 +72,7 @@ export function ArtifactDirectory({
   const [pendingOlder, setPendingOlder] = useState(false);
   const itemsRef = useRef<readonly ArtifactDirectoryItemV1[]>([]);
   const requestGuard = useRef(createArtifactDirectoryRequestGuardV1());
-  const custodyCandidates = useHistoricalCustodyDirectory(view === "candidates");
+  const custodyCandidates = useHistoricalCustodyDirectory(true);
 
   const readPage = useCallback(async (cursor?: ArtifactDirectoryCursorV1) => {
     const requestIdentity = requestGuard.current.begin();
@@ -301,7 +302,13 @@ export function ArtifactDirectory({
     ? availability === "loading"
     : custodyCandidates.availability === "loading";
   const showPending = useDelayedPending(pending);
-  const refresh = () => view === "verified" ? readPage() : custodyCandidates.read();
+  const refresh = () => {
+    if (view === "verified") {
+      void custodyCandidates.read();
+      return readPage();
+    }
+    return custodyCandidates.read();
+  };
   const candidateTotal = candidateKind === "attempts"
     ? custodyCandidates.projection?.artifactAttemptTotal ?? 0
     : custodyCandidates.projection?.bindingTotal ?? 0;
@@ -320,6 +327,7 @@ export function ArtifactDirectory({
 
   return (
     <PageStack>
+      <RdCustodyReviewSummary projection={custodyCandidates.projection} scope="artifacts" />
       <PanelFrame aria-labelledby="artifact-directory-title">
         <PanelFrameHeader
           eyebrow="Artifacts"
