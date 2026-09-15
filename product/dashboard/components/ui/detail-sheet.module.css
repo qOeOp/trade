@@ -64,6 +64,21 @@
     height: 100dvh;
     border-radius: 0;
   }
+
+  .frame :global(.panel-frame-header) {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+
+  .frame :global(.panel-frame-heading) {
+    min-width: 0;
+  }
+
+  .frame :global(.panel-frame-actions) {
+    width: auto;
+    flex: 0 0 auto;
+    justify-content: flex-end;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

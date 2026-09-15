@@ -17,6 +17,7 @@ import {
   type ResearchOutcomeInventoryItemV1,
 } from "../lib/research-outcome-inventory";
 import { DataTableHeaderLabel, DataTableSurface } from "./ui/data-table";
+import { DetailSheet } from "./ui/detail-sheet";
 import { DataWorkspaceEmpty } from "./ui/data-workspace-empty";
 import { DataWorkspaceTable, type DataWorkspaceColumn } from "./ui/data-workspace-table";
 import { EntityReference } from "./ui/entity-reference";
@@ -39,6 +40,7 @@ import { useResearchOutcomeInventory } from "./use-research-outcome-inventory";
 import { useResearchQuestionDirectory } from "./use-research-question-directory";
 import { OwnerDirectoryInfo, OwnerDirectoryUnavailable } from "./owner-directory-state";
 import { ResearchLoopJourney } from "./research-loop-journey";
+import { ResearchRequestPreview, researchRequestOutcomeLabel } from "./research-request-preview";
 import { RdCustodyReviewSummary } from "./rd-custody-review-summary";
 import styles from "./owner-directory.module.css";
 
@@ -53,12 +55,6 @@ function phaseLabel(item: ResearchDirectoryItemV1): string {
   if (item.phase === "ARTIFACT_AVAILABLE") return "Artifact available";
   if (item.phase === "INTENT_FROZEN") return "Intent frozen";
   return "Request unresolved";
-}
-
-function outcomeLabel(item: ResearchOutcomeInventoryItemV1): string {
-  if (item.resolution === "accepted" || item.historicalDisposition === "accepted") return "Accepted";
-  if (item.resolution === "rejected" || item.historicalDisposition === "rejected") return "Rejected";
-  return "Outcome ready";
 }
 
 function directoryUrl(cursor?: ResearchDirectoryCursorV1): string {
@@ -90,6 +86,8 @@ export function ResearchDirectory({
   const [search, setSearch] = useState("");
   const [journeyRefreshKey, setJourneyRefreshKey] = useState(0);
   const [pendingOlder, setPendingOlder] = useState(false);
+  const [selectedRequestIdentity, setSelectedRequestIdentity] = useState<string | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
   const itemsRef = useRef<readonly ResearchDirectoryItemV1[]>([]);
   const requestGuard = useRef(createResearchDirectoryRequestGuardV1());
   const custodyCandidates = useHistoricalCustodyDirectory(true);
@@ -206,6 +204,13 @@ export function ResearchDirectory({
     }
     return searched;
   }, [candidateOutcome, custodyCandidates.projection, normalizedSearch, outcomeByRequest, questionByRequest]);
+  const selectedCandidate = useMemo(() => visibleCandidates.find(
+    (item) => item.requestIdentity === selectedRequestIdentity,
+  ) ?? null, [selectedRequestIdentity, visibleCandidates]);
+
+  useEffect(() => {
+    if (detailOpen && !selectedCandidate) setDetailOpen(false);
+  }, [detailOpen, selectedCandidate]);
 
   const columns = useMemo<DataWorkspaceColumn<ResearchDirectoryItemV1>[]>(() => [
     {
@@ -301,7 +306,7 @@ export function ResearchDirectory({
             ? researchOutcomeTone(outcome)
             : "unavailable"}>
             {outcome?.status === "outcome_ready"
-              ? outcomeLabel(outcome)
+              ? researchRequestOutcomeLabel(outcome)
               : outcome?.status === "awaiting_outcome"
               ? "Awaiting result"
               : outcome?.status === "unavailable"
@@ -338,6 +343,8 @@ export function ResearchDirectory({
       || questionDirectory.availability === "loading";
   const showPending = useDelayedPending(pending);
   const refresh = () => {
+    setDetailOpen(false);
+    setSelectedRequestIdentity(null);
     setJourneyRefreshKey((value) => value + 1);
     void outcomeInventory.read();
     void questionDirectory.read();
@@ -350,6 +357,8 @@ export function ResearchDirectory({
   const selectView = (value: string) => {
     const nextView = value === "candidates" ? "candidates" : "verified";
     setView(nextView);
+    setDetailOpen(false);
+    setSelectedRequestIdentity(null);
     router.replace(nextView === "candidates"
       ? `/rd/research/${candidateOutcome === "all" ? "" : `?outcome=${candidateOutcome}`}`
       : "/rd/research/?view=verified", { scroll: false });
@@ -357,6 +366,8 @@ export function ResearchDirectory({
   const selectCandidateOutcome = (value: string) => {
     const nextOutcome = value === "ready" ? "ready" : value === "awaiting" ? "awaiting" : "all";
     setCandidateOutcome(nextOutcome);
+    setDetailOpen(false);
+    setSelectedRequestIdentity(null);
     router.replace(`/rd/research/${nextOutcome === "all" ? "" : `?outcome=${nextOutcome}`}`, {
       scroll: false,
     });
@@ -479,6 +490,11 @@ export function ResearchDirectory({
               paginationPerPage={20}
               paginationResetKey={normalizedSearch}
               paginationRowsPerPageOptions={[20, 50]}
+              onRowClicked={(item) => {
+                setSelectedRequestIdentity(item.requestIdentity);
+                setDetailOpen(true);
+              }}
+              pointerOnHover
               noDataComponent={<DataWorkspaceEmpty state={custodyCandidates.availability === "loading"
                 || outcomeAvailability === "loading" ? "loading" : "empty"}
                 className={custodyCandidates.availability === "loading" && !showPending ? styles.pendingQuiet : undefined}
@@ -523,6 +539,30 @@ export function ResearchDirectory({
           </PanelFrameFooter>
         ) : null}
       </PanelFrame>
+      <DetailSheet
+        open={detailOpen && Boolean(selectedCandidate)}
+        onClose={() => setDetailOpen(false)}
+        eyebrow="Research history"
+        title="Research question"
+        description={selectedCandidate
+          ? outcomeByRequest.get(selectedCandidate.requestIdentity)?.status === "outcome_ready"
+            ? "A saved result is ready to review."
+            : "Review the saved question without leaving this list."
+          : undefined}
+        canonicalHref={selectedCandidate
+          ? `/rd/research/${encodeURIComponent(selectedCandidate.requestIdentity)}`
+          : undefined}
+        canonicalLabel="Open full research details"
+      >
+        {selectedCandidate ? <ResearchRequestPreview
+          candidate={selectedCandidate}
+          question={questionByRequest.get(selectedCandidate.requestIdentity)}
+          outcome={outcomeByRequest.get(selectedCandidate.requestIdentity)}
+          outcomeAvailability={outcomeAvailability}
+          questionObservedAtEpochMs={questionDirectory.projection?.observedAtEpochMs}
+          outcomeObservedAt={outcomeInventory.projection?.observedAt}
+        /> : null}
+      </DetailSheet>
     </PageStack>
   );
 }

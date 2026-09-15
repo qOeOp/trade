@@ -387,6 +387,18 @@ label, while its opaque identity is a compact secondary reference with the exact
 key. Default history copy says `Research question`, `Result`, `Recorded`, and user-readable availability; Owner, custody, point-read,
 candidate, and wire-state terms remain in the information disclosure or contract.
 
+In `Research history`, clicking the non-link area of a row opens the shared right-side `DetailSheet` without
+changing the directory URL or unmounting its filters, search, pagination, or scroll context. The sheet composes the
+existing `ResearchQuestionBrief`, `DetailFactGrid`, `StatusBadge`, and `PanelFrameInfo` atoms. It shows the verified
+hypothesis, falsifier, expected observation, `Ready to review / Awaiting result / Result unavailable` availability,
+and recorded time already present in the bound
+directory projections; exact request identity and the independently observed question/result cuts remain inside
+the information disclosure. Opening the sheet performs no additional read. Its explicit
+`Open full research details` action is the only transition to `/rd/research/{requestIdentity}`, where complete result evidence,
+receipts, strategy state, and existing formation controls remain. Closing restores focus to the originating row.
+The sheet keeps its desktop right-side geometry and becomes full-screen below 768 px. `Current intents` remains a
+plain exact-directory table in this bounded slice.
+
 The default history view obtains one bounded `rd.research_question_directory.read.v1` projection from the
 read-only R&D Dashboard Owner. Question text is admitted only after canonical Research custody verification and may
 expose exactly `hypothesis`, `falsification_question`, and `expected_observation`; unsupported historical rows retain

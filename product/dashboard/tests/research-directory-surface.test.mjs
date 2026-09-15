@@ -37,6 +37,9 @@ test("Research directory uses the shared compact read-only table surface", async
   assert.match(statusAtom, /data-interactive=\{href \? true : undefined\}/u);
   assert.match(statusAtom, /className="compact-status-item-link"/u);
   assert.match(component, /<DataWorkspaceTable<HistoricalResearchCandidateV1>/u);
+  assert.match(component, /onRowClicked=\{\(item\)[\s\S]*setDetailOpen\(true\)/u);
+  assert.match(component, /<ResearchRequestPreview/u);
+  assert.match(component, /canonicalHref=\{selectedCandidate/u);
   assert.match(component, /label: "Research history"/u);
   assert.match(component, /label: "Current intents"/u);
   assert.match(component, /label: "Results ready"/u);
