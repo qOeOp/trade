@@ -399,6 +399,7 @@ export function ArtifactDirectory({
     <PageStack>
       <RdCustodyReviewSummary
         projection={custodyCandidates.projection}
+        loading={custodyCandidates.availability === "loading" || reviewInventory.availability === "loading"}
         scope="artifacts"
         artifactReviewableTotal={reviewInventoryBound
           && reviewInventory.projection?.completeness === "complete"
@@ -555,7 +556,7 @@ export function ArtifactDirectory({
                 : "Available outcomes can be opened from the table."}
             />
           </PanelFrameFooter>
-        ) : availability === "available" && (partial || nextCursor) ? (
+        ) : view === "verified" && availability === "available" && (partial || nextCursor) ? (
           <PanelFrameFooter layout="split">
             <PanelFrameFooterSummary
               primary={partial ? "Partial verified cut" : "More verified artifacts available"}

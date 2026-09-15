@@ -14,12 +14,16 @@ test("Research directory uses the shared compact read-only table surface", async
   ]);
   assert.match(component, /<DataWorkspaceTable<ResearchDirectoryItemV1>/u);
   assert.match(component, /<RdCustodyReviewSummary[\s\S]+researchOutcomeReadyTotal=/u);
+  assert.match(component, /loading=\{custodyCandidates\.availability === "loading" \|\| outcomeInventory\.availability === "loading"\}/u);
+  assert.match(component, /view === "verified" && availability === "available" && \(partial \|\| nextCursor\)/u);
   assert.match(component, /researchAwaitingOutcomeTotal=/u);
   assert.match(component, /useResearchOutcomeInventory\(true\)/u);
   assert.match(component, /researchOutcomeInventoryMatchesCustodyV1/u);
   const summary = await readFile(new URL("../components/rd-custody-review-summary.tsx", import.meta.url), "utf8");
   assert.match(summary, /CompactStatusBar/u);
   assert.match(summary, /aria-label="R&D work cycle"/u);
+  assert.match(summary, /aria-busy="true"/u);
+  assert.match(summary, /loading && !summaryReady/u);
   for (const label of ["research", "build", "families", "results ready", "waiting", "requests", "attempts", "bindings"]) {
     assert.match(summary, new RegExp(`label="${label}"`, "u"));
   }

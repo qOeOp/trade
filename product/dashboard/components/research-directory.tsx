@@ -367,6 +367,7 @@ export function ResearchDirectory({
       {view === "verified" ? <ResearchLoopJourney refreshKey={journeyRefreshKey} /> : null}
       <RdCustodyReviewSummary
         projection={custodyCandidates.projection}
+        loading={custodyCandidates.availability === "loading" || outcomeInventory.availability === "loading"}
         researchOutcomeReadyTotal={outcomeInventoryBound
           && outcomeInventory.projection?.completeness === "complete"
           ? outcomeInventory.projection.outcomeReadyTotal
@@ -508,7 +509,7 @@ export function ResearchDirectory({
                 : "Research questions are grouped by result status."}
             />
           </PanelFrameFooter>
-        ) : availability === "available" && (partial || nextCursor) ? (
+        ) : view === "verified" && availability === "available" && (partial || nextCursor) ? (
           <PanelFrameFooter layout="split">
             <PanelFrameFooterSummary
               primary={partial ? "Partial verified cut" : "More verified requests available"}

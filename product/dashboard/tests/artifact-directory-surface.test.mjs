@@ -12,8 +12,12 @@ test("Artifact directory uses the shared compact read-only table surface", async
   ]);
   assert.match(component, /<DataWorkspaceTable<ArtifactDirectoryItemV1>/u);
   assert.match(component, /<RdCustodyReviewSummary[\s\S]+artifactReviewableTotal=/u);
+  assert.match(component, /loading=\{custodyCandidates\.availability === "loading" \|\| reviewInventory\.availability === "loading"\}/u);
+  assert.match(component, /view === "verified" && availability === "available" && \(partial \|\| nextCursor\)/u);
   const summary = await readFile(new URL("../components/rd-custody-review-summary.tsx", import.meta.url), "utf8");
   assert.match(summary, /aria-label="R&D work cycle"/u);
+  assert.match(summary, /aria-busy="true"/u);
+  assert.match(summary, /loading && !summaryReady/u);
   assert.match(summary, /label="research"[\s\S]+label="requests"/u);
   assert.match(summary, /label="build"[\s\S]+label="reviewable"[\s\S]+label="attempts"/u);
   assert.match(summary, /label="families"[\s\S]+label="bindings"/u);

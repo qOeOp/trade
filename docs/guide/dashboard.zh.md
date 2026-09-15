@@ -492,6 +492,9 @@ Research 与 Artifact directory 共用 domain-neutral `EntityReference` 原子�
 `Strategy family`）；opaque identity 退为紧凑次级引用，完整值仍作为 title 与 search key 保留。默认表格
 使用 `Result`/`Outcome`、`Recorded` 与用户可读 availability；Owner、custody、point-read、candidate 和 wire-state
 措辞只留在信息披露或 contract 中。
+已启用的异步 directory read 必须把内部首帧 `idle` 投影为 `loading`。短暂 loading-delay 阈值内可以保持视觉安静，
+但首个 Owner response 稳定前不得渲染 empty/search-empty 断言或零值 summary。只有已完成且 available 的 read 在
+匹配行确实为零时才能显示 empty；unavailable 保持独立 fail-closed 状态，也不得保留上一 route 的 rows。
 
 精确 historical-attempt route 的标题为 `Build result`，只回答本次 build 是否产出 Artifact。共享 journey 与
 `Result / Review / Timing` 分组展示 `Historical only` 和人类可读的 failure reason；精确 `Raw result`、

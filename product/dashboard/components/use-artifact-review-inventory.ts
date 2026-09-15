@@ -6,9 +6,13 @@ import {
   parseArtifactReviewInventoryBrowserProjectionV1,
   type ArtifactReviewInventoryProjectionV1,
 } from "../lib/artifact-review-inventory";
+import {
+  visibleAsyncReadAvailabilityV1,
+  type AsyncReadAvailability,
+} from "./ui/async-read-state";
 
 type ArtifactReviewInventoryState = Readonly<{
-  availability: "idle" | "loading" | "available" | "unavailable";
+  availability: AsyncReadAvailability;
   projection: ArtifactReviewInventoryProjectionV1 | null;
   reason: string | null;
 }>;
@@ -66,5 +70,9 @@ export function useArtifactReviewInventory(enabled: boolean) {
     }
   }, [enabled, read, state.availability]);
 
-  return { ...state, read };
+  return {
+    ...state,
+    availability: visibleAsyncReadAvailabilityV1(enabled, state.availability),
+    read,
+  };
 }

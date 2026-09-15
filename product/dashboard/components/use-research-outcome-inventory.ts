@@ -6,9 +6,13 @@ import {
   parseResearchOutcomeInventoryBrowserProjectionV1,
   type ResearchOutcomeInventoryProjectionV1,
 } from "../lib/research-outcome-inventory";
+import {
+  visibleAsyncReadAvailabilityV1,
+  type AsyncReadAvailability,
+} from "./ui/async-read-state";
 
 type ResearchOutcomeInventoryState = Readonly<{
-  availability: "idle" | "loading" | "available" | "unavailable";
+  availability: AsyncReadAvailability;
   projection: ResearchOutcomeInventoryProjectionV1 | null;
   reason: string | null;
 }>;
@@ -66,5 +70,9 @@ export function useResearchOutcomeInventory(enabled: boolean) {
     }
   }, [enabled, read, state.availability]);
 
-  return { ...state, read };
+  return {
+    ...state,
+    availability: visibleAsyncReadAvailabilityV1(enabled, state.availability),
+    read,
+  };
 }

@@ -3,10 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { parseResearchQuestionBrowserProjectionV1, type ResearchQuestionDirectoryV1 } from "../lib/research-question-directory";
+import {
+  visibleAsyncReadAvailabilityV1,
+  type AsyncReadAvailability,
+} from "./ui/async-read-state";
 
 export function useResearchQuestionDirectory(enabled: boolean) {
   const [projection, setProjection] = useState<ResearchQuestionDirectoryV1 | null>(null);
-  const [availability, setAvailability] = useState<"idle" | "loading" | "available" | "unavailable">("idle");
+  const [availability, setAvailability] = useState<AsyncReadAvailability>("idle");
   const generation = useRef(0);
   const read = useCallback(async () => {
     if (!enabled) return;
@@ -23,5 +27,9 @@ export function useResearchQuestionDirectory(enabled: boolean) {
     }
   }, [enabled]);
   useEffect(() => { if (enabled && availability === "idle") void read(); }, [availability, enabled, read]);
-  return { projection, availability, read };
+  return {
+    projection,
+    availability: visibleAsyncReadAvailabilityV1(enabled, availability),
+    read,
+  };
 }

@@ -564,6 +564,10 @@ business entity (`Research request`, `Build request`, `Build attempt`, `Strategy
 `Strategy family`); the opaque identity is a compact secondary reference and the exact value remains available as
 its title and search key. Default table copy uses `Result`/`Outcome`, `Recorded`, and user-readable availability;
 Owner, custody, point-read, candidate, and wire-state language stays in the information disclosure or contract.
+An enabled asynchronous directory read projects its internal first-render `idle` state as `loading`. The table may
+be visually quiet during the short loading-delay threshold, but it must not render an empty/search-empty claim or a
+zero summary before the first Owner response settles. Only a completed available read with zero matching rows may
+render empty; unavailable remains a separate fail-closed state and never retains the previous route's rows.
 
 The exact historical-attempt route is titled `Build result` and answers whether the build produced an Artifact.
 Its shared journey plus `Result / Review / Timing` groups render `Historical only` and a human-readable failure
