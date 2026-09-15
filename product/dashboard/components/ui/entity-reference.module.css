@@ -1,0 +1,37 @@
+.reference {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+.reference strong,
+.reference span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reference strong {
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.reference span {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+a.reference:hover strong {
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+}
+
+a.reference:focus-visible {
+  border-radius: 3px;
+  outline: 2px solid var(--control-focus-ring);
+  outline-offset: 3px;
+}

@@ -23,10 +23,14 @@ test("Artifact directory uses the shared compact read-only table surface", async
   assert.match(component, /query\.set\("availability", "reviewable"\)/u);
   assert.match(component, /label="Candidate review cut"/u);
   assert.match(component, /Outcome unavailable/u);
-  assert.match(component, /Review ready/u);
+  assert.match(component, /Outcome ready/u);
   assert.match(component, /router\.replace\(nextView === "candidates"[\s\S]*candidateUrl\(candidateKind, candidateAvailability\)/u);
   assert.match(component, /router\.replace\(candidateUrl\(nextKind, nextAvailability\)/u);
-  assert.match(component, /Candidates remain unverified until their exact record is opened\./u);
+  assert.match(component, /Available outcomes can be opened from the table\./u);
+  assert.match(component, /<EntityReference/u);
+  assert.match(component, /label="Build request"/u);
+  assert.match(component, /label="Build attempt"/u);
+  assert.match(component, /label="Strategy family"/u);
   assert.match(component, /"Artifact, intent, or request"/u);
   for (const header of ["Artifact", "Strategy intent", "Verification", "Created"]) {
     assert.match(component, new RegExp(`DataTableHeaderLabel>${header}<`, "u"));
@@ -64,12 +68,13 @@ test("bilingual Artifact directory contract fixes layout, fields and no-effect b
     const specification = doc.slice(start, doc.indexOf("\n## ", start + heading.length));
     for (const token of [
       "ArtifactDirectory", "/rd/artifacts", "PanelFrame", "Refresh", "Build history", "Current artifacts", "search",
-      "Artifact", "Strategy intent", "Verification", "Created", "20", "60",
+      "Artifact", "Strategy intent", "Verification", "Created", "Outcome", "Recorded", "20", "60",
       "prepared_at_epoch_ms", "build_request_identity", "Load older", "partial",
       "unavailable", "POINT_READ_REQUIRED", "/v1/historical-custodies", "WASM_PREVIEW_NOT_RUN", "Windmill",
       "work to review", "build attempts", "family bindings", "reviewable outcomes",
       "/api/rd/artifacts/review-inventory", "reviewable | unavailable", "All attempts",
       "/rd/artifacts/?availability=reviewable", "/rd/artifacts/?kind=bindings",
+      "EntityReference", "opaque identity",
     ]) assert.ok(specification.includes(token), `${suffix || "en"} missing ${token}`);
   }
 });

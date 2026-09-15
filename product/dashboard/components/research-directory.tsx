@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import {
@@ -19,6 +18,7 @@ import {
 import { DataTableHeaderLabel, DataTableSurface } from "./ui/data-table";
 import { DataWorkspaceEmpty } from "./ui/data-workspace-empty";
 import { DataWorkspaceTable, type DataWorkspaceColumn } from "./ui/data-workspace-table";
+import { EntityReference } from "./ui/entity-reference";
 import { FilterButton, FilterSearch, FilterTabs, TableToolbar } from "./ui/filter-toolbar";
 import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
 import { PageStack } from "./ui/page-stack";
@@ -39,10 +39,6 @@ import { OwnerDirectoryInfo, OwnerDirectoryUnavailable } from "./owner-directory
 import { ResearchLoopJourney } from "./research-loop-journey";
 import { RdCustodyReviewSummary } from "./rd-custody-review-summary";
 import styles from "./owner-directory.module.css";
-
-function displayIdentity(value: string): string {
-  return value.length > 34 ? `${value.slice(0, 20)}…${value.slice(-8)}` : value;
-}
 
 function displayTime(value: string): string {
   return new Date(value).toLocaleString();
@@ -205,13 +201,12 @@ export function ResearchDirectory({
       sortable: true,
       minWidth: "300px",
       grow: 1.4,
-      cell: (item) => <div className={styles.identityCell}>
-        <Link className={styles.identityLink} href={`/rd/research/${encodeURIComponent(item.requestIdentity)}`}
-          title={`Open ${item.requestIdentity}`}>
-          <strong>{displayIdentity(item.requestIdentity)}</strong>
-        </Link>
-        <span>Owner-verified custody</span>
-      </div>,
+      cell: (item) => <EntityReference
+        label="Research request"
+        identity={item.requestIdentity}
+        detail="Open details"
+        href={`/rd/research/${encodeURIComponent(item.requestIdentity)}`}
+      />,
     },
     {
       id: "state",
@@ -236,7 +231,7 @@ export function ResearchDirectory({
       minWidth: "280px",
       grow: 1.2,
       cell: (item) => item.intentIdentity
-        ? <code className={styles.intent} title={item.intentIdentity}>{displayIdentity(item.intentIdentity)}</code>
+        ? <EntityReference label="Strategy intent" identity={item.intentIdentity} />
         : <span className={styles.intent}>Not created</span>,
     },
     {
@@ -259,23 +254,21 @@ export function ResearchDirectory({
       grow: 1.6,
       cell: (item) => {
         const outcome = outcomeByRequest.get(item.requestIdentity);
-        const content = <>
-          <strong>{displayIdentity(item.requestIdentity)}</strong>
-          <span>{outcome?.status === "outcome_ready"
-            ? "Open result"
-            : outcome?.status === "awaiting_outcome"
-            ? "Open request"
-            : outcome?.status === "unavailable"
-            ? "Status unavailable"
-            : "Check status"}</span>
-        </>;
-        return outcome?.status === "unavailable"
-          ? <div className={styles.identityCell}>{content}</div>
-          : <Link className={styles.identityCell}
-            href={`/rd/research/${encodeURIComponent(item.requestIdentity)}`}
-            title={`Open exact Owner readback for ${item.requestIdentity}`}>
-            {content}
-          </Link>;
+        const detail = outcome?.status === "outcome_ready"
+          ? "Open result"
+          : outcome?.status === "awaiting_outcome"
+          ? "Open request"
+          : outcome?.status === "unavailable"
+          ? "Status unavailable"
+          : "Check status";
+        return <EntityReference
+          label="Research request"
+          identity={item.requestIdentity}
+          detail={detail}
+          href={outcome?.status === "unavailable"
+            ? undefined
+            : `/rd/research/${encodeURIComponent(item.requestIdentity)}`}
+        />;
       },
       ignoreRowClick: true,
     },
@@ -313,7 +306,7 @@ export function ResearchDirectory({
     },
     {
       id: "observed",
-      name: <DataTableHeaderLabel>Received</DataTableHeaderLabel>,
+      name: <DataTableHeaderLabel>Recorded</DataTableHeaderLabel>,
       selector: (item) => item.committedAtEpochMs,
       sortable: true,
       minWidth: "210px",
@@ -408,7 +401,7 @@ export function ResearchDirectory({
                 label="Search research requests"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder={view === "verified" ? "Request, intent, or state" : "Candidate request identity"}
+                placeholder={view === "verified" ? "Request, intent, or state" : "Search requests"}
                 maxLength={128}
               />
             </TableToolbar>}
@@ -439,8 +432,8 @@ export function ResearchDirectory({
             /> : custodyCandidates.availability === "unavailable" ? (
               <OwnerDirectoryUnavailable
                 icon={<EvidenceIcons.pending aria-hidden="true" size={18} />}
-                title="Candidate data unavailable"
-                detail="Candidate requests could not be loaded. Try refreshing."
+                title="Request history unavailable"
+                detail="Research requests could not be loaded. Try refreshing."
                 reason={custodyCandidates.reason ?? "CUSTODY_CANDIDATE_DIRECTORY_UNAVAILABLE"}
               />
             ) : candidateOutcome !== "all" && outcomeAvailability === "unavailable" ? (
@@ -468,12 +461,12 @@ export function ResearchDirectory({
                 className={custodyCandidates.availability === "loading" && !showPending ? styles.pendingQuiet : undefined}
                 icon={<EvidenceIcons.pending aria-hidden="true" size={18} />}>
                 {custodyCandidates.availability === "loading" || outcomeAvailability === "loading"
-                  ? "Reading custody candidates…"
+                  ? "Reading request history…"
                   : candidateOutcome === "ready"
-                  ? "No request with an Owner outcome matches this cut."
+                  ? "No request with a readable result matches this cut."
                   : candidateOutcome === "awaiting"
-                  ? "No request awaiting an Owner outcome matches this cut."
-                  : "No candidate identity matches this cut."}
+                  ? "No waiting request matches this cut."
+                  : "No research request matches this cut."}
               </DataWorkspaceEmpty>}
             />}
           </DataTableSurface>

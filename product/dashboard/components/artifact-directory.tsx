@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -19,6 +18,7 @@ import type {
 import { DataTableHeaderLabel, DataTableSurface } from "./ui/data-table";
 import { DataWorkspaceEmpty } from "./ui/data-workspace-empty";
 import { DataWorkspaceTable, type DataWorkspaceColumn } from "./ui/data-workspace-table";
+import { EntityReference } from "./ui/entity-reference";
 import { FilterButton, FilterSearch, FilterTabs, TableToolbar } from "./ui/filter-toolbar";
 import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
 import { PageStack } from "./ui/page-stack";
@@ -37,10 +37,6 @@ import { useArtifactReviewInventory } from "./use-artifact-review-inventory";
 import { OwnerDirectoryInfo, OwnerDirectoryUnavailable } from "./owner-directory-state";
 import { RdCustodyReviewSummary } from "./rd-custody-review-summary";
 import styles from "./owner-directory.module.css";
-
-function displayIdentity(value: string): string {
-  return value.length > 34 ? `${value.slice(0, 20)}…${value.slice(-8)}` : value;
-}
 
 function displayTime(value: string): string {
   return new Date(value).toLocaleString();
@@ -212,12 +208,13 @@ export function ArtifactDirectory({
       sortable: true,
       minWidth: "300px",
       grow: 1.5,
-      cell: (item) => (
-        <Link className={styles.identityCell} href={`/rd/artifacts/${encodeURIComponent(item.buildRequestIdentity)}/attempts/${encodeURIComponent(item.attemptIdentity)}`}>
-          <strong title={item.artifactIdentity}>{displayIdentity(item.artifactIdentity)}</strong>
-          <span title={item.buildRequestIdentity}>{displayIdentity(item.buildRequestIdentity)}</span>
-        </Link>
-      ),
+      cell: (item) => <EntityReference
+        label="Strategy artifact"
+        identity={item.artifactIdentity}
+        detail="Open source"
+        exactTitle={`${item.artifactIdentity} · ${item.buildRequestIdentity}`}
+        href={`/rd/artifacts/${encodeURIComponent(item.buildRequestIdentity)}/attempts/${encodeURIComponent(item.attemptIdentity)}`}
+      />,
       ignoreRowClick: true,
     },
     {
@@ -227,7 +224,7 @@ export function ArtifactDirectory({
       sortable: true,
       minWidth: "260px",
       grow: 1.2,
-      cell: (item) => <code className={styles.intent} title={item.intentIdentity}>{displayIdentity(item.intentIdentity)}</code>,
+      cell: (item) => <EntityReference label="Strategy intent" identity={item.intentIdentity} />,
     },
     {
       id: "verification",
@@ -260,20 +257,19 @@ export function ArtifactDirectory({
       grow: 1.4,
       cell: (item) => {
         const review = reviewByAttempt.get(`${item.buildRequestIdentity}\u0000${item.attemptIdentity}`);
-        const content = <>
-          <strong title={item.buildRequestIdentity}>{displayIdentity(item.buildRequestIdentity)}</strong>
-          <span>{review?.availability === "reviewable"
-            ? "Open historical outcome"
-            : review?.availability === "unavailable"
-            ? "Outcome unavailable"
-            : "Check historical outcome"}</span>
-        </>;
-        return review?.availability === "unavailable"
-          ? <div className={styles.identityCell}>{content}</div>
-          : <Link
-            className={styles.identityCell}
-            href={`/rd/artifacts/${encodeURIComponent(item.buildRequestIdentity)}/attempts/${encodeURIComponent(item.attemptIdentity)}?custody=historical`}
-          >{content}</Link>;
+        const detail = review?.availability === "reviewable"
+          ? "Open outcome"
+          : review?.availability === "unavailable"
+          ? "Outcome unavailable"
+          : "Check outcome";
+        return <EntityReference
+          label="Build request"
+          identity={item.buildRequestIdentity}
+          detail={detail}
+          href={review?.availability === "unavailable"
+            ? undefined
+            : `/rd/artifacts/${encodeURIComponent(item.buildRequestIdentity)}/attempts/${encodeURIComponent(item.attemptIdentity)}?custody=historical`}
+        />;
       },
       ignoreRowClick: true,
     },
@@ -284,13 +280,11 @@ export function ArtifactDirectory({
       sortable: true,
       minWidth: "280px",
       grow: 1.2,
-      cell: (item) => <code className={styles.intent} title={item.attemptIdentity}>
-        {displayIdentity(item.attemptIdentity)}
-      </code>,
+      cell: (item) => <EntityReference label="Build attempt" identity={item.attemptIdentity} />,
     },
     {
       id: "verification",
-      name: <DataTableHeaderLabel>Verification</DataTableHeaderLabel>,
+      name: <DataTableHeaderLabel>Outcome</DataTableHeaderLabel>,
       selector: (item) => reviewByAttempt.get(
         `${item.buildRequestIdentity}\u0000${item.attemptIdentity}`,
       )?.availability ?? item.projectionState,
@@ -300,24 +294,24 @@ export function ArtifactDirectory({
         return <div className={styles.verification}>
           <StatusBadge tone={review?.availability === "reviewable" ? "warning" : "unavailable"}>
             {review?.availability === "reviewable"
-              ? "Review ready"
+              ? "Outcome ready"
               : review?.availability === "unavailable"
-              ? "Unavailable"
+              ? "Not available"
               : reviewAvailability === "loading"
               ? "Checking…"
               : "Not checked"}
           </StatusBadge>
           <span>{review?.availability === "reviewable"
-            ? review.disposition
+            ? review.disposition === "accepted" ? "Accepted" : "Rejected"
             : review?.availability === "unavailable"
-            ? "Owner read unavailable"
-            : "Point read required"}</span>
+            ? "No readable outcome"
+            : "Not checked yet"}</span>
         </div>;
       },
     },
     {
       id: "observed",
-      name: <DataTableHeaderLabel>Custody time</DataTableHeaderLabel>,
+      name: <DataTableHeaderLabel>Recorded</DataTableHeaderLabel>,
       selector: (item) => item.preparedAtEpochMs,
       sortable: true,
       minWidth: "210px",
@@ -329,15 +323,16 @@ export function ArtifactDirectory({
   const bindingCandidateColumns = useMemo<DataWorkspaceColumn<HistoricalBindingCandidateV1>[]>(() => [
     {
       id: "family",
-      name: <DataTableHeaderLabel>TrialFamily</DataTableHeaderLabel>,
+      name: <DataTableHeaderLabel>Strategy family</DataTableHeaderLabel>,
       selector: (item) => item.trialFamilyIdentity,
       sortable: true,
       minWidth: "330px",
       grow: 1.4,
-      cell: (item) => <div className={styles.identityCell}>
-        <strong title={item.trialFamilyIdentity}>{displayIdentity(item.trialFamilyIdentity)}</strong>
-        <span>Candidate identity only</span>
-      </div>,
+      cell: (item) => <EntityReference
+        label="Strategy family"
+        identity={item.trialFamilyIdentity}
+        detail="Needs verification"
+      />,
     },
     {
       id: "binding",
@@ -346,23 +341,21 @@ export function ArtifactDirectory({
       sortable: true,
       minWidth: "300px",
       grow: 1.2,
-      cell: (item) => <code className={styles.intent} title={item.bindingIdentity}>
-        {displayIdentity(item.bindingIdentity)}
-      </code>,
+      cell: (item) => <EntityReference label="Family binding" identity={item.bindingIdentity} />,
     },
     {
       id: "verification",
-      name: <DataTableHeaderLabel>Verification</DataTableHeaderLabel>,
+      name: <DataTableHeaderLabel>Status</DataTableHeaderLabel>,
       selector: (item) => item.projectionState,
       minWidth: "220px",
       cell: () => <div className={styles.verification}>
         <StatusBadge tone="unavailable">Not verified</StatusBadge>
-        <span>Point read required</span>
+        <span>Details not checked</span>
       </div>,
     },
     {
       id: "observed",
-      name: <DataTableHeaderLabel>Custody time</DataTableHeaderLabel>,
+      name: <DataTableHeaderLabel>Recorded</DataTableHeaderLabel>,
       selector: (item) => item.committedAtEpochMs,
       sortable: true,
       minWidth: "210px",
@@ -466,8 +459,8 @@ export function ArtifactDirectory({
                 placeholder={view === "verified"
                   ? "Artifact, intent, or request"
                   : candidateKind === "attempts"
-                  ? "Build or attempt identity"
-                  : "Family or binding identity"}
+                  ? "Search build history"
+                  : "Search families or bindings"}
                 maxLength={128}
               />
             </TableToolbar>}
@@ -498,8 +491,8 @@ export function ArtifactDirectory({
             /> : custodyCandidates.availability === "unavailable" ? (
               <OwnerDirectoryUnavailable
                 icon={<EvidenceIcons.pending aria-hidden="true" size={18} />}
-                title="Candidate data unavailable"
-                detail="Artifact candidates could not be loaded. Try refreshing."
+                title="Build history unavailable"
+                detail="Build attempts and family bindings could not be loaded. Try refreshing."
                 reason={custodyCandidates.reason ?? "CUSTODY_CANDIDATE_DIRECTORY_UNAVAILABLE"}
               />
             ) : candidateKind === "attempts" && candidateAvailability === "reviewable"
@@ -527,10 +520,10 @@ export function ArtifactDirectory({
                 className={custodyCandidates.availability === "loading" && !showPending ? styles.pendingQuiet : undefined}
                 icon={<EvidenceIcons.pending aria-hidden="true" size={18} />}>
                 {custodyCandidates.availability === "loading" || reviewAvailability === "loading"
-                  ? "Reading custody candidates…"
+                  ? "Reading build history…"
                   : candidateAvailability === "reviewable"
                   ? "No readable build outcome matches this cut."
-                  : "No attempt candidate matches this cut."}
+                  : "No build attempt matches this cut."}
               </DataWorkspaceEmpty>}
             /> : <DataWorkspaceTable<HistoricalBindingCandidateV1>
               ariaLabel="TrialFamily binding custody candidates"
@@ -546,7 +539,7 @@ export function ArtifactDirectory({
               noDataComponent={<DataWorkspaceEmpty state={custodyCandidates.availability === "loading" ? "loading" : "empty"}
                 className={custodyCandidates.availability === "loading" && !showPending ? styles.pendingQuiet : undefined}
                 icon={<EvidenceIcons.pending aria-hidden="true" size={18} />}>
-                {custodyCandidates.availability === "loading" ? "Reading custody candidates…" : "No binding candidate matches this cut."}
+                {custodyCandidates.availability === "loading" ? "Reading build history…" : "No family binding matches this cut."}
               </DataWorkspaceEmpty>}
             />}
           </DataTableSurface>
@@ -556,10 +549,10 @@ export function ArtifactDirectory({
             <PanelFrameFooterSummary
               primary={candidateKind === "attempts" && candidateAvailability === "reviewable"
                 ? `${reviewInventory.projection?.reviewableTotal ?? 0} reviewable outcomes`
-                : `${candidateTotal} ${candidateKind === "attempts" ? "attempt" : "binding"} candidates`}
+                : `${candidateTotal} ${candidateKind === "attempts" ? "build attempts" : "family bindings"}`}
               secondary={candidateKind === "attempts" && candidateAvailability === "reviewable"
-                ? "Each row has a current typed Owner readback."
-                : "Candidates remain unverified until their exact record is opened."}
+                ? "Each row has an outcome ready to review."
+                : "Available outcomes can be opened from the table."}
             />
           </PanelFrameFooter>
         ) : availability === "available" && (partial || nextCursor) ? (

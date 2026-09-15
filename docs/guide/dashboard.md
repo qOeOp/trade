@@ -365,6 +365,11 @@ registered/visible count, multi-level filter popover, row action, or backend-onl
 sticky inside the bounded scroll viewport. Loading, valid empty, unavailable, and partial states preserve the same
 card geometry; narrow layouts scroll horizontally rather than inventing a reduced mobile fact.
 
+Both Research views use the shared domain-neutral `EntityReference` atom: the business entity is the primary
+label, while its opaque identity is a compact secondary reference with the exact value retained as title and search
+key. Default history copy says `Result`, `Recorded`, and user-readable availability; Owner, custody, point-read,
+candidate, and wire-state terms remain in the information disclosure or contract.
+
 When the historical-custody Owner projection is available, the route places one shared compact status card before
 the directory. Its shoulder label is `work to review`; its three same-weight values cover Research outcomes,
 build attempts, and family bindings. When the Research outcome inventory is complete and identity-bound to that
@@ -510,6 +515,12 @@ registered/visible count, multi-level filter popover, or backend-only field. Ope
 to the exact read‑only source-viewer URL. The table header is sticky inside the bounded scroll viewport; loading,
 valid empty, unavailable, and partial states preserve the same card geometry. At narrow widths the table scrolls
 horizontally; it does not collapse identities into invented mobile facts.
+
+Research and Artifact directories share the domain-neutral `EntityReference` atom. The primary line names the
+business entity (`Research request`, `Build request`, `Build attempt`, `Strategy artifact`, `Strategy intent`, or
+`Strategy family`); the opaque identity is a compact secondary reference and the exact value remains available as
+its title and search key. Default table copy uses `Result`/`Outcome`, `Recorded`, and user-readable availability;
+Owner, custody, point-read, candidate, and wire-state language stays in the information disclosure or contract.
 
 When the historical-custody Owner projection is available, the route reuses the same compact `work to review`
 card before the directory, narrowed to `build attempts` and `family bindings`. Both values remain exact custody

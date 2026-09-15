@@ -39,6 +39,9 @@ test("Research directory uses the shared compact read-only table surface", async
   assert.match(component, /outcome=\$\{nextOutcome\}/u);
   assert.match(component, /Requests are grouped by result status\./u);
   assert.match(component, /"Request, intent, or state"/u);
+  assert.match(component, /<EntityReference/u);
+  assert.match(component, /label="Research request"/u);
+  assert.match(component, /label="Strategy intent"/u);
   for (const header of ["Research request", "State", "Intent", "Updated"]) {
     assert.match(component, new RegExp(`DataTableHeaderLabel>${header}<`, "u"));
   }
@@ -48,7 +51,7 @@ test("Research directory uses the shared compact read-only table surface", async
   assert.match(component, /Open result/u);
   assert.match(component, /No result yet/u);
   assert.match(component, /Status unavailable/u);
-  assert.match(component, /Open exact Owner readback for/u);
+  assert.match(component, /detail=\{detail\}/u);
   assert.match(route, /readResearchDirectoryGatewayV1/u);
   assert.match(route, /search\.getAll\(key\)\.length !== 1/u);
   assert.match(shell, /<ResearchDirectory[\s\S]+initialView=\{researchDirectoryView\}[\s\S]+initialCandidateOutcome=\{researchCandidateOutcome\}/u);
@@ -92,7 +95,7 @@ test("bilingual Research directory contract fixes layout, fields and no-effect b
       "/rd/research/?outcome=ready", "/rd/artifacts/",
       "/rd/artifacts/?kind=bindings",
       "/api/rd/research/outcome-inventory", "outcome_ready", "awaiting_outcome",
-      "All / Results ready / Waiting",
+      "All / Results ready / Waiting", "EntityReference", "opaque identity",
     ]) assert.ok(specification.includes(token), `${suffix || "en"} missing ${token}`);
   }
 });

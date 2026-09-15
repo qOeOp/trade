@@ -315,6 +315,10 @@ chooser、registered/visible 数量、多级 filter popover、row action 或 bac
 scroll viewport 内；loading、合法 empty、unavailable、partial 保持相同 card geometry。窄屏只横向滚动，
 不会编造删减后的 mobile fact。
 
+两个 Research view 都使用共享的 domain-neutral `EntityReference` 原子：业务实体是主 label，opaque identity
+只作为紧凑次级引用，并把完整值保留为 title 与 search key。默认 history 文案使用 `Result`、`Recorded` 与
+用户可读 availability；Owner、custody、point-read、candidate 与 wire-state 术语只保留在信息披露或 contract。
+
 Historical-custody Owner projection available 时，route 在 directory 前放置一张共享 compact status card。
 左肩 label 固定为 `work to review`，三个同权重 value 覆盖 Research outcome、build attempt 与 family binding。
 当 Research outcome inventory 完整且 identity set 与页面独立渲染的同一 custody set 精确绑定时，第一项显示
@@ -444,6 +448,12 @@ column：`Artifact`、`Strategy intent`、`Verification`、`Created`。表头文
 View/column chooser、registered/visible 数量、多级 filter popover 或 backend-only 字段。点击 Artifact identity
 进入精确只读 source-viewer URL。表头固定在有界 scroll viewport 内；loading、合法 empty、unavailable、
 partial 保持相同 card geometry。窄屏只横向滚动，不把 identity 折叠成编造的 mobile fact。
+
+Research 与 Artifact directory 共用 domain-neutral `EntityReference` 原子。主行只显示业务实体名称
+（`Research request`、`Build request`、`Build attempt`、`Strategy artifact`、`Strategy intent` 或
+`Strategy family`）；opaque identity 退为紧凑次级引用，完整值仍作为 title 与 search key 保留。默认表格
+使用 `Result`/`Outcome`、`Recorded` 与用户可读 availability；Owner、custody、point-read、candidate 和 wire-state
+措辞只留在信息披露或 contract 中。
 
 Historical-custody Owner projection available 时，route 在 directory 前复用同一张 compact `work to review`
 card，但只保留 `build attempts` 与 `family bindings`。两个 value 仍是精确 custody count，并作为安静 link
