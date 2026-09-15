@@ -414,7 +414,9 @@ which remains the transition to the canonical route with technical custody detai
 controls. A non-2xx response, identity mismatch, malformed payload, close, Back, or identity change invalidates
 the in-flight read and retains no positive result or workspace action. Closing restores focus to the originating
 reference or row.
-The sheet keeps its desktop right-side geometry and becomes full-screen below 768 px. `Current intents` remains a
+The sheet keeps its desktop right-side geometry, stacks the shared Result / Strategy / Timing groups into one
+readable column inside that narrow container, and becomes full-screen below 768 px. The canonical workspace keeps
+the same atoms in its wider multi-column composition. `Current intents` remains a
 plain exact-directory table in this bounded slice.
 
 The default history view obtains one bounded `rd.research_question_directory.read.v1` projection from the

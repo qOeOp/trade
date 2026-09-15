@@ -55,6 +55,8 @@ test("Research detail reuses shared atoms and exposes the admitted Artifact cont
   assert.doesNotMatch(drilldown, /allowFormation|ArtifactFormationControl/u);
   assert.match(drilldown, /Back to request summary/u);
   assert.match(drilldown, /readback\.status === "available"[\s\S]+Open full research workspace/u);
+  assert.match(content, /className=\{styles\.readbackGrid\}/u);
+  assert.match(css, /\.readbackGrid \{[\s\S]*repeat\(auto-fit, minmax\(min\(100%, 240px\), 1fr\)\)/u);
   assert.match(control, /ArtifactFormationControl/u);
   assert.match(control, /PREFLIGHTING[\s\S]+ADMITTING[\s\S]+SUBMITTED_OR_UNKNOWN/u);
   assert.match(control, /\/api\/rd\/artifacts\/formations\/preflight\//u);

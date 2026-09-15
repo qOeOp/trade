@@ -354,8 +354,9 @@ question/result cut 只保留在 information disclosure。打开 sheet 不会触
 drilldown trigger。只有成功验证的 exact read 才显示 `Open full research workspace`，进入保留技术 custody 详情
 与既有 formation control 的 canonical route。非 2xx、identity mismatch、malformed payload、关闭、Back 或
 identity 变化都会使在途 read 失效，且不保留任何 positive result 或 workspace action。关闭后 focus 返回原
-reference 或 row。Sheet 在 desktop
-保持右侧 geometry，低于 768 px 时变为 full-screen。本切片中的 `Current intents` 仍保持普通 exact-directory table。
+reference 或 row。Sheet 在 desktop 保持右侧 geometry，并在这个窄容器中把共享的 Result / Strategy / Timing
+group 排成一列以保证可读性；低于 768 px 时变为 full-screen。Canonical workspace 继续以同一组原子保持较宽的
+多列组合。本切片中的 `Current intents` 仍保持普通 exact-directory table。
 
 默认 history view 从只读 R&D Dashboard Owner 获取一个有界的
 `rd.research_question_directory.read.v1` 投影。问题文本必须先通过 canonical Research custody 校验，且只可暴露
