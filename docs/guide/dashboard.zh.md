@@ -1509,11 +1509,11 @@ tab row 中；Run Detail 的 Metrics、Traces、Assets 只是 run-scoped tab，�
 ```text
 H  Operations / Runs                        [Refresh] [Auto-refresh: Off v]
 N  [Runs] [Workers] [Schedules] [Service Logs] [Audit] [Event Rail] [Telemetry] [Alerts]
-F  [Runs|Owner reads] [All|Queued|Running|Succeeded|Failed|Unknown]
-   [Search path / run ID] [Duration v] [Concurrency v] [More filters]
-S  Queued | Running | Unknown | Completed/Failed
+F  [Action runs|Data reads] [All|Waiting|Running|Completed|Failed|Cancelled|Unknown]
+   [Search activity / run ID] [Duration v]
+S  Waiting | Running | Unknown | Completed | Failed
 T  RunTable / date group
-   Status | Started | Duration | Operation | Trigger/principal | Owner outcome
+   Status | Started | Duration | Activity | Started by | Source result
    row selection -> D; final column [Open] -> /operations/runs/:runId
 D  RunSummaryCard: statuses, immutable run/operation/Owner locators, retention
    [Open run] [Resolve Owner outcome]
@@ -1522,20 +1522,18 @@ B  shown rows / filtered total | Rows per page [25|50|100] | Page n of m
 ```
 
 Runs table 在 `>=1280 px` 使用 fixed layout：sticky header 40 px、date-group header 32 px、body row 最小
-44 px、horizontal cell padding 8 px；column 比例固定为 `Status 11 / Started 15 / Duration 10 / Operation 23 /
-Trigger-principal 16 / Owner outcome 16 / Open 9`。Operation 使用共享业务名称，hover/focus 才揭示同一个
-exact registered operation ID。Operation、trigger/principal、Owner outcome 只显示一行并 ellipsis，绝不读取
+44 px、horizontal cell padding 8 px。`Activity` 使用共享业务名称，hover/focus 才揭示同一个
+exact registered operation ID。Activity、Started by、Source result 只显示一行并 ellipsis，绝不读取
 raw payload。默认按 effective run time
 descending，再按 immutable run ID ascending。Effective time 优先 `started_at`，未开始 run 回退到
 `received_at`，但 Started cell 仍显示 em dash。只有 Started 与 Duration header 暴露 sort control，顺序都是
 descending、ascending、恢复 default。Date group 使用 selected display time zone 且 newest first；filter、time
 zone、grouping 或 sort 改变时回到第一页。
 
-四个 `S` card 的数量与位置绝不改变。选择 `Runs` 时 label 精确为 `Queued`、`Running`、`Unknown`、
-`Completed / Failed`；选择 `Owner reads` 时仍为 `Queued`、`Running`、`Unknown`、`Completed / Failed`，并统一放在
-`owner reads` group shoulder 下。前三个 value 各为一个 integer count，第四个按
-`completed / failed` 顺序显示两个 integer count。缺失的 count 在原 value slot 显示 em dash。Count 使用 selected
-kind 与所有已应用的 non-status filter，但忽略 selected status，因此选择一个 status 不会清空其他三张 summary。
+五个 `S` item 的数量与位置绝不改变，并统一放在 `action runs` 或 `data reads` group shoulder 下；label 精确为
+`waiting`、`running`、`unknown`、`completed`、`failed`。每个 value 是一个 integer count；缺失的 count 在原 value slot
+显示 em dash。Count 使用 selected kind 与所有已应用的 non-status filter，但忽略 selected status，因此选择一个 status
+不会清空其他 summary。
 
 Positive list projection 在 kind、search、Duration filter 之后、selected status 之前只保留最新 512 行。
 存在第 513 条 eligible row 时返回 HTTP 200、`availability=available`、
@@ -1545,14 +1543,13 @@ Summary count、filtered total、pagination 与 page frontier 只对这个 retai
 变化会使既有 snapshot 失效。Partial footer 明确说明只展示最新 512 条、更早历史不在当前 view；partial
 状态下筛选为空只能说明 retained rows 中没有匹配项，不能声称全历史不存在匹配项。
 
-Control contract 是闭合的，不继承 Windmill default。Kind segment 默认 `Runs`，唯一 peer 是 `Owner reads`，且只映射到 typed wire value `kind=dependencies`；
-status 默认 `All`。Search 默认为空，只匹配 redacted path 或 immutable run ID。`Duration` 默认 `Any`，其后固定为
-`<1 s`、`1-10 s`、`10-60 s`、`>=60 s`。`Concurrency` 默认 `Any`，其后为 `Has key`、`No key`；它描述
-immutable dispatcher concurrency key 是否存在，不表示 live worker count。Header auto-refresh menu 默认 `Off`，
+Control contract 是闭合的，不继承 Windmill default。Kind segment 默认 `Action runs`，唯一 peer 是 `Data reads`，且只映射到 typed wire value `kind=dependencies`；
+status 默认 `All`。Search 默认为空，只匹配 redacted activity identity 或 immutable run ID。`Duration` 默认 `Any`，其后固定为
+`<1 s`、`1-10 s`、`10-60 s`、`>=60 s`。Header auto-refresh menu 默认 `Off`，
 其后是 `5 s`、`15 s`、`30 s`。Cadence 改变立即生效、不重置 pagination，且只执行与 Refresh 相同的 read；
 tab hidden 或 offline 时不排队补读。
 
-Kind、status、Duration、Concurrency 在 selection 时立即应用并返回第一页。Search 在最后一次 edit 后精确
+Kind、status、Duration 在 selection 时立即应用并返回第一页。Search 在最后一次 edit 后精确
 300 ms 应用；Enter 或清空立即应用，blur 不增加另一次 transition。后到的 search application 取消此前 in-flight
 list read。显式 Started 与 Duration sort 绝不改变 newest-first date-group row 的顺序：它们只在每个 group 内排序，
 grouping 为 `None` 时才对全表排序。Started 先放具有 `started_at` 的 row，按所选方向排序、immutable run ID
@@ -1560,7 +1557,7 @@ ascending 打破 tie；未开始 row 永远在后，内部按同方向的 `recei
 具有 duration 的 row，按所选方向排序，再按 effective time descending、run ID ascending 打破 tie；缺失 duration
 的 row 永远在后，按 effective time descending、run ID ascending 排序。
 
-`More filters` 在按钮下方打开一个 360 px popover。Field 顺序固定为：`Trigger`（默认 `All`，然后 `App`、
+扩展筛选 surface 获得准入后，`More filters` 在按钮下方打开一个 360 px popover。Field 顺序固定为：`Trigger`（默认 `All`，然后 `App`、
 `Webhook`、`Other`）、`Principal`（空的 exact-text input）、`Tag`（空的 exact-text input）、`Time cut`
 （默认 `Last 24 h`，然后 `Last 1 h`、`Last 7 d`、`Last 30 d`、`Custom`）、`Display time zone`（默认
 `UTC`，然后 `Browser local`）、`Group by`（默认 `Day`，然后 `Hour`、`None`）。`Custom` 依次追加 start、end
@@ -1574,16 +1571,16 @@ Loading 精确为四个 summary skeleton、两行 filter、一个 40 px header�
 date-group bar、十个 44 px row 与完整 pager skeleton。`Hour` 同样使用三个 group bar；`None` 不使用 group bar，
 但仍精确保留十行。Unfiltered empty、filtered empty、permission denied、backend unavailable 各占一个
 96 px full-width table row，包含不同 title、单行 explanation，不制造 count。未筛选且为空的 Runs view 只暴露
-一个紧凑的 secondary `View Owner reads` action，选择既有 Owner reads segment，不创建 run、也不发出 effect；
-只有 backend unavailable 通过既有 route header 暴露 Refresh。Tag 与 concurrency evidence 仍只在 info control
-中说明 unavailable，不占用业务表格列。
+一个紧凑的 secondary `View data reads` action，选择既有 Data reads segment，不创建 run、也不发出 effect；
+只有 backend unavailable 通过既有 route header 暴露 Refresh。缺失的 tag 与 concurrency 字段不升级成空业务列，
+也不生成解释性短句。
 
 `768-1279 px` 时保持同序并放入最小宽 960 px 的 bounded horizontal scroller。8% action cell 保持标准的 8 px
 horizontal padding，内部依次是 32 px text Open button、4 px gap，以及获准入时出现的 24 px More button。Button
 与 padding 精确占用 76 px，可放入 960 px 最小 table width 下的 76.8 px cell；更宽 table 保持同一 left-aligned
 geometry。低于
 `768 px` 时变成六行 run
-card：status + effective time；path；Owner outcome；trigger/principal；duration + tag；最后 Open。Card padding
+card：status + effective time；activity；Source result；Started by；duration；最后 Open。Card padding
 12 px、gap 12 px、最小高度 156 px；六个 loading card 替代 table row，filter 顺序与 pager 不变。Card selection
 打开同一个 `D`；不存在 checkbox、column chooser、selection count、bulk action 或 swipe action。
 

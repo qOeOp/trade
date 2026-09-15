@@ -96,8 +96,8 @@ test("operational summaries preserve a legible metric hierarchy across viewports
   assert.match(css, /.operations-runs-panel > \.panel-frame-header \.panel-frame-heading \{[^}]+max-width: 820px;/u);
   assert.match(css, /.operations-runs-panel > \.panel-frame-header p \{[^}]+margin-top: 10px;[^}]+font-size: 11px;/u);
   assert.match(runStorePreview, /<CompactStatusBar className="operations-run-summaries" aria-label="Run summary">/u);
-  assert.match(runStorePreview, /<CompactStatusGroup label=\{kind === "runs" \? "runs" : "owner reads"\}>/u);
-  for (const label of ["queued", "running", "unknown", "completed", "failed"]) {
+  assert.match(runStorePreview, /<CompactStatusGroup label=\{kind === "runs" \? "action runs" : "data reads"\}>/u);
+  for (const label of ["waiting", "running", "unknown", "completed", "failed"]) {
     assert.match(runStorePreview, new RegExp(`<CompactStatusItem label="${label}"`, "u"));
   }
   assert.match(css, /\.compact-status-bar \{[^}]+container: compact-status \/ inline-size;[^}]+width: 100%;/u);
@@ -171,7 +171,8 @@ test("operational surfaces keep implementation language behind information contr
     readFile(new URL("../components/ui/evidence-strip.tsx", import.meta.url), "utf8"),
   ]);
 
-  assert.match(runs, /title="Runs"[\s\S]+?<PanelFrameInfo label="View unavailable fields">/u);
+  assert.match(runs, /eyebrow="Activity history" title="Runs"/u);
+  assert.doesNotMatch(runs, /PanelFrameInfo|View unavailable fields|Not retained/u);
   assert.match(runs, /<DataTableSurface[\s\S]+?\{pageResult \? <>[\s\S]+?<UnavailableState/u);
   assert.match(runs, /if \(isRunListSearchInputV2\(event\.target\.value\)\) setQueryDraft/u);
   assert.doesNotMatch(runs, /description="[^"]*(?:RunStore|Windmill|Owner facts)/u);
@@ -188,15 +189,20 @@ test("operational surfaces keep implementation language behind information contr
   }
   assert.doesNotMatch(logs, /description="[^"]*(?:RunStore|observation cut|inferred)/u);
   assert.doesNotMatch(runs, />\{run\.run_identity\}<\/code>/u);
-  assert.match(runs, /<CompactStatusGroup label=\{kind === "runs" \? "runs" : "owner reads"\}>[\s\S]+?<CompactStatusItem label="queued"/u);
-  assert.match(runs, /value: "dependencies", label: "Owner reads"/u);
+  assert.match(runs, /<CompactStatusGroup label=\{kind === "runs" \? "action runs" : "data reads"\}>[\s\S]+?<CompactStatusItem label="waiting"/u);
+  assert.match(runs, /value: "dependencies", label: "Data reads"/u);
   assert.match(runs, /No action runs yet\./u);
-  assert.match(runs, />View Owner reads<\/FilterButton>/u);
+  assert.match(runs, />View data reads<\/FilterButton>/u);
   assert.doesNotMatch(runs, /id: "tag"/u);
-  assert.match(runs, /<DataTableHeaderLabel>Operation<\/DataTableHeaderLabel>/u);
+  assert.match(runs, /<DataTableHeaderLabel>Activity<\/DataTableHeaderLabel>/u);
+  assert.match(runs, /<DataTableHeaderLabel>Started by<\/DataTableHeaderLabel>/u);
+  assert.match(runs, /<DataTableHeaderLabel>Source result<\/DataTableHeaderLabel>/u);
+  assert.match(runs, /runStateLabel\(run\.state\)/u);
+  assert.match(runs, /runTriggerLabel\(run\.trigger_kind\)/u);
+  assert.match(runs, /sourceResultLabel\(run\.owner_outcome_state\)/u);
   assert.match(runs, /title=\{run\.path\}>\{runOperationLabel\(run\.path\)\}/u);
   assert.doesNotMatch(runs, />\{run\.path\}<\/code>/u);
-  assert.doesNotMatch(runs, /label="(?:Queued|Running|Unknown|Completed|Failed)"/u);
+  assert.doesNotMatch(runs, /Owner reads|Owner outcome|Search path|>\{run\.state\}</u);
   assert.match(logs, /<FilterButton density="compact" variant="secondary"[\s\S]+?Auto-refresh/u);
   assert.match(logs, /<PanelFrameInfo><b>Technical reason<\/b><code>/u);
   assert.match(logs, /<PanelFrameInfo><b>Data details<\/b><code/u);

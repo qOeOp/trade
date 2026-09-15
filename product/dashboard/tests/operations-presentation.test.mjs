@@ -44,11 +44,13 @@ test("a cancelled-before-start run never presents as in progress", () => {
 
 test("run detail presentation translates implementation state without changing its distinctions", () => {
   assert.equal(runStateLabel("succeeded"), "Completed");
+  assert.equal(runStateLabel("queued"), "Waiting");
   assert.equal(runStateLabel("running"), "Running");
   assert.equal(sourceResultLabel("available"), "Available");
   assert.equal(sourceResultLabel("rejected"), "Not accepted");
   assert.equal(sourceResultLabel("unknown"), "Pending");
   assert.equal(runTriggerLabel("dashboard_bff"), "Dashboard");
+  assert.equal(runTriggerLabel("dashboard_scheduler"), "Schedule");
   assert.equal(runKindLabel("owner_read"), "Data read");
   assert.deepEqual(workerAssignmentPresentation("unavailable", "RUN_DISPATCH_BINDING_UNAVAILABLE"), {
     title: "Assignment not recorded",

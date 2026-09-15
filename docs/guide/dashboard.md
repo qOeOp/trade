@@ -1639,11 +1639,11 @@ Metrics, Traces, and Assets remain run-scoped tabs and never become global route
 ```text
 H  Operations / Runs                        [Refresh] [Auto-refresh: Off v]
 N  [Runs] [Workers] [Schedules] [Service Logs] [Audit] [Event Rail] [Telemetry] [Alerts]
-F  [Runs|Owner reads] [All|Queued|Running|Succeeded|Failed|Unknown]
-   [Search path / run ID] [Duration v] [Concurrency v] [More filters]
-S  Queued | Running | Unknown | Completed/Failed
+F  [Action runs|Data reads] [All|Waiting|Running|Completed|Failed|Cancelled|Unknown]
+   [Search activity / run ID] [Duration v]
+S  Waiting | Running | Unknown | Completed | Failed
 T  RunTable / date group
-   Status | Started | Duration | Operation | Trigger/principal | Owner outcome
+   Status | Started | Duration | Activity | Started by | Source result
    row selection -> D; final column [Open] -> /operations/runs/:runId
 D  RunSummaryCard: statuses, immutable run/operation/Owner locators, retention
    [Open run] [Resolve Owner outcome]
@@ -1652,21 +1652,18 @@ B  shown rows / filtered total | Rows per page [25|50|100] | Page n of m
 ```
 
 The Runs table uses fixed layout at `>=1280 px`: sticky header 40 px, date-group header 32 px, body row minimum
-44 px, 8 px horizontal cell padding, and column shares `Status 11 / Started 15 / Duration 10 / Operation 23 /
-Trigger-principal 16 / Owner outcome 16 / Open 9`. Operation renders the shared business label; hover/focus reveals
-its same exact registered operation ID. Operation, trigger/principal, and Owner outcome use one line plus ellipsis,
+44 px, and 8 px horizontal cell padding. `Activity` renders the shared business label; hover/focus reveals
+its same exact registered operation ID. Activity, Started by, and Source result use one line plus ellipsis,
 never raw payload. Default order is effective run
 time descending, then immutable run ID ascending. Effective time is `started_at`, falling back to `received_at`
 for an unstarted run; its Started cell remains an em dash. Only Started and Duration headers expose sort controls,
 each cycling descending then ascending then back to the default order. Date groups use the selected display time
 zone and remain newest first; changing filter, time zone, grouping, or sort returns to page one.
 
-The four `S` cards never change count or position. In the `Runs` segment their labels are exactly `Queued`,
-`Running`, `Unknown`, and `Completed / Failed`; in `Owner reads` they are
-`Queued`, `Running`, `Unknown`, and `Completed / Failed` under the `owner reads` group shoulder. The first three values are one
-integer count and the fourth is `completed / failed` as two integer counts in that order. A missing count is an em
-dash in its existing value slot. Counts use the selected kind plus every applied non-status filter but ignore the
-selected status, so choosing one status never erases the other three summaries.
+The five `S` items never change count or position. Under the `action runs` or `data reads` group shoulder their
+labels are exactly `waiting`, `running`, `unknown`, `completed`, and `failed`. Each value is one integer count;
+a missing count is an em dash in its existing value slot. Counts use the selected kind plus every applied non-status
+filter but ignore the selected status, so choosing one status never erases the other summaries.
 
 The positive list projection retains the newest 512 rows after kind, search, and Duration filters and before the
 selected status is applied. A 513th eligible row returns HTTP 200 with `availability=available`,
@@ -1677,15 +1674,14 @@ and completeness, so a boundary change invalidates an existing snapshot. A parti
 are shown and older history is outside this view. A filtered empty partial view says that no retained row matches;
 it never claims that no matching historical row exists.
 
-The control contract is closed rather than inherited from Windmill defaults. `Runs` is the default kind segment;
-`Owner reads` is its only peer and maps only to the typed wire value `kind=dependencies`. `All` is the default status. Search is empty by default and matches only redacted
-path or immutable run ID. `Duration` is `Any` by default, followed by `<1 s`, `1-10 s`, `10-60 s`, and `>=60 s`.
-`Concurrency` is `Any` by default, followed by `Has key` and `No key`; it describes the presence of the immutable
-dispatcher concurrency key, not live worker count. The header auto-refresh menu is `Off` by default, followed by
+The control contract is closed rather than inherited from Windmill defaults. `Action runs` is the default kind segment;
+`Data reads` is its only peer and maps only to the typed wire value `kind=dependencies`. `All` is the default status. Search is empty by default and matches only redacted
+activity identity or immutable run ID. `Duration` is `Any` by default, followed by `<1 s`, `1-10 s`, `10-60 s`, and `>=60 s`.
+The header auto-refresh menu is `Off` by default, followed by
 `5 s`, `15 s`, and `30 s`. A cadence change takes effect immediately, does not reset pagination, and performs only
 the same read as Refresh; hidden or offline tabs do not queue catch-up reads.
 
-Kind, status, Duration, and Concurrency apply immediately on selection and return to page one. Search applies
+Kind, status, and Duration apply immediately on selection and return to page one. Search applies
 exactly 300 ms after the last edit; Enter or clearing the field applies immediately, while blur adds no separate
 transition. A later search application cancels the earlier in-flight list read. The explicit Started and Duration
 sorts never reorder the newest-first date-group rows: they sort only inside each group, or the whole list when
@@ -1694,7 +1690,7 @@ ascending, then places unstarted rows ordered by `received_at` in that direction
 places rows with a duration first in the chosen direction, ties by effective time descending then run ID ascending,
 and places missing-duration rows last by effective time descending then run ID ascending.
 
-`More filters` opens one 360 px popover anchored below that button. Its fields are ordered `Trigger` (`All`
+When the extended filter surface is admitted, `More filters` opens one 360 px popover anchored below that button. Its fields are ordered `Trigger` (`All`
 default, `App`, `Webhook`, `Other`), `Principal` (empty exact-text input), `Tag` (empty exact-text input), `Time cut`
 (`Last 24 h` default, then `Last 1 h`, `Last 7 d`, `Last 30 d`, `Custom`), `Display time zone` (`UTC` default,
 `Browser local`), and `Group by` (`Day` default, `Hour`, `None`). `Custom` adds start then end inputs interpreted in
@@ -1708,17 +1704,17 @@ em dashes and disable page movement. Loading is exactly four summary skeletons, 
 header, three 32 px date-group bars for the default `Day` grouping, ten 44 px rows, and the complete pager skeleton.
 `Hour` uses the same three group bars; `None` uses no group bar and still exactly ten rows. Unfiltered empty, filtered
 empty, permission denied, and backend unavailable each occupy one 96 px full-width table row with a distinct title,
-one-line explanation, and no fabricated count. An unfiltered empty Runs view exposes one compact `View Owner reads`
-secondary action that selects the existing Owner reads segment; it creates no run and issues no effect. Only backend
-unavailable exposes Refresh through the existing route header. Tag and concurrency evidence remain unavailable behind
-the information control and do not consume business-table columns.
+one-line explanation, and no fabricated count. An unfiltered empty Action runs view exposes one compact `View data reads`
+secondary action that selects the existing Data reads segment; it creates no run and issues no effect. Only backend
+unavailable exposes Refresh through the existing route header. Absent tag and concurrency fields are not promoted
+into empty business columns or explanatory copy.
 
 At `768-1279 px` the table retains the same order in a 960 px minimum-width bounded horizontal scroller. Its 8%
 action cell keeps the standard 8 px horizontal padding and contains a 32 px text Open button, a 4 px gap, and the
 24 px More button when admitted. Buttons plus padding occupy exactly 76 px, fitting the 76.8 px cell at the 960 px
 minimum table width; wider tables retain the same left-aligned geometry. Below
-`768 px` it becomes a six-row run card: status + effective time; path; Owner outcome; trigger/principal; duration +
-tag; then Open. Cards have 12 px padding, 12 px gap, and 156 px minimum height; six loading cards replace the table
+`768 px` it becomes a six-row run card: status + effective time; activity; Source result; Started by; duration;
+then Open. Cards have 12 px padding, 12 px gap, and 156 px minimum height; six loading cards replace the table
 rows, while the same filter order and pager remain. Card selection opens the same `D`; no checkbox, column chooser,
 selection count, bulk action, or swipe action exists.
 

@@ -18,6 +18,7 @@ import {
   type RunListStateV2,
   type RunListViewEnvelopeV2,
 } from "../lib/run-list-view-contract";
+import { runStateLabel, runTriggerLabel, sourceResultLabel } from "../lib/operations-presentation";
 import { runOperationLabel } from "../lib/run-operation-presentation";
 import { CompactStatusBar, CompactStatusGroup, CompactStatusItem } from "./ui/compact-status-bar";
 import { UnavailableState } from "./ui/evidence-strip";
@@ -33,16 +34,16 @@ import {
   PanelFrameFooterMeta,
   PanelFrameFooterSummary,
   PanelFrameHeader,
-  PanelFrameInfo,
-  PanelFrameInfoFact,
-  PanelFrameInfoList,
 } from "./ui/panel-frame";
 import { PageStack } from "./ui/page-stack";
 import { StatusBadge } from "./ui/status-badge";
-import { executionStateTone } from "./ui/status-tone-policy";
+import { executionStateTone, ownerOutcomeTone } from "./ui/status-tone-policy";
 import { InterfaceIcons, RunIcons } from "./ui/iconography";
 
-const stateItems = runListStatesV2.map((value) => ({ value, label: value === "all" ? "All states" : value }));
+const stateItems = runListStatesV2.map((value) => ({
+  value,
+  label: value === "all" ? "All states" : runStateLabel(value),
+}));
 const durationLabels: Record<RunListDurationV2, string> = {
   any: "Any duration",
   lt_1s: "<1 s",
@@ -77,11 +78,6 @@ function durationLabel(value: number | null) {
 
 function displayTime(value: string | null) {
   return value ? new Date(value).toLocaleString() : "-";
-}
-
-function triggerLabel(run: RunListItemV2) {
-  const trigger = { dashboard_bff: "App", dashboard_api: "API", dashboard_scheduler: "Scheduler" }[run.trigger_kind];
-  return run.principal_ref ? `${trigger} · ${run.principal_ref}` : trigger;
 }
 
 export function OperationsRunStorePreview() {
@@ -169,17 +165,17 @@ export function OperationsRunStorePreview() {
 
   const columns = useMemo<DataWorkspaceColumn<RunListItemV2>[]>(() => [
     { id: "status", name: <DataTableHeaderLabel>Status</DataTableHeaderLabel>, selector: (run) => run.state, width: "118px",
-      cell: (run) => <StatusBadge tone={executionStateTone(run.state)}>{run.state}</StatusBadge> },
+      cell: (run) => <StatusBadge tone={executionStateTone(run.state)}>{runStateLabel(run.state)}</StatusBadge> },
     { id: "started", name: <DataTableHeaderLabel>Started</DataTableHeaderLabel>, selector: (run) => run.started_at ?? "", minWidth: "170px",
       cell: (run) => <time className="table-cell-time" dateTime={run.started_at ?? undefined}>{displayTime(run.started_at)}</time> },
     { id: "duration", name: <DataTableHeaderLabel>Duration</DataTableHeaderLabel>, selector: (run) => run.duration_ms ?? -1, width: "112px",
       cell: (run) => <span className="table-cell-numeric">{durationLabel(run.duration_ms)}</span> },
-    { id: "path", name: <DataTableHeaderLabel>Operation</DataTableHeaderLabel>, selector: (run) => run.path, minWidth: "260px", grow: 1.4,
+    { id: "path", name: <DataTableHeaderLabel>Activity</DataTableHeaderLabel>, selector: (run) => run.path, minWidth: "260px", grow: 1.4,
       cell: (run) => <span title={run.path}>{runOperationLabel(run.path)}</span> },
-    { id: "trigger", name: <DataTableHeaderLabel>Trigger</DataTableHeaderLabel>, selector: triggerLabel, minWidth: "160px",
-      cell: (run) => <span>{triggerLabel(run)}</span> },
-    { id: "outcome", name: <DataTableHeaderLabel>Owner outcome</DataTableHeaderLabel>, selector: (run) => run.owner_outcome_state, minWidth: "150px",
-      cell: (run) => <span>{run.owner_outcome_state === "not_applicable" ? "not applicable" : run.owner_outcome_state}</span> },
+    { id: "trigger", name: <DataTableHeaderLabel>Started by</DataTableHeaderLabel>, selector: (run) => run.trigger_kind, minWidth: "140px",
+      cell: (run) => <span>{runTriggerLabel(run.trigger_kind)}</span> },
+    { id: "outcome", name: <DataTableHeaderLabel>Source result</DataTableHeaderLabel>, selector: (run) => run.owner_outcome_state, minWidth: "150px",
+      cell: (run) => <StatusBadge tone={ownerOutcomeTone(run.owner_outcome_state)}>{sourceResultLabel(run.owner_outcome_state)}</StatusBadge> },
     { id: "open", name: <DataTableHeaderLabel>Open</DataTableHeaderLabel>, selector: (run) => run.run_identity, width: "80px", ignoreRowClick: true,
       cell: (run) => <FilterButton density="compact" variant="secondary" type="button"
         onClick={() => router.push(`/operations/runs/${encodeURIComponent(run.run_identity)}`)}>Open</FilterButton> },
@@ -193,7 +189,7 @@ export function OperationsRunStorePreview() {
   return (
     <PageStack className="operations-runs-page">
       <PanelFrame className="operations-runs-panel bento-page-frame" aria-labelledby="operations-runstore-title">
-        <PanelFrameHeader eyebrow="Operational history" title="Runs" titleId="operations-runstore-title" actions={<>
+        <PanelFrameHeader eyebrow="Activity history" title="Runs" titleId="operations-runstore-title" actions={<>
           <TableFilterMenu density="compact" label="Run refresh cadence" sections={[{
             id: "cadence", label: "Auto-refresh", selected: String(cadence), items: cadenceItems,
             onSelect: (value) => setCadence(Number(value)),
@@ -205,8 +201,8 @@ export function OperationsRunStorePreview() {
         </>} />
         <PanelFrameBody>
           <CompactStatusBar className="operations-run-summaries" aria-label="Run summary">
-            <CompactStatusGroup label={kind === "runs" ? "runs" : "owner reads"}>
-              <CompactStatusItem label="queued" value={summary?.queued ?? "-"} />
+            <CompactStatusGroup label={kind === "runs" ? "action runs" : "data reads"}>
+              <CompactStatusItem label="waiting" value={summary?.queued ?? "-"} />
               <CompactStatusItem label="running" tone="info" value={summary?.running ?? "-"} />
               <CompactStatusItem label="unknown" tone={summary?.unknown ? "warning" : "neutral"} value={summary?.unknown ?? "-"} />
               <CompactStatusItem label="completed" value={summary?.completed ?? "-"} />
@@ -215,23 +211,17 @@ export function OperationsRunStorePreview() {
           </CompactStatusBar>
           <DataTableSurface className="operations-run-table-surface" geometry="inner" toolbarLabel="Run table controls" toolbar={
             <TableToolbar filter={<>
-              <FilterTabs label="Run kind" items={[{ value: "runs", label: "Runs" }, { value: "dependencies", label: "Owner reads" }]}
+              <FilterTabs label="Run kind" items={[{ value: "runs", label: "Action runs" }, { value: "dependencies", label: "Data reads" }]}
                 selected={kind} onSelect={(value) => setKind(value as RunListKindV2)} />
               <TableFilterMenu density="compact" label="Run filters" sections={[
                 { id: "state", label: "State", selected: state, items: stateItems, onSelect: (value) => setState(value as RunListStateV2) },
                 { id: "duration", label: "Duration", selected: duration, items: durationItems, onSelect: (value) => setDuration(value as RunListDurationV2) },
               ]} />
             </>}>
-              <FilterSearch density="compact" label="Search path or run identity" value={queryDraft}
+              <FilterSearch density="compact" label="Search activity or run identity" value={queryDraft}
                 onChange={(event) => {
                   if (isRunListSearchInputV2(event.target.value)) setQueryDraft(event.target.value);
-                }} placeholder="Search path / run ID" maxLength={128} />
-              <PanelFrameInfo label="View unavailable fields"><PanelFrameInfoList>
-                <PanelFrameInfoFact label="Path">Exact operation identity</PanelFrameInfoFact>
-                <PanelFrameInfoFact label="Principal">Effect admissions only</PanelFrameInfoFact>
-                <PanelFrameInfoFact label="Tag">Not retained</PanelFrameInfoFact>
-                <PanelFrameInfoFact label="Concurrency">Not retained</PanelFrameInfoFact>
-              </PanelFrameInfoList></PanelFrameInfo>
+                }} placeholder="Search activity / run ID" maxLength={128} />
             </TableToolbar>
           }>
             {pageResult ? <>
@@ -240,19 +230,19 @@ export function OperationsRunStorePreview() {
                 noDataComponent={<DataWorkspaceEmpty icon={<RunIcons.loaded aria-hidden="true" size={18} />}
                   action={kind === "runs" && !search && state === "all" && duration === "any"
                     ? <FilterButton density="compact" variant="secondary" type="button"
-                        onClick={() => setKind("dependencies")}>View Owner reads</FilterButton>
+                        onClick={() => setKind("dependencies")}>View data reads</FilterButton>
                     : undefined}>
                   {search || state !== "all" || duration !== "any"
-                    ? `No retained ${kind === "runs" ? "run" : "dependency"} matches these filters.`
-                    : kind === "runs" ? "No action runs yet." : "No Owner reads are retained."}
+                    ? `No ${kind === "runs" ? "action run" : "data read"} matches these filters.`
+                    : kind === "runs" ? "No action runs yet." : "No data reads are available."}
                 </DataWorkspaceEmpty>}
                 onRowClicked={(run) => router.push(`/operations/runs/${encodeURIComponent(run.run_identity)}`)} pointerOnHover />
               <PanelFrameFooter layout="split">
                 <PanelFrameFooterSummary
-                  primary={`${pageResult.runs.length} shown / ${pageResult.filtered_total ?? "-"} retained`}
+                  primary={`${pageResult.runs.length} shown / ${pageResult.filtered_total ?? "-"} matching`}
                   secondary={pageResult.completeness === "partial_unavailable"
-                    ? `Latest ${pageResult.retention_limit}; older history is outside this view`
-                    : `Complete retained view · limit ${pageResult.retention_limit}`}
+                    ? `Latest ${pageResult.retention_limit} available; earlier activity is not shown`
+                    : "Complete available activity"}
                 />
                 <PanelFrameFooterMeta>Page {page} of {totalPages}</PanelFrameFooterMeta>
                 <PanelFrameFooterActions>
