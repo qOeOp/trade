@@ -424,6 +424,9 @@ const INTERNAL_VERIFY_SOURCE_V1: &str = r#"
                 JOIN public.rd_owner_outbox_v1 census_outbox
                   ON census_outbox.aggregate_identity=census_cut.census_frontier_identity
                  AND census_outbox.event_kind='TRIAL_FAMILY_CENSUS_ADVANCED_V2'
+                JOIN public.rd_owner_outbox_v1 family_outbox
+                  ON family_outbox.aggregate_identity=family_head.trial_family_identity
+                 AND family_outbox.event_kind='TRIAL_FAMILY_FROZEN_V1'
                WHERE family_head.trial_family_identity=sealed.trial_family_identity
                  AND family_head.frontier_identity=sealed.census_frontier_identity
                  AND family_head.frontier_digest=sealed.frozen_json->>'census_frontier_digest'
