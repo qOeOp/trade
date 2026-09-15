@@ -55,8 +55,16 @@ function directoryUrl(cursor?: ArtifactDirectoryCursorV1): string {
   return `/api/rd/artifacts/directory/?${search}`;
 }
 
+function candidateUrl(kind: "attempts" | "bindings", availability: "all" | "reviewable") {
+  const query = new URLSearchParams();
+  if (kind === "bindings") query.set("kind", "bindings");
+  else if (availability === "reviewable") query.set("availability", "reviewable");
+  const search = query.toString();
+  return `/rd/artifacts/${search ? `?${search}` : ""}`;
+}
+
 export function ArtifactDirectory({
-  initialView = "verified",
+  initialView = "candidates",
   initialCandidateKind = "attempts",
   initialCandidateAvailability = "all",
 }: {
@@ -81,6 +89,12 @@ export function ArtifactDirectory({
   const requestGuard = useRef(createArtifactDirectoryRequestGuardV1());
   const custodyCandidates = useHistoricalCustodyDirectory(true);
   const reviewInventory = useArtifactReviewInventory(true);
+
+  useEffect(() => {
+    setView(initialView);
+    setCandidateKind(initialCandidateKind);
+    setCandidateAvailability(initialCandidateAvailability);
+  }, [initialCandidateAvailability, initialCandidateKind, initialView]);
 
   const readPage = useCallback(async (cursor?: ArtifactDirectoryCursorV1) => {
     const requestIdentity = requestGuard.current.begin();
@@ -377,19 +391,15 @@ export function ArtifactDirectory({
     const nextView = value === "candidates" ? "candidates" : "verified";
     setView(nextView);
     router.replace(nextView === "candidates"
-      ? `/rd/artifacts/?view=candidates&kind=${candidateKind}${candidateKind === "attempts" && candidateAvailability === "reviewable"
-        ? "&availability=reviewable"
-        : ""}`
-      : "/rd/artifacts/", { scroll: false });
+      ? candidateUrl(candidateKind, candidateAvailability)
+      : "/rd/artifacts/?view=verified", { scroll: false });
   };
   const selectCandidateCut = (value: string) => {
     const nextKind = value === "bindings" ? "bindings" : "attempts";
     const nextAvailability = value === "reviewable" ? "reviewable" : "all";
     setCandidateKind(nextKind);
     setCandidateAvailability(nextAvailability);
-    router.replace(`/rd/artifacts/?view=candidates&kind=${nextKind}${nextKind === "attempts" && nextAvailability === "reviewable"
-      ? "&availability=reviewable"
-      : ""}`, { scroll: false });
+    router.replace(candidateUrl(nextKind, nextAvailability), { scroll: false });
   };
 
   return (
@@ -405,7 +415,7 @@ export function ArtifactDirectory({
       <PanelFrame aria-labelledby="artifact-directory-title">
         <PanelFrameHeader
           eyebrow="Artifacts"
-          title="Strategy artifacts"
+          title="Build activity"
           titleId="artifact-directory-title"
           description={view === "verified"
             ? "Review completed strategy builds and open their source."
@@ -427,8 +437,8 @@ export function ArtifactDirectory({
               <FilterTabs
                 label="Artifact directory view"
                 items={[
-                  { value: "verified", label: "Verified" },
-                  { value: "candidates", label: "Custody candidates" },
+                  { value: "candidates", label: "Build history" },
+                  { value: "verified", label: "Current artifacts" },
                 ]}
                 selected={view}
                 onSelect={selectView}
@@ -436,8 +446,8 @@ export function ArtifactDirectory({
               {view === "candidates" ? <FilterTabs
                 label="Candidate review cut"
                 items={[
-                  { value: "reviewable", label: "Reviewable" },
                   { value: "attempts", label: "All attempts" },
+                  { value: "reviewable", label: "Reviewable" },
                   { value: "bindings", label: "Bindings" },
                 ]}
                 selected={candidateKind === "bindings"

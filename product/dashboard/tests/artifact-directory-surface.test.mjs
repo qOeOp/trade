@@ -17,13 +17,15 @@ test("Artifact directory uses the shared compact read-only table surface", async
   assert.match(component, /void custodyCandidates\.read\(\);[\s\S]+return readPage\(\);/u);
   assert.match(component, /<DataWorkspaceTable<HistoricalArtifactCandidateV1>/u);
   assert.match(component, /<DataWorkspaceTable<HistoricalBindingCandidateV1>/u);
-  assert.match(component, /label: "Custody candidates"/u);
+  assert.match(component, /label: "Build history"/u);
+  assert.match(component, /label: "Current artifacts"/u);
   assert.match(component, /label: "Bindings"/u);
-  assert.match(component, /availability=reviewable/u);
+  assert.match(component, /query\.set\("availability", "reviewable"\)/u);
   assert.match(component, /label="Candidate review cut"/u);
   assert.match(component, /Outcome unavailable/u);
   assert.match(component, /Review ready/u);
-  assert.match(component, /router\.replace\(nextView === "candidates"/u);
+  assert.match(component, /router\.replace\(nextView === "candidates"[\s\S]*candidateUrl\(candidateKind, candidateAvailability\)/u);
+  assert.match(component, /router\.replace\(candidateUrl\(nextKind, nextAvailability\)/u);
   assert.match(component, /Candidates remain unverified until their exact record is opened\./u);
   assert.match(component, /"Artifact, intent, or request"/u);
   for (const header of ["Artifact", "Strategy intent", "Verification", "Created"]) {
@@ -34,6 +36,7 @@ test("Artifact directory uses the shared compact read-only table surface", async
   assert.match(component, /ARTIFACT_DIRECTORY_PAGE_IDENTITY_CONFLICT/u);
   assert.match(route, /readArtifactDirectoryGatewayV1/u);
   assert.match(shell, /<ArtifactDirectory[\s\S]+initialView=\{artifactDirectoryView\}[\s\S]+initialCandidateKind=\{artifactCandidateKind\}[\s\S]+initialCandidateAvailability=\{artifactCandidateAvailability\}/u);
+  assert.doesNotMatch(shell, /<ArtifactDirectory\s+key=/u);
   assert.match(shell, /OWNER_CUSTODY_READ_ONLY - NO_BUILD_OR_EXECUTION/u);
   assert.match(css, /\.tableSurface :global\(\.data-workspace-viewport\)[^{]*\{[^}]*max-height:/su);
   assert.match(component, /availability === "unavailable"[\s\S]+<OwnerDirectoryUnavailable/u);
@@ -60,12 +63,13 @@ test("bilingual Artifact directory contract fixes layout, fields and no-effect b
     assert.ok(start >= 0);
     const specification = doc.slice(start, doc.indexOf("\n## ", start + heading.length));
     for (const token of [
-      "ArtifactDirectory", "/rd/artifacts", "PanelFrame", "Refresh", "Custody candidates", "search",
+      "ArtifactDirectory", "/rd/artifacts", "PanelFrame", "Refresh", "Build history", "Current artifacts", "search",
       "Artifact", "Strategy intent", "Verification", "Created", "20", "60",
       "prepared_at_epoch_ms", "build_request_identity", "Load older", "partial",
       "unavailable", "POINT_READ_REQUIRED", "/v1/historical-custodies", "WASM_PREVIEW_NOT_RUN", "Windmill",
       "work to review", "build attempts", "family bindings", "reviewable outcomes",
       "/api/rd/artifacts/review-inventory", "reviewable | unavailable", "All attempts",
+      "/rd/artifacts/?availability=reviewable", "/rd/artifacts/?kind=bindings",
     ]) assert.ok(specification.includes(token), `${suffix || "en"} missing ${token}`);
   }
 });

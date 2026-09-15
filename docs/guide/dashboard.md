@@ -375,8 +375,8 @@ when that projection is unavailable and never replaces the separately verified R
 view refreshes the custody projection. Each metric is one quiet navigation target over the same Owner cut:
 known `research outcomes` opens `/rd/research/?outcome=ready`, the fallback `research requests`
 opens `/rd/research/`, and `build attempts` opens
-`/rd/artifacts/?view=candidates&kind=attempts`, and `family bindings` opens
-`/rd/artifacts/?view=candidates&kind=bindings`. Unknown or missing query values fail back to the useful
+`/rd/artifacts/`, and `family bindings` opens
+`/rd/artifacts/?kind=bindings`. Unknown or missing query values fail back to the useful
 `Request history / All` default; `view=verified` explicitly selects `Current intents`. The links admit no new
 read or write contract. Query changes preserve the mounted directory surface so the table does not flash through
 another view while the URL settles.
@@ -500,9 +500,10 @@ and S1 custody panels in the route registry remain future blueprint content.
 
 `ArtifactDirectory` is the exact `P` surface for `/rd/artifacts`. The route uses one full-width `PanelFrame` and
 does not reserve an empty detail column. Its frame header contains the eyebrow, title, one-line purpose, then one
-`Refresh` action. Its body contains one horizontal table toolbar with a `Verified / Custody candidates` segmented
-control at the left and search at the right; `Verified` is always the default. Candidate mode adds one inline
-`Attempts / Bindings` kind rail in the same row. The verified table has four plain, left-aligned columns in this
+`Refresh` action. Its body contains one horizontal table toolbar with a `Build history / Current artifacts` segmented
+control at the left and search at the right. `Build history` is the default because it exposes the available attempt
+workload; `Current artifacts` is the narrower verified-success view. Build history adds one inline
+`All attempts / Reviewable / Bindings` rail in the same row. The verified table has four plain, left-aligned columns in this
 order: `Artifact`, `Strategy intent`,
 `Verification`, and `Created`. Column headings have no decorative icons and there is no View/column-chooser button,
 registered/visible count, multi-level filter popover, or backend-only field. Opening the Artifact identity navigates
@@ -512,9 +513,10 @@ horizontally; it does not collapse identities into invented mobile facts.
 
 When the historical-custody Owner projection is available, the route reuses the same compact `work to review`
 card before the directory, narrowed to `build attempts` and `family bindings`. Both values remain exact custody
-counts and quiet links to their canonical candidate views; they are not verified Artifact totals or a lifecycle.
+counts and quiet links to their canonical build-history views; they are not verified Artifact totals or a lifecycle.
 The card disappears on an unavailable projection, and Refresh in either directory view refreshes that same Owner
-cut without adding a scheduler, operational write, or Artifact action.
+cut without adding a scheduler, operational write, or Artifact action. Reviewable outcomes open
+`/rd/artifacts/?availability=reviewable`; bindings open `/rd/artifacts/?kind=bindings`.
 
 The Dashboard-only GET `/api/rd/artifacts/review-inventory` composes that bounded custody cut with the existing
 identity-bound Artifact readback GETs using at most six concurrent reads. It does not create a new Owner fact or
@@ -523,7 +525,7 @@ while the projection separately preserves the custody observation time, scanned 
 The client admits the composition only when the complete candidate identity tuple set still matches its separately
 rendered custody cut; drift withdraws the reviewability overlay without hiding the ordinary candidate directory.
 When the complete cut is available, the compact card answers `reviewable outcomes / build attempts`; its link opens
-the canonical `availability=reviewable` candidate view. Only reviewable rows link to Historical build outcome.
+the canonical `availability=reviewable` build-history view. Only reviewable rows link to Historical build outcome.
 Unavailable rows remain visible under `All attempts` but are not presented as actionable links. If the composition
 is unavailable, the ordinary candidate directory remains usable and no zero-reviewable claim is inferred.
 
@@ -537,7 +539,7 @@ attempt, Artifact, and strategy-intent identities, committed time, build target,
 security state. Nonterminal or non-success attempts are withheld and make the page explicitly partial. Any malformed
 custody, database/verification error, unknown wire key, contradictory completeness/count, invalid identity/time,
 oversized response, or transport/configuration failure makes the affected read unavailable; it never becomes an
-empty successful page. The candidate view uses the same authenticated GET `/v1/historical-custodies` and read‑only
+empty successful page. The default build-history view uses the same authenticated GET `/v1/historical-custodies` and read-only
 Owner cut as Research. It exposes at most 200 attempt and 200 TrialFamily-binding identities, their custody times,
 and only `POINT_READ_REQUIRED`. Counts are custody-index counts, never verified Artifact or valid-binding counts.
 No Artifact outcome, binding validity, current authority, raw receipt, payload, or storage field is inferred by the

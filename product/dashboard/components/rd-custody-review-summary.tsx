@@ -40,14 +40,14 @@ export function RdCustodyReviewSummary({
             ? `${artifactReviewableTotal} / ${projection.artifactAttemptTotal}`
             : projection.artifactAttemptTotal}
           href={artifactReviewabilityKnown
-            ? "/rd/artifacts/?view=candidates&kind=attempts&availability=reviewable"
-            : "/rd/artifacts/?view=candidates&kind=attempts"}
+            ? "/rd/artifacts/?availability=reviewable"
+            : "/rd/artifacts/"}
           actionLabel={artifactReviewabilityKnown
             ? "Review readable build outcomes"
             : "Review build attempt candidates"}
         />
         <CompactStatusItem label="family bindings" value={projection.bindingTotal}
-          href="/rd/artifacts/?view=candidates&kind=bindings" actionLabel="Review family binding candidates" />
+          href="/rd/artifacts/?kind=bindings" actionLabel="Review family binding candidates" />
       </CompactStatusGroup>
     </CompactStatusBar>
   );

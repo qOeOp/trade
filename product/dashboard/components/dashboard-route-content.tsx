@@ -107,7 +107,7 @@ export function DashboardRouteContent({
   replayHistoricalCustody = false,
   researchRequestIdentity,
   researchDirectoryView = "candidates",
-  artifactDirectoryView = "verified",
+  artifactDirectoryView = "candidates",
   researchCandidateOutcome = "all",
   artifactCandidateKind = "attempts",
   artifactCandidateAvailability = "all",
@@ -246,7 +246,6 @@ export function DashboardRouteContent({
                 initialCandidateOutcome={researchCandidateOutcome}
               />
               : artifactDirectory ? <ArtifactDirectory
-                key={`${artifactDirectoryView}:${artifactCandidateKind}:${artifactCandidateAvailability}`}
                 initialView={artifactDirectoryView}
                 initialCandidateKind={artifactCandidateKind}
                 initialCandidateAvailability={artifactCandidateAvailability}

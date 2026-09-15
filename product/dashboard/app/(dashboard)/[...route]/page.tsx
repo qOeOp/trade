@@ -37,7 +37,7 @@ export default async function DashboardPage({
     : undefined;
   const replayHistoricalCustody = query.custody === "historical";
   const researchDirectoryView = query.view === "verified" ? "verified" : "candidates";
-  const artifactDirectoryView = query.view === "candidates" ? "candidates" : "verified";
+  const artifactDirectoryView = query.view === "verified" ? "verified" : "candidates";
   const researchCandidateOutcome = query.outcome === "ready"
     ? "ready"
     : query.outcome === "awaiting" ? "awaiting" : "all";

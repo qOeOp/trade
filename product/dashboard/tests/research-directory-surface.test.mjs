@@ -25,9 +25,9 @@ test("Research directory uses the shared compact read-only table surface", async
   assert.match(summary, /family bindings/u);
   assert.match(summary, /: "\/rd\/research\/"/u);
   assert.match(summary, /"\/rd\/research\/\?outcome=ready"/u);
-  assert.match(summary, /"\/rd\/artifacts\/\?view=candidates&kind=attempts"/u);
-  assert.match(summary, /"\/rd\/artifacts\/\?view=candidates&kind=attempts&availability=reviewable"/u);
-  assert.match(summary, /href="\/rd\/artifacts\/\?view=candidates&kind=bindings"/u);
+  assert.match(summary, /: "\/rd\/artifacts\/"/u);
+  assert.match(summary, /"\/rd\/artifacts\/\?availability=reviewable"/u);
+  assert.match(summary, /href="\/rd\/artifacts\/\?kind=bindings"/u);
   assert.match(statusAtom, /data-interactive=\{href \? true : undefined\}/u);
   assert.match(statusAtom, /className="compact-status-item-link"/u);
   assert.match(component, /<DataWorkspaceTable<HistoricalResearchCandidateV1>/u);
@@ -53,7 +53,7 @@ test("Research directory uses the shared compact read-only table surface", async
   assert.match(route, /search\.getAll\(key\)\.length !== 1/u);
   assert.match(shell, /<ResearchDirectory[\s\S]+initialView=\{researchDirectoryView\}[\s\S]+initialCandidateOutcome=\{researchCandidateOutcome\}/u);
   assert.match(page, /const researchDirectoryView = query\.view === "verified" \? "verified" : "candidates"/u);
-  assert.match(page, /const artifactDirectoryView = query\.view === "candidates" \? "candidates" : "verified"/u);
+  assert.match(page, /const artifactDirectoryView = query\.view === "verified" \? "verified" : "candidates"/u);
   assert.doesNotMatch(shell, /<ResearchDirectory\s+key=/u);
   assert.match(page, /query\.outcome === "ready"/u);
   assert.match(page, /query\.kind === "bindings" \? "bindings" : "attempts"/u);
@@ -89,8 +89,8 @@ test("bilingual Research directory contract fixes layout, fields and no-effect b
       "committed_at_epoch_ms", "request_identity", "Load older", "partial",
       "unavailable", "POINT_READ_REQUIRED", "/v1/historical-custodies", "Submit", "Resolve", "Windmill",
       "work to review", "research requests", "build attempts", "family bindings",
-      "/rd/research/?outcome=ready", "/rd/artifacts/?view=candidates&kind=attempts",
-      "/rd/artifacts/?view=candidates&kind=bindings",
+      "/rd/research/?outcome=ready", "/rd/artifacts/",
+      "/rd/artifacts/?kind=bindings",
       "/api/rd/research/outcome-inventory", "outcome_ready", "awaiting_outcome",
       "All / Results ready / Waiting",
     ]) assert.ok(specification.includes(token), `${suffix || "en"} missing ${token}`);
