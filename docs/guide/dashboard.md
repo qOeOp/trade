@@ -364,6 +364,13 @@ registered/visible count, multi-level filter popover, row action, or backend-onl
 sticky inside the bounded scroll viewport. Loading, valid empty, unavailable, and partial states preserve the same
 card geometry; narrow layouts scroll horizontally rather than inventing a reduced mobile fact.
 
+When the historical-custody Owner projection is available, the route places one shared compact status card before
+the directory. Its shoulder label is `work to review`; its three same-weight values are `research requests`,
+`build attempts`, and `family bindings`, sourced only from the projection's exact totals. This is a review inventory,
+not a conversion funnel, lifecycle, verified journey, or claim that the three sets are one-to-one. It disappears
+when that projection is unavailable and never replaces the separately verified R&D loop. Refresh on either directory
+view refreshes the custody projection; the `Custody candidates` segment remains the drill-down interaction.
+
 The authenticated Owner GET `/v1/research-goals/directory` returns at most 20 verified V2 request outcomes. It
 considers at most 60 receipt candidates per page, ordered by `(committed_at_epoch_ms, request_identity)` descending
 with PostgreSQL `C` collation for the bounded ASCII identity, and exposes the same tuple only as an opaque stable

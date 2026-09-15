@@ -31,6 +31,7 @@ import { useDelayedPending } from "./ui/use-delayed-pending";
 import { useHistoricalCustodyDirectory } from "./use-historical-custody-directory";
 import { OwnerDirectoryInfo, OwnerDirectoryUnavailable } from "./owner-directory-state";
 import { ResearchLoopJourney } from "./research-loop-journey";
+import { RdCustodyReviewSummary } from "./rd-custody-review-summary";
 import styles from "./owner-directory.module.css";
 
 function displayIdentity(value: string): string {
@@ -71,7 +72,7 @@ export function ResearchDirectory() {
   const [pendingOlder, setPendingOlder] = useState(false);
   const itemsRef = useRef<readonly ResearchDirectoryItemV1[]>([]);
   const requestGuard = useRef(createResearchDirectoryRequestGuardV1());
-  const custodyCandidates = useHistoricalCustodyDirectory(view === "candidates");
+  const custodyCandidates = useHistoricalCustodyDirectory(true);
 
   const readPage = useCallback(async (cursor?: ResearchDirectoryCursorV1) => {
     const requestIdentity = requestGuard.current.begin();
@@ -242,12 +243,17 @@ export function ResearchDirectory() {
   const showPending = useDelayedPending(pending);
   const refresh = () => {
     setJourneyRefreshKey((value) => value + 1);
-    return view === "verified" ? readPage() : custodyCandidates.read();
+    if (view === "verified") {
+      void custodyCandidates.read();
+      return readPage();
+    }
+    return custodyCandidates.read();
   };
 
   return (
     <PageStack>
       {view === "verified" ? <ResearchLoopJourney refreshKey={journeyRefreshKey} /> : null}
+      <RdCustodyReviewSummary projection={custodyCandidates.projection} />
       <PanelFrame aria-labelledby="research-directory-title">
         <PanelFrameHeader
           eyebrow="Research"

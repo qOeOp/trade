@@ -314,6 +314,13 @@ chooser、registered/visible 数量、多级 filter popover、row action 或 bac
 scroll viewport 内；loading、合法 empty、unavailable、partial 保持相同 card geometry。窄屏只横向滚动，
 不会编造删减后的 mobile fact。
 
+Historical-custody Owner projection available 时，route 在 directory 前放置一张共享 compact status card。
+左肩 label 固定为 `work to review`，三个同权重 value 固定为 `research requests`、`build attempts` 与
+`family bindings`，且只读取 projection 的 exact total。它是 review inventory，不是 conversion funnel、
+lifecycle、verified journey，也不声称三个集合一一对应。Projection unavailable 时整张 card 消失，不能替代
+独立 verified R&D loop。任一 directory view 的 Refresh 都刷新 custody projection；`Custody candidates`
+segment 仍是 drill-down interaction。
+
 经认证的 Owner GET `/v1/research-goals/directory` 每页最多返回 20 个已验证 V2 request outcome。每页最多
 检查 60 个 receipt candidate，按 `(committed_at_epoch_ms, request_identity)` 降序，其中有界 ASCII identity
 使用 PostgreSQL `C` collation；并仅把同一 tuple 作为 opaque、stable 的 `Load older` cursor 暴露。每个
