@@ -5830,6 +5830,21 @@ mod postgres_tests {
     #[test]
     fn public_terminal_frontier_helper_chain_preserves_sqlstate() {
         let source = include_str!("postgres.rs");
+        let public_terminal_persist = source
+            .split_once("async fn persist_public_status_transition_preserving_sqlstate_v1(")
+            .expect("preserving public terminal persistence")
+            .1
+            .split_once("async fn verify_public_status_history_in_transaction(")
+            .expect("public terminal persistence boundary")
+            .0;
+        assert_eq!(
+            public_terminal_persist
+                .matches("resolve_candidate_feedback_frontier_preserving_sqlstate_v1(")
+                .count(),
+            1
+        );
+        assert!(!public_terminal_persist.contains("resolve_candidate_feedback_frontier_v1("));
+
         let frontier = source
             .split_once("async fn resolve_candidate_feedback_frontier_preserving_sqlstate_v1(")
             .expect("preserving frontier resolver")
@@ -5837,7 +5852,11 @@ mod postgres_tests {
             .split_once("impl LockedProtectedAttemptResultV1")
             .expect("frontier resolver boundary")
             .0;
-        assert!(frontier.contains(".map_err(transaction_storage)?"));
+        assert_eq!(
+            frontier.matches(".map_err(transaction_storage)?").count(),
+            1
+        );
+        assert!(!frontier.contains(".map_err(storage)?"));
         assert!(frontier.contains("lock_principal_scope_preserving_sqlstate_in_transaction"));
         assert!(frontier.contains("verify_scope_history_preserving_sqlstate_in_transaction"));
 
@@ -5848,7 +5867,11 @@ mod postgres_tests {
             .split_once("pub(crate) async fn verify_scope_history_in_transaction(")
             .expect("principal lock boundary")
             .0;
-        assert!(scope_lock.contains(".map_err(transaction_storage)?"));
+        assert_eq!(
+            scope_lock.matches(".map_err(transaction_storage)?").count(),
+            1
+        );
+        assert!(!scope_lock.contains(".map_err(storage)?"));
 
         let scope_history = source
             .split_once("async fn verify_scope_history_preserving_sqlstate_in_transaction(")
