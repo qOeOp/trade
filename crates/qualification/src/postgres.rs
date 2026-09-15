@@ -6377,8 +6377,19 @@ mod postgres_tests {
         .await
         .expect("sealed protected diagnostic Results");
         assert_eq!(rows.len(), 2);
+        let diagnostic_request_identity = rows[0].1.clone();
+        assert!(
+            rows.iter()
+                .all(|(_, request_identity, _, _)| request_identity
+                    == &diagnostic_request_identity)
+        );
+        let mut first_public_terminal = None;
+        let mut first_public_terminal_bytes = None;
+        let mut first_disposition_identity = None;
 
-        for (result_identity, request_identity, attempt_identity, category) in rows {
+        for (index, (result_identity, request_identity, attempt_identity, category)) in
+            rows.into_iter().enumerate()
+        {
             let first = owner
                 .close_terminal_diagnostic_protected_attempt_v1(ProtectedReplayResultLocatorV1 {
                     result_identity: &result_identity,
@@ -6445,27 +6456,89 @@ mod postgres_tests {
             .fetch_one(&owner.pool)
             .await
             .expect("diagnostic public terminal custody");
-            assert_eq!(
-                public_terminal["fact"]["status"],
-                serde_json::json!("CLOSED_NOT_QUALIFIED")
-            );
-            assert_eq!(
-                public_terminal["fact"]["native_source_identity"],
-                serde_json::json!(first.disposition_identity())
-            );
-            assert_eq!(
-                public_terminal["head"]["fact_identity"],
-                public_terminal["fact"]["fact_identity"]
-            );
-            assert_eq!(
-                public_terminal["event"]["aggregate_identity"],
-                public_terminal["fact"]["fact_identity"]
-            );
-            assert_eq!(
-                public_terminal["event"]["event_kind"],
-                serde_json::json!("QUALIFICATION_PUBLIC_STATUS_TERMINAL_V1")
-            );
+            if index == 0 {
+                assert_eq!(
+                    public_terminal["fact"]["status"],
+                    serde_json::json!("CLOSED_NOT_QUALIFIED")
+                );
+                assert_eq!(
+                    public_terminal["fact"]["native_source_identity"],
+                    serde_json::json!(first.disposition_identity())
+                );
+                assert_eq!(
+                    public_terminal["fact"]["native_source_digest"],
+                    serde_json::json!(first.disposition().disposition_digest())
+                );
+                assert_eq!(
+                    public_terminal["fact"]["committed_at_epoch_ms"],
+                    serde_json::json!(first.disposition().committed_at_epoch_ms())
+                );
+                assert_eq!(
+                    public_terminal["head"]["fact_identity"],
+                    public_terminal["fact"]["fact_identity"]
+                );
+                assert_eq!(
+                    public_terminal["head"]["fact_digest"],
+                    public_terminal["fact"]["fact_digest"]
+                );
+                assert_eq!(
+                    public_terminal["head"]["phase_sequence"],
+                    public_terminal["fact"]["phase_sequence"]
+                );
+                assert_eq!(
+                    public_terminal["event"]["aggregate_identity"],
+                    public_terminal["fact"]["fact_identity"]
+                );
+                assert_eq!(
+                    public_terminal["event"]["event_kind"],
+                    serde_json::json!("QUALIFICATION_PUBLIC_STATUS_TERMINAL_V1")
+                );
+                assert_eq!(
+                    public_terminal["event"]["committed_at_epoch_ms"],
+                    public_terminal["fact"]["committed_at_epoch_ms"]
+                );
+                first_disposition_identity = Some(first.disposition_identity().to_string());
+                first_public_terminal_bytes = Some(
+                    serde_json::to_vec(&public_terminal)
+                        .expect("first diagnostic public terminal bytes"),
+                );
+                first_public_terminal = Some(public_terminal);
+            } else {
+                assert_ne!(
+                    first.disposition_identity(),
+                    first_disposition_identity
+                        .as_deref()
+                        .expect("first diagnostic disposition identity")
+                );
+                assert_eq!(
+                    public_terminal,
+                    *first_public_terminal
+                        .as_ref()
+                        .expect("first diagnostic public terminal")
+                );
+                assert_eq!(
+                    serde_json::to_vec(&public_terminal)
+                        .expect("later diagnostic public terminal bytes"),
+                    *first_public_terminal_bytes
+                        .as_ref()
+                        .expect("first diagnostic public terminal bytes")
+                );
+            }
         }
+        let aggregate_counts: (i64, i64, i64, i64, i64, i64) = sqlx::query_as(
+            "SELECT \
+             (SELECT count(*) FROM public.qualification_protected_attempt_dispositions_v1 WHERE request_identity=$1), \
+             (SELECT count(*) FROM public.qualification_holdout_closures_v1 closure JOIN public.qualification_protected_attempt_dispositions_v1 disposition USING(disposition_identity) WHERE disposition.request_identity=$1), \
+             (SELECT count(*) FROM public.qualification_protected_attempt_disposition_receipts_v1 receipt JOIN public.qualification_protected_attempt_dispositions_v1 disposition USING(disposition_identity) WHERE disposition.request_identity=$1), \
+             (SELECT count(*) FROM public.qualification_owner_outbox_v1 event JOIN public.qualification_protected_attempt_dispositions_v1 disposition ON disposition.disposition_identity=event.aggregate_identity WHERE disposition.request_identity=$1 AND event.event_kind='QUALIFICATION_PROTECTED_ATTEMPT_DISPOSITION_COMMITTED_V1'), \
+             (SELECT count(*) FROM public.qualification_public_status_facts_v1 fact JOIN public.qualification_protected_replay_requests_v1 request ON request.review_request_identity=fact.review_request_identity WHERE request.request_identity=$1 AND fact.phase_sequence=3), \
+             (SELECT count(*) FROM public.qualification_owner_outbox_v1 event JOIN public.qualification_public_status_facts_v1 fact ON fact.fact_identity=event.aggregate_identity JOIN public.qualification_protected_replay_requests_v1 request ON request.review_request_identity=fact.review_request_identity WHERE request.request_identity=$1 AND event.event_kind='QUALIFICATION_PUBLIC_STATUS_TERMINAL_V1')",
+        )
+        .bind(&diagnostic_request_identity)
+        .fetch_one(&owner.pool)
+        .await
+        .expect("same-request diagnostic aggregate counts");
+        assert_eq!(aggregate_counts, (2, 2, 2, 2, 1, 1));
         let forbidden_events: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM public.qualification_owner_outbox_v1 WHERE event_kind ILIKE '%ASSESSMENT%' OR event_kind ILIKE '%ELIGIBILITY%'",
         )
