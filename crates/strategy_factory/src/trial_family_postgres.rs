@@ -81,7 +81,7 @@ pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
         "f:trial_family_identity:public.rd_trial_families_v1(trial_family_identity):a:a:s:false:false:true:",
         "p:trial_family_identity:::false:false:true:", "u:frontier_identity:::false:false:true:"
     ], [primary "trial_family_identity", unique "frontier_identity"]),
-    table!("rd_trial_family_attempt_cuts_v2", &[], [
+    table!("rd_trial_family_attempt_cuts_v2", &["rd_exploratory_replay_api_owner"], [
         ("census_frontier_identity", "text"), ("trial_family_identity", "text"),
         ("attempt_ordinal", "integer"), ("attempt_frontier_identity", "text"),
         ("candidate_set_frontier_identity", "text"), ("census_frontier_json", "jsonb"),
