@@ -54,7 +54,7 @@ test("Visible nested surfaces share one inner radius while structural joins stay
     ".summary-metric",
     ".aggregate-summary",
     ".technical-disclosure",
-    ".prototype-notice",
+    '.unavailable-state[data-surface="card"]',
   ];
 
   for (const selector of tokenizedInnerSurfaces) {
@@ -62,7 +62,7 @@ test("Visible nested surfaces share one inner radius while structural joins stay
     assert.match(css, new RegExp(`${escaped} \\{[^}]*border-radius: var\\(--panel-inner-radius\\);`, "u"));
   }
 
-  assert.match(css, /\.prototype-notice \{[^}]*border: \.5px solid var\(--border-default\);[^}]*border-left: 3px solid var\(--status-warning\);/u);
+  assert.match(css, /\.unavailable-state\[data-surface="card"\] \{[^}]*border: \.5px solid var\(--border-default\);[^}]*box-shadow: var\(--elevation-hairline\);/u);
   assert.doesNotMatch(css, /\.bento-page-frame > \.panel-frame-body \{[^}]*border-radius: 0;/u);
   assert.doesNotMatch(css, /\.bento-page-frame > \.panel-frame-body \{[^}]*overflow: hidden;/u);
   assert.match(css, /\.split-bento > \.detail-inspector \{ position: sticky; top: 0; \}/u);
