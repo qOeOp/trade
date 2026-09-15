@@ -8,6 +8,7 @@ import {
 } from "@/lib/operation-registry";
 import { verifyOperatorCapabilityV1 } from "@/lib/operator-capability";
 import { configuredRunListViewGatewayV2 } from "@/lib/run-list-view-gateway";
+import { RUN_LIST_RETENTION_LIMIT_V2 } from "@/lib/run-list-view-contract";
 import { configuredRunStoreV1 } from "@/lib/run-store";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +22,7 @@ function listUnavailable(reason: string, status: number) {
     unavailable_reason: reason,
     completeness: "partial_unavailable",
     observed_at: new Date().toISOString(),
+    retention_limit: RUN_LIST_RETENTION_LIMIT_V2,
     source_cut: null,
     snapshot: null,
     filter_cut: null,

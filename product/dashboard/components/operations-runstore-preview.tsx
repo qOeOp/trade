@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   admitRunListViewResponseV2,
   isRunListSearchInputV2,
+  RUN_LIST_RETENTION_LIMIT_V2,
   runListViewMatchesFilterV2,
   runListDurationsV2,
   runListPageSizesV2,
@@ -60,7 +61,8 @@ function unavailable(reason: string): RunListViewEnvelopeV2 {
   return {
     schema_version: 1, projection_version: 2, operation: "dashboard.run_store.list.v2",
     availability: "unavailable", unavailable_reason: reason, completeness: "partial_unavailable",
-    observed_at: new Date().toISOString(), source_cut: null, snapshot: null, filter_cut: null,
+    observed_at: new Date().toISOString(), retention_limit: RUN_LIST_RETENTION_LIMIT_V2,
+    source_cut: null, snapshot: null, filter_cut: null,
     summary: null, filtered_total: null, total_pages: null, runs: [],
   };
 }
@@ -237,11 +239,18 @@ export function OperationsRunStorePreview() {
               <DataWorkspaceTable<RunListItemV2> ariaLabel="Dashboard operation runs" className="operations-run-table"
                 columns={columns} data={pageResult.runs} keyField="run_identity"
                 noDataComponent={<DataWorkspaceEmpty icon={<RunIcons.loaded aria-hidden="true" size={18} />}>
-                  {search || state !== "all" || duration !== "any" ? "No run matches these filters." : `No ${kind} are retained.`}
+                  {search || state !== "all" || duration !== "any"
+                    ? `No retained ${kind === "runs" ? "run" : "dependency"} matches these filters.`
+                    : `No ${kind} are retained.`}
                 </DataWorkspaceEmpty>}
                 onRowClicked={(run) => router.push(`/operations/runs/${encodeURIComponent(run.run_identity)}`)} pointerOnHover />
               <PanelFrameFooter layout="split">
-                <PanelFrameFooterSummary primary={`${pageResult.runs.length} shown / ${pageResult.filtered_total ?? "-"} filtered`} />
+                <PanelFrameFooterSummary
+                  primary={`${pageResult.runs.length} shown / ${pageResult.filtered_total ?? "-"} retained`}
+                  secondary={pageResult.completeness === "partial_unavailable"
+                    ? `Latest ${pageResult.retention_limit}; older history is outside this view`
+                    : `Complete retained view · limit ${pageResult.retention_limit}`}
+                />
                 <PanelFrameFooterMeta>Page {page} of {totalPages}</PanelFrameFooterMeta>
                 <PanelFrameFooterActions>
                   <TableFilterMenu density="compact" label="Rows per page" sections={[{

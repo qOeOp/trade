@@ -126,6 +126,58 @@ test("Runs v2 keeps summary, filters, and pages on one fail-closed PostgreSQL cu
     assert.equal(dependencies.filtered_total, 4);
     assert.ok(dependencies.runs.every(({ workload_kind }) => workload_kind === "dependencies"));
 
+    const oldLongDependency = await insertRun(pool, {
+      kind: "owner_read", state: "succeeded", offset: 1_000,
+      operation: "source_intake.shadow_read.v1",
+    });
+    await pool.query(`UPDATE dashboard_operation_runs_v1
+      SET started_at = created_at + interval '1 second',
+          finished_at = created_at + interval '61 seconds',
+          updated_at = created_at + interval '61 seconds'
+      WHERE run_identity = $1`, [oldLongDependency]);
+    await pool.query(`INSERT INTO dashboard_operation_runs_v1 (
+        run_identity, schema_version, operation_id, channel, run_kind, trigger_kind, state,
+        owner_outcome_state, recovery_identity_json, recovery_identity_digest, transition_version,
+        created_at, updated_at, started_at, finished_at, retained_until, terminal_code
+      ) SELECT
+        'dashboard-run-v1-' || substr(md5('retained-' || value), 1, 8) || '-' ||
+          substr(md5('retained-' || value), 9, 4) || '-4' ||
+          substr(md5('retained-' || value), 14, 3) || '-8' ||
+          substr(md5('retained-' || value), 18, 3) || '-' ||
+          substr(md5('retained-' || value), 21, 12),
+        1, 'source_intake.shadow_read.v1', 'DASHBOARD_SHADOW_READ', 'owner_read',
+        'dashboard_api', 'succeeded', 'available', '{}'::jsonb,
+        'sha256:' || repeat('a', 64), 1,
+        clock_timestamp() - make_interval(secs => 10 + value),
+        clock_timestamp() - make_interval(secs => 8 + value),
+        clock_timestamp() - make_interval(secs => 9 + value),
+        clock_timestamp() - make_interval(secs => 8 + value),
+        clock_timestamp() + interval '7 days', 'OWNER_AVAILABLE'
+      FROM generate_series(1, 508) AS series(value)`);
+
+    const retainedDependencies = await gateway.read({ kind: "dependencies", pageSize: 50 });
+    assert.ok(parseRunListViewEnvelopeV2(retainedDependencies));
+    assert.equal(retainedDependencies.completeness, "partial_unavailable");
+    assert.equal(retainedDependencies.retention_limit, 512);
+    assert.equal(retainedDependencies.filtered_total, 512);
+    assert.equal(retainedDependencies.total_pages, 11);
+    assert.equal(retainedDependencies.runs.length, 50);
+    assert.ok(retainedDependencies.runs.every(({ run_identity }) => run_identity !== oldLongDependency));
+
+    const longDependencies = await gateway.read({ kind: "dependencies", duration: "gte_60s", pageSize: 25 });
+    assert.equal(longDependencies.completeness, "complete");
+    assert.equal(longDependencies.filtered_total, 1);
+    assert.equal(longDependencies.runs[0]?.run_identity, oldLongDependency);
+
+    await pool.query("DELETE FROM dashboard_operation_runs_v1 WHERE run_identity = $1", [oldLongDependency]);
+    await assert.rejects(
+      gateway.read({ kind: "dependencies", pageSize: 50, snapshot: retainedDependencies.snapshot }),
+      /RUN_LIST_SNAPSHOT_STALE/u,
+    );
+    const completeDependencies = await gateway.read({ kind: "dependencies", pageSize: 50 });
+    assert.equal(completeDependencies.completeness, "complete");
+    assert.equal(completeDependencies.filtered_total, 512);
+
     const appendedRun = await insertRun(pool, {
       kind: "owner_effect", state: "queued", offset: 90,
       operation: "artifact_build.formation_execute.v1",

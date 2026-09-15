@@ -1598,6 +1598,15 @@ integer count and the fourth is `completed / failed` as two integer counts in th
 dash in its existing value slot. Counts use the selected kind plus every applied non-status filter but ignore the
 selected status, so choosing one status never erases the other three summaries.
 
+The positive list projection retains the newest 512 rows after kind, search, and Duration filters and before the
+selected status is applied. A 513th eligible row returns HTTP 200 with `availability=available`,
+`completeness=partial_unavailable`, and `retention_limit=512`; it never makes the verified newest rows unavailable.
+Summary counts, filtered total, pagination, and the page frontier are exact only inside that retained cut and must
+never be labelled or interpreted as all-history totals. The source cut binds the retained rows, retention limit,
+and completeness, so a boundary change invalidates an existing snapshot. A partial footer says that the latest 512
+are shown and older history is outside this view. A filtered empty partial view says that no retained row matches;
+it never claims that no matching historical row exists.
+
 The control contract is closed rather than inherited from Windmill defaults. `Runs` is the default kind segment;
 `Dependencies` is its only peer. `All` is the default status. Search is empty by default and matches only redacted
 path or immutable run ID. `Duration` is `Any` by default, followed by `<1 s`, `1-10 s`, `10-60 s`, and `>=60 s`.

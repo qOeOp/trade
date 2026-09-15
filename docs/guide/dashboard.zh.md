@@ -1473,6 +1473,14 @@ zone、grouping 或 sort 改变时回到第一页。
 `completed / failed` 顺序显示两个 integer count。缺失的 count 在原 value slot 显示 em dash。Count 使用 selected
 kind 与所有已应用的 non-status filter，但忽略 selected status，因此选择一个 status 不会清空其他三张 summary。
 
+Positive list projection 在 kind、search、Duration filter 之后、selected status 之前只保留最新 512 行。
+存在第 513 条 eligible row 时返回 HTTP 200、`availability=available`、
+`completeness=partial_unavailable` 与 `retention_limit=512`，不能因此令已验证的最新数据整体 unavailable。
+Summary count、filtered total、pagination 与 page frontier 只对这个 retained cut 精确，绝不能标注或解释为
+全历史总数。Source cut 同时绑定 retained rows、retention limit 与 completeness，因此 retention boundary
+变化会使既有 snapshot 失效。Partial footer 明确说明只展示最新 512 条、更早历史不在当前 view；partial
+状态下筛选为空只能说明 retained rows 中没有匹配项，不能声称全历史不存在匹配项。
+
 Control contract 是闭合的，不继承 Windmill default。Kind segment 默认 `Runs`，唯一 peer 是 `Dependencies`；
 status 默认 `All`。Search 默认为空，只匹配 redacted path 或 immutable run ID。`Duration` 默认 `Any`，其后固定为
 `<1 s`、`1-10 s`、`10-60 s`、`>=60 s`。`Concurrency` 默认 `Any`，其后为 `Has key`、`No key`；它描述

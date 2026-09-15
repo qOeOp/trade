@@ -5,6 +5,7 @@ import pg from "pg";
 import { isRunListOperationBindingV1, isRunListOperationIdV1 } from "./run-list-contract.ts";
 import {
   isRunListSearchInputV2,
+  RUN_LIST_RETENTION_LIMIT_V2,
   runListDurationsV2,
   runListKindsV2,
   runListPageSizesV2,
@@ -21,7 +22,6 @@ import {
 import { isRunIdentityV1, isRunTerminalCodeV1, type RunTerminalCodeV1 } from "./run-contract.ts";
 
 const { Pool } = pg;
-const RETENTION_LIMIT = 512;
 const PRINCIPAL = /^[A-Za-z0-9._:/-]{1,192}$/;
 
 type RunListRow = pg.QueryResultRow & {
@@ -121,15 +121,6 @@ function durationMilliseconds(row: RunListRow) {
   return Math.max(0, (row.finished_at ?? row.updated_at).getTime() - row.started_at.getTime());
 }
 
-function durationMatches(value: number | null, filter: RunListDurationV2) {
-  if (filter === "any") return true;
-  if (value === null) return false;
-  if (filter === "lt_1s") return value < 1_000;
-  if (filter === "1_10s") return value >= 1_000 && value < 10_000;
-  if (filter === "10_60s") return value >= 10_000 && value < 60_000;
-  return value >= 60_000;
-}
-
 function projectRow(row: RunListRow, kind: RunListKindV2): RunListItemV2 {
   if (!isRunIdentityV1(row.run_identity) || !isRunListOperationIdV1(row.operation_id)
     || !["dashboard_bff", "dashboard_api", "dashboard_scheduler"].includes(row.trigger_kind)
@@ -225,6 +216,14 @@ export class PostgresRunListViewGatewayV2 {
         predicates.push(`(lower(r.operation_id) LIKE $${values.length} ESCAPE '\\'
           OR lower(r.run_identity) LIKE $${values.length} ESCAPE '\\')`);
       }
+      if (filterCut.duration !== "any") {
+        predicates.push("r.started_at IS NOT NULL");
+        const durationExpression = "EXTRACT(EPOCH FROM (COALESCE(r.finished_at, r.updated_at) - r.started_at)) * 1000";
+        if (filterCut.duration === "lt_1s") predicates.push(`${durationExpression} < 1000`);
+        if (filterCut.duration === "1_10s") predicates.push(`${durationExpression} >= 1000 AND ${durationExpression} < 10000`);
+        if (filterCut.duration === "10_60s") predicates.push(`${durationExpression} >= 10000 AND ${durationExpression} < 60000`);
+        if (filterCut.duration === "gte_60s") predicates.push(`${durationExpression} >= 60000`);
+      }
       const result = await client.query<RunListRow>(
         `SELECT r.run_identity, r.operation_id, r.run_kind, r.trigger_kind, r.state,
                 r.owner_outcome_state, r.created_at, r.updated_at, r.started_at,
@@ -241,13 +240,18 @@ export class PostgresRunListViewGatewayV2 {
            ) admission ON true
           WHERE ${predicates.join(" AND ")}
           ORDER BY COALESCE(r.started_at, r.created_at) DESC, r.run_identity ASC
-          LIMIT ${RETENTION_LIMIT + 1}`,
+          LIMIT ${RUN_LIST_RETENTION_LIMIT_V2 + 1}`,
         values,
       );
-      if (result.rows.length > RETENTION_LIMIT) throw new Error("RUN_LIST_RETENTION_BOUND");
-      const projected = result.rows.map((row) => projectRow(row, filterCut.kind))
-        .filter((row) => durationMatches(row.duration_ms, filterCut.duration));
-      const sourceCut = sha256(projected);
+      const completeness = result.rows.length > RUN_LIST_RETENTION_LIMIT_V2
+        ? "partial_unavailable" : "complete";
+      const projected = result.rows.slice(0, RUN_LIST_RETENTION_LIMIT_V2)
+        .map((row) => projectRow(row, filterCut.kind));
+      const sourceCut = sha256({
+        retention_limit: RUN_LIST_RETENTION_LIMIT_V2,
+        completeness,
+        rows: projected,
+      });
       if (prior && prior.source_cut !== sourceCut) throw new Error("RUN_LIST_SNAPSHOT_STALE");
       const filtered = filterCut.state === "all"
         ? projected : projected.filter(({ state }) => state === filterCut.state);
@@ -267,8 +271,9 @@ export class PostgresRunListViewGatewayV2 {
         operation: "dashboard.run_store.list.v2",
         availability: "available",
         unavailable_reason: null,
-        completeness: "complete",
+        completeness,
         observed_at: observedAt,
+        retention_limit: RUN_LIST_RETENTION_LIMIT_V2,
         source_cut: sourceCut,
         snapshot,
         filter_cut: filterCut,

@@ -11,6 +11,7 @@ export const runListStatesV2 = [
 ] as const;
 export const runListDurationsV2 = ["any", "lt_1s", "1_10s", "10_60s", "gte_60s"] as const;
 export const runListPageSizesV2 = [25, 50, 100] as const;
+export const RUN_LIST_RETENTION_LIMIT_V2 = 512 as const;
 
 export type RunListKindV2 = typeof runListKindsV2[number];
 export type RunListStateV2 = typeof runListStatesV2[number];
@@ -63,6 +64,7 @@ export type RunListViewEnvelopeV2 = {
   unavailable_reason: string | null;
   completeness: "complete" | "partial_unavailable";
   observed_at: string;
+  retention_limit: typeof RUN_LIST_RETENTION_LIMIT_V2;
   source_cut: string | null;
   snapshot: string | null;
   filter_cut: RunListFilterCutV2 | null;
@@ -176,13 +178,14 @@ export function runListViewMatchesFilterV2(
 export function parseRunListViewEnvelopeV2(value: unknown): RunListViewEnvelopeV2 | null {
   if (!object(value) || !exactKeys(value, [
     "schema_version", "projection_version", "operation", "availability", "unavailable_reason",
-    "completeness", "observed_at", "source_cut", "snapshot", "filter_cut", "summary",
+    "completeness", "observed_at", "retention_limit", "source_cut", "snapshot", "filter_cut", "summary",
     "filtered_total", "total_pages", "runs",
   ]) || value.schema_version !== 1 || value.projection_version !== 2
     || value.operation !== "dashboard.run_store.list.v2"
     || !["available", "unavailable"].includes(String(value.availability))
     || !["complete", "partial_unavailable"].includes(String(value.completeness))
-    || !instant(value.observed_at) || !Array.isArray(value.runs)) return null;
+    || !instant(value.observed_at) || value.retention_limit !== RUN_LIST_RETENTION_LIMIT_V2
+    || !Array.isArray(value.runs)) return null;
   if (value.availability === "unavailable") {
     return typeof value.unavailable_reason === "string" && IDENTITY.test(value.unavailable_reason)
       && value.completeness === "partial_unavailable" && value.source_cut === null
@@ -190,7 +193,7 @@ export function parseRunListViewEnvelopeV2(value: unknown): RunListViewEnvelopeV
       && value.filtered_total === null && value.total_pages === null && value.runs.length === 0
       ? value as RunListViewEnvelopeV2 : null;
   }
-  if (value.unavailable_reason !== null || value.completeness !== "complete"
+  if (value.unavailable_reason !== null
     || typeof value.source_cut !== "string" || !DIGEST.test(value.source_cut)
     || typeof value.snapshot !== "string" || value.snapshot.length < 32 || value.snapshot.length > 4_096
     || !filterCut(value.filter_cut) || !summary(value.summary)
@@ -224,6 +227,8 @@ export function parseRunListViewEnvelopeV2(value: unknown): RunListViewEnvelopeV
   if (Object.entries(pageCounts).some(([key, count]) => count > parsedSummary[key as keyof RunListSummaryV2])) return null;
   const summaryTotal = parsedSummary.queued + parsedSummary.running + parsedSummary.unknown
     + parsedSummary.succeeded + parsedSummary.cancelled + parsedSummary.failed;
+  if (summaryTotal > RUN_LIST_RETENTION_LIMIT_V2
+    || (value.completeness === "partial_unavailable" && summaryTotal !== RUN_LIST_RETENTION_LIMIT_V2)) return null;
   const filteredSummaryCount = cut.state === "all" ? summaryTotal : parsedSummary[cut.state];
   if ((cut.state === "all" && total !== summaryTotal)
     || (cut.state !== "all" && total !== filteredSummaryCount)) return null;
