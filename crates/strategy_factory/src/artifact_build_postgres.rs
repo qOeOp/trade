@@ -13,18 +13,18 @@ use vibe_rd_artifact_invocation_custody::resolve_invocation_start_reservation_in
 use crate::{
     artifact_build::{
         ArtifactBuildCandidateV1, ArtifactBuildDisposition, ArtifactBuildError,
-        ArtifactBuildInvocationCustodyV1, ArtifactBuildNextLegalAction, ArtifactBuildOwnerPort,
-        ArtifactBuildPreparationV1, ArtifactBuildReceiptV1, ArtifactBuildRequestV1,
-        ArtifactBuildResolution, ArtifactBuildResultV1, ArtifactBuildSandboxPort,
-        ArtifactDirectoryCompletenessV1, ArtifactDirectoryCursorV1, ArtifactDirectoryItemV1,
-        ArtifactDirectoryOwnerPort, ArtifactDirectoryReadbackV1, ArtifactReadbackOwnerPortV1,
-        ArtifactRequestIdentityPreflightV1, ArtifactSourceOwnerPort, ArtifactSourceReadbackV1,
-        ArtifactWasmPreviewStatusV1, LegacyPreparedAttemptDrainReadbackV1,
-        ReservedArtifactBuildInvocationV1, StoredArtifactBuildInvocationSnapshotV1,
-        UnixArtifactBuildSandboxV1, artifact_review, artifact_review_action_projection,
-        build_receipt, build_request_semantic_digest, canonical_intent_bytes, issue_artifact,
-        sandbox_request, validate_candidate, verify_artifact_build_admission,
-        verify_sandbox_product,
+        ArtifactBuildIntentV1, ArtifactBuildInvocationCustodyV1, ArtifactBuildNextLegalAction,
+        ArtifactBuildOwnerPort, ArtifactBuildPreparationV1, ArtifactBuildReceiptV1,
+        ArtifactBuildRequestV1, ArtifactBuildResolution, ArtifactBuildResultV1,
+        ArtifactBuildSandboxPort, ArtifactDirectoryCompletenessV1, ArtifactDirectoryCursorV1,
+        ArtifactDirectoryItemV1, ArtifactDirectoryOwnerPort, ArtifactDirectoryReadbackV1,
+        ArtifactReadbackOwnerPortV1, ArtifactRequestIdentityPreflightV1, ArtifactSourceOwnerPort,
+        ArtifactSourceReadbackV1, ArtifactWasmPreviewStatusV1,
+        LegacyPreparedAttemptDrainReadbackV1, ReservedArtifactBuildInvocationV1,
+        StoredArtifactBuildInvocationSnapshotV1, UnixArtifactBuildSandboxV1, artifact_review,
+        artifact_review_action_projection, build_receipt, build_request_semantic_digest,
+        canonical_intent_bytes, issue_artifact, sandbox_request, validate_candidate,
+        verify_artifact_build_admission, verify_sandbox_product,
     },
     legacy_prepared_attempt_drain::{
         LegacyPreparedAttemptBindingV1, append_receipt_and_outbox_in_transaction,
@@ -42,8 +42,11 @@ use crate::{
         admit_attempt_custody_in_transaction,
         admit_attempt_custody_with_admission_mode_in_transaction,
         admit_attempt_reservation_header_in_transaction,
-        admit_attempt_with_research_in_transaction, no_artifact_receipt,
-        require_rd_owner_api_schema,
+        admit_attempt_with_research_in_transaction, admit_research_custody_in_transaction,
+        no_artifact_receipt, require_rd_owner_api_schema,
+    },
+    successor_intent_postgres::{
+        advance_successor_research_view_in_transaction, lock_successor_research_view_in_transaction,
     },
     trial_family::{TrialFamilyError, TrialFamilyResolutionV1},
     trial_family_postgres::{
@@ -1255,12 +1258,6 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             transaction.commit().await.map_err(storage)?;
             return result_from_verified(custody, self.now()?);
         }
-        let now = self.now()?;
-        if started_binding.is_none() && !research_view_is_available(&custody.research, now) {
-            transaction.rollback().await.map_err(storage)?;
-            return result_from_verified(custody, now);
-        }
-
         if custody.intent != intent {
             return Err(ArtifactBuildError::Storage(
                 "attempt intent changed during build".to_string(),
@@ -1268,16 +1265,46 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
         }
         let locked_research_receipt = custody.research.receipt().clone();
         let verified_family = custody.research.family().cloned();
-        let old_view =
-            if intent.is_successor() {
-                None
-            } else {
-                Some(
-                    custody.research.view().cloned().ok_or_else(|| {
-                        ArtifactBuildError::Storage("research view missing".into())
-                    })?,
-                )
-            };
+        let successor_view_custody = match &intent {
+            ArtifactBuildIntentV1::Successor(readback) => Some(
+                lock_successor_research_view_in_transaction(&mut transaction, readback)
+                    .await
+                    .map_err(|error| ArtifactBuildError::Storage(error.to_string()))?,
+            ),
+            ArtifactBuildIntentV1::Initial(_) => None,
+        };
+        let now = self.now()?;
+        let research_view_available = successor_view_custody.as_ref().map_or_else(
+            || research_view_is_available(&custody.research, now),
+            |successor| {
+                successor.view().availability == ResearchViewAvailability::Available
+                    && now < successor.view().valid_through_epoch_ms
+            },
+        );
+        if started_binding.is_none() && !research_view_available {
+            transaction.rollback().await.map_err(storage)?;
+            return result_from_verified(custody, now);
+        }
+        if successor_view_custody.as_ref().is_some_and(|successor| {
+            successor.view().phase != ResearchViewPhase::IntentFrozen
+                || successor.view().attempt_identity.is_some()
+                || successor.view().artifact_identity.is_some()
+                || successor.view().build_receipt_identity.is_some()
+                || successor.view().artifact_review_identity.is_some()
+                || successor.view().exploration.is_some()
+        }) {
+            return Err(ArtifactBuildError::Storage(
+                "successor Research View is not ready for artifact custody".to_string(),
+            ));
+        }
+        let old_view = Some(match successor_view_custody.as_ref() {
+            Some(successor) => successor.view().clone(),
+            None => custody
+                .research
+                .view()
+                .cloned()
+                .ok_or_else(|| ArtifactBuildError::Storage("research view missing".into()))?,
+        });
         let mut view = old_view.clone();
         let mut current = custody.attempt.clone();
         if current.state != AttemptState::Building
@@ -1326,7 +1353,13 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             && (!custody
                 .product_edge_admission
                 .authorizes_first_mutation_at(write_cut)
-                || !research_view_is_available(&custody.research, write_cut))
+                || !successor_view_custody.as_ref().map_or_else(
+                    || research_view_is_available(&custody.research, write_cut),
+                    |successor| {
+                        successor.view().availability == ResearchViewAvailability::Available
+                            && write_cut < successor.view().valid_through_epoch_ms
+                    },
+                ))
         {
             transaction.rollback().await.map_err(storage)?;
             return result_from_verified(custody, write_cut);
@@ -1347,23 +1380,36 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             .map_err(storage)?;
 
         if let (Some(old_view), Some(view)) = (old_view.as_ref(), view.as_ref()) {
-            let research_intent = custody.research.intent().ok_or_else(|| {
-                ArtifactBuildError::Storage("initial research intent missing".to_string())
-            })?;
-            let updated = sqlx::query("UPDATE rd_research_request_receipts_v1 SET view_json = $1 WHERE request_identity = $2 AND intent_json = $3 AND view_json = $4 AND receipt_json = $5")
-                .bind(encode(view)?)
-                .bind(&custody.research.receipt().request_identity)
-                .bind(encode(research_intent)?)
-                .bind(encode(old_view)?)
-                .bind(encode(custody.research.receipt())?)
-                .execute(&mut *transaction)
+            if let (ArtifactBuildIntentV1::Successor(readback), Some(successor)) =
+                (&intent, successor_view_custody.as_ref())
+            {
+                advance_successor_research_view_in_transaction(
+                    &mut transaction,
+                    readback,
+                    successor,
+                    view,
+                )
                 .await
-                .map_err(storage)?;
+                .map_err(|error| ArtifactBuildError::Storage(error.to_string()))?;
+            } else {
+                let research_intent = custody.research.intent().ok_or_else(|| {
+                    ArtifactBuildError::Storage("initial research intent missing".to_string())
+                })?;
+                let updated = sqlx::query("UPDATE rd_research_request_receipts_v1 SET view_json = $1 WHERE request_identity = $2 AND intent_json = $3 AND view_json = $4 AND receipt_json = $5")
+                    .bind(encode(view)?)
+                    .bind(&custody.research.receipt().request_identity)
+                    .bind(encode(research_intent)?)
+                    .bind(encode(old_view)?)
+                    .bind(encode(custody.research.receipt())?)
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(storage)?;
 
-            if updated.rows_affected() != 1 {
-                return Err(ArtifactBuildError::Storage(
-                    "research view custody update mismatch".to_string(),
-                ));
+                if updated.rows_affected() != 1 {
+                    return Err(ArtifactBuildError::Storage(
+                        "research view custody update mismatch".to_string(),
+                    ));
+                }
             }
         }
         current.state = AttemptState::Terminal;
@@ -1401,20 +1447,46 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             .map_err(|e| trial_family_storage(&e))?;
         }
         persist_attempt(&mut transaction, &custody.attempt, &current).await?;
-        let (refreshed_research, refreshed_intent) = Box::pin(
-            VerifiedAttemptCustodyV1::admit_develop_intent_in_transaction(
-                &mut transaction,
-                &request.intent_identity,
-                false,
-            ),
-        )
-        .await
-        .map_err(|e| ArtifactBuildError::Storage(e.to_string()))?
-        .ok_or_else(|| {
-            ArtifactBuildError::Storage(
-                "successful artifact Intent custody missing after write".to_string(),
+        let (refreshed_research, refreshed_intent) = if intent.is_successor() {
+            Box::pin(
+                VerifiedAttemptCustodyV1::admit_develop_intent_in_transaction(
+                    &mut transaction,
+                    &request.intent_identity,
+                    false,
+                ),
             )
-        })?;
+            .await
+            .map_err(|e| ArtifactBuildError::Storage(e.to_string()))?
+            .ok_or_else(|| {
+                ArtifactBuildError::Storage(
+                    "successful successor artifact Intent custody missing after write".to_string(),
+                )
+            })?
+        } else {
+            let research = Box::pin(admit_research_custody_in_transaction(
+                &mut transaction,
+                crate::rd_owner_postgres_custody::ResearchCustodyLookupV1::Intent(
+                    &request.intent_identity,
+                ),
+            ))
+            .await
+            .map_err(|e| ArtifactBuildError::Storage(e.to_string()))?
+            .ok_or_else(|| {
+                ArtifactBuildError::Storage(
+                    "successful initial artifact Intent custody missing after write".to_string(),
+                )
+            })?;
+            let refreshed_intent = research
+                .intent()
+                .cloned()
+                .ok_or_else(|| {
+                    ArtifactBuildError::Storage(
+                        "successful initial artifact Intent missing after write".to_string(),
+                    )
+                })?
+                .into();
+            (research, refreshed_intent)
+        };
 
         if refreshed_research.receipt() != &locked_research_receipt
             || refreshed_intent != intent

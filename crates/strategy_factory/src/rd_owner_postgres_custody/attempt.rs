@@ -13,7 +13,7 @@ use crate::{
         issue_artifact, render_program_source, validate_candidate, verify_artifact_build_admission,
         verify_sandbox_product,
     },
-    successor_intent_postgres::load_by_intent_in_transaction,
+    successor_intent_postgres::lock_by_intent_in_transaction,
     trial_family::{ArtifactTrialFamilyReadbackV1, TrialFamilyError},
     trial_family_postgres::{
         load_artifact_trial_family_in_transaction,
@@ -158,17 +158,18 @@ impl VerifiedAttemptCustodyV1 {
 
         // Both mutation admissions are locked before any R&D row lock. Research
         // custody then preloads its own Product Edge admissions before its FOR UPDATE cut.
-        let research = admit_research_row_in_transaction(
+        let (research, intent) = admit_develop_intent_custody_in_transaction(
             transaction,
-            ResearchCustodyLookupV1::Intent(hint.request.intent_identity.as_str()),
+            hint.request.intent_identity.as_str(),
+            false,
         )
-        .await
-        .map_err(|e| ArtifactBuildError::Storage(e.to_string()))?
+        .await?
         .ok_or_else(|| ArtifactBuildError::Storage("attempt research custody missing".into()))?;
-        let custody = Box::pin(admit_attempt_with_research_in_transaction(
+        let custody = Box::pin(admit_attempt_with_develop_intent_in_transaction(
             transaction,
             build_request_identity,
             research,
+            intent,
             artifact,
         ))
         .await?
@@ -379,7 +380,10 @@ pub(crate) async fn admit_develop_intent_custody_in_transaction(
         return Ok(Some((research, intent.into())));
     }
 
-    let Some(successor) = load_by_intent_in_transaction(transaction, intent_identity)
+    // Take exclusive successor custody before locking the Artifact attempt. This gives every
+    // Artifact/Replay consumer the same row order and prevents concurrent requests from retaining
+    // a shared successor lock while one waits to upgrade it after taking the attempt lock.
+    let Some(successor) = lock_by_intent_in_transaction(transaction, intent_identity)
         .await
         .map_err(|e| ArtifactBuildError::Storage(e.to_string()))?
     else {
@@ -450,7 +454,7 @@ pub(crate) async fn admit_develop_intent_custody_in_transaction(
     }
     Ok(Some((
         research,
-        ArtifactBuildIntentV1::Successor(successor_intent.clone()),
+        ArtifactBuildIntentV1::Successor(successor),
     )))
 }
 

@@ -2440,25 +2440,30 @@ mod postgres_acceptance_tests {
             exploratory_replay_admission_payload_v2,
         },
         family_adapters::verified_price_build,
+        iteration_candidate::{
+            IterationCandidateAdmissibilityV1, IterationCandidateEvaluationSetV1,
+            IterationCandidateEvaluationV1, IterationEvidenceReferenceV1,
+            IterationExperimentModeV1, IterationHypothesisDimensionV1,
+            IterationInformationValueEvidenceV1,
+        },
         iteration_decision::PositiveAssessmentEvidenceReferenceV1,
         product_edge::{
             ProductEdgeChannel, ProductEdgeResearchGoalRequestV2, RESEARCH_GOAL_OPERATION_V2,
-            RESEARCH_GOAL_SCHEMA_V2, RESEARCH_OWNER_V1, ResearchGoalOwnerPortV2,
-            ResearchRequestDisposition, ResearchRequestReceiptV1, ResearchSourceV1,
-            SourcedResearchGoalV2, TrialFamilyProposalV1,
+            RESEARCH_GOAL_SCHEMA_V2, RESEARCH_OWNER_V1, ResearchGoalOwnerPortV2, ResearchSourceV1,
+            SourcedResearchGoalV2, TrialFamilyProposalV1, UnsourcedResearchGoalV1,
         },
         product_edge_postgres::PostgresResearchGoalOwnerV1,
-        replay_economic_configuration_v1::{ReplayEconomicConfigurationV1, economic_fixture},
-        replay_execution_policy_v2::ReplayExecutionPolicyV2,
-        replay_policy_catalog_v2::{ReplayPolicyCatalogBindingV2, ReplayPolicyCatalogBindingV3},
-        replay_runner_operational_profile_v1::{ReplayRunnerOperationalProfileV1, runner_fixture},
+        successor_intent::{
+            SUCCESSOR_RESEARCH_INTENT_MUTATION_EFFECT_V1, SUCCESSOR_RESEARCH_INTENT_OPERATION_V1,
+            SUCCESSOR_RESEARCH_INTENT_SCHEMA_V1, SuccessorResearchIntentOperationRequestV1,
+        },
         trial_family::{
             TrialFamilyAttemptAppendV2, TrialFamilyAttemptTerminalDispositionV2,
-            TrialFamilyCandidateSetProposalV2, TrialFamilyIndependenceDispositionV1,
-            TrialFamilyPolicyV1, form_initial_family,
+            TrialFamilyCandidateSetProposalV2, TrialFamilyCensusReadbackV2, TrialFamilyPolicyV1,
         },
         trial_family_postgres::{
-            append_trial_family_attempt_in_transaction, persist_initial_family,
+            append_trial_family_attempt_in_transaction,
+            load_trial_family_census_v2_by_family_in_transaction,
         },
     };
 
@@ -2469,6 +2474,19 @@ mod postgres_acceptance_tests {
     const OUTBOX_PAYLOAD_DIGEST_DOMAIN: &str = "vibe.backtest.result-outbox-payload.v1";
     const OUTBOX_EVENT_DIGEST_DOMAIN: &str = "vibe.backtest.result-outbox-event.v1";
     const RESULT_EVENT_KIND: &str = "EXPLORATORY_BACKTEST_RESULT_COMMITTED_V1";
+
+    struct PersistedReplayPredecessorV1 {
+        owner: PostgresResearchGoalOwnerV1,
+        edge: ProductEdgePostgresOwnerV1,
+        predecessor: SealedExploratoryReplayReadbackV2,
+        intent_identity: String,
+        intent_digest: String,
+        family_identity: String,
+        family_policy: TrialFamilyPolicyV1,
+        independence_basis_locator: vibe_qualification::RdIndependenceBasisLocatorV1,
+        research_receipt_identity: String,
+        request_proof_digest: String,
+    }
 
     #[derive(Serialize)]
     struct ResultDigestPreimageV2<'a> {
@@ -2552,14 +2570,7 @@ mod postgres_acceptance_tests {
         database: &CanonicalOwnerPostgresTestDatabaseV1,
         evidence: &SealedAcceptanceMarketDataRepairEvidenceV1,
         suffix: &str,
-    ) -> (
-        PostgresResearchGoalOwnerV1,
-        SealedExploratoryReplayReadbackV2,
-        String,
-        String,
-        String,
-        String,
-    ) {
+    ) -> PersistedReplayPredecessorV1 {
         crate::replay_policy_catalog_postgres_v2::ensure_authenticated_sealed_acceptance_fixture_v3(
             database
                 .mutation()
@@ -2575,6 +2586,13 @@ mod postgres_acceptance_tests {
                 RESEARCH_GOAL_OPERATION_V2,
                 RESEARCH_GOAL_SCHEMA_V2,
                 vec!["R_AND_D_RESEARCH_MUTATION_V1".to_string()],
+                now,
+                valid_through,
+            ),
+            repair_replay_manifest(
+                SUCCESSOR_RESEARCH_INTENT_OPERATION_V1,
+                SUCCESSOR_RESEARCH_INTENT_SCHEMA_V1,
+                vec![SUCCESSOR_RESEARCH_INTENT_MUTATION_EFFECT_V1.to_string()],
                 now,
                 valid_through,
             ),
@@ -2731,6 +2749,16 @@ mod postgres_acceptance_tests {
             .await
             .expect("persisted Research acceptance");
         let research_receipt = accepted.owner_receipt().expect("Research receipt");
+        let independence_basis_locator = accepted
+            .independence_basis()
+            .expect("R&D Independence Basis")
+            .locator();
+        let family_policy = accepted
+            .trial_family()
+            .expect("R&D TrialFamily")
+            .root()
+            .policy()
+            .clone();
         let intent_identity = research_receipt
             .resulting_research_intent_identity
             .as_deref()
@@ -2944,7 +2972,7 @@ mod postgres_acceptance_tests {
                 operation_schema: EXPLORATORY_REPLAY_SCHEMA_V2.to_string(),
                 target_owner: RESEARCH_OWNER_V1.to_string(),
                 requested_effects: vec![EXPLORATORY_REPLAY_MUTATION_EFFECT_V2.to_string()],
-                request_proof_digest,
+                request_proof_digest: request_proof_digest.clone(),
                 audit_correlation: format!("test:{predecessor_identity}"),
             })
             .await
@@ -2972,14 +3000,18 @@ mod postgres_acceptance_tests {
             predecessor.canonical_request_bytes(),
             committed.canonical_request_bytes()
         );
-        (
+        PersistedReplayPredecessorV1 {
             owner,
+            edge,
             predecessor,
             intent_identity,
             intent_digest,
             family_identity,
+            family_policy,
+            independence_basis_locator,
             research_receipt_identity,
-        )
+            request_proof_digest,
+        }
     }
 
     fn repair_replay_manifest(
@@ -3088,14 +3120,15 @@ mod postgres_acceptance_tests {
         let committed_at = current_epoch_ms().expect("test clock");
         let market_data_evidence =
             issue_market_data_repair_evidence_v1().expect("sealed Market Data repair evidence");
-        let (
-            replay_owner,
+        let PersistedReplayPredecessorV1 {
+            owner: replay_owner,
             predecessor,
             intent_identity,
             intent_digest,
             family_identity,
             research_receipt_identity,
-        ) = Box::pin(persist_repair_replay_predecessor(
+            ..
+        } = Box::pin(persist_repair_replay_predecessor(
             &database,
             &market_data_evidence,
             &suffix,
@@ -3332,8 +3365,10 @@ mod postgres_acceptance_tests {
         .await;
         assert!(mismatched_market_data_resolve.is_err());
         let market_data_counts_after: (i64, i64) = sqlx::query_as(
-            "SELECT (SELECT COUNT(*) FROM rd_market_data_repair_requests_v1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind='MARKET_DATA_REPAIR_REQUESTED_V1')",
+            "SELECT (SELECT COUNT(*) FROM rd_market_data_repair_requests_v1 WHERE action_request_identity=$1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE aggregate_identity=$2 AND event_kind='MARKET_DATA_REPAIR_REQUESTED_V1')",
         )
+        .bind(first_action.request().action_request_identity())
+        .bind(first_market_data.request().request_identity())
         .fetch_one(rd_pool)
         .await
         .expect("post-rejection Market Data repair counts");
@@ -3475,8 +3510,10 @@ mod postgres_acceptance_tests {
         .await;
         assert!(mismatched_action_resolve.is_err());
         let action_counts_after: (i64, i64) = sqlx::query_as(
-            "SELECT (SELECT COUNT(*) FROM rd_repair_action_requests_v1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind='REPAIR_ACTION_REQUESTED_V1')",
+            "SELECT (SELECT COUNT(*) FROM rd_repair_action_requests_v1 WHERE decision_identity=$1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE aggregate_identity=$2 AND event_kind='REPAIR_ACTION_REQUESTED_V1')",
         )
+        .bind(first.decision().decision_identity())
+        .bind(first_action.request().action_request_identity())
         .fetch_one(rd_pool)
         .await
         .expect("post-rejection repair action counts");
@@ -3506,8 +3543,10 @@ mod postgres_acceptance_tests {
         .await;
         assert!(mismatched_resolve.is_err());
         let counts_after: (i64, i64) = sqlx::query_as(
-            "SELECT (SELECT COUNT(*) FROM rd_iteration_decisions_v1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind='ITERATION_DECISION_COMMITTED_V1')",
+            "SELECT (SELECT COUNT(*) FROM rd_iteration_decisions_v1 WHERE result_identity=$1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE aggregate_identity=$2 AND event_kind='ITERATION_DECISION_COMMITTED_V1')",
         )
+        .bind(first.receipt().result_identity())
+        .bind(first.decision().decision_identity())
         .fetch_one(rd_pool)
         .await
         .expect("post-rejection counts");
@@ -3516,7 +3555,564 @@ mod postgres_acceptance_tests {
 
     #[tokio::test]
     #[ignore = "requires the canonical disposable R&D and Backtest Owner PostgreSQL topology"]
+    async fn successor_artifact_enters_exploratory_replay_with_exact_owner_custody() {
+        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+            .await
+            .expect("canonical disposable topology");
+        let mutation = database.mutation();
+        let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+        let suffix = unique_suffix();
+        let committed_at = current_epoch_ms().expect("test clock");
+        let market_data_evidence =
+            issue_market_data_repair_evidence_v1().expect("sealed Market Data evidence");
+        let harness = Box::pin(persist_repair_replay_predecessor(
+            &database,
+            &market_data_evidence,
+            &suffix,
+        ))
+        .await;
+        let initial_replay = harness.predecessor.request();
+        let request_identity = harness.predecessor.request_identity().to_string();
+        let request_digest = harness.predecessor.meaning_digest().to_string();
+        let attempt_identity = format!("backtest-attempt-successor-{suffix}");
+        let result = positive_result(
+            &request_identity,
+            &request_digest,
+            &attempt_identity,
+            &harness.intent_identity,
+            &harness.intent_digest,
+            &suffix,
+        );
+        let result_identity = result.result_identity.as_str().to_string();
+        let result_digest = result.result_digest.as_str().to_string();
+        let candidate_identity = format!("successor-experiment-{suffix}");
+        let candidate_digest = digest('b');
+        let candidate_set: TrialFamilyCandidateSetProposalV2 =
+            serde_json::from_value(serde_json::json!({
+                "generation_rule_identity": format!("successor-generation-rule-{suffix}"),
+                "generation_rule_digest": digest('c'),
+                "expected_cardinality": 1,
+                "candidates": [{
+                    "candidate_identity": candidate_identity,
+                    "candidate_digest": candidate_digest,
+                }],
+            }))
+            .expect("candidate-set fixture");
+        let mut family_transaction = rd_pool.begin().await.expect("family transaction");
+        append_trial_family_attempt_in_transaction(
+            &mut family_transaction,
+            &harness.intent_identity,
+            &harness.research_receipt_identity,
+            TrialFamilyAttemptAppendV2 {
+                intent_identity: harness.intent_identity.clone(),
+                intent_digest: harness.intent_digest.clone(),
+                request_identity: request_identity.clone(),
+                request_digest: request_digest.clone(),
+                result_identity: result_identity.clone(),
+                result_digest: result_digest.clone(),
+                terminal_disposition: TrialFamilyAttemptTerminalDispositionV2::TerminalResult,
+                consumed_trial_budget: 1,
+                candidate_set,
+            },
+            committed_at + 1,
+        )
+        .await
+        .expect("terminal attempt census");
+        family_transaction.commit().await.expect("family commit");
+
+        let mut census_transaction = rd_pool.begin().await.expect("census transaction");
+        let census = load_trial_family_census_v2_by_family_in_transaction(
+            &mut census_transaction,
+            &harness.family_identity,
+        )
+        .await
+        .expect("candidate frontier census");
+        census_transaction.commit().await.expect("census commit");
+        let composition = CandidateComparisonCompositionRequestV1 {
+            trial_family_identity: harness.family_identity.clone(),
+            result_identity: result_identity.clone(),
+            request_identity: request_identity.clone(),
+            attempt_identity,
+            candidate_evaluations: successor_candidate_evaluations(
+                &census,
+                &candidate_identity,
+                &candidate_digest,
+            ),
+        };
+        let issued =
+            crate::iteration_decision::tests::candidate_comparison_storage_acceptance_fixture_v1(
+                &census,
+                &result,
+                composition.candidate_evaluations.clone(),
+                committed_at + 2,
+            )
+            .expect("sealed predecessor Decision fixture");
+        let mut decision_transaction = rd_pool.begin().await.expect("Decision transaction");
+        persist_candidate_comparison_decision(&mut decision_transaction, &issued)
+            .await
+            .expect("persisted predecessor Decision");
+        let decision = load_candidate_comparison_by_result_in_transaction(
+            &mut decision_transaction,
+            &census,
+            &result_identity,
+            Some(&composition),
+        )
+        .await
+        .expect("predecessor Decision custody")
+        .expect("predecessor Decision readback");
+        assert_eq!(decision, issued);
+        decision_transaction
+            .commit()
+            .await
+            .expect("Decision commit");
+        let successor_operation = SuccessorResearchIntentOperationRequestV1 {
+            request_identity: format!("successor-intent-request-{suffix}"),
+            decision_identity: decision.decision().decision_identity().to_string(),
+            result_identity,
+            goal: UnsourcedResearchGoalV1 {
+                hypothesis: "PIT momentum with a volatility-conditioned return mechanism"
+                    .to_string(),
+                mechanism: "bounded information diffusion".to_string(),
+                falsification_question: "does exact cost remove the effect".to_string(),
+                expected_observation: "net continuation remains positive".to_string(),
+                required_data: vec!["PIT bars".to_string()],
+                cost_assumption: "frozen cost model".to_string(),
+                capacity_assumption: "frozen capacity model".to_string(),
+            },
+        };
+        let successor_admission = harness
+            .edge
+            .admit_request(ProductEdgeAdmissionRequestV1 {
+                request_identity: successor_operation.request_identity.clone(),
+                typed_payload: serde_json::to_value(&successor_operation)
+                    .expect("successor typed payload"),
+                operation: SUCCESSOR_RESEARCH_INTENT_OPERATION_V1.to_string(),
+                operation_schema: SUCCESSOR_RESEARCH_INTENT_SCHEMA_V1.to_string(),
+                target_owner: RESEARCH_OWNER_V1.to_string(),
+                requested_effects: vec![SUCCESSOR_RESEARCH_INTENT_MUTATION_EFFECT_V1.to_string()],
+                request_proof_digest: harness.request_proof_digest.clone(),
+                audit_correlation: format!("test:{}", successor_operation.request_identity),
+            })
+            .await
+            .expect("successor Product Edge admission")
+            .locator()
+            .clone();
+        let rejected = crate::successor_intent_postgres::compose_successor_research_intent_v1(
+            rd_pool,
+            successor_operation
+                .clone()
+                .with_admission(placeholder_product_edge_admission(
+                    &successor_operation.request_identity,
+                )),
+        )
+        .await;
+        assert!(rejected.is_err());
+        let counts_after_rejection: (i64, i64) = sqlx::query_as(
+            "SELECT (SELECT COUNT(*) FROM rd_successor_research_intents_v1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind='SUCCESSOR_RESEARCH_INTENT_COMMITTED_V1')",
+        )
+        .fetch_one(rd_pool)
+        .await
+        .expect("successor rejection counts");
+        assert_eq!(counts_after_rejection, (0, 0));
+        let successor = crate::successor_intent_postgres::compose_successor_research_intent_v1(
+            rd_pool,
+            successor_operation
+                .clone()
+                .with_admission(successor_admission.clone()),
+        )
+        .await
+        .expect("successor Intent custody");
+        let retry = crate::successor_intent_postgres::compose_successor_research_intent_v1(
+            rd_pool,
+            successor_operation.with_admission(successor_admission),
+        )
+        .await
+        .expect("exact successor retry");
+        assert_eq!(retry, successor);
+        let counts_after_retry: (i64, i64) = sqlx::query_as(
+            "SELECT (SELECT COUNT(*) FROM rd_successor_research_intents_v1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind='SUCCESSOR_RESEARCH_INTENT_COMMITTED_V1')",
+        )
+        .fetch_one(rd_pool)
+        .await
+        .expect("successor retry counts");
+        assert_eq!(counts_after_retry, (1, 1));
+        assert_eq!(
+            successor.intent().predecessor_intent_identity(),
+            harness.intent_identity
+        );
+
+        let mut first_successor_consumer = rd_pool
+            .begin()
+            .await
+            .expect("first successor consumer transaction");
+        crate::rd_owner_postgres_custody::VerifiedAttemptCustodyV1::admit_develop_intent_in_transaction(
+            &mut first_successor_consumer,
+            successor.intent().intent_identity(),
+            true,
+        )
+        .await
+        .expect("first successor custody lock")
+        .expect("first successor custody");
+        let mut competing_successor_consumer = rd_pool
+            .begin()
+            .await
+            .expect("competing successor consumer transaction");
+        sqlx::query("SET LOCAL lock_timeout = '100ms'")
+            .execute(&mut *competing_successor_consumer)
+            .await
+            .expect("bounded competing lock wait");
+        let competing = match
+            crate::rd_owner_postgres_custody::VerifiedAttemptCustodyV1::admit_develop_intent_in_transaction(
+                &mut competing_successor_consumer,
+                successor.intent().intent_identity(),
+                true,
+            )
+            .await
+        {
+            Err(error) => error,
+            Ok(_) => panic!("successor custody must serialize before later attempt locks"),
+        };
+        assert!(competing.to_string().contains("lock timeout"));
+        competing_successor_consumer
+            .rollback()
+            .await
+            .expect("competing successor consumer rollback");
+        first_successor_consumer
+            .rollback()
+            .await
+            .expect("first successor consumer rollback");
+
+        let mut successor_retry = rd_pool
+            .begin()
+            .await
+            .expect("successor custody retry transaction");
+        crate::rd_owner_postgres_custody::VerifiedAttemptCustodyV1::admit_develop_intent_in_transaction(
+            &mut successor_retry,
+            successor.intent().intent_identity(),
+            true,
+        )
+        .await
+        .expect("successor custody retry after lock release")
+        .expect("successor custody retry");
+        successor_retry
+            .rollback()
+            .await
+            .expect("successor custody retry rollback");
+
+        let successor_replay = persist_successor_artifact_replay(
+            &database,
+            &harness,
+            &successor,
+            initial_replay.as_dto(),
+            &suffix,
+        )
+        .await;
+        assert_eq!(
+            successor_replay
+                .request()
+                .as_dto()
+                .frozen_research_intent
+                .identity
+                .as_str(),
+            successor.intent().intent_identity()
+        );
+        assert_eq!(
+            successor_replay
+                .request()
+                .as_dto()
+                .frozen_research_intent
+                .digest
+                .as_str(),
+            successor.intent().intent_digest()
+        );
+    }
+
+    async fn persist_successor_artifact_replay(
+        database: &CanonicalOwnerPostgresTestDatabaseV1,
+        harness: &PersistedReplayPredecessorV1,
+        successor: &crate::successor_intent::SuccessorResearchIntentReadbackV1,
+        initial_replay: &ReplayRequestDtoV2,
+        suffix: &str,
+    ) -> SealedExploratoryReplayReadbackV2 {
+        let intent = successor.intent();
+        let build_request_identity = format!("successor-artifact-request-{suffix}");
+        let attempt_identity = format!("successor-artifact-attempt-{suffix}");
+        let artifact_payload = ArtifactBuildRequestV1 {
+            build_request_identity: build_request_identity.clone(),
+            attempt_identity: attempt_identity.clone(),
+            intent_identity: intent.intent_identity().to_string(),
+            channel: ProductEdgeChannel::WindmillProductEdge,
+            admission: placeholder_product_edge_admission(&build_request_identity),
+        };
+        let artifact_admission = harness
+            .edge
+            .admit_artifact_build_request(ProductEdgeAdmissionRequestV1 {
+                request_identity: build_request_identity.clone(),
+                typed_payload: serde_json::json!({
+                    "build_request_identity": artifact_payload.build_request_identity,
+                    "attempt_identity": artifact_payload.attempt_identity,
+                    "intent_identity": artifact_payload.intent_identity,
+                    "channel": artifact_payload.channel,
+                }),
+                operation: ARTIFACT_BUILD_OPERATION_V1.to_string(),
+                operation_schema: ARTIFACT_BUILD_SCHEMA_V1.to_string(),
+                target_owner: RESEARCH_OWNER_V1.to_string(),
+                requested_effects: vec![
+                    "R_AND_D_ARTIFACT_BUILD_MUTATION_V1".to_string(),
+                    "R_AND_D_PROVIDER_INVOCATION_V1".to_string(),
+                ],
+                request_proof_digest: harness.request_proof_digest.clone(),
+                audit_correlation: format!("test:{build_request_identity}"),
+            })
+            .await
+            .expect("successor Artifact Product Edge admission")
+            .locator()
+            .clone();
+        let build_request = ArtifactBuildRequestV1 {
+            admission: artifact_admission,
+            ..artifact_payload
+        };
+        let sandbox_socket = format!("/tmp/rd-successor-replay-{suffix}.sock");
+        let _ = std::fs::remove_file(&sandbox_socket);
+        let listener = UnixListener::bind(&sandbox_socket).expect("Artifact sandbox listener");
+        let sandbox = tokio::spawn(serve_repair_replay_sandbox(
+            listener,
+            sandbox_socket.clone(),
+        ));
+        let artifact_owner = PostgresArtifactBuildOwnerV1::connect(
+            database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+            &sandbox_socket,
+            u64::MAX,
+        )
+        .await
+        .expect("successor Artifact Owner");
+        assert_eq!(
+            artifact_owner
+                .prepare(build_request.clone())
+                .await
+                .expect("prepared successor Artifact")
+                .resolution(),
+            ArtifactBuildResolution::Prepared
+        );
+        let invocation_claim = harness
+            .edge
+            .claim_provider_invocation(ProductEdgeInvocationClaimRequestV1 {
+                admission: build_request.admission.clone(),
+                attempt_identity: attempt_identity.clone(),
+            })
+            .await
+            .expect("successor Product Edge invocation claim");
+        let reserved = artifact_owner
+            .reserve_provider_invocation_custody(
+                &build_request_identity,
+                &attempt_identity,
+                invocation_claim,
+            )
+            .await
+            .expect("successor R&D invocation reservation");
+        let (start, _) = reserved.into_parts();
+        harness
+            .edge
+            .start_provider_invocation(start)
+            .await
+            .expect("successor Product Edge invocation start");
+        let started_claim = harness
+            .edge
+            .resolve_provider_invocation_claim(&build_request.admission, &attempt_identity)
+            .await
+            .expect("successor Product Edge invocation resolve")
+            .expect("started successor Product Edge invocation");
+        let terminal = artifact_owner
+            .submit_candidate(
+                build_request,
+                ArtifactBuildCandidateV1 {
+                    schema_version: 1,
+                    candidate_identity: format!("agent-program-candidate-v1-successor-{suffix}"),
+                    intent_identity: intent.intent_identity().to_string(),
+                    intent_semantic_digest: intent.intent_digest().to_string(),
+                    logic: GeneratedStrategyLogicV1 {
+                        signal: GeneratedSignalV1::Momentum,
+                        direction: GeneratedDirectionV1::LongOnly,
+                        lookback_bars: 48,
+                        entry_threshold_bps: 60,
+                        exit_threshold_bps: 15,
+                    },
+                    structured_logic_summary: "bounded successor Replay candidate".to_string(),
+                    agent_change_explanation: "test-only deterministic successor Artifact"
+                        .to_string(),
+                },
+                Some(&started_claim),
+            )
+            .await
+            .expect("persisted successor Artifact acceptance");
+        sandbox
+            .await
+            .expect("successor Artifact sandbox task")
+            .expect("successor Artifact sandbox response");
+        let artifact_receipt = terminal
+            .owner_receipt()
+            .expect("successor Artifact receipt");
+        assert_eq!(
+            artifact_receipt.disposition,
+            ArtifactBuildDisposition::Success
+        );
+        let artifact_identity = artifact_receipt
+            .artifact_identity
+            .as_deref()
+            .expect("successor Artifact identity");
+        let build_receipt_identity = artifact_receipt
+            .build_receipt_identity
+            .as_deref()
+            .expect("successor Artifact build receipt");
+        let artifact_review = terminal
+            .artifact_review()
+            .expect("successor Artifact review");
+        let artifact_family = terminal
+            .artifact_trial_family()
+            .expect("successor Artifact family");
+        let family = artifact_family.trial_family();
+
+        let replay_identity = format!("rd-replay-request-successor-{suffix}");
+        let mut replay_request = initial_replay.clone();
+        replay_request.request_identity = identity(&replay_identity);
+        replay_request.frozen_research_intent = ContentIdentityV2 {
+            identity: identity(intent.intent_identity()),
+            digest: CanonicalDigestV2::try_from(intent.intent_digest().to_string())
+                .expect("successor Intent digest"),
+        };
+        replay_request.trial_family = ContentIdentityV2 {
+            identity: identity(family.root().trial_family_identity()),
+            digest: CanonicalDigestV2::try_from(family.root().root_digest().to_string())
+                .expect("family root digest"),
+        };
+        replay_request.trial_family_census_frontier = ContentIdentityV2 {
+            identity: identity(intent.census_frontier_identity()),
+            digest: CanonicalDigestV2::try_from(intent.census_frontier_digest().to_string())
+                .expect("successor census frontier digest"),
+        };
+        replay_request.artifact = ContentIdentityV2 {
+            identity: identity(artifact_identity),
+            digest: CanonicalDigestV2::try_from(artifact_review.build_receipt.wasm_digest.clone())
+                .expect("successor Artifact digest"),
+        };
+        let mut proposal = ExploratoryReplayRequestProposalV2 {
+            admission: placeholder_product_edge_admission(&replay_identity),
+            build_request_identity,
+            attempt_identity,
+            build_receipt_identity: build_receipt_identity.to_string(),
+            artifact_family_binding_identity: artifact_family
+                .binding()
+                .binding_identity()
+                .to_string(),
+            request: replay_request,
+        };
+        let replay_admission = harness
+            .edge
+            .admit_request(ProductEdgeAdmissionRequestV1 {
+                request_identity: replay_identity.clone(),
+                typed_payload: exploratory_replay_admission_payload_v2(&proposal)
+                    .expect("successor Replay admission payload"),
+                operation: EXPLORATORY_REPLAY_OPERATION_V2.to_string(),
+                operation_schema: EXPLORATORY_REPLAY_SCHEMA_V2.to_string(),
+                target_owner: RESEARCH_OWNER_V1.to_string(),
+                requested_effects: vec![EXPLORATORY_REPLAY_MUTATION_EFFECT_V2.to_string()],
+                request_proof_digest: harness.request_proof_digest.clone(),
+                audit_correlation: format!("test:{replay_identity}"),
+            })
+            .await
+            .expect("successor Replay Product Edge admission")
+            .locator()
+            .clone();
+        proposal.admission = replay_admission;
+        let committed = harness
+            .owner
+            .commit_exploratory_replay_request_v2(proposal)
+            .await
+            .expect("persisted successor Replay V2");
+        harness
+            .owner
+            .resolve_exploratory_replay_request_v2(&ExploratoryReplayRecoverySelectorV2 {
+                request_identity: committed.locator().request_identity.clone(),
+                meaning_digest: committed.locator().meaning_digest.clone(),
+            })
+            .await
+            .expect("successor Replay V2 resolve")
+            .readback()
+            .expect("persisted successor Replay V2 readback")
+            .clone()
+    }
+
+    fn successor_candidate_evaluations(
+        census: &TrialFamilyCensusReadbackV2,
+        candidate_identity: &str,
+        candidate_digest: &str,
+    ) -> IterationCandidateEvaluationSetV1 {
+        let reference = |name: &str, byte: char| IterationEvidenceReferenceV1 {
+            identity: format!("{name}-{candidate_identity}"),
+            digest: digest(byte),
+        };
+        let policy = census.decision_policy_v1().expect("Decision policy");
+        IterationCandidateEvaluationSetV1 {
+            frontier_identity: census
+                .candidate_set_frontier
+                .frontier_identity()
+                .to_string(),
+            frontier_digest: census.candidate_set_frontier.frontier_digest().to_string(),
+            generation_rule_identity: census
+                .candidate_set_frontier
+                .generation_rule_identity()
+                .to_string(),
+            generation_rule_digest: census
+                .candidate_set_frontier
+                .generation_rule_digest()
+                .to_string(),
+            expected_cardinality: 1,
+            threshold: IterationEvidenceReferenceV1 {
+                identity: policy.information_value_threshold_identity().to_string(),
+                digest: format!(
+                    "sha256:{}",
+                    policy
+                        .information_value_threshold_digest()
+                        .iter()
+                        .map(|byte| format!("{byte:02x}"))
+                        .collect::<String>()
+                ),
+            },
+            candidates: vec![IterationCandidateEvaluationV1 {
+                candidate_identity: candidate_identity.to_string(),
+                candidate_digest: candidate_digest.to_string(),
+                admissibility: IterationCandidateAdmissibilityV1::AdmissibleAboveThreshold,
+                information_value: IterationInformationValueEvidenceV1 {
+                    decision_uncertainty: reference("decision-uncertainty", '1'),
+                    distinguishing_observation_or_falsifier: reference(
+                        "distinguishing-falsifier",
+                        '2',
+                    ),
+                    result_to_action_map: reference("result-action-map", '3'),
+                    bounded_acquisition_cost: reference("bounded-cost", '4'),
+                    remaining_family_budget_effect: reference("budget-effect", '5'),
+                    competing_alternatives: vec![reference("alternative", '6')],
+                    ordinal_rationale: reference("ordinal-rationale", '7'),
+                },
+                uncertainty_reduction_rank: 1,
+                tie_break_key: candidate_identity.to_string(),
+                experiment: IterationExperimentModeV1::SingleDimension {
+                    changed_dimension: IterationHypothesisDimensionV1::ReturnMechanism,
+                },
+            }],
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the canonical disposable R&D and Backtest Owner PostgreSQL topology"]
     async fn positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic() {
+        Box::pin(
+            run_positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic(),
+        )
+        .await;
+    }
+
+    async fn run_positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic() {
         let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
             .await
             .expect("canonical disposable topology");
@@ -3525,41 +4121,47 @@ mod postgres_acceptance_tests {
         let backtest_pool = mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner);
         let qualification_pool = mutation.pool(CanonicalOwnerTestRoleV1::QualificationWriter);
         let suffix = unique_suffix();
-        let committed_at = current_epoch_ms().expect("test clock");
-        let intent_identity = format!("rd-research-intent-ready-{suffix}");
-        let intent_digest = digest('a');
-        let family = form_initial_family(
-            &intent_identity,
-            &intent_digest,
-            decision_family_policy(),
-            committed_at,
-        )
-        .expect("sealed READY family");
-        let family_identity = family.root().trial_family_identity().to_string();
-        let research_receipt = ResearchRequestReceiptV1 {
-            schema_version: 1,
-            receipt_identity: format!("rd-research-request-receipt-ready-{suffix}"),
-            request_identity: format!("rd-research-request-ready-{suffix}"),
-            semantic_digest: intent_digest.clone(),
-            disposition: ResearchRequestDisposition::Accepted,
-            resulting_research_intent_identity: Some(intent_identity.clone()),
-            committed_at_epoch_ms: committed_at,
-            rejection_code: None,
-        };
-        let request_identity = format!("rd-replay-request-ready-{suffix}");
         let market_data_evidence =
             issue_market_data_repair_evidence_v1().expect("sealed Market Data evidence");
-        let replay = repair_replay(
+        let PersistedReplayPredecessorV1 {
+            predecessor,
+            intent_identity,
+            intent_digest,
+            family_identity,
+            family_policy,
+            independence_basis_locator,
+            research_receipt_identity,
+            ..
+        } = Box::pin(persist_repair_replay_predecessor(
+            &database,
             &market_data_evidence,
-            &request_identity,
-            &family_identity,
             &suffix,
+        ))
+        .await;
+        let qualification = vibe_qualification::PostgresQualificationOwnerV1::connect(
+            &database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+        )
+        .await
+        .expect("Qualification Owner projection custody");
+        let protected_feedback = qualification
+            .resolve_or_create_for_basis(&independence_basis_locator)
+            .await
+            .expect("current Qualification feedback projection");
+        assert_eq!(
+            protected_feedback.projection_identity(),
+            family_policy.protected_feedback_frontier
         );
-        let request_digest = replay
-            .meaning_digest()
-            .expect("Replay request meaning")
-            .as_str()
-            .to_string();
+        assert_eq!(
+            protected_feedback.basis_identity(),
+            family_policy.independence_basis_identity
+        );
+        assert_eq!(
+            protected_feedback.basis_identity(),
+            independence_basis_locator.basis_identity
+        );
+        let committed_at = current_epoch_ms().expect("test clock");
+        let request_identity = predecessor.request_identity().to_string();
+        let request_digest = predecessor.meaning_digest().to_string();
         let attempt_identity = format!("backtest-attempt-ready-{suffix}");
         let result = positive_result(
             &request_identity,
@@ -3574,13 +4176,10 @@ mod postgres_acceptance_tests {
         let result_digest = result.result_digest.as_str().to_string();
 
         let mut family_transaction = rd_pool.begin().await.expect("family transaction");
-        persist_initial_family(&mut family_transaction, &family, &research_receipt)
-            .await
-            .expect("family custody");
         append_trial_family_attempt_in_transaction(
             &mut family_transaction,
             &intent_identity,
-            &research_receipt.receipt_identity,
+            &research_receipt_identity,
             TrialFamilyAttemptAppendV2 {
                 intent_identity: intent_identity.clone(),
                 intent_digest: intent_digest.clone(),
@@ -3696,11 +4295,6 @@ mod postgres_acceptance_tests {
         assert!(
             matches!(unified, ExistingIterationDecisionReadbackV1::ReadyForSelection(value) if value == issued)
         );
-        let qualification = vibe_qualification::PostgresQualificationOwnerV1::connect(
-            &database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
-        )
-        .await
-        .expect("Qualification Owner intake custody");
         let policy = &issued
             .candidate()
             .protected_robustness_plan()
@@ -3817,71 +4411,6 @@ mod postgres_acceptance_tests {
             .expect("post-tamper resolve")
             .is_some()
         );
-    }
-
-    fn decision_family_policy() -> TrialFamilyPolicyV1 {
-        let economic = ReplayEconomicConfigurationV1::seal(economic_fixture()).unwrap();
-        let runner = ReplayRunnerOperationalProfileV1::seal(runner_fixture()).unwrap();
-        let versioned = |value: &str| VersionedIdentityV2 {
-            identity: identity(value),
-            version: identity("v1"),
-        };
-        let content = |value: &str, digest: CanonicalDigestV2| ContentIdentityV2 {
-            identity: identity(value),
-            digest,
-        };
-        let execution = ReplayExecutionPolicyV2 {
-            runtime_kernel: versioned("runtime-kernel-v2"),
-            simulator: versioned("simulator-v2"),
-            cost: versioned("cost-model-v1"),
-            slippage: versioned("slippage-model-v1"),
-            capacity: versioned("capacity-model-v1"),
-            runner_operational_profile: versioned("runner-profile-v1"),
-            diagnostic_policy: versioned("diagnostic-policy-v1"),
-            deterministic_seed: 17,
-            window: ReplayWindowV2 {
-                start_event_ns: 1,
-                end_event_ns_exclusive: 2,
-            },
-            calendar: versioned("calendar-v1"),
-            session: versioned("session-v1"),
-            time_zone: versioned("time-zone-v1"),
-            correction_rule: versioned("correction-rule-v1"),
-            market_semantics: versioned("market-semantics-v1"),
-            replay_configuration: content(
-                "economic-profile-v1",
-                CanonicalDigestV2::try_from(format!("sha256:{}", hex(&economic.digest()))).unwrap(),
-            ),
-            corporate_action_cut: content("corporate-action-cut-v1", canonical_digest_value('d')),
-            historical_membership_cut: content("membership-cut-v1", canonical_digest_value('e')),
-        };
-        let catalog_v2 = ReplayPolicyCatalogBindingV2::from_policy(
-            "replay-policy-catalog-decision-v2",
-            1,
-            &execution,
-        )
-        .unwrap();
-        let catalog_v3 =
-            ReplayPolicyCatalogBindingV3::issue(catalog_v2.clone(), &economic, &runner).unwrap();
-        TrialFamilyPolicyV1 {
-            trial_budget: 2,
-            stop_rule: "stop on falsifier or bounded budget".to_string(),
-            pit_rule_identity: "pit-rule-v1".to_string(),
-            cost_model_identity: "cost-model-v1".to_string(),
-            slippage_model_identity: "slippage-model-v1".to_string(),
-            capacity_model_identity: "capacity-model-v1".to_string(),
-            semantic_predecessor_frontier: Vec::new(),
-            protected_feedback_frontier: "protected-feedback-frontier-v1".to_string(),
-            independence_disposition: TrialFamilyIndependenceDispositionV1::Independent,
-            independence_basis_identity: "independence-basis-v1".to_string(),
-            frozen_falsifier_binding: digest('f'),
-            replay_execution_policy_v2: Some(catalog_v2),
-            replay_policy_catalog_v3: Some(catalog_v3.clone()),
-            decision_policy_v1: Some(
-                crate::iteration_decision::IterationDecisionPolicyBindingV1::seal(&catalog_v3)
-                    .unwrap(),
-            ),
-        }
     }
 
     fn repair_replay(

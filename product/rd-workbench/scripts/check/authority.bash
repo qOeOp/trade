@@ -215,7 +215,7 @@ grep -Fq 'GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request
 replay_api_relation_acl=$(sed -n '/^GRANT SELECT ON TABLE$/,/^FROM market_data_owner, market_data_reader;$/p' "$package_dir/postgres-init/10-migrate-authority-custody.sh")
 test "$(printf '%s' "$replay_api_relation_acl" | grep -Fc 'TO rd_exploratory_replay_api_owner;')" -eq 1
 test "$(printf '%s' "$replay_api_relation_acl" | grep -Fc 'FROM market_data_owner, market_data_reader;')" -eq 1
-for relation in rd_sealed_exploratory_replay_requests_v1 rd_owner_outbox_v1 rd_research_request_receipts_v1 rd_trial_families_v1 rd_trial_family_heads_v1 rd_artifact_trial_family_bindings_v1 rd_artifact_build_attempts_v1 rd_strategy_artifacts_v1 rd_trial_family_members_v1; do
+for relation in rd_sealed_exploratory_replay_requests_v1 rd_owner_outbox_v1 rd_research_request_receipts_v1 rd_trial_families_v1 rd_trial_family_heads_v1 rd_artifact_trial_family_bindings_v1 rd_artifact_build_attempts_v1 rd_strategy_artifacts_v1 rd_trial_family_members_v1 rd_successor_research_intents_v1; do
   test "$(printf '%s' "$replay_api_relation_acl" | grep -Fc "public.$relation")" -eq 2
 done
 grep -Fq "DO \$catalog_composer_constraint_manifest\$" "$package_dir/postgres-init/10-migrate-authority-custody.sh"

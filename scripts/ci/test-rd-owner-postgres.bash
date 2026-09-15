@@ -43,9 +43,9 @@ readonly rd_owner_postgres_tests=(
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_topology_fence_serializes_managed_acl_drift'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_mid_commit_failure_rolls_back_every_aggregate_row'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut'
+  'vibe-strategy-factory|vibe_strategy_factory|iteration_decision_postgres::postgres_acceptance_tests::successor_artifact_enters_exploratory_replay_with_exact_owner_custody'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody'
   'vibe-strategy-factory|vibe_strategy_factory|iteration_decision_postgres::postgres_acceptance_tests::repair_decision_action_and_market_data_request_commit_retry_resolve_and_rejection_are_atomic'
-  'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
   'vibe-strategy-factory|vibe_strategy_factory|replay_execution_profile_binding_v1::tests::verified_owner_readback_mints_provenance_and_wrong_coordinates_fail'
   'vibe-product-edge|vibe_product_edge|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation'
   'vibe-data|instrument_economic_terms_postgres_v1|atomic_exact_replay_restart_tamper_and_acl_fail_closed'
@@ -56,6 +56,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-qualification|vibe_qualification|postgres::postgres_tests::negative_protected_attempt_closure_is_atomic_retry_exact_and_eligibility_absent'
   'vibe-qualification|vibe_qualification|postgres::postgres_tests::diagnostic_protected_attempt_closure_is_atomic_and_creates_no_assessment_or_eligibility'
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed'
+  'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
   --locked
@@ -79,8 +80,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 38 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all thirty-eight ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 39 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all thirty-nine ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -101,9 +102,9 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[22]}" != *'|tests::postgres_result_topology_fence_serializes_managed_acl_drift' ]] ||
     [[ "${rd_owner_postgres_tests[23]}" != *'|tests::postgres_result_mid_commit_failure_rolls_back_every_aggregate_row' ]] ||
     [[ "${rd_owner_postgres_tests[24]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
-    [[ "${rd_owner_postgres_tests[25]}" != *'|tests::strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody' ]] ||
-    [[ "${rd_owner_postgres_tests[26]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::repair_decision_action_and_market_data_request_commit_retry_resolve_and_rejection_are_atomic' ]] ||
-    [[ "${rd_owner_postgres_tests[27]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]] ||
+    [[ "${rd_owner_postgres_tests[25]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::successor_artifact_enters_exploratory_replay_with_exact_owner_custody' ]] ||
+    [[ "${rd_owner_postgres_tests[26]}" != *'|tests::strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody' ]] ||
+    [[ "${rd_owner_postgres_tests[27]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::repair_decision_action_and_market_data_request_commit_retry_resolve_and_rejection_are_atomic' ]] ||
     [[ "${rd_owner_postgres_tests[28]}" != *'|replay_execution_profile_binding_v1::tests::verified_owner_readback_mints_provenance_and_wrong_coordinates_fail' ]] ||
     [[ "${rd_owner_postgres_tests[29]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]] ||
     [[ "${rd_owner_postgres_tests[30]}" != *'|atomic_exact_replay_restart_tamper_and_acl_fail_closed' ]] ||
@@ -113,7 +114,8 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[34]}" != *'|tests::postgres_protected_result_is_atomic_request_bound_and_qualification_sealed' ]] ||
     [[ "${rd_owner_postgres_tests[35]}" != *'|postgres::postgres_tests::negative_protected_attempt_closure_is_atomic_retry_exact_and_eligibility_absent' ]] ||
     [[ "${rd_owner_postgres_tests[36]}" != *'|postgres::postgres_tests::diagnostic_protected_attempt_closure_is_atomic_and_creates_no_assessment_or_eligibility' ]] ||
-    [[ "${rd_owner_postgres_tests[37]}" != *'|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed' ]]; then
+    [[ "${rd_owner_postgres_tests[37]}" != *'|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed' ]] ||
+    [[ "${rd_owner_postgres_tests[38]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
     return 1
   fi
@@ -181,10 +183,134 @@ check_nextest_graph_contract() {
     echo "ERROR: Program Host acceptance must use its canonical fresh PostgreSQL clone." >&2
     return 1
   fi
+  python3 - "${BASH_SOURCE[0]}" << 'PY'
+from pathlib import Path
+import re
+import sys
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+catalog_test = "catalog_admin_and_family_formation_are_atomic_and_fail_closed"
+poison_test = "postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation"
+array_open = "readonly rd_owner_postgres_tests=(\n"
+array_close = "\n)\nreadonly nextest_graph_args=("
+if source.count(array_open) != 1:
+    raise SystemExit("ERROR: ordered PostgreSQL test literal is unavailable.")
+array_start = source.index(array_open) + len(array_open)
+array_end = source.find(array_close, array_start)
+if array_end < 0:
+    raise SystemExit("ERROR: ordered PostgreSQL test literal boundary is unavailable.")
+array_body = source[array_start:array_end]
+entry_pattern = re.compile(r"  '([A-Za-z0-9_|:-]+)'")
+entries = []
+for line in array_body.splitlines():
+    if not line.strip():
+        continue
+    match = entry_pattern.fullmatch(line)
+    if match is None:
+        raise SystemExit(
+            "ERROR: every ordered PostgreSQL test must be one strict single-quoted literal."
+        )
+    fields = match.group(1).split("|")
+    if len(fields) != 3 or any(not field for field in fields):
+        raise SystemExit("ERROR: ordered PostgreSQL test literal must contain three fields.")
+    entries.append(tuple(fields))
+if len(entries) != 39:
+    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain thirty-nine entries.")
+if sum(test_name == poison_test for _, _, test_name in entries) != 1:
+    raise SystemExit(
+        "ERROR: recovery-sidecar poison test must occur exactly once as a parsed test name."
+    )
+loop_open = 'for test_selection in "${rd_owner_postgres_tests[@]}"; do\n'
+loop_close = "\ndone\n\nlegacy_replay_fingerprint_after="
+if source.count(loop_open) != 1:
+    raise SystemExit("ERROR: ordered PostgreSQL execution loop is unavailable.")
+loop_start = source.index(loop_open) + len(loop_open)
+loop_end = source.find(loop_close, loop_start)
+if loop_end < 0:
+    raise SystemExit("ERROR: ordered PostgreSQL execution loop boundary is unavailable.")
+loop_body = source[loop_start:loop_end]
+exact_filter = '  test_filter="package(${test_package}) & binary(${test_binary}) & test(=${test_name})"'
+filter_definitions = [
+    line for line in loop_body.splitlines() if re.match(r"\s*test_filter=", line)
+]
+if filter_definitions != [exact_filter]:
+    raise SystemExit("ERROR: ordered PostgreSQL loop must define one exact test filter.")
+route = (
+    f'''if [[ "$test_name" == '{catalog_test}' ]] ||\n'''
+    f'''    [[ "$test_name" == '{poison_test}' ]]; then'''
+)
+if loop_body.count(route) != 1:
+    raise SystemExit(
+        "ERROR: Product Edge recovery-sidecar poison test must share the catalog-admin clone route."
+    )
+route_start = loop_body.index(route)
+if loop_body.index(exact_filter) >= route_start:
+    raise SystemExit("ERROR: exact test filter must be defined before database routing.")
+pre_route_prefix = loop_body[:route_start]
+test_filter_tokens = re.findall(
+    r"(?<![A-Za-z0-9_])test_filter(?![A-Za-z0-9_])", pre_route_prefix
+)
+if len(test_filter_tokens) != 1:
+    raise SystemExit(
+        "ERROR: ordered PostgreSQL loop may touch test_filter only in its exact assignment."
+    )
+route_start += len(route)
+route_end = loop_body.find('\n  elif [[ "$test_name"', route_start)
+if route_end < 0:
+    raise SystemExit("ERROR: catalog-admin clone route boundary is unavailable.")
+route_body = loop_body[route_start:route_end]
+expected_overrides = (
+    ("VIBE_POSTGRES_TEST_DATABASE_NAME", '"$catalog_admin_database"'),
+    ("OPERATOR_AUTHORIZATION_TEST_DATABASE_URL", '"postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("PRODUCT_EDGE_TEST_DATABASE_URL", '"postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("RD_OWNER_TEST_DATABASE_URL", '"postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("RD_FACT_WRITER_TEST_DATABASE_URL", '"postgresql://rd_fact_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("MARKET_DATA_OWNER_TEST_DATABASE_URL", '"postgresql://market_data_owner:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("REPLAY_POLICY_CATALOG_ADMIN_TEST_DATABASE_URL", '"postgresql://replay_policy_catalog_admin_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("MARKET_DATA_RD_ROLE_SET_TEST_DATABASE_URL", '"postgresql://market_data_reader:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("VIBE_TEST_OWNER_TOPOLOGY_ADMIN_DATABASE_URL", '"postgresql://vibe_test_owner_topology_admin:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("QUALIFICATION_TEST_DATABASE_URL", '"postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("BACKTEST_TEST_DATABASE_URL", '"postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("INSTRUMENT_OWNER_TEST_DATABASE_URL", '"postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("INSTRUMENT_OWNER_DATABASE_URL", '"postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+)
+route_lines = route_body.splitlines()
+if route_lines[:2] != ["", "    env \\"]:
+    raise SystemExit("ERROR: catalog-admin clone route env preamble is unavailable.")
+try:
+    invocation_start = next(
+        index for index, line in enumerate(route_lines) if line.strip() == "cargo nextest run \\"
+    )
+except StopIteration:
+    raise SystemExit("ERROR: catalog-admin clone route nextest invocation is unavailable.")
+assignment_pattern = re.compile("\\s*([A-Z][A-Z0-9_]*)=(.*) \\\\")
+assignments = []
+for line in route_lines[2:invocation_start]:
+    match = assignment_pattern.fullmatch(line)
+    if match is None:
+        raise SystemExit("ERROR: catalog-admin clone route env preamble contains a non-assignment.")
+    assignments.append((match.group(1), match.group(2)))
+if tuple(assignments) != expected_overrides:
+    raise SystemExit(
+        "ERROR: catalog-admin clone route must retain the complete ordered database URL override set."
+    )
+expected_invocation = (
+    "cargo nextest run \\",
+    '--archive-file "$nextest_archive_file" \\',
+    '--profile "$nextest_profile" \\',
+    '"${nextest_execution_args[@]}" \\',
+    '-E "$test_filter"',
+)
+invocation = tuple(line.strip() for line in route_lines[invocation_start:])
+if invocation != expected_invocation:
+    raise SystemExit(
+        "ERROR: catalog-admin clone route must retain one exact selected-test nextest invocation."
+    )
+PY
   if ! rg -Uq \
-    "strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody'.*\n[[:space:]]+RUST_MIN_STACK=16777216.*\n[[:space:]]+cargo nextest run" \
+    "strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody'.*\n[[:space:]]+\[\[.*successor_artifact_enters_exploratory_replay_with_exact_owner_custody'.*\n[[:space:]]+\[\[.*positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic'.*\n[[:space:]]+RUST_MIN_STACK=16777216.*\n[[:space:]]+cargo nextest run" \
     "${BASH_SOURCE[0]}"; then
-    echo "ERROR: strategy source browser acceptance must use its admitted test-thread stack." >&2
+    echo "ERROR: large composed acceptances must use their admitted test-thread stack." >&2
     return 1
   fi
 }
@@ -433,6 +559,7 @@ check_exploratory_replay_read_fence_source() {
   python3 - \
     "$repository_root/crates/strategy_factory/src/exploratory_replay/postgres.rs" \
     "$repository_root/crates/rd_exploratory_replay_custody/src/lib.rs" \
+    "$repository_root/product/rd-workbench/postgres-init/10-migrate-authority-custody.sh" \
     "$repository_root/scripts/ci/test-rd-owner-postgres.bash" << 'PY'
 from hashlib import sha256
 from pathlib import Path
@@ -441,10 +568,12 @@ import sys
 
 postgres = Path(sys.argv[1]).read_text(encoding="utf-8")
 custody = Path(sys.argv[2]).read_text(encoding="utf-8")
-test_script = Path(sys.argv[3]).read_text(encoding="utf-8")
+migration = Path(sys.argv[3]).read_text(encoding="utf-8")
+test_script = Path(sys.argv[4]).read_text(encoding="utf-8")
 helper_signatures = (
     "verify_exploratory_replay_request_internal_v1",
     "verify_exploratory_replay_request_internal_v2",
+    "verify_exploratory_replay_request_internal_v3",
 )
 shared_lock = (
     "pg_catalog.pg_advisory_xact_lock_shared(\n"
@@ -468,6 +597,13 @@ for helper in helper_signatures:
     digest = sha256(source.encode("utf-8")).hexdigest()
     if f'"{digest}"' not in custody:
         raise SystemExit(f"ERROR: {helper} authenticated source digest is stale")
+    migration_source = re.search(
+        rf'-- BEGIN INTERNAL_VERIFY_SOURCE_V{version}.*?AS \$function\$(.*?)\$function\$;',
+        migration,
+        re.DOTALL,
+    )
+    if migration_source is None or migration_source.group(1) != source:
+        raise SystemExit(f"ERROR: {helper} authority migration source is stale")
 exclusive_lock = (
     'sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock('
     'pg_catalog.hashtextextended($1,0))")\n'
@@ -2218,10 +2354,10 @@ SQL
 }
 
 # The Catalog administrator, two replay migration filters, and Program Host acceptance use separate
-# fresh databases. The drain probe
-# removes receipt storage needed to validate its retained legacy attempts, so it
-# follows positive consumers. Keep the complete Instrument Owner storage/ACL oracle
-# last because its final inheritance fault intentionally poisons that private store.
+# fresh databases. In the shared database, run the complete Instrument Owner storage/ACL oracle only
+# after its consumers because its final inheritance fault poisons that private store. Keep the
+# destructive legacy PREPARED drain probe final because it removes receipt storage required by every
+# positive Artifact Owner consumer.
 for test_selection in "${rd_owner_postgres_tests[@]}"; do
   IFS='|' read -r test_package test_binary test_name <<< "$test_selection"
   test_filter="package(${test_package}) & binary(${test_binary}) & test(=${test_name})"
@@ -2237,7 +2373,8 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
   if [[ -n "$backtest_result_fault" ]]; then
     inject_backtest_result_fault "$backtest_result_fault"
   fi
-  if [[ "$test_name" == 'catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]]; then
+  if [[ "$test_name" == 'catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
+    [[ "$test_name" == 'postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
     env \
       VIBE_POSTGRES_TEST_DATABASE_NAME="$catalog_admin_database" \
       OPERATOR_AUTHORIZATION_TEST_DATABASE_URL="postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}" \
@@ -2297,7 +2434,9 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       --profile "$nextest_profile" \
       "${nextest_execution_args[@]}" \
       -E "$test_filter"
-  elif [[ "$test_name" == 'tests::strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody' ]]; then
+  elif [[ "$test_name" == 'tests::strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody' ]] ||
+    [[ "$test_name" == 'iteration_decision_postgres::postgres_acceptance_tests::successor_artifact_enters_exploratory_replay_with_exact_owner_custody' ]] ||
+    [[ "$test_name" == 'iteration_decision_postgres::postgres_acceptance_tests::positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic' ]]; then
     RUST_MIN_STACK=16777216 \
       cargo nextest run \
       --archive-file "$nextest_archive_file" \

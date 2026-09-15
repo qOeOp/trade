@@ -272,11 +272,82 @@ AS $function$
                        AND research.view_json->>'source_cut'='rd-exploration-cut-v1-' || pg_catalog.substring(active.v2_seal_digest,8)
                   ))
                )
+          ) AND NOT EXISTS (
+            SELECT 1
+              FROM public.rd_trial_families_v1 family
+              JOIN public.rd_research_request_receipts_v1 root_research
+                ON root_research.intent_json->>'intent_identity'=family.intent_identity
+              JOIN public.rd_successor_research_intents_v1 successor
+                ON successor.intent_identity=sealed.intent_identity
+               AND successor.trial_family_identity=family.trial_family_identity
+               AND successor.predecessor_intent_identity=family.intent_identity
+              JOIN public.rd_owner_outbox_v1 successor_outbox
+                ON successor_outbox.aggregate_identity=sealed.intent_identity
+               AND successor_outbox.event_kind='SUCCESSOR_RESEARCH_INTENT_COMMITTED_V1'
+             WHERE family.trial_family_identity=sealed.trial_family_identity
+               AND family.root_digest=sealed.frozen_json->>'trial_family_root_digest'
+               AND family.intent_identity<>sealed.intent_identity
+               AND root_research.receipt_json->>'disposition'='ACCEPTED'
+               AND root_research.view_json->>'availability'='AVAILABLE'
+               AND successor.intent_digest=sealed.frozen_json->>'intent_semantic_digest'
+               AND successor.receipt_json->>'receipt_identity'=sealed.frozen_json->>'research_receipt_identity'
+               AND successor.view_json->>'availability'='AVAILABLE'
+               AND successor.view_json->>'attempt_identity'=sealed.attempt_identity
+               AND successor.view_json->>'artifact_identity'=sealed.artifact_identity
+               AND successor.view_json->>'build_receipt_identity'=sealed.build_receipt_identity
+               AND successor.view_json->>'artifact_review_identity'=sealed.frozen_json->>'artifact_review_identity'
+               AND successor.view_json->>'schema_version'='2'
+               AND successor.view_json->>'phase'='EXPLORATION_ACTIVE'
+               AND EXISTS (
+                 SELECT 1
+                   FROM public.rd_sealed_exploratory_replay_requests_v1 active
+                  WHERE active.request_identity=successor.view_json->'exploration'->>'replay_request_identity'
+                    AND active.request_schema_version=2
+                    AND active.lifecycle_state IN ('FROZEN','REVOKED')
+                    AND active.trial_family_identity=sealed.trial_family_identity
+                    AND active.census_frontier_identity=sealed.census_frontier_identity
+                    AND active.artifact_identity=sealed.artifact_identity
+                    AND active.v2_meaning_digest=successor.view_json->'exploration'->>'replay_request_meaning_digest'
+                    AND active.v2_seal_digest=successor.view_json->'exploration'->>'replay_request_seal_digest'
+                    AND active.v2_receipt_json->>'receipt_identity'=successor.view_json->'exploration'->>'replay_receipt_identity'
+                    AND active.frozen_json->>'census_frontier_digest'=successor.view_json->'exploration'->>'census_frontier_digest'
+                    AND active.trial_family_identity=successor.view_json->'exploration'->>'trial_family_identity'
+                    AND active.census_frontier_identity=successor.view_json->'exploration'->>'census_frontier_identity'
+                    AND successor.view_json->>'source_cut'='rd-exploration-cut-v1-' || pg_catalog.substring(active.v2_seal_digest,8)
+               )
+               AND successor_outbox.payload_json->>'schema_version'='1'
+               AND successor_outbox.payload_json->>'intent_identity'=sealed.intent_identity
+               AND successor_outbox.payload_json->>'intent_digest'=sealed.frozen_json->>'intent_semantic_digest'
+               AND successor_outbox.payload_json->>'predecessor_intent_identity'=family.intent_identity
+               AND successor_outbox.payload_json->>'trial_family_identity'=family.trial_family_identity
+               AND successor_outbox.payload_json->>'census_frontier_identity'=sealed.census_frontier_identity
+               AND successor_outbox.payload_json->>'receipt_identity'<>''
+               AND successor_outbox.payload_json->>'request_identity'<>''
+               AND successor_outbox.payload_json->>'decision_identity'<>''
+               AND successor_outbox.payload_json->>'decision_digest' ~ '^sha256:[0-9a-f]{64}$'
+               AND successor_outbox.payload_json->>'result_identity'<>''
+               AND successor_outbox.payload_json->>'experiment_identity'<>''
+               AND successor_outbox.payload_json->>'experiment_digest' ~ '^sha256:[0-9a-f]{64}$'
+               AND successor_outbox.payload_digest ~ '^blake3:[0-9a-f]{64}$'
+               AND successor_outbox.event_identity='rd-owner-outbox-successor-research-intent-v1-' || successor_outbox.payload_digest
+               AND successor_outbox.committed_at_epoch_ms<=sealed.committed_at_epoch_ms
           ) OR NOT EXISTS (
             SELECT 1 FROM public.rd_trial_families_v1 family
              WHERE family.trial_family_identity=sealed.trial_family_identity
-               AND family.intent_identity=sealed.intent_identity
                AND family.root_digest=sealed.frozen_json->>'trial_family_root_digest'
+               AND (
+                 family.intent_identity=sealed.intent_identity
+                 OR EXISTS (
+                   SELECT 1 FROM public.rd_owner_outbox_v1 successor_outbox
+                    WHERE successor_outbox.aggregate_identity=sealed.intent_identity
+                      AND successor_outbox.event_kind='SUCCESSOR_RESEARCH_INTENT_COMMITTED_V1'
+                      AND successor_outbox.payload_json->>'schema_version'='1'
+                      AND successor_outbox.payload_json->>'intent_identity'=sealed.intent_identity
+                      AND successor_outbox.payload_json->>'intent_digest'=sealed.frozen_json->>'intent_semantic_digest'
+                      AND successor_outbox.payload_json->>'predecessor_intent_identity'=family.intent_identity
+                      AND successor_outbox.payload_json->>'trial_family_identity'=family.trial_family_identity
+                 )
+               )
           ) OR NOT EXISTS (
             SELECT 1 FROM public.rd_artifact_trial_family_bindings_v1 binding
              WHERE binding.binding_identity=sealed.artifact_family_binding_identity
@@ -311,6 +382,8 @@ AS $function$
               FROM public.rd_owner_outbox_v1 family_outbox
               JOIN public.rd_trial_families_v1 family
                 ON family.trial_family_identity=family_outbox.aggregate_identity
+              JOIN public.rd_research_request_receipts_v1 root_research
+                ON root_research.intent_json->>'intent_identity'=family.intent_identity
               JOIN public.rd_trial_family_members_v1 member
                 ON member.trial_family_identity=family.trial_family_identity
                AND member.ordinal=0
@@ -318,19 +391,32 @@ AS $function$
                AND family_outbox.event_kind='TRIAL_FAMILY_FROZEN_V1'
                AND family_outbox.payload_digest=sealed.frozen_json->>'trial_family_outbox_digest'
                AND family_outbox.event_identity=sealed.frozen_json->>'trial_family_outbox_event_identity'
-               AND family_outbox.event_identity='rd-owner-outbox-v1-' || pg_catalog.replace(sealed.frozen_json->>'census_frontier_digest','sha256:','')
+               AND family_outbox.event_identity='rd-owner-outbox-v1-' || pg_catalog.replace(
+                 CASE WHEN family.intent_identity=sealed.intent_identity
+                   THEN sealed.frozen_json->>'census_frontier_digest'
+                   ELSE pg_catalog.convert_from(family.initial_frontier_storage_bytes,'UTF8')::jsonb->>'frontier_digest'
+                 END,
+                 'sha256:',
+                 ''
+               )
                AND family_outbox.committed_at_epoch_ms=(sealed.frozen_json->>'trial_family_outbox_committed_at_epoch_ms')::bigint
                AND family_outbox.committed_at_epoch_ms=family.committed_at_epoch_ms
                AND family_outbox.payload_json=(
                  pg_catalog.jsonb_build_object(
                    'schema_version',1,
-                   'research_receipt_identity',sealed.frozen_json->>'research_receipt_identity',
-                   'intent_identity',sealed.intent_identity,
+                   'research_receipt_identity',root_research.receipt_json->>'receipt_identity',
+                   'intent_identity',family.intent_identity,
                    'trial_family_identity',sealed.trial_family_identity,
                    'root_receipt_identity',family.root_receipt_json->>'receipt_identity',
                    'membership_receipt_identity',member.membership_receipt_json->>'receipt_identity',
-                   'census_frontier_identity',sealed.census_frontier_identity,
-                   'census_frontier_digest',sealed.frozen_json->>'census_frontier_digest'
+                   'census_frontier_identity',CASE WHEN family.intent_identity=sealed.intent_identity
+                     THEN sealed.census_frontier_identity
+                     ELSE pg_catalog.convert_from(family.initial_frontier_storage_bytes,'UTF8')::jsonb->>'frontier_identity'
+                   END,
+                   'census_frontier_digest',CASE WHEN family.intent_identity=sealed.intent_identity
+                     THEN sealed.frozen_json->>'census_frontier_digest'
+                     ELSE pg_catalog.convert_from(family.initial_frontier_storage_bytes,'UTF8')::jsonb->>'frontier_digest'
+                   END
                  ) || CASE
                    WHEN family.root_json->'policy' ? 'replay_execution_policy_v2'
                    THEN pg_catalog.jsonb_build_object(
@@ -348,6 +434,60 @@ AS $function$
                    ELSE '{}'::pg_catalog.jsonb
                  END
                )
+          ) OR (
+            EXISTS (
+              SELECT 1 FROM public.rd_successor_research_intents_v1 successor
+               WHERE successor.intent_identity=sealed.intent_identity
+                 AND successor.trial_family_identity=sealed.trial_family_identity
+            )
+            AND NOT EXISTS (
+              SELECT 1
+                FROM public.rd_trial_family_heads_v1 family_head
+                JOIN public.rd_trial_family_attempt_cuts_v2 census_cut
+                  ON census_cut.trial_family_identity=family_head.trial_family_identity
+                 AND census_cut.census_frontier_identity=family_head.frontier_identity
+                JOIN public.rd_owner_outbox_v1 census_outbox
+                  ON census_outbox.aggregate_identity=census_cut.census_frontier_identity
+                 AND census_outbox.event_kind='TRIAL_FAMILY_CENSUS_ADVANCED_V2'
+                JOIN public.rd_owner_outbox_v1 family_outbox
+                  ON family_outbox.aggregate_identity=family_head.trial_family_identity
+                 AND family_outbox.event_kind='TRIAL_FAMILY_FROZEN_V1'
+               WHERE family_head.trial_family_identity=sealed.trial_family_identity
+                 AND family_head.frontier_identity=sealed.census_frontier_identity
+                 AND family_head.frontier_digest=sealed.frozen_json->>'census_frontier_digest'
+                 AND family_head.frontier_json=census_cut.census_frontier_json
+                 AND family_head.frontier_storage_bytes=census_cut.census_frontier_storage_bytes
+                 AND family_head.frontier_storage_digest=census_cut.census_frontier_storage_digest
+                 AND census_cut.census_frontier_json->>'schema_version'='2'
+                 AND census_cut.census_frontier_json->>'trial_family_identity'=sealed.trial_family_identity
+                 AND census_cut.census_frontier_json->>'frontier_identity'=sealed.census_frontier_identity
+                 AND census_cut.census_frontier_json->>'frontier_digest'=sealed.frozen_json->>'census_frontier_digest'
+                 AND census_cut.census_frontier_json->>'attempt_frontier_identity'=census_cut.attempt_frontier_identity
+                 AND census_cut.census_frontier_json->>'candidate_set_frontier_identity'=census_cut.candidate_set_frontier_identity
+                 AND census_outbox.event_identity='rd-owner-outbox-v2-' || pg_catalog.replace(family_head.frontier_digest,'sha256:','')
+                 AND census_outbox.payload_digest ~ '^sha256:[0-9a-f]{64}$'
+                 AND census_outbox.committed_at_epoch_ms=census_cut.committed_at_epoch_ms
+                 AND census_outbox.payload_json=(
+                   pg_catalog.jsonb_build_object(
+                     'schema_version',2,
+                     'research_receipt_identity',family_outbox.payload_json->>'research_receipt_identity',
+                     'trial_family_identity',sealed.trial_family_identity,
+                     'census_frontier_identity',sealed.census_frontier_identity,
+                     'census_frontier_digest',sealed.frozen_json->>'census_frontier_digest',
+                     'attempt_frontier_identity',census_cut.attempt_frontier_identity,
+                     'attempt_frontier_digest',census_cut.attempt_frontier_json->>'frontier_digest',
+                     'candidate_set_frontier_identity',census_cut.candidate_set_frontier_identity,
+                     'candidate_set_frontier_digest',census_cut.candidate_set_frontier_json->>'frontier_digest'
+                   ) || CASE
+                     WHEN census_cut.census_frontier_json ? 'replay_policy_catalog_v3'
+                     THEN pg_catalog.jsonb_build_object(
+                       'replay_policy_catalog_v3',
+                       census_cut.census_frontier_json->'replay_policy_catalog_v3'
+                     )
+                     ELSE '{}'::pg_catalog.jsonb
+                   END
+                 )
+            )
           ) OR NOT EXISTS (
             SELECT 1
               FROM public.rd_owner_outbox_v1 artifact_outbox
@@ -637,13 +777,38 @@ AS $function$
           SELECT * INTO STRICT sealed
             FROM public.rd_sealed_exploratory_replay_requests_v1
            WHERE request_identity=requested_request_identity;
-          SELECT * INTO STRICT research
-            FROM public.rd_research_request_receipts_v1
-           WHERE intent_json->>'intent_identity'=sealed.intent_identity;
-          SELECT * INTO STRICT family
-            FROM public.rd_trial_families_v1
-           WHERE trial_family_identity=sealed.trial_family_identity
-             AND intent_identity=sealed.intent_identity;
+          SELECT source.* INTO STRICT research
+            FROM (
+              SELECT initial.request_identity,initial.view_json,
+                     initial.request_json,initial.receipt_json,initial.intent_json,
+                     initial.request_storage_bytes,initial.request_storage_digest,
+                     initial.receipt_storage_bytes,initial.receipt_storage_digest,
+                     initial.intent_storage_bytes,initial.intent_storage_digest
+                FROM public.rd_research_request_receipts_v1 initial
+               WHERE initial.intent_json->>'intent_identity'=sealed.intent_identity
+              UNION ALL
+              SELECT successor.request_identity,successor.view_json,
+                     successor.request_json,successor.receipt_json,successor.intent_json,
+                     successor.request_storage_bytes,successor.request_storage_digest,
+                     successor.receipt_storage_bytes,successor.receipt_storage_digest,
+                     successor.intent_storage_bytes,successor.intent_storage_digest
+                FROM public.rd_successor_research_intents_v1 successor
+               WHERE successor.intent_identity=sealed.intent_identity
+                 AND successor.trial_family_identity=sealed.trial_family_identity
+            ) source;
+          SELECT root.* INTO STRICT family
+            FROM public.rd_trial_families_v1 root
+           WHERE root.trial_family_identity=sealed.trial_family_identity
+             AND (
+               root.intent_identity=sealed.intent_identity
+               OR EXISTS (
+                 SELECT 1
+                   FROM public.rd_successor_research_intents_v1 successor
+                  WHERE successor.intent_identity=sealed.intent_identity
+                    AND successor.trial_family_identity=sealed.trial_family_identity
+                    AND successor.predecessor_intent_identity=root.intent_identity
+               )
+             );
           SELECT * INTO STRICT member
             FROM public.rd_trial_family_members_v1
            WHERE trial_family_identity=sealed.trial_family_identity AND ordinal=0;
@@ -855,10 +1020,12 @@ GRANT SELECT ON TABLE
   public.rd_research_request_receipts_v1,
   public.rd_trial_families_v1,
   public.rd_trial_family_heads_v1,
+  public.rd_trial_family_attempt_cuts_v2,
   public.rd_artifact_trial_family_bindings_v1,
   public.rd_artifact_build_attempts_v1,
   public.rd_strategy_artifacts_v1,
-  public.rd_trial_family_members_v1
+  public.rd_trial_family_members_v1,
+  public.rd_successor_research_intents_v1
 TO rd_exploratory_replay_api_owner;
 REVOKE ALL ON TABLE
   public.rd_sealed_exploratory_replay_requests_v1,
@@ -866,10 +1033,12 @@ REVOKE ALL ON TABLE
   public.rd_research_request_receipts_v1,
   public.rd_trial_families_v1,
   public.rd_trial_family_heads_v1,
+  public.rd_trial_family_attempt_cuts_v2,
   public.rd_artifact_trial_family_bindings_v1,
   public.rd_artifact_build_attempts_v1,
   public.rd_strategy_artifacts_v1,
-  public.rd_trial_family_members_v1
+  public.rd_trial_family_members_v1,
+  public.rd_successor_research_intents_v1
 FROM market_data_owner, market_data_reader;
 CREATE SCHEMA IF NOT EXISTS backtest_owner_api AUTHORIZATION backtest_custodian;
 ALTER SCHEMA backtest_owner_api OWNER TO backtest_custodian;
@@ -3132,7 +3301,7 @@ DECLARE
   locked_basis record;
   locked_outbox record;
 BEGIN
-  IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
+  IF pg_catalog.current_setting('transaction_isolation') NOT IN ('read committed','serializable') THEN RETURN NULL; END IF;
   SELECT basis_identity, request_identity, principal, request_scope_json, lineage_digest,
          basis_digest, basis_json, receipt_json, committed_at_epoch_ms
     INTO locked_basis

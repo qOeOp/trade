@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
+use vibe_product_edge::{ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionReadbackV1};
 
 use crate::{
     IterationExperimentModeV1,
@@ -12,6 +13,37 @@ use crate::{
     },
 };
 
+pub const SUCCESSOR_RESEARCH_INTENT_OPERATION_V1: &str =
+    "successor_research_intent.submit_or_resolve.v1";
+pub const SUCCESSOR_RESEARCH_INTENT_SCHEMA_V1: &str = "rd-successor-research-intent-composition-v1";
+pub const SUCCESSOR_RESEARCH_INTENT_MUTATION_EFFECT_V1: &str =
+    "R_AND_D_SUCCESSOR_RESEARCH_INTENT_MUTATION_V1";
+
+/// Product Edge input for the one visible action that creates a Decision-selected successor.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SuccessorResearchIntentOperationRequestV1 {
+    pub request_identity: String,
+    pub decision_identity: String,
+    pub result_identity: String,
+    pub goal: UnsourcedResearchGoalV1,
+}
+
+impl SuccessorResearchIntentOperationRequestV1 {
+    pub fn with_admission(
+        self,
+        admission: ProductEdgeAdmissionLocatorV1,
+    ) -> SuccessorResearchIntentCompositionRequestV1 {
+        SuccessorResearchIntentCompositionRequestV1 {
+            request_identity: self.request_identity,
+            decision_identity: self.decision_identity,
+            result_identity: self.result_identity,
+            goal: self.goal,
+            admission,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SuccessorResearchIntentCompositionRequestV1 {
@@ -19,6 +51,18 @@ pub struct SuccessorResearchIntentCompositionRequestV1 {
     pub decision_identity: String,
     pub result_identity: String,
     pub goal: UnsourcedResearchGoalV1,
+    pub admission: ProductEdgeAdmissionLocatorV1,
+}
+
+impl SuccessorResearchIntentCompositionRequestV1 {
+    pub fn operation_request(&self) -> SuccessorResearchIntentOperationRequestV1 {
+        SuccessorResearchIntentOperationRequestV1 {
+            request_identity: self.request_identity.clone(),
+            decision_identity: self.decision_identity.clone(),
+            result_identity: self.result_identity.clone(),
+            goal: self.goal.clone(),
+        }
+    }
 }
 
 /// Immutable successor Intent. Its sources and all lineage bindings come from locked Owner facts.
@@ -104,6 +148,7 @@ pub(crate) struct SuccessorResearchIntentSourceV1 {
 struct IntentMeaningV1<'a> {
     schema_version: u16,
     request_identity: &'a str,
+    admission: &'a ProductEdgeAdmissionLocatorV1,
     goal: &'a SourcedResearchGoalV2,
     source: &'a SuccessorResearchIntentSourceV1,
     frozen_at_epoch_ms: u64,
@@ -183,6 +228,7 @@ pub(crate) fn issue_successor_research_intent_v1(
         &IntentMeaningV1 {
             schema_version: 1,
             request_identity: &request.request_identity,
+            admission: &request.admission,
             goal: &goal,
             source: &source,
             frozen_at_epoch_ms: committed_at_epoch_ms,
@@ -313,6 +359,9 @@ fn validate_request(
         source.independence_basis_identity.as_str(),
         source.protected_feedback_projection_identity.as_str(),
         source.experiment_identity.as_str(),
+        request.admission.request_identity.as_str(),
+        request.admission.admission_identity.as_str(),
+        request.admission.admission_digest.as_str(),
     ] {
         if !valid_identity(value) {
             return Err(SuccessorResearchIntentErrorV1::Invalid(
@@ -337,9 +386,42 @@ fn validate_request(
 
     if request.decision_identity != source.decision_identity
         || request.result_identity != source.result_identity
+        || request.admission.request_identity != request.request_identity
     {
         return Err(SuccessorResearchIntentErrorV1::Invalid(
             "request does not bind the locked Decision",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn successor_research_intent_semantic_digest_v1(
+    request: &SuccessorResearchIntentCompositionRequestV1,
+) -> Result<String, SuccessorResearchIntentErrorV1> {
+    canonical_digest("rd.successor-research-intent-request.v1", request)
+}
+
+pub(crate) fn verify_successor_research_intent_admission_v1(
+    admission: &ProductEdgeAdmissionReadbackV1,
+    request: &SuccessorResearchIntentCompositionRequestV1,
+) -> Result<(), SuccessorResearchIntentErrorV1> {
+    let admitted = admission.request();
+    let payload = serde_json::to_value(request.operation_request())
+        .map_err(|error| SuccessorResearchIntentErrorV1::Encoding(error.to_string()))?;
+    if admission.locator() != &request.admission
+        || admitted.request_identity != request.request_identity
+        || admitted.operation != SUCCESSOR_RESEARCH_INTENT_OPERATION_V1
+        || admitted.operation_schema != SUCCESSOR_RESEARCH_INTENT_SCHEMA_V1
+        || admitted.target_owner != crate::product_edge::RESEARCH_OWNER_V1
+        || admitted.typed_payload != payload
+        || !matches!(admitted.requested_effects.as_slice(), [effect] if effect == SUCCESSOR_RESEARCH_INTENT_MUTATION_EFFECT_V1)
+        || !admission
+            .authorized_scope()
+            .iter()
+            .any(|scope| scope == crate::product_edge::RESEARCH_SCOPE_V1)
+    {
+        return Err(SuccessorResearchIntentErrorV1::Invalid(
+            "canonical Product Edge successor admission mismatch",
         ));
     }
     Ok(())
@@ -504,6 +586,11 @@ mod tests {
                 required_data: vec!["sealed market bars".into()],
                 cost_assumption: "Canonical cost model remains fixed.".into(),
                 capacity_assumption: "Canonical capacity model remains fixed.".into(),
+            },
+            admission: ProductEdgeAdmissionLocatorV1 {
+                request_identity: "successor-request-0001".into(),
+                admission_identity: "successor-admission-0001".into(),
+                admission_digest: digest('9'),
             },
         }
     }

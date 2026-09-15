@@ -225,7 +225,7 @@ fn native_source_storage(
 
 pub(crate) const NATIVE_SOURCE_STORAGE_FUNCTION_V2: &str =
     "rd_owner_api.resolve_native_replay_source_storage_v2(text,text,text,text)";
-pub(crate) const NATIVE_SOURCE_STORAGE_SOURCE_MD5_V2: &str = "ab58d40fc76843f1b35d91f197c79c5e";
+pub(crate) const NATIVE_SOURCE_STORAGE_SOURCE_MD5_V2: &str = "b645c35b073829d6a04c85c6c2516ef5";
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2938,7 +2938,7 @@ async fn load_research_family_in_transaction(
     Ok(())
 }
 
-fn validate_historical_view(
+pub(crate) fn validate_historical_view(
     view: &ResearchViewV1,
     initial: &ResearchViewV1,
 ) -> Result<(), ResearchGoalOwnerError> {

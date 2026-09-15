@@ -5125,8 +5125,9 @@ async fn peek_current_research_for_artifact(
     transaction: &mut Transaction<'_, Postgres>,
     intent_identity: &str,
 ) -> Result<PeekCurrentResearchEnvelopeV1, ProductEdgeError> {
-    let value: Option<serde_json::Value> =
-        sqlx::query_scalar("SELECT rd_owner_api.peek_current_research_for_artifact_v1($1)")
+    let value: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT COALESCE(rd_owner_api.peek_current_research_for_artifact_v1($1), rd_owner_api.peek_current_successor_research_for_artifact_v1($1))",
+    )
             .bind(intent_identity)
             .fetch_one(&mut **transaction)
             .await
@@ -5151,8 +5152,9 @@ async fn lock_current_research_for_artifact(
     intent_identity: &str,
     peeked: &PeekCurrentResearchEnvelopeV1,
 ) -> Result<LockedCurrentResearchEnvelopeV1, ProductEdgeError> {
-    let value: Option<serde_json::Value> =
-        sqlx::query_scalar("SELECT rd_owner_api.lock_current_research_for_artifact_v1($1,$2,$3)")
+    let value: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT COALESCE(rd_owner_api.lock_current_research_for_artifact_v1($1,$2,$3), rd_owner_api.lock_current_successor_research_for_artifact_v1($1,$2,$3))",
+    )
             .bind(intent_identity)
             .bind(&peeked.evidence.evidence_identity)
             .bind(&peeked.evidence_digest)
