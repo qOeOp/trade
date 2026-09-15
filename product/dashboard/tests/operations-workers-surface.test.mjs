@@ -136,6 +136,7 @@ test("Workers reuses one contextual Run preview without creating another route o
   assert.match(workers, /selected\?\.worker_identity === previewReturnWorkerIdentity/u);
   assert.match(workers, /backLabel="Back to service"/u);
   assert.equal((workers.match(/<DetailSheet/g) ?? []).length, 1);
+  assert.match(workers, /onClose=\{\(\) => \{[\s\S]*setPreviewRunIdentity\(null\);[\s\S]*setPreviewReturnWorkerIdentity\(null\);[\s\S]*\}\}/u);
 });
 
 test("Next worker page and API decode the same normalized identity and reject aliases before store reads", async () => {
