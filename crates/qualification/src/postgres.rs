@@ -748,7 +748,7 @@ async fn verify_existing_attempt_public_terminal_source_v1(
     let row = sqlx::query(
         "SELECT disposition_digest,status,request_identity,result_identity,attempt_identity,holdout_reservation_identity,committed_at_epoch_ms \
          FROM public.qualification_protected_attempt_dispositions_v1 \
-         WHERE disposition_identity=$1 FOR SHARE",
+         WHERE disposition_identity=$1",
     )
     .bind(&current.native_source_identity)
     .fetch_optional(&mut **transaction)
@@ -5574,6 +5574,57 @@ mod postgres_tests {
 
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn prior_attempt_source_read_preserves_append_only_writer_acl() {
+        let source = include_str!("postgres.rs");
+        let verifier = source
+            .split_once("async fn verify_existing_attempt_public_terminal_source_v1(")
+            .expect("prior attempt source verifier")
+            .1
+            .split_once("impl PostgresQualificationOwnerV1")
+            .expect("verifier boundary")
+            .0;
+        assert!(verifier.contains("FROM public.qualification_protected_attempt_dispositions_v1"));
+        assert!(verifier.contains("WHERE disposition_identity=$1"));
+        assert!(!verifier.contains("FOR SHARE"));
+        assert!(!verifier.contains("FOR UPDATE"));
+
+        let migration_admission = source
+            .split_once("    async fn migrate(&self) -> Result<(), QualificationOwnerError> {")
+            .expect("Qualification writer admission")
+            .1
+            .split_once("    /// Resolve one sealed R&D basis")
+            .expect("admission boundary")
+            .0;
+        let select_insert_prefix = migration_admission
+            .split_once("CROSS JOIN pg_catalog.unnest(ARRAY['SELECT','INSERT']) privilege_name)")
+            .expect("append-only allowlist")
+            .0;
+        let select_insert_clause = select_insert_prefix
+            .rsplit_once("AND (SELECT pg_catalog.bool_and")
+            .expect("append-only allowlist clause")
+            .1;
+        assert!(
+            select_insert_clause
+                .contains("'public.qualification_protected_attempt_dispositions_v1'")
+        );
+
+        let mutation_deny_prefix = migration_admission
+            .split_once(
+                "CROSS JOIN pg_catalog.unnest(ARRAY['UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) privilege_name)",
+            )
+            .expect("append-only denylist")
+            .0;
+        let mutation_deny_clause = mutation_deny_prefix
+            .rsplit_once("AND NOT (SELECT pg_catalog.bool_or")
+            .expect("append-only denylist clause")
+            .1;
+        assert!(
+            mutation_deny_clause
+                .contains("'public.qualification_protected_attempt_dispositions_v1'")
+        );
+    }
 
     #[rstest]
     fn forged_raw_envelope_cannot_construct_a_positive_readback() {
