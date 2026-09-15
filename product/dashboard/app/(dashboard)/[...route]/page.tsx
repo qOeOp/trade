@@ -41,9 +41,6 @@ export default async function DashboardPage({
   const researchCandidateOutcome = query.outcome === "ready"
     ? "ready"
     : query.outcome === "awaiting" ? "awaiting" : "all";
-  const researchDecisionFilter = query.decision === "accepted"
-    ? "accepted"
-    : query.decision === "rejected" ? "rejected" : "all";
   const artifactCandidateKind = query.kind === "bindings" ? "bindings" : "attempts";
   const artifactCandidateAvailability = query.availability === "reviewable" ? "reviewable" : "all";
   const scheduleView = query.view === "current" ? "current" : "history";
@@ -58,7 +55,6 @@ export default async function DashboardPage({
     researchDirectoryView={researchDirectoryView}
     artifactDirectoryView={artifactDirectoryView}
     researchCandidateOutcome={researchCandidateOutcome}
-    researchDecisionFilter={researchDecisionFilter}
     artifactCandidateKind={artifactCandidateKind}
     artifactCandidateAvailability={artifactCandidateAvailability}
     scheduleView={scheduleView}

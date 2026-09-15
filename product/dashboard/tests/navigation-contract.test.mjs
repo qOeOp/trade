@@ -54,7 +54,7 @@ test("only the current bilingual completeness closure is drawable exact", () => 
     .filter(({ href }) => maturityFor(href) === "DRAWABLE_EXACT")
     .map(({ href }) => href);
   assert.deepEqual(exact, [
-    "/rd", "/rd/research", "/rd/artifacts", "/rd/composer", "/rd/decisions",
+    "/rd", "/rd/research", "/rd/artifacts", "/rd/composer",
     "/backtest",
     "/runtime", "/runtime/generations", "/runtime/checkpoints", "/runtime/incidents",
     "/portfolio", "/portfolio/exposure", "/portfolio/capacity", "/portfolio/attribution",
@@ -65,7 +65,7 @@ test("only the current bilingual completeness closure is drawable exact", () => 
 
 test("all remaining pages fail closed", () => {
   for (const href of [
-    "/dashboard", "/rd/hypotheses",
+    "/dashboard", "/rd/hypotheses", "/rd/decisions",
     "/operations/event-rail", "/operations/telemetry", "/operations/alerts",
   ]) {
     assert.equal(maturityFor(href), "BLUEPRINT_ONLY_NOT_IMPLEMENTABLE");

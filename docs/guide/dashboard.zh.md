@@ -374,32 +374,10 @@ join。只有 inventory request-identity set 与页面独立渲染的 custody se
 candidate directory 伪装成成功空集。只有 `outcome_ready` row 可以声称已有 Owner outcome；awaiting row 打开
 精确 request status，unavailable row 不提供 false action。未知 `outcome` value fail back 到 `All requests`。
 
-### Research 决策历史
-
-`ResearchDecisionDirectory` 是 `/rd/decisions` 的精确只读 `P` surface，只回答一个用户问题：哪些已完成的
-Research decision 被 accepted 或 rejected，同时把尚无 result 的 request 明确分开。它复用同一组经认证的
-`/api/rd/research/outcome-inventory` 与 `/api/rd/historical-custodies` GET，不新增 Owner route、database query、
-effect 或第二套 decision state machine。
-
-只有两个 projection 都 available 且 complete、inventory 没有 unavailable item read，并且其精确 request
-identity set 与单独读取的 custody set 一致时，页面才能正向渲染。每个 `outcome_ready` item 必须精确投影一个
-`accepted | rejected` decision。当前 Owner resolution 标记为 `Current`；pre-current quarantine 只使用其精确
-`historicalDisposition`，并显式标为 `Historical`，绝不能冒充 current Iteration decision。任何 decision 缺失、
-identity mismatch、partial cut、unavailable item、malformed response 或 transport failure 都撤回全部正向 count
-和 row，进入保持几何的单一 unavailable state。
-
-route 顶部使用一张共享双分组 CompactStatusBar：`decisions` 包含 `accepted` 与 `rejected`，`requests` 包含
-`decided` 与 `waiting`；accepted、rejected、waiting 使用共享语义状态色。每个 value 都是安静的 canonical
-link：accepted/rejected 选择 `?decision=accepted|rejected`，decided 返回未筛选 directory，waiting 打开
-`/rd/research/?outcome=awaiting`。未知 query value 必须退回 `All`。
-
-全宽 PanelFrame header 依次包含 eyebrow、`Research decisions`、单行 purpose、共享 info control 与 compact
-`Refresh`。body toolbar 左侧为 `All / Accepted / Rejected`，右侧为 request search。表格按顺序只有四个左对齐
-column：`Research request`、`Decision`、`Record`、`Request recorded`。Research request 复用共享
-EntityReference 原子并打开既有 exact readback route；`Request recorded` 是不可变 custody timestamp，不能
-伪装为 decision time。表格默认按最新 request custody 排序，每页 20 行并提供 20/50 选项；窄屏横向滚动；
-reading、合法 empty、filtered empty 与 unavailable 保持同一 card geometry。footer 报告 completed decision
-与 waiting request。页面不存在 approve、reject、resolve、successor、edit、submit 或 Windmill action。
+inventory 的 `accepted | rejected | quarantined` resolution 是 Research request admission custody，不是科研
+结论，也不是 Iteration Decision。它不能把 hypothesis 标为 active 或 falsified，不能填充 `/rd/decisions`，
+也不能启用 Decision action。在专用 typed IterationDecision Owner read 绑定精确 decision、evidence、result 与
+lineage identity 前，该 route 必须保持 unavailable。
 
 verified Research directory、Research exact readback、Artifact exact readback、Source Intake exact readback、
 Develop Composer exact readback 与 Exploratory Replay V2 exact point-read GET 由统一的
@@ -1966,7 +1944,7 @@ Route name、`S/P/Q/T` slot assignment 或 PascalCase label 本身都不是可�
 
 | 完整度状态                            | 当前 page 或 surface                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | 准入含义                                                                                                                                                                                                                                                         |
 | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DRAWABLE_EXACT`                      | Operations Runs `/operations`、Run Detail `/operations/runs/:runId`、Workers `/operations/workers` 与 `/operations/workers/:workerId`、Schedules `/operations/schedules`、Service Logs `/operations/service-logs`、Audit `/operations/audit`；R&D Intake `/rd` 与 Develop Composer `/rd/composer` 精确回读工作台、Research directory `/rd/research`、精确回读 `/rd/research/:requestIdentity`、Research decision history `/rd/decisions`、Artifacts `/rd/artifacts`；Backtest Replay 请求与结果回读 `/backtest`；Market Data `/data` 与 `/data/pit-catalog`；全部四个 Runtime route | 本章固定 route slot、内部 field/column 顺序、尺寸或 responsive transformation、state geometry 与 button 顺序。Fail‑closed route 可以用固定 unavailable/not‑ready value 绘制；该状态不代表其 backend 或 Dashboard consumer available                              |
+| `DRAWABLE_EXACT`                      | Operations Runs `/operations`、Run Detail `/operations/runs/:runId`、Workers `/operations/workers` 与 `/operations/workers/:workerId`、Schedules `/operations/schedules`、Service Logs `/operations/service-logs`、Audit `/operations/audit`；R&D Intake `/rd` 与 Develop Composer `/rd/composer` 精确回读工作台、Research directory `/rd/research` 与精确回读 `/rd/research/:requestIdentity`、Artifacts `/rd/artifacts`；Backtest Replay 请求与结果回读 `/backtest`；Market Data `/data` 与 `/data/pit-catalog`；全部四个 Runtime route | 本章固定 route slot、内部 field/column 顺序、尺寸或 responsive transformation、state geometry 与 button 顺序。Fail‑closed route 可以用固定 unavailable/not‑ready value 绘制；该状态不代表其 backend 或 Dashboard consumer available                              |
 | `DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` | R&D Intake `/rd` 已准入精确回读工作台之外的 composer 与 authority‑resolution panel                                                                                                                                                                                                                                                                                                                                                                                                                                                        | 具名 content/detail region 已精确，但其外围 route list 仍缺少 summary label、table column、row action、sort、pagination 或 loading‑row geometry 中的一项或多项；更广 surface 不可绘制、不可实现                                                                  |
 | `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`    | Registry 中其他全部完整 route，明确包括 Event Rail、Telemetry 与 Alerts                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Registry 只固定 navigation position、route slot、具名 page‑local composite 与 button intent。无人值守 Agent 不得从 component‑like name 或已排除的 Windmill/native layout 推断缺失的 list behavior、timeline row、responsive table transformation 或内部 geometry |
 
@@ -1993,12 +1971,12 @@ deployment 仍未验证；`ArtifactRequestAdmissionPanel` 在 bounded server pro
 固定 unavailable；actual provider execution 仍为 `NOT_ADMITTED`。该规则只解析 status，不改变 registry 中
 固定的 panel、button 或 state geometry。
 
-当前准入的 `/rd`、`/rd/composer`、`/rd/research`、`/rd/research/:requestIdentity`、`/rd/decisions` 与 `/rd/artifacts` route，
+当前准入的 `/rd`、`/rd/composer`、`/rd/research`、`/rd/research/:requestIdentity` 与 `/rd/artifacts` route，
 以及 Artifact operational exact-readback，都是有界只读 surface；在实现层面，它们覆盖下方更宽泛的未来
 Intake、Research 与 Artifacts registry 行。五个 route 都没有
 summary strip 或分栏 detail pane，唯一 `P` surface 分别是 `SourceIntakeReadbackWorkbench`、
-`DevelopComposerReadbackWorkbench`、`ResearchDirectory`、`ResearchReadbackWorkspace`、
-`ResearchDecisionDirectory` 与 `ArtifactDirectory`。Intake 本切片没有 directory、editable composer 或正向
+`DevelopComposerReadbackWorkbench`、`ResearchDirectory`、`ResearchReadbackWorkspace` 与
+`ArtifactDirectory`。Intake 本切片没有 directory、editable composer 或正向
 action；Research detail 使用独立 identity-bound URL 且没有正向 action；Artifact 精确详情也继续使用独立的
 identity-bound URL。registry 行中更广的 composer、Research admission/outcome action、receipt timeline、
 S1 custody、review、binding、

@@ -64,7 +64,7 @@ const exactRoutes = new Set([
   "/operations/workers", "/operations/workers/example", "/operations/schedules", "/operations/service-logs", "/operations/audit",
   "/runtime", "/runtime/generations", "/runtime/checkpoints", "/runtime/incidents",
   "/portfolio", "/portfolio/exposure", "/portfolio/capacity", "/portfolio/attribution",
-  "/rd", "/rd/intake/new", "/rd/composer", "/rd/research", "/rd/artifacts", "/rd/decisions", "/backtest", "/settings/access",
+  "/rd", "/rd/intake/new", "/rd/composer", "/rd/research", "/rd/artifacts", "/backtest", "/settings/access",
 ]);
 /** @type {Set<string>} */
 const detailOnlyRoutes = new Set([]);
@@ -112,7 +112,6 @@ export const exactBlueprints = {
   "/rd/composer": { summaries: [], primary: "DevelopComposerReadbackWorkbench", context: null, terminal: "OwnerUnavailable", state: "IMPLEMENTATION_ADMITTED - OWNER_POINT_READ_ONLY - NO_RUN_RESOLVE_OR_EDIT" },
   "/rd/research": { summaries: [], primary: "VerifiedResearchDirectory", context: null, terminal: "OwnerUnavailable", state: "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_SUBMIT_OR_RESOLVE" },
   "/rd/artifacts": { summaries: [], primary: "VerifiedArtifactDirectory", context: null, terminal: "OwnerUnavailable", state: "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_BUILD_OR_EXECUTION" },
-  "/rd/decisions": { summaries: ["Accepted", "Rejected", "Decided", "Waiting"], primary: "ResearchDecisionDirectory", context: null, terminal: "OwnerUnavailable", state: "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_DECISION_MUTATION" },
   "/operations/schedules": { summaries: ["Configured", "Due at observation", "Observed runs"], primary: "ShadowScheduleCalendarOrTable", context: "ReadOnlyScheduleDetail", terminal: "ScheduleUnavailable", state: "IMPLEMENTATION_ADMITTED - BOUND_SCHEDULE_READ_ONLY - NO_SCHEDULE_ACTIONS" },
   "/operations/service-logs": { summaries: ["Error", "Warning", "Info", "Worker", "Server"], primary: "ServiceInstanceList", context: "ServiceInstanceCard", terminal: "ServiceLogPanel", state: "IMPLEMENTATION_ADMITTED - FIRST_PARTY_RUN_STORE_GET_ONLY - NO_ADMIN_OR_EFFECT_ACTIONS" },
   "/operations/audit": { summaries: ["Execute", "Create / update", "Delete", "Succeeded", "Failed / denied"], primary: "OperationAuditTable", context: "AuditEventDetail", terminal: "CorrelationTimeline", state: "IMPLEMENTATION_ADMITTED - FIRST_PARTY_CONTROL_PLANE_GET_ONLY - NO_AUDIT_MUTATION_OR_WINDMILL_INFERENCE" },
