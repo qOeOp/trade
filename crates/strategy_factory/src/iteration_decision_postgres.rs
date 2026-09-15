@@ -3357,8 +3357,10 @@ mod postgres_acceptance_tests {
         .await;
         assert!(mismatched_market_data_resolve.is_err());
         let market_data_counts_after: (i64, i64) = sqlx::query_as(
-            "SELECT (SELECT COUNT(*) FROM rd_market_data_repair_requests_v1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind='MARKET_DATA_REPAIR_REQUESTED_V1')",
+            "SELECT (SELECT COUNT(*) FROM rd_market_data_repair_requests_v1 WHERE action_request_identity=$1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE aggregate_identity=$2 AND event_kind='MARKET_DATA_REPAIR_REQUESTED_V1')",
         )
+        .bind(first_action.request().action_request_identity())
+        .bind(first_market_data.request().request_identity())
         .fetch_one(rd_pool)
         .await
         .expect("post-rejection Market Data repair counts");
@@ -3500,8 +3502,10 @@ mod postgres_acceptance_tests {
         .await;
         assert!(mismatched_action_resolve.is_err());
         let action_counts_after: (i64, i64) = sqlx::query_as(
-            "SELECT (SELECT COUNT(*) FROM rd_repair_action_requests_v1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind='REPAIR_ACTION_REQUESTED_V1')",
+            "SELECT (SELECT COUNT(*) FROM rd_repair_action_requests_v1 WHERE decision_identity=$1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE aggregate_identity=$2 AND event_kind='REPAIR_ACTION_REQUESTED_V1')",
         )
+        .bind(first.decision().decision_identity())
+        .bind(first_action.request().action_request_identity())
         .fetch_one(rd_pool)
         .await
         .expect("post-rejection repair action counts");
@@ -3531,8 +3535,10 @@ mod postgres_acceptance_tests {
         .await;
         assert!(mismatched_resolve.is_err());
         let counts_after: (i64, i64) = sqlx::query_as(
-            "SELECT (SELECT COUNT(*) FROM rd_iteration_decisions_v1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind='ITERATION_DECISION_COMMITTED_V1')",
+            "SELECT (SELECT COUNT(*) FROM rd_iteration_decisions_v1 WHERE result_identity=$1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE aggregate_identity=$2 AND event_kind='ITERATION_DECISION_COMMITTED_V1')",
         )
+        .bind(first.receipt().result_identity())
+        .bind(first.decision().decision_identity())
         .fetch_one(rd_pool)
         .await
         .expect("post-rejection counts");
