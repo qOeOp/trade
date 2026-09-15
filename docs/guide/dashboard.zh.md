@@ -1651,8 +1651,10 @@ D  Service + availability -> Availability -> Work handled -> Recent activity -> 
 - 布局：flat `PanelFrame` 内依次为 header、body；body 内依次为 `CompactStatusBar`、
   `SplitBento(T,D)`。省略 `P/Q`，不预留高度。宽度 >=1280 px 时两列为
   `minmax(560px,1.55fr) minmax(300px,.8fr)`，gap 12 px，高度跟随内容，D 在 top 0 sticky。
-  低于 1280 px 时单列 T 后接 D；所有宽度下 T 保留横向 overflow，不转换 card list 或全屏 drawer。
-  summary 胶囊最小高度 62 px，空间不足时横向滚动；group 最小高度 52 px，44 px title 胶囊后接数值。
+  List route 低于 1280 px 时 T 占满 inset，激活 row 会打开共享右侧 `DetailSheet`，URL 不变；低于
+  768 px 时同一个 sheet 转为全屏。Exact route 仍是 canonical 完整详情，并让 D 保持在页面流中。
+  所有宽度下 T 保留横向 overflow，不转换 card list。summary 胶囊最小高度 62 px，空间不足时横向滚动；
+  group 最小高度 52 px，44 px title 胶囊后接数值。
   继续使用共享主题 token、标题/action header、圆角内部内容、克制的不连续分隔线与 Lucide icon。
 - Summary：Ready 为 list observation cut 中 available lease 数；Offline 为 expired lease 数；
   Processed 为 durable job count 总和；Active 为 active job count 总和。这些只代表 operational observation，
@@ -1669,8 +1671,9 @@ D  Service + availability -> Availability -> Work handled -> Recent activity -> 
 - Filter：同一行按序为 Availability selector（All、Ready、Offline）和右对齐 Search services（最多 128 字符）。
   本地不区分大小写搜索 identity、build fingerprint、last-run identity/state、registered operation ID 及其业务名称；
   共享 Service/Availability column filter 同样仅在本地执行。先过滤后分页：默认 20 行，选项 20/50/100，
-  footer 按序为 range、previous/next；lease/search 改变重置页码。List route row selection 更新 D，
-  identity link 打开 exact route。Exact route 的选择始终绑定请求 identity，不随 list/filter 改变。
+  footer 按序为 range、previous/next；lease/search 改变重置页码。Desktop 上的 row selection 更新页内 D；
+  低于 1280 px 时打开共享短详情 sheet，保留 list URL，关闭后焦点返回原 row。Identity link 与 sheet 中的
+  Open service details action 都打开 exact route。Exact route 的选择始终绑定请求 identity，不随 list/filter 改变。
 - Detail：heading 为 Selected service 或 Service details、compact service label、Ready/Offline badge。
   四簇按序排列，外层 gap/padding 8 px，圆角 13 px，内 padding 为 13 px × 14 px；
   fact 为两等宽列、gap 12 px。Availability：Added、Last seen。Work handled：Processed、Active。

@@ -1793,8 +1793,10 @@ D  Service + availability -> Availability -> Work handled -> Recent activity -> 
 - Layout: `PanelFrame` (flat) contains header then body; body contains `CompactStatusBar` then
   `SplitBento(T,D)`. `P/Q` are absent (zero reserved height). At widths >=1280 px, columns are
   `minmax(560px,1.55fr) minmax(300px,.8fr)` with 12 px gap and content-driven heights; D is sticky at top 0.
-  Below 1280 px, T precedes D in one column. At all widths T retains horizontal overflow, not a replacement
-  card list or full-screen drawer. The 62 px minimum-height summary pill scrolls horizontally when necessary;
+  On the list route below 1280 px, T occupies the full inset and row activation opens the shared right-side
+  `DetailSheet` without changing the URL; below 768 px that same sheet becomes full-screen. The exact route
+  remains the canonical full detail and keeps D in page flow. At all widths T retains horizontal overflow,
+  not a replacement card list. The 62 px minimum-height summary pill scrolls horizontally when necessary;
   each group is at least 52 px tall, with a 44 px title pill followed by its values. Shared theme tokens,
   title/action header, rounded inner content, subtle interrupted separators and Lucide icons remain authoritative.
 - Summary: Ready counts available leases at the list observation cut; Offline counts expired leases;
@@ -1813,8 +1815,10 @@ D  Service + availability -> Availability -> Work handled -> Recent activity -> 
   Search services (maximum 128 characters). Case-insensitive local search covers identity, build fingerprint,
   last-run identity/state, registered operation IDs and their business labels. Shared Service/Availability column filters remain local.
   Pagination follows filtering: 20 rows initially, choices 20/50/100, range then previous/next controls;
-  changing lease/search resets the page. Row selection updates D on the list route; the identity link opens
-  the exact route. Exact-route selection stays bound to the requested identity despite list/filter changes.
+  changing lease/search resets the page. On desktop, row selection updates in-page D. Below 1280 px it opens
+  the shared short-detail sheet while preserving the list URL and returns focus to the originating row when
+  closed. The identity link and the sheet's Open service details action open the exact route. Exact-route
+  selection stays bound to the requested identity despite list/filter changes.
 - Detail: heading is Selected service or Service details, compact service label, and Ready/Offline badge. Four ordered
   clusters have 8 px outer gap/padding, 13 px radius and 13 px by 14 px inner padding; facts use two equal
   columns with 12 px gap. Availability: Added, Last seen. Work handled: Processed, Active.

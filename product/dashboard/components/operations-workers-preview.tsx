@@ -17,12 +17,15 @@ import {
   DetailClusterFact,
   DetailClusterGrid,
   DetailEmpty,
+  DetailFact,
+  DetailFactGrid,
   DetailInspector,
   DetailInspectorBody,
   DetailInspectorFooter,
   DetailInspectorHeader,
   DetailNotice,
 } from "./ui/detail-inspector";
+import { DetailSheet } from "./ui/detail-sheet";
 import { CompactStatusBar, CompactStatusGroup, CompactStatusItem } from "./ui/compact-status-bar";
 import { LoadingState, UnavailableState } from "./ui/evidence-strip";
 import { FilterButton, FilterSearch, TableFilterMenu, TableToolbar } from "./ui/filter-toolbar";
@@ -42,6 +45,7 @@ import { DataTableHeaderLabel, DataTableSurface } from "./ui/data-table";
 import { InterfaceIcons, ModuleIcons, RunIcons } from "./ui/iconography";
 import { StatusBadge } from "./ui/status-badge";
 import { availabilityTone } from "./ui/status-tone-policy";
+import { useMediaQuery } from "./ui/use-media-query";
 
 type LeaseFilter = "all" | "available" | "expired";
 
@@ -113,6 +117,20 @@ function WorkerDetail({ worker, exact = false }: { worker: WorkerBrowserProjecti
   );
 }
 
+function WorkerSheetDetail({ worker }: { worker: WorkerBrowserProjectionV1 }) {
+  return <DetailFactGrid>
+    <DetailFact label="Availability"><StatusBadge tone={availabilityTone(worker.lease_state)}>{workerAvailabilityLabel(worker.lease_state)}</StatusBadge></DetailFact>
+    <DetailFact label="Service role"><b>{workerRoleLabel(worker.worker_kind)}</b></DetailFact>
+    <DetailFact label="Active"><b>{worker.active_job_count}</b></DetailFact>
+    <DetailFact label="Processed"><b>{worker.job_count}</b></DetailFact>
+    <DetailFact label="Recent activity">{worker.last_run_identity
+      ? <Link href={`/operations/runs/${encodeURIComponent(worker.last_run_identity)}`}>{compactRunLabel(worker.last_run_identity)}</Link>
+      : <span>No activity</span>}</DetailFact>
+    <DetailFact label="Supports"><b>{worker.operation_ids.length}</b></DetailFact>
+    <DetailFact label="Added"><time dateTime={worker.registered_at}>{displayTime(worker.registered_at)}</time></DetailFact>
+  </DetailFactGrid>;
+}
+
 function ExactWorkerUnavailable({ workerIdentity, reason }: { workerIdentity: string; reason: string }) {
   return (
     <DetailInspector aria-label={`Background service ${workerIdentity}`}>
@@ -136,6 +154,8 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
   const [leaseFilter, setLeaseFilter] = useState<LeaseFilter>("all");
   const [search, setSearch] = useState("");
   const [pending, setPending] = useState(true);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const compactDetail = useMediaQuery("(max-width: 1279px)");
   const refresh = useCallback(async () => {
     setPending(true);
     try {
@@ -184,6 +204,9 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
   const selected = initialWorkerIdentity
     ? detail?.availability === "available" ? detail.worker : null
     : displayWorkers.find(({ worker_identity }) => worker_identity === selectedIdentity) ?? null;
+  useEffect(() => {
+    if (!compactDetail || !selected) setDetailOpen(false);
+  }, [compactDetail, selected]);
   const summaries = useMemo(() => ({
     ready: workers.filter(({ lease_state }) => lease_state === "available").length,
     offline: workers.filter(({ lease_state }) => lease_state === "expired").length,
@@ -279,7 +302,9 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
           </CompactStatusBar>
         {result?.availability === "available" ? (
           <SplitBento className="operations-workers-layout"
-            columns="minmax(560px, 1.55fr) minmax(300px, .8fr)">
+            columns={compactDetail && !initialWorkerIdentity
+              ? "minmax(0, 1fr)"
+              : "minmax(560px, 1.55fr) minmax(300px, .8fr)"}>
             <DataTableSurface className="operations-worker-table-surface" geometry="outer" toolbarLabel="Worker table controls" toolbar={
               <TableToolbar filter={<TableFilterMenu label="Filter services" sections={[{
                 id: "availability", label: "Availability", items: leaseTabs, selected: leaseFilter,
@@ -297,7 +322,12 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
                 conditionalRowStyles={selectedRowStyles}
                 data={displayWorkers}
                 keyField="worker_identity"
-                onRowClicked={(worker) => { if (!initialWorkerIdentity) setSelectedIdentity(worker.worker_identity); }}
+                onRowClicked={(worker) => {
+                  if (initialWorkerIdentity) return;
+                  setSelectedIdentity(worker.worker_identity);
+                  if (compactDetail) setDetailOpen(true);
+                }}
+                pointerOnHover
                 defaultSortFieldId="last-run" defaultSortAsc={false}
                 pagination paginationPerPage={20}
                 paginationResetKey={JSON.stringify([leaseFilter, normalizedSearch])}
@@ -307,10 +337,10 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
                 </DataWorkspaceEmpty>}
               />
             </DataTableSurface>
-            {selected ? <WorkerDetail worker={selected} exact={Boolean(initialWorkerIdentity)} />
+            {selected && (!compactDetail || initialWorkerIdentity) ? <WorkerDetail worker={selected} exact={Boolean(initialWorkerIdentity)} />
               : initialWorkerIdentity
                 ? <ExactWorkerUnavailable workerIdentity={initialWorkerIdentity} reason={detail?.unavailable_reason ?? "WORKER_DETAIL_RESPONSE_UNAVAILABLE"} />
-                : <DetailEmpty icon={<RunIcons.state aria-hidden="true" size={16} />}>No service matches this view and filter.</DetailEmpty>}
+                : !compactDetail ? <DetailEmpty icon={<RunIcons.state aria-hidden="true" size={16} />}>No service matches this view and filter.</DetailEmpty> : null}
           </SplitBento>
         ) : pending ? (
           <LoadingState density="compact" icon={<ModuleIcons.cpu aria-hidden="true" size={16} />}
@@ -330,6 +360,19 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
         )}
         </PanelFrameBody>
       </PanelFrame>
+      <DetailSheet
+        open={!initialWorkerIdentity && compactDetail && detailOpen && selected !== null}
+        onClose={() => setDetailOpen(false)}
+        eyebrow="Service preview"
+        title={selected ? compactWorkerLabel(selected.worker_identity) : "Service"}
+        description="Read-only capacity and recent activity from the current service list."
+        canonicalHref={!initialWorkerIdentity && selected
+          ? `/operations/workers/${encodeWorkerIdentitySegmentV1(selected.worker_identity)}`
+          : undefined}
+        canonicalLabel="Open service details"
+      >
+        {selected ? <WorkerSheetDetail worker={selected} /> : null}
+      </DetailSheet>
     </PageStack>
   );
 }

@@ -65,7 +65,7 @@ export function DetailSheet({
           description={description}
           onClose={() => dialog.current?.close()}
         />
-        <PanelFrameBody className={styles.body}>{children}</PanelFrameBody>
+        <PanelFrameBody className={styles.body} density="compact">{children}</PanelFrameBody>
         {canonicalHref ? (
           <footer className={styles.footer}>
             <Button asChild variant="outline" size="tool">
