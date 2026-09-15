@@ -22,10 +22,10 @@ function outcomePresentation(
   review: ArtifactReviewInventoryItemV1 | undefined,
   availability: "loading" | "available" | "unavailable",
 ) {
+  if (availability === "loading") return { label: "Checking…", tone: "neutral" } as const;
   if (review?.availability === "reviewable") {
     return { label: "Ready to review", tone: "warning" } as const;
   }
-  if (availability === "loading") return { label: "Checking…", tone: "neutral" } as const;
   return { label: "Outcome unavailable", tone: "unavailable" } as const;
 }
 

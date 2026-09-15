@@ -45,9 +45,14 @@ test("the shared detail sheet owns focus, responsive geometry, and canonical fal
   assert.match(research, /<DetailSheet[\s\S]*canonicalLabel="Open full research details"/u);
   assert.match(research, /canonicalHref=\{selectedCandidate\s*&& outcomeAvailability === "available"\s*&& \["outcome_ready", "awaiting_outcome"\]\.includes/u);
   assert.match(artifacts, /<DataWorkspaceTable<HistoricalArtifactCandidateV1>[\s\S]*onRowClicked=/u);
+  assert.match(artifacts, /const openAttemptDetail = useCallback/u);
+  assert.match(artifacts, /label="Build request"[\s\S]*onActivate=\{\(\) => openAttemptDetail/u);
+  assert.match(artifacts, /onRowClicked=\{\(item\) => openAttemptDetail/u);
   assert.match(artifacts, /<DetailSheet[\s\S]*canonicalLabel="Open full build result"/u);
-  assert.match(artifacts, /canonicalHref=\{selectedAttempt && selectedReview\?\.availability === "reviewable"/u);
+  assert.match(artifacts, /description=\{selectedAttempt\s*\? reviewAvailability === "loading"/u);
+  assert.match(artifacts, /canonicalHref=\{selectedAttempt\s*&& reviewAvailability === "available"\s*&& selectedReview\?\.availability === "reviewable"/u);
   assert.match(artifactPreview, /<DetailFactGrid>[\s\S]*label="result"[\s\S]*label="prepared"/u);
+  assert.match(artifactPreview, /if \(availability === "loading"\)[\s\S]*if \(review\?\.availability === "reviewable"\)/u);
   assert.match(artifactPreview, /<PanelFrameInfo label="View build information">/u);
   assert.doesNotMatch(artifactPreview, /fetch\(|useRouter|disposition/u);
   assert.match(serviceLogs, /<DataWorkspaceTable<ServiceLogRow>[\s\S]*onRowClicked=\{\(entry\) =>/u);

@@ -12,6 +12,7 @@ test("Artifact directory uses the shared compact read-only table surface", async
   ]);
   assert.match(component, /<DataWorkspaceTable<ArtifactDirectoryItemV1>/u);
   assert.match(component, /<RdCustodyReviewSummary[\s\S]+artifactReviewableTotal=/u);
+  assert.match(component, /artifactReviewableTotal=\{reviewAvailability === "available"[\s\S]+&& reviewInventoryBound/u);
   assert.match(component, /loading=\{custodyCandidates\.availability === "loading" \|\| reviewInventory\.availability === "loading"\}/u);
   assert.match(component, /view === "verified" && availability === "available" && \(partial \|\| nextCursor\)/u);
   const summary = await readFile(new URL("../components/rd-custody-review-summary.tsx", import.meta.url), "utf8");
@@ -37,8 +38,14 @@ test("Artifact directory uses the shared compact read-only table surface", async
   assert.match(component, /label: "Bindings"/u);
   assert.match(component, /query\.set\("availability", "reviewable"\)/u);
   assert.match(component, /label="Candidate review cut"/u);
-  assert.match(component, /Outcome unavailable/u);
+  assert.match(component, /View record/u);
+  assert.match(component, /onActivate=\{\(\) => openAttemptDetail/u);
   assert.match(component, /Outcome ready/u);
+  assert.match(component, /function artifactReviewPresentation/u);
+  assert.match(component, /if \(availability === "loading"\)[\s\S]+detail: "Checking outcome"[\s\S]+label: "Checking…"[\s\S]+secondary: "Checking current outcome"/u);
+  assert.match(component, /const presentation = artifactReviewPresentation\(review, reviewAvailability\)/u);
+  assert.match(component, /reviewAvailability === "loading"[\s\S]+\? "Checking outcomes"/u);
+  assert.match(component, /Keeping the current build list in place\./u);
   assert.match(component, /router\.replace\(nextView === "candidates"[\s\S]*candidateUrl\(candidateKind, candidateAvailability\)/u);
   assert.match(component, /router\.replace\(candidateUrl\(nextKind, nextAvailability\)/u);
   assert.match(component, /Available outcomes can be opened from the table\./u);

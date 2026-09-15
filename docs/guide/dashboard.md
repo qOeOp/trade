@@ -587,14 +587,19 @@ be visually quiet during the short loading-delay threshold, but it must not rend
 zero summary before the first Owner response settles. Only a completed available read with zero matching rows may
 render empty; unavailable remains a separate fail-closed state and never retains the previous route's rows.
 
-In `Build history`, selecting an attempt row opens the shared `DetailSheet` without changing the directory URL or
+In `Build history`, activating the primary build reference or selecting its attempt row opens the same shared
+`DetailSheet` without changing the directory URL or
 unmounting its view, filters, search, pagination, or scroll position. The compact sheet composes the shared
 `DetailFactGrid`, `StatusBadge`, and `PanelFrameInfo` atoms and answers only whether a readable build result exists
 and when the attempt was prepared. Exact identities and observation cuts stay in the information disclosure;
 historical disposition, failure evidence, and journey remain owned by the full result route. Only a bound
-`reviewable` inventory item exposes `Open full build result`; an `unavailable` item remains inspectable in the sheet
-but exposes no false canonical action. Closing the sheet restores focus to the originating row, and narrow screens
+currently available, bound `reviewable` inventory item exposes `Open full build result`; an `unavailable` or loading
+item remains inspectable in the sheet
+but exposes no false canonical action. Closing the sheet restores focus to the originating control or row, and narrow screens
 reuse the shared full-viewport sheet geometry.
+During a refresh, retained rows may preserve table geometry, but the Bento summary count, primary-reference detail,
+outcome badge, secondary summary, and footer all switch to `Checking` or unavailable placeholders; no retained
+positive review state is presented as current.
 
 The exact historical-attempt route is titled `Build result` and answers whether the build produced an Artifact.
 Its shared journey plus `Result / Review / Timing` groups render `Historical only` and a human-readable failure

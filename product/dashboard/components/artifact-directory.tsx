@@ -10,7 +10,10 @@ import {
   type ArtifactDirectoryCursorV1,
   type ArtifactDirectoryItemV1,
 } from "../lib/artifact-directory-gateway";
-import { artifactReviewInventoryMatchesCustodyV1 } from "../lib/artifact-review-inventory";
+import {
+  artifactReviewInventoryMatchesCustodyV1,
+  type ArtifactReviewInventoryItemV1,
+} from "../lib/artifact-review-inventory";
 import type {
   HistoricalArtifactCandidateV1,
   HistoricalBindingCandidateV1,
@@ -31,7 +34,7 @@ import {
   PanelFrameFooterSummary,
   PanelFrameHeader,
 } from "./ui/panel-frame";
-import { StatusBadge } from "./ui/status-badge";
+import { StatusBadge, type StatusBadgeTone } from "./ui/status-badge";
 import { DetailSheet } from "./ui/detail-sheet";
 import { useDelayedPending } from "./ui/use-delayed-pending";
 import { useHistoricalCustodyDirectory } from "./use-historical-custody-directory";
@@ -59,6 +62,59 @@ function candidateUrl(kind: "attempts" | "bindings", availability: "all" | "revi
   else if (availability === "reviewable") query.set("availability", "reviewable");
   const search = query.toString();
   return `/rd/artifacts/${search ? `?${search}` : ""}`;
+}
+
+type ReviewAvailability = "loading" | "available" | "unavailable";
+
+type ArtifactReviewPresentation = Readonly<{
+  detail: string;
+  label: string;
+  secondary: string;
+  tone: StatusBadgeTone;
+}>;
+
+function artifactReviewPresentation(
+  review: ArtifactReviewInventoryItemV1 | undefined,
+  availability: ReviewAvailability,
+): ArtifactReviewPresentation {
+  if (availability === "loading") {
+    return {
+      detail: "Checking outcome",
+      label: "Checking…",
+      secondary: "Checking current outcome",
+      tone: "neutral",
+    };
+  }
+  if (availability !== "available") {
+    return {
+      detail: "View record",
+      label: "Not checked",
+      secondary: "Outcome status unavailable",
+      tone: "unavailable",
+    };
+  }
+  if (review?.availability === "reviewable") {
+    return {
+      detail: "Review outcome",
+      label: "Outcome ready",
+      secondary: "Readable build result",
+      tone: "warning",
+    };
+  }
+  if (review?.availability === "unavailable") {
+    return {
+      detail: "View record",
+      label: "Not available",
+      secondary: "No readable outcome",
+      tone: "unavailable",
+    };
+  }
+  return {
+    detail: "View summary",
+    label: "Not checked",
+    secondary: "Not checked yet",
+    tone: "unavailable",
+  };
 }
 
 export function ArtifactDirectory({
@@ -215,6 +271,11 @@ export function ArtifactDirectory({
     if (detailOpen && !selectedAttempt) setDetailOpen(false);
   }, [detailOpen, selectedAttempt]);
 
+  const openAttemptDetail = useCallback((buildRequestIdentity: string, attemptIdentity: string) => {
+    setSelectedAttemptKey(`${buildRequestIdentity}\u0000${attemptIdentity}`);
+    setDetailOpen(true);
+  }, []);
+
   const columns = useMemo<DataWorkspaceColumn<ArtifactDirectoryItemV1>[]>(() => [
     {
       id: "artifact",
@@ -272,20 +333,15 @@ export function ArtifactDirectory({
       grow: 1.4,
       cell: (item) => {
         const review = reviewByAttempt.get(`${item.buildRequestIdentity}\u0000${item.attemptIdentity}`);
-        const detail = review?.availability === "reviewable"
-          ? "Open outcome"
-          : review?.availability === "unavailable"
-          ? "Outcome unavailable"
-          : "Check outcome";
+        const presentation = artifactReviewPresentation(review, reviewAvailability);
         return <EntityReference
           label="Build request"
           identity={item.buildRequestIdentity}
-          detail={detail}
-          href={review?.availability === "unavailable"
-            ? undefined
-            : `/rd/artifacts/${encodeURIComponent(item.buildRequestIdentity)}/attempts/${encodeURIComponent(item.attemptIdentity)}?custody=historical`}
+          detail={presentation.detail}
+          onActivate={() => openAttemptDetail(item.buildRequestIdentity, item.attemptIdentity)}
         />;
       },
+      ignoreRowClick: true,
     },
     {
       id: "attempt",
@@ -305,21 +361,12 @@ export function ArtifactDirectory({
       minWidth: "220px",
       cell: (item) => {
         const review = reviewByAttempt.get(`${item.buildRequestIdentity}\u0000${item.attemptIdentity}`);
+        const presentation = artifactReviewPresentation(review, reviewAvailability);
         return <div className={styles.verification}>
-          <StatusBadge tone={review?.availability === "reviewable" ? "warning" : "unavailable"}>
-            {review?.availability === "reviewable"
-              ? "Outcome ready"
-              : review?.availability === "unavailable"
-              ? "Not available"
-              : reviewAvailability === "loading"
-              ? "Checking…"
-              : "Not checked"}
+          <StatusBadge tone={presentation.tone}>
+            {presentation.label}
           </StatusBadge>
-          <span>{review?.availability === "reviewable"
-            ? "Readable build result"
-            : review?.availability === "unavailable"
-            ? "No readable outcome"
-            : "Not checked yet"}</span>
+          <span>{presentation.secondary}</span>
         </div>;
       },
     },
@@ -418,7 +465,8 @@ export function ArtifactDirectory({
         projection={custodyCandidates.projection}
         loading={custodyCandidates.availability === "loading" || reviewInventory.availability === "loading"}
         scope="artifacts"
-        artifactReviewableTotal={reviewInventoryBound
+        artifactReviewableTotal={reviewAvailability === "available"
+          && reviewInventoryBound
           && reviewInventory.projection?.completeness === "complete"
           ? reviewInventory.projection.reviewableTotal
           : null}
@@ -534,10 +582,7 @@ export function ArtifactDirectory({
               paginationPerPage={20}
               paginationResetKey={normalizedSearch}
               paginationRowsPerPageOptions={[20, 50]}
-              onRowClicked={(item) => {
-                setSelectedAttemptKey(`${item.buildRequestIdentity}\u0000${item.attemptIdentity}`);
-                setDetailOpen(true);
-              }}
+              onRowClicked={(item) => openAttemptDetail(item.buildRequestIdentity, item.attemptIdentity)}
               pointerOnHover
               noDataComponent={<DataWorkspaceEmpty state={custodyCandidates.availability === "loading" ? "loading" : "empty"}
                 className={custodyCandidates.availability === "loading" && !showPending ? styles.pendingQuiet : undefined}
@@ -571,10 +616,18 @@ export function ArtifactDirectory({
           <PanelFrameFooter layout="split">
             <PanelFrameFooterSummary
               primary={candidateKind === "attempts" && candidateAvailability === "reviewable"
-                ? `${reviewInventory.projection?.reviewableTotal ?? 0} reviewable outcomes`
+                ? reviewAvailability === "loading"
+                  ? "Checking outcomes"
+                  : reviewAvailability === "available"
+                  ? `${reviewInventory.projection?.reviewableTotal ?? 0} reviewable outcomes`
+                  : "Outcome status unavailable"
                 : `${candidateTotal} ${candidateKind === "attempts" ? "build attempts" : "family bindings"}`}
               secondary={candidateKind === "attempts" && candidateAvailability === "reviewable"
-                ? "Each row has an outcome ready to review."
+                ? reviewAvailability === "loading"
+                  ? "Keeping the current build list in place."
+                  : reviewAvailability === "available"
+                  ? "Each row has an outcome ready to review."
+                  : "The current reviewable cut could not be verified."
                 : "Available outcomes can be opened from the table."}
             />
           </PanelFrameFooter>
@@ -598,13 +651,15 @@ export function ArtifactDirectory({
         eyebrow="Build history"
         title="Build attempt"
         description={selectedAttempt
-          ? selectedReview?.availability === "reviewable"
-            ? "A saved build outcome is ready to review."
-            : reviewAvailability === "loading"
+          ? reviewAvailability === "loading"
             ? "Checking whether this attempt has a readable outcome."
+            : selectedReview?.availability === "reviewable"
+            ? "A saved build outcome is ready to review."
             : "This attempt is recorded, but no readable outcome is available."
           : undefined}
-        canonicalHref={selectedAttempt && selectedReview?.availability === "reviewable"
+        canonicalHref={selectedAttempt
+          && reviewAvailability === "available"
+          && selectedReview?.availability === "reviewable"
           ? `/rd/artifacts/${encodeURIComponent(selectedAttempt.buildRequestIdentity)}/attempts/${encodeURIComponent(selectedAttempt.attemptIdentity)}?custody=historical`
           : undefined}
         canonicalLabel="Open full build result"

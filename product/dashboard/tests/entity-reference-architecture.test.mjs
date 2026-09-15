@@ -18,7 +18,7 @@ test("EntityReference keeps opaque identities secondary across R&D tables", asyn
   assert.match(atom, /if \(href\) return <Link/u);
   assert.match(atom, /onActivate: \(\) => void/u);
   assert.match(atom, /onActivate\?: never/u);
-  assert.match(atom, /<button[^>]+type="button"[^>]+onClick=\{onActivate\}/u);
+  assert.match(atom, /<button[\s\S]+type="button"[\s\S]+event\.currentTarget\.focus\(\);[\s\S]+onActivate\(\)/u);
   assert.match(research, /import \{ EntityReference \} from "\.\/ui\/entity-reference"/u);
   assert.match(artifacts, /import \{ EntityReference \} from "\.\/ui\/entity-reference"/u);
   assert.doesNotMatch(research, /function displayIdentity/u);

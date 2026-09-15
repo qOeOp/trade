@@ -35,7 +35,14 @@ export function EntityReference({
 
   if (href) return <Link className={styles.reference} href={href}>{content}</Link>;
   if (onActivate) {
-    return <button className={styles.reference} type="button" onClick={onActivate}>{content}</button>;
+    return <button
+      className={styles.reference}
+      type="button"
+      onClick={(event) => {
+        event.currentTarget.focus();
+        onActivate();
+      }}
+    >{content}</button>;
   }
   return <div className={styles.reference}>{content}</div>;
 }
