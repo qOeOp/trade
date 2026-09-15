@@ -3,6 +3,7 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 
 const componentUrl = new URL("../components/operations-service-logs.tsx", import.meta.url);
+const eventPreviewUrl = new URL("../components/service-log-event-preview.tsx", import.meta.url);
 const viewportUrl = new URL("../components/ui/bounded-log-viewport.tsx", import.meta.url);
 const shellUrl = new URL("../components/dashboard-route-content.tsx", import.meta.url);
 const cssUrl = new URL("../app/globals.css", import.meta.url);
@@ -81,7 +82,10 @@ test("Service Logs auto-refresh observes the bounded table tail and cannot repla
 });
 
 test("Service Logs table presents the exact evidence as one business activity path", async () => {
-  const source = await readFile(componentUrl, "utf8");
+  const [source, preview] = await Promise.all([
+    readFile(componentUrl, "utf8"),
+    readFile(eventPreviewUrl, "utf8"),
+  ]);
   const columns = source.slice(source.indexOf("const columns"), source.indexOf("const viewportState"));
   const expected = [
     ["Time", "190px"], ["Level", "108px"], ["Activity", "220px"],
@@ -96,11 +100,21 @@ test("Service Logs table presents the exact evidence as one business activity pa
   }
   assert.match(source, /return `\$\{entry\.correlation_identity\}:\$\{entry\.sequence\}`/u);
   assert.match(source, /keyField="row_identity"/u);
+  assert.match(source, /eventSelectionKey\(entry, page\.filter_cut_digest\)/u);
+  assert.match(source, /<DataWorkspaceTable<ServiceLogRow>[\s\S]*onRowClicked=\{\(entry\) =>/u);
+  assert.match(source, /<DetailSheet[\s\S]*canonicalLabel="Open related run"/u);
+  assert.match(source, /canonicalHref=\{selectedEventRunIdentity/u);
   assert.match(columns, /serviceLogEventLabel\(entry\.event_code\)/u);
   assert.match(columns, /serviceLogSourceLabel\(entry\.service\)/u);
   assert.match(columns, /serviceLogRunIdentity\(entry\.correlation_identity\)/u);
   assert.doesNotMatch(columns, /<code className="table-cell-identity"/u);
   assert.doesNotMatch(source, /entry\.message|instance\.host_ref/u);
+  for (const label of ["activity", "level", "observed", "source"]) {
+    assert.match(preview, new RegExp(`label="${label}"`, "u"));
+  }
+  assert.match(preview, /<DetailCluster[\s\S]*label="Source context"/u);
+  assert.match(preview, /<PanelFrameInfo label="View event information">/u);
+  assert.doesNotMatch(preview, /fetch\(|useRouter|OperationsRunDetail/u);
 });
 
 test("Service Logs keeps implementation identities behind shared information controls", async () => {

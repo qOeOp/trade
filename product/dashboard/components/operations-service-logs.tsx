@@ -22,12 +22,15 @@ import {
   serviceLogRunIdentity,
   serviceLogSourceLabel,
 } from "../lib/service-log-presentation";
+import { emptyServiceLogPresentation } from "../lib/operations-presentation";
+import { ServiceLogEventPreview } from "./service-log-event-preview";
 import { BoundedLogViewport } from "./ui/bounded-log-viewport";
 import { Button } from "./ui/button";
 import { CompactStatusBar, CompactStatusGroup, CompactStatusItem } from "./ui/compact-status-bar";
 import { DataTableHeaderLabel } from "./ui/data-table";
 import { DataWorkspaceEmpty } from "./ui/data-workspace-empty";
 import { DataWorkspaceTable, type DataWorkspaceColumn } from "./ui/data-workspace-table";
+import { DetailSheet } from "./ui/detail-sheet";
 import {
   DetailCluster,
   DetailClusterFact,
@@ -53,7 +56,6 @@ import {
 import { SelectionList, SelectionListItem } from "./ui/selection-list";
 import { SplitBento } from "./ui/split-bento";
 import { StatusBadge } from "./ui/status-badge";
-import { emptyServiceLogPresentation } from "../lib/operations-presentation";
 import { availabilityTone, severityTone } from "./ui/status-tone-policy";
 
 type ServiceLogRange = ServiceLogFilterCutV1["range"];
@@ -112,6 +114,10 @@ function downloadQueryFor(cut: ServiceLogFilterCutV1) {
 
 function rowKey(entry: ServiceLogEntryV1) {
   return `${entry.correlation_identity}:${entry.sequence}`;
+}
+
+function eventSelectionKey(entry: ServiceLogEntryV1, filterCutDigest: string) {
+  return `${filterCutDigest}\u0000${entry.correlation_identity}\u0000${entry.sequence}`;
 }
 
 function serviceLogViewportAtTail(table: HTMLDivElement | null) {
@@ -253,6 +259,8 @@ export function OperationsServiceLogs() {
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [unavailableReason, setUnavailableReason] = useState<string | null>(null);
   const [downloadDisclosure, setDownloadDisclosure] = useState<string | null>(null);
+  const [selectedEventKey, setSelectedEventKey] = useState<string | null>(null);
+  const [eventDetailOpen, setEventDetailOpen] = useState(false);
   const requestVersion = useRef(0);
   const pageIndexRef = useRef(pageIndex);
   const logTableRef = useRef<HTMLDivElement>(null);
@@ -357,11 +365,24 @@ export function OperationsServiceLogs() {
   // server filter cut, so no client-side post-pagination filter is needed.
   const entries: ServiceLogRow[] = (page?.entries ?? [])
     .map((entry) => ({ ...entry, row_identity: rowKey(entry) }));
+  const selectedEvent = page ? entries.find((entry) => (
+    eventSelectionKey(entry, page.filter_cut_digest) === selectedEventKey
+  )) ?? null : null;
+  const selectedEventInstance = selectedEvent
+    ? instances.find((instance) => instance.instance_identity === selectedEvent.instance_identity)
+    : undefined;
+  const selectedEventRunIdentity = selectedEvent
+    ? serviceLogRunIdentity(selectedEvent.correlation_identity)
+    : null;
   const summary = page?.summary;
   const summaryValue = (value: number | undefined) => page ? value ?? 0 : "-";
   const filtered = filterCut.kind !== "all" || filterCut.service !== "all" || filterCut.instance_identity !== "all"
     || filterCut.severity !== "all" || filterCut.search.length > 0;
   const permissionDenied = unavailableReason?.includes("PERMISSION_DENIED") ?? false;
+
+  useEffect(() => {
+    if (eventDetailOpen && !selectedEvent) setEventDetailOpen(false);
+  }, [eventDetailOpen, selectedEvent]);
 
   const replaceFilter = useCallback(<Key extends keyof ServiceLogFilterCutV1>(
     key: Key,
@@ -372,12 +393,14 @@ export function OperationsServiceLogs() {
     setPages([]);
     setPageIndex(0);
     setSelectedIdentity(null);
+    setEventDetailOpen(false);
     void load({ cut: next });
   }, [filterCut, load]);
 
   const refresh = useCallback(() => {
     const next = { ...filterCut, observed_at: new Date().toISOString() };
     setFilterCut(next);
+    setEventDetailOpen(false);
     void load({ cut: next });
   }, [filterCut, load]);
 
@@ -579,6 +602,11 @@ export function OperationsServiceLogs() {
                     dense
                     keyField="row_identity"
                     viewportRef={logTableRef}
+                    onRowClicked={(entry) => {
+                      setSelectedEventKey(eventSelectionKey(entry, page.filter_cut_digest));
+                      setEventDetailOpen(true);
+                    }}
+                    pointerOnHover
                     noDataComponent={<DataWorkspaceEmpty icon={<ModuleIcons.terminal aria-hidden="true" size={18} />}>
                       {filtered ? "No events match the current filters." : "No events in the selected time range."}
                     </DataWorkspaceEmpty>}
@@ -590,6 +618,25 @@ export function OperationsServiceLogs() {
           ) : null}
         </PanelFrameBody>
       </PanelFrame>
+      <DetailSheet
+        open={eventDetailOpen && Boolean(selectedEvent)}
+        onClose={() => setEventDetailOpen(false)}
+        eyebrow="Service activity"
+        title={selectedEvent ? serviceLogEventLabel(selectedEvent.event_code) : "Log event"}
+        description={selectedEvent
+          ? `Recorded by ${serviceLogSourceLabel(selectedEvent.service)} without leaving this log cut.`
+          : undefined}
+        canonicalHref={selectedEventRunIdentity
+          ? `/operations/runs/${encodeURIComponent(selectedEventRunIdentity)}`
+          : undefined}
+        canonicalLabel="Open related run"
+      >
+        {selectedEvent && page ? <ServiceLogEventPreview
+          entry={selectedEvent}
+          instance={selectedEventInstance}
+          filterCutDigest={page.filter_cut_digest}
+        /> : null}
+      </DetailSheet>
     </PageStack>
   );
 }

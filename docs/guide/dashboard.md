@@ -1928,6 +1928,16 @@ B  Showing newest n of retention limit | completeness/redaction/truncation discl
   page sizes. Cursor mismatch/expiry is unavailable, not an empty page. The gateway retention ceiling remains 512
   eligible rows per observation cut; changing any filter resets the cursor and page. `complete` and
   `partial_unavailable` stay visibly distinct.
+- Event drilldown: selecting a verified T row opens the shared `DetailSheet` without changing the Service Logs URL
+  or unmounting its filters, page, scroll position, or menu context. The sheet composes the shared `DetailFactGrid`,
+  `DetailCluster`, `StatusBadge`, and `PanelFrameInfo` atoms; it does not redraw a route-specific detail surface.
+  Selection is bound to filter-cut digest + correlation identity + sequence, so a replacement cut or page withdraws
+  stale detail. Primary content answers activity, level, observed time, source, and exact source context; event code,
+  sequence, correlation, instance identity, and source/filter cuts stay behind the information affordance. Only a
+  correlation that satisfies the exact run-identity contract exposes `Open related run`; other events expose no false
+  route. Opening a row performs no new read, closing returns focus to that row, and the shared sheet becomes a full
+  viewport surface below 768 px. It never embeds the action-bearing Run Detail or infers cause, Owner outcome, or
+  service health.
 - States: initial read keeps the exact header/body geometry and renders zero synthetic rows with
   `READING_SERVICE_LOGS`; Refresh is disabled and labelled Reading. A refresh may retain the prior cut only while
   pending and labels it Previous observation. Any failed replacement clears prior positive instances, counts,

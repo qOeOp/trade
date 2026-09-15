@@ -1772,6 +1772,15 @@ B  Showing newest n of retention limit | completeness/redaction/truncation discl
   为 20/50/100/200。Cursor mismatch/expiry 显示 unavailable，不是 empty page。Gateway 的 retention ceiling 在每个
   observation cut 下仍为 512 eligible row；改变任何 filter 都重置 cursor 与 page。`complete` 与
   `partial_unavailable` 必须可见区分。
+- Event drilldown：选择一条已验证 T row 时打开共享 `DetailSheet`，不改变 Service Logs URL，也不卸载原有
+  filter、page、scroll position 或 menu context。Sheet 组合共享 `DetailFactGrid`、`DetailCluster`、
+  `StatusBadge` 与 `PanelFrameInfo` atoms，不重新绘制 route-specific 详情面。Selection 绑定
+  filter-cut digest + correlation identity + sequence，因此 replacement cut 或 page 会撤回 stale detail。
+  主内容回答 activity、level、observed time、source 与精确 source context；event code、sequence、correlation、
+  instance identity 和 source/filter cuts 只留在 information affordance。仅当 correlation 满足 exact
+  run-identity contract 时展示 `Open related run`；其他 event 不展示虚假 route。打开 row 不产生新 read，关闭后
+  focus 回到该 row；低于 768 px 时共享 sheet 占满 viewport。它绝不嵌入带 action 的 Run Detail，也不推断 cause、
+  Owner outcome 或 service health。
 - 状态几何：initial read 保留精确 header/body 几何，以 `READING_SERVICE_LOGS` 显示零条 synthetic row；
   Refresh disabled 且标为 Reading。Pending refresh 期间可暂时保留上一 cut，但必须标记 Previous observation。
   任何失败的 replacement 在显示 compact unavailable region 前清除旧 positive instance、count、selection 与 row。
