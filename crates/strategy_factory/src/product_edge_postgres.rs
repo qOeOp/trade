@@ -36,11 +36,13 @@ use crate::product_edge::{
     FrozenResearchGoalIntent, IndependenceBasisReadbackV1, IndependenceBasisReceiptV1,
     ProductEdgeResearchGoalRequestV2, ProductEdgeResolution, ResearchDirectoryCompletenessV1,
     ResearchDirectoryCursorV1, ResearchDirectoryItemV1, ResearchDirectoryOwnerPort,
-    ResearchDirectoryReadbackV1, ResearchGoalOwnerError, ResearchGoalOwnerPortV2,
-    ResearchGoalOwnerResultV1, ResearchGoalOwnerResultV2, ResearchLineageResolutionV1,
-    ResearchReadbackOwnerPortV1, ResearchRequestReceiptV1, StoredAdmittedResearchRequestV2,
-    StoredIndependenceBasisV1, StoredProtectedFeedbackProjectionV1,
-    StoredRejectedResearchRequestV2, UnsourcedResearchProposalV1, ValidatedResearchGoalRequestV2,
+    ResearchDirectoryReadbackV1, ResearchExploratoryDiagnosisGateErrorV1,
+    ResearchExploratoryDiagnosisGateProjectionV1, ResearchExploratoryDiagnosisLocatorV1,
+    ResearchGoalOwnerError, ResearchGoalOwnerPortV2, ResearchGoalOwnerResultV1,
+    ResearchGoalOwnerResultV2, ResearchLineageResolutionV1, ResearchReadbackOwnerPortV1,
+    ResearchRequestReceiptV1, StoredAdmittedResearchRequestV2, StoredIndependenceBasisV1,
+    StoredProtectedFeedbackProjectionV1, StoredRejectedResearchRequestV2,
+    UnsourcedResearchProposalV1, ValidatedResearchGoalRequestV2,
     assemble_partial_source_intake_research_admission_input, decide_commit_v2,
     decide_rejected_commit_v2, semantic_digest_v2, unresolved_result, unresolved_result_v2,
     validate_goal_request_v2, verify_research_admission_v2,
@@ -58,7 +60,10 @@ use crate::{
         TrialFamilyDirectResultV1, TrialFamilyError, TrialFamilyIndependenceDispositionV1,
         TrialFamilyPolicyV1,
     },
-    trial_family_postgres::{migrate as migrate_trial_family, persist_initial_family},
+    trial_family_postgres::{
+        load_trial_family_census_v2_by_family_in_transaction, migrate as migrate_trial_family,
+        persist_initial_family,
+    },
 };
 use vibe_data::owner::pit_snapshot::PitSnapshotOwnerReadback;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
@@ -514,7 +519,6 @@ const RD_CORE_TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
             crate::schema_materialization::required("committed_at_epoch_ms", "bigint"),
         ],
         constraints: &[
-            "f:request_identity:public.rd_research_request_receipts_v1(request_identity):a:a:s:false:false:true:",
             "p:request_identity:::false:false:true:",
             "u:design_identity:::false:false:true:",
             "u:intent_identity:::false:false:true:",
@@ -1065,11 +1069,21 @@ impl PostgresResearchGoalOwnerV1 {
             .await
             .map_err(|e| storage(&e))?;
 
+        // The aggregate key is an Owner locator for either an initial Research receipt or a
+        // Decision-selected successor Intent. Both subjects are re-admitted before every write and
+        // read, so the former initial-only foreign key must not reject the successor namespace.
+        sqlx::query(
+            "ALTER TABLE IF EXISTS rd_bounded_feature_program_freezes_v1
+             DROP CONSTRAINT IF EXISTS rd_bounded_feature_program_freezes_v1_request_identity_fkey",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| storage(&e))?;
         crate::schema_materialization::materialize_public_table(
             pool,
             "rd_bounded_feature_program_freezes_v1",
             "CREATE TABLE IF NOT EXISTS rd_bounded_feature_program_freezes_v1 (
-                request_identity TEXT PRIMARY KEY REFERENCES rd_research_request_receipts_v1(request_identity),
+                request_identity TEXT PRIMARY KEY,
                 schema_version INTEGER NOT NULL,
                 research_request_identity BYTEA NOT NULL,
                 intent_identity BYTEA NOT NULL UNIQUE,
@@ -1875,6 +1889,68 @@ impl PostgresResearchGoalOwnerV1 {
         result
     }
 
+    /// Joins the current R&D TrialFamily Census to one locked exploratory Backtest Result and
+    /// projects only the mandatory diagnosis gate. This path never composes a Decision.
+    pub async fn resolve_exploratory_diagnosis_gate_v1(
+        &self,
+        locator: ResearchExploratoryDiagnosisLocatorV1,
+    ) -> Result<ResearchExploratoryDiagnosisGateProjectionV1, ResearchExploratoryDiagnosisGateErrorV1>
+    {
+        let mut transaction =
+            self.pool.begin().await.map_err(|error| {
+                ResearchExploratoryDiagnosisGateErrorV1::Storage(error.to_string())
+            })?;
+        let result = async {
+            sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+                .execute(&mut *transaction)
+                .await
+                .map_err(|error| {
+                    ResearchExploratoryDiagnosisGateErrorV1::Storage(error.to_string())
+                })?;
+            let census = load_trial_family_census_v2_by_family_in_transaction(
+                &mut transaction,
+                &locator.trial_family_identity,
+            )
+            .await
+            .map_err(diagnosis_gate_trial_family_error)?;
+            let locked_result = resolve_exploratory_replay_result_for_rd_in_transaction(
+                &mut transaction,
+                crate::ExploratoryReplayResultLocatorV2 {
+                    result_identity: &locator.result_identity,
+                    request_identity: &locator.request_identity,
+                    attempt_identity: &locator.attempt_identity,
+                },
+            )
+            .await
+            .map_err(|error| match error {
+                crate::BacktestResultCustodyErrorV2::Unavailable => {
+                    ResearchExploratoryDiagnosisGateErrorV1::Unavailable
+                }
+                crate::BacktestResultCustodyErrorV2::Storage(message) => {
+                    ResearchExploratoryDiagnosisGateErrorV1::Storage(message)
+                }
+            })?
+            .ok_or(ResearchExploratoryDiagnosisGateErrorV1::Unavailable)?;
+            let gate = crate::iteration_decision::gate_locked_exploratory_result_v1(
+                &census,
+                &locked_result,
+            )
+            .map_err(|error| match error {
+                crate::iteration_decision::IterationDecisionErrorV1::Census(error) => {
+                    diagnosis_gate_trial_family_error(error)
+                }
+                _ => ResearchExploratoryDiagnosisGateErrorV1::InvalidEvidence,
+            })?;
+            Ok(ResearchExploratoryDiagnosisGateProjectionV1::from_owner_gate(locator, gate))
+        }
+        .await;
+        transaction
+            .rollback()
+            .await
+            .map_err(|error| ResearchExploratoryDiagnosisGateErrorV1::Storage(error.to_string()))?;
+        result
+    }
+
     /// Resolves an already issued Native Replay execution-input binding from one sealed request.
     ///
     /// The R&D pool remains inside this Owner. A caller cannot provide the binding identity,
@@ -2155,6 +2231,24 @@ impl PostgresResearchGoalOwnerV1 {
         }
         transaction.commit().await.map_err(|e| storage(&e))?;
         custody.into_v2_result_with_policy_current(read_cut, policy_current)
+    }
+}
+
+fn diagnosis_gate_trial_family_error(
+    error: TrialFamilyError,
+) -> ResearchExploratoryDiagnosisGateErrorV1 {
+    match error {
+        TrialFamilyError::NotFound => ResearchExploratoryDiagnosisGateErrorV1::Unavailable,
+        TrialFamilyError::Storage(message) => {
+            ResearchExploratoryDiagnosisGateErrorV1::Storage(message)
+        }
+        TrialFamilyError::InvalidPolicy(_)
+        | TrialFamilyError::ConflictingIdentity
+        | TrialFamilyError::InvalidStoredEvidence(_)
+        | TrialFamilyError::LegacyUnavailable
+        | TrialFamilyError::Unavailable(_) => {
+            ResearchExploratoryDiagnosisGateErrorV1::InvalidEvidence
+        }
     }
 }
 
@@ -3727,6 +3821,30 @@ mod tests {
         CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1,
         DedicatedPostgresTestDatabase,
     };
+
+    #[rstest]
+    fn diagnosis_gate_preserves_trial_family_error_taxonomy() {
+        assert!(matches!(
+            diagnosis_gate_trial_family_error(TrialFamilyError::NotFound),
+            ResearchExploratoryDiagnosisGateErrorV1::Unavailable
+        ));
+        assert!(matches!(
+            diagnosis_gate_trial_family_error(TrialFamilyError::Storage("database".into())),
+            ResearchExploratoryDiagnosisGateErrorV1::Storage(message) if message == "database"
+        ));
+        for error in [
+            TrialFamilyError::InvalidPolicy("policy"),
+            TrialFamilyError::ConflictingIdentity,
+            TrialFamilyError::InvalidStoredEvidence("cross-binding"),
+            TrialFamilyError::LegacyUnavailable,
+            TrialFamilyError::Unavailable("incomplete aggregate".into()),
+        ] {
+            assert!(matches!(
+                diagnosis_gate_trial_family_error(error),
+                ResearchExploratoryDiagnosisGateErrorV1::InvalidEvidence
+            ));
+        }
+    }
 
     #[rstest]
     fn expression_index_manifest_matches_postgres_pretty_catalog_form() {

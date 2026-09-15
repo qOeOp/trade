@@ -69,8 +69,11 @@ pub mod exploratory_replay;
 mod family;
 mod family_adapters;
 mod formation_adapters;
+pub mod governance_artifact_membership;
 mod holdout;
 pub mod intent;
+pub mod iteration_analysis;
+pub mod iteration_analysis_postgres;
 #[allow(
     dead_code,
     reason = "the R&D-private candidate comparison awaits the same-transaction Decision composer"
@@ -254,6 +257,7 @@ pub mod strategy_plan_v2;
 #[cfg(test)]
 mod strategy_plan_v2_tests;
 mod successor;
+mod successor_research_custody_postgres_v1;
 pub mod trial_family;
 pub mod trial_family_postgres;
 

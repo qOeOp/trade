@@ -34,7 +34,7 @@ Unify Research and Develop under one business-fact Owner. The Research capabilit
   `lock_sealed_exploratory_replay_request_for_market_data_v1` Owner port before it may independently issue any
   event-binding receipt.
   **TARGET / NOT_ADMITTED:** the three executable routines in that fixed path are owned by the isolated
-  `NOLOGIN` `rd_exploratory_replay_api_owner`, which has `SELECT` only on the nine relations traversed by the
+  `NOLOGIN` `rd_exploratory_replay_api_owner`, which has `SELECT` only on the exact set of relations traversed by the
   canonical verifier chain and no table- or column-level mutation privilege. `market_data_owner` receives only
   schema usage and execution of the exact four-field
   `SECURITY DEFINER` facade, and must call it inside its existing SERIALIZABLE transaction. Runtime roles have no

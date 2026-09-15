@@ -636,6 +636,36 @@ pub(crate) fn restart_verified_develop_plugin_build_v3(
     )
 }
 
+/// Rebuilds the private canonical capsule from two current Owner-derived lowerings before
+/// restarting a durable V3 build. The stored capsule identity remains only a comparison key.
+pub(crate) fn restart_verified_develop_plugin_build_from_current_inputs_v3(
+    manifest: &PluginManifestV2,
+    first_inputs: &PrevalidatedBoundedFeatureSourceInputsV1,
+    second_inputs: &PrevalidatedBoundedFeatureSourceInputsV1,
+    expected_capsule_digest: BindingDigest,
+    receipt_bytes: &[u8],
+    wasm: &[u8],
+) -> Result<VerifiedDevelopPluginBuildV3, DevelopPluginBuildTerminalV3> {
+    let capsule = prepare_develop_plugin_capsule_v3(manifest, first_inputs, second_inputs)?;
+    if capsule.digest != expected_capsule_digest {
+        return Err(DevelopPluginBuildTerminalV3::new(
+            DevelopPluginBuildTerminalKindV3::Conflict,
+            "capsule.digest",
+            "current Owner-derived V3 capsule does not match durable custody",
+        ));
+    }
+    restart_verified_develop_plugin_build_v3(
+        manifest,
+        first_inputs,
+        second_inputs,
+        DevelopPluginBuildRestartEvidenceV3 {
+            capsule_bytes: capsule.canonical_bytes(),
+            receipt_bytes,
+            wasm,
+        },
+    )
+}
+
 pub(crate) enum DevelopPluginBuildResultV3 {
     Verified(Box<VerifiedDevelopPluginBuildReadV3>),
     Terminal(DevelopPluginBuildTerminalV3),

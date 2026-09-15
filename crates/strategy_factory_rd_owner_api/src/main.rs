@@ -150,6 +150,7 @@ struct DevelopComposerA0ExecutionsV1 {
 }
 
 mod exploratory_replay;
+mod iteration_analysis;
 mod iteration_decision;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 mod market_data_repair;
@@ -282,6 +283,8 @@ async fn main() -> anyhow::Result<()> {
         PostgresResearchGoalOwnerV1::materialize_schema(&database_url).await?;
         PostgresArtifactBuildOwnerV1::materialize_schema(&database_url).await?;
         vibe_strategy_factory::develop_composer_postgres_v2::PostgresDevelopComposerStoreV2::materialize_schema(&database_url).await?;
+        vibe_strategy_factory::iteration_analysis_postgres::materialize_schema(&database_url)
+            .await?;
         #[cfg(feature = "sealed-develop-composer-acceptance")]
         ReplayCompositionOwnerV1::materialize_schema(&database_url).await?;
         #[cfg(feature = "sealed-source-intake-acceptance")]
@@ -570,6 +573,7 @@ async fn main() -> anyhow::Result<()> {
             owner.clone(),
             token_digest,
         ))
+        .merge(iteration_analysis::router(owner.clone(), token_digest))
         .merge(iteration_decision::router(
             product_edge.clone(),
             owner.clone(),
