@@ -25,6 +25,7 @@ import { MarketDataOwnerFoundationCard } from "./market-data-owner-foundation-ca
 import { RuntimeFoundationNotReadyCard } from "./runtime-foundation-not-ready-card";
 import { PortfolioViewUnavailableCard } from "./portfolio-view-unavailable-card";
 import { LocalOperatorAccess } from "./local-operator-access";
+import { DashboardOverview } from "./dashboard-overview";
 import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
 import { PanelFrame, PanelFrameBody, PanelFrameHeader } from "./ui/panel-frame";
 import { UnavailableState } from "./ui/evidence-strip";
@@ -157,12 +158,13 @@ export function DashboardRouteContent({
   const runtimeFoundation = current === "/runtime" || current.startsWith("/runtime/");
   const portfolioUnavailable = current === "/portfolio" || current.startsWith("/portfolio/");
   const settingsAccess = current === "/settings/access";
+  const dashboardOverview = current === "/dashboard";
   const operationsConnected = operationsRuns || operationsRunDetail || operationsWorkers
     || operationsSchedules || operationsServiceLogs || operationsAudit;
   const embedsRouteChrome = sourceIntakeReadback || sourceResearchControl || composerReadback || researchDirectory || researchReadback
     || artifactDirectory || artifactSourceDetail;
   const rdPlaceholderRoute = current === "/rd/hypotheses" || current === "/rd/decisions";
-  const ownsRouteChrome = embedsRouteChrome || rdPlaceholderRoute || settingsAccess;
+  const ownsRouteChrome = embedsRouteChrome || rdPlaceholderRoute || settingsAccess || dashboardOverview;
   const suppressShellPageHeader = operationsSchedules || operationsServiceLogs || operationsAudit || ownsRouteChrome;
   const drawableExact = maturity === "DRAWABLE_EXACT";
 
@@ -221,7 +223,8 @@ export function DashboardRouteContent({
               </div>
             </details>
           </header>}
-          {operationsRuns ? <OperationsRunStorePreview />
+          {dashboardOverview ? <DashboardOverview />
+            : operationsRuns ? <OperationsRunStorePreview />
             : operationsRunDetail ? <OperationsRunDetail runIdentity={runIdentity ?? "example"} />
               : operationsWorkers ? <OperationsWorkersPreview initialWorkerIdentity={workerIdentity} />
               : operationsSchedules ? <OperationsSchedulesPreview initialView={scheduleView} />
