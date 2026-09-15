@@ -42,18 +42,23 @@ const BROWSER_KEYS = [
 ];
 const OUTCOME_KEYS = ["committedAt", "failureCode", "historicalDisposition", "resolution"];
 const TECHNICAL_KEYS = ["ownerReceiptIdentity"];
+const ARTIFACT_HISTORICAL_AVAILABILITIES = ["available", "unavailable"] as const;
+const ARTIFACT_HISTORICAL_DISPOSITIONS = ["failed", "rejected", "unknown"] as const;
 
 type Fetcher = typeof fetch;
 type Environment = Record<string, string | undefined>;
 
+export type ArtifactHistoricalAvailabilityV1 = typeof ARTIFACT_HISTORICAL_AVAILABILITIES[number];
+export type ArtifactHistoricalDispositionV1 = typeof ARTIFACT_HISTORICAL_DISPOSITIONS[number];
+
 export type ArtifactHistoricalReadbackProjectionV1 = Readonly<{
-  availability: "available" | "unavailable";
+  availability: ArtifactHistoricalAvailabilityV1;
   buildRequestIdentity: string;
   attemptIdentity: string;
   observedAt: string | null;
   outcome: Readonly<{
     resolution: "quarantined";
-    historicalDisposition: "failed" | "rejected" | "unknown";
+    historicalDisposition: ArtifactHistoricalDispositionV1;
     failureCode: string;
     committedAt: string;
   }> | null;
@@ -87,6 +92,18 @@ function canonicalTime(value: unknown): value is string {
   if (typeof value !== "string") return false;
   const date = new Date(value);
   return !Number.isNaN(date.getTime()) && date.toISOString() === value;
+}
+
+function memberOf<const T extends readonly string[]>(values: T, value: unknown): value is T[number] {
+  return typeof value === "string" && (values as readonly string[]).includes(value);
+}
+
+function historicalAvailability(value: unknown): value is ArtifactHistoricalAvailabilityV1 {
+  return memberOf(ARTIFACT_HISTORICAL_AVAILABILITIES, value);
+}
+
+function historicalDisposition(value: unknown): value is ArtifactHistoricalDispositionV1 {
+  return memberOf(ARTIFACT_HISTORICAL_DISPOSITIONS, value);
 }
 
 function legacyNoArtifactReceiptIdentity(requestSemanticDigest: string, failureCode: string): string {
@@ -203,22 +220,43 @@ export function parseArtifactHistoricalBrowserProjectionV1(
   if (!object(value) || !exactKeys(value, BROWSER_KEYS)
     || value.buildRequestIdentity !== buildRequestIdentity
     || value.attemptIdentity !== attemptIdentity
-    || !["available", "unavailable"].includes(String(value.availability))) return null;
+    || !historicalAvailability(value.availability)) return null;
   if (value.availability === "unavailable") {
     return value.observedAt === null && value.outcome === null && value.technical === null
       && typeof value.reason === "string"
-      ? value as ArtifactHistoricalReadbackProjectionV1
+      ? {
+        availability: "unavailable",
+        buildRequestIdentity,
+        attemptIdentity,
+        observedAt: null,
+        outcome: null,
+        technical: null,
+        reason: value.reason,
+      }
       : null;
   }
   if (!canonicalTime(value.observedAt) || value.reason !== null
     || !object(value.outcome) || !exactKeys(value.outcome, OUTCOME_KEYS)
     || value.outcome.resolution !== "quarantined"
-    || !["failed", "rejected", "unknown"].includes(String(value.outcome.historicalDisposition))
+    || !historicalDisposition(value.outcome.historicalDisposition)
     || !identity(value.outcome.failureCode)
     || !canonicalTime(value.outcome.committedAt)
     || !object(value.technical) || !exactKeys(value.technical, TECHNICAL_KEYS)
     || !identity(value.technical.ownerReceiptIdentity)) return null;
-  return value as ArtifactHistoricalReadbackProjectionV1;
+  return {
+    availability: "available",
+    buildRequestIdentity,
+    attemptIdentity,
+    observedAt: value.observedAt,
+    outcome: {
+      resolution: "quarantined",
+      historicalDisposition: value.outcome.historicalDisposition,
+      failureCode: value.outcome.failureCode,
+      committedAt: value.outcome.committedAt,
+    },
+    technical: { ownerReceiptIdentity: value.technical.ownerReceiptIdentity },
+    reason: null,
+  };
 }
 
 export async function readArtifactHistoricalGatewayV1({
