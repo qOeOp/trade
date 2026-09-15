@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import { RunIcons } from "./ui/iconography";
+import { PanelFrameFooterSummary } from "./ui/panel-frame";
 import styles from "./owner-directory.module.css";
 
 export function OwnerDirectoryInfo({
@@ -43,5 +44,13 @@ export function OwnerDirectoryUnavailable({
         <code>{reason}</code>
       </OwnerDirectoryInfo>
     </div>
+  );
+}
+
+export function OwnerDirectoryCandidateSummary({ omittedCount }: { omittedCount: number }) {
+  return (
+    <PanelFrameFooterSummary
+      primary={`${omittedCount} custody ${omittedCount === 1 ? "candidate" : "candidates"} need verification`}
+    />
   );
 }
