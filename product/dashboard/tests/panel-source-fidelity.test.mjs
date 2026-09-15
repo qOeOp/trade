@@ -172,6 +172,9 @@ test("operational surfaces keep implementation language behind information contr
   assert.match(runs, /if \(isRunListSearchInputV2\(event\.target\.value\)\) setQueryDraft/u);
   assert.doesNotMatch(runs, /description="[^"]*(?:RunStore|Windmill|Owner facts)/u);
   assert.match(workers, /title="Workers"[\s\S]+?<PanelFrameInfo>/u);
+  assert.match(workers, /<PanelFrameInfo label="View worker information">[\s\S]+?<PanelFrameInfoFact label="Artifact"><code>/u);
+  assert.match(workers, /runOperationLabel\(operation\)/u);
+  assert.doesNotMatch(workers, />\{operation\}<\/code>/u);
   assert.doesNotMatch(workers, /description="[^"]*(?:PostgreSQL|custody|operational facts)/u);
   assert.match(logs, /title="Service logs"[\s\S]+?<PanelFrameInfo>/u);
   assert.match(logs, /<CompactStatusGroup label="severity">/u);

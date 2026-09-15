@@ -1585,9 +1585,9 @@ H  Trade worker custody / Shadow read workers                         [Refresh]
 N  Existing Operations tabs; Workers remains in its existing position
 S  [Fleet] Online | Expired                 [Workload] Claimed | Active
 T  [Lease: All / Available / Expired]                  [Search workers]
-   Worker | Lease | Jobs | Last run | Operations
+   Worker | Lease | Active / claimed | Last run | Operations
 D  Identity + lease badge -> Lease -> Activity -> Last run -> Capabilities
-   Heartbeat history unavailable -> artifact digest -> [Back to worker list]
+   [Worker information] -> [Back to worker list]
 ```
 
 - 布局：flat `PanelFrame` 内依次为 header、body；body 内依次为 `CompactStatusBar`、
@@ -1602,9 +1602,9 @@ D  Identity + lease badge -> Lease -> Activity -> Last run -> Capabilities
   unavailable list 显示四个 `-`，不能把失败推断为零。Detail availability 不影响 list count；
   不推断 group、memory 或 occupancy。
 - Table：固定列顺序为 Worker（最小 250 px，identity link 后接注册时间）、Lease（最小 125 px，
-  available/expired badge）、Jobs（105 px，active / claimed）、Last run（最小 220 px，identity 后接
+  available/expired badge）、Active / claimed（132 px）、Last run（最小 220 px，identity 后接
   state/time；缺少 claim 显示 Unavailable / No durable claim）、Operations（120 px，exact registered-operation
-  count）。表头与 cell 全部左对齐。各列支持升降序；Jobs 按 active 后 claimed 排序，Operations 按 count。
+  count）。表头与 cell 全部左对齐。各列支持升降序；Active / claimed 按 active 后 claimed 排序，Operations 按 count。
   默认按 last-run time 从新到旧，无 last run 时回退 registration time；同时间的输入行按 identity 排列。
   浏览器校验只要求 identity 唯一，不强制数据库 collation 行序等同 JavaScript 排序。
   无 grouping、checkbox、bulk action 或 column chooser。
@@ -1616,10 +1616,10 @@ D  Identity + lease badge -> Lease -> Activity -> Last run -> Capabilities
 - Detail：heading 为 Selected worker 或 Exact worker readback、exact identity、lease badge。
   四簇按序排列，外层 gap/padding 8 px，圆角 13 px，内 padding 为 13 px × 14 px；
   fact 为两等宽列、gap 12 px。Lease：Registered、Expires。Activity：Claimed、Heartbeat，title 带 active count。
-  Last run：Run link、Claimed at，title 带 state 或 No claim。Capabilities：整行 Registered operations，
-  按 registry 顺序。然后显示 Heartbeat history unavailable，说明只保留 latest heartbeat/deadline，
-  memory/host 不作推断；footer 为 artifact digest 与 no-unbound-run-readiness 说明。
-  Back to worker list 仅在 exact route 显示。
+  Last run：Run link、Claimed at，title 带 state 或 No claim。Capabilities 显示业务可读的 role 与整行
+  registered-operation labels，并保持 registry 顺序；exact operation ID 只作为 title evidence，不占主文案。
+  Footer 仅保留一个共享 `Worker information` control，收纳 exact worker/artifact identity、仅保留 latest
+  heartbeat 的 scope 与 no-unbound-run-readiness boundary。Back to worker list 仅在 exact route 显示。
 - 状态几何：初始加载保留同一 header/summary，用 compact Worker store unavailable 区域显示
   `READING_WORKERS`；loading-row count 明确为零，不制造 worker skeleton 数据行。Pending 时 Refresh
   disabled 且标为 Reading；刷新期间保留上次 observation 到 replacement 到达，但不声称 fresh。

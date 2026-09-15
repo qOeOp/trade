@@ -10,6 +10,7 @@ import {
   type WorkerDetailBrowserEnvelopeV1,
   type WorkerBrowserProjectionV1,
 } from "../lib/worker-browser-contract";
+import { runOperationLabel } from "../lib/run-operation-presentation";
 import {
   DetailCluster,
   DetailClusterFact,
@@ -24,7 +25,14 @@ import {
 import { CompactStatusBar, CompactStatusGroup, CompactStatusItem } from "./ui/compact-status-bar";
 import { LoadingState, UnavailableState } from "./ui/evidence-strip";
 import { FilterButton, FilterSearch, TableFilterMenu, TableToolbar } from "./ui/filter-toolbar";
-import { PanelFrame, PanelFrameBody, PanelFrameHeader, PanelFrameInfo } from "./ui/panel-frame";
+import {
+  PanelFrame,
+  PanelFrameBody,
+  PanelFrameHeader,
+  PanelFrameInfo,
+  PanelFrameInfoFact,
+  PanelFrameInfoList,
+} from "./ui/panel-frame";
 import { PageStack } from "./ui/page-stack";
 import { SplitBento } from "./ui/split-bento";
 import { DataWorkspaceEmpty } from "./ui/data-workspace-empty";
@@ -51,7 +59,7 @@ function compactRunLabel(identity: string) {
 }
 
 function workerKindLabel(kind: WorkerBrowserProjectionV1["worker_kind"]) {
-  return kind.replaceAll("_", " ");
+  return kind === "shadow_read" ? "Data reader" : "Action runner";
 }
 
 function WorkerDetail({ worker, exact = false }: { worker: WorkerBrowserProjectionV1; exact?: boolean }) {
@@ -85,21 +93,22 @@ function WorkerDetail({ worker, exact = false }: { worker: WorkerBrowserProjecti
               ? <time dateTime={worker.last_run_at}>{displayTime(worker.last_run_at)}</time>
               : <span>Unavailable</span>}</DetailClusterFact>
           </DetailCluster>
-          <DetailCluster label="Capabilities" meta={`${worker.operation_ids.length} exact`}>
-            <DetailClusterFact label="Runtime role">{workerKindLabel(worker.worker_kind)}</DetailClusterFact>
+          <DetailCluster label="Capabilities" meta={`${worker.operation_ids.length} operations`}>
+            <DetailClusterFact label="Role">{workerKindLabel(worker.worker_kind)}</DetailClusterFact>
             <DetailClusterFact label="Registered operations" wide>
               <span className="detail-cluster-values">
-                {worker.operation_ids.map((operation) => <code key={operation} title={operation}>{operation}</code>)}
+                {worker.operation_ids.map((operation) => <span key={operation} title={operation}>{runOperationLabel(operation)}</span>)}
               </span>
             </DetailClusterFact>
           </DetailCluster>
         </DetailClusterGrid>
-        <DetailNotice icon={<RunIcons.duration aria-hidden="true" size={14} />} title="Limited heartbeat history">
-          Only the latest heartbeat and lease window are available.
-        </DetailNotice>
-        <DetailInspectorFooter>
-          <code title={worker.worker_artifact_digest}>{worker.worker_artifact_digest}</code>
-          <span>Artifact identity only · no unbound-run readiness claim</span>
+        <DetailInspectorFooter layout={exact ? "split" : "stack"}>
+          <PanelFrameInfo label="View worker information"><PanelFrameInfoList>
+            <PanelFrameInfoFact label="Identity"><code>{worker.worker_identity}</code></PanelFrameInfoFact>
+            <PanelFrameInfoFact label="Artifact"><code>{worker.worker_artifact_digest}</code></PanelFrameInfoFact>
+            <PanelFrameInfoFact label="History">Latest heartbeat and lease window only</PanelFrameInfoFact>
+            <PanelFrameInfoFact label="Boundary">No unbound-run readiness is inferred</PanelFrameInfoFact>
+          </PanelFrameInfoList></PanelFrameInfo>
           {exact ? <Link href="/operations/workers">Back to worker list</Link> : null}
         </DetailInspectorFooter>
       </DetailInspectorBody>
@@ -211,11 +220,11 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
     },
     {
       id: "jobs",
-      name: <DataTableHeaderLabel>Jobs</DataTableHeaderLabel>,
+      name: <DataTableHeaderLabel>Active / claimed</DataTableHeaderLabel>,
       selector: (worker) => worker.active_job_count,
       sortFunction: (a, b) => a.active_job_count - b.active_job_count || a.job_count - b.job_count,
       sortable: true,
-      width: "105px",
+      width: "132px",
       cell: (worker) => <span className="table-cell-numeric">{worker.active_job_count} / {worker.job_count}</span>,
     },
     {
@@ -233,7 +242,7 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
       selector: (worker) => worker.operation_ids.length,
       sortable: true,
       width: "120px",
-      cell: (worker) => <span className="table-cell-numeric">{worker.operation_ids.length} exact</span>,
+      cell: (worker) => <span className="table-cell-numeric">{worker.operation_ids.length}</span>,
     },
   ], []);
   const selectedRowStyles = useMemo(

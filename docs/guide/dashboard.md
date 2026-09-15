@@ -1720,9 +1720,9 @@ H  Trade worker custody / Shadow read workers                         [Refresh]
 N  Existing Operations tabs; Workers remains in its existing position
 S  [Fleet] Online | Expired                 [Workload] Claimed | Active
 T  [Lease: All / Available / Expired]                  [Search workers]
-   Worker | Lease | Jobs | Last run | Operations
+   Worker | Lease | Active / claimed | Last run | Operations
 D  Identity + lease badge -> Lease -> Activity -> Last run -> Capabilities
-   Heartbeat history unavailable -> artifact digest -> [Back to worker list]
+   [Worker information] -> [Back to worker list]
 ```
 
 - Layout: `PanelFrame` (flat) contains header then body; body contains `CompactStatusBar` then
@@ -1738,10 +1738,10 @@ D  Identity + lease badge -> Lease -> Activity -> Last run -> Capabilities
   transport-error or unavailable list yields four `-` values, never zeros inferred from failure.
   Detail availability cannot change list counts. No group, memory or occupancy estimate is invented.
 - Table: columns in exact order are Worker (minimum 250 px, identity link then registered time), Lease
-  (minimum 125 px, available/expired badge), Jobs (105 px, active / claimed), Last run (minimum 220 px,
+  (minimum 125 px, available/expired badge), Active / claimed (132 px), Last run (minimum 220 px,
   identity then state/time; absent claim shows Unavailable / No durable claim), Operations (120 px, exact
   registered-operation count). All headers/cells align left. Every column supports ascending/descending sort;
-  Jobs sorts active then claimed, Operations sorts count. Default is newest last-run time first, falling back
+  Active / claimed sorts active then claimed, Operations sorts count. Default is newest last-run time first, falling back
   to registration time; identity orders equal-time input rows. Browser validation requires unique identities,
   not JavaScript ordering of database-collated rows. No grouping, checkbox, bulk action or column chooser.
 - Filters: one inline Lease selector with All, Available, Expired in that order, followed by right-aligned
@@ -1753,10 +1753,11 @@ D  Identity + lease badge -> Lease -> Activity -> Last run -> Capabilities
 - Detail: heading is Selected worker or Exact worker readback, exact identity, lease badge. Four ordered
   clusters have 8 px outer gap/padding, 13 px radius and 13 px by 14 px inner padding; facts use two equal
   columns with 12 px gap. Lease: Registered, Expires. Activity: Claimed, Heartbeat, with active count in title.
-  Last run: Run link, Claimed at, with state or No claim in title. Capabilities: full-width Registered
-  operations, in registry order. Then show Heartbeat history unavailable, the explanation that only latest
-  heartbeat/deadline are retained and memory/host are not inferred; footer shows artifact digest and
-  no-unbound-run-readiness explanation. Back to worker list appears only on the exact route.
+  Last run: Run link, Claimed at, with state or No claim in title. Capabilities: the business-facing role and
+  full-width registered-operation labels in registry order; exact operation IDs remain title evidence rather than
+  primary copy. The footer exposes one shared `Worker information` control containing exact worker/artifact identity,
+  the latest-heartbeat-only scope, and the no-unbound-run-readiness boundary. Back to worker list appears only on the
+  exact route.
 - State geometry: initial load uses the same header/summary and compact Worker store unavailable region
   with `READING_WORKERS`; loading-row count is exactly zero, not synthetic worker rows. Refresh is disabled
   and labelled Reading while pending; during refresh the previous observation remains until replacement,

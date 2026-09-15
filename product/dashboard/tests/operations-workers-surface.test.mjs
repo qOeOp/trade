@@ -41,17 +41,22 @@ test("Workers keeps one compact summary, one dense table, and one exact detail s
 
   assert.match(workers, /<CompactStatusBar[^>]*aria-label="Worker summary"/);
   assert.match(workers, /<DataWorkspaceTable<WorkerBrowserProjectionV1>/);
+  assert.match(workers, /<DataTableHeaderLabel>Active \/ claimed<\/DataTableHeaderLabel>/u);
   assert.match(workers, /columns="minmax\(560px, 1\.55fr\) minmax\(300px, \.8fr\)"/);
   assert.match(workers, /<TableToolbar filter=\{<TableFilterMenu/);
   assert.match(workers, /<FilterSearch[\s\S]*?placeholder="Worker, operation, or run"/);
   assert.match(workers, /dataWorkspaceSelectedRowStyles<WorkerBrowserProjectionV1>/);
   assert.match(workers, /pagination paginationPerPage=\{20\}/);
-  assert.match(workers, /Limited heartbeat history/);
-  assert.match(workers, /Only the latest heartbeat and lease window are available/);
+  assert.match(workers, /<PanelFrameInfo label="View worker information">/);
+  assert.match(workers, /Latest heartbeat and lease window only/);
   assert.match(workers, /compactWorkerLabel\(worker\.worker_identity\)/u);
   assert.match(workers, /compactRunLabel\(worker\.last_run_identity\)/u);
   assert.doesNotMatch(workers, /<b>\{worker\.worker_identity\}<\/b>|<code title=\{worker\.last_run_identity\}>\{worker\.last_run_identity\}<\/code>/u);
-  assert.match(workers, /no unbound-run readiness claim/);
+  assert.match(workers, /No unbound-run readiness is inferred/);
+  assert.match(workers, /runOperationLabel\(operation\)/u);
+  assert.match(workers, /kind === "shadow_read" \? "Data reader" : "Action runner"/u);
+  assert.doesNotMatch(workers, />\{operation\}<\/code>/u);
+  assert.doesNotMatch(workers, /\{worker\.operation_ids\.length\} exact/u);
   assert.match(css, /\.compact-status-bar \{[^}]*container: compact-status \/ inline-size;[^}]*width: 100%;/u);
   assert.match(css, /\.compact-status-bar-layout \{[^}]*display: grid;[^}]*grid-template-columns: repeat\(auto-fit, minmax\(min\(100%, 420px\), 1fr\)\);[^}]*align-items: stretch;[^}]*gap: 12px;/u);
   assert.doesNotMatch(css, /\.compact-status-bar \{[^}]*(?:border|border-radius|background):/u);
