@@ -525,18 +525,23 @@ Research 与 Artifact directory 共用 domain-neutral `EntityReference` 原子�
 
 在 `Build history` 中，激活主 build 引用或选择对应 attempt row 都会打开同一个共享 `DetailSheet`，不会改变
 directory URL，也不会卸载
-当前 view、filter、search、pagination 或 scroll position。紧凑 sheet 只组合共享 `DetailFactGrid`、
-`StatusBadge` 与 `PanelFrameInfo` 原子，只回答是否存在可读 build result，以及 attempt 何时 prepared。
-精确 identity 与 observation cut 收进信息披露；historical disposition、failure evidence 与 journey 仍由完整
-result route 持有。只有当前可用且与 custody 精确绑定的 `reviewable` inventory item 才显示
-`Open full build result`；`unavailable` 或 loading item 仍可在 sheet 中查看，但绝不暴露虚假的 canonical action。
-关闭 sheet 后焦点返回原 control 或 row；窄屏继续复用共享全视口 sheet geometry。
+当前 view、filter、search、pagination 或 scroll position。紧凑摘要只组合共享 `DetailFactGrid`、
+`StatusBadge` 与 `PanelFrameInfo` 原子，只回答是否存在可读 build result，以及 attempt 何时 prepared；精确
+identity 与 observation cut 收进信息披露。只有当前可用且与同一 custody cut 精确绑定的 inventory item 才显示
+`Review build result`。这个显式动作会在同一个 sheet 内从摘要切换为 exact read-only result drilldown；仅打开
+摘要不会触发 exact point read。Drilldown 与 canonical historical route 共用同一个 readback hook，以及共享的
+`Build journey` 和 `Result / Review / Timing` 内容；`Back to build summary` 返回摘要并恢复 drilldown trigger 焦点。
+只有 HTTP 成功且 body 通过双 identity 校验后才显示 `Open full build workspace`；non-2xx 的伪 positive body、
+identity mismatch、取消的 read，以及 Back 或 Close 后才到达的 response 全部 fail closed。`unavailable` 或
+loading item 仍可查看摘要，但不暴露 result drilldown 或 canonical action。关闭 sheet 后焦点返回原 control 或
+row；窄屏继续复用共享全视口 sheet geometry。
 refresh 期间可以保留 rows 以维持 table geometry，但 Bento summary count、主引用 detail、outcome badge、
 次级 summary 与 footer 必须全部切换为 `Checking` 或 unavailable placeholder；不得把 retained positive
 review state 展示为当前状态。
 
-精确 historical-attempt route 的标题为 `Build result`，只回答本次 build 是否产出 Artifact。共享 journey 与
-`Result / Review / Timing` 分组展示 `Historical only` 和人类可读的 failure reason；精确 `Raw result`、
+精确 historical-attempt route 的标题为 `Build result`，只回答本次 build 是否产出 Artifact。它与 directory
+drilldown 共用同一个 fail-closed historical readback hook、共享 journey 与 `Result / Review / Timing` 内容。
+这些分组展示 `Historical only` 和人类可读的 failure reason；精确 `Raw result`、
 `Raw reason`、build request、attempt 与 receipt 只保留在信息披露中。页面不会把历史读取伪装成 current
 Artifact 或 action。
 

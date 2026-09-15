@@ -19,6 +19,7 @@ import type {
   HistoricalBindingCandidateV1,
 } from "../lib/rd-historical-custody-client";
 import { ArtifactAttemptPreview } from "./artifact-attempt-preview";
+import { ArtifactHistoricalReadbackDrilldown } from "./artifact-historical-readback-drilldown";
 import { DataTableHeaderLabel, DataTableSurface } from "./ui/data-table";
 import { DataWorkspaceEmpty } from "./ui/data-workspace-empty";
 import { DataWorkspaceTable, type DataWorkspaceColumn } from "./ui/data-workspace-table";
@@ -141,6 +142,8 @@ export function ArtifactDirectory({
   const [pendingOlder, setPendingOlder] = useState(false);
   const [selectedAttemptKey, setSelectedAttemptKey] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [detailMode, setDetailMode] = useState<"summary" | "readback">("summary");
+  const restoreSummaryFocus = useRef(false);
   const itemsRef = useRef<readonly ArtifactDirectoryItemV1[]>([]);
   const requestGuard = useRef(createArtifactDirectoryRequestGuardV1());
   const custodyCandidates = useHistoricalCustodyDirectory(true);
@@ -151,6 +154,7 @@ export function ArtifactDirectory({
     setCandidateKind(initialCandidateKind);
     setCandidateAvailability(initialCandidateAvailability);
     setDetailOpen(false);
+    setDetailMode("summary");
   }, [initialCandidateAvailability, initialCandidateKind, initialView]);
 
   const readPage = useCallback(async (cursor?: ArtifactDirectoryCursorV1) => {
@@ -273,8 +277,33 @@ export function ArtifactDirectory({
 
   const openAttemptDetail = useCallback((buildRequestIdentity: string, attemptIdentity: string) => {
     setSelectedAttemptKey(`${buildRequestIdentity}\u0000${attemptIdentity}`);
+    setDetailMode("summary");
     setDetailOpen(true);
   }, []);
+
+  const closeAttemptDetail = useCallback(() => {
+    restoreSummaryFocus.current = false;
+    setDetailOpen(false);
+    setDetailMode("summary");
+  }, []);
+
+  const returnToAttemptSummary = useCallback(() => {
+    restoreSummaryFocus.current = true;
+    setDetailMode("summary");
+  }, []);
+
+  useEffect(() => {
+    if (!restoreSummaryFocus.current || detailMode !== "summary"
+      || !detailOpen || !selectedAttempt) return;
+    restoreSummaryFocus.current = false;
+    const triggerIdentity = [
+      encodeURIComponent(selectedAttempt.buildRequestIdentity),
+      encodeURIComponent(selectedAttempt.attemptIdentity),
+    ].join(":");
+    document.querySelector<HTMLElement>(
+      `[data-artifact-readback-trigger="${CSS.escape(triggerIdentity)}"]`,
+    )?.focus();
+  }, [detailMode, detailOpen, selectedAttempt]);
 
   const columns = useMemo<DataWorkspaceColumn<ArtifactDirectoryItemV1>[]>(() => [
     {
@@ -647,30 +676,35 @@ export function ArtifactDirectory({
       </PanelFrame>
       <DetailSheet
         open={detailOpen && Boolean(selectedAttempt)}
-        onClose={() => setDetailOpen(false)}
+        onClose={closeAttemptDetail}
         eyebrow="Build history"
-        title="Build attempt"
+        title={detailMode === "readback" ? "Build result" : "Build attempt"}
         description={selectedAttempt
-          ? reviewAvailability === "loading"
+          ? detailMode === "readback"
+            ? "Review the exact build result without losing this list context."
+            : reviewAvailability === "loading"
             ? "Checking whether this attempt has a readable outcome."
             : selectedReview?.availability === "reviewable"
             ? "A saved build outcome is ready to review."
             : "This attempt is recorded, but no readable outcome is available."
           : undefined}
-        canonicalHref={selectedAttempt
-          && reviewAvailability === "available"
-          && selectedReview?.availability === "reviewable"
-          ? `/rd/artifacts/${encodeURIComponent(selectedAttempt.buildRequestIdentity)}/attempts/${encodeURIComponent(selectedAttempt.attemptIdentity)}?custody=historical`
-          : undefined}
-        canonicalLabel="Open full build result"
       >
-        {selectedAttempt ? <ArtifactAttemptPreview
-          candidate={selectedAttempt}
-          review={selectedReview}
-          reviewAvailability={reviewAvailability}
-          reviewObservedAt={reviewInventory.projection?.observedAt}
-          custodyObservedAtEpochMs={custodyCandidates.projection?.observedAtEpochMs}
-        /> : null}
+        {selectedAttempt ? detailMode === "readback" ? (
+          <ArtifactHistoricalReadbackDrilldown
+            buildRequestIdentity={selectedAttempt.buildRequestIdentity}
+            attemptIdentity={selectedAttempt.attemptIdentity}
+            onBack={returnToAttemptSummary}
+          />
+        ) : (
+          <ArtifactAttemptPreview
+            candidate={selectedAttempt}
+            review={selectedReview}
+            reviewAvailability={reviewAvailability}
+            reviewObservedAt={reviewInventory.projection?.observedAt}
+            custodyObservedAtEpochMs={custodyCandidates.projection?.observedAtEpochMs}
+            onOpenReadback={() => setDetailMode("readback")}
+          />
+        ) : null}
       </DetailSheet>
     </PageStack>
   );

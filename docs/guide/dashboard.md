@@ -606,20 +606,25 @@ render empty; unavailable remains a separate fail-closed state and never retains
 
 In `Build history`, activating the primary build reference or selecting its attempt row opens the same shared
 `DetailSheet` without changing the directory URL or
-unmounting its view, filters, search, pagination, or scroll position. The compact sheet composes the shared
+unmounting its view, filters, search, pagination, or scroll position. The compact summary composes the shared
 `DetailFactGrid`, `StatusBadge`, and `PanelFrameInfo` atoms and answers only whether a readable build result exists
-and when the attempt was prepared. Exact identities and observation cuts stay in the information disclosure;
-historical disposition, failure evidence, and journey remain owned by the full result route. Only a bound
-currently available, bound `reviewable` inventory item exposes `Open full build result`; an `unavailable` or loading
-item remains inspectable in the sheet
-but exposes no false canonical action. Closing the sheet restores focus to the originating control or row, and narrow screens
-reuse the shared full-viewport sheet geometry.
+and when the attempt was prepared. Exact identities and observation cuts stay in the information disclosure.
+Only a currently available inventory item that is bound to the same custody cut exposes `Review build result`.
+That explicit action switches the same sheet from summary to an exact read-only result drilldown; merely opening
+the summary performs no exact point read. The drilldown reuses the canonical historical readback hook and shared
+`Build journey` plus `Result / Review / Timing` content, while `Back to build summary` restores focus to the
+drilldown trigger. Only a successful HTTP response whose body passes both identity checks exposes
+`Open full build workspace`; non-2xx positive-looking bodies, mismatched identities, cancelled reads, and responses
+arriving after Back or Close remain fail closed. An `unavailable` or loading item remains summary-inspectable but
+exposes neither the result drilldown nor a canonical action. Closing the sheet restores focus to the originating
+control or row, and narrow screens reuse the shared full-viewport sheet geometry.
 During a refresh, retained rows may preserve table geometry, but the Bento summary count, primary-reference detail,
 outcome badge, secondary summary, and footer all switch to `Checking` or unavailable placeholders; no retained
 positive review state is presented as current.
 
 The exact historical-attempt route is titled `Build result` and answers whether the build produced an Artifact.
-Its shared journey plus `Result / Review / Timing` groups render `Historical only` and a human-readable failure
+It consumes the same fail-closed historical readback hook and shared journey plus `Result / Review / Timing` content
+as the directory drilldown. Those groups render `Historical only` and a human-readable failure
 reason. Exact `Raw result`, `Raw reason`, build request, attempt, and receipt values remain in the information
 disclosure; the page does not turn a historical read into a current Artifact or action.
 

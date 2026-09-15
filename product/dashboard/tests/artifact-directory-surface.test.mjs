@@ -30,7 +30,9 @@ test("Artifact directory uses the shared compact read-only table surface", async
   assert.match(component, /pointerOnHover/u);
   assert.match(component, /<ArtifactAttemptPreview/u);
   assert.match(component, /selectedReview\?\.availability === "reviewable"/u);
-  assert.match(component, /canonicalLabel="Open full build result"/u);
+  assert.match(component, /detailMode === "readback"[\s\S]+<ArtifactHistoricalReadbackDrilldown/u);
+  assert.doesNotMatch(component, /canonicalLabel="Open full build result"|canonicalHref=\{selectedAttempt/u);
+  assert.match(component, /onOpenReadback=\{\(\) => setDetailMode\("readback"\)\}/u);
   assert.doesNotMatch(component, /review\.disposition === "accepted"/u);
   assert.match(component, /<DataWorkspaceTable<HistoricalBindingCandidateV1>/u);
   assert.match(component, /label: "Build history"/u);
@@ -96,7 +98,8 @@ test("bilingual Artifact directory contract fixes layout, fields and no-effect b
       "research", "build", "families", "requests", "reviewable", "attempts", "bindings",
       "/api/rd/artifacts/review-inventory", "reviewable | unavailable", "All attempts",
       "/rd/artifacts/?availability=reviewable", "/rd/artifacts/?kind=bindings",
-      "EntityReference", "opaque identity",
+      "EntityReference", "opaque identity", "Review build result", "Back to build summary",
+      "Open full build workspace",
     ]) assert.ok(specification.includes(token), `${suffix || "en"} missing ${token}`);
   }
 });

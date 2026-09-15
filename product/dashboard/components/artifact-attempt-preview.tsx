@@ -4,6 +4,7 @@ import {
   DetailFact,
   DetailFactGrid,
 } from "./ui/detail-inspector";
+import { Button } from "./ui/button";
 import { PageStack } from "./ui/page-stack";
 import {
   PanelFrameInfo,
@@ -35,14 +36,17 @@ export function ArtifactAttemptPreview({
   reviewAvailability,
   reviewObservedAt,
   custodyObservedAtEpochMs,
+  onOpenReadback,
 }: {
   candidate: HistoricalArtifactCandidateV1;
   review?: ArtifactReviewInventoryItemV1;
   reviewAvailability: "loading" | "available" | "unavailable";
   reviewObservedAt?: string | null;
   custodyObservedAtEpochMs?: number | null;
+  onOpenReadback?: () => void;
 }) {
   const presentation = outcomePresentation(review, reviewAvailability);
+  const canOpenReadback = reviewAvailability === "available" && review?.availability === "reviewable";
 
   return (
     <PageStack gap="compact">
@@ -56,6 +60,22 @@ export function ArtifactAttemptPreview({
           </time>
         </DetailFact>
       </DetailFactGrid>
+      {onOpenReadback && canOpenReadback ? (
+        <div>
+          <Button
+            type="button"
+            variant="outline"
+            size="tool"
+            onClick={onOpenReadback}
+            data-artifact-readback-trigger={[
+              encodeURIComponent(candidate.buildRequestIdentity),
+              encodeURIComponent(candidate.attemptIdentity),
+            ].join(":")}
+          >
+            Review build result
+          </Button>
+        </div>
+      ) : null}
       <PanelFrameInfo label="View build information">
         <b>Read-only information</b>
         <PanelFrameInfoList>

@@ -48,12 +48,14 @@ test("the shared detail sheet owns focus, responsive geometry, and canonical fal
   assert.match(artifacts, /const openAttemptDetail = useCallback/u);
   assert.match(artifacts, /label="Build request"[\s\S]*onActivate=\{\(\) => openAttemptDetail/u);
   assert.match(artifacts, /onRowClicked=\{\(item\) => openAttemptDetail/u);
-  assert.match(artifacts, /<DetailSheet[\s\S]*canonicalLabel="Open full build result"/u);
-  assert.match(artifacts, /description=\{selectedAttempt\s*\? reviewAvailability === "loading"/u);
-  assert.match(artifacts, /canonicalHref=\{selectedAttempt\s*&& reviewAvailability === "available"\s*&& selectedReview\?\.availability === "reviewable"/u);
+  assert.match(artifacts, /<DetailSheet[\s\S]*detailMode === "readback"[\s\S]*<ArtifactHistoricalReadbackDrilldown/u);
+  assert.doesNotMatch(artifacts, /canonicalLabel="Open full build result"|canonicalHref=\{selectedAttempt/u);
+  assert.match(artifacts, /description=\{selectedAttempt\s*\? detailMode === "readback"/u);
+  assert.match(artifacts, /onOpenReadback=\{\(\) => setDetailMode\("readback"\)\}/u);
   assert.match(artifactPreview, /<DetailFactGrid>[\s\S]*label="result"[\s\S]*label="prepared"/u);
   assert.match(artifactPreview, /if \(availability === "loading"\)[\s\S]*if \(review\?\.availability === "reviewable"\)/u);
   assert.match(artifactPreview, /<PanelFrameInfo label="View build information">/u);
+  assert.match(artifactPreview, /data-artifact-readback-trigger/u);
   assert.doesNotMatch(artifactPreview, /fetch\(|useRouter|disposition/u);
   assert.match(serviceLogs, /<DataWorkspaceTable<ServiceLogRow>[\s\S]*onRowClicked=\{\(entry\) =>/u);
   assert.match(serviceLogs, /<DetailSheet[\s\S]*canonicalLabel="Open related run"/u);
@@ -65,7 +67,7 @@ test("the shared detail sheet owns focus, responsive geometry, and canonical fal
     assert.match(doc, /D  (?:shared|共享) DetailSheet/u);
     assert.match(doc, /\[Open full details\] -> \/operations\/runs\/:runId/u);
     assert.match(doc, /schedules URL/iu);
-    assert.match(doc, /Build history[\s\S]*DetailSheet[\s\S]*Open full build result/u);
+    assert.match(doc, /Build history[\s\S]*DetailSheet[\s\S]*Review build result/u);
     assert.match(doc, /Service Logs URL[\s\S]*Open related run/u);
   }
 });
