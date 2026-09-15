@@ -1,12 +1,78 @@
 export type PresentationTone = "neutral" | "info" | "success" | "warning" | "danger" | "unavailable";
 
+const runStateLabels = {
+  queued: "Waiting",
+  running: "Running",
+  succeeded: "Completed",
+  failed: "Failed",
+  cancelled: "Cancelled",
+  unknown: "Unknown",
+} as const;
+
+const sourceResultLabels = {
+  available: "Available",
+  rejected: "Not accepted",
+  unknown: "Pending",
+  unavailable: "Unavailable",
+  not_applicable: "Not applicable",
+} as const;
+
+const triggerLabels = {
+  dashboard_bff: "Dashboard",
+  dashboard_api: "API",
+  dashboard_scheduler: "Schedule",
+} as const;
+
+const runKindLabels = {
+  owner_read: "Data read",
+  owner_effect: "Action",
+} as const;
+
 export type RunPresentationInput = {
-  state: string;
+  state: keyof typeof runStateLabels;
   started_at: string | null;
   duration_ms: number | null;
   terminal_code: string | null;
-  owner_outcome_state: string;
+  owner_outcome_state: keyof typeof sourceResultLabels;
 };
+
+export function runStateLabel(state: keyof typeof runStateLabels): string {
+  return runStateLabels[state];
+}
+
+export function sourceResultLabel(state: keyof typeof sourceResultLabels): string {
+  return sourceResultLabels[state];
+}
+
+export function runTriggerLabel(trigger: keyof typeof triggerLabels): string {
+  return triggerLabels[trigger];
+}
+
+export function runKindLabel(kind: keyof typeof runKindLabels): string {
+  return runKindLabels[kind];
+}
+
+export function workerAssignmentPresentation(
+  availability: "available" | "unavailable" | "not_applicable",
+  unavailableReason: string | null,
+): { title: string; detail: string } {
+  if (availability === "available") {
+    return { title: "Worker assigned", detail: "A current worker record is linked to this run." };
+  }
+  if (availability === "not_applicable") {
+    return { title: "Handled directly", detail: "This run does not require a background worker." };
+  }
+  if (unavailableReason === "RUN_DISPATCH_BINDING_UNAVAILABLE") {
+    return {
+      title: "Assignment not recorded",
+      detail: "This historical run has no matching current worker assignment record.",
+    };
+  }
+  return {
+    title: "Assignment unavailable",
+    detail: "The current worker assignment could not be verified.",
+  };
+}
 
 export function summarizeRunsForPresentation(runs: readonly RunPresentationInput[]) {
   return {
@@ -17,18 +83,14 @@ export function summarizeRunsForPresentation(runs: readonly RunPresentationInput
   };
 }
 
-export function runTerminalPresentation(run: RunPresentationInput): {
+export function runDurationPresentation(run: RunPresentationInput): {
   duration: string;
   durationTone: PresentationTone;
-  terminalState: string;
-  terminalTone: PresentationTone;
 } {
   if (run.state === "cancelled" && run.started_at === null) {
     return {
       duration: "Not started",
       durationTone: "neutral",
-      terminalState: run.terminal_code ?? "Cancelled",
-      terminalTone: "neutral",
     };
   }
 
@@ -40,8 +102,6 @@ export function runTerminalPresentation(run: RunPresentationInput): {
   return {
     duration,
     durationTone: run.duration_ms === null ? "info" : "neutral",
-    terminalState: run.terminal_code ?? "In progress",
-    terminalTone: run.terminal_code ? "neutral" : "info",
   };
 }
 

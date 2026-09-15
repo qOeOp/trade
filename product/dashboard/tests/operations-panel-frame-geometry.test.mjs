@@ -79,9 +79,9 @@ test("Run result reuses shared status and action atoms instead of a page-local e
   assert.match(detail, /<FilterButton density="compact" variant="secondary"/u);
   assert.match(detail, /<FilterLink density="compact"/u);
   assert.match(detail, /<FilterButton[\s\S]*?density="compact" variant="danger"/u);
-  assert.match(detail, /actions=\{<>[\s\S]*?<FilterButton density="compact" variant="secondary"[\s\S]*?Copy locator[\s\S]*?<FilterButton density="compact" variant="secondary"[\s\S]*?Refresh/u);
+  assert.match(detail, /actions=\{<>[\s\S]*?<FilterButton density="compact" variant="secondary"[\s\S]*?Copy reference[\s\S]*?<FilterButton density="compact" variant="secondary"[\s\S]*?Refresh/u);
   assert.match(detail, /<FilterLink density="compact" variant="warning" href="#dependency-cancellation-panel">/u);
-  assert.match(detail, /<FilterButton[\s\S]*?density="compact"[\s\S]*?variant="primary"[\s\S]*?Resolve same identity/u);
+  assert.match(detail, /<FilterButton[\s\S]*?density="compact"[\s\S]*?variant="primary"[\s\S]*?Check source result/u);
   assert.match(detail, /<FilterLink density="compact" variant="secondary" href=\{run\.owner_view\.href\}>/u);
   assert.doesNotMatch(detail, /data-action-variant=/u);
   assert.doesNotMatch(detail, /Evidence(?:Strip|Field|Actions)/u);

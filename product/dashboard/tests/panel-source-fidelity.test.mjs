@@ -118,8 +118,8 @@ test("operational summaries preserve a legible metric hierarchy across viewports
   assert.match(css, /@container compact-status-group \(max-width: 380px\)[\s\S]+\.compact-status-item \{[^}]+flex-direction: row;[^}]+text-align: left;/u);
   assert.doesNotMatch(css, /\.operations-run-summaries\[data-variant="flow"\]|\.insight-summary-flow/u);
   assert.match(runDetail, /<CompactStatusBar className="run-detail-summaries" aria-label="Run summary">/u);
-  assert.match(runDetail, /<CompactStatusGroup label="outcome">[\s\S]+?<CompactStatusGroup label="timing">/u);
-  for (const label of ["owner outcome", "execution", "terminal state", "transition", "duration", "received", "started", "completed"]) {
+  assert.match(runDetail, /<CompactStatusGroup label="result">[\s\S]+?<CompactStatusGroup label="timing">/u);
+  for (const label of ["source result", "run", "duration", "requested", "started", "completed"]) {
     assert.match(runDetail, new RegExp(`<CompactStatusItem label="${label}"`, "u"));
   }
   assert.doesNotMatch(runDetail, /AggregateSummary/u);
@@ -130,7 +130,7 @@ test("operational summaries preserve a legible metric hierarchy across viewports
 test("run detail actions, technical disclosure, and state values expose deliberate hierarchy", () => {
   assert.match(button, /ghost:\s*'hover:bg-accent hover:text-accent-foreground'/u);
   assert.match(button, /outline:[\s\S]*?border-\[var\(--border-default\)\][\s\S]*?bg-\[var\(--surface-card\)\]/u);
-  assert.match(runDetail, /label="owner outcome"[\s\S]+?ownerOutcomeTone\(run\.owner_outcome_state\)/u);
+  assert.match(runDetail, /label="source result"[\s\S]+?ownerOutcomeTone\(run\.owner_outcome_state\)/u);
   assert.match(css, /\.panel-info-popover \{[^}]+position: fixed;[^}]+max-height:[^}]+overflow-y: auto;[^}]+background: var\(--surface-elevated\);/u);
   assert.match(css, /\.panel-frame-actions \.panel-info-popover a \{[^}]+border-radius: 0;[^}]+background: transparent;[^}]+text-decoration: underline;/u);
   assert.match(panel, /popoverTarget=\{popoverId\}/u);
@@ -140,19 +140,23 @@ test("run detail actions, technical disclosure, and state values expose delibera
   assert.match(css, /\.panel-info-facts > div \{[^}]+grid-template-columns: 76px minmax\(0, 1fr\);[^}]+border-bottom:/u);
   assert.match(css, /\.panel-info-facts dd code \{[^}]+overflow-wrap: anywhere;[^}]+text-overflow: clip;[^}]+white-space: normal;/u);
   assert.doesNotMatch(css, /\.panel-info-facts dd code \{[^}]+text-overflow: ellipsis;/u);
-  assert.match(runDetail, /<FilterButton density="compact" variant="secondary"[\s\S]+?Copy locator/u);
+  assert.match(runDetail, /<FilterButton density="compact" variant="secondary"[\s\S]+?Copy reference/u);
   assert.match(runDetail, /<FilterButton density="compact" variant="secondary"[\s\S]+?Refresh/u);
-  assert.match(runDetail, /<FilterButton[\s\S]+?density="compact"[\s\S]+?variant="primary"[\s\S]+Resolve same identity/u);
-  assert.match(runDetail, /<FilterLink density="compact" variant="secondary"[^>]+>[\s\S]*?Open Owner view/u);
+  assert.match(runDetail, /<FilterButton[\s\S]+?density="compact"[\s\S]+?variant="primary"[\s\S]+Check source result/u);
+  assert.match(runDetail, /<FilterLink density="compact" variant="secondary"[^>]+>[\s\S]*?View source result/u);
   assert.doesNotMatch(runDetail, /data-action-variant=/u);
-  assert.match(runDetail, /<PanelFrameInfo label="View run information">[\s\S]+?compactIdentity\(run\.run_identity\)[\s\S]+?<\/PanelFrameInfo>/u);
+  assert.match(runDetail, /<PanelFrameInfo label="View run information">[\s\S]+?<PanelFrameInfoFact label="Run ID">[\s\S]+?run\.run_identity[\s\S]+?<\/PanelFrameInfo>/u);
   assert.doesNotMatch(runDetail, /panel-info-disclosure/u);
   assert.match(dashboardShell, /<details className="authority-disclosure">[\s\S]+?IMPLEMENTATION_ADMITTED[\s\S]+?<\/details>/u);
   assert.doesNotMatch(runDetail, /meta=\{<code title=\{run\.run_identity\}/u);
   assert.doesNotMatch(runDetail, /detail="Owner state is never inferred from execution"/u);
   assert.doesNotMatch(runDetail, /detail="Operational clock, independent of Owner state"/u);
-  assert.match(runDetail, /CompactStatusItem label="received"/u);
+  assert.match(runDetail, /CompactStatusItem label="requested"/u);
   assert.doesNotMatch(runDetail, /Timing \/ received/u);
+  assert.match(runDetail, /title=\{runOperationLabel\(run\.operation_id\)\}/u);
+  assert.match(runDetail, /eyebrow="Request" title="Run inputs"/u);
+  assert.match(runDetail, /eyebrow="Processing"[\s\S]+?workerPresentation\.title/u);
+  assert.match(runDetail, /eyebrow="Related result" title=\{ownerLabels\[run\.owner_view\.source_owner\]\}/u);
   for (const token of ["positive", "warning", "info", "negative"]) {
     assert.match(theme, new RegExp(`--semantic-${token}:`, "u"));
     assert.match(css, new RegExp(`--status-${token}: var\\(--semantic-${token}\\)`, "u"));
