@@ -12,6 +12,10 @@ import {
   type ResearchDirectoryItemV1,
 } from "../lib/research-directory-gateway";
 import type { HistoricalResearchCandidateV1 } from "../lib/rd-historical-custody-client";
+import {
+  researchOutcomeInventoryMatchesCustodyV1,
+  type ResearchOutcomeInventoryItemV1,
+} from "../lib/research-outcome-inventory";
 import { DataTableHeaderLabel, DataTableSurface } from "./ui/data-table";
 import { DataWorkspaceEmpty } from "./ui/data-workspace-empty";
 import { DataWorkspaceTable, type DataWorkspaceColumn } from "./ui/data-workspace-table";
@@ -27,9 +31,10 @@ import {
   PanelFrameHeader,
 } from "./ui/panel-frame";
 import { StatusBadge } from "./ui/status-badge";
-import { researchAvailabilityTone } from "./ui/status-tone-policy";
+import { researchAvailabilityTone, researchOutcomeTone } from "./ui/status-tone-policy";
 import { useDelayedPending } from "./ui/use-delayed-pending";
 import { useHistoricalCustodyDirectory } from "./use-historical-custody-directory";
+import { useResearchOutcomeInventory } from "./use-research-outcome-inventory";
 import { OwnerDirectoryInfo, OwnerDirectoryUnavailable } from "./owner-directory-state";
 import { ResearchLoopJourney } from "./research-loop-journey";
 import { RdCustodyReviewSummary } from "./rd-custody-review-summary";
@@ -52,6 +57,12 @@ function phaseLabel(item: ResearchDirectoryItemV1): string {
   return "Request unresolved";
 }
 
+function outcomeLabel(item: ResearchOutcomeInventoryItemV1): string {
+  if (item.resolution === "accepted" || item.historicalDisposition === "accepted") return "Accepted";
+  if (item.resolution === "rejected" || item.historicalDisposition === "rejected") return "Rejected";
+  return "Outcome ready";
+}
+
 function directoryUrl(cursor?: ResearchDirectoryCursorV1): string {
   if (!cursor) return "/api/rd/research/directory/";
   const search = new URLSearchParams({
@@ -63,11 +74,16 @@ function directoryUrl(cursor?: ResearchDirectoryCursorV1): string {
 
 export function ResearchDirectory({
   initialView = "verified",
+  initialCandidateOutcome = "all",
 }: {
   initialView?: "verified" | "candidates";
+  initialCandidateOutcome?: "all" | "ready" | "awaiting";
 }) {
   const router = useRouter();
   const [view, setView] = useState<"verified" | "candidates">(initialView);
+  const [candidateOutcome, setCandidateOutcome] = useState<"all" | "ready" | "awaiting">(
+    initialCandidateOutcome,
+  );
   const [items, setItems] = useState<readonly ResearchDirectoryItemV1[]>([]);
   const [nextCursor, setNextCursor] = useState<ResearchDirectoryCursorV1 | null>(null);
   const [availability, setAvailability] = useState<"loading" | "available" | "unavailable">("loading");
@@ -79,6 +95,7 @@ export function ResearchDirectory({
   const itemsRef = useRef<readonly ResearchDirectoryItemV1[]>([]);
   const requestGuard = useRef(createResearchDirectoryRequestGuardV1());
   const custodyCandidates = useHistoricalCustodyDirectory(true);
+  const outcomeInventory = useResearchOutcomeInventory(true);
 
   const readPage = useCallback(async (cursor?: ResearchDirectoryCursorV1) => {
     const requestIdentity = requestGuard.current.begin();
@@ -146,12 +163,34 @@ export function ResearchDirectory({
       phaseLabel(item),
     ].some((value) => value.toLowerCase().includes(normalizedSearch)))
     : items, [items, normalizedSearch]);
+  const projectedOutcomeByRequest = useMemo(() => new Map(
+    (outcomeInventory.projection?.items ?? []).map((item) => [item.requestIdentity, item]),
+  ), [outcomeInventory.projection]);
+  const outcomeInventoryBound = useMemo(() => researchOutcomeInventoryMatchesCustodyV1(
+    outcomeInventory.projection,
+    custodyCandidates.projection,
+  ), [custodyCandidates.projection, outcomeInventory.projection]);
+  const outcomeByRequest = useMemo(() => outcomeInventoryBound
+    ? projectedOutcomeByRequest
+    : new Map<string, ResearchOutcomeInventoryItemV1>(), [outcomeInventoryBound, projectedOutcomeByRequest]);
+  const outcomeAvailability = outcomeInventory.availability === "loading"
+    ? "loading"
+    : outcomeInventory.availability === "available" && outcomeInventoryBound
+    ? "available"
+    : "unavailable";
   const visibleCandidates = useMemo(() => {
     const candidates = custodyCandidates.projection?.research ?? [];
-    return normalizedSearch
+    const searched = normalizedSearch
       ? candidates.filter((item) => item.requestIdentity.toLowerCase().includes(normalizedSearch))
       : candidates;
-  }, [custodyCandidates.projection, normalizedSearch]);
+    if (candidateOutcome === "ready") {
+      return searched.filter((item) => outcomeByRequest.get(item.requestIdentity)?.status === "outcome_ready");
+    }
+    if (candidateOutcome === "awaiting") {
+      return searched.filter((item) => outcomeByRequest.get(item.requestIdentity)?.status === "awaiting_outcome");
+    }
+    return searched;
+  }, [candidateOutcome, custodyCandidates.projection, normalizedSearch, outcomeByRequest]);
 
   const columns = useMemo<DataWorkspaceColumn<ResearchDirectoryItemV1>[]>(() => [
     {
@@ -213,27 +252,63 @@ export function ResearchDirectory({
       sortable: true,
       minWidth: "360px",
       grow: 1.6,
-      cell: (item) => <div className={styles.identityCell}>
-        <Link className={styles.identityLink} href={`/rd/research/${encodeURIComponent(item.requestIdentity)}`}
-          title={`Open exact Owner readback for ${item.requestIdentity}`}>
+      cell: (item) => {
+        const outcome = outcomeByRequest.get(item.requestIdentity);
+        const content = <>
           <strong>{displayIdentity(item.requestIdentity)}</strong>
-        </Link>
-      </div>,
+          <span>{outcome?.status === "outcome_ready"
+            ? "Open result"
+            : outcome?.status === "awaiting_outcome"
+            ? "Open request"
+            : outcome?.status === "unavailable"
+            ? "Status unavailable"
+            : "Check status"}</span>
+        </>;
+        return outcome?.status === "unavailable"
+          ? <div className={styles.identityCell}>{content}</div>
+          : <Link className={styles.identityCell}
+            href={`/rd/research/${encodeURIComponent(item.requestIdentity)}`}
+            title={`Open exact Owner readback for ${item.requestIdentity}`}>
+            {content}
+          </Link>;
+      },
+      ignoreRowClick: true,
     },
     {
       id: "verification",
-      name: <DataTableHeaderLabel>Verification</DataTableHeaderLabel>,
-      selector: (item) => item.projectionState,
+      name: <DataTableHeaderLabel>Result</DataTableHeaderLabel>,
+      selector: (item) => outcomeByRequest.get(item.requestIdentity)?.status ?? item.projectionState,
       sortable: true,
       minWidth: "230px",
-      cell: () => <div className={styles.verification}>
-        <StatusBadge tone="unavailable">Not verified</StatusBadge>
-        <span>Point read required</span>
-      </div>,
+      cell: (item) => {
+        const outcome = outcomeByRequest.get(item.requestIdentity);
+        return <div className={styles.verification}>
+          <StatusBadge tone={outcome?.status === "outcome_ready"
+            ? researchOutcomeTone(outcome)
+            : "unavailable"}>
+            {outcome?.status === "outcome_ready"
+              ? outcomeLabel(outcome)
+              : outcome?.status === "awaiting_outcome"
+              ? "Awaiting result"
+              : outcome?.status === "unavailable"
+              ? "Unavailable"
+              : outcomeAvailability === "loading"
+              ? "Checking…"
+              : "Not checked"}
+          </StatusBadge>
+          <span>{outcome?.status === "outcome_ready"
+            ? outcome.resolution === "quarantined" ? "Archived result" : "Current result"
+            : outcome?.status === "awaiting_outcome"
+            ? "No result yet"
+            : outcome?.status === "unavailable"
+            ? "Status unavailable"
+            : "Result not checked"}</span>
+        </div>;
+      },
     },
     {
       id: "observed",
-      name: <DataTableHeaderLabel>Custody time</DataTableHeaderLabel>,
+      name: <DataTableHeaderLabel>Received</DataTableHeaderLabel>,
       selector: (item) => item.committedAtEpochMs,
       sortable: true,
       minWidth: "210px",
@@ -241,14 +316,15 @@ export function ResearchDirectory({
         {new Date(item.committedAtEpochMs).toLocaleString()}
       </time>,
     },
-  ], []);
+  ], [outcomeAvailability, outcomeByRequest]);
 
   const pending = view === "verified"
-    ? availability === "loading"
-    : custodyCandidates.availability === "loading";
+    ? availability === "loading" || outcomeInventory.availability === "loading"
+    : custodyCandidates.availability === "loading" || outcomeInventory.availability === "loading";
   const showPending = useDelayedPending(pending);
   const refresh = () => {
     setJourneyRefreshKey((value) => value + 1);
+    void outcomeInventory.read();
     if (view === "verified") {
       void custodyCandidates.read();
       return readPage();
@@ -258,13 +334,28 @@ export function ResearchDirectory({
   const selectView = (value: string) => {
     const nextView = value === "candidates" ? "candidates" : "verified";
     setView(nextView);
-    router.replace(nextView === "candidates" ? "/rd/research/?view=candidates" : "/rd/research/", { scroll: false });
+    router.replace(nextView === "candidates"
+      ? `/rd/research/?view=candidates${candidateOutcome === "all" ? "" : `&outcome=${candidateOutcome}`}`
+      : "/rd/research/", { scroll: false });
+  };
+  const selectCandidateOutcome = (value: string) => {
+    const nextOutcome = value === "ready" ? "ready" : value === "awaiting" ? "awaiting" : "all";
+    setCandidateOutcome(nextOutcome);
+    router.replace(`/rd/research/?view=candidates${nextOutcome === "all" ? "" : `&outcome=${nextOutcome}`}`, {
+      scroll: false,
+    });
   };
 
   return (
     <PageStack>
       {view === "verified" ? <ResearchLoopJourney refreshKey={journeyRefreshKey} /> : null}
-      <RdCustodyReviewSummary projection={custodyCandidates.projection} />
+      <RdCustodyReviewSummary
+        projection={custodyCandidates.projection}
+        researchOutcomeReadyTotal={outcomeInventoryBound
+          && outcomeInventory.projection?.completeness === "complete"
+          ? outcomeInventory.projection.outcomeReadyTotal
+          : null}
+      />
       <PanelFrame aria-labelledby="research-directory-title">
         <PanelFrameHeader
           eyebrow="Research"
@@ -272,7 +363,7 @@ export function ResearchDirectory({
           titleId="research-directory-title"
           description={view === "verified"
             ? "Review accepted requests and their current strategy intent."
-            : "Review discovered requests that still need verification."}
+            : "See which requests have a result and which are still waiting."}
           actions={<>
             <OwnerDirectoryInfo>
               <strong>Read-only Owner data</strong>
@@ -286,15 +377,28 @@ export function ResearchDirectory({
         />
         <PanelFrameBody>
           <DataTableSurface className={styles.tableSurface} geometry="inner" toolbarLabel="Research table controls" toolbar={
-            <TableToolbar filter={<FilterTabs
-              label="Research directory view"
-              items={[
-                { value: "verified", label: "Verified" },
-                { value: "candidates", label: "Custody candidates" },
-              ]}
-              selected={view}
-              onSelect={selectView}
-            />}>
+            <TableToolbar filter={<div className={styles.filterGroup}>
+              <FilterTabs
+                label="Research directory view"
+                items={[
+                  { value: "verified", label: "Verified" },
+                  { value: "candidates", label: "Custody candidates" },
+                ]}
+                selected={view}
+                onSelect={selectView}
+              />
+              {view === "candidates" ? <FilterTabs
+                label="Research outcome cut"
+                items={[
+                  { value: "ready", label: "With outcome" },
+                  { value: "awaiting", label: "Awaiting" },
+                  { value: "all", label: "All requests" },
+                ]}
+                selected={candidateOutcome}
+                onSelect={selectCandidateOutcome}
+                variant="rail"
+              /> : null}
+            </div>}>
               <FilterSearch
                 label="Search research requests"
                 value={search}
@@ -334,6 +438,15 @@ export function ResearchDirectory({
                 detail="Candidate requests could not be loaded. Try refreshing."
                 reason={custodyCandidates.reason ?? "CUSTODY_CANDIDATE_DIRECTORY_UNAVAILABLE"}
               />
+            ) : candidateOutcome !== "all" && outcomeAvailability === "unavailable" ? (
+              <OwnerDirectoryUnavailable
+                icon={<EvidenceIcons.warning aria-hidden="true" size={18} />}
+                title="Request status unavailable"
+                detail="All requests is still available, but result status could not be refreshed."
+                reason={outcomeInventory.availability === "available"
+                  ? "RESEARCH_OUTCOME_INVENTORY_CUSTODY_MISMATCH"
+                  : outcomeInventory.reason ?? "RESEARCH_OUTCOME_INVENTORY_UNAVAILABLE"}
+              />
             ) : <DataWorkspaceTable<HistoricalResearchCandidateV1>
               ariaLabel="Research custody candidates"
               columns={candidateColumns}
@@ -345,11 +458,16 @@ export function ResearchDirectory({
               paginationPerPage={20}
               paginationResetKey={normalizedSearch}
               paginationRowsPerPageOptions={[20, 50]}
-              noDataComponent={<DataWorkspaceEmpty state={custodyCandidates.availability === "loading" ? "loading" : "empty"}
+              noDataComponent={<DataWorkspaceEmpty state={custodyCandidates.availability === "loading"
+                || outcomeAvailability === "loading" ? "loading" : "empty"}
                 className={custodyCandidates.availability === "loading" && !showPending ? styles.pendingQuiet : undefined}
                 icon={<EvidenceIcons.pending aria-hidden="true" size={18} />}>
-                {custodyCandidates.availability === "loading"
+                {custodyCandidates.availability === "loading" || outcomeAvailability === "loading"
                   ? "Reading custody candidates…"
+                  : candidateOutcome === "ready"
+                  ? "No request with an Owner outcome matches this cut."
+                  : candidateOutcome === "awaiting"
+                  ? "No request awaiting an Owner outcome matches this cut."
                   : "No candidate identity matches this cut."}
               </DataWorkspaceEmpty>}
             />}
@@ -358,8 +476,16 @@ export function ResearchDirectory({
         {view === "candidates" && custodyCandidates.availability === "available" ? (
           <PanelFrameFooter layout="split">
             <PanelFrameFooterSummary
-              primary={`${custodyCandidates.projection?.researchTotal ?? 0} candidate identities`}
-              secondary="Candidates remain unverified until their exact request is opened."
+              primary={candidateOutcome === "ready"
+                ? `${outcomeInventory.projection?.outcomeReadyTotal ?? 0} requests with outcomes`
+                : candidateOutcome === "awaiting"
+                ? `${outcomeInventory.projection?.awaitingOutcomeTotal ?? 0} requests awaiting outcomes`
+                : `${custodyCandidates.projection?.researchTotal ?? 0} research requests`}
+              secondary={candidateOutcome === "ready"
+                ? "Each request has a result ready to review."
+                : candidateOutcome === "awaiting"
+                ? "Each request is readable but has no result yet."
+                : "Requests are grouped by result status."}
             />
           </PanelFrameFooter>
         ) : availability === "available" && (partial || nextCursor) ? (

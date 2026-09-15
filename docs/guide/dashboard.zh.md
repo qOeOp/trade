@@ -315,11 +315,14 @@ scroll viewport 内；loading、合法 empty、unavailable、partial 保持相�
 不会编造删减后的 mobile fact。
 
 Historical-custody Owner projection available 时，route 在 directory 前放置一张共享 compact status card。
-左肩 label 固定为 `work to review`，三个同权重 value 固定为 `research requests`、`build attempts` 与
-`family bindings`，且只读取 projection 的 exact total。它是 review inventory，不是 conversion funnel、
+左肩 label 固定为 `work to review`，三个同权重 value 覆盖 Research outcome、build attempt 与 family binding。
+当 Research outcome inventory 完整且 identity set 与页面独立渲染的同一 custody set 精确绑定时，第一项显示
+`research outcomes` 的 `ready / total`；否则 fail back 到原始 `research requests` total。它是 review inventory，不是 conversion funnel、
 lifecycle、verified journey，也不声称三个集合一一对应。Projection unavailable 时整张 card 消失，不能替代
 独立 verified R&D loop。任一 directory view 的 Refresh 都刷新 custody projection。每个 metric 都只是同一
-Owner cut 上的安静导航入口：`research requests` 打开 `/rd/research/?view=candidates`，`build attempts` 打开
+Owner cut 上的安静导航入口：已知 `research outcomes` 打开
+`/rd/research/?view=candidates&outcome=ready`，fallback `research requests` 打开
+`/rd/research/?view=candidates`，`build attempts` 打开
 `/rd/artifacts/?view=candidates&kind=attempts`，`family bindings` 打开
 `/rd/artifacts/?view=candidates&kind=bindings`。未知或缺失 query value 必须退回 verified 默认态；这些 link
 不准入任何新的 read/write contract，对应 `Custody candidates` segment 仍是可见 drill-down interaction。
@@ -335,6 +338,16 @@ cut 明确标为 partial。任何 malformed 或跨读变化的 candidate 都使�
 `default_transaction_read_only=on` session，并在一个有界 repeatable-read transaction 中读取；最多返回 200 个
 request identity、custody time 与精确的 `POINT_READ_REQUIRED` state，不暴露 request meaning、disposition、
 availability、receipt、authority，也不判断 current/legacy；超限必须显式 truncated。
+
+Dashboard-only authenticated GET `/api/rd/research/outcome-inventory` 把该有界 custody cut 与每个扫描 request
+现有的 identity-bound Research exact read 组合，最多同时发出六个 read。它区分 `outcome_ready`、
+`awaiting_outcome` 与 `unavailable`；read available 但没有 outcome 必须明确归为 awaiting，而不是 unavailable。
+projection 保留 source 与 composition observation time、scanned/source total、completeness、三类状态 total 和
+每个 request identity。它不是跨记录的单一原子 Owner snapshot，也不会创造 Research-to-Artifact 或 TrialFamily
+join。只有 inventory request-identity set 与页面独立渲染的 custody set 精确一致时，browser 才能显示
+`With outcome / Awaiting / All requests`；mismatch 或 composition unavailable 只禁用 filtered cut，不能把原始
+candidate directory 伪装成成功空集。只有 `outcome_ready` row 可以声称已有 Owner outcome；awaiting row 打开
+精确 request status，unavailable row 不提供 false action。未知 `outcome` value fail back 到 `All requests`。
 
 verified Research directory、Research exact readback、Artifact exact readback、Source Intake exact readback、
 Develop Composer exact readback 与 Exploratory Replay V2 exact point-read GET 由统一的

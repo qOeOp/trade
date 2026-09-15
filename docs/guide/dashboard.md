@@ -365,12 +365,15 @@ sticky inside the bounded scroll viewport. Loading, valid empty, unavailable, an
 card geometry; narrow layouts scroll horizontally rather than inventing a reduced mobile fact.
 
 When the historical-custody Owner projection is available, the route places one shared compact status card before
-the directory. Its shoulder label is `work to review`; its three same-weight values are `research requests`,
-`build attempts`, and `family bindings`, sourced only from the projection's exact totals. This is a review inventory,
+the directory. Its shoulder label is `work to review`; its three same-weight values cover Research outcomes,
+build attempts, and family bindings. When the Research outcome inventory is complete and identity-bound to that
+same separately rendered custody set, the first value is `research outcomes` as `ready / total`; otherwise it
+fails back to the raw `research requests` total. This is a review inventory,
 not a conversion funnel, lifecycle, verified journey, or claim that the three sets are one-to-one. It disappears
 when that projection is unavailable and never replaces the separately verified R&D loop. Refresh on either directory
 view refreshes the custody projection. Each metric is one quiet navigation target over the same Owner cut:
-`research requests` opens `/rd/research/?view=candidates`, `build attempts` opens
+known `research outcomes` opens `/rd/research/?view=candidates&outcome=ready`, the fallback `research requests`
+opens `/rd/research/?view=candidates`, and `build attempts` opens
 `/rd/artifacts/?view=candidates&kind=attempts`, and `family bindings` opens
 `/rd/artifacts/?view=candidates&kind=bindings`. Unknown or missing query values fail back to the verified default;
 the links admit no new read or write contract, and the corresponding `Custody candidates` segment remains the
@@ -388,6 +391,17 @@ candidate view uses authenticated GET `/v1/historical-custodies`. Its dedicated 
 `default_transaction_read_only=on` sessions and reads one bounded repeatable-read transaction. It returns at most
 200 request identities with their custody time and the exact state `POINT_READ_REQUIRED`; it exposes no request
 meaning, disposition, availability, receipt, authority, or current/legacy classification. Truncation is explicit.
+
+Dashboard-only authenticated GET `/api/rd/research/outcome-inventory` composes that bounded custody cut with one
+existing identity-bound Research exact read per scanned request, with at most six reads in flight. It distinguishes
+`outcome_ready`, `awaiting_outcome`, and `unavailable`; an available read with no outcome is explicitly awaiting,
+not unavailable. The projection preserves source and composition observation times, scanned and source totals,
+completeness, all three state totals, and each request identity. It is not one atomic cross-record Owner snapshot and
+creates no Research-to-Artifact or TrialFamily join. The browser may show `With outcome / Awaiting / All requests`
+only after the inventory request-identity set exactly matches the separately rendered custody set. A mismatch or
+unavailable composition disables the filtered cuts without turning the raw candidate directory into an empty result.
+Only `outcome_ready` rows claim an Owner outcome; awaiting rows open their exact request status, and unavailable rows
+offer no false action. Unknown `outcome` values fail back to `All requests`.
 
 The verified Research directory, Research exact-readback, Artifact exact-readback, Source Intake exact-readback,
 Develop Composer exact-readback, and Exploratory Replay V2 exact point-read GETs are packaged in the consolidated

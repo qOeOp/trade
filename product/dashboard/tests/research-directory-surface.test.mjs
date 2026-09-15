@@ -13,14 +13,18 @@ test("Research directory uses the shared compact read-only table surface", async
     readFile(new URL("../components/ui/compact-status-bar.tsx", import.meta.url), "utf8"),
   ]);
   assert.match(component, /<DataWorkspaceTable<ResearchDirectoryItemV1>/u);
-  assert.match(component, /<RdCustodyReviewSummary projection=\{custodyCandidates\.projection\}/u);
+  assert.match(component, /<RdCustodyReviewSummary[\s\S]+researchOutcomeReadyTotal=/u);
+  assert.match(component, /useResearchOutcomeInventory\(true\)/u);
+  assert.match(component, /researchOutcomeInventoryMatchesCustodyV1/u);
   const summary = await readFile(new URL("../components/rd-custody-review-summary.tsx", import.meta.url), "utf8");
   assert.match(summary, /CompactStatusBar/u);
   assert.match(summary, /label="work to review"/u);
   assert.match(summary, /research requests/u);
+  assert.match(summary, /research outcomes/u);
   assert.match(summary, /build attempts/u);
   assert.match(summary, /family bindings/u);
-  assert.match(summary, /href="\/rd\/research\/\?view=candidates"/u);
+  assert.match(summary, /: "\/rd\/research\/\?view=candidates"/u);
+  assert.match(summary, /"\/rd\/research\/\?view=candidates&outcome=ready"/u);
   assert.match(summary, /"\/rd\/artifacts\/\?view=candidates&kind=attempts"/u);
   assert.match(summary, /"\/rd\/artifacts\/\?view=candidates&kind=attempts&availability=reviewable"/u);
   assert.match(summary, /href="\/rd\/artifacts\/\?view=candidates&kind=bindings"/u);
@@ -28,8 +32,11 @@ test("Research directory uses the shared compact read-only table surface", async
   assert.match(statusAtom, /className="compact-status-item-link"/u);
   assert.match(component, /<DataWorkspaceTable<HistoricalResearchCandidateV1>/u);
   assert.match(component, /label: "Custody candidates"/u);
-  assert.match(component, /router\.replace\(nextView === "candidates" \? "\/rd\/research\/\?view=candidates" : "\/rd\/research\/", \{ scroll: false \}\)/u);
-  assert.match(component, /Candidates remain unverified until their exact request is opened\./u);
+  assert.match(component, /label: "With outcome"/u);
+  assert.match(component, /label: "Awaiting"/u);
+  assert.match(component, /label: "All requests"/u);
+  assert.match(component, /outcome=\$\{nextOutcome\}/u);
+  assert.match(component, /Requests are grouped by result status\./u);
   assert.match(component, /"Request, intent, or state"/u);
   for (const header of ["Research request", "State", "Intent", "Updated"]) {
     assert.match(component, new RegExp(`DataTableHeaderLabel>${header}<`, "u"));
@@ -37,14 +44,15 @@ test("Research directory uses the shared compact read-only table surface", async
   assert.match(component, /requestGuard\.current\.isCurrent\(requestIdentity\)/u);
   assert.match(component, /RESEARCH_DIRECTORY_PAGE_IDENTITY_CONFLICT/u);
   assert.match(component, /researchAvailabilityTone\(item\.availability\)/u);
-  assert.equal([
-    ...component.matchAll(/href=\{`\/rd\/research\/\$\{encodeURIComponent\(item\.requestIdentity\)\}`\}/gu),
-  ].length, 2);
+  assert.match(component, /Open result/u);
+  assert.match(component, /No result yet/u);
+  assert.match(component, /Status unavailable/u);
   assert.match(component, /Open exact Owner readback for/u);
   assert.match(route, /readResearchDirectoryGatewayV1/u);
   assert.match(route, /search\.getAll\(key\)\.length !== 1/u);
-  assert.match(shell, /<ResearchDirectory key=\{directoryView\} initialView=\{directoryView\} \/>/u);
+  assert.match(shell, /<ResearchDirectory[\s\S]+initialView=\{directoryView\}[\s\S]+initialCandidateOutcome=\{researchCandidateOutcome\}/u);
   assert.match(page, /query\.view === "candidates" \? "candidates" : "verified"/u);
+  assert.match(page, /query\.outcome === "ready"/u);
   assert.match(page, /query\.kind === "bindings" \? "bindings" : "attempts"/u);
   assert.match(page, /query\.availability === "reviewable" \? "reviewable" : "all"/u);
   assert.match(shell, /OWNER_CUSTODY_READ_ONLY - NO_SUBMIT_OR_RESOLVE/u);
@@ -80,6 +88,8 @@ test("bilingual Research directory contract fixes layout, fields and no-effect b
       "work to review", "research requests", "build attempts", "family bindings",
       "/rd/research/?view=candidates", "/rd/artifacts/?view=candidates&kind=attempts",
       "/rd/artifacts/?view=candidates&kind=bindings",
+      "/api/rd/research/outcome-inventory", "outcome_ready", "awaiting_outcome",
+      "With outcome / Awaiting / All requests",
     ]) assert.ok(specification.includes(token), `${suffix || "en"} missing ${token}`);
   }
 });

@@ -5,20 +5,35 @@ export function RdCustodyReviewSummary({
   projection,
   scope = "research",
   artifactReviewableTotal = null,
+  researchOutcomeReadyTotal = null,
 }: {
   projection: HistoricalCustodyProjectionV1 | null;
   scope?: "research" | "artifacts";
   artifactReviewableTotal?: number | null;
+  researchOutcomeReadyTotal?: number | null;
 }) {
   if (!projection || projection.resolution !== "RETRIEVED") return null;
+  const researchOutcomesKnown = scope === "research"
+    && researchOutcomeReadyTotal !== null
+    && projection.completeness === "COMPLETE";
   const artifactReviewabilityKnown = scope === "artifacts"
     && artifactReviewableTotal !== null
     && projection.completeness === "COMPLETE";
   return (
     <CompactStatusBar aria-label={scope === "research" ? "R&D custody work to review" : "Artifact custody work to review"}>
       <CompactStatusGroup label="work to review">
-        {scope === "research" ? <CompactStatusItem label="research requests" value={projection.researchTotal}
-          href="/rd/research/?view=candidates" actionLabel="Review research request candidates" /> : null}
+        {scope === "research" ? <CompactStatusItem
+          label={researchOutcomesKnown ? "research outcomes" : "research requests"}
+          value={researchOutcomesKnown
+            ? `${researchOutcomeReadyTotal} / ${projection.researchTotal}`
+            : projection.researchTotal}
+          href={researchOutcomesKnown
+            ? "/rd/research/?view=candidates&outcome=ready"
+            : "/rd/research/?view=candidates"}
+          actionLabel={researchOutcomesKnown
+            ? "Review research requests with an Owner outcome"
+            : "Review research request candidates"}
+        /> : null}
         <CompactStatusItem
           label={artifactReviewabilityKnown ? "reviewable outcomes" : "build attempts"}
           value={artifactReviewabilityKnown

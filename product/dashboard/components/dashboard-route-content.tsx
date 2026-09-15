@@ -107,6 +107,7 @@ export function DashboardRouteContent({
   replayHistoricalCustody = false,
   researchRequestIdentity,
   directoryView = "verified",
+  researchCandidateOutcome = "all",
   artifactCandidateKind = "attempts",
   artifactCandidateAvailability = "all",
 }: {
@@ -124,6 +125,7 @@ export function DashboardRouteContent({
   replayHistoricalCustody?: boolean;
   researchRequestIdentity?: string;
   directoryView?: "verified" | "candidates";
+  researchCandidateOutcome?: "all" | "ready" | "awaiting";
   artifactCandidateKind?: "attempts" | "bindings";
   artifactCandidateAvailability?: "all" | "reviewable";
 }) {
@@ -237,7 +239,11 @@ export function DashboardRouteContent({
                   ? replayMeaningDigest : undefined}
               />
               : researchReadback ? <ResearchReadbackWorkspace requestIdentity={researchRequestIdentity!} />
-              : researchDirectory ? <ResearchDirectory key={directoryView} initialView={directoryView} />
+              : researchDirectory ? <ResearchDirectory
+                key={`${directoryView}:${researchCandidateOutcome}`}
+                initialView={directoryView}
+                initialCandidateOutcome={researchCandidateOutcome}
+              />
               : artifactDirectory ? <ArtifactDirectory
                 key={`${directoryView}:${artifactCandidateKind}:${artifactCandidateAvailability}`}
                 initialView={directoryView}
