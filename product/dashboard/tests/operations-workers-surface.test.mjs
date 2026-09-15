@@ -80,10 +80,15 @@ test("Workers keeps one compact summary, one dense table, and one exact detail s
   assert.match(statusBar, /columns: isAsymmetric && itemCount <= 2 \? 1 : Math\.min\(itemCount, 2\)/u);
   assert.match(statusBar, /weight: isAsymmetric \? 1 \+ Math\.log2\(itemCount\) : itemCount/u);
   assert.match(statusBar, /className="compact-status-bar-layout" data-layout=\{isAsymmetric \? "bento" : undefined\}/u);
-  assert.match(statusBar, /data-bento-columns=\{layout\?\.columns\} data-item-count=\{itemCount\} style=\{groupStyle\}/u);
+  assert.match(statusBar, /data-bento-pattern=\{pairedBento \? "2-1-1" : undefined\}/u);
+  assert.match(statusBar, /placement: pairedBento \? \(itemCount === 2 \? "tall" : "stacked"\) : undefined/u);
+  assert.match(statusBar, /data-bento-columns=\{layout\?\.columns\}[\s\S]+data-bento-placement=\{layout\?\.placement\} data-item-count=\{itemCount\} style=\{groupStyle\}/u);
   assert.match(css, /\.compact-status-bar-layout\[data-layout="bento"\] \.compact-status-group dl \{[^}]*display: grid;[^}]*repeat\(var\(--compact-status-columns\), minmax\(0, 1fr\)\)/u);
   assert.match(css, /@container compact-status \(min-width: 1320px\)[\s\S]+\.compact-status-bar-layout \{[^}]*display: flex;[^}]*flex-wrap: nowrap;[^}]*\}[\s\S]*\.compact-status-group \{[^}]*min-width: min\(100%, 260px\);[^}]*flex: var\(--compact-status-weight, 1\) 1 0;/u);
   assert.match(css, /\.compact-status-bar-layout\[data-layout="bento"\] \.compact-status-item \{[^}]*flex-direction: row;[^}]*justify-content: space-between;[^}]*text-align: left;/u);
+  assert.match(css, /@container compact-status \(min-width: 1120px\)[\s\S]+data-bento-pattern="2-1-1"[^}]+3fr[^}]+2fr/u);
+  assert.match(css, /data-bento-placement="tall"[^}]+grid-column: 1;[^}]+grid-row: 1 \/ span 2;/u);
+  assert.match(css, /data-bento-placement="stacked"[^}]+grid-column: 2;/u);
   assert.match(css, /\.compact-status-item\[data-tone="protected"\] dd \{ color: var\(--status-protected\); \}/u);
   assert.doesNotMatch(css, /\.compact-status-item \+ \.compact-status-item \{[^}]*border-(?:left|top):/u);
   assert.match(css, /@container compact-status-group \(max-width: 767px\)[\s\S]+grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/u);

@@ -6,48 +6,47 @@ export function RdCustodyReviewSummary({
   scope = "research",
   artifactReviewableTotal = null,
   researchOutcomeReadyTotal = null,
+  researchAwaitingOutcomeTotal = null,
 }: {
   projection: HistoricalCustodyProjectionV1 | null;
   scope?: "research" | "artifacts";
   artifactReviewableTotal?: number | null;
   researchOutcomeReadyTotal?: number | null;
+  researchAwaitingOutcomeTotal?: number | null;
 }) {
   if (!projection || projection.resolution !== "RETRIEVED") return null;
   const researchOutcomesKnown = scope === "research"
     && researchOutcomeReadyTotal !== null
+    && researchAwaitingOutcomeTotal !== null
+    && researchOutcomeReadyTotal + researchAwaitingOutcomeTotal === projection.researchTotal
     && projection.completeness === "COMPLETE";
   const artifactReviewabilityKnown = scope === "artifacts"
     && artifactReviewableTotal !== null
     && projection.completeness === "COMPLETE";
   return (
-    <CompactStatusBar aria-label={scope === "research" ? "R&D custody work to review" : "Artifact custody work to review"}>
-      <CompactStatusGroup label="work to review">
-        {scope === "research" ? <CompactStatusItem
-          label={researchOutcomesKnown ? "research outcomes" : "research requests"}
-          value={researchOutcomesKnown
-            ? `${researchOutcomeReadyTotal} / ${projection.researchTotal}`
-            : projection.researchTotal}
-          href={researchOutcomesKnown
-            ? "/rd/research/?outcome=ready"
-            : "/rd/research/"}
-          actionLabel={researchOutcomesKnown
-            ? "Review research requests with an Owner outcome"
-            : "Review research request candidates"}
-        /> : null}
-        <CompactStatusItem
-          label={artifactReviewabilityKnown ? "reviewable outcomes" : "build attempts"}
-          value={artifactReviewabilityKnown
-            ? `${artifactReviewableTotal} / ${projection.artifactAttemptTotal}`
-            : projection.artifactAttemptTotal}
-          href={artifactReviewabilityKnown
-            ? "/rd/artifacts/?availability=reviewable"
-            : "/rd/artifacts/"}
-          actionLabel={artifactReviewabilityKnown
-            ? "Review readable build outcomes"
-            : "Review build attempt candidates"}
-        />
-        <CompactStatusItem label="family bindings" value={projection.bindingTotal}
-          href="/rd/artifacts/?kind=bindings" actionLabel="Review family binding candidates" />
+    <CompactStatusBar aria-label="R&D work cycle">
+      {scope === "research" ? <CompactStatusGroup label="research">
+        {researchOutcomesKnown ? <CompactStatusItem label="results ready" value={researchOutcomeReadyTotal}
+          tone="success" href="/rd/research/?outcome=ready" actionLabel="Review research results" />
+          : <CompactStatusItem label="requests" value={projection.researchTotal}
+          href="/rd/research/" actionLabel="Review research requests" />}
+        {researchOutcomesKnown ? <CompactStatusItem label="waiting" value={researchAwaitingOutcomeTotal}
+          tone="warning" href="/rd/research/?outcome=awaiting"
+          actionLabel="Review research requests awaiting a result" /> : null}
+      </CompactStatusGroup> : <CompactStatusGroup label="research">
+        <CompactStatusItem label="requests" value={projection.researchTotal}
+          href="/rd/research/" actionLabel="Review research requests" />
+      </CompactStatusGroup>}
+      <CompactStatusGroup label="build">
+        {artifactReviewabilityKnown ? <CompactStatusItem label="reviewable" value={artifactReviewableTotal}
+          tone="success" href="/rd/artifacts/?availability=reviewable"
+          actionLabel="Review readable build outcomes" /> : null}
+        <CompactStatusItem label="attempts" value={projection.artifactAttemptTotal}
+          href="/rd/artifacts/" actionLabel="Review build attempts" />
+      </CompactStatusGroup>
+      <CompactStatusGroup label="families">
+        <CompactStatusItem label="bindings" value={projection.bindingTotal}
+          href="/rd/artifacts/?kind=bindings" actionLabel="Review family bindings" />
       </CompactStatusGroup>
     </CompactStatusBar>
   );

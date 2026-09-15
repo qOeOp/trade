@@ -353,6 +353,10 @@ export function ResearchDirectory({
           && outcomeInventory.projection?.completeness === "complete"
           ? outcomeInventory.projection.outcomeReadyTotal
           : null}
+        researchAwaitingOutcomeTotal={outcomeInventoryBound
+          && outcomeInventory.projection?.completeness === "complete"
+          ? outcomeInventory.projection.awaitingOutcomeTotal
+          : null}
       />
       <PanelFrame aria-labelledby="research-directory-title">
         <PanelFrameHeader

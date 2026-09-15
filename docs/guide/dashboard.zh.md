@@ -335,17 +335,20 @@ Journey 与 `Result / Strategy / Timing` 分组使用 `Needs current review`、`
 等业务文案，不把 quarantine 或 same-identity 术语当作任务本身。`Raw outcome`、`Raw reason` 以及精确 identity、
 receipt 只保留在技术信息披露中。
 
-Historical-custody Owner projection available 时，route 在 directory 前放置一张共享 compact status card。
-左肩 label 固定为 `work to review`，三个同权重 value 覆盖 Research outcome、build attempt 与 family binding。
-当 Research outcome inventory 完整且 identity set 与页面独立渲染的同一 custody set 精确绑定时，第一项显示
-`research outcomes` 的 `ready / total`；否则 fail back 到原始 `research requests` total。它是 review inventory，不是 conversion funnel、
-lifecycle、verified journey，也不声称三个集合一一对应。Projection unavailable 时整张 card 消失，不能替代
-独立 verified R&D loop。任一 directory view 的 Refresh 都刷新 custody projection。每个 metric 都只是同一
-Owner cut 上的安静导航入口：已知 `research outcomes` 打开
-`/rd/research/?outcome=ready`，fallback `research requests` 打开
-`/rd/research/`，`build attempts` 打开
-`/rd/artifacts/`，`family bindings` 打开
-`/rd/artifacts/?kind=bindings`。未知或缺失 query value 必须退回有用的
+Historical-custody Owner projection available 时，route 在 directory 前放置一张共享 compact Bento status card，
+把用户的 R&D workspace 组织成三个细肩分组：`research`、`build`、`families`。当 Research outcome inventory
+完整且 identity set 与页面独立渲染的同一 custody set 精确绑定时，`research` 分开显示 `results ready` 与
+`waiting`；否则 fail back 到原始 `requests` total。`build` 显示 `attempts`，并在 Artifact route 的独立 review
+inventory 已绑定时显示 `reviewable`；`families` 显示 `bindings`。共享 CompactStatusBar 会识别 `2 / 1 / 1`
+不对称 cut：宽屏下双项 group 占 3 份一侧，两个单项 group 在 2 份一侧上下堆叠；较窄视口退回普通响应式
+纵排。这样既不拉伸单行数据，也不另画页面私有组件。
+
+它是跨独立工作队列的导航地图，不是 conversion funnel、lifecycle、verified journey，也不声称集合一一对应。
+Projection unavailable 时整张 card 消失，不能替代独立 verified R&D loop。任一 directory view 的 Refresh
+都会刷新 custody projection。每个 metric 都只是同一 Owner cut 上的安静导航入口：`results ready` 打开
+`/rd/research/?outcome=ready`，`waiting` 打开 `/rd/research/?outcome=awaiting`，fallback `requests` 打开
+`/rd/research/`，`attempts` 打开 `/rd/artifacts/`，`bindings` 打开 `/rd/artifacts/?kind=bindings`。未知或缺失
+query value 必须退回有用的
 `Request history / All` 默认态；`view=verified` 显式选择 `Current intents`。这些 link 不准入任何新的
 read/write contract。Query 切换保持 directory surface mounted，URL settle 时不会闪过另一个 view。
 
@@ -476,12 +479,13 @@ Research 与 Artifact directory 共用 domain-neutral `EntityReference` 原子�
 `Raw reason`、build request、attempt 与 receipt 只保留在信息披露中。页面不会把历史读取伪装成 current
 Artifact 或 action。
 
-Historical-custody Owner projection available 时，route 在 directory 前复用同一张 compact `work to review`
-card，但只保留 `build attempts` 与 `family bindings`。两个 value 仍是精确 custody count，并作为安静 link
-进入各自 canonical build-history view；它们不是 verified Artifact total，也不是 lifecycle。Projection unavailable
-时 card 消失；任一 directory view 的 Refresh 都刷新同一 Owner cut，不增加 scheduler、operational write 或
-Artifact action。Reviewable outcome 打开 `/rd/artifacts/?availability=reviewable`；binding 打开
-`/rd/artifacts/?kind=bindings`。
+Historical-custody Owner projection available 时，route 在 directory 前复用共享 compact Bento card。它由
+`research`、`build`、`families` 三个细肩分组组成：`research` 显示精确 `requests`；`build` 在独立 review
+inventory 已绑定时同时显示 `reviewable` 与精确 `attempts`；`families` 显示精确 `bindings`。这些 value 是
+相互独立的工作队列计数和 canonical view 的安静 link，不是 verified Artifact total、lifecycle 或一一对应的
+流程。Projection unavailable 时 card 消失；任一 directory view 的 Refresh 都刷新同一 Owner cut，不增加
+scheduler、operational write 或 Artifact action。`reviewable` 打开
+`/rd/artifacts/?availability=reviewable`；`bindings` 打开 `/rd/artifacts/?kind=bindings`。
 
 Dashboard-only GET `/api/rd/artifacts/review-inventory` 使用最多 6 个并发 read，把上述有界 custody cut 与
 现有 identity-bound Artifact readback GET 组合。它不创建新 Owner fact，也不声称跨记录单一 snapshot：
@@ -489,7 +493,7 @@ Dashboard-only GET `/api/rd/artifacts/review-inventory` 使用最多 6 个并发
 observation time、scanned count、total count 与 truncation。只有完整 candidate identity tuple set 仍与页面
 单独读取的 custody cut 一致时，client 才准入这层组合；发生 drift 时撤回 reviewability overlay，但不隐藏
 普通 candidate directory。完整 cut available 时，compact card 回答
-`reviewable outcomes / build attempts`，并进入 canonical `availability=reviewable` build-history view；只有
+`reviewable / attempts`，并进入 canonical `availability=reviewable` build-history view；只有
 reviewable row 才链接到 Historical build outcome。Unavailable row 仍在 `All attempts` 中可见，但不伪装成
 可执行 link。组合 unavailable 时，普通 candidate directory 仍可使用，且不能推断“零条可审”。
 

@@ -14,18 +14,20 @@ test("Research directory uses the shared compact read-only table surface", async
   ]);
   assert.match(component, /<DataWorkspaceTable<ResearchDirectoryItemV1>/u);
   assert.match(component, /<RdCustodyReviewSummary[\s\S]+researchOutcomeReadyTotal=/u);
+  assert.match(component, /researchAwaitingOutcomeTotal=/u);
   assert.match(component, /useResearchOutcomeInventory\(true\)/u);
   assert.match(component, /researchOutcomeInventoryMatchesCustodyV1/u);
   const summary = await readFile(new URL("../components/rd-custody-review-summary.tsx", import.meta.url), "utf8");
   assert.match(summary, /CompactStatusBar/u);
-  assert.match(summary, /label="work to review"/u);
-  assert.match(summary, /research requests/u);
-  assert.match(summary, /research outcomes/u);
-  assert.match(summary, /build attempts/u);
-  assert.match(summary, /family bindings/u);
-  assert.match(summary, /: "\/rd\/research\/"/u);
+  assert.match(summary, /aria-label="R&D work cycle"/u);
+  for (const label of ["research", "build", "families", "results ready", "waiting", "requests", "attempts", "bindings"]) {
+    assert.match(summary, new RegExp(`label="${label}"`, "u"));
+  }
+  assert.match(summary, /researchOutcomeReadyTotal \+ researchAwaitingOutcomeTotal === projection\.researchTotal/u);
+  assert.match(summary, /href="\/rd\/research\/"/u);
   assert.match(summary, /"\/rd\/research\/\?outcome=ready"/u);
-  assert.match(summary, /: "\/rd\/artifacts\/"/u);
+  assert.match(summary, /"\/rd\/research\/\?outcome=awaiting"/u);
+  assert.match(summary, /href="\/rd\/artifacts\/"/u);
   assert.match(summary, /"\/rd\/artifacts\/\?availability=reviewable"/u);
   assert.match(summary, /href="\/rd\/artifacts\/\?kind=bindings"/u);
   assert.match(statusAtom, /data-interactive=\{href \? true : undefined\}/u);
@@ -58,7 +60,7 @@ test("Research directory uses the shared compact read-only table surface", async
   assert.match(page, /const researchDirectoryView = query\.view === "verified" \? "verified" : "candidates"/u);
   assert.match(page, /const artifactDirectoryView = query\.view === "verified" \? "verified" : "candidates"/u);
   assert.doesNotMatch(shell, /<ResearchDirectory\s+key=/u);
-  assert.match(page, /query\.outcome === "ready"/u);
+  assert.match(page, /query\.outcome === "ready"[\s\S]+query\.outcome === "awaiting"/u);
   assert.match(page, /query\.kind === "bindings" \? "bindings" : "attempts"/u);
   assert.match(page, /query\.availability === "reviewable" \? "reviewable" : "all"/u);
   assert.match(shell, /OWNER_CUSTODY_READ_ONLY - NO_SUBMIT_OR_RESOLVE/u);
@@ -91,8 +93,8 @@ test("bilingual Research directory contract fixes layout, fields and no-effect b
       "Research request", "State", "Intent", "Updated", "20", "60",
       "committed_at_epoch_ms", "request_identity", "Load older", "partial",
       "unavailable", "POINT_READ_REQUIRED", "/v1/historical-custodies", "Submit", "Resolve", "Windmill",
-      "work to review", "research requests", "build attempts", "family bindings",
-      "/rd/research/?outcome=ready", "/rd/artifacts/",
+      "research", "build", "families", "results ready", "waiting", "requests", "attempts", "bindings",
+      "/rd/research/?outcome=ready", "/rd/research/?outcome=awaiting", "/rd/artifacts/",
       "/rd/artifacts/?kind=bindings",
       "/api/rd/research/outcome-inventory", "outcome_ready", "awaiting_outcome",
       "All / Results ready / Waiting", "EntityReference", "opaque identity",

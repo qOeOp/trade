@@ -12,6 +12,11 @@ test("Artifact directory uses the shared compact read-only table surface", async
   ]);
   assert.match(component, /<DataWorkspaceTable<ArtifactDirectoryItemV1>/u);
   assert.match(component, /<RdCustodyReviewSummary[\s\S]+artifactReviewableTotal=/u);
+  const summary = await readFile(new URL("../components/rd-custody-review-summary.tsx", import.meta.url), "utf8");
+  assert.match(summary, /aria-label="R&D work cycle"/u);
+  assert.match(summary, /label="research"[\s\S]+label="requests"/u);
+  assert.match(summary, /label="build"[\s\S]+label="reviewable"[\s\S]+label="attempts"/u);
+  assert.match(summary, /label="families"[\s\S]+label="bindings"/u);
   assert.match(component, /useHistoricalCustodyDirectory\(true\)/u);
   assert.match(component, /useArtifactReviewInventory\(true\)/u);
   assert.match(component, /void custodyCandidates\.read\(\);[\s\S]+return readPage\(\);/u);
@@ -71,7 +76,7 @@ test("bilingual Artifact directory contract fixes layout, fields and no-effect b
       "Artifact", "Strategy intent", "Verification", "Created", "Outcome", "Recorded", "20", "60",
       "prepared_at_epoch_ms", "build_request_identity", "Load older", "partial",
       "unavailable", "POINT_READ_REQUIRED", "/v1/historical-custodies", "WASM_PREVIEW_NOT_RUN", "Windmill",
-      "work to review", "build attempts", "family bindings", "reviewable outcomes",
+      "research", "build", "families", "requests", "reviewable", "attempts", "bindings",
       "/api/rd/artifacts/review-inventory", "reviewable | unavailable", "All attempts",
       "/rd/artifacts/?availability=reviewable", "/rd/artifacts/?kind=bindings",
       "EntityReference", "opaque identity",

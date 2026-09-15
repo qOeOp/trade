@@ -1172,6 +1172,12 @@ button.rd-research-item { cursor: pointer; }
   .compact-status-bar-layout { display: flex; flex-wrap: nowrap; }
   .compact-status-group { min-width: min(100%, 260px); flex: var(--compact-status-weight, 1) 1 0; }
 }
+@container compact-status (min-width: 1120px) {
+  .compact-status-bar-layout[data-bento-pattern="2-1-1"] { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); grid-template-rows: repeat(2, minmax(0, 1fr)); }
+  .compact-status-bar-layout[data-bento-pattern="2-1-1"] .compact-status-group { min-width: 0; }
+  .compact-status-bar-layout[data-bento-pattern="2-1-1"] .compact-status-group[data-bento-placement="tall"] { grid-column: 1; grid-row: 1 / span 2; }
+  .compact-status-bar-layout[data-bento-pattern="2-1-1"] .compact-status-group[data-bento-placement="stacked"] { grid-column: 2; }
+}
 .detail-cluster-grid { padding: 8px; display: grid; align-content: start; gap: 8px; background: var(--surface-card); }
 .detail-cluster { min-width: 0; padding: 13px 14px; border-radius: 13px; background: var(--surface-panel); }
 .detail-cluster:nth-child(even) { background: var(--panel-chrome-bg); }

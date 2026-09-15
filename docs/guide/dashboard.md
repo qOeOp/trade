@@ -390,18 +390,22 @@ can happen next. Its journey and `Result / Strategy / Timing` groups use busines
 the task itself. `Raw outcome` and `Raw reason`, together with exact identities and receipts, remain available only
 inside the technical information disclosure.
 
-When the historical-custody Owner projection is available, the route places one shared compact status card before
-the directory. Its shoulder label is `work to review`; its three same-weight values cover Research outcomes,
-build attempts, and family bindings. When the Research outcome inventory is complete and identity-bound to that
-same separately rendered custody set, the first value is `research outcomes` as `ready / total`; otherwise it
-fails back to the raw `research requests` total. This is a review inventory,
-not a conversion funnel, lifecycle, verified journey, or claim that the three sets are one-to-one. It disappears
-when that projection is unavailable and never replaces the separately verified R&D loop. Refresh on either directory
-view refreshes the custody projection. Each metric is one quiet navigation target over the same Owner cut:
-known `research outcomes` opens `/rd/research/?outcome=ready`, the fallback `research requests`
-opens `/rd/research/`, and `build attempts` opens
-`/rd/artifacts/`, and `family bindings` opens
-`/rd/artifacts/?kind=bindings`. Unknown or missing query values fail back to the useful
+When the historical-custody Owner projection is available, the route places one shared compact Bento status card
+before the directory. It organizes the user's R&D workspace into three thin-shoulder groups: `research`, `build`,
+and `families`. When the Research outcome inventory is complete and identity-bound to that same separately rendered
+custody set, `research` separates `results ready` from `waiting`; otherwise it fails back to the raw `requests`
+total. The `build` group shows `attempts` and, on the Artifact route when its independent review inventory is bound,
+`reviewable`. The `families` group shows `bindings`. The shared CompactStatusBar recognizes a `2 / 1 / 1` uneven
+cut: at wide widths the two-item group occupies the 3-part side while the two one-item groups stack on the 2-part
+side; narrower widths return to the ordinary responsive stack. This avoids stretching one-row data and does not
+draw a page-local component.
+
+This is a navigation map across independent work queues, not a conversion funnel, lifecycle, verified journey, or
+claim that the sets are one-to-one. It disappears when the projection is unavailable and never replaces the
+separately verified R&D loop. Refresh on either directory view refreshes the custody projection. Each metric is one
+quiet navigation target over the same Owner cut: `results ready` opens `/rd/research/?outcome=ready`, `waiting`
+opens `/rd/research/?outcome=awaiting`, fallback `requests` opens `/rd/research/`, `attempts` opens
+`/rd/artifacts/`, and `bindings` opens `/rd/artifacts/?kind=bindings`. Unknown or missing query values fail back to the useful
 `Request history / All` default; `view=verified` explicitly selects `Current intents`. The links admit no new
 read or write contract. Query changes preserve the mounted directory surface so the table does not flash through
 another view while the URL settles.
@@ -547,12 +551,14 @@ Its shared journey plus `Result / Review / Timing` groups render `Historical onl
 reason. Exact `Raw result`, `Raw reason`, build request, attempt, and receipt values remain in the information
 disclosure; the page does not turn a historical read into a current Artifact or action.
 
-When the historical-custody Owner projection is available, the route reuses the same compact `work to review`
-card before the directory, narrowed to `build attempts` and `family bindings`. Both values remain exact custody
-counts and quiet links to their canonical build-history views; they are not verified Artifact totals or a lifecycle.
-The card disappears on an unavailable projection, and Refresh in either directory view refreshes that same Owner
-cut without adding a scheduler, operational write, or Artifact action. Reviewable outcomes open
-`/rd/artifacts/?availability=reviewable`; bindings open `/rd/artifacts/?kind=bindings`.
+When the historical-custody Owner projection is available, the route reuses the shared compact Bento card before
+the directory. Its thin-shoulder groups are `research`, `build`, and `families`: `research` shows exact `requests`;
+`build` shows `reviewable` when the independent review inventory is bound beside exact `attempts`; `families`
+shows exact `bindings`. The values are independent work-queue counts and quiet links to their canonical views;
+they are not verified Artifact totals, a lifecycle, or a one-to-one flow. The card disappears on an unavailable
+projection, and Refresh in either directory view refreshes that same Owner cut without adding a scheduler,
+operational write, or Artifact action. `reviewable` opens `/rd/artifacts/?availability=reviewable`; `bindings`
+opens `/rd/artifacts/?kind=bindings`.
 
 The Dashboard-only GET `/api/rd/artifacts/review-inventory` composes that bounded custody cut with the existing
 identity-bound Artifact readback GETs using at most six concurrent reads. It does not create a new Owner fact or
@@ -560,7 +566,7 @@ claim one cross-record snapshot: every candidate retains its own `reviewable | u
 while the projection separately preserves the custody observation time, scanned count, total count, and truncation.
 The client admits the composition only when the complete candidate identity tuple set still matches its separately
 rendered custody cut; drift withdraws the reviewability overlay without hiding the ordinary candidate directory.
-When the complete cut is available, the compact card answers `reviewable outcomes / build attempts`; its link opens
+When the complete cut is available, the compact card answers `reviewable / attempts`; its link opens
 the canonical `availability=reviewable` build-history view. Only reviewable rows link to Historical build outcome.
 Unavailable rows remain visible under `All attempts` but are not presented as actionable links. If the composition
 is unavailable, the ordinary candidate directory remains usable and no zero-reviewable claim is inferred.
