@@ -40,6 +40,7 @@ import { useResearchOutcomeInventory } from "./use-research-outcome-inventory";
 import { useResearchQuestionDirectory } from "./use-research-question-directory";
 import { OwnerDirectoryInfo, OwnerDirectoryUnavailable } from "./owner-directory-state";
 import { ResearchLoopJourney } from "./research-loop-journey";
+import { ResearchReadbackDrilldown } from "./research-readback-drilldown";
 import { ResearchRequestPreview, researchRequestOutcomeLabel } from "./research-request-preview";
 import { RdCustodyReviewSummary } from "./rd-custody-review-summary";
 import styles from "./owner-directory.module.css";
@@ -88,8 +89,10 @@ export function ResearchDirectory({
   const [pendingOlder, setPendingOlder] = useState(false);
   const [selectedRequestIdentity, setSelectedRequestIdentity] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [detailMode, setDetailMode] = useState<"summary" | "readback">("summary");
   const itemsRef = useRef<readonly ResearchDirectoryItemV1[]>([]);
   const requestGuard = useRef(createResearchDirectoryRequestGuardV1());
+  const restoreSummaryFocus = useRef(false);
   const custodyCandidates = useHistoricalCustodyDirectory(true);
   const outcomeInventory = useResearchOutcomeInventory(true);
   const questionDirectory = useResearchQuestionDirectory(true);
@@ -209,13 +212,37 @@ export function ResearchDirectory({
   ) ?? null, [selectedRequestIdentity, visibleCandidates]);
 
   useEffect(() => {
-    if (detailOpen && !selectedCandidate) setDetailOpen(false);
+    if (detailOpen && !selectedCandidate) {
+      setDetailOpen(false);
+      setDetailMode("summary");
+    }
   }, [detailOpen, selectedCandidate]);
 
   const openCandidateDetail = useCallback((requestIdentity: string) => {
     setSelectedRequestIdentity(requestIdentity);
+    setDetailMode("summary");
     setDetailOpen(true);
   }, []);
+
+  const closeCandidateDetail = useCallback(() => {
+    restoreSummaryFocus.current = false;
+    setDetailOpen(false);
+    setDetailMode("summary");
+  }, []);
+
+  const returnToCandidateSummary = useCallback(() => {
+    restoreSummaryFocus.current = true;
+    setDetailMode("summary");
+  }, []);
+
+  useEffect(() => {
+    if (!restoreSummaryFocus.current || detailMode !== "summary"
+      || !detailOpen || !selectedRequestIdentity) return;
+    restoreSummaryFocus.current = false;
+    document.querySelector<HTMLElement>(
+      `[data-research-readback-trigger="${CSS.escape(selectedRequestIdentity)}"]`,
+    )?.focus();
+  }, [detailMode, detailOpen, selectedRequestIdentity]);
 
   const columns = useMemo<DataWorkspaceColumn<ResearchDirectoryItemV1>[]>(() => [
     {
@@ -347,6 +374,7 @@ export function ResearchDirectory({
   const showPending = useDelayedPending(pending);
   const refresh = () => {
     setDetailOpen(false);
+    setDetailMode("summary");
     setSelectedRequestIdentity(null);
     setJourneyRefreshKey((value) => value + 1);
     void outcomeInventory.read();
@@ -361,6 +389,7 @@ export function ResearchDirectory({
     const nextView = value === "candidates" ? "candidates" : "verified";
     setView(nextView);
     setDetailOpen(false);
+    setDetailMode("summary");
     setSelectedRequestIdentity(null);
     router.replace(nextView === "candidates"
       ? `/rd/research/${candidateOutcome === "all" ? "" : `?outcome=${candidateOutcome}`}`
@@ -370,6 +399,7 @@ export function ResearchDirectory({
     const nextOutcome = value === "ready" ? "ready" : value === "awaiting" ? "awaiting" : "all";
     setCandidateOutcome(nextOutcome);
     setDetailOpen(false);
+    setDetailMode("summary");
     setSelectedRequestIdentity(null);
     router.replace(`/rd/research/${nextOutcome === "all" ? "" : `?outcome=${nextOutcome}`}`, {
       scroll: false,
@@ -541,31 +571,34 @@ export function ResearchDirectory({
       </PanelFrame>
       <DetailSheet
         open={detailOpen && Boolean(selectedCandidate)}
-        onClose={() => setDetailOpen(false)}
+        onClose={closeCandidateDetail}
         eyebrow="Research history"
-        title="Research question"
+        title={detailMode === "readback" ? "Research result" : "Research question"}
         description={selectedCandidate
-          ? outcomeByRequest.get(selectedCandidate.requestIdentity)?.status === "outcome_ready"
+          ? detailMode === "readback"
+            ? "Review the exact result without losing this list context."
+            : outcomeByRequest.get(selectedCandidate.requestIdentity)?.status === "outcome_ready"
             ? "A saved result is ready to review."
             : "Review the saved question without leaving this list."
           : undefined}
-        canonicalHref={selectedCandidate
-          && outcomeAvailability === "available"
-          && ["outcome_ready", "awaiting_outcome"].includes(
-            outcomeByRequest.get(selectedCandidate.requestIdentity)?.status ?? "",
-          )
-          ? `/rd/research/${encodeURIComponent(selectedCandidate.requestIdentity)}`
-          : undefined}
-        canonicalLabel="Open full research details"
       >
-        {selectedCandidate ? <ResearchRequestPreview
-          candidate={selectedCandidate}
-          question={questionByRequest.get(selectedCandidate.requestIdentity)}
-          outcome={outcomeByRequest.get(selectedCandidate.requestIdentity)}
-          outcomeAvailability={outcomeAvailability}
-          questionObservedAtEpochMs={questionDirectory.projection?.observedAtEpochMs}
-          outcomeObservedAt={outcomeInventory.projection?.observedAt}
-        /> : null}
+        {selectedCandidate ? detailMode === "readback" ? (
+          <ResearchReadbackDrilldown
+            requestIdentity={selectedCandidate.requestIdentity}
+            questions={questionDirectory.projection}
+            onBack={returnToCandidateSummary}
+          />
+        ) : (
+          <ResearchRequestPreview
+            candidate={selectedCandidate}
+            question={questionByRequest.get(selectedCandidate.requestIdentity)}
+            outcome={outcomeByRequest.get(selectedCandidate.requestIdentity)}
+            outcomeAvailability={outcomeAvailability}
+            questionObservedAtEpochMs={questionDirectory.projection?.observedAtEpochMs}
+            outcomeObservedAt={outcomeInventory.projection?.observedAt}
+            onOpenReadback={() => setDetailMode("readback")}
+          />
+        ) : null}
       </DetailSheet>
     </PageStack>
   );

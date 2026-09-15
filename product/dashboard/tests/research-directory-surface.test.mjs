@@ -42,7 +42,12 @@ test("Research directory uses the shared compact read-only table surface", async
   assert.match(component, /onRowClicked=\{\(item\) => openCandidateDetail\(item\.requestIdentity\)\}/u);
   assert.doesNotMatch(component, /onActivate=\{\(\) => router\.push/u);
   assert.match(component, /<ResearchRequestPreview/u);
-  assert.match(component, /canonicalHref=\{selectedCandidate\s*&& outcomeAvailability === "available"\s*&& \["outcome_ready", "awaiting_outcome"\]\.includes/u);
+  assert.match(component, /const \[detailMode, setDetailMode\] = useState<"summary" \| "readback">\("summary"\)/u);
+  assert.match(component, /<ResearchReadbackDrilldown/u);
+  assert.match(component, /onOpenReadback=\{\(\) => setDetailMode\("readback"\)\}/u);
+  assert.match(component, /Back to request summary|returnToCandidateSummary/u);
+  assert.match(component, /data-research-readback-trigger/u);
+  assert.doesNotMatch(component, /canonicalHref=\{selectedCandidate/u);
   assert.match(component, /label: "Research history"/u);
   assert.match(component, /label: "Current intents"/u);
   assert.match(component, /label: "Results ready"/u);

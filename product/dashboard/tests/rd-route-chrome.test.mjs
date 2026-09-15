@@ -37,11 +37,12 @@ test("only admitted R&D surfaces embed their route chrome", async () => {
 });
 
 test("each embedded R&D panel owns an exact read-only boundary", async () => {
-  const [source, composer, research, researchReadback, artifact, viewer] = await Promise.all([
+  const [source, composer, research, researchReadback, researchReadbackContent, artifact, viewer] = await Promise.all([
     readFile(new URL("../components/source-intake-readback-workbench.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/develop-composer-readback-workbench.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/research-directory.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/research-readback-workspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/research-readback-content.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/artifact-directory.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/ui/strategy-code-viewer.tsx", import.meta.url), "utf8"),
   ]);
@@ -60,6 +61,7 @@ test("each embedded R&D panel owns an exact read-only boundary", async () => {
   assert.match(researchReadback, /title="Research outcome"/u);
   assert.match(researchReadback, /<PanelFrameInfoFact label="Request"><code>\{requestIdentity\}<\/code><\/PanelFrameInfoFact>/u);
   assert.doesNotMatch(researchReadback, /description=/u);
-  assert.match(researchReadback, /<ArtifactFormationControl researchRequestIdentity=\{requestIdentity\}/u);
+  assert.match(researchReadback, /<ResearchReadbackContent[\s\S]+allowFormation/u);
+  assert.match(researchReadbackContent, /allowFormation[\s\S]+<ArtifactFormationControl researchRequestIdentity=\{requestIdentity\}/u);
   assert.match(artifact, /<OwnerDirectoryInfo>[\s\S]+No build, execution, or binding action is exposed here\./u);
 });

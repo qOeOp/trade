@@ -42,8 +42,8 @@ test("the shared detail sheet owns focus, responsive geometry, and canonical fal
     assert.match(scheduleView, /setDetailOpen\(true\)/u);
   }
   assert.match(research, /<DataWorkspaceTable<HistoricalResearchCandidateV1>[\s\S]*onRowClicked=/u);
-  assert.match(research, /<DetailSheet[\s\S]*canonicalLabel="Open full research details"/u);
-  assert.match(research, /canonicalHref=\{selectedCandidate\s*&& outcomeAvailability === "available"\s*&& \["outcome_ready", "awaiting_outcome"\]\.includes/u);
+  assert.match(research, /<DetailSheet[\s\S]*detailMode === "readback"[\s\S]*<ResearchReadbackDrilldown/u);
+  assert.doesNotMatch(research, /canonicalLabel="Open full research details"|canonicalHref=\{selectedCandidate/u);
   assert.match(artifacts, /<DataWorkspaceTable<HistoricalArtifactCandidateV1>[\s\S]*onRowClicked=/u);
   assert.match(artifacts, /const openAttemptDetail = useCallback/u);
   assert.match(artifacts, /label="Build request"[\s\S]*onActivate=\{\(\) => openAttemptDetail/u);

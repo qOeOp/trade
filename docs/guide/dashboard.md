@@ -404,10 +404,15 @@ existing `ResearchQuestionBrief`, `DetailFactGrid`, `StatusBadge`, and `PanelFra
 hypothesis, falsifier, expected observation, `Ready to review / Awaiting result / Result unavailable` availability,
 and recorded time already present in the bound
 directory projections; exact request identity and the independently observed question/result cuts remain inside
-the information disclosure. Opening the sheet performs no additional read. Its explicit
-`Open full research details` action is the only transition from Research history to
-`/rd/research/{requestIdentity}`, where complete result evidence,
-receipts, strategy state, and existing formation controls remain. Closing restores focus to the originating
+the information disclosure. Opening the sheet performs no additional read. When the bound result inventory says
+that the request is ready or still awaiting an outcome, an explicit `Review result` or `Check request status`
+action switches that same `DetailSheet` from summary to an exact read-only result drilldown. The drilldown reuses
+the same strict read hook and result-content atoms as `/rd/research/{requestIdentity}`; it does not mount another
+dialog, change the directory URL, or expose formation controls. `Back to request summary` restores the summary and
+focuses the drilldown trigger. Only a successfully verified exact read exposes `Open full research workspace`,
+which remains the transition to the canonical route with technical custody details and existing formation
+controls. A non-2xx response, identity mismatch, malformed payload, close, Back, or identity change invalidates
+the in-flight read and retains no positive result or workspace action. Closing restores focus to the originating
 reference or row.
 The sheet keeps its desktop right-side geometry and becomes full-screen below 768 px. `Current intents` remains a
 plain exact-directory table in this bounded slice.

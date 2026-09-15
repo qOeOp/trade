@@ -12,6 +12,10 @@
   gap: 10px;
 }
 
+.readbackGrid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+}
+
 .result :global(.empty-state),
 .result :global(.unavailable-state) {
   min-height: 144px;

@@ -347,9 +347,14 @@ filter、search、pagination 或 scroll context。Sheet 复用既有 `ResearchQu
 falsifier、expected observation、`Ready to review / Awaiting result / Result unavailable` availability 与
 recorded time；精确 request identity 以及分别观测的
 question/result cut 只保留在 information disclosure。打开 sheet 不会触发额外 read。只有显式的
-`Open full research details` action 是从 Research history 进入 `/rd/research/{requestIdentity}` 的唯一入口；
-完整 result evidence、receipt、
-strategy state 与既有 formation control 继续留在该 canonical route。关闭后 focus 返回原 reference 或 row。Sheet 在 desktop
+当已绑定的 result inventory 表明请求已有结果或仍在等待时，显式的 `Review result` 或
+`Check request status` 会在同一个 `DetailSheet` 内从摘要切换到 exact read-only result drilldown。该 drilldown
+复用 `/rd/research/{requestIdentity}` 的同一套 strict read hook 与 result-content 原子；它不会再打开一层 dialog、
+不会改变 directory URL，也不暴露 formation control。`Back to request summary` 返回摘要并把 focus 还给
+drilldown trigger。只有成功验证的 exact read 才显示 `Open full research workspace`，进入保留技术 custody 详情
+与既有 formation control 的 canonical route。非 2xx、identity mismatch、malformed payload、关闭、Back 或
+identity 变化都会使在途 read 失效，且不保留任何 positive result 或 workspace action。关闭后 focus 返回原
+reference 或 row。Sheet 在 desktop
 保持右侧 geometry，低于 768 px 时变为 full-screen。本切片中的 `Current intents` 仍保持普通 exact-directory table。
 
 默认 history view 从只读 R&D Dashboard Owner 获取一个有界的

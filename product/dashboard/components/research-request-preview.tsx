@@ -6,6 +6,7 @@ import {
   DetailFactGrid,
   DetailNotice,
 } from "./ui/detail-inspector";
+import { Button } from "./ui/button";
 import { EvidenceIcons } from "./ui/iconography";
 import {
   PanelFrameInfo,
@@ -49,6 +50,7 @@ export function ResearchRequestPreview({
   outcomeAvailability,
   questionObservedAtEpochMs,
   outcomeObservedAt,
+  onOpenReadback,
 }: {
   candidate: HistoricalResearchCandidateV1;
   question?: ResearchQuestionItemV1;
@@ -56,8 +58,11 @@ export function ResearchRequestPreview({
   outcomeAvailability: "loading" | "available" | "unavailable";
   questionObservedAtEpochMs?: number | null;
   outcomeObservedAt?: string | null;
+  onOpenReadback?: () => void;
 }) {
   const presentation = outcomePresentation(outcome, outcomeAvailability);
+  const canOpenReadback = outcomeAvailability === "available"
+    && (outcome?.status === "outcome_ready" || outcome?.status === "awaiting_outcome");
 
   return (
     <PageStack gap="compact">
@@ -76,6 +81,19 @@ export function ResearchRequestPreview({
           </time>
         </DetailFact>
       </DetailFactGrid>
+      {onOpenReadback && canOpenReadback ? (
+        <div>
+          <Button
+            type="button"
+            variant="outline"
+            size="tool"
+            onClick={onOpenReadback}
+            data-research-readback-trigger={candidate.requestIdentity}
+          >
+            {outcome?.status === "outcome_ready" ? "Review result" : "Check request status"}
+          </Button>
+        </div>
+      ) : null}
       <PanelFrameInfo label="View research information">
         <b>Read-only information</b>
         <PanelFrameInfoList>

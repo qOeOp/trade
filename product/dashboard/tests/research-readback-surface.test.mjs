@@ -3,8 +3,11 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("Research detail reuses shared atoms and exposes the admitted Artifact control", async () => {
-  const [component, questionBrief, control, gate, route, page, shell, navigation, css] = await Promise.all([
+  const [component, content, hook, drilldown, questionBrief, control, gate, route, page, shell, navigation, css] = await Promise.all([
     readFile(new URL("../components/research-readback-workspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/research-readback-content.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/use-research-readback.ts", import.meta.url), "utf8"),
+    readFile(new URL("../components/research-readback-drilldown.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/research-question-brief.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/artifact-formation-control.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/ui/action-admission-gate.tsx", import.meta.url), "utf8"),
@@ -15,18 +18,18 @@ test("Research detail reuses shared atoms and exposes the admitted Artifact cont
     readFile(new URL("../components/research-readback-workspace.module.css", import.meta.url), "utf8"),
   ]);
   for (const atom of ["PanelFrame", "PanelFrameHeader", "PanelFrameBody", "JourneyProgress", "FactGroupGrid", "FactGroup", "FactItem", "StatusBadge"]) {
-    assert.ok(component.includes(atom), `missing shared atom ${atom}`);
+    assert.ok(component.includes(atom) || content.includes(atom), `missing shared atom ${atom}`);
   }
-  for (const title of ["Result", "Strategy", "Timing"]) assert.match(component, new RegExp(`title="${title}"`, "u"));
-  assert.match(component, /Needs current review/u);
-  assert.match(component, /humanizeReasonCode/u);
-  assert.match(component, /const decision = quarantined \? outcome\.historicalDisposition : outcome\.resolution/u);
-  assert.match(component, /decision === "accepted" \? "success"/u);
-  assert.match(component, /projectResearchJourneyV1\(projection\)/u);
-  assert.match(component, /researchQuestionForReadbackV1\(questions\.projection, projection\)/u);
+  for (const title of ["Result", "Strategy", "Timing"]) assert.match(content, new RegExp(`title="${title}"`, "u"));
+  assert.match(content, /Needs current review/u);
+  assert.match(content, /humanizeReasonCode/u);
+  assert.match(content, /const decision = quarantined \? outcome\.historicalDisposition : outcome\.resolution/u);
+  assert.match(content, /decision === "accepted" \? "success"/u);
+  assert.match(content, /projectResearchJourneyV1\(projection\)/u);
+  assert.match(component, /researchQuestionForReadbackV1\(questions\.projection, readback\.projection\)/u);
   assert.match(component, /useResearchQuestionDirectory\(true\)/u);
-  assert.match(component, /Promise\.all\(\[read\(\), questions\.read\(\)\]\)/u);
-  assert.match(component, /<ResearchQuestionBrief item=\{question\}/u);
+  assert.match(component, /Promise\.all\(\[readback\.read\(\), questions\.read\(\)\]\)/u);
+  assert.match(content, /<ResearchQuestionBrief item=\{question\}/u);
   assert.match(questionBrief, /SummaryList/u);
   for (const label of ["Research question", "Falsifier", "Expected observation"]) {
     assert.match(questionBrief, new RegExp(label, "u"));
@@ -35,13 +38,23 @@ test("Research detail reuses shared atoms and exposes the admitted Artifact cont
   assert.doesNotMatch(component, /projection\?\.technical\s*\?\s*<PanelFrameInfo/u);
   assert.match(component, /variant="ghost" href="\/rd\/research"/u);
   assert.match(component, /variant="secondary"/u);
-  assert.match(component, /fetch\(`\/api\/rd\/research\/\$\{encodeURIComponent\(requestIdentity\)\}\/`/u);
+  assert.match(hook, /fetch\(`\/api\/rd\/research\/\$\{encodeURIComponent\(requestIdentity\)\}\/`/u);
+  assert.match(hook, /new AbortController\(\)/u);
+  assert.match(hook, /generation\.current \+= 1/u);
+  assert.match(hook, /activeRequest\.current\?\.abort\(\)/u);
+  assert.match(hook, /!response\.ok[\s\S]+parsed\.availability !== "available"/u);
+  assert.match(hook, /setProjection\(parsed\?\.availability === "unavailable" \? parsed : null\)/u);
   assert.match(route, /readResearchReadbackGatewayV1/u);
   assert.match(route, /cache-control/u);
   assert.match(page, /researchRequestIdentity=\{requestIdentity\}/u);
   assert.match(shell, /<ResearchReadbackWorkspace requestIdentity=\{researchRequestIdentity!\}/u);
   assert.match(navigation, /\^\\\/rd\\\/research\\\/\[\^\/\]\+\$/u);
-  assert.match(component, /<ArtifactFormationControl researchRequestIdentity=\{requestIdentity\}/u);
+  assert.match(component, /<ResearchReadbackContent[\s\S]+allowFormation/u);
+  assert.match(content, /allowFormation[\s\S]+<ArtifactFormationControl researchRequestIdentity=\{requestIdentity\}/u);
+  assert.match(drilldown, /<ResearchReadbackContent/u);
+  assert.doesNotMatch(drilldown, /allowFormation|ArtifactFormationControl/u);
+  assert.match(drilldown, /Back to request summary/u);
+  assert.match(drilldown, /readback\.status === "available"[\s\S]+Open full research workspace/u);
   assert.match(control, /ArtifactFormationControl/u);
   assert.match(control, /PREFLIGHTING[\s\S]+ADMITTING[\s\S]+SUBMITTED_OR_UNKNOWN/u);
   assert.match(control, /\/api\/rd\/artifacts\/formations\/preflight\//u);
