@@ -134,6 +134,12 @@ enum ProtectedAttemptClosureKindV1 {
     Diagnostic,
 }
 
+#[cfg(test)]
+type ProtectedAttemptSnapshotBarrierV1 = tokio::sync::Barrier;
+
+#[cfg(not(test))]
+struct ProtectedAttemptSnapshotBarrierV1;
+
 enum LockedProtectedAttemptResultV1 {
     Negative(LockedProtectedReplayResultV1),
     Diagnostic(LockedProtectedReplayResultV2),
@@ -448,6 +454,7 @@ async fn persist_public_status_transition_preserving_sqlstate_v1(
     Ok(())
 }
 
+#[cfg(test)]
 async fn verify_public_status_history_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     review_request_identity: &str,
@@ -2003,7 +2010,7 @@ impl PostgresQualificationOwnerV1 {
     async fn close_negative_protected_attempt_with_snapshot_barrier_v1(
         &self,
         locator: ProtectedReplayResultLocatorV1<'_>,
-        snapshot_barrier: &tokio::sync::Barrier,
+        snapshot_barrier: &ProtectedAttemptSnapshotBarrierV1,
     ) -> Result<ProtectedAttemptDispositionCommitV1, QualificationOwnerError> {
         self.close_protected_attempt_with_retry_v1(
             locator,
@@ -2017,7 +2024,7 @@ impl PostgresQualificationOwnerV1 {
         &self,
         locator: ProtectedReplayResultLocatorV1<'_>,
         kind: ProtectedAttemptClosureKindV1,
-        first_attempt_snapshot_barrier: Option<&tokio::sync::Barrier>,
+        first_attempt_snapshot_barrier: Option<&ProtectedAttemptSnapshotBarrierV1>,
     ) -> Result<ProtectedAttemptDispositionCommitV1, QualificationOwnerError> {
         match self
             .close_protected_attempt_once_v1(locator, kind, first_attempt_snapshot_barrier)
@@ -2049,7 +2056,7 @@ impl PostgresQualificationOwnerV1 {
         &self,
         locator: ProtectedReplayResultLocatorV1<'_>,
         kind: ProtectedAttemptClosureKindV1,
-        snapshot_barrier: Option<&tokio::sync::Barrier>,
+        snapshot_barrier: Option<&ProtectedAttemptSnapshotBarrierV1>,
     ) -> Result<ProtectedAttemptDispositionCommitV1, NegativeClosureAttemptError> {
         let mut transaction = self.pool.begin().await.map_err(negative_closure_storage)?;
         sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
@@ -2083,9 +2090,12 @@ impl PostgresQualificationOwnerV1 {
                 )
             }
         };
+        #[cfg(test)]
         if let Some(snapshot_barrier) = snapshot_barrier {
             snapshot_barrier.wait().await;
         }
+        #[cfg(not(test))]
+        let _ = snapshot_barrier;
         sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended($1, 0))")
             .bind(locator.result_identity)
             .execute(&mut *transaction)
