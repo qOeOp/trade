@@ -338,7 +338,7 @@ async fn persist_public_status_transition_preserving_sqlstate_v1(
         })?,
     };
     let (resolved_frontier_digest, source_frontier_is_current) =
-        resolve_candidate_feedback_frontier_v1(
+        resolve_candidate_feedback_frontier_preserving_sqlstate_v1(
             transaction,
             source_frontier_identity,
             source.committed_at_epoch_ms,
@@ -697,6 +697,20 @@ async fn resolve_candidate_feedback_frontier_v1(
     source_frontier_identity: &str,
     owner_cut_epoch_ms: u64,
 ) -> Result<(String, bool), QualificationOwnerError> {
+    resolve_candidate_feedback_frontier_preserving_sqlstate_v1(
+        transaction,
+        source_frontier_identity,
+        owner_cut_epoch_ms,
+    )
+    .await
+    .map_err(QualificationTransactionError::into_public)
+}
+
+async fn resolve_candidate_feedback_frontier_preserving_sqlstate_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    source_frontier_identity: &str,
+    owner_cut_epoch_ms: u64,
+) -> Result<(String, bool), QualificationTransactionError> {
     let source_frontier_digest = digest_from_identity(
         "qualification-protected-feedback-frontier-v1-",
         source_frontier_identity,
@@ -708,14 +722,14 @@ async fn resolve_candidate_feedback_frontier_v1(
     .bind(source_frontier_identity)
     .fetch_optional(&mut **transaction)
     .await
-    .map_err(storage)?;
+    .map_err(transaction_storage)?;
     let Some(projection_json) = projection_json else {
         return Ok((source_frontier_digest, false));
     };
     let stored: StoredProjectionV1 = decode_exact(&projection_json)?;
     let scope_key = principal_scope_key(&stored.principal, &stored.request_scope)?;
-    lock_principal_scope_in_transaction(transaction, &scope_key).await?;
-    let history = verify_scope_history_in_transaction(
+    lock_principal_scope_preserving_sqlstate_in_transaction(transaction, &scope_key).await?;
+    let history = verify_scope_history_preserving_sqlstate_in_transaction(
         transaction,
         &stored.principal,
         &stored.request_scope,
@@ -4521,11 +4535,14 @@ async fn owner_clock_epoch_ms_in_transaction(
 async fn admit_projection_row_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     row: &PgRow,
-) -> Result<ProtectedFeedbackFrontierReadbackV1, QualificationOwnerError> {
-    let projection_json: serde_json::Value = row.try_get("projection_json").map_err(storage)?;
-    let receipt_json: serde_json::Value = row.try_get("receipt_json").map_err(storage)?;
+) -> Result<ProtectedFeedbackFrontierReadbackV1, QualificationTransactionError> {
+    let projection_json: serde_json::Value = row
+        .try_get("projection_json")
+        .map_err(transaction_storage)?;
+    let receipt_json: serde_json::Value =
+        row.try_get("receipt_json").map_err(transaction_storage)?;
     let stored: StoredProjectionV1 = decode_exact(&projection_json)?;
-    let basis = load_rd_basis_by_locator_fields_in_transaction(
+    let basis = load_rd_basis_by_locator_fields_preserving_sqlstate_in_transaction(
         transaction,
         &stored.basis_identity,
         &stored.basis_digest,
@@ -4545,44 +4562,54 @@ async fn admit_projection_row_in_transaction(
     )?;
 
     if expected.as_stored() != stored || expected.receipt_as_stored() != receipt {
-        return Err(unavailable(
-            "Qualification projection canonical meaning mismatch",
-        ));
+        return Err(unavailable("Qualification projection canonical meaning mismatch").into());
     }
 
     let row_scope: Vec<String> = decode_exact(
         &row.try_get::<serde_json::Value, _>("request_scope_json")
-            .map_err(storage)?,
+            .map_err(transaction_storage)?,
     )?;
-    let row_sequence: i64 = row.try_get("source_sequence").map_err(storage)?;
-    let row_committed_at: i64 = row.try_get("committed_at_epoch_ms").map_err(storage)?;
-    let row_valid_through: i64 = row.try_get("valid_through_epoch_ms").map_err(storage)?;
+    let row_sequence: i64 = row
+        .try_get("source_sequence")
+        .map_err(transaction_storage)?;
+    let row_committed_at: i64 = row
+        .try_get("committed_at_epoch_ms")
+        .map_err(transaction_storage)?;
+    let row_valid_through: i64 = row
+        .try_get("valid_through_epoch_ms")
+        .map_err(transaction_storage)?;
     if row
         .try_get::<String, _>("projection_identity")
-        .map_err(storage)?
+        .map_err(transaction_storage)?
         != expected.projection_identity
         || row
             .try_get::<String, _>("basis_identity")
-            .map_err(storage)?
+            .map_err(transaction_storage)?
             != basis.basis_identity
-        || row.try_get::<String, _>("principal").map_err(storage)? != basis.principal
+        || row
+            .try_get::<String, _>("principal")
+            .map_err(transaction_storage)?
+            != basis.principal
         || row_scope != basis.request_scope
         || row
             .try_get::<String, _>("resolution_state")
-            .map_err(storage)?
+            .map_err(transaction_storage)?
             != resolution_name(expected.resolution)
         || u64::try_from(row_sequence).map_err(json_storage)? != expected.source_sequence
-        || row.try_get::<String, _>("source_cut").map_err(storage)? != expected.source_cut
+        || row
+            .try_get::<String, _>("source_cut")
+            .map_err(transaction_storage)?
+            != expected.source_cut
         || row
             .try_get::<String, _>("projection_digest")
-            .map_err(storage)?
+            .map_err(transaction_storage)?
             != expected.projection_digest
         || u64::try_from(row_committed_at).map_err(json_storage)?
             != expected.receipt.committed_at_epoch_ms
         || u64::try_from(row_valid_through).map_err(json_storage)?
             != expected.valid_through_epoch_ms
     {
-        return Err(unavailable("Qualification projection row mismatch"));
+        return Err(unavailable("Qualification projection row mismatch").into());
     }
 
     Ok(expected)
@@ -4732,11 +4759,20 @@ pub(crate) async fn lock_principal_scope_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     principal_scope_key: &str,
 ) -> Result<(), QualificationOwnerError> {
+    lock_principal_scope_preserving_sqlstate_in_transaction(transaction, principal_scope_key)
+        .await
+        .map_err(QualificationTransactionError::into_public)
+}
+
+async fn lock_principal_scope_preserving_sqlstate_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    principal_scope_key: &str,
+) -> Result<(), QualificationTransactionError> {
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
         .bind(principal_scope_key)
         .execute(&mut **transaction)
         .await
-        .map_err(storage)?;
+        .map_err(transaction_storage)?;
     Ok(())
 }
 
@@ -4746,20 +4782,36 @@ pub(crate) async fn verify_scope_history_in_transaction(
     request_scope: &[String],
     principal_scope_key: &str,
 ) -> Result<VerifiedScopeHistoryV1, QualificationOwnerError> {
+    verify_scope_history_preserving_sqlstate_in_transaction(
+        transaction,
+        principal,
+        request_scope,
+        principal_scope_key,
+    )
+    .await
+    .map_err(QualificationTransactionError::into_public)
+}
+
+async fn verify_scope_history_preserving_sqlstate_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    principal: &str,
+    request_scope: &[String],
+    principal_scope_key: &str,
+) -> Result<VerifiedScopeHistoryV1, QualificationTransactionError> {
     let head_rows = sqlx::query("SELECT principal, request_scope_json, frontier_identity, frontier_digest, source_sequence, source_cut, committed_at_epoch_ms FROM qualification_protected_feedback_heads_v1 WHERE principal_scope_key = $1 FOR UPDATE")
         .bind(principal_scope_key)
         .fetch_all(&mut **transaction)
         .await
-        .map_err(storage)?;
+        .map_err(transaction_storage)?;
 
     if head_rows.len() > 1 {
-        return Err(unavailable("Qualification feedback head is ambiguous"));
+        return Err(unavailable("Qualification feedback head is ambiguous").into());
     }
 
     let projection_rows = sqlx::query("SELECT projection_identity, basis_identity, principal, request_scope_json, resolution_state, source_sequence, source_cut, projection_digest, projection_json, receipt_json, committed_at_epoch_ms, valid_through_epoch_ms FROM qualification_protected_feedback_projections_v1 ORDER BY projection_identity FOR SHARE")
         .fetch_all(&mut **transaction)
         .await
-        .map_err(storage)?;
+        .map_err(transaction_storage)?;
     let mut all_projections = Vec::with_capacity(projection_rows.len());
 
     for row in &projection_rows {
@@ -4775,24 +4827,26 @@ pub(crate) async fn verify_scope_history_in_transaction(
         .bind(&projection_identities)
         .fetch_all(&mut **transaction)
         .await
-        .map_err(storage)?;
+        .map_err(transaction_storage)?;
     let mut outbox_aggregates = std::collections::BTreeSet::new();
 
     for row in &outbox_rows {
-        let aggregate_identity: String = row.try_get("aggregate_identity").map_err(storage)?;
+        let aggregate_identity: String = row
+            .try_get("aggregate_identity")
+            .map_err(transaction_storage)?;
         let projection = all_projections
             .iter()
             .find(|projection| projection.projection_identity == aggregate_identity)
             .ok_or_else(|| unavailable("Qualification projection outbox is orphaned"))?;
 
         if !outbox_aggregates.insert(aggregate_identity) {
-            return Err(unavailable("Qualification projection outbox is ambiguous"));
+            return Err(unavailable("Qualification projection outbox is ambiguous").into());
         }
         verify_outbox_row(row, projection)?;
     }
 
     if outbox_aggregates.len() != all_projections.len() {
-        return Err(unavailable("Qualification projection outbox unavailable"));
+        return Err(unavailable("Qualification projection outbox unavailable").into());
     }
 
     let projections = all_projections
@@ -4810,9 +4864,7 @@ pub(crate) async fn verify_scope_history_in_transaction(
         )?),
         None if projections.is_empty() => None,
         None => {
-            return Err(unavailable(
-                "Qualification feedback history exists without a head",
-            ));
+            return Err(unavailable("Qualification feedback history exists without a head").into());
         }
     };
 
@@ -4918,6 +4970,24 @@ async fn load_rd_basis_by_locator_fields_in_transaction(
     principal: &str,
     request_scope: &[String],
 ) -> Result<StoredRdBasisV1, QualificationOwnerError> {
+    load_rd_basis_by_locator_fields_preserving_sqlstate_in_transaction(
+        transaction,
+        basis_identity,
+        basis_digest,
+        principal,
+        request_scope,
+    )
+    .await
+    .map_err(QualificationTransactionError::into_public)
+}
+
+async fn load_rd_basis_by_locator_fields_preserving_sqlstate_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    basis_identity: &str,
+    basis_digest: &str,
+    principal: &str,
+    request_scope: &[String],
+) -> Result<StoredRdBasisV1, QualificationTransactionError> {
     let raw_envelope: Option<serde_json::Value> = sqlx::query_scalar(
         "SELECT rd_owner_api.lock_independence_basis_for_qualification_v1($1,$2,$3,$4)",
     )
@@ -4927,13 +4997,13 @@ async fn load_rd_basis_by_locator_fields_in_transaction(
     .bind(serde_json::to_value(request_scope).map_err(json_storage)?)
     .fetch_one(&mut **transaction)
     .await
-    .map_err(storage)?;
+    .map_err(transaction_storage)?;
     let envelope: LockedRdBasisEnvelopeV1 = decode_exact(
         &raw_envelope.ok_or_else(|| unavailable("R&D Independence Basis unavailable"))?,
     )?;
 
     if envelope.schema_version != 1 {
-        return Err(unavailable("R&D Independence Basis envelope mismatch"));
+        return Err(unavailable("R&D Independence Basis envelope mismatch").into());
     }
     let row = envelope.basis;
     let basis: StoredRdBasisV1 = decode_exact(&row.basis_json)?;
@@ -4949,7 +5019,7 @@ async fn load_rd_basis_by_locator_fields_in_transaction(
         || u64::try_from(row.committed_at_epoch_ms).map_err(json_storage)?
             != receipt.committed_at_epoch_ms
     {
-        return Err(unavailable("R&D Independence Basis row mismatch"));
+        return Err(unavailable("R&D Independence Basis row mismatch").into());
     }
     verify_rd_basis_outbox(&envelope.outbox, &basis, &receipt)?;
 
@@ -4958,7 +5028,7 @@ async fn load_rd_basis_by_locator_fields_in_transaction(
         || principal != basis.principal
         || request_scope != basis.request_scope
     {
-        return Err(unavailable("R&D Independence Basis locator mismatch"));
+        return Err(unavailable("R&D Independence Basis locator mismatch").into());
     }
     Ok(basis)
 }
@@ -5758,6 +5828,71 @@ mod postgres_tests {
     }
 
     #[test]
+    fn public_terminal_frontier_helper_chain_preserves_sqlstate() {
+        let source = include_str!("postgres.rs");
+        let frontier = source
+            .split_once("async fn resolve_candidate_feedback_frontier_preserving_sqlstate_v1(")
+            .expect("preserving frontier resolver")
+            .1
+            .split_once("impl LockedProtectedAttemptResultV1")
+            .expect("frontier resolver boundary")
+            .0;
+        assert!(frontier.contains(".map_err(transaction_storage)?"));
+        assert!(frontier.contains("lock_principal_scope_preserving_sqlstate_in_transaction"));
+        assert!(frontier.contains("verify_scope_history_preserving_sqlstate_in_transaction"));
+
+        let scope_lock = source
+            .split_once("async fn lock_principal_scope_preserving_sqlstate_in_transaction(")
+            .expect("preserving principal lock")
+            .1
+            .split_once("pub(crate) async fn verify_scope_history_in_transaction(")
+            .expect("principal lock boundary")
+            .0;
+        assert!(scope_lock.contains(".map_err(transaction_storage)?"));
+
+        let scope_history = source
+            .split_once("async fn verify_scope_history_preserving_sqlstate_in_transaction(")
+            .expect("preserving scope history verifier")
+            .1
+            .split_once("fn verify_projection_chain(")
+            .expect("scope history verifier boundary")
+            .0;
+        assert_eq!(
+            scope_history
+                .matches(".map_err(transaction_storage)?")
+                .count(),
+            4
+        );
+        assert!(scope_history.contains("admit_projection_row_in_transaction"));
+        assert!(!scope_history.contains(".map_err(storage)?"));
+
+        let projection_admission = source
+            .split_once("async fn admit_projection_row_in_transaction(")
+            .expect("preserving projection admission")
+            .1
+            .split_once("async fn admit_projection_envelope_row_in_transaction(")
+            .expect("projection admission boundary")
+            .0;
+        assert!(
+            projection_admission
+                .contains("load_rd_basis_by_locator_fields_preserving_sqlstate_in_transaction")
+        );
+        assert!(!projection_admission.contains(".map_err(storage)?"));
+
+        let basis = source
+            .split_once(
+                "async fn load_rd_basis_by_locator_fields_preserving_sqlstate_in_transaction(",
+            )
+            .expect("preserving R&D basis admission")
+            .1
+            .split_once("#[derive(Debug, Deserialize, Serialize)]")
+            .expect("R&D basis admission boundary")
+            .0;
+        assert!(basis.contains(".map_err(transaction_storage)?"));
+        assert!(!basis.contains(".map_err(storage)?"));
+    }
+
+    #[test]
     fn prior_attempt_source_read_preserves_append_only_writer_acl() {
         let source = include_str!("postgres.rs");
         let verifier = source
@@ -6254,6 +6389,49 @@ mod postgres_tests {
             .await
             .expect("diagnostic terminal aggregate counts");
             assert_eq!(counts, (1, 1, 1, 1));
+            let public_terminal: serde_json::Value = sqlx::query_scalar(
+                "SELECT pg_catalog.jsonb_build_object( \
+                   'fact',pg_catalog.to_jsonb(fact), \
+                   'head',pg_catalog.to_jsonb(head), \
+                   'event',pg_catalog.to_jsonb(event)) \
+                 FROM public.qualification_protected_replay_requests_v1 request \
+                 JOIN public.qualification_public_status_facts_v1 fact \
+                   ON fact.review_request_identity=request.review_request_identity \
+                  AND fact.phase_sequence=3 \
+                 JOIN public.qualification_public_status_heads_v1 head \
+                   ON head.review_request_identity=fact.review_request_identity \
+                  AND head.fact_identity=fact.fact_identity \
+                  AND head.fact_digest=fact.fact_digest \
+                  AND head.phase_sequence=fact.phase_sequence \
+                 JOIN public.qualification_owner_outbox_v1 event \
+                   ON event.aggregate_identity=fact.fact_identity \
+                  AND event.event_kind='QUALIFICATION_PUBLIC_STATUS_TERMINAL_V1' \
+                 WHERE request.request_identity=$1",
+            )
+            .bind(&request_identity)
+            .fetch_one(&owner.pool)
+            .await
+            .expect("diagnostic public terminal custody");
+            assert_eq!(
+                public_terminal["fact"]["status"],
+                serde_json::json!("CLOSED_NOT_QUALIFIED")
+            );
+            assert_eq!(
+                public_terminal["fact"]["native_source_identity"],
+                serde_json::json!(first.disposition_identity())
+            );
+            assert_eq!(
+                public_terminal["head"]["fact_identity"],
+                public_terminal["fact"]["fact_identity"]
+            );
+            assert_eq!(
+                public_terminal["event"]["aggregate_identity"],
+                public_terminal["fact"]["fact_identity"]
+            );
+            assert_eq!(
+                public_terminal["event"]["event_kind"],
+                serde_json::json!("QUALIFICATION_PUBLIC_STATUS_TERMINAL_V1")
+            );
         }
         let forbidden_events: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM public.qualification_owner_outbox_v1 WHERE event_kind ILIKE '%ASSESSMENT%' OR event_kind ILIKE '%ELIGIBILITY%'",
