@@ -21,10 +21,29 @@ const UNSIGNED_DECIMAL = /^(?:0|[1-9][0-9]*)$/;
 type Json = Record<string, unknown>;
 type Fetcher = typeof fetch;
 
+const REPLAY_TRANSITIONS = {
+  AVAILABLE: {
+    nextLegalAction: "LOCK_BY_LOCATOR",
+    operationalOutcome: "available",
+  },
+  STALE: {
+    nextLegalAction: "CREATE_SUCCESSOR_REQUEST",
+    operationalOutcome: "unknown",
+  },
+  UNAVAILABLE: {
+    nextLegalAction: "RESOLVE_OWNER_CUSTODY",
+    operationalOutcome: "unavailable",
+  },
+} as const;
+
+export type ExploratoryReplayAvailabilityV2 = keyof typeof REPLAY_TRANSITIONS;
+type ExploratoryReplayTransitionV2 = typeof REPLAY_TRANSITIONS[ExploratoryReplayAvailabilityV2];
+export type ExploratoryReplayNextLegalActionV2 = ExploratoryReplayTransitionV2["nextLegalAction"];
+
 export type ExploratoryReplayReadbackProjectionV2 = {
   requestIdentity: string;
-  availability: "AVAILABLE" | "STALE" | "UNAVAILABLE";
-  nextLegalAction: "LOCK_BY_LOCATOR" | "CREATE_SUCCESSOR_REQUEST" | "RESOLVE_OWNER_CUSTODY";
+  availability: ExploratoryReplayAvailabilityV2;
+  nextLegalAction: ExploratoryReplayNextLegalActionV2;
   readback: null | {
     meaningDigest: string;
     receiptIdentity: string;
@@ -77,6 +96,10 @@ function identity(value: unknown): value is string {
 
 function digest(value: unknown): value is string {
   return typeof value === "string" && DIGEST.test(value);
+}
+
+function replayAvailability(value: unknown): value is ExploratoryReplayAvailabilityV2 {
+  return typeof value === "string" && Object.hasOwn(REPLAY_TRANSITIONS, value);
 }
 
 function unsignedDecimal(value: unknown): string | null {
@@ -197,18 +220,16 @@ export function parseExploratoryReplayOwnerV2(
     || value.projection.schema_version !== 1
     || value.projection.request_identity !== expectedRequestIdentity
     || !identity(value.projection.request_identity)
-    || !["AVAILABLE", "STALE", "UNAVAILABLE"].includes(String(value.projection.availability))) return null;
+    || !replayAvailability(value.projection.availability)) return null;
 
-  const availability = value.projection.availability as ExploratoryReplayReadbackProjectionV2["availability"];
-  const nextLegalAction = value.projection.next_legal_action;
-  const expectedAction = availability === "AVAILABLE" ? "LOCK_BY_LOCATOR"
-    : availability === "STALE" ? "CREATE_SUCCESSOR_REQUEST" : "RESOLVE_OWNER_CUSTODY";
-  if (nextLegalAction !== expectedAction) return null;
+  const availability = value.projection.availability;
+  const transition = REPLAY_TRANSITIONS[availability];
+  if (value.projection.next_legal_action !== transition.nextLegalAction) return null;
   if (availability !== "AVAILABLE") {
     return value.readback === null ? {
       requestIdentity: expectedRequestIdentity,
       availability,
-      nextLegalAction: expectedAction,
+      nextLegalAction: transition.nextLegalAction,
       readback: null,
     } : null;
   }
@@ -235,7 +256,7 @@ export function parseExploratoryReplayOwnerV2(
   return {
     requestIdentity: expectedRequestIdentity,
     availability,
-    nextLegalAction: expectedAction,
+    nextLegalAction: transition.nextLegalAction,
     readback: {
       meaningDigest: expectedMeaningDigest,
       receiptIdentity: String(readback.receipt.receipt_identity),
@@ -356,16 +377,22 @@ export function parseExploratoryReplayShadowEnvelopeV2(
   const projection = value.projection;
   if (!exactKeys(projection, ["requestIdentity", "availability", "nextLegalAction", "readback"])
     || projection.requestIdentity !== value.request_identity
-    || !["AVAILABLE", "STALE", "UNAVAILABLE"].includes(String(projection.availability))) return null;
-  const expectedAction = projection.availability === "AVAILABLE" ? "LOCK_BY_LOCATOR"
-    : projection.availability === "STALE" ? "CREATE_SUCCESSOR_REQUEST" : "RESOLVE_OWNER_CUSTODY";
-  if (projection.nextLegalAction !== expectedAction) return null;
-  const expectedOutcome = projection.availability === "AVAILABLE" ? "available"
-    : projection.availability === "STALE" ? "unknown" : "unavailable";
-  if (!validOperationalRunReferenceV1(value.operational_run, expectedOutcome)) return null;
-  if (projection.availability !== "AVAILABLE") {
+    || !replayAvailability(projection.availability)) return null;
+  const availability = projection.availability;
+  const transition = REPLAY_TRANSITIONS[availability];
+  if (projection.nextLegalAction !== transition.nextLegalAction
+    || !validOperationalRunReferenceV1(
+      value.operational_run,
+      transition.operationalOutcome,
+    )) return null;
+  if (availability !== "AVAILABLE") {
     return projection.readback === null
-      ? projection as unknown as ExploratoryReplayReadbackProjectionV2 : null;
+      ? {
+        requestIdentity: value.request_identity,
+        availability,
+        nextLegalAction: transition.nextLegalAction,
+        readback: null,
+      } : null;
   }
   const readback = projection.readback;
   if (!object(readback) || !exactKeys(readback, [
@@ -383,5 +410,26 @@ export function parseExploratoryReplayShadowEnvelopeV2(
     || !identity(readback.trialFamilyIdentity) || !identity(readback.artifactIdentity)
     || !identity(readback.strategyDesignIdentity) || !identity(readback.pitSnapshotIdentity)
     || !identity(readback.runtimeKernelIdentity) || !identity(readback.simulatorIdentity)) return null;
-  return projection as unknown as ExploratoryReplayReadbackProjectionV2;
+  return {
+    requestIdentity: value.request_identity,
+    availability,
+    nextLegalAction: transition.nextLegalAction,
+    readback: {
+      meaningDigest: readback.meaningDigest,
+      receiptIdentity: readback.receiptIdentity,
+      sealDigest: readback.sealDigest,
+      committedAtEpochMs: readback.committedAtEpochMs,
+      ownerCutEpochMs: readback.ownerCutEpochMs,
+      namespace: readback.namespace,
+      deterministicSeed: readback.deterministicSeed,
+      startEventNs: readback.startEventNs,
+      endEventNsExclusive: readback.endEventNsExclusive,
+      trialFamilyIdentity: readback.trialFamilyIdentity,
+      artifactIdentity: readback.artifactIdentity,
+      strategyDesignIdentity: readback.strategyDesignIdentity,
+      pitSnapshotIdentity: readback.pitSnapshotIdentity,
+      runtimeKernelIdentity: readback.runtimeKernelIdentity,
+      simulatorIdentity: readback.simulatorIdentity,
+    },
+  };
 }
