@@ -78,14 +78,15 @@ entries per day and an accessible overflow button. Day and Week show zero-durati
 grouped by UTC hour, not invented duration blocks. Year shows twelve month tiles opening Month;
 Agenda lists days in the selected month. Dense cadence is grouped arithmetically by schedule/day or
 schedule/hour; expanding a group pages exact expected timestamps, 50 per page, without materializing
-an unbounded event list. Observed records are separately labelled and link to existing Run Detail.
+an unbounded event list. Observed records are separately labelled and open the shared related-run preview;
+only its explicit canonical action links to Run Detail.
 Calendar navigation must not execute a schedule. Today resets the date but preserves the active view.
 
 Table columns are Operation, Cadence, Next expected trigger, Last observed run, in that order; default
 sort is next trigger ascending then immutable schedule identity. Search precedes pagination (20 rows;
 10/20/50 options). Selection opens the same detail as calendar selection. No column chooser, bulk
 selection or per-header decorative icons. Headers remain sticky inside the bounded body scroller.
-Details order operation/title, cadence and next expected trigger, last observed due/run link, then
+Details order operation/title, cadence and next expected trigger, last observed due/run preview trigger, then
 collapsed technical identity/digest/recovery fields. No Run, Resolve, CRUD, drag or resize action.
 
 At 1280px and above, calendar/table and detail use a 2:1 grid with 16px gap and a shared body height
@@ -99,17 +100,17 @@ body, subtle separators and restrained orange selection/focus. Icons use Lucide.
 140-180ms and respect reduced motion. Keyboard users can navigate controls, open/close overflow,
 select entries and follow observed-run links without pointer gestures.
 
-The History table and selected-registration detail reuse one read-only related-run preview instead of changing
+The History and Current schedules views reuse one read-only related-run preview instead of changing
 the Schedules URL. It re-reads the exact `RunDetailEnvelopeV1`, shows only run state, activity, trigger, started
 time, duration and source result, and offers one explicit `Open full run details` canonical escalation. It never
-embeds logs or run actions. A trigger inside the compact registration sheet replaces that sheet body and provides
+embeds logs or run actions. A trigger inside either compact schedule sheet replaces that sheet body and provides
 `Back to schedule`; the interaction never stacks a second overlay. A table-origin preview has no synthetic Back
 target: Close returns focus to that exact table trigger. Returning preserves filters, pagination, scroll and the
 selected registration.
 
 Loading occupies six 48px skeleton rows in the primary body; empty/search-empty shows one 160px
 message without fabricated events. Unavailable, incompatible, malformed and denied responses use
-that same bounded message region, a concise reason and Refresh; no stale positive detail survives. History related-run
+that same bounded message region, a concise reason and Refresh; no stale positive detail survives. Related-run
 reads are on demand and clear prior positive data before every identity change. Non-success positive responses,
 malformed envelopes and request/envelope/run identity mismatch fail closed; an aborted or late read cannot refill
 a closed or newer preview. Dynamic acceptance requires disposable PostgreSQL bound reads reaching the browser, mismatch/HTTP

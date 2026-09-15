@@ -22,10 +22,14 @@ test("contextual run inspection is one shared GET-only fail-closed component", a
   assert.match(preview, /Open full run details/u);
   assert.match(preview, /backLabel = "Back"/u);
   assert.match(preview, /\{backLabel\}/u);
+  assert.match(preview, /onBack \? <Button[^>]+autoFocus/u);
 });
 
-test("schedule history reuses one contextual preview for table and detail origins", async () => {
-  const history = await read("components/operations-schedule-history.tsx");
+test("schedule views reuse one contextual preview for table and detail origins", async () => {
+  const [history, current] = await Promise.all([
+    read("components/operations-schedule-history.tsx"),
+    read("components/operations-schedules-preview.tsx"),
+  ]);
 
   assert.equal((history.match(/<OperationsRunPreviewTrigger/g) ?? []).length, 2);
   assert.doesNotMatch(history, /href=\{`\/operations\/runs\//u);
@@ -35,6 +39,15 @@ test("schedule history reuses one contextual preview for table and detail origin
   assert.match(history, /onOpen=\{\(runIdentity\) => openRunPreview\(runIdentity, null\)\}/u);
   assert.match(history, /selected\?\.schedule_identity === previewReturnScheduleIdentity/u);
   assert.equal((history.match(/<DetailSheet/g) ?? []).length, 1);
+  assert.equal((current.match(/<OperationsRunPreviewTrigger/g) ?? []).length, 2);
+  assert.match(current, /<OperationsRunPreviewContent runIdentity=\{previewRunIdentity\}/u);
+  assert.match(current, /returnToSchedule[\s\S]*restoreRunPreviewTriggerFocus\(runIdentity\)/u);
+  assert.match(current, /selected\?\.schedule_identity === previewReturnScheduleIdentity/u);
+  assert.match(current, /const selectCalendarSchedule = useCallback\([\s\S]*setDetailOpen\(false\)/u);
+  assert.match(current, /<ScheduleCalendar[\s\S]*onSelect=\{selectCalendarSchedule\}/u);
+  assert.match(current, /onOpenRun=\{\(runIdentity\) => openRunPreview\(runIdentity, null\)\}/u);
+  assert.doesNotMatch(current, /href=\{`\/operations\/runs\//u);
+  assert.equal((current.match(/<DetailSheet/g) ?? []).length, 1);
 });
 
 test("the bilingual schedule contract fixes single-overlay contextual run inspection", async () => {

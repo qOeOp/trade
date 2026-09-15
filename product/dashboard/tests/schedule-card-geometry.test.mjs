@@ -20,8 +20,8 @@ test("schedule surfaces keep rounded containment without stealing the calendar s
   assert.match(component, /function ScheduleTechnicalInfo[\s\S]*<PanelFrameInfo label="View schedule technical details">[\s\S]*<PanelFrameInfoFact key=\{key\} label=\{key\}>/u);
   assert.match(component, /function ScheduleDetailContent[\s\S]*<DetailFactGrid>[\s\S]*<DetailSection label="last observed run">/u);
   assert.match(component, /<DetailInspectorHeader[\s\S]*<ScheduleTechnicalInfo schedule=\{selected\}/u);
-  assert.match(component, /<DetailInspectorBody>[\s\S]*<ScheduleDetailContent schedule=\{selected\}/u);
-  assert.match(component, /<DetailSheet[\s\S]*<ScheduleDetailContent schedule=\{selected\}/u);
+  assert.match(component, /<DetailInspectorBody>[\s\S]*<ScheduleDetailContent schedule=\{selected\}[\s\S]*onOpenRun=/u);
+  assert.match(component, /<DetailSheet[\s\S]*<ScheduleDetailContent schedule=\{selected\}[\s\S]*onOpenRun=/u);
   assert.doesNotMatch(component, /<aside className=\{styles\.detail\}|<details><summary>Technical identity/u);
 });
 

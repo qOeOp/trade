@@ -33,7 +33,7 @@ test("Dashboard chrome persists while one route outlet owns loading and content"
 });
 
 test("internal Dashboard navigation does not bypass the route loading boundary", () => {
-  for (const source of [navigation, workers, schedules, entityReference, dialog, detailSheet]) {
+  for (const source of [navigation, workers, entityReference, detailSheet]) {
     assert.match(source, /import Link from "next\/link"/u);
   }
   assert.doesNotMatch(navigation, /<a\b/u);
@@ -44,9 +44,13 @@ test("internal Dashboard navigation does not bypass the route loading boundary",
   assert.match(runs, /<DetailSheet[\s\S]*canonicalHref=/u);
   assert.doesNotMatch(runs, /window\.location/u);
   assert.doesNotMatch(schedules, /<a\b/u);
+  assert.match(schedules, /OperationsRunPreviewTrigger/u);
+  assert.doesNotMatch(schedules, /href=\{`\/operations\/runs\//u);
   assert.match(artifacts, /<EntityReference/u);
   assert.doesNotMatch(artifacts, /<a[^>]+href=\{`\/rd\/artifacts/u);
   assert.doesNotMatch(dialog, /<a[^>]+href=\{`\/operations\/runs/u);
+  assert.doesNotMatch(dialog, /import Link from "next\/link"/u);
+  assert.match(dialog, /onOpenRun\(runIdentity\)/u);
   assert.match(filterToolbar, /import Link from "next\/link"/u);
   assert.match(filterToolbar, /const usesClientNavigation = typeof href === "string"[\s\S]+?<Link \{\.\.\.sharedProps\} href=\{href\}>/u);
   assert.match(filterToolbar, /!props\.download/u);

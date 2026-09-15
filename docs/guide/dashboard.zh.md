@@ -65,12 +65,13 @@ trigger 的构型，但标记只能从已返回的 operation identity 派生；�
 每天最多三个摘要条目及可访问的溢出按钮。Day/Week 按 UTC 小时展示零时长触发点，不伪造持续时长块。
 Year 显示十二个月块，点击进入 Month；Agenda 展示选中月份的逐日列表。密集 cadence 按调度/日或
 调度/小时以算术方式聚合；展开后每页 50 个精确预计时间戳，不物化无界事件列表。已观测记录独立标注，
-链接现有 Run Detail。日历导航不得执行调度；Today 重置日期但保留当前视图。
+并打开共享关联 Run 速览；只有速览内明确的 canonical 动作才链接 Run Detail。日历导航不得执行调度；
+Today 重置日期但保留当前视图。
 
 表格列依次为 Operation、Cadence、Next expected trigger、Last observed run；默认按下次触发升序，
 再按不可变 schedule identity 排序。先搜索再分页，默认 20 行，可选 10/20/50。选中打开与日历相同的
 详情。不提供列选择器、批量选择或每列表头装饰图标。表头在有界 body 滚动区域内冻结。详情依次为
-operation/标题、cadence 与下次预计触发、上次已观测 due/run 链接、默认折叠的身份/摘要/recovery 字段。
+operation/标题、cadence 与下次预计触发、上次已观测 due/run 速览 trigger、默认折叠的身份/摘要/recovery 字段。
 不提供 Run、Resolve、CRUD、拖拽或缩放操作。
 
 1280px 及以上，日历/表格与详情使用 2:1 网格、16px 间距，共享按可用视口限制在 420-760px 的 body
@@ -81,15 +82,15 @@ table 占满 inset；低于 768px，同一个 sheet 转为全屏。关闭后焦�
 分割线及克制橙色选中/焦点。图标使用 Lucide。动画 140-180ms 并遵循 reduced motion；键盘可操作
 控件、开关溢出、选中条目及访问已观测运行链接，不依赖指针手势。
 
-History table 与选中登记详情复用同一个只读关联 Run 速览，不改变 Schedules URL。速览重新读取精确
+History 与 Current schedules view 复用同一个只读关联 Run 速览，不改变 Schedules URL。速览重新读取精确
 `RunDetailEnvelopeV1`，只展示运行状态、活动、触发来源、开始时间、时长与 source result，并提供唯一显式的
-`Open full run details` canonical 升级入口；不得嵌入日志或 Run action。在窄屏登记 sheet 内激活关联 Run
+`Open full run details` canonical 升级入口；不得嵌入日志或 Run action。在任一窄屏 schedule sheet 内激活关联 Run
 时替换同一个 sheet body 并提供 `Back to schedule`，不得叠第二层 overlay。从 table 直接打开时不得伪造
 Back 目标；Close 必须把焦点返回到该 table trigger。返回后保留筛选、分页、滚动与选中登记。
 
 加载时主 body 展示六行 48px skeleton；空数据/搜索无结果使用单个 160px 提示区，不伪造事件。
 不可用、兼容失败、格式错误及拒绝访问使用同样有界提示区、简短原因与 Refresh，不保留旧正向详情。
-History 关联 Run 只按需读取，每次 identity 变化前先清除旧正向数据；非成功响应携带正向数据、非法 envelope、
+关联 Run 只按需读取，每次 identity 变化前先清除旧正向数据；非成功响应携带正向数据、非法 envelope、
 request/envelope/run identity 失配都 fail closed，中止或迟到读取不得回填已关闭或更新的速览。动态验收必须覆盖 disposable PostgreSQL 绑定读取到浏览器、失配/HTTP 失败拒绝、预计与观测区分、
 五视图、溢出、键盘、双主题与窄/宽屏布局；fixture 不能替代动态验收。
 

@@ -104,7 +104,7 @@ export function OperationsRunPreviewContent({
   }, [runIdentity]);
 
   return <div className="operations-run-preview-content">
-    {onBack ? <Button type="button" variant="text" size="tool" onClick={onBack}>
+    {onBack ? <Button type="button" variant="text" size="tool" autoFocus onClick={onBack}>
       <InterfaceIcons.previous aria-hidden="true" size={12} />{backLabel}
     </Button> : null}
     {state.status === "loading" ? <LoadingState density="compact"

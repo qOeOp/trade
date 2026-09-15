@@ -123,13 +123,20 @@ test("calendar body retains the source view, cell, badge, and inspection hierarc
     'data-slot="calendar-month-view"',
     'data-slot="calendar-day-cell"',
     'data-slot="calendar-event-badge"',
+    "data-run-identity={group.run_identity ?? undefined}",
     '"calendar-day-view"',
     '"calendar-week-view"',
     'data-slot="calendar-year-view"',
     'data-slot="calendar-agenda-view"',
     "MAX_VISIBLE_EVENTS = 3",
+    "data-run-identities={groups.slice(MAX_VISIBLE_EVENTS)",
     "AnimatePresence",
     "ScheduleInspectionDialog",
+    "returnFocus.current",
+    "transitioningToRun.current",
+    "onOpenRun(runIdentity)",
+    "data-run-identity={group.run_identity ?? undefined}",
+    'querySelector<HTMLElement>("button, select, a[href]")?.focus()',
     "CalendarDayView",
     "CalendarWeekView",
   ]) assert.ok(source.includes(marker), `missing source body marker: ${marker}`);
@@ -139,6 +146,7 @@ test("calendar body retains the source view, cell, badge, and inspection hierarc
   assert.equal(lock.components.calendarWeekView.blob, "49d8494105c11609f8b6b74f9dc803696b99ce75");
   assert.doesNotMatch(source, /AddEditEvent|DraggableEvent|DroppableArea|ResizableEvent|CALENDAR_ITEMS_MOCK/u);
   assert.doesNotMatch(source, />Add Event<|>Edit<|>Delete</u);
+  assert.doesNotMatch(source, /from "next\/link"|href=\{`\/operations\/runs\//u);
 });
 
 test("unavailable schedule data preserves the source controls without inventing an empty calendar", async () => {
