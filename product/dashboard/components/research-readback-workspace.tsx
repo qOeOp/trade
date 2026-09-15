@@ -6,10 +6,12 @@ import {
   parseResearchReadbackBrowserProjectionV1,
   type ResearchReadbackProjectionV1,
 } from "../lib/research-readback-gateway";
+import { projectResearchJourneyV1 } from "../lib/research-journey";
 import { EmptyState, UnavailableState } from "./ui/evidence-strip";
 import { FactGroup, FactGroupGrid, FactGroupSkeletonGrid, FactItem } from "./ui/fact-group";
 import { FilterButton, FilterLink } from "./ui/filter-toolbar";
 import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
+import { JourneyProgress } from "./ui/journey-progress";
 import {
   PanelFrame,
   PanelFrameBody,
@@ -39,55 +41,63 @@ function nextStepLabel(value: NonNullable<ResearchReadbackProjectionV1["view"]>[
 function AvailableReadback({ projection }: { projection: ResearchReadbackProjectionV1 }) {
   const outcome = projection.outcome;
   if (!outcome) {
+    const journey = projectResearchJourneyV1(projection);
     return (
-      <EmptyState icon={<EvidenceIcons.pending aria-hidden="true" size={20} />} title="No Owner outcome" density="compact">
-        {null}
-      </EmptyState>
+      <>
+        <JourneyProgress eyebrow="Research journey" summary={journey.summary} stages={journey.stages} />
+        <EmptyState icon={<EvidenceIcons.pending aria-hidden="true" size={20} />} title="No Owner outcome" density="compact">
+          {null}
+        </EmptyState>
+      </>
     );
   }
   const view = projection.view;
   const quarantined = outcome.resolution === "quarantined";
+  const journey = projectResearchJourneyV1(projection);
   return (
-    <FactGroupGrid>
-      <FactGroup title="Outcome">
-        <FactItem label="Decision">
-          <StatusBadge tone={outcome.resolution === "accepted" ? "success" : quarantined ? "warning" : "danger"}>
-            {outcome.resolution === "accepted" ? "Accepted" : quarantined ? "Historical" : "Rejected"}
-          </StatusBadge>
-        </FactItem>
-        <FactItem label="Research state">
-          {view ? <StatusBadge tone={view.phase === "artifact_available" ? "success" : "info"}>
-            {phaseLabel(view.phase)}
-          </StatusBadge> : quarantined ? "Quarantined" : "Not created"}
-        </FactItem>
-        {outcome.historicalDisposition ? <FactItem label="Historical result">
-          <StatusBadge tone={outcome.historicalDisposition === "accepted" ? "success" : "danger"}>
-            {outcome.historicalDisposition === "accepted" ? "Accepted" : "Rejected"}
-          </StatusBadge>
-        </FactItem> : null}
-        {outcome.rejectionCode ? <FactItem label="Reason" mono title={outcome.rejectionCode}>
-          {outcome.rejectionCode}
-        </FactItem> : null}
-      </FactGroup>
-      <FactGroup title="Intent">
-        <FactItem label="Identity" mono title={outcome.intentIdentity ?? undefined}>
-          {outcome.intentIdentity ?? (quarantined ? "Not promoted" : "Not created")}
-        </FactItem>
-        <FactItem label="Freshness">
-          {view ? <StatusBadge tone={view.availability === "available" ? "success" : "warning"}>
-            {view.availability === "available" ? "Current" : "Stale"}
-          </StatusBadge> : "Unavailable"}
-        </FactItem>
-        <FactItem label="Next step">
-          {view ? nextStepLabel(view.nextStep) : quarantined ? "Refresh same request" : "Correct input"}
-        </FactItem>
-      </FactGroup>
-      <FactGroup title="Timing">
-        <FactItem label="Committed">{displayTime(outcome.committedAt)}</FactItem>
-        <FactItem label="Observed">{view ? displayTime(view.observedAt) : displayTime(projection.observedAt!)}</FactItem>
-        <FactItem label="Valid through">{view ? displayTime(view.validThrough) : "Not applicable"}</FactItem>
-      </FactGroup>
-    </FactGroupGrid>
+    <>
+      <JourneyProgress eyebrow="Research journey" summary={journey.summary} stages={journey.stages} />
+      <FactGroupGrid>
+        <FactGroup title="Outcome">
+          <FactItem label="Decision">
+            <StatusBadge tone={outcome.resolution === "accepted" ? "success" : quarantined ? "warning" : "danger"}>
+              {outcome.resolution === "accepted" ? "Accepted" : quarantined ? "Historical" : "Rejected"}
+            </StatusBadge>
+          </FactItem>
+          <FactItem label="Research state">
+            {view ? <StatusBadge tone={view.phase === "artifact_available" ? "success" : "info"}>
+              {phaseLabel(view.phase)}
+            </StatusBadge> : quarantined ? "Quarantined" : "Not created"}
+          </FactItem>
+          {outcome.historicalDisposition ? <FactItem label="Historical result">
+            <StatusBadge tone={outcome.historicalDisposition === "accepted" ? "success" : "danger"}>
+              {outcome.historicalDisposition === "accepted" ? "Accepted" : "Rejected"}
+            </StatusBadge>
+          </FactItem> : null}
+          {outcome.rejectionCode ? <FactItem label="Reason" mono title={outcome.rejectionCode}>
+            {outcome.rejectionCode}
+          </FactItem> : null}
+        </FactGroup>
+        <FactGroup title="Intent">
+          <FactItem label="Identity" mono title={outcome.intentIdentity ?? undefined}>
+            {outcome.intentIdentity ?? (quarantined ? "Not promoted" : "Not created")}
+          </FactItem>
+          <FactItem label="Freshness">
+            {view ? <StatusBadge tone={view.availability === "available" ? "success" : "warning"}>
+              {view.availability === "available" ? "Current" : "Stale"}
+            </StatusBadge> : "Unavailable"}
+          </FactItem>
+          <FactItem label="Next step">
+            {view ? nextStepLabel(view.nextStep) : quarantined ? "Refresh same request" : "Correct input"}
+          </FactItem>
+        </FactGroup>
+        <FactGroup title="Timing">
+          <FactItem label="Committed">{displayTime(outcome.committedAt)}</FactItem>
+          <FactItem label="Observed">{view ? displayTime(view.observedAt) : displayTime(projection.observedAt!)}</FactItem>
+          <FactItem label="Valid through">{view ? displayTime(view.validThrough) : "Not applicable"}</FactItem>
+        </FactGroup>
+      </FactGroupGrid>
+    </>
   );
 }
 

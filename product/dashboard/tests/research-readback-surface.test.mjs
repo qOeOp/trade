@@ -13,10 +13,11 @@ test("Research detail reuses shared atoms and exposes the admitted Artifact cont
     readFile(new URL("../lib/navigation.js", import.meta.url), "utf8"),
     readFile(new URL("../components/research-readback-workspace.module.css", import.meta.url), "utf8"),
   ]);
-  for (const atom of ["PanelFrame", "PanelFrameHeader", "PanelFrameBody", "FactGroupGrid", "FactGroup", "FactItem", "StatusBadge"]) {
+  for (const atom of ["PanelFrame", "PanelFrameHeader", "PanelFrameBody", "JourneyProgress", "FactGroupGrid", "FactGroup", "FactItem", "StatusBadge"]) {
     assert.ok(component.includes(atom), `missing shared atom ${atom}`);
   }
   for (const title of ["Outcome", "Intent", "Timing"]) assert.match(component, new RegExp(`title="${title}"`, "u"));
+  assert.match(component, /projectResearchJourneyV1\(projection\)/u);
   assert.match(component, /PanelFrameInfo/u);
   assert.doesNotMatch(component, /projection\?\.technical\s*\?\s*<PanelFrameInfo/u);
   assert.match(component, /variant="ghost" href="\/rd\/research"/u);
