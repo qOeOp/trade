@@ -115,7 +115,11 @@ test("Workers uses the shared Vibe, table, and Lucide-backed atoms", async () =>
     "DataWorkspaceTable", "DataTableSurface", "DetailInspector", "SplitBento",
   ]) assert.match(workers, new RegExp(shared));
   assert.match(workers, /from "\.\/ui\/iconography"/);
-  assert.match(workers, /encodeWorkerIdentitySegmentV1\(worker\.worker_identity\)/);
+  assert.match(workers, /function WorkerDetailClusters[\s\S]*label="Last seen"[\s\S]*label="Activities"/u);
+  assert.equal(workers.match(/<WorkerDetailClusters worker=\{worker\} \/>/gu)?.length, 1);
+  assert.equal(workers.match(/<WorkerDetailClusters worker=\{selected\} \/>/gu)?.length, 1);
+  assert.doesNotMatch(workers, /encodeWorkerIdentitySegmentV1\(worker\.worker_identity\)/);
+  assert.doesNotMatch(workers, /canonicalLabel="Open service details"/);
   assert.doesNotMatch(workers, /from "lucide-react"/);
   assert.doesNotMatch(workers, /#[0-9a-fA-F]{3,8}/);
 });

@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   readWorkerBrowserResponsesV1,
-  encodeWorkerIdentitySegmentV1,
   type WorkerBrowserEnvelopeV1,
   type WorkerDetailBrowserEnvelopeV1,
   type WorkerBrowserProjectionV1,
@@ -17,8 +16,6 @@ import {
   DetailClusterFact,
   DetailClusterGrid,
   DetailEmpty,
-  DetailFact,
-  DetailFactGrid,
   DetailInspector,
   DetailInspectorBody,
   DetailInspectorFooter,
@@ -63,6 +60,39 @@ function compactRunLabel(identity: string) {
   return `#${tail.slice(-8)}`;
 }
 
+function WorkerDetailClusters({ worker }: { worker: WorkerBrowserProjectionV1 }) {
+  return (
+    <DetailClusterGrid>
+      <DetailCluster label="Availability" meta={workerAvailabilityLabel(worker.lease_state)}>
+        <DetailClusterFact label="Added"><time dateTime={worker.registered_at}>{displayTime(worker.registered_at)}</time></DetailClusterFact>
+        <DetailClusterFact label="Last seen"><time dateTime={worker.last_heartbeat_at}>{displayTime(worker.last_heartbeat_at)}</time></DetailClusterFact>
+      </DetailCluster>
+      <DetailCluster label="Work handled" meta={`${worker.active_job_count} active`}>
+        <DetailClusterFact label="Processed"><b>{worker.job_count}</b></DetailClusterFact>
+        <DetailClusterFact label="Active"><b>{worker.active_job_count}</b></DetailClusterFact>
+      </DetailCluster>
+      <DetailCluster label="Recent activity" meta={worker.last_run_state ? runStateLabel(worker.last_run_state) : "No activity"}>
+        <DetailClusterFact label="Run">
+          {worker.last_run_identity ? <Link className="detail-cluster-link" href={`/operations/runs/${encodeURIComponent(worker.last_run_identity)}`}>
+            <span title={worker.last_run_identity}>{compactRunLabel(worker.last_run_identity)}</span><InterfaceIcons.open aria-hidden="true" size={12} />
+          </Link> : <span>Unavailable</span>}
+        </DetailClusterFact>
+        <DetailClusterFact label="Started">{worker.last_run_at
+          ? <time dateTime={worker.last_run_at}>{displayTime(worker.last_run_at)}</time>
+          : <span>Unavailable</span>}</DetailClusterFact>
+      </DetailCluster>
+      <DetailCluster label="Supported work" meta={`${worker.operation_ids.length} ${worker.operation_ids.length === 1 ? "activity" : "activities"}`}>
+        <DetailClusterFact label="Type">{workerRoleLabel(worker.worker_kind)}</DetailClusterFact>
+        <DetailClusterFact label="Activities" wide>
+          <span className="detail-cluster-values">
+            {worker.operation_ids.map((operation) => <span key={operation} title={operation}>{runOperationLabel(operation)}</span>)}
+          </span>
+        </DetailClusterFact>
+      </DetailCluster>
+    </DetailClusterGrid>
+  );
+}
+
 function WorkerDetail({ worker, exact = false }: { worker: WorkerBrowserProjectionV1; exact?: boolean }) {
   return (
     <DetailInspector aria-label={`Background service ${worker.worker_identity}`}>
@@ -75,34 +105,7 @@ function WorkerDetail({ worker, exact = false }: { worker: WorkerBrowserProjecti
         </StatusBadge>}
       />
       <DetailInspectorBody>
-        <DetailClusterGrid>
-          <DetailCluster label="Availability" meta={workerAvailabilityLabel(worker.lease_state)}>
-            <DetailClusterFact label="Added"><time dateTime={worker.registered_at}>{displayTime(worker.registered_at)}</time></DetailClusterFact>
-            <DetailClusterFact label="Last seen"><time dateTime={worker.last_heartbeat_at}>{displayTime(worker.last_heartbeat_at)}</time></DetailClusterFact>
-          </DetailCluster>
-          <DetailCluster label="Work handled" meta={`${worker.active_job_count} active`}>
-            <DetailClusterFact label="Processed"><b>{worker.job_count}</b></DetailClusterFact>
-            <DetailClusterFact label="Active"><b>{worker.active_job_count}</b></DetailClusterFact>
-          </DetailCluster>
-          <DetailCluster label="Recent activity" meta={worker.last_run_state ? runStateLabel(worker.last_run_state) : "No activity"}>
-            <DetailClusterFact label="Run">
-              {worker.last_run_identity ? <Link className="detail-cluster-link" href={`/operations/runs/${encodeURIComponent(worker.last_run_identity)}`}>
-                <span title={worker.last_run_identity}>{compactRunLabel(worker.last_run_identity)}</span><InterfaceIcons.open aria-hidden="true" size={12} />
-              </Link> : <span>Unavailable</span>}
-            </DetailClusterFact>
-            <DetailClusterFact label="Started">{worker.last_run_at
-              ? <time dateTime={worker.last_run_at}>{displayTime(worker.last_run_at)}</time>
-              : <span>Unavailable</span>}</DetailClusterFact>
-          </DetailCluster>
-          <DetailCluster label="Supported work" meta={`${worker.operation_ids.length} ${worker.operation_ids.length === 1 ? "activity" : "activities"}`}>
-            <DetailClusterFact label="Type">{workerRoleLabel(worker.worker_kind)}</DetailClusterFact>
-            <DetailClusterFact label="Activities" wide>
-              <span className="detail-cluster-values">
-                {worker.operation_ids.map((operation) => <span key={operation} title={operation}>{runOperationLabel(operation)}</span>)}
-              </span>
-            </DetailClusterFact>
-          </DetailCluster>
-        </DetailClusterGrid>
+        <WorkerDetailClusters worker={worker} />
         <DetailInspectorFooter layout={exact ? "split" : "stack"}>
           <PanelFrameInfo label="View service information"><PanelFrameInfoList>
             <PanelFrameInfoFact label="Service ID"><code>{worker.worker_identity}</code></PanelFrameInfoFact>
@@ -115,20 +118,6 @@ function WorkerDetail({ worker, exact = false }: { worker: WorkerBrowserProjecti
       </DetailInspectorBody>
     </DetailInspector>
   );
-}
-
-function WorkerSheetDetail({ worker }: { worker: WorkerBrowserProjectionV1 }) {
-  return <DetailFactGrid>
-    <DetailFact label="Availability"><StatusBadge tone={availabilityTone(worker.lease_state)}>{workerAvailabilityLabel(worker.lease_state)}</StatusBadge></DetailFact>
-    <DetailFact label="Service role"><b>{workerRoleLabel(worker.worker_kind)}</b></DetailFact>
-    <DetailFact label="Active"><b>{worker.active_job_count}</b></DetailFact>
-    <DetailFact label="Processed"><b>{worker.job_count}</b></DetailFact>
-    <DetailFact label="Recent activity">{worker.last_run_identity
-      ? <Link href={`/operations/runs/${encodeURIComponent(worker.last_run_identity)}`}>{compactRunLabel(worker.last_run_identity)}</Link>
-      : <span>No activity</span>}</DetailFact>
-    <DetailFact label="Supports"><b>{worker.operation_ids.length}</b></DetailFact>
-    <DetailFact label="Added"><time dateTime={worker.registered_at}>{displayTime(worker.registered_at)}</time></DetailFact>
-  </DetailFactGrid>;
 }
 
 function ExactWorkerUnavailable({ workerIdentity, reason }: { workerIdentity: string; reason: string }) {
@@ -228,10 +217,9 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
       filterable: true,
       minWidth: "250px",
       grow: 1.35,
-      ignoreRowClick: true,
-      cell: (worker) => <Link className="table-cell-stack" href={`/operations/workers/${encodeWorkerIdentitySegmentV1(worker.worker_identity)}`}>
+      cell: (worker) => <div className="table-cell-stack">
         <b title={worker.worker_identity}>{compactWorkerLabel(worker.worker_identity)}</b><span>{workerRoleLabel(worker.worker_kind)} · added {displayTime(worker.registered_at)}</span>
-      </Link>,
+      </div>,
     },
     {
       id: "lease",
@@ -366,12 +354,8 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
         eyebrow="Service preview"
         title={selected ? compactWorkerLabel(selected.worker_identity) : "Service"}
         description="Read-only capacity and recent activity from the current service list."
-        canonicalHref={!initialWorkerIdentity && selected
-          ? `/operations/workers/${encodeWorkerIdentitySegmentV1(selected.worker_identity)}`
-          : undefined}
-        canonicalLabel="Open service details"
       >
-        {selected ? <WorkerSheetDetail worker={selected} /> : null}
+        {selected ? <WorkerDetailClusters worker={selected} /> : null}
       </DetailSheet>
     </PageStack>
   );

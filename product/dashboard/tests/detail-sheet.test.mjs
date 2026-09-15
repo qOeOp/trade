@@ -34,7 +34,8 @@ test("the shared detail sheet owns focus, responsive geometry, and canonical fal
   assert.doesNotMatch(runs, /onRowClicked=\{\(run\) => router\.push/u);
   assert.match(workers, /useMediaQuery\("\(max-width: 1279px\)"\)/u);
   assert.match(workers, /onRowClicked=\{\(worker\)[\s\S]*setDetailOpen\(true\)/u);
-  assert.match(workers, /<DetailSheet[\s\S]*canonicalLabel="Open service details"/u);
+  assert.doesNotMatch(workers, /<DetailSheet[\s\S]*canonicalLabel="Open service details"/u);
+  assert.doesNotMatch(workers, /href=\{`\/operations\/workers\/\$\{/u);
   for (const scheduleView of [schedules, scheduleHistory]) {
     assert.match(scheduleView, /useMediaQuery\("\(max-width: 1279px\)"\)/u);
     assert.match(scheduleView, /<DetailSheet/u);
