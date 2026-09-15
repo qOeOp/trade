@@ -51,6 +51,6 @@ test("internal Dashboard navigation does not bypass the route loading boundary",
 });
 
 test("worker reads distinguish pending from unavailable", () => {
-  assert.match(workers, /pending \? \([\s\S]+?<LoadingState[\s\S]+?title="Reading worker store"/u);
+  assert.match(workers, /pending \? \([\s\S]+?<LoadingState[\s\S]+?title="Reading service capacity"/u);
   assert.doesNotMatch(workers, /reason=\{result\?\.unavailable_reason \?\? "READING_WORKERS"\}/u);
 });

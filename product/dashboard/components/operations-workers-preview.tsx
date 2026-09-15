@@ -10,6 +10,7 @@ import {
   type WorkerDetailBrowserEnvelopeV1,
   type WorkerBrowserProjectionV1,
 } from "../lib/worker-browser-contract";
+import { runStateLabel, workerAvailabilityLabel, workerRoleLabel } from "../lib/operations-presentation";
 import { runOperationLabel } from "../lib/run-operation-presentation";
 import {
   DetailCluster,
@@ -50,7 +51,7 @@ function displayTime(value: string | null) {
 
 function compactWorkerLabel(identity: string) {
   const tail = identity.split(/[-_:]/u).filter(Boolean).at(-1) ?? identity;
-  return `Worker ${tail.slice(-10)}`;
+  return `Service ${tail.slice(-10)}`;
 }
 
 function compactRunLabel(identity: string) {
@@ -58,44 +59,40 @@ function compactRunLabel(identity: string) {
   return `#${tail.slice(-8)}`;
 }
 
-function workerKindLabel(kind: WorkerBrowserProjectionV1["worker_kind"]) {
-  return kind === "shadow_read" ? "Data reader" : "Action runner";
-}
-
 function WorkerDetail({ worker, exact = false }: { worker: WorkerBrowserProjectionV1; exact?: boolean }) {
   return (
-    <DetailInspector aria-label={`Worker ${worker.worker_identity}`}>
+    <DetailInspector aria-label={`Background service ${worker.worker_identity}`}>
       <DetailInspectorHeader
-        eyebrow={exact ? "Exact worker readback" : "Selected worker"}
+        eyebrow={exact ? "Service details" : "Selected service"}
         title={compactWorkerLabel(worker.worker_identity)}
         titleAttribute={worker.worker_identity}
         status={<StatusBadge tone={availabilityTone(worker.lease_state)}>
-          {worker.lease_state}
+          {workerAvailabilityLabel(worker.lease_state)}
         </StatusBadge>}
       />
       <DetailInspectorBody>
         <DetailClusterGrid>
-          <DetailCluster label="Lease" meta={worker.lease_state}>
-            <DetailClusterFact label="Registered"><time dateTime={worker.registered_at}>{displayTime(worker.registered_at)}</time></DetailClusterFact>
-            <DetailClusterFact label="Expires"><time dateTime={worker.lease_expires_at}>{displayTime(worker.lease_expires_at)}</time></DetailClusterFact>
+          <DetailCluster label="Availability" meta={workerAvailabilityLabel(worker.lease_state)}>
+            <DetailClusterFact label="Added"><time dateTime={worker.registered_at}>{displayTime(worker.registered_at)}</time></DetailClusterFact>
+            <DetailClusterFact label="Last seen"><time dateTime={worker.last_heartbeat_at}>{displayTime(worker.last_heartbeat_at)}</time></DetailClusterFact>
           </DetailCluster>
-          <DetailCluster label="Activity" meta={`${worker.active_job_count} active`}>
-            <DetailClusterFact label="Claimed"><b>{worker.job_count}</b></DetailClusterFact>
-            <DetailClusterFact label="Heartbeat"><time dateTime={worker.last_heartbeat_at}>{displayTime(worker.last_heartbeat_at)}</time></DetailClusterFact>
+          <DetailCluster label="Work handled" meta={`${worker.active_job_count} active`}>
+            <DetailClusterFact label="Processed"><b>{worker.job_count}</b></DetailClusterFact>
+            <DetailClusterFact label="Active"><b>{worker.active_job_count}</b></DetailClusterFact>
           </DetailCluster>
-          <DetailCluster label="Last run" meta={worker.last_run_state ?? "No claim"}>
+          <DetailCluster label="Recent activity" meta={worker.last_run_state ? runStateLabel(worker.last_run_state) : "No activity"}>
             <DetailClusterFact label="Run">
               {worker.last_run_identity ? <Link className="detail-cluster-link" href={`/operations/runs/${encodeURIComponent(worker.last_run_identity)}`}>
                 <span title={worker.last_run_identity}>{compactRunLabel(worker.last_run_identity)}</span><InterfaceIcons.open aria-hidden="true" size={12} />
               </Link> : <span>Unavailable</span>}
             </DetailClusterFact>
-            <DetailClusterFact label="Claimed at">{worker.last_run_at
+            <DetailClusterFact label="Started">{worker.last_run_at
               ? <time dateTime={worker.last_run_at}>{displayTime(worker.last_run_at)}</time>
               : <span>Unavailable</span>}</DetailClusterFact>
           </DetailCluster>
-          <DetailCluster label="Capabilities" meta={`${worker.operation_ids.length} operations`}>
-            <DetailClusterFact label="Role">{workerKindLabel(worker.worker_kind)}</DetailClusterFact>
-            <DetailClusterFact label="Registered operations" wide>
+          <DetailCluster label="Supported work" meta={`${worker.operation_ids.length} ${worker.operation_ids.length === 1 ? "activity" : "activities"}`}>
+            <DetailClusterFact label="Type">{workerRoleLabel(worker.worker_kind)}</DetailClusterFact>
+            <DetailClusterFact label="Activities" wide>
               <span className="detail-cluster-values">
                 {worker.operation_ids.map((operation) => <span key={operation} title={operation}>{runOperationLabel(operation)}</span>)}
               </span>
@@ -103,13 +100,13 @@ function WorkerDetail({ worker, exact = false }: { worker: WorkerBrowserProjecti
           </DetailCluster>
         </DetailClusterGrid>
         <DetailInspectorFooter layout={exact ? "split" : "stack"}>
-          <PanelFrameInfo label="View worker information"><PanelFrameInfoList>
-            <PanelFrameInfoFact label="Identity"><code>{worker.worker_identity}</code></PanelFrameInfoFact>
-            <PanelFrameInfoFact label="Artifact"><code>{worker.worker_artifact_digest}</code></PanelFrameInfoFact>
-            <PanelFrameInfoFact label="History">Latest heartbeat and lease window only</PanelFrameInfoFact>
-            <PanelFrameInfoFact label="Boundary">No unbound-run readiness is inferred</PanelFrameInfoFact>
+          <PanelFrameInfo label="View service information"><PanelFrameInfoList>
+            <PanelFrameInfoFact label="Service ID"><code>{worker.worker_identity}</code></PanelFrameInfoFact>
+            <PanelFrameInfoFact label="Build fingerprint"><code>{worker.worker_artifact_digest}</code></PanelFrameInfoFact>
+            <PanelFrameInfoFact label="Observation">Latest service signal and availability window</PanelFrameInfoFact>
+            <PanelFrameInfoFact label="Boundary">Availability applies only to this registered service</PanelFrameInfoFact>
           </PanelFrameInfoList></PanelFrameInfo>
-          {exact ? <Link href="/operations/workers">Back to worker list</Link> : null}
+          {exact ? <Link href="/operations/workers">Back to services</Link> : null}
         </DetailInspectorFooter>
       </DetailInspectorBody>
     </DetailInspector>
@@ -118,12 +115,15 @@ function WorkerDetail({ worker, exact = false }: { worker: WorkerBrowserProjecti
 
 function ExactWorkerUnavailable({ workerIdentity, reason }: { workerIdentity: string; reason: string }) {
   return (
-    <DetailInspector aria-label={`Worker ${workerIdentity}`}>
-      <DetailInspectorHeader eyebrow="Exact worker readback" title={workerIdentity} titleAttribute={workerIdentity}
-        status={<StatusBadge tone="unavailable">unavailable</StatusBadge>} />
+    <DetailInspector aria-label={`Background service ${workerIdentity}`}>
+      <DetailInspectorHeader eyebrow="Service details" title={compactWorkerLabel(workerIdentity)} titleAttribute={workerIdentity}
+        status={<StatusBadge tone="unavailable">Unavailable</StatusBadge>} />
       <DetailInspectorBody>
-        <DetailNotice icon={<RunIcons.duration aria-hidden="true" size={14} />} title="Worker lease unavailable">{reason}</DetailNotice>
-        <DetailInspectorFooter><span>Requested identity retained · no liveness or readiness inferred</span><Link href="/operations/workers">Back to worker list</Link></DetailInspectorFooter>
+        <DetailNotice icon={<RunIcons.duration aria-hidden="true" size={14} />} title="Service unavailable">This registered service could not be read.</DetailNotice>
+        <DetailInspectorFooter layout="split"><PanelFrameInfo label="View service information"><PanelFrameInfoList>
+          <PanelFrameInfoFact label="Service ID"><code>{workerIdentity}</code></PanelFrameInfoFact>
+          <PanelFrameInfoFact label="Technical reason"><code>{reason}</code></PanelFrameInfoFact>
+        </PanelFrameInfoList></PanelFrameInfo><Link href="/operations/workers">Back to services</Link></DetailInspectorFooter>
       </DetailInspectorBody>
     </DetailInspector>
   );
@@ -164,11 +164,12 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
     (leaseFilter === "all" || worker.lease_state === leaseFilter)
     && (!normalizedSearch || [
       worker.worker_identity,
-      worker.worker_kind,
+      workerRoleLabel(worker.worker_kind),
       worker.worker_artifact_digest,
       worker.last_run_identity,
       worker.last_run_state,
       ...worker.operation_ids,
+      ...worker.operation_ids.map(runOperationLabel),
     ].some((value) => value?.toLowerCase().includes(normalizedSearch)))
   )), [leaseFilter, normalizedSearch, workers]);
   const displayWorkers = useMemo(() => [...visibleWorkers].sort((left, right) => (
@@ -184,21 +185,21 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
     ? detail?.availability === "available" ? detail.worker : null
     : displayWorkers.find(({ worker_identity }) => worker_identity === selectedIdentity) ?? null;
   const summaries = useMemo(() => ({
-    online: workers.filter(({ lease_state }) => lease_state === "available").length,
-    expired: workers.filter(({ lease_state }) => lease_state === "expired").length,
-    claimedJobs: workers.reduce((total, { job_count }) => total + job_count, 0),
+    ready: workers.filter(({ lease_state }) => lease_state === "available").length,
+    offline: workers.filter(({ lease_state }) => lease_state === "expired").length,
+    processed: workers.reduce((total, { job_count }) => total + job_count, 0),
     activeJobs: workers.reduce((total, { active_job_count }) => total + active_job_count, 0),
   }), [workers]);
   const summaryValue = (observed: number) => result?.availability === "available" ? observed : "-";
   const leaseTabs = [
     { value: "all", label: "All", icon: RunIcons.all },
-    { value: "available", label: "Available", icon: RunIcons.succeeded },
-    { value: "expired", label: "Expired", icon: RunIcons.history },
+    { value: "available", label: "Ready", icon: RunIcons.succeeded },
+    { value: "expired", label: "Offline", icon: RunIcons.history },
   ] as const;
   const columns = useMemo<DataWorkspaceColumn<WorkerBrowserProjectionV1>[]>(() => [
     {
       id: "worker",
-      name: <DataTableHeaderLabel>Worker</DataTableHeaderLabel>,
+      name: <DataTableHeaderLabel>Service</DataTableHeaderLabel>,
       selector: (worker) => worker.worker_identity,
       sortable: true,
       filterable: true,
@@ -206,21 +207,21 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
       grow: 1.35,
       ignoreRowClick: true,
       cell: (worker) => <Link className="table-cell-stack" href={`/operations/workers/${encodeWorkerIdentitySegmentV1(worker.worker_identity)}`}>
-        <b title={worker.worker_identity}>{compactWorkerLabel(worker.worker_identity)}</b><span>{workerKindLabel(worker.worker_kind)} · registered {displayTime(worker.registered_at)}</span>
+        <b title={worker.worker_identity}>{compactWorkerLabel(worker.worker_identity)}</b><span>{workerRoleLabel(worker.worker_kind)} · added {displayTime(worker.registered_at)}</span>
       </Link>,
     },
     {
       id: "lease",
-      name: <DataTableHeaderLabel>Lease</DataTableHeaderLabel>,
+      name: <DataTableHeaderLabel>Availability</DataTableHeaderLabel>,
       selector: (worker) => worker.lease_state,
       sortable: true,
       filterable: true,
       minWidth: "125px",
-      cell: (worker) => <StatusBadge tone={availabilityTone(worker.lease_state)}>{worker.lease_state}</StatusBadge>,
+      cell: (worker) => <StatusBadge tone={availabilityTone(worker.lease_state)}>{workerAvailabilityLabel(worker.lease_state)}</StatusBadge>,
     },
     {
       id: "jobs",
-      name: <DataTableHeaderLabel>Active / claimed</DataTableHeaderLabel>,
+      name: <DataTableHeaderLabel>Active / processed</DataTableHeaderLabel>,
       selector: (worker) => worker.active_job_count,
       sortFunction: (a, b) => a.active_job_count - b.active_job_count || a.job_count - b.job_count,
       sortable: true,
@@ -229,16 +230,16 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
     },
     {
       id: "last-run",
-      name: <DataTableHeaderLabel>Last run</DataTableHeaderLabel>,
+      name: <DataTableHeaderLabel>Recent activity</DataTableHeaderLabel>,
       selector: (worker) => worker.last_run_at ?? worker.registered_at,
       sortable: true,
       minWidth: "220px",
       grow: 1.1,
-      cell: (worker) => <div className="table-cell-stack"><b title={worker.last_run_identity ?? undefined}>{worker.last_run_identity ? compactRunLabel(worker.last_run_identity) : "Unavailable"}</b><span>{worker.last_run_state ?? "No recent run"} · {displayTime(worker.last_run_at)}</span></div>,
+      cell: (worker) => <div className="table-cell-stack"><b title={worker.last_run_identity ?? undefined}>{worker.last_run_identity ? compactRunLabel(worker.last_run_identity) : "No activity"}</b><span>{worker.last_run_state ? runStateLabel(worker.last_run_state) : "No recent activity"} · {displayTime(worker.last_run_at)}</span></div>,
     },
     {
       id: "operations",
-      name: <DataTableHeaderLabel>Operations</DataTableHeaderLabel>,
+      name: <DataTableHeaderLabel>Supports</DataTableHeaderLabel>,
       selector: (worker) => worker.operation_ids.length,
       sortable: true,
       width: "120px",
@@ -257,22 +258,22 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
       <PanelFrame className="operations-workers-panel bento-page-frame"
         aria-labelledby="operations-workers-title">
         <PanelFrameHeader
-          eyebrow="Worker fleet"
+          eyebrow="Service capacity"
           title="Workers"
           titleId="operations-workers-title"
-          description="Monitor availability, workload, and recent activity."
-          actions={<><PanelFrameInfo><b>Data scope</b><p>Worker leases, claims, and capabilities come from one verified operational snapshot.</p></PanelFrameInfo><FilterButton density="compact" variant="secondary" type="button" onClick={() => void refresh()} disabled={pending}>
+          description="See which background services can accept work and what they handled recently."
+          actions={<><PanelFrameInfo><b>Data scope</b><p>This view reports registered background services and their recorded work. It does not start or restart them.</p></PanelFrameInfo><FilterButton density="compact" variant="secondary" type="button" onClick={() => void refresh()} disabled={pending}>
             <InterfaceIcons.refresh aria-hidden="true" size={12} /> {pending ? "Reading…" : "Refresh"}
           </FilterButton></>}
         />
         <PanelFrameBody>
-          <CompactStatusBar className="operations-workers-status" aria-label="Worker summary">
-            <CompactStatusGroup label="fleet">
-              <CompactStatusItem label="available" value={summaryValue(summaries.online)} />
-              <CompactStatusItem label="expired" value={summaryValue(summaries.expired)} />
+          <CompactStatusBar className="operations-workers-status" aria-label="Service capacity summary">
+            <CompactStatusGroup label="capacity">
+              <CompactStatusItem label="ready" value={summaryValue(summaries.ready)} />
+              <CompactStatusItem label="offline" value={summaryValue(summaries.offline)} />
             </CompactStatusGroup>
-            <CompactStatusGroup label="workload">
-              <CompactStatusItem label="claimed" value={summaryValue(summaries.claimedJobs)} />
+            <CompactStatusGroup label="work handled">
+              <CompactStatusItem label="processed" value={summaryValue(summaries.processed)} />
               <CompactStatusItem label="active" value={summaryValue(summaries.activeJobs)} />
             </CompactStatusGroup>
           </CompactStatusBar>
@@ -280,17 +281,17 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
           <SplitBento className="operations-workers-layout"
             columns="minmax(560px, 1.55fr) minmax(300px, .8fr)">
             <DataTableSurface className="operations-worker-table-surface" geometry="outer" toolbarLabel="Worker table controls" toolbar={
-              <TableToolbar filter={<TableFilterMenu label="Filter workers" sections={[{
-                id: "lease", label: "Lease", items: leaseTabs, selected: leaseFilter,
+              <TableToolbar filter={<TableFilterMenu label="Filter services" sections={[{
+                id: "availability", label: "Availability", items: leaseTabs, selected: leaseFilter,
                 onSelect: (value) => setLeaseFilter(value as LeaseFilter),
               }]} />}>
-                <FilterSearch label="Search workers" value={search}
+                <FilterSearch label="Search services" value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Worker, operation, or run" maxLength={128} />
+                  placeholder="Service, activity, or run" maxLength={128} />
               </TableToolbar>
             }>
               <DataWorkspaceTable<WorkerBrowserProjectionV1>
-                ariaLabel="Dashboard runtime workers"
+                ariaLabel="Background services"
                 className="operations-worker-table"
                 columns={columns}
                 conditionalRowStyles={selectedRowStyles}
@@ -302,30 +303,30 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
                 paginationResetKey={JSON.stringify([leaseFilter, normalizedSearch])}
                 paginationRowsPerPageOptions={[20, 50, 100]}
                 noDataComponent={<DataWorkspaceEmpty icon={<ModuleIcons.cpu aria-hidden="true" size={18} />}>
-                  No Dashboard runtime worker has registered.
+                  No background service is registered.
                 </DataWorkspaceEmpty>}
               />
             </DataTableSurface>
             {selected ? <WorkerDetail worker={selected} exact={Boolean(initialWorkerIdentity)} />
               : initialWorkerIdentity
                 ? <ExactWorkerUnavailable workerIdentity={initialWorkerIdentity} reason={detail?.unavailable_reason ?? "WORKER_DETAIL_RESPONSE_UNAVAILABLE"} />
-                : <DetailEmpty icon={<RunIcons.state aria-hidden="true" size={16} />}>No worker matches this verified cut and local filter.</DetailEmpty>}
+                : <DetailEmpty icon={<RunIcons.state aria-hidden="true" size={16} />}>No service matches this view and filter.</DetailEmpty>}
           </SplitBento>
         ) : pending ? (
           <LoadingState density="compact" icon={<ModuleIcons.cpu aria-hidden="true" size={16} />}
-            title="Reading worker store">
-            Checking the current worker cut. No availability conclusion has been made.
+            title="Reading service capacity">
+            Checking background service availability.
           </LoadingState>
         ) : (
           initialWorkerIdentity ? <SplitBento className="operations-workers-layout"
             columns="minmax(560px, 1.55fr) minmax(300px, .8fr)">
             <UnavailableState density="compact" icon={<ModuleIcons.cpu aria-hidden="true" size={16} />}
-              title="Worker store unavailable" reason={result?.unavailable_reason ?? "WORKER_STORE_RESPONSE_UNAVAILABLE"} />
+              title="Service capacity unavailable" reason={result?.unavailable_reason ?? "WORKER_STORE_RESPONSE_UNAVAILABLE"} />
             {selected ? <WorkerDetail worker={selected} exact />
               : <ExactWorkerUnavailable workerIdentity={initialWorkerIdentity}
                 reason={detail?.unavailable_reason ?? "WORKER_DETAIL_RESPONSE_UNAVAILABLE"} />}
           </SplitBento> : <UnavailableState density="compact" icon={<ModuleIcons.cpu aria-hidden="true" size={16} />}
-            title="Worker store unavailable" reason={result?.unavailable_reason ?? "WORKER_STORE_RESPONSE_UNAVAILABLE"} />
+            title="Service capacity unavailable" reason={result?.unavailable_reason ?? "WORKER_STORE_RESPONSE_UNAVAILABLE"} />
         )}
         </PanelFrameBody>
       </PanelFrame>

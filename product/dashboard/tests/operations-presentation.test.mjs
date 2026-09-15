@@ -9,7 +9,9 @@ import {
   runTriggerLabel,
   sourceResultLabel,
   summarizeRunsForPresentation,
+  workerAvailabilityLabel,
   workerAssignmentPresentation,
+  workerRoleLabel,
 } from "../lib/operations-presentation.ts";
 
 const run = (overrides = {}) => ({
@@ -52,6 +54,9 @@ test("run detail presentation translates implementation state without changing i
   assert.equal(runTriggerLabel("dashboard_bff"), "Dashboard");
   assert.equal(runTriggerLabel("dashboard_scheduler"), "Schedule");
   assert.equal(runKindLabel("owner_read"), "Data read");
+  assert.equal(workerAvailabilityLabel("available"), "Ready");
+  assert.equal(workerAvailabilityLabel("expired"), "Offline");
+  assert.equal(workerRoleLabel("shadow_read"), "Data reader");
   assert.deepEqual(workerAssignmentPresentation("unavailable", "RUN_DISPATCH_BINDING_UNAVAILABLE"), {
     title: "Assignment not recorded",
     detail: "This historical run has no matching current worker assignment record.",

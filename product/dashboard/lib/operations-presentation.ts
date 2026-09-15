@@ -28,6 +28,16 @@ const runKindLabels = {
   owner_effect: "Action",
 } as const;
 
+const workerAvailabilityLabels = {
+  available: "Ready",
+  expired: "Offline",
+} as const;
+
+const workerRoleLabels = {
+  shadow_read: "Data reader",
+  owner_effect: "Action runner",
+} as const;
+
 export type RunPresentationInput = {
   state: keyof typeof runStateLabels;
   started_at: string | null;
@@ -50,6 +60,14 @@ export function runTriggerLabel(trigger: keyof typeof triggerLabels): string {
 
 export function runKindLabel(kind: keyof typeof runKindLabels): string {
   return runKindLabels[kind];
+}
+
+export function workerAvailabilityLabel(state: keyof typeof workerAvailabilityLabels): string {
+  return workerAvailabilityLabels[state];
+}
+
+export function workerRoleLabel(kind: keyof typeof workerRoleLabels): string {
+  return workerRoleLabels[kind];
 }
 
 export function workerAssignmentPresentation(

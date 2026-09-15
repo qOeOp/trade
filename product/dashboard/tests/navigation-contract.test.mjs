@@ -140,9 +140,9 @@ test("Workers bilingual completeness includes geometry, failure states and actio
     const spec = doc.slice(start, doc.indexOf("`/operations/service-logs`", start));
     for (const token of [
       "DRAWABLE_EXACT", "IMPLEMENTATION_ADMITTED", "/operations/workers/:workerId",
-      "Fleet", "Workload", "Online", "Expired", "Claimed", "Active", "1280", "560px", "300px",
+      "Capacity", "Work handled", "Ready", "Offline", "Processed", "Active", "1280", "560px", "300px",
       "250", "125", "105", "220", "120", "20/50/100", "READING_WORKERS", "WORKER_NOT_FOUND",
-      "partial", "stale", "permission-denied", "GET/no-store", "Back to worker list",
+      "partial", "stale", "permission-denied", "GET/no-store", "Back to services",
     ]) assert.ok(spec.includes(token), `${suffix || "en"} missing ${token}`);
     const blueprintOnly = doc.split("\n").find((line) => line.startsWith("| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`"));
     assert.doesNotMatch(blueprintOnly, /Workers/);
