@@ -25,6 +25,12 @@ test("Artifact directory uses the shared compact read-only table surface", async
   assert.match(component, /useArtifactReviewInventory\(true\)/u);
   assert.match(component, /void custodyCandidates\.read\(\);[\s\S]+return readPage\(\);/u);
   assert.match(component, /<DataWorkspaceTable<HistoricalArtifactCandidateV1>/u);
+  assert.match(component, /<DataWorkspaceTable<HistoricalArtifactCandidateV1>[\s\S]*onRowClicked=/u);
+  assert.match(component, /pointerOnHover/u);
+  assert.match(component, /<ArtifactAttemptPreview/u);
+  assert.match(component, /selectedReview\?\.availability === "reviewable"/u);
+  assert.match(component, /canonicalLabel="Open full build result"/u);
+  assert.doesNotMatch(component, /review\.disposition === "accepted"/u);
   assert.match(component, /<DataWorkspaceTable<HistoricalBindingCandidateV1>/u);
   assert.match(component, /label: "Build history"/u);
   assert.match(component, /label: "Current artifacts"/u);

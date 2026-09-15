@@ -15,6 +15,7 @@ import type {
   HistoricalArtifactCandidateV1,
   HistoricalBindingCandidateV1,
 } from "../lib/rd-historical-custody-client";
+import { ArtifactAttemptPreview } from "./artifact-attempt-preview";
 import { DataTableHeaderLabel, DataTableSurface } from "./ui/data-table";
 import { DataWorkspaceEmpty } from "./ui/data-workspace-empty";
 import { DataWorkspaceTable, type DataWorkspaceColumn } from "./ui/data-workspace-table";
@@ -31,6 +32,7 @@ import {
   PanelFrameHeader,
 } from "./ui/panel-frame";
 import { StatusBadge } from "./ui/status-badge";
+import { DetailSheet } from "./ui/detail-sheet";
 import { useDelayedPending } from "./ui/use-delayed-pending";
 import { useHistoricalCustodyDirectory } from "./use-historical-custody-directory";
 import { useArtifactReviewInventory } from "./use-artifact-review-inventory";
@@ -81,6 +83,8 @@ export function ArtifactDirectory({
   const [reason, setReason] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [pendingOlder, setPendingOlder] = useState(false);
+  const [selectedAttemptKey, setSelectedAttemptKey] = useState<string | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
   const itemsRef = useRef<readonly ArtifactDirectoryItemV1[]>([]);
   const requestGuard = useRef(createArtifactDirectoryRequestGuardV1());
   const custodyCandidates = useHistoricalCustodyDirectory(true);
@@ -90,6 +94,7 @@ export function ArtifactDirectory({
     setView(initialView);
     setCandidateKind(initialCandidateKind);
     setCandidateAvailability(initialCandidateAvailability);
+    setDetailOpen(false);
   }, [initialCandidateAvailability, initialCandidateKind, initialView]);
 
   const readPage = useCallback(async (cursor?: ArtifactDirectoryCursorV1) => {
@@ -199,6 +204,16 @@ export function ArtifactDirectory({
         .toLowerCase().includes(normalizedSearch))
       : candidates;
   }, [custodyCandidates.projection, normalizedSearch]);
+  const selectedAttempt = useMemo(() => visibleAttemptCandidates.find((item) => (
+    `${item.buildRequestIdentity}\u0000${item.attemptIdentity}` === selectedAttemptKey
+  )) ?? null, [selectedAttemptKey, visibleAttemptCandidates]);
+  const selectedReview = selectedAttempt
+    ? reviewByAttempt.get(`${selectedAttempt.buildRequestIdentity}\u0000${selectedAttempt.attemptIdentity}`)
+    : undefined;
+
+  useEffect(() => {
+    if (detailOpen && !selectedAttempt) setDetailOpen(false);
+  }, [detailOpen, selectedAttempt]);
 
   const columns = useMemo<DataWorkspaceColumn<ArtifactDirectoryItemV1>[]>(() => [
     {
@@ -271,7 +286,6 @@ export function ArtifactDirectory({
             : `/rd/artifacts/${encodeURIComponent(item.buildRequestIdentity)}/attempts/${encodeURIComponent(item.attemptIdentity)}?custody=historical`}
         />;
       },
-      ignoreRowClick: true,
     },
     {
       id: "attempt",
@@ -302,7 +316,7 @@ export function ArtifactDirectory({
               : "Not checked"}
           </StatusBadge>
           <span>{review?.availability === "reviewable"
-            ? review.disposition === "accepted" ? "Accepted" : "Rejected"
+            ? "Readable build result"
             : review?.availability === "unavailable"
             ? "No readable outcome"
             : "Not checked yet"}</span>
@@ -370,6 +384,7 @@ export function ArtifactDirectory({
     : custodyCandidates.availability === "loading" || reviewInventory.availability === "loading";
   const showPending = useDelayedPending(pending);
   const refresh = () => {
+    setDetailOpen(false);
     void reviewInventory.read();
     if (view === "verified") {
       void custodyCandidates.read();
@@ -383,6 +398,7 @@ export function ArtifactDirectory({
   const selectView = (value: string) => {
     const nextView = value === "candidates" ? "candidates" : "verified";
     setView(nextView);
+    setDetailOpen(false);
     router.replace(nextView === "candidates"
       ? candidateUrl(candidateKind, candidateAvailability)
       : "/rd/artifacts/?view=verified", { scroll: false });
@@ -392,6 +408,7 @@ export function ArtifactDirectory({
     const nextAvailability = value === "reviewable" ? "reviewable" : "all";
     setCandidateKind(nextKind);
     setCandidateAvailability(nextAvailability);
+    setDetailOpen(false);
     router.replace(candidateUrl(nextKind, nextAvailability), { scroll: false });
   };
 
@@ -517,6 +534,11 @@ export function ArtifactDirectory({
               paginationPerPage={20}
               paginationResetKey={normalizedSearch}
               paginationRowsPerPageOptions={[20, 50]}
+              onRowClicked={(item) => {
+                setSelectedAttemptKey(`${item.buildRequestIdentity}\u0000${item.attemptIdentity}`);
+                setDetailOpen(true);
+              }}
+              pointerOnHover
               noDataComponent={<DataWorkspaceEmpty state={custodyCandidates.availability === "loading" ? "loading" : "empty"}
                 className={custodyCandidates.availability === "loading" && !showPending ? styles.pendingQuiet : undefined}
                 icon={<EvidenceIcons.pending aria-hidden="true" size={18} />}>
@@ -570,6 +592,31 @@ export function ArtifactDirectory({
           </PanelFrameFooter>
         ) : null}
       </PanelFrame>
+      <DetailSheet
+        open={detailOpen && Boolean(selectedAttempt)}
+        onClose={() => setDetailOpen(false)}
+        eyebrow="Build history"
+        title="Build attempt"
+        description={selectedAttempt
+          ? selectedReview?.availability === "reviewable"
+            ? "A saved build outcome is ready to review."
+            : reviewAvailability === "loading"
+            ? "Checking whether this attempt has a readable outcome."
+            : "This attempt is recorded, but no readable outcome is available."
+          : undefined}
+        canonicalHref={selectedAttempt && selectedReview?.availability === "reviewable"
+          ? `/rd/artifacts/${encodeURIComponent(selectedAttempt.buildRequestIdentity)}/attempts/${encodeURIComponent(selectedAttempt.attemptIdentity)}?custody=historical`
+          : undefined}
+        canonicalLabel="Open full build result"
+      >
+        {selectedAttempt ? <ArtifactAttemptPreview
+          candidate={selectedAttempt}
+          review={selectedReview}
+          reviewAvailability={reviewAvailability}
+          reviewObservedAt={reviewInventory.projection?.observedAt}
+          custodyObservedAtEpochMs={custodyCandidates.projection?.observedAtEpochMs}
+        /> : null}
+      </DetailSheet>
     </PageStack>
   );
 }

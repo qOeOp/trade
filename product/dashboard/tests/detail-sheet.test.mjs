@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("the shared detail sheet owns focus, responsive geometry, and canonical fallbacks", async () => {
-  const [sheet, styles, runs, workers, schedules, scheduleHistory, research, mediaQuery, en, zh] = await Promise.all([
+  const [sheet, styles, runs, workers, schedules, scheduleHistory, research, artifacts, artifactPreview, mediaQuery, en, zh] = await Promise.all([
     readFile(new URL("../components/ui/detail-sheet.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/ui/detail-sheet.module.css", import.meta.url), "utf8"),
     readFile(new URL("../components/operations-runstore-preview.tsx", import.meta.url), "utf8"),
@@ -11,6 +11,8 @@ test("the shared detail sheet owns focus, responsive geometry, and canonical fal
     readFile(new URL("../components/operations-schedules-preview.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/operations-schedule-history.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/research-directory.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/artifact-directory.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/artifact-attempt-preview.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/ui/use-media-query.ts", import.meta.url), "utf8"),
     readFile(new URL("../../../docs/guide/dashboard.md", import.meta.url), "utf8"),
     readFile(new URL("../../../docs/guide/dashboard.zh.md", import.meta.url), "utf8"),
@@ -38,11 +40,18 @@ test("the shared detail sheet owns focus, responsive geometry, and canonical fal
   }
   assert.match(research, /<DataWorkspaceTable<HistoricalResearchCandidateV1>[\s\S]*onRowClicked=/u);
   assert.match(research, /<DetailSheet[\s\S]*canonicalLabel="Open full research details"/u);
+  assert.match(artifacts, /<DataWorkspaceTable<HistoricalArtifactCandidateV1>[\s\S]*onRowClicked=/u);
+  assert.match(artifacts, /<DetailSheet[\s\S]*canonicalLabel="Open full build result"/u);
+  assert.match(artifacts, /canonicalHref=\{selectedAttempt && selectedReview\?\.availability === "reviewable"/u);
+  assert.match(artifactPreview, /<DetailFactGrid>[\s\S]*label="result"[\s\S]*label="prepared"/u);
+  assert.match(artifactPreview, /<PanelFrameInfo label="View build information">/u);
+  assert.doesNotMatch(artifactPreview, /fetch\(|useRouter|disposition/u);
   assert.match(mediaQuery, /useSyncExternalStore/u);
   assert.match(mediaQuery, /matchMedia/u);
   for (const doc of [en, zh]) {
     assert.match(doc, /D  (?:shared|共享) DetailSheet/u);
     assert.match(doc, /\[Open full details\] -> \/operations\/runs\/:runId/u);
     assert.match(doc, /schedules URL/iu);
+    assert.match(doc, /Build history[\s\S]*DetailSheet[\s\S]*Open full build result/u);
   }
 });

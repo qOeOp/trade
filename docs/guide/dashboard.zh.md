@@ -508,6 +508,14 @@ Research 与 Artifact directory 共用 domain-neutral `EntityReference` 原子�
 但首个 Owner response 稳定前不得渲染 empty/search-empty 断言或零值 summary。只有已完成且 available 的 read 在
 匹配行确实为零时才能显示 empty；unavailable 保持独立 fail-closed 状态，也不得保留上一 route 的 rows。
 
+在 `Build history` 中，选择一个 attempt row 会打开共享 `DetailSheet`，不会改变 directory URL，也不会卸载
+当前 view、filter、search、pagination 或 scroll position。紧凑 sheet 只组合共享 `DetailFactGrid`、
+`StatusBadge` 与 `PanelFrameInfo` 原子，只回答是否存在可读 build result，以及 attempt 何时 prepared。
+精确 identity 与 observation cut 收进信息披露；historical disposition、failure evidence 与 journey 仍由完整
+result route 持有。只有与 custody 精确绑定的 `reviewable` inventory item 才显示
+`Open full build result`；`unavailable` item 仍可在 sheet 中查看，但绝不暴露虚假的 canonical action。
+关闭 sheet 后焦点返回原 row；窄屏继续复用共享全视口 sheet geometry。
+
 精确 historical-attempt route 的标题为 `Build result`，只回答本次 build 是否产出 Artifact。共享 journey 与
 `Result / Review / Timing` 分组展示 `Historical only` 和人类可读的 failure reason；精确 `Raw result`、
 `Raw reason`、build request、attempt 与 receipt 只保留在信息披露中。页面不会把历史读取伪装成 current
