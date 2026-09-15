@@ -2230,10 +2230,10 @@ SQL
 }
 
 # The Catalog administrator, two replay migration filters, and Program Host acceptance use separate
-# fresh databases. The drain probe
-# removes receipt storage needed to validate its retained legacy attempts, so it
-# follows positive consumers. Keep the complete Instrument Owner storage/ACL oracle
-# last because its final inheritance fault intentionally poisons that private store.
+# fresh databases. In the shared database, run the complete Instrument Owner storage/ACL oracle only
+# after its consumers because its final inheritance fault poisons that private store. Keep the
+# destructive legacy PREPARED drain probe final because it removes receipt storage required by every
+# positive Artifact Owner consumer.
 for test_selection in "${rd_owner_postgres_tests[@]}"; do
   IFS='|' read -r test_package test_binary test_name <<< "$test_selection"
   test_filter="package(${test_package}) & binary(${test_binary}) & test(=${test_name})"
