@@ -18,11 +18,17 @@ import {
   type RunListSummaryV2,
   type RunListViewEnvelopeV2,
 } from "./run-list-view-contract.ts";
-import { isRunIdentityV1, isRunTerminalCodeV1, type RunTerminalCodeV1 } from "./run-contract.ts";
+import {
+  isRunIdentityV1,
+  isRunTerminalCodeV1,
+  RUN_TERMINAL_CODES_V1,
+  type RunTerminalCodeV1,
+} from "./run-contract.ts";
 
 const { Pool } = pg;
 const MAX_OPERATION_BINDING_COMBINATIONS = 42;
 const PRINCIPAL = /^[A-Za-z0-9._:/-]{1,192}$/;
+const SQL_RUN_TERMINAL_CODES = RUN_TERMINAL_CODES_V1.map((code) => `'${code}'`).join(", ");
 
 type RunListRow = pg.QueryResultRow & {
   run_identity: string;
@@ -268,12 +274,25 @@ export class PostgresRunListViewGatewayV2 {
       const aggregate = (await client.query<RunListAggregateRow>(
         `SELECT COUNT(*)::text AS row_count,
                 COUNT(*) FILTER (WHERE
-                  NOT isfinite(r.created_at)
+                  r.run_identity !~ '^dashboard-run-v1-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+                  OR r.state NOT IN ('queued', 'running', 'succeeded', 'failed', 'cancelled', 'unknown')
+                  OR r.owner_outcome_state NOT IN (
+                    'available', 'rejected', 'unknown', 'unavailable', 'not_applicable'
+                  )
+                  OR NOT isfinite(r.created_at)
                   OR NOT isfinite(r.updated_at)
                   OR (r.started_at IS NOT NULL AND NOT isfinite(r.started_at))
                   OR (r.finished_at IS NOT NULL AND NOT isfinite(r.finished_at))
+                  OR r.created_at < TIMESTAMPTZ '0001-01-01 BC'
+                  OR r.updated_at < TIMESTAMPTZ '0001-01-01 BC'
+                  OR (r.started_at IS NOT NULL AND r.started_at < TIMESTAMPTZ '0001-01-01 BC')
+                  OR (r.finished_at IS NOT NULL AND r.finished_at < TIMESTAMPTZ '0001-01-01 BC')
                   OR COALESCE(r.started_at, r.created_at) > $1::timestamptz
                   OR (r.finished_at IS NOT NULL AND r.finished_at > $1::timestamptz)
+                  OR (r.state = 'queued' AND r.started_at IS NOT NULL)
+                  OR (r.state IN ('running', 'succeeded', 'failed', 'unknown') AND r.started_at IS NULL)
+                  OR (r.terminal_code IS NOT NULL AND r.terminal_code NOT IN (${SQL_RUN_TERMINAL_CODES}))
+                  OR (r.state IN ('queued', 'running') AND r.terminal_code IS NOT NULL)
                   OR (COALESCE(q.principal_ref, admission.principal_ref) IS NOT NULL
                     AND COALESCE(q.principal_ref, admission.principal_ref)
                       !~ '^[A-Za-z0-9._:/-]{1,192}$')
