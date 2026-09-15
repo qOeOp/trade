@@ -168,6 +168,13 @@ test("Runs v2 keeps summary, filters, and pages on one fail-closed PostgreSQL cu
       gateway.read({ kind: "dependencies", pageSize: 25 }),
       /RUN_LIST_ROW_INVALID/u,
     );
+    await pool.query(`UPDATE dashboard_operation_runs_v1
+      SET started_at = created_at, finished_at = clock_timestamp() + interval '1 day'
+      WHERE started_at = '-infinity'::timestamptz`);
+    await assert.rejects(
+      gateway.read({ kind: "dependencies", pageSize: 25 }),
+      /RUN_LIST_ROW_INVALID/u,
+    );
 
     const appendedRun = await insertRun(pool, {
       kind: "owner_effect", state: "queued", offset: 90,

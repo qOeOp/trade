@@ -272,6 +272,8 @@ export class PostgresRunListViewGatewayV2 {
                   OR NOT isfinite(r.updated_at)
                   OR (r.started_at IS NOT NULL AND NOT isfinite(r.started_at))
                   OR (r.finished_at IS NOT NULL AND NOT isfinite(r.finished_at))
+                  OR COALESCE(r.started_at, r.created_at) > $1::timestamptz
+                  OR (r.finished_at IS NOT NULL AND r.finished_at > $1::timestamptz)
                   OR (COALESCE(q.principal_ref, admission.principal_ref) IS NOT NULL
                     AND COALESCE(q.principal_ref, admission.principal_ref)
                       !~ '^[A-Za-z0-9._:/-]{1,192}$')
