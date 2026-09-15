@@ -338,6 +338,8 @@ a { color: inherit; text-decoration: none; }
 .table-filter-menu[data-density="compact"] { gap: 6px; }
 .table-filter-menu[data-density="compact"] .table-filter-select { min-width: 112px; height: 32px; }
 .table-filter-menu[data-density="compact"] .table-filter-select select { padding-inline: 10px 28px; font-size: 10px; }
+.table-filter-menu[data-labels="inline"] .table-filter-select > span:not(.sr-only) { padding-left: 10px; flex: 0 0 auto; color: var(--text-muted); font-size: 9px; font-weight: 650; }
+.table-filter-menu[data-density="compact"][data-labels="inline"] .table-filter-select select { padding-left: 5px; }
 .table-filter-select:hover { background: var(--surface-hover); }
 .table-filter-select:focus-within { border-color: var(--border-strong); box-shadow: var(--elevation-hairline); }
 .table-filter-select:has(select:focus-visible) { border-color: var(--border-strong); box-shadow: var(--elevation-hairline), 0 0 0 2px var(--control-focus-ring); }
@@ -591,12 +593,9 @@ a { color: inherit; text-decoration: none; }
 .service-logs-body { padding: var(--panel-content-padding); display: grid; gap: 12px; }
 .service-logs-status { width: 100%; margin: 0; }
 .service-log-filters { min-width: 0; padding: 10px; display: grid; grid-template-columns: 92px 104px 152px minmax(160px, 1fr) 118px minmax(210px, 1.2fr); align-items: center; gap: 7px; overflow-x: auto; border: .5px solid var(--border-default); border-radius: var(--panel-inner-radius); background: var(--panel-chrome-bg); scrollbar-width: thin; }
-.service-log-filters label { min-width: 0; height: 36px; padding: 0 10px; display: flex; align-items: center; gap: 7px; border: .5px solid var(--border-default); border-radius: 10px; color: var(--text-muted); background: var(--surface-card); font-size: 9px; }
-.service-log-filters label > span:not(.sr-only) { flex: 0 0 auto; font-weight: 650; }
-.service-log-filters select, .service-log-filters input { min-width: 0; width: 100%; border: 0; outline: 0; color: var(--text-primary); background: transparent; font-size: 9px; }
-.service-log-filters select { appearance: none; cursor: pointer; }
-.service-log-filters label:focus-within { box-shadow: 0 0 0 2px color-mix(in srgb, var(--text-muted) 24%, transparent); }
-.service-log-search { border-radius: 999px !important; }
+.service-log-filter-selects { display: contents; }
+.service-log-filters .table-filter-select { min-width: 0; width: 100%; }
+.service-log-filters .filter-search { width: 100%; }
 .service-logs-layout { align-items: start; }
 .service-logs-main { min-width: 0; display: grid; align-content: start; gap: 12px; background: transparent; }
 .service-instance-card { position: static !important; }

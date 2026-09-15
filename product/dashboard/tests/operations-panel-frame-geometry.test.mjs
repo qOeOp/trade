@@ -107,6 +107,8 @@ test("Compact toolbar controls share one density and semantic variant system", a
   ]);
 
   assert.match(toolbar, /export type FilterControlDensity = "default" \| "compact"/u);
+  assert.match(toolbar, /labelPresentation\?: "hidden" \| "inline"/u);
+  assert.match(toolbar, /data-labels=\{labelPresentation\}/u);
   assert.match(toolbar, /export type FilterActionVariant = "primary" \| "secondary" \| "ghost" \| "warning" \| "danger" \| "outline" \| "toggle"/u);
   assert.match(toolbar, /import \{ Button, buttonVariants, type ButtonProps \} from "\.\/button"/u);
   assert.match(toolbar, /satisfies Record<FilterActionVariant, NonNullable<ButtonProps\["variant"\]>>/u);
@@ -129,6 +131,9 @@ test("Compact toolbar controls share one density and semantic variant system", a
   assert.equal(panel.match(/shape="circle"/gu)?.length, 2);
   assert.match(explorer, /<TableFilterMenu[\s\S]*?density="compact"/u);
   assert.match(explorer, /<FilterSearch[\s\S]*?density="compact"/u);
+  assert.match(serviceLogs, /<TableFilterMenu[\s\S]*?density="compact"[\s\S]*?labelPresentation="inline"/u);
+  assert.match(serviceLogs, /<FilterSearch[\s\S]*?density="compact"/u);
+  assert.doesNotMatch(serviceLogs, /service-log-search/u);
   assert.doesNotMatch(explorer, /log-explorer-filter-select/u);
   assert.match(logs, /<FilterToggle density="compact"/u);
   assert.match(logs, /<FilterLink density="compact" variant="secondary"/u);

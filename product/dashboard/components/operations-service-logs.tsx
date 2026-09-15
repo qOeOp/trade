@@ -29,7 +29,7 @@ import {
   DetailNotice,
 } from "./ui/detail-inspector";
 import { EmptyState, UnavailableState } from "./ui/evidence-strip";
-import { FilterButton } from "./ui/filter-toolbar";
+import { FilterButton, FilterSearch, TableFilterMenu } from "./ui/filter-toolbar";
 import { InterfaceIcons, ModuleIcons, RunIcons } from "./ui/iconography";
 import { PageStack } from "./ui/page-stack";
 import { PanelFrame, PanelFrameBody, PanelFrameHeader, PanelFrameInfo } from "./ui/panel-frame";
@@ -167,6 +167,58 @@ function ServiceInstanceCard({ instance, cutDigest }: {
         </DetailInspectorFooter>
       </DetailInspectorBody>
     </DetailInspector>
+  );
+}
+
+function ServiceLogFilters({
+  filterCut,
+  instances,
+  replaceFilter,
+}: {
+  filterCut: ServiceLogFilterCutV1;
+  instances: readonly ServiceLogInstanceV1[];
+  replaceFilter: <Key extends keyof ServiceLogFilterCutV1>(
+    key: Key,
+    value: ServiceLogFilterCutV1[Key],
+  ) => void;
+}) {
+  return (
+    <div className="service-log-filters" role="group" aria-label="Service log filters">
+      <TableFilterMenu
+        className="service-log-filter-selects"
+        density="compact"
+        label="Service log dimensions"
+        labelPresentation="inline"
+        sections={[
+          { id: "range", label: "Range", selected: filterCut.range,
+            items: ranges.map((value) => ({ value, label: value })),
+            onSelect: (value) => replaceFilter("range", value as ServiceLogRange) },
+          { id: "kind", label: "Kind", selected: filterCut.kind,
+            items: kinds.map((value) => ({ value, label: value })),
+            onSelect: (value) => replaceFilter("kind", value as ServiceLogKind) },
+          { id: "service", label: "Service", selected: filterCut.service,
+            items: [{ value: "all", label: "All" }, ...serviceLogSourcesV1.map((value) => ({ value, label: value }))],
+            onSelect: (value) => replaceFilter("service", value as ServiceLogFilterCutV1["service"]) },
+          { id: "instance", label: "Instance", selected: filterCut.instance_identity,
+            items: [{ value: "all", label: "All" }, ...instances.map(({ instance_identity }) => ({
+              value: instance_identity,
+              label: instance_identity,
+            }))],
+            onSelect: (value) => replaceFilter("instance_identity", value) },
+          { id: "severity", label: "Severity", selected: filterCut.severity,
+            items: severities.map((value) => ({ value, label: value })),
+            onSelect: (value) => replaceFilter("severity", value as ServiceLogSeverity) },
+        ]}
+      />
+      <FilterSearch
+        density="compact"
+        label="Search"
+        value={filterCut.search}
+        maxLength={128}
+        placeholder="Event, correlation, service, instance"
+        onChange={(event) => replaceFilter("search", event.target.value.slice(0, 128))}
+      />
+    </div>
   );
 }
 
@@ -421,14 +473,7 @@ export function OperationsServiceLogs() {
             </CompactStatusGroup>
           </CompactStatusBar>
 
-          <div className="service-log-filters" role="group" aria-label="Service log filters">
-            <label><span>Range</span><select value={filterCut.range} onChange={(event) => replaceFilter("range", event.target.value as ServiceLogRange)}>{ranges.map((value) => <option key={value}>{value}</option>)}</select></label>
-            <label><span>Kind</span><select value={filterCut.kind} onChange={(event) => replaceFilter("kind", event.target.value as ServiceLogKind)}>{kinds.map((value) => <option key={value}>{value}</option>)}</select></label>
-            <label><span>Service</span><select value={filterCut.service} onChange={(event) => replaceFilter("service", event.target.value as ServiceLogFilterCutV1["service"])}><option value="all">All</option>{serviceLogSourcesV1.map((value) => <option key={value}>{value}</option>)}</select></label>
-            <label><span>Instance</span><select value={filterCut.instance_identity} onChange={(event) => replaceFilter("instance_identity", event.target.value)}><option value="all">All</option>{instances.map(({ instance_identity }) => <option key={instance_identity}>{instance_identity}</option>)}</select></label>
-            <label><span>Severity</span><select value={filterCut.severity} onChange={(event) => replaceFilter("severity", event.target.value as ServiceLogSeverity)}>{severities.map((value) => <option key={value}>{value}</option>)}</select></label>
-            <label className="service-log-search"><InterfaceIcons.search aria-hidden="true" size={14} /><span className="sr-only">Search</span><input value={filterCut.search} maxLength={128} placeholder="Event, correlation, service, instance" onChange={(event) => replaceFilter("search", event.target.value.slice(0, 128))} /></label>
-          </div>
+          <ServiceLogFilters filterCut={filterCut} instances={instances} replaceFilter={replaceFilter} />
 
           {unavailableReason || (!page && pending) ? (
             <SplitBento className="service-logs-layout" columns="minmax(248px, .55fr) minmax(620px, 1.45fr)">

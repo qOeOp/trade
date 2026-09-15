@@ -11,7 +11,18 @@ test("Service Logs composes the fixed frame, status, filters, split, detail, and
   const source = await readFile(componentUrl, "utf8");
   assert.match(source, /<PanelFrame[\s\S]*<PanelFrameHeader[\s\S]*<PanelFrameBody/u);
   assert.match(source, /<CompactStatusBar/u);
-  assert.match(source, /className="service-log-filters"/u);
+  assert.match(source, /<ServiceLogFilters/u);
+  assert.match(source, /<TableFilterMenu/u);
+  assert.match(source, /labelPresentation="inline"/u);
+  assert.match(source, /<FilterSearch/u);
+  const filters = source.slice(source.indexOf("function ServiceLogFilters"), source.indexOf("export function OperationsServiceLogs"));
+  let filterOffset = 0;
+  for (const label of ["Range", "Kind", "Service", "Instance", "Severity", "Search"]) {
+    const next = filters.indexOf(`\"${label}\"`, filterOffset);
+    assert.ok(next >= filterOffset, `${label} must retain its fixed filter position`);
+    filterOffset = next + label.length;
+  }
+  assert.doesNotMatch(filters, /<select|<input/u);
   assert.match(source, /<SplitBento[^>]*columns="minmax\(248px, \.55fr\) minmax\(620px, 1\.45fr\)"/u);
   assert.match(source, /<ServiceInstanceList/u);
   assert.match(source, /<ServiceInstanceCard/u);
