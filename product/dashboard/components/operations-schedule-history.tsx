@@ -27,6 +27,7 @@ import {
   DetailInspectorFooter,
   DetailInspectorHeader,
 } from "./ui/detail-inspector";
+import { DetailSheet } from "./ui/detail-sheet";
 import { LoadingState, UnavailableState } from "./ui/evidence-strip";
 import { FilterButton, FilterSearch, TableFilterMenu, TableToolbar } from "./ui/filter-toolbar";
 import { InterfaceIcons } from "./ui/iconography";
@@ -42,6 +43,7 @@ import {
 import { PageStack } from "./ui/page-stack";
 import { SplitBento } from "./ui/split-bento";
 import { StatusBadge } from "./ui/status-badge";
+import { useMediaQuery } from "./ui/use-media-query";
 
 function displayTime(value: string | null) {
   return value ? new Date(value).toLocaleString() : "Not observed";
@@ -55,12 +57,38 @@ function compactRunLabel(identity: string) {
   return `#${identity.slice(-8)}`;
 }
 
+function ScheduleHistoryDetailContent({ schedule }: { schedule: ScheduleHistoryProjectionV1 }) {
+  return <DetailClusterGrid>
+    <DetailCluster label="Registration" meta={cadence(schedule.cadence_seconds)}>
+      <DetailClusterFact label="Added"><time dateTime={schedule.registered_at}>{displayTime(schedule.registered_at)}</time></DetailClusterFact>
+      <DetailClusterFact label="Recorded"><time dateTime={schedule.recorded_at}>{displayTime(schedule.recorded_at)}</time></DetailClusterFact>
+    </DetailCluster>
+    <DetailCluster label="Observed run" meta={schedule.last_run_identity ? "Available" : "Not observed"}>
+      <DetailClusterFact label="Last observed">{displayTime(schedule.last_observed_at)}</DetailClusterFact>
+      <DetailClusterFact label="Run">{schedule.last_run_identity
+        ? <Link className="detail-cluster-link" href={`/operations/runs/${encodeURIComponent(schedule.last_run_identity)}`}>
+          <span>{compactRunLabel(schedule.last_run_identity)}</span><InterfaceIcons.open aria-hidden="true" size={12} />
+        </Link> : <span>Unavailable</span>}</DetailClusterFact>
+    </DetailCluster>
+  </DetailClusterGrid>;
+}
+
+function ScheduleHistoryInfo({ schedule }: { schedule: ScheduleHistoryProjectionV1 }) {
+  return <PanelFrameInfo label="View registration identity"><PanelFrameInfoList>
+    <PanelFrameInfoFact label="Registration ID"><code>{schedule.schedule_identity}</code></PanelFrameInfoFact>
+    <PanelFrameInfoFact label="Activity ID"><code>{schedule.operation_id}</code></PanelFrameInfoFact>
+    <PanelFrameInfoFact label="Boundary">Historical record only; current configuration is not inferred.</PanelFrameInfoFact>
+  </PanelFrameInfoList></PanelFrameInfo>;
+}
+
 export function OperationsScheduleHistory({ viewControl }: { viewControl: ReactNode }) {
   const [result, setResult] = useState<ScheduleHistoryEnvelopeV1 | null>(null);
   const [pending, setPending] = useState(true);
   const [search, setSearch] = useState("");
   const [operation, setOperation] = useState("all");
   const [selectedIdentity, setSelectedIdentity] = useState<string | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const compactDetail = useMediaQuery("(max-width: 1279px)");
 
   const refresh = useCallback(async () => {
     setPending(true);
@@ -88,6 +116,9 @@ export function OperationsScheduleHistory({ viewControl }: { viewControl: ReactN
         .toLocaleLowerCase().includes(needle)));
   }, [operation, rows, search]);
   const selected = visibleRows.find((row) => row.schedule_identity === selectedIdentity) ?? visibleRows[0] ?? null;
+  useEffect(() => {
+    if (!compactDetail || !selected) setDetailOpen(false);
+  }, [compactDetail, selected]);
   const withRuns = rows.filter((row) => row.last_run_identity !== null).length;
   const formationCatalog = rows.filter((row) => row.operation_id === "rd_formation_catalog.shadow_read.v1").length;
   const researchIterations = rows.filter((row) => row.operation_id === "rd_iteration_timeline.shadow_read.v1").length;
@@ -140,7 +171,8 @@ export function OperationsScheduleHistory({ viewControl }: { viewControl: ReactN
           </CompactStatusGroup>
         </CompactStatusBar>
         {result?.availability === "available" ? <SplitBento className="operations-schedules-layout"
-          columns="minmax(620px, 1.55fr) minmax(300px, .78fr)" heightMode="viewport">
+          columns={compactDetail ? "minmax(0, 1fr)" : "minmax(620px, 1.55fr) minmax(300px, .78fr)"}
+          heightMode="viewport">
           <DataTableSurface className="operations-schedule-table" geometry="outer" toolbarLabel="Schedule history controls"
             toolbar={<TableToolbar filter={<TableFilterMenu label="Filter schedule history" sections={[{
               id: "activity", label: "Activity", selected: operation,
@@ -152,36 +184,23 @@ export function OperationsScheduleHistory({ viewControl }: { viewControl: ReactN
             <DataWorkspaceTable ariaLabel="Schedule history" columns={columns} data={visibleRows}
               keyField="schedule_identity" defaultSortFieldId="last-observed" defaultSortAsc={false}
               conditionalRowStyles={dataWorkspaceSelectedRowStyles((row: ScheduleHistoryProjectionV1) => row.schedule_identity === selected?.schedule_identity)}
-              onRowClicked={(row) => setSelectedIdentity(row.schedule_identity)} pagination paginationPerPage={20}
+              onRowClicked={(row) => {
+                setSelectedIdentity(row.schedule_identity);
+                if (compactDetail) setDetailOpen(true);
+              }} pointerOnHover pagination paginationPerPage={20}
               paginationResetKey={JSON.stringify([operation, search])} paginationRowsPerPageOptions={[20, 50, 100]}
               noDataComponent={<DataWorkspaceEmpty icon={<InterfaceIcons.calendar aria-hidden="true" size={18} />}>
                 No historical registration matches this view.
               </DataWorkspaceEmpty>} />
           </DataTableSurface>
-          {selected ? <DetailInspector aria-label="Selected historical schedule">
+          {selected && !compactDetail ? <DetailInspector aria-label="Selected historical schedule">
             <DetailInspectorHeader eyebrow="historical registration" title={runOperationLabel(selected.operation_id)}
               status={<StatusBadge tone="neutral">recorded</StatusBadge>} />
-            <DetailInspectorBody><DetailClusterGrid>
-              <DetailCluster label="Registration" meta={cadence(selected.cadence_seconds)}>
-                <DetailClusterFact label="Added"><time dateTime={selected.registered_at}>{displayTime(selected.registered_at)}</time></DetailClusterFact>
-                <DetailClusterFact label="Recorded"><time dateTime={selected.recorded_at}>{displayTime(selected.recorded_at)}</time></DetailClusterFact>
-              </DetailCluster>
-              <DetailCluster label="Observed run" meta={selected.last_run_identity ? "Available" : "Not observed"}>
-                <DetailClusterFact label="Last observed">{displayTime(selected.last_observed_at)}</DetailClusterFact>
-                <DetailClusterFact label="Run">{selected.last_run_identity
-                  ? <Link className="detail-cluster-link" href={`/operations/runs/${encodeURIComponent(selected.last_run_identity)}`}>
-                    <span>{compactRunLabel(selected.last_run_identity)}</span><InterfaceIcons.open aria-hidden="true" size={12} />
-                  </Link> : <span>Unavailable</span>}</DetailClusterFact>
-              </DetailCluster>
-            </DetailClusterGrid></DetailInspectorBody>
-            <DetailInspectorFooter><PanelFrameInfo label="View registration identity"><PanelFrameInfoList>
-              <PanelFrameInfoFact label="Registration ID"><code>{selected.schedule_identity}</code></PanelFrameInfoFact>
-              <PanelFrameInfoFact label="Activity ID"><code>{selected.operation_id}</code></PanelFrameInfoFact>
-              <PanelFrameInfoFact label="Boundary">Historical record only; current configuration is not inferred.</PanelFrameInfoFact>
-            </PanelFrameInfoList></PanelFrameInfo></DetailInspectorFooter>
-          </DetailInspector> : <DetailEmpty icon={<InterfaceIcons.calendar aria-hidden="true" size={18} />}>
+            <DetailInspectorBody><ScheduleHistoryDetailContent schedule={selected} /></DetailInspectorBody>
+            <DetailInspectorFooter><ScheduleHistoryInfo schedule={selected} /></DetailInspectorFooter>
+          </DetailInspector> : !compactDetail ? <DetailEmpty icon={<InterfaceIcons.calendar aria-hidden="true" size={18} />}>
             No historical registration matches this view.
-          </DetailEmpty>}
+          </DetailEmpty> : null}
         </SplitBento> : pending ? <LoadingState density="compact" icon={<InterfaceIcons.calendar aria-hidden="true" size={16} />}
           title="Reading schedule history">Checking persisted registrations.</LoadingState>
           : <UnavailableState density="compact" icon={<InterfaceIcons.calendar aria-hidden="true" size={16} />}
@@ -192,5 +211,14 @@ export function OperationsScheduleHistory({ viewControl }: { viewControl: ReactN
         </PanelFrameFooter>
       </PanelFrameBody>
     </PanelFrame>
+    <DetailSheet
+      open={compactDetail && detailOpen && Boolean(selected)}
+      onClose={() => setDetailOpen(false)}
+      eyebrow="Schedule history preview"
+      title={selected ? runOperationLabel(selected.operation_id) : "Schedule registration"}
+      description="Persisted registration and its latest observed run."
+    >
+      {selected ? <><ScheduleHistoryDetailContent schedule={selected} /><ScheduleHistoryInfo schedule={selected} /></> : null}
+    </DetailSheet>
   </PageStack>;
 }

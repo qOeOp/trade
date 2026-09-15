@@ -89,9 +89,12 @@ Details order operation/title, cadence and next expected trigger, last observed 
 collapsed technical identity/digest/recovery fields. No Run, Resolve, CRUD, drag or resize action.
 
 At 1280px and above, calendar/table and detail use a 2:1 grid with 16px gap and a shared body height
-clamped to 420-760px from the available viewport; both scroll internally. Below 1280px details follow
-the primary card at natural height. Month and Week retain at least 700px internal scroll width below
-768px; other views fit their card. Headers and footers use the same theme chrome token, with inset
+clamped to 420-760px from the available viewport; both scroll internally. The History view likewise keeps
+its table and selected registration in the documented `SplitBento` at this width. Below 1280px, selection
+from either view opens the shared right-side `DetailSheet` without changing the schedules URL, while the
+calendar or table keeps the full inset width; below 768px the same sheet is full-screen. Closing returns
+focus to the selected calendar entry or table row. Month and Week retain at least 700px internal scroll width
+below 768px; other views fit their card. Headers and footers use the same theme chrome token, with inset
 body, subtle separators and restrained orange selection/focus. Icons use Lucide. Transitions last
 140-180ms and respect reduced motion. Keyboard users can navigate controls, open/close overflow,
 select entries and follow observed-run links without pointer gestures.

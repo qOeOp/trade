@@ -17,9 +17,11 @@ test("schedule surfaces keep rounded containment without stealing the calendar s
   assert.match(css, /\.weekdayHeader \{[^}]*position:\s*sticky;[^}]*top:\s*0;/u);
   assert.doesNotMatch(css, /\.primary \{\s*overflow:\s*(?:auto|scroll|hidden)/u);
   assert.match(component, /<DetailInspector className=\{styles\.detail\}/u);
-  assert.match(component, /<DetailInspectorHeader[\s\S]*<PanelFrameInfo label="View schedule technical details">/u);
-  assert.match(component, /<PanelFrameInfoList>[\s\S]*<PanelFrameInfoFact key=\{key\} label=\{key\}>/u);
-  assert.match(component, /<DetailInspectorBody>[\s\S]*<DetailFactGrid>[\s\S]*<DetailSection label="last observed run">/u);
+  assert.match(component, /function ScheduleTechnicalInfo[\s\S]*<PanelFrameInfo label="View schedule technical details">[\s\S]*<PanelFrameInfoFact key=\{key\} label=\{key\}>/u);
+  assert.match(component, /function ScheduleDetailContent[\s\S]*<DetailFactGrid>[\s\S]*<DetailSection label="last observed run">/u);
+  assert.match(component, /<DetailInspectorHeader[\s\S]*<ScheduleTechnicalInfo schedule=\{selected\}/u);
+  assert.match(component, /<DetailInspectorBody>[\s\S]*<ScheduleDetailContent schedule=\{selected\}/u);
+  assert.match(component, /<DetailSheet[\s\S]*<ScheduleDetailContent schedule=\{selected\}/u);
   assert.doesNotMatch(component, /<aside className=\{styles\.detail\}|<details><summary>Technical identity/u);
 });
 

@@ -74,8 +74,10 @@ operation/标题、cadence 与下次预计触发、上次已观测 due/run 链�
 不提供 Run、Resolve、CRUD、拖拽或缩放操作。
 
 1280px 及以上，日历/表格与详情使用 2:1 网格、16px 间距，共享按可用视口限制在 420-760px 的 body
-高度，双方内部滚动。低于 1280px，详情在主卡片之后自然增高。低于 768px，Month/Week 保留至少
-700px 的内部滚动宽度，其他视图适配卡片。header/footer 共用主题 chrome token，配内嵌 body、弱
+高度，双方内部滚动；History view 在这个宽度同样使用已约定的 `SplitBento` 展示 table 与选中登记。
+低于 1280px，从任一 view 选择数据都会打开共享右侧 `DetailSheet`，Schedules URL 不变，calendar 或
+table 占满 inset；低于 768px，同一个 sheet 转为全屏。关闭后焦点返回选中的 calendar entry 或 table row。
+低于 768px，Month/Week 保留至少 700px 的内部滚动宽度，其他视图适配卡片。header/footer 共用主题 chrome token，配内嵌 body、弱
 分割线及克制橙色选中/焦点。图标使用 Lucide。动画 140-180ms 并遵循 reduced motion；键盘可操作
 控件、开关溢出、选中条目及访问已观测运行链接，不依赖指针手势。
 
