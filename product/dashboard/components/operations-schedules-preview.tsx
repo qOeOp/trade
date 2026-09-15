@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { parseScheduleEnvelopeV1, type ScheduleEnvelopeProjectionV1, type ScheduleProjectionV1 } from "../lib/schedule-projection";
 import { filterScheduleRowsV1, type ScheduleCalendarView,
   type ScheduleObservationScope } from "../lib/schedule-calendar";
@@ -28,12 +29,14 @@ import {
 } from "./ui/panel-frame";
 import { InterfaceIcons } from "./ui/iconography";
 import { InlineNotice } from "./ui/inline-notice";
+import { FilterTabs } from "./ui/filter-toolbar";
+import { OperationsScheduleHistory } from "./operations-schedule-history";
 import styles from "./ui/schedule-calendar.module.css";
 
 const today = () => new Date().toISOString().slice(0, 10);
 const timestamp = (value: string | null) => value ? new Date(value).toISOString().replace("T", " ").replace("Z", " UTC") : "Not observed";
 const cadence = (seconds: number) => seconds % 3600 === 0 ? `${seconds / 3600}h` : `${seconds / 60}m`;
-export function OperationsSchedulesPreview() {
+function CurrentSchedulesPreview({ viewControl }: { viewControl: ReactNode }) {
   const [envelope, setEnvelope] = useState<ScheduleEnvelopeProjectionV1 | null>(null);
   const [pending, setPending] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -86,7 +89,7 @@ export function OperationsSchedulesPreview() {
       cell: (row) => row.last_run_identity ? <Link href={`/operations/runs/${encodeURIComponent(row.last_run_identity)}`}>{timestamp(row.last_due_at)}</Link> : "Not observed" },
   ], []);
   return <PanelFrame className={styles.page} aria-label="Shadow-read schedules">
-    <CalendarHeader date={date} view={view} mode={mode} pending={pending}
+    <CalendarHeader date={date} view={view} mode={mode} pending={pending} viewControl={viewControl}
       statusLabel={pending ? "Reading" : envelope ? `${all.length} schedules` : "Unavailable"}
       query={query} observationScope={observationScope} operationScope={operationScope} operations={operations}
       compactCalendar={compactCalendar} onToday={() => setDate(today())} onShift={shift}
@@ -153,4 +156,18 @@ export function OperationsSchedulesPreview() {
     </PanelFrameBody>
     <PanelFrameFooter className={styles.foot}>Read-only · Expected does not mean executed{envelope && <time>Observed {timestamp(envelope.observed_at)}</time>}</PanelFrameFooter>
   </PanelFrame>;
+}
+
+export function OperationsSchedulesPreview({ initialView }: { initialView: "history" | "current" }) {
+  const router = useRouter();
+  const viewControl = <div className="operations-schedule-view-switch">
+    <FilterTabs label="Schedule view" selected={initialView} variant="rail" items={[
+      { value: "history", label: "History" },
+      { value: "current", label: "Current schedules" },
+    ]} onSelect={(view) => router.replace(view === "current"
+      ? "/operations/schedules/?view=current" : "/operations/schedules/")} />
+  </div>;
+  return initialView === "history"
+    ? <OperationsScheduleHistory viewControl={viewControl} />
+    : <CurrentSchedulesPreview viewControl={viewControl} />;
 }

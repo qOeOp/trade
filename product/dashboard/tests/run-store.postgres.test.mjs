@@ -1165,6 +1165,19 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
         currentBinding.compatibility_envelope_set_digest],
     );
   }
+  const scheduleHistory = await store.listScheduledReadHistory();
+  assert.equal(scheduleHistory.completeness, "partial_unavailable");
+  assert.equal(scheduleHistory.retention_limit, 100);
+  assert.equal(scheduleHistory.schedules.length, 100);
+  assert.equal(new Set(scheduleHistory.schedules.map(({ schedule_identity }) => schedule_identity)).size, 100);
+  for (let index = 1; index < scheduleHistory.schedules.length; index += 1) {
+    const previous = scheduleHistory.schedules[index - 1];
+    const current = scheduleHistory.schedules[index];
+    const previousCut = Date.parse(previous.last_due_at ?? previous.created_at);
+    const currentCut = Date.parse(current.last_due_at ?? current.created_at);
+    assert.ok(previousCut > currentCut
+      || (previousCut === currentCut && previous.schedule_identity < current.schedule_identity));
+  }
   const boundCurrent = await store.readBoundScheduledReads([{
     schedule_identity: currentSchedule.schedule_identity,
     schedule_digest: currentSchedule.schedule_digest,

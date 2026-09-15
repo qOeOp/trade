@@ -29,15 +29,30 @@ mutation control or secret value. Dynamic acceptance covers unavailable configur
 wrong credential, cookie attributes, authenticated page/API, tampering, expiry and logout. The fixed local preview
 port must not replace its listener until isolated acceptance passes and both session secrets are provisioned.
 
-## Bounded admission: read‑only shadow schedule calendar
+## Bounded admission: read-only schedule history and shadow schedule calendar
 
-The user admits `/operations/schedules` as `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED` for the
-first-party zero-effect shadow-read schedules only. This narrow exception supersedes the generic
-blueprint-only classification for this route; it does not admit Scanner due-slot resolution or
-Windmill generic schedules. Reuse `configuredShadowScheduleSetV1` and RunStore
-`readBoundScheduledReads`: exact configured identity, digest, operation and dispatch bindings must
-match every registered row (1-100). Missing configuration, registration or compatible custody fails
-closed. GET is the only API action; no scheduler, registration, tick or enqueue occurs on reading.
+The user admits `/operations/schedules` as `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED` for two
+strictly separated GET-only views. `History` is the default and reads persisted first-party RunStore
+registrations through `/api/operations/schedules/history/`; it is historical evidence only and must
+never be presented as current configuration or activity. `Current schedules` uses the existing
+configuration-bound `/api/operations/schedules/` contract. This narrow exception supersedes the
+generic blueprint-only classification for this route; it does not admit Scanner due-slot resolution
+or Windmill generic schedules. No scheduler, registration, tick or enqueue occurs on reading.
+
+History reads at most the latest 100 rows ordered by the millisecond projection of
+`COALESCE(last_due_at, created_at)` descending and immutable schedule identity ascending. A 101-row probe distinguishes `complete` from
+`partial_unavailable`; the browser receives only schedule identity, business operation, cadence,
+registration time, last observed time/run pair, and recorded time. Empty complete history is valid.
+Digests, recovery identity, registry bindings and projected next-due time do not cross this browser
+contract. Technical identity is collapsed behind an info control. The view uses shared PanelFrame,
+CompactStatusBar, DataTableSurface, DataWorkspaceTable, SplitBento and DetailInspector atoms, with
+business activity labels and one explicit `Historical registrations only - not current schedules`
+boundary. Search and activity filters are local and never mutate the RunStore.
+
+Current schedules reuse `configuredShadowScheduleSetV1` and RunStore `readBoundScheduledReads`:
+exact configured identity, digest, operation and dispatch bindings must match every registered row
+(1-100). Missing configuration, registration or compatible custody fails closed; historical rows
+must never be used to reconstruct or soften that unavailable state.
 
 The browser accepts positive data only from a successful HTTP response and a valid bound projection.
 Refreshing with unavailable or rejected evidence removes prior positive rows and selected details.
@@ -45,8 +60,7 @@ Use UTC throughout. `next_due_at` and cadence describe **expected triggers**, no
 the scheduler may skip elapsed slots. Only the returned `last_due_at` and `last_run_identity` pair is
 an **observed run**. Never infer older runs, completion, duration, success or Owner acceptance.
 
-The route has one outer title header (`Shadow-read schedules` with its one-line purpose) and an inset
-calendar body. Inside that body, the toolbar preserves the Vibe Journal source hierarchy instead of
+The current-schedules view has one calendar header and an inset calendar body. Inside that body, the toolbar preserves the Vibe Journal source hierarchy instead of
 replacing it with a Dashboard-specific control strip. The left identity group is Today card, month/year
 heading with schedule count or unavailable state, then Previous, range label and Next. The right tool
 group is Filter, one shared animated Agenda/Day/Week/Month/Year segmented control, operation selector,
@@ -55,7 +69,7 @@ while inactive views remain icon-only. The operation selector retains the source
 geometry, but derives markers only from returned operation identities; unavailable data creates no
 placeholder marker. Filter contains local operation/identity search and observed/not-observed scope;
 Settings contains compact density and Table mode. Controls horizontally scroll or wrap as one toolbar
-on narrow screens. Default view is Month at the current UTC date. No separate summary strip, duplicate
+on narrow screens. Its default calendar mode is Month at the current UTC date. No separate summary strip, duplicate
 Calendar/Table buttons or always-visible search field is inserted above the source calendar header.
 
 Calendar fidelity preserves Vibe's date navigation, five views, event inspection, overflow expansion

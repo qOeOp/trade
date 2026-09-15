@@ -26,28 +26,39 @@ Operator Authorization、Product Edge readiness 与 successor 区域保持可见
 secret value。动态验收覆盖配置不可用、无 cookie 的页面/API、错误凭据、cookie 属性、认证后页面/API、
 篡改、过期与登出。固定本地预览端口只有在隔离验收通过且两个 session secret 已配置后才可替换监听。
 
-## 有界准入：只读影子调度日历
+## 有界准入：只读调度历史与影子调度日历
 
-用户准入 `/operations/schedules` 为 `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED`，仅覆盖第一方
-零 effect 影子读取调度。此窄例外覆盖该路由的通用 blueprint-only 分类，不准入 Scanner due-slot
-Resolve 或 Windmill 通用调度。复用 `configuredShadowScheduleSetV1` 与 RunStore
-`readBoundScheduledReads`：配置中的身份、摘要、operation 和 dispatch binding 必须与全部已注册
-记录精确匹配（1-100 条）。配置、注册或兼容 custody 缺失时 fail closed。API 仅 GET；读取不创建
-scheduler，不注册、tick 或入队。
+用户准入 `/operations/schedules` 为 `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED`，包含两个严格隔离的
+GET-only 视图。默认 `History` 通过 `/api/operations/schedules/history/` 读取第一方 RunStore 中的持久化
+登记；它只代表历史证据，绝不能展示成当前配置或 active 状态。`Current schedules` 继续使用已有的
+配置绑定 `/api/operations/schedules/` 契约。此窄例外覆盖该路由的通用 blueprint-only 分类，不准入
+Scanner due-slot Resolve 或 Windmill 通用调度；读取不创建 scheduler，不注册、tick 或入队。
+
+历史读取按 `COALESCE(last_due_at, created_at)` 的毫秒投影降序、不可变 schedule identity 升序返回最近至多 100 条，
+通过 101 行探针区分 `complete` 与 `partial_unavailable`。浏览器只接收 schedule identity、业务 operation、
+cadence、登记时间、最后观测时间/run 配对及记录时间；完整但为空是合法状态。摘要、recovery identity、
+registry binding 和预计 next-due 不跨越此浏览器契约。技术身份默认收进 info 控件。页面复用 PanelFrame、
+CompactStatusBar、DataTableSurface、DataWorkspaceTable、SplitBento 与 DetailInspector 原子，以业务名称展示
+活动，并明确标注 `Historical registrations only - not current schedules`。搜索与活动过滤仅发生在本地，
+不修改 RunStore。
+
+当前计划继续复用 `configuredShadowScheduleSetV1` 与 RunStore `readBoundScheduledReads`：配置中的身份、
+摘要、operation 和 dispatch binding 必须与全部已注册记录精确匹配（1-100 条）。配置、注册或兼容
+custody 缺失时 fail closed；不得使用历史记录重建或弱化该 unavailable 状态。
 
 浏览器只从成功 HTTP 响应及有效绑定投影接收正向数据。刷新得到不可用或被拒绝的证据时清除旧行与
 选中详情。全程使用 UTC。`next_due_at` 与 cadence 描述**预计触发**，不是执行事实；调度器可能跳过
 已过去的周期。只有返回的 `last_due_at` 与 `last_run_identity` 配对才是**已观测运行**，不得推断
 更早历史、完成、时长、成功或 Owner acceptance。
 
-路由只有一个外层标题 header（`Shadow-read schedules` 及单行用途）和内嵌日历 body。body 内的工具栏
+当前计划视图只有一个日历 header 和内嵌日历 body。body 内的工具栏
 保留 Vibe Journal 源码层级，不再替换成 Dashboard 自绘控制条。左侧 identity group 依次为 Today 日期卡、
 带调度数或 unavailable 状态的月/年标题、Previous、日期范围和 Next；右侧 tool group 依次为 Filter、
 共用一个底座并带动画的 Agenda/Day/Week/Month/Year segmented control、operation selector、占用源码主操作
 位置的 Refresh、Settings。当前视图展开文字，未选视图只保留图标。operation selector 保留源码叠放标记
 trigger 的构型，但标记只能从已返回的 operation identity 派生；数据不可用时不制造占位标记。Filter 内
 提供本地 operation/identity 搜索及 observed/not-observed scope；Settings 内提供紧凑密度和 Table mode。
-窄屏时这些控件作为同一工具栏横向滚动或换行。默认当前 UTC 日期的 Month 视图。源码日历 header 上方
+窄屏时这些控件作为同一工具栏横向滚动或换行。其默认模式为当前 UTC 日期的 Month 视图。源码日历 header 上方
 不得再插入独立摘要条、重复 Calendar/Table 按钮或常驻搜索框。
 
 日历保留 Vibe 的日期导航、五视图、事件查看、溢出展开及克制动画。Month 使用覆盖完整周的七列网格，

@@ -23,6 +23,7 @@ export function CalendarHeader(props: CalendarHeaderProps) {
     <motion.div className={styles.calendarTools} variants={slideFromRight} initial={false} animate="animate"
       transition={transition}>
       <div className={styles.calendarOptions}>
+        {props.viewControl}
         <FilterSchedules query={props.query} observationScope={props.observationScope}
           onQuery={props.onQuery} onObservationScope={props.onObservationScope} />
         <Views view={props.view} mode={props.mode} onView={props.onView} />

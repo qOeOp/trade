@@ -43,6 +43,7 @@ export default async function DashboardPage({
     : query.outcome === "awaiting" ? "awaiting" : "all";
   const artifactCandidateKind = query.kind === "bindings" ? "bindings" : "attempts";
   const artifactCandidateAvailability = query.availability === "reviewable" ? "reviewable" : "all";
+  const scheduleView = query.view === "current" ? "current" : "history";
   return <DashboardRouteContent
     current={current === "/market" ? "/dashboard" : current}
     sourceIntakeRequestIdentity={sourceIntakeRequestIdentity}
@@ -56,5 +57,6 @@ export default async function DashboardPage({
     researchCandidateOutcome={researchCandidateOutcome}
     artifactCandidateKind={artifactCandidateKind}
     artifactCandidateAvailability={artifactCandidateAvailability}
+    scheduleView={scheduleView}
   />;
 }

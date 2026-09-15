@@ -111,6 +111,7 @@ export function DashboardRouteContent({
   researchCandidateOutcome = "all",
   artifactCandidateKind = "attempts",
   artifactCandidateAvailability = "all",
+  scheduleView = "history",
 }: {
   current: string;
   runIdentity?: string;
@@ -130,6 +131,7 @@ export function DashboardRouteContent({
   researchCandidateOutcome?: "all" | "ready" | "awaiting";
   artifactCandidateKind?: "attempts" | "bindings";
   artifactCandidateAvailability?: "all" | "reviewable";
+  scheduleView?: "history" | "current";
 }) {
   const activeModule = moduleFor(current);
   const page = pageFor(current);
@@ -224,7 +226,7 @@ export function DashboardRouteContent({
           {operationsRuns ? <OperationsRunStorePreview />
             : operationsRunDetail ? <OperationsRunDetail runIdentity={runIdentity ?? "example"} />
               : operationsWorkers ? <OperationsWorkersPreview initialWorkerIdentity={workerIdentity} />
-              : operationsSchedules ? <OperationsSchedulesPreview />
+              : operationsSchedules ? <OperationsSchedulesPreview initialView={scheduleView} />
               : operationsServiceLogs ? <OperationsServiceLogs />
               : operationsAudit ? <OperationsAudit />
               : sourceResearchControl ? <SourceResearchControl />

@@ -2,8 +2,10 @@ import type {
   ScheduleCalendarView,
   ScheduleObservationScope,
 } from "../../../../lib/schedule-calendar";
+import type { ReactNode } from "react";
 
 export interface CalendarHeaderProps {
+  viewControl?: ReactNode;
   date: string;
   view: ScheduleCalendarView;
   mode: "calendar" | "table";
