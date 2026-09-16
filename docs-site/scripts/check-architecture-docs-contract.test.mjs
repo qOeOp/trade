@@ -358,8 +358,9 @@ test('Windmill capability floor is deterministic, CE-correct, least-privilege, a
     assert.match(source, /SUBMITTED_OR_UNKNOWN/);
   }
   const adoption = readBilingualDoc('architecture/capability-adoption');
-  assert.equal(markdownTableAfterHeading(adoption.english, '## Windmill pre-change to target gap disposition').rows.length, 10);
-  assert.equal(markdownTableAfterHeading(adoption.chinese, '## Windmill 架构变更前到目标的 gap 处置').rows.length, 10);
+  // Eleven capabilities the retired product shell supplied, each with a recorded destination.
+  assert.equal(markdownTableAfterHeading(adoption.english, '## Retired shell capability disposition').rows.length, 11);
+  assert.equal(markdownTableAfterHeading(adoption.chinese, '## 退役产品壳的能力处置').rows.length, 11);
 });
 
 test('one Windmill Product Edge gateway has permission-equivalent replay-safe Owner requests', () => {
@@ -4344,7 +4345,7 @@ test('the bilingual quantitative docs project the canonical evidence and authori
     ['scenarios/backtest', ['R&D → Qualification', 'Protected Run Result'], ['R&D → Qualification', 'Protected Run Result']],
     ['scenarios/scan', ['NO_MATCH', 'Scanner → Runtime'], ['NO_MATCH', 'Scanner → Runtime']],
     ['scenarios/overview', ['Dashboard MCP endpoint', 'WINDMILL_PRODUCT_EDGE'], ['Dashboard MCP endpoint', 'WINDMILL_PRODUCT_EDGE']],
-    ['architecture/capability-adoption', ['Windmill MCP operation set', 'competing writers'], ['Windmill MCP operation set', '竞争 writer']],
+    ['architecture/capability-adoption', ['Dashboard MCP operation set', 'competing writers'], ['Dashboard MCP operation set', '竞争 writer']],
     ['owners/backtest', ['exploratory Run Result views only', 'Never expose a protected result'], ['只读探索 Run Result 视图', '不通过 Product Edge 暴露保护结果']],
     ['owners/runtime', ['Runtime Incident Fact', 'notification delivery is never evidence'], ['Runtime Incident Fact', '通知投递永远不是证据']],
     ['owners/execution', ['Reconciliation Drift Fact', 'notification delivery never proves reconciliation'], ['Reconciliation Drift Fact', '通知投递永远不能证明对账完成']],
@@ -4660,8 +4661,8 @@ test('Capability Adoption maps every workspace member without creating another a
     assert.match(source, /shared Cache|共享 Cache/);
     assert.match(source, /single order writer|订单唯一写入者/i);
     assert.match(source, /Strategy Artifact/);
-    assert.match(source, /Windmill App/);
-    assert.match(source, /Windmill MCP/);
+    assert.match(source, /Dashboard/);
+    assert.match(source, /Dashboard MCP/);
     assert.match(source, /Telegram/);
   }
 
