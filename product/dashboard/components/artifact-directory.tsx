@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -10,13 +10,20 @@ import {
   type ArtifactDirectoryCursorV1,
   type ArtifactDirectoryItemV1,
 } from "../lib/artifact-directory-gateway";
+import {
+  artifactReviewInventoryMatchesCustodyV1,
+  type ArtifactReviewInventoryItemV1,
+} from "../lib/artifact-review-inventory";
 import type {
   HistoricalArtifactCandidateV1,
   HistoricalBindingCandidateV1,
 } from "../lib/rd-historical-custody-client";
+import { ArtifactAttemptPreview } from "./artifact-attempt-preview";
+import { ArtifactHistoricalReadbackDrilldown } from "./artifact-historical-readback-drilldown";
 import { DataTableHeaderLabel, DataTableSurface } from "./ui/data-table";
 import { DataWorkspaceEmpty } from "./ui/data-workspace-empty";
 import { DataWorkspaceTable, type DataWorkspaceColumn } from "./ui/data-workspace-table";
+import { EntityReference } from "./ui/entity-reference";
 import { FilterButton, FilterSearch, FilterTabs, TableToolbar } from "./ui/filter-toolbar";
 import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
 import { PageStack } from "./ui/page-stack";
@@ -28,19 +35,18 @@ import {
   PanelFrameFooterSummary,
   PanelFrameHeader,
 } from "./ui/panel-frame";
-import { StatusBadge } from "./ui/status-badge";
+import { StatusBadge, type StatusBadgeTone } from "./ui/status-badge";
+import { DetailSheet } from "./ui/detail-sheet";
 import { useDelayedPending } from "./ui/use-delayed-pending";
 import { useHistoricalCustodyDirectory } from "./use-historical-custody-directory";
+import { useArtifactReviewInventory } from "./use-artifact-review-inventory";
 import {
   OwnerDirectoryCandidateSummary,
   OwnerDirectoryInfo,
   OwnerDirectoryUnavailable,
 } from "./owner-directory-state";
+import { RdCustodyReviewSummary } from "./rd-custody-review-summary";
 import styles from "./owner-directory.module.css";
-
-function displayIdentity(value: string): string {
-  return value.length > 34 ? `${value.slice(0, 20)}…${value.slice(-8)}` : value;
-}
 
 function displayTime(value: string): string {
   return new Date(value).toLocaleString();
@@ -55,9 +61,82 @@ function directoryUrl(cursor?: ArtifactDirectoryCursorV1): string {
   return `/api/rd/artifacts/directory/?${search}`;
 }
 
-export function ArtifactDirectory() {
-  const [view, setView] = useState<"verified" | "candidates">("verified");
-  const [candidateKind, setCandidateKind] = useState<"attempts" | "bindings">("attempts");
+function candidateUrl(kind: "attempts" | "bindings", availability: "all" | "reviewable") {
+  const query = new URLSearchParams();
+  if (kind === "bindings") query.set("kind", "bindings");
+  else if (availability === "reviewable") query.set("availability", "reviewable");
+  const search = query.toString();
+  return `/rd/artifacts/${search ? `?${search}` : ""}`;
+}
+
+type ReviewAvailability = "loading" | "available" | "unavailable";
+
+type ArtifactReviewPresentation = Readonly<{
+  detail: string;
+  label: string;
+  secondary: string;
+  tone: StatusBadgeTone;
+}>;
+
+function artifactReviewPresentation(
+  review: ArtifactReviewInventoryItemV1 | undefined,
+  availability: ReviewAvailability,
+): ArtifactReviewPresentation {
+  if (availability === "loading") {
+    return {
+      detail: "Checking outcome",
+      label: "Checking…",
+      secondary: "Checking current outcome",
+      tone: "neutral",
+    };
+  }
+  if (availability !== "available") {
+    return {
+      detail: "View record",
+      label: "Not checked",
+      secondary: "Outcome status unavailable",
+      tone: "unavailable",
+    };
+  }
+  if (review?.availability === "reviewable") {
+    return {
+      detail: "Review outcome",
+      label: "Outcome ready",
+      secondary: "Readable build result",
+      tone: "warning",
+    };
+  }
+  if (review?.availability === "unavailable") {
+    return {
+      detail: "View record",
+      label: "Not available",
+      secondary: "No readable outcome",
+      tone: "unavailable",
+    };
+  }
+  return {
+    detail: "View summary",
+    label: "Not checked",
+    secondary: "Not checked yet",
+    tone: "unavailable",
+  };
+}
+
+export function ArtifactDirectory({
+  initialView = "candidates",
+  initialCandidateKind = "attempts",
+  initialCandidateAvailability = "all",
+}: {
+  initialView?: "verified" | "candidates";
+  initialCandidateKind?: "attempts" | "bindings";
+  initialCandidateAvailability?: "all" | "reviewable";
+}) {
+  const router = useRouter();
+  const [view, setView] = useState<"verified" | "candidates">(initialView);
+  const [candidateKind, setCandidateKind] = useState<"attempts" | "bindings">(initialCandidateKind);
+  const [candidateAvailability, setCandidateAvailability] = useState<"all" | "reviewable">(
+    initialCandidateAvailability,
+  );
   const [items, setItems] = useState<readonly ArtifactDirectoryItemV1[]>([]);
   const [nextCursor, setNextCursor] = useState<ArtifactDirectoryCursorV1 | null>(null);
   const [availability, setAvailability] = useState<"loading" | "available" | "unavailable">("loading");
@@ -66,9 +145,22 @@ export function ArtifactDirectory() {
   const [reason, setReason] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [pendingOlder, setPendingOlder] = useState(false);
+  const [selectedAttemptKey, setSelectedAttemptKey] = useState<string | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailMode, setDetailMode] = useState<"summary" | "readback">("summary");
+  const restoreSummaryFocus = useRef(false);
   const itemsRef = useRef<readonly ArtifactDirectoryItemV1[]>([]);
   const requestGuard = useRef(createArtifactDirectoryRequestGuardV1());
-  const custodyCandidates = useHistoricalCustodyDirectory(view === "candidates");
+  const custodyCandidates = useHistoricalCustodyDirectory(true);
+  const reviewInventory = useArtifactReviewInventory(true);
+
+  useEffect(() => {
+    setView(initialView);
+    setCandidateKind(initialCandidateKind);
+    setCandidateAvailability(initialCandidateAvailability);
+    setDetailOpen(false);
+    setDetailMode("summary");
+  }, [initialCandidateAvailability, initialCandidateKind, initialView]);
 
   const readPage = useCallback(async (cursor?: ArtifactDirectoryCursorV1) => {
     const requestIdentity = requestGuard.current.begin();
@@ -142,13 +234,38 @@ export function ArtifactDirectory() {
       item.buildTarget,
     ].some((value) => value.toLowerCase().includes(normalizedSearch)))
     : items, [items, normalizedSearch]);
+  const projectedReviewByAttempt = useMemo(() => new Map(
+    (reviewInventory.projection?.items ?? []).map((item) => [
+      `${item.buildRequestIdentity}\u0000${item.attemptIdentity}`,
+      item,
+    ]),
+  ), [reviewInventory.projection]);
+  const reviewInventoryBound = useMemo(() => {
+    return artifactReviewInventoryMatchesCustodyV1(
+      reviewInventory.projection,
+      custodyCandidates.projection,
+    );
+  }, [custodyCandidates.projection, reviewInventory.projection]);
+  const reviewByAttempt = useMemo(() => reviewInventoryBound
+    ? projectedReviewByAttempt
+    : new Map(), [projectedReviewByAttempt, reviewInventoryBound]);
+  const reviewAvailability = reviewInventory.availability === "loading"
+    ? "loading"
+    : reviewInventory.availability === "available" && reviewInventoryBound
+    ? "available"
+    : "unavailable";
   const visibleAttemptCandidates = useMemo(() => {
     const candidates = custodyCandidates.projection?.artifactAttempts ?? [];
-    return normalizedSearch
+    const searched = normalizedSearch
       ? candidates.filter((item) => `${item.buildRequestIdentity} ${item.attemptIdentity}`
         .toLowerCase().includes(normalizedSearch))
       : candidates;
-  }, [custodyCandidates.projection, normalizedSearch]);
+    return candidateAvailability === "reviewable"
+      ? searched.filter((item) => reviewByAttempt.get(
+        `${item.buildRequestIdentity}\u0000${item.attemptIdentity}`,
+      )?.availability === "reviewable")
+      : searched;
+  }, [candidateAvailability, custodyCandidates.projection, normalizedSearch, reviewByAttempt]);
   const visibleBindingCandidates = useMemo(() => {
     const candidates = custodyCandidates.projection?.bindings ?? [];
     return normalizedSearch
@@ -156,6 +273,46 @@ export function ArtifactDirectory() {
         .toLowerCase().includes(normalizedSearch))
       : candidates;
   }, [custodyCandidates.projection, normalizedSearch]);
+  const selectedAttempt = useMemo(() => visibleAttemptCandidates.find((item) => (
+    `${item.buildRequestIdentity}\u0000${item.attemptIdentity}` === selectedAttemptKey
+  )) ?? null, [selectedAttemptKey, visibleAttemptCandidates]);
+  const selectedReview = selectedAttempt
+    ? reviewByAttempt.get(`${selectedAttempt.buildRequestIdentity}\u0000${selectedAttempt.attemptIdentity}`)
+    : undefined;
+
+  useEffect(() => {
+    if (detailOpen && !selectedAttempt) setDetailOpen(false);
+  }, [detailOpen, selectedAttempt]);
+
+  const openAttemptDetail = useCallback((buildRequestIdentity: string, attemptIdentity: string) => {
+    setSelectedAttemptKey(`${buildRequestIdentity}\u0000${attemptIdentity}`);
+    setDetailMode("summary");
+    setDetailOpen(true);
+  }, []);
+
+  const closeAttemptDetail = useCallback(() => {
+    restoreSummaryFocus.current = false;
+    setDetailOpen(false);
+    setDetailMode("summary");
+  }, []);
+
+  const returnToAttemptSummary = useCallback(() => {
+    restoreSummaryFocus.current = true;
+    setDetailMode("summary");
+  }, []);
+
+  useEffect(() => {
+    if (!restoreSummaryFocus.current || detailMode !== "summary"
+      || !detailOpen || !selectedAttempt) return;
+    restoreSummaryFocus.current = false;
+    const triggerIdentity = [
+      encodeURIComponent(selectedAttempt.buildRequestIdentity),
+      encodeURIComponent(selectedAttempt.attemptIdentity),
+    ].join(":");
+    document.querySelector<HTMLElement>(
+      `[data-artifact-readback-trigger="${CSS.escape(triggerIdentity)}"]`,
+    )?.focus();
+  }, [detailMode, detailOpen, selectedAttempt]);
 
   const columns = useMemo<DataWorkspaceColumn<ArtifactDirectoryItemV1>[]>(() => [
     {
@@ -165,12 +322,13 @@ export function ArtifactDirectory() {
       sortable: true,
       minWidth: "300px",
       grow: 1.5,
-      cell: (item) => (
-        <Link className={styles.identityCell} href={`/rd/artifacts/${encodeURIComponent(item.buildRequestIdentity)}/attempts/${encodeURIComponent(item.attemptIdentity)}`}>
-          <strong title={item.artifactIdentity}>{displayIdentity(item.artifactIdentity)}</strong>
-          <span title={item.buildRequestIdentity}>{displayIdentity(item.buildRequestIdentity)}</span>
-        </Link>
-      ),
+      cell: (item) => <EntityReference
+        label="Strategy artifact"
+        identity={item.artifactIdentity}
+        detail="Open source"
+        exactTitle={`${item.artifactIdentity} · ${item.buildRequestIdentity}`}
+        href={`/rd/artifacts/${encodeURIComponent(item.buildRequestIdentity)}/attempts/${encodeURIComponent(item.attemptIdentity)}`}
+      />,
       ignoreRowClick: true,
     },
     {
@@ -180,7 +338,7 @@ export function ArtifactDirectory() {
       sortable: true,
       minWidth: "260px",
       grow: 1.2,
-      cell: (item) => <code className={styles.intent} title={item.intentIdentity}>{displayIdentity(item.intentIdentity)}</code>,
+      cell: (item) => <EntityReference label="Strategy intent" identity={item.intentIdentity} />,
     },
     {
       id: "verification",
@@ -211,13 +369,16 @@ export function ArtifactDirectory() {
       sortable: true,
       minWidth: "310px",
       grow: 1.4,
-      cell: (item) => <Link
-        className={styles.identityCell}
-        href={`/rd/artifacts/${encodeURIComponent(item.buildRequestIdentity)}/attempts/${encodeURIComponent(item.attemptIdentity)}?custody=historical`}
-      >
-        <strong title={item.buildRequestIdentity}>{displayIdentity(item.buildRequestIdentity)}</strong>
-        <span>Open historical outcome</span>
-      </Link>,
+      cell: (item) => {
+        const review = reviewByAttempt.get(`${item.buildRequestIdentity}\u0000${item.attemptIdentity}`);
+        const presentation = artifactReviewPresentation(review, reviewAvailability);
+        return <EntityReference
+          label="Build request"
+          identity={item.buildRequestIdentity}
+          detail={presentation.detail}
+          onActivate={() => openAttemptDetail(item.buildRequestIdentity, item.attemptIdentity)}
+        />;
+      },
       ignoreRowClick: true,
     },
     {
@@ -227,23 +388,29 @@ export function ArtifactDirectory() {
       sortable: true,
       minWidth: "280px",
       grow: 1.2,
-      cell: (item) => <code className={styles.intent} title={item.attemptIdentity}>
-        {displayIdentity(item.attemptIdentity)}
-      </code>,
+      cell: (item) => <EntityReference label="Build attempt" identity={item.attemptIdentity} />,
     },
     {
       id: "verification",
-      name: <DataTableHeaderLabel>Verification</DataTableHeaderLabel>,
-      selector: (item) => item.projectionState,
+      name: <DataTableHeaderLabel>Outcome</DataTableHeaderLabel>,
+      selector: (item) => reviewByAttempt.get(
+        `${item.buildRequestIdentity}\u0000${item.attemptIdentity}`,
+      )?.availability ?? item.projectionState,
       minWidth: "220px",
-      cell: () => <div className={styles.verification}>
-        <StatusBadge tone="unavailable">Not verified</StatusBadge>
-        <span>Point read required</span>
-      </div>,
+      cell: (item) => {
+        const review = reviewByAttempt.get(`${item.buildRequestIdentity}\u0000${item.attemptIdentity}`);
+        const presentation = artifactReviewPresentation(review, reviewAvailability);
+        return <div className={styles.verification}>
+          <StatusBadge tone={presentation.tone}>
+            {presentation.label}
+          </StatusBadge>
+          <span>{presentation.secondary}</span>
+        </div>;
+      },
     },
     {
       id: "observed",
-      name: <DataTableHeaderLabel>Custody time</DataTableHeaderLabel>,
+      name: <DataTableHeaderLabel>Recorded</DataTableHeaderLabel>,
       selector: (item) => item.preparedAtEpochMs,
       sortable: true,
       minWidth: "210px",
@@ -251,19 +418,20 @@ export function ArtifactDirectory() {
         {new Date(item.preparedAtEpochMs).toLocaleString()}
       </time>,
     },
-  ], []);
+  ], [reviewAvailability, reviewByAttempt]);
   const bindingCandidateColumns = useMemo<DataWorkspaceColumn<HistoricalBindingCandidateV1>[]>(() => [
     {
       id: "family",
-      name: <DataTableHeaderLabel>TrialFamily</DataTableHeaderLabel>,
+      name: <DataTableHeaderLabel>Strategy family</DataTableHeaderLabel>,
       selector: (item) => item.trialFamilyIdentity,
       sortable: true,
       minWidth: "330px",
       grow: 1.4,
-      cell: (item) => <div className={styles.identityCell}>
-        <strong title={item.trialFamilyIdentity}>{displayIdentity(item.trialFamilyIdentity)}</strong>
-        <span>Candidate identity only</span>
-      </div>,
+      cell: (item) => <EntityReference
+        label="Strategy family"
+        identity={item.trialFamilyIdentity}
+        detail="Needs verification"
+      />,
     },
     {
       id: "binding",
@@ -272,23 +440,21 @@ export function ArtifactDirectory() {
       sortable: true,
       minWidth: "300px",
       grow: 1.2,
-      cell: (item) => <code className={styles.intent} title={item.bindingIdentity}>
-        {displayIdentity(item.bindingIdentity)}
-      </code>,
+      cell: (item) => <EntityReference label="Family binding" identity={item.bindingIdentity} />,
     },
     {
       id: "verification",
-      name: <DataTableHeaderLabel>Verification</DataTableHeaderLabel>,
+      name: <DataTableHeaderLabel>Status</DataTableHeaderLabel>,
       selector: (item) => item.projectionState,
       minWidth: "220px",
       cell: () => <div className={styles.verification}>
         <StatusBadge tone="unavailable">Not verified</StatusBadge>
-        <span>Point read required</span>
+        <span>Details not checked</span>
       </div>,
     },
     {
       id: "observed",
-      name: <DataTableHeaderLabel>Custody time</DataTableHeaderLabel>,
+      name: <DataTableHeaderLabel>Recorded</DataTableHeaderLabel>,
       selector: (item) => item.committedAtEpochMs,
       sortable: true,
       minWidth: "210px",
@@ -299,20 +465,54 @@ export function ArtifactDirectory() {
   ], []);
 
   const pending = view === "verified"
-    ? availability === "loading"
-    : custodyCandidates.availability === "loading";
+    ? availability === "loading" || reviewInventory.availability === "loading"
+    : custodyCandidates.availability === "loading" || reviewInventory.availability === "loading";
   const showPending = useDelayedPending(pending);
-  const refresh = () => view === "verified" ? readPage() : custodyCandidates.read();
+  const refresh = () => {
+    setDetailOpen(false);
+    void reviewInventory.read();
+    if (view === "verified") {
+      void custodyCandidates.read();
+      return readPage();
+    }
+    return custodyCandidates.read();
+  };
   const candidateTotal = candidateKind === "attempts"
     ? custodyCandidates.projection?.artifactAttemptTotal ?? 0
     : custodyCandidates.projection?.bindingTotal ?? 0;
+  const selectView = (value: string) => {
+    const nextView = value === "candidates" ? "candidates" : "verified";
+    setView(nextView);
+    setDetailOpen(false);
+    router.replace(nextView === "candidates"
+      ? candidateUrl(candidateKind, candidateAvailability)
+      : "/rd/artifacts/?view=verified", { scroll: false });
+  };
+  const selectCandidateCut = (value: string) => {
+    const nextKind = value === "bindings" ? "bindings" : "attempts";
+    const nextAvailability = value === "reviewable" ? "reviewable" : "all";
+    setCandidateKind(nextKind);
+    setCandidateAvailability(nextAvailability);
+    setDetailOpen(false);
+    router.replace(candidateUrl(nextKind, nextAvailability), { scroll: false });
+  };
 
   return (
     <PageStack>
+      <RdCustodyReviewSummary
+        projection={custodyCandidates.projection}
+        loading={custodyCandidates.availability === "loading" || reviewInventory.availability === "loading"}
+        scope="artifacts"
+        artifactReviewableTotal={reviewAvailability === "available"
+          && reviewInventoryBound
+          && reviewInventory.projection?.completeness === "complete"
+          ? reviewInventory.projection.reviewableTotal
+          : null}
+      />
       <PanelFrame aria-labelledby="artifact-directory-title">
         <PanelFrameHeader
           eyebrow="Artifacts"
-          title="Strategy artifacts"
+          title="Build activity"
           titleId="artifact-directory-title"
           description={view === "verified"
             ? "Review completed strategy builds and open their source."
@@ -334,20 +534,25 @@ export function ArtifactDirectory() {
               <FilterTabs
                 label="Artifact directory view"
                 items={[
-                  { value: "verified", label: "Verified" },
-                  { value: "candidates", label: "Custody candidates" },
+                  { value: "candidates", label: "Build history" },
+                  { value: "verified", label: "Current artifacts" },
                 ]}
                 selected={view}
-                onSelect={(value) => setView(value === "candidates" ? "candidates" : "verified")}
+                onSelect={selectView}
               />
               {view === "candidates" ? <FilterTabs
-                label="Candidate custody kind"
+                label="Candidate review cut"
                 items={[
-                  { value: "attempts", label: "Attempts" },
+                  { value: "attempts", label: "All attempts" },
+                  { value: "reviewable", label: "Reviewable" },
                   { value: "bindings", label: "Bindings" },
                 ]}
-                selected={candidateKind}
-                onSelect={(value) => setCandidateKind(value === "bindings" ? "bindings" : "attempts")}
+                selected={candidateKind === "bindings"
+                  ? "bindings"
+                  : candidateAvailability === "reviewable"
+                  ? "reviewable"
+                  : "attempts"}
+                onSelect={selectCandidateCut}
                 variant="rail"
               /> : null}
             </div>}>
@@ -358,8 +563,8 @@ export function ArtifactDirectory() {
                 placeholder={view === "verified"
                   ? "Artifact, intent, or request"
                   : candidateKind === "attempts"
-                  ? "Build or attempt identity"
-                  : "Family or binding identity"}
+                  ? "Search build history"
+                  : "Search families or bindings"}
                 maxLength={128}
               />
             </TableToolbar>}
@@ -394,11 +599,21 @@ export function ArtifactDirectory() {
             /> : custodyCandidates.availability === "unavailable" ? (
               <OwnerDirectoryUnavailable
                 icon={<EvidenceIcons.pending aria-hidden="true" size={18} />}
-                title="Candidate data unavailable"
-                detail="Artifact candidates could not be loaded. Try refreshing."
+                title="Build history unavailable"
+                detail="Build attempts and family bindings could not be loaded. Try refreshing."
                 reason={custodyCandidates.reason ?? "CUSTODY_CANDIDATE_DIRECTORY_UNAVAILABLE"}
               />
-            ) : candidateKind === "attempts" ? <DataWorkspaceTable<HistoricalArtifactCandidateV1>
+            ) : candidateKind === "attempts" && candidateAvailability === "reviewable"
+              && reviewAvailability === "unavailable" ? (
+                <OwnerDirectoryUnavailable
+                  icon={<EvidenceIcons.warning aria-hidden="true" size={18} />}
+                  title="Review availability unavailable"
+                  detail="Candidate identities remain visible in All attempts, but readable outcomes could not be verified."
+                  reason={reviewInventory.availability === "available"
+                    ? "ARTIFACT_REVIEW_INVENTORY_CUSTODY_MISMATCH"
+                    : reviewInventory.reason ?? "ARTIFACT_REVIEW_INVENTORY_UNAVAILABLE"}
+                />
+              ) : candidateKind === "attempts" ? <DataWorkspaceTable<HistoricalArtifactCandidateV1>
               ariaLabel="Artifact custody candidates"
               columns={attemptCandidateColumns}
               data={visibleAttemptCandidates}
@@ -409,10 +624,16 @@ export function ArtifactDirectory() {
               paginationPerPage={20}
               paginationResetKey={normalizedSearch}
               paginationRowsPerPageOptions={[20, 50]}
+              onRowClicked={(item) => openAttemptDetail(item.buildRequestIdentity, item.attemptIdentity)}
+              pointerOnHover
               noDataComponent={<DataWorkspaceEmpty state={custodyCandidates.availability === "loading" ? "loading" : "empty"}
                 className={custodyCandidates.availability === "loading" && !showPending ? styles.pendingQuiet : undefined}
                 icon={<EvidenceIcons.pending aria-hidden="true" size={18} />}>
-                {custodyCandidates.availability === "loading" ? "Reading custody candidates…" : "No attempt candidate matches this cut."}
+                {custodyCandidates.availability === "loading" || reviewAvailability === "loading"
+                  ? "Reading build history…"
+                  : candidateAvailability === "reviewable"
+                  ? "No readable build outcome matches this cut."
+                  : "No build attempt matches this cut."}
               </DataWorkspaceEmpty>}
             /> : <DataWorkspaceTable<HistoricalBindingCandidateV1>
               ariaLabel="TrialFamily binding custody candidates"
@@ -428,7 +649,7 @@ export function ArtifactDirectory() {
               noDataComponent={<DataWorkspaceEmpty state={custodyCandidates.availability === "loading" ? "loading" : "empty"}
                 className={custodyCandidates.availability === "loading" && !showPending ? styles.pendingQuiet : undefined}
                 icon={<EvidenceIcons.pending aria-hidden="true" size={18} />}>
-                {custodyCandidates.availability === "loading" ? "Reading custody candidates…" : "No binding candidate matches this cut."}
+                {custodyCandidates.availability === "loading" ? "Reading build history…" : "No family binding matches this cut."}
               </DataWorkspaceEmpty>}
             />}
           </DataTableSurface>
@@ -436,11 +657,23 @@ export function ArtifactDirectory() {
         {view === "candidates" && custodyCandidates.availability === "available" ? (
           <PanelFrameFooter layout="split">
             <PanelFrameFooterSummary
-              primary={`${candidateTotal} ${candidateKind === "attempts" ? "attempt" : "binding"} candidates`}
-              secondary="Candidates remain unverified until their exact record is opened."
+              primary={candidateKind === "attempts" && candidateAvailability === "reviewable"
+                ? reviewAvailability === "loading"
+                  ? "Checking outcomes"
+                  : reviewAvailability === "available"
+                  ? `${reviewInventory.projection?.reviewableTotal ?? 0} reviewable outcomes`
+                  : "Outcome status unavailable"
+                : `${candidateTotal} ${candidateKind === "attempts" ? "build attempts" : "family bindings"}`}
+              secondary={candidateKind === "attempts" && candidateAvailability === "reviewable"
+                ? reviewAvailability === "loading"
+                  ? "Keeping the current build list in place."
+                  : reviewAvailability === "available"
+                  ? "Each row has an outcome ready to review."
+                  : "The current reviewable cut could not be verified."
+                : "Available outcomes can be opened from the table."}
             />
           </PanelFrameFooter>
-        ) : availability === "available" && (partial || nextCursor)
+        ) : view === "verified" && availability === "available" && (partial || nextCursor)
           && !(partial && omittedCount > 0 && items.length === 0) ? (
           <PanelFrameFooter layout="split">
             {partial && omittedCount > 0
@@ -457,6 +690,38 @@ export function ArtifactDirectory() {
           </PanelFrameFooter>
         ) : null}
       </PanelFrame>
+      <DetailSheet
+        open={detailOpen && Boolean(selectedAttempt)}
+        onClose={closeAttemptDetail}
+        eyebrow="Build history"
+        title={detailMode === "readback" ? "Build result" : "Build attempt"}
+        description={selectedAttempt
+          ? detailMode === "readback"
+            ? "Review the exact build result without losing this list context."
+            : reviewAvailability === "loading"
+            ? "Checking whether this attempt has a readable outcome."
+            : selectedReview?.availability === "reviewable"
+            ? "A saved build outcome is ready to review."
+            : "This attempt is recorded, but no readable outcome is available."
+          : undefined}
+      >
+        {selectedAttempt ? detailMode === "readback" ? (
+          <ArtifactHistoricalReadbackDrilldown
+            buildRequestIdentity={selectedAttempt.buildRequestIdentity}
+            attemptIdentity={selectedAttempt.attemptIdentity}
+            onBack={returnToAttemptSummary}
+          />
+        ) : (
+          <ArtifactAttemptPreview
+            candidate={selectedAttempt}
+            review={selectedReview}
+            reviewAvailability={reviewAvailability}
+            reviewObservedAt={reviewInventory.projection?.observedAt}
+            custodyObservedAtEpochMs={custodyCandidates.projection?.observedAtEpochMs}
+            onOpenReadback={() => setDetailMode("readback")}
+          />
+        ) : null}
+      </DetailSheet>
     </PageStack>
   );
 }

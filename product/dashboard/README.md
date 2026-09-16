@@ -5,6 +5,8 @@ UI atoms together with the currently admitted first-party read surfaces.
 
 ## Shipped boundary
 
+- Overview ships a read-only queue home over independently observed R&D custody, outcome, build-review, and
+  RunStore projections. It never presents those reads as one global health snapshot.
 - Operations ships Runs, exact Run Detail, Workers, bounded shadow-read Schedules, Service Logs, and first-party
   Audit. Run Detail includes bounded Logs, Metrics, Traces, and Assets states.
 - R&D ships the Source Intake point read, Research and Artifact directories, the Artifact source viewer, and the
@@ -91,5 +93,5 @@ For a local production preview after the build:
 npm start -- --hostname 127.0.0.1 --port 3100
 ```
 
-The default route redirects to Operations through the local operator session gate. The exact route and component contracts
+The default route redirects to Overview through the local operator session gate. The exact route and component contracts
 remain governed by `docs/guide/dashboard.md` and `docs/guide/dashboard.zh.md`.

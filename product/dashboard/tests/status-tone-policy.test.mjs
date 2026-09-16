@@ -14,6 +14,7 @@ import {
   formationAttemptTone,
   implementationBasisTone,
   intakeStateTone,
+  iterationDecisionOutcomeTone,
   iterationProjectionTone,
   optionalDecisionDispositionTone,
   presenceTone,
@@ -23,6 +24,8 @@ import {
   progressStateTone,
   replacementReadinessTone,
   researchAvailabilityTone,
+  researchQuestionAvailabilityTone,
+  researchOutcomeTone,
   scheduleStateTone,
 } from "../components/ui/status-tone-policy.ts";
 
@@ -63,10 +66,25 @@ test("shared status policy keeps routing, progress, action, and R&D mappings exp
   assert.equal(researchAvailabilityTone("AVAILABLE"), "info");
   assert.equal(researchAvailabilityTone("STALE"), "warning");
   assert.equal(researchAvailabilityTone("UNAVAILABLE"), "unavailable");
+  assert.equal(researchQuestionAvailabilityTone("available"), "success");
+  assert.equal(researchQuestionAvailabilityTone("unavailable"), "unavailable");
+  assert.equal(researchOutcomeTone({ status: "outcome_ready", resolution: "accepted" }), "success");
+  assert.equal(researchOutcomeTone({ status: "outcome_ready", resolution: "rejected" }), "danger");
+  assert.equal(researchOutcomeTone({
+    status: "outcome_ready",
+    resolution: "quarantined",
+    historicalDisposition: "accepted",
+  }), "success");
+  assert.equal(researchOutcomeTone({ status: "awaiting_outcome" }), "unavailable");
   assert.equal(decisionDispositionTone("TERMINAL_STOP"), "info");
   assert.equal(decisionDispositionTone("CONTINUE"), "warning");
   assert.equal(optionalDecisionDispositionTone("TERMINAL_STOP"), "info");
   assert.equal(optionalDecisionDispositionTone(undefined), "unavailable");
+  assert.equal(iterationDecisionOutcomeTone("READY_FOR_SELECTION"), "success");
+  assert.equal(iterationDecisionOutcomeTone("REPAIR_INPUTS"), "warning");
+  assert.equal(iterationDecisionOutcomeTone("SUCCESSOR_EXPERIMENT"), "info");
+  assert.equal(iterationDecisionOutcomeTone("TERMINAL_STOP"), "neutral");
+  assert.equal(iterationDecisionOutcomeTone("UNKNOWN"), "unavailable");
 });
 
 test("R&D pages delegate badge surface semantics to the shared policy", () => {

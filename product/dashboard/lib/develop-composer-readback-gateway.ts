@@ -7,6 +7,7 @@ import { ownerApiTargetForOperationV1 } from "./owner-api-target.ts";
 import {
   canonicalDevelopComposerOperationResponseV2,
   parseDevelopComposerOperationResponseV2,
+  type DevelopComposerOperationResponseV2,
   validDevelopComposerIdentityV2,
 } from "./develop-composer-action-contract.ts";
 
@@ -15,7 +16,9 @@ const COORDINATE = /^[A-Za-z0-9._:/-]{1,192}$/;
 const HEX_DIGEST = /^[0-9a-f]{64}$/;
 const REASON = /^[\p{L}\p{N}\p{P}\p{Zs}]{1,512}$/u;
 const UNAVAILABLE_REASON = /^[A-Z0-9_]{1,128}$/;
-const DISPOSITIONS = new Set([
+export type DevelopComposerDispositionV1 = DevelopComposerOperationResponseV2["disposition"];
+
+const DISPOSITIONS: ReadonlySet<DevelopComposerDispositionV1> = new Set([
   "SUCCESS",
   "CONFLICT",
   "UNSUPPORTED",
@@ -35,7 +38,7 @@ export type DevelopComposerArtifactProjectionV1 = Readonly<{
 }>;
 
 export type DevelopComposerReadbackV1 = Readonly<{
-  disposition: string;
+  disposition: DevelopComposerDispositionV1;
   receiptIdentity: string | null;
   artifact: DevelopComposerArtifactProjectionV1 | null;
   coordinate: string | null;
@@ -70,6 +73,11 @@ function exactKeys(value: Json, keys: readonly string[]): boolean {
 
 function validIdentity(value: unknown): value is string {
   return validDevelopComposerIdentityV2(value);
+}
+
+function validDisposition(value: unknown): value is DevelopComposerDispositionV1 {
+  return typeof value === "string"
+    && DISPOSITIONS.has(value as DevelopComposerDispositionV1);
 }
 
 function validIsoTime(value: unknown): value is string {
@@ -173,8 +181,7 @@ export function parseDevelopComposerBrowserProjectionV1(
   if (value.availability !== "available" || !validIsoTime(value.observedAt)
     || value.state !== "readback" || value.reason !== null || !record(value.readback)
     || !exactKeys(value.readback, ["disposition", "receiptIdentity", "artifact", "coordinate", "reason"])
-    || typeof value.readback.disposition !== "string"
-    || !DISPOSITIONS.has(value.readback.disposition)) return null;
+    || !validDisposition(value.readback.disposition)) return null;
   if (value.readback.disposition === "SUCCESS") {
     if (typeof value.readback.receiptIdentity !== "string"
       || !HEX_DIGEST.test(value.readback.receiptIdentity) || !record(value.readback.artifact)

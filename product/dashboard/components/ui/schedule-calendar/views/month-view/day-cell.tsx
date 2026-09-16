@@ -31,6 +31,7 @@ export function DayCell({ value, rangeStart, rangeEnd, schedules, selectedIdenti
     </div>
     {groups.length > MAX_VISIBLE_EVENTS && <motion.button type="button" className={styles.moreEvents}
       initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12, ...transition }}
+      data-run-identities={groups.slice(MAX_VISIBLE_EVENTS).flatMap((group) => group.run_identity ?? []).join(" ") || undefined}
       aria-label={`Show ${groups.length - MAX_VISIBLE_EVENTS} more schedule groups on ${label}`}
       onClick={() => onInspect(`${label} UTC`, groups)}>
       {groups.length - MAX_VISIBLE_EVENTS} <span>more…</span>

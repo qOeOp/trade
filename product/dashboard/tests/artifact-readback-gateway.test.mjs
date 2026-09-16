@@ -90,6 +90,47 @@ test("current, successful, widened and identity-drifted responses fail closed", 
   }
 });
 
+test("browser projection closes availability and historical disposition", () => {
+  const projection = projectArtifactHistoricalOwnerReadbackV1(
+    ownerReadback,
+    buildRequestIdentity,
+    attemptIdentity,
+    observedAtEpochMs,
+  );
+  assert.ok(projection);
+  for (const candidate of [
+    { ...projection, availability: "pending" },
+    { ...projection, outcome: { ...projection.outcome, historicalDisposition: "successful" } },
+    { ...projection, smuggled: true },
+    {
+      ...projection,
+      availability: "unavailable",
+      observedAt: null,
+      reason: "OWNER_RESPONSE_UNAVAILABLE",
+    },
+  ]) {
+    assert.equal(parseArtifactHistoricalBrowserProjectionV1(
+      candidate,
+      buildRequestIdentity,
+      attemptIdentity,
+    ), null);
+  }
+  const unavailable = {
+    availability: "unavailable",
+    buildRequestIdentity,
+    attemptIdentity,
+    observedAt: null,
+    outcome: null,
+    technical: null,
+    reason: "OWNER_RESPONSE_UNAVAILABLE",
+  };
+  assert.deepEqual(parseArtifactHistoricalBrowserProjectionV1(
+    unavailable,
+    buildRequestIdentity,
+    attemptIdentity,
+  ), unavailable);
+});
+
 test("gateway does not borrow the write-side Owner target", async () => {
   let calls = 0;
   const result = await readArtifactHistoricalGatewayV1({

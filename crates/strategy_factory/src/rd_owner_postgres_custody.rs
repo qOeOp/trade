@@ -648,6 +648,13 @@ pub(crate) struct VerifiedResearchCustodyV1 {
     terminal_attempt_admission: Option<Box<ProductEdgeAdmissionReadbackV1>>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct VerifiedResearchQuestionV1 {
+    pub(crate) hypothesis: String,
+    pub(crate) falsification_question: String,
+    pub(crate) expected_observation: String,
+}
+
 enum VerifiedResearchAuthorityV1 {
     Current(Box<ProductEdgeAdmissionReadbackV1>),
     LegacyQuarantined,
@@ -1729,6 +1736,41 @@ impl VerifiedResearchCustodyV1 {
     pub(crate) fn request_json(&self) -> Option<&serde_json::Value> {
         self.request_json.as_ref()
     }
+
+    /// Returns user-facing research meaning only after the complete stored custody has
+    /// passed the Owner's canonical verification above. Historical wrappers keep the
+    /// request under `request`; current requests expose `goal` directly.
+    pub(crate) fn verified_question(&self) -> Option<VerifiedResearchQuestionV1> {
+        if let Some(intent) = self.intent.as_ref() {
+            let (hypothesis, falsification_question, expected_observation) = match intent {
+                FrozenResearchGoalIntent::V1(intent) => (
+                    &intent.goal.hypothesis,
+                    &intent.goal.falsification_question,
+                    &intent.goal.expected_observation,
+                ),
+                FrozenResearchGoalIntent::V2(intent) => (
+                    &intent.goal.hypothesis,
+                    &intent.goal.falsification_question,
+                    &intent.goal.expected_observation,
+                ),
+            };
+            return Some(VerifiedResearchQuestionV1 {
+                hypothesis: hypothesis.clone(),
+                falsification_question: falsification_question.clone(),
+                expected_observation: expected_observation.clone(),
+            });
+        }
+
+        let request = self.request_json.as_ref()?;
+        let goal = request
+            .get("goal")
+            .or_else(|| request.get("request")?.get("goal"))?;
+        Some(VerifiedResearchQuestionV1 {
+            hypothesis: goal.get("hypothesis")?.as_str()?.to_owned(),
+            falsification_question: goal.get("falsification_question")?.as_str()?.to_owned(),
+            expected_observation: goal.get("expected_observation")?.as_str()?.to_owned(),
+        })
+    }
     pub(crate) fn receipt(&self) -> &ResearchRequestReceiptV1 {
         &self.receipt
     }
@@ -2216,7 +2258,9 @@ async fn admit_preloaded_research_row_in_transaction(
         let intent = commit.intent.clone().map(FrozenResearchGoalIntent::V1);
         let request_schema_version = commit.request_schema_version;
         return Ok(VerifiedResearchCustodyV1 {
-            request_json: None,
+            // The legacy V2 representation has no stored request, but its exact
+            // intent was verified above and remains the canonical meaning source.
+            request_json: intent_json.clone(),
             receipt,
             intent,
             view: None,
@@ -3399,5 +3443,44 @@ mod tests {
         assert_eq!(result.request_identity(), "research-request-v2-test");
         assert!(result.owner_receipt().is_some());
         assert!(result.research_view().is_none());
+    }
+
+    #[rstest::rstest]
+    fn verified_question_reads_the_supported_historical_wrapper() {
+        let custody = VerifiedResearchCustodyV1 {
+            request_json: Some(serde_json::json!({
+                "request": { "goal": {
+                    "hypothesis": "A bounded hypothesis",
+                    "falsification_question": "What would disprove it?",
+                    "expected_observation": "One exact observation"
+                }}
+            })),
+            receipt: ResearchRequestReceiptV1 {
+                schema_version: 1,
+                receipt_identity: "rd-research-request-receipt-v2-test".into(),
+                request_identity: "research-request-v2-test".into(),
+                semantic_digest: format!("sha256:{}", "a".repeat(64)),
+                disposition: ResearchRequestDisposition::RejectedNoWrite,
+                resulting_research_intent_identity: None,
+                committed_at_epoch_ms: 1,
+                rejection_code: Some("TEST".into()),
+            },
+            intent: None,
+            view: None,
+            family: None,
+            expected_family: None,
+            independence_basis: None,
+            protected_feedback: None,
+            authority: VerifiedResearchAuthorityV1::LegacyQuarantined,
+            effective_principal: String::new(),
+            authorized_scope: Vec::new(),
+            request_schema_version: 2,
+            terminal_attempt_admission: None,
+        };
+
+        let question = custody.verified_question().unwrap();
+        assert_eq!(question.hypothesis, "A bounded hypothesis");
+        assert_eq!(question.falsification_question, "What would disprove it?");
+        assert_eq!(question.expected_observation, "One exact observation");
     }
 }

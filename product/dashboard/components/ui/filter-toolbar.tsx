@@ -41,18 +41,23 @@ export function TableFilterMenu({
   label,
   sections,
   density = "default",
+  labelPresentation = "hidden",
+  className,
 }: {
   label: string;
   sections: readonly TableFilterSection[];
   density?: FilterControlDensity;
+  labelPresentation?: "hidden" | "inline";
+  className?: string;
 }) {
   const reduceMotion = useReducedMotion();
   return (
-    <div className="table-filter-menu" data-density={density} role="group" aria-label={label}>
+    <div className={cn("table-filter-menu", className)} data-density={density}
+      data-labels={labelPresentation} role="group" aria-label={label}>
       {sections.map((section) => (
         <motion.label key={section.id} className="table-filter-select"
           whileTap={reduceMotion ? undefined : { scale: 0.985 }} transition={{ duration: 0.12 }}>
-          <span className="sr-only">{section.label}</span>
+          <span className={labelPresentation === "hidden" ? "sr-only" : undefined}>{section.label}</span>
           <select aria-label={section.label} value={section.selected}
             onChange={(event) => section.onSelect(event.target.value)}>
             {section.items.map((item) => (

@@ -1,11 +1,11 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   admitRunListViewResponseV2,
   isRunListSearchInputV2,
+  RUN_LIST_RETENTION_LIMIT_V2,
   runListViewMatchesFilterV2,
   runListDurationsV2,
   runListPageSizesV2,
@@ -17,12 +17,16 @@ import {
   type RunListStateV2,
   type RunListViewEnvelopeV2,
 } from "../lib/run-list-view-contract";
+import { runStateLabel, runTriggerLabel, sourceResultLabel } from "../lib/operations-presentation";
+import { runOperationLabel } from "../lib/run-operation-presentation";
 import { CompactStatusBar, CompactStatusGroup, CompactStatusItem } from "./ui/compact-status-bar";
 import { UnavailableState } from "./ui/evidence-strip";
 import { FilterButton, FilterSearch, FilterTabs, TableFilterMenu, TableToolbar } from "./ui/filter-toolbar";
 import { DataTableHeaderLabel, DataTableSurface } from "./ui/data-table";
 import { DataWorkspaceEmpty } from "./ui/data-workspace-empty";
 import { DataWorkspaceTable, type DataWorkspaceColumn } from "./ui/data-workspace-table";
+import { DetailFact, DetailFactGrid } from "./ui/detail-inspector";
+import { DetailSheet } from "./ui/detail-sheet";
 import {
   PanelFrame,
   PanelFrameBody,
@@ -31,16 +35,16 @@ import {
   PanelFrameFooterMeta,
   PanelFrameFooterSummary,
   PanelFrameHeader,
-  PanelFrameInfo,
-  PanelFrameInfoFact,
-  PanelFrameInfoList,
 } from "./ui/panel-frame";
 import { PageStack } from "./ui/page-stack";
 import { StatusBadge } from "./ui/status-badge";
-import { executionStateTone } from "./ui/status-tone-policy";
+import { executionStateTone, ownerOutcomeTone } from "./ui/status-tone-policy";
 import { InterfaceIcons, RunIcons } from "./ui/iconography";
 
-const stateItems = runListStatesV2.map((value) => ({ value, label: value === "all" ? "All states" : value }));
+const stateItems = runListStatesV2.map((value) => ({
+  value,
+  label: value === "all" ? "All states" : runStateLabel(value),
+}));
 const durationLabels: Record<RunListDurationV2, string> = {
   any: "Any duration",
   lt_1s: "<1 s",
@@ -60,7 +64,8 @@ function unavailable(reason: string): RunListViewEnvelopeV2 {
   return {
     schema_version: 1, projection_version: 2, operation: "dashboard.run_store.list.v2",
     availability: "unavailable", unavailable_reason: reason, completeness: "partial_unavailable",
-    observed_at: new Date().toISOString(), source_cut: null, snapshot: null, filter_cut: null,
+    observed_at: new Date().toISOString(), retention_limit: RUN_LIST_RETENTION_LIMIT_V2,
+    source_cut: null, snapshot: null, filter_cut: null,
     summary: null, filtered_total: null, total_pages: null, runs: [],
   };
 }
@@ -76,13 +81,7 @@ function displayTime(value: string | null) {
   return value ? new Date(value).toLocaleString() : "-";
 }
 
-function triggerLabel(run: RunListItemV2) {
-  const trigger = { dashboard_bff: "App", dashboard_api: "API", dashboard_scheduler: "Scheduler" }[run.trigger_kind];
-  return run.principal_ref ? `${trigger} · ${run.principal_ref}` : trigger;
-}
-
 export function OperationsRunStorePreview() {
-  const router = useRouter();
   const [result, setResult] = useState<RunListViewEnvelopeV2 | null>(null);
   const [kind, setKind] = useState<RunListKindV2>("runs");
   const [state, setState] = useState<RunListStateV2>("all");
@@ -93,6 +92,7 @@ export function OperationsRunStorePreview() {
   const [search, setSearch] = useState("");
   const [cadence, setCadence] = useState(0);
   const [pending, setPending] = useState(true);
+  const [selectedRun, setSelectedRun] = useState<RunListItemV2 | null>(null);
   const requestVersion = useRef(0);
   const snapshotRef = useRef<string | null>(null);
 
@@ -166,23 +166,21 @@ export function OperationsRunStorePreview() {
 
   const columns = useMemo<DataWorkspaceColumn<RunListItemV2>[]>(() => [
     { id: "status", name: <DataTableHeaderLabel>Status</DataTableHeaderLabel>, selector: (run) => run.state, width: "118px",
-      cell: (run) => <StatusBadge tone={executionStateTone(run.state)}>{run.state}</StatusBadge> },
+      cell: (run) => <StatusBadge tone={executionStateTone(run.state)}>{runStateLabel(run.state)}</StatusBadge> },
     { id: "started", name: <DataTableHeaderLabel>Started</DataTableHeaderLabel>, selector: (run) => run.started_at ?? "", minWidth: "170px",
       cell: (run) => <time className="table-cell-time" dateTime={run.started_at ?? undefined}>{displayTime(run.started_at)}</time> },
     { id: "duration", name: <DataTableHeaderLabel>Duration</DataTableHeaderLabel>, selector: (run) => run.duration_ms ?? -1, width: "112px",
       cell: (run) => <span className="table-cell-numeric">{durationLabel(run.duration_ms)}</span> },
-    { id: "path", name: <DataTableHeaderLabel>Path</DataTableHeaderLabel>, selector: (run) => run.path, minWidth: "260px", grow: 1.4,
-      cell: (run) => <code title={run.path}>{run.path}</code> },
-    { id: "trigger", name: <DataTableHeaderLabel>Trigger</DataTableHeaderLabel>, selector: triggerLabel, minWidth: "160px",
-      cell: (run) => <span>{triggerLabel(run)}</span> },
-    { id: "tag", name: <DataTableHeaderLabel>Tag</DataTableHeaderLabel>, selector: () => "", width: "110px",
-      cell: () => <span title="Tag evidence is not retained by this RunStore">-</span> },
-    { id: "outcome", name: <DataTableHeaderLabel>Owner outcome</DataTableHeaderLabel>, selector: (run) => run.owner_outcome_state, minWidth: "150px",
-      cell: (run) => <span>{run.owner_outcome_state === "not_applicable" ? "not applicable" : run.owner_outcome_state}</span> },
+    { id: "path", name: <DataTableHeaderLabel>Activity</DataTableHeaderLabel>, selector: (run) => run.path, minWidth: "260px", grow: 1.4,
+      cell: (run) => <span title={run.path}>{runOperationLabel(run.path)}</span> },
+    { id: "trigger", name: <DataTableHeaderLabel>Started by</DataTableHeaderLabel>, selector: (run) => run.trigger_kind, minWidth: "140px",
+      cell: (run) => <span>{runTriggerLabel(run.trigger_kind)}</span> },
+    { id: "outcome", name: <DataTableHeaderLabel>Source result</DataTableHeaderLabel>, selector: (run) => run.owner_outcome_state, minWidth: "150px",
+      cell: (run) => <StatusBadge tone={ownerOutcomeTone(run.owner_outcome_state)}>{sourceResultLabel(run.owner_outcome_state)}</StatusBadge> },
     { id: "open", name: <DataTableHeaderLabel>Open</DataTableHeaderLabel>, selector: (run) => run.run_identity, width: "80px", ignoreRowClick: true,
       cell: (run) => <FilterButton density="compact" variant="secondary" type="button"
-        onClick={() => router.push(`/operations/runs/${encodeURIComponent(run.run_identity)}`)}>Open</FilterButton> },
-  ], [router]);
+        onClick={() => setSelectedRun(run)}>Open</FilterButton> },
+  ], []);
 
   const move = (nextPage: number) => {
     if (pending || nextPage < 1 || nextPage > totalPages || nextPage === page) return;
@@ -192,7 +190,7 @@ export function OperationsRunStorePreview() {
   return (
     <PageStack className="operations-runs-page">
       <PanelFrame className="operations-runs-panel bento-page-frame" aria-labelledby="operations-runstore-title">
-        <PanelFrameHeader eyebrow="Operational history" title="Runs" titleId="operations-runstore-title" actions={<>
+        <PanelFrameHeader eyebrow="Activity history" title="Runs" titleId="operations-runstore-title" actions={<>
           <TableFilterMenu density="compact" label="Run refresh cadence" sections={[{
             id: "cadence", label: "Auto-refresh", selected: String(cadence), items: cadenceItems,
             onSelect: (value) => setCadence(Number(value)),
@@ -204,8 +202,8 @@ export function OperationsRunStorePreview() {
         </>} />
         <PanelFrameBody>
           <CompactStatusBar className="operations-run-summaries" aria-label="Run summary">
-            <CompactStatusGroup label={kind === "runs" ? "runs" : "dependencies"}>
-              <CompactStatusItem label="queued" value={summary?.queued ?? "-"} />
+            <CompactStatusGroup label={kind === "runs" ? "action runs" : "data reads"}>
+              <CompactStatusItem label="waiting" value={summary?.queued ?? "-"} />
               <CompactStatusItem label="running" tone="info" value={summary?.running ?? "-"} />
               <CompactStatusItem label="unknown" tone={summary?.unknown ? "warning" : "neutral"} value={summary?.unknown ?? "-"} />
               <CompactStatusItem label="completed" value={summary?.completed ?? "-"} />
@@ -214,34 +212,39 @@ export function OperationsRunStorePreview() {
           </CompactStatusBar>
           <DataTableSurface className="operations-run-table-surface" geometry="inner" toolbarLabel="Run table controls" toolbar={
             <TableToolbar filter={<>
-              <FilterTabs label="Run kind" items={[{ value: "runs", label: "Runs" }, { value: "dependencies", label: "Dependencies" }]}
+              <FilterTabs label="Run kind" items={[{ value: "runs", label: "Action runs" }, { value: "dependencies", label: "Data reads" }]}
                 selected={kind} onSelect={(value) => setKind(value as RunListKindV2)} />
               <TableFilterMenu density="compact" label="Run filters" sections={[
                 { id: "state", label: "State", selected: state, items: stateItems, onSelect: (value) => setState(value as RunListStateV2) },
                 { id: "duration", label: "Duration", selected: duration, items: durationItems, onSelect: (value) => setDuration(value as RunListDurationV2) },
               ]} />
             </>}>
-              <FilterSearch density="compact" label="Search path or run identity" value={queryDraft}
+              <FilterSearch density="compact" label="Search activity or run identity" value={queryDraft}
                 onChange={(event) => {
                   if (isRunListSearchInputV2(event.target.value)) setQueryDraft(event.target.value);
-                }} placeholder="Search path / run ID" maxLength={128} />
-              <PanelFrameInfo label="View unavailable fields"><PanelFrameInfoList>
-                <PanelFrameInfoFact label="Path">Exact operation identity</PanelFrameInfoFact>
-                <PanelFrameInfoFact label="Principal">Effect admissions only</PanelFrameInfoFact>
-                <PanelFrameInfoFact label="Tag">Not retained</PanelFrameInfoFact>
-                <PanelFrameInfoFact label="Concurrency">Not retained</PanelFrameInfoFact>
-              </PanelFrameInfoList></PanelFrameInfo>
+                }} placeholder="Search activity / run ID" maxLength={128} />
             </TableToolbar>
           }>
             {pageResult ? <>
               <DataWorkspaceTable<RunListItemV2> ariaLabel="Dashboard operation runs" className="operations-run-table"
                 columns={columns} data={pageResult.runs} keyField="run_identity"
-                noDataComponent={<DataWorkspaceEmpty icon={<RunIcons.loaded aria-hidden="true" size={18} />}>
-                  {search || state !== "all" || duration !== "any" ? "No run matches these filters." : `No ${kind} are retained.`}
+                noDataComponent={<DataWorkspaceEmpty icon={<RunIcons.loaded aria-hidden="true" size={18} />}
+                  action={kind === "runs" && !search && state === "all" && duration === "any"
+                    ? <FilterButton density="compact" variant="secondary" type="button"
+                        onClick={() => setKind("dependencies")}>View data reads</FilterButton>
+                    : undefined}>
+                  {search || state !== "all" || duration !== "any"
+                    ? `No ${kind === "runs" ? "action run" : "data read"} matches these filters.`
+                    : kind === "runs" ? "No action runs yet." : "No data reads are available."}
                 </DataWorkspaceEmpty>}
-                onRowClicked={(run) => router.push(`/operations/runs/${encodeURIComponent(run.run_identity)}`)} pointerOnHover />
+                onRowClicked={setSelectedRun} pointerOnHover />
               <PanelFrameFooter layout="split">
-                <PanelFrameFooterSummary primary={`${pageResult.runs.length} shown / ${pageResult.filtered_total ?? "-"} filtered`} />
+                <PanelFrameFooterSummary
+                  primary={`${pageResult.runs.length} shown / ${pageResult.filtered_total ?? "-"} matching`}
+                  secondary={pageResult.completeness === "partial_unavailable"
+                    ? `Latest ${pageResult.retention_limit} available; earlier activity is not shown`
+                    : "Complete available activity"}
+                />
                 <PanelFrameFooterMeta>Page {page} of {totalPages}</PanelFrameFooterMeta>
                 <PanelFrameFooterActions>
                   <TableFilterMenu density="compact" label="Rows per page" sections={[{
@@ -260,6 +263,25 @@ export function OperationsRunStorePreview() {
           </DataTableSurface>
         </PanelFrameBody>
       </PanelFrame>
+      <DetailSheet
+        open={selectedRun !== null}
+        onClose={() => setSelectedRun(null)}
+        eyebrow="Run preview"
+        title={selectedRun ? runOperationLabel(selectedRun.path) : "Run"}
+        description="Read-only summary from the current activity list."
+        canonicalHref={selectedRun
+          ? `/operations/runs/${encodeURIComponent(selectedRun.run_identity)}`
+          : undefined}
+      >
+        {selectedRun ? <DetailFactGrid>
+          <DetailFact label="Status"><StatusBadge tone={executionStateTone(selectedRun.state)}>{runStateLabel(selectedRun.state)}</StatusBadge></DetailFact>
+          <DetailFact label="Activity"><b>{runOperationLabel(selectedRun.path)}</b></DetailFact>
+          <DetailFact label="Started by"><b>{runTriggerLabel(selectedRun.trigger_kind)}</b></DetailFact>
+          <DetailFact label="Started"><time dateTime={selectedRun.started_at ?? undefined}>{displayTime(selectedRun.started_at)}</time></DetailFact>
+          <DetailFact label="Duration"><b>{durationLabel(selectedRun.duration_ms)}</b></DetailFact>
+          <DetailFact label="Source result"><StatusBadge tone={ownerOutcomeTone(selectedRun.owner_outcome_state)}>{sourceResultLabel(selectedRun.owner_outcome_state)}</StatusBadge></DetailFact>
+        </DetailFactGrid> : null}
+      </DetailSheet>
     </PageStack>
   );
 }

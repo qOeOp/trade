@@ -19,6 +19,7 @@ export function ScheduleEntry({ group, groups, index, label, selectedIdentity, c
 }) {
   return <motion.button type="button" className={styles.eventBadge}
     data-slot="calendar-event-badge" data-kind={group.kind} data-position={position}
+    data-run-identity={group.run_identity ?? undefined}
     aria-pressed={selectedIdentity === group.schedule_identity}
     aria-label={`${group.operation_id} · ${group.kind === "observed" ? "Observed run" : "Expected triggers"} · ${group.count > 1 ? group.count : group.first_at}`}
     initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }}

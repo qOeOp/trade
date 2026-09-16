@@ -38,6 +38,7 @@ mod complex_strategy_program_tests;
 )]
 mod composer_artifact_family_binding_v3;
 mod composer_replay_intent_v3;
+pub mod dashboard_read;
 mod decision;
 #[allow(
     dead_code,

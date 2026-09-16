@@ -726,7 +726,7 @@ impl TrialFamilyRootReceiptV1 {
         self.replay_policy_catalog_v3.as_ref()
     }
 
-    pub(crate) fn committed_at_epoch_ms(&self) -> u64 {
+    pub const fn committed_at_epoch_ms(&self) -> u64 {
         self.committed_at_epoch_ms
     }
 }
@@ -798,6 +798,10 @@ impl TrialFamilyCensusFrontierV1 {
 
     pub fn member_digests(&self) -> &[String] {
         &self.member_digests
+    }
+
+    pub const fn consumed_trial_budget(&self) -> u32 {
+        self.consumed_trial_budget
     }
 
     pub fn replay_execution_policy_v2(&self) -> Option<&crate::ReplayPolicyCatalogBindingV2> {

@@ -18,6 +18,7 @@ import {
   useTable,
 } from "@tanstack/react-table";
 import {
+  Fragment,
   isValidElement,
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
@@ -97,6 +98,13 @@ type DataWorkspaceTableProps<T extends RowData> = {
   keyField?: keyof T | string;
   noDataComponent?: ReactNode;
   onRowClicked?: (row: T, event: ReactMouseEvent<HTMLTableRowElement>) => void;
+  rowDisclosure?: {
+    detailsId: (row: T) => string;
+    detailsLabel: (row: T) => string;
+    isExpanded: (row: T) => boolean;
+    render: (row: T) => ReactNode;
+    onDismiss?: () => void;
+  };
   pagination?: boolean;
   paginationPerPage?: number;
   paginationResetKey?: string;
@@ -138,6 +146,7 @@ export function DataWorkspaceTable<T extends RowData>({
   keyField,
   noDataComponent,
   onRowClicked,
+  rowDisclosure,
   pagination = false,
   paginationPerPage = 20,
   paginationResetKey,
@@ -199,6 +208,7 @@ export function DataWorkspaceTable<T extends RowData>({
   const filteredRowCount = table.getFilteredRowModel().rows.length;
   const pageSizeOptions = Array.from(new Set([...paginationRowsPerPageOptions, paginationPerPage])).sort((a, b) => a - b);
   const interactive = Boolean(onRowClicked || pointerOnHover);
+  const hasExpandedRow = Boolean(rowDisclosure && rows.some((row) => rowDisclosure.isExpanded(row.original)));
   const tableMinWidth = minimumTableWidth(columns);
 
   return (
@@ -207,6 +217,7 @@ export function DataWorkspaceTable<T extends RowData>({
       className={["data-workspace-table", className].filter(Boolean).join(" ")}
       data-density={dense ? "compact" : "default"}
       data-height-mode={heightMode}
+      data-has-expanded-row={hasExpandedRow || undefined}
       data-interactive={interactive || undefined}
     >
       <div className="data-workspace-viewport">
@@ -227,7 +238,10 @@ export function DataWorkspaceTable<T extends RowData>({
                         <button
                           type="button"
                           className="data-workspace-sort"
-                          onClick={header.column.getToggleSortingHandler()}
+                          onClick={(event) => {
+                            rowDisclosure?.onDismiss?.();
+                            header.column.getToggleSortingHandler()?.(event);
+                          }}
                         >
                           <table.FlexRender header={header} />
                           {sorted === "asc" ? <InterfaceIcons.sortAscending aria-hidden="true" /> : null}
@@ -243,37 +257,57 @@ export function DataWorkspaceTable<T extends RowData>({
           <TableBody>
             {rows.map((row) => {
               const selected = conditionalRowStyles.some((rule) => rule.when(row.original));
+              const expanded = rowDisclosure?.isExpanded(row.original) ?? false;
+              const detailsId = rowDisclosure?.detailsId(row.original);
               return (
-                <TableRow
-                  key={row.id}
-                  data-selected={selected || undefined}
-                  data-interactive={interactive || undefined}
-                  aria-selected={conditionalRowStyles.length ? selected : undefined}
-                  tabIndex={onRowClicked ? 0 : undefined}
-                  onClick={onRowClicked ? (event) => {
-                    if ((event.target as HTMLElement).closest("a,button,input,select,textarea,[data-table-stop-row-click]")) return;
-                    onRowClicked(row.original, event);
-                  } : undefined}
-                  onKeyDown={onRowClicked ? (event) => {
-                    if (event.target !== event.currentTarget) return;
-                    if (event.key !== "Enter" && event.key !== " ") return;
-                    event.preventDefault();
-                    onRowClicked(row.original, event as unknown as ReactMouseEvent<HTMLTableRowElement>);
-                  } : undefined}
-                >
-                  {row.getAllCells().map((cell) => {
-                    const projectColumn = projectColumnsById.get(cell.column.id);
-                    return (
-                      <TableCell
-                        key={cell.id}
-                        data-table-stop-row-click={projectColumn?.ignoreRowClick || undefined}
-                        style={projectColumn ? columnCellStyle(projectColumn) : undefined}
-                      >
-                        <table.FlexRender cell={cell} />
+                <Fragment key={row.id}>
+                  <TableRow
+                    data-selected={selected || undefined}
+                    data-expanded={expanded || undefined}
+                    data-interactive={interactive || undefined}
+                    aria-selected={conditionalRowStyles.length ? selected : undefined}
+                    aria-expanded={rowDisclosure ? expanded : undefined}
+                    aria-controls={rowDisclosure ? detailsId : undefined}
+                    tabIndex={onRowClicked ? 0 : undefined}
+                    onClick={onRowClicked ? (event) => {
+                      if ((event.target as HTMLElement).closest("a,button,input,select,textarea,[data-table-stop-row-click]")) return;
+                      onRowClicked(row.original, event);
+                    } : undefined}
+                    onKeyDown={onRowClicked ? (event) => {
+                      if (event.target !== event.currentTarget) return;
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      event.preventDefault();
+                      onRowClicked(row.original, event as unknown as ReactMouseEvent<HTMLTableRowElement>);
+                    } : undefined}
+                  >
+                    {row.getAllCells().map((cell) => {
+                      const projectColumn = projectColumnsById.get(cell.column.id);
+                      return (
+                        <TableCell
+                          key={cell.id}
+                          data-table-stop-row-click={projectColumn?.ignoreRowClick || undefined}
+                          style={projectColumn ? columnCellStyle(projectColumn) : undefined}
+                        >
+                          <table.FlexRender cell={cell} />
+                        </TableCell>
+                      );
+                    })}
+                  </TableRow>
+                  {expanded && rowDisclosure && detailsId ? (
+                    <TableRow className="workspace-table-row-details">
+                      <TableCell colSpan={row.getAllCells().length}>
+                        <div
+                          id={detailsId}
+                          className="data-workspace-row-details"
+                          role="region"
+                          aria-label={rowDisclosure.detailsLabel(row.original)}
+                        >
+                          {rowDisclosure.render(row.original)}
+                        </div>
                       </TableCell>
-                    );
-                  })}
-                </TableRow>
+                    </TableRow>
+                  ) : null}
+                </Fragment>
               );
             })}
           </TableBody>
@@ -284,15 +318,24 @@ export function DataWorkspaceTable<T extends RowData>({
         <div className="data-workspace-pagination" aria-label={`${ariaLabel} pagination`}>
           <label>
             <span>Rows</span>
-            <select value={table.state.pagination.pageSize} onChange={(event) => table.setPageSize(Number(event.target.value))}>
+            <select value={table.state.pagination.pageSize} onChange={(event) => {
+              rowDisclosure?.onDismiss?.();
+              table.setPageSize(Number(event.target.value));
+            }}>
               {pageSizeOptions.map((size) => <option key={size} value={size}>{size}</option>)}
             </select>
           </label>
           <span>{table.state.pagination.pageIndex * table.state.pagination.pageSize + 1}-{Math.min((table.state.pagination.pageIndex + 1) * table.state.pagination.pageSize, filteredRowCount)} of {filteredRowCount}</span>
-          <Button variant="outline" size="icon-tool" aria-label="Previous page" disabled={!table.getCanPreviousPage()} onClick={() => table.previousPage()}>
+          <Button variant="outline" size="icon-tool" aria-label="Previous page" disabled={!table.getCanPreviousPage()} onClick={() => {
+            rowDisclosure?.onDismiss?.();
+            table.previousPage();
+          }}>
             <InterfaceIcons.previous aria-hidden="true" />
           </Button>
-          <Button variant="outline" size="icon-tool" aria-label="Next page" disabled={!table.getCanNextPage()} onClick={() => table.nextPage()}>
+          <Button variant="outline" size="icon-tool" aria-label="Next page" disabled={!table.getCanNextPage()} onClick={() => {
+            rowDisclosure?.onDismiss?.();
+            table.nextPage();
+          }}>
             <InterfaceIcons.next aria-hidden="true" />
           </Button>
         </div>

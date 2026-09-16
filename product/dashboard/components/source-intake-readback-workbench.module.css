@@ -11,6 +11,11 @@
   margin-top: 14px;
 }
 
+.readback {
+  display: grid;
+  gap: 12px;
+}
+
 .result :global(.empty-state),
 .result :global(.unavailable-state) {
   min-height: 122px;

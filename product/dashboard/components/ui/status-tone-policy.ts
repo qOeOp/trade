@@ -107,8 +107,35 @@ export function researchAvailabilityTone(value: string | null | undefined): Stat
   return "neutral";
 }
 
+export function researchQuestionAvailabilityTone(value: string): StatusBadgeTone {
+  return value === "available" ? "success" : "unavailable";
+}
+
+export function researchOutcomeTone({
+  status,
+  resolution,
+  historicalDisposition,
+}: {
+  status: string;
+  resolution?: string | null;
+  historicalDisposition?: string | null;
+}): StatusBadgeTone {
+  if (status !== "outcome_ready") return "unavailable";
+  if (resolution === "accepted" || historicalDisposition === "accepted") return "success";
+  if (resolution === "rejected" || historicalDisposition === "rejected") return "danger";
+  return "warning";
+}
+
 export function decisionDispositionTone(value: string): StatusBadgeTone {
   return value === "TERMINAL_STOP" ? "info" : "warning";
+}
+
+export function iterationDecisionOutcomeTone(value: string): StatusBadgeTone {
+  if (value === "READY_FOR_SELECTION") return "success";
+  if (value === "REPAIR_INPUTS") return "warning";
+  if (value === "SUCCESSOR_EXPERIMENT") return "info";
+  if (value === "TERMINAL_STOP") return "neutral";
+  return "unavailable";
 }
 
 export function optionalDecisionDispositionTone(value: string | null | undefined): StatusBadgeTone {

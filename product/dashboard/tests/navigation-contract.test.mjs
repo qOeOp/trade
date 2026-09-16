@@ -54,7 +54,7 @@ test("only the current bilingual completeness closure is drawable exact", () => 
     .filter(({ href }) => maturityFor(href) === "DRAWABLE_EXACT")
     .map(({ href }) => href);
   assert.deepEqual(exact, [
-    "/rd", "/rd/research", "/rd/artifacts", "/rd/composer",
+    "/dashboard", "/dashboard/attention", "/dashboard/recent", "/dashboard/evidence", "/rd", "/rd/research", "/rd/hypotheses", "/rd/artifacts", "/rd/composer", "/rd/decisions",
     "/backtest",
     "/runtime", "/runtime/generations", "/runtime/checkpoints", "/runtime/incidents",
     "/portfolio", "/portfolio/exposure", "/portfolio/capacity", "/portfolio/attribution",
@@ -65,7 +65,6 @@ test("only the current bilingual completeness closure is drawable exact", () => 
 
 test("all remaining pages fail closed", () => {
   for (const href of [
-    "/dashboard", "/rd/hypotheses", "/rd/decisions",
     "/operations/event-rail", "/operations/telemetry", "/operations/alerts",
   ]) {
     assert.equal(maturityFor(href), "BLUEPRINT_ONLY_NOT_IMPLEMENTABLE");
@@ -140,9 +139,9 @@ test("Workers bilingual completeness includes geometry, failure states and actio
     const spec = doc.slice(start, doc.indexOf("`/operations/service-logs`", start));
     for (const token of [
       "DRAWABLE_EXACT", "IMPLEMENTATION_ADMITTED", "/operations/workers/:workerId",
-      "Fleet", "Workload", "Online", "Expired", "Claimed", "Active", "1280", "560px", "300px",
-      "250", "125", "105", "220", "120", "20/50/100", "READING_WORKERS", "WORKER_NOT_FOUND",
-      "partial", "stale", "permission-denied", "GET/no-store", "Back to worker list",
+      "Capacity", "Work handled", "Ready", "Offline", "Processed", "Active", "1280", "560px", "300px",
+      "250", "125", "132", "220", "120", "20/50/100", "READING_WORKERS", "WORKER_NOT_FOUND",
+      "partial", "stale", "permission-denied", "GET/no-store", "Back to services", "same-context selection",
     ]) assert.ok(spec.includes(token), `${suffix || "en"} missing ${token}`);
     const blueprintOnly = doc.split("\n").find((line) => line.startsWith("| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`"));
     assert.doesNotMatch(blueprintOnly, /Workers/);

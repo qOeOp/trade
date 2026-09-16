@@ -6,9 +6,13 @@ import {
   parseHistoricalCustodyBrowserEnvelopeV1,
   type HistoricalCustodyProjectionV1,
 } from "../lib/rd-historical-custody-client";
+import {
+  visibleAsyncReadAvailabilityV1,
+  type AsyncReadAvailability,
+} from "./ui/async-read-state";
 
 type HistoricalCustodyDirectoryState = Readonly<{
-  availability: "idle" | "loading" | "available" | "unavailable";
+  availability: AsyncReadAvailability;
   projection: HistoricalCustodyProjectionV1 | null;
   reason: string | null;
 }>;
@@ -66,5 +70,9 @@ export function useHistoricalCustodyDirectory(enabled: boolean) {
     }
   }, [enabled, read, state.availability]);
 
-  return { ...state, read };
+  return {
+    ...state,
+    availability: visibleAsyncReadAvailabilityV1(enabled, state.availability),
+    read,
+  };
 }

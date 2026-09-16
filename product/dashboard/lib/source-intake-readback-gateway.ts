@@ -8,7 +8,17 @@ import {
 const IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
 const REASON = /^[A-Z0-9_]{1,128}$/;
-const TERMINALS = new Set([
+export type SourceIntakeTerminalResolutionV1 =
+  | "RETRIEVED"
+  | "NOT_FOUND"
+  | "AUTH_REQUIRED"
+  | "ACCESS_DENIED"
+  | "RATE_LIMITED"
+  | "TERMS_OR_LICENSE_BLOCKED"
+  | "MALFORMED"
+  | "UNAVAILABLE";
+
+const TERMINALS: ReadonlySet<SourceIntakeTerminalResolutionV1> = new Set([
   "RETRIEVED",
   "NOT_FOUND",
   "AUTH_REQUIRED",
@@ -23,7 +33,7 @@ type Fetcher = typeof fetch;
 
 export type SourceIntakeTerminalReadbackV1 = Readonly<{
   requestIdentity: string;
-  resolution: string;
+  resolution: SourceIntakeTerminalResolutionV1;
   bindingIdentity: string;
   receiptIdentity: string;
   committedAt: string;
@@ -110,7 +120,8 @@ export function projectSourceIntakeShadowReadbackV1(
     };
   }
 
-  if (typeof projection.resolution !== "string" || !TERMINALS.has(projection.resolution)
+  if (typeof projection.resolution !== "string"
+    || !TERMINALS.has(projection.resolution as SourceIntakeTerminalResolutionV1)
     || !validIdentity(projection.binding_identity)
     || !validIdentity(projection.authority_class)
     || !record(projection.receipt)
@@ -135,7 +146,7 @@ export function projectSourceIntakeShadowReadbackV1(
     state: "terminal",
     terminal: {
       requestIdentity,
-      resolution: projection.resolution,
+      resolution: projection.resolution as SourceIntakeTerminalResolutionV1,
       bindingIdentity: projection.binding_identity,
       receiptIdentity: projection.receipt.receipt_identity,
       committedAt: new Date(Number(projection.receipt.committed_at_epoch_ms)).toISOString(),
@@ -166,7 +177,8 @@ export function parseSourceIntakeBrowserProjectionV1(
     "requestIdentity", "resolution", "bindingIdentity", "receiptIdentity", "committedAt", "authorityClass",
     "content",
   ]) || value.terminal.requestIdentity !== value.requestIdentity
-    || typeof value.terminal.resolution !== "string" || !TERMINALS.has(value.terminal.resolution)
+    || typeof value.terminal.resolution !== "string"
+    || !TERMINALS.has(value.terminal.resolution as SourceIntakeTerminalResolutionV1)
     || !validIdentity(value.terminal.bindingIdentity)
     || !validIdentity(value.terminal.receiptIdentity)
     || !validIsoTime(value.terminal.committedAt)

@@ -5,6 +5,7 @@ import pg from "pg";
 import { isRunListOperationBindingV1, isRunListOperationIdV1 } from "./run-list-contract.ts";
 import {
   isRunListSearchInputV2,
+  RUN_LIST_RETENTION_LIMIT_V2,
   runListDurationsV2,
   runListKindsV2,
   runListPageSizesV2,
@@ -272,8 +273,19 @@ export class PostgresRunListViewGatewayV2 {
           row.trigger_kind,
         ))) throw new Error("RUN_LIST_ROW_INVALID");
 
+      // The view is retention bounded: `completeness` and every summary bucket describe the newest
+      // RUN_LIST_RETENTION_LIMIT_V2 matching runs, never the whole table. The contract requires the
+      // buckets to sum to exactly that limit when the cut is partial, so the bound belongs in the
+      // aggregate's row source rather than in a cap applied afterwards.
       const aggregate = (await client.query<RunListAggregateRow>(
-        `SELECT COUNT(*)::text AS row_count,
+        `WITH retained AS (
+           SELECT r.run_identity
+             FROM dashboard_operation_runs_v1 r
+            WHERE ${where}
+            ORDER BY COALESCE(r.started_at, r.created_at) DESC, r.run_identity ASC
+            LIMIT ${RUN_LIST_RETENTION_LIMIT_V2}
+         )
+         SELECT COUNT(*)::text AS row_count,
                 COUNT(*) FILTER (WHERE
                   r.run_identity !~ '^dashboard-run-v1-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
                   OR r.state NOT IN ('queued', 'running', 'succeeded', 'failed', 'cancelled', 'unknown')
@@ -328,7 +340,8 @@ export class PostgresRunListViewGatewayV2 {
                COALESCE(q.principal_ref, admission.principal_ref)
              )::text AS value
            ) row_fingerprint
-          WHERE ${where}`,
+          WHERE ${where}
+            AND r.run_identity IN (SELECT run_identity FROM retained)`,
         values,
       )).rows[0];
       if (!aggregate || exactCount(aggregate.invalid_projection_rows) !== 0) {
@@ -344,6 +357,8 @@ export class PostgresRunListViewGatewayV2 {
         failed: exactCount(aggregate.failed),
       };
       const sourceCount = exactCount(aggregate.row_count);
+      const completeness = sourceCount >= RUN_LIST_RETENTION_LIMIT_V2
+        ? "partial_unavailable" as const : "complete" as const;
       const sourceCut = sha256({
         row_count: sourceCount,
         transition_sum: aggregate.transition_sum,
@@ -375,6 +390,12 @@ export class PostgresRunListViewGatewayV2 {
               LIMIT 1
            ) admission ON true
           WHERE ${pagePredicates.join(" AND ")}
+            AND r.run_identity IN (
+              SELECT run_identity FROM dashboard_operation_runs_v1 r
+               WHERE ${where}
+               ORDER BY COALESCE(r.started_at, r.created_at) DESC, r.run_identity ASC
+               LIMIT ${RUN_LIST_RETENTION_LIMIT_V2}
+            )
           ORDER BY COALESCE(r.started_at, r.created_at) DESC, r.run_identity ASC
           LIMIT ${filterCut.page_size} OFFSET ${offset}`,
         pageValues,
@@ -396,8 +417,9 @@ export class PostgresRunListViewGatewayV2 {
         operation: "dashboard.run_store.list.v2",
         availability: "available",
         unavailable_reason: null,
-        completeness: "complete",
+        completeness,
         observed_at: observedAt,
+        retention_limit: RUN_LIST_RETENTION_LIMIT_V2,
         source_cut: sourceCut,
         snapshot,
         filter_cut: filterCut,

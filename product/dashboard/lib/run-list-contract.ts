@@ -3,7 +3,7 @@ import { isRunIdentityV1, isRunTerminalCodeV1, type RunTerminalCodeV1 } from "./
 const IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/;
 const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
 
-const operationIds = [
+export const runListOperationIdsV1 = [
   "research_goal.legacy_quarantine_read.v1",
   "research_goal.shadow_resolve.v1",
   "artifact_build.shadow_resolve.v1",
@@ -20,10 +20,10 @@ const operationIds = [
   "source_intake.research.submit_or_resolve.v1",
 ] as const;
 
-export type RunListOperationIdV1 = typeof operationIds[number];
+export type RunListOperationIdV1 = typeof runListOperationIdsV1[number];
 
 export function isRunListOperationIdV1(value: unknown): value is RunListOperationIdV1 {
-  return typeof value === "string" && operationIds.includes(value as RunListOperationIdV1);
+  return typeof value === "string" && runListOperationIdsV1.includes(value as RunListOperationIdV1);
 }
 
 export function isRunListOperationBindingV1(

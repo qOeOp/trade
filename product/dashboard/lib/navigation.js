@@ -60,11 +60,12 @@ export const allRoutes = [
 ];
 
 const exactRoutes = new Set([
+  "/dashboard", "/dashboard/attention", "/dashboard/recent", "/dashboard/evidence",
   "/operations", "/operations/runs/example", "/data", "/data/pit-catalog",
   "/operations/workers", "/operations/workers/example", "/operations/schedules", "/operations/service-logs", "/operations/audit",
   "/runtime", "/runtime/generations", "/runtime/checkpoints", "/runtime/incidents",
   "/portfolio", "/portfolio/exposure", "/portfolio/capacity", "/portfolio/attribution",
-  "/rd", "/rd/intake/new", "/rd/composer", "/rd/research", "/rd/artifacts", "/backtest", "/settings/access",
+  "/rd", "/rd/intake/new", "/rd/composer", "/rd/research", "/rd/hypotheses", "/rd/artifacts", "/rd/decisions", "/backtest", "/settings/access",
 ]);
 /** @type {Set<string>} */
 const detailOnlyRoutes = new Set([]);
@@ -105,12 +106,18 @@ export function pageFor(href) {
 }
 
 export const exactBlueprints = {
+  "/dashboard": { summaries: ["Research results ready", "Research waiting", "Build outcomes reviewable", "Family bindings", "Active Dashboard runs", "Run attention"], primary: "DashboardOverview", context: "Independent source scope disclosure", terminal: "ReadyToReview", state: "IMPLEMENTATION_ADMITTED - INDEPENDENT_READ_ONLY_QUEUES - NO_GLOBAL_HEALTH_OR_EFFECTS" },
+  "/dashboard/attention": { summaries: ["Research", "Builds", "Runs", "Total"], primary: "DashboardAttention", context: "Independent source scope disclosure", terminal: "Inline follow-up detail", state: "IMPLEMENTATION_ADMITTED - INDEPENDENT_READ_ONLY_ATTENTION - NO_RESOLVE_DISMISS_OR_EFFECTS" },
+  "/dashboard/recent": { summaries: ["Research outcomes", "Build outcomes", "Verified total"], primary: "RecentOwnerOutcomes", context: "Independent source scope disclosure", terminal: "Inline outcome detail", state: "IMPLEMENTATION_ADMITTED - OWNER_OUTCOME_READ_ONLY - NO_OWNER_OR_EFFECT_MUTATION" },
+  "/dashboard/evidence": { summaries: ["Connected", "Limited", "Unavailable"], primary: "DashboardEvidence", context: "Independent source evidence disclosure", terminal: "Inline coverage detail", state: "IMPLEMENTATION_ADMITTED - INDEPENDENT_READ_COVERAGE - NO_OWNER_OR_EFFECT_MUTATION" },
   "/settings/access": { summaries: ["Session", "Credentials", "Authority"], primary: "LocalOperatorAccess", context: null, terminal: "AuthorizationUnavailable", state: "IMPLEMENTATION_ADMITTED - LOCAL_SESSION_READ_ONLY - NO_AUTHORITY_OR_TOKEN_MUTATION" },
   "/backtest": { summaries: [], primary: "ExploratoryReplayReadbackWorkbench", context: null, terminal: "CanonicalResultOrUnavailable", state: "IMPLEMENTATION_ADMITTED - REQUEST_AND_RESULT_POINT_READ_ONLY - NO_RUN_OR_RESOLVE" },
   "/rd": { summaries: [], primary: "SourceIntakeReadbackWorkbench", context: null, terminal: "OwnerUnavailable", state: "IMPLEMENTATION_ADMITTED - OWNER_POINT_READ_ONLY - NO_SUBMIT_OR_RESOLVE" },
   "/rd/intake/new": { summaries: [], primary: "SourceResearchControl", context: null, terminal: "OwnerOutcomeOrUnavailable", state: "IMPLEMENTATION_ADMITTED - DISPOSABLE_SOURCE_RESEARCH - NOT_CUT_OVER" },
   "/rd/composer": { summaries: [], primary: "DevelopComposerReadbackWorkbench", context: null, terminal: "OwnerUnavailable", state: "IMPLEMENTATION_ADMITTED - OWNER_POINT_READ_ONLY - NO_RUN_RESOLVE_OR_EDIT" },
   "/rd/research": { summaries: [], primary: "VerifiedResearchDirectory", context: null, terminal: "OwnerUnavailable", state: "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_SUBMIT_OR_RESOLVE" },
+  "/rd/hypotheses": { summaries: [], primary: "HypothesisDirectory", context: null, terminal: "OwnerUnavailable", state: "IMPLEMENTATION_ADMITTED - OWNER_QUESTION_READ_ONLY - NO_HYPOTHESIS_OR_DECISION_MUTATION" },
+  "/rd/decisions": { summaries: [], primary: "IterationDecisionDirectory", context: "ResearchQuestionBrief", terminal: "OwnerUnavailable", state: "IMPLEMENTATION_ADMITTED - ITERATION_DECISION_READ_ONLY - NO_DECISION_ACTION" },
   "/rd/artifacts": { summaries: [], primary: "VerifiedArtifactDirectory", context: null, terminal: "OwnerUnavailable", state: "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_BUILD_OR_EXECUTION" },
   "/operations/schedules": { summaries: ["Configured", "Due at observation", "Observed runs"], primary: "ShadowScheduleCalendarOrTable", context: "ReadOnlyScheduleDetail", terminal: "ScheduleUnavailable", state: "IMPLEMENTATION_ADMITTED - BOUND_SCHEDULE_READ_ONLY - NO_SCHEDULE_ACTIONS" },
   "/operations/service-logs": { summaries: ["Error", "Warning", "Info", "Worker", "Server"], primary: "ServiceInstanceList", context: "ServiceInstanceCard", terminal: "ServiceLogPanel", state: "IMPLEMENTATION_ADMITTED - FIRST_PARTY_RUN_STORE_GET_ONLY - NO_ADMIN_OR_EFFECT_ACTIONS" },

@@ -3,8 +3,15 @@ import test from "node:test";
 
 import {
   emptyServiceLogPresentation,
-  runTerminalPresentation,
+  runDurationPresentation,
+  runKindLabel,
+  runStateLabel,
+  runTriggerLabel,
+  sourceResultLabel,
   summarizeRunsForPresentation,
+  workerAvailabilityLabel,
+  workerAssignmentPresentation,
+  workerRoleLabel,
 } from "../lib/operations-presentation.ts";
 
 const run = (overrides = {}) => ({
@@ -25,7 +32,7 @@ test("run summary keeps pending and unavailable Owner outcomes distinct", () => 
 });
 
 test("a cancelled-before-start run never presents as in progress", () => {
-  assert.deepEqual(runTerminalPresentation(run({
+  assert.deepEqual(runDurationPresentation(run({
     state: "cancelled",
     started_at: null,
     duration_ms: null,
@@ -34,8 +41,32 @@ test("a cancelled-before-start run never presents as in progress", () => {
   })), {
     duration: "Not started",
     durationTone: "neutral",
-    terminalState: "Cancelled",
-    terminalTone: "neutral",
+  });
+});
+
+test("run detail presentation translates implementation state without changing its distinctions", () => {
+  assert.equal(runStateLabel("succeeded"), "Completed");
+  assert.equal(runStateLabel("queued"), "Waiting");
+  assert.equal(runStateLabel("running"), "Running");
+  assert.equal(sourceResultLabel("available"), "Available");
+  assert.equal(sourceResultLabel("rejected"), "Not accepted");
+  assert.equal(sourceResultLabel("unknown"), "Pending");
+  assert.equal(runTriggerLabel("dashboard_bff"), "Dashboard");
+  assert.equal(runTriggerLabel("dashboard_scheduler"), "Schedule");
+  assert.equal(runKindLabel("owner_read"), "Data read");
+  assert.equal(workerAvailabilityLabel("available"), "Ready");
+  assert.equal(workerAvailabilityLabel("expired"), "Offline");
+  assert.equal(workerRoleLabel("shadow_read"), "Data reader");
+  assert.deepEqual(workerAssignmentPresentation("unavailable", "RUN_DISPATCH_BINDING_UNAVAILABLE"), {
+    title: "Assignment not recorded",
+    detail: "This historical run has no matching current worker assignment record.",
+  });
+});
+
+test("duration presentation is independent from the technical terminal code", () => {
+  assert.deepEqual(runDurationPresentation(run({ terminal_code: "OWNER_AVAILABLE" })), {
+    duration: "1.20 s",
+    durationTone: "neutral",
   });
 });
 

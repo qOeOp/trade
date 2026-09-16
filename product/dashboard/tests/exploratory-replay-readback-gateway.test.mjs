@@ -249,6 +249,14 @@ test("stale, unavailable, malformed and identity-drifted Owner responses fail cl
   const responses = [
     new Response(stringifyLosslessJson(ownerReadback({ availability: "STALE" })), { status: 200 }),
     new Response(stringifyLosslessJson(ownerReadback({ availability: "UNAVAILABLE" })), { status: 200 }),
+    new Response(stringifyLosslessJson(ownerReadback({ availability: "RUNNING" })), { status: 200 }),
+    new Response(stringifyLosslessJson({
+      ...ownerReadback({ availability: "STALE" }),
+      projection: {
+        ...ownerReadback({ availability: "STALE" }).projection,
+        next_legal_action: "LOCK_BY_LOCATOR",
+      },
+    }), { status: 200 }),
     new Response("not json", { status: 200 }),
     new Response(stringifyLosslessJson(ownerReadback({ requestIdentity: "another-request" })), { status: 200 }),
     new Response(stringifyLosslessJson(rustTrimInvalid), { status: 200 }),

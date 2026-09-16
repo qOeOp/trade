@@ -6,8 +6,11 @@ import {
   serializeBoundedRunResultV1,
 } from "../lib/run-detail-projection.ts";
 import {
+  EXPLORATORY_REPLAY_RESULT_SHADOW_READ_OPERATION,
+  EXPLORATORY_REPLAY_SHADOW_READ_OPERATION,
   operationRegistryEntryDigestV1,
   RD_FORMATION_CATALOG_SHADOW_READ_OPERATION,
+  RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION,
   RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION,
   SOURCE_INTAKE_SHADOW_READ_OPERATION,
 } from "../lib/operation-registry.ts";
@@ -169,6 +172,85 @@ test("Run Detail admits iteration inputs and rejects mismatched worker requireme
   const mismatchedOwner = envelope();
   mismatchedOwner.run.owner_view.href = "/rd/research?requestIdentity=source-request-detail-1";
   assert.equal(parseRunDetailEnvelopeV1(mismatchedOwner), null);
+});
+
+test("Run Detail keeps historical custody runs connected to the Research candidate catalog", () => {
+  const custody = envelope();
+  custody.run.operation_id = RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION;
+  custody.bounded_result.operation_id = RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION;
+  custody.run.input_fields = [];
+  custody.run.dispatch_binding.required_operation_id = RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION;
+  custody.run.dispatch_binding.dependency_operation_ids = [];
+  custody.run.dispatch_binding.registry_entry_digest = operationRegistryEntryDigestV1(
+    RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION,
+  );
+  custody.run.worker_compatibility.required_operation_id = RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION;
+  custody.run.owner_view = {
+    schema_version: 1,
+    source_owner: "historical_custody_owner",
+    href: "/rd/research",
+    action_label: "Open Owner catalog",
+    identity_fields: [],
+  };
+  assert.equal(parseRunDetailEnvelopeV1(custody)?.run?.owner_view.href, "/rd/research");
+
+  const inventedIdentity = structuredClone(custody);
+  inventedIdentity.run.input_fields = [{ key: "request_identity", value: "invented" }];
+  assert.equal(parseRunDetailEnvelopeV1(inventedIdentity), null);
+});
+
+test("Run Detail binds Replay runs to the canonical Backtest point-read", () => {
+  const replay = envelope();
+  const meaningDigest = `blake3:${"a".repeat(64)}`;
+  replay.run.operation_id = EXPLORATORY_REPLAY_SHADOW_READ_OPERATION;
+  replay.bounded_result.operation_id = EXPLORATORY_REPLAY_SHADOW_READ_OPERATION;
+  replay.run.input_fields = [
+    { key: "request_identity", value: "replay-request-detail-1" },
+    { key: "meaning_digest", value: meaningDigest },
+  ];
+  replay.run.dispatch_binding.required_operation_id = EXPLORATORY_REPLAY_SHADOW_READ_OPERATION;
+  replay.run.dispatch_binding.dependency_operation_ids = [RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION];
+  replay.run.dispatch_binding.registry_entry_digest = operationRegistryEntryDigestV1(
+    EXPLORATORY_REPLAY_SHADOW_READ_OPERATION,
+  );
+  replay.run.worker_compatibility.required_operation_id = EXPLORATORY_REPLAY_SHADOW_READ_OPERATION;
+  replay.run.owner_view = {
+    schema_version: 1,
+    source_owner: "exploratory_replay_owner",
+    href: `/backtest?replayRequestIdentity=replay-request-detail-1&meaningDigest=${encodeURIComponent(meaningDigest)}`,
+    action_label: "Resolve same identity",
+    identity_fields: replay.run.input_fields,
+  };
+
+  assert.equal(parseRunDetailEnvelopeV1(replay)?.run?.owner_view.href, replay.run.owner_view.href);
+
+  const legacyAlias = structuredClone(replay);
+  legacyAlias.run.owner_view.href = `/rd/decisions?replayRequestIdentity=replay-request-detail-1&replayMeaningDigest=${encodeURIComponent(meaningDigest)}`;
+  assert.equal(parseRunDetailEnvelopeV1(legacyAlias), null);
+
+  const result = envelope();
+  result.run.operation_id = EXPLORATORY_REPLAY_RESULT_SHADOW_READ_OPERATION;
+  result.bounded_result.operation_id = EXPLORATORY_REPLAY_RESULT_SHADOW_READ_OPERATION;
+  result.run.input_fields = [
+    { key: "result_identity", value: "replay-result-detail-1" },
+    { key: "request_identity", value: "replay-request-detail-1" },
+    { key: "attempt_identity", value: "replay-attempt-detail-1" },
+    { key: "meaning_digest", value: meaningDigest },
+  ];
+  result.run.dispatch_binding.required_operation_id = EXPLORATORY_REPLAY_RESULT_SHADOW_READ_OPERATION;
+  result.run.dispatch_binding.dependency_operation_ids = [EXPLORATORY_REPLAY_SHADOW_READ_OPERATION];
+  result.run.dispatch_binding.registry_entry_digest = operationRegistryEntryDigestV1(
+    EXPLORATORY_REPLAY_RESULT_SHADOW_READ_OPERATION,
+  );
+  result.run.worker_compatibility.required_operation_id = EXPLORATORY_REPLAY_RESULT_SHADOW_READ_OPERATION;
+  result.run.owner_view = {
+    schema_version: 1,
+    source_owner: "exploratory_replay_owner",
+    href: `/backtest?replayRequestIdentity=replay-request-detail-1&meaningDigest=${encodeURIComponent(meaningDigest)}&resultIdentity=replay-result-detail-1&attemptIdentity=replay-attempt-detail-1`,
+    action_label: "Resolve same identity",
+    identity_fields: result.run.input_fields,
+  };
+  assert.equal(parseRunDetailEnvelopeV1(result)?.run?.owner_view.href, result.run.owner_view.href);
 });
 
 test("Run Detail projects claimed owner-effect worker custody without inventing a shadow binding", () => {

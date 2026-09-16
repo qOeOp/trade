@@ -251,6 +251,13 @@ export type ShadowReadScheduleV1 = {
   updated_at: string;
 };
 
+export type ShadowReadScheduleHistoryPageV1 = {
+  observed_at: string;
+  completeness: "complete" | "partial_unavailable";
+  retention_limit: 100;
+  schedules: ShadowReadScheduleV1[];
+};
+
 export type ShadowScheduleReadBindingV1 = {
   schedule_identity: string;
   schedule_digest: string;
@@ -3432,6 +3439,26 @@ export class PostgresRunStoreV1 {
     return {
       observed_at: observedAt.toISOString(),
       schedules: result.rows.map(scheduleRecord),
+    };
+  }
+
+  async listScheduledReadHistory(): Promise<ShadowReadScheduleHistoryPageV1> {
+    const result = await this.#pool.query<ScheduleRow & { observed_at: Date }>(
+      `SELECT *, clock_timestamp() AS observed_at
+         FROM dashboard_shadow_read_schedules_v1
+        ORDER BY date_trunc('milliseconds', COALESCE(last_due_at, created_at)) DESC,
+                 schedule_identity COLLATE "C"
+        LIMIT 101`,
+    );
+    const observedAt = result.rows[0]?.observed_at ?? (await this.#pool.query<{ observed_at: Date }>(
+      "SELECT clock_timestamp() AS observed_at",
+    )).rows[0].observed_at;
+    const partial = result.rows.length > 100;
+    return {
+      observed_at: observedAt.toISOString(),
+      completeness: partial ? "partial_unavailable" : "complete",
+      retention_limit: 100,
+      schedules: result.rows.slice(0, 100).map(scheduleRecord),
     };
   }
 

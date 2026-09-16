@@ -7,6 +7,7 @@ import { validOperationalRunReferenceV1 } from "./operational-run-reference.ts";
 
 const MAX_OWNER_RESPONSE_BYTES = 1_048_576;
 const IDENTITY = /^[A-Za-z0-9._:/-]{1,256}$/;
+const COMPLETENESS = ["COMPLETE", "PARTIAL_TRUNCATED"] as const;
 type Json = Record<string, unknown>;
 type Fetcher = typeof fetch;
 
@@ -54,6 +55,60 @@ function count(value: unknown): value is number {
   return Number.isSafeInteger(value) && Number(value) >= 0;
 }
 
+function completeness(value: unknown): value is HistoricalCustodyProjectionV1["completeness"] {
+  return typeof value === "string" && (COMPLETENESS as readonly string[]).includes(value);
+}
+
+function parseRows<T>(values: unknown[], parse: (value: unknown) => T | null): T[] | null {
+  const rows: T[] = [];
+  for (const value of values) {
+    const row = parse(value);
+    if (row === null) return null;
+    rows.push(row);
+  }
+  return rows;
+}
+
+function parseOwnerResearchCandidate(value: unknown): HistoricalResearchCandidateV1 | null {
+  if (!object(value) || !exactKeys(value, [
+    "request_identity", "committed_at_epoch_ms", "projection_state",
+  ]) || !identity(value.request_identity) || !count(value.committed_at_epoch_ms)
+    || value.projection_state !== "POINT_READ_REQUIRED") return null;
+  return {
+    requestIdentity: value.request_identity,
+    committedAtEpochMs: value.committed_at_epoch_ms,
+    projectionState: "POINT_READ_REQUIRED",
+  };
+}
+
+function parseOwnerArtifactCandidate(value: unknown): HistoricalArtifactCandidateV1 | null {
+  if (!object(value) || !exactKeys(value, [
+    "build_request_identity", "attempt_identity", "prepared_at_epoch_ms", "projection_state",
+  ]) || !identity(value.build_request_identity) || !identity(value.attempt_identity)
+    || !count(value.prepared_at_epoch_ms)
+    || value.projection_state !== "POINT_READ_REQUIRED") return null;
+  return {
+    buildRequestIdentity: value.build_request_identity,
+    attemptIdentity: value.attempt_identity,
+    preparedAtEpochMs: value.prepared_at_epoch_ms,
+    projectionState: "POINT_READ_REQUIRED",
+  };
+}
+
+function parseOwnerBindingCandidate(value: unknown): HistoricalBindingCandidateV1 | null {
+  if (!object(value) || !exactKeys(value, [
+    "binding_identity", "trial_family_identity", "committed_at_epoch_ms", "projection_state",
+  ]) || !identity(value.binding_identity) || !identity(value.trial_family_identity)
+    || !count(value.committed_at_epoch_ms)
+    || value.projection_state !== "POINT_READ_REQUIRED") return null;
+  return {
+    bindingIdentity: value.binding_identity,
+    trialFamilyIdentity: value.trial_family_identity,
+    committedAtEpochMs: value.committed_at_epoch_ms,
+    projectionState: "POINT_READ_REQUIRED",
+  };
+}
+
 export function parseHistoricalCustodyOwnerV1(
   value: unknown,
   startedAt: number,
@@ -66,36 +121,21 @@ export function parseHistoricalCustodyOwnerV1(
     "artifact_attempts", "bindings",
   ]) || value.schema_version !== 1
     || value.operation !== "rd.historical_custody_quarantine.read.v1"
-    || !["COMPLETE", "PARTIAL_TRUNCATED"].includes(String(value.completeness))
+    || !completeness(value.completeness)
     || !count(value.observed_at_epoch_ms)
     || Number(value.observed_at_epoch_ms) < startedAt
     || Number(value.observed_at_epoch_ms) > observedAt
     || !count(value.research_total) || !count(value.artifact_attempt_total) || !count(value.binding_total)
     || !Array.isArray(value.research) || !Array.isArray(value.artifact_attempts) || !Array.isArray(value.bindings)) return null;
-  const research = value.research.map((row) => {
-    if (!object(row) || !exactKeys(row, ["request_identity", "committed_at_epoch_ms", "projection_state"])
-      || !identity(row.request_identity) || !count(row.committed_at_epoch_ms)
-      || row.projection_state !== "POINT_READ_REQUIRED") return null;
-    return { requestIdentity: row.request_identity, committedAtEpochMs: row.committed_at_epoch_ms, projectionState: row.projection_state };
-  });
-  const artifactAttempts = value.artifact_attempts.map((row) => {
-    if (!object(row) || !exactKeys(row, ["build_request_identity", "attempt_identity", "prepared_at_epoch_ms", "projection_state"])
-      || !identity(row.build_request_identity) || !identity(row.attempt_identity)
-      || !count(row.prepared_at_epoch_ms) || row.projection_state !== "POINT_READ_REQUIRED") return null;
-    return { buildRequestIdentity: row.build_request_identity, attemptIdentity: row.attempt_identity, preparedAtEpochMs: row.prepared_at_epoch_ms, projectionState: row.projection_state };
-  });
-  const bindings = value.bindings.map((row) => {
-    if (!object(row) || !exactKeys(row, ["binding_identity", "trial_family_identity", "committed_at_epoch_ms", "projection_state"])
-      || !identity(row.binding_identity) || !identity(row.trial_family_identity)
-      || !count(row.committed_at_epoch_ms) || row.projection_state !== "POINT_READ_REQUIRED") return null;
-    return { bindingIdentity: row.binding_identity, trialFamilyIdentity: row.trial_family_identity, committedAtEpochMs: row.committed_at_epoch_ms, projectionState: row.projection_state };
-  });
+  const research = parseRows(value.research, parseOwnerResearchCandidate);
+  const artifactAttempts = parseRows(value.artifact_attempts, parseOwnerArtifactCandidate);
+  const bindings = parseRows(value.bindings, parseOwnerBindingCandidate);
+  if (research === null || artifactAttempts === null || bindings === null) return null;
   const observedAtEpochMs = Number(value.observed_at_epoch_ms);
   const researchTotal = Number(value.research_total);
   const artifactAttemptTotal = Number(value.artifact_attempt_total);
   const bindingTotal = Number(value.binding_total);
-  if ([...research, ...artifactAttempts, ...bindings].some((row) => row === null)
-    || research.length > 200 || artifactAttempts.length > 200 || bindings.length > 200) return null;
+  if (research.length > 200 || artifactAttempts.length > 200 || bindings.length > 200) return null;
   const exactCounts = research.length === researchTotal
     && artifactAttempts.length === artifactAttemptTotal
     && bindings.length === bindingTotal;
@@ -104,21 +144,17 @@ export function parseHistoricalCustodyOwnerV1(
     || bindings.length < bindingTotal;
   if ((value.completeness === "COMPLETE" && !exactCounts)
     || (value.completeness === "PARTIAL_TRUNCATED" && !truncatedCounts)
-    || (research as HistoricalResearchCandidateV1[])
-      .some((row) => row.committedAtEpochMs > observedAtEpochMs)
-    || (artifactAttempts as HistoricalArtifactCandidateV1[])
-      .some((row) => row.preparedAtEpochMs > observedAtEpochMs)
-    || (bindings as HistoricalBindingCandidateV1[])
-      .some((row) => row.committedAtEpochMs > observedAtEpochMs)
-    || new Set((research as HistoricalResearchCandidateV1[])
-      .map((row) => row.requestIdentity)).size !== research.length
-    || new Set((artifactAttempts as HistoricalArtifactCandidateV1[])
-      .map((row) => `${row.buildRequestIdentity}\u0000${row.attemptIdentity}`)).size !== artifactAttempts.length
-    || new Set((bindings as HistoricalBindingCandidateV1[])
-      .map((row) => row.bindingIdentity)).size !== bindings.length) return null;
+    || research.some((row) => row.committedAtEpochMs > observedAtEpochMs)
+    || artifactAttempts.some((row) => row.preparedAtEpochMs > observedAtEpochMs)
+    || bindings.some((row) => row.committedAtEpochMs > observedAtEpochMs)
+    || new Set(research.map((row) => row.requestIdentity)).size !== research.length
+    || new Set(artifactAttempts.map((row) => (
+      `${row.buildRequestIdentity}\u0000${row.attemptIdentity}`
+    ))).size !== artifactAttempts.length
+    || new Set(bindings.map((row) => row.bindingIdentity)).size !== bindings.length) return null;
   return {
     resolution: "RETRIEVED",
-    completeness: value.completeness as "COMPLETE" | "PARTIAL_TRUNCATED",
+    completeness: value.completeness,
     observedAtEpochMs,
     researchTotal,
     artifactAttemptTotal,
@@ -126,6 +162,46 @@ export function parseHistoricalCustodyOwnerV1(
     research: research as HistoricalResearchCandidateV1[],
     artifactAttempts: artifactAttempts as HistoricalArtifactCandidateV1[],
     bindings: bindings as HistoricalBindingCandidateV1[],
+  };
+}
+
+function parseBrowserResearchCandidate(value: unknown): HistoricalResearchCandidateV1 | null {
+  if (!object(value) || !exactKeys(value, [
+    "requestIdentity", "committedAtEpochMs", "projectionState",
+  ]) || !identity(value.requestIdentity) || !count(value.committedAtEpochMs)
+    || value.projectionState !== "POINT_READ_REQUIRED") return null;
+  return {
+    requestIdentity: value.requestIdentity,
+    committedAtEpochMs: value.committedAtEpochMs,
+    projectionState: "POINT_READ_REQUIRED",
+  };
+}
+
+function parseBrowserArtifactCandidate(value: unknown): HistoricalArtifactCandidateV1 | null {
+  if (!object(value) || !exactKeys(value, [
+    "buildRequestIdentity", "attemptIdentity", "preparedAtEpochMs", "projectionState",
+  ]) || !identity(value.buildRequestIdentity) || !identity(value.attemptIdentity)
+    || !count(value.preparedAtEpochMs)
+    || value.projectionState !== "POINT_READ_REQUIRED") return null;
+  return {
+    buildRequestIdentity: value.buildRequestIdentity,
+    attemptIdentity: value.attemptIdentity,
+    preparedAtEpochMs: value.preparedAtEpochMs,
+    projectionState: "POINT_READ_REQUIRED",
+  };
+}
+
+function parseBrowserBindingCandidate(value: unknown): HistoricalBindingCandidateV1 | null {
+  if (!object(value) || !exactKeys(value, [
+    "bindingIdentity", "trialFamilyIdentity", "committedAtEpochMs", "projectionState",
+  ]) || !identity(value.bindingIdentity) || !identity(value.trialFamilyIdentity)
+    || !count(value.committedAtEpochMs)
+    || value.projectionState !== "POINT_READ_REQUIRED") return null;
+  return {
+    bindingIdentity: value.bindingIdentity,
+    trialFamilyIdentity: value.trialFamilyIdentity,
+    committedAtEpochMs: value.committedAtEpochMs,
+    projectionState: "POINT_READ_REQUIRED",
   };
 }
 
@@ -179,13 +255,10 @@ export function parseHistoricalCustodyBrowserEnvelopeV1(value: unknown): Histori
   if (!exactKeys(projection, ["resolution", "completeness", "observedAtEpochMs", "researchTotal", "artifactAttemptTotal", "bindingTotal", "research", "artifactAttempts", "bindings"])
     || projection.resolution !== "RETRIEVED" || !Array.isArray(projection.research)
     || !Array.isArray(projection.artifactAttempts) || !Array.isArray(projection.bindings)) return null;
-  if (!projection.research.every((row) => object(row) && exactKeys(row, [
-    "requestIdentity", "committedAtEpochMs", "projectionState",
-  ])) || !projection.artifactAttempts.every((row) => object(row) && exactKeys(row, [
-    "buildRequestIdentity", "attemptIdentity", "preparedAtEpochMs", "projectionState",
-  ])) || !projection.bindings.every((row) => object(row) && exactKeys(row, [
-    "bindingIdentity", "trialFamilyIdentity", "committedAtEpochMs", "projectionState",
-  ]))) return null;
+  const research = parseRows(projection.research, parseBrowserResearchCandidate);
+  const artifactAttempts = parseRows(projection.artifactAttempts, parseBrowserArtifactCandidate);
+  const bindings = parseRows(projection.bindings, parseBrowserBindingCandidate);
+  if (research === null || artifactAttempts === null || bindings === null) return null;
   if (typeof value.transport_observed_at !== "string") return null;
   const transport = Date.parse(value.transport_observed_at);
   if (!count(transport)) return null;
@@ -194,9 +267,9 @@ export function parseHistoricalCustodyBrowserEnvelopeV1(value: unknown): Histori
     schema_version: 1, operation: "rd.historical_custody_quarantine.read.v1", completeness: projection.completeness,
     observed_at_epoch_ms: projection.observedAtEpochMs, research_total: projection.researchTotal,
     artifact_attempt_total: projection.artifactAttemptTotal, binding_total: projection.bindingTotal,
-    research: (projection.research as HistoricalResearchCandidateV1[]).map((row) => ({ request_identity: row.requestIdentity, committed_at_epoch_ms: row.committedAtEpochMs, projection_state: row.projectionState })),
-    artifact_attempts: (projection.artifactAttempts as HistoricalArtifactCandidateV1[]).map((row) => ({ build_request_identity: row.buildRequestIdentity, attempt_identity: row.attemptIdentity, prepared_at_epoch_ms: row.preparedAtEpochMs, projection_state: row.projectionState })),
-    bindings: (projection.bindings as HistoricalBindingCandidateV1[]).map((row) => ({ binding_identity: row.bindingIdentity, trial_family_identity: row.trialFamilyIdentity, committed_at_epoch_ms: row.committedAtEpochMs, projection_state: row.projectionState })),
+    research: research.map((row) => ({ request_identity: row.requestIdentity, committed_at_epoch_ms: row.committedAtEpochMs, projection_state: row.projectionState })),
+    artifact_attempts: artifactAttempts.map((row) => ({ build_request_identity: row.buildRequestIdentity, attempt_identity: row.attemptIdentity, prepared_at_epoch_ms: row.preparedAtEpochMs, projection_state: row.projectionState })),
+    bindings: bindings.map((row) => ({ binding_identity: row.bindingIdentity, trial_family_identity: row.trialFamilyIdentity, committed_at_epoch_ms: row.committedAtEpochMs, projection_state: row.projectionState })),
   };
   return parseHistoricalCustodyOwnerV1(ownerShape, transport - operation.timeout_class.milliseconds, transport);
 }
