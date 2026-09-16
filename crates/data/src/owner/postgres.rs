@@ -41,6 +41,7 @@ use super::native_replay_scheduling_v1::{
 #[cfg(not(test))]
 use super::pit_snapshot::{PitObservationBatchOwnerResolver, VerifiedPitObservationBatch};
 use super::pit_snapshot::PitSnapshotFact;
+use super::native_replay_scheduling_v2::NativeReplayFrameCensusRefusalV2;
 use super::research_pit_terminal::{
     ResearchPitTerminal, ResearchPitTerminalResolver, UntrustedResearchPitTerminalRequest,
     seal_research_pit_terminal,
@@ -357,6 +358,70 @@ impl MarketDataOwnerPostgres {
         // Native Replay V2 rows are sealed against a composition binding. This legacy request has
         // no binding locator, so resolving it could only guess among distinct bound meanings.
         Err(ReplayMarketFactsErrorV2::CustodyUnavailable)
+    }
+
+    /// Resolves the successor frame for a sealed request window, from Owner custody alone.
+    ///
+    /// `docs/owners/market-data.md` admits "no caller-supplied second PIT locator, timestamp,
+    /// frame list, raw row, price, quantity, schedule, pool or replacement resolver". The caller
+    /// therefore names only the first frame — the one its sealed request already fixes — and the
+    /// successor comes out of the scope census or not at all. There is no parameter through which
+    /// a second snapshot could be offered.
+    ///
+    /// # Errors
+    ///
+    /// Returns the exact [`NativeReplayFrameCensusRefusalV2`] for the first violated rule.
+    pub(crate) async fn resolve_native_replay_successor_frame_v2(
+        &self,
+        scope_digest: BindingDigest,
+        first_frame_snapshot_identity: BindingDigest,
+        request_decision_cut_ns: u64,
+        window_start_ns: u64,
+        window_end_ns_exclusive: u64,
+    ) -> Result<BindingDigest, NativeReplayFrameCensusRefusalV2> {
+        let mut transaction = self
+            .pool
+            .begin_with("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .await
+            .map_err(|_| NativeReplayFrameCensusRefusalV2::CensusUnavailable)?;
+        let rows = load_native_replay_frame_census_v2(
+            &mut transaction,
+            scope_digest,
+            window_start_ns,
+            window_end_ns_exclusive,
+        )
+        .await
+        .map_err(|_| NativeReplayFrameCensusRefusalV2::CensusUnavailable)?;
+
+        if rows
+            .iter()
+            .any(|row| row.decision_cut_ns > request_decision_cut_ns)
+        {
+            return Err(NativeReplayFrameCensusRefusalV2::ObservationAfterDecisionCut);
+        }
+        if rows.windows(2).any(|pair| {
+            pair[0].frame_ordinal == pair[1].frame_ordinal
+                && pair[0].correction_branch_digest != pair[1].correction_branch_digest
+        }) {
+            return Err(NativeReplayFrameCensusRefusalV2::AmbiguousCorrectionBranch);
+        }
+        let [first, second] = rows.as_slice() else {
+            return Err(NativeReplayFrameCensusRefusalV2::EligibleFrameCountIsNotTwo);
+        };
+        // The census decides which frame is first; the request may only agree with it.
+        if first.snapshot_identity != first_frame_snapshot_identity {
+            return Err(NativeReplayFrameCensusRefusalV2::FirstFrameIsNotTheSealedRequestFrame);
+        }
+        if first.snapshot_identity == second.snapshot_identity {
+            return Err(NativeReplayFrameCensusRefusalV2::DuplicateFrameIdentity);
+        }
+        if second.frame_ordinal != first.frame_ordinal + 1 {
+            return Err(NativeReplayFrameCensusRefusalV2::SkippedEligibleFrame);
+        }
+        if second.event_effective_ns <= first.event_effective_ns {
+            return Err(NativeReplayFrameCensusRefusalV2::NonIncreasingEventOrder);
+        }
+        Ok(second.snapshot_identity)
     }
 
     pub(crate) async fn resolve_replay_composition_readback_v1(

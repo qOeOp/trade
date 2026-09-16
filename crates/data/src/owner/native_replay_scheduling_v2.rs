@@ -373,6 +373,10 @@ pub struct NativeReplayFrameCensusCandidateV2 {
 /// rather than silently narrowed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeReplayFrameCensusRefusalV2 {
+    /// The census itself could not be read; nothing is claimed about the window.
+    CensusUnavailable,
+    /// The census does not agree that the sealed request's frame is the first in this window.
+    FirstFrameIsNotTheSealedRequestFrame,
     ObservationAfterDecisionCut,
     EligibleFrameCountIsNotTwo,
     DuplicateFrameIdentity,
