@@ -104,12 +104,6 @@ if grep -Eq '(policy_canonical_bytes|ReplayExecutionPolicyV2|generate.*policy|de
   echo "Catalog bootstrap composition must not synthesize policy" >&2
   exit 1
 fi
-sealed_compose="$package_dir/docker-compose.source-intake-sealed-acceptance.yml"
-test "$(grep -Fc 'profiles: !override []' "$sealed_compose")" -eq 4
-grep -Fq "QUALIFICATION_OWNER_DB_PASSWORD: \${SEALED_QUALIFICATION_OWNER_DB_PASSWORD:?set SEALED_QUALIFICATION_OWNER_DB_PASSWORD}" "$sealed_compose"
-grep -Fq "BACKTEST_OWNER_DB_PASSWORD: \${SEALED_BACKTEST_OWNER_DB_PASSWORD:?set SEALED_BACKTEST_OWNER_DB_PASSWORD}" "$sealed_compose"
-grep -A22 -F 'authority-custody-migrate:' "$sealed_compose" |
-  grep -Fq 'schema-materialize:'
 grep -Fq 'materialize_schema(&database_url)' "$package_dir/../../crates/strategy_factory_rd_owner_api/src/main.rs"
 grep -Fq 'ALTER TABLE operator_authorization_private.operator_authorization_issuances_v1 OWNER TO operator_authorization_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'ALTER DATABASE %I OWNER TO rd_database_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
@@ -136,8 +130,6 @@ grep -Fq 'CREATE OR REPLACE FUNCTION replay_policy_catalog_api.lock_replay_polic
 test "$(grep -Fc 'owner_identity text, predecessor_record_id text, policy_grammar_parser_id text' "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 4
 test "$(grep -Fc 'created_by text, created_at_epoch_ms bigint, head_record_id text, head_version numeric, advanced_by text, advanced_at_epoch_ms bigint' "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 4
 composer_migration="$package_dir/postgres-init/10-migrate-authority-custody.sh"
-grep -A5 -F 'authority-custody-migrate:' "$package_dir/docker-compose.source-research-composer-sealed-acceptance.yml" |
-  grep -Fq 'SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE: "1"'
 # These patterns inspect literal shell and PostgreSQL dollar-quote syntax.
 # shellcheck disable=SC2016
 grep -Fq 'case "${SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE:-0}" in' "$composer_migration"
@@ -357,7 +349,7 @@ grep -Fq '.admit_artifact_build_request(' "$package_dir/../../crates/strategy_fa
 grep -Fq 'if request.operation == ARTIFACT_BUILD_OPERATION_V1' "$package_dir/../../crates/product_edge/src/postgres.rs"
 if grep -Fq 'ProductEdgeCurrentOwnerEvidence' "$package_dir/../../crates/product_edge/src/lib.rs" ||
   grep -Eq 'valid_through_epoch_ms:[[:space:]]*number|fresh:[[:space:]]*boolean|evidence_digest:[[:space:]]*string' \
-    "$package_dir/f/trade/product_edge/artifact_build_v1.ts"; then
+    "$package_dir/../rd-owner-client/artifact_build_v1.ts"; then
   echo "artifact transport must expose no caller-constructible freshness evidence" >&2
   exit 1
 fi

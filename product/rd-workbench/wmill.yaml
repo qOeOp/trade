@@ -1,4 +1,0 @@
-defaultTs: bun
-includes:
-  - f/trade/**
-excludes: []

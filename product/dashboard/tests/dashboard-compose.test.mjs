@@ -131,15 +131,3 @@ test("Artifact and Research reads share one GET-only Dashboard Compose service",
   assert.doesNotMatch(compose, /rd-(?:artifact|research)-owner-read-api:/);
   assert.doesNotMatch(compose, /RD_(?:ARTIFACT|RESEARCH)_OWNER_READ_API_/);
 });
-
-test("Windmill remains independent of the opt-in Dashboard profile", () => {
-  const server = serviceBlock("windmill-server");
-  const worker = serviceBlock("windmill-worker");
-
-  assert.doesNotMatch(server, /dashboard-(?:web|run-store-migrate|shadow-worker|shadow-scheduler|effect-worker)/);
-  assert.doesNotMatch(worker, /dashboard-(?:web|run-store-migrate|shadow-worker|shadow-scheduler|effect-worker)/);
-  assert.doesNotMatch(server, /profiles:/);
-  assert.doesNotMatch(worker, /profiles:/);
-  assert.match(server, /MODE: server/);
-  assert.match(worker, /MODE: worker/);
-});
