@@ -1670,7 +1670,7 @@ mod tests {
         )
         .expect("successor Intent");
         let successor = readback.intent().clone();
-        let build_intent = ArtifactBuildIntentV1::Successor(readback.clone());
+        let build_intent = ArtifactBuildIntentV1::Successor(readback);
         let candidate = candidate(&build_intent);
         let family_policy_digest = digest('4');
 

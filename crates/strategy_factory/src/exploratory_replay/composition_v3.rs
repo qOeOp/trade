@@ -521,7 +521,7 @@ pub(crate) fn compose_composer_backed_replay_request_v3(
         session: policy.session.clone(),
         time_zone: policy.time_zone.clone(),
         corporate_action_cut: policy.corporate_action_cut.clone(),
-        historical_membership_cut: policy.historical_membership_cut.clone(),
+        historical_membership_cut: policy.historical_membership_cut,
     })
 }
 

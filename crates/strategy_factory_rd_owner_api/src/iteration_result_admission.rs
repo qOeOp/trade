@@ -275,7 +275,7 @@ mod tests {
 
     fn send(
         uri: &str,
-        body: serde_json::Value,
+        body: &serde_json::Value,
         token: Option<&str>,
     ) -> axum::http::Request<axum::body::Body> {
         let mut request = axum::http::Request::builder()
@@ -365,7 +365,7 @@ mod tests {
         let unauthorized = test_router(owner.clone(), token_digest)
             .oneshot(send(
                 "/v1/iteration-result-admissions",
-                admission_request(),
+                &admission_request(),
                 None,
             ))
             .await
@@ -375,7 +375,7 @@ mod tests {
         let unauthorized_resolve = test_router(owner.clone(), token_digest)
             .oneshot(send(
                 "/v1/iteration-result-admissions/resolve",
-                locator(),
+                &locator(),
                 None,
             ))
             .await
@@ -385,7 +385,7 @@ mod tests {
         let malformed = test_router(owner.clone(), token_digest)
             .oneshot(send(
                 "/v1/iteration-result-admissions",
-                json!({}),
+                &json!({}),
                 Some(authorization.as_str()),
             ))
             .await
@@ -409,7 +409,7 @@ mod tests {
         let response = test_router(owner.clone(), token_digest)
             .oneshot(send(
                 "/v1/iteration-result-admissions/resolve",
-                locator(),
+                &locator(),
                 Some(authorization.as_str()),
             ))
             .await

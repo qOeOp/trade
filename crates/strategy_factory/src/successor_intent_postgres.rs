@@ -144,7 +144,7 @@ async fn migrate_successor_artifact_read_port(
     pool: &PgPool,
 ) -> Result<(), SuccessorResearchIntentPostgresErrorV1> {
     sqlx::query(
-        r#"
+        "
         CREATE OR REPLACE FUNCTION rd_owner_api.peek_current_successor_research_for_artifact_v1(
           requested_intent_identity text
         ) RETURNS jsonb LANGUAGE plpgsql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
@@ -256,13 +256,13 @@ async fn migrate_successor_artifact_read_port(
           );
         END
         $function$
-        "#,
+        ",
     )
     .execute(pool)
     .await
     .map_err(storage)?;
     sqlx::query(
-        r#"
+        "
         CREATE OR REPLACE FUNCTION rd_owner_api.lock_current_successor_research_for_artifact_v1(
           requested_intent_identity text,
           requested_evidence_identity text,
@@ -294,7 +294,7 @@ async fn migrate_successor_artifact_read_port(
           RETURN pg_catalog.jsonb_build_object('owner_cut_epoch_ms', owner_cut_epoch_ms) || envelope;
         END
         $function$
-        "#,
+        ",
     )
     .execute(pool)
     .await
