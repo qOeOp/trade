@@ -398,6 +398,34 @@ fn issue_universe_frame_for_compile_time_corpus(
 /// Fails closed if any fixed Source Binding, PIT, binding, or frame invariant is unavailable.
 pub fn issue_strategy_input_exact_instrument_bar_frame()
 -> Result<SealedAcceptanceExactInstrumentBarFrame, SealedAcceptanceError> {
+    issue_exact_instrument_bar_frame_for_compile_time_corpus(
+        RESEARCH_REQUEST_IDENTITY,
+        EXACT_STRATEGY_DESIGN_IDENTITY,
+    )
+}
+
+/// Reissues the immutable exact-instrument BAR corpus for an R&D Owner-verified runtime lineage.
+///
+/// The caller supplies only the canonical Research and Design digests. Market facts, clock,
+/// provider, instrument, field coordinates, and role identities remain compile-time owned here.
+///
+/// # Errors
+///
+/// Fails closed if any fixed Source Binding, PIT, binding, or event-frame invariant is unavailable.
+pub fn issue_strategy_input_exact_instrument_bar_frame_for_owner_lineage(
+    research_request_identity: BindingDigest,
+    strategy_design_identity: BindingDigest,
+) -> Result<SealedAcceptanceExactInstrumentBarFrame, SealedAcceptanceError> {
+    issue_exact_instrument_bar_frame_for_compile_time_corpus(
+        *research_request_identity.as_bytes(),
+        *strategy_design_identity.as_bytes(),
+    )
+}
+
+fn issue_exact_instrument_bar_frame_for_compile_time_corpus(
+    research_request_identity: [u8; 32],
+    strategy_design_identity: [u8; 32],
+) -> Result<SealedAcceptanceExactInstrumentBarFrame, SealedAcceptanceError> {
     let source_clock = clock();
     let source_owner = TestOnlyInMemorySourceBindingOwner::default();
     let source = source_owner.commit_initial(
@@ -445,7 +473,16 @@ pub fn issue_strategy_input_exact_instrument_bar_frame()
     let requests = coordinates
         .into_iter()
         .zip(EXACT_ROLE_IDENTITIES)
-        .map(|((field, timeframe), role)| exact_binding_request(&verified, role, field, timeframe))
+        .map(|((field, timeframe), role)| {
+            exact_binding_request(
+                &verified,
+                research_request_identity,
+                strategy_design_identity,
+                role,
+                field,
+                timeframe,
+            )
+        })
         .collect::<Vec<_>>();
     let bindings = requests
         .iter()
@@ -848,15 +885,15 @@ fn binding_request(
 
 fn exact_binding_request(
     batch: &super::VerifiedPitObservationBatch,
+    research_request_identity: [u8; 32],
+    strategy_design_identity: [u8; 32],
     input_role_identity: [u8; 32],
     field_semantic: MarketDataFieldSemantic,
     timeframe: &str,
 ) -> UntrustedStrategyInputBindingRequest {
     UntrustedStrategyInputBindingRequest {
-        research_request_identity: BindingDigest::from_untrusted_bytes(RESEARCH_REQUEST_IDENTITY),
-        strategy_design_identity: BindingDigest::from_untrusted_bytes(
-            EXACT_STRATEGY_DESIGN_IDENTITY,
-        ),
+        research_request_identity: BindingDigest::from_untrusted_bytes(research_request_identity),
+        strategy_design_identity: BindingDigest::from_untrusted_bytes(strategy_design_identity),
         input_role_identity: BindingDigest::from_untrusted_bytes(input_role_identity),
         scope: UntrustedStrategyInputScope::ExactInstrument {
             instrument: EXACT_INSTRUMENT.into(),

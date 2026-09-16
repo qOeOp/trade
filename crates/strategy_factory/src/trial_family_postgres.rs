@@ -1,11 +1,3 @@
-#![cfg_attr(
-    test,
-    expect(
-        clippy::large_futures,
-        reason = "transactional TrialFamily tests retain complete typed append readbacks across awaited checks"
-    )
-)]
-
 use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
@@ -16,19 +8,42 @@ use crate::{
     product_edge::ResearchRequestReceiptV1,
     trial_family::{
         ArtifactTrialFamilyReadbackV1, TrialFamilyAttemptAppendV2, TrialFamilyAttemptFrontierV2,
-        TrialFamilyCandidateSetFrontierV2, TrialFamilyCensusFrontierV2,
-        TrialFamilyCensusReadbackV2, TrialFamilyError, TrialFamilyReadbackV1,
-        admit_stored_artifact_binding, admit_stored_census_member_v2, admit_stored_family,
-        admit_stored_legacy_family_without_frontier, append_attempt_to_census_v2,
-        form_artifact_binding, form_successor_artifact_binding,
-        legacy_initial_member_for_census_v2, verify_artifact_binding, verify_census_v2,
-        verify_family,
+        TrialFamilyCandidateExperimentReadbackV1, TrialFamilyCandidateSetFrontierV2,
+        TrialFamilyCensusFrontierV2, TrialFamilyCensusReadbackV2, TrialFamilyError,
+        TrialFamilyReadbackV1, admit_stored_artifact_binding, admit_stored_candidate_experiment_v1,
+        admit_stored_census_member_v2, admit_stored_family,
+        admit_stored_legacy_family_without_frontier, admit_stored_successor_artifact_binding,
+        append_attempt_to_census_v2, form_artifact_binding, form_successor_artifact_binding,
+        issue_candidate_experiment_readbacks_v1, legacy_initial_member_for_census_v2,
+        verify_artifact_binding, verify_census_v2, verify_family,
+        verify_successor_artifact_binding,
     },
 };
 
 const FAMILY_FROZEN_EVENT: &str = "TRIAL_FAMILY_FROZEN_V1";
 const ARTIFACT_BOUND_EVENT: &str = "ARTIFACT_TRIAL_FAMILY_BOUND_V1";
 const CENSUS_ADVANCED_EVENT: &str = "TRIAL_FAMILY_CENSUS_ADVANCED_V2";
+const OUTBOX_PAYLOAD_STORAGE_DOMAIN_V1: &str = "rd.trial-family-outbox-payload.storage.v1";
+const OUTBOX_ENVELOPE_STORAGE_DOMAIN_V1: &str = "rd.trial-family-outbox-envelope.storage.v1";
+
+#[derive(Clone, Copy)]
+pub(crate) enum PostgresReadLockMode {
+    ForShare,
+    Snapshot,
+}
+
+impl PostgresReadLockMode {
+    pub(crate) fn query(
+        self,
+        statement: &'static str,
+        for_share: &'static str,
+    ) -> sqlx::AssertSqlSafe<String> {
+        sqlx::AssertSqlSafe(match self {
+            Self::ForShare => format!("{statement}{for_share}"),
+            Self::Snapshot => statement.to_string(),
+        })
+    }
+}
 
 macro_rules! table {
     ($name:literal, $runtime_read_grantees:expr, [$(($column:literal, $data_type:literal)),* $(,)?], [$($constraint:literal),* $(,)?], [$($kind:ident $keys:literal),* $(,)?]) => {
@@ -81,7 +96,7 @@ pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
         "f:trial_family_identity:public.rd_trial_families_v1(trial_family_identity):a:a:s:false:false:true:",
         "p:trial_family_identity:::false:false:true:", "u:frontier_identity:::false:false:true:"
     ], [primary "trial_family_identity", unique "frontier_identity"]),
-    table!("rd_trial_family_attempt_cuts_v2", &[], [
+    table!("rd_trial_family_attempt_cuts_v2", &["rd_exploratory_replay_api_owner"], [
         ("census_frontier_identity", "text"), ("trial_family_identity", "text"),
         ("attempt_ordinal", "integer"), ("attempt_frontier_identity", "text"),
         ("candidate_set_frontier_identity", "text"), ("census_frontier_json", "jsonb"),
@@ -94,6 +109,20 @@ pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
         "u:candidate_set_frontier_identity:::false:false:true:",
         "u:trial_family_identity,attempt_ordinal:::false:false:true:"
     ], [primary "census_frontier_identity", unique "attempt_frontier_identity", unique "candidate_set_frontier_identity", unique "trial_family_identity,attempt_ordinal"]),
+    table!("rd_trial_family_candidate_experiments_v1", &[], [
+        ("experiment_identity", "text"), ("trial_family_identity", "text"),
+        ("attempt_ordinal", "integer"), ("candidate_set_frontier_identity", "text"),
+        ("candidate_identity", "text"), ("candidate_digest", "text"),
+        ("experiment_json", "jsonb"), ("receipt_json", "jsonb"),
+        ("experiment_storage_bytes", "bytea"), ("experiment_storage_digest", "text"),
+        ("receipt_storage_bytes", "bytea"), ("receipt_storage_digest", "text"),
+        ("committed_at_epoch_ms", "bigint")
+    ], [
+        "f:trial_family_identity:public.rd_trial_families_v1(trial_family_identity):a:a:s:false:false:true:",
+        "f:candidate_set_frontier_identity:public.rd_trial_family_attempt_cuts_v2(candidate_set_frontier_identity):a:a:s:false:false:true:",
+        "p:experiment_identity:::false:false:true:",
+        "u:trial_family_identity,attempt_ordinal,candidate_identity:::false:false:true:"
+    ], [primary "experiment_identity", unique "trial_family_identity,attempt_ordinal,candidate_identity"]),
     table!("rd_artifact_trial_family_bindings_v1", &["rd_exploratory_replay_api_owner"], [
         ("binding_identity", "text"), ("artifact_identity", "text"),
         ("build_receipt_identity", "text"), ("intent_identity", "text"),
@@ -105,6 +134,18 @@ pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
         "p:binding_identity:::false:false:true:", "u:artifact_identity:::false:false:true:",
         "u:build_receipt_identity:::false:false:true:"
     ], [primary "binding_identity", unique "artifact_identity", unique "build_receipt_identity"]),
+    table!("rd_composer_artifact_family_bindings_v3", &["rd_exploratory_replay_api_owner"], [
+        ("binding_identity", "text"), ("artifact_locator", "text"),
+        ("composer_request_identity", "text"), ("intent_identity", "text"),
+        ("trial_family_identity", "text"), ("census_frontier_identity", "text"),
+        ("binding_digest", "text"), ("binding_json", "jsonb"),
+        ("receipt_json", "jsonb"), ("committed_at_epoch_ms", "bigint")
+    ], [
+        "f:trial_family_identity:public.rd_trial_families_v1(trial_family_identity):a:a:s:false:false:true:",
+        "p:binding_identity:::false:false:true:",
+        "u:artifact_locator:::false:false:true:",
+        "u:composer_request_identity:::false:false:true:"
+    ], [primary "binding_identity", unique "artifact_locator", unique "composer_request_identity"]),
     table!("rd_owner_outbox_v1", &["rd_exploratory_replay_api_owner"], [
         ("event_identity", "text"), ("aggregate_identity", "text"), ("event_kind", "text"),
         ("payload_digest", "text"), ("payload_json", "jsonb"),
@@ -132,8 +173,16 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), TrialFamilyError> {
             "CREATE TABLE IF NOT EXISTS rd_trial_family_attempt_cuts_v2 (census_frontier_identity TEXT PRIMARY KEY, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), attempt_ordinal INTEGER NOT NULL, attempt_frontier_identity TEXT NOT NULL UNIQUE, candidate_set_frontier_identity TEXT NOT NULL UNIQUE, census_frontier_json JSONB NOT NULL, attempt_frontier_json JSONB NOT NULL, candidate_set_frontier_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, census_frontier_storage_bytes BYTEA, census_frontier_storage_digest TEXT, attempt_frontier_storage_bytes BYTEA, attempt_frontier_storage_digest TEXT, candidate_set_frontier_storage_bytes BYTEA, candidate_set_frontier_storage_digest TEXT, UNIQUE (trial_family_identity, attempt_ordinal))",
         ),
         (
+            "rd_trial_family_candidate_experiments_v1",
+            "CREATE TABLE IF NOT EXISTS rd_trial_family_candidate_experiments_v1 (experiment_identity TEXT PRIMARY KEY, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), attempt_ordinal INTEGER NOT NULL, candidate_set_frontier_identity TEXT NOT NULL REFERENCES rd_trial_family_attempt_cuts_v2(candidate_set_frontier_identity), candidate_identity TEXT NOT NULL, candidate_digest TEXT NOT NULL, experiment_json JSONB NOT NULL, receipt_json JSONB NOT NULL, experiment_storage_bytes BYTEA NOT NULL, experiment_storage_digest TEXT NOT NULL, receipt_storage_bytes BYTEA NOT NULL, receipt_storage_digest TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE (trial_family_identity, attempt_ordinal, candidate_identity))",
+        ),
+        (
             "rd_artifact_trial_family_bindings_v1",
             "CREATE TABLE IF NOT EXISTS rd_artifact_trial_family_bindings_v1 (binding_identity TEXT PRIMARY KEY, artifact_identity TEXT NOT NULL UNIQUE, build_receipt_identity TEXT NOT NULL UNIQUE, intent_identity TEXT NOT NULL, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), binding_digest TEXT NOT NULL, binding_json JSONB NOT NULL, binding_receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
+        ),
+        (
+            "rd_composer_artifact_family_bindings_v3",
+            "CREATE TABLE IF NOT EXISTS rd_composer_artifact_family_bindings_v3 (binding_identity TEXT PRIMARY KEY, artifact_locator TEXT NOT NULL UNIQUE, composer_request_identity TEXT NOT NULL UNIQUE, intent_identity TEXT NOT NULL, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), census_frontier_identity TEXT NOT NULL, binding_digest TEXT NOT NULL, binding_json JSONB NOT NULL, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
         ),
         (
             "rd_owner_outbox_v1",
@@ -164,6 +213,10 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), TrialFamilyError> {
         "ALTER TABLE rd_trial_family_attempt_cuts_v2 ADD COLUMN IF NOT EXISTS attempt_frontier_storage_digest TEXT",
         "ALTER TABLE rd_trial_family_attempt_cuts_v2 ADD COLUMN IF NOT EXISTS candidate_set_frontier_storage_bytes BYTEA",
         "ALTER TABLE rd_trial_family_attempt_cuts_v2 ADD COLUMN IF NOT EXISTS candidate_set_frontier_storage_digest TEXT",
+        "ALTER TABLE rd_owner_outbox_v1 ADD COLUMN IF NOT EXISTS canonical_payload_bytes BYTEA",
+        "ALTER TABLE rd_owner_outbox_v1 ADD COLUMN IF NOT EXISTS canonical_payload_storage_digest TEXT",
+        "ALTER TABLE rd_owner_outbox_v1 ADD COLUMN IF NOT EXISTS canonical_envelope_bytes BYTEA",
+        "ALTER TABLE rd_owner_outbox_v1 ADD COLUMN IF NOT EXISTS canonical_envelope_storage_digest TEXT",
     ] {
         sqlx::query(statement)
             .execute(pool)
@@ -171,6 +224,9 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), TrialFamilyError> {
             .map_err(storage)?;
     }
     crate::replay_policy_catalog_postgres_v2::migrate(pool)
+        .await
+        .map_err(|e| TrialFamilyError::Unavailable(e.to_string()))?;
+    crate::iteration_result_admission_postgres::migrate(pool)
         .await
         .map_err(|e| TrialFamilyError::Unavailable(e.to_string()))?;
     crate::iteration_decision_postgres::migrate(pool)
@@ -285,7 +341,7 @@ pub(crate) async fn persist_artifact_binding(
         intent_identity,
         now_epoch_ms,
     )?;
-    persist_artifact_binding_readback(transaction, readback, now_epoch_ms).await
+    persist_artifact_binding_readback(transaction, readback, now_epoch_ms, None).await
 }
 
 #[expect(
@@ -311,15 +367,30 @@ pub(crate) async fn persist_successor_artifact_binding(
         intent_trial_family_policy_digest,
         now_epoch_ms,
     )?;
-    persist_artifact_binding_readback(transaction, readback, now_epoch_ms).await
+    persist_artifact_binding_readback(
+        transaction,
+        readback,
+        now_epoch_ms,
+        Some((
+            intent_trial_family_identity,
+            intent_trial_family_policy_digest,
+        )),
+    )
+    .await
 }
 
 async fn persist_artifact_binding_readback(
     transaction: &mut Transaction<'_, Postgres>,
     readback: ArtifactTrialFamilyReadbackV1,
     now_epoch_ms: u64,
+    successor_family: Option<(&str, &str)>,
 ) -> Result<ArtifactTrialFamilyReadbackV1, TrialFamilyError> {
-    verify_artifact_binding(&readback)?;
+    match successor_family {
+        Some((family_identity, policy_digest)) => {
+            verify_successor_artifact_binding(&readback, family_identity, policy_digest)?;
+        }
+        None => verify_artifact_binding(&readback)?,
+    }
     let committed_at = i64::try_from(now_epoch_ms).map_err(unavailable)?;
     sqlx::query("INSERT INTO rd_artifact_trial_family_bindings_v1 (binding_identity, artifact_identity, build_receipt_identity, intent_identity, trial_family_identity, binding_digest, binding_json, binding_receipt_json, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)")
         .bind(readback.binding.binding_identity())
@@ -444,8 +515,18 @@ async fn load_artifact_trial_family_with_intent_in_transaction(
             "artifact binding intent mismatch".to_string(),
         ));
     }
-    let readback =
-        admit_stored_artifact_binding(family.clone(), &binding_json, &binding_receipt_json)?;
+    let readback = match successor_family {
+        Some((family_identity, policy_digest)) => admit_stored_successor_artifact_binding(
+            family.clone(),
+            &binding_json,
+            &binding_receipt_json,
+            family_identity,
+            policy_digest,
+        )?,
+        None => {
+            admit_stored_artifact_binding(family.clone(), &binding_json, &binding_receipt_json)?
+        }
+    };
 
     if readback.binding.binding_identity() != binding_identity
         || readback.binding_receipt.binding_identity() != binding_identity
@@ -464,7 +545,12 @@ async fn load_artifact_trial_family_with_intent_in_transaction(
             "artifact binding row mismatch".to_string(),
         ));
     }
-    verify_artifact_binding(&readback)?;
+    match successor_family {
+        Some((family_identity, policy_digest)) => {
+            verify_successor_artifact_binding(&readback, family_identity, policy_digest)?;
+        }
+        None => verify_artifact_binding(&readback)?,
+    }
     verify_binding_outbox_in_transaction(transaction, &readback).await?;
     Ok(readback)
 }
@@ -474,7 +560,7 @@ pub(crate) async fn load_trial_family_in_transaction(
     intent_identity: &str,
     research_receipt_identity: &str,
 ) -> Result<TrialFamilyReadbackV1, TrialFamilyError> {
-    let root_rows = sqlx::query("SELECT trial_family_identity, intent_identity, root_digest, root_json, root_receipt_json, committed_at_epoch_ms FROM rd_trial_families_v1 WHERE intent_identity = $1 FOR SHARE")
+    let root_rows = sqlx::query("SELECT trial_family_identity, intent_identity, root_digest, root_json, root_receipt_json, root_storage_bytes, root_storage_digest, root_receipt_storage_bytes, root_receipt_storage_digest, initial_frontier_storage_bytes, initial_frontier_storage_digest, committed_at_epoch_ms FROM rd_trial_families_v1 WHERE intent_identity = $1 FOR SHARE")
         .bind(intent_identity)
         .fetch_all(&mut **transaction)
         .await
@@ -490,12 +576,12 @@ pub(crate) async fn load_trial_family_in_transaction(
         root_row.try_get("trial_family_identity").map_err(storage)?;
     let root_json = root_row.try_get("root_json").map_err(storage)?;
     let root_receipt_json = root_row.try_get("root_receipt_json").map_err(storage)?;
-    let member_rows = sqlx::query("SELECT member_identity, trial_family_identity, ordinal, fact_identity, member_digest, member_json, membership_receipt_json, committed_at_epoch_ms FROM rd_trial_family_members_v1 WHERE trial_family_identity = $1 ORDER BY ordinal FOR SHARE")
+    let member_rows = sqlx::query("SELECT member_identity, trial_family_identity, ordinal, fact_identity, member_digest, member_json, membership_receipt_json, member_storage_bytes, member_storage_digest, membership_receipt_storage_bytes, membership_receipt_storage_digest, committed_at_epoch_ms FROM rd_trial_family_members_v1 WHERE trial_family_identity = $1 ORDER BY ordinal FOR SHARE")
         .bind(&trial_family_identity)
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
-    let head_rows = sqlx::query("SELECT trial_family_identity, frontier_identity, frontier_digest, frontier_json, committed_at_epoch_ms FROM rd_trial_family_heads_v1 WHERE trial_family_identity = $1 FOR SHARE")
+    let head_rows = sqlx::query("SELECT trial_family_identity, frontier_identity, frontier_digest, frontier_json, frontier_storage_bytes, frontier_storage_digest, committed_at_epoch_ms FROM rd_trial_family_heads_v1 WHERE trial_family_identity = $1 FOR SHARE")
         .bind(&trial_family_identity)
         .fetch_all(&mut **transaction)
         .await
@@ -550,7 +636,13 @@ pub(crate) async fn load_trial_family_in_transaction(
     )?;
     verify_row_bindings(&readback, root_row, member_row, head_row)?;
     verify_family(&readback)?;
-    verify_family_outbox_in_transaction(transaction, &readback, research_receipt_identity).await?;
+    verify_family_outbox_in_transaction(
+        transaction,
+        &readback,
+        research_receipt_identity,
+        PostgresReadLockMode::ForShare,
+    )
+    .await?;
     Ok(readback)
 }
 
@@ -625,6 +717,8 @@ pub(crate) async fn append_trial_family_attempt_in_transaction(
     append: TrialFamilyAttemptAppendV2,
     now_epoch_ms: u64,
 ) -> Result<TrialFamilyCensusReadbackV2, TrialFamilyError> {
+    Box::pin(async move {
+    let candidate_experiment_proposals = append.candidate_set.candidates.clone();
     let head = sqlx::query("SELECT frontier_identity, frontier_json FROM rd_trial_family_heads_v1 WHERE trial_family_identity = (SELECT trial_family_identity FROM rd_trial_families_v1 WHERE intent_identity = $1) FOR UPDATE")
         .bind(intent_identity)
         .fetch_all(&mut **transaction)
@@ -723,6 +817,34 @@ pub(crate) async fn append_trial_family_attempt_in_transaction(
         .execute(&mut **transaction)
         .await
         .map_err(storage)?;
+    let experiment_readbacks = issue_candidate_experiment_readbacks_v1(
+        &next,
+        &candidate_experiment_proposals,
+        now_epoch_ms,
+    )?;
+
+    for readback in &experiment_readbacks {
+        let (experiment_json, experiment_bytes, experiment_storage_digest) = source_encode(
+            "rd.trial-family-candidate-experiment.storage.v1",
+            readback.experiment(),
+        )?;
+        let (receipt_json, receipt_bytes, receipt_storage_digest) = source_encode(
+            "rd.trial-family-candidate-experiment-receipt.storage.v1",
+            readback.receipt(),
+        )?;
+        sqlx::query("INSERT INTO rd_trial_family_candidate_experiments_v1 (experiment_identity,trial_family_identity,attempt_ordinal,candidate_set_frontier_identity,candidate_identity,candidate_digest,experiment_json,receipt_json,experiment_storage_bytes,experiment_storage_digest,receipt_storage_bytes,receipt_storage_digest,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)")
+            .bind(readback.experiment().experiment_identity())
+            .bind(readback.experiment().trial_family_identity())
+            .bind(i32::try_from(readback.experiment().attempt_ordinal()).map_err(unavailable)?)
+            .bind(readback.experiment().candidate_set_frontier_identity())
+            .bind(readback.experiment().candidate_identity())
+            .bind(readback.experiment().candidate_digest())
+            .bind(experiment_json).bind(receipt_json)
+            .bind(experiment_bytes).bind(experiment_storage_digest)
+            .bind(receipt_bytes).bind(receipt_storage_digest)
+            .bind(committed_at)
+            .execute(&mut **transaction).await.map_err(storage)?;
+    }
     let updated = sqlx::query("UPDATE rd_trial_family_heads_v1 SET frontier_identity = $1, frontier_digest = $2, frontier_json = $3, frontier_storage_bytes=$4,frontier_storage_digest=$5,committed_at_epoch_ms = $6 WHERE trial_family_identity = $7 AND frontier_identity = $8")
         .bind(next.census_frontier.frontier_identity())
         .bind(next.census_frontier.frontier_digest())
@@ -763,12 +885,175 @@ pub(crate) async fn append_trial_family_attempt_in_transaction(
         now_epoch_ms,
     )
     .await?;
-    load_trial_family_census_v2_in_transaction(
+    let stored = load_trial_family_census_v2_in_transaction(
         transaction,
         intent_identity,
         research_receipt_identity,
     )
+    .await?;
+    let stored_experiments =
+        load_candidate_experiments_for_census_in_transaction(transaction, &stored).await?;
+
+    if stored_experiments.len() != experiment_readbacks.len()
+        || stored_experiments
+            .iter()
+            .any(|stored| !experiment_readbacks.contains(stored))
+    {
+        return Err(TrialFamilyError::Unavailable(
+            "candidate experiment readback changed".to_string(),
+        ));
+    }
+    Ok(stored)
+    })
     .await
+}
+
+pub(crate) async fn load_candidate_experiments_for_census_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    census: &TrialFamilyCensusReadbackV2,
+) -> Result<Vec<TrialFamilyCandidateExperimentReadbackV1>, TrialFamilyError> {
+    load_candidate_experiments_for_census_with_lock_mode_in_transaction(
+        transaction,
+        census,
+        PostgresReadLockMode::ForShare,
+    )
+    .await
+}
+
+pub(crate) async fn load_candidate_experiments_for_census_snapshot_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    census: &TrialFamilyCensusReadbackV2,
+) -> Result<Vec<TrialFamilyCandidateExperimentReadbackV1>, TrialFamilyError> {
+    load_candidate_experiments_for_census_with_lock_mode_in_transaction(
+        transaction,
+        census,
+        PostgresReadLockMode::Snapshot,
+    )
+    .await
+}
+
+async fn load_candidate_experiments_for_census_with_lock_mode_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    census: &TrialFamilyCensusReadbackV2,
+    lock_mode: PostgresReadLockMode,
+) -> Result<Vec<TrialFamilyCandidateExperimentReadbackV1>, TrialFamilyError> {
+    verify_census_v2(census)?;
+    let query = lock_mode.query(
+        "SELECT e.experiment_identity,e.trial_family_identity,e.attempt_ordinal,e.candidate_set_frontier_identity,e.candidate_identity,e.candidate_digest,e.experiment_json,e.receipt_json,e.experiment_storage_bytes,e.experiment_storage_digest,e.receipt_storage_bytes,e.receipt_storage_digest,e.committed_at_epoch_ms,c.committed_at_epoch_ms AS cut_committed_at_epoch_ms FROM rd_trial_family_candidate_experiments_v1 e JOIN rd_trial_family_attempt_cuts_v2 c ON c.candidate_set_frontier_identity=e.candidate_set_frontier_identity WHERE e.candidate_set_frontier_identity=$1 ORDER BY e.candidate_identity",
+        " FOR SHARE OF e,c",
+    );
+    let rows = sqlx::query(query)
+        .bind(census.candidate_set_frontier.frontier_identity())
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
+
+    if rows.len() != census.candidate_set_frontier.candidates().len() {
+        return Err(TrialFamilyError::Unavailable(
+            "candidate experiment custody is incomplete".to_string(),
+        ));
+    }
+    let mut readbacks = Vec::with_capacity(rows.len());
+    for row in rows {
+        let experiment_bytes: Vec<u8> = row.try_get("experiment_storage_bytes").map_err(storage)?;
+        let receipt_bytes: Vec<u8> = row.try_get("receipt_storage_bytes").map_err(storage)?;
+        let experiment_json: serde_json::Value =
+            serde_json::from_slice(&experiment_bytes).map_err(storage)?;
+        let receipt_json: serde_json::Value =
+            serde_json::from_slice(&receipt_bytes).map_err(storage)?;
+        let readback =
+            admit_stored_candidate_experiment_v1(&experiment_json, &receipt_json, census)?;
+        verify_storage_record(
+            &row,
+            "experiment_storage_bytes",
+            "experiment_storage_digest",
+            readback.experiment(),
+            "rd.trial-family-candidate-experiment.storage.v1",
+        )?;
+        verify_storage_record(
+            &row,
+            "receipt_storage_bytes",
+            "receipt_storage_digest",
+            readback.receipt(),
+            "rd.trial-family-candidate-experiment-receipt.storage.v1",
+        )?;
+
+        if row
+            .try_get::<serde_json::Value, _>("experiment_json")
+            .map_err(storage)?
+            != experiment_json
+            || row
+                .try_get::<serde_json::Value, _>("receipt_json")
+                .map_err(storage)?
+                != receipt_json
+        {
+            return Err(TrialFamilyError::Unavailable(
+                "candidate experiment JSON mismatch".to_string(),
+            ));
+        }
+
+        if row
+            .try_get::<String, _>("experiment_identity")
+            .map_err(storage)?
+            != readback.experiment().experiment_identity()
+            || row
+                .try_get::<String, _>("trial_family_identity")
+                .map_err(storage)?
+                != readback.experiment().trial_family_identity()
+            || u32::try_from(row.try_get::<i32, _>("attempt_ordinal").map_err(storage)?)
+                .map_err(unavailable)?
+                != readback.experiment().attempt_ordinal()
+            || row
+                .try_get::<String, _>("candidate_set_frontier_identity")
+                .map_err(storage)?
+                != readback.experiment().candidate_set_frontier_identity()
+            || row
+                .try_get::<String, _>("candidate_identity")
+                .map_err(storage)?
+                != readback.experiment().candidate_identity()
+            || row
+                .try_get::<String, _>("candidate_digest")
+                .map_err(storage)?
+                != readback.experiment().candidate_digest()
+            || row
+                .try_get::<i64, _>("committed_at_epoch_ms")
+                .map_err(storage)?
+                != i64::try_from(readback.experiment().committed_at_epoch_ms())
+                    .map_err(unavailable)?
+            || row
+                .try_get::<i64, _>("cut_committed_at_epoch_ms")
+                .map_err(storage)?
+                != i64::try_from(readback.experiment().committed_at_epoch_ms())
+                    .map_err(unavailable)?
+        {
+            return Err(TrialFamilyError::Unavailable(
+                "candidate experiment row mismatch".to_string(),
+            ));
+        }
+        readbacks.push(readback);
+    }
+    let expected = census
+        .candidate_set_frontier
+        .candidates()
+        .iter()
+        .map(|candidate| (candidate.candidate_identity(), candidate.candidate_digest()))
+        .collect::<std::collections::BTreeSet<_>>();
+    let actual = readbacks
+        .iter()
+        .map(|readback| {
+            (
+                readback.experiment().candidate_identity(),
+                readback.experiment().candidate_digest(),
+            )
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+
+    if actual != expected {
+        return Err(TrialFamilyError::Unavailable(
+            "candidate experiment frontier mismatch".to_string(),
+        ));
+    }
+    Ok(readbacks)
 }
 
 pub(crate) async fn load_trial_family_census_v2_in_transaction(
@@ -776,7 +1061,28 @@ pub(crate) async fn load_trial_family_census_v2_in_transaction(
     intent_identity: &str,
     research_receipt_identity: &str,
 ) -> Result<TrialFamilyCensusReadbackV2, TrialFamilyError> {
-    let roots = sqlx::query("SELECT trial_family_identity, intent_identity, root_digest, root_json, root_receipt_json, committed_at_epoch_ms FROM rd_trial_families_v1 WHERE intent_identity = $1 FOR SHARE")
+    load_trial_family_census_v2_with_lock_mode_in_transaction(
+        transaction,
+        intent_identity,
+        research_receipt_identity,
+        PostgresReadLockMode::ForShare,
+        None,
+    )
+    .await
+}
+
+async fn load_trial_family_census_v2_with_lock_mode_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    intent_identity: &str,
+    research_receipt_identity: &str,
+    lock_mode: PostgresReadLockMode,
+    requested_frontier: Option<(&str, &str)>,
+) -> Result<TrialFamilyCensusReadbackV2, TrialFamilyError> {
+    let roots_query = lock_mode.query(
+        "SELECT trial_family_identity, intent_identity, root_digest, root_json, root_receipt_json, root_storage_bytes, root_storage_digest, root_receipt_storage_bytes, root_receipt_storage_digest, initial_frontier_storage_bytes, initial_frontier_storage_digest, committed_at_epoch_ms FROM rd_trial_families_v1 WHERE intent_identity = $1",
+        " FOR SHARE",
+    );
+    let roots = sqlx::query(roots_query)
         .bind(intent_identity)
         .fetch_all(&mut **transaction)
         .await
@@ -788,17 +1094,29 @@ pub(crate) async fn load_trial_family_census_v2_in_transaction(
         ));
     }
     let family_identity: String = roots[0].try_get("trial_family_identity").map_err(storage)?;
-    let member_rows = sqlx::query("SELECT member_identity, trial_family_identity, ordinal, fact_identity, member_digest, member_json, membership_receipt_json, committed_at_epoch_ms FROM rd_trial_family_members_v1 WHERE trial_family_identity = $1 ORDER BY ordinal FOR SHARE")
+    let members_query = lock_mode.query(
+        "SELECT member_identity, trial_family_identity, ordinal, fact_identity, member_digest, member_json, membership_receipt_json, member_storage_bytes, member_storage_digest, membership_receipt_storage_bytes, membership_receipt_storage_digest, committed_at_epoch_ms FROM rd_trial_family_members_v1 WHERE trial_family_identity = $1 ORDER BY ordinal",
+        " FOR SHARE",
+    );
+    let member_rows = sqlx::query(members_query)
         .bind(&family_identity)
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
-    let cut_rows = sqlx::query("SELECT census_frontier_identity, trial_family_identity, attempt_ordinal, attempt_frontier_identity, candidate_set_frontier_identity, census_frontier_json, attempt_frontier_json, candidate_set_frontier_json, committed_at_epoch_ms FROM rd_trial_family_attempt_cuts_v2 WHERE trial_family_identity = $1 ORDER BY attempt_ordinal FOR SHARE")
+    let cuts_query = lock_mode.query(
+        "SELECT census_frontier_identity, trial_family_identity, attempt_ordinal, attempt_frontier_identity, candidate_set_frontier_identity, census_frontier_json, attempt_frontier_json, candidate_set_frontier_json, census_frontier_storage_bytes, census_frontier_storage_digest, attempt_frontier_storage_bytes, attempt_frontier_storage_digest, candidate_set_frontier_storage_bytes, candidate_set_frontier_storage_digest, committed_at_epoch_ms FROM rd_trial_family_attempt_cuts_v2 WHERE trial_family_identity = $1 ORDER BY attempt_ordinal",
+        " FOR SHARE",
+    );
+    let cut_rows = sqlx::query(cuts_query)
         .bind(&family_identity)
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
-    let head_rows = sqlx::query("SELECT frontier_identity, frontier_digest, frontier_json, committed_at_epoch_ms FROM rd_trial_family_heads_v1 WHERE trial_family_identity = $1 FOR SHARE")
+    let heads_query = lock_mode.query(
+        "SELECT frontier_identity, frontier_digest, frontier_json, frontier_storage_bytes, frontier_storage_digest, committed_at_epoch_ms FROM rd_trial_family_heads_v1 WHERE trial_family_identity = $1",
+        " FOR SHARE",
+    );
+    let head_rows = sqlx::query(heads_query)
         .bind(&family_identity)
         .fetch_all(&mut **transaction)
         .await
@@ -822,8 +1140,13 @@ pub(crate) async fn load_trial_family_census_v2_in_transaction(
         &initial_receipt_json,
     )?;
     verify_legacy_root_and_initial_member_row_bindings(&legacy_family, &roots[0], &member_rows[0])?;
-    verify_family_outbox_in_transaction(transaction, &legacy_family, research_receipt_identity)
-        .await?;
+    verify_family_outbox_in_transaction(
+        transaction,
+        &legacy_family,
+        research_receipt_identity,
+        lock_mode,
+    )
+    .await?;
     let (initial_member, initial_receipt) = legacy_initial_member_for_census_v2(&legacy_family);
     let mut members = vec![initial_member];
     let mut receipts = vec![initial_receipt];
@@ -850,10 +1173,25 @@ pub(crate) async fn load_trial_family_census_v2_in_transaction(
                 "V2 census member row mismatch".to_string(),
             ));
         }
+        verify_storage_record(
+            row,
+            "member_storage_bytes",
+            "member_storage_digest",
+            &member,
+            crate::native_replay_rd_sources_v2::TRIAL_FAMILY_MEMBER_STORAGE_DOMAIN_V1,
+        )?;
+        verify_storage_record(
+            row,
+            "membership_receipt_storage_bytes",
+            "membership_receipt_storage_digest",
+            &receipt,
+            crate::native_replay_rd_sources_v2::TRIAL_FAMILY_MEMBERSHIP_RECEIPT_STORAGE_DOMAIN_V1,
+        )?;
         members.push(member);
         receipts.push(receipt);
     }
     let mut latest = None;
+    let mut historical = None;
 
     for (index, row) in cut_rows.iter().enumerate() {
         let census: TrialFamilyCensusFrontierV2 =
@@ -888,6 +1226,27 @@ pub(crate) async fn load_trial_family_census_v2_in_transaction(
                 "V2 attempt cut row mismatch".to_string(),
             ));
         }
+        verify_storage_record(
+            row,
+            "census_frontier_storage_bytes",
+            "census_frontier_storage_digest",
+            &census,
+            crate::native_replay_rd_sources_v2::TRIAL_FAMILY_FRONTIER_STORAGE_DOMAIN_V1,
+        )?;
+        verify_storage_record(
+            row,
+            "attempt_frontier_storage_bytes",
+            "attempt_frontier_storage_digest",
+            &attempt,
+            "rd.trial-family-attempt-frontier.storage.v1",
+        )?;
+        verify_storage_record(
+            row,
+            "candidate_set_frontier_storage_bytes",
+            "candidate_set_frontier_storage_digest",
+            &candidate,
+            "rd.trial-family-candidate-set-frontier.storage.v1",
+        )?;
         let prefix_len = (index + 1) * 3;
         if prefix_len > members.len() {
             return Err(TrialFamilyError::Unavailable(
@@ -919,8 +1278,15 @@ pub(crate) async fn load_trial_family_census_v2_in_transaction(
             &cut,
             research_receipt_identity,
             cut_committed_at,
+            lock_mode,
         )
         .await?;
+        if requested_frontier.is_some_and(|(identity, digest)| {
+            cut.census_frontier.frontier_identity() == identity
+                && cut.census_frontier.frontier_digest() == digest
+        }) {
+            historical = Some(cut.clone());
+        }
         latest = Some(cut);
     }
     let latest = latest
@@ -953,32 +1319,102 @@ pub(crate) async fn load_trial_family_census_v2_in_transaction(
             "V2 census head mismatch".to_string(),
         ));
     }
-    Ok(latest)
+    verify_storage_record(
+        head,
+        "frontier_storage_bytes",
+        "frontier_storage_digest",
+        &latest.census_frontier,
+        crate::native_replay_rd_sources_v2::TRIAL_FAMILY_FRONTIER_STORAGE_DOMAIN_V1,
+    )?;
+    if requested_frontier.is_some() {
+        historical.ok_or_else(|| {
+            TrialFamilyError::Unavailable("exact historical V2 census cut missing".to_string())
+        })
+    } else {
+        Ok(latest)
+    }
+}
+
+/// Reads an exact immutable Census prefix after validating the whole chain and current head.
+///
+/// The historical COMPOSER_V3 readback is this prefix's only consumer, and that module is gated on
+/// the same feature; without this gate the helper is dead in every other build and `-D warnings`
+/// fails the crate.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+pub(crate) async fn load_trial_family_census_v2_at_frontier_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    trial_family_identity: &str,
+    frontier_identity: &str,
+    frontier_digest: &str,
+) -> Result<TrialFamilyCensusReadbackV2, TrialFamilyError> {
+    load_trial_family_census_v2_by_family_with_lock_mode_in_transaction(
+        transaction,
+        trial_family_identity,
+        PostgresReadLockMode::ForShare,
+        Some((frontier_identity, frontier_digest)),
+    )
+    .await
 }
 
 pub(crate) async fn load_trial_family_census_v2_by_family_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     trial_family_identity: &str,
 ) -> Result<TrialFamilyCensusReadbackV2, TrialFamilyError> {
-    let family_rows = sqlx::query(
-        "SELECT intent_identity FROM rd_trial_families_v1 WHERE trial_family_identity = $1 FOR SHARE",
+    load_trial_family_census_v2_by_family_with_lock_mode_in_transaction(
+        transaction,
+        trial_family_identity,
+        PostgresReadLockMode::ForShare,
+        None,
     )
-    .bind(trial_family_identity)
-    .fetch_all(&mut **transaction)
     .await
-    .map_err(storage)?;
-    let outbox_rows = sqlx::query(
-        "SELECT aggregate_identity,event_kind,payload_json FROM rd_owner_outbox_v1 WHERE aggregate_identity = $1 AND event_kind = $2 FOR SHARE",
+}
+
+pub(crate) async fn load_trial_family_census_v2_by_family_snapshot_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    trial_family_identity: &str,
+) -> Result<TrialFamilyCensusReadbackV2, TrialFamilyError> {
+    load_trial_family_census_v2_by_family_with_lock_mode_in_transaction(
+        transaction,
+        trial_family_identity,
+        PostgresReadLockMode::Snapshot,
+        None,
     )
-    .bind(trial_family_identity)
-    .bind(FAMILY_FROZEN_EVENT)
-    .fetch_all(&mut **transaction)
     .await
-    .map_err(storage)?;
+}
+
+async fn load_trial_family_census_v2_by_family_with_lock_mode_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    trial_family_identity: &str,
+    lock_mode: PostgresReadLockMode,
+    requested_frontier: Option<(&str, &str)>,
+) -> Result<TrialFamilyCensusReadbackV2, TrialFamilyError> {
+    let family_query = lock_mode.query(
+        "SELECT intent_identity FROM rd_trial_families_v1 WHERE trial_family_identity = $1",
+        " FOR SHARE",
+    );
+    let family_rows = sqlx::query(family_query)
+        .bind(trial_family_identity)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    let outbox_query = lock_mode.query(
+        "SELECT aggregate_identity,event_kind,payload_json FROM rd_owner_outbox_v1 WHERE aggregate_identity = $1 AND event_kind = $2",
+        " FOR SHARE",
+    );
+    let outbox_rows = sqlx::query(outbox_query)
+        .bind(trial_family_identity)
+        .bind(FAMILY_FROZEN_EVENT)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
+
+    if family_rows.is_empty() && outbox_rows.is_empty() {
+        return Err(TrialFamilyError::NotFound);
+    }
 
     if family_rows.len() != 1 || outbox_rows.len() != 1 {
-        return Err(TrialFamilyError::Unavailable(
-            "TrialFamily locator custody is incomplete".to_string(),
+        return Err(TrialFamilyError::InvalidStoredEvidence(
+            "TrialFamily locator custody is incomplete",
         ));
     }
     let intent_identity: String = family_rows[0].try_get("intent_identity").map_err(storage)?;
@@ -995,14 +1431,16 @@ pub(crate) async fn load_trial_family_census_v2_by_family_in_transaction(
         || payload.trial_family_identity != trial_family_identity
         || payload.intent_identity != intent_identity
     {
-        return Err(TrialFamilyError::Unavailable(
-            "TrialFamily locator/outbox cross-binding mismatch".to_string(),
+        return Err(TrialFamilyError::InvalidStoredEvidence(
+            "TrialFamily locator/outbox cross-binding mismatch",
         ));
     }
-    let census = load_trial_family_census_v2_in_transaction(
+    let census = load_trial_family_census_v2_with_lock_mode_in_transaction(
         transaction,
         &intent_identity,
         &payload.research_receipt_identity,
+        lock_mode,
+        requested_frontier,
     )
     .await?;
 
@@ -1038,6 +1476,13 @@ fn verify_row_bindings(
             "family row digest mismatch".to_string(),
         ));
     }
+    verify_storage_record(
+        head_row,
+        "frontier_storage_bytes",
+        "frontier_storage_digest",
+        &family.census_frontier,
+        crate::native_replay_rd_sources_v2::TRIAL_FAMILY_FRONTIER_STORAGE_DOMAIN_V1,
+    )?;
     Ok(())
 }
 
@@ -1080,6 +1525,41 @@ fn verify_legacy_root_and_initial_member_row_bindings(
             "family row digest mismatch".to_string(),
         ));
     }
+    verify_storage_record(
+        root_row,
+        "root_storage_bytes",
+        "root_storage_digest",
+        &family.root,
+        crate::native_replay_rd_sources_v2::TRIAL_FAMILY_ROOT_STORAGE_DOMAIN_V1,
+    )?;
+    verify_storage_record(
+        root_row,
+        "root_receipt_storage_bytes",
+        "root_receipt_storage_digest",
+        &family.root_receipt,
+        crate::native_replay_rd_sources_v2::TRIAL_FAMILY_ROOT_RECEIPT_STORAGE_DOMAIN_V1,
+    )?;
+    verify_storage_record(
+        root_row,
+        "initial_frontier_storage_bytes",
+        "initial_frontier_storage_digest",
+        &family.census_frontier,
+        crate::native_replay_rd_sources_v2::TRIAL_FAMILY_FRONTIER_STORAGE_DOMAIN_V1,
+    )?;
+    verify_storage_record(
+        member_row,
+        "member_storage_bytes",
+        "member_storage_digest",
+        &family.initial_intent_member,
+        crate::native_replay_rd_sources_v2::TRIAL_FAMILY_MEMBER_STORAGE_DOMAIN_V1,
+    )?;
+    verify_storage_record(
+        member_row,
+        "membership_receipt_storage_bytes",
+        "membership_receipt_storage_digest",
+        &family.membership_receipt,
+        crate::native_replay_rd_sources_v2::TRIAL_FAMILY_MEMBERSHIP_RECEIPT_STORAGE_DOMAIN_V1,
+    )?;
     Ok(())
 }
 
@@ -1087,8 +1567,13 @@ async fn verify_family_outbox_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     family: &TrialFamilyReadbackV1,
     research_receipt_identity: &str,
+    lock_mode: PostgresReadLockMode,
 ) -> Result<(), TrialFamilyError> {
-    let rows = sqlx::query("SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json, committed_at_epoch_ms FROM rd_owner_outbox_v1 WHERE aggregate_identity = $1 AND event_kind = $2 FOR SHARE")
+    let query = lock_mode.query(
+        "SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json, canonical_payload_bytes, canonical_payload_storage_digest, canonical_envelope_bytes, canonical_envelope_storage_digest, committed_at_epoch_ms FROM rd_owner_outbox_v1 WHERE aggregate_identity = $1 AND event_kind = $2",
+        " FOR SHARE",
+    );
+    let rows = sqlx::query(query)
         .bind(family.root.trial_family_identity())
         .bind(FAMILY_FROZEN_EVENT)
         .fetch_all(&mut **transaction)
@@ -1114,6 +1599,8 @@ fn verify_family_outbox_row(
     let payload_digest: String = row.try_get("payload_digest").map_err(storage)?;
     let committed_at_epoch_ms: i64 = row.try_get("committed_at_epoch_ms").map_err(storage)?;
     let payload: FamilyFrozenOutboxV1 = decode(&row.try_get("payload_json").map_err(storage)?)?;
+
+    verify_outbox_storage(row, &payload)?;
 
     if event_identity != family_event_identity(family)
         || aggregate_identity != family.root.trial_family_identity()
@@ -1145,8 +1632,13 @@ async fn verify_census_outbox_in_transaction(
     readback: &TrialFamilyCensusReadbackV2,
     research_receipt_identity: &str,
     expected_committed_at_epoch_ms: i64,
+    lock_mode: PostgresReadLockMode,
 ) -> Result<(), TrialFamilyError> {
-    let rows = sqlx::query("SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json, committed_at_epoch_ms FROM rd_owner_outbox_v1 WHERE event_identity = $1 FOR SHARE")
+    let query = lock_mode.query(
+        "SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json, canonical_payload_bytes, canonical_payload_storage_digest, canonical_envelope_bytes, canonical_envelope_storage_digest, committed_at_epoch_ms FROM rd_owner_outbox_v1 WHERE event_identity = $1",
+        " FOR SHARE",
+    );
+    let rows = sqlx::query(query)
         .bind(census_event_identity(readback))
         .fetch_all(&mut **transaction)
         .await
@@ -1159,6 +1651,7 @@ async fn verify_census_outbox_in_transaction(
     }
     let row = &rows[0];
     let payload: CensusAdvancedOutboxV2 = decode(&row.try_get("payload_json").map_err(storage)?)?;
+    verify_outbox_storage(row, &payload)?;
     if payload.schema_version != 2
         || row
             .try_get::<String, _>("event_identity")
@@ -1201,7 +1694,7 @@ async fn verify_binding_outbox_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     readback: &ArtifactTrialFamilyReadbackV1,
 ) -> Result<(), TrialFamilyError> {
-    let rows = sqlx::query("SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json, committed_at_epoch_ms FROM rd_owner_outbox_v1 WHERE aggregate_identity = $1 AND event_kind = $2 FOR SHARE")
+    let rows = sqlx::query("SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json, canonical_payload_bytes, canonical_payload_storage_digest, canonical_envelope_bytes, canonical_envelope_storage_digest, committed_at_epoch_ms FROM rd_owner_outbox_v1 WHERE aggregate_identity = $1 AND event_kind = $2 FOR SHARE")
         .bind(readback.binding.artifact_identity())
         .bind(ARTIFACT_BOUND_EVENT)
         .fetch_all(&mut **transaction)
@@ -1220,6 +1713,7 @@ async fn verify_binding_outbox_in_transaction(
     let payload_digest: String = row.try_get("payload_digest").map_err(storage)?;
     let committed_at_epoch_ms: i64 = row.try_get("committed_at_epoch_ms").map_err(storage)?;
     let payload: ArtifactBoundOutboxV1 = decode(&row.try_get("payload_json").map_err(storage)?)?;
+    verify_outbox_storage(row, &payload)?;
 
     if event_identity != binding_event_identity(readback)
         || aggregate_identity != readback.binding.artifact_identity()
@@ -1241,7 +1735,7 @@ async fn verify_binding_outbox_in_transaction(
     Ok(())
 }
 
-async fn persist_outbox(
+pub(crate) async fn persist_outbox(
     transaction: &mut Transaction<'_, Postgres>,
     event_identity: String,
     aggregate_identity: &str,
@@ -1249,14 +1743,36 @@ async fn persist_outbox(
     payload: &impl Serialize,
     committed_at_epoch_ms: u64,
 ) -> Result<(), TrialFamilyError> {
-    let payload_json = encode(payload)?;
+    let payload_bytes = serde_json::to_vec(payload).map_err(unavailable)?;
+    let payload_json = serde_json::from_slice(&payload_bytes).map_err(unavailable)?;
     let payload_digest = digest("rd.owner-outbox.payload.v1", payload)?;
-    sqlx::query("INSERT INTO rd_owner_outbox_v1 (event_identity, aggregate_identity, event_kind, payload_digest, payload_json, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6)")
+    let payload_storage_digest = crate::native_replay_rd_sources_v2::owner_storage_digest(
+        OUTBOX_PAYLOAD_STORAGE_DOMAIN_V1,
+        &payload_bytes,
+    );
+    let envelope = StoredOutboxEnvelopeV1 {
+        event_identity: &event_identity,
+        aggregate_identity,
+        event_kind,
+        payload_digest: &payload_digest,
+        payload_json: &payload_json,
+        committed_at_epoch_ms,
+    };
+    let envelope_bytes = serde_json::to_vec(&envelope).map_err(unavailable)?;
+    let envelope_storage_digest = crate::native_replay_rd_sources_v2::owner_storage_digest(
+        OUTBOX_ENVELOPE_STORAGE_DOMAIN_V1,
+        &envelope_bytes,
+    );
+    sqlx::query("INSERT INTO rd_owner_outbox_v1 (event_identity, aggregate_identity, event_kind, payload_digest, payload_json, canonical_payload_bytes, canonical_payload_storage_digest, canonical_envelope_bytes, canonical_envelope_storage_digest, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
         .bind(event_identity)
         .bind(aggregate_identity)
         .bind(event_kind)
         .bind(payload_digest)
         .bind(payload_json)
+        .bind(payload_bytes)
+        .bind(payload_storage_digest)
+        .bind(envelope_bytes)
+        .bind(envelope_storage_digest)
         .bind(i64::try_from(committed_at_epoch_ms).map_err(unavailable)?)
         .execute(&mut **transaction)
         .await
@@ -1338,6 +1854,83 @@ fn binding_event_identity(readback: &ArtifactTrialFamilyReadbackV1) -> String {
     )
 }
 
+#[derive(Serialize)]
+struct StoredOutboxEnvelopeV1<'a> {
+    event_identity: &'a str,
+    aggregate_identity: &'a str,
+    event_kind: &'a str,
+    payload_digest: &'a str,
+    payload_json: &'a serde_json::Value,
+    committed_at_epoch_ms: u64,
+}
+
+fn verify_storage_record(
+    row: &sqlx::postgres::PgRow,
+    bytes_column: &str,
+    digest_column: &str,
+    expected: &impl Serialize,
+    domain: &str,
+) -> Result<(), TrialFamilyError> {
+    let stored_bytes: Option<Vec<u8>> = row.try_get(bytes_column).map_err(storage)?;
+    let stored_digest: Option<String> = row.try_get(digest_column).map_err(storage)?;
+    let (stored_bytes, stored_digest) = match (stored_bytes, stored_digest) {
+        (Some(stored_bytes), Some(stored_digest)) => (stored_bytes, stored_digest),
+        _ => {
+            return Err(TrialFamilyError::InvalidStoredEvidence(
+                "canonical TrialFamily storage is missing",
+            ));
+        }
+    };
+    let expected_bytes = serde_json::to_vec(expected).map_err(unavailable)?;
+    if stored_bytes.is_empty()
+        || stored_bytes != expected_bytes
+        || crate::native_replay_rd_sources_v2::owner_storage_digest(domain, &stored_bytes)
+            != stored_digest
+    {
+        return Err(TrialFamilyError::InvalidStoredEvidence(
+            "canonical TrialFamily storage mismatch",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn verify_outbox_storage(
+    row: &sqlx::postgres::PgRow,
+    payload: &impl Serialize,
+) -> Result<(), TrialFamilyError> {
+    verify_storage_record(
+        row,
+        "canonical_payload_bytes",
+        "canonical_payload_storage_digest",
+        payload,
+        OUTBOX_PAYLOAD_STORAGE_DOMAIN_V1,
+    )?;
+    let event_identity: String = row.try_get("event_identity").map_err(storage)?;
+    let aggregate_identity: String = row.try_get("aggregate_identity").map_err(storage)?;
+    let event_kind: String = row.try_get("event_kind").map_err(storage)?;
+    let payload_digest: String = row.try_get("payload_digest").map_err(storage)?;
+    let payload_json: serde_json::Value = row.try_get("payload_json").map_err(storage)?;
+    let committed_at_epoch_ms = u64::try_from(
+        row.try_get::<i64, _>("committed_at_epoch_ms")
+            .map_err(storage)?,
+    )
+    .map_err(unavailable)?;
+    verify_storage_record(
+        row,
+        "canonical_envelope_bytes",
+        "canonical_envelope_storage_digest",
+        &StoredOutboxEnvelopeV1 {
+            event_identity: &event_identity,
+            aggregate_identity: &aggregate_identity,
+            event_kind: &event_kind,
+            payload_digest: &payload_digest,
+            payload_json: &payload_json,
+            committed_at_epoch_ms,
+        },
+        OUTBOX_ENVELOPE_STORAGE_DOMAIN_V1,
+    )
+}
+
 fn digest(domain: &str, value: &impl Serialize) -> Result<String, TrialFamilyError> {
     #[derive(Serialize)]
     struct Envelope<'a, T> {
@@ -1377,7 +1970,7 @@ where
 }
 
 fn storage(error: impl Display) -> TrialFamilyError {
-    TrialFamilyError::Unavailable(error.to_string())
+    TrialFamilyError::Storage(error.to_string())
 }
 
 fn unavailable(error: impl Display) -> TrialFamilyError {
@@ -1388,15 +1981,19 @@ fn unavailable(error: impl Display) -> TrialFamilyError {
 mod postgres_binding_tests {
     use super::*;
     use crate::{
+        IterationExperimentModeV1, IterationHypothesisDimensionV1,
         product_edge::{ResearchRequestDisposition, ResearchRequestReceiptV1},
         trial_family::{
             TrialFamilyAttemptAppendV2, TrialFamilyAttemptTerminalDispositionV2,
-            TrialFamilyCandidateSetProposalV2, TrialFamilyIndependenceDispositionV1,
-            TrialFamilyPolicyV1, form_initial_family,
+            TrialFamilyCandidateExperimentProposalV1, TrialFamilyCandidateSetProposalV2,
+            TrialFamilyIndependenceDispositionV1, TrialFamilyPolicyV1, form_initial_family,
         },
     };
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
-    use vibe_testkit::postgres::{DedicatedPostgresTestDatabase, DedicatedPostgresTestMutation};
+    use vibe_testkit::postgres::{
+        CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1,
+        DedicatedPostgresTestDatabase, DedicatedPostgresTestMutation,
+    };
 
     #[tokio::test]
     #[ignore = "requires an admitted RD_OWNER_TEST_DATABASE_URL"]
@@ -1687,6 +2284,116 @@ mod postgres_binding_tests {
 
     #[tokio::test]
     #[ignore = "requires an admitted RD_OWNER_TEST_DATABASE_URL"]
+    async fn canonical_candidate_experiment_upgrade_seed_is_owner_issued_and_locked_readback_exact()
+    {
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(2)
+            .connect(test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner))
+            .await
+            .unwrap();
+        crate::schema_materialization::require_existing_public_tables(&pool, TABLES)
+            .await
+            .unwrap();
+        let suffix = unique_suffix();
+        let intent_identity = format!("rd-research-intent-candidate-acl-seed-{suffix}");
+        let intent_digest = format!("sha256:{}", "a".repeat(64));
+        let committed_at = u64::try_from(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis(),
+        )
+        .unwrap();
+        let family = form_initial_family(
+            &intent_identity,
+            &intent_digest,
+            family_policy(),
+            committed_at,
+        )
+        .unwrap();
+        let receipt = ResearchRequestReceiptV1 {
+            schema_version: 1,
+            receipt_identity: format!("rd-research-request-receipt-candidate-acl-seed-{suffix}"),
+            request_identity: format!("research-request-candidate-acl-seed-{suffix}"),
+            semantic_digest: intent_digest.clone(),
+            disposition: ResearchRequestDisposition::Accepted,
+            resulting_research_intent_identity: Some(intent_identity.clone()),
+            committed_at_epoch_ms: committed_at,
+            rejection_code: None,
+        };
+        let mut transaction = pool.begin().await.unwrap();
+        persist_initial_family(&mut transaction, &family, &receipt)
+            .await
+            .unwrap();
+        transaction.commit().await.unwrap();
+
+        let proposals = vec![TrialFamilyCandidateExperimentProposalV1 {
+            candidate_identity: format!("rd-candidate-candidate-acl-seed-{suffix}"),
+            experiment: IterationExperimentModeV1::SingleDimension {
+                changed_dimension: IterationHypothesisDimensionV1::ReturnMechanism,
+            },
+        }];
+        let append = TrialFamilyAttemptAppendV2 {
+            intent_identity: intent_identity.clone(),
+            intent_digest: intent_digest.clone(),
+            request_identity: format!("rd-replay-request-candidate-acl-seed-{suffix}"),
+            request_digest: format!("sha256:{}", "b".repeat(64)),
+            result_identity: format!("backtest-result-candidate-acl-seed-{suffix}"),
+            result_digest: format!("sha256:{}", "c".repeat(64)),
+            terminal_disposition: TrialFamilyAttemptTerminalDispositionV2::Rejected,
+            consumed_trial_budget: 1,
+            candidate_set: TrialFamilyCandidateSetProposalV2 {
+                generation_rule_identity: format!(
+                    "rd-candidate-generation-candidate-acl-seed-{suffix}"
+                ),
+                generation_rule_digest: format!("sha256:{}", "d".repeat(64)),
+                expected_cardinality: 1,
+                candidates: proposals.clone(),
+            },
+        };
+        let mut transaction = pool.begin().await.unwrap();
+        let census = append_trial_family_attempt_in_transaction(
+            &mut transaction,
+            &intent_identity,
+            &receipt.receipt_identity,
+            append,
+            committed_at + 1,
+        )
+        .await
+        .unwrap();
+        transaction.commit().await.unwrap();
+        let expected =
+            issue_candidate_experiment_readbacks_v1(&census, &proposals, committed_at + 1).unwrap();
+
+        let restarted_pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner))
+            .await
+            .unwrap();
+        let mut transaction = restarted_pool.begin().await.unwrap();
+        let locked_census = load_trial_family_census_v2_in_transaction(
+            &mut transaction,
+            &intent_identity,
+            &receipt.receipt_identity,
+        )
+        .await
+        .unwrap();
+        assert_eq!(locked_census, census);
+        let locked_experiments =
+            load_candidate_experiments_for_census_in_transaction(&mut transaction, &locked_census)
+                .await
+                .unwrap();
+        assert_eq!(locked_experiments, expected);
+        assert_eq!(
+            serde_json::to_vec(&locked_experiments).unwrap(),
+            serde_json::to_vec(&expected).unwrap()
+        );
+        transaction.rollback().await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an admitted RD_OWNER_TEST_DATABASE_URL"]
     async fn v2_census_append_restart_readback_and_fail_close_are_atomic() {
         let test_database = DedicatedPostgresTestDatabase::admit("RD_OWNER_TEST_DATABASE_URL")
             .await
@@ -1744,8 +2451,13 @@ mod postgres_binding_tests {
             candidate_set: TrialFamilyCandidateSetProposalV2 {
                 generation_rule_identity: format!("rd-candidate-generation-v2-a-{suffix}"),
                 generation_rule_digest: format!("sha256:{}", "3".repeat(64)),
-                expected_cardinality: 0,
-                candidates: Vec::new(),
+                expected_cardinality: 1,
+                candidates: vec![TrialFamilyCandidateExperimentProposalV1 {
+                    candidate_identity: format!("rd-candidate-v2-a-{suffix}"),
+                    experiment: IterationExperimentModeV1::SingleDimension {
+                        changed_dimension: IterationHypothesisDimensionV1::ReturnMechanism,
+                    },
+                }],
             },
         };
         let mut transaction = pool.begin().await.unwrap();
@@ -1787,6 +2499,79 @@ mod postgres_binding_tests {
             .await
             .unwrap(),
             first
+        );
+        let experiments =
+            load_candidate_experiments_for_census_in_transaction(&mut transaction, &first)
+                .await
+                .unwrap();
+        assert_eq!(experiments.len(), 1);
+        assert_eq!(
+            experiments[0].experiment().candidate_identity(),
+            format!("rd-candidate-v2-a-{suffix}")
+        );
+        transaction.rollback().await.unwrap();
+
+        let mut transaction = restarted_pool.begin().await.unwrap();
+        sqlx::query("UPDATE rd_trial_family_candidate_experiments_v1 SET experiment_storage_digest='blake3:tampered' WHERE trial_family_identity=$1")
+            .bind(&family_identity)
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        assert!(
+            load_candidate_experiments_for_census_in_transaction(&mut transaction, &first)
+                .await
+                .is_err()
+        );
+        transaction.rollback().await.unwrap();
+
+        let mut transaction = restarted_pool.begin().await.unwrap();
+        sqlx::query(
+            "DELETE FROM rd_trial_family_candidate_experiments_v1 WHERE trial_family_identity=$1",
+        )
+        .bind(&family_identity)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+        assert!(
+            load_candidate_experiments_for_census_in_transaction(&mut transaction, &first)
+                .await
+                .is_err()
+        );
+        transaction.rollback().await.unwrap();
+
+        let cross_intent_identity = format!("rd-research-intent-v2-cross-{suffix}");
+        let cross_intent_digest = format!("sha256:{}", "e".repeat(64));
+        let cross_family = form_initial_family(
+            &cross_intent_identity,
+            &cross_intent_digest,
+            family_policy(),
+            committed_at,
+        )
+        .unwrap();
+        let cross_receipt = ResearchRequestReceiptV1 {
+            schema_version: 1,
+            receipt_identity: format!("rd-research-request-receipt-v2-cross-{suffix}"),
+            request_identity: format!("research-request-v2-cross-{suffix}"),
+            semantic_digest: cross_intent_digest,
+            disposition: ResearchRequestDisposition::Accepted,
+            resulting_research_intent_identity: Some(cross_intent_identity),
+            committed_at_epoch_ms: committed_at,
+            rejection_code: None,
+        };
+        let mut transaction = restarted_pool.begin().await.unwrap();
+        persist_initial_family(&mut transaction, &cross_family, &cross_receipt)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO rd_trial_family_candidate_experiments_v1 (experiment_identity,trial_family_identity,attempt_ordinal,candidate_set_frontier_identity,candidate_identity,candidate_digest,experiment_json,receipt_json,experiment_storage_bytes,experiment_storage_digest,receipt_storage_bytes,receipt_storage_digest,committed_at_epoch_ms) SELECT experiment_identity || '-cross', $1,attempt_ordinal,candidate_set_frontier_identity,candidate_identity,candidate_digest,experiment_json,receipt_json,experiment_storage_bytes,experiment_storage_digest,receipt_storage_bytes,receipt_storage_digest,committed_at_epoch_ms FROM rd_trial_family_candidate_experiments_v1 WHERE trial_family_identity=$2")
+            .bind(cross_family.root.trial_family_identity())
+            .bind(&family_identity)
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        assert!(
+            load_candidate_experiments_for_census_in_transaction(&mut transaction, &first)
+                .await
+                .is_err()
         );
         transaction.rollback().await.unwrap();
 
@@ -1944,6 +2729,13 @@ mod postgres_binding_tests {
             .execute(cleanup_pool)
             .await
             .unwrap();
+        sqlx::query(
+            "DELETE FROM rd_trial_family_candidate_experiments_v1 WHERE trial_family_identity = $1",
+        )
+        .bind(&family_identity)
+        .execute(cleanup_pool)
+        .await
+        .unwrap();
         sqlx::query("DELETE FROM rd_trial_family_attempt_cuts_v2 WHERE trial_family_identity = $1")
             .bind(&family_identity)
             .execute(cleanup_pool)

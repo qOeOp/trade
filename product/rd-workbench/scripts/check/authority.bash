@@ -215,7 +215,7 @@ grep -Fq 'GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request
 replay_api_relation_acl=$(sed -n '/^GRANT SELECT ON TABLE$/,/^FROM market_data_owner, market_data_reader;$/p' "$package_dir/postgres-init/10-migrate-authority-custody.sh")
 test "$(printf '%s' "$replay_api_relation_acl" | grep -Fc 'TO rd_exploratory_replay_api_owner;')" -eq 1
 test "$(printf '%s' "$replay_api_relation_acl" | grep -Fc 'FROM market_data_owner, market_data_reader;')" -eq 1
-for relation in rd_sealed_exploratory_replay_requests_v1 rd_owner_outbox_v1 rd_research_request_receipts_v1 rd_trial_families_v1 rd_trial_family_heads_v1 rd_artifact_trial_family_bindings_v1 rd_artifact_build_attempts_v1 rd_strategy_artifacts_v1 rd_trial_family_members_v1; do
+for relation in rd_sealed_exploratory_replay_requests_v1 rd_owner_outbox_v1 rd_research_request_receipts_v1 rd_trial_families_v1 rd_trial_family_heads_v1 rd_artifact_trial_family_bindings_v1 rd_artifact_build_attempts_v1 rd_strategy_artifacts_v1 rd_trial_family_members_v1 rd_successor_research_intents_v1; do
   test "$(printf '%s' "$replay_api_relation_acl" | grep -Fc "public.$relation")" -eq 2
 done
 grep -Fq "DO \$catalog_composer_constraint_manifest\$" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
@@ -259,6 +259,8 @@ if grep -Eq '^[[:space:]]*(DELETE FROM|UPDATE .*SET .*(_json|_digest|committed_a
   exit 1
 fi
 grep -Fq 'CREATE OR REPLACE FUNCTION product_edge_api.lock_downstream_admission_v1(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE OR REPLACE FUNCTION operator_authorization_api.resolve_authorization_snapshot_v1(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE OR REPLACE FUNCTION product_edge_api.resolve_historical_downstream_admission_snapshot_v1(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'REVOKE ALL ON SCHEMA product_edge_api FROM PUBLIC, operator_authorization_writer, portfolio_owner, backtest_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'GRANT USAGE ON SCHEMA product_edge_api TO rd_owner, portfolio_owner, backtest_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq '"REVOKE ALL ON SCHEMA product_edge_api FROM backtest_owner"' "$package_dir/../../crates/strategy_factory/src/exploratory_replay/postgres.rs"
@@ -277,6 +279,8 @@ grep -Fq 'CREATE OR REPLACE FUNCTION rd_owner_api.resolve_native_replay_source_s
 grep -Fq "pg_catalog.convert_from(replay_outbox.canonical_envelope_bytes,'UTF8')::pg_catalog.jsonb <>" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'GRANT EXECUTE ON FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(text,text,text,text) TO rd_owner, backtest_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'GRANT EXECUTE ON FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) TO rd_owner, product_edge_owner, backtest_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'GRANT EXECUTE ON FUNCTION operator_authorization_api.resolve_authorization_snapshot_v1(text, text) TO product_edge_owner, operator_authorization_writer' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'GRANT EXECUTE ON FUNCTION product_edge_api.resolve_historical_downstream_admission_snapshot_v1(text,text,text) TO rd_owner, product_edge_owner, backtest_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE OR REPLACE FUNCTION product_edge_api.lock_source_invocation_claim_v1(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE OR REPLACE FUNCTION product_edge_api.lock_source_invocation_started_v1(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'GRANT EXECUTE ON FUNCTION product_edge_api.lock_source_invocation_claim_v1(text,text,text) TO rd_owner, product_edge_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"

@@ -26,6 +26,10 @@ use crate::{
         StrategyCompilationV2, VerifiedStrategyInputBindingsV2,
         prepare_canonical_strategy_design_v2,
     },
+    successor_research_custody_postgres_v1::{
+        is_successor_research_intent_locator_v1,
+        lock_successor_research_for_intent_in_transaction_v1,
+    },
 };
 
 const JOINT_FREEZE_SCHEMA_V1: u16 = 1;
@@ -55,29 +59,17 @@ pub(crate) async fn commit_research_bounded_feature_program_in_transaction_v1(
     proposal: BoundedFeatureProgramProposalV1,
     catalog: PrimitiveCatalogV1,
 ) -> Result<FrozenResearchBoundedFeatureProgramV1, ResearchBoundedFeatureProgramFreezeErrorV1> {
-    sqlx::query(
-        "SELECT pg_catalog.pg_advisory_xact_lock(
-            pg_catalog.hashtextextended('rd.bounded-feature-program.freeze.v1:' || $1, 0)
-         )",
-    )
-    .bind(request_locator)
-    .execute(&mut **transaction)
-    .await
-    .map_err(|_| ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)?;
-    let verified =
-        crate::rd_owner_postgres_custody::admit_research_v2_custody_read_only_in_transaction(
-            transaction,
-            request_locator,
-        )
-        .await
-        .map_err(|_| ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)?
-        .ok_or(ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)?;
-    let custody = CurrentResearchDevelopCustodyV2::from_verified(
-        &verified,
-        request_locator,
-        read_cut_epoch_ms,
-    )
-    .map_err(|_| ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)?;
+    let successor = is_successor_research_intent_locator_v1(request_locator);
+    let custody = if successor {
+        current_research_custody(transaction, request_locator, read_cut_epoch_ms).await?
+    } else {
+        acquire_joint_freeze_lock(transaction, request_locator).await?;
+        current_research_custody(transaction, request_locator, read_cut_epoch_ms).await?
+    };
+
+    if successor {
+        acquire_joint_freeze_lock(transaction, request_locator).await?;
+    }
     let candidate =
         freeze_research_bounded_feature_program_v1(&custody, design, proposal, catalog)?;
 
@@ -141,12 +133,36 @@ pub(crate) async fn commit_research_bounded_feature_program_in_transaction_v1(
     Ok(stored)
 }
 
-pub(crate) async fn read_research_bounded_feature_program_in_transaction_v1(
+async fn acquire_joint_freeze_lock(
+    transaction: &mut Transaction<'_, Postgres>,
+    request_locator: &str,
+) -> Result<(), ResearchBoundedFeatureProgramFreezeErrorV1> {
+    sqlx::query(
+        "SELECT pg_catalog.pg_advisory_xact_lock(
+            pg_catalog.hashtextextended('rd.bounded-feature-program.freeze.v1:' || $1, 0)
+         )",
+    )
+    .bind(request_locator)
+    .execute(&mut **transaction)
+    .await
+    .map_err(|_| ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)?;
+    Ok(())
+}
+
+async fn current_research_custody(
     transaction: &mut Transaction<'_, Postgres>,
     request_locator: &str,
     read_cut_epoch_ms: u64,
-    catalog: PrimitiveCatalogV1,
-) -> Result<FrozenResearchBoundedFeatureProgramV1, ResearchBoundedFeatureProgramFreezeErrorV1> {
+) -> Result<CurrentResearchDevelopCustodyV2, ResearchBoundedFeatureProgramFreezeErrorV1> {
+    if is_successor_research_intent_locator_v1(request_locator) {
+        return lock_successor_research_for_intent_in_transaction_v1(
+            transaction,
+            request_locator,
+            read_cut_epoch_ms,
+        )
+        .await
+        .map_err(|_| ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable);
+    }
     let verified =
         crate::rd_owner_postgres_custody::admit_research_v2_custody_read_only_in_transaction(
             transaction,
@@ -155,12 +171,17 @@ pub(crate) async fn read_research_bounded_feature_program_in_transaction_v1(
         .await
         .map_err(|_| ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)?
         .ok_or(ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)?;
-    let custody = CurrentResearchDevelopCustodyV2::from_verified(
-        &verified,
-        request_locator,
-        read_cut_epoch_ms,
-    )
-    .map_err(|_| ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)?;
+    CurrentResearchDevelopCustodyV2::from_verified(&verified, request_locator, read_cut_epoch_ms)
+        .map_err(|_| ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)
+}
+
+pub(crate) async fn read_research_bounded_feature_program_in_transaction_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    request_locator: &str,
+    read_cut_epoch_ms: u64,
+    catalog: PrimitiveCatalogV1,
+) -> Result<FrozenResearchBoundedFeatureProgramV1, ResearchBoundedFeatureProgramFreezeErrorV1> {
+    let custody = current_research_custody(transaction, request_locator, read_cut_epoch_ms).await?;
     let stored = load_stored_freeze(transaction, request_locator, false)
         .await?
         .ok_or(ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)?;
@@ -168,6 +189,28 @@ pub(crate) async fn read_research_bounded_feature_program_in_transaction_v1(
         return Err(ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable);
     }
     validate_stored_freeze(&custody, &stored, catalog)?;
+    Ok(stored)
+}
+
+/// Rechecks an immutable BFP freeze after Research has advanced beyond IntentFrozen. The caller
+/// supplies Research reconstructed from the authenticated original View preimage and current
+/// Owner custody; this port still rereads the freeze and outbox by exact locator.
+pub(crate) async fn read_research_bounded_feature_program_historical_in_transaction_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    request_locator: &str,
+    original_research: &CurrentResearchDevelopCustodyV2,
+    catalog: PrimitiveCatalogV1,
+) -> Result<FrozenResearchBoundedFeatureProgramV1, ResearchBoundedFeatureProgramFreezeErrorV1> {
+    if request_locator != original_research.request_locator() {
+        return Err(ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable);
+    }
+    let stored = load_stored_freeze(transaction, request_locator, false)
+        .await?
+        .ok_or(ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)?;
+    if !verify_stored_outbox(transaction, request_locator, &stored).await? {
+        return Err(ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable);
+    }
+    validate_stored_freeze(original_research, &stored, catalog)?;
     Ok(stored)
 }
 

@@ -164,6 +164,91 @@ pub(crate) struct TrialFamilyCandidateFactV2 {
     candidate_digest: String,
 }
 
+/// Caller-authored experiment meaning. The R&D Owner derives the candidate digest and custody
+/// fact; callers cannot provide either positive artifact.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct TrialFamilyCandidateExperimentProposalV1 {
+    pub candidate_identity: String,
+    pub experiment: crate::IterationExperimentModeV1,
+}
+
+/// Immutable Owner-custodied candidate experiment.
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrialFamilyCandidateExperimentV1 {
+    schema_version: u16,
+    experiment_identity: String,
+    trial_family_identity: String,
+    attempt_ordinal: u32,
+    candidate_set_frontier_identity: String,
+    candidate_set_frontier_digest: String,
+    candidate_identity: String,
+    candidate_digest: String,
+    experiment: crate::IterationExperimentModeV1,
+    committed_at_epoch_ms: u64,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrialFamilyCandidateExperimentReceiptV1 {
+    schema_version: u16,
+    receipt_identity: String,
+    receipt_digest: String,
+    experiment_identity: String,
+    trial_family_identity: String,
+    attempt_ordinal: u32,
+    candidate_set_frontier_identity: String,
+    candidate_set_frontier_digest: String,
+    candidate_identity: String,
+    candidate_digest: String,
+    committed_at_epoch_ms: u64,
+}
+
+/// Move-only positive experiment custody reconstructed only by the TrialFamily Owner.
+///
+/// ```compile_fail
+/// use vibe_strategy_factory::trial_family::TrialFamilyCandidateExperimentReadbackV1;
+/// let _: TrialFamilyCandidateExperimentReadbackV1 = serde_json::from_str("{}").unwrap();
+/// ```
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrialFamilyCandidateExperimentReadbackV1 {
+    experiment: TrialFamilyCandidateExperimentV1,
+    receipt: TrialFamilyCandidateExperimentReceiptV1,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredTrialFamilyCandidateExperimentV1 {
+    schema_version: u16,
+    experiment_identity: String,
+    trial_family_identity: String,
+    attempt_ordinal: u32,
+    candidate_set_frontier_identity: String,
+    candidate_set_frontier_digest: String,
+    candidate_identity: String,
+    candidate_digest: String,
+    experiment: crate::IterationExperimentModeV1,
+    committed_at_epoch_ms: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredTrialFamilyCandidateExperimentReceiptV1 {
+    schema_version: u16,
+    receipt_identity: String,
+    receipt_digest: String,
+    experiment_identity: String,
+    trial_family_identity: String,
+    attempt_ordinal: u32,
+    candidate_set_frontier_identity: String,
+    candidate_set_frontier_digest: String,
+    candidate_identity: String,
+    candidate_digest: String,
+    committed_at_epoch_ms: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct TrialFamilyCandidateSetFrontierV2 {
@@ -223,7 +308,7 @@ pub(crate) struct TrialFamilyCandidateSetProposalV2 {
     pub generation_rule_identity: String,
     pub generation_rule_digest: String,
     pub expected_cardinality: u32,
-    pub candidates: Vec<TrialFamilyCandidateFactV2>,
+    pub candidates: Vec<TrialFamilyCandidateExperimentProposalV1>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -568,6 +653,12 @@ pub enum TrialFamilyError {
     InvalidPolicy(&'static str),
     #[error("trial family identity was reused with conflicting content")]
     ConflictingIdentity,
+    #[error("trial family was not found")]
+    NotFound,
+    #[error("stored trial family evidence is invalid: {0}")]
+    InvalidStoredEvidence(&'static str),
+    #[error("trial family storage is unavailable: {0}")]
+    Storage(String),
     #[error("TRIAL_FAMILY_UNAVAILABLE_LEGACY")]
     LegacyUnavailable,
     #[error("trial family Owner state is unavailable: {0}")]
@@ -1077,16 +1168,40 @@ pub(crate) fn admit_stored_artifact_binding(
     binding_json: &serde_json::Value,
     binding_receipt_json: &serde_json::Value,
 ) -> Result<ArtifactTrialFamilyReadbackV1, TrialFamilyError> {
+    let readback = decode_stored_artifact_binding(family, binding_json, binding_receipt_json)?;
+    verify_artifact_binding(&readback)?;
+    Ok(readback)
+}
+
+pub(crate) fn admit_stored_successor_artifact_binding(
+    family: TrialFamilyReadbackV1,
+    binding_json: &serde_json::Value,
+    binding_receipt_json: &serde_json::Value,
+    intent_trial_family_identity: &str,
+    intent_trial_family_policy_digest: &str,
+) -> Result<ArtifactTrialFamilyReadbackV1, TrialFamilyError> {
+    let readback = decode_stored_artifact_binding(family, binding_json, binding_receipt_json)?;
+    verify_successor_artifact_binding(
+        &readback,
+        intent_trial_family_identity,
+        intent_trial_family_policy_digest,
+    )?;
+    Ok(readback)
+}
+
+fn decode_stored_artifact_binding(
+    family: TrialFamilyReadbackV1,
+    binding_json: &serde_json::Value,
+    binding_receipt_json: &serde_json::Value,
+) -> Result<ArtifactTrialFamilyReadbackV1, TrialFamilyError> {
     let stored_binding: StoredArtifactTrialFamilyBindingV1 = decode_stored(binding_json)?;
     let stored_binding_receipt: StoredArtifactTrialFamilyBindingReceiptV1 =
         decode_stored(binding_receipt_json)?;
-    let readback = ArtifactTrialFamilyReadbackV1 {
+    Ok(ArtifactTrialFamilyReadbackV1 {
         trial_family: family,
         binding: stored_binding.into(),
         binding_receipt: stored_binding_receipt.into(),
-    };
-    verify_artifact_binding(&readback)?;
-    Ok(readback)
+    })
 }
 
 pub(crate) fn form_initial_family(
@@ -1514,10 +1629,57 @@ fn form_candidate_set_frontier_v2(
             "CANDIDATE_SET_CARDINALITY_INVALID",
         ));
     }
+    let candidates = proposal
+        .candidates
+        .iter()
+        .map(|candidate| {
+            Ok(TrialFamilyCandidateFactV2 {
+                candidate_identity: candidate.candidate_identity.clone(),
+                candidate_digest: candidate_experiment_digest_v1(
+                    &candidate.candidate_identity,
+                    &candidate.experiment,
+                )?,
+            })
+        })
+        .collect::<Result<Vec<_>, TrialFamilyError>>()?;
+    form_candidate_set_frontier_from_facts_v2(
+        trial_family_identity,
+        attempt_ordinal,
+        proposal.generation_rule_identity,
+        proposal.generation_rule_digest,
+        proposal.expected_cardinality,
+        candidates,
+    )
+}
+
+fn form_candidate_set_frontier_from_facts_v2(
+    trial_family_identity: &str,
+    attempt_ordinal: u32,
+    generation_rule_identity: String,
+    generation_rule_digest: String,
+    expected_cardinality: u32,
+    candidates: Vec<TrialFamilyCandidateFactV2>,
+) -> Result<TrialFamilyCandidateSetFrontierV2, TrialFamilyError> {
+    require_identity(
+        &generation_rule_identity,
+        "CANDIDATE_GENERATION_RULE_IDENTITY_INVALID",
+    )?;
+    require_sha256(
+        &generation_rule_digest,
+        "CANDIDATE_GENERATION_RULE_DIGEST_INVALID",
+    )?;
+
+    if usize::try_from(expected_cardinality).map_err(unavailable)? != candidates.len()
+        || candidates.len() > MAX_FRONTIER_MEMBERS
+    {
+        return Err(TrialFamilyError::InvalidPolicy(
+            "CANDIDATE_SET_CARDINALITY_INVALID",
+        ));
+    }
     let mut identities = std::collections::BTreeSet::new();
     let mut digests = std::collections::BTreeSet::new();
 
-    for candidate in &proposal.candidates {
+    for candidate in &candidates {
         require_identity(&candidate.candidate_identity, "CANDIDATE_IDENTITY_INVALID")?;
         require_sha256(&candidate.candidate_digest, "CANDIDATE_DIGEST_INVALID")?;
         if !identities.insert(candidate.candidate_identity.as_str())
@@ -1532,10 +1694,10 @@ fn form_candidate_set_frontier_v2(
         schema_version: 2,
         trial_family_identity,
         attempt_ordinal,
-        generation_rule_identity: &proposal.generation_rule_identity,
-        generation_rule_digest: &proposal.generation_rule_digest,
-        expected_cardinality: proposal.expected_cardinality,
-        candidates: &proposal.candidates,
+        generation_rule_identity: &generation_rule_identity,
+        generation_rule_digest: &generation_rule_digest,
+        expected_cardinality,
+        candidates: &candidates,
     };
     let frontier_digest = canonical_digest("rd.trial-family.candidate-set-frontier.v2", &meaning)?;
     Ok(TrialFamilyCandidateSetFrontierV2 {
@@ -1546,12 +1708,246 @@ fn form_candidate_set_frontier_v2(
         ),
         trial_family_identity: trial_family_identity.to_string(),
         attempt_ordinal,
-        generation_rule_identity: proposal.generation_rule_identity,
-        generation_rule_digest: proposal.generation_rule_digest,
-        expected_cardinality: proposal.expected_cardinality,
-        candidates: proposal.candidates,
+        generation_rule_identity,
+        generation_rule_digest,
+        expected_cardinality,
+        candidates,
         frontier_digest,
     })
+}
+
+pub(crate) fn candidate_experiment_digest_v1(
+    candidate_identity: &str,
+    experiment: &crate::IterationExperimentModeV1,
+) -> Result<String, TrialFamilyError> {
+    require_identity(candidate_identity, "CANDIDATE_IDENTITY_INVALID")?;
+    let meaning = CandidateExperimentMeaningV1 {
+        schema_version: 1,
+        candidate_identity,
+        experiment,
+    };
+    let bytes =
+        serde_json::to_vec(&meaning).map_err(|e| TrialFamilyError::Unavailable(e.to_string()))?;
+    let mut hasher = Sha256::new();
+    hasher.update(b"rd.iteration-candidate-experiment.v1");
+    hasher.update([0]);
+    hasher.update(bytes);
+    Ok(format!("sha256:{:x}", hasher.finalize()))
+}
+
+pub(crate) fn issue_candidate_experiment_readbacks_v1(
+    census: &TrialFamilyCensusReadbackV2,
+    proposals: &[TrialFamilyCandidateExperimentProposalV1],
+    committed_at_epoch_ms: u64,
+) -> Result<Vec<TrialFamilyCandidateExperimentReadbackV1>, TrialFamilyError> {
+    verify_census_v2(census)?;
+    if proposals.len() != census.candidate_set_frontier.candidates.len() {
+        return Err(TrialFamilyError::Unavailable(
+            "candidate experiment custody is incomplete".to_string(),
+        ));
+    }
+    proposals
+        .iter()
+        .zip(&census.candidate_set_frontier.candidates)
+        .map(|(proposal, candidate)| {
+            issue_candidate_experiment_readback_v1(
+                census,
+                candidate,
+                proposal,
+                committed_at_epoch_ms,
+            )
+        })
+        .collect()
+}
+
+fn issue_candidate_experiment_readback_v1(
+    census: &TrialFamilyCensusReadbackV2,
+    candidate: &TrialFamilyCandidateFactV2,
+    proposal: &TrialFamilyCandidateExperimentProposalV1,
+    committed_at_epoch_ms: u64,
+) -> Result<TrialFamilyCandidateExperimentReadbackV1, TrialFamilyError> {
+    let digest =
+        candidate_experiment_digest_v1(&proposal.candidate_identity, &proposal.experiment)?;
+    if proposal.candidate_identity != candidate.candidate_identity
+        || digest != candidate.candidate_digest
+    {
+        return Err(TrialFamilyError::Unavailable(
+            "candidate experiment does not match its frontier".to_string(),
+        ));
+    }
+    let family_identity = &census.census_frontier.trial_family_identity;
+    let frontier = &census.candidate_set_frontier;
+    let custody_digest = canonical_digest(
+        "rd.trial-family-candidate-experiment-custody.v1",
+        &CandidateExperimentCustodyMeaningV1 {
+            schema_version: 1,
+            trial_family_identity: family_identity,
+            attempt_ordinal: frontier.attempt_ordinal,
+            candidate_set_frontier_identity: &frontier.frontier_identity,
+            candidate_set_frontier_digest: &frontier.frontier_digest,
+            candidate_identity: &proposal.candidate_identity,
+            candidate_digest: &digest,
+        },
+    )?;
+    let experiment_identity = identity("rd-trial-family-candidate-experiment-v1", &custody_digest);
+    let receipt_digest = canonical_digest(
+        "rd.trial-family-candidate-experiment-receipt.v1",
+        &CandidateExperimentReceiptMeaningV1 {
+            schema_version: 1,
+            experiment_identity: &experiment_identity,
+            trial_family_identity: family_identity,
+            attempt_ordinal: frontier.attempt_ordinal,
+            candidate_set_frontier_identity: &frontier.frontier_identity,
+            candidate_set_frontier_digest: &frontier.frontier_digest,
+            candidate_identity: &proposal.candidate_identity,
+            candidate_digest: &digest,
+            committed_at_epoch_ms,
+        },
+    )?;
+    Ok(TrialFamilyCandidateExperimentReadbackV1 {
+        experiment: TrialFamilyCandidateExperimentV1 {
+            schema_version: 1,
+            experiment_identity: experiment_identity.clone(),
+            trial_family_identity: family_identity.clone(),
+            attempt_ordinal: frontier.attempt_ordinal,
+            candidate_set_frontier_identity: frontier.frontier_identity.clone(),
+            candidate_set_frontier_digest: frontier.frontier_digest.clone(),
+            candidate_identity: proposal.candidate_identity.clone(),
+            candidate_digest: digest.clone(),
+            experiment: proposal.experiment.clone(),
+            committed_at_epoch_ms,
+        },
+        receipt: TrialFamilyCandidateExperimentReceiptV1 {
+            schema_version: 1,
+            receipt_identity: identity(
+                "rd-trial-family-candidate-experiment-receipt-v1",
+                &receipt_digest,
+            ),
+            receipt_digest,
+            experiment_identity,
+            trial_family_identity: family_identity.clone(),
+            attempt_ordinal: frontier.attempt_ordinal,
+            candidate_set_frontier_identity: frontier.frontier_identity.clone(),
+            candidate_set_frontier_digest: frontier.frontier_digest.clone(),
+            candidate_identity: proposal.candidate_identity.clone(),
+            candidate_digest: digest,
+            committed_at_epoch_ms,
+        },
+    })
+}
+
+pub(crate) fn admit_stored_candidate_experiment_v1(
+    experiment_json: &serde_json::Value,
+    receipt_json: &serde_json::Value,
+    census: &TrialFamilyCensusReadbackV2,
+) -> Result<TrialFamilyCandidateExperimentReadbackV1, TrialFamilyError> {
+    verify_census_v2(census)?;
+    let stored: StoredTrialFamilyCandidateExperimentV1 = decode_stored(experiment_json)?;
+    let receipt: StoredTrialFamilyCandidateExperimentReceiptV1 = decode_stored(receipt_json)?;
+    let candidate = census
+        .candidate_set_frontier
+        .candidates
+        .iter()
+        .find(|candidate| candidate.candidate_identity == stored.candidate_identity)
+        .ok_or_else(|| {
+            TrialFamilyError::Unavailable("candidate experiment is unknown".to_string())
+        })?;
+    let readback = issue_candidate_experiment_readback_v1(
+        census,
+        candidate,
+        &TrialFamilyCandidateExperimentProposalV1 {
+            candidate_identity: stored.candidate_identity.clone(),
+            experiment: stored.experiment.clone(),
+        },
+        stored.committed_at_epoch_ms,
+    )?;
+
+    if stored.schema_version != 1
+        || stored.experiment_identity != readback.experiment.experiment_identity
+        || stored.trial_family_identity != readback.experiment.trial_family_identity
+        || stored.attempt_ordinal != readback.experiment.attempt_ordinal
+        || stored.candidate_set_frontier_identity
+            != readback.experiment.candidate_set_frontier_identity
+        || stored.candidate_set_frontier_digest != readback.experiment.candidate_set_frontier_digest
+        || stored.candidate_digest != candidate.candidate_digest
+        || receipt.schema_version != 1
+        || receipt.receipt_identity != readback.receipt.receipt_identity
+        || receipt.receipt_digest != readback.receipt.receipt_digest
+        || receipt.experiment_identity != readback.receipt.experiment_identity
+        || receipt.trial_family_identity != readback.receipt.trial_family_identity
+        || receipt.attempt_ordinal != readback.receipt.attempt_ordinal
+        || receipt.candidate_set_frontier_identity
+            != readback.receipt.candidate_set_frontier_identity
+        || receipt.candidate_set_frontier_digest != readback.receipt.candidate_set_frontier_digest
+        || receipt.candidate_identity != readback.receipt.candidate_identity
+        || receipt.candidate_digest != readback.receipt.candidate_digest
+        || receipt.committed_at_epoch_ms != readback.receipt.committed_at_epoch_ms
+    {
+        return Err(TrialFamilyError::Unavailable(
+            "candidate experiment custody mismatch".to_string(),
+        ));
+    }
+    Ok(readback)
+}
+
+impl TrialFamilyCandidateExperimentReadbackV1 {
+    pub fn experiment(&self) -> &TrialFamilyCandidateExperimentV1 {
+        &self.experiment
+    }
+    pub fn receipt(&self) -> &TrialFamilyCandidateExperimentReceiptV1 {
+        &self.receipt
+    }
+}
+
+impl TrialFamilyCandidateExperimentV1 {
+    pub fn experiment_identity(&self) -> &str {
+        &self.experiment_identity
+    }
+    pub fn trial_family_identity(&self) -> &str {
+        &self.trial_family_identity
+    }
+    pub fn attempt_ordinal(&self) -> u32 {
+        self.attempt_ordinal
+    }
+    pub fn candidate_set_frontier_identity(&self) -> &str {
+        &self.candidate_set_frontier_identity
+    }
+    pub fn candidate_set_frontier_digest(&self) -> &str {
+        &self.candidate_set_frontier_digest
+    }
+    pub fn candidate_identity(&self) -> &str {
+        &self.candidate_identity
+    }
+    pub fn candidate_digest(&self) -> &str {
+        &self.candidate_digest
+    }
+    pub fn mode(&self) -> &crate::IterationExperimentModeV1 {
+        &self.experiment
+    }
+    pub fn committed_at_epoch_ms(&self) -> u64 {
+        self.committed_at_epoch_ms
+    }
+}
+
+impl TrialFamilyCandidateExperimentReceiptV1 {
+    pub fn receipt_identity(&self) -> &str {
+        &self.receipt_identity
+    }
+    pub fn receipt_digest(&self) -> &str {
+        &self.receipt_digest
+    }
+
+    pub fn experiment_identity(&self) -> &str {
+        &self.experiment_identity
+    }
+
+    pub fn candidate_digest(&self) -> &str {
+        &self.candidate_digest
+    }
+
+    pub fn committed_at_epoch_ms(&self) -> u64 {
+        self.committed_at_epoch_ms
+    }
 }
 
 pub(crate) fn form_artifact_binding(
@@ -1904,15 +2300,13 @@ pub(crate) fn verify_census_v2(
             "candidate-set frontier cardinality mismatch".to_string(),
         ));
     }
-    let expected_candidate = form_candidate_set_frontier_v2(
+    let expected_candidate = form_candidate_set_frontier_from_facts_v2(
         family_identity,
         candidate.attempt_ordinal,
-        TrialFamilyCandidateSetProposalV2 {
-            generation_rule_identity: candidate.generation_rule_identity.clone(),
-            generation_rule_digest: candidate.generation_rule_digest.clone(),
-            expected_cardinality: candidate.expected_cardinality,
-            candidates: candidate.candidates.clone(),
-        },
+        candidate.generation_rule_identity.clone(),
+        candidate.generation_rule_digest.clone(),
+        candidate.expected_cardinality,
+        candidate.candidates.clone(),
     )?;
 
     if &expected_candidate != candidate {
@@ -1961,6 +2355,39 @@ pub(crate) fn verify_census_v2(
 pub(crate) fn verify_artifact_binding(
     readback: &ArtifactTrialFamilyReadbackV1,
 ) -> Result<(), TrialFamilyError> {
+    verify_artifact_binding_receipt(readback)?;
+    let expected = form_artifact_binding(
+        readback.trial_family.clone(),
+        &readback.binding.artifact_identity,
+        &readback.binding.build_receipt_identity,
+        &readback.binding.intent_identity,
+        readback.binding_receipt.committed_at_epoch_ms,
+    )?;
+
+    verify_expected_artifact_binding(readback, &expected)
+}
+
+pub(crate) fn verify_successor_artifact_binding(
+    readback: &ArtifactTrialFamilyReadbackV1,
+    intent_trial_family_identity: &str,
+    intent_trial_family_policy_digest: &str,
+) -> Result<(), TrialFamilyError> {
+    verify_artifact_binding_receipt(readback)?;
+    let expected = form_successor_artifact_binding(
+        readback.trial_family.clone(),
+        &readback.binding.artifact_identity,
+        &readback.binding.build_receipt_identity,
+        &readback.binding.intent_identity,
+        intent_trial_family_identity,
+        intent_trial_family_policy_digest,
+        readback.binding_receipt.committed_at_epoch_ms,
+    )?;
+    verify_expected_artifact_binding(readback, &expected)
+}
+
+fn verify_artifact_binding_receipt(
+    readback: &ArtifactTrialFamilyReadbackV1,
+) -> Result<(), TrialFamilyError> {
     verify_family(&readback.trial_family)?;
     if readback.binding.schema_version != 1
         || readback.binding_receipt.schema_version != 1
@@ -1971,15 +2398,14 @@ pub(crate) fn verify_artifact_binding(
             "artifact binding receipt mismatch".to_string(),
         ));
     }
-    let expected = form_artifact_binding(
-        readback.trial_family.clone(),
-        &readback.binding.artifact_identity,
-        &readback.binding.build_receipt_identity,
-        &readback.binding.intent_identity,
-        readback.binding_receipt.committed_at_epoch_ms,
-    )?;
+    Ok(())
+}
 
-    if &expected != readback {
+fn verify_expected_artifact_binding(
+    readback: &ArtifactTrialFamilyReadbackV1,
+    expected: &ArtifactTrialFamilyReadbackV1,
+) -> Result<(), TrialFamilyError> {
+    if expected != readback {
         return Err(TrialFamilyError::Unavailable(
             "artifact binding content digest mismatch".to_string(),
         ));
@@ -2051,6 +2477,37 @@ struct CandidateSetFrontierMeaningV2<'a> {
     generation_rule_digest: &'a str,
     expected_cardinality: u32,
     candidates: &'a [TrialFamilyCandidateFactV2],
+}
+
+#[derive(Serialize)]
+struct CandidateExperimentMeaningV1<'a> {
+    schema_version: u16,
+    candidate_identity: &'a str,
+    experiment: &'a crate::IterationExperimentModeV1,
+}
+
+#[derive(Serialize)]
+struct CandidateExperimentReceiptMeaningV1<'a> {
+    schema_version: u16,
+    experiment_identity: &'a str,
+    trial_family_identity: &'a str,
+    attempt_ordinal: u32,
+    candidate_set_frontier_identity: &'a str,
+    candidate_set_frontier_digest: &'a str,
+    candidate_identity: &'a str,
+    candidate_digest: &'a str,
+    committed_at_epoch_ms: u64,
+}
+
+#[derive(Serialize)]
+struct CandidateExperimentCustodyMeaningV1<'a> {
+    schema_version: u16,
+    trial_family_identity: &'a str,
+    attempt_ordinal: u32,
+    candidate_set_frontier_identity: &'a str,
+    candidate_set_frontier_digest: &'a str,
+    candidate_identity: &'a str,
+    candidate_digest: &'a str,
 }
 
 #[derive(Serialize)]
@@ -2328,7 +2785,7 @@ mod tests {
         family: &TrialFamilyReadbackV1,
         ordinal: u32,
         disposition: TrialFamilyAttemptTerminalDispositionV2,
-        candidates: Vec<TrialFamilyCandidateFactV2>,
+        candidates: Vec<TrialFamilyCandidateExperimentProposalV1>,
     ) -> TrialFamilyAttemptAppendV2 {
         TrialFamilyAttemptAppendV2 {
             intent_identity: if ordinal == 0 {
@@ -2426,9 +2883,11 @@ mod tests {
             42,
         )
         .unwrap();
-        let candidate = TrialFamilyCandidateFactV2 {
+        let candidate = TrialFamilyCandidateExperimentProposalV1 {
             candidate_identity: "rd-candidate-v2-a".to_string(),
-            candidate_digest: format!("sha256:{}", "a".repeat(64)),
+            experiment: crate::IterationExperimentModeV1::SingleDimension {
+                changed_dimension: crate::IterationHypothesisDimensionV1::ReturnMechanism,
+            },
         };
         let mut wrong_cardinality = append(
             &family,
@@ -2565,6 +3024,71 @@ mod tests {
     }
 
     #[rstest]
+    fn candidate_experiment_digest_and_positive_readback_are_owner_derived() {
+        let fixed_experiment = crate::IterationExperimentModeV1::SingleDimension {
+            changed_dimension: crate::IterationHypothesisDimensionV1::ReturnMechanism,
+        };
+        let fixed_digest = candidate_experiment_digest_v1("candidate-fixed-v1", &fixed_experiment)
+            .expect("fixed candidate digest");
+        assert_eq!(
+            fixed_digest,
+            "sha256:6a25898fd5196b72516f1cf8b4bdfe1bb025ca01912b2f32838cd800dfee2f4b"
+        );
+        assert_eq!(
+            fixed_digest,
+            crate::iteration_analysis::canonical_digest(
+                "rd.iteration-candidate-experiment.v1",
+                &CandidateExperimentMeaningV1 {
+                    schema_version: 1,
+                    candidate_identity: "candidate-fixed-v1",
+                    experiment: &fixed_experiment,
+                },
+            )
+            .expect("cross-module candidate digest")
+        );
+        let family = form_initial_family(
+            "rd-research-intent-v2-experiment",
+            &format!("sha256:{}", "1".repeat(64)),
+            policy(),
+            42,
+        )
+        .unwrap();
+        let proposal = TrialFamilyCandidateExperimentProposalV1 {
+            candidate_identity: "rd-candidate-v2-experiment".to_string(),
+            experiment: crate::IterationExperimentModeV1::SingleDimension {
+                changed_dimension: crate::IterationHypothesisDimensionV1::ReturnMechanism,
+            },
+        };
+        let census = append_attempt_to_census_v2(
+            family.clone(),
+            None,
+            append(
+                &family,
+                0,
+                TrialFamilyAttemptTerminalDispositionV2::TerminalResult,
+                vec![proposal.clone()],
+            ),
+            100,
+        )
+        .unwrap();
+        let issued = issue_candidate_experiment_readbacks_v1(&census, &[proposal], 100).unwrap();
+        assert_eq!(issued.len(), 1);
+        assert_eq!(
+            issued[0].experiment().candidate_digest(),
+            census.candidate_set_frontier.candidates()[0].candidate_digest()
+        );
+        let experiment_json = serde_json::to_value(issued[0].experiment()).unwrap();
+        let receipt_json = serde_json::to_value(issued[0].receipt()).unwrap();
+        assert_eq!(
+            admit_stored_candidate_experiment_v1(&experiment_json, &receipt_json, &census).unwrap(),
+            issued[0]
+        );
+        let mut tampered = experiment_json;
+        tampered["candidate_digest"] = serde_json::json!(format!("sha256:{}", "f".repeat(64)));
+        assert!(admit_stored_candidate_experiment_v1(&tampered, &receipt_json, &census).is_err());
+    }
+
+    #[rstest]
     fn private_stored_schema_roundtrips_and_rejects_unknown_fields() {
         let intent_identity = "rd-research-intent-v2-test";
         let intent_digest = format!("sha256:{}", "1".repeat(64));
@@ -2649,6 +3173,19 @@ mod tests {
         .unwrap();
         assert_eq!(bound.binding.intent_identity(), successor_intent);
         assert_eq!(bound.binding.trial_family_identity(), family_identity);
+        verify_successor_artifact_binding(&bound, &family_identity, &policy_digest).unwrap();
+        assert_eq!(
+            admit_stored_successor_artifact_binding(
+                family.clone(),
+                &serde_json::to_value(&bound.binding).unwrap(),
+                &serde_json::to_value(&bound.binding_receipt).unwrap(),
+                &family_identity,
+                &policy_digest,
+            )
+            .unwrap(),
+            bound
+        );
+        assert!(verify_artifact_binding(&bound).is_err());
 
         assert!(
             form_successor_artifact_binding(

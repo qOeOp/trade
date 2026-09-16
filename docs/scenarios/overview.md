@@ -5,10 +5,11 @@ and known-safe recovery. It shows owner contracts; scenario pages contain the de
 
 ## Entry
 
-A person submits a sourced, falsifiable market idea through the target Windmill Product Edge. The default
-Windmill App and optional external conversation clients connected through Windmill MCP invoke the same versioned,
-bounded Owner operations behind one `WINDMILL_PRODUCT_EDGE` admission gateway. Neither UI, MCP transport, nor
-workflow stores business truth or trades directly.
+A person submits a sourced, falsifiable market idea through Product Edge. The Trade-owned Dashboard and
+optional external conversation clients connected through its Dashboard MCP endpoint invoke the same versioned,
+bounded Owner operations behind one admission gateway, whose channel constant is still spelled
+`WINDMILL_PRODUCT_EDGE` from when Windmill was the surface. Neither UI, MCP transport, nor workflow stores
+business truth or trades directly.
 
 ## Value path
 

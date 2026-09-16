@@ -2,11 +2,20 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
+use vibe_backtest_owner_contracts::{
+    CanonicalDigestV2, ConsumedComponentObservationDtoV2, DiagnosticEvidenceDtoV2,
+    OpaqueIdentityV2, ReconciliationAtomDtoV2, ReplayNamespaceV2, ReplayTerminalV2,
+};
+use vibe_backtest_result_custody::{
+    ExploratoryReplayResultReceiptReferenceV1, LockedExploratoryReplayResultV2,
+};
 use vibe_product_edge::{ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionReadbackV1};
 
 use crate::iteration_decision::{
-    ExistingIterationDecisionReadbackV1, IterationDecisionOutcomeV1, IterationRepairCategoryV1,
-    IterationRepairTargetV1, IterationTerminalStopReasonV1,
+    ExistingIterationDecisionReadbackV1, IterationDecisionEvidenceCutV1, IterationDecisionGateV1,
+    IterationDecisionOutcomeV1, IterationDiagnosisDimensionV1, IterationInterpretationDiagnosticV1,
+    IterationNoDecisionReasonV1, IterationRepairCategoryV1, IterationRepairTargetV1,
+    IterationTerminalStopReasonV1,
 };
 use crate::trial_family::{
     TrialFamilyError, TrialFamilyIndependenceDispositionV1, TrialFamilyPolicyV1,
@@ -21,6 +30,7 @@ pub const RESEARCH_GOAL_SCHEMA_V2: &str = "sourced-research-goal-v2";
 pub const RESEARCH_OWNER_V1: &str = "R_AND_D";
 pub const RESEARCH_SCOPE_V1: &str = "research:submit";
 pub const RESEARCH_VIEW_SCOPE_V1: &str = "research:view";
+pub const BACKTEST_OWNER_V1: &str = "BACKTEST";
 const RESEARCH_MUTATION_EFFECT_V1: &str = "R_AND_D_RESEARCH_MUTATION_V1";
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -410,8 +420,29 @@ pub struct ResearchViewV1 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifact_review_identity: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub composer_artifact: Option<ResearchComposerArtifactViewV3>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exploration: Option<ResearchExplorationViewV1>,
     pub next_legal_action: ResearchNextLegalAction,
+}
+
+/// Exact R&D references for one Composer artifact admitted to a TrialFamily.
+///
+/// A Composer artifact can use several intrinsic plugin Build Receipts, so none of these
+/// coordinates is represented as a legacy Artifact Build attempt or review.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResearchComposerArtifactViewV3 {
+    pub artifact_locator: String,
+    pub artifact_identity_digest: String,
+    pub composer_request_identity: String,
+    pub composer_operation_receipt_digest: String,
+    pub artifact_family_binding_identity: String,
+    pub artifact_family_binding_digest: String,
+    pub artifact_family_binding_receipt_identity: String,
+    pub trial_family_identity: String,
+    pub census_frontier_identity: String,
+    pub census_frontier_digest: String,
 }
 
 /// Bounded R&D-owned facts proving that one exact exploratory request is active.
@@ -428,6 +459,247 @@ pub struct ResearchExplorationViewV1 {
     pub replay_request_meaning_digest: String,
     pub replay_request_seal_digest: String,
     pub replay_receipt_identity: String,
+}
+
+/// Read-only Product Edge projection of one validated Backtest exploratory Result aggregate.
+///
+/// This type is serialize-only. Its sole public constructor accepts the non-forgeable locked
+/// Backtest Owner readback, so caller bytes cannot supply a Result, receipt, diagnosis, or trace.
+/// Raw Result bytes, economic interpretation, Iteration Decision, and next-action inference are
+/// deliberately absent.
+///
+/// ```compile_fail
+/// use vibe_strategy_factory::product_edge::ResearchExploratoryRunEvidenceProjectionV1;
+/// let _: ResearchExploratoryRunEvidenceProjectionV1 = serde_json::from_str("{}").unwrap();
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResearchExploratoryRunEvidenceProjectionV1 {
+    schema_version: u16,
+    source_owner: String,
+    replay_namespace: ReplayNamespaceV2,
+    request_identity: OpaqueIdentityV2,
+    request_meaning_digest: CanonicalDigestV2,
+    result_identity: OpaqueIdentityV2,
+    result_digest: CanonicalDigestV2,
+    attempt_identity: OpaqueIdentityV2,
+    terminal: ReplayTerminalV2,
+    receipt_reference: ExploratoryReplayResultReceiptReferenceV1,
+    reconciliation: Vec<ReconciliationAtomDtoV2>,
+    semantic_trace: Option<ConsumedComponentObservationDtoV2>,
+    diagnostic_census: Vec<DiagnosticEvidenceDtoV2>,
+}
+
+impl ResearchExploratoryRunEvidenceProjectionV1 {
+    /// Projects only facts carried by the validated Backtest Owner readback.
+    #[must_use]
+    pub fn from_locked_owner_readback(readback: &LockedExploratoryReplayResultV2) -> Self {
+        let result = readback.result();
+        Self {
+            schema_version: 1,
+            source_owner: BACKTEST_OWNER_V1.to_string(),
+            replay_namespace: result.namespace,
+            request_identity: result.request_identity.clone(),
+            request_meaning_digest: result.request_meaning_digest.clone(),
+            result_identity: result.result_identity.clone(),
+            result_digest: result.result_digest.clone(),
+            attempt_identity: result.attempt_identity.clone(),
+            terminal: result.terminal,
+            receipt_reference: readback.receipt_reference().clone(),
+            reconciliation: result.reconciliation.clone(),
+            semantic_trace: result.semantic_trace.clone(),
+            diagnostic_census: result.diagnostic_census.clone(),
+        }
+    }
+
+    #[must_use]
+    pub const fn schema_version(&self) -> u16 {
+        self.schema_version
+    }
+
+    #[must_use]
+    pub fn source_owner(&self) -> &str {
+        &self.source_owner
+    }
+
+    #[must_use]
+    pub const fn replay_namespace(&self) -> ReplayNamespaceV2 {
+        self.replay_namespace
+    }
+
+    #[must_use]
+    pub fn request_identity(&self) -> &OpaqueIdentityV2 {
+        &self.request_identity
+    }
+
+    #[must_use]
+    pub fn result_identity(&self) -> &OpaqueIdentityV2 {
+        &self.result_identity
+    }
+
+    #[must_use]
+    pub fn attempt_identity(&self) -> &OpaqueIdentityV2 {
+        &self.attempt_identity
+    }
+
+    #[must_use]
+    pub const fn terminal(&self) -> ReplayTerminalV2 {
+        self.terminal
+    }
+
+    #[must_use]
+    pub fn receipt_reference(&self) -> &ExploratoryReplayResultReceiptReferenceV1 {
+        &self.receipt_reference
+    }
+
+    #[must_use]
+    pub fn reconciliation(&self) -> &[ReconciliationAtomDtoV2] {
+        &self.reconciliation
+    }
+
+    #[must_use]
+    pub fn semantic_trace(&self) -> Option<&ConsumedComponentObservationDtoV2> {
+        self.semantic_trace.as_ref()
+    }
+
+    #[must_use]
+    pub fn diagnostic_census(&self) -> &[DiagnosticEvidenceDtoV2] {
+        &self.diagnostic_census
+    }
+}
+
+/// Caller-owned coordinates for one R&D diagnosis read. They carry no diagnosis or Decision
+/// authority.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResearchExploratoryDiagnosisLocatorV1 {
+    pub trial_family_identity: String,
+    pub result_identity: String,
+    pub request_identity: String,
+    pub attempt_identity: String,
+}
+
+/// Read-only Product Edge projection of R&D's mandatory diagnosis gate.
+///
+/// This type is serialize-only and has no public constructor. A positive value can therefore be
+/// produced only after R&D joins the current TrialFamily Census to the locked Backtest Result.
+/// It neither commits an Iteration Decision nor accepts caller-supplied diagnosis fields.
+///
+/// ```compile_fail
+/// use vibe_strategy_factory::product_edge::ResearchExploratoryDiagnosisGateProjectionV1;
+/// let _: ResearchExploratoryDiagnosisGateProjectionV1 = serde_json::from_str("{}").unwrap();
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResearchExploratoryDiagnosisGateProjectionV1 {
+    schema_version: u16,
+    source_owner: String,
+    locator: ResearchExploratoryDiagnosisLocatorV1,
+    action: ResearchExploratoryDiagnosisGateActionV1,
+}
+
+/// The only client actions admitted by one exact R&D diagnosis read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "next_legal_action", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ResearchExploratoryDiagnosisGateActionV1 {
+    WaitForTerminalResult {
+        reason: IterationNoDecisionReasonV1,
+    },
+    NoDecision {
+        reason: IterationNoDecisionReasonV1,
+    },
+    SubmitRepairInputDecision {
+        decision_request: crate::DecisionCompositionRequestV1,
+        evidence_cut: IterationDecisionEvidenceCutV1,
+        supported_defects: Vec<IterationRepairCategoryV1>,
+        selected_category: IterationRepairCategoryV1,
+        target: IterationRepairTargetV1,
+    },
+    InterpretationRequired {
+        evidence_cut: IterationDecisionEvidenceCutV1,
+        diagnostic: IterationInterpretationDiagnosticV1,
+        required_dimensions: Vec<IterationDiagnosisDimensionV1>,
+    },
+}
+
+impl ResearchExploratoryDiagnosisGateProjectionV1 {
+    pub(crate) fn from_owner_gate(
+        locator: ResearchExploratoryDiagnosisLocatorV1,
+        gate: IterationDecisionGateV1,
+    ) -> Self {
+        let decision_request = crate::DecisionCompositionRequestV1 {
+            trial_family_identity: locator.trial_family_identity.clone(),
+            result_identity: locator.result_identity.clone(),
+            request_identity: locator.request_identity.clone(),
+            attempt_identity: locator.attempt_identity.clone(),
+        };
+        let action = match gate {
+            IterationDecisionGateV1::RepairInputs {
+                evidence_cut,
+                supported_defects,
+                selected_category,
+                target,
+            } => ResearchExploratoryDiagnosisGateActionV1::SubmitRepairInputDecision {
+                decision_request,
+                evidence_cut,
+                supported_defects,
+                selected_category,
+                target,
+            },
+            IterationDecisionGateV1::InterpretationRequired {
+                evidence_cut,
+                diagnostic,
+                required_dimensions,
+            } => ResearchExploratoryDiagnosisGateActionV1::InterpretationRequired {
+                evidence_cut,
+                diagnostic,
+                required_dimensions,
+            },
+            IterationDecisionGateV1::NoDecision { reason } => {
+                if reason == IterationNoDecisionReasonV1::UnknownOrNonterminalResult {
+                    ResearchExploratoryDiagnosisGateActionV1::WaitForTerminalResult { reason }
+                } else {
+                    ResearchExploratoryDiagnosisGateActionV1::NoDecision { reason }
+                }
+            }
+        };
+        Self {
+            schema_version: 1,
+            source_owner: RESEARCH_OWNER_V1.to_string(),
+            locator,
+            action,
+        }
+    }
+
+    #[must_use]
+    pub const fn schema_version(&self) -> u16 {
+        self.schema_version
+    }
+
+    #[must_use]
+    pub fn source_owner(&self) -> &str {
+        &self.source_owner
+    }
+
+    #[must_use]
+    pub const fn locator(&self) -> &ResearchExploratoryDiagnosisLocatorV1 {
+        &self.locator
+    }
+
+    #[must_use]
+    pub const fn action(&self) -> &ResearchExploratoryDiagnosisGateActionV1 {
+        &self.action
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum ResearchExploratoryDiagnosisGateErrorV1 {
+    #[error("exploratory diagnosis-gate Owner facts are unavailable")]
+    Unavailable,
+    #[error("exploratory diagnosis-gate evidence is invalid")]
+    InvalidEvidence,
+    #[error("exploratory diagnosis-gate storage is unavailable: {0}")]
+    Storage(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -1214,6 +1486,7 @@ pub(crate) fn decide_commit_v2(
         artifact_identity: None,
         build_receipt_identity: None,
         artifact_review_identity: None,
+        composer_artifact: None,
         exploration: None,
         next_legal_action: ResearchNextLegalAction::WaitForRAndDExecution,
     };
@@ -1383,6 +1656,7 @@ pub(crate) fn decide_commit(
         artifact_identity: None,
         build_receipt_identity: None,
         artifact_review_identity: None,
+        composer_artifact: None,
         exploration: None,
         next_legal_action: ResearchNextLegalAction::WaitForRAndDExecution,
     };
@@ -1789,6 +2063,249 @@ pub(crate) fn canonical_research_view_identity_v3(view: &ResearchViewV1) -> Opti
     Some(format!("rd-research-view-v3-{:x}", Sha256::digest(bytes)))
 }
 
+#[derive(Serialize)]
+struct ResearchViewIdentityEnvelopeV4<'a> {
+    domain: &'static str,
+    view: ResearchViewIdentityMeaningV4<'a>,
+}
+
+#[derive(Serialize)]
+struct ResearchViewIdentityMeaningV4<'a> {
+    schema_version: u32,
+    request_identity: &'a str,
+    trusted_principal: &'a str,
+    authorized_scope: &'a [String],
+    authorization_policy_cut: &'a str,
+    source_owner: &'a str,
+    source_cut: &'a str,
+    observed_at_epoch_ms: u64,
+    projection_at_epoch_ms: u64,
+    valid_through_epoch_ms: u64,
+    availability: &'a ResearchViewAvailability,
+    phase: &'a ResearchViewPhase,
+    intent_identity: &'a str,
+    source_frontier: &'a [ResearchSourceV1],
+    composer_artifact: &'a ResearchComposerArtifactViewV3,
+    exploration: &'a ResearchExplorationViewV1,
+    next_legal_action: &'a ResearchNextLegalAction,
+}
+
+/// A separate identity domain keeps legacy Artifact Build and Replay View bytes unchanged.
+pub(crate) fn canonical_research_view_identity_v4(view: &ResearchViewV1) -> Option<String> {
+    let composer_artifact = view.composer_artifact.as_ref()?;
+    let exploration = view.exploration.as_ref()?;
+    let bytes = serde_json::to_vec(&ResearchViewIdentityEnvelopeV4 {
+        domain: "rd.research-view.identity.v4",
+        view: ResearchViewIdentityMeaningV4 {
+            schema_version: view.schema_version,
+            request_identity: &view.request_identity,
+            trusted_principal: &view.trusted_principal,
+            authorized_scope: &view.authorized_scope,
+            authorization_policy_cut: &view.authorization_policy_cut,
+            source_owner: &view.source_owner,
+            source_cut: &view.source_cut,
+            observed_at_epoch_ms: view.observed_at_epoch_ms,
+            projection_at_epoch_ms: view.projection_at_epoch_ms,
+            valid_through_epoch_ms: view.valid_through_epoch_ms,
+            availability: &view.availability,
+            phase: &view.phase,
+            intent_identity: &view.intent_identity,
+            source_frontier: &view.source_frontier,
+            composer_artifact,
+            exploration,
+            next_legal_action: &view.next_legal_action,
+        },
+    })
+    .ok()?;
+    Some(format!("rd-research-view-v4-{:x}", Sha256::digest(bytes)))
+}
+
+fn binding_digest_hex(digest: vibe_data::owner::source_binding::BindingDigest) -> String {
+    let mut value = String::with_capacity(71);
+    value.push_str("sha256:");
+    for byte in digest.as_bytes() {
+        use std::fmt::Write as _;
+        write!(&mut value, "{byte:02x}").expect("writing to String");
+    }
+    value
+}
+
+fn canonical_sha256_text(value: &str) -> bool {
+    value.strip_prefix("sha256:").is_some_and(|digest| {
+        digest.len() == 64
+            && digest
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    })
+}
+
+fn canonical_named_sha256(value: &str, prefix: &str) -> bool {
+    value.strip_prefix(prefix).is_some_and(|digest| {
+        digest.len() == 64
+            && digest
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    })
+}
+
+/// Validates only the historical View shape. The consuming Owner must separately reread the
+/// exact Composer, Artifact-family binding, and Replay facts in its own transaction.
+pub(crate) fn composer_exploration_research_view_is_valid_v3(
+    view: &ResearchViewV1,
+    initial: &ResearchViewV1,
+) -> bool {
+    let Some(composer) = view.composer_artifact.as_ref() else {
+        return false;
+    };
+    let Some(exploration) = view.exploration.as_ref() else {
+        return false;
+    };
+    initial.schema_version == 1
+        && initial.phase == ResearchViewPhase::IntentFrozen
+        && initial.availability == ResearchViewAvailability::Available
+        && initial.attempt_identity.is_none()
+        && initial.artifact_identity.is_none()
+        && initial.build_receipt_identity.is_none()
+        && initial.artifact_review_identity.is_none()
+        && initial.composer_artifact.is_none()
+        && initial.exploration.is_none()
+        && initial.projection_identity == canonical_research_view_identity_v2(initial)
+        && view.schema_version == 3
+        && view.phase == ResearchViewPhase::ExplorationActive
+        && view.availability == ResearchViewAvailability::Available
+        && view.attempt_identity.is_none()
+        && view.artifact_identity.is_none()
+        && view.build_receipt_identity.is_none()
+        && view.artifact_review_identity.is_none()
+        && view.next_legal_action == ResearchNextLegalAction::ViewExploratoryRun
+        && view.observed_at_epoch_ms == view.projection_at_epoch_ms
+        && view.projection_at_epoch_ms >= initial.projection_at_epoch_ms
+        && view.valid_through_epoch_ms == view.projection_at_epoch_ms.saturating_add(600_000)
+        && canonical_sha256_text(&composer.artifact_identity_digest)
+        && composer.artifact_locator
+            == format!(
+                "rd-strategy-artifact-v2-{}",
+                composer
+                    .artifact_identity_digest
+                    .trim_start_matches("sha256:")
+            )
+        && !composer.composer_request_identity.is_empty()
+        && canonical_sha256_text(&composer.composer_operation_receipt_digest)
+        && canonical_sha256_text(&composer.artifact_family_binding_digest)
+        && composer.artifact_family_binding_identity
+            == format!(
+                "rd-composer-artifact-family-binding-v3-{}",
+                composer
+                    .artifact_family_binding_digest
+                    .trim_start_matches("sha256:")
+            )
+        && canonical_named_sha256(
+            &composer.artifact_family_binding_receipt_identity,
+            "rd-composer-artifact-family-binding-receipt-v3-",
+        )
+        && !composer.trial_family_identity.is_empty()
+        && !composer.census_frontier_identity.is_empty()
+        && canonical_sha256_text(&composer.census_frontier_digest)
+        && composer.trial_family_identity == exploration.trial_family_identity
+        && composer.census_frontier_identity == exploration.census_frontier_identity
+        && composer.census_frontier_digest == exploration.census_frontier_digest
+        && !exploration.replay_request_identity.is_empty()
+        && canonical_sha256_text(&exploration.replay_request_meaning_digest)
+        && canonical_sha256_text(&exploration.replay_request_seal_digest)
+        && canonical_named_sha256(
+            &exploration.replay_receipt_identity,
+            "rd-exploratory-replay-receipt-v2-",
+        )
+        && view.source_cut
+            == format!(
+                "rd-composer-exploration-cut-v3-{}",
+                exploration
+                    .replay_request_seal_digest
+                    .trim_start_matches("sha256:")
+            )
+        && canonical_research_view_identity_v4(view).as_deref()
+            == Some(view.projection_identity.as_str())
+}
+
+/// Projects one native Composer Replay View from an authenticated frozen Intent and exact Owner
+/// readbacks. The caller still owns atomic persistence and final same-transaction revalidation.
+pub(crate) fn project_composer_exploration_research_view_v3(
+    initial: &ResearchViewV1,
+    composer: &crate::develop_composer_postgres_v2::SealedDevelopComposerReadbackV2,
+    binding: &crate::composer_artifact_family_binding_v3::ComposerArtifactFamilyReadbackV3,
+    exploration: ResearchExplorationViewV1,
+    projection_at_epoch_ms: u64,
+) -> Result<ResearchViewV1, ResearchGoalOwnerError> {
+    let unavailable =
+        || ResearchGoalOwnerError::Storage("Composer Research View source unavailable".into());
+    let locator = composer.locator();
+    let bound = binding.binding();
+    let intent_digest = binding_digest_hex(composer.intent_identity());
+    if initial.schema_version != 1
+        || initial.phase != ResearchViewPhase::IntentFrozen
+        || initial.availability != ResearchViewAvailability::Available
+        || initial.attempt_identity.is_some()
+        || initial.artifact_identity.is_some()
+        || initial.build_receipt_identity.is_some()
+        || initial.artifact_review_identity.is_some()
+        || initial.composer_artifact.is_some()
+        || initial.exploration.is_some()
+        || initial.projection_identity != canonical_research_view_identity_v2(initial)
+        || !initial
+            .intent_identity
+            .ends_with(intent_digest.trim_start_matches("sha256:"))
+        || !(initial
+            .intent_identity
+            .starts_with("rd-research-intent-v2-")
+            || initial
+                .intent_identity
+                .starts_with("rd-successor-research-intent-v1-"))
+        || projection_at_epoch_ms < initial.projection_at_epoch_ms
+        || projection_at_epoch_ms >= initial.valid_through_epoch_ms
+        || binding.receipt().committed_at_epoch_ms() > projection_at_epoch_ms
+        || bound.artifact_locator() != locator.artifact_locator
+        || bound.composer_request_identity() != locator.request_identity
+        || bound.trial_family_identity() != exploration.trial_family_identity
+        || bound.census_frontier_identity() != exploration.census_frontier_identity
+        || bound.census_frontier_digest() != exploration.census_frontier_digest
+    {
+        return Err(unavailable());
+    }
+    let composer_artifact = ResearchComposerArtifactViewV3 {
+        artifact_locator: locator.artifact_locator.clone(),
+        artifact_identity_digest: binding_digest_hex(locator.artifact_identity),
+        composer_request_identity: locator.request_identity.clone(),
+        composer_operation_receipt_digest: binding_digest_hex(locator.operation_receipt_identity),
+        artifact_family_binding_identity: bound.identity().to_owned(),
+        artifact_family_binding_digest: bound.digest().to_owned(),
+        artifact_family_binding_receipt_identity: binding.receipt().identity().to_owned(),
+        trial_family_identity: bound.trial_family_identity().to_owned(),
+        census_frontier_identity: bound.census_frontier_identity().to_owned(),
+        census_frontier_digest: bound.census_frontier_digest().to_owned(),
+    };
+    let mut view = initial.clone();
+    view.schema_version = 3;
+    view.phase = ResearchViewPhase::ExplorationActive;
+    view.source_cut = format!(
+        "rd-composer-exploration-cut-v3-{}",
+        exploration
+            .replay_request_seal_digest
+            .trim_start_matches("sha256:")
+    );
+    view.observed_at_epoch_ms = projection_at_epoch_ms;
+    view.projection_at_epoch_ms = projection_at_epoch_ms;
+    view.valid_through_epoch_ms = projection_at_epoch_ms.saturating_add(600_000);
+    view.composer_artifact = Some(composer_artifact);
+    view.exploration = Some(exploration);
+    view.next_legal_action = ResearchNextLegalAction::ViewExploratoryRun;
+    view.projection_identity =
+        canonical_research_view_identity_v4(&view).ok_or_else(unavailable)?;
+    if !composer_exploration_research_view_is_valid_v3(&view, initial) {
+        return Err(unavailable());
+    }
+    Ok(view)
+}
+
 fn trial_family_storage(error: &TrialFamilyError) -> ResearchGoalOwnerError {
     ResearchGoalOwnerError::Storage(error.to_string())
 }
@@ -1797,6 +2314,93 @@ fn trial_family_storage(error: &TrialFamilyError) -> ResearchGoalOwnerError {
 mod v2_sealing_tests {
     use super::*;
     use rstest::rstest;
+
+    fn diagnosis_locator() -> ResearchExploratoryDiagnosisLocatorV1 {
+        ResearchExploratoryDiagnosisLocatorV1 {
+            trial_family_identity: "family-1".into(),
+            result_identity: "result-1".into(),
+            request_identity: "request-1".into(),
+            attempt_identity: "attempt-1".into(),
+        }
+    }
+
+    fn diagnosis_evidence_cut() -> IterationDecisionEvidenceCutV1 {
+        IterationDecisionEvidenceCutV1 {
+            decision_policy_identity: "policy-1".into(),
+            decision_policy_version: 1,
+            decision_policy_digest: [1; 32],
+            decision_policy_binding_digest: [2; 32],
+            trial_family_identity: "family-1".into(),
+            census_frontier_identity: "census-1".into(),
+            census_frontier_digest: "census-digest-1".into(),
+            attempt_frontier_identity: "attempt-frontier-1".into(),
+            attempt_frontier_digest: "attempt-frontier-digest-1".into(),
+            candidate_set_frontier_identity: "candidate-set-1".into(),
+            candidate_set_frontier_digest: "candidate-set-digest-1".into(),
+            request_identity: "request-1".into(),
+            request_digest: "request-digest-1".into(),
+            result_identity: "result-1".into(),
+            result_digest: "result-digest-1".into(),
+            attempt_identity: "attempt-1".into(),
+        }
+    }
+
+    #[rstest]
+    fn diagnosis_projection_distinguishes_wait_from_terminal_no_decision() {
+        let waiting = ResearchExploratoryDiagnosisGateProjectionV1::from_owner_gate(
+            diagnosis_locator(),
+            IterationDecisionGateV1::NoDecision {
+                reason: IterationNoDecisionReasonV1::UnknownOrNonterminalResult,
+            },
+        );
+        assert!(matches!(
+            waiting.action(),
+            ResearchExploratoryDiagnosisGateActionV1::WaitForTerminalResult { .. }
+        ));
+        let waiting_wire = serde_json::to_value(&waiting).expect("diagnosis projection wire");
+        assert_eq!(
+            waiting_wire["action"]["next_legal_action"],
+            "WAIT_FOR_TERMINAL_RESULT"
+        );
+        assert!(waiting_wire.get("next_legal_action").is_none());
+
+        let terminal = ResearchExploratoryDiagnosisGateProjectionV1::from_owner_gate(
+            diagnosis_locator(),
+            IterationDecisionGateV1::NoDecision {
+                reason: IterationNoDecisionReasonV1::UnresolvedFailure,
+            },
+        );
+        assert!(matches!(
+            terminal.action(),
+            ResearchExploratoryDiagnosisGateActionV1::NoDecision { .. }
+        ));
+        assert_eq!(terminal.source_owner(), RESEARCH_OWNER_V1);
+        assert_eq!(terminal.locator(), &diagnosis_locator());
+
+        let repair = ResearchExploratoryDiagnosisGateProjectionV1::from_owner_gate(
+            diagnosis_locator(),
+            IterationDecisionGateV1::RepairInputs {
+                evidence_cut: diagnosis_evidence_cut(),
+                supported_defects: vec![IterationRepairCategoryV1::MarketData],
+                selected_category: IterationRepairCategoryV1::MarketData,
+                target: IterationRepairTargetV1::MarketData,
+            },
+        );
+        let repair_wire = serde_json::to_value(repair).expect("repair gate projection wire");
+        assert_eq!(
+            repair_wire["action"]["next_legal_action"],
+            "SUBMIT_REPAIR_INPUT_DECISION"
+        );
+        assert_eq!(
+            repair_wire["action"]["decision_request"],
+            serde_json::json!({
+                "trial_family_identity": "family-1",
+                "result_identity": "result-1",
+                "request_identity": "request-1",
+                "attempt_identity": "attempt-1",
+            })
+        );
+    }
 
     #[rstest]
     fn research_directory_wire_exposes_only_verified_summary_fields() {
@@ -1943,6 +2547,64 @@ mod v2_sealing_tests {
         assert_ne!(
             canonical_research_view_identity_v3(&view).unwrap(),
             identity
+        );
+    }
+
+    #[test]
+    fn composer_replay_view_has_distinct_history_and_rejects_legacy_build_fields() {
+        let mut initial = research_view(1_000, 601_000);
+        initial.projection_identity = canonical_research_view_identity_v2(&initial);
+        assert!(
+            serde_json::to_value(&initial)
+                .unwrap()
+                .get("composer_artifact")
+                .is_none()
+        );
+        let digest = |digit: char| format!("sha256:{}", digit.to_string().repeat(64));
+        let mut view = initial.clone();
+        view.schema_version = 3;
+        view.phase = ResearchViewPhase::ExplorationActive;
+        view.observed_at_epoch_ms = 2_000;
+        view.projection_at_epoch_ms = 2_000;
+        view.valid_through_epoch_ms = 602_000;
+        view.source_cut = format!("rd-composer-exploration-cut-v3-{}", "3".repeat(64));
+        view.composer_artifact = Some(ResearchComposerArtifactViewV3 {
+            artifact_locator: format!("rd-strategy-artifact-v2-{}", "1".repeat(64)),
+            artifact_identity_digest: digest('1'),
+            composer_request_identity: "composer-request".into(),
+            composer_operation_receipt_digest: digest('2'),
+            artifact_family_binding_identity: format!(
+                "rd-composer-artifact-family-binding-v3-{}",
+                "4".repeat(64)
+            ),
+            artifact_family_binding_digest: digest('4'),
+            artifact_family_binding_receipt_identity: format!(
+                "rd-composer-artifact-family-binding-receipt-v3-{}",
+                "7".repeat(64)
+            ),
+            trial_family_identity: "trial-family".into(),
+            census_frontier_identity: "census-frontier".into(),
+            census_frontier_digest: digest('5'),
+        });
+        view.exploration = Some(ResearchExplorationViewV1 {
+            trial_family_identity: "trial-family".into(),
+            census_frontier_identity: "census-frontier".into(),
+            census_frontier_digest: digest('5'),
+            replay_request_identity: "replay-request".into(),
+            replay_request_meaning_digest: digest('6'),
+            replay_request_seal_digest: digest('3'),
+            replay_receipt_identity: format!("rd-exploratory-replay-receipt-v2-{}", "8".repeat(64)),
+        });
+        view.next_legal_action = ResearchNextLegalAction::ViewExploratoryRun;
+        view.projection_identity = canonical_research_view_identity_v4(&view).unwrap();
+        assert!(
+            crate::rd_owner_postgres_custody::validate_historical_view(&view, &initial).is_ok()
+        );
+
+        view.attempt_identity = Some("legacy-attempt".into());
+        view.projection_identity = canonical_research_view_identity_v4(&view).unwrap();
+        assert!(
+            crate::rd_owner_postgres_custody::validate_historical_view(&view, &initial).is_err()
         );
     }
 
@@ -2156,6 +2818,7 @@ mod v2_sealing_tests {
             artifact_identity: None,
             build_receipt_identity: None,
             artifact_review_identity: None,
+            composer_artifact: None,
             exploration: None,
             next_legal_action: ResearchNextLegalAction::WaitForRAndDExecution,
         }

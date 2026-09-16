@@ -8,15 +8,75 @@
 //! open until the Composer decision completes.
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use std::sync::atomic::{AtomicU64, Ordering};
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use serde::Deserialize;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use sqlx::{Postgres, Transaction};
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
-use std::sync::atomic::{AtomicU64, Ordering};
+use strategy_factory_program_sdk::lifecycle_v2::TARGET_SET_BYTES;
 use vibe_common::{clock::Clock, live::clock::LiveClock};
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use vibe_data::owner::pit_snapshot::sealed_acceptance::{
+    SealedAcceptanceExactInstrumentBarFrame, SealedAcceptanceStrategyInputUniverseFrame,
+    issue_source_intake_composer_universe_frame_for_owner_lineage,
+    issue_strategy_input_exact_instrument_bar_frame_for_owner_lineage,
+};
 use vibe_data::owner::source_binding::BindingDigest;
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use vibe_data::owner::strategy_input_binding::{
+    MarketDataFieldSemantic, StrategyInputChannel, StrategyInputUnit,
+    UntrustedStrategyInputBindingRequest, UntrustedStrategyInputScope,
+};
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use vibe_indicators_kernel::PrimitiveCatalogV1;
 
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use crate::develop_composer_operation_v2::{
+    DevelopComposerReadbackOwnerErrorV2, DevelopComposerReadbackOwnerPortV2,
+    DevelopComposerV3BuildRestartPortV2,
+};
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use crate::develop_composer_postgres_v2::PostgresDevelopComposerReadStoreV2;
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use crate::develop_composer_postgres_v2::{
+    DevelopComposerAcceptanceWriteBoundaryV2, DevelopComposerSealedReadErrorV2,
+    DevelopComposerSealedReadLocatorV2, DevelopComposerSealedReadPortV2,
+    PreparedDevelopComposerRunInTransactionV2, SealedDevelopComposerReadbackV2,
+    read_accepted_for_replay_in_transaction, read_accepted_in_transaction,
+    read_accepted_in_transaction_with_v3_restart,
+};
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use crate::product_edge::{
+    ResearchComposerArtifactViewV3, ResearchExplorationViewV1, ResearchViewV1,
+    composer_exploration_research_view_is_valid_v3,
+};
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use crate::rd_owner_postgres_custody::validate_historical_view;
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use crate::{
+    bounded_feature_program_lowerer_v1::prepare_frozen_bounded_feature_source_inputs_v1,
+    develop_plugin_build_v2::{
+        DevelopPluginBuildTerminalKindV2, UntrustedDevelopPluginCapsuleV2,
+        UntrustedDevelopPluginSourceFileV2, VerifiedDevelopPluginBuildReadV2, bounded_source,
+        source_research_composer_sealed_corpus_verified_build_v2,
+    },
+    develop_plugin_build_v2_sandbox::{BUILD_COMMAND, RUSTC_COMMIT, RUSTC_RELEASE, TARGET},
+    develop_plugin_build_v3::{
+        DevelopPluginBuildProducerV3, DevelopPluginBuildTerminalKindV3,
+        DevelopPluginBuildTerminalV3, restart_verified_develop_plugin_build_from_current_inputs_v3,
+    },
+    rd_bounded_feature_program_v1::{
+        FrozenResearchBoundedFeatureProgramV1,
+        read_research_bounded_feature_program_in_transaction_v1,
+    },
+    strategy_design_v2::*,
+    strategy_plan_v2::{
+        StrategyDesignPreparationV2, prepare_strategy_design_v2, strategy_input_role_identity_v2,
+    },
+};
 use crate::{
     develop_composer_operation_v2::{
         DevelopComposerA0BuildPortV2, DevelopComposerDurableEvidenceLocatorV2,
@@ -32,50 +92,14 @@ use crate::{
         admit_all_research_custodies_in_transaction, admit_research_custody_in_transaction,
     },
     strategy_plan_v2::VerifiedStrategyInputBindingsV2,
-};
-
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
-use crate::develop_composer_operation_v2::{
-    DevelopComposerReadbackOwnerErrorV2, DevelopComposerReadbackOwnerPortV2,
-};
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
-use crate::develop_composer_postgres_v2::PostgresDevelopComposerReadStoreV2;
-
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
-use crate::develop_composer_postgres_v2::{
-    DevelopComposerAcceptanceWriteBoundaryV2, DevelopComposerSealedReadErrorV2,
-    DevelopComposerSealedReadLocatorV2, DevelopComposerSealedReadPortV2,
-    PreparedDevelopComposerRunInTransactionV2, SealedDevelopComposerReadbackV2,
-    read_accepted_in_transaction,
-};
-
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
-use crate::{
-    develop_plugin_build_v2::{
-        DevelopPluginBuildTerminalKindV2, UntrustedDevelopPluginCapsuleV2,
-        UntrustedDevelopPluginSourceFileV2, VerifiedDevelopPluginBuildReadV2, bounded_source,
-        source_research_composer_sealed_corpus_verified_build_v2,
+    successor_intent_postgres::{
+        lock_by_intent_in_transaction, lock_successor_research_view_in_transaction,
     },
-    develop_plugin_build_v2_sandbox::{BUILD_COMMAND, RUSTC_COMMIT, RUSTC_RELEASE, TARGET},
-    strategy_design_v2::*,
-    strategy_plan_v2::{
-        StrategyDesignPreparationV2, prepare_strategy_design_v2, strategy_input_role_identity_v2,
+    successor_research_custody_postgres_v1::{
+        is_successor_research_intent_locator_v1,
+        lock_successor_research_for_intent_in_transaction_v1,
     },
-};
-
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
-use vibe_data::owner::pit_snapshot::sealed_acceptance::{
-    SealedAcceptanceStrategyInputUniverseFrame,
-    issue_source_intake_composer_universe_frame_for_owner_lineage,
-};
-
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
-use strategy_factory_program_sdk::lifecycle_v2::TARGET_SET_BYTES;
-
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
-use vibe_data::owner::strategy_input_binding::{
-    MarketDataFieldSemantic, StrategyInputChannel, StrategyInputUnit,
-    UntrustedStrategyInputBindingRequest, UntrustedStrategyInputScope,
+    trial_family_postgres::load_trial_family_census_v2_by_family_in_transaction,
 };
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
@@ -480,6 +504,244 @@ fn derive_source_research_composer_request_v2(
         binding_requests,
         plugin_source_capsules: vec![capsule],
     })
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+fn source_research_composer_bfp_v3_request_identity(
+    research_request_identity: BindingDigest,
+) -> String {
+    let suffix = research_request_identity
+        .as_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    format!("rd-source-research-composer-bfp-v3-{suffix}")
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+fn derive_source_research_composer_bfp_v3_request(
+    research: &CurrentResearchDevelopCustodyV2,
+    frozen: &FrozenResearchBoundedFeatureProgramV1,
+) -> Result<DevelopComposerRunRequestV2, DevelopComposerTerminalV2> {
+    let design: StrategyDesignV2 = serde_json::from_slice(frozen.design_bytes()).map_err(|_| {
+        DevelopComposerTerminalV2::unavailable(
+            "bounded_feature_program.design",
+            "frozen BFP Design bytes are unavailable",
+        )
+    })?;
+    let StrategyDesignPreparationV2::Prepared {
+        design_identity,
+        design_digest,
+    } = prepare_strategy_design_v2(&design)
+    else {
+        return Err(DevelopComposerTerminalV2::unavailable(
+            "bounded_feature_program.design",
+            "frozen BFP Design does not prepare",
+        ));
+    };
+
+    if design_identity != frozen.design_identity()
+        || design_digest != frozen.design_digest()
+        || design.research_request_identity != research.research_request_identity()
+        || design.intent_identity != research.intent_identity()
+        || design.intent_digest != research.intent_digest()
+        || frozen.research_request_identity() != research.research_request_identity()
+        || frozen.intent_identity() != research.intent_identity()
+        || frozen.intent_digest() != research.intent_digest()
+        || frozen.research_custody_digest() != research.custody_digest()
+    {
+        return Err(DevelopComposerTerminalV2::unavailable(
+            "bounded_feature_program.lineage",
+            "frozen BFP does not bind current Research custody and Design",
+        ));
+    }
+
+    let binding_requests = design
+        .inputs
+        .iter()
+        .enumerate()
+        .map(|(ordinal, input)| {
+            bfp_binding_request(
+                input,
+                design.research_request_identity,
+                design_identity,
+                ordinal as u8,
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut manifests = design.plugins.iter().cloned().collect::<Vec<_>>();
+    manifests.sort_by(|left, right| left.semantic_id.cmp(&right.semantic_id));
+    let plugin_source_capsules = manifests
+        .into_iter()
+        .map(|manifest| UntrustedDevelopPluginCapsuleV2 {
+            schema_version: 2,
+            language: "rust.no_std.fixed-abi-source.v2".to_owned(),
+            rustc_release: RUSTC_RELEASE.to_owned(),
+            rustc_commit: RUSTC_COMMIT.to_owned(),
+            target: TARGET.to_owned(),
+            build_command: BUILD_COMMAND
+                .iter()
+                .map(|value| (*value).to_owned())
+                .collect(),
+            files: vec![UntrustedDevelopPluginSourceFileV2 {
+                path: "src/lib.rs".to_owned(),
+                bytes: bounded_source(&manifest).into_bytes(),
+                symlink_target: None,
+            }],
+            manifest,
+        })
+        .collect();
+
+    Ok(DevelopComposerRunRequestV2 {
+        request_identity: source_research_composer_bfp_v3_request_identity(
+            research.research_request_identity(),
+        ),
+        research_custody_reference: research.request_locator().to_owned(),
+        design,
+        binding_requests,
+        plugin_source_capsules,
+    })
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+fn bfp_binding_request(
+    input: &InputRoleV2,
+    research_request_identity: BindingDigest,
+    strategy_design_identity: BindingDigest,
+    seed: u8,
+) -> Result<UntrustedStrategyInputBindingRequest, DevelopComposerTerminalV2> {
+    let field_semantic = MarketDataFieldSemantic::from_identity(&input.field_semantic_id)
+        .ok_or_else(|| market_data_unavailable())?;
+
+    if input.scope != InputScopeV2::ExactInstrument
+        || input.instrument.is_empty()
+        || input.channel != "MARKET"
+        || input.unit != "PRICE"
+    {
+        return Err(market_data_unavailable());
+    }
+    Ok(UntrustedStrategyInputBindingRequest {
+        research_request_identity,
+        strategy_design_identity,
+        input_role_identity: strategy_input_role_identity_v2(input),
+        scope: UntrustedStrategyInputScope::ExactInstrument {
+            instrument: input.instrument.clone(),
+        },
+        field_semantic,
+        channel: StrategyInputChannel::Market,
+        timeframe: input.timeframe.clone(),
+        unit: StrategyInputUnit::Price,
+        scale: input.scale,
+        pit_request_identity: a2_digest(seed.wrapping_add(11)),
+        pit_request_digest: a2_digest(seed.wrapping_add(21)),
+        snapshot_identity: a2_digest(seed.wrapping_add(31)),
+        snapshot_fact_digest: a2_digest(seed.wrapping_add(41)),
+        observation_batch_digest: a2_digest(seed.wrapping_add(51)),
+        source_binding_identity: a2_digest(seed.wrapping_add(61)),
+        source_frontier_digest: a2_digest(seed.wrapping_add(71)),
+        correction_frontier_digest: a2_digest(seed.wrapping_add(81)),
+        instrument_master_digest: a2_digest(seed.wrapping_add(91)),
+        universe_selection_digest: a2_digest(seed.wrapping_add(101)),
+        market_semantics_identity: a2_digest(111),
+        decision_cut: 40,
+    })
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+fn sealed_bfp_market_authority(
+    frozen: &FrozenResearchBoundedFeatureProgramV1,
+) -> Result<SealedAcceptanceExactInstrumentBarFrame, DevelopComposerTerminalV2> {
+    issue_strategy_input_exact_instrument_bar_frame_for_owner_lineage(
+        frozen.research_request_identity(),
+        frozen.design_identity(),
+    )
+    .map_err(|_| market_data_unavailable())
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+fn bfp_owner_bindings(
+    frozen: &FrozenResearchBoundedFeatureProgramV1,
+) -> Result<VerifiedStrategyInputBindingsV2, DevelopComposerTerminalV2> {
+    let design: StrategyDesignV2 =
+        serde_json::from_slice(frozen.design_bytes()).map_err(|_| market_data_unavailable())?;
+    let authority = sealed_bfp_market_authority(frozen)?;
+    let receipts = design
+        .inputs
+        .iter()
+        .map(|input| {
+            let role = strategy_input_role_identity_v2(input);
+            let mut matches = authority
+                .bindings()
+                .iter()
+                .filter(|receipt| receipt.locator().input_role_identity() == role);
+            let receipt = matches
+                .next()
+                .cloned()
+                .ok_or_else(market_data_unavailable)?;
+            matches
+                .next()
+                .is_none()
+                .then_some(receipt)
+                .ok_or_else(market_data_unavailable)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(VerifiedStrategyInputBindingsV2::from_owner_receipts(
+        &receipts,
+    ))
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+struct FrozenBfpV3Restart<'a> {
+    frozen: &'a FrozenResearchBoundedFeatureProgramV1,
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+impl DevelopComposerV3BuildRestartPortV2 for FrozenBfpV3Restart<'_> {
+    fn restart(
+        &self,
+        manifest: &PluginManifestV2,
+        capsule_identity: BindingDigest,
+        receipt_bytes: &[u8],
+        module_bytes: &[u8],
+    ) -> Result<
+        crate::develop_plugin_build_v3::VerifiedDevelopPluginBuildV3,
+        DevelopComposerTerminalV2,
+    > {
+        let first = prepare_frozen_bounded_feature_source_inputs_v1(self.frozen)
+            .map_err(|_| bfp_restart_unavailable())?;
+        let second = prepare_frozen_bounded_feature_source_inputs_v1(self.frozen)
+            .map_err(|_| bfp_restart_unavailable())?;
+        restart_verified_develop_plugin_build_from_current_inputs_v3(
+            manifest,
+            &first,
+            &second,
+            capsule_identity,
+            receipt_bytes,
+            module_bytes,
+        )
+        .map_err(map_v3_build_terminal)
+    }
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+fn map_v3_build_terminal(terminal: DevelopPluginBuildTerminalV3) -> DevelopComposerTerminalV2 {
+    DevelopComposerTerminalV2 {
+        kind: if terminal.kind == DevelopPluginBuildTerminalKindV3::Conflict {
+            crate::develop_composer_v2::DevelopComposerTerminalKindV2::Conflict
+        } else {
+            crate::develop_composer_v2::DevelopComposerTerminalKindV2::Unavailable
+        },
+        coordinate: terminal.coordinate,
+        reason: terminal.reason,
+    }
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+fn bfp_restart_unavailable() -> DevelopComposerTerminalV2 {
+    DevelopComposerTerminalV2::unavailable(
+        "bounded_feature_program.restart",
+        "current frozen BFP lowering is unavailable",
+    )
 }
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
@@ -889,7 +1151,7 @@ pub(crate) trait SourceResearchComposerBindingOwnerV2: Send + Sync {
 /// public binding requests as untrusted proposals and proves that the fixed Owner frame binds the
 /// canonically reread Research custody and prepared Design.
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
-struct SealedSourceResearchComposerBindingOwnerV2;
+pub(crate) struct SealedSourceResearchComposerBindingOwnerV2;
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 impl SealedSourceResearchComposerBindingOwnerV2 {
@@ -1077,10 +1339,27 @@ impl DevelopComposerReadbackOwnerPortV2 for PostgresDevelopComposerReadbackOwner
         .await;
         let response = match locked {
             Ok(locked) => {
-                crate::develop_composer_operation_v2::resolve_positive_record_v2(&record, locked)
-                    .unwrap_or_else(|terminal| {
-                        terminal_response_for_identity(request_identity, terminal)
-                    })
+                let frozen = matching_current_bfp_v3(
+                    &mut transaction,
+                    &locked.research,
+                    &locator,
+                    read_cut_epoch_ms,
+                )
+                .await;
+
+                match frozen {
+                    Some(frozen) => crate::develop_composer_operation_v2::resolve_positive_record_with_v3_restart_v2(
+                        &record,
+                        locked,
+                        &FrozenBfpV3Restart { frozen: &frozen },
+                    ),
+                    None => crate::develop_composer_operation_v2::resolve_positive_record_v2(
+                        &record, locked,
+                    ),
+                }
+                .unwrap_or_else(|terminal| {
+                    terminal_response_for_identity(request_identity, terminal)
+                })
             }
             Err(terminal) => terminal_response_for_identity(request_identity, terminal),
         };
@@ -1143,6 +1422,159 @@ where
         research_request_locator: &str,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
         Box::pin(self.run_with_acceptance_control(builder, research_request_locator, None)).await
+    }
+
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    pub(crate) async fn run_bfp_v3(
+        &self,
+        producer: &mut DevelopPluginBuildProducerV3,
+        research_request_locator: &str,
+    ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
+        let read_cut_epoch_ms = current_read_cut_epoch_ms();
+        let catalog = PrimitiveCatalogV1::verify()
+            .map_err(|_| composer_terminal_protocol(bfp_restart_unavailable()))?;
+        let mut owner_transaction = self.store.begin_read_transaction().await?;
+        let research = match self
+            .lock_research_for_locator(
+                &mut owner_transaction,
+                research_request_locator,
+                read_cut_epoch_ms,
+            )
+            .await
+        {
+            Ok(research) => research,
+            Err(terminal) => {
+                owner_transaction.rollback().await?;
+                return Ok(terminal_response_for_locator(
+                    research_request_locator,
+                    terminal,
+                ));
+            }
+        };
+        let frozen = match read_research_bounded_feature_program_in_transaction_v1(
+            &mut owner_transaction,
+            research_request_locator,
+            read_cut_epoch_ms,
+            catalog,
+        )
+        .await
+        {
+            Ok(frozen) => frozen,
+            Err(_) => {
+                owner_transaction.rollback().await?;
+                return Ok(terminal_response_for_locator(
+                    research_request_locator,
+                    bfp_restart_unavailable(),
+                ));
+            }
+        };
+        let request = match derive_source_research_composer_bfp_v3_request(&research, &frozen) {
+            Ok(request) => request,
+            Err(terminal) => {
+                owner_transaction.rollback().await?;
+                return Ok(terminal_response_for_locator(
+                    research_request_locator,
+                    terminal,
+                ));
+            }
+        };
+        let bindings = match bfp_owner_bindings(&frozen) {
+            Ok(bindings) => bindings,
+            Err(terminal) => {
+                owner_transaction.rollback().await?;
+                return Ok(terminal_response_for_request(&request, terminal));
+            }
+        };
+        let initial = DevelopComposerLockedEvidenceV2 { research, bindings };
+        let evidence = LockedOwnerEvidenceV2 {
+            locked: Ok(initial),
+        };
+        let restart = FrozenBfpV3Restart { frozen: &frozen };
+        let prepared = self
+            .store
+            .prepare_bfp_v3_run_in_transaction(
+                &mut owner_transaction,
+                producer,
+                &evidence,
+                &restart,
+                &request,
+                &frozen,
+                read_cut_epoch_ms,
+            )
+            .await;
+        let response = match prepared {
+            Ok(PreparedDevelopComposerRunInTransactionV2::Complete(response)) => Ok(*response),
+            Ok(PreparedDevelopComposerRunInTransactionV2::Prepared(prepared)) => {
+                let final_research = match self
+                    .lock_research_for_locator(
+                        &mut owner_transaction,
+                        research_request_locator,
+                        read_cut_epoch_ms,
+                    )
+                    .await
+                {
+                    Ok(research) => research,
+                    Err(terminal) => {
+                        owner_transaction.rollback().await?;
+                        return Ok(terminal_response_for_request(&request, terminal));
+                    }
+                };
+                let final_frozen = match read_research_bounded_feature_program_in_transaction_v1(
+                    &mut owner_transaction,
+                    research_request_locator,
+                    read_cut_epoch_ms,
+                    catalog,
+                )
+                .await
+                {
+                    Ok(value) if value == frozen => value,
+                    _ => {
+                        owner_transaction.rollback().await?;
+                        return Ok(terminal_response_for_request(
+                            &request,
+                            bfp_restart_unavailable(),
+                        ));
+                    }
+                };
+                let final_bindings = match bfp_owner_bindings(&final_frozen) {
+                    Ok(bindings) => bindings,
+                    Err(terminal) => {
+                        owner_transaction.rollback().await?;
+                        return Ok(terminal_response_for_request(&request, terminal));
+                    }
+                };
+                let final_locked = DevelopComposerLockedEvidenceV2 {
+                    research: final_research,
+                    bindings: final_bindings,
+                };
+                let final_restart = FrozenBfpV3Restart {
+                    frozen: &final_frozen,
+                };
+                self.store
+                    .commit_prepared_bfp_v3_run_in_transaction(
+                        &mut owner_transaction,
+                        &request,
+                        *prepared,
+                        final_locked,
+                        &final_restart,
+                    )
+                    .await
+            }
+            Err(e) => Err(e),
+        };
+
+        match response {
+            Ok(response) => match owner_transaction.commit().await {
+                Ok(()) => Ok(response),
+                Err(_) => Ok(DevelopComposerOperationResponseV2::submitted_or_unknown(
+                    &request.request_identity,
+                )),
+            },
+            Err(e) => {
+                owner_transaction.rollback().await?;
+                Err(e)
+            }
+        }
     }
 
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
@@ -1316,11 +1748,33 @@ where
             }
             (locked, _) => locked,
         };
+        let frozen = match locked.as_ref() {
+            Ok(locked) => {
+                matching_current_bfp_v3(
+                    &mut owner_transaction,
+                    &locked.research,
+                    &locator,
+                    read_cut_epoch_ms,
+                )
+                .await
+            }
+            Err(_) => None,
+        };
         let evidence = LockedOwnerEvidenceV2 { locked };
-        let response = self
-            .store
-            .resolve_with_evidence(request_identity, &evidence, read_cut_epoch_ms)
-            .await;
+        let response = if let Some(frozen) = frozen {
+            self.store
+                .resolve_with_evidence_and_v3_restart(
+                    request_identity,
+                    &evidence,
+                    &FrozenBfpV3Restart { frozen: &frozen },
+                    read_cut_epoch_ms,
+                )
+                .await
+        } else {
+            self.store
+                .resolve_with_evidence(request_identity, &evidence, read_cut_epoch_ms)
+                .await
+        };
         owner_transaction.rollback().await?;
         response
     }
@@ -1351,6 +1805,14 @@ where
         research_request_locator: &str,
         read_cut_epoch_ms: u64,
     ) -> Result<CurrentResearchDevelopCustodyV2, DevelopComposerTerminalV2> {
+        if is_successor_research_intent_locator_v1(research_request_locator) {
+            return lock_successor_research_for_intent_in_transaction_v1(
+                transaction,
+                research_request_locator,
+                read_cut_epoch_ms,
+            )
+            .await;
+        }
         let custody = admit_research_custody_in_transaction(
             transaction,
             ResearchCustodyLookupV1::RequestV2(research_request_locator),
@@ -1384,43 +1846,350 @@ where
     }
 }
 
-async fn lock_resolve_evidence_with_binding(
+pub(crate) async fn lock_resolve_evidence_with_binding(
     binding_owner: &impl SourceResearchComposerBindingOwnerV2,
     transaction: &mut Transaction<'_, Postgres>,
     locator: &DevelopComposerDurableEvidenceLocatorV2,
     read_cut_epoch_ms: u64,
 ) -> Result<DevelopComposerLockedEvidenceV2, DevelopComposerTerminalV2> {
+    let research = lock_current_research_for_composer_replay_in_transaction(
+        transaction,
+        locator,
+        read_cut_epoch_ms,
+    )
+    .await?;
+    let bindings = if let Some(frozen) =
+        matching_current_bfp_v3(transaction, &research, locator, read_cut_epoch_ms).await
+    {
+        bfp_owner_bindings(&frozen)?
+    } else {
+        binding_owner
+            .lock_for_resolve(transaction, locator, read_cut_epoch_ms)
+            .await?
+    };
+    Ok(DevelopComposerLockedEvidenceV2 { research, bindings })
+}
+
+/// Production Replay admission always uses the compiled, sealed Market Data binding Owner.
+/// Keeping that Owner private prevents an API caller from substituting receipt-shaped data.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+pub(crate) async fn read_sealed_accepted_for_replay_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    locator: &DevelopComposerSealedReadLocatorV2,
+    read_cut_epoch_ms: u64,
+) -> Result<SealedDevelopComposerReadbackV2, DevelopComposerSealedReadErrorV2> {
+    read_accepted_for_replay_in_transaction(
+        transaction,
+        locator,
+        &SealedSourceResearchComposerBindingOwnerV2,
+        read_cut_epoch_ms,
+    )
+    .await
+}
+
+/// Locks current initial or successor Research custody for a durable Composer identity in the
+/// caller's transaction. Binding authority is deliberately supplied by the consuming Owner path.
+pub(crate) async fn lock_current_research_for_composer_replay_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    locator: &DevelopComposerDurableEvidenceLocatorV2,
+    read_cut_epoch_ms: u64,
+) -> Result<CurrentResearchDevelopCustodyV2, DevelopComposerTerminalV2> {
+    let mut matches = Vec::new();
+
+    let successor_locator = successor_intent_locator(locator.intent_identity);
+    if let Some(successor) = lock_by_intent_in_transaction(transaction, &successor_locator)
+        .await
+        .map_err(|_| research_unavailable())?
+    {
+        let view = lock_successor_research_view_in_transaction(transaction, &successor)
+            .await
+            .map_err(|_| research_unavailable())?;
+        let family = load_trial_family_census_v2_by_family_in_transaction(
+            transaction,
+            successor.intent().trial_family_identity(),
+        )
+        .await
+        .map_err(|_| research_unavailable())?;
+        let research = CurrentResearchDevelopCustodyV2::from_verified_successor(
+            &successor,
+            &view,
+            &family,
+            read_cut_epoch_ms,
+        )?;
+
+        if research.research_request_identity() == locator.research_request_identity
+            && research.intent_identity() == locator.intent_identity
+        {
+            matches.push(research);
+        }
+    }
+
     let custodies = admit_all_research_custodies_in_transaction(transaction)
         .await
         .map_err(|_| research_unavailable())?;
-    let mut matches = Vec::new();
 
     for custody in custodies {
         if durable_research_identities(&custody).is_some_and(|(request, intent)| {
             request == locator.research_request_identity && intent == locator.intent_identity
         }) {
-            matches.push(custody);
+            let request_locator = custody.receipt().request_identity.clone();
+            lock_current_research_artifact_custody_in_transaction(transaction, &custody)
+                .await
+                .map_err(|_| research_unavailable())?;
+            matches.push(CurrentResearchDevelopCustodyV2::from_verified(
+                &custody,
+                &request_locator,
+                read_cut_epoch_ms,
+            )?);
         }
     }
-    let [custody] = matches.try_into().map_err(|_| {
+
+    let [research] = matches.try_into().map_err(|_| {
         DevelopComposerTerminalV2::unavailable(
             "research_custody",
             "durable Composer identity does not uniquely match current canonical Research custody",
         )
     })?;
-    let request_locator = custody.receipt().request_identity.clone();
-    lock_current_research_artifact_custody_in_transaction(transaction, &custody)
-        .await
-        .map_err(|_| research_unavailable())?;
-    let research = CurrentResearchDevelopCustodyV2::from_verified(
-        &custody,
-        &request_locator,
+    Ok(research)
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+async fn matching_current_bfp_v3(
+    transaction: &mut Transaction<'_, Postgres>,
+    research: &CurrentResearchDevelopCustodyV2,
+    locator: &DevelopComposerDurableEvidenceLocatorV2,
+    read_cut_epoch_ms: u64,
+) -> Option<FrozenResearchBoundedFeatureProgramV1> {
+    let catalog = PrimitiveCatalogV1::verify().ok()?;
+    let frozen = read_research_bounded_feature_program_in_transaction_v1(
+        transaction,
+        research.request_locator(),
         read_cut_epoch_ms,
-    )?;
-    let bindings = binding_owner
-        .lock_for_resolve(transaction, locator, read_cut_epoch_ms)
-        .await?;
-    Ok(DevelopComposerLockedEvidenceV2 { research, bindings })
+        catalog,
+    )
+    .await
+    .ok()?;
+    (frozen.research_request_identity() == locator.research_request_identity
+        && frozen.intent_identity() == locator.intent_identity
+        && frozen.design_identity() == locator.design_identity
+        && frozen.research_custody_digest() == research.custody_digest())
+    .then_some(frozen)
+}
+
+/// Rereads the immutable Research source after its mutable View has advanced to Composer Replay.
+/// The supplied View preimage is only a claim until the append-only Replay transition and current
+/// Owner custody confirm it. The full Composer positive is independently reread below.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+async fn lock_historical_research_for_composer_replay_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    locator: &DevelopComposerDurableEvidenceLocatorV2,
+    pre_transition_view: &ResearchViewV1,
+    expected_current_view: &ResearchViewV1,
+    expected_exploration: &ResearchExplorationViewV1,
+    expected_binding: &ResearchComposerArtifactViewV3,
+) -> Result<CurrentResearchDevelopCustodyV2, DevelopComposerSealedReadErrorV2> {
+    let unavailable = || DevelopComposerSealedReadErrorV2::Unavailable;
+    if !composer_exploration_research_view_is_valid_v3(expected_current_view, pre_transition_view)
+        || expected_current_view.exploration.as_ref() != Some(expected_exploration)
+        || expected_current_view.composer_artifact.as_ref() != Some(expected_binding)
+        || expected_binding.composer_request_identity != locator.request_identity
+        || expected_current_view.projection_at_epoch_ms
+            >= pre_transition_view.valid_through_epoch_ms
+    {
+        return Err(unavailable());
+    }
+    let transition = crate::exploratory_replay::postgres::composer_readback_v3::read_verified_research_view_transition_v3_in_transaction(
+        transaction,
+        &expected_exploration.replay_request_identity,
+    )
+    .await
+    .map_err(|_| unavailable())?
+    .ok_or_else(unavailable)?;
+    if transition.old_view() != pre_transition_view
+        || transition.new_view() != expected_current_view
+        || transition.replay_request_identity() != expected_exploration.replay_request_identity
+    {
+        return Err(unavailable());
+    }
+    let read_cut_epoch_ms = expected_current_view.projection_at_epoch_ms;
+    let mut matches = Vec::new();
+    let successor_locator = successor_intent_locator(locator.intent_identity);
+    if let Some(successor) = lock_by_intent_in_transaction(transaction, &successor_locator)
+        .await
+        .map_err(|_| unavailable())?
+    {
+        let custody = lock_successor_research_view_in_transaction(transaction, &successor)
+            .await
+            .map_err(|_| unavailable())?;
+        if successor.intent().request_identity() == pre_transition_view.request_identity
+            && successor.intent().intent_identity() == pre_transition_view.intent_identity
+        {
+            validate_historical_descendant_view(
+                custody.view(),
+                pre_transition_view,
+                expected_current_view,
+            )?;
+            let family = load_trial_family_census_v2_by_family_in_transaction(
+                transaction,
+                successor.intent().trial_family_identity(),
+            )
+            .await
+            .map_err(|_| unavailable())?;
+            let research = CurrentResearchDevelopCustodyV2::from_verified_successor_with_view(
+                &successor,
+                &custody,
+                &family,
+                pre_transition_view,
+                read_cut_epoch_ms,
+            )
+            .map_err(|_| unavailable())?;
+            if research.research_request_identity() == locator.research_request_identity
+                && research.intent_identity() == locator.intent_identity
+            {
+                matches.push(research);
+            }
+        }
+    }
+
+    let custodies = admit_all_research_custodies_in_transaction(transaction)
+        .await
+        .map_err(|_| unavailable())?;
+    for custody in custodies {
+        if durable_research_identities(&custody).is_some_and(|(request, intent)| {
+            request == locator.research_request_identity && intent == locator.intent_identity
+        }) {
+            let current = custody.view().ok_or_else(unavailable)?;
+            validate_historical_descendant_view(
+                current,
+                pre_transition_view,
+                expected_current_view,
+            )?;
+            lock_current_research_artifact_custody_in_transaction(transaction, &custody)
+                .await
+                .map_err(|_| unavailable())?;
+            let research = CurrentResearchDevelopCustodyV2::from_verified_with_view(
+                &custody,
+                &custody.receipt().request_identity,
+                pre_transition_view,
+                read_cut_epoch_ms,
+            )
+            .map_err(|_| unavailable())?;
+            matches.push(research);
+        }
+    }
+    let [research] = matches.try_into().map_err(|_| unavailable())?;
+    Ok(research)
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+fn validate_historical_descendant_view(
+    current: &ResearchViewV1,
+    original: &ResearchViewV1,
+    committed_replay_view: &ResearchViewV1,
+) -> Result<(), DevelopComposerSealedReadErrorV2> {
+    validate_historical_view(current, original)
+        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    if current.projection_at_epoch_ms < committed_replay_view.projection_at_epoch_ms
+        || (current.projection_at_epoch_ms == committed_replay_view.projection_at_epoch_ms
+            && current != committed_replay_view)
+    {
+        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+    }
+    Ok(())
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+async fn matching_historical_bfp_v3(
+    transaction: &mut Transaction<'_, Postgres>,
+    research: &CurrentResearchDevelopCustodyV2,
+    locator: &DevelopComposerDurableEvidenceLocatorV2,
+) -> Option<FrozenResearchBoundedFeatureProgramV1> {
+    let catalog = PrimitiveCatalogV1::verify().ok()?;
+    let frozen = crate::rd_bounded_feature_program_v1::read_research_bounded_feature_program_historical_in_transaction_v1(
+        transaction,
+        research.request_locator(),
+        research,
+        catalog,
+    )
+    .await
+    .ok()?;
+    (frozen.research_request_identity() == locator.research_request_identity
+        && frozen.intent_identity() == locator.intent_identity
+        && frozen.design_identity() == locator.design_identity
+        && frozen.research_custody_digest() == research.custody_digest())
+    .then_some(frozen)
+}
+
+/// Rebuilds exact immutable evidence for an already committed native Replay. The Composer store
+/// owns the final record readback and sealed return type; this helper never accepts source JSON as
+/// an operation fact.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+pub(crate) async fn resolve_composer_record_for_historical_replay_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    record: &crate::develop_composer_operation_v2::StoredDevelopComposerPositiveV2,
+    pre_transition_view: &ResearchViewV1,
+    expected_current_view: &ResearchViewV1,
+    expected_exploration: &ResearchExplorationViewV1,
+    expected_binding: &ResearchComposerArtifactViewV3,
+) -> Result<DevelopComposerOperationResponseV2, DevelopComposerSealedReadErrorV2> {
+    let unavailable = || DevelopComposerSealedReadErrorV2::Unavailable;
+    let locator = DevelopComposerDurableEvidenceLocatorV2::from_record(record);
+    let research = lock_historical_research_for_composer_replay_in_transaction(
+        transaction,
+        &locator,
+        pre_transition_view,
+        expected_current_view,
+        expected_exploration,
+        expected_binding,
+    )
+    .await?;
+    let frozen = matching_historical_bfp_v3(transaction, &research, &locator).await;
+    let bindings = if let Some(frozen) = frozen.as_ref() {
+        bfp_owner_bindings(frozen).map_err(|_| unavailable())?
+    } else {
+        SealedSourceResearchComposerBindingOwnerV2
+            .lock_for_resolve(
+                transaction,
+                &locator,
+                expected_current_view.projection_at_epoch_ms,
+            )
+            .await
+            .map_err(|_| unavailable())?
+    };
+    let locked = DevelopComposerLockedEvidenceV2 { research, bindings };
+    if let Some(frozen) = frozen.as_ref() {
+        crate::develop_composer_operation_v2::resolve_positive_record_with_v3_restart_v2(
+            record,
+            locked,
+            &FrozenBfpV3Restart { frozen },
+        )
+        .map_err(|_| unavailable())
+    } else {
+        crate::develop_composer_operation_v2::resolve_positive_record_v2(record, locked)
+            .map_err(|_| unavailable())
+    }
+}
+
+/// Verifies a Replay-bound Composer operation using the current BFP restart when that
+/// Research source exists, otherwise the canonical V2 positive-record verifier.
+pub(crate) async fn resolve_composer_record_for_replay_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    record: &crate::develop_composer_operation_v2::StoredDevelopComposerPositiveV2,
+    locked: DevelopComposerLockedEvidenceV2,
+    locator: &DevelopComposerDurableEvidenceLocatorV2,
+    read_cut_epoch_ms: u64,
+) -> Result<DevelopComposerOperationResponseV2, DevelopComposerTerminalV2> {
+    if let Some(frozen) =
+        matching_current_bfp_v3(transaction, &locked.research, locator, read_cut_epoch_ms).await
+    {
+        crate::develop_composer_operation_v2::resolve_positive_record_with_v3_restart_v2(
+            record,
+            locked,
+            &FrozenBfpV3Restart { frozen: &frozen },
+        )
+    } else {
+        crate::develop_composer_operation_v2::resolve_positive_record_v2(record, locked)
+    }
 }
 
 /// Fixed A2 assembly: sealed Market Data Owner, sealed A0 builder, and an internally selected
@@ -1462,7 +2231,24 @@ impl DevelopComposerSealedReadPortV2 for SealedPostgresSourceResearchComposerV2 
         ))
         .await
         .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
-        let readback = read_accepted_in_transaction(&mut transaction, locator, locked).await?;
+        let frozen = matching_current_bfp_v3(
+            &mut transaction,
+            &locked.research,
+            &durable,
+            current_read_cut_epoch_ms(),
+        )
+        .await;
+        let readback = if let Some(frozen) = frozen {
+            read_accepted_in_transaction_with_v3_restart(
+                &mut transaction,
+                locator,
+                locked,
+                &FrozenBfpV3Restart { frozen: &frozen },
+            )
+            .await?
+        } else {
+            read_accepted_in_transaction(&mut transaction, locator, locked).await?
+        };
         transaction
             .commit()
             .await
@@ -1502,6 +2288,17 @@ impl SealedPostgresSourceResearchComposerV2 {
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
         Box::pin(self.inner.run(
             &mut SealedSourceResearchComposerA0BuildV2,
+            research_request_locator,
+        ))
+        .await
+    }
+
+    pub async fn run_bfp_v3(
+        &self,
+        research_request_locator: &str,
+    ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
+        Box::pin(self.inner.run_bfp_v3(
+            &mut DevelopPluginBuildProducerV3::default(),
             research_request_locator,
         ))
         .await
@@ -1636,7 +2433,7 @@ impl DevelopComposerFinalEvidencePortV2 for LockedOwnerEvidenceV2 {
 }
 
 /// Derives only the immutable census keys. Positive custody still comes exclusively from
-/// `CurrentResearchDevelopCustodyV2::from_verified` after the census is uniquely matched.
+/// the matching `CurrentResearchDevelopCustodyV2` constructor after the census is uniquely matched.
 fn durable_research_identities(
     custody: &VerifiedResearchCustodyV1,
 ) -> Option<(BindingDigest, BindingDigest)> {
@@ -1649,6 +2446,15 @@ fn durable_research_identities(
     };
     let intent_identity = parse_digest_suffix(&intent.intent_identity, "rd-research-intent-v2-")?;
     Some((request_identity, intent_identity))
+}
+
+fn successor_intent_locator(intent_identity: BindingDigest) -> String {
+    let suffix = intent_identity
+        .as_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    format!("rd-successor-research-intent-v1-{suffix}")
 }
 
 fn parse_digest_suffix(value: &str, prefix: &str) -> Option<BindingDigest> {
@@ -1696,6 +2502,21 @@ mod tests {
     use super::*;
 
     static A0_COUNTER_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    #[rstest::rstest]
+    fn successor_intent_locator_round_trips_the_exact_durable_identity() {
+        let identity = BindingDigest::from_untrusted_bytes([0x5a; 32]);
+        let locator = successor_intent_locator(identity);
+
+        assert_eq!(
+            parse_digest_suffix(&locator, "rd-successor-research-intent-v1-"),
+            Some(identity)
+        );
+        assert_eq!(
+            locator,
+            format!("rd-successor-research-intent-v1-{}", "5a".repeat(32))
+        );
+    }
 
     fn test_locked_evidence(
         research: CurrentResearchDevelopCustodyV2,

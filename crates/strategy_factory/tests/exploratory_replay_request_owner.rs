@@ -1307,7 +1307,8 @@ async fn run_market_data_owner_sealed_request_port() {
             'public.rd_artifact_trial_family_bindings_v1',
             'public.rd_artifact_build_attempts_v1',
             'public.rd_strategy_artifacts_v1',
-            'public.rd_trial_family_members_v1'
+            'public.rd_trial_family_members_v1',
+            'public.rd_successor_research_intents_v1'
           ]) relation_name",
     )
     .fetch_one(rd_pool)

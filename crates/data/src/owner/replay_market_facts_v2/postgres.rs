@@ -62,6 +62,27 @@ pub(crate) const REPLAY_MARKET_FACTS_SCHEMA_V2: [&str; 20] = [
     "REVOKE ALL ON FUNCTION market_data_private.resolve_replay_market_facts_bound_storage_v1(BYTEA) FROM PUBLIC",
 ];
 
+/// The R&D transaction can lock one exact Market Data binding without receiving table privileges.
+/// Its bytes remain untrusted until the existing Market Data decoder verifies the complete triple.
+pub(crate) const REPLAY_MARKET_RD_CUT_API_SCHEMA_V1: &[&str] = &[
+    // `CREATE SCHEMA IF NOT EXISTS` checks database `CREATE` before it checks existence, so it
+    // fails for an Owner that holds no database-level `CREATE` even when the schema is already
+    // provisioned. Under the deployed custody topology the authority migration owns this schema
+    // and the Owner has no such grant, so ask about existence first and create only what is
+    // genuinely missing.
+    "DO $rd_cut_api_schema$ BEGIN IF pg_catalog.to_regnamespace('market_data_rd_api') IS NULL THEN EXECUTE 'CREATE SCHEMA market_data_rd_api'; END IF; END $rd_cut_api_schema$",
+    "REVOKE ALL ON SCHEMA market_data_rd_api FROM PUBLIC",
+    "CREATE OR REPLACE FUNCTION market_data_rd_api.lock_replay_composition_binding_v1(p_binding_identity BYTEA) RETURNS TABLE(binding_identity BYTEA,binding_digest BYTEA,receipt_identity BYTEA,record_bytes BYTEA,receipt_bytes BYTEA,outbox_identity BYTEA,outbox_binding_identity BYTEA,outbox_receipt_identity BYTEA,outbox_bytes BYTEA) LANGUAGE SQL VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT b.binding_identity,b.binding_digest,b.receipt_identity,b.record_bytes,r.receipt_bytes,o.outbox_identity,o.binding_identity,o.receipt_identity,o.payload_bytes FROM market_data_private.replay_composition_bindings_v1 AS b JOIN market_data_private.replay_composition_binding_receipts_v1 AS r ON r.binding_identity=b.binding_identity JOIN market_data_private.replay_composition_binding_outbox_v1 AS o ON o.binding_identity=b.binding_identity WHERE b.binding_identity=p_binding_identity AND session_user='rd_owner' FOR SHARE OF b,r,o $function$",
+    "CREATE OR REPLACE FUNCTION market_data_rd_api.lock_pit_snapshot_for_replay_v1(p_snapshot_identity BYTEA) RETURNS TABLE(row_identity BYTEA,fact_digest BYTEA,request_identity BYTEA,request_digest BYTEA,correction_stream_identity TEXT,correction_sequence BIGINT,fact_lineage_root BYTEA,fact_lineage_version BIGINT,aggregate_json JSONB,outbox_event_identity BYTEA,outbox_aggregate_identity BYTEA,outbox_payload BYTEA,outbox_digest BYTEA,head_lineage_root BYTEA,head_identity BYTEA,head_digest BYTEA,head_version BIGINT) LANGUAGE SQL VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT f.snapshot_identity,f.fact_digest,f.request_identity,f.request_digest,f.correction_stream_identity,f.correction_sequence,f.lineage_root,f.lineage_version,f.aggregate_json,o.event_identity,o.aggregate_identity,o.payload,o.payload_digest,h.lineage_root,h.snapshot_identity,h.fact_digest,h.lineage_version FROM market_data_private.pit_snapshot_facts_v1 AS f JOIN market_data_private.pit_snapshot_outbox_v1 AS o ON o.aggregate_identity=f.snapshot_identity JOIN market_data_private.pit_snapshot_heads_v1 AS h ON h.lineage_root=f.lineage_root WHERE f.snapshot_identity=p_snapshot_identity AND session_user='rd_owner' FOR SHARE OF f,o,h $function$",
+    "CREATE OR REPLACE FUNCTION market_data_rd_api.lock_instrument_master_for_replay_v1(p_cut_identity BYTEA) RETURNS TABLE(request_identity BYTEA,request_meaning_digest BYTEA,receipt_identity BYTEA,receipt_bytes BYTEA,append_sequence BIGINT,cut_identity BYTEA,cut_bytes BYTEA,outbox_identity BYTEA,outbox_receipt_bytes BYTEA,store_generation_identity BYTEA,state_append_sequence BIGINT,cut_count BIGINT,receipt_count BIGINT,outbox_count BIGINT) LANGUAGE SQL VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT r.request_identity,r.request_meaning_digest,r.receipt_identity,r.receipt_bytes,r.append_sequence,c.cut_identity,c.cut_bytes,o.outbox_identity,o.receipt_bytes,s.store_generation_identity,s.append_sequence,(SELECT COUNT(*) FROM market_data_private.instrument_master_cuts_v1),(SELECT COUNT(*) FROM market_data_private.instrument_master_receipts_v1),(SELECT COUNT(*) FROM market_data_private.instrument_master_outbox_v1) FROM market_data_private.instrument_master_receipts_v1 AS r JOIN market_data_private.instrument_master_cuts_v1 AS c ON c.request_identity=r.request_identity AND c.cut_identity=r.cut_identity JOIN market_data_private.instrument_master_outbox_v1 AS o ON o.request_identity=r.request_identity AND o.outbox_identity=r.receipt_identity CROSS JOIN market_data_private.instrument_master_state_v1 AS s WHERE s.singleton AND c.cut_identity=p_cut_identity AND session_user='rd_owner' FOR SHARE OF r,c,o,s $function$",
+    "CREATE OR REPLACE FUNCTION market_data_rd_api.lock_replay_market_facts_for_replay_v1(p_binding_identity BYTEA) RETURNS TABLE(facts_identity BYTEA,meaning_identity BYTEA,composition_binding_identity BYTEA,request_identity BYTEA,request_digest BYTEA,frontier_identity BYTEA,receipt_identity BYTEA,universe_selection_identity BYTEA,universe_selection_digest BYTEA,joined_cut_identity BYTEA,joined_cut_digest BYTEA,sample_projection_identity BYTEA,sample_projection_digest BYTEA,facts_bytes BYTEA,frontier_bytes BYTEA,receipt_bytes BYTEA,custody_digest BYTEA,append_sequence BIGINT,receipt_facts_identity BYTEA,receipt_meaning_identity BYTEA,receipt_append_sequence BIGINT,receipt_manifest_digest BYTEA,receipt_custody_digest BYTEA,outbox_identity BYTEA,outbox_facts_identity BYTEA,outbox_receipt_identity BYTEA,outbox_payload_digest BYTEA,outbox_payload_bytes BYTEA,outbox_append_sequence BIGINT,outbox_manifest_digest BYTEA,outbox_custody_digest BYTEA,store_generation_identity BYTEA,state_append_sequence BIGINT,fact_count BIGINT,receipt_count BIGINT,outbox_count BIGINT,fact_max_sequence BIGINT,receipt_max_sequence BIGINT,outbox_max_sequence BIGINT) LANGUAGE SQL VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT f.facts_identity,f.meaning_identity,f.composition_binding_identity,f.request_identity,f.request_digest,f.frontier_identity,f.receipt_identity,f.universe_selection_identity,f.universe_selection_digest,f.joined_cut_identity,f.joined_cut_digest,f.sample_projection_identity,f.sample_projection_digest,f.facts_bytes,f.frontier_bytes,r.receipt_bytes,f.custody_digest,f.append_sequence,r.facts_identity,r.meaning_identity,r.append_sequence,r.manifest_digest,r.custody_digest,o.outbox_identity,o.facts_identity,o.receipt_identity,o.payload_digest,o.payload_bytes,o.append_sequence,o.manifest_digest,o.custody_digest,s.store_generation_identity,s.append_sequence,(SELECT COUNT(*) FROM market_data_private.replay_market_facts_v2),(SELECT COUNT(*) FROM market_data_private.replay_market_facts_receipts_v2),(SELECT COUNT(*) FROM market_data_private.replay_market_facts_outbox_v2),(SELECT COALESCE(MAX(append_sequence),0) FROM market_data_private.replay_market_facts_v2),(SELECT COALESCE(MAX(append_sequence),0) FROM market_data_private.replay_market_facts_receipts_v2),(SELECT COALESCE(MAX(append_sequence),0) FROM market_data_private.replay_market_facts_outbox_v2) FROM market_data_private.replay_market_facts_v2 AS f JOIN market_data_private.replay_market_facts_receipts_v2 AS r ON r.facts_identity=f.facts_identity JOIN market_data_private.replay_market_facts_outbox_v2 AS o ON o.facts_identity=f.facts_identity CROSS JOIN market_data_private.replay_market_facts_state_v2 AS s WHERE s.singleton AND f.composition_binding_identity=p_binding_identity AND session_user='rd_owner' FOR SHARE OF f,r,o,s $function$",
+    "REVOKE ALL ON FUNCTION market_data_rd_api.lock_replay_composition_binding_v1(BYTEA) FROM PUBLIC",
+    "REVOKE ALL ON FUNCTION market_data_rd_api.lock_replay_market_facts_for_replay_v1(BYTEA) FROM PUBLIC",
+    "REVOKE ALL ON FUNCTION market_data_rd_api.lock_pit_snapshot_for_replay_v1(BYTEA) FROM PUBLIC",
+    "REVOKE ALL ON FUNCTION market_data_rd_api.lock_instrument_master_for_replay_v1(BYTEA) FROM PUBLIC",
+    "DO $grant$ BEGIN IF pg_catalog.to_regrole('rd_owner') IS NOT NULL THEN GRANT USAGE ON SCHEMA market_data_rd_api TO rd_owner; GRANT EXECUTE ON FUNCTION market_data_rd_api.lock_replay_composition_binding_v1(BYTEA), market_data_rd_api.lock_pit_snapshot_for_replay_v1(BYTEA), market_data_rd_api.lock_instrument_master_for_replay_v1(BYTEA), market_data_rd_api.lock_replay_market_facts_for_replay_v1(BYTEA) TO rd_owner; END IF; END $grant$",
+];
+
 const INSERT_REPLAY_MARKET_FACTS_V2: &str = "INSERT INTO market_data_private.replay_market_facts_v2(facts_identity,meaning_identity,composition_binding_identity,request_identity,request_digest,frontier_identity,receipt_identity,universe_selection_identity,universe_selection_digest,joined_cut_identity,joined_cut_digest,sample_projection_identity,sample_projection_digest,facts_bytes,frontier_bytes,append_sequence,custody_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)";
 const INSERT_REPLAY_MARKET_FACTS_RECEIPT_V2: &str = "INSERT INTO market_data_private.replay_market_facts_receipts_v2(receipt_identity,facts_identity,meaning_identity,receipt_bytes,append_sequence,manifest_digest,custody_digest) VALUES($1,$2,$3,$4,$5,$6,$7)";
 const INSERT_REPLAY_MARKET_FACTS_OUTBOX_V2: &str = "INSERT INTO market_data_private.replay_market_facts_outbox_v2(outbox_identity,facts_identity,receipt_identity,payload_digest,payload_bytes,append_sequence,manifest_digest,custody_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8)";
@@ -448,12 +469,35 @@ pub(crate) async fn recover_replay_composition_binding_in_transaction_v1(
             .await
             .map_err(|_| ReplayMarketFactsPostgresErrorV2::StoreUnavailable)?
             .ok_or(ReplayMarketFactsPostgresErrorV2::BindingUnavailable)?;
-    let identity = digest_array(row_bytes(&row, "binding_identity")?)?;
-    let digest = digest_array(row_bytes(&row, "binding_digest")?)?;
-    let receipt_identity = digest_array(row_bytes(&row, "receipt_identity")?)?;
-    let outbox_identity = digest_array(row_bytes(&row, "outbox_identity")?)?;
-    let outbox_binding_identity = digest_array(row_bytes(&row, "outbox_binding_identity")?)?;
-    let outbox_receipt_identity = digest_array(row_bytes(&row, "outbox_receipt_identity")?)?;
+    decode_replay_composition_binding_row_v1(&row, locator)
+}
+
+/// Locks and verifies one exact binding through Market Data's R&D-only database facade.
+/// The caller's transaction retains the locks through its own first write and commit.
+pub(crate) async fn recover_replay_composition_binding_for_rd_in_transaction_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    locator: ReplayCompositionBindingLocatorV1,
+) -> Result<ReplayCompositionBindingReadbackV1, ReplayMarketFactsPostgresErrorV2> {
+    let row =
+        sqlx::query("SELECT * FROM market_data_rd_api.lock_replay_composition_binding_v1($1)")
+            .bind(locator.binding_identity().as_bytes().as_slice())
+            .fetch_optional(&mut **transaction)
+            .await
+            .map_err(|_| ReplayMarketFactsPostgresErrorV2::StoreUnavailable)?
+            .ok_or(ReplayMarketFactsPostgresErrorV2::BindingUnavailable)?;
+    decode_replay_composition_binding_row_v1(&row, locator)
+}
+
+fn decode_replay_composition_binding_row_v1(
+    row: &sqlx::postgres::PgRow,
+    locator: ReplayCompositionBindingLocatorV1,
+) -> Result<ReplayCompositionBindingReadbackV1, ReplayMarketFactsPostgresErrorV2> {
+    let identity = digest_array(row_bytes(row, "binding_identity")?)?;
+    let digest = digest_array(row_bytes(row, "binding_digest")?)?;
+    let receipt_identity = digest_array(row_bytes(row, "receipt_identity")?)?;
+    let outbox_identity = digest_array(row_bytes(row, "outbox_identity")?)?;
+    let outbox_binding_identity = digest_array(row_bytes(row, "outbox_binding_identity")?)?;
+    let outbox_receipt_identity = digest_array(row_bytes(row, "outbox_receipt_identity")?)?;
 
     if identity != *locator.binding_identity().as_bytes()
         || digest != *locator.binding_digest().as_bytes()
@@ -463,9 +507,9 @@ pub(crate) async fn recover_replay_composition_binding_in_transaction_v1(
     {
         return Err(ReplayMarketFactsPostgresErrorV2::BindingConflict);
     }
-    let record_bytes = row_bytes(&row, "record_bytes")?;
-    let receipt_bytes = row_bytes(&row, "receipt_bytes")?;
-    let outbox_bytes = row_bytes(&row, "outbox_bytes")?;
+    let record_bytes = row_bytes(row, "record_bytes")?;
+    let receipt_bytes = row_bytes(row, "receipt_bytes")?;
+    let outbox_bytes = row_bytes(row, "outbox_bytes")?;
     let readback =
         decode_replay_composition_binding_v1(&record_bytes, &receipt_bytes, &outbox_bytes)
             .map_err(|_| ReplayMarketFactsPostgresErrorV2::BindingConflict)?;
@@ -647,6 +691,27 @@ pub(crate) async fn recover_bound_replay_market_facts_readback_in_transaction_v2
 ) -> Result<ReplayMarketFactsReadbackV2, ReplayMarketFactsPostgresErrorV2> {
     let durable =
         recover_durable_by_binding_in_transaction_v2(transaction, binding_identity).await?;
+    decode_exact_readback_v2(&durable, request)
+}
+
+/// Locks one binding-selected facts aggregate in the caller's R&D transaction and reuses the
+/// Market Data canonical storage and semantic verifiers before returning a sealed readback.
+pub(crate) async fn recover_bound_replay_market_facts_for_rd_in_transaction_v2(
+    transaction: &mut Transaction<'_, Postgres>,
+    request: &UntrustedReplayMarketFactsRequestV2,
+    binding_identity: [u8; DIGEST_BYTES],
+) -> Result<ReplayMarketFactsReadbackV2, ReplayMarketFactsPostgresErrorV2> {
+    let row =
+        sqlx::query("SELECT * FROM market_data_rd_api.lock_replay_market_facts_for_replay_v1($1)")
+            .bind(binding_identity.as_slice())
+            .fetch_optional(&mut **transaction)
+            .await
+            .map_err(|_| ReplayMarketFactsPostgresErrorV2::StoreUnavailable)?
+            .ok_or(ReplayMarketFactsPostgresErrorV2::UnknownRecord)?;
+    let durable = decode_postgres_row(&row)?;
+    if durable.row.composition_binding_identity != Some(binding_identity) {
+        return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
+    }
     decode_exact_readback_v2(&durable, request)
 }
 

@@ -43,19 +43,24 @@ readonly rd_owner_postgres_tests=(
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_topology_fence_serializes_managed_acl_drift'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_mid_commit_failure_rolls_back_every_aggregate_row'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut'
+  'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::governance_artifact_membership_readback_is_restart_exact_and_fail_closed'
+  'vibe-strategy-factory|vibe_strategy_factory|iteration_decision_postgres::postgres_acceptance_tests::successor_artifact_enters_exploratory_replay_with_exact_owner_custody'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody'
   'vibe-strategy-factory|vibe_strategy_factory|iteration_decision_postgres::postgres_acceptance_tests::repair_decision_action_and_market_data_request_commit_retry_resolve_and_rejection_are_atomic'
-  'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
   'vibe-strategy-factory|vibe_strategy_factory|replay_execution_profile_binding_v1::tests::verified_owner_readback_mints_provenance_and_wrong_coordinates_fail'
   'vibe-product-edge|vibe_product_edge|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation'
   'vibe-data|instrument_economic_terms_postgres_v1|atomic_exact_replay_restart_tamper_and_acl_fail_closed'
   'vibe-strategy-factory|vibe_strategy_factory|program_host_bar_joined_cut_postgres_acceptance_tests::owner_postgres_v4_moves_through_program_host_and_real_backtest'
+  'vibe-strategy-factory|vibe_strategy_factory|iteration_decision_postgres::postgres_acceptance_tests::iteration_analysis_postgres_acceptance_tests::analysis_request_completion_resolve_restart_and_tamper_are_atomic'
   'vibe-strategy-factory|vibe_strategy_factory|iteration_decision_postgres::postgres_acceptance_tests::positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic'
   'vibe-qualification|vibe_qualification|postgres::postgres_tests::protected_replay_request_is_atomic_retry_exact_and_backtest_sealed'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_protected_result_is_atomic_request_bound_and_qualification_sealed'
   'vibe-qualification|vibe_qualification|postgres::postgres_tests::negative_protected_attempt_closure_is_atomic_retry_exact_and_eligibility_absent'
   'vibe-qualification|vibe_qualification|postgres::postgres_tests::diagnostic_protected_attempt_closure_is_atomic_and_creates_no_assessment_or_eligibility'
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed'
+  'vibe-strategy-factory|develop_composer_postgres_v2|postgres_migration_materializes_only_private_binary_authority'
+  'vibe-strategy-factory|develop_composer_postgres_v2|sealed_read_port_is_restart_exact_fail_closed_and_query_only'
+  'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
   --locked
@@ -73,14 +78,15 @@ readonly nextest_graph_args=(
 readonly nextest_archive_features='vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance'
 readonly schema_materialization_features="${nextest_archive_features},vibe-strategy-factory-rd-owner-api/sealed-develop-composer-acceptance"
 readonly nextest_execution_args=(--fail-fast --run-ignored ignored-only)
+readonly candidate_experiment_upgrade_seed_test='trial_family_postgres::postgres_binding_tests::canonical_candidate_experiment_upgrade_seed_is_owner_issued_and_locked_readback_exact'
 
 check_nextest_graph_contract() {
   if rg -n '^[[:space:]]*cargo[[:space:]]+test([[:space:]]|$)' "${BASH_SOURCE[0]}"; then
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 38 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all thirty-eight ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 43 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all forty-three ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -101,20 +107,25 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[22]}" != *'|tests::postgres_result_topology_fence_serializes_managed_acl_drift' ]] ||
     [[ "${rd_owner_postgres_tests[23]}" != *'|tests::postgres_result_mid_commit_failure_rolls_back_every_aggregate_row' ]] ||
     [[ "${rd_owner_postgres_tests[24]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
-    [[ "${rd_owner_postgres_tests[25]}" != *'|tests::strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody' ]] ||
-    [[ "${rd_owner_postgres_tests[26]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::repair_decision_action_and_market_data_request_commit_retry_resolve_and_rejection_are_atomic' ]] ||
-    [[ "${rd_owner_postgres_tests[27]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]] ||
-    [[ "${rd_owner_postgres_tests[28]}" != *'|replay_execution_profile_binding_v1::tests::verified_owner_readback_mints_provenance_and_wrong_coordinates_fail' ]] ||
-    [[ "${rd_owner_postgres_tests[29]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]] ||
-    [[ "${rd_owner_postgres_tests[30]}" != *'|atomic_exact_replay_restart_tamper_and_acl_fail_closed' ]] ||
-    [[ "${rd_owner_postgres_tests[31]}" != *'|program_host_bar_joined_cut_postgres_acceptance_tests::owner_postgres_v4_moves_through_program_host_and_real_backtest' ]] ||
-    [[ "${rd_owner_postgres_tests[32]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic' ]] ||
-    [[ "${rd_owner_postgres_tests[33]}" != *'|postgres::postgres_tests::protected_replay_request_is_atomic_retry_exact_and_backtest_sealed' ]] ||
-    [[ "${rd_owner_postgres_tests[34]}" != *'|tests::postgres_protected_result_is_atomic_request_bound_and_qualification_sealed' ]] ||
-    [[ "${rd_owner_postgres_tests[35]}" != *'|postgres::postgres_tests::negative_protected_attempt_closure_is_atomic_retry_exact_and_eligibility_absent' ]] ||
-    [[ "${rd_owner_postgres_tests[36]}" != *'|postgres::postgres_tests::diagnostic_protected_attempt_closure_is_atomic_and_creates_no_assessment_or_eligibility' ]] ||
-    [[ "${rd_owner_postgres_tests[37]}" != *'|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed' ]]; then
-    echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
+    [[ "${rd_owner_postgres_tests[25]}" != *'|artifact_build_postgres::postgres_freshness_tests::governance_artifact_membership_readback_is_restart_exact_and_fail_closed' ]] ||
+    [[ "${rd_owner_postgres_tests[26]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::successor_artifact_enters_exploratory_replay_with_exact_owner_custody' ]] ||
+    [[ "${rd_owner_postgres_tests[27]}" != *'|tests::strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody' ]] ||
+    [[ "${rd_owner_postgres_tests[28]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::repair_decision_action_and_market_data_request_commit_retry_resolve_and_rejection_are_atomic' ]] ||
+    [[ "${rd_owner_postgres_tests[29]}" != *'|replay_execution_profile_binding_v1::tests::verified_owner_readback_mints_provenance_and_wrong_coordinates_fail' ]] ||
+    [[ "${rd_owner_postgres_tests[30]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]] ||
+    [[ "${rd_owner_postgres_tests[31]}" != *'|atomic_exact_replay_restart_tamper_and_acl_fail_closed' ]] ||
+    [[ "${rd_owner_postgres_tests[32]}" != *'|program_host_bar_joined_cut_postgres_acceptance_tests::owner_postgres_v4_moves_through_program_host_and_real_backtest' ]] ||
+    [[ "${rd_owner_postgres_tests[33]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::iteration_analysis_postgres_acceptance_tests::analysis_request_completion_resolve_restart_and_tamper_are_atomic' ]] ||
+    [[ "${rd_owner_postgres_tests[34]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic' ]] ||
+    [[ "${rd_owner_postgres_tests[35]}" != *'|postgres::postgres_tests::protected_replay_request_is_atomic_retry_exact_and_backtest_sealed' ]] ||
+    [[ "${rd_owner_postgres_tests[36]}" != *'|tests::postgres_protected_result_is_atomic_request_bound_and_qualification_sealed' ]] ||
+    [[ "${rd_owner_postgres_tests[37]}" != *'|postgres::postgres_tests::negative_protected_attempt_closure_is_atomic_retry_exact_and_eligibility_absent' ]] ||
+    [[ "${rd_owner_postgres_tests[38]}" != *'|postgres::postgres_tests::diagnostic_protected_attempt_closure_is_atomic_and_creates_no_assessment_or_eligibility' ]] ||
+    [[ "${rd_owner_postgres_tests[39]}" != *'|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed' ]] ||
+    [[ "${rd_owner_postgres_tests[40]}" != *'|postgres_migration_materializes_only_private_binary_authority' ]] ||
+    [[ "${rd_owner_postgres_tests[41]}" != *'|sealed_read_port_is_restart_exact_fail_closed_and_query_only' ]] ||
+    [[ "${rd_owner_postgres_tests[42]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
   if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --package vibe-backtest-owner --package vibe-data --package vibe-qualification --lib --tests' ]] ||
@@ -122,6 +133,10 @@ check_nextest_graph_contract() {
     [[ "$schema_materialization_features" != "${nextest_archive_features},vibe-strategy-factory-rd-owner-api/sealed-develop-composer-acceptance" ]] ||
     [[ "${nextest_execution_args[*]}" != '--fail-fast --run-ignored ignored-only' ]]; then
     echo "ERROR: shared nextest graph, schema feature union, or sequential ignored-only execution changed." >&2
+    return 1
+  fi
+  if [[ "$candidate_experiment_upgrade_seed_test" != 'trial_family_postgres::postgres_binding_tests::canonical_candidate_experiment_upgrade_seed_is_owner_issued_and_locked_readback_exact' ]]; then
+    echo "ERROR: Candidate experiment upgrade must use the canonical Owner issuance/readback fixture." >&2
     return 1
   fi
 
@@ -181,10 +196,134 @@ check_nextest_graph_contract() {
     echo "ERROR: Program Host acceptance must use its canonical fresh PostgreSQL clone." >&2
     return 1
   fi
+  python3 - "${BASH_SOURCE[0]}" << 'PY'
+from pathlib import Path
+import re
+import sys
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+catalog_test = "catalog_admin_and_family_formation_are_atomic_and_fail_closed"
+poison_test = "postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation"
+array_open = "readonly rd_owner_postgres_tests=(\n"
+array_close = "\n)\nreadonly nextest_graph_args=("
+if source.count(array_open) != 1:
+    raise SystemExit("ERROR: ordered PostgreSQL test literal is unavailable.")
+array_start = source.index(array_open) + len(array_open)
+array_end = source.find(array_close, array_start)
+if array_end < 0:
+    raise SystemExit("ERROR: ordered PostgreSQL test literal boundary is unavailable.")
+array_body = source[array_start:array_end]
+entry_pattern = re.compile(r"  '([A-Za-z0-9_|:-]+)'")
+entries = []
+for line in array_body.splitlines():
+    if not line.strip():
+        continue
+    match = entry_pattern.fullmatch(line)
+    if match is None:
+        raise SystemExit(
+            "ERROR: every ordered PostgreSQL test must be one strict single-quoted literal."
+        )
+    fields = match.group(1).split("|")
+    if len(fields) != 3 or any(not field for field in fields):
+        raise SystemExit("ERROR: ordered PostgreSQL test literal must contain three fields.")
+    entries.append(tuple(fields))
+if len(entries) != 43:
+    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain forty-three entries.")
+if sum(test_name == poison_test for _, _, test_name in entries) != 1:
+    raise SystemExit(
+        "ERROR: recovery-sidecar poison test must occur exactly once as a parsed test name."
+    )
+loop_open = 'for test_selection in "${rd_owner_postgres_tests[@]}"; do\n'
+loop_close = "\ndone\n\nlegacy_replay_fingerprint_after="
+if source.count(loop_open) != 1:
+    raise SystemExit("ERROR: ordered PostgreSQL execution loop is unavailable.")
+loop_start = source.index(loop_open) + len(loop_open)
+loop_end = source.find(loop_close, loop_start)
+if loop_end < 0:
+    raise SystemExit("ERROR: ordered PostgreSQL execution loop boundary is unavailable.")
+loop_body = source[loop_start:loop_end]
+exact_filter = '  test_filter="package(${test_package}) & binary(${test_binary}) & test(=${test_name})"'
+filter_definitions = [
+    line for line in loop_body.splitlines() if re.match(r"\s*test_filter=", line)
+]
+if filter_definitions != [exact_filter]:
+    raise SystemExit("ERROR: ordered PostgreSQL loop must define one exact test filter.")
+route = (
+    f'''if [[ "$test_name" == '{catalog_test}' ]] ||\n'''
+    f'''    [[ "$test_name" == '{poison_test}' ]]; then'''
+)
+if loop_body.count(route) != 1:
+    raise SystemExit(
+        "ERROR: Product Edge recovery-sidecar poison test must share the catalog-admin clone route."
+    )
+route_start = loop_body.index(route)
+if loop_body.index(exact_filter) >= route_start:
+    raise SystemExit("ERROR: exact test filter must be defined before database routing.")
+pre_route_prefix = loop_body[:route_start]
+test_filter_tokens = re.findall(
+    r"(?<![A-Za-z0-9_])test_filter(?![A-Za-z0-9_])", pre_route_prefix
+)
+if len(test_filter_tokens) != 1:
+    raise SystemExit(
+        "ERROR: ordered PostgreSQL loop may touch test_filter only in its exact assignment."
+    )
+route_start += len(route)
+route_end = loop_body.find('\n  elif [[ "$test_name"', route_start)
+if route_end < 0:
+    raise SystemExit("ERROR: catalog-admin clone route boundary is unavailable.")
+route_body = loop_body[route_start:route_end]
+expected_overrides = (
+    ("VIBE_POSTGRES_TEST_DATABASE_NAME", '"$catalog_admin_database"'),
+    ("OPERATOR_AUTHORIZATION_TEST_DATABASE_URL", '"postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("PRODUCT_EDGE_TEST_DATABASE_URL", '"postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("RD_OWNER_TEST_DATABASE_URL", '"postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("RD_FACT_WRITER_TEST_DATABASE_URL", '"postgresql://rd_fact_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("MARKET_DATA_OWNER_TEST_DATABASE_URL", '"postgresql://market_data_owner:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("REPLAY_POLICY_CATALOG_ADMIN_TEST_DATABASE_URL", '"postgresql://replay_policy_catalog_admin_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("MARKET_DATA_RD_ROLE_SET_TEST_DATABASE_URL", '"postgresql://market_data_reader:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("VIBE_TEST_OWNER_TOPOLOGY_ADMIN_DATABASE_URL", '"postgresql://vibe_test_owner_topology_admin:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("QUALIFICATION_TEST_DATABASE_URL", '"postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("BACKTEST_TEST_DATABASE_URL", '"postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("INSTRUMENT_OWNER_TEST_DATABASE_URL", '"postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("INSTRUMENT_OWNER_DATABASE_URL", '"postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+)
+route_lines = route_body.splitlines()
+if route_lines[:2] != ["", "    env \\"]:
+    raise SystemExit("ERROR: catalog-admin clone route env preamble is unavailable.")
+try:
+    invocation_start = next(
+        index for index, line in enumerate(route_lines) if line.strip() == "cargo nextest run \\"
+    )
+except StopIteration:
+    raise SystemExit("ERROR: catalog-admin clone route nextest invocation is unavailable.")
+assignment_pattern = re.compile("\\s*([A-Z][A-Z0-9_]*)=(.*) \\\\")
+assignments = []
+for line in route_lines[2:invocation_start]:
+    match = assignment_pattern.fullmatch(line)
+    if match is None:
+        raise SystemExit("ERROR: catalog-admin clone route env preamble contains a non-assignment.")
+    assignments.append((match.group(1), match.group(2)))
+if tuple(assignments) != expected_overrides:
+    raise SystemExit(
+        "ERROR: catalog-admin clone route must retain the complete ordered database URL override set."
+    )
+expected_invocation = (
+    "cargo nextest run \\",
+    '--archive-file "$nextest_archive_file" \\',
+    '--profile "$nextest_profile" \\',
+    '"${nextest_execution_args[@]}" \\',
+    '-E "$test_filter"',
+)
+invocation = tuple(line.strip() for line in route_lines[invocation_start:])
+if invocation != expected_invocation:
+    raise SystemExit(
+        "ERROR: catalog-admin clone route must retain one exact selected-test nextest invocation."
+    )
+PY
   if ! rg -Uq \
-    "strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody'.*\n[[:space:]]+RUST_MIN_STACK=16777216.*\n[[:space:]]+cargo nextest run" \
+    "strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody'.*\n[[:space:]]+\[\[.*successor_artifact_enters_exploratory_replay_with_exact_owner_custody'.*\n[[:space:]]+\[\[.*analysis_request_completion_resolve_restart_and_tamper_are_atomic'.*\n[[:space:]]+\[\[.*positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic'.*\n[[:space:]]+RUST_MIN_STACK=16777216.*\n[[:space:]]+cargo nextest run" \
     "${BASH_SOURCE[0]}"; then
-    echo "ERROR: strategy source browser acceptance must use its admitted test-thread stack." >&2
+    echo "ERROR: large composed acceptances must use their admitted test-thread stack." >&2
     return 1
   fi
 }
@@ -433,6 +572,7 @@ check_exploratory_replay_read_fence_source() {
   python3 - \
     "$repository_root/crates/strategy_factory/src/exploratory_replay/postgres.rs" \
     "$repository_root/crates/rd_exploratory_replay_custody/src/lib.rs" \
+    "$repository_root/product/rd-workbench/postgres-init/10-migrate-authority-custody.sh" \
     "$repository_root/scripts/ci/test-rd-owner-postgres.bash" << 'PY'
 from hashlib import sha256
 from pathlib import Path
@@ -441,10 +581,12 @@ import sys
 
 postgres = Path(sys.argv[1]).read_text(encoding="utf-8")
 custody = Path(sys.argv[2]).read_text(encoding="utf-8")
-test_script = Path(sys.argv[3]).read_text(encoding="utf-8")
+migration = Path(sys.argv[3]).read_text(encoding="utf-8")
+test_script = Path(sys.argv[4]).read_text(encoding="utf-8")
 helper_signatures = (
     "verify_exploratory_replay_request_internal_v1",
     "verify_exploratory_replay_request_internal_v2",
+    "verify_exploratory_replay_request_internal_v3",
 )
 shared_lock = (
     "pg_catalog.pg_advisory_xact_lock_shared(\n"
@@ -468,6 +610,13 @@ for helper in helper_signatures:
     digest = sha256(source.encode("utf-8")).hexdigest()
     if f'"{digest}"' not in custody:
         raise SystemExit(f"ERROR: {helper} authenticated source digest is stale")
+    migration_source = re.search(
+        rf'-- BEGIN INTERNAL_VERIFY_SOURCE_V{version}.*?AS \$function\$(.*?)\$function\$;',
+        migration,
+        re.DOTALL,
+    )
+    if migration_source is None or migration_source.group(1) != source:
+        raise SystemExit(f"ERROR: {helper} authority migration source is stale")
 exclusive_lock = (
     'sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock('
     'pg_catalog.hashtextextended($1,0))")\n'
@@ -511,11 +660,401 @@ check_market_data_principal_bootstrap_order() {
   test "$bootstrap_line" -lt "$materializer_line"
 }
 
+check_trial_family_candidate_experiment_cutover() {
+  local repository_root
+  repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  python3 - \
+    "$repository_root/crates/strategy_factory/src/trial_family_postgres.rs" \
+    "$repository_root/crates/strategy_factory/src/iteration_decision_postgres.rs" \
+    "$repository_root/product/rd-workbench/postgres-init/10-migrate-authority-custody.sh" \
+    "$repository_root/docs/owners/rd.md" \
+    "$repository_root/docs/owners/rd.zh.md" \
+    "$repository_root/scripts/ci/test-rd-owner-postgres.bash" << 'PY'
+from pathlib import Path
+import re
+import sys
+
+trial_family = Path(sys.argv[1]).read_text(encoding="utf-8")
+iteration_decision = Path(sys.argv[2]).read_text(encoding="utf-8")
+migration = Path(sys.argv[3]).read_text(encoding="utf-8")
+owner_doc = Path(sys.argv[4]).read_text(encoding="utf-8")
+owner_doc_zh = Path(sys.argv[5]).read_text(encoding="utf-8")
+test_script = Path(sys.argv[6]).read_text(encoding="utf-8")
+table = "rd_trial_family_candidate_experiments_v1"
+
+if f'table!("{table}", &[], [' not in trial_family:
+    raise SystemExit("ERROR: Candidate experiment custody is not R&D Owner-only")
+
+create = f"CREATE TABLE IF NOT EXISTS public.{table} ("
+if migration.count(create) != 1:
+    raise SystemExit("ERROR: existing-cutover Candidate experiment materialization is absent or duplicated")
+if migration.index(create) > migration.index("DO $rd_ownership$"):
+    raise SystemExit("ERROR: Candidate experiment relation is materialized after R&D ownership cutover")
+rust_create = re.search(
+    rf'"(CREATE TABLE IF NOT EXISTS {table} \(.*?\))"', trial_family
+)
+migration_create = re.search(
+    rf"CREATE TABLE IF NOT EXISTS public\.{table} \(.*?\n\);", migration, re.DOTALL
+)
+normalize = lambda statement: " ".join(
+    statement.replace("public.", "").rstrip(";").split()
+).replace("( ", "(").replace(" )", ")")
+if (
+    rust_create is None
+    or migration_create is None
+    or normalize(rust_create.group(1)) != normalize(migration_create.group(0))
+):
+    raise SystemExit("ERROR: Rust and existing-cutover Candidate experiment schemas diverge")
+required_shape = (
+    "experiment_identity TEXT PRIMARY KEY",
+    "trial_family_identity TEXT NOT NULL REFERENCES public.rd_trial_families_v1(trial_family_identity)",
+    "candidate_set_frontier_identity TEXT NOT NULL REFERENCES public.rd_trial_family_attempt_cuts_v2(candidate_set_frontier_identity)",
+    "experiment_storage_bytes BYTEA NOT NULL",
+    "experiment_storage_digest TEXT NOT NULL",
+    "receipt_storage_bytes BYTEA NOT NULL",
+    "receipt_storage_digest TEXT NOT NULL",
+    "UNIQUE (trial_family_identity, attempt_ordinal, candidate_identity)",
+)
+if any(fragment not in migration for fragment in required_shape):
+    raise SystemExit("ERROR: existing-cutover Candidate experiment relation shape is incomplete")
+
+replay_grant = migration.split("GRANT SELECT ON TABLE", 1)[1].split(
+    "TO rd_exploratory_replay_api_owner;", 1
+)[0]
+if table in replay_grant:
+    raise SystemExit("ERROR: Replay verifier role has unneeded Candidate experiment SELECT")
+
+acl_marker = "DO $candidate_experiment_acl_cutover$"
+acl_end_marker = "$candidate_experiment_acl_cutover$;"
+if migration.count(acl_marker) != 1:
+    raise SystemExit("ERROR: Candidate experiment ACL convergence is absent or duplicated")
+acl_start = migration.index(acl_marker)
+acl_end = migration.index(acl_end_marker, acl_start) + len(acl_end_marker)
+acl_cutover = migration[acl_start:acl_end]
+if not (
+    migration.index("$rd_ownership$;") < acl_start
+    and acl_end < migration.index("ALTER DEFAULT PRIVILEGES FOR ROLE rd_owner")
+):
+    raise SystemExit("ERROR: Candidate experiment ACL convergence is outside the R&D ownership cutover")
+def normalize_candidate_sql(source: str) -> str:
+    source = re.sub(r"/\*.*?\*/", " ", source, flags=re.DOTALL)
+    source = re.sub(r"--[^\n]*", " ", source)
+    source = re.sub(
+        r'"((?:""|[^"])*)"',
+        lambda match: match.group(1).replace('""', '"'),
+        source,
+    )
+    concatenated_literals = re.compile(r"'((?:''|[^'])*)'\s*\|\|\s*'((?:''|[^'])*)'")
+    while True:
+        collapsed = concatenated_literals.sub(
+            lambda match: "'"
+            + (
+                match.group(1).replace("''", "'")
+                + match.group(2).replace("''", "'")
+            ).replace("'", "''")
+            + "'",
+            source,
+        )
+        if collapsed == source:
+            break
+        source = collapsed
+    return " ".join(source.lower().split())
+
+allowed_acl_cutover = """DO $candidate_experiment_acl_cutover$
+DECLARE grant_fact record;
+BEGIN
+  FOR grant_fact IN
+    SELECT DISTINCT acl.grantee, role.rolname
+    FROM pg_catalog.pg_class relation
+    CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl
+    LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+    WHERE relation.oid='public.rd_trial_family_candidate_experiments_v1'::pg_catalog.regclass
+      AND acl.grantee<>relation.relowner
+  LOOP
+    IF grant_fact.grantee=0 THEN
+      EXECUTE 'REVOKE ALL PRIVILEGES ON TABLE public.rd_trial_family_candidate_experiments_v1 FROM PUBLIC CASCADE';
+    ELSE
+      EXECUTE pg_catalog.format(
+        'REVOKE ALL PRIVILEGES ON TABLE public.rd_trial_family_candidate_experiments_v1 FROM %I CASCADE',
+        grant_fact.rolname
+      );
+    END IF;
+  END LOOP;
+  FOR grant_fact IN
+    SELECT DISTINCT attribute.attname, acl.grantee, role.rolname
+    FROM pg_catalog.pg_class relation
+    JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=relation.oid
+    CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+    LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+    WHERE relation.oid='public.rd_trial_family_candidate_experiments_v1'::pg_catalog.regclass
+      AND attribute.attnum>0
+      AND NOT attribute.attisdropped
+      AND acl.grantee<>relation.relowner
+  LOOP
+    IF grant_fact.grantee=0 THEN
+      EXECUTE pg_catalog.format(
+        'REVOKE ALL (%I) ON TABLE public.rd_trial_family_candidate_experiments_v1 FROM PUBLIC CASCADE',
+        grant_fact.attname
+      );
+    ELSE
+      EXECUTE pg_catalog.format(
+        'REVOKE ALL (%I) ON TABLE public.rd_trial_family_candidate_experiments_v1 FROM %I CASCADE',
+        grant_fact.attname,
+        grant_fact.rolname
+      );
+    END IF;
+  END LOOP;
+END
+$candidate_experiment_acl_cutover$;"""
+
+def acl_cutover_is_allowlisted(source: str) -> bool:
+    return normalize_candidate_sql(source) == normalize_candidate_sql(allowed_acl_cutover)
+
+if not acl_cutover_is_allowlisted(acl_cutover):
+    raise SystemExit("ERROR: Candidate experiment ACL block contains a non-allowlisted statement")
+acl_body = acl_cutover.index("BEGIN") + len("BEGIN")
+for injected_statement in (
+    "\nDELETE FROM public.rd_trial_family_candidate_experiments_v1;",
+    "\nEXECUTE 'DELETE FROM public.rd_trial_family_' || 'candidate_experiments_v1';",
+):
+    mutated_acl_cutover = (
+        acl_cutover[:acl_body] + injected_statement + acl_cutover[acl_body:]
+    )
+    if acl_cutover_is_allowlisted(mutated_acl_cutover):
+        raise SystemExit("ERROR: Candidate experiment ACL block allowlist accepts target mutation")
+
+sql_start = migration.index("BEGIN;", migration.index("<< 'SQL'"))
+sql_end = migration.rindex("COMMIT;\nSQL") + len("COMMIT;")
+migration_transaction = migration[sql_start:sql_end]
+allowed_create = migration_create.group(0)
+if migration_transaction.count(allowed_create) != 1 or migration_transaction.count(acl_cutover) != 1:
+    raise SystemExit("ERROR: Candidate experiment migration allowlist boundaries are ambiguous")
+unlisted_statements = migration_transaction.replace(allowed_create, "", 1).replace(
+    acl_cutover, "", 1
+)
+target_reference = re.compile(rf"\b(?:public\.)?{re.escape(table)}\b")
+read_only_copy_to = re.compile(
+    rf"\bcopy\s+(?:public\.)?{re.escape(table)}(?:\s*\([^;]*?\))?\s+to\b[^;]*;"
+    rf"|\bcopy\s*\(\s*select\b[^;]*\b(?:public\.)?{re.escape(table)}\b[^;]*\)\s+to\b[^;]*;"
+)
+dynamic_target_parts = re.compile(
+    r"\bexecute\b(?=[^;]*\brd_trial_family_)(?=[^;]*\bcandidate_experiments_v1\b)[^;]*;"
+)
+
+def has_unlisted_target_statement(source: str) -> bool:
+    normalized = normalize_candidate_sql(source)
+    normalized = read_only_copy_to.sub("", normalized)
+    return (
+        target_reference.search(normalized) is not None
+        or dynamic_target_parts.search(normalized) is not None
+    )
+
+if has_unlisted_target_statement(unlisted_statements):
+    raise SystemExit("ERROR: Candidate experiment migration contains a non-allowlisted target statement")
+for forbidden_probe in (
+    f'INSERT INTO public.{table} SELECT * FROM source;',
+    f'UPDATE /* normalized comment */ "public"."{table}" SET candidate_digest=\'tampered\';',
+    f'DELETE FROM public.{table};',
+    f'TRUNCATE TABLE ONLY public.{table};',
+    f'MERGE INTO public.{table} USING source ON false WHEN NOT MATCHED THEN INSERT DEFAULT VALUES;',
+    "EXECUTE 'DELETE FROM public.rd_trial_family_' || 'candidate_experiments_v1';",
+    "EXECUTE pg_catalog.format('DELETE FROM %I.%s%s','public','rd_trial_family_','candidate_experiments_v1');",
+    f'COPY "public"."{table}" FROM STDIN;',
+    f'COPY "public"."{table}" FROM \'/tmp/to\';',
+):
+    if not has_unlisted_target_statement(forbidden_probe):
+        raise SystemExit("ERROR: Candidate experiment statement allowlist accepts target mutation")
+for allowed_probe in (
+    f'COPY "public"."{table}" TO STDOUT;',
+    f'COPY (SELECT * FROM "public"."{table}") TO STDOUT;',
+):
+    if has_unlisted_target_statement(allowed_probe):
+        raise SystemExit("ERROR: Candidate experiment statement allowlist rejects read-only COPY TO")
+
+cutover_oracle = test_script.rsplit(
+    'existing_cutover_candidate_experiment_fingerprint_before="$(', 1
+)[1].split("CREATE ROLE vibe_test_owner_topology_admin", 1)[0]
+ordered_oracle = (
+    "DROP TABLE public.rd_trial_family_candidate_experiments_v1;",
+    'run_authority_migration_for_database "$test_database"',
+    "verify_candidate_experiment_acl_convergence() {",
+    "fingerprint_before=",
+    "CREATE ROLE candidate_experiment_acl_grantor NOLOGIN;",
+    "CREATE ROLE candidate_experiment_acl_delegate NOLOGIN;",
+    "GRANT SELECT ON TABLE public.rd_trial_family_candidate_experiments_v1\n"
+    "  TO rd_exploratory_replay_api_owner, surprise_replay_grantee;",
+    "GRANT SELECT(experiment_identity), SELECT(candidate_digest)\n"
+    "  ON TABLE public.rd_trial_family_candidate_experiments_v1\n"
+    "  TO rd_exploratory_replay_api_owner, surprise_replay_grantee;",
+    "GRANT SELECT ON TABLE public.rd_trial_family_candidate_experiments_v1\n"
+    "  TO candidate_experiment_acl_grantor WITH GRANT OPTION;",
+    "GRANT SELECT(experiment_identity), SELECT(candidate_digest)\n"
+    "  ON TABLE public.rd_trial_family_candidate_experiments_v1\n"
+    "  TO candidate_experiment_acl_grantor WITH GRANT OPTION;",
+    "SET ROLE candidate_experiment_acl_grantor;",
+    "GRANT SELECT ON TABLE public.rd_trial_family_candidate_experiments_v1\n"
+    "  TO candidate_experiment_acl_delegate;",
+    "GRANT SELECT(experiment_identity), SELECT(candidate_digest)\n"
+    "  ON TABLE public.rd_trial_family_candidate_experiments_v1\n"
+    "  TO candidate_experiment_acl_delegate;",
+    "RESET ROLE;",
+    'run_authority_migration_for_database "$test_database"',
+    "fingerprint_after=",
+    'run_authority_migration_for_database "$test_database"',
+    "idempotent_fingerprint=",
+)
+position = -1
+for fragment in ordered_oracle:
+    position = cutover_oracle.find(fragment, position + 1)
+    if position < 0:
+        raise SystemExit("ERROR: Candidate experiment upgrade/ACL/idempotency oracle is incomplete or reordered")
+fingerprint_helper = test_script.rsplit(
+    "candidate_experiment_owner_only_fingerprint() {", 1
+)[1].split("run_authority_migration_for_database() {", 1)[0]
+if "AND EXISTS (\n    SELECT 1 FROM public.rd_trial_family_candidate_experiments_v1\n  )" not in fingerprint_helper:
+    raise SystemExit("ERROR: Candidate experiment preservation fingerprint permits an empty target")
+
+seed_test_name = "canonical_candidate_experiment_upgrade_seed_is_owner_issued_and_locked_readback_exact"
+seed_fixture = trial_family.split(f"async fn {seed_test_name}", 1)[1].split(
+    "\n    #[tokio::test]", 1
+)[0]
+for fragment in (
+    "crate::schema_materialization::require_existing_public_tables(&pool, TABLES)",
+    "persist_initial_family(&mut transaction, &family, &receipt)",
+    "append_trial_family_attempt_in_transaction(",
+    "issue_candidate_experiment_readbacks_v1(&census, &proposals, committed_at + 1)",
+    "load_trial_family_census_v2_in_transaction(",
+    "load_candidate_experiments_for_census_in_transaction(",
+    "assert_eq!(locked_experiments, expected)",
+):
+    if fragment not in seed_fixture:
+        raise SystemExit("ERROR: Candidate experiment upgrade seed bypasses Owner issuance/readback")
+if (
+    "migrate(&pool)" in seed_fixture
+    or "INSERT INTO rd_trial_family_candidate_experiments_v1" in seed_fixture
+    or "cleanup(" in seed_fixture
+):
+    raise SystemExit("ERROR: Candidate experiment upgrade seed bypasses post-cutover Owner custody")
+seed_execution = test_script.rsplit("cargo nextest archive", 1)[1].split(
+    "run_authority_migration() {", 1
+)[0]
+position = -1
+for fragment in (
+    'candidate_experiment_seed_filter="package(vibe-strategy-factory)',
+    'cargo nextest run',
+    '-E "$candidate_experiment_seed_filter"',
+    "verify_candidate_experiment_acl_convergence",
+):
+    position = seed_execution.find(fragment, position + 1)
+    if position < 0:
+        raise SystemExit("ERROR: canonical Candidate experiment seed/readback must precede ACL poison")
+
+successor_fixture = iteration_decision.split(
+    "async fn successor_artifact_enters_exploratory_replay_with_exact_owner_custody()", 1
+)[1].split("\n    #[tokio::test]", 1)[0]
+if "candidate_experiment_digest_v1" in successor_fixture:
+    raise SystemExit("ERROR: successor fixture recomputes Candidate digest outside Owner Census readback")
+successor_evaluations = iteration_decision.split(
+    "fn successor_candidate_evaluations(", 1
+)[1].split("\n    #[tokio::test]", 1)[0]
+for fragment in (
+    ".candidate_set_frontier\n            .candidates()",
+    ".find(|candidate| candidate.candidate_identity() == candidate_identity)",
+    "candidate_digest: candidate.candidate_digest().to_string()",
+):
+    if fragment not in successor_evaluations:
+        raise SystemExit("ERROR: successor fixture does not consume exact Owner Census Candidate identity/digest")
+
+if "the nine relations traversed by the" in owner_doc or "\u5b9e\u9645\u904d\u5386\u7684\u4e5d\u5f20 relation" in owner_doc_zh:
+    raise SystemExit("ERROR: R&D Owner docs retain a stale Replay verifier relation count")
+PY
+}
+
+existing_cutover_replay_fingerprint() {
+  docker exec --interactive "$container" psql --quiet --tuples-only --no-align \
+    --set ON_ERROR_STOP=1 --username postgres --dbname "$test_database" << 'SQL'
+SELECT relation.oid::text || ':' || pg_catalog.encode(
+  pg_catalog.convert_to(
+    COALESCE(
+      (SELECT pg_catalog.jsonb_agg(pg_catalog.to_jsonb(replay) ORDER BY replay.request_identity)::text
+         FROM public.rd_sealed_exploratory_replay_requests_v1 replay),
+      'null'
+    ),
+    'UTF8'
+  ),
+  'hex'
+)
+FROM pg_catalog.pg_class relation
+JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+WHERE namespace.nspname='public'
+  AND relation.relname='rd_sealed_exploratory_replay_requests_v1';
+SQL
+}
+
+candidate_experiment_owner_only_fingerprint() {
+  docker exec --interactive "$container" psql --quiet --tuples-only --no-align \
+    --set ON_ERROR_STOP=1 --username postgres --dbname "$test_database" << 'SQL'
+SELECT relation.oid::text || ':' || pg_catalog.encode(
+  pg_catalog.convert_to(
+    COALESCE(
+      (SELECT pg_catalog.jsonb_agg(pg_catalog.to_jsonb(experiment) ORDER BY experiment.experiment_identity)::text
+         FROM public.rd_trial_family_candidate_experiments_v1 experiment),
+      '[]'
+    ),
+    'UTF8'
+  ),
+  'hex'
+)
+FROM pg_catalog.pg_class relation
+JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+WHERE namespace.nspname='public'
+  AND relation.relname='rd_trial_family_candidate_experiments_v1'
+  AND pg_catalog.pg_get_userbyid(relation.relowner)='rd_owner'
+  AND EXISTS (
+    SELECT 1 FROM public.rd_trial_family_candidate_experiments_v1
+  )
+  AND (SELECT pg_catalog.count(*)=7
+         AND pg_catalog.count(*) FILTER (WHERE acl.grantee=relation.relowner)=7
+         AND pg_catalog.count(DISTINCT acl.privilege_type)=7
+         AND pg_catalog.bool_and(acl.grantor=relation.relowner AND NOT acl.is_grantable)
+       FROM pg_catalog.aclexplode(COALESCE(
+         relation.relacl,
+         pg_catalog.acldefault('r',relation.relowner)
+       )) acl)
+  AND NOT EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_attribute attribute
+    WHERE attribute.attrelid=relation.oid
+      AND attribute.attnum>0
+      AND NOT attribute.attisdropped
+      AND attribute.attacl IS NOT NULL
+  );
+SQL
+}
+
+run_authority_migration_for_database() {
+  local fixture_database="$1"
+  docker exec --interactive \
+    --env POSTGRES_HOST=127.0.0.1 \
+    --env "POSTGRES_DATABASE=${fixture_database}" \
+    --env "POSTGRES_PASSWORD=${test_password}" \
+    --env "RD_OWNER_DB_PASSWORD=${test_password}" \
+    --env "RD_FACT_WRITER_DB_PASSWORD=${test_password}" \
+    --env "MARKET_DATA_OWNER_DB_PASSWORD=${test_password}" \
+    --env "REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD=${test_password}" \
+    --env "OPERATOR_AUTHORIZATION_DB_PASSWORD=${test_password}" \
+    --env "QUALIFICATION_OWNER_DB_PASSWORD=${test_password}" \
+    --env "PRODUCT_EDGE_DB_PASSWORD=${test_password}" \
+    --env "BACKTEST_OWNER_DB_PASSWORD=${test_password}" \
+    "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
+}
+
 check_static_isolation
 check_nextest_graph_contract
 check_backtest_result_function_source
 check_exploratory_replay_read_fence_source
 check_market_data_principal_bootstrap_order
+check_trial_family_candidate_experiment_cutover
 if [[ "${1:-}" == "--check" ]]; then
   exit 0
 fi
@@ -569,6 +1108,7 @@ readonly catalog_admin_database="vibe_test_catalog_admin_${suffix//-/_}"
 readonly origin_current_database="vibe_test_origin_current_${suffix//-/_}"
 readonly legacy_replay_database="vibe_test_legacy_replay_${suffix//-/_}"
 readonly program_host_acceptance_database="vibe_test_program_host_acceptance_${suffix//-/_}"
+readonly composer_sealed_read_database="vibe_test_composer_sealed_read_${suffix//-/_}"
 readonly impersonator_container="vibe-rd-owner-impersonator-${suffix}"
 readonly impersonator_volume="vibe-rd-owner-impersonator-${suffix}"
 readonly impersonator_database="vibe_impersonator_${suffix//-/_}"
@@ -938,6 +1478,67 @@ docker exec --interactive \
   --env "PRODUCT_EDGE_DB_PASSWORD=${test_password}" \
   --env "BACKTEST_OWNER_DB_PASSWORD=${test_password}" \
   "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
+
+existing_cutover_candidate_experiment_fingerprint_before="$(
+  existing_cutover_replay_fingerprint
+)"
+readonly existing_cutover_candidate_experiment_fingerprint_before
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" << 'SQL'
+DROP TABLE public.rd_trial_family_candidate_experiments_v1;
+SQL
+run_authority_migration_for_database "$test_database"
+existing_cutover_candidate_experiment_fingerprint_after="$(
+  existing_cutover_replay_fingerprint
+)"
+readonly existing_cutover_candidate_experiment_fingerprint_after
+if [[ "$existing_cutover_candidate_experiment_fingerprint_after" != "$existing_cutover_candidate_experiment_fingerprint_before" ]]; then
+  echo "ERROR: Candidate experiment cutover upgrade changed existing R&D OID or canonical row bytes." >&2
+  exit 1
+fi
+
+verify_candidate_experiment_acl_convergence() {
+  local fingerprint_before fingerprint_after idempotent_fingerprint
+  fingerprint_before="$(candidate_experiment_owner_only_fingerprint)"
+  if [[ -z "$fingerprint_before" ]]; then
+    echo "ERROR: no canonical Candidate experiment entered exact Owner-only custody." >&2
+    return 1
+  fi
+  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$test_database" << 'SQL'
+CREATE ROLE candidate_experiment_acl_grantor NOLOGIN;
+CREATE ROLE candidate_experiment_acl_delegate NOLOGIN;
+GRANT SELECT ON TABLE public.rd_trial_family_candidate_experiments_v1
+  TO rd_exploratory_replay_api_owner, surprise_replay_grantee;
+GRANT SELECT(experiment_identity), SELECT(candidate_digest)
+  ON TABLE public.rd_trial_family_candidate_experiments_v1
+  TO rd_exploratory_replay_api_owner, surprise_replay_grantee;
+GRANT SELECT ON TABLE public.rd_trial_family_candidate_experiments_v1
+  TO candidate_experiment_acl_grantor WITH GRANT OPTION;
+GRANT SELECT(experiment_identity), SELECT(candidate_digest)
+  ON TABLE public.rd_trial_family_candidate_experiments_v1
+  TO candidate_experiment_acl_grantor WITH GRANT OPTION;
+SET ROLE candidate_experiment_acl_grantor;
+GRANT SELECT ON TABLE public.rd_trial_family_candidate_experiments_v1
+  TO candidate_experiment_acl_delegate;
+GRANT SELECT(experiment_identity), SELECT(candidate_digest)
+  ON TABLE public.rd_trial_family_candidate_experiments_v1
+  TO candidate_experiment_acl_delegate;
+RESET ROLE;
+SQL
+  run_authority_migration_for_database "$test_database"
+  fingerprint_after="$(candidate_experiment_owner_only_fingerprint)"
+  if [[ "$fingerprint_after" != "$fingerprint_before" ]]; then
+    echo "ERROR: Candidate experiment ACL convergence changed its OID or canonical rows, or retained a non-Owner grant." >&2
+    return 1
+  fi
+  run_authority_migration_for_database "$test_database"
+  idempotent_fingerprint="$(candidate_experiment_owner_only_fingerprint)"
+  if [[ "$idempotent_fingerprint" != "$fingerprint_before" ]]; then
+    echo "ERROR: Candidate experiment ACL convergence is not idempotent." >&2
+    return 1
+  fi
+}
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$test_database" \
@@ -1345,17 +1946,17 @@ BEGIN
      AND relation.relpersistence='p'
      AND owner.rolname='rd_owner'
      AND (
-       SELECT pg_catalog.count(*)=22
+       SELECT pg_catalog.count(*)=24
           AND pg_catalog.bool_and(CASE attribute.attname
             WHEN 'request_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
             WHEN 'request_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
-            WHEN 'build_request_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
-            WHEN 'attempt_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+            WHEN 'build_request_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+            WHEN 'attempt_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
             WHEN 'intent_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
             WHEN 'trial_family_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
             WHEN 'artifact_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
-            WHEN 'build_receipt_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
-            WHEN 'artifact_family_binding_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+            WHEN 'build_receipt_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+            WHEN 'artifact_family_binding_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
             WHEN 'census_frontier_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
             WHEN 'frozen_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND attribute.attnotnull
             WHEN 'receipt_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND attribute.attnotnull
@@ -1369,6 +1970,8 @@ BEGIN
             WHEN 'v2_request_storage_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
             WHEN 'v2_receipt_storage_bytes' THEN attribute.atttypid='pg_catalog.bytea'::pg_catalog.regtype AND NOT attribute.attnotnull
             WHEN 'v2_receipt_storage_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+            WHEN 'source_kind' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+            WHEN 'composer_source_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
             ELSE false
           END)
          FROM pg_catalog.pg_attribute attribute
@@ -1464,6 +2067,7 @@ BEGIN
          'artifact_family_binding_identity','census_frontier_identity','frozen_json','receipt_json',
          'lifecycle_state','committed_at_epoch_ms','request_schema_version',
          'v2_canonical_request_bytes','v2_meaning_digest','v2_seal_digest','v2_receipt_json',
+         'source_kind','composer_source_json',
          'v2_request_storage_digest','v2_receipt_storage_bytes','v2_receipt_storage_digest'
        ]::name[]
        AND pg_catalog.array_agg(attribute.atttypid ORDER BY attribute.attnum)=ARRAY[
@@ -1477,11 +2081,12 @@ BEGIN
          'pg_catalog.int2'::pg_catalog.regtype,'pg_catalog.bytea'::pg_catalog.regtype,
          'pg_catalog.text'::pg_catalog.regtype,'pg_catalog.text'::pg_catalog.regtype,
          'pg_catalog.jsonb'::pg_catalog.regtype,'pg_catalog.text'::pg_catalog.regtype,
+         'pg_catalog.jsonb'::pg_catalog.regtype,'pg_catalog.text'::pg_catalog.regtype,
          'pg_catalog.bytea'::pg_catalog.regtype,'pg_catalog.text'::pg_catalog.regtype
        ]::oid[]
        AND pg_catalog.array_agg(attribute.attnotnull ORDER BY attribute.attnum)=ARRAY[
-         true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,
-         false,false,false,false,false,false,false
+         true,true,false,false,true,true,true,false,false,true,true,true,true,true,true,
+         false,false,false,false,true,false,false,false,false
        ]
          FROM pg_catalog.pg_attribute attribute
         WHERE attribute.attrelid=source_oid
@@ -1575,6 +2180,7 @@ BEGIN
          'artifact_family_binding_identity','census_frontier_identity','frozen_json','receipt_json',
          'lifecycle_state','committed_at_epoch_ms','request_schema_version',
          'v2_canonical_request_bytes','v2_meaning_digest','v2_seal_digest','v2_receipt_json',
+         'source_kind','composer_source_json',
          'v2_request_storage_digest','v2_receipt_storage_bytes','v2_receipt_storage_digest'
        ]::name[]
        AND pg_catalog.array_agg(attribute.atttypid ORDER BY attribute.attnum)=ARRAY[
@@ -1588,11 +2194,12 @@ BEGIN
          'pg_catalog.int2'::pg_catalog.regtype,'pg_catalog.bytea'::pg_catalog.regtype,
          'pg_catalog.text'::pg_catalog.regtype,'pg_catalog.text'::pg_catalog.regtype,
          'pg_catalog.jsonb'::pg_catalog.regtype,'pg_catalog.text'::pg_catalog.regtype,
+         'pg_catalog.jsonb'::pg_catalog.regtype,'pg_catalog.text'::pg_catalog.regtype,
          'pg_catalog.bytea'::pg_catalog.regtype,'pg_catalog.text'::pg_catalog.regtype
        ]::oid[]
        AND pg_catalog.array_agg(attribute.attnotnull ORDER BY attribute.attnum)=ARRAY[
-         true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,
-         false,false,false,false,false,false,false
+         true,true,false,false,true,true,true,false,false,true,true,true,true,true,true,
+         false,false,false,false,true,false,false,false,false
        ]
          FROM pg_catalog.pg_attribute attribute
         WHERE attribute.attrelid=target_oid
@@ -1642,15 +2249,18 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --set=catalog_admin_database="$catalog_admin_database" \
   --set=origin_current_database="$origin_current_database" \
   --set=legacy_replay_database="$legacy_replay_database" \
-  --set=program_host_acceptance_database="$program_host_acceptance_database" << 'SQL'
+  --set=program_host_acceptance_database="$program_host_acceptance_database" \
+  --set=composer_sealed_read_database="$composer_sealed_read_database" << 'SQL'
 CREATE DATABASE :"catalog_admin_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
 CREATE DATABASE :"origin_current_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
 CREATE DATABASE :"legacy_replay_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
 CREATE DATABASE :"program_host_acceptance_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
+CREATE DATABASE :"composer_sealed_read_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
 REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"catalog_admin_database" FROM PUBLIC;
 REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"origin_current_database" FROM PUBLIC;
 REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"legacy_replay_database" FROM PUBLIC;
 REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"program_host_acceptance_database" FROM PUBLIC;
+REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"composer_sealed_read_database" FROM PUBLIC;
 GRANT CONNECT ON DATABASE :"catalog_admin_database"
   TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, vibe_test_owner_topology_admin;
 GRANT CONNECT ON DATABASE :"origin_current_database"
@@ -1659,9 +2269,11 @@ GRANT CONNECT ON DATABASE :"legacy_replay_database"
   TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, vibe_test_owner_topology_admin;
 GRANT CONNECT ON DATABASE :"program_host_acceptance_database"
   TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, vibe_test_owner_topology_admin;
+GRANT CONNECT ON DATABASE :"composer_sealed_read_database"
+  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, vibe_test_owner_topology_admin;
 
 WITH clones(database_name) AS (
-  VALUES (:'catalog_admin_database'), (:'origin_current_database'), (:'legacy_replay_database'), (:'program_host_acceptance_database')
+  VALUES (:'catalog_admin_database'), (:'origin_current_database'), (:'legacy_replay_database'), (:'program_host_acceptance_database'), (:'composer_sealed_read_database')
 ), roles(role_name) AS (
   VALUES
     ('operator_authorization_writer'),
@@ -1787,6 +2399,13 @@ UPDATE vibe_test_admin.dedicated_postgres_test_instance_v1
    SET database_name=:'program_host_acceptance_database';
 SQL
 
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$composer_sealed_read_database" \
+  --set=composer_sealed_read_database="$composer_sealed_read_database" << 'SQL'
+UPDATE vibe_test_admin.dedicated_postgres_test_instance_v1
+   SET database_name=:'composer_sealed_read_database';
+SQL
+
 legacy_replay_fingerprint() {
   docker exec --interactive "$container" psql --quiet --tuples-only --no-align \
     --set ON_ERROR_STOP=1 --username postgres --dbname "$legacy_replay_database" << 'SQL'
@@ -1903,22 +2522,13 @@ cargo nextest archive \
   --cargo-profile "$cargo_ci_profile" \
   --archive-file "$nextest_archive_file"
 
-run_authority_migration_for_database() {
-  local fixture_database="$1"
-  docker exec --interactive \
-    --env POSTGRES_HOST=127.0.0.1 \
-    --env "POSTGRES_DATABASE=${fixture_database}" \
-    --env "POSTGRES_PASSWORD=${test_password}" \
-    --env "RD_OWNER_DB_PASSWORD=${test_password}" \
-    --env "RD_FACT_WRITER_DB_PASSWORD=${test_password}" \
-    --env "MARKET_DATA_OWNER_DB_PASSWORD=${test_password}" \
-    --env "REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD=${test_password}" \
-    --env "OPERATOR_AUTHORIZATION_DB_PASSWORD=${test_password}" \
-    --env "QUALIFICATION_OWNER_DB_PASSWORD=${test_password}" \
-    --env "PRODUCT_EDGE_DB_PASSWORD=${test_password}" \
-    --env "BACKTEST_OWNER_DB_PASSWORD=${test_password}" \
-    "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
-}
+candidate_experiment_seed_filter="package(vibe-strategy-factory) & binary(vibe_strategy_factory) & test(=${candidate_experiment_upgrade_seed_test})"
+cargo nextest run \
+  --archive-file "$nextest_archive_file" \
+  --profile "$nextest_profile" \
+  "${nextest_execution_args[@]}" \
+  -E "$candidate_experiment_seed_filter"
+verify_candidate_experiment_acl_convergence
 
 run_authority_migration() {
   if ! run_authority_migration_for_database "$test_database"; then
@@ -2218,10 +2828,10 @@ SQL
 }
 
 # The Catalog administrator, two replay migration filters, and Program Host acceptance use separate
-# fresh databases. The drain probe
-# removes receipt storage needed to validate its retained legacy attempts, so it
-# follows positive consumers. Keep the complete Instrument Owner storage/ACL oracle
-# last because its final inheritance fault intentionally poisons that private store.
+# fresh databases. In the shared database, run the complete Instrument Owner storage/ACL oracle only
+# after its consumers because its final inheritance fault poisons that private store. Keep the
+# destructive legacy PREPARED drain probe final because it removes receipt storage required by every
+# positive Artifact Owner consumer.
 for test_selection in "${rd_owner_postgres_tests[@]}"; do
   IFS='|' read -r test_package test_binary test_name <<< "$test_selection"
   test_filter="package(${test_package}) & binary(${test_binary}) & test(=${test_name})"
@@ -2237,7 +2847,8 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
   if [[ -n "$backtest_result_fault" ]]; then
     inject_backtest_result_fault "$backtest_result_fault"
   fi
-  if [[ "$test_name" == 'catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]]; then
+  if [[ "$test_name" == 'catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
+    [[ "$test_name" == 'postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
     env \
       VIBE_POSTGRES_TEST_DATABASE_NAME="$catalog_admin_database" \
       OPERATOR_AUTHORIZATION_TEST_DATABASE_URL="postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}" \
@@ -2297,8 +2908,31 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       --profile "$nextest_profile" \
       "${nextest_execution_args[@]}" \
       -E "$test_filter"
-  elif [[ "$test_name" == 'tests::strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody' ]]; then
+  elif [[ "$test_name" == 'tests::strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody' ]] ||
+    [[ "$test_name" == 'iteration_decision_postgres::postgres_acceptance_tests::successor_artifact_enters_exploratory_replay_with_exact_owner_custody' ]] ||
+    [[ "$test_name" == 'iteration_decision_postgres::postgres_acceptance_tests::iteration_analysis_postgres_acceptance_tests::analysis_request_completion_resolve_restart_and_tamper_are_atomic' ]] ||
+    [[ "$test_name" == 'iteration_decision_postgres::postgres_acceptance_tests::positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic' ]]; then
     RUST_MIN_STACK=16777216 \
+      cargo nextest run \
+      --archive-file "$nextest_archive_file" \
+      --profile "$nextest_profile" \
+      "${nextest_execution_args[@]}" \
+      -E "$test_filter"
+  elif [[ "$test_name" == 'sealed_read_port_is_restart_exact_fail_closed_and_query_only' ]]; then
+    env \
+      VIBE_POSTGRES_TEST_DATABASE_NAME="$composer_sealed_read_database" \
+      OPERATOR_AUTHORIZATION_TEST_DATABASE_URL="postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${composer_sealed_read_database}" \
+      PRODUCT_EDGE_TEST_DATABASE_URL="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${composer_sealed_read_database}" \
+      RD_OWNER_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${composer_sealed_read_database}" \
+      RD_FACT_WRITER_TEST_DATABASE_URL="postgresql://rd_fact_writer:${test_password}@${postgres_host}:${postgres_port}/${composer_sealed_read_database}" \
+      MARKET_DATA_OWNER_TEST_DATABASE_URL="postgresql://market_data_owner:${test_password}@${postgres_host}:${postgres_port}/${composer_sealed_read_database}" \
+      REPLAY_POLICY_CATALOG_ADMIN_TEST_DATABASE_URL="postgresql://replay_policy_catalog_admin_writer:${test_password}@${postgres_host}:${postgres_port}/${composer_sealed_read_database}" \
+      MARKET_DATA_RD_ROLE_SET_TEST_DATABASE_URL="postgresql://market_data_reader:${test_password}@${postgres_host}:${postgres_port}/${composer_sealed_read_database}" \
+      VIBE_TEST_OWNER_TOPOLOGY_ADMIN_DATABASE_URL="postgresql://vibe_test_owner_topology_admin:${test_password}@${postgres_host}:${postgres_port}/${composer_sealed_read_database}" \
+      QUALIFICATION_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${composer_sealed_read_database}" \
+      BACKTEST_TEST_DATABASE_URL="postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${composer_sealed_read_database}" \
+      INSTRUMENT_OWNER_TEST_DATABASE_URL="postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${composer_sealed_read_database}" \
+      INSTRUMENT_OWNER_DATABASE_URL="postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${composer_sealed_read_database}" \
       cargo nextest run \
       --archive-file "$nextest_archive_file" \
       --profile "$nextest_profile" \
@@ -2943,6 +3577,7 @@ BEGIN
   IF (SELECT tableowner FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = 'rd_independence_bases_v1') <> 'rd_owner'
      OR (SELECT tableowner FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = 'rd_owner_outbox_v1') <> 'rd_owner'
      OR (SELECT tableowner FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = 'rd_sealed_exploratory_replay_requests_v1') <> 'rd_owner'
+     OR (SELECT tableowner FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = 'rd_trial_family_candidate_experiments_v1') <> 'rd_owner'
   THEN
     RAISE EXCEPTION 'R&D canonical source ownership mismatch';
   END IF;
@@ -2982,6 +3617,32 @@ BEGIN
        AND acl.grantee<>relation.relowner
   ) THEN
     RAISE EXCEPTION 'sealed exploratory Replay column ACL is not Owner-private';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_class relation
+     WHERE relation.oid='public.rd_trial_family_candidate_experiments_v1'::pg_catalog.regclass
+       AND (SELECT count(*)=7
+              AND count(*) FILTER (WHERE acl.grantee=relation.relowner)=7
+              AND count(DISTINCT acl.privilege_type)=7
+              AND bool_and(acl.grantee=relation.relowner
+                AND acl.grantor=relation.relowner
+                AND acl.privilege_type IN ('INSERT','SELECT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER')
+                AND NOT acl.is_grantable)
+            FROM pg_catalog.aclexplode(COALESCE(
+              relation.relacl,
+              pg_catalog.acldefault('r', relation.relowner)
+            )) acl)
+  ) OR EXISTS (
+    SELECT 1
+      FROM pg_catalog.pg_class relation
+      JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=relation.oid
+     WHERE relation.oid='public.rd_trial_family_candidate_experiments_v1'::pg_catalog.regclass
+       AND attribute.attnum>0
+       AND NOT attribute.attisdropped
+       AND attribute.attacl IS NOT NULL
+  ) THEN
+    RAISE EXCEPTION 'TrialFamily Candidate experiment table is not R&D Owner-only';
   END IF;
 
   IF pg_catalog.to_regclass('public.rd_exploratory_replay_request_custody_v1') IS NOT NULL

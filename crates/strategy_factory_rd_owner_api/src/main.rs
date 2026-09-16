@@ -150,7 +150,9 @@ struct DevelopComposerA0ExecutionsV1 {
 }
 
 mod exploratory_replay;
+mod iteration_analysis;
 mod iteration_decision;
+mod iteration_result_admission;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 mod market_data_repair;
 mod source_intake;
@@ -282,6 +284,8 @@ async fn main() -> anyhow::Result<()> {
         PostgresResearchGoalOwnerV1::materialize_schema(&database_url).await?;
         PostgresArtifactBuildOwnerV1::materialize_schema(&database_url).await?;
         vibe_strategy_factory::develop_composer_postgres_v2::PostgresDevelopComposerStoreV2::materialize_schema(&database_url).await?;
+        vibe_strategy_factory::iteration_analysis_postgres::materialize_schema(&database_url)
+            .await?;
         #[cfg(feature = "sealed-develop-composer-acceptance")]
         ReplayCompositionOwnerV1::materialize_schema(&database_url).await?;
         #[cfg(feature = "sealed-source-intake-acceptance")]
@@ -548,6 +552,10 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     let app = app
         .route(
+            "/v3/exploratory-replay-requests/composer-backed",
+            post(exploratory_replay::submit_composer_backed_v3),
+        )
+        .route(
             "/_sealed-acceptance/v1/develop-composer/a0-executions",
             get(develop_composer_a0_executions),
         )
@@ -570,7 +578,22 @@ async fn main() -> anyhow::Result<()> {
             owner.clone(),
             token_digest,
         ))
-        .merge(iteration_decision::router(owner.clone(), token_digest))
+        .merge(iteration_analysis::router(
+            product_edge.clone(),
+            owner.clone(),
+            token_digest,
+            request_proof_digest.clone(),
+        ))
+        .merge(iteration_decision::router(
+            product_edge.clone(),
+            owner.clone(),
+            token_digest,
+            request_proof_digest.clone(),
+        ))
+        .merge(iteration_result_admission::router(
+            owner.clone(),
+            token_digest,
+        ))
         .merge(source_intake_research::router(
             product_edge,
             owner,

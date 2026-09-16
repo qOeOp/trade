@@ -3907,6 +3907,31 @@ pub async fn resolve_admission_for_downstream_in_transaction(
     )
 }
 
+/// Resolves committed Product Edge admission custody from one repeatable, read-only snapshot.
+///
+/// This port deliberately supports historical verification only. First-mutation admission still
+/// requires the locking read-committed port above so current policy cannot be inferred from a stale
+/// snapshot.
+pub async fn resolve_historical_admission_snapshot_for_downstream_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    locator: &ProductEdgeAdmissionLocatorV1,
+) -> Result<ProductEdgeAdmissionReadbackV1, ProductEdgeError> {
+    let envelope: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT product_edge_api.resolve_historical_downstream_admission_snapshot_v1($1,$2,$3)",
+    )
+    .bind(&locator.request_identity)
+    .bind(&locator.admission_identity)
+    .bind(&locator.admission_digest)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    verify_locked_downstream_envelope(
+        envelope.ok_or(ProductEdgeError::Unavailable)?,
+        locator,
+        DownstreamAdmissionModeV1::Historical,
+    )
+}
+
 pub async fn resolve_source_invocation_claim_for_downstream_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     request_identity: &str,
@@ -5125,8 +5150,9 @@ async fn peek_current_research_for_artifact(
     transaction: &mut Transaction<'_, Postgres>,
     intent_identity: &str,
 ) -> Result<PeekCurrentResearchEnvelopeV1, ProductEdgeError> {
-    let value: Option<serde_json::Value> =
-        sqlx::query_scalar("SELECT rd_owner_api.peek_current_research_for_artifact_v1($1)")
+    let value: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT COALESCE(rd_owner_api.peek_current_research_for_artifact_v1($1), rd_owner_api.peek_current_successor_research_for_artifact_v1($1))",
+    )
             .bind(intent_identity)
             .fetch_one(&mut **transaction)
             .await
@@ -5151,8 +5177,9 @@ async fn lock_current_research_for_artifact(
     intent_identity: &str,
     peeked: &PeekCurrentResearchEnvelopeV1,
 ) -> Result<LockedCurrentResearchEnvelopeV1, ProductEdgeError> {
-    let value: Option<serde_json::Value> =
-        sqlx::query_scalar("SELECT rd_owner_api.lock_current_research_for_artifact_v1($1,$2,$3)")
+    let value: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT COALESCE(rd_owner_api.lock_current_research_for_artifact_v1($1,$2,$3), rd_owner_api.lock_current_successor_research_for_artifact_v1($1,$2,$3))",
+    )
             .bind(intent_identity)
             .bind(&peeked.evidence.evidence_identity)
             .bind(&peeked.evidence_digest)

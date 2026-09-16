@@ -15,6 +15,10 @@ use axum::{
 };
 use serde::Serialize;
 use serde_json::json;
+use vibe_product_edge::{
+    ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionRequestV1, ProductEdgeError,
+    ProductEdgePostgresOwnerV1,
+};
 use vibe_strategy_factory::{
     CandidateComparisonCompositionRequestV1, DecisionCompositionRequestV1,
     IterationCandidateEvaluationSetV1, IterationDecisionPostgresErrorV1,
@@ -32,7 +36,9 @@ use vibe_strategy_factory::{
     product_edge_postgres::PostgresResearchGoalOwnerV1,
     repair_action::RepairActionRequestReadbackV1,
     successor_intent::{
-        SuccessorResearchIntentCompositionRequestV1, SuccessorResearchIntentErrorV1,
+        SUCCESSOR_RESEARCH_INTENT_MUTATION_EFFECT_V1, SUCCESSOR_RESEARCH_INTENT_OPERATION_V1,
+        SUCCESSOR_RESEARCH_INTENT_SCHEMA_V1, SuccessorResearchIntentCompositionRequestV1,
+        SuccessorResearchIntentErrorV1, SuccessorResearchIntentOperationRequestV1,
         SuccessorResearchIntentReadbackV1,
     },
 };
@@ -157,6 +163,38 @@ trait SuccessorResearchIntentActionPort: Send + Sync {
         Option<SuccessorResearchIntentActionResponseV1>,
         SuccessorResearchIntentPostgresErrorV1,
     >;
+}
+
+#[async_trait::async_trait]
+trait SuccessorResearchIntentAdmissionPort: Send + Sync {
+    async fn admit_successor_intent(
+        &self,
+        request: &SuccessorResearchIntentOperationRequestV1,
+        request_proof_digest: &str,
+    ) -> Result<ProductEdgeAdmissionLocatorV1, ProductEdgeError>;
+}
+
+#[async_trait::async_trait]
+impl SuccessorResearchIntentAdmissionPort for ProductEdgePostgresOwnerV1 {
+    async fn admit_successor_intent(
+        &self,
+        request: &SuccessorResearchIntentOperationRequestV1,
+        request_proof_digest: &str,
+    ) -> Result<ProductEdgeAdmissionLocatorV1, ProductEdgeError> {
+        self.admit_request(ProductEdgeAdmissionRequestV1 {
+            request_identity: request.request_identity.clone(),
+            typed_payload: serde_json::to_value(request)
+                .map_err(|error| ProductEdgeError::Storage(error.to_string()))?,
+            operation: SUCCESSOR_RESEARCH_INTENT_OPERATION_V1.to_string(),
+            operation_schema: SUCCESSOR_RESEARCH_INTENT_SCHEMA_V1.to_string(),
+            target_owner: vibe_strategy_factory::product_edge::RESEARCH_OWNER_V1.to_string(),
+            requested_effects: vec![SUCCESSOR_RESEARCH_INTENT_MUTATION_EFFECT_V1.to_string()],
+            request_proof_digest: request_proof_digest.to_string(),
+            audit_correlation: format!("rd-workbench:{}", request.request_identity),
+        })
+        .await
+        .map(|readback| readback.locator().clone())
+    }
 }
 
 #[async_trait::async_trait]
@@ -312,8 +350,10 @@ struct CandidateComparisonDecisionApiState {
 
 #[derive(Clone)]
 struct SuccessorResearchIntentApiState {
+    admission: Arc<dyn SuccessorResearchIntentAdmissionPort>,
     owner: Arc<dyn SuccessorResearchIntentActionPort>,
     token_digest: [u8; 32],
+    request_proof_digest: String,
 }
 
 #[derive(Clone)]
@@ -656,7 +696,12 @@ impl From<RepairActionRequestReadbackV1> for RepairActionRequestActionResponseV1
     }
 }
 
-pub(super) fn router(owner: Arc<PostgresResearchGoalOwnerV1>, token_digest: [u8; 32]) -> Router {
+pub(super) fn router(
+    product_edge: Arc<ProductEdgePostgresOwnerV1>,
+    owner: Arc<PostgresResearchGoalOwnerV1>,
+    token_digest: [u8; 32],
+    request_proof_digest: String,
+) -> Router {
     action_router(owner.clone(), token_digest)
         .merge(iteration_decision_read_router(owner.clone(), token_digest))
         .merge(research_iteration_action_read_router(
@@ -665,8 +710,10 @@ pub(super) fn router(owner: Arc<PostgresResearchGoalOwnerV1>, token_digest: [u8;
         ))
         .merge(candidate_comparison_router(owner.clone(), token_digest))
         .merge(successor_research_intent_router(
+            product_edge,
             owner.clone(),
             token_digest,
+            request_proof_digest,
         ))
         .merge(ready_for_selection_router(owner.clone(), token_digest))
         .merge(trial_budget_terminal_stop_router(
@@ -677,8 +724,10 @@ pub(super) fn router(owner: Arc<PostgresResearchGoalOwnerV1>, token_digest: [u8;
 }
 
 fn successor_research_intent_router(
+    admission: Arc<dyn SuccessorResearchIntentAdmissionPort>,
     owner: Arc<dyn SuccessorResearchIntentActionPort>,
     token_digest: [u8; 32],
+    request_proof_digest: String,
 ) -> Router {
     Router::new()
         .route(
@@ -690,8 +739,10 @@ fn successor_research_intent_router(
             post(resolve_successor_research_intent),
         )
         .with_state(SuccessorResearchIntentApiState {
+            admission,
             owner,
             token_digest,
+            request_proof_digest,
         })
 }
 
@@ -1083,7 +1134,7 @@ async fn compose_successor_research_intent(
             "unbound",
         );
     }
-    let request: SuccessorResearchIntentCompositionRequestV1 = match serde_json::from_slice(&body) {
+    let operation: SuccessorResearchIntentOperationRequestV1 = match serde_json::from_slice(&body) {
         Ok(request) => request,
         Err(_) => {
             return successor_intent_rejection(
@@ -1093,11 +1144,11 @@ async fn compose_successor_research_intent(
             );
         }
     };
-    let request_identity = request.request_identity.clone();
+    let request_identity = operation.request_identity.clone();
     if [
-        request.request_identity.as_str(),
-        request.decision_identity.as_str(),
-        request.result_identity.as_str(),
+        operation.request_identity.as_str(),
+        operation.decision_identity.as_str(),
+        operation.result_identity.as_str(),
     ]
     .into_iter()
     .any(|identity| !is_valid_iteration_decision_locator_v1(identity))
@@ -1108,6 +1159,36 @@ async fn compose_successor_research_intent(
             &request_identity,
         );
     }
+
+    let admission = match state
+        .admission
+        .admit_successor_intent(&operation, &state.request_proof_digest)
+        .await
+    {
+        Ok(admission) => admission,
+        Err(ProductEdgeError::ConflictingReplay) => {
+            return successor_intent_rejection(
+                StatusCode::CONFLICT,
+                "CONFLICTING_PRODUCT_EDGE_REPLAY",
+                &request_identity,
+            );
+        }
+        Err(ProductEdgeError::InvalidProposal(_)) => {
+            return successor_intent_rejection(
+                StatusCode::BAD_REQUEST,
+                "INVALID_PRODUCT_EDGE_SUCCESSOR_ADMISSION",
+                &request_identity,
+            );
+        }
+        Err(ProductEdgeError::Unavailable | ProductEdgeError::Storage(_)) => {
+            return successor_intent_rejection(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "PRODUCT_EDGE_SUCCESSOR_ADMISSION_UNAVAILABLE",
+                &request_identity,
+            );
+        }
+    };
+    let request = operation.with_admission(admission);
 
     match state.owner.compose_successor_intent(request).await {
         Ok(result) => (StatusCode::OK, Json(result)).into_response(),
@@ -1506,6 +1587,7 @@ fn successor_intent_owner_error_with(
         | SuccessorResearchIntentPostgresErrorV1::Intent(
             SuccessorResearchIntentErrorV1::Encoding(_),
         )
+        | SuccessorResearchIntentPostgresErrorV1::ProductEdge(_)
         | SuccessorResearchIntentPostgresErrorV1::Storage(_) => reject(
             StatusCode::SERVICE_UNAVAILABLE,
             "SUCCESSOR_RESEARCH_INTENT_OWNER_UNAVAILABLE",
@@ -1854,9 +1936,26 @@ mod tests {
     }
 
     struct SuccessorResearchIntentOwnerStub {
+        admission_calls: AtomicUsize,
         calls: AtomicUsize,
         resolve_calls: AtomicUsize,
         response: Option<SuccessorResearchIntentActionResponseV1>,
+    }
+
+    #[async_trait::async_trait]
+    impl SuccessorResearchIntentAdmissionPort for SuccessorResearchIntentOwnerStub {
+        async fn admit_successor_intent(
+            &self,
+            request: &SuccessorResearchIntentOperationRequestV1,
+            _request_proof_digest: &str,
+        ) -> Result<ProductEdgeAdmissionLocatorV1, ProductEdgeError> {
+            self.admission_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(ProductEdgeAdmissionLocatorV1 {
+                request_identity: request.request_identity.clone(),
+                admission_identity: format!("successor-admission-{}", request.request_identity),
+                admission_digest: format!("sha256:{}", "a".repeat(64)),
+            })
+        }
     }
 
     struct ReadyForSelectionOwnerStub {
@@ -2978,58 +3077,80 @@ mod tests {
         let token_digest: [u8; 32] = sha2::Sha256::digest(token.as_bytes()).into();
         let expected = successor_research_intent_response();
         let owner = Arc::new(SuccessorResearchIntentOwnerStub {
+            admission_calls: AtomicUsize::new(0),
             calls: AtomicUsize::new(0),
             resolve_calls: AtomicUsize::new(0),
             response: Some(expected.clone()),
         });
 
-        let unauthorized = successor_research_intent_router(owner.clone(), token_digest)
-            .oneshot(send_to(
-                "/v1/successor-research-intents",
-                successor_research_intent_request(),
-                None,
-            ))
-            .await
-            .expect("router response");
+        let unauthorized = successor_research_intent_router(
+            owner.clone(),
+            owner.clone(),
+            token_digest,
+            format!("sha256:{}", "b".repeat(64)),
+        )
+        .oneshot(send_to(
+            "/v1/successor-research-intents",
+            successor_research_intent_request(),
+            None,
+        ))
+        .await
+        .expect("router response");
         assert_eq!(unauthorized.status(), StatusCode::FORBIDDEN);
         assert_eq!(owner.calls.load(Ordering::SeqCst), 0);
 
         let mut injected = successor_research_intent_request();
         injected["decision_digest"] = json!(format!("sha256:{}", "a".repeat(64)));
-        let rejected = successor_research_intent_router(owner.clone(), token_digest)
-            .oneshot(send_to(
-                "/v1/successor-research-intents",
-                injected,
-                Some(&format!("Bearer {token}")),
-            ))
-            .await
-            .expect("router response");
+        let rejected = successor_research_intent_router(
+            owner.clone(),
+            owner.clone(),
+            token_digest,
+            format!("sha256:{}", "b".repeat(64)),
+        )
+        .oneshot(send_to(
+            "/v1/successor-research-intents",
+            injected,
+            Some(&format!("Bearer {token}")),
+        ))
+        .await
+        .expect("router response");
         assert_eq!(rejected.status(), StatusCode::BAD_REQUEST);
         assert_eq!(owner.calls.load(Ordering::SeqCst), 0);
 
-        let composed = successor_research_intent_router(owner.clone(), token_digest)
-            .oneshot(send_to(
-                "/v1/successor-research-intents",
-                successor_research_intent_request(),
-                Some(&format!("Bearer {token}")),
-            ))
-            .await
-            .expect("router response");
+        let composed = successor_research_intent_router(
+            owner.clone(),
+            owner.clone(),
+            token_digest,
+            format!("sha256:{}", "b".repeat(64)),
+        )
+        .oneshot(send_to(
+            "/v1/successor-research-intents",
+            successor_research_intent_request(),
+            Some(&format!("Bearer {token}")),
+        ))
+        .await
+        .expect("router response");
         assert_eq!(composed.status(), StatusCode::OK);
         assert_eq!(
             response_json(composed).await,
             serde_json::to_value(&expected).unwrap()
         );
         assert_eq!(owner.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(owner.admission_calls.load(Ordering::SeqCst), 1);
 
-        let resolved = successor_research_intent_router(owner.clone(), token_digest)
-            .oneshot(send_to(
-                "/v1/successor-research-intents/resolve",
-                successor_research_intent_resolution_locator(),
-                Some(&format!("Bearer {token}")),
-            ))
-            .await
-            .expect("router response");
+        let resolved = successor_research_intent_router(
+            owner.clone(),
+            owner.clone(),
+            token_digest,
+            format!("sha256:{}", "b".repeat(64)),
+        )
+        .oneshot(send_to(
+            "/v1/successor-research-intents/resolve",
+            successor_research_intent_resolution_locator(),
+            Some(&format!("Bearer {token}")),
+        ))
+        .await
+        .expect("router response");
         assert_eq!(resolved.status(), StatusCode::OK);
         assert_eq!(
             response_json(resolved).await,
@@ -3038,18 +3159,24 @@ mod tests {
         assert_eq!(owner.resolve_calls.load(Ordering::SeqCst), 1);
 
         let missing = Arc::new(SuccessorResearchIntentOwnerStub {
+            admission_calls: AtomicUsize::new(0),
             calls: AtomicUsize::new(0),
             resolve_calls: AtomicUsize::new(0),
             response: None,
         });
-        let absent = successor_research_intent_router(missing.clone(), token_digest)
-            .oneshot(send_to(
-                "/v1/successor-research-intents/resolve",
-                successor_research_intent_resolution_locator(),
-                Some(&format!("Bearer {token}")),
-            ))
-            .await
-            .expect("router response");
+        let absent = successor_research_intent_router(
+            missing.clone(),
+            missing.clone(),
+            token_digest,
+            format!("sha256:{}", "b".repeat(64)),
+        )
+        .oneshot(send_to(
+            "/v1/successor-research-intents/resolve",
+            successor_research_intent_resolution_locator(),
+            Some(&format!("Bearer {token}")),
+        ))
+        .await
+        .expect("router response");
         assert_eq!(absent.status(), StatusCode::NOT_FOUND);
         assert_eq!(
             response_json(absent).await,

@@ -31,7 +31,7 @@
   `lock_sealed_exploratory_replay_request_for_market_data_v1` Owner port resolve 并验证这个 R&D-native receipt
   与 canonical 请求，才能独立签发任何 event-binding receipt。
   **TARGET / NOT_ADMITTED：** 该固定路径的三个可执行 routine 由隔离的 `NOLOGIN`
-  `rd_exploratory_replay_api_owner` 拥有；它只对 canonical verifier chain 实际遍历的九张 relation 拥有
+  `rd_exploratory_replay_api_owner` 拥有；它只对 canonical verifier chain 实际遍历的准确 relation 集合拥有
   `SELECT`，且没有任何 table-level 或 column-level mutation privilege。`market_data_owner` 只获得 schema
   usage 与准确四字段 `SECURITY DEFINER` facade 的执行权，且必须
   在其既有 SERIALIZABLE transaction 内调用。runtime role 不属于 routine owner，不能替换 facade 或任一 verifier。
@@ -40,6 +40,12 @@
   `TERMINAL_RESULT` 可以进入 Research Selection。
 - 只追加 TrialFamily Census Frontier，记录冻结截面前每个探索 Intent Request Result 身份，包括失败 被拒 无效 未知试验以及已消费族预算。
 - 可以支持新 Research Intent 的探索发现，但不能改写已冻结前序事实。
+- 写一次的 Iteration Result Admission，把一个已加锁的 canonical Backtest Result 绑定到可以消费它的迭代。
+  Owner 在单个可串行化 R&D 事务内，从加锁的 Result 字节、确切 TrialFamily 普查截面与已封存试验预算推导全部被接纳事实；
+  调用方只提供定位符、result 与 request meaning 摘要，以及按规范排序的候选提案集合。提案集合为空 超限 乱序 重复
+  与声明基数不一致或超出剩余封存预算时，接纳关闭且不创建任何托管。同一请求的精确重放汇入已提交的接纳；
+  同一 Result 上改变的含义返回 `Conflict`。接纳发出一条 `RD_ITERATION_RESULT_ADMITTED_V1` outbox 事件，
+  不创建 Decision Selection Candidate 或 Qualification 转换。
 - Research Iteration Decision：唯一记录完整支持诊断集合、按确定规则选出的单一类型修复类别与目标边界的 `REPAIR_INPUTS` 后继实验
   `READY_FOR_SELECTION` 或命名终态停止的 Research 事实。停止 修复和后继结果都不会创建 Selection。
   未知或非终态运行不存在 Iteration Decision。
@@ -133,6 +139,19 @@ custody、覆盖、build、compiler 或 Artifact 失败只返回一个不携带�
 Artifact 已由 `ProgramHostV2` 动态接纳；这只证明 crate-local 合约与隔离 consumer 路径。持久 PostgreSQL
 custody、跨进程重启恢复、provider/API/Windmill composition 和已部署 Owner readiness 仍不可用，不能从内存
 join 推断。
+
+**Composer 无法在生产运行，原因在它的托管之上游。**
+`derive_source_research_composer_request_v2` 并没有从重读的 Research 托管导出 Design。
+它取固定语料里的那个 Design，用该托管覆写四个身份字段
+（`research_request_identity`、`intent_identity`、`intent_digest`、`falsifier`），
+绑定则从一个硬编码的 selection identity 派生。插件源码、输入角色与宇宙都是语料的，
+不是这个研究请求的。所以默认 feature 下 `POST /v2/develop-composer/runs` 返回
+`SERVICE_UNAVAILABLE` 是**诚实**而非未完成：根本没有可编译的 Design。
+真正缺的是把冻结的 hypothesis、mechanism 与 falsification question 变成可执行
+`StrategyDesignV2`（输入角色、reaction graph、插件源码）的能力，
+而本文档尚未写明这项导出依据什么判定。它下游的一切都已存在：
+生产提交函数、store、写入器、两张 build-receipt 关系，
+以及 Market Data resolver 落地后的生产 binding 接缝。
 
 **TARGET - 规范 Research-to-Composer custody：** public operation 只接收规范 Research request locator。在一笔
 R&D transaction 上，Owner-internal exact commit-cut capability 取得 request/aggregate row lock，规范重读

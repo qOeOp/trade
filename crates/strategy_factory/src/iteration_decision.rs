@@ -16,7 +16,6 @@ use crate::{
         IterationCandidateComparisonV1, IterationCandidateEvaluationSetV1,
         compare_iteration_candidates_v1,
     },
-    product_edge::FrozenResearchGoalIntent,
     rd_owner_postgres_custody::{LockedExploratoryReplayResultV3, VerifiedResearchCustodyV1},
     trial_family::{
         TrialFamilyAttemptTerminalDispositionV2, TrialFamilyCensusReadbackV2, TrialFamilyError,
@@ -764,6 +763,17 @@ impl CandidateComparisonDecisionReadbackV1 {
     }
 }
 
+pub(crate) fn project_candidate_comparison_action_v1(
+    readback: &CandidateComparisonDecisionReadbackV1,
+) -> Result<crate::product_edge::ResearchIterationActionProjectionV1, &'static str> {
+    let existing = ExistingIterationDecisionReadbackV1::CandidateComparison(readback.clone());
+    crate::product_edge::project_research_iteration_action_v1(
+        readback.decision().decision_identity(),
+        readback.receipt().result_identity(),
+        Some(&existing),
+    )
+}
+
 impl PositiveIterationAssessmentV1 {
     pub fn assessment_identity(&self) -> &str {
         &self.assessment_identity
@@ -1115,6 +1125,8 @@ pub(crate) enum IterationDiagnosisDispositionV1 {
     EvidenceEstablished,
     NoExecutionDefect,
     ValidEconomicFailure,
+    ModelEstablished,
+    ModelRejected,
     Unresolved,
 }
 
@@ -1145,11 +1157,81 @@ pub(crate) struct IterationInterpretationContextV1 {
 }
 
 impl IterationInterpretationContextV1 {
+    pub(crate) fn evidence_cut(&self) -> &IterationDecisionEvidenceCutV1 {
+        &self.evidence_cut
+    }
+
     pub(crate) fn has_unresolved_diagnosis(&self) -> bool {
         self.diagnosis_findings
             .iter()
             .any(|finding| finding.disposition == IterationDiagnosisDispositionV1::Unresolved)
     }
+}
+
+pub(crate) fn complete_interpretation_context_v1(
+    mut context: IterationInterpretationContextV1,
+    mechanism_validity: &crate::iteration_analysis::IterationAnalysisFindingProposalV1,
+    economic_viability: &crate::iteration_analysis::IterationAnalysisFindingProposalV1,
+    robustness: &crate::iteration_analysis::IterationAnalysisFindingProposalV1,
+    information_value: &crate::iteration_analysis::IterationAnalysisFindingProposalV1,
+) -> Result<IterationInterpretationContextV1, IterationDecisionErrorV1> {
+    let replacements = [
+        (
+            IterationDiagnosisDimensionV1::MechanismValidity,
+            mechanism_validity,
+        ),
+        (
+            IterationDiagnosisDimensionV1::EconomicViability,
+            economic_viability,
+        ),
+        (IterationDiagnosisDimensionV1::Robustness, robustness),
+        (
+            IterationDiagnosisDimensionV1::InformationValue,
+            information_value,
+        ),
+    ];
+
+    for (dimension, proposal) in replacements {
+        let finding = context
+            .diagnosis_findings
+            .iter_mut()
+            .find(|finding| finding.dimension == dimension)
+            .ok_or(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+                "required model analysis dimension is missing",
+            ))?;
+
+        if finding.disposition != IterationDiagnosisDispositionV1::Unresolved
+            || proposal.evidence.is_empty()
+        {
+            return Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+                "model analysis cannot replace the locked dimension",
+            ));
+        }
+        finding.disposition = match proposal.conclusion {
+            crate::iteration_analysis::IterationAnalysisConclusionV1::Established => {
+                IterationDiagnosisDispositionV1::ModelEstablished
+            }
+            crate::iteration_analysis::IterationAnalysisConclusionV1::Rejected => {
+                IterationDiagnosisDispositionV1::ModelRejected
+            }
+        };
+        finding.evidence = proposal
+            .evidence
+            .iter()
+            .map(|evidence| IterationDiagnosisEvidenceReferenceV1 {
+                identity: evidence.identity.clone(),
+                digest: evidence.digest.clone(),
+            })
+            .collect();
+    }
+
+    if context.has_unresolved_diagnosis() {
+        return Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
+            "model analysis is incomplete",
+        ));
+    }
+    validate_complete_interpretation_v1(&context)?;
+    Ok(context)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -1201,6 +1283,20 @@ pub(crate) fn issue_interpretation_context_v1(
             "frozen Research Intent custody is missing",
         ),
     )?;
+    issue_interpretation_context_for_intent_v1(
+        census,
+        intent.intent_identity(),
+        intent.semantic_digest(),
+        locked_outcome,
+    )
+}
+
+pub(crate) fn issue_interpretation_context_for_intent_v1(
+    census: &TrialFamilyCensusReadbackV2,
+    intent_identity: &str,
+    intent_digest: &str,
+    locked_outcome: &LockedExploratoryReplayResultV3,
+) -> Result<IterationInterpretationContextV1, IterationDecisionErrorV1> {
     let locked_result = locked_outcome.replay();
     let gate = gate_locked_exploratory_result_v1(census, locked_result)?;
     let semantic_trace_bytes = locked_result.semantic_trace_canonical_bytes().ok_or(
@@ -1217,7 +1313,8 @@ pub(crate) fn issue_interpretation_context_v1(
     let outcome_evidence = interpretation_outcome_evidence_v1(locked_outcome)?;
     issue_interpretation_context_from_result_v1(
         census,
-        intent,
+        intent_identity,
+        intent_digest,
         gate,
         locked_result.result(),
         result_custody,
@@ -1227,7 +1324,8 @@ pub(crate) fn issue_interpretation_context_v1(
 
 fn issue_interpretation_context_from_result_v1(
     census: &TrialFamilyCensusReadbackV2,
-    intent: &FrozenResearchGoalIntent,
+    intent_identity: &str,
+    intent_digest: &str,
     gate: IterationDecisionGateV1,
     result: &ReplayResultDtoV2,
     result_custody: IterationInterpretationResultCustodyV1,
@@ -1376,10 +1474,19 @@ fn issue_interpretation_context_from_result_v1(
         evidence_identity: diagnostic_locator.reference.as_str().to_string(),
         evidence_digest: diagnostic_locator.digest.as_str().to_string(),
     };
-    validate_outcome_evidence_cut_v1(intent, &owner_bindings, &outcome_evidence)?;
+    validate_outcome_evidence_cut_v1(
+        intent_identity,
+        intent_digest,
+        &owner_bindings,
+        &outcome_evidence,
+    )?;
+    let intent_authority = IterationDiagnosisIntentAuthorityV1 {
+        identity: intent_identity,
+        digest: intent_digest,
+    };
     let diagnosis_findings = derive_six_dimension_diagnosis_v1(
         census,
-        intent,
+        &intent_authority,
         diagnostic,
         &evidence_cut,
         &owner_bindings,
@@ -1398,32 +1505,32 @@ fn issue_interpretation_context_from_result_v1(
     })
 }
 
+struct IterationDiagnosisIntentAuthorityV1<'a> {
+    identity: &'a str,
+    digest: &'a str,
+}
+
 fn derive_six_dimension_diagnosis_v1(
     census: &TrialFamilyCensusReadbackV2,
-    intent: &FrozenResearchGoalIntent,
+    intent_authority: &IterationDiagnosisIntentAuthorityV1<'_>,
     diagnostic: IterationInterpretationDiagnosticV1,
     evidence_cut: &IterationDecisionEvidenceCutV1,
     owner_bindings: &[IterationInterpretationOwnerBindingV1],
     diagnostic_evidence: &IterationInterpretationDiagnosticEvidenceV1,
     outcome_evidence: &IterationInterpretationOutcomeEvidenceV1,
 ) -> Result<Vec<IterationDiagnosisFindingV1>, IterationDecisionErrorV1> {
-    let FrozenResearchGoalIntent::V2(intent) = intent else {
-        return Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
-            "frozen Research Intent V2 is missing",
-        ));
-    };
-    let initial_intent = census.legacy_family.initial_intent_member();
-    if intent.intent_identity != initial_intent.fact_identity()
-        || intent.semantic_digest != initial_intent.fact_digest()
-        || intent.trial_family_identity != evidence_cut.trial_family_identity
+    let current_intent = census.latest_intent_binding()?;
+    if intent_authority.identity != current_intent.intent_identity
+        || intent_authority.digest != current_intent.intent_digest
+        || census.census_frontier.trial_family_identity() != evidence_cut.trial_family_identity
     {
         return Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
             "frozen Research Intent is cross-spliced",
         ));
     }
     let intent_reference = IterationDiagnosisEvidenceReferenceV1 {
-        identity: intent.intent_identity.clone(),
-        digest: intent.semantic_digest.clone(),
+        identity: intent_authority.identity.to_string(),
+        digest: intent_authority.digest.to_string(),
     };
     let census_reference = IterationDiagnosisEvidenceReferenceV1 {
         identity: evidence_cut.census_frontier_identity.clone(),
@@ -1516,15 +1623,11 @@ fn derive_six_dimension_diagnosis_v1(
 }
 
 fn validate_outcome_evidence_cut_v1(
-    intent: &FrozenResearchGoalIntent,
+    intent_identity: &str,
+    intent_digest: &str,
     owner_bindings: &[IterationInterpretationOwnerBindingV1],
     outcome: &IterationInterpretationOutcomeEvidenceV1,
 ) -> Result<(), IterationDecisionErrorV1> {
-    let FrozenResearchGoalIntent::V2(intent) = intent else {
-        return Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
-            "frozen Research Intent V2 is missing",
-        ));
-    };
     let intent_binding =
         owner_binding_reference_v1(owner_bindings, ObservationComponentV2::FrozenResearchIntent)?;
     let census_binding = owner_binding_reference_v1(
@@ -1532,8 +1635,8 @@ fn validate_outcome_evidence_cut_v1(
         ObservationComponentV2::TrialFamilyCensusFrontier,
     )?;
 
-    if outcome.frozen_research_intent.identity != intent.intent_identity
-        || outcome.frozen_research_intent.digest != intent.semantic_digest
+    if outcome.frozen_research_intent.identity != intent_identity
+        || outcome.frozen_research_intent.digest != intent_digest
         || outcome.frozen_research_intent != intent_binding
         || outcome.trial_family_census_frontier != census_binding
         || outcome.canonical_result_schema_identity != "vibe-backtest-result/v1"
@@ -3040,7 +3143,9 @@ pub(crate) mod tests {
     };
 
     use super::*;
-    use crate::product_edge::{FrozenResearchGoalIntentV2, SourcedResearchGoalV2};
+    use crate::product_edge::{
+        FrozenResearchGoalIntent, FrozenResearchGoalIntentV2, SourcedResearchGoalV2,
+    };
     use crate::replay_economic_configuration_v1::{
         ReplayEconomicConfigurationV1, economic_fixture,
     };
@@ -3206,9 +3311,12 @@ pub(crate) mod tests {
             "generation_rule_identity": "candidate-rule-v1",
             "generation_rule_digest": format!("sha256:{}", "4".repeat(64)),
             "expected_cardinality": entries.len(),
-            "candidates": entries.iter().map(|(identity, byte)| serde_json::json!({
+            "candidates": entries.iter().map(|(identity, _byte)| serde_json::json!({
                 "candidate_identity": identity,
-                "candidate_digest": format!("sha256:{}", byte.to_string().repeat(64)),
+                "experiment": {
+                    "mode": "SINGLE_DIMENSION",
+                    "changed_dimension": "RETURN_MECHANISM"
+                },
             })).collect::<Vec<_>>(),
         }))
         .expect("valid candidate set")
@@ -3251,10 +3359,18 @@ pub(crate) mod tests {
             },
             candidates: entries
                 .iter()
-                .map(|(candidate_identity, byte, admissibility, rank)| {
+                .map(|(candidate_identity, _byte, admissibility, rank)| {
+                    let candidate_digest = census
+                        .candidate_set_frontier
+                        .candidates()
+                        .iter()
+                        .find(|candidate| candidate.candidate_identity() == *candidate_identity)
+                        .expect("candidate fixture belongs to frontier")
+                        .candidate_digest()
+                        .to_string();
                     IterationCandidateEvaluationV1 {
                         candidate_identity: (*candidate_identity).to_string(),
-                        candidate_digest: format!("sha256:{}", byte.to_string().repeat(64)),
+                        candidate_digest,
                         admissibility: admissibility.clone(),
                         information_value: IterationInformationValueEvidenceV1 {
                             decision_uncertainty: reference("decision-uncertainty", 'a'),
@@ -3443,7 +3559,8 @@ pub(crate) mod tests {
         mutate_outcome(&mut outcome);
         issue_interpretation_context_from_result_v1(
             census,
-            &intent,
+            &intent_v2.intent_identity,
+            &intent_v2.semantic_digest,
             gate,
             &result,
             interpretation_result_custody_v1(
@@ -3735,43 +3852,15 @@ pub(crate) mod tests {
     }
 
     #[cfg(feature = "sealed-develop-composer-acceptance")]
-    pub(crate) fn ready_storage_acceptance_fixture_v1(
+    fn storage_acceptance_interpretation_v1(
         census: &TrialFamilyCensusReadbackV2,
         result: &ReplayResultDtoV2,
-        positive_evidence: PositiveAssessmentEvidenceV1,
-        protected_plan: ProtectedRobustnessPlanProposalV1,
-        committed_at_epoch_ms: u64,
-    ) -> Result<ReadyForSelectionDecisionReadbackV1, IterationDecisionErrorV1> {
+    ) -> Result<IterationInterpretationContextV1, IterationDecisionErrorV1> {
         let decision_policy = census
             .decision_policy_v1()
             .ok_or(IterationDecisionErrorV1::DecisionPolicyUnavailable)?;
         let gate = gate_result(census, result, decision_policy)?;
         let initial_intent = census.legacy_family.initial_intent_member();
-        let intent = FrozenResearchGoalIntent::V2(FrozenResearchGoalIntentV2 {
-            schema_version: 2,
-            intent_identity: initial_intent.fact_identity().to_string(),
-            request_identity: "ready-storage-acceptance-research-request-v1".to_string(),
-            semantic_digest: initial_intent.fact_digest().to_string(),
-            source_frontier: Vec::new(),
-            goal: SourcedResearchGoalV2 {
-                hypothesis: "positive exploratory result".to_string(),
-                mechanism: "bound storage acceptance mechanism".to_string(),
-                falsification_question: "does the result survive the protected plan?".to_string(),
-                expected_observation: "positive protected evidence".to_string(),
-                required_data: vec!["canonical replay evidence".to_string()],
-                cost_assumption: "frozen family cost model".to_string(),
-                capacity_assumption: "frozen family capacity model".to_string(),
-                sources: Vec::new(),
-            },
-            independence_basis_identity: "ready-storage-acceptance-basis-v1".to_string(),
-            independence_basis_digest: format!("sha256:{}", "a".repeat(64)),
-            protected_feedback_projection_identity:
-                "ready-storage-acceptance-protected-frontier-v1".to_string(),
-            protected_feedback_projection_digest: format!("sha256:{}", "b".repeat(64)),
-            trial_family_identity: census.census_frontier.trial_family_identity().to_string(),
-            trial_family_policy_digest: census.legacy_family.root().policy_digest().to_string(),
-            frozen_at_epoch_ms: 1,
-        });
         let binding = |component| {
             result
                 .reconciliation
@@ -3810,9 +3899,10 @@ pub(crate) mod tests {
         };
         let result_bytes = serde_json::to_vec(result)
             .map_err(|e| IterationDecisionErrorV1::Encoding(e.to_string()))?;
-        let interpretation = issue_interpretation_context_from_result_v1(
+        issue_interpretation_context_from_result_v1(
             census,
-            &intent,
+            initial_intent.fact_identity(),
+            initial_intent.fact_digest(),
             gate,
             result,
             interpretation_result_custody_v1(
@@ -3822,10 +3912,35 @@ pub(crate) mod tests {
                 b"ready-storage-acceptance-semantic-trace",
             ),
             outcome_evidence,
-        )?;
+        )
+    }
+
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    pub(crate) fn candidate_comparison_storage_acceptance_fixture_v1(
+        census: &TrialFamilyCensusReadbackV2,
+        result: &ReplayResultDtoV2,
+        candidate_evaluations: IterationCandidateEvaluationSetV1,
+        committed_at_epoch_ms: u64,
+    ) -> Result<CandidateComparisonDecisionReadbackV1, IterationDecisionErrorV1> {
+        issue_candidate_comparison_decision_v1(
+            census,
+            storage_acceptance_interpretation_v1(census, result)?,
+            candidate_evaluations,
+            committed_at_epoch_ms,
+        )
+    }
+
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    pub(crate) fn ready_storage_acceptance_fixture_v1(
+        census: &TrialFamilyCensusReadbackV2,
+        result: &ReplayResultDtoV2,
+        positive_evidence: PositiveAssessmentEvidenceV1,
+        protected_plan: ProtectedRobustnessPlanProposalV1,
+        committed_at_epoch_ms: u64,
+    ) -> Result<ReadyForSelectionDecisionReadbackV1, IterationDecisionErrorV1> {
         issue_ready_for_selection_decision_v1(
             census,
-            interpretation,
+            storage_acceptance_interpretation_v1(census, result)?,
             ready_candidate_artifact_v1(result)?,
             positive_evidence,
             protected_plan,
@@ -4041,11 +4156,19 @@ pub(crate) mod tests {
         );
         let issued = issue_candidate_comparison_decision_v1(&census, context, evaluations, 3)
             .expect("computed successor");
+        let winner_digest = census
+            .candidate_set_frontier
+            .candidates()
+            .iter()
+            .find(|candidate| candidate.candidate_identity() == "candidate-winner")
+            .expect("winner belongs to frontier")
+            .candidate_digest()
+            .to_string();
         assert_eq!(
             issued.decision().outcome(),
             &IterationDecisionOutcomeV1::SuccessorExperiment {
                 experiment_identity: "candidate-winner".to_string(),
-                experiment_digest: format!("sha256:{}", "3".repeat(64)),
+                experiment_digest: winner_digest.clone(),
             }
         );
 
@@ -4064,7 +4187,7 @@ pub(crate) mod tests {
                 decision_digest: issued.decision().decision_digest().to_string(),
                 decision_receipt_identity: issued.receipt().receipt_identity().to_string(),
                 experiment_identity: "candidate-winner".to_string(),
-                experiment_digest: format!("sha256:{}", "3".repeat(64)),
+                experiment_digest: winner_digest,
             }
         );
 

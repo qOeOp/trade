@@ -61,6 +61,13 @@ async fn main() -> anyhow::Result<()> {
             &config,
         ),
         manifest(
+            "successor_research_intent.submit_or_resolve.v1",
+            "rd-successor-research-intent-composition-v1",
+            "R_AND_D",
+            vec!["R_AND_D_SUCCESSOR_RESEARCH_INTENT_MUTATION_V1".to_string()],
+            &config,
+        ),
+        manifest(
             "artifact_build.submit_or_resolve.v1",
             "rd-artifact-build-request-v1",
             "R_AND_D",
@@ -68,6 +75,13 @@ async fn main() -> anyhow::Result<()> {
                 "R_AND_D_ARTIFACT_BUILD_MUTATION_V1".to_string(),
                 "R_AND_D_PROVIDER_INVOCATION_V1".to_string(),
             ],
+            &config,
+        ),
+        manifest(
+            "iteration_analysis.complete.v1",
+            "rd-iteration-analysis-completion-v1",
+            "R_AND_D",
+            vec!["R_AND_D_ITERATION_ANALYSIS_COMPLETION_MUTATION_V1".to_string()],
             &config,
         ),
         manifest(

@@ -13,16 +13,25 @@ design cannot be implemented as written, or implementation reveals that the docu
 design must change, stop the task and request explicit user authorization before changing the
 documentation or continuing the implementation.
 
-## Dashboard design status
+## Dashboard implementation status
 
-The Dashboard documentation under `docs/guide/dashboard.md` and
-`docs/guide/dashboard.zh.md` is an experimental design artifact only. It does not authorize Dashboard
-implementation. Do not develop, scaffold, deploy, or package Dashboard code unless the user later gives
-explicit implementation authority and the documentation's status is changed accordingly.
+The Dashboard documentation under `docs/guide/dashboard.md` and `docs/guide/dashboard.zh.md` is the
+governing route, component, and geometry contract for `product/dashboard`. It is no longer a
+blueprint-only artifact: it now carries per-slice admission status, and the user has admitted specific
+routes as `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED`.
+
+Dashboard work is admitted only for a route or reusable atom that document marks
+`IMPLEMENTATION_ADMITTED`, and only as the bounded, separately reviewable slice described there.
+Everything below that gate stays blueprint-only and must not be developed, scaffolded, deployed, or
+packaged; a route name, a navigation entry, or retained upstream source is not implementation
+authority. `IMPLEMENTATION_ADMITTED` is permission to build and verify. It never proves that a backend,
+Owner consumer, or effect path exists, and it never authorizes a production effect, a Windmill cutover,
+or real trading. Widening the admitted set requires changing that document first under the Architecture
+authority rule above.
 
 ## Local API keys
 
-Codex may use the following API keys from the local environment when an admitted repository task
+An agent may use the following API keys from the local environment when an admitted repository task
 requires them:
 
 - `DEEPSEEK_API_KEY`
@@ -34,18 +43,27 @@ Treat their values as local secrets: never commit, print, log, or copy them into
 Availability authorizes credential use only within the admitted task's scope; it does not authorize
 real trading or another production write.
 
-## Codex bootstrap
+## Agent bootstrap
 
-`qOeOp/pareto` is the sole source for `run-bounded-mission` and its Codex agent profiles. Before any
+This gate binds every agent that performs repository work, not only Codex. Claude Code and any other
+agent must satisfy it on the same terms; an agent that cannot satisfy a step records that step as
+unavailable and freezes, rather than treating the step as somebody else's obligation.
+
+`qOeOp/pareto` is the sole source for `run-bounded-mission` and its agent profiles. Before any
 non-trivial implementation or delivery, and after switching branch or worktree:
 
 1. fetch `origin/main` and read `codex-skills.lock.json` from that exact ref;
 2. materialize its exact `qOeOp/pareto` commit in an immutable user cache outside this repository;
 3. run that checkout's `node scripts/install-codex.mjs --lock <origin-main-lock> --install-trade-session-hook`,
-   then the same command with `--check`;
-4. after hook content changes, review the exact user `SessionStart` command in `/hooks` and trust only
-   that installed command;
-5. freeze implementation and delivery if the pin, install, hook trust, or check is unavailable or mismatched.
+   then the same command with `--check`. Pass `--agents-root` to install the pinned Skill into the
+   current agent's own Skill root; the installer verifies content and file mode, so step 2's cache must
+   actually be immutable or `--check` reports a Skill mismatch for every agent;
+4. after hook content changes, review the exact installed user `SessionStart` command in the current
+   agent's own hook configuration and trust only that command. The installer currently provides this
+   session-hook trust step for Codex only; for an agent without it, record the step as unavailable;
+5. freeze implementation and delivery if the pin, install, hook trust, or check is unavailable or
+   mismatched. A red `--check` freezes every agent equally. Proceeding anyway requires the user's
+   explicit authorization for that exact delivery, and the unmet step must be named in the handoff.
 
 Normal branches use the latest `origin/main` pin, not their historical copy. A dedicated pin-update PR
 may use its candidate lock only after the referenced commit is merged to `qOeOp/pareto/main`. A branch

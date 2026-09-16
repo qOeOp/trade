@@ -28,6 +28,11 @@ use vibe_data::owner::{
     native_replay_scheduling_v1::NativeReplaySchedulingResolverV1,
 };
 use vibe_product_edge::{ProductEdgeAdmissionRequestV1, ProductEdgeError};
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use vibe_strategy_factory::exploratory_replay::{
+    ComposerBackedExploratoryReplayProposalV3, EXPLORATORY_REPLAY_MUTATION_EFFECT_V3,
+    EXPLORATORY_REPLAY_OPERATION_V3, EXPLORATORY_REPLAY_SCHEMA_V3,
+};
 #[cfg(test)]
 use vibe_strategy_factory::exploratory_replay::{
     ExploratoryReplayAvailabilityV1, ExploratoryReplayNextLegalActionV1,
@@ -41,7 +46,12 @@ use vibe_strategy_factory::{
         ExploratoryReplayRequestProjectionV1, ExploratoryReplayRequestProposalV2,
         ExploratoryReplaySealedReadPortV2,
     },
-    product_edge::RESEARCH_OWNER_V1,
+    iteration_decision::is_valid_iteration_decision_locator_v1,
+    product_edge::{
+        RESEARCH_OWNER_V1, ResearchExploratoryDiagnosisGateErrorV1,
+        ResearchExploratoryDiagnosisGateProjectionV1, ResearchExploratoryDiagnosisLocatorV1,
+        ResearchExploratoryRunEvidenceProjectionV1,
+    },
     product_edge_postgres::PostgresResearchGoalOwnerV1,
 };
 #[cfg(feature = "sealed-develop-composer-acceptance")]
@@ -55,6 +65,31 @@ use super::{ApiState, authorized, hex_digest, insert_rejection_code};
 #[derive(Clone)]
 struct ExploratoryReplayResultApiState {
     owner: Arc<PostgresResearchGoalOwnerV1>,
+    token_digest: [u8; 32],
+}
+
+#[async_trait::async_trait]
+trait ExploratoryDiagnosisGateReadPort: Send + Sync {
+    async fn resolve_diagnosis_gate(
+        &self,
+        locator: ResearchExploratoryDiagnosisLocatorV1,
+    ) -> Result<ResearchExploratoryDiagnosisGateProjectionV1, ResearchExploratoryDiagnosisGateErrorV1>;
+}
+
+#[async_trait::async_trait]
+impl ExploratoryDiagnosisGateReadPort for PostgresResearchGoalOwnerV1 {
+    async fn resolve_diagnosis_gate(
+        &self,
+        locator: ResearchExploratoryDiagnosisLocatorV1,
+    ) -> Result<ResearchExploratoryDiagnosisGateProjectionV1, ResearchExploratoryDiagnosisGateErrorV1>
+    {
+        self.resolve_exploratory_diagnosis_gate_v1(locator).await
+    }
+}
+
+#[derive(Clone)]
+struct ExploratoryDiagnosisGateApiState {
+    owner: Arc<dyn ExploratoryDiagnosisGateReadPort>,
     token_digest: [u8; 32],
 }
 
@@ -143,6 +178,14 @@ struct ExploratoryReplayResultQueryV2 {
     attempt_identity: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExploratoryReplayDiagnosisQueryV1 {
+    trial_family_identity: String,
+    request_identity: String,
+    attempt_identity: String,
+}
+
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 pub(super) struct NativeReplayExecutionServiceV2 {
     preparation_owner: Arc<PostgresNativeReplayPreparationOwnerV2>,
@@ -216,10 +259,15 @@ pub(super) fn result_router(
     token_digest: [u8; 32],
 ) -> Router {
     let repaired_replay_action = market_data_repaired_replay_router(owner.clone(), token_digest);
+    let diagnosis = exploratory_diagnosis_gate_router(owner.clone(), token_digest);
     Router::new()
         .route(
             "/v2/exploratory-replay-results/{result_identity}",
             get(read_result),
+        )
+        .route(
+            "/v2/exploratory-replay-results/{result_identity}/run-evidence",
+            get(read_run_evidence),
         )
         .route(
             "/v2/exploratory-replay/execution-input-bindings/resolve",
@@ -230,6 +278,22 @@ pub(super) fn result_router(
             token_digest,
         })
         .merge(repaired_replay_action)
+        .merge(diagnosis)
+}
+
+fn exploratory_diagnosis_gate_router(
+    owner: Arc<dyn ExploratoryDiagnosisGateReadPort>,
+    token_digest: [u8; 32],
+) -> Router {
+    Router::new()
+        .route(
+            "/v2/exploratory-replay-results/{result_identity}/diagnosis-gate",
+            get(read_diagnosis_gate),
+        )
+        .with_state(ExploratoryDiagnosisGateApiState {
+            owner,
+            token_digest,
+        })
 }
 
 fn market_data_repaired_replay_router(
@@ -614,27 +678,16 @@ async fn read_result(
             );
         }
     };
-    let request_identity = query.request_identity;
-
-    if [
-        path.result_identity.as_str(),
-        request_identity.as_str(),
-        query.attempt_identity.as_str(),
-    ]
-    .into_iter()
-    .any(|value| OpaqueIdentityV2::try_from(value.to_string()).is_err())
-    {
-        return rejection(
-            StatusCode::BAD_REQUEST,
-            "INVALID_EXPLORATORY_REPLAY_RESULT_LOCATOR",
-            &request_identity,
-        );
-    }
-
-    let locator = ExploratoryReplayResultLocatorV2 {
-        result_identity: &path.result_identity,
-        request_identity: &request_identity,
-        attempt_identity: &query.attempt_identity,
+    let request_identity = query.request_identity.clone();
+    let locator = match validate_result_locator(&path, &query) {
+        Ok(locator) => locator,
+        Err(()) => {
+            return rejection(
+                StatusCode::BAD_REQUEST,
+                "INVALID_EXPLORATORY_REPLAY_RESULT_LOCATOR",
+                &request_identity,
+            );
+        }
     };
 
     match state
@@ -661,6 +714,166 @@ async fn read_result(
     }
 }
 
+async fn read_run_evidence(
+    State(state): State<ExploratoryReplayResultApiState>,
+    path: Result<Path<ExploratoryReplayResultPathV2>, axum::extract::rejection::PathRejection>,
+    query: Result<Query<ExploratoryReplayResultQueryV2>, QueryRejection>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            "unbound",
+        );
+    }
+
+    let (Path(path), Query(query)) = match (path, query) {
+        (Ok(path), Ok(query)) => (path, query),
+        _ => {
+            return rejection(
+                StatusCode::BAD_REQUEST,
+                "INVALID_EXPLORATORY_REPLAY_RESULT_LOCATOR",
+                "unbound",
+            );
+        }
+    };
+    let request_identity = query.request_identity.clone();
+    let locator = match validate_result_locator(&path, &query) {
+        Ok(locator) => locator,
+        Err(()) => {
+            return rejection(
+                StatusCode::BAD_REQUEST,
+                "INVALID_EXPLORATORY_REPLAY_RESULT_LOCATOR",
+                &request_identity,
+            );
+        }
+    };
+
+    match state
+        .owner
+        .resolve_exploratory_replay_result_v2(locator)
+        .await
+    {
+        Ok(Some(result)) => (
+            StatusCode::OK,
+            Json(ResearchExploratoryRunEvidenceProjectionV1::from_locked_owner_readback(&result)),
+        )
+            .into_response(),
+        Ok(None) => rejection(
+            StatusCode::NOT_FOUND,
+            "EXPLORATORY_REPLAY_RESULT_UNAVAILABLE",
+            &request_identity,
+        ),
+        Err(_) => rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "EXPLORATORY_REPLAY_RESULT_UNAVAILABLE",
+            &request_identity,
+        ),
+    }
+}
+
+async fn read_diagnosis_gate(
+    State(state): State<ExploratoryDiagnosisGateApiState>,
+    path: Result<Path<ExploratoryReplayResultPathV2>, axum::extract::rejection::PathRejection>,
+    query: Result<Query<ExploratoryReplayDiagnosisQueryV1>, QueryRejection>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            "unbound",
+        );
+    }
+
+    let (Path(path), Query(query)) = match (path, query) {
+        (Ok(path), Ok(query)) => (path, query),
+        _ => {
+            return rejection(
+                StatusCode::BAD_REQUEST,
+                "INVALID_EXPLORATORY_DIAGNOSIS_GATE_LOCATOR",
+                "unbound",
+            );
+        }
+    };
+    let request_identity = query.request_identity.clone();
+    let locator = match validate_diagnosis_locator(path, query) {
+        Ok(locator) => locator,
+        Err(()) => {
+            return rejection(
+                StatusCode::BAD_REQUEST,
+                "INVALID_EXPLORATORY_DIAGNOSIS_GATE_LOCATOR",
+                &request_identity,
+            );
+        }
+    };
+
+    match state.owner.resolve_diagnosis_gate(locator).await {
+        Ok(projection) => (StatusCode::OK, Json(projection)).into_response(),
+        Err(ResearchExploratoryDiagnosisGateErrorV1::Unavailable) => rejection(
+            StatusCode::NOT_FOUND,
+            "EXPLORATORY_DIAGNOSIS_GATE_UNAVAILABLE",
+            &request_identity,
+        ),
+        Err(ResearchExploratoryDiagnosisGateErrorV1::InvalidEvidence) => rejection(
+            StatusCode::CONFLICT,
+            "EXPLORATORY_DIAGNOSIS_GATE_INVALID_EVIDENCE",
+            &request_identity,
+        ),
+        Err(ResearchExploratoryDiagnosisGateErrorV1::Storage(_)) => rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "EXPLORATORY_DIAGNOSIS_GATE_UNAVAILABLE",
+            &request_identity,
+        ),
+    }
+}
+
+fn validate_diagnosis_locator(
+    path: ExploratoryReplayResultPathV2,
+    query: ExploratoryReplayDiagnosisQueryV1,
+) -> Result<ResearchExploratoryDiagnosisLocatorV1, ()> {
+    if [
+        query.trial_family_identity.as_str(),
+        path.result_identity.as_str(),
+        query.request_identity.as_str(),
+        query.attempt_identity.as_str(),
+    ]
+    .into_iter()
+    .any(|identity| !is_valid_iteration_decision_locator_v1(identity))
+    {
+        return Err(());
+    }
+    Ok(ResearchExploratoryDiagnosisLocatorV1 {
+        trial_family_identity: query.trial_family_identity,
+        result_identity: path.result_identity,
+        request_identity: query.request_identity,
+        attempt_identity: query.attempt_identity,
+    })
+}
+
+fn validate_result_locator<'a>(
+    path: &'a ExploratoryReplayResultPathV2,
+    query: &'a ExploratoryReplayResultQueryV2,
+) -> Result<ExploratoryReplayResultLocatorV2<'a>, ()> {
+    if [
+        path.result_identity.as_str(),
+        query.request_identity.as_str(),
+        query.attempt_identity.as_str(),
+    ]
+    .into_iter()
+    .any(|value| OpaqueIdentityV2::try_from(value.to_string()).is_err())
+    {
+        return Err(());
+    }
+
+    Ok(ExploratoryReplayResultLocatorV2 {
+        result_identity: &path.result_identity,
+        request_identity: &query.request_identity,
+        attempt_identity: &query.attempt_identity,
+    })
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct ExploratoryReplayOperationV2 {
@@ -669,6 +882,40 @@ pub(super) struct ExploratoryReplayOperationV2 {
     build_receipt_identity: String,
     artifact_family_binding_identity: String,
     request: ReplayRequestDtoV2,
+}
+
+/// Only immutable locators are accepted from Product Edge. The positive Composer, TrialFamily,
+/// and Market Data facts are re-read by R&D during the Owner transaction.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ComposerBackedReplayOperationV3 {
+    request_identity: String,
+    trial_family_identity: String,
+    artifact_identity: String,
+    composer_locator:
+        vibe_strategy_factory::develop_composer_postgres_v2::DevelopComposerSealedReadLocatorV2,
+    market_data_locator:
+        vibe_data::owner::replay_market_facts_v2::ReplayCompositionBindingLocatorV1,
+    market_data_scope_digest: vibe_data::owner::source_binding::BindingDigest,
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+impl ComposerBackedReplayOperationV3 {
+    fn into_proposal(
+        self,
+        admission: vibe_product_edge::ProductEdgeAdmissionLocatorV1,
+    ) -> ComposerBackedExploratoryReplayProposalV3 {
+        ComposerBackedExploratoryReplayProposalV3 {
+            admission,
+            request_identity: self.request_identity,
+            trial_family_identity: self.trial_family_identity,
+            artifact_identity: self.artifact_identity,
+            composer_locator: self.composer_locator,
+            market_data_locator: self.market_data_locator,
+            market_data_scope_digest: self.market_data_scope_digest,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -802,6 +1049,78 @@ pub(super) async fn submit(
     {
         Ok(result) => (StatusCode::OK, Json(result)).into_response(),
         Err(e) => owner_error(&e, &request_identity),
+    }
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+pub(super) async fn submit_composer_backed_v3(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            "unbound",
+        );
+    }
+    let operation: ComposerBackedReplayOperationV3 = match serde_json::from_slice(&body) {
+        Ok(operation) => operation,
+        Err(_) => {
+            return rejection(
+                StatusCode::BAD_REQUEST,
+                "MALFORMED_TYPED_REQUEST",
+                "unbound",
+            );
+        }
+    };
+    let request_identity = operation.request_identity.clone();
+    if OpaqueIdentityV2::try_from(request_identity.clone()).is_err()
+        || operation.trial_family_identity.trim().is_empty()
+        || operation.artifact_identity.trim().is_empty()
+    {
+        return rejection(
+            StatusCode::BAD_REQUEST,
+            "INVALID_EXPLORATORY_REPLAY_REQUEST",
+            &request_identity,
+        );
+    }
+    let typed_payload = match serde_json::to_value(&operation) {
+        Ok(payload) => payload,
+        Err(_) => {
+            return rejection(
+                StatusCode::BAD_REQUEST,
+                "MALFORMED_TYPED_REQUEST",
+                &request_identity,
+            );
+        }
+    };
+    let admission = match state
+        .product_edge
+        .admit_request(ProductEdgeAdmissionRequestV1 {
+            request_identity: request_identity.clone(),
+            typed_payload,
+            operation: EXPLORATORY_REPLAY_OPERATION_V3.into(),
+            operation_schema: EXPLORATORY_REPLAY_SCHEMA_V3.into(),
+            target_owner: RESEARCH_OWNER_V1.into(),
+            requested_effects: vec![EXPLORATORY_REPLAY_MUTATION_EFFECT_V3.into()],
+            request_proof_digest: state.request_proof_digest.clone(),
+            audit_correlation: format!("rd-workbench:{request_identity}"),
+        })
+        .await
+    {
+        Ok(admission) => admission,
+        Err(error) => return product_edge_error(&error, &request_identity),
+    };
+    let proposal = operation.into_proposal(admission.locator().clone());
+    match state
+        .owner
+        .commit_composer_backed_exploratory_replay_request_v3(proposal)
+        .await
+    {
+        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
+        Err(error) => owner_error(&error, &request_identity),
     }
 }
 
@@ -1003,14 +1322,89 @@ fn rejection(status: StatusCode, code: &str, request_identity: &str) -> Response
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use super::*;
     use rstest::rstest;
     use sha2::Digest as _;
     use tower::ServiceExt;
 
+    use super::*;
+
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[test]
+    fn composer_v3_edge_payload_matches_owner_proposal_without_admission() {
+        let digest = vec![0_u8; 32];
+        let payload = json!({
+            "request_identity": "composer-replay-request-v3",
+            "trial_family_identity": "trial-family-v3",
+            "artifact_identity": "composer-artifact-v3",
+            "composer_locator": {
+                "schema_version": 2,
+                "request_identity": "composer-operation-v3",
+                "operation_receipt_identity": digest,
+                "artifact_locator": "composer-artifact-locator-v3",
+                "artifact_identity": digest,
+                "canonical_plan_digest": digest,
+                "design_digest": digest
+            },
+            "market_data_locator": {
+                "binding_identity": digest,
+                "binding_digest": digest
+            },
+            "market_data_scope_digest": digest
+        });
+        let operation: ComposerBackedReplayOperationV3 =
+            serde_json::from_value(payload.clone()).expect("locator-only V3 operation");
+        let proposal = operation.into_proposal(vibe_product_edge::ProductEdgeAdmissionLocatorV1 {
+            request_identity: "composer-replay-request-v3".into(),
+            admission_identity: "admission-v3".into(),
+            admission_digest: format!("sha256:{}", "0".repeat(64)),
+        });
+        let mut owner_payload = serde_json::to_value(proposal).expect("Owner V3 proposal");
+        owner_payload
+            .as_object_mut()
+            .expect("proposal object")
+            .remove("admission");
+        assert_eq!(owner_payload, payload);
+    }
+
     struct RepairedReplayOwnerStub {
         calls: AtomicUsize,
         response: Option<MarketDataRepairedReplayActionResponseV1>,
+    }
+
+    struct DiagnosisOwnerStub {
+        calls: AtomicUsize,
+        response: DiagnosisOwnerStubResponse,
+    }
+
+    #[derive(Clone, Copy)]
+    enum DiagnosisOwnerStubResponse {
+        Unavailable,
+        InvalidEvidence,
+        Storage,
+    }
+
+    #[async_trait::async_trait]
+    impl ExploratoryDiagnosisGateReadPort for DiagnosisOwnerStub {
+        async fn resolve_diagnosis_gate(
+            &self,
+            _locator: ResearchExploratoryDiagnosisLocatorV1,
+        ) -> Result<
+            ResearchExploratoryDiagnosisGateProjectionV1,
+            ResearchExploratoryDiagnosisGateErrorV1,
+        > {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Err(match self.response {
+                DiagnosisOwnerStubResponse::Unavailable => {
+                    ResearchExploratoryDiagnosisGateErrorV1::Unavailable
+                }
+                DiagnosisOwnerStubResponse::InvalidEvidence => {
+                    ResearchExploratoryDiagnosisGateErrorV1::InvalidEvidence
+                }
+                DiagnosisOwnerStubResponse::Storage => {
+                    ResearchExploratoryDiagnosisGateErrorV1::Storage("test storage".into())
+                }
+            })
+        }
     }
 
     #[async_trait::async_trait]
@@ -1225,6 +1619,81 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn diagnosis_gate_route_authenticates_and_validates_before_owner_read() {
+        let token = "exploratory-diagnosis-test";
+        let token_digest: [u8; 32] = sha2::Sha256::digest(token.as_bytes()).into();
+        let owner = Arc::new(DiagnosisOwnerStub {
+            calls: AtomicUsize::new(0),
+            response: DiagnosisOwnerStubResponse::Unavailable,
+        });
+        let exact_uri = "/v2/exploratory-replay-results/result-1/diagnosis-gate?trial_family_identity=family-1&request_identity=request-1&attempt_identity=attempt-1";
+        let request = |uri: &str, authorization: Option<&str>| {
+            let mut request = axum::http::Request::builder()
+                .method(axum::http::Method::GET)
+                .uri(uri);
+
+            if let Some(authorization) = authorization {
+                request = request.header(axum::http::header::AUTHORIZATION, authorization);
+            }
+            request
+                .body(axum::body::Body::empty())
+                .expect("HTTP request")
+        };
+
+        let unauthorized = exploratory_diagnosis_gate_router(owner.clone(), token_digest)
+            .oneshot(request(exact_uri, None))
+            .await
+            .expect("router response");
+        assert_eq!(unauthorized.status(), StatusCode::FORBIDDEN);
+        assert_eq!(owner.calls.load(Ordering::SeqCst), 0);
+
+        let invalid = exploratory_diagnosis_gate_router(owner.clone(), token_digest)
+            .oneshot(request(
+                &format!("{exact_uri}&decision_identity=caller-supplied"),
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("router response");
+        assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(owner.calls.load(Ordering::SeqCst), 0);
+
+        let unavailable = exploratory_diagnosis_gate_router(owner.clone(), token_digest)
+            .oneshot(request(exact_uri, Some(&format!("Bearer {token}"))))
+            .await
+            .expect("router response");
+        assert_eq!(unavailable.status(), StatusCode::NOT_FOUND);
+        assert_eq!(owner.calls.load(Ordering::SeqCst), 1);
+
+        for (response, expected_status, expected_code) in [
+            (
+                DiagnosisOwnerStubResponse::InvalidEvidence,
+                StatusCode::CONFLICT,
+                "EXPLORATORY_DIAGNOSIS_GATE_INVALID_EVIDENCE",
+            ),
+            (
+                DiagnosisOwnerStubResponse::Storage,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "EXPLORATORY_DIAGNOSIS_GATE_UNAVAILABLE",
+            ),
+        ] {
+            let owner = Arc::new(DiagnosisOwnerStub {
+                calls: AtomicUsize::new(0),
+                response,
+            });
+            let rejected = exploratory_diagnosis_gate_router(owner.clone(), token_digest)
+                .oneshot(request(exact_uri, Some(&format!("Bearer {token}"))))
+                .await
+                .expect("router response");
+            assert_eq!(rejected.status(), expected_status);
+            assert_eq!(
+                rejected.headers().get("x-rd-rejection-code").unwrap(),
+                expected_code
+            );
+            assert_eq!(owner.calls.load(Ordering::SeqCst), 1);
+        }
+    }
+
     #[cfg(feature = "sealed-develop-composer-acceptance")]
     #[rstest]
     fn native_replay_execution_request_accepts_only_exact_owner_locators() {
@@ -1365,6 +1834,10 @@ mod tests {
         assert_eq!(path.result_identity, "result-1");
         assert_eq!(query.request_identity, "request-1");
         assert_eq!(query.attempt_identity, "attempt-1");
+        let locator = validate_result_locator(&path, &query).expect("valid result locator");
+        assert_eq!(locator.result_identity, "result-1");
+        assert_eq!(locator.request_identity, "request-1");
+        assert_eq!(locator.attempt_identity, "attempt-1");
         assert!(
             serde_json::from_value::<ExploratoryReplayResultQueryV2>(json!({
                 "request_identity": "request-1",
@@ -1380,6 +1853,12 @@ mod tests {
             }))
             .is_err()
         );
+
+        let invalid = ExploratoryReplayResultQueryV2 {
+            request_identity: " request-1".into(),
+            attempt_identity: "attempt-1".into(),
+        };
+        assert!(validate_result_locator(&path, &invalid).is_err());
     }
 
     #[rstest]

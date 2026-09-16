@@ -757,6 +757,330 @@ impl StrategyInputEventFrameReceipt {
     }
 }
 
+/// Maximum number of typed input roles one persisted Composer custody claim may carry.
+pub const MAX_STRATEGY_INPUT_CUSTODY_ROLES_V1: usize = 64;
+
+/// Caller-authored claim naming the persisted declarations one Composer run must re-read.
+///
+/// Every field is an untrusted proposal. Holding a claim mints nothing: Market Data re-reads the
+/// stored declarations, re-derives each binding from its live native dependencies, and rejects the
+/// whole claim when a stored request names a different Design, a different PIT request, or a
+/// decision cut other than the one the caller requires.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UntrustedStrategyInputCustodyClaimV1 {
+    /// Caller-proposed R&D request identity that every stored declaration must repeat.
+    pub research_request_identity: BindingDigest,
+    /// Caller-proposed `StrategyDesignV2` identity that every stored declaration must repeat.
+    pub strategy_design_identity: BindingDigest,
+    /// Caller-proposed PIT request identity that every stored declaration must repeat.
+    pub pit_request_identity: BindingDigest,
+    /// Complete typed input-role set the Design declares. Arrival order is free; duplicates reject.
+    pub input_role_identities: Vec<BindingDigest>,
+    /// Exact decision cut the caller requires. Any other stored cut rejects the whole claim.
+    pub decision_cut: u64,
+}
+
+/// Structured fail-closed custody outcome. Every variant carries zero positive receipt.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StrategyInputCustodyUnavailableV1 {
+    /// A zero identity, an empty, oversized, or duplicated role set, or a zero decision cut.
+    InvalidClaim,
+    /// At least one claimed role has no persisted Market Data declaration.
+    UnknownDeclaration,
+    /// A stored declaration names a different R&D request.
+    ResearchRequestMismatch,
+    /// A stored declaration names a different `StrategyDesignV2`.
+    DesignMismatch,
+    /// A stored declaration names a different PIT request.
+    PitRequestMismatch,
+    /// The stored declarations do not cover exactly the claimed roles.
+    RoleCoverageMismatch,
+    /// A stored declaration was cut before the decision cut the caller requires.
+    StaleDecisionCut,
+    /// A stored declaration was cut after the decision cut the caller requires.
+    UnexpectedDecisionCut,
+    /// The stored declarations do not share one Owner lineage cut.
+    LineageDrift,
+    /// Stored bytes no longer decode, or no longer carry their own key and meaning digest.
+    DeclarationUntrusted,
+    /// A native PIT, Universe, Source, Instrument Master, or Semantics dependency no longer holds.
+    DependencyUnavailable,
+    /// The re-derived bindings do not seal one complete joint event frame.
+    FrameUnavailable,
+    /// The Market Data custody store could not be read inside the caller transaction.
+    StoreUnavailable,
+}
+
+impl Display for StrategyInputCustodyUnavailableV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{self:?}")
+    }
+}
+
+impl std::error::Error for StrategyInputCustodyUnavailableV1 {}
+
+/// One re-read declaration paired with the binding Market Data freshly re-derived for it.
+pub(super) struct StrategyInputCustodyDeclarationV1<'a> {
+    pub(super) request: &'a UntrustedStrategyInputBindingRequest,
+    pub(super) request_meaning_digest: BindingDigest,
+    pub(super) binding: &'a StrategyInputBindingReceipt,
+}
+
+/// Owner-sealed complete Composer input custody for one persisted Design role set.
+///
+/// It replaces a fixed in-memory corpus: every binding and the joint frame are re-derived from the
+/// live native dependencies inside the caller transaction. The receipt has no public constructor
+/// and deliberately does not implement `Deserialize`.
+///
+/// ```compile_fail
+/// use vibe_data::owner::strategy_input_binding::StrategyInputCustodyReadbackV1;
+///
+/// let forged: StrategyInputCustodyReadbackV1 = serde_json::from_slice(b"{}").unwrap();
+/// ```
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StrategyInputCustodyReadbackV1 {
+    claim_identity: BindingDigest,
+    research_request_identity: BindingDigest,
+    strategy_design_identity: BindingDigest,
+    pit_request_identity: BindingDigest,
+    decision_cut: u64,
+    observation_batch_digest: BindingDigest,
+    bindings: Box<[StrategyInputBindingReceipt]>,
+    frame: StrategyInputEventFrameReceipt,
+    digest: BindingDigest,
+}
+
+impl StrategyInputCustodyReadbackV1 {
+    /// Returns the Owner-derived identity of the exact claim this custody answers.
+    #[must_use]
+    pub const fn claim_identity(&self) -> BindingDigest {
+        self.claim_identity
+    }
+
+    /// Returns the caller-proposed R&D request identity every stored declaration repeated.
+    #[must_use]
+    pub const fn research_request_identity(&self) -> BindingDigest {
+        self.research_request_identity
+    }
+
+    /// Returns the caller-proposed `StrategyDesignV2` identity every stored declaration repeated.
+    #[must_use]
+    pub const fn strategy_design_identity(&self) -> BindingDigest {
+        self.strategy_design_identity
+    }
+
+    /// Returns the PIT request identity every stored declaration repeated.
+    #[must_use]
+    pub const fn pit_request_identity(&self) -> BindingDigest {
+        self.pit_request_identity
+    }
+
+    /// Returns the exact decision cut shared by every re-read declaration.
+    #[must_use]
+    pub const fn decision_cut(&self) -> u64 {
+        self.decision_cut
+    }
+
+    /// Returns the complete observation-batch digest shared by every re-read declaration.
+    #[must_use]
+    pub const fn observation_batch_digest(&self) -> BindingDigest {
+        self.observation_batch_digest
+    }
+
+    /// Returns the re-derived bindings in canonical input-role order.
+    #[must_use]
+    pub fn bindings(&self) -> &[StrategyInputBindingReceipt] {
+        &self.bindings
+    }
+
+    /// Returns the single joint event frame sealed over every re-derived binding.
+    #[must_use]
+    pub const fn frame(&self) -> &StrategyInputEventFrameReceipt {
+        &self.frame
+    }
+
+    /// Returns the digest binding the claim, every stored meaning, and every re-derived receipt.
+    #[must_use]
+    pub const fn digest(&self) -> BindingDigest {
+        self.digest
+    }
+}
+
+/// Canonicalizes the claimed role set into the exact ascending read order.
+///
+/// # Errors
+///
+/// Returns [`StrategyInputCustodyUnavailableV1::InvalidClaim`] for a zero identity, a zero decision
+/// cut, or an empty, oversized, zero-valued, or duplicated role set.
+pub(super) fn canonical_strategy_input_custody_roles_v1(
+    claim: &UntrustedStrategyInputCustodyClaimV1,
+) -> Result<Vec<BindingDigest>, StrategyInputCustodyUnavailableV1> {
+    let zero = [0_u8; 32];
+    if claim.research_request_identity.as_bytes() == &zero
+        || claim.strategy_design_identity.as_bytes() == &zero
+        || claim.pit_request_identity.as_bytes() == &zero
+        || claim.decision_cut == 0
+        || claim.input_role_identities.is_empty()
+        || claim.input_role_identities.len() > MAX_STRATEGY_INPUT_CUSTODY_ROLES_V1
+        || claim
+            .input_role_identities
+            .iter()
+            .any(|identity| identity.as_bytes() == &zero)
+    {
+        return Err(StrategyInputCustodyUnavailableV1::InvalidClaim);
+    }
+    let mut roles = claim.input_role_identities.clone();
+    roles.sort_unstable_by(|left, right| left.as_bytes().cmp(right.as_bytes()));
+    roles.dedup();
+    if roles.len() != claim.input_role_identities.len() {
+        return Err(StrategyInputCustodyUnavailableV1::InvalidClaim);
+    }
+    Ok(roles)
+}
+
+/// Seals one complete persisted Composer input custody from freshly re-derived Owner evidence.
+///
+/// Declarations must arrive in canonical ascending role order, one per claimed role, each already
+/// re-bound against the live native batch, together with the one joint frame sealed over them.
+///
+/// # Errors
+///
+/// Returns a redacted fail-closed category for a malformed claim, incomplete or surplus role
+/// coverage, a stored request that names another Research request, Design, or PIT request, a stored
+/// decision cut other than the required one, a lineage cut that is no longer shared, or a frame that
+/// does not carry exactly one value per re-derived binding. No error carries a partial receipt.
+pub(super) fn seal_strategy_input_custody_v1(
+    claim: &UntrustedStrategyInputCustodyClaimV1,
+    declarations: &[StrategyInputCustodyDeclarationV1<'_>],
+    frame: &StrategyInputEventFrameReceipt,
+) -> Result<StrategyInputCustodyReadbackV1, StrategyInputCustodyUnavailableV1> {
+    let roles = canonical_strategy_input_custody_roles_v1(claim)?;
+    if declarations.len() != roles.len() {
+        return Err(StrategyInputCustodyUnavailableV1::RoleCoverageMismatch);
+    }
+    let first = declarations
+        .first()
+        .ok_or(StrategyInputCustodyUnavailableV1::RoleCoverageMismatch)?
+        .request;
+
+    for (declaration, role_identity) in declarations.iter().zip(&roles) {
+        let request = declaration.request;
+        if declaration.request_meaning_digest.as_bytes() == &[0; 32] {
+            return Err(StrategyInputCustodyUnavailableV1::DeclarationUntrusted);
+        }
+        if request.research_request_identity != claim.research_request_identity {
+            return Err(StrategyInputCustodyUnavailableV1::ResearchRequestMismatch);
+        }
+        if request.strategy_design_identity != claim.strategy_design_identity {
+            return Err(StrategyInputCustodyUnavailableV1::DesignMismatch);
+        }
+        if request.pit_request_identity != claim.pit_request_identity {
+            return Err(StrategyInputCustodyUnavailableV1::PitRequestMismatch);
+        }
+        if request.input_role_identity != *role_identity {
+            return Err(StrategyInputCustodyUnavailableV1::RoleCoverageMismatch);
+        }
+        if request.decision_cut < claim.decision_cut {
+            return Err(StrategyInputCustodyUnavailableV1::StaleDecisionCut);
+        }
+        if request.decision_cut > claim.decision_cut {
+            return Err(StrategyInputCustodyUnavailableV1::UnexpectedDecisionCut);
+        }
+        if !shares_custody_lineage_cut_v1(first, request) {
+            return Err(StrategyInputCustodyUnavailableV1::LineageDrift);
+        }
+        let locator = declaration.binding.locator();
+        if locator.research_request_identity() != claim.research_request_identity
+            || locator.strategy_design_identity() != claim.strategy_design_identity
+        {
+            return Err(StrategyInputCustodyUnavailableV1::DesignMismatch);
+        }
+        if locator.input_role_identity() != *role_identity {
+            return Err(StrategyInputCustodyUnavailableV1::RoleCoverageMismatch);
+        }
+    }
+
+    let trigger = frame.trigger();
+    if trigger.observation_batch_digest() != first.observation_batch_digest
+        || trigger.snapshot_identity() != first.snapshot_identity
+        || trigger.snapshot_fact_digest() != first.snapshot_fact_digest
+    {
+        return Err(StrategyInputCustodyUnavailableV1::LineageDrift);
+    }
+    if frame.values().len() != declarations.len() {
+        return Err(StrategyInputCustodyUnavailableV1::FrameUnavailable);
+    }
+
+    let mut encoder = Encoder::new(b"VIBE_STRATEGY_INPUT_CUSTODY_V1");
+    encoder.digest(claim.research_request_identity);
+    encoder.digest(claim.strategy_design_identity);
+    encoder.digest(claim.pit_request_identity);
+    encoder.u64(claim.decision_cut);
+    encoder.u64(roles.len() as u64);
+    encoder.digest(trigger.digest());
+    for declaration in declarations {
+        let binding_digest = declaration.binding.digest();
+        let value = frame
+            .values()
+            .iter()
+            .find(|value| value.input_role_identity() == declaration.request.input_role_identity)
+            .ok_or(StrategyInputCustodyUnavailableV1::FrameUnavailable)?;
+        if value.binding_receipt_digest() != binding_digest
+            || value.observation_batch_digest() != first.observation_batch_digest
+        {
+            return Err(StrategyInputCustodyUnavailableV1::FrameUnavailable);
+        }
+        encoder.digest(declaration.request.input_role_identity);
+        encoder.digest(declaration.request_meaning_digest);
+        encoder.digest(binding_digest);
+        encoder.digest(value.digest());
+    }
+    let custody_digest = digest(&encoder.finish());
+
+    let mut claim_encoder = Encoder::new(b"VIBE_STRATEGY_INPUT_CUSTODY_CLAIM_V1");
+    claim_encoder.digest(claim.research_request_identity);
+    claim_encoder.digest(claim.strategy_design_identity);
+    claim_encoder.digest(claim.pit_request_identity);
+    claim_encoder.u64(claim.decision_cut);
+    claim_encoder.u64(roles.len() as u64);
+    for role_identity in &roles {
+        claim_encoder.digest(*role_identity);
+    }
+
+    Ok(StrategyInputCustodyReadbackV1 {
+        claim_identity: digest(&claim_encoder.finish()),
+        research_request_identity: claim.research_request_identity,
+        strategy_design_identity: claim.strategy_design_identity,
+        pit_request_identity: claim.pit_request_identity,
+        decision_cut: claim.decision_cut,
+        observation_batch_digest: first.observation_batch_digest,
+        bindings: declarations
+            .iter()
+            .map(|declaration| declaration.binding.clone())
+            .collect::<Vec<_>>()
+            .into_boxed_slice(),
+        frame: frame.clone(),
+        digest: custody_digest,
+    })
+}
+
+/// Returns whether two stored requests name one shared Owner lineage cut.
+fn shares_custody_lineage_cut_v1(
+    first: &UntrustedStrategyInputBindingRequest,
+    candidate: &UntrustedStrategyInputBindingRequest,
+) -> bool {
+    first.pit_request_digest == candidate.pit_request_digest
+        && first.snapshot_identity == candidate.snapshot_identity
+        && first.snapshot_fact_digest == candidate.snapshot_fact_digest
+        && first.observation_batch_digest == candidate.observation_batch_digest
+        && first.source_binding_identity == candidate.source_binding_identity
+        && first.source_frontier_digest == candidate.source_frontier_digest
+        && first.correction_frontier_digest == candidate.correction_frontier_digest
+        && first.instrument_master_digest == candidate.instrument_master_digest
+        && first.universe_selection_digest == candidate.universe_selection_digest
+        && first.market_semantics_identity == candidate.market_semantics_identity
+}
+
 pub const STRATEGY_INPUT_FIXED_I128_LE_V1: &str = "strategy.input.fixed-i128-le.v1";
 
 /// Resolves one exact role against one Owner-verified complete PIT observation batch.
@@ -1936,6 +2260,337 @@ mod tests {
             member_row("MSFT.CLOSE", "MSFT", "MSFT.XNAS", "CLOSE"),
             member_row("MSFT.OPEN", "MSFT", "MSFT.XNAS", "OPEN"),
         ]
+    }
+
+    fn custody_requests() -> [UntrustedStrategyInputBindingRequest; 2] {
+        let close = request();
+        let mut open = request();
+        open.input_role_identity = d(23);
+        open.field_semantic = MarketDataFieldSemantic::BarOpenPrice;
+        [close, open]
+    }
+
+    fn custody_batch() -> VerifiedPitObservationBatch {
+        let mut open = row("AAPL.OPEN", "AAPL.XNAS", "1M");
+        open.field = "OPEN".into();
+        batch(vec![row("AAPL.CLOSE", "AAPL.XNAS", "1M"), open])
+    }
+
+    fn custody_claim() -> UntrustedStrategyInputCustodyClaimV1 {
+        UntrustedStrategyInputCustodyClaimV1 {
+            research_request_identity: d(20),
+            strategy_design_identity: d(21),
+            pit_request_identity: d(1),
+            // Deliberately unsorted: the Owner canonicalizes, the caller does not choose the order.
+            input_role_identities: vec![d(23), d(22)],
+            decision_cut: 40,
+        }
+    }
+
+    fn custody_evidence(
+        requests: &[UntrustedStrategyInputBindingRequest],
+    ) -> (
+        Vec<StrategyInputBindingReceipt>,
+        StrategyInputEventFrameReceipt,
+    ) {
+        let verified = custody_batch();
+        let bindings = requests
+            .iter()
+            .map(|request| bind_strategy_input_role(request, &verified).expect("exact binding"))
+            .collect::<Vec<_>>();
+        let frame =
+            bind_strategy_input_event_frame(&bindings, &verified).expect("complete joint frame");
+        (bindings, frame)
+    }
+
+    fn custody_declarations<'a>(
+        requests: &'a [UntrustedStrategyInputBindingRequest],
+        bindings: &'a [StrategyInputBindingReceipt],
+    ) -> Vec<StrategyInputCustodyDeclarationV1<'a>> {
+        requests
+            .iter()
+            .zip(bindings)
+            .enumerate()
+            .map(
+                |(ordinal, (request, binding))| StrategyInputCustodyDeclarationV1 {
+                    request,
+                    request_meaning_digest: d(200 + u8::try_from(ordinal).expect("bounded roles")),
+                    binding,
+                },
+            )
+            .collect()
+    }
+
+    #[rstest]
+    fn persisted_custody_seals_one_deterministic_order_independent_receipt() {
+        let requests = custody_requests();
+        let (bindings, frame) = custody_evidence(&requests);
+        let declarations = custody_declarations(&requests, &bindings);
+
+        let sealed = seal_strategy_input_custody_v1(&custody_claim(), &declarations, &frame)
+            .expect("complete persisted custody");
+        let replay = seal_strategy_input_custody_v1(&custody_claim(), &declarations, &frame)
+            .expect("deterministic replay");
+        assert_eq!(sealed, replay);
+
+        let mut reordered_claim = custody_claim();
+        reordered_claim.input_role_identities = vec![d(22), d(23)];
+        let reordered = seal_strategy_input_custody_v1(&reordered_claim, &declarations, &frame)
+            .expect("arrival order is not caller authority");
+        assert_eq!(reordered.claim_identity(), sealed.claim_identity());
+        assert_eq!(reordered.digest(), sealed.digest());
+
+        assert_ne!(sealed.digest().as_bytes(), &[0; 32]);
+        assert_ne!(sealed.claim_identity().as_bytes(), &[0; 32]);
+        assert_ne!(sealed.digest(), sealed.claim_identity());
+        assert_eq!(sealed.decision_cut(), 40);
+        assert_eq!(sealed.observation_batch_digest(), d(5));
+        assert_eq!(sealed.research_request_identity(), d(20));
+        assert_eq!(sealed.strategy_design_identity(), d(21));
+        assert_eq!(sealed.pit_request_identity(), d(1));
+        assert_eq!(
+            sealed
+                .bindings()
+                .iter()
+                .map(|binding| binding.locator().input_role_identity())
+                .collect::<Vec<_>>(),
+            vec![d(22), d(23)]
+        );
+        assert_eq!(sealed.frame().values().len(), 2);
+    }
+
+    #[rstest]
+    fn persisted_custody_digest_binds_every_stored_meaning_and_owner_receipt() {
+        let requests = custody_requests();
+        let (bindings, frame) = custody_evidence(&requests);
+        let baseline = seal_strategy_input_custody_v1(
+            &custody_claim(),
+            &custody_declarations(&requests, &bindings),
+            &frame,
+        )
+        .expect("complete persisted custody");
+
+        let mut retampered = custody_declarations(&requests, &bindings);
+        retampered[1].request_meaning_digest = d(210);
+        let moved = seal_strategy_input_custody_v1(&custody_claim(), &retampered, &frame)
+            .expect("stored meaning is evidence, not authority");
+        assert_ne!(moved.digest(), baseline.digest());
+        assert_eq!(moved.claim_identity(), baseline.claim_identity());
+    }
+
+    #[rstest]
+    fn persisted_custody_rejects_a_zero_meaning_digest() {
+        let requests = custody_requests();
+        let (bindings, frame) = custody_evidence(&requests);
+        let mut declarations = custody_declarations(&requests, &bindings);
+        declarations[0].request_meaning_digest = BindingDigest::from_untrusted_bytes([0; 32]);
+        assert_eq!(
+            seal_strategy_input_custody_v1(&custody_claim(), &declarations, &frame),
+            Err(StrategyInputCustodyUnavailableV1::DeclarationUntrusted)
+        );
+    }
+
+    #[rstest]
+    fn persisted_custody_rejects_a_declaration_bound_to_another_design_lineage() {
+        let requests = custody_requests();
+        let (bindings, frame) = custody_evidence(&requests);
+
+        for (mutate, expected) in [
+            (
+                (|claim: &mut UntrustedStrategyInputCustodyClaimV1| {
+                    claim.research_request_identity = d(90);
+                }) as fn(&mut UntrustedStrategyInputCustodyClaimV1),
+                StrategyInputCustodyUnavailableV1::ResearchRequestMismatch,
+            ),
+            (
+                |claim| claim.strategy_design_identity = d(91),
+                StrategyInputCustodyUnavailableV1::DesignMismatch,
+            ),
+            (
+                |claim| claim.pit_request_identity = d(92),
+                StrategyInputCustodyUnavailableV1::PitRequestMismatch,
+            ),
+        ] {
+            let mut claim = custody_claim();
+            mutate(&mut claim);
+            assert_eq!(
+                seal_strategy_input_custody_v1(
+                    &claim,
+                    &custody_declarations(&requests, &bindings),
+                    &frame
+                ),
+                Err(expected)
+            );
+        }
+    }
+
+    #[rstest]
+    fn persisted_custody_rejects_a_stale_or_unexpected_decision_cut() {
+        let requests = custody_requests();
+        let (bindings, frame) = custody_evidence(&requests);
+
+        let mut ahead = custody_claim();
+        ahead.decision_cut = 41;
+        assert_eq!(
+            seal_strategy_input_custody_v1(
+                &ahead,
+                &custody_declarations(&requests, &bindings),
+                &frame
+            ),
+            Err(StrategyInputCustodyUnavailableV1::StaleDecisionCut)
+        );
+
+        let mut behind = custody_claim();
+        behind.decision_cut = 39;
+        assert_eq!(
+            seal_strategy_input_custody_v1(
+                &behind,
+                &custody_declarations(&requests, &bindings),
+                &frame
+            ),
+            Err(StrategyInputCustodyUnavailableV1::UnexpectedDecisionCut)
+        );
+    }
+
+    #[rstest]
+    fn persisted_custody_rejects_incomplete_or_surplus_role_coverage() {
+        let requests = custody_requests();
+        let (bindings, frame) = custody_evidence(&requests);
+        let declarations = custody_declarations(&requests, &bindings);
+
+        assert_eq!(
+            seal_strategy_input_custody_v1(&custody_claim(), &declarations[..1], &frame),
+            Err(StrategyInputCustodyUnavailableV1::RoleCoverageMismatch)
+        );
+
+        let mut surplus = custody_claim();
+        surplus.input_role_identities = vec![d(22)];
+        assert_eq!(
+            seal_strategy_input_custody_v1(&surplus, &declarations, &frame),
+            Err(StrategyInputCustodyUnavailableV1::RoleCoverageMismatch)
+        );
+
+        let mut unclaimed = custody_claim();
+        unclaimed.input_role_identities = vec![d(22), d(24)];
+        assert_eq!(
+            seal_strategy_input_custody_v1(&unclaimed, &declarations, &frame),
+            Err(StrategyInputCustodyUnavailableV1::RoleCoverageMismatch)
+        );
+    }
+
+    #[rstest]
+    fn persisted_custody_rejects_declarations_that_left_one_shared_lineage_cut() {
+        let requests = custody_requests();
+        let (bindings, frame) = custody_evidence(&requests);
+        let mutations: &[fn(&mut UntrustedStrategyInputBindingRequest)] = &[
+            |v| v.pit_request_digest = d(90),
+            |v| v.snapshot_identity = d(90),
+            |v| v.snapshot_fact_digest = d(90),
+            |v| v.observation_batch_digest = d(90),
+            |v| v.source_binding_identity = d(90),
+            |v| v.source_frontier_digest = d(90),
+            |v| v.correction_frontier_digest = d(90),
+            |v| v.instrument_master_digest = d(90),
+            |v| v.universe_selection_digest = d(90),
+            |v| v.market_semantics_identity = d(90),
+        ];
+
+        for mutate in mutations {
+            // The binding stays the Owner-derived positive; only the stored request drifts.
+            let mut drifted = requests.clone();
+            mutate(&mut drifted[1]);
+            assert_eq!(
+                seal_strategy_input_custody_v1(
+                    &custody_claim(),
+                    &custody_declarations(&drifted, &bindings),
+                    &frame
+                ),
+                Err(StrategyInputCustodyUnavailableV1::LineageDrift)
+            );
+        }
+    }
+
+    #[rstest]
+    fn persisted_custody_rejects_a_frame_from_another_observation_cut() {
+        let requests = custody_requests();
+        let (bindings, _) = custody_evidence(&requests);
+        let mut drifted_batch = custody_batch();
+        drifted_batch.digest = d(90);
+        let drifted_frame = bind_strategy_input_event_frame(&bindings, &drifted_batch)
+            .expect("frame over the same rows");
+        assert_eq!(
+            seal_strategy_input_custody_v1(
+                &custody_claim(),
+                &custody_declarations(&requests, &bindings),
+                &drifted_frame
+            ),
+            Err(StrategyInputCustodyUnavailableV1::LineageDrift)
+        );
+    }
+
+    #[rstest]
+    fn persisted_custody_rejects_a_frame_missing_one_re_derived_binding() {
+        let requests = custody_requests();
+        let (bindings, _) = custody_evidence(&requests);
+        let verified = custody_batch();
+        let partial =
+            bind_strategy_input_event_frame(&bindings[..1], &verified).expect("single-role frame");
+        assert_eq!(
+            seal_strategy_input_custody_v1(
+                &custody_claim(),
+                &custody_declarations(&requests, &bindings),
+                &partial
+            ),
+            Err(StrategyInputCustodyUnavailableV1::FrameUnavailable)
+        );
+    }
+
+    #[rstest]
+    fn persisted_custody_rejects_every_malformed_claim() {
+        let requests = custody_requests();
+        let (bindings, frame) = custody_evidence(&requests);
+        let mutations: &[fn(&mut UntrustedStrategyInputCustodyClaimV1)] = &[
+            |v| v.research_request_identity = BindingDigest::from_untrusted_bytes([0; 32]),
+            |v| v.strategy_design_identity = BindingDigest::from_untrusted_bytes([0; 32]),
+            |v| v.pit_request_identity = BindingDigest::from_untrusted_bytes([0; 32]),
+            |v| v.decision_cut = 0,
+            |v| v.input_role_identities = Vec::new(),
+            |v| v.input_role_identities = vec![d(22), d(22)],
+            |v| {
+                v.input_role_identities
+                    .push(BindingDigest::from_untrusted_bytes([0; 32]));
+            },
+            |v| {
+                v.input_role_identities = (0..=MAX_STRATEGY_INPUT_CUSTODY_ROLES_V1)
+                    .map(|ordinal| {
+                        BindingDigest::from_untrusted_bytes(
+                            [u8::try_from(ordinal % 251).expect("bounded") + 1; 32],
+                        )
+                    })
+                    .collect();
+            },
+        ];
+
+        for mutate in mutations {
+            let mut claim = custody_claim();
+            mutate(&mut claim);
+            assert_eq!(
+                canonical_strategy_input_custody_roles_v1(&claim),
+                Err(StrategyInputCustodyUnavailableV1::InvalidClaim)
+            );
+            assert_eq!(
+                seal_strategy_input_custody_v1(
+                    &claim,
+                    &custody_declarations(&requests, &bindings),
+                    &frame
+                ),
+                Err(StrategyInputCustodyUnavailableV1::InvalidClaim)
+            );
+        }
+        assert_eq!(
+            canonical_strategy_input_custody_roles_v1(&custody_claim()),
+            Ok(vec![d(22), d(23)])
+        );
     }
 
     #[rstest]

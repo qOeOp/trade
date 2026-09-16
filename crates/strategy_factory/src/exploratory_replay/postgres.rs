@@ -1,5 +1,10 @@
 use std::fmt::Display;
 
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+pub(crate) mod composer_commit_v3;
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+pub(crate) mod composer_readback_v3;
+
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -8,7 +13,9 @@ use vibe_backtest_owner_contracts::{ReplayNamespaceV2, ReplayRequestDtoV2, Repla
 use vibe_product_edge::ProductEdgeAdmissionReadbackV1;
 
 use crate::{
-    artifact_build::{ArtifactBuildDisposition, verify_artifact_build_admission},
+    artifact_build::{
+        ArtifactBuildDisposition, ArtifactBuildIntentV1, verify_artifact_build_admission,
+    },
     exploratory_replay::{
         EXPLORATORY_REPLAY_MUTATION_EFFECT_V1, EXPLORATORY_REPLAY_MUTATION_EFFECT_V2,
         EXPLORATORY_REPLAY_OPERATION_V1, EXPLORATORY_REPLAY_OPERATION_V2,
@@ -38,12 +45,16 @@ use crate::{
         MarketDataRepairResolutionLocatorV1, MarketDataRepairResolutionReadbackV1,
     },
     product_edge::{
-        FrozenResearchGoalIntent, RESEARCH_OWNER_V1, RESEARCH_SCOPE_V1, ResearchExplorationViewV1,
-        ResearchNextLegalAction, ResearchRequestDisposition, ResearchViewAvailability,
-        ResearchViewPhase, canonical_research_view_identity_v3,
+        RESEARCH_OWNER_V1, RESEARCH_SCOPE_V1, ResearchExplorationViewV1, ResearchNextLegalAction,
+        ResearchRequestDisposition, ResearchViewAvailability, ResearchViewPhase,
+        canonical_research_view_identity_v3,
     },
     rd_owner_postgres_custody::{AttemptState, VerifiedAttemptCustodyV1},
     replay_execution_profile_binding_v1::ReplayExecutionProfileRequestSealV1,
+    successor_intent_postgres::{
+        advance_successor_research_view_in_transaction, lock_successor_research_view_in_transaction,
+    },
+    trial_family_postgres::load_trial_family_census_v2_by_family_in_transaction,
 };
 
 const LOCK_FUNCTION: &str = "rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)";
@@ -51,6 +62,7 @@ const INTERNAL_VERIFY_FUNCTION: &str =
     "rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text)";
 const LOCK_FUNCTION_V2: &str =
     "rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)";
+const LEGACY_REPLAY_SOURCE_KIND_V1: &str = "LEGACY_ARTIFACT_BUILD_V1";
 #[expect(
     clippy::needless_raw_strings,
     reason = "fixed SQL source is compared byte-for-byte"
@@ -172,6 +184,12 @@ const INTERNAL_VERIFY_SOURCE_V1: &str = r#"
             result_availability := 'STALE';
           END IF;
           IF sealed.lifecycle_state NOT IN ('FROZEN','REVOKED')
+             OR sealed.source_kind <> 'LEGACY_ARTIFACT_BUILD_V1'
+             OR sealed.composer_source_json IS NOT NULL
+             OR sealed.build_request_identity IS NULL
+             OR sealed.attempt_identity IS NULL
+             OR sealed.build_receipt_identity IS NULL
+             OR sealed.artifact_family_binding_identity IS NULL
              OR (requested_receipt_identity <> '' AND sealed.receipt_json->>'receipt_identity' <> requested_receipt_identity)
              OR sealed.frozen_json->>'schema_version' <> '1'
              OR coalesce(sealed.frozen_json->>'request_schema_version','1') <> sealed.request_schema_version::text
@@ -241,11 +259,82 @@ const INTERNAL_VERIFY_SOURCE_V1: &str = r#"
                        AND research.view_json->>'source_cut'='rd-exploration-cut-v1-' || pg_catalog.substring(active.v2_seal_digest,8)
                   ))
                )
+          ) AND NOT EXISTS (
+            SELECT 1
+              FROM public.rd_trial_families_v1 family
+              JOIN public.rd_research_request_receipts_v1 root_research
+                ON root_research.intent_json->>'intent_identity'=family.intent_identity
+              JOIN public.rd_successor_research_intents_v1 successor
+                ON successor.intent_identity=sealed.intent_identity
+               AND successor.trial_family_identity=family.trial_family_identity
+               AND successor.predecessor_intent_identity=family.intent_identity
+              JOIN public.rd_owner_outbox_v1 successor_outbox
+                ON successor_outbox.aggregate_identity=sealed.intent_identity
+               AND successor_outbox.event_kind='SUCCESSOR_RESEARCH_INTENT_COMMITTED_V1'
+             WHERE family.trial_family_identity=sealed.trial_family_identity
+               AND family.root_digest=sealed.frozen_json->>'trial_family_root_digest'
+               AND family.intent_identity<>sealed.intent_identity
+               AND root_research.receipt_json->>'disposition'='ACCEPTED'
+               AND root_research.view_json->>'availability'='AVAILABLE'
+               AND successor.intent_digest=sealed.frozen_json->>'intent_semantic_digest'
+               AND successor.receipt_json->>'receipt_identity'=sealed.frozen_json->>'research_receipt_identity'
+               AND successor.view_json->>'availability'='AVAILABLE'
+               AND successor.view_json->>'attempt_identity'=sealed.attempt_identity
+               AND successor.view_json->>'artifact_identity'=sealed.artifact_identity
+               AND successor.view_json->>'build_receipt_identity'=sealed.build_receipt_identity
+               AND successor.view_json->>'artifact_review_identity'=sealed.frozen_json->>'artifact_review_identity'
+               AND successor.view_json->>'schema_version'='2'
+               AND successor.view_json->>'phase'='EXPLORATION_ACTIVE'
+               AND EXISTS (
+                 SELECT 1
+                   FROM public.rd_sealed_exploratory_replay_requests_v1 active
+                  WHERE active.request_identity=successor.view_json->'exploration'->>'replay_request_identity'
+                    AND active.request_schema_version=2
+                    AND active.lifecycle_state IN ('FROZEN','REVOKED')
+                    AND active.trial_family_identity=sealed.trial_family_identity
+                    AND active.census_frontier_identity=sealed.census_frontier_identity
+                    AND active.artifact_identity=sealed.artifact_identity
+                    AND active.v2_meaning_digest=successor.view_json->'exploration'->>'replay_request_meaning_digest'
+                    AND active.v2_seal_digest=successor.view_json->'exploration'->>'replay_request_seal_digest'
+                    AND active.v2_receipt_json->>'receipt_identity'=successor.view_json->'exploration'->>'replay_receipt_identity'
+                    AND active.frozen_json->>'census_frontier_digest'=successor.view_json->'exploration'->>'census_frontier_digest'
+                    AND active.trial_family_identity=successor.view_json->'exploration'->>'trial_family_identity'
+                    AND active.census_frontier_identity=successor.view_json->'exploration'->>'census_frontier_identity'
+                    AND successor.view_json->>'source_cut'='rd-exploration-cut-v1-' || pg_catalog.substring(active.v2_seal_digest,8)
+               )
+               AND successor_outbox.payload_json->>'schema_version'='1'
+               AND successor_outbox.payload_json->>'intent_identity'=sealed.intent_identity
+               AND successor_outbox.payload_json->>'intent_digest'=sealed.frozen_json->>'intent_semantic_digest'
+               AND successor_outbox.payload_json->>'predecessor_intent_identity'=family.intent_identity
+               AND successor_outbox.payload_json->>'trial_family_identity'=family.trial_family_identity
+               AND successor_outbox.payload_json->>'census_frontier_identity'=sealed.census_frontier_identity
+               AND successor_outbox.payload_json->>'receipt_identity'<>''
+               AND successor_outbox.payload_json->>'request_identity'<>''
+               AND successor_outbox.payload_json->>'decision_identity'<>''
+               AND successor_outbox.payload_json->>'decision_digest' ~ '^sha256:[0-9a-f]{64}$'
+               AND successor_outbox.payload_json->>'result_identity'<>''
+               AND successor_outbox.payload_json->>'experiment_identity'<>''
+               AND successor_outbox.payload_json->>'experiment_digest' ~ '^sha256:[0-9a-f]{64}$'
+               AND successor_outbox.payload_digest ~ '^blake3:[0-9a-f]{64}$'
+               AND successor_outbox.event_identity='rd-owner-outbox-successor-research-intent-v1-' || successor_outbox.payload_digest
+               AND successor_outbox.committed_at_epoch_ms<=sealed.committed_at_epoch_ms
           ) OR NOT EXISTS (
             SELECT 1 FROM public.rd_trial_families_v1 family
              WHERE family.trial_family_identity=sealed.trial_family_identity
-               AND family.intent_identity=sealed.intent_identity
                AND family.root_digest=sealed.frozen_json->>'trial_family_root_digest'
+               AND (
+                 family.intent_identity=sealed.intent_identity
+                 OR EXISTS (
+                   SELECT 1 FROM public.rd_owner_outbox_v1 successor_outbox
+                    WHERE successor_outbox.aggregate_identity=sealed.intent_identity
+                      AND successor_outbox.event_kind='SUCCESSOR_RESEARCH_INTENT_COMMITTED_V1'
+                      AND successor_outbox.payload_json->>'schema_version'='1'
+                      AND successor_outbox.payload_json->>'intent_identity'=sealed.intent_identity
+                      AND successor_outbox.payload_json->>'intent_digest'=sealed.frozen_json->>'intent_semantic_digest'
+                      AND successor_outbox.payload_json->>'predecessor_intent_identity'=family.intent_identity
+                      AND successor_outbox.payload_json->>'trial_family_identity'=family.trial_family_identity
+                 )
+               )
           ) OR NOT EXISTS (
             SELECT 1 FROM public.rd_artifact_trial_family_bindings_v1 binding
              WHERE binding.binding_identity=sealed.artifact_family_binding_identity
@@ -280,6 +369,8 @@ const INTERNAL_VERIFY_SOURCE_V1: &str = r#"
               FROM public.rd_owner_outbox_v1 family_outbox
               JOIN public.rd_trial_families_v1 family
                 ON family.trial_family_identity=family_outbox.aggregate_identity
+              JOIN public.rd_research_request_receipts_v1 root_research
+                ON root_research.intent_json->>'intent_identity'=family.intent_identity
               JOIN public.rd_trial_family_members_v1 member
                 ON member.trial_family_identity=family.trial_family_identity
                AND member.ordinal=0
@@ -287,19 +378,32 @@ const INTERNAL_VERIFY_SOURCE_V1: &str = r#"
                AND family_outbox.event_kind='TRIAL_FAMILY_FROZEN_V1'
                AND family_outbox.payload_digest=sealed.frozen_json->>'trial_family_outbox_digest'
                AND family_outbox.event_identity=sealed.frozen_json->>'trial_family_outbox_event_identity'
-               AND family_outbox.event_identity='rd-owner-outbox-v1-' || pg_catalog.replace(sealed.frozen_json->>'census_frontier_digest','sha256:','')
+               AND family_outbox.event_identity='rd-owner-outbox-v1-' || pg_catalog.replace(
+                 CASE WHEN family.intent_identity=sealed.intent_identity
+                   THEN sealed.frozen_json->>'census_frontier_digest'
+                   ELSE pg_catalog.convert_from(family.initial_frontier_storage_bytes,'UTF8')::jsonb->>'frontier_digest'
+                 END,
+                 'sha256:',
+                 ''
+               )
                AND family_outbox.committed_at_epoch_ms=(sealed.frozen_json->>'trial_family_outbox_committed_at_epoch_ms')::bigint
                AND family_outbox.committed_at_epoch_ms=family.committed_at_epoch_ms
                AND family_outbox.payload_json=(
                  pg_catalog.jsonb_build_object(
                    'schema_version',1,
-                   'research_receipt_identity',sealed.frozen_json->>'research_receipt_identity',
-                   'intent_identity',sealed.intent_identity,
+                   'research_receipt_identity',root_research.receipt_json->>'receipt_identity',
+                   'intent_identity',family.intent_identity,
                    'trial_family_identity',sealed.trial_family_identity,
                    'root_receipt_identity',family.root_receipt_json->>'receipt_identity',
                    'membership_receipt_identity',member.membership_receipt_json->>'receipt_identity',
-                   'census_frontier_identity',sealed.census_frontier_identity,
-                   'census_frontier_digest',sealed.frozen_json->>'census_frontier_digest'
+                   'census_frontier_identity',CASE WHEN family.intent_identity=sealed.intent_identity
+                     THEN sealed.census_frontier_identity
+                     ELSE pg_catalog.convert_from(family.initial_frontier_storage_bytes,'UTF8')::jsonb->>'frontier_identity'
+                   END,
+                   'census_frontier_digest',CASE WHEN family.intent_identity=sealed.intent_identity
+                     THEN sealed.frozen_json->>'census_frontier_digest'
+                     ELSE pg_catalog.convert_from(family.initial_frontier_storage_bytes,'UTF8')::jsonb->>'frontier_digest'
+                   END
                  ) || CASE
                    WHEN family.root_json->'policy' ? 'replay_execution_policy_v2'
                    THEN pg_catalog.jsonb_build_object(
@@ -317,6 +421,60 @@ const INTERNAL_VERIFY_SOURCE_V1: &str = r#"
                    ELSE '{}'::pg_catalog.jsonb
                  END
                )
+          ) OR (
+            EXISTS (
+              SELECT 1 FROM public.rd_successor_research_intents_v1 successor
+               WHERE successor.intent_identity=sealed.intent_identity
+                 AND successor.trial_family_identity=sealed.trial_family_identity
+            )
+            AND NOT EXISTS (
+              SELECT 1
+                FROM public.rd_trial_family_heads_v1 family_head
+                JOIN public.rd_trial_family_attempt_cuts_v2 census_cut
+                  ON census_cut.trial_family_identity=family_head.trial_family_identity
+                 AND census_cut.census_frontier_identity=family_head.frontier_identity
+                JOIN public.rd_owner_outbox_v1 census_outbox
+                  ON census_outbox.aggregate_identity=census_cut.census_frontier_identity
+                 AND census_outbox.event_kind='TRIAL_FAMILY_CENSUS_ADVANCED_V2'
+                JOIN public.rd_owner_outbox_v1 family_outbox
+                  ON family_outbox.aggregate_identity=family_head.trial_family_identity
+                 AND family_outbox.event_kind='TRIAL_FAMILY_FROZEN_V1'
+               WHERE family_head.trial_family_identity=sealed.trial_family_identity
+                 AND family_head.frontier_identity=sealed.census_frontier_identity
+                 AND family_head.frontier_digest=sealed.frozen_json->>'census_frontier_digest'
+                 AND family_head.frontier_json=census_cut.census_frontier_json
+                 AND family_head.frontier_storage_bytes=census_cut.census_frontier_storage_bytes
+                 AND family_head.frontier_storage_digest=census_cut.census_frontier_storage_digest
+                 AND census_cut.census_frontier_json->>'schema_version'='2'
+                 AND census_cut.census_frontier_json->>'trial_family_identity'=sealed.trial_family_identity
+                 AND census_cut.census_frontier_json->>'frontier_identity'=sealed.census_frontier_identity
+                 AND census_cut.census_frontier_json->>'frontier_digest'=sealed.frozen_json->>'census_frontier_digest'
+                 AND census_cut.census_frontier_json->>'attempt_frontier_identity'=census_cut.attempt_frontier_identity
+                 AND census_cut.census_frontier_json->>'candidate_set_frontier_identity'=census_cut.candidate_set_frontier_identity
+                 AND census_outbox.event_identity='rd-owner-outbox-v2-' || pg_catalog.replace(family_head.frontier_digest,'sha256:','')
+                 AND census_outbox.payload_digest ~ '^sha256:[0-9a-f]{64}$'
+                 AND census_outbox.committed_at_epoch_ms=census_cut.committed_at_epoch_ms
+                 AND census_outbox.payload_json=(
+                   pg_catalog.jsonb_build_object(
+                     'schema_version',2,
+                     'research_receipt_identity',family_outbox.payload_json->>'research_receipt_identity',
+                     'trial_family_identity',sealed.trial_family_identity,
+                     'census_frontier_identity',sealed.census_frontier_identity,
+                     'census_frontier_digest',sealed.frozen_json->>'census_frontier_digest',
+                     'attempt_frontier_identity',census_cut.attempt_frontier_identity,
+                     'attempt_frontier_digest',census_cut.attempt_frontier_json->>'frontier_digest',
+                     'candidate_set_frontier_identity',census_cut.candidate_set_frontier_identity,
+                     'candidate_set_frontier_digest',census_cut.candidate_set_frontier_json->>'frontier_digest'
+                   ) || CASE
+                     WHEN census_cut.census_frontier_json ? 'replay_policy_catalog_v3'
+                     THEN pg_catalog.jsonb_build_object(
+                       'replay_policy_catalog_v3',
+                       census_cut.census_frontier_json->'replay_policy_catalog_v3'
+                     )
+                     ELSE '{}'::pg_catalog.jsonb
+                   END
+                 )
+            )
           ) OR NOT EXISTS (
             SELECT 1
               FROM public.rd_owner_outbox_v1 artifact_outbox
@@ -733,10 +891,34 @@ struct StoredReceiptV2 {
 
 #[derive(Debug, Clone)]
 struct PreparedSealV2 {
-    proposal: ExploratoryReplayRequestProposalV2,
     canonical_request_bytes: Vec<u8>,
     meaning_digest: String,
     execution_profile_seal: Option<ReplayExecutionProfileRequestSealV1>,
+}
+
+#[derive(Debug, Clone)]
+struct PreparedLegacyReplayV2 {
+    proposal: ExploratoryReplayRequestProposalV2,
+    seal: PreparedSealV2,
+}
+
+#[derive(Clone, Copy)]
+struct ReplaySealBindingV2<'a> {
+    request_identity: &'a str,
+    request_digest: &'a str,
+    execution_profile_seal: Option<&'a ReplayExecutionProfileRequestSealV1>,
+    committed_at_epoch_ms: u64,
+}
+
+impl<'a> ReplaySealBindingV2<'a> {
+    fn from_legacy(frozen: &'a StoredFrozenV1) -> Self {
+        Self {
+            request_identity: &frozen.proposal.request_identity,
+            request_digest: &frozen.request_digest,
+            execution_profile_seal: frozen.execution_profile_seal.as_ref(),
+            committed_at_epoch_ms: frozen.committed_at_epoch_ms,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -817,13 +999,38 @@ pub(crate) const NATIVE_SOURCE_STORAGE_SOURCE_V2: &str = "
           SELECT * INTO STRICT sealed
             FROM public.rd_sealed_exploratory_replay_requests_v1
            WHERE request_identity=requested_request_identity;
-          SELECT * INTO STRICT research
-            FROM public.rd_research_request_receipts_v1
-           WHERE intent_json->>'intent_identity'=sealed.intent_identity;
-          SELECT * INTO STRICT family
-            FROM public.rd_trial_families_v1
-           WHERE trial_family_identity=sealed.trial_family_identity
-             AND intent_identity=sealed.intent_identity;
+          SELECT source.* INTO STRICT research
+            FROM (
+              SELECT initial.request_identity,initial.view_json,
+                     initial.request_json,initial.receipt_json,initial.intent_json,
+                     initial.request_storage_bytes,initial.request_storage_digest,
+                     initial.receipt_storage_bytes,initial.receipt_storage_digest,
+                     initial.intent_storage_bytes,initial.intent_storage_digest
+                FROM public.rd_research_request_receipts_v1 initial
+               WHERE initial.intent_json->>'intent_identity'=sealed.intent_identity
+              UNION ALL
+              SELECT successor.request_identity,successor.view_json,
+                     successor.request_json,successor.receipt_json,successor.intent_json,
+                     successor.request_storage_bytes,successor.request_storage_digest,
+                     successor.receipt_storage_bytes,successor.receipt_storage_digest,
+                     successor.intent_storage_bytes,successor.intent_storage_digest
+                FROM public.rd_successor_research_intents_v1 successor
+               WHERE successor.intent_identity=sealed.intent_identity
+                 AND successor.trial_family_identity=sealed.trial_family_identity
+            ) source;
+          SELECT root.* INTO STRICT family
+            FROM public.rd_trial_families_v1 root
+           WHERE root.trial_family_identity=sealed.trial_family_identity
+             AND (
+               root.intent_identity=sealed.intent_identity
+               OR EXISTS (
+                 SELECT 1
+                   FROM public.rd_successor_research_intents_v1 successor
+                  WHERE successor.intent_identity=sealed.intent_identity
+                    AND successor.trial_family_identity=sealed.trial_family_identity
+                    AND successor.predecessor_intent_identity=root.intent_identity
+               )
+             );
           SELECT * INTO STRICT member
             FROM public.rd_trial_family_members_v1
            WHERE trial_family_identity=sealed.trial_family_identity AND ordinal=0;
@@ -1095,17 +1302,19 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
             SELECT relation.relkind='r'
                AND relation.relpersistence='p'
                AND (
-                 SELECT pg_catalog.count(*) IN (19,22)
+                 SELECT pg_catalog.count(*) IN (19,21,22,24)
                     AND pg_catalog.bool_and(CASE attribute.attname
                       WHEN 'request_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
                       WHEN 'request_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
-                      WHEN 'build_request_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
-                      WHEN 'attempt_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'source_kind' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'composer_source_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'build_request_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype
+                      WHEN 'attempt_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype
                       WHEN 'intent_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
                       WHEN 'trial_family_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
                       WHEN 'artifact_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
-                      WHEN 'build_receipt_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
-                      WHEN 'artifact_family_binding_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'build_receipt_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype
+                      WHEN 'artifact_family_binding_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype
                       WHEN 'census_frontier_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
                       WHEN 'frozen_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND attribute.attnotnull
                       WHEN 'receipt_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND attribute.attnotnull
@@ -1209,13 +1418,15 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
             CREATE TABLE public.rd_sealed_exploratory_replay_requests_v1 (
               request_identity TEXT PRIMARY KEY,
               request_digest TEXT NOT NULL,
-              build_request_identity TEXT NOT NULL,
-              attempt_identity TEXT NOT NULL,
+              source_kind TEXT NOT NULL DEFAULT 'LEGACY_ARTIFACT_BUILD_V1',
+              composer_source_json JSONB,
+              build_request_identity TEXT,
+              attempt_identity TEXT,
               intent_identity TEXT NOT NULL,
               trial_family_identity TEXT NOT NULL,
               artifact_identity TEXT NOT NULL,
-              build_receipt_identity TEXT NOT NULL,
-              artifact_family_binding_identity TEXT NOT NULL,
+              build_receipt_identity TEXT,
+              artifact_family_binding_identity TEXT,
               census_frontier_identity TEXT NOT NULL,
               frozen_json JSONB NOT NULL,
               receipt_json JSONB NOT NULL,
@@ -1240,6 +1451,13 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
     .map_err(storage)?;
 
     for statement in [
+        "ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1 ADD COLUMN IF NOT EXISTS source_kind TEXT NOT NULL DEFAULT 'LEGACY_ARTIFACT_BUILD_V1'",
+        "ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1 ADD COLUMN IF NOT EXISTS composer_source_json JSONB",
+        "ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1 ALTER COLUMN build_request_identity DROP NOT NULL",
+        "ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1 ALTER COLUMN attempt_identity DROP NOT NULL",
+        "ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1 ALTER COLUMN build_receipt_identity DROP NOT NULL",
+        "ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1 ALTER COLUMN artifact_family_binding_identity DROP NOT NULL",
+        "DO $source_shape$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint WHERE conrelid='public.rd_sealed_exploratory_replay_requests_v1'::pg_catalog.regclass AND conname='rd_sealed_exploratory_replay_source_shape_v1' AND contype='c') THEN ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1 ADD CONSTRAINT rd_sealed_exploratory_replay_source_shape_v1 CHECK ((source_kind='LEGACY_ARTIFACT_BUILD_V1' AND composer_source_json IS NULL AND build_request_identity IS NOT NULL AND attempt_identity IS NOT NULL AND build_receipt_identity IS NOT NULL AND artifact_family_binding_identity IS NOT NULL) OR (source_kind='COMPOSER_V3' AND composer_source_json IS NOT NULL AND build_request_identity IS NULL AND attempt_identity IS NULL AND build_receipt_identity IS NULL AND artifact_family_binding_identity IS NOT NULL)); END IF; END $source_shape$",
         "ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1 ADD COLUMN IF NOT EXISTS v2_request_storage_digest TEXT",
         "ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1 ADD COLUMN IF NOT EXISTS v2_receipt_storage_bytes BYTEA",
         "ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1 ADD COLUMN IF NOT EXISTS v2_receipt_storage_digest TEXT",
@@ -1250,6 +1468,9 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
         "CREATE TABLE IF NOT EXISTS public.rd_native_replay_execution_input_bindings_v1 (request_identity TEXT PRIMARY KEY REFERENCES public.rd_sealed_exploratory_replay_requests_v1(request_identity), request_meaning_digest TEXT NOT NULL, request_receipt_identity TEXT NOT NULL, request_seal_digest TEXT NOT NULL, binding_identity BYTEA UNIQUE NOT NULL CHECK (octet_length(binding_identity)=32), binding_digest BYTEA NOT NULL CHECK (octet_length(binding_digest)=32), canonical_binding_bytes BYTEA NOT NULL CHECK (octet_length(canonical_binding_bytes)>0), committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms>=0))",
         "CREATE TABLE IF NOT EXISTS public.rd_native_replay_execution_input_binding_receipts_v1 (binding_identity BYTEA PRIMARY KEY REFERENCES public.rd_native_replay_execution_input_bindings_v1(binding_identity), receipt_identity BYTEA UNIQUE NOT NULL CHECK (octet_length(receipt_identity)=32), receipt_digest BYTEA NOT NULL CHECK (octet_length(receipt_digest)=32), canonical_receipt_bytes BYTEA NOT NULL CHECK (octet_length(canonical_receipt_bytes)>0), committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms>=0))",
         "CREATE TABLE IF NOT EXISTS public.rd_native_replay_execution_input_binding_outbox_v1 (event_identity BYTEA PRIMARY KEY CHECK (octet_length(event_identity)=32), request_identity TEXT UNIQUE NOT NULL REFERENCES public.rd_native_replay_execution_input_bindings_v1(request_identity), binding_identity BYTEA UNIQUE NOT NULL REFERENCES public.rd_native_replay_execution_input_bindings_v1(binding_identity), receipt_identity BYTEA UNIQUE NOT NULL REFERENCES public.rd_native_replay_execution_input_binding_receipts_v1(receipt_identity), payload_digest BYTEA NOT NULL CHECK (octet_length(payload_digest)=32), canonical_payload_bytes BYTEA NOT NULL CHECK (octet_length(canonical_payload_bytes)>0), committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms>=0))",
+        "CREATE TABLE IF NOT EXISTS public.rd_native_replay_execution_input_bindings_v2 (v1_binding_identity BYTEA PRIMARY KEY REFERENCES public.rd_native_replay_execution_input_bindings_v1(binding_identity), binding_identity BYTEA UNIQUE NOT NULL CHECK (octet_length(binding_identity)=32), owner_sequence_digest BYTEA NOT NULL CHECK (octet_length(owner_sequence_digest)=32), sequence_digest BYTEA NOT NULL CHECK (octet_length(sequence_digest)=32), canonical_binding_bytes BYTEA NOT NULL CHECK (octet_length(canonical_binding_bytes)>0), committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms>=0))",
+        "CREATE TABLE IF NOT EXISTS public.rd_native_replay_execution_input_binding_receipts_v2 (binding_identity BYTEA PRIMARY KEY REFERENCES public.rd_native_replay_execution_input_bindings_v2(binding_identity), receipt_identity BYTEA UNIQUE NOT NULL CHECK (octet_length(receipt_identity)=32), receipt_digest BYTEA NOT NULL CHECK (octet_length(receipt_digest)=32), canonical_receipt_bytes BYTEA NOT NULL CHECK (octet_length(canonical_receipt_bytes)>0), committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms>=0))",
+        "CREATE TABLE IF NOT EXISTS public.rd_native_replay_execution_input_binding_outbox_v2 (event_identity BYTEA PRIMARY KEY CHECK (octet_length(event_identity)=32), v1_binding_identity BYTEA UNIQUE NOT NULL REFERENCES public.rd_native_replay_execution_input_bindings_v2(v1_binding_identity), binding_identity BYTEA UNIQUE NOT NULL REFERENCES public.rd_native_replay_execution_input_bindings_v2(binding_identity), receipt_identity BYTEA UNIQUE NOT NULL REFERENCES public.rd_native_replay_execution_input_binding_receipts_v2(receipt_identity), payload_digest BYTEA NOT NULL CHECK (octet_length(payload_digest)=32), canonical_payload_bytes BYTEA NOT NULL CHECK (octet_length(canonical_payload_bytes)>0), committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms>=0))",
         "ALTER TABLE public.rd_native_replay_execution_input_bindings_v1 OWNER TO rd_owner",
         "ALTER TABLE public.rd_native_replay_execution_input_binding_receipts_v1 OWNER TO rd_owner",
         "ALTER TABLE public.rd_native_replay_execution_input_binding_outbox_v1 OWNER TO rd_owner",
@@ -1432,11 +1653,53 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
                AND research.view_json->>'artifact_identity'=sealed.artifact_identity
                AND research.view_json->>'build_receipt_identity'=sealed.build_receipt_identity
                AND research.view_json->>'artifact_review_identity'=sealed.frozen_json->>'artifact_review_identity'
+          ) AND NOT EXISTS (
+            SELECT 1
+              FROM public.rd_trial_families_v1 family
+              JOIN public.rd_research_request_receipts_v1 research
+                ON research.intent_json->>'intent_identity'=family.intent_identity
+              JOIN public.rd_owner_outbox_v1 successor_outbox
+                ON successor_outbox.aggregate_identity=sealed.intent_identity
+               AND successor_outbox.event_kind='SUCCESSOR_RESEARCH_INTENT_COMMITTED_V1'
+             WHERE family.trial_family_identity=sealed.trial_family_identity
+               AND family.root_digest=sealed.frozen_json->>'trial_family_root_digest'
+               AND family.intent_identity<>sealed.intent_identity
+               AND research.receipt_json->>'receipt_identity'=sealed.frozen_json->>'research_receipt_identity'
+               AND research.receipt_json->>'disposition'='ACCEPTED'
+               AND research.view_json->>'availability'='AVAILABLE'
+               AND successor_outbox.payload_json->>'schema_version'='1'
+               AND successor_outbox.payload_json->>'intent_identity'=sealed.intent_identity
+               AND successor_outbox.payload_json->>'intent_digest'=sealed.frozen_json->>'intent_semantic_digest'
+               AND successor_outbox.payload_json->>'predecessor_intent_identity'=family.intent_identity
+               AND successor_outbox.payload_json->>'trial_family_identity'=family.trial_family_identity
+               AND successor_outbox.payload_json->>'census_frontier_identity'=sealed.census_frontier_identity
+               AND successor_outbox.payload_json->>'receipt_identity'<>''
+               AND successor_outbox.payload_json->>'request_identity'<>''
+               AND successor_outbox.payload_json->>'decision_identity'<>''
+               AND successor_outbox.payload_json->>'decision_digest' ~ '^sha256:[0-9a-f]{64}$'
+               AND successor_outbox.payload_json->>'result_identity'<>''
+               AND successor_outbox.payload_json->>'experiment_identity'<>''
+               AND successor_outbox.payload_json->>'experiment_digest' ~ '^sha256:[0-9a-f]{64}$'
+               AND successor_outbox.payload_digest ~ '^blake3:[0-9a-f]{64}$'
+               AND successor_outbox.event_identity='rd-owner-outbox-successor-research-intent-v1-' || successor_outbox.payload_digest
+               AND successor_outbox.committed_at_epoch_ms<=sealed.committed_at_epoch_ms
           ) OR NOT EXISTS (
             SELECT 1 FROM public.rd_trial_families_v1 family
              WHERE family.trial_family_identity=sealed.trial_family_identity
-               AND family.intent_identity=sealed.intent_identity
                AND family.root_digest=sealed.frozen_json->>'trial_family_root_digest'
+               AND (
+                 family.intent_identity=sealed.intent_identity
+                 OR EXISTS (
+                   SELECT 1 FROM public.rd_owner_outbox_v1 successor_outbox
+                    WHERE successor_outbox.aggregate_identity=sealed.intent_identity
+                      AND successor_outbox.event_kind='SUCCESSOR_RESEARCH_INTENT_COMMITTED_V1'
+                      AND successor_outbox.payload_json->>'schema_version'='1'
+                      AND successor_outbox.payload_json->>'intent_identity'=sealed.intent_identity
+                      AND successor_outbox.payload_json->>'intent_digest'=sealed.frozen_json->>'intent_semantic_digest'
+                      AND successor_outbox.payload_json->>'predecessor_intent_identity'=family.intent_identity
+                      AND successor_outbox.payload_json->>'trial_family_identity'=family.trial_family_identity
+                 )
+               )
           ) OR NOT EXISTS (
             SELECT 1 FROM public.rd_artifact_trial_family_bindings_v1 binding
              WHERE binding.binding_identity=sealed.artifact_family_binding_identity
@@ -1485,7 +1748,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
                  pg_catalog.jsonb_build_object(
                    'schema_version',1,
                    'research_receipt_identity',sealed.frozen_json->>'research_receipt_identity',
-                   'intent_identity',sealed.intent_identity,
+                   'intent_identity',family.intent_identity,
                    'trial_family_identity',sealed.trial_family_identity,
                    'root_receipt_identity',family.root_receipt_json->>'receipt_identity',
                    'membership_receipt_identity',member.membership_receipt_json->>'receipt_identity',
@@ -1833,6 +2096,8 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
             .map_err(storage)?;
     }
     publication.commit().await.map_err(storage)?;
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    composer_commit_v3::migrate_composer_research_view_transitions_v3(pool).await?;
     Ok(())
 }
 
@@ -1859,11 +2124,13 @@ pub(crate) async fn commit_v2(
     let committed = Box::pin(commit_inner(
         pool,
         lineage,
-        Some(PreparedSealV2 {
+        Some(PreparedLegacyReplayV2 {
             proposal,
-            canonical_request_bytes,
-            meaning_digest,
-            execution_profile_seal: None,
+            seal: PreparedSealV2 {
+                canonical_request_bytes,
+                meaning_digest,
+                execution_profile_seal: None,
+            },
         }),
         None,
     ))
@@ -1987,11 +2254,13 @@ async fn commit_market_data_repaired_with_authority_v2(
     let committed = Box::pin(commit_inner(
         pool,
         lineage,
-        Some(PreparedSealV2 {
+        Some(PreparedLegacyReplayV2 {
             proposal,
-            canonical_request_bytes,
-            meaning_digest,
-            execution_profile_seal: None,
+            seal: PreparedSealV2 {
+                canonical_request_bytes,
+                meaning_digest,
+                execution_profile_seal: None,
+            },
         }),
         Some(MarketDataRepairReplayCommitSourcesV1 {
             binding,
@@ -2012,7 +2281,7 @@ async fn commit_market_data_repaired_with_authority_v2(
 async fn commit_inner(
     pool: &PgPool,
     proposal: ExploratoryReplayRequestProposalV1,
-    mut prepared_v2: Option<PreparedSealV2>,
+    mut prepared_v2: Option<PreparedLegacyReplayV2>,
     market_data_repair_sources: Option<MarketDataRepairReplayCommitSourcesV1>,
 ) -> Result<CommittedReplay, ExploratoryReplayOwnerError> {
     validate_proposal(&proposal)?;
@@ -2076,23 +2345,60 @@ async fn commit_inner(
             ExploratoryReplayOwnerError::Unavailable("artifact custody missing".into())
         })?;
 
+    let successor_view_custody = if market_data_repair_sources.is_none() {
+        match &custody.intent {
+            ArtifactBuildIntentV1::Successor(readback) => Some((
+                readback.clone(),
+                lock_successor_research_view_in_transaction(&mut transaction, readback)
+                    .await
+                    .map_err(|error| ExploratoryReplayOwnerError::Unavailable(error.to_string()))?,
+            )),
+            ArtifactBuildIntentV1::Initial(_) => None,
+        }
+    } else {
+        None
+    };
+    let successor_census = if let Some((readback, _)) = successor_view_custody.as_ref() {
+        let census = load_trial_family_census_v2_by_family_in_transaction(
+            &mut transaction,
+            readback.intent().trial_family_identity(),
+        )
+        .await
+        .map_err(|error| ExploratoryReplayOwnerError::Unavailable(error.to_string()))?;
+        if census.census_frontier.frontier_identity()
+            != readback.intent().census_frontier_identity()
+            || census.census_frontier.frontier_digest()
+                != readback.intent().census_frontier_digest()
+        {
+            return Err(ExploratoryReplayOwnerError::Unavailable(
+                "successor TrialFamily Census Frontier changed".into(),
+            ));
+        }
+        Some(census)
+    } else {
+        None
+    };
+
     if market_data_repair_sources.is_none() {
         verify_replay_admission_for_commit(&replay_admission, &proposal, prepared_v2.as_ref())?;
     }
 
     if market_data_repair_sources.is_none()
-        && (!custody.research.authority_available_at(now)
-            || !custody
-                .product_edge_admission
-                .authorizes_first_mutation_at(now))
+        && (!successor_view_custody.as_ref().map_or_else(
+            || custody.research.authority_available_at(now),
+            |(_, successor)| {
+                successor.view().availability == ResearchViewAvailability::Available
+                    && now < successor.view().valid_through_epoch_ms
+            },
+        ) || !custody
+            .product_edge_admission
+            .authorizes_first_mutation_at(now))
     {
         return Err(ExploratoryReplayOwnerError::Unavailable(
             "current R&D lineage authority unavailable".into(),
         ));
     }
-    let intent = custody.research.intent().ok_or_else(|| {
-        ExploratoryReplayOwnerError::Unavailable("research intent missing".into())
-    })?;
+    let intent = &custody.intent;
     let receipt = custody.attempt.receipt.as_ref().ok_or_else(|| {
         ExploratoryReplayOwnerError::Unavailable("artifact receipt missing".into())
     })?;
@@ -2105,16 +2411,24 @@ async fn commit_inner(
     let research_receipt = custody.research.receipt();
     let root = family.trial_family().root();
     let frontier = family.trial_family().census_frontier();
+    let current_frontier_identity = successor_census.as_ref().map_or_else(
+        || frontier.frontier_identity(),
+        |census| census.census_frontier.frontier_identity(),
+    );
+    let current_frontier_digest = successor_census.as_ref().map_or_else(
+        || frontier.frontier_digest(),
+        |census| census.census_frontier.frontier_digest(),
+    );
     let binding = family.binding();
     let binding_receipt = family.binding_receipt();
 
     if let Some(prepared) = prepared_v2.as_mut() {
         verify_request_equals_family_sealed_policy(root.policy(), &prepared.proposal.request)?;
-        prepared.execution_profile_seal = Some(
+        prepared.seal.execution_profile_seal = Some(
             ReplayExecutionProfileRequestSealV1::issue(
                 family.trial_family(),
                 &proposal.request_identity,
-                &prepared.meaning_digest,
+                &prepared.seal.meaning_digest,
             )
             .map_err(unavailable)?,
         );
@@ -2123,7 +2437,7 @@ async fn commit_inner(
     if custody.attempt.state != AttemptState::Terminal
         || receipt.disposition != ArtifactBuildDisposition::Success
         || research_receipt.disposition != ResearchRequestDisposition::Accepted
-        || !matches!(intent, FrozenResearchGoalIntent::V2(_))
+        || intent.family_binding().is_none()
         || proposal.attempt_identity != custody.attempt.request.attempt_identity
         || proposal.intent_identity != intent.intent_identity()
         || proposal.trial_family_identity != root.trial_family_identity()
@@ -2131,7 +2445,7 @@ async fn commit_inner(
         || receipt.build_receipt_identity.as_deref()
             != Some(proposal.build_receipt_identity.as_str())
         || proposal.artifact_family_binding_identity != binding.binding_identity()
-        || proposal.census_frontier_identity != frontier.frontier_identity()
+        || proposal.census_frontier_identity != current_frontier_identity
         || proposal.exact_code_bytes_digest != review.build_receipt.wasm_digest
         || proposal.cost_model_identity != root.policy().cost_model_identity
         || proposal.slippage_model_identity != root.policy().slippage_model_identity
@@ -2140,8 +2454,7 @@ async fn commit_inner(
             let request = &prepared.proposal.request;
             request.frozen_research_intent.digest.as_str() != intent.semantic_digest()
                 || request.trial_family.digest.as_str() != root.root_digest()
-                || request.trial_family_census_frontier.digest.as_str()
-                    != frontier.frontier_digest()
+                || request.trial_family_census_frontier.digest.as_str() != current_frontier_digest
                 || request.artifact.digest.as_str() != review.build_receipt.wasm_digest
         })
     {
@@ -2163,7 +2476,11 @@ async fn commit_inner(
         &FamilyFrozenOutboxV1 {
             schema_version: 1,
             research_receipt_identity: research_receipt.receipt_identity.clone(),
-            intent_identity: proposal.intent_identity.clone(),
+            intent_identity: family
+                .trial_family()
+                .initial_intent_member()
+                .fact_identity()
+                .to_string(),
             trial_family_identity: proposal.trial_family_identity.clone(),
             root_receipt_identity: family
                 .trial_family()
@@ -2175,7 +2492,7 @@ async fn commit_inner(
                 .membership_receipt()
                 .receipt_identity()
                 .to_string(),
-            census_frontier_identity: proposal.census_frontier_identity.clone(),
+            census_frontier_identity: frontier.frontier_identity().to_string(),
             census_frontier_digest: frontier.frontier_digest().to_string(),
             replay_execution_policy_v2: family
                 .trial_family()
@@ -2247,8 +2564,13 @@ async fn commit_inner(
     })?;
 
     if (market_data_repair_sources.is_none()
-        && (!custody.research.authority_available_at(final_cut)
-            || !replay_admission.authorizes_first_mutation_at(final_cut)
+        && (!successor_view_custody.as_ref().map_or_else(
+            || custody.research.authority_available_at(final_cut),
+            |(_, successor)| {
+                successor.view().availability == ResearchViewAvailability::Available
+                    && final_cut < successor.view().valid_through_epoch_ms
+            },
+        ) || !replay_admission.authorizes_first_mutation_at(final_cut)
             || !custody
                 .product_edge_admission
                 .authorizes_first_mutation_at(final_cut)))
@@ -2263,16 +2585,20 @@ async fn commit_inner(
         .request()
         .semantic_digest()
         .map_err(unavailable)?;
+    let current_research_receipt_identity = successor_view_custody.as_ref().map_or_else(
+        || research_receipt.receipt_identity.clone(),
+        |(successor, _)| successor.receipt().receipt_identity().to_string(),
+    );
 
     let expected = StoredFrozenV1 {
         schema_version: 1,
         request_schema_version: prepared_v2.as_ref().map(|_| 2),
         proposal: proposal.clone(),
         product_edge_request_semantic_digest,
-        research_receipt_identity: research_receipt.receipt_identity.clone(),
+        research_receipt_identity: current_research_receipt_identity,
         intent_semantic_digest: intent.semantic_digest().to_string(),
         trial_family_root_digest: root.root_digest().to_string(),
-        census_frontier_digest: frontier.frontier_digest().to_string(),
+        census_frontier_digest: current_frontier_digest.to_string(),
         artifact_family_binding_digest: binding.binding_digest().to_string(),
         artifact_family_binding_receipt_identity: binding_receipt.receipt_identity().to_string(),
         artifact_review_identity: review.review_identity.clone(),
@@ -2288,7 +2614,7 @@ async fn commit_inner(
         artifact_family_outbox_committed_at_epoch_ms: artifact_family_outbox.committed_at_epoch_ms,
         execution_profile_seal: prepared_v2
             .as_ref()
-            .and_then(|prepared| prepared.execution_profile_seal.clone()),
+            .and_then(|prepared| prepared.seal.execution_profile_seal.clone()),
         market_data_repair_reentry: market_data_repair_sources.map(|sources| sources.binding),
         committed_at_epoch_ms: final_cut,
         request_digest: String::new(),
@@ -2325,8 +2651,9 @@ async fn commit_inner(
     };
     let payload_digest = canonical_digest("rd.owner-outbox.payload.v1", &payload)?;
     let event_identity = identity("rd-owner-event-v1", &payload_digest);
+    let replay_seal_binding = ReplaySealBindingV2::from_legacy(&frozen);
     let stored_v2 = prepared_v2
-        .map(|prepared| seal_v2(prepared, &frozen))
+        .map(|prepared| seal_v2(prepared.seal, replay_seal_binding))
         .transpose()?;
     let replay_request_storage_digest = stored_v2.as_ref().map(|(prepared, _)| {
         crate::native_replay_rd_sources_v2::owner_storage_digest(
@@ -2349,9 +2676,13 @@ async fn commit_inner(
     let research_view_update = stored_v2
         .as_ref()
         .map(|(_, replay_receipt)| {
-            let old_view = custody.research.view().cloned().ok_or_else(|| {
-                ExploratoryReplayOwnerError::Unavailable("research view missing".into())
-            })?;
+            let old_view = successor_view_custody
+                .as_ref()
+                .map(|(_, successor)| successor.view().clone())
+                .or_else(|| custody.research.view().cloned())
+                .ok_or_else(|| {
+                    ExploratoryReplayOwnerError::Unavailable("research view missing".into())
+                })?;
             let first_replay_ready = frozen.market_data_repair_reentry.is_none()
                 && old_view.phase == ResearchViewPhase::ArtifactAvailable
                 && old_view.exploration.is_none();
@@ -2371,8 +2702,18 @@ async fn commit_inner(
                         && exploration.replay_request_seal_digest == predecessor.seal_digest
                         && exploration.replay_receipt_identity == predecessor.receipt_identity
                 });
+            let successor_artifact_ready = successor_view_custody.as_ref().is_none_or(|_| {
+                old_view.attempt_identity.as_deref() == Some(proposal.attempt_identity.as_str())
+                    && old_view.artifact_identity.as_deref()
+                        == Some(proposal.artifact_identity.as_str())
+                    && old_view.build_receipt_identity.as_deref()
+                        == Some(proposal.build_receipt_identity.as_str())
+                    && old_view.artifact_review_identity.as_deref()
+                        == Some(review.review_identity.as_str())
+            });
 
             if old_view.availability != ResearchViewAvailability::Available
+                || !successor_artifact_ready
                 || (!first_replay_ready && !repaired_replay_ready)
             {
                 return Err(ExploratoryReplayOwnerError::Unavailable(
@@ -2392,7 +2733,7 @@ async fn commit_inner(
             new_view.exploration = Some(ResearchExplorationViewV1 {
                 trial_family_identity: proposal.trial_family_identity.clone(),
                 census_frontier_identity: proposal.census_frontier_identity.clone(),
-                census_frontier_digest: frontier.frontier_digest().to_string(),
+                census_frontier_digest: current_frontier_digest.to_string(),
                 replay_request_identity: proposal.request_identity.clone(),
                 replay_request_meaning_digest: replay_receipt.meaning_digest.clone(),
                 replay_request_seal_digest: replay_receipt.seal_digest.clone(),
@@ -2408,9 +2749,10 @@ async fn commit_inner(
             Ok::<_, ExploratoryReplayOwnerError>((old_view, new_view))
         })
         .transpose()?;
-    sqlx::query("INSERT INTO public.rd_sealed_exploratory_replay_requests_v1 (request_identity,request_digest,build_request_identity,attempt_identity,intent_identity,trial_family_identity,artifact_identity,build_receipt_identity,artifact_family_binding_identity,census_frontier_identity,frozen_json,receipt_json,lifecycle_state,committed_at_epoch_ms,v2_canonical_request_bytes,v2_request_storage_digest,v2_meaning_digest,v2_seal_digest,v2_receipt_json,v2_receipt_storage_bytes,v2_receipt_storage_digest,request_schema_version) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'FROZEN',$13,$14,$15,$16,$17,$18,$19,$20,$21)")
+    sqlx::query("INSERT INTO public.rd_sealed_exploratory_replay_requests_v1 (request_identity,request_digest,source_kind,build_request_identity,attempt_identity,intent_identity,trial_family_identity,artifact_identity,build_receipt_identity,artifact_family_binding_identity,census_frontier_identity,frozen_json,receipt_json,lifecycle_state,committed_at_epoch_ms,v2_canonical_request_bytes,v2_request_storage_digest,v2_meaning_digest,v2_seal_digest,v2_receipt_json,v2_receipt_storage_bytes,v2_receipt_storage_digest,request_schema_version) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'FROZEN',$14,$15,$16,$17,$18,$19,$20,$21,$22)")
         .bind(&frozen.proposal.request_identity)
         .bind(&frozen.request_digest)
+        .bind(LEGACY_REPLAY_SOURCE_KIND_V1)
         .bind(&frozen.proposal.build_request_identity)
         .bind(&frozen.proposal.attempt_identity)
         .bind(&frozen.proposal.intent_identity)
@@ -2433,18 +2775,29 @@ async fn commit_inner(
         .execute(&mut *transaction).await.map_err(storage)?;
 
     if let Some((old_view, new_view)) = research_view_update {
-        let updated = sqlx::query("UPDATE public.rd_research_request_receipts_v1 SET view_json=$1 WHERE request_identity=$2 AND view_json=$3")
-            .bind(serde_json::to_value(&new_view).map_err(unavailable)?)
-            .bind(&research_receipt.request_identity)
-            .bind(serde_json::to_value(&old_view).map_err(unavailable)?)
-            .execute(&mut *transaction)
+        if let Some((readback, successor)) = successor_view_custody.as_ref() {
+            advance_successor_research_view_in_transaction(
+                &mut transaction,
+                readback,
+                successor,
+                &new_view,
+            )
             .await
-            .map_err(storage)?;
+            .map_err(|error| ExploratoryReplayOwnerError::Unavailable(error.to_string()))?;
+        } else {
+            let updated = sqlx::query("UPDATE public.rd_research_request_receipts_v1 SET view_json=$1 WHERE request_identity=$2 AND view_json=$3")
+                .bind(serde_json::to_value(&new_view).map_err(unavailable)?)
+                .bind(&research_receipt.request_identity)
+                .bind(serde_json::to_value(&old_view).map_err(unavailable)?)
+                .execute(&mut *transaction)
+                .await
+                .map_err(storage)?;
 
-        if updated.rows_affected() != 1 {
-            return Err(ExploratoryReplayOwnerError::Unavailable(
-                "Research View changed before exploratory replay commit".into(),
-            ));
+            if updated.rows_affected() != 1 {
+                return Err(ExploratoryReplayOwnerError::Unavailable(
+                    "Research View changed before exploratory replay commit".into(),
+                ));
+            }
         }
     }
     sqlx::query("INSERT INTO public.rd_owner_outbox_v1 (event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6)")
@@ -2655,7 +3008,7 @@ fn canonical_storage_record_matches(
 async fn resolve_existing(
     transaction: &mut Transaction<'_, Postgres>,
     proposal: &ExploratoryReplayRequestProposalV1,
-    prepared_v2: Option<&PreparedSealV2>,
+    prepared_v2: Option<&PreparedLegacyReplayV2>,
     market_data_repair_reentry: Option<&MarketDataRepairReplayReentryBindingV1>,
 ) -> Result<Option<CommittedReplay>, ExploratoryReplayOwnerError> {
     let value: Option<serde_json::Value> = sqlx::query_scalar(
@@ -2737,19 +3090,26 @@ async fn resolve_existing(
             return Err(ExploratoryReplayOwnerError::ConflictingReplay);
         };
 
-        if canonical_request_bytes != expected.canonical_request_bytes
-            || meaning_digest != expected.meaning_digest
+        if canonical_request_bytes != expected.seal.canonical_request_bytes
+            || meaning_digest != expected.seal.meaning_digest
+            || legacy_lineage_projection_with_authority(
+                &expected.proposal,
+                market_data_repair_reentry.is_some(),
+            )? != validated.frozen.proposal
         {
             return Err(ExploratoryReplayOwnerError::ConflictingReplay);
         }
         let receipt: StoredReceiptV2 = decode_exact(&receipt_json)?;
         let prepared = PreparedSealV2 {
-            proposal: expected.proposal.clone(),
             canonical_request_bytes,
             meaning_digest,
             execution_profile_seal: receipt.execution_profile_seal.clone(),
         };
-        verify_v2_seal(&prepared, &receipt, &validated.frozen)?;
+        verify_v2_seal(
+            &prepared,
+            &receipt,
+            ReplaySealBindingV2::from_legacy(&validated.frozen),
+        )?;
         if receipt.seal_digest != seal_digest {
             return Err(ExploratoryReplayOwnerError::Unavailable(
                 "stored Replay V2 seal digest mismatch".into(),
@@ -2894,6 +3254,17 @@ pub(crate) async fn lock_for_backtest_v2(
 ) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError> {
     validate_backtest_binding(rd_pool, &backtest.pool).await?;
     validate_backtest_binding_v2(&backtest.pool).await?;
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    if let Some(result) = resolve_composer_v3_read_result(
+        rd_pool,
+        &locator.request_identity,
+        &locator.meaning_digest,
+        Some(locator),
+    )
+    .await?
+    {
+        return Ok(result);
+    }
     let value: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT rd_owner_api.lock_exploratory_replay_request_v2($1,$2,$3,$4)")
             .bind(&locator.request_identity)
@@ -2916,6 +3287,17 @@ pub(crate) async fn resolve_for_rd_v2(
     rd_pool: &PgPool,
     selector: &ExploratoryReplayRecoverySelectorV2,
 ) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError> {
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    if let Some(result) = resolve_composer_v3_read_result(
+        rd_pool,
+        &selector.request_identity,
+        &selector.meaning_digest,
+        None,
+    )
+    .await?
+    {
+        return Ok(result);
+    }
     let value: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT rd_owner_api.resolve_exploratory_replay_request_v2($1,$2)")
             .bind(&selector.request_identity)
@@ -2930,6 +3312,66 @@ pub(crate) async fn resolve_for_rd_v2(
         value,
     )?;
     Ok(result)
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+async fn resolve_composer_v3_read_result(
+    rd_pool: &PgPool,
+    request_identity: &str,
+    meaning_digest: &str,
+    exact_locator: Option<&ExploratoryReplayRequestLocatorV2>,
+) -> Result<Option<ExploratoryReplayReadResultV2>, ExploratoryReplayOwnerError> {
+    let mut transaction = rd_pool.begin().await.map_err(storage)?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        .execute(&mut *transaction)
+        .await
+        .map_err(storage)?;
+    let row = sqlx::query(
+        "SELECT source_kind,v2_receipt_json,v2_seal_digest,v2_meaning_digest \
+         FROM public.rd_sealed_exploratory_replay_requests_v1 \
+         WHERE request_identity=$1 FOR SHARE",
+    )
+    .bind(request_identity)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(storage)?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    if row.try_get::<String, _>("source_kind").map_err(storage)? != "COMPOSER_V3" {
+        return Ok(None);
+    }
+    let stored_meaning: String = row.try_get("v2_meaning_digest").map_err(storage)?;
+    let stored_seal: String = row.try_get("v2_seal_digest").map_err(storage)?;
+    let receipt: StoredReceiptV2 = decode_exact(
+        &row.try_get::<serde_json::Value, _>("v2_receipt_json")
+            .map_err(storage)?,
+    )?;
+    if stored_meaning != meaning_digest {
+        return Ok(Some(unavailable_result_v2(request_identity)));
+    }
+    let locator = ExploratoryReplayRequestLocatorV2 {
+        request_identity: request_identity.to_owned(),
+        meaning_digest: stored_meaning,
+        receipt_identity: receipt.receipt_identity,
+        seal_digest: stored_seal,
+    };
+    if exact_locator.is_some_and(|expected| expected != &locator) {
+        return Ok(Some(unavailable_result_v2(request_identity)));
+    }
+    let readback = composer_readback_v3::resolve_composer_v3_by_locator_in_transaction(
+        &mut transaction,
+        &locator,
+    )
+    .await?;
+    transaction.commit().await.map_err(storage)?;
+    Ok(Some(match readback {
+        Some(readback) => ExploratoryReplayReadResultV2 {
+            projection: projection_v2(request_identity, ExploratoryReplayAvailabilityV1::Available),
+            readback: Some(readback),
+        },
+        None => unavailable_result_v2(request_identity),
+    }))
 }
 
 pub(crate) async fn read_historical_rejection_for_dashboard_v1(
@@ -3179,11 +3621,10 @@ pub(crate) fn decode_v2_read_result(
         Ok(request) => request,
         Err(_) => return Ok(unavailable_result_v2(expected_request_identity)),
     };
+    if proposal_v2_from_stored(&validated.frozen, request.as_dto()).is_err() {
+        return Ok(unavailable_result_v2(expected_request_identity));
+    }
     let prepared = PreparedSealV2 {
-        proposal: match proposal_v2_from_stored(&validated.frozen, request.as_dto()) {
-            Ok(proposal) => proposal,
-            Err(_) => return Ok(unavailable_result_v2(expected_request_identity)),
-        },
         canonical_request_bytes: canonical_request_bytes.clone(),
         meaning_digest: meaning_digest.clone(),
         execution_profile_seal: receipt.execution_profile_seal.clone(),
@@ -3197,7 +3638,12 @@ pub(crate) fn decode_v2_read_result(
                 || locator.receipt_identity != receipt.receipt_identity
                 || locator.seal_digest != seal_digest
         })
-        || verify_v2_seal(&prepared, &receipt, &validated.frozen).is_err()
+        || verify_v2_seal(
+            &prepared,
+            &receipt,
+            ReplaySealBindingV2::from_legacy(&validated.frozen),
+        )
+        .is_err()
         || verify_v2_outbox(&outbox, &receipt, &validated.frozen).is_err()
     {
         return Ok(unavailable_result_v2(expected_request_identity));
@@ -3961,7 +4407,7 @@ fn verify_replay_admission(
 fn verify_replay_admission_for_commit(
     admission: &ProductEdgeAdmissionReadbackV1,
     lineage: &ExploratoryReplayRequestProposalV1,
-    prepared_v2: Option<&PreparedSealV2>,
+    prepared_v2: Option<&PreparedLegacyReplayV2>,
 ) -> Result<(), ExploratoryReplayOwnerError> {
     let Some(prepared_v2) = prepared_v2 else {
         return verify_replay_admission(admission, lineage);
@@ -4229,7 +4675,7 @@ fn locked_outbox_from_row(
 
 fn seal_v2(
     prepared: PreparedSealV2,
-    frozen: &StoredFrozenV1,
+    binding: ReplaySealBindingV2<'_>,
 ) -> Result<(PreparedSealV2, StoredReceiptV2), ExploratoryReplayOwnerError> {
     let profile_seal = prepared.execution_profile_seal.as_ref().ok_or_else(|| {
         ExploratoryReplayOwnerError::Unavailable("Replay execution-profile seal missing".into())
@@ -4238,42 +4684,42 @@ fn seal_v2(
         "rd.exploratory-replay-request-seal.v3",
         &(
             3_u16,
-            frozen.proposal.request_identity.as_str(),
+            binding.request_identity,
             prepared.meaning_digest.as_str(),
             BASE64.encode(&prepared.canonical_request_bytes),
-            frozen.request_digest.as_str(),
+            binding.request_digest,
             profile_seal,
-            frozen.committed_at_epoch_ms,
+            binding.committed_at_epoch_ms,
         ),
     )?;
     let receipt_digest = canonical_digest(
         "rd.exploratory-replay-request-receipt.v3",
         &(
             3_u16,
-            frozen.proposal.request_identity.as_str(),
+            binding.request_identity,
             prepared.meaning_digest.as_str(),
             seal_digest.as_str(),
             profile_seal,
-            frozen.committed_at_epoch_ms,
+            binding.committed_at_epoch_ms,
         ),
     )?;
     let receipt = StoredReceiptV2 {
         schema_version: 3,
         receipt_identity: identity("rd-exploratory-replay-receipt-v2", &receipt_digest),
-        request_identity: frozen.proposal.request_identity.clone(),
+        request_identity: binding.request_identity.to_owned(),
         meaning_digest: prepared.meaning_digest.clone(),
         seal_digest,
         execution_profile_seal: Some(profile_seal.clone()),
-        committed_at_epoch_ms: frozen.committed_at_epoch_ms,
+        committed_at_epoch_ms: binding.committed_at_epoch_ms,
     };
-    verify_v2_seal(&prepared, &receipt, frozen)?;
+    verify_v2_seal(&prepared, &receipt, binding)?;
     Ok((prepared, receipt))
 }
 
 fn verify_v2_seal(
     prepared: &PreparedSealV2,
     receipt: &StoredReceiptV2,
-    frozen: &StoredFrozenV1,
+    binding: ReplaySealBindingV2<'_>,
 ) -> Result<(), ExploratoryReplayOwnerError> {
     let dto: ReplayRequestDtoV2 =
         serde_json::from_slice(&prepared.canonical_request_bytes).map_err(unavailable)?;
@@ -4281,10 +4727,6 @@ fn verify_v2_seal(
     if request.namespace() != ReplayNamespaceV2::Exploratory
         || request.to_canonical_bytes().map_err(unavailable)? != prepared.canonical_request_bytes
         || request.meaning_digest().map_err(unavailable)?.as_str() != prepared.meaning_digest
-        || legacy_lineage_projection_with_authority(
-            &prepared.proposal,
-            frozen.market_data_repair_reentry.is_some(),
-        )? != frozen.proposal
     {
         return Err(ExploratoryReplayOwnerError::Unavailable(
             "sealed Replay V2 canonical meaning mismatch".into(),
@@ -4292,7 +4734,7 @@ fn verify_v2_seal(
     }
     let (expected_seal, receipt_digest) =
         if let Some(profile_seal) = prepared.execution_profile_seal.as_ref() {
-            if frozen.execution_profile_seal.as_ref() != Some(profile_seal)
+            if binding.execution_profile_seal != Some(profile_seal)
                 || receipt.execution_profile_seal.as_ref() != Some(profile_seal)
                 || receipt.schema_version != 3
             {
@@ -4304,28 +4746,28 @@ fn verify_v2_seal(
                 "rd.exploratory-replay-request-seal.v3",
                 &(
                     3_u16,
-                    frozen.proposal.request_identity.as_str(),
+                    binding.request_identity,
                     prepared.meaning_digest.as_str(),
                     BASE64.encode(&prepared.canonical_request_bytes),
-                    frozen.request_digest.as_str(),
+                    binding.request_digest,
                     profile_seal,
-                    frozen.committed_at_epoch_ms,
+                    binding.committed_at_epoch_ms,
                 ),
             )?;
             let receipt = canonical_digest(
                 "rd.exploratory-replay-request-receipt.v3",
                 &(
                     3_u16,
-                    frozen.proposal.request_identity.as_str(),
+                    binding.request_identity,
                     prepared.meaning_digest.as_str(),
                     seal.as_str(),
                     profile_seal,
-                    frozen.committed_at_epoch_ms,
+                    binding.committed_at_epoch_ms,
                 ),
             )?;
             (seal, receipt)
         } else {
-            if frozen.execution_profile_seal.is_some()
+            if binding.execution_profile_seal.is_some()
                 || receipt.execution_profile_seal.is_some()
                 || receipt.schema_version != 2
             {
@@ -4337,30 +4779,30 @@ fn verify_v2_seal(
                 "rd.exploratory-replay-request-seal.v2",
                 &(
                     2_u16,
-                    frozen.proposal.request_identity.as_str(),
+                    binding.request_identity,
                     prepared.meaning_digest.as_str(),
                     BASE64.encode(&prepared.canonical_request_bytes),
-                    frozen.request_digest.as_str(),
-                    frozen.committed_at_epoch_ms,
+                    binding.request_digest,
+                    binding.committed_at_epoch_ms,
                 ),
             )?;
             let receipt = canonical_digest(
                 "rd.exploratory-replay-request-receipt.v2",
                 &(
                     2_u16,
-                    frozen.proposal.request_identity.as_str(),
+                    binding.request_identity,
                     prepared.meaning_digest.as_str(),
                     seal.as_str(),
-                    frozen.committed_at_epoch_ms,
+                    binding.committed_at_epoch_ms,
                 ),
             )?;
             (seal, receipt)
         };
 
-    if receipt.request_identity != frozen.proposal.request_identity
+    if receipt.request_identity != binding.request_identity
         || receipt.meaning_digest != prepared.meaning_digest
         || receipt.seal_digest != expected_seal
-        || receipt.committed_at_epoch_ms != frozen.committed_at_epoch_ms
+        || receipt.committed_at_epoch_ms != binding.committed_at_epoch_ms
         || receipt.receipt_identity != identity("rd-exploratory-replay-receipt-v2", &receipt_digest)
     {
         return Err(ExploratoryReplayOwnerError::Unavailable(

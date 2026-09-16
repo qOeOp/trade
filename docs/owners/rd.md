@@ -34,7 +34,7 @@ Unify Research and Develop under one business-fact Owner. The Research capabilit
   `lock_sealed_exploratory_replay_request_for_market_data_v1` Owner port before it may independently issue any
   event-binding receipt.
   **TARGET / NOT_ADMITTED:** the three executable routines in that fixed path are owned by the isolated
-  `NOLOGIN` `rd_exploratory_replay_api_owner`, which has `SELECT` only on the nine relations traversed by the
+  `NOLOGIN` `rd_exploratory_replay_api_owner`, which has `SELECT` only on the exact set of relations traversed by the
   canonical verifier chain and no table- or column-level mutation privilege. `market_data_owner` receives only
   schema usage and execution of the exact four-field
   `SECURITY DEFINER` facade, and must call it inside its existing SERIALIZABLE transaction. Runtime roles have no
@@ -44,6 +44,15 @@ Unify Research and Develop under one business-fact Owner. The Research capabilit
   slippage, and capacity-model identities. Only a request-equal `TERMINAL_RESULT` may enter Research Selection.
 - Append-only TrialFamily Census Frontier containing every exploratory Intent, Request, and Result identity through a frozen cut, including losing, rejected, invalid, and unknown trials, plus the consumed family budget.
 - Exploratory findings that may justify a new Research Intent, without mutating the frozen predecessor.
+- Write-once Iteration Result Admission binding one locked canonical Backtest Result to the iteration that may
+  consume it. The Owner derives every admitted fact inside one serializable R&D transaction from the locked
+  Result bytes, the exact TrialFamily census cut and the sealed trial budget; the caller supplies only the
+  locator, the result and request-meaning digests, and the canonically ordered candidate proposal set. A
+  proposal set that is empty, oversized, misordered, duplicated, inconsistent with its declared cardinality, or
+  larger than the remaining sealed budget closes the admission and creates no custody. Exact request replay joins
+  the committed admission; a changed meaning for the same Result is `Conflict`. The admission emits one
+  `RD_ITERATION_RESULT_ADMITTED_V1` outbox event and creates no Decision, Selection, Candidate, or Qualification
+  transition.
 - Research Iteration Decision: the sole Research fact that records `REPAIR_INPUTS` with the complete supported
   diagnostic set plus one deterministically selected typed repair category and target boundary, a successor
   experiment, `READY_FOR_SELECTION`, or a named terminal stop. Stop, repair, and
@@ -146,6 +155,19 @@ compiler, or Artifact failure returns one structured terminal carrying no partia
 Artifact is dynamically accepted by `ProgramHostV2`; this proves only the crate-local contract and isolated
 consumer path. Durable PostgreSQL custody, restart recovery across processes, provider/API/Windmill composition,
 and deployed Owner readiness remain unavailable and are not inferred from the in-memory join.
+
+**The Composer cannot run in production, and the reason is upstream of its custody.**
+`derive_source_research_composer_request_v2` does not derive a Design from the reread Research
+custody. It takes the fixed corpus Design, overwrites four identity fields
+(`research_request_identity`, `intent_identity`, `intent_digest`, `falsifier`) from that custody, and
+derives its bindings from a hardcoded selection identity. The plugin source, input roles and universe
+are the corpus's, not the research request's. So `POST /v2/develop-composer/runs` returning
+`SERVICE_UNAVAILABLE` under default features is **honest** rather than unfinished: there is no Design to
+compile. What is missing is the capability of turning a frozen hypothesis, mechanism and
+falsification question into an executable `StrategyDesignV2` — input roles, reaction graph and plugin
+source — and this document does not yet state how that derivation is decided. Everything downstream
+of it exists: the production commit function, the store, the writer, the two build-receipt relations,
+and, since the Market Data resolver landed, the production binding seam.
 
 **TARGET - canonical Research-to-Composer custody:** the public operation accepts only a canonical Research request
 locator. On one R&D transaction, the Owner-internal exact commit-cut capability takes request/aggregate row locks,

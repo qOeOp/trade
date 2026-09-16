@@ -162,6 +162,47 @@ ALTER TABLE IF EXISTS public.rd_trial_family_attempt_cuts_v2 ADD COLUMN IF NOT E
 ALTER TABLE IF EXISTS public.rd_trial_family_attempt_cuts_v2 ADD COLUMN IF NOT EXISTS attempt_frontier_storage_digest TEXT;
 ALTER TABLE IF EXISTS public.rd_trial_family_attempt_cuts_v2 ADD COLUMN IF NOT EXISTS candidate_set_frontier_storage_bytes BYTEA;
 ALTER TABLE IF EXISTS public.rd_trial_family_attempt_cuts_v2 ADD COLUMN IF NOT EXISTS candidate_set_frontier_storage_digest TEXT;
+CREATE TABLE IF NOT EXISTS public.rd_trial_family_candidate_experiments_v1 (
+  experiment_identity TEXT PRIMARY KEY,
+  trial_family_identity TEXT NOT NULL REFERENCES public.rd_trial_families_v1(trial_family_identity),
+  attempt_ordinal INTEGER NOT NULL,
+  candidate_set_frontier_identity TEXT NOT NULL REFERENCES public.rd_trial_family_attempt_cuts_v2(candidate_set_frontier_identity),
+  candidate_identity TEXT NOT NULL,
+  candidate_digest TEXT NOT NULL,
+  experiment_json JSONB NOT NULL,
+  receipt_json JSONB NOT NULL,
+  experiment_storage_bytes BYTEA NOT NULL,
+  experiment_storage_digest TEXT NOT NULL,
+  receipt_storage_bytes BYTEA NOT NULL,
+  receipt_storage_digest TEXT NOT NULL,
+  committed_at_epoch_ms BIGINT NOT NULL,
+  UNIQUE (trial_family_identity, attempt_ordinal, candidate_identity)
+);
+ALTER TABLE IF EXISTS public.rd_sealed_exploratory_replay_requests_v1 ADD COLUMN IF NOT EXISTS source_kind TEXT NOT NULL DEFAULT 'LEGACY_ARTIFACT_BUILD_V1';
+ALTER TABLE IF EXISTS public.rd_sealed_exploratory_replay_requests_v1 ADD COLUMN IF NOT EXISTS composer_source_json JSONB;
+ALTER TABLE IF EXISTS public.rd_sealed_exploratory_replay_requests_v1 ALTER COLUMN build_request_identity DROP NOT NULL;
+ALTER TABLE IF EXISTS public.rd_sealed_exploratory_replay_requests_v1 ALTER COLUMN attempt_identity DROP NOT NULL;
+ALTER TABLE IF EXISTS public.rd_sealed_exploratory_replay_requests_v1 ALTER COLUMN build_receipt_identity DROP NOT NULL;
+ALTER TABLE IF EXISTS public.rd_sealed_exploratory_replay_requests_v1 ALTER COLUMN artifact_family_binding_identity DROP NOT NULL;
+DO $source_shape$ BEGIN
+  IF pg_catalog.to_regclass('public.rd_sealed_exploratory_replay_requests_v1') IS NOT NULL
+     AND NOT EXISTS (
+       SELECT 1 FROM pg_catalog.pg_constraint
+        WHERE conrelid=pg_catalog.to_regclass('public.rd_sealed_exploratory_replay_requests_v1')
+          AND conname='rd_sealed_exploratory_replay_source_shape_v1' AND contype='c'
+     ) THEN
+    ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1
+      ADD CONSTRAINT rd_sealed_exploratory_replay_source_shape_v1 CHECK (
+        (source_kind='LEGACY_ARTIFACT_BUILD_V1' AND composer_source_json IS NULL
+         AND build_request_identity IS NOT NULL AND attempt_identity IS NOT NULL
+         AND build_receipt_identity IS NOT NULL AND artifact_family_binding_identity IS NOT NULL)
+        OR
+        (source_kind='COMPOSER_V3' AND composer_source_json IS NOT NULL
+         AND build_request_identity IS NULL AND attempt_identity IS NULL
+         AND build_receipt_identity IS NULL AND artifact_family_binding_identity IS NOT NULL)
+      );
+  END IF;
+END $source_shape$;
 ALTER TABLE IF EXISTS public.rd_sealed_exploratory_replay_requests_v1 ADD COLUMN IF NOT EXISTS v2_request_storage_digest TEXT;
 ALTER TABLE IF EXISTS public.rd_sealed_exploratory_replay_requests_v1 ADD COLUMN IF NOT EXISTS v2_receipt_storage_bytes BYTEA;
 ALTER TABLE IF EXISTS public.rd_sealed_exploratory_replay_requests_v1 ADD COLUMN IF NOT EXISTS v2_receipt_storage_digest TEXT;
@@ -203,6 +244,12 @@ AS $function$
             result_availability := 'STALE';
           END IF;
           IF sealed.lifecycle_state NOT IN ('FROZEN','REVOKED')
+             OR sealed.source_kind <> 'LEGACY_ARTIFACT_BUILD_V1'
+             OR sealed.composer_source_json IS NOT NULL
+             OR sealed.build_request_identity IS NULL
+             OR sealed.attempt_identity IS NULL
+             OR sealed.build_receipt_identity IS NULL
+             OR sealed.artifact_family_binding_identity IS NULL
              OR (requested_receipt_identity <> '' AND sealed.receipt_json->>'receipt_identity' <> requested_receipt_identity)
              OR sealed.frozen_json->>'schema_version' <> '1'
              OR coalesce(sealed.frozen_json->>'request_schema_version','1') <> sealed.request_schema_version::text
@@ -272,11 +319,82 @@ AS $function$
                        AND research.view_json->>'source_cut'='rd-exploration-cut-v1-' || pg_catalog.substring(active.v2_seal_digest,8)
                   ))
                )
+          ) AND NOT EXISTS (
+            SELECT 1
+              FROM public.rd_trial_families_v1 family
+              JOIN public.rd_research_request_receipts_v1 root_research
+                ON root_research.intent_json->>'intent_identity'=family.intent_identity
+              JOIN public.rd_successor_research_intents_v1 successor
+                ON successor.intent_identity=sealed.intent_identity
+               AND successor.trial_family_identity=family.trial_family_identity
+               AND successor.predecessor_intent_identity=family.intent_identity
+              JOIN public.rd_owner_outbox_v1 successor_outbox
+                ON successor_outbox.aggregate_identity=sealed.intent_identity
+               AND successor_outbox.event_kind='SUCCESSOR_RESEARCH_INTENT_COMMITTED_V1'
+             WHERE family.trial_family_identity=sealed.trial_family_identity
+               AND family.root_digest=sealed.frozen_json->>'trial_family_root_digest'
+               AND family.intent_identity<>sealed.intent_identity
+               AND root_research.receipt_json->>'disposition'='ACCEPTED'
+               AND root_research.view_json->>'availability'='AVAILABLE'
+               AND successor.intent_digest=sealed.frozen_json->>'intent_semantic_digest'
+               AND successor.receipt_json->>'receipt_identity'=sealed.frozen_json->>'research_receipt_identity'
+               AND successor.view_json->>'availability'='AVAILABLE'
+               AND successor.view_json->>'attempt_identity'=sealed.attempt_identity
+               AND successor.view_json->>'artifact_identity'=sealed.artifact_identity
+               AND successor.view_json->>'build_receipt_identity'=sealed.build_receipt_identity
+               AND successor.view_json->>'artifact_review_identity'=sealed.frozen_json->>'artifact_review_identity'
+               AND successor.view_json->>'schema_version'='2'
+               AND successor.view_json->>'phase'='EXPLORATION_ACTIVE'
+               AND EXISTS (
+                 SELECT 1
+                   FROM public.rd_sealed_exploratory_replay_requests_v1 active
+                  WHERE active.request_identity=successor.view_json->'exploration'->>'replay_request_identity'
+                    AND active.request_schema_version=2
+                    AND active.lifecycle_state IN ('FROZEN','REVOKED')
+                    AND active.trial_family_identity=sealed.trial_family_identity
+                    AND active.census_frontier_identity=sealed.census_frontier_identity
+                    AND active.artifact_identity=sealed.artifact_identity
+                    AND active.v2_meaning_digest=successor.view_json->'exploration'->>'replay_request_meaning_digest'
+                    AND active.v2_seal_digest=successor.view_json->'exploration'->>'replay_request_seal_digest'
+                    AND active.v2_receipt_json->>'receipt_identity'=successor.view_json->'exploration'->>'replay_receipt_identity'
+                    AND active.frozen_json->>'census_frontier_digest'=successor.view_json->'exploration'->>'census_frontier_digest'
+                    AND active.trial_family_identity=successor.view_json->'exploration'->>'trial_family_identity'
+                    AND active.census_frontier_identity=successor.view_json->'exploration'->>'census_frontier_identity'
+                    AND successor.view_json->>'source_cut'='rd-exploration-cut-v1-' || pg_catalog.substring(active.v2_seal_digest,8)
+               )
+               AND successor_outbox.payload_json->>'schema_version'='1'
+               AND successor_outbox.payload_json->>'intent_identity'=sealed.intent_identity
+               AND successor_outbox.payload_json->>'intent_digest'=sealed.frozen_json->>'intent_semantic_digest'
+               AND successor_outbox.payload_json->>'predecessor_intent_identity'=family.intent_identity
+               AND successor_outbox.payload_json->>'trial_family_identity'=family.trial_family_identity
+               AND successor_outbox.payload_json->>'census_frontier_identity'=sealed.census_frontier_identity
+               AND successor_outbox.payload_json->>'receipt_identity'<>''
+               AND successor_outbox.payload_json->>'request_identity'<>''
+               AND successor_outbox.payload_json->>'decision_identity'<>''
+               AND successor_outbox.payload_json->>'decision_digest' ~ '^sha256:[0-9a-f]{64}$'
+               AND successor_outbox.payload_json->>'result_identity'<>''
+               AND successor_outbox.payload_json->>'experiment_identity'<>''
+               AND successor_outbox.payload_json->>'experiment_digest' ~ '^sha256:[0-9a-f]{64}$'
+               AND successor_outbox.payload_digest ~ '^blake3:[0-9a-f]{64}$'
+               AND successor_outbox.event_identity='rd-owner-outbox-successor-research-intent-v1-' || successor_outbox.payload_digest
+               AND successor_outbox.committed_at_epoch_ms<=sealed.committed_at_epoch_ms
           ) OR NOT EXISTS (
             SELECT 1 FROM public.rd_trial_families_v1 family
              WHERE family.trial_family_identity=sealed.trial_family_identity
-               AND family.intent_identity=sealed.intent_identity
                AND family.root_digest=sealed.frozen_json->>'trial_family_root_digest'
+               AND (
+                 family.intent_identity=sealed.intent_identity
+                 OR EXISTS (
+                   SELECT 1 FROM public.rd_owner_outbox_v1 successor_outbox
+                    WHERE successor_outbox.aggregate_identity=sealed.intent_identity
+                      AND successor_outbox.event_kind='SUCCESSOR_RESEARCH_INTENT_COMMITTED_V1'
+                      AND successor_outbox.payload_json->>'schema_version'='1'
+                      AND successor_outbox.payload_json->>'intent_identity'=sealed.intent_identity
+                      AND successor_outbox.payload_json->>'intent_digest'=sealed.frozen_json->>'intent_semantic_digest'
+                      AND successor_outbox.payload_json->>'predecessor_intent_identity'=family.intent_identity
+                      AND successor_outbox.payload_json->>'trial_family_identity'=family.trial_family_identity
+                 )
+               )
           ) OR NOT EXISTS (
             SELECT 1 FROM public.rd_artifact_trial_family_bindings_v1 binding
              WHERE binding.binding_identity=sealed.artifact_family_binding_identity
@@ -311,6 +429,8 @@ AS $function$
               FROM public.rd_owner_outbox_v1 family_outbox
               JOIN public.rd_trial_families_v1 family
                 ON family.trial_family_identity=family_outbox.aggregate_identity
+              JOIN public.rd_research_request_receipts_v1 root_research
+                ON root_research.intent_json->>'intent_identity'=family.intent_identity
               JOIN public.rd_trial_family_members_v1 member
                 ON member.trial_family_identity=family.trial_family_identity
                AND member.ordinal=0
@@ -318,19 +438,32 @@ AS $function$
                AND family_outbox.event_kind='TRIAL_FAMILY_FROZEN_V1'
                AND family_outbox.payload_digest=sealed.frozen_json->>'trial_family_outbox_digest'
                AND family_outbox.event_identity=sealed.frozen_json->>'trial_family_outbox_event_identity'
-               AND family_outbox.event_identity='rd-owner-outbox-v1-' || pg_catalog.replace(sealed.frozen_json->>'census_frontier_digest','sha256:','')
+               AND family_outbox.event_identity='rd-owner-outbox-v1-' || pg_catalog.replace(
+                 CASE WHEN family.intent_identity=sealed.intent_identity
+                   THEN sealed.frozen_json->>'census_frontier_digest'
+                   ELSE pg_catalog.convert_from(family.initial_frontier_storage_bytes,'UTF8')::jsonb->>'frontier_digest'
+                 END,
+                 'sha256:',
+                 ''
+               )
                AND family_outbox.committed_at_epoch_ms=(sealed.frozen_json->>'trial_family_outbox_committed_at_epoch_ms')::bigint
                AND family_outbox.committed_at_epoch_ms=family.committed_at_epoch_ms
                AND family_outbox.payload_json=(
                  pg_catalog.jsonb_build_object(
                    'schema_version',1,
-                   'research_receipt_identity',sealed.frozen_json->>'research_receipt_identity',
-                   'intent_identity',sealed.intent_identity,
+                   'research_receipt_identity',root_research.receipt_json->>'receipt_identity',
+                   'intent_identity',family.intent_identity,
                    'trial_family_identity',sealed.trial_family_identity,
                    'root_receipt_identity',family.root_receipt_json->>'receipt_identity',
                    'membership_receipt_identity',member.membership_receipt_json->>'receipt_identity',
-                   'census_frontier_identity',sealed.census_frontier_identity,
-                   'census_frontier_digest',sealed.frozen_json->>'census_frontier_digest'
+                   'census_frontier_identity',CASE WHEN family.intent_identity=sealed.intent_identity
+                     THEN sealed.census_frontier_identity
+                     ELSE pg_catalog.convert_from(family.initial_frontier_storage_bytes,'UTF8')::jsonb->>'frontier_identity'
+                   END,
+                   'census_frontier_digest',CASE WHEN family.intent_identity=sealed.intent_identity
+                     THEN sealed.frozen_json->>'census_frontier_digest'
+                     ELSE pg_catalog.convert_from(family.initial_frontier_storage_bytes,'UTF8')::jsonb->>'frontier_digest'
+                   END
                  ) || CASE
                    WHEN family.root_json->'policy' ? 'replay_execution_policy_v2'
                    THEN pg_catalog.jsonb_build_object(
@@ -348,6 +481,60 @@ AS $function$
                    ELSE '{}'::pg_catalog.jsonb
                  END
                )
+          ) OR (
+            EXISTS (
+              SELECT 1 FROM public.rd_successor_research_intents_v1 successor
+               WHERE successor.intent_identity=sealed.intent_identity
+                 AND successor.trial_family_identity=sealed.trial_family_identity
+            )
+            AND NOT EXISTS (
+              SELECT 1
+                FROM public.rd_trial_family_heads_v1 family_head
+                JOIN public.rd_trial_family_attempt_cuts_v2 census_cut
+                  ON census_cut.trial_family_identity=family_head.trial_family_identity
+                 AND census_cut.census_frontier_identity=family_head.frontier_identity
+                JOIN public.rd_owner_outbox_v1 census_outbox
+                  ON census_outbox.aggregate_identity=census_cut.census_frontier_identity
+                 AND census_outbox.event_kind='TRIAL_FAMILY_CENSUS_ADVANCED_V2'
+                JOIN public.rd_owner_outbox_v1 family_outbox
+                  ON family_outbox.aggregate_identity=family_head.trial_family_identity
+                 AND family_outbox.event_kind='TRIAL_FAMILY_FROZEN_V1'
+               WHERE family_head.trial_family_identity=sealed.trial_family_identity
+                 AND family_head.frontier_identity=sealed.census_frontier_identity
+                 AND family_head.frontier_digest=sealed.frozen_json->>'census_frontier_digest'
+                 AND family_head.frontier_json=census_cut.census_frontier_json
+                 AND family_head.frontier_storage_bytes=census_cut.census_frontier_storage_bytes
+                 AND family_head.frontier_storage_digest=census_cut.census_frontier_storage_digest
+                 AND census_cut.census_frontier_json->>'schema_version'='2'
+                 AND census_cut.census_frontier_json->>'trial_family_identity'=sealed.trial_family_identity
+                 AND census_cut.census_frontier_json->>'frontier_identity'=sealed.census_frontier_identity
+                 AND census_cut.census_frontier_json->>'frontier_digest'=sealed.frozen_json->>'census_frontier_digest'
+                 AND census_cut.census_frontier_json->>'attempt_frontier_identity'=census_cut.attempt_frontier_identity
+                 AND census_cut.census_frontier_json->>'candidate_set_frontier_identity'=census_cut.candidate_set_frontier_identity
+                 AND census_outbox.event_identity='rd-owner-outbox-v2-' || pg_catalog.replace(family_head.frontier_digest,'sha256:','')
+                 AND census_outbox.payload_digest ~ '^sha256:[0-9a-f]{64}$'
+                 AND census_outbox.committed_at_epoch_ms=census_cut.committed_at_epoch_ms
+                 AND census_outbox.payload_json=(
+                   pg_catalog.jsonb_build_object(
+                     'schema_version',2,
+                     'research_receipt_identity',family_outbox.payload_json->>'research_receipt_identity',
+                     'trial_family_identity',sealed.trial_family_identity,
+                     'census_frontier_identity',sealed.census_frontier_identity,
+                     'census_frontier_digest',sealed.frozen_json->>'census_frontier_digest',
+                     'attempt_frontier_identity',census_cut.attempt_frontier_identity,
+                     'attempt_frontier_digest',census_cut.attempt_frontier_json->>'frontier_digest',
+                     'candidate_set_frontier_identity',census_cut.candidate_set_frontier_identity,
+                     'candidate_set_frontier_digest',census_cut.candidate_set_frontier_json->>'frontier_digest'
+                   ) || CASE
+                     WHEN census_cut.census_frontier_json ? 'replay_policy_catalog_v3'
+                     THEN pg_catalog.jsonb_build_object(
+                       'replay_policy_catalog_v3',
+                       census_cut.census_frontier_json->'replay_policy_catalog_v3'
+                     )
+                     ELSE '{}'::pg_catalog.jsonb
+                   END
+                 )
+            )
           ) OR NOT EXISTS (
             SELECT 1
               FROM public.rd_owner_outbox_v1 artifact_outbox
@@ -637,13 +824,38 @@ AS $function$
           SELECT * INTO STRICT sealed
             FROM public.rd_sealed_exploratory_replay_requests_v1
            WHERE request_identity=requested_request_identity;
-          SELECT * INTO STRICT research
-            FROM public.rd_research_request_receipts_v1
-           WHERE intent_json->>'intent_identity'=sealed.intent_identity;
-          SELECT * INTO STRICT family
-            FROM public.rd_trial_families_v1
-           WHERE trial_family_identity=sealed.trial_family_identity
-             AND intent_identity=sealed.intent_identity;
+          SELECT source.* INTO STRICT research
+            FROM (
+              SELECT initial.request_identity,initial.view_json,
+                     initial.request_json,initial.receipt_json,initial.intent_json,
+                     initial.request_storage_bytes,initial.request_storage_digest,
+                     initial.receipt_storage_bytes,initial.receipt_storage_digest,
+                     initial.intent_storage_bytes,initial.intent_storage_digest
+                FROM public.rd_research_request_receipts_v1 initial
+               WHERE initial.intent_json->>'intent_identity'=sealed.intent_identity
+              UNION ALL
+              SELECT successor.request_identity,successor.view_json,
+                     successor.request_json,successor.receipt_json,successor.intent_json,
+                     successor.request_storage_bytes,successor.request_storage_digest,
+                     successor.receipt_storage_bytes,successor.receipt_storage_digest,
+                     successor.intent_storage_bytes,successor.intent_storage_digest
+                FROM public.rd_successor_research_intents_v1 successor
+               WHERE successor.intent_identity=sealed.intent_identity
+                 AND successor.trial_family_identity=sealed.trial_family_identity
+            ) source;
+          SELECT root.* INTO STRICT family
+            FROM public.rd_trial_families_v1 root
+           WHERE root.trial_family_identity=sealed.trial_family_identity
+             AND (
+               root.intent_identity=sealed.intent_identity
+               OR EXISTS (
+                 SELECT 1
+                   FROM public.rd_successor_research_intents_v1 successor
+                  WHERE successor.intent_identity=sealed.intent_identity
+                    AND successor.trial_family_identity=sealed.trial_family_identity
+                    AND successor.predecessor_intent_identity=root.intent_identity
+               )
+             );
           SELECT * INTO STRICT member
             FROM public.rd_trial_family_members_v1
            WHERE trial_family_identity=sealed.trial_family_identity AND ordinal=0;
@@ -855,10 +1067,13 @@ GRANT SELECT ON TABLE
   public.rd_research_request_receipts_v1,
   public.rd_trial_families_v1,
   public.rd_trial_family_heads_v1,
+  public.rd_trial_family_attempt_cuts_v2,
   public.rd_artifact_trial_family_bindings_v1,
+  public.rd_composer_artifact_family_bindings_v3,
   public.rd_artifact_build_attempts_v1,
   public.rd_strategy_artifacts_v1,
-  public.rd_trial_family_members_v1
+  public.rd_trial_family_members_v1,
+  public.rd_successor_research_intents_v1
 TO rd_exploratory_replay_api_owner;
 REVOKE ALL ON TABLE
   public.rd_sealed_exploratory_replay_requests_v1,
@@ -866,10 +1081,13 @@ REVOKE ALL ON TABLE
   public.rd_research_request_receipts_v1,
   public.rd_trial_families_v1,
   public.rd_trial_family_heads_v1,
+  public.rd_trial_family_attempt_cuts_v2,
   public.rd_artifact_trial_family_bindings_v1,
+  public.rd_composer_artifact_family_bindings_v3,
   public.rd_artifact_build_attempts_v1,
   public.rd_strategy_artifacts_v1,
-  public.rd_trial_family_members_v1
+  public.rd_trial_family_members_v1,
+  public.rd_successor_research_intents_v1
 FROM market_data_owner, market_data_reader;
 CREATE SCHEMA IF NOT EXISTS backtest_owner_api AUTHORIZATION backtest_custodian;
 ALTER SCHEMA backtest_owner_api OWNER TO backtest_custodian;
@@ -3046,6 +3264,36 @@ ALTER FUNCTION operator_authorization_api.lock_current_authorization_v1(text, te
 REVOKE ALL ON FUNCTION operator_authorization_api.lock_current_authorization_v1(text, text) FROM PUBLIC, rd_owner;
 GRANT EXECUTE ON FUNCTION operator_authorization_api.lock_current_authorization_v1(text, text) TO product_edge_owner, operator_authorization_writer;
 
+CREATE OR REPLACE FUNCTION operator_authorization_api.resolve_authorization_snapshot_v1(requested_authorization_identity text, requested_issuance_receipt_identity text)
+RETURNS jsonb LANGUAGE plpgsql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
+SET search_path = pg_catalog, operator_authorization_private
+AS $function$
+DECLARE
+  issuance operator_authorization_private.operator_authorization_issuances_v1%ROWTYPE;
+  head operator_authorization_private.operator_authorization_revocation_heads_v1%ROWTYPE;
+  current_frontier operator_authorization_private.operator_authorization_revocation_frontiers_v1%ROWTYPE;
+BEGIN
+  IF current_setting('transaction_isolation') <> 'repeatable read'
+     OR current_setting('transaction_read_only') <> 'on'
+  THEN RETURN NULL; END IF;
+  SELECT * INTO issuance FROM operator_authorization_private.operator_authorization_issuances_v1 WHERE authorization_identity = requested_authorization_identity;
+  IF NOT FOUND OR issuance.receipt_json->>'receipt_identity' <> requested_issuance_receipt_identity THEN RETURN NULL; END IF;
+  SELECT * INTO head FROM operator_authorization_private.operator_authorization_revocation_heads_v1 WHERE scope_digest = issuance.scope_digest;
+  IF NOT FOUND THEN RETURN NULL; END IF;
+  SELECT * INTO current_frontier FROM operator_authorization_private.operator_authorization_revocation_frontiers_v1 WHERE frontier_identity = head.frontier_identity AND scope_digest = issuance.scope_digest;
+  IF NOT FOUND THEN RETURN NULL; END IF;
+  RETURN jsonb_build_object(
+    'issuance', to_jsonb(issuance), 'head', to_jsonb(head), 'current_frontier', to_jsonb(current_frontier),
+    'issuances', COALESCE((SELECT jsonb_agg(to_jsonb(scope_issuance) ORDER BY scope_issuance.committed_at_epoch_ms, scope_issuance.authorization_identity) FROM operator_authorization_private.operator_authorization_issuances_v1 scope_issuance WHERE scope_issuance.scope_digest = issuance.scope_digest), '[]'::jsonb),
+    'frontiers', COALESCE((SELECT jsonb_agg(to_jsonb(frontier) ORDER BY frontier.sequence, frontier.frontier_identity) FROM operator_authorization_private.operator_authorization_revocation_frontiers_v1 frontier WHERE frontier.scope_digest = issuance.scope_digest), '[]'::jsonb),
+    'outboxes', COALESCE((SELECT jsonb_agg(to_jsonb(outbox) ORDER BY outbox.event_identity) FROM operator_authorization_private.operator_authorization_owner_outbox_v1 outbox WHERE outbox.aggregate_identity IN (SELECT scope_issuance.authorization_identity FROM operator_authorization_private.operator_authorization_issuances_v1 scope_issuance WHERE scope_issuance.scope_digest = issuance.scope_digest) OR outbox.aggregate_identity IN (SELECT frontier.frontier_identity FROM operator_authorization_private.operator_authorization_revocation_frontiers_v1 frontier WHERE frontier.scope_digest = issuance.scope_digest)), '[]'::jsonb)
+  );
+END
+$function$;
+ALTER FUNCTION operator_authorization_api.resolve_authorization_snapshot_v1(text, text) OWNER TO operator_authorization_owner;
+REVOKE ALL ON FUNCTION operator_authorization_api.resolve_authorization_snapshot_v1(text, text) FROM PUBLIC, rd_owner;
+GRANT EXECUTE ON FUNCTION operator_authorization_api.resolve_authorization_snapshot_v1(text, text) TO product_edge_owner, operator_authorization_writer;
+
 CREATE TABLE IF NOT EXISTS public.product_edge_operation_manifests_v1 (manifest_identity TEXT PRIMARY KEY, operation TEXT NOT NULL, operation_schema TEXT NOT NULL, target_owner TEXT NOT NULL, manifest_digest TEXT NOT NULL, manifest_json JSONB NOT NULL, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS public.product_edge_deployment_bindings_v1 (binding_identity TEXT PRIMARY KEY, deployment_identity TEXT NOT NULL, generation BIGINT NOT NULL, predecessor_binding_identity TEXT, authorization_identity TEXT, issuance_receipt_identity TEXT, authorization_frontier_identity TEXT, binding_digest TEXT NOT NULL, binding_json JSONB NOT NULL, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE(deployment_identity, generation));
 CREATE TABLE IF NOT EXISTS public.product_edge_deployment_supersessions_v1 (binding_identity TEXT PRIMARY KEY REFERENCES public.product_edge_deployment_bindings_v1(binding_identity), successor_binding_identity TEXT, supersession_digest TEXT NOT NULL, supersession_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
@@ -3100,6 +3348,53 @@ BEGIN
 END
 $rd_ownership$;
 
+DO $candidate_experiment_acl_cutover$
+DECLARE grant_fact record;
+BEGIN
+  FOR grant_fact IN
+    SELECT DISTINCT acl.grantee, role.rolname
+    FROM pg_catalog.pg_class relation
+    CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl
+    LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+    WHERE relation.oid='public.rd_trial_family_candidate_experiments_v1'::pg_catalog.regclass
+      AND acl.grantee<>relation.relowner
+  LOOP
+    IF grant_fact.grantee=0 THEN
+      EXECUTE 'REVOKE ALL PRIVILEGES ON TABLE public.rd_trial_family_candidate_experiments_v1 FROM PUBLIC CASCADE';
+    ELSE
+      EXECUTE pg_catalog.format(
+        'REVOKE ALL PRIVILEGES ON TABLE public.rd_trial_family_candidate_experiments_v1 FROM %I CASCADE',
+        grant_fact.rolname
+      );
+    END IF;
+  END LOOP;
+  FOR grant_fact IN
+    SELECT DISTINCT attribute.attname, acl.grantee, role.rolname
+    FROM pg_catalog.pg_class relation
+    JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=relation.oid
+    CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+    LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+    WHERE relation.oid='public.rd_trial_family_candidate_experiments_v1'::pg_catalog.regclass
+      AND attribute.attnum>0
+      AND NOT attribute.attisdropped
+      AND acl.grantee<>relation.relowner
+  LOOP
+    IF grant_fact.grantee=0 THEN
+      EXECUTE pg_catalog.format(
+        'REVOKE ALL (%I) ON TABLE public.rd_trial_family_candidate_experiments_v1 FROM PUBLIC CASCADE',
+        grant_fact.attname
+      );
+    ELSE
+      EXECUTE pg_catalog.format(
+        'REVOKE ALL (%I) ON TABLE public.rd_trial_family_candidate_experiments_v1 FROM %I CASCADE',
+        grant_fact.attname,
+        grant_fact.rolname
+      );
+    END IF;
+  END LOOP;
+END
+$candidate_experiment_acl_cutover$;
+
 ALTER DEFAULT PRIVILEGES FOR ROLE rd_owner IN SCHEMA public REVOKE SELECT ON TABLES FROM qualification_owner, qualification_writer;
 DO $qualification_basis_reads$
 DECLARE object record;
@@ -3132,7 +3427,7 @@ DECLARE
   locked_basis record;
   locked_outbox record;
 BEGIN
-  IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
+  IF pg_catalog.current_setting('transaction_isolation') NOT IN ('read committed','serializable') THEN RETURN NULL; END IF;
   SELECT basis_identity, request_identity, principal, request_scope_json, lineage_digest,
          basis_digest, basis_json, receipt_json, committed_at_epoch_ms
     INTO locked_basis
@@ -3382,6 +3677,97 @@ ALTER FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) OWN
 REVOKE ALL ON FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) FROM PUBLIC, operator_authorization_writer, portfolio_owner, backtest_owner;
 GRANT EXECUTE ON FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) TO rd_owner, product_edge_owner, backtest_owner;
 
+CREATE OR REPLACE FUNCTION product_edge_api.resolve_historical_downstream_admission_snapshot_v1(
+  requested_request_identity text,
+  requested_admission_identity text,
+  requested_admission_digest text
+)
+RETURNS jsonb LANGUAGE plpgsql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+DECLARE
+  hinted_admission public.product_edge_request_admissions_v1%ROWTYPE;
+  locked_admission public.product_edge_request_admissions_v1%ROWTYPE;
+  requirement record;
+  authorization_envelope jsonb;
+  authorization_envelopes jsonb := '[]'::jsonb;
+  hinted_binding_locators jsonb;
+  locked_head jsonb;
+BEGIN
+  IF pg_catalog.current_setting('transaction_isolation') <> 'repeatable read'
+     OR pg_catalog.current_setting('transaction_read_only') <> 'on'
+  THEN RETURN NULL; END IF;
+
+  SELECT * INTO hinted_admission
+  FROM public.product_edge_request_admissions_v1
+  WHERE request_identity=requested_request_identity;
+  IF NOT FOUND
+     OR hinted_admission.admission_identity<>requested_admission_identity
+     OR hinted_admission.admission_digest<>requested_admission_digest
+  THEN RETURN NULL; END IF;
+
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+      'binding_identity', binding.binding_identity,
+      'generation', binding.generation,
+      'authorization_identity', binding.authorization_identity,
+      'issuance_receipt_identity', binding.issuance_receipt_identity,
+      'authorization_frontier_identity', binding.authorization_frontier_identity,
+      'binding_digest', binding.binding_digest
+    ) ORDER BY binding.generation, binding.binding_identity), '[]'::jsonb)
+  INTO hinted_binding_locators
+  FROM public.product_edge_deployment_bindings_v1 binding
+  WHERE binding.deployment_identity=hinted_admission.deployment_identity;
+
+  FOR requirement IN
+    SELECT authorization_identity, issuance_receipt_identity
+    FROM (
+      SELECT binding.authorization_identity, binding.issuance_receipt_identity
+      FROM public.product_edge_deployment_bindings_v1 binding
+      WHERE binding.deployment_identity=hinted_admission.deployment_identity
+      UNION
+      SELECT hinted_admission.authorization_identity, hinted_admission.issuance_receipt_identity
+    ) locator
+    ORDER BY authorization_identity, issuance_receipt_identity
+  LOOP
+    SELECT operator_authorization_api.resolve_authorization_snapshot_v1(
+      requirement.authorization_identity,
+      requirement.issuance_receipt_identity
+    ) INTO authorization_envelope;
+    IF authorization_envelope IS NULL THEN RETURN NULL; END IF;
+    authorization_envelopes := authorization_envelopes || jsonb_build_array(jsonb_build_object(
+      'authorization_identity', requirement.authorization_identity,
+      'issuance_receipt_identity', requirement.issuance_receipt_identity,
+      'envelope', authorization_envelope
+    ));
+  END LOOP;
+
+  SELECT * INTO locked_admission
+  FROM public.product_edge_request_admissions_v1
+  WHERE request_identity=requested_request_identity;
+  IF NOT FOUND OR to_jsonb(locked_admission)<>to_jsonb(hinted_admission) THEN RETURN NULL; END IF;
+
+  SELECT to_jsonb(head) INTO locked_head
+  FROM public.product_edge_deployment_heads_v1 head
+  WHERE head.deployment_identity=locked_admission.deployment_identity;
+
+  RETURN jsonb_build_object(
+    'hinted_admission', to_jsonb(hinted_admission),
+    'hinted_binding_locators', hinted_binding_locators,
+    'admission', to_jsonb(locked_admission),
+    'bindings', COALESCE((SELECT jsonb_agg(to_jsonb(binding) ORDER BY binding.generation, binding.binding_identity) FROM public.product_edge_deployment_bindings_v1 binding WHERE binding.deployment_identity=locked_admission.deployment_identity), '[]'::jsonb),
+    'head', locked_head,
+    'supersessions', COALESCE((SELECT jsonb_agg(to_jsonb(supersession) ORDER BY supersession.binding_identity) FROM public.product_edge_deployment_supersessions_v1 supersession JOIN public.product_edge_deployment_bindings_v1 binding ON binding.binding_identity=supersession.binding_identity WHERE binding.deployment_identity=locked_admission.deployment_identity), '[]'::jsonb),
+    'binding_manifests', COALESCE((SELECT jsonb_agg(to_jsonb(locator) ORDER BY locator.binding_identity, locator.manifest_identity) FROM public.product_edge_binding_manifests_v1 locator JOIN public.product_edge_deployment_bindings_v1 binding ON binding.binding_identity=locator.binding_identity WHERE binding.deployment_identity=locked_admission.deployment_identity), '[]'::jsonb),
+    'manifests', COALESCE((SELECT jsonb_agg(to_jsonb(manifest) ORDER BY manifest.manifest_identity) FROM public.product_edge_operation_manifests_v1 manifest WHERE manifest.manifest_identity IN (SELECT locator.manifest_identity FROM public.product_edge_binding_manifests_v1 locator JOIN public.product_edge_deployment_bindings_v1 binding ON binding.binding_identity=locator.binding_identity WHERE binding.deployment_identity=locked_admission.deployment_identity)), '[]'::jsonb),
+    'outboxes', COALESCE((SELECT jsonb_agg(to_jsonb(outbox) ORDER BY outbox.event_identity) FROM public.product_edge_owner_outbox_v1 outbox WHERE (outbox.aggregate_identity=locked_admission.admission_identity AND outbox.event_kind='PRODUCT_EDGE_REQUEST_ADMITTED_V1') OR (outbox.aggregate_identity IN (SELECT binding.binding_identity FROM public.product_edge_deployment_bindings_v1 binding WHERE binding.deployment_identity=locked_admission.deployment_identity) AND outbox.event_kind IN ('PRODUCT_EDGE_DEPLOYMENT_BINDING_ACTIVE_V1','PRODUCT_EDGE_DEPLOYMENT_BINDING_SUPERSEDED_V1')) OR (outbox.aggregate_identity IN (SELECT locator.manifest_identity FROM public.product_edge_binding_manifests_v1 locator JOIN public.product_edge_deployment_bindings_v1 binding ON binding.binding_identity=locator.binding_identity WHERE binding.deployment_identity=locked_admission.deployment_identity) AND outbox.event_kind='PRODUCT_EDGE_OPERATION_MANIFEST_APPROVED_V1')), '[]'::jsonb),
+    'authorizations', authorization_envelopes
+  );
+END
+$function$;
+ALTER FUNCTION product_edge_api.resolve_historical_downstream_admission_snapshot_v1(text,text,text) OWNER TO product_edge_owner;
+REVOKE ALL ON FUNCTION product_edge_api.resolve_historical_downstream_admission_snapshot_v1(text,text,text) FROM PUBLIC, operator_authorization_writer, portfolio_owner, backtest_owner;
+GRANT EXECUTE ON FUNCTION product_edge_api.resolve_historical_downstream_admission_snapshot_v1(text,text,text) TO rd_owner, product_edge_owner, backtest_owner;
+
 CREATE OR REPLACE FUNCTION product_edge_api.lock_source_invocation_state_v1(
   requested_request_identity text,
   requested_admission_identity text,
@@ -3601,12 +3987,16 @@ CREATE SCHEMA IF NOT EXISTS replay_policy_catalog_api AUTHORIZATION replay_polic
 CREATE SCHEMA IF NOT EXISTS composer_private AUTHORIZATION composer_owner;
 CREATE SCHEMA IF NOT EXISTS composer_owner_api AUTHORIZATION composer_owner;
 CREATE SCHEMA IF NOT EXISTS market_data_private AUTHORIZATION market_data_owner;
+CREATE SCHEMA IF NOT EXISTS market_data_rd_api AUTHORIZATION market_data_owner;
 ALTER SCHEMA replay_policy_catalog_private OWNER TO replay_policy_catalog_owner;
 ALTER SCHEMA replay_policy_catalog_api OWNER TO replay_policy_catalog_owner;
 ALTER SCHEMA composer_private OWNER TO composer_owner;
 ALTER SCHEMA composer_owner_api OWNER TO composer_owner;
 ALTER SCHEMA market_data_private OWNER TO market_data_owner;
+ALTER SCHEMA market_data_rd_api OWNER TO market_data_owner;
 REVOKE ALL ON SCHEMA replay_policy_catalog_private, replay_policy_catalog_api, composer_private, composer_owner_api, market_data_private FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
+REVOKE ALL ON SCHEMA market_data_rd_api FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
+GRANT USAGE ON SCHEMA market_data_rd_api TO rd_owner;
 GRANT USAGE ON SCHEMA replay_policy_catalog_api TO rd_owner, replay_policy_catalog_admin_writer;
 GRANT USAGE ON SCHEMA composer_owner_api TO rd_owner, rd_fact_writer, market_data_reader, market_data_owner;
 DO $market_data_owner_cutover$
@@ -3630,7 +4020,7 @@ BEGIN
     SELECT procedure.oid::pg_catalog.regprocedure AS identity
       FROM pg_catalog.pg_proc procedure
       JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
-     WHERE namespace.nspname='market_data_private'
+     WHERE namespace.nspname IN ('market_data_private','market_data_rd_api')
      ORDER BY procedure.oid
   LOOP
     EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO market_data_owner',object.identity);
@@ -3640,6 +4030,7 @@ $market_data_owner_cutover$;
 REVOKE ALL ON ALL TABLES IN SCHEMA market_data_private FROM PUBLIC, rd_owner, rd_fact_writer, market_data_reader;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA market_data_private FROM PUBLIC, rd_owner, rd_fact_writer, market_data_reader;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA market_data_private FROM PUBLIC, rd_owner, rd_fact_writer;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA market_data_rd_api FROM PUBLIC, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
 DO $catalog_composer_schema_acl_cutover$
 DECLARE grant_fact record;
 BEGIN
