@@ -43,8 +43,8 @@ The retained Windmill deployment in `product/rd-workbench` still owns the typed 
 `f/trade/product_edge/`, which remain the current transport and execution path for those operations. Its
 `rd_workbench.raw_app` is superseded by the Dashboard and is no longer the product entry.
 
-**Windmill removal is the target, not a coexistence.** The end state is that no Windmill dependency remains
-anywhere in the repository — no image, Compose service, script, flow, lock file, workspace declaration, client,
+**Windmill removal is the target, not a coexistence.** The end state is that **no Windmill dependency remains
+anywhere in the repository** — no image, Compose service, script, flow, lock file, workspace declaration, client,
 environment variable, or channel constant that a global search can still find. The Dashboard becomes the sole
 truth entry, and Product Edge has exactly one surface again. Windmill stays in the documentation only as a
 reference for the capabilities the Dashboard still has to absorb — job execution and progress, scheduling, worker
