@@ -1688,6 +1688,37 @@ impl PostgresResearchGoalOwnerV1 {
             .await
     }
 
+    /// Admits one locked canonical Backtest Result into its R&D iteration custody.
+    ///
+    /// The Owner derives every admitted fact inside one serializable transaction from the locked
+    /// Result, TrialFamily and sealed budget; the caller supplies only the operation request. An
+    /// exact replay of the same request joins the committed admission instead of creating a second
+    /// one.
+    pub async fn admit_iteration_result_v1(
+        &self,
+        request: &crate::iteration_result_admission::IterationResultAdmissionOperationRequestV1,
+    ) -> Result<
+        crate::iteration_result_admission::IterationResultAdmissionReadbackV1,
+        crate::iteration_result_admission::IterationResultAdmissionErrorV1,
+    > {
+        crate::iteration_result_admission_postgres::admit_iteration_result_v1(&self.pool, request)
+            .await
+    }
+
+    /// Resolves exact iteration result admission custody without creating first custody.
+    pub async fn resolve_iteration_result_admission_v1(
+        &self,
+        locator: &crate::iteration_result_admission::IterationResultAdmissionLocatorV1,
+    ) -> Result<
+        Option<crate::iteration_result_admission::IterationResultAdmissionReadbackV1>,
+        crate::iteration_result_admission::IterationResultAdmissionErrorV1,
+    > {
+        crate::iteration_result_admission_postgres::resolve_iteration_result_admission_v1(
+            &self.pool, locator,
+        )
+        .await
+    }
+
     /// Commits an effect-free repair request from exact stored Decision custody.
     pub async fn compose_repair_action_request_v1(
         &self,

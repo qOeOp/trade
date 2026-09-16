@@ -152,6 +152,7 @@ struct DevelopComposerA0ExecutionsV1 {
 mod exploratory_replay;
 mod iteration_analysis;
 mod iteration_decision;
+mod iteration_result_admission;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 mod market_data_repair;
 mod source_intake;
@@ -588,6 +589,10 @@ async fn main() -> anyhow::Result<()> {
             owner.clone(),
             token_digest,
             request_proof_digest.clone(),
+        ))
+        .merge(iteration_result_admission::router(
+            owner.clone(),
+            token_digest,
         ))
         .merge(source_intake_research::router(
             product_edge,

@@ -88,10 +88,6 @@ mod iteration_candidate;
 pub mod iteration_decision;
 mod iteration_decision_postgres;
 pub mod iteration_result_admission;
-#[allow(
-    dead_code,
-    reason = "the R&D result-admission custody awaits its Owner API and Product Edge seam"
-)]
 mod iteration_result_admission_postgres;
 pub mod successor_intent;
 mod successor_intent_postgres;

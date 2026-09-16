@@ -1279,6 +1279,11 @@ async fn load_trial_family_census_v2_with_lock_mode_in_transaction(
 }
 
 /// Reads an exact immutable Census prefix after validating the whole chain and current head.
+///
+/// The historical COMPOSER_V3 readback is this prefix's only consumer, and that module is gated on
+/// the same feature; without this gate the helper is dead in every other build and `-D warnings`
+/// fails the crate.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 pub(crate) async fn load_trial_family_census_v2_at_frontier_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     trial_family_identity: &str,

@@ -487,12 +487,12 @@ fn decode_replay_composition_binding_row_v1(
     row: &sqlx::postgres::PgRow,
     locator: ReplayCompositionBindingLocatorV1,
 ) -> Result<ReplayCompositionBindingReadbackV1, ReplayMarketFactsPostgresErrorV2> {
-    let identity = digest_array(row_bytes(&row, "binding_identity")?)?;
-    let digest = digest_array(row_bytes(&row, "binding_digest")?)?;
-    let receipt_identity = digest_array(row_bytes(&row, "receipt_identity")?)?;
-    let outbox_identity = digest_array(row_bytes(&row, "outbox_identity")?)?;
-    let outbox_binding_identity = digest_array(row_bytes(&row, "outbox_binding_identity")?)?;
-    let outbox_receipt_identity = digest_array(row_bytes(&row, "outbox_receipt_identity")?)?;
+    let identity = digest_array(row_bytes(row, "binding_identity")?)?;
+    let digest = digest_array(row_bytes(row, "binding_digest")?)?;
+    let receipt_identity = digest_array(row_bytes(row, "receipt_identity")?)?;
+    let outbox_identity = digest_array(row_bytes(row, "outbox_identity")?)?;
+    let outbox_binding_identity = digest_array(row_bytes(row, "outbox_binding_identity")?)?;
+    let outbox_receipt_identity = digest_array(row_bytes(row, "outbox_receipt_identity")?)?;
 
     if identity != *locator.binding_identity().as_bytes()
         || digest != *locator.binding_digest().as_bytes()
@@ -502,9 +502,9 @@ fn decode_replay_composition_binding_row_v1(
     {
         return Err(ReplayMarketFactsPostgresErrorV2::BindingConflict);
     }
-    let record_bytes = row_bytes(&row, "record_bytes")?;
-    let receipt_bytes = row_bytes(&row, "receipt_bytes")?;
-    let outbox_bytes = row_bytes(&row, "outbox_bytes")?;
+    let record_bytes = row_bytes(row, "record_bytes")?;
+    let receipt_bytes = row_bytes(row, "receipt_bytes")?;
+    let outbox_bytes = row_bytes(row, "outbox_bytes")?;
     let readback =
         decode_replay_composition_binding_v1(&record_bytes, &receipt_bytes, &outbox_bytes)
             .map_err(|_| ReplayMarketFactsPostgresErrorV2::BindingConflict)?;
