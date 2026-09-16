@@ -87,6 +87,7 @@ pub struct NativeReplayFrameEvidenceV2 {
     window_end_ns_exclusive: u64,
     bar_row_digests: [[BindingDigest; 5]; 2],
     liquidity: [NativeReplayQuoteLiquidityEvidenceV2; 2],
+    liquidity_receipt: NativeReplayQuoteLiquidityReceiptV2,
     bar_types: [BarType; 2],
     data: Vec<Data>,
 }
@@ -95,6 +96,15 @@ impl NativeReplayFrameEvidenceV2 {
     #[must_use]
     pub const fn snapshot_identity(&self) -> BindingDigest {
         self.snapshot_identity
+    }
+
+    /// The sealed liquidity EVENT receipt for this frame's own PIT cut.
+    ///
+    /// A frame that verified always carries this; there is no path that produces frame evidence
+    /// with unsealed liquidity.
+    #[must_use]
+    pub const fn liquidity_receipt(&self) -> &NativeReplayQuoteLiquidityReceiptV2 {
+        &self.liquidity_receipt
     }
 
     #[must_use]
@@ -235,6 +245,14 @@ pub(crate) fn verify_native_replay_frame_evidence_v2(
         frame_time_ns,
         window_end_ns_exclusive,
         bar_row_digests: [first_bar_rows?, second_bar_rows?],
+        liquidity_receipt: NativeReplayQuoteLiquidityReceiptV2::seal(
+            batch.snapshot_identity(),
+            batch.fact_digest(),
+            batch.digest(),
+            frame_time_ns,
+            window_end_ns_exclusive,
+            &liquidity,
+        ),
         liquidity,
         bar_types,
         data,
