@@ -1,0 +1,66 @@
+name: dashboard
+
+# The Dashboard package carries its own test suite, and nothing ran it. Two of its bilingual
+# completeness assertions had never matched the documents they read, which is only visible once the
+# suite executes somewhere. It is kept out of `build.yml` so a Dashboard change does not wait on
+# that workflow's hour, and so adding it does not invalidate the Rust cache key.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/dashboard.yml
+      - product/dashboard/**
+      - docs/guide/dashboard.md
+      - docs/guide/dashboard.zh.md
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/dashboard.yml
+      - product/dashboard/**
+      - docs/guide/dashboard.md
+      - docs/guide/dashboard.zh.md
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dashboard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Dashboard package tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden runner
+        # https://github.com/step-security/harden-runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: ${{ vars.STEP_SECURITY_EGRESS_POLICY || 'audit' }}
+          allowed-endpoints: >-
+            ${{ vars.COMMON_ALLOWED_ENDPOINTS }}
+            ${{ vars.CI_ALLOWED_ENDPOINTS }}
+
+      - name: Checkout repository
+        # https://github.com/actions/checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        # https://github.com/actions/setup-node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: product/dashboard/package-lock.json
+
+      - name: Install Dashboard dependencies
+        run: npm ci --prefix product/dashboard
+
+      - name: Run Dashboard tests
+        run: npm run test --prefix product/dashboard
+
+      - name: Check Dashboard types
+        run: npm run typecheck --prefix product/dashboard
