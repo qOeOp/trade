@@ -156,6 +156,19 @@ Artifact is dynamically accepted by `ProgramHostV2`; this proves only the crate-
 consumer path. Durable PostgreSQL custody, restart recovery across processes, provider/API/Windmill composition,
 and deployed Owner readiness remain unavailable and are not inferred from the in-memory join.
 
+**The Composer cannot run in production, and the reason is upstream of its custody.**
+`derive_source_research_composer_request_v2` does not derive a Design from the reread Research
+custody. It takes the fixed corpus Design, overwrites four identity fields
+(`research_request_identity`, `intent_identity`, `intent_digest`, `falsifier`) from that custody, and
+derives its bindings from a hardcoded selection identity. The plugin source, input roles and universe
+are the corpus's, not the research request's. So `POST /v2/develop-composer/runs` returning
+`SERVICE_UNAVAILABLE` under default features is **honest** rather than unfinished: there is no Design to
+compile. What is missing is the capability of turning a frozen hypothesis, mechanism and
+falsification question into an executable `StrategyDesignV2` — input roles, reaction graph and plugin
+source — and this document does not yet state how that derivation is decided. Everything downstream
+of it exists: the production commit function, the store, the writer, the two build-receipt relations,
+and, since the Market Data resolver landed, the production binding seam.
+
 **TARGET - canonical Research-to-Composer custody:** the public operation accepts only a canonical Research request
 locator. On one R&D transaction, the Owner-internal exact commit-cut capability takes request/aggregate row locks,
 canonically rereads current Research custody, and derives the request, Design, all Research/Intent/Design digests,

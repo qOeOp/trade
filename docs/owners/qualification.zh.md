@@ -188,6 +188,29 @@ Governance 可在每个不同的已授权 lifecycle request evaluation 与 decis
 - **禁止** - 不向 R&D 反馈调参细节 不改写 artifact，不拥有 lifecycle 扩大资金 Runtime
   activation 订单 账户效果或保护细节 Product view。
 
+## Eligibility 终端状态
+
+**Eligibility 终端从未被驱动过。** 下列每一步都已实现且都没有调用者，因此系统从未存在过
+Protected Replay Request Set、Attempt Frontier、Robustness Assessment 或 Eligibility Fact。
+有序 PostgreSQL 门禁只走到 `ADMITTED` intake 和一条 Origin（`schema_version=1`）replay request，
+而它那两条收尾条目恰好断言 Eligibility **不存在**。
+
+| 步骤                                            | 状态     |
+| ----------------------------------------------- | -------- |
+| `submit_protected_replay_request_v2`            | 无调用者 |
+| `seal_protected_replay_request_set_v1`          | 无调用者 |
+| `produce_and_commit_protected_replay_result_v3` | 无调用者 |
+| `close_protected_replay_attempt_frontier_v1`    | 无调用者 |
+| `close_economic_pass_assessment_v1`             | 无调用者 |
+
+这些步骤严格串联，而第一步卡在**缺少 Owner 输入**而非缺少驱动。V2 请求是 V1 提案加一个
+`ClockHeadHandoff`，共享时钟 resolver 由 `DEPLOYMENT_STORE_ADMISSION_MODE` 构造，而门禁没有设置它，
+所以 resolver 返回空，V2 请求在那个环境里根本无法构造。其后 set 封存只接纳 `schema_version=2`
+成员——Origin 行的规范编码不同，读进来会让 frontier 搁浅——所以只有 Origin 行时，即便调用也只会
+封出一个空集合。
+
+因此把共享时钟证据准入到门禁环境，是终端的第一前置；在那之前写任何驱动都没有意义。
+
 ## 后续实现验收
 
 - 候选和评估规则在保护证据揭示前不可变。
