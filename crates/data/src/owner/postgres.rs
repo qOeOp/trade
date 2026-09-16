@@ -38,9 +38,9 @@ use super::native_replay_scheduling_v1::{
     issue_native_replay_initial_market_readback_v1, native_replay_schedule_matches_request_v1,
     seal_native_replay_scheduling_v1,
 };
+use super::pit_snapshot::PitSnapshotFact;
 #[cfg(not(test))]
 use super::pit_snapshot::{PitObservationBatchOwnerResolver, VerifiedPitObservationBatch};
-use super::pit_snapshot::PitSnapshotFact;
 
 /// Exactly what custody holds for one sealed V2 sequence, as stored.
 ///
@@ -401,7 +401,7 @@ impl MarketDataOwnerPostgres {
     ///
     /// `docs/owners/market-data.md` admits "no caller-supplied second PIT locator, timestamp,
     /// frame list, raw row, price, quantity, schedule, pool or replacement resolver". The caller
-    /// therefore names only the first frame — the one its sealed request already fixes — and the
+    /// therefore names only the first frame - the one its sealed request already fixes - and the
     /// successor comes out of the scope census or not at all. There is no parameter through which
     /// a second snapshot could be offered.
     ///
@@ -436,6 +436,7 @@ impl MarketDataOwnerPostgres {
         {
             return Err(NativeReplayFrameCensusRefusalV2::ObservationAfterDecisionCut);
         }
+
         if rows.windows(2).any(|pair| {
             pair[0].frame_ordinal == pair[1].frame_ordinal
                 && pair[0].correction_branch_digest != pair[1].correction_branch_digest
@@ -449,12 +450,15 @@ impl MarketDataOwnerPostgres {
         if first.snapshot_identity != first_frame_snapshot_identity {
             return Err(NativeReplayFrameCensusRefusalV2::FirstFrameIsNotTheSealedRequestFrame);
         }
+
         if first.snapshot_identity == second.snapshot_identity {
             return Err(NativeReplayFrameCensusRefusalV2::DuplicateFrameIdentity);
         }
+
         if second.frame_ordinal != first.frame_ordinal + 1 {
             return Err(NativeReplayFrameCensusRefusalV2::SkippedEligibleFrame);
         }
+
         if second.event_effective_ns <= first.event_effective_ns {
             return Err(NativeReplayFrameCensusRefusalV2::NonIncreasingEventOrder);
         }
@@ -480,10 +484,8 @@ impl MarketDataOwnerPostgres {
     pub(crate) async fn commit_native_replay_frame_sequence_v2(
         &self,
         record: &NativeReplayFrameSequenceCustodyRecordV2,
-    ) -> Result<
-        NativeReplayFrameSequenceCustodyReadbackV2,
-        NativeReplayFrameSequenceCustodyRefusalV2,
-    > {
+    ) -> Result<NativeReplayFrameSequenceCustodyReadbackV2, NativeReplayFrameSequenceCustodyRefusalV2>
+    {
         use NativeReplayFrameSequenceCustodyRefusalV2 as Refusal;
 
         let window_start =
@@ -501,7 +503,7 @@ impl MarketDataOwnerPostgres {
             .await
             .map_err(|_| Refusal::CustodyUnavailable)?;
         // Two concurrent commits of the same request must serialize, so the loser observes the
-        // winner's row and either replays it or conflicts — never inserts a second meaning.
+        // winner's row and either replays it or conflicts - never inserts a second meaning.
         sqlx::query("SELECT pg_advisory_xact_lock($1)")
             .bind(sample_advisory_key(*record.request_identity().as_bytes()))
             .execute(&mut *transaction)
@@ -677,6 +679,7 @@ impl MarketDataOwnerPostgres {
                 .await
                 .map_err(|_| SourceBindingError::StoreUnavailable)?;
         }
+
         for statement in super::replay_market_facts_v2::postgres::REPLAY_MARKET_RD_CUT_API_SCHEMA_V1
         {
             sqlx::query(*statement)
@@ -733,6 +736,7 @@ impl MarketDataOwnerPostgres {
         )
         .await
         .map_err(|_| SourceBindingError::StoreUnavailable)?;
+
         for statement in rd_strategy_input_custody::SCHEMA_V1 {
             sqlx::query(*statement)
                 .execute(&mut *transaction)
@@ -5547,9 +5551,10 @@ async fn load_native_replay_frame_census_v2(
     rows.into_iter()
         .map(|row| {
             Ok(NativeReplayFrameCensusRowV2 {
-                frame_ordinal: u64::try_from(row.try_get::<i64, _>("frame_ordinal").map_err(
-                    |_| PitSnapshotError::PersistenceUnavailable,
-                )?)
+                frame_ordinal: u64::try_from(
+                    row.try_get::<i64, _>("frame_ordinal")
+                        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?,
+                )
                 .map_err(|_| PitSnapshotError::PersistenceUnavailable)?,
                 snapshot_identity: census_digest(&row, "snapshot_identity")?,
                 snapshot_fact_digest: census_digest(&row, "snapshot_fact_digest")?,
@@ -5572,15 +5577,16 @@ async fn load_native_replay_frame_census_v2(
 fn decode_native_replay_frame_sequence_custody_v2(
     row: &sqlx::postgres::PgRow,
 ) -> Result<NativeReplayFrameSequenceCustodyReadbackV2, NativeReplayFrameSequenceCustodyRefusalV2> {
-    let digest = |column: &str| -> Result<BindingDigest, NativeReplayFrameSequenceCustodyRefusalV2> {
-        let bytes: Vec<u8> = row
-            .try_get(column)
-            .map_err(|_| NativeReplayFrameSequenceCustodyRefusalV2::CustodyUnavailable)?;
-        let bytes: [u8; 32] = bytes
-            .try_into()
-            .map_err(|_| NativeReplayFrameSequenceCustodyRefusalV2::CustodyUnavailable)?;
-        Ok(BindingDigest::from_untrusted_bytes(bytes))
-    };
+    let digest =
+        |column: &str| -> Result<BindingDigest, NativeReplayFrameSequenceCustodyRefusalV2> {
+            let bytes: Vec<u8> = row
+                .try_get(column)
+                .map_err(|_| NativeReplayFrameSequenceCustodyRefusalV2::CustodyUnavailable)?;
+            let bytes: [u8; 32] = bytes
+                .try_into()
+                .map_err(|_| NativeReplayFrameSequenceCustodyRefusalV2::CustodyUnavailable)?;
+            Ok(BindingDigest::from_untrusted_bytes(bytes))
+        };
     let bytes = |column: &str| -> Result<Vec<u8>, NativeReplayFrameSequenceCustodyRefusalV2> {
         row.try_get(column)
             .map_err(|_| NativeReplayFrameSequenceCustodyRefusalV2::CustodyUnavailable)
@@ -5685,6 +5691,7 @@ async fn insert_pit(
     .await
     .map_err(|e| map_pit_insert_error(&e))?;
     admit_native_replay_frame_census(transaction, fact).await?;
+
     if fault == PostgresCommitFault::AfterFactBeforeOutbox {
         return Err(PitSnapshotError::CommitInterrupted);
     }

@@ -702,7 +702,10 @@ fn verify_scheduling_data_against_sealed_frames(
     data: &[Data],
     frame_orders: [(u64, u64); 2],
 ) -> anyhow::Result<()> {
-    let [(first_bar_order, last_liquidity_event_order), (successor_bar_order, _)] = frame_orders;
+    let [
+        (first_bar_order, last_liquidity_event_order),
+        (successor_bar_order, _),
+    ] = frame_orders;
     let bars: Vec<u64> = data
         .iter()
         .filter_map(|value| match value {
@@ -924,14 +927,20 @@ mod tests {
     #[rstest::rstest]
     fn executed_schedule_binds_only_to_its_own_sealed_frame() {
         let (_, _, data) = scheduling_fixture();
-        let sealed = [(FRAME_TIME, FRAME_TIME + 2), (FRAME_TIME + 3, FRAME_TIME + 5)];
+        let sealed = [
+            (FRAME_TIME, FRAME_TIME + 2),
+            (FRAME_TIME + 3, FRAME_TIME + 5),
+        ];
         verify_scheduling_data_against_sealed_frames(&data, sealed).unwrap();
 
         // A different sealed first frame does not accept these fills.
         assert!(
             verify_scheduling_data_against_sealed_frames(
                 &data,
-                [(FRAME_TIME + 1, FRAME_TIME + 2), (FRAME_TIME + 3, FRAME_TIME + 5)],
+                [
+                    (FRAME_TIME + 1, FRAME_TIME + 2),
+                    (FRAME_TIME + 3, FRAME_TIME + 5)
+                ],
             )
             .is_err()
         );
@@ -939,7 +948,10 @@ mod tests {
         assert!(
             verify_scheduling_data_against_sealed_frames(
                 &data,
-                [(FRAME_TIME, FRAME_TIME + 1), (FRAME_TIME + 3, FRAME_TIME + 5)],
+                [
+                    (FRAME_TIME, FRAME_TIME + 1),
+                    (FRAME_TIME + 3, FRAME_TIME + 5)
+                ],
             )
             .is_err()
         );
@@ -947,14 +959,15 @@ mod tests {
         assert!(
             verify_scheduling_data_against_sealed_frames(
                 &data,
-                [(FRAME_TIME, FRAME_TIME + 2), (FRAME_TIME + 2, FRAME_TIME + 5)],
+                [
+                    (FRAME_TIME, FRAME_TIME + 2),
+                    (FRAME_TIME + 2, FRAME_TIME + 5)
+                ],
             )
             .is_err()
         );
         // A bundle with no EVENT has nothing to bind.
-        assert!(
-            verify_scheduling_data_against_sealed_frames(&data[0..2], sealed).is_err()
-        );
+        assert!(verify_scheduling_data_against_sealed_frames(&data[0..2], sealed).is_err());
         assert!(verify_scheduling_data_against_sealed_frames(&[], sealed).is_err());
     }
 

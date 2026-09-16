@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
+use vibe_backtest::result::CanonicalBacktestResult;
 use vibe_backtest_owner_contracts::{
     CanonicalDigestV2, DiagnosticCategoryV2, ObservationComponentV2, OpaqueIdentityV2,
     ReconciliationStatusV2, ReplayNamespaceV2, ReplayResultDtoV2, ReplayTerminalV2,
@@ -1652,10 +1653,7 @@ fn validate_outcome_evidence_cut_v1(
 fn interpretation_outcome_evidence_v1(
     locked: &LockedExploratoryReplayResultV3,
 ) -> Result<IterationInterpretationOutcomeEvidenceV1, IterationDecisionErrorV1> {
-    vibe_backtest::result::CanonicalBacktestResult::from_slice(
-        locked.engine_canonical_result_bytes(),
-    )
-    .map_err(|_| {
+    CanonicalBacktestResult::from_slice(locked.engine_canonical_result_bytes()).map_err(|_| {
         IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
             "canonical Backtest result bytes are invalid",
         )

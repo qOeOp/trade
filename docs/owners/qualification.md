@@ -233,8 +233,8 @@ The steps are strictly serial, and the first one is blocked on **a missing Owner
 missing driver. A V2 request is a V1 proposal plus a `ClockHeadHandoff`, the shared-time resolver is
 built from `DEPLOYMENT_STORE_ADMISSION_MODE`, and the gate does not set it, so the resolver yields
 nothing and no V2 request can be constructed there at all. Set sealing then admits only
-`schema_version=2` members — Origin rows carry a different canonical encoding and would strand the
-frontier — so an Origin-only gate seals an empty set even if it were called.
+`schema_version=2` members - Origin rows carry a different canonical encoding and would strand the
+frontier - so an Origin-only gate seals an empty set even if it were called.
 
 Admitting shared-time evidence into the gate environment is therefore the first prerequisite for the
 terminal, before any driver is worth writing.

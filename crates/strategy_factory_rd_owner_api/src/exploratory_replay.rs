@@ -21,6 +21,8 @@ use vibe_backtest_owner::{
 use vibe_backtest_owner_contracts::{
     CanonicalDigestV2, OpaqueIdentityV2, ReplayNamespaceV2, ReplayRequestDtoV2, ReplayRequestV2,
 };
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use vibe_data::owner::source_binding::BindingDigest;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 use vibe_data::owner::{
     instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresOwnerV1,
@@ -897,7 +899,7 @@ struct ComposerBackedReplayOperationV3 {
         vibe_strategy_factory::develop_composer_postgres_v2::DevelopComposerSealedReadLocatorV2,
     market_data_locator:
         vibe_data::owner::replay_market_facts_v2::ReplayCompositionBindingLocatorV1,
-    market_data_scope_digest: vibe_data::owner::source_binding::BindingDigest,
+    market_data_scope_digest: BindingDigest,
 }
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
@@ -1111,16 +1113,17 @@ pub(super) async fn submit_composer_backed_v3(
         .await
     {
         Ok(admission) => admission,
-        Err(error) => return product_edge_error(&error, &request_identity),
+        Err(e) => return product_edge_error(&e, &request_identity),
     };
     let proposal = operation.into_proposal(admission.locator().clone());
+
     match state
         .owner
         .commit_composer_backed_exploratory_replay_request_v3(proposal)
         .await
     {
         Ok(result) => (StatusCode::OK, Json(result)).into_response(),
-        Err(error) => owner_error(&error, &request_identity),
+        Err(e) => owner_error(&e, &request_identity),
     }
 }
 
@@ -1329,7 +1332,7 @@ mod tests {
     use super::*;
 
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
-    #[test]
+    #[rstest]
     fn composer_v3_edge_payload_matches_owner_proposal_without_admission() {
         let digest = vec![0_u8; 32];
         let payload = json!({

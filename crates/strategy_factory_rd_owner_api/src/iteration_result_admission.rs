@@ -90,12 +90,20 @@ async fn admit_iteration_result(
     body: Bytes,
 ) -> Response {
     if !authorized(&headers, &state.token_digest) {
-        return rejection(StatusCode::FORBIDDEN, "UNAUTHORIZED_PRODUCT_EDGE", "unbound");
+        return rejection(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            "unbound",
+        );
     }
     let request: IterationResultAdmissionOperationRequestV1 = match serde_json::from_slice(&body) {
         Ok(request) => request,
         Err(_) => {
-            return rejection(StatusCode::BAD_REQUEST, "MALFORMED_TYPED_REQUEST", "unbound");
+            return rejection(
+                StatusCode::BAD_REQUEST,
+                "MALFORMED_TYPED_REQUEST",
+                "unbound",
+            );
         }
     };
     let result_identity = request.locator.result_identity.clone();
@@ -112,12 +120,20 @@ async fn resolve_iteration_result_admission(
     body: Bytes,
 ) -> Response {
     if !authorized(&headers, &state.token_digest) {
-        return rejection(StatusCode::FORBIDDEN, "UNAUTHORIZED_PRODUCT_EDGE", "unbound");
+        return rejection(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            "unbound",
+        );
     }
     let locator: IterationResultAdmissionLocatorV1 = match serde_json::from_slice(&body) {
         Ok(locator) => locator,
         Err(_) => {
-            return rejection(StatusCode::BAD_REQUEST, "MALFORMED_TYPED_REQUEST", "unbound");
+            return rejection(
+                StatusCode::BAD_REQUEST,
+                "MALFORMED_TYPED_REQUEST",
+                "unbound",
+            );
         }
     };
     let result_identity = locator.result_identity.clone();
@@ -278,13 +294,15 @@ mod tests {
     fn transport_accepts_only_caller_mintable_request_fields() {
         serde_json::from_value::<IterationResultAdmissionOperationRequestV1>(admission_request())
             .expect("exact admission request");
-        serde_json::from_value::<IterationResultAdmissionLocatorV1>(locator()).expect("exact locator");
+        serde_json::from_value::<IterationResultAdmissionLocatorV1>(locator())
+            .expect("exact locator");
 
         // The caller cannot smuggle Owner-derived custody through either typed body.
         let mut projected = admission_request();
         projected["backtest"] = json!({"outcome": "completed"});
         assert!(
-            serde_json::from_value::<IterationResultAdmissionOperationRequestV1>(projected).is_err()
+            serde_json::from_value::<IterationResultAdmissionOperationRequestV1>(projected)
+                .is_err()
         );
 
         let mut minted = admission_request();
@@ -314,9 +332,15 @@ mod tests {
     }
 
     #[rstest]
-    #[case(IterationResultAdmissionErrorV1::InvalidLocator, StatusCode::BAD_REQUEST)]
+    #[case(
+        IterationResultAdmissionErrorV1::InvalidLocator,
+        StatusCode::BAD_REQUEST
+    )]
     #[case(IterationResultAdmissionErrorV1::NotApplicable, StatusCode::CONFLICT)]
-    #[case(IterationResultAdmissionErrorV1::IdentityMismatch, StatusCode::CONFLICT)]
+    #[case(
+        IterationResultAdmissionErrorV1::IdentityMismatch,
+        StatusCode::CONFLICT
+    )]
     #[case(IterationResultAdmissionErrorV1::BudgetExceeded, StatusCode::CONFLICT)]
     #[case(IterationResultAdmissionErrorV1::Conflict, StatusCode::CONFLICT)]
     fn every_owner_refusal_keeps_its_own_correlated_rejection(
