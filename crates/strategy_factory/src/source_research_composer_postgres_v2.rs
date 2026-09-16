@@ -25,10 +25,15 @@ use vibe_data::owner::pit_snapshot::sealed_acceptance::{
     issue_strategy_input_exact_instrument_bar_frame_for_owner_lineage,
 };
 use vibe_data::owner::source_binding::BindingDigest;
+use vibe_data::owner::strategy_input_binding::UntrustedStrategyInputCustodyClaimV1;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use vibe_data::owner::strategy_input_binding::{
     MarketDataFieldSemantic, StrategyInputChannel, StrategyInputUnit,
     UntrustedStrategyInputBindingRequest, UntrustedStrategyInputScope,
+};
+use vibe_data::owner::{
+    reread_persisted_strategy_input_custody_for_update_v1,
+    resolve_pit_request_for_strategy_design_v1,
 };
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use vibe_indicators_kernel::PrimitiveCatalogV1;
@@ -40,6 +45,7 @@ use crate::develop_composer_operation_v2::{
 };
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::develop_composer_postgres_v2::PostgresDevelopComposerReadStoreV2;
+use crate::develop_composer_postgres_v2::PreparedPostgresDevelopComposerRunV2;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::develop_composer_postgres_v2::{
     DevelopComposerAcceptanceWriteBoundaryV2, DevelopComposerSealedReadErrorV2,
@@ -48,6 +54,7 @@ use crate::develop_composer_postgres_v2::{
     read_accepted_for_replay_in_transaction, read_accepted_in_transaction,
     read_accepted_in_transaction_with_v3_restart,
 };
+use crate::develop_plugin_build_v2::DevelopPluginBuildProducerV2;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::product_edge::{
     ResearchComposerArtifactViewV3, ResearchExplorationViewV1, ResearchViewV1,
@@ -1143,6 +1150,148 @@ pub(crate) trait SourceResearchComposerBindingOwnerV2: Send + Sync {
     ) -> Result<VerifiedStrategyInputBindingsV2, DevelopComposerTerminalV2>;
 }
 
+/// Production fact-Owner binding seam.
+///
+/// It answers the question the sealed seam sidesteps by hardcoding a universe: which PIT cut does
+/// this Design bind against? Neither the Design, the reread Research custody, nor the public
+/// operation carries a PIT request, so Market Data resolves it from the declarations it owns and
+/// R&D never chooses it.
+///
+/// The type has no fields and no constructor arguments. Every read runs on the caller's already
+/// open R&D transaction through the Owner's locked facade, so a caller can supply neither Market
+/// facts nor a binding receipt.
+pub(crate) struct PostgresSourceResearchComposerBindingOwnerV2;
+
+impl PostgresSourceResearchComposerBindingOwnerV2 {
+    async fn read(
+        transaction: &mut Transaction<'_, Postgres>,
+        research_request_identity: BindingDigest,
+        design_identity: BindingDigest,
+        declared_roles: Option<Vec<BindingDigest>>,
+    ) -> Result<VerifiedStrategyInputBindingsV2, DevelopComposerTerminalV2> {
+        let coordinate = resolve_pit_request_for_strategy_design_v1(transaction, design_identity)
+            .await
+            .map_err(|_| production_market_data_unavailable())?;
+
+        // On the run path R&D holds the Design and must state its own complete role set; the
+        // Owner's stored roles may only agree with it. The recovery path has no Design, so there
+        // the Owner's own roles are the claim, and the engine still compares the result against
+        // the stored Composer record.
+        let input_role_identities = match declared_roles {
+            Some(declared) => {
+                let mut stored = coordinate.input_role_identities.clone();
+                let mut expected = declared.clone();
+                stored.sort_unstable();
+                expected.sort_unstable();
+                if stored != expected {
+                    return Err(production_market_data_unavailable());
+                }
+                declared
+            }
+            None => coordinate.input_role_identities.clone(),
+        };
+
+        let claim = UntrustedStrategyInputCustodyClaimV1 {
+            research_request_identity,
+            strategy_design_identity: design_identity,
+            pit_request_identity: coordinate.pit_request_identity,
+            input_role_identities,
+            decision_cut: coordinate.decision_cut,
+        };
+        let readback = reread_persisted_strategy_input_custody_for_update_v1(transaction, &claim)
+            .await
+            .map_err(|_| production_market_data_unavailable())?;
+
+        if readback.research_request_identity() != research_request_identity
+            || readback.strategy_design_identity() != design_identity
+        {
+            return Err(production_market_data_unavailable());
+        }
+        Ok(VerifiedStrategyInputBindingsV2::from_owner_receipts(
+            readback.bindings(),
+        ))
+    }
+}
+
+#[async_trait::async_trait]
+impl SourceResearchComposerBindingOwnerV2 for PostgresSourceResearchComposerBindingOwnerV2 {
+    async fn lock_for_run(
+        &self,
+        transaction: &mut Transaction<'_, Postgres>,
+        request: &DevelopComposerRunRequestV2,
+        _read_cut_epoch_ms: u64,
+    ) -> Result<VerifiedStrategyInputBindingsV2, DevelopComposerTerminalV2> {
+        let StrategyDesignPreparationV2::Prepared {
+            design_identity, ..
+        } = prepare_strategy_design_v2(&request.design)
+        else {
+            return Err(production_market_data_unavailable());
+        };
+        let declared_roles = request
+            .design
+            .inputs
+            .iter()
+            .map(strategy_input_role_identity_v2)
+            .collect::<Vec<_>>();
+        Self::read(
+            transaction,
+            request.design.research_request_identity,
+            design_identity,
+            Some(declared_roles),
+        )
+        .await
+    }
+
+    async fn lock_for_resolve(
+        &self,
+        transaction: &mut Transaction<'_, Postgres>,
+        locator: &DevelopComposerDurableEvidenceLocatorV2,
+        _read_cut_epoch_ms: u64,
+    ) -> Result<VerifiedStrategyInputBindingsV2, DevelopComposerTerminalV2> {
+        Self::read(
+            transaction,
+            locator.research_request_identity,
+            locator.design_identity,
+            None,
+        )
+        .await
+    }
+}
+
+fn production_market_data_unavailable() -> DevelopComposerTerminalV2 {
+    DevelopComposerTerminalV2::unavailable(
+        "market_data_binding",
+        "the Design has no single admitted Market Data Strategy Input custody",
+    )
+}
+
+/// Applies an acceptance tamper to the request. Production has no control to apply.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+fn apply_composer_run_control_tamper_v2(
+    request: &mut DevelopComposerRunRequestV2,
+    control: Option<ComposerRunControlV2>,
+) -> Result<(), DevelopComposerTerminalV2> {
+    if let Some(SourceResearchComposerAcceptanceControlV2::Tamper(selector)) = control {
+        tamper_source_research_composer_request_v2(request, selector)?;
+    }
+    Ok(())
+}
+
+#[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
+const fn apply_composer_run_control_tamper_v2(
+    _request: &mut DevelopComposerRunRequestV2,
+    _control: Option<ComposerRunControlV2>,
+) -> Result<(), DevelopComposerTerminalV2> {
+    Ok(())
+}
+
+/// Run control the acceptance composition may pass. It is uninhabited in production, so the
+/// production engine can carry the same parameter without carrying the acceptance behaviour.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+type ComposerRunControlV2 = SourceResearchComposerAcceptanceControlV2;
+#[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
+type ComposerRunControlV2 = std::convert::Infallible;
+
 /// Compile-time-selected A2 Market Data binding Owner.
 ///
 /// The type has no fields or constructor arguments: every read issues the one sealed A2 universe
@@ -1415,13 +1564,12 @@ where
     }
 
     /// Runs the existing Composer operation from canonical, transaction-locked Owner evidence.
-    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     pub(crate) async fn run(
         &self,
         builder: &mut impl DevelopComposerA0BuildPortV2,
         research_request_locator: &str,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
-        Box::pin(self.run_with_acceptance_control(builder, research_request_locator, None)).await
+        Box::pin(self.run_with_optional_control(builder, research_request_locator, None)).await
     }
 
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
@@ -1578,11 +1726,58 @@ where
     }
 
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
-    async fn run_with_acceptance_control(
+    async fn commit_prepared_run_with_control(
+        &self,
+        transaction: &mut Transaction<'_, Postgres>,
+        request: &DevelopComposerRunRequestV2,
+        prepared: PreparedPostgresDevelopComposerRunV2,
+        final_locked: DevelopComposerLockedEvidenceV2,
+        control: Option<ComposerRunControlV2>,
+    ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
+        match control {
+            Some(SourceResearchComposerAcceptanceControlV2::FailAfter(boundary)) => {
+                self.store
+                    .commit_prepared_run_in_transaction_with_acceptance_boundary(
+                        transaction,
+                        request,
+                        prepared,
+                        final_locked,
+                        boundary,
+                    )
+                    .await
+            }
+            _ => {
+                self.store
+                    .commit_prepared_run_in_transaction(
+                        transaction,
+                        request,
+                        prepared,
+                        final_locked,
+                    )
+                    .await
+            }
+        }
+    }
+
+    #[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
+    async fn commit_prepared_run_with_control(
+        &self,
+        transaction: &mut Transaction<'_, Postgres>,
+        request: &DevelopComposerRunRequestV2,
+        prepared: PreparedPostgresDevelopComposerRunV2,
+        final_locked: DevelopComposerLockedEvidenceV2,
+        _control: Option<ComposerRunControlV2>,
+    ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
+        self.store
+            .commit_prepared_run_in_transaction(transaction, request, prepared, final_locked)
+            .await
+    }
+
+    async fn run_with_optional_control(
         &self,
         builder: &mut impl DevelopComposerA0BuildPortV2,
         research_request_locator: &str,
-        control: Option<SourceResearchComposerAcceptanceControlV2>,
+        control: Option<ComposerRunControlV2>,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
         let read_cut_epoch_ms = current_read_cut_epoch_ms();
         let mut owner_transaction = self.store.begin_read_transaction().await?;
@@ -1614,10 +1809,7 @@ where
             }
         };
 
-        if let Some(SourceResearchComposerAcceptanceControlV2::Tamper(selector)) = control
-            && let Err(terminal) =
-                tamper_source_research_composer_request_v2(&mut request, selector)
-        {
+        if let Err(terminal) = apply_composer_run_control_tamper_v2(&mut request, control) {
             owner_transaction.rollback().await?;
             return Ok(terminal_response_for_request(&request, terminal));
         }
@@ -1659,29 +1851,14 @@ where
                     }
                 };
 
-                match control {
-                    Some(SourceResearchComposerAcceptanceControlV2::FailAfter(boundary)) => {
-                        self.store
-                            .commit_prepared_run_in_transaction_with_acceptance_boundary(
-                                &mut owner_transaction,
-                                &request,
-                                *prepared,
-                                final_locked,
-                                boundary,
-                            )
-                            .await
-                    }
-                    _ => {
-                        self.store
-                            .commit_prepared_run_in_transaction(
-                                &mut owner_transaction,
-                                &request,
-                                *prepared,
-                                final_locked,
-                            )
-                            .await
-                    }
-                }
+                self.commit_prepared_run_with_control(
+                    &mut owner_transaction,
+                    &request,
+                    *prepared,
+                    final_locked,
+                    control,
+                )
+                .await
             }
             Err(e) => Err(e),
         };
@@ -2264,6 +2441,71 @@ impl DevelopComposerSealedReadPortV2 for SealedPostgresSourceResearchComposerV2 
     }
 }
 
+/// Production Source-Research Composer.
+///
+/// Same engine as the sealed acceptance composition, with the two seams the acceptance corpus
+/// substitutes replaced by their Owner-backed counterparts: bindings come from Market Data's
+/// locked declarations rather than a fixed universe, and plugin builds come from the local bounded
+/// producer rather than a fixed corpus. The public surface takes only a canonical Research request
+/// locator, so no caller can supply a Design, binding, capsule, or PIT cut.
+pub struct PostgresSourceResearchComposerProductionV2 {
+    inner: PostgresSourceResearchComposerV2<PostgresSourceResearchComposerBindingOwnerV2>,
+}
+
+impl PostgresSourceResearchComposerProductionV2 {
+    /// Opens the Composer against its two R&D roles.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store error when either pool cannot be opened or validated.
+    pub async fn connect(
+        rd_owner_database_url: &str,
+        rd_fact_writer_database_url: &str,
+    ) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            inner: PostgresSourceResearchComposerV2::connect(
+                rd_owner_database_url,
+                rd_fact_writer_database_url,
+                PostgresSourceResearchComposerBindingOwnerV2,
+            )
+            .await?,
+        })
+    }
+
+    /// Runs the Composer for one canonical Research request locator.
+    ///
+    /// The locator is the whole public input. The Design, its bindings, the PIT cut they were
+    /// declared against and the plugin capsules are all derived inside the Owner transaction, so a
+    /// caller can neither choose them nor smuggle one in.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store error when the R&D transaction cannot be completed. A refused operation
+    /// is a terminal disposition in the response, not an error.
+    pub async fn run(
+        &self,
+        research_request_locator: &str,
+    ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
+        Box::pin(self.inner.run(
+            &mut DevelopPluginBuildProducerV2::default(),
+            research_request_locator,
+        ))
+        .await
+    }
+
+    /// Resolves an existing operation by request identity and never starts a first mutation.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store error when the R&D transaction cannot be completed.
+    pub async fn resolve(
+        &self,
+        request_identity: &str,
+    ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
+        Box::pin(self.inner.resolve(request_identity)).await
+    }
+}
+
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 impl SealedPostgresSourceResearchComposerV2 {
     pub async fn connect(
@@ -2316,7 +2558,7 @@ impl SealedPostgresSourceResearchComposerV2 {
         research_request_locator: &str,
         control: SourceResearchComposerAcceptanceControlV2,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
-        Box::pin(self.inner.run_with_acceptance_control(
+        Box::pin(self.inner.run_with_optional_control(
             &mut SealedSourceResearchComposerA0BuildV2,
             research_request_locator,
             Some(control),

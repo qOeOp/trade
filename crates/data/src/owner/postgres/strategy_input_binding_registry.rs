@@ -319,6 +319,117 @@ async fn recover_strategy_input_binding_declaration_for_rd_v1(
     })
 }
 
+/// Resolves the one PIT request a Design's persisted Strategy Input declarations belong to.
+///
+/// The Composer cannot be told which PIT cut a Design binds against. Its public operation carries
+/// only a canonical Research request locator, and neither the Design nor the reread Research
+/// custody names a PIT request, so without this the only way to reach a binding was the
+/// compile-time sealed universe. Market Data owns the answer because it owns the declarations.
+///
+/// Ambiguity is refused rather than resolved. A Design whose declarations span more than one PIT
+/// request has no single admitted cut, and choosing one here would invent an Owner decision that
+/// no stored fact supports.
+///
+/// # Errors
+///
+/// Returns [`StrategyInputCustodyUnavailableV1::UnknownDeclaration`] when the Design has no
+/// declaration, [`StrategyInputCustodyUnavailableV1::PitRequestMismatch`] when its declarations
+/// span more than one PIT request, and [`StrategyInputCustodyUnavailableV1::StoreUnavailable`]
+/// when the custody store cannot be read inside the caller transaction.
+pub async fn resolve_pit_request_for_strategy_design_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    strategy_design_identity: BindingDigest,
+) -> Result<StrategyDesignPitCoordinateV1, StrategyInputCustodyUnavailableV1> {
+    if strategy_design_identity == BindingDigest::from_untrusted_bytes([0; 32]) {
+        return Err(StrategyInputCustodyUnavailableV1::InvalidClaim);
+    }
+    let principal: String = sqlx::query_scalar("SELECT session_user::text")
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(|_| StrategyInputCustodyUnavailableV1::StoreUnavailable)?;
+    // Market Data reads its own relation; R&D may only reach it through the locked facade.
+    let query = if principal == "rd_owner" {
+        "SELECT pit_request_identity,input_role_identity,request_bytes FROM market_data_rd_api.lock_pit_request_for_strategy_design_v1($1)"
+    } else {
+        "SELECT pit_request_identity,input_role_identity,request_bytes FROM market_data_private.strategy_input_binding_declarations_v1 WHERE strategy_design_identity=$1 ORDER BY pit_request_identity,input_role_identity FOR SHARE"
+    };
+    let rows = sqlx::query(query)
+        .bind(strategy_design_identity.as_bytes().as_slice())
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(|_| StrategyInputCustodyUnavailableV1::StoreUnavailable)?;
+
+    let mut resolved: Option<StrategyDesignPitCoordinateV1> = None;
+    let mut input_role_identities = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let bytes: Vec<u8> = row
+            .try_get("pit_request_identity")
+            .map_err(|_| StrategyInputCustodyUnavailableV1::StoreUnavailable)?;
+        let bytes: [u8; 32] = bytes
+            .try_into()
+            .map_err(|_| StrategyInputCustodyUnavailableV1::DeclarationUntrusted)?;
+        let request_bytes: Vec<u8> = row
+            .try_get("request_bytes")
+            .map_err(|_| StrategyInputCustodyUnavailableV1::StoreUnavailable)?;
+        // The cut lives inside the stored request, not in a column, so it is decoded with the
+        // same codec the custody reread uses rather than read from a second source.
+        let request = codec::decode_request_v1(&request_bytes)
+            .map_err(|_| StrategyInputCustodyUnavailableV1::DeclarationUntrusted)?;
+        let role_bytes: Vec<u8> = row
+            .try_get("input_role_identity")
+            .map_err(|_| StrategyInputCustodyUnavailableV1::StoreUnavailable)?;
+        let role_bytes: [u8; 32] = role_bytes
+            .try_into()
+            .map_err(|_| StrategyInputCustodyUnavailableV1::DeclarationUntrusted)?;
+        let role_identity = BindingDigest::from_untrusted_bytes(role_bytes);
+        if input_role_identities.contains(&role_identity) {
+            return Err(StrategyInputCustodyUnavailableV1::RoleCoverageMismatch);
+        }
+        input_role_identities.push(role_identity);
+
+        let candidate = (
+            BindingDigest::from_untrusted_bytes(bytes),
+            request.decision_cut,
+        );
+
+        match resolved
+            .as_ref()
+            .map(|c| (c.pit_request_identity, c.decision_cut))
+        {
+            None => {
+                resolved = Some(StrategyDesignPitCoordinateV1 {
+                    pit_request_identity: candidate.0,
+                    decision_cut: candidate.1,
+                    input_role_identities: Vec::new(),
+                });
+            }
+            Some(existing) if existing == candidate => {}
+            Some(existing) if existing.0 != candidate.0 => {
+                return Err(StrategyInputCustodyUnavailableV1::PitRequestMismatch);
+            }
+            Some(_) => return Err(StrategyInputCustodyUnavailableV1::LineageDrift),
+        }
+    }
+    let mut coordinate = resolved.ok_or(StrategyInputCustodyUnavailableV1::UnknownDeclaration)?;
+    coordinate.input_role_identities = input_role_identities;
+    Ok(coordinate)
+}
+
+/// The one PIT coordinate a Design's declarations agree on.
+///
+/// Both fields come from the same declaration rows, so a Design cannot present a PIT request from
+/// one cut and a decision cut from another.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StrategyDesignPitCoordinateV1 {
+    /// The PIT request every declaration for this Design repeats.
+    pub pit_request_identity: BindingDigest,
+    /// The decision cut every one of those declarations was written against.
+    pub decision_cut: u64,
+    /// Every input role the Design has a declaration for, in stored order. A caller that knows the
+    /// Design still states its own complete role set; this is the recovery path's only source.
+    pub input_role_identities: Vec<BindingDigest>,
+}
+
 /// Re-reads one complete persisted Composer input custody inside the caller's open transaction.
 ///
 /// This is the durable replacement for a fixed in-memory acceptance corpus. Every claimed role is

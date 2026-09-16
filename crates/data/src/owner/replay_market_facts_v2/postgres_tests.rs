@@ -2066,6 +2066,42 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
             .await,
         Err(StrategyInputCustodyUnavailableV1::RoleCoverageMismatch)
     );
+    // The Composer is told only a Research locator, so Market Data must answer which PIT cut the
+    // Design binds against. The answer comes from the declarations it owns, never from a caller.
+    let coordinate = crate::owner::postgres::strategy_input_binding_registry::
+        resolve_pit_request_for_strategy_design_v1(
+            &mut rd_transaction,
+            first_role.strategy_design_identity,
+        )
+        .await
+        .expect("rd_owner resolves the Design's one admitted PIT coordinate");
+    assert_eq!(
+        coordinate.pit_request_identity,
+        first_role.pit_request_identity
+    );
+    assert_eq!(coordinate.decision_cut, first_role.decision_cut);
+    let mut stored_roles = coordinate.input_role_identities.clone();
+    let mut declared_roles = base
+        .binding_requests
+        .iter()
+        .map(|request| request.input_role_identity)
+        .collect::<Vec<_>>();
+    stored_roles.sort_unstable();
+    declared_roles.sort_unstable();
+    assert_eq!(stored_roles, declared_roles);
+
+    // A Design with no declaration has no cut to bind against, and inventing one is the whole
+    // failure this resolver exists to prevent.
+    assert_eq!(
+        crate::owner::postgres::strategy_input_binding_registry::
+            resolve_pit_request_for_strategy_design_v1(
+                &mut rd_transaction,
+                vibe_data_binding_digest_for_test(0x5a),
+            )
+            .await,
+        Err(StrategyInputCustodyUnavailableV1::UnknownDeclaration)
+    );
+
     rd_transaction.rollback().await.unwrap();
     assert!(
         sqlx::query("SELECT * FROM market_data_private.replay_composition_bindings_v1")
@@ -2420,4 +2456,8 @@ fn encode_bytes(bytes: &mut Vec<u8>, value: &[u8]) {
             .to_be_bytes(),
     );
     bytes.extend_from_slice(value);
+}
+
+fn vibe_data_binding_digest_for_test(seed: u8) -> crate::owner::source_binding::BindingDigest {
+    crate::owner::source_binding::BindingDigest::from_untrusted_bytes([seed; 32])
 }
