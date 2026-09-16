@@ -36,6 +36,13 @@ Windmill 切换。** Windmill 仍是生产效应的当前执行器；Dashboard �
 它们仍是这些操作的当前传输与执行路径。其中的 `rd_workbench.raw_app` 已被 Dashboard 取代，不再是产品
 入口。
 
+**移除 Windmill 是目标，不是共存。** 终态是仓库里**全局搜不到任何 Windmill 依赖**——没有镜像、
+Compose service、script、flow、lock 文件、workspace 声明、客户端、环境变量或 channel 常量。Dashboard
+成为唯一事实入口，Product Edge 重新只有一个表面。Windmill 之所以还留在文档里，只是作为 Dashboard
+仍需吸收的那些能力的参照——job 执行与进度、调度、worker 隔离、resource 与 secret 托管——以免移除时
+悄悄丢掉一项本来承重的能力。因此下文描述的每个 Windmill 原语，都是 Dashboard 要继承的需求，
+不是产品要保留的依赖。
+
 已准入读面之下的路由由双语 `DRAWABLE_EXACT` 闸门约束，闸门以下仍是只能导航的占位符；路由名或保留的
 源码都不是实现权威。生产部署与 Windmill 切换保持 `TARGET`。Dashboard 在 preview profile 下可达、MCP
 握手成功或本地装好 Windmill，都不能让产品表面成为 `CURRENT`；验收必须覆盖下文定义的有界用户旅程、
