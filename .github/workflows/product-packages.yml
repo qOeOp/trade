@@ -72,12 +72,16 @@ jobs:
       - name: Check Dashboard types
         run: npm run typecheck --prefix product/dashboard
 
-      # These two have no package manifest and no dependencies; they run on the standard library
-      # alone, which is why nothing had to install them and why nothing ran them either.
-      - name: Run R&D Workbench tests
-        working-directory: product/rd-workbench
-        run: node --test $(find . -name '*.test.mjs' -not -path './node_modules/*')
-
+      # The R&D Owner client has no package manifest and no dependencies; it runs on the standard
+      # library alone, which is why nothing had to install it and why nothing ran it either. The
+      # R&D Workbench step that stood beside this one retired with Windmill: that package now ships
+      # deployment manifests and their checks, which `make rd-workbench-check` owns, and carries no
+      # test files at all.
       - name: Run R&D Owner client tests
         working-directory: product/rd-owner-client
         run: node --test ./*.test.mjs
+
+      # The R&D deployment package carries manifests rather than tests. Its checks read files and
+      # need no container, so the gate that already watches its path can run them.
+      - name: Check the R&D deployment package
+        run: make rd-workbench-check
