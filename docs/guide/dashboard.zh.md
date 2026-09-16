@@ -1596,7 +1596,7 @@ F  [Action runs|Data reads] [All|Waiting|Running|Completed|Failed|Cancelled|Unkn
 S  Waiting | Running | Unknown | Completed | Failed
 T  RunTable / date group
    Status | Started | Duration | Activity | Started by | Source result
-   row selection 或末列 [Open] -> D
+   row selection or final-column [Open] -> D
 D  shared DetailSheet: status, activity, trigger, started, duration, source result
    [Open full details] -> /operations/runs/:runId
 B  shown rows / filtered total | Rows per page [25|50|100] | Page n of m
