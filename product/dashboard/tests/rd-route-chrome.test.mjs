@@ -24,7 +24,7 @@ test("only admitted R&D surfaces embed their route chrome", async () => {
       "artifactSourceDetail",
     ]),
   );
-  assert.match(shell, /const ownsRouteChrome = embedsRouteChrome \|\| settingsAccess \|\| dashboardOverview \|\| dashboardRecent;/u);
+  assert.match(shell, /const ownsRouteChrome = embedsRouteChrome \|\| settingsAccess \|\| dashboardOverview \|\| dashboardRecent \|\| dashboardEvidence;/u);
   assert.match(shell, /const suppressShellPageHeader = operationsSchedules \|\| operationsServiceLogs \|\| operationsAudit \|\| ownsRouteChrome;/u);
   assert.match(
     shell,

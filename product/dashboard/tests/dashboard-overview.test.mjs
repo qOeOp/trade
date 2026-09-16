@@ -108,8 +108,9 @@ test("an inventory mismatch withdraws only its dependent positive values", () =>
 });
 
 test("the admitted Overview remains a read-only independent-source consumer", async () => {
-  const [component, route, en, zh] = await Promise.all([
+  const [component, runHook, route, en, zh] = await Promise.all([
     readFile(new URL("../components/dashboard-overview.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/use-dashboard-overview-runs.ts", import.meta.url), "utf8"),
     readFile(new URL("../components/dashboard-route-content.tsx", import.meta.url), "utf8"),
     readFile(new URL("../../../docs/guide/dashboard.md", import.meta.url), "utf8"),
     readFile(new URL("../../../docs/guide/dashboard.zh.md", import.meta.url), "utf8"),
@@ -117,9 +118,10 @@ test("the admitted Overview remains a read-only independent-source consumer", as
   assert.equal(maturityFor("/dashboard"), "DRAWABLE_EXACT");
   assert.equal(exactBlueprints["/dashboard"].primary, "DashboardOverview");
   assert.match(route, /dashboardOverview \? <DashboardOverview \/>/u);
-  for (const token of ["CompactStatusBar", "PanelFrame", "Each section is observed independently", "pageSize: \"50\""]) {
+  for (const token of ["CompactStatusBar", "PanelFrame", "Each section is observed independently", "useDashboardOverviewRuns"]) {
     assert.ok(component.includes(token), `Overview missing ${token}`);
   }
+  assert.match(runHook, /pageSize: "50"/u);
   assert.doesNotMatch(component, /GlobalStatusMatrix|global health|Resolve same identity|Submit|Run strategy/u);
   for (const doc of [en, zh]) {
     assert.match(doc, /IMPLEMENTATION_ADMITTED \/ CURRENT_PARTIAL/u);

@@ -1,19 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { artifactReviewInventoryMatchesCustodyV1 } from "../lib/artifact-review-inventory";
-import {
-  DASHBOARD_OVERVIEW_RUN_FILTER_V1,
-  projectDashboardOverviewV1,
-} from "../lib/dashboard-overview";
+import { projectDashboardOverviewV1 } from "../lib/dashboard-overview";
 import { researchOutcomeInventoryMatchesCustodyV1 } from "../lib/research-outcome-inventory";
-import {
-  admitRunListViewResponseV2,
-  type RunListViewEnvelopeV2,
-} from "../lib/run-list-view-contract";
 import { useArtifactReviewInventory } from "./use-artifact-review-inventory";
+import { useDashboardOverviewRuns } from "./use-dashboard-overview-runs";
 import { useHistoricalCustodyDirectory } from "./use-historical-custody-directory";
 import { useResearchOutcomeInventory } from "./use-research-outcome-inventory";
 import { Button } from "./ui/button";
@@ -29,12 +23,6 @@ import {
   PanelFrameInfoList,
 } from "./ui/panel-frame";
 import styles from "./dashboard-overview.module.css";
-
-type RunReadState = Readonly<{
-  pending: boolean;
-  projection: RunListViewEnvelopeV2 | null;
-  reason: string | null;
-}>;
 
 function displayValue(value: number | null, pending: boolean) {
   return pending ? "—" : value ?? "Unavailable";
@@ -69,49 +57,14 @@ export function DashboardOverview() {
   const custody = useHistoricalCustodyDirectory(true);
   const outcomes = useResearchOutcomeInventory(true);
   const reviews = useArtifactReviewInventory(true);
-  const [runs, setRuns] = useState<RunReadState>({ pending: true, projection: null, reason: null });
+  const runs = useDashboardOverviewRuns(true);
   const [refreshing, setRefreshing] = useState(false);
-  const runGeneration = useRef(0);
-
-  const readRuns = useCallback(async () => {
-    const generation = ++runGeneration.current;
-    setRuns({ pending: true, projection: null, reason: null });
-    try {
-      const query = new URLSearchParams({
-        kind: "runs",
-        state: "all",
-        search: "",
-        duration: "any",
-        pageSize: "50",
-        page: "1",
-      });
-      const response = await fetch(`/api/operations/runs/?${query}`, { cache: "no-store" });
-      const projection = admitRunListViewResponseV2(await response.json(), {
-        response_ok: response.ok,
-        filter_cut: DASHBOARD_OVERVIEW_RUN_FILTER_V1,
-      });
-      if (runGeneration.current !== generation) return;
-      setRuns({
-        pending: false,
-        projection,
-        reason: projection?.availability === "unavailable"
-          ? projection.unavailable_reason
-          : projection ? null : "RUN_STORE_RESPONSE_UNAVAILABLE",
-      });
-    } catch {
-      if (runGeneration.current === generation) {
-        setRuns({ pending: false, projection: null, reason: "RUN_STORE_TRANSPORT_UNAVAILABLE" });
-      }
-    }
-  }, []);
-
-  useEffect(() => { void readRuns(); }, [readRuns]);
 
   const pending = refreshing
     || custody.availability === "loading"
     || outcomes.availability === "loading"
     || reviews.availability === "loading"
-    || runs.pending;
+    || runs.availability === "loading";
   const projection = useMemo(() => projectDashboardOverviewV1({
     custody: pending ? null : custody.projection,
     researchOutcomes: pending ? null : outcomes.projection,
@@ -131,11 +84,11 @@ export function DashboardOverview() {
     if (refreshing) return;
     setRefreshing(true);
     try {
-      await Promise.allSettled([custody.read(), outcomes.read(), reviews.read(), readRuns()]);
+      await Promise.allSettled([custody.read(), outcomes.read(), reviews.read(), runs.read()]);
     } finally {
       setRefreshing(false);
     }
-  }, [custody, outcomes, readRuns, refreshing, reviews]);
+  }, [custody, outcomes, refreshing, reviews, runs]);
 
   const queueCards = [
     projection.research.resultsReady && projection.research.resultsReady > 0
