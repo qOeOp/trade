@@ -6464,7 +6464,6 @@ mod tests {
                 "PORTFOLIO_MUTATION_V1".into(),
                 "PROVIDER_EFFECT_V1".into(),
                 "REAL_TRADING_V1".into(),
-                "WINDMILL_WRITE_V1".into(),
             ],
             capability_policy_digest: format!("sha256:{}", "e".repeat(64)),
             effective_from_epoch_ms: now.saturating_sub(1_000),

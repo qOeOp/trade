@@ -10,19 +10,24 @@ use url::Url;
 
 const EXPECTED_DATABASE_ENV: &str = "VIBE_POSTGRES_TEST_DATABASE_NAME";
 const EXPECTED_MARKER_ENV: &str = "VIBE_POSTGRES_TEST_INSTANCE_MARKER";
-const PRODUCTION_DATABASE_URL_ENVS: [&str; 7] = [
+const PRODUCTION_DATABASE_URL_ENVS: [&str; 6] = [
     "RD_OWNER_DATABASE_URL",
-    "WINDMILL_DATABASE_URL",
     "PRODUCT_EDGE_DATABASE_URL",
     "OPERATOR_AUTHORIZATION_DATABASE_URL",
     "BACKTEST_DATABASE_URL",
     "MARKET_DATA_OWNER_DATABASE_URL",
     "REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL",
 ];
-const DEFAULT_DATABASE_NAMES: [&str; 7] = [
+/// Database names a destructive test may never target.
+///
+/// `trade_rd` is the deployment package's own bootstrap database. It replaced `windmill`, which
+/// stays listed because an environment created before that rename still carries the old name and
+/// must keep the same protection.
+const DEFAULT_DATABASE_NAMES: [&str; 8] = [
     "postgres",
     "template0",
     "template1",
+    "trade_rd",
     "windmill",
     "trade",
     "rd_owner",

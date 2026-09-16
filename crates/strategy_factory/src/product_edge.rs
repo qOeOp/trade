@@ -1351,8 +1351,8 @@ pub(crate) fn verify_source_bound_research_admission_v2(
     );
 
     if transport_neutral.is_err() {
-        // Transitional compatibility for V1 Windmill requests and durable
-        // admissions created before the transport-neutral V2 surface.
+        // Transitional compatibility for V1 requests and durable admissions
+        // created before the transport-neutral V2 surface.
         let legacy_payload = serde_json::json!({
             "request_identity": request.request_identity,
             "channel": request.channel,
