@@ -51,6 +51,26 @@ test("Replay result reads point Run Detail at the exact Backtest result selector
   });
 });
 
+test("Historical custody reads open the existing Research candidate catalog", () => {
+  assert.deepEqual(projectRdOwnerViewLocatorV1(
+    "rd_historical_custody.shadow_read.v1",
+    [],
+  ), {
+    schema_version: 1,
+    source_owner: "historical_custody_owner",
+    href: "/rd/research",
+    action_label: "Open Owner catalog",
+    identity_fields: [],
+  });
+  assert.deepEqual(parseRdOwnerViewRequestV1("/rd/research", {}), {
+    kind: "historical_custody",
+  });
+  assert.equal(projectRdOwnerViewLocatorV1(
+    "rd_historical_custody.shadow_read.v1",
+    [{ key: "request_identity", value: "forbidden-alias" }],
+  ), null);
+});
+
 test("Replay owner locator rejects malformed selectors before navigation", () => {
   assert.equal(projectRdOwnerViewLocatorV1("exploratory_replay.shadow_read.v2", [
     fields[0],

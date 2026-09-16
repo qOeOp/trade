@@ -10,6 +10,7 @@ import {
   EXPLORATORY_REPLAY_SHADOW_READ_OPERATION,
   operationRegistryEntryDigestV1,
   RD_FORMATION_CATALOG_SHADOW_READ_OPERATION,
+  RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION,
   RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION,
   SOURCE_INTAKE_SHADOW_READ_OPERATION,
 } from "../lib/operation-registry.ts";
@@ -171,6 +172,31 @@ test("Run Detail admits iteration inputs and rejects mismatched worker requireme
   const mismatchedOwner = envelope();
   mismatchedOwner.run.owner_view.href = "/rd/research?requestIdentity=source-request-detail-1";
   assert.equal(parseRunDetailEnvelopeV1(mismatchedOwner), null);
+});
+
+test("Run Detail keeps historical custody runs connected to the Research candidate catalog", () => {
+  const custody = envelope();
+  custody.run.operation_id = RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION;
+  custody.bounded_result.operation_id = RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION;
+  custody.run.input_fields = [];
+  custody.run.dispatch_binding.required_operation_id = RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION;
+  custody.run.dispatch_binding.dependency_operation_ids = [];
+  custody.run.dispatch_binding.registry_entry_digest = operationRegistryEntryDigestV1(
+    RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION,
+  );
+  custody.run.worker_compatibility.required_operation_id = RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION;
+  custody.run.owner_view = {
+    schema_version: 1,
+    source_owner: "historical_custody_owner",
+    href: "/rd/research",
+    action_label: "Open Owner catalog",
+    identity_fields: [],
+  };
+  assert.equal(parseRunDetailEnvelopeV1(custody)?.run?.owner_view.href, "/rd/research");
+
+  const inventedIdentity = structuredClone(custody);
+  inventedIdentity.run.input_fields = [{ key: "request_identity", value: "invented" }];
+  assert.equal(parseRunDetailEnvelopeV1(inventedIdentity), null);
 });
 
 test("Run Detail binds Replay runs to the canonical Backtest point-read", () => {

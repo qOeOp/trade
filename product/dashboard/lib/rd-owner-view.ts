@@ -7,7 +7,8 @@ const DIGEST = /^(?:sha256|blake3):[0-9a-f]{64}$/;
 export type RdOwnerViewLocatorV1 = {
   schema_version: 1;
   source_owner: "source_intake_owner" | "research_owner" | "artifact_owner"
-    | "formation_catalog_owner" | "iteration_decision_owner" | "exploratory_replay_owner"
+    | "formation_catalog_owner" | "historical_custody_owner" | "iteration_decision_owner"
+    | "exploratory_replay_owner"
     | "develop_composer_owner";
   href: string;
   action_label: "Resolve same identity" | "Open Owner catalog";
@@ -19,6 +20,7 @@ export type RdOwnerViewRequestV1 =
   | { kind: "research"; requestIdentity: string }
   | { kind: "legacy_research"; requestIdentity: string }
   | { kind: "artifact"; researchRequestIdentity: string; buildRequestIdentity: string; attemptIdentity: string }
+  | { kind: "historical_custody" }
   | { kind: "decision"; trialFamilyIdentity: string }
   | { kind: "replay"; requestIdentity: string; meaningDigest: string }
   | { kind: "replay_result"; requestIdentity: string; meaningDigest: string; attemptIdentity: string; resultIdentity: string }
@@ -181,6 +183,15 @@ export function projectRdOwnerViewLocatorV1(
       identity_fields: fields.map(({ key, value }) => ({ key, value })),
     };
   }
+  if (operationId === "rd_historical_custody.shadow_read.v1" && fields.length === 0) {
+    return {
+      schema_version: 1,
+      source_owner: "historical_custody_owner",
+      href: "/rd/research",
+      action_label: "Open Owner catalog",
+      identity_fields: [],
+    };
+  }
   if (operationId === "rd_formation_catalog.shadow_read.v1" && fields.length === 0) {
     return {
       schema_version: 1,
@@ -262,6 +273,9 @@ export function parseRdOwnerViewRequestV1(
   }
   if (route === "/rd/research" && exactSearch(search, ["legacyV1RequestIdentity"])) {
     return { kind: "legacy_research", requestIdentity: search.legacyV1RequestIdentity as string };
+  }
+  if (route === "/rd/research" && exactSearch(search, [])) {
+    return { kind: "historical_custody" };
   }
   if (route === "/rd/artifacts" && exactSearch(search, [
     "researchRequestIdentity", "buildRequestIdentity", "attemptIdentity",

@@ -70,6 +70,7 @@ const ownerLabels = {
   research_owner: "Research",
   artifact_owner: "Artifact build",
   formation_catalog_owner: "Formation catalog",
+  historical_custody_owner: "R&D history",
   iteration_decision_owner: "Research iterations",
   exploratory_replay_owner: "Exploratory replay",
   develop_composer_owner: "Strategy composition",
