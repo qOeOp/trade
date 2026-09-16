@@ -162,8 +162,8 @@ test('architecture contract keeps the overview within its frozen complexity ceil
 
   const productEdgeModules = contract.boundaries.find((boundary) => boundary.id === 'product-edge')?.modules ?? [];
   assert.deepEqual(productEdgeModules.map((module) => module.id), ['workspace', 'agent-shell']);
-  assert.equal(productEdgeModules.find((module) => module.id === 'workspace')?.label, 'Windmill Workbench');
-  assert.equal(productEdgeModules.find((module) => module.id === 'agent-shell')?.label, 'Windmill MCP');
+  assert.equal(productEdgeModules.find((module) => module.id === 'workspace')?.label, 'Deployment Package');
+  assert.equal(productEdgeModules.find((module) => module.id === 'agent-shell')?.label, 'Dashboard MCP');
   assert.ok(!contractModules.some((module) => module.id === 'openclaw'));
 
   const authorityOwnerIds = new Set(contract.authorityOwners.map((owner) => owner.id));
@@ -313,29 +313,28 @@ test('the canonical contract owns every architecture object and relation semanti
   assert.equal(contract.architectureObjects.some((object) => object.id === 'alert-delivery'), false);
 });
 
-test('Windmill capability floor is deterministic, CE-correct, least-privilege, and Owner-resolved', () => {
-  const runtime = contract.windmillProductEdgeContract;
+test('executor capability floor is deterministic, least-privilege, and Owner-resolved', () => {
+  // The vendor-specific pins retired with the shell. What the floor asserted about any executor
+  // did not: deny-by-default tools, an unattended request that cannot mint a naked successor, and
+  // durable business truth that only an Owner receipt can close.
+  const runtime = contract.executorProductEdgeContract;
   const objects = new Set(contract.architectureObjects.map((object) => object.id));
 
-  assert.equal(runtime.status, 'TARGET_ABSENT_TARGET_ONLY');
-  assert.equal(runtime.editionFloor, 'SELF_HOSTED_COMMUNITY_EDITION');
-  assert.deepEqual(runtime.capabilityEvidenceCut.achievedLevels, ['VENDOR_DECLARED', 'LOCAL_REACHABLE']);
-  assert.ok(!runtime.capabilityEvidenceCut.achievedLevels.includes('PRODUCT_CURRENT'));
-  assert.equal(runtime.app.kind, 'FULL_CODE_REACT');
-  assert.equal(runtime.app.executionPolicy, 'viewer');
+  assert.equal(runtime.status, 'RETIRED_EXECUTOR_INVARIANTS_RETAINED');
+  assert.ok(!('capabilityEvidenceCut' in runtime), 'a retired vendor evidence cut cannot be reasserted');
+  assert.ok(!('editionFloor' in runtime), 'a retired vendor edition floor cannot be reasserted');
+  assert.equal(runtime.app.kind, 'FIRST_PARTY_DASHBOARD');
+  assert.equal(runtime.app.executionPolicy, 'authenticated-operator');
   assert.deepEqual(runtime.app.forbiddenPolicies, ['publisher', 'anonymous', 'public']);
   assert.equal(runtime.mcp.scopePolicy, 'EXACT_DENY_BY_DEFAULT_TOOL_ALLOWLIST');
   assert.equal(runtime.mcp.folderRestrictionAloneIsSufficient, false);
-  assert.deepEqual(runtime.mcp.allowedBuiltInTools, ['getJob', 'getJobLogs']);
-  assert.deepEqual(runtime.mcp.canonicalWriteRequestObjectIds, ['rd-request', 'qualification-review-request', 'lifecycle-request']);
+  assert.deepEqual(runtime.mcp.allowedBuiltInTools, ['operationalRunRead', 'operationalRunLogRead']);
   for (const objectId of [...runtime.mcp.canonicalWriteRequestObjectIds, ...runtime.mcp.canonicalReadObjectIds]) {
-    assert.ok(objects.has(objectId), `Windmill MCP cites unknown architecture object ${objectId}`);
+    assert.ok(objects.has(objectId), `executor MCP cites unknown architecture object ${objectId}`);
   }
-  for (const forbidden of ['preview', 'resource-create-update-delete', 'variable-create-update-delete', 'schedule-create-update-delete', 'self-deployment']) {
-    assert.ok(runtime.mcp.forbiddenToolClasses.includes(forbidden), `Windmill MCP omits forbidden tool class ${forbidden}`);
+  for (const forbidden of ['preview', 'resource-create-update-delete', 'variable-create-update-delete', 'schedule-create-update-delete']) {
+    assert.ok(runtime.mcp.forbiddenToolClasses.includes(forbidden), `executor MCP omits forbidden tool class ${forbidden}`);
   }
-  assert.equal(runtime.executionIdentity.interactiveApp, 'authenticated-viewer-bound-to-trade-principal');
-  assert.equal(runtime.executionIdentity.unattendedCe, 'dedicated-least-privilege-virtual-user');
   assert.equal(runtime.unattendedRequest.retry, 'same-request-identity-and-meaning');
   assert.equal(runtime.unattendedRequest.ambiguousTransport, 'SUBMITTED_OR_UNKNOWN');
   assert.equal(runtime.unattendedRequest.terminalAuthority, 'receiving-owner-receipt-only');
@@ -343,17 +342,12 @@ test('Windmill capability floor is deterministic, CE-correct, least-privilege, a
   assert.equal(runtime.storageAuthority.durableBusinessTruth, 'native-trade-owner-storage');
   assert.equal(runtime.agentAndCredentialPlanes.modelCredentialGrantsTradeAuthority, false);
   assert.equal(runtime.agentAndCredentialPlanes.agentOutputIsBusinessFact, false);
-  for (const required of ['git-revision', 'windmill-server-version-and-image-digest', 'windmill-cli-version', 'owner-api-schema-versions', 'rollback-target']) {
-    assert.ok(runtime.compatibilityCutBinds.includes(required), `Windmill compatibility cut omits ${required}`);
+  for (const required of ['git-revision', 'executor-image-digest', 'owner-api-schema-versions', 'rollback-target']) {
+    assert.ok(runtime.compatibilityCutBinds.includes(required), `executor compatibility cut omits ${required}`);
   }
 
   const { english, chinese } = readBilingualDoc('architecture/product-edge');
   for (const source of [english, chinese]) {
-    assert.match(source, /CE v1\.791\.0/);
-    assert.match(source, /VENDOR_DECLARED/);
-    assert.match(source, /LOCAL_REACHABLE/);
-    assert.match(source, /PRODUCT_CURRENT/);
-    assert.match(source, /viewer/);
     assert.match(source, /deny by\s+default|deny-by-default|默认拒绝/);
     assert.match(source, /SUBMITTED_OR_UNKNOWN/);
   }

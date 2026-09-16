@@ -4,13 +4,13 @@
 
 Product Edge 是应用与对话边界，把有人值守 UI 或自然语言意图转成受限请求，并返回只读产品视图。
 产品表面是 `product/dashboard` 里由 Trade 自有的 Dashboard；它的 `/api/mcp` endpoint 把同一组已准入
-操作暴露给可选外部对话客户端。`product/rd-workbench` 保留的 Windmill 部署仍是生产效应的当前执行器，
+操作暴露给可选外部对话客户端。`product/rd-workbench` 是部署包，
 Dashboard 尚未完成切换。
 
 ## 产品表面与安装包
 
 目标发行物是一套 VibeTrader Docker Compose 安装包，而不是一个单体镜像。它组合 Trade Runtime 与
-Owner API、Dashboard、保留的 Windmill server 与 worker、所需持久化和本地入口。
+Owner API、Dashboard、所需持久化和本地入口。
 
 产品入口是 `product/dashboard`--一个独立可构建的 `trade-dashboard` 镜像，包含 Vibe 衍生外壳、共享
 UI 原子，以及当前已准入的第一方读面。它自带浏览器会话网关、Trade 自有的 RunStore，以及
@@ -23,69 +23,53 @@ request-custody action、准确 run detail 与有界 run-log 读，不暴露任�
 
 Dashboard 与 MCP 调用同一组经过挑选、带版本的操作，并且只能通过有类型 Owner port 工作。它们不能执行
 任意 Owner SQL、产生业务事实或保存影子 workflow truth。Operations API 只读 Trade 自有的 RunStore 运维
-数据；有类型的 R&D 与 Backtest 读走各自准确的 Owner 合同。它们绝不复制 Windmill job 行或原始 Owner
+数据；有类型的 R&D 与 Backtest 读走各自准确的 Owner 合同。它们绝不复制运维 run 行或原始 Owner
 payload，运维完成也绝不被重新解释成业务成功。真实策略循环、行情会话、订单状态机与恢复效果仍由
 Trade Runtime、Risk、Execution 与 Recovery 拥有；产品表面只能监督和展示，永远不是交易运行内核。
 
 **当前部署状态：** Dashboard 的全部服务只在 opt-in 的 `dashboard-preview` profile 下启动，镜像 tag 默认
-`preview`，web 主机端口默认 `127.0.0.1:3100`，运行时角色不暴露主机端口。**尚无生产部署，也尚未从
-Windmill 切换。** Windmill 仍是生产效应的当前执行器；Dashboard 的 effect worker 默认禁用，只有明确的
-一次性本地权限，且不具备任何生产交易权威。
+`preview`，web 主机端口默认 `127.0.0.1:3100`，运行时角色不暴露主机端口。**尚无生产部署。** Dashboard 的
+effect worker 默认禁用，只有明确的一次性本地权限，且不具备任何生产交易权威。
 
-`product/rd-workbench` 保留的 Windmill 部署仍持有 `f/trade/product_edge/` 下那组有类型 script 与 flow，
-它们仍是这些操作的当前传输与执行路径。其中的 `rd_workbench.raw_app` 已被 Dashboard 取代，不再是产品
-入口。
+**此前的执行器已退役。** 没有任何部署在跑它，所以它是直接离开而不是等待切换：它的有类型 script、
+workspace 清单与服务都已移除，`product/rd-workbench` 现在只是 Postgres、Owner API 与 Dashboard 的
+**Deployment Package**（部署包）。Product Edge 重新只有一个表面。
 
-**移除 Windmill 是目标，不是共存。** 终态是仓库里**全局搜不到任何 Windmill 依赖**--没有镜像、
-Compose service、script、flow、lock 文件、workspace 声明、客户端、环境变量或 channel 常量。Dashboard
-成为唯一事实入口，Product Edge 重新只有一个表面。Windmill 之所以还留在文档里，只是作为 Dashboard
-仍需吸收的那些能力的参照--job 执行与进度、调度、worker 隔离、resource 与 secret 托管--以免移除时
-悄悄丢掉一项本来承重的能力。因此下文描述的每个 Windmill 原语，都是 Dashboard 要继承的需求，
-不是产品要保留的依赖。
+`Capability Adoption` 记录了退役产品壳提供的每项能力的去向，确保移除它没有静默丢掉一项本来承重的
+能力。有两项是退役而非迁移，其中第二项的代价--只有它驱动的那些密封验收链路--写在那份文档里，
+而不是留给别人去发现。
 
 已准入读面之下的路由由双语 `DRAWABLE_EXACT` 闸门约束，闸门以下仍是只能导航的占位符；路由名或保留的
-源码都不是实现权威。生产部署与 Windmill 切换保持 `TARGET`。Dashboard 在 preview profile 下可达、MCP
-握手成功或本地装好 Windmill，都不能让产品表面成为 `CURRENT`；验收必须覆盖下文定义的有界用户旅程、
+源码都不是实现权威。生产部署保持 `TARGET`。Dashboard 在 preview profile 下可达或 MCP
+握手成功，都不能让产品表面成为 `CURRENT`；验收必须覆盖下文定义的有界用户旅程、
 共同操作、Owner 回执、未解析状态以及直接浏览器证据。
 
-## Windmill 能力采用合同
+## 执行器能力合同
 
-本节治理**保留的 Windmill 执行器路径**，不是产品入口--产品入口见上一节。这些边界在切换完成前持续
-适用，因为生产效应今天仍由 Windmill 执行。
+本节治理**第一方执行器路径**，不是产品入口--产品入口见上一节。曾经执行这些效应的产品壳已退役；
+`Capability Adoption` 记录了它每项能力的去向。下面这些边界比它活得久，因为它们约束的是任何执行器，
+现在它们约束 Dashboard 的效应托管。
 
-已审计的实现下限是自托管 Windmill Community Edition。2026-08-18 证据截面验证了本地
-`CE v1.791.0` server 与 worker 健康状态，并核对了 App、MCP、job、日志、schedule、worker、resource、
-variable 的 Windmill 官方能力文档。该截面只达到 `VENDOR_DECLARED` 与 `LOCAL_REACHABLE`，不是
-`PRODUCT_CURRENT`。每个产品发布都必须把 Windmill server、worker 与 CLI 固定到准确兼容版本和容器
-digest；禁止 `main`、`latest` 或其他浮动 tag。
+| 执行器原语          | Product Edge 角色                                                      | 强制边界                                                                                                                                                      |
+| ------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 产品应用            | Dashboard 是产品入口                                                   | 只允许已认证 operator 执行。禁止 public、anonymous 与 publisher 执行，因为它们抹掉调用者的有效权限边界。                                                      |
+| MCP endpoint        | 通往同一组带版本 operation 的可选对话通道                              | scoped token 暴露准确 allowlist，默认拒绝。不得暴露对应用、script、resource、variable、schedule 或 worker 的 preview 或增删改工具。仅靠 folder 过滤不充分。   |
+| 有类型适配器与编排  | Owner port 之上的有类型适配器与有界编排                                | 可以路由、等待、重试与组合；绝不写 Owner 存储、不发明业务状态、不把编排成功变成 Owner 结果。                                                                  |
+| run、进度、日志与流 | 运维 run 身份、实时进度、诊断与 UI 流                                  | 运维 run id、百分比、结果或日志都不是 Owner receipt。运维保留期有界，所以持久研究 artifact 与结果事实留在 Trade Owner。                                       |
+| Schedule            | 触发有界的研究、扫描、回放、报告与维护工作                             | schedule 不是部署注册表、生命周期权威或实时策略运行时。正确性依靠执行器层的错误路径与同请求解析。                                                             |
+| worker 与负载隔离   | 队列支撑的执行与按准入角色的负载隔离                                   | worker 丢失会让业务结果保持未解析，直到查询接收方 Owner。                                                                                                     |
+| 有界推理步骤        | 使用明确准入工具的可选内部 R&D 推理步骤                                | Agent 记忆、模型输出与工具调用成功都不具权威。该步骤不获得任意 shell、Owner SQL、生命周期、Risk、Execution、secret 管理或 workspace 管理能力。                |
+| 连接配置与 secret   | 有类型连接配置与不透明凭据托管                                         | 执行器的 secret 访问不是 Operator Authorization。最小权限路径是强制的；secret 值绝不进入 prompt、Owner 请求、日志、artifact 或 receipt。                      |
+| 运维状态            | 只保存 UI 偏好与可明确重建的非权威缓存                                 | 禁止存放研究血缘、receipt、Qualification、Governance、Runtime、Risk、Execution、Portfolio 与 Recovery 真相。长寿命 artifact 使用 Owner 存储或已准入对象存储。 |
+| 部署版本            | 应用及其 operation、schedule 与 resource schema 的 repository‑first 源 | 已部署状态是仓库的投影。晋级要把 Git revision、镜像摘要、schema 版本与回滚目标记录为一个兼容截面。                                                            |
 
-| Windmill 原语                 | Product Edge 采用职责                                                                               | 强制边界                                                                                                                                                                                        |
-| ----------------------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Full‑code App                 | 已被 Dashboard 取代。`rd_workbench.raw_app` 仅为保留存根，不是产品入口                              | 只允许登录访问和 `viewer` 执行政策。禁止 `publisher`、`anonymous` 和 `public`，因为它们会抹掉调用者的有效权限边界。                                                                             |
-| Native MCP                    | 面向同一组带版本 operation 的可选对话 channel                                                       | workspace 范围 OAuth 或 scoped token 只暴露准确 allowlist。不得暴露 App、script、flow、resource、variable、schedule 或 worker 的 preview 与 create/update/delete 工具。只做 folder 过滤不充分。 |
-| Script 与 Flow                | Owner port 上的类型化 adapter 与有界 orchestration                                                  | 可以路由、等待、重试和组合；不得写 Owner storage、发明业务状态，或把 flow success 变成 Owner 结果。                                                                                             |
-| Job、progress、log 与 SSE     | 运行身份、实时进度、诊断和 UI streaming                                                             | Windmill job id、百分比、result 或 log 都不是 Owner receipt。自托管 CE 的 job detail 保留期有界，持久研究工件和结果事实仍归 Trade Owner。                                                       |
-| Schedule                      | 触发有界 research、scanner、replay、report 与 maintenance flow                                      | schedule 不是 deployment registry、lifecycle authority 或真实策略 runtime。CE 正确性使用 flow‑level error path 和同请求解析，不依赖 Enterprise schedule error handler。                         |
-| Worker 与 worker group        | 基于 queue 的执行，以及按已准入 tag 隔离工作负载                                                    | worker 丢失时业务结果保持未解析，直到查询 receiving Owner。不得依赖 Enterprise Agent Workers，也不得把它与 LLM agent 混为一谈。                                                                 |
-| AI Agent flow step            | 可选的内部有界 R&D reasoning step，只获得明确准入的 script 或 MCP tool                              | Agent memory、模型输出和 tool‑call success 都不具权威性。该 step 不得获得任意 shell、Owner SQL、lifecycle、Risk、Execution、secret management 或 workspace management 能力。                    |
-| Resource、variable 与 secret  | 类型化连接配置和不透明 credential custody                                                           | Windmill secret access 不是 Operator Authorization。必须使用最小权限 path；secret value 不得进入 prompt、Owner request、log、artifact 或 receipt。                                              |
-| Data table 与 transient state | 只保存 UI preference 和明确可重建的非权威 cache                                                     | 禁止保存 Research lineage、receipt、Qualification、Governance、Runtime、Risk、Execution、Portfolio 与 Recovery 事实。长期工件使用 Owner storage 或已准入 object storage。                       |
-| Git 与 deployment version     | App、script、flow、schedule、resource schema 与 `wmill.yaml` declaration 的 repository‑first source | UI state 是部署投影。promotion 把 Git revision、Windmill resource version、CLI version、image digest、schema version 与 rollback target 记录为一个 compatibility cut。                          |
-
-Community Edition 下限在没有 service account、Agent Workers、schedule-level error handler、job debouncing、
-critical alert、full-text job/log search、无限保留期或 Enterprise OTLP export 时仍必须正确。Enterprise 功能
-可以改善隔离或运维，但不得成为业务正确性的前提。CE 中无人值守 schedule 代表专用最小权限 virtual
-user 运行；EE 中可以换成 service account，但不得改变 Product Edge principal、scope、manifest 或 Owner
-语义。Operator UI 可见性不是授权边界。
-
-Windmill native MCP 包含强大的 workspace management tool，因此发布用 MCP profile 默认拒绝。只允许
-经过挑选的 Product Edge operation，以及只读内置 tool `getJob` 与 `getJobLogs`。App 与 MCP
-调用绑定同一个 operation version 和 semantic request；两个 channel 都不得部署或编辑自己正在使用的
-operation。
+Operator UI 可见性不是授权边界。可分发的 MCP profile 默认拒绝：允许的工具只有精选的 Product Edge
+operation 加上只读的运维 run 读取。应用与 MCP 调用绑定同一 operation 版本与语义请求；任一通道都不得
+部署或编辑它正在使用的 operation。
 
 无人值守执行从规范 due-slot identity 开始，并在第一次调用 Owner 前派生唯一稳定 Product Edge request
 identity。retry、worker restart、timeout recovery 与 manual resolution 复用该 identity 和 meaning。如果
-Windmill 不能证明 Owner 是否接受调用，run 保持 `SUBMITTED_OR_UNKNOWN`，resolver 查询 Owner receipt；
+执行器不能证明 Owner 是否接受调用，run 保持 `SUBMITTED_OR_UNKNOWN`，resolver 查询 Owner receipt；
 不得提交裸 successor。并行或重叠 schedule delivery 只有在 due-slot 与 Owner idempotency contract 汇合到
 同一 receipt 时才无害。Flow error handling 可以通知并排队解析，但只有 Owner receipt 能闭合业务操作。
 
@@ -95,43 +79,35 @@ conflict。穷尽的 Owner disposition 是 `SUCCESS`、`FAILED_NO_ARTIFACT`、`R
 `OUTCOME_UNKNOWN`；`SUBMITTED_OR_UNKNOWN` 只是查询状态，不是业务 disposition。只有 `SUCCESS` 才原子
 提交新的不可变 Artifact、Build Receipt、Artifact Review 与 `ARTIFACT_AVAILABLE` projection；其他处置
 均不产生 Artifact。commit 后响应丢失会解析到准确回执，commit 前 timeout 只能以 unknown 且无 Artifact
-闭合。App 与 MCP 调用同一个带版本 Formation operation，绝不以 Windmill job state 代替它。
+闭合。App 与 MCP 调用同一个带版本 Formation operation，绝不以运维 run state 代替它。
 
 Product Edge 只有在规范 authorization、deployment binding、manifest 与 admission 锁全部持有后，才会在第一笔写入前立即采样 request-admission commit cut。四项权威必须在同一个半开 cut 重新验证，该 cut 同时绑定 admission identity 与 receipt。如果锁等待期间跨过到期边界，请求必须零写入。Product Edge unavailable 或 storage unknown（包括 admission custody 可能已存在）必须返回 `SUBMITTED_OR_UNKNOWN`，且只有 `RESOLVE_SAME_ATTEMPT_IDENTITY`；绝不能转成 `REJECTED_NO_WRITE` 或 successor 权威。
 
 Provider invocation claim 本身是持久且一次性的 custody。若 claim 已提交但响应丢失，同 attempt 解析必须返回准确 `CLAIMED` claim 与唯一动作 `RUN_BOUNDED_EXECUTION_AGENT`。App 与脚本随后只能启动这一个既有 claim 一次；不得创建 successor claim 或第二次调用 provider。进入 `INVOCATION_STARTED` 后，除非已有权威终态 Owner receipt，否则唯一安全投影是人工 provider 对账。
 
-### Sealed Source Intake 验收拓扑
+### 已退役的 Sealed Source Intake 验收拓扑
 
-Source Intake 只有一个明确分离、编译期选择的 `SEALED_ACCEPTANCE` composition。它不属于生产工件，
-默认禁用，且普通 Product Edge request、通用生产环境变量、runtime provider 名称、URL、header、
-credential 或 DSN 都不能选择它。生产工件不包含 acceptance adapter；其唯一 acquisition 类别是
-`LIVE_EXTERNAL`，并在全部真实政策、时间、DNS、权利、credential、egress 和 provider 权威已配置且
-current 之前保持失败关闭。
+Source Intake 曾有一个明确独立、编译期的 `SEALED_ACCEPTANCE` 组合。它随部署并传输它的产品壳一起退役，
+因为那个壳是它唯一的驱动者。目前还没有第一方等价物，所以 Source Intake 现在只有单元覆盖、没有密封链路。
 
-验收 composition 只在 provider 边界换入 sealed adapter，输入限于固定 DOI corpus、固定 response bytes
-和确定性拒绝案例。它使用非公开 provider 身份，没有外部网络能力，也不与生产或其他验收 run 共享
-database、volume、workspace 或可变状态。它仍经过生产 Product Edge admission gateway、同一个 Source
-Intake Owner orchestrator、持久 claim/start、move-only permit、R&D PostgreSQL 原子终态 transaction、
-终态 receipt、readback，以及默认 Windmill `RUN` 与 `RESOLVE` 传输。API 只执行认证、DTO 校验与
-projection；Windmill 只调度或传输调用，二者都不拥有或重建该生命周期。
+那个组合当初证明了什么，记录在这里，以免替代物悄悄证明得更少。它只把 provider 边界换成固定 DOI 语料、
+固定响应字节与确定性拒绝用例之上的密封适配器；使用非公开 provider 身份，没有外部网络能力，与生产或
+另一次验收运行不共享任何数据库、卷、workspace 或可变状态。它仍然穿过生产 Product Edge 准入网关、
+同一个 Source Intake Owner 编排器、持久 claim/start、move-only permit、R&D PostgreSQL 原子终端事务、
+终端 receipt 与读回。
 
-每次验收部署都从准确 script content 及其 lock 与 content hash 创建 fresh unique Windmill
-project/workspace、ingress port、database 和 volume。环境身份、provider-profile digest、fixture-corpus
-digest、sealed policy 与 Time Evidence、binding evidence 和 retrieval evidence 必须交叉绑定进 admission、
-acquisition binding、终态 receipt 和 readback。runner 必须：
+它的 runner 确立了五件事，第一方替代物欠同样的五件：
 
-1. 部署该准确身份，并依次调用已部署的 `RUN`、相同 `RUN` 和同请求 `RESOLVE`；
-2. 验证一个完整 `RETRIEVED` receipt 及其 content-addressed locator、content digest、acquisition
-   provenance、Source Candidate 与 outbox record；
-3. 验证 sealed policy rejection 产生零 provider invocation 和零 positive record；
-4. 在 provider execution 与原子终态 commit 之后注入第一次 `RUN` 的 response loss，解析同一 attempt，
-   并证明 provider invocation count 准确为一；以及
-5. 删除该唯一 project/workspace、port allocation、database 与 volume，再 read back 证明全部隔离工件
-   均不存在，且没有 shared target 发生变化。
+1. 部署一个准确身份并调用 `RUN`、再次同一个 `RUN`、以及同请求 `RESOLVE`；
+2. 验证一条完整 `RETRIEVED` receipt 及其内容寻址 locator、内容摘要、获取来源、Source Candidate 与
+   outbox 记录；
+3. 验证密封策略拒绝导致零次 provider 调用与零条正向记录；
+4. 在 provider 执行与原子终端提交之后诱发首次 `RUN` 响应丢失，解析同一 attempt，并证明 provider 调用
+   次数恰好是一；
+5. 移除每一项隔离资源，然后读回确认各项均不存在且没有共享目标发生变化。
 
-该 runner 通过只构成 `SEALED_ACCEPTANCE` 证据，绝不证明 Workbench 为 `CURRENT`，也不证明生产政策、
-时间、DNS、权利、credential、egress、PostgreSQL、Windmill 或 live provider 已就绪。
+通过这样的 runner 只构成 `SEALED_ACCEPTANCE` 证据。它从来不是生产策略、时间、DNS、权利、凭据、egress、
+PostgreSQL 或实时 provider 就绪的证据。
 
 ### Source Intake-to-Composer D0 合同
 
@@ -139,12 +115,12 @@ acquisition binding、终态 receipt 和 readback。runner 必须：
 
 - **CURRENT/PARTIAL：** crate-local Source Intake 合同/回归证据与 Develop Composer V2，后者包含本地
   确定性 bounded-plugin build producer 与 `ProgramHostV2` consumer 证明。它们是相互分离的本地证明；
-  当前没有证据建立隔离 PostgreSQL/Windmill Source Intake runner 或组合后的
+  当前没有证据建立隔离 PostgreSQL Source Intake runner 或组合后的
   Source Intake-to-Research-to-Composer 路径。
 - **TARGET A1 - 持久 Composer Owner operation：** 一个公开 Composer `RUN`/`RESOLVE` 合同、进程内消费
   A0 build，以及下文规定的私有规范 A0 Build Receipt bytes 原子 R&D PostgreSQL custody 与重启回读。
 - **TARGET A2 - 类型化 ancestry 与隔离 transport：** 一个由 R&D 拥有的 Source Intake-to-Research
-  operation，随后通过下文隔离 Windmill 拓扑调用 A1 Composer operation。
+  operation，随后通过下文隔离拓扑调用 A1 Composer operation。
 - **SEALED_ACCEPTANCE：** 只有完成所有动态 gate 的 A2 runner 才能宣称组合验收拓扑。该证据仍仅用于
   验收，不能建立 `PRODUCT_CURRENT` 或生产 readiness。
 
@@ -154,16 +130,16 @@ Replay Policy V2 只能来自 [R&D Owner 合同](../owners/rd)定义的密封 �
 Replay composition 只使用该 family-sealed policy 与 cross-binding，绝不把 Catalog 重读为 authority。可选
 Catalog reread 仅用于 audit，不能影响 admissibility，因此后续 Catalog revocation、deletion、unavailability
 或 tamper 不能使已形成 family 失效。公开 Composer 或 Research request 不携带 policy selector。Product
-Edge、Windmill、caller、provider、environment value、default、migration 与 deployment configuration 都不能
+Edge、caller、provider、environment value、default、migration 与 deployment configuration 都不能
 创建或选择 version、推进 head、撤销 version、seed Catalog 或合成 fallback。只有私有且受审计的 R&D
 Catalog Administration Port 拥有这些写入。
 
 另行授权的 Catalog bootstrap composition 始终位于 Product Edge 之外。它是独立、显式启用、
-单次运行的 `authority-admin` unit，不提供 HTTP 或 Windmill route。Rust composition 使用 Ed25519 和另行
+单次运行的 `authority-admin` unit，不提供 HTTP route。Rust composition 使用 Ed25519 和另行
 信任的 verifier identity/key 认证拒绝未知字段的密封 V1 request 后，才使用 broker-only
 `REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL`。PostgreSQL 不重复该 cryptographic verification，而是只信任
 独占的 `replay_policy_catalog_admin_writer` broker principal。把该 credential 分发或用于 Product Edge、
-Windmill、ordinary service、operator workflow 或 generic SQL client 都是 trust-boundary breach。
+ordinary service、operator workflow 或 generic SQL client 都是 trust-boundary breach。
 `authentication_fact_digest` 在 database access 之前从已验证 evidence 派生。Product Edge 不得提供
 request、verifier、key、administrator identity、policy bytes、command identity、event time、signature 或
 canonical Owner readback，也不得启动 R&D API。product startup boundary 只有在 schema materialization、
@@ -179,7 +155,7 @@ Design、digest、binding request、plugin-source capsule、provider selector、
 commit 使用的同一个 Owner lock/write transaction 内，R&D 规范重读该 locator 指向的 current Research
 custody，并独自派生 Composer request identity/digest、Research/Intent 与 Design identity/digest、Design、
 binding set、source capsule 和 provider identity。该派生保留准确 Product Edge Operator Authorization
-frontier 与最终 commit cut；Windmill 与 caller 均不得替换、省略或重算。Owner-internal exact commit-cut
+frontier 与最终 commit cut；执行器与 caller 均不得替换、省略或重算。Owner-internal exact commit-cut
 capability 只锁定该 request 及其 aggregate row，绝不取得 table-wide lock。
 
 在 `RUN` 前，已认证只读 `GET /v2/develop-composer/request-projections` 可以从同一规范 Research locator
@@ -195,14 +171,14 @@ immutable 且规范排序的 use relation 引用它，因此两个不同 Researc
 sealed build fact，同时保留两条 use row 与完整 Research/Design/Artifact lineage。只有准确 legacy schema 可
 执行一次 byte-preserving normalization；其他 legacy shape、partial relation、byte mismatch 或 ambiguous
 duplicate 均 fail closed。不存在公开 verified-build locator、verified-build read port、数据库或 API token
-representation；provider、caller、Windmill flow 或重启路径都不得从 bytes、digest、receipt 或 label 重建
+representation；provider、caller、执行器或重启路径都不得从 bytes、digest、receipt 或 label 重建
 verified token。
 
 A0 完成后且正向提交前，A1 在同一个已准入 R&D PostgreSQL transaction 内锁定并规范重读最终已接纳
 Research custody、派生全部 Composer 含义并重读每份准确 fact-Owner binding。A1 把其既有 transaction
 capability 传给每个适用且由 Owner 拥有的密封 Composer 或 Market Data read method。每个 Owner 都在该准确
 transaction 上 lock、规范回读、校验并密封自己的事实。任何 method 都不能打开另一个 pool、
-connection 或 transaction；caller 与 Windmill 都不能读取 raw Owner table、重建 sealed evidence 或取得
+connection 或 transaction；caller 与执行器都不能读取 raw Owner table、重建 sealed evidence 或取得
 Owner 的 fact authority。Composer 或 Market Data evidence 缺失、不可用、过期、不匹配、跨 cut 或
 wrong-owner，或 family-sealed policy cross-binding 无效时，都必须在第一笔正向写入前失败。该同一个 R&D
 transaction 原子存储规范 `StrategyDesignV2`、`StrategyPlanV2`、
@@ -239,7 +215,7 @@ provenance locator 而不执行 Owner 重读，或仅把 Source Intake 与 Compo
 composition。任一 ancestry member 缺失、不匹配、过期、不是 `RETRIEVED` 或不可用，或规范 Research
 admission 失败时，都不得创建 accepted Research custody，并使该 ancestry 的 Composer 保持不可用。
 
-A2 只把 Windmill 用作以下固定顺序的 transport：
+A2 只把执行器用作以下固定顺序的 transport：
 
 `Source Intake RUN/RESOLVE -> typed Research RUN/RESOLVE -> Composer RUN/RESOLVE`。
 
@@ -247,12 +223,12 @@ A2 只把 Windmill 用作以下固定顺序的 transport：
 verified build、规范 bytes 或业务结果。验收 binary 在编译期选择 sealed adapter，使用固定 Source Intake
 corpus 与固定 A0 source/build corpus，并且不暴露 runtime provider selector、provider URL、credential、
 fixture path、DSN、header 或 environment switch。每次 run 都获得唯一内部 PostgreSQL instance/schema、
-Windmill project/workspace、network、ingress allocation 与 volumes，不能与生产或另一 run 共享 route 或
+执行器 workspace、network、ingress allocation 与 volumes，不能与生产或另一 run 共享 route 或
 mutable state。固定且内容寻址的 Replay Policy Catalog fixture 仅用于测试：隔离 harness 通过私有
 administration port 创建它并显式推进其 head，再形成 disposable TrialFamily；后续验收步骤只消费
 family-sealed policy。fixture、administration hook 与 policy bytes 只存在于编译期 `SEALED_ACCEPTANCE`
 composition；它们不是 runtime default、migration seed、production artifact 或 deployment selector。该固定 fixture
-hook 与密封的单次 product bootstrap 彼此独立；两条路径都不向 Product Edge 或 Windmill 授予 Catalog
+hook 与密封的单次 product bootstrap 彼此独立；两条路径都不向 Product Edge 或执行器授予 Catalog
 authority。
 
 组合 runner 必须针对已部署 operation 与规范 Owner 回读证明以下全部事项：
@@ -271,43 +247,35 @@ authority。
 6. 对每个 Source Intake ancestry member 与 Owner-derived Research/Design/binding/source-capsule input、A0
    identity、已存储规范 object、module byte、receipt 或 outbox binding 做单字段 mutation，都必须失败关闭
    且不创建正向 successor；另对私有规范 A0 Build Receipt 做一次单字段 mutation，也必须得到相同结果；
-7. 已部署 Windmill golden path 达到 `RETRIEVED`、规范 Research admission 及其类型化 accepted Research
+7. 已部署 golden path 达到 `RETRIEVED`、规范 Research admission 及其类型化 accepted Research
    custody 与持久 Composer terminal；准确 replay 使用三个 same-request `RESOLVE` path 并加入相同
    receipts；以及
-8. cleanup 删除唯一 Windmill project/workspace、PostgreSQL state、network、ingress allocation 与所有
+8. cleanup 删除唯一执行器 workspace、PostgreSQL state、network、ingress allocation 与所有
    volume，然后证明 byte-for-byte 或枚举 baseline equality、零隔离 residue 与零 shared-target change。
 
 在这些 gate 全部通过前，持久 Composer custody、公开 API composition、类型化 Source
-Intake-to-Research handoff 与 Windmill A2 topology 都保持 `TARGET`。生产 Market Data binding resolver、
+Intake-to-Research handoff 与 A2 topology 都保持 `TARGET`。生产 Market Data binding resolver、
 live OpenAlex policy/rights/DNS/credentials/egress、`PRODUCT_CURRENT`、Paper、
 Live、deployment 与任何 trading effect 都保持不可用，也不在本验收权威内。固定 corpus、固定 adapter、
-隔离 PostgreSQL/Windmill runner 即使通过也只构成 `SEALED_ACCEPTANCE` 证据，绝不代表生产 readiness。
+隔离 PostgreSQL runner 即使通过也只构成 `SEALED_ACCEPTANCE` 证据，绝不代表生产 readiness。
 
-外部对话 client 与 Windmill 内部 AI 是两个 credential plane。client 可以先使用自己的 model provider
-key 再调用 MCP；内部 AI Agent step 使用单独 scoped Windmill AI resource。两种 model credential 都不能
-认证 Trade；复用同一 provider account 是 operator 选择，不是架构依赖。
+外部对话 client 与任何内部推理步骤是两个 credential plane。client 可以先使用自己的 model provider key
+再调用 MCP；内部步骤使用单独 scoped 的 resource。两种 model credential 都不向 Trade 认证，共用一个
+provider 账户是运维选择，不是架构依赖。
 
-该下限的官方能力证据是 Windmill 的
-[full-code App deployment](https://www.windmill.dev/docs/full_code_apps/deployment)、
-[MCP tool 与 scope](https://www.windmill.dev/docs/core_concepts/mcp)、
-[job 与 retention](https://www.windmill.dev/docs/core_concepts/jobs)、
-[role 与 run-on-behalf](https://www.windmill.dev/docs/core_concepts/roles_and_permissions)、
-[schedule](https://www.windmill.dev/docs/core_concepts/scheduling)、
-[flow error handling](https://www.windmill.dev/docs/core_concepts/error_handling)、
-[persistent storage](https://www.windmill.dev/docs/core_concepts/persistent_storage) 和
-[Git sync](https://www.windmill.dev/docs/advanced/git_sync) 文档。后续实现 chunk 必须对其准确固定的 Windmill
-版本重新审计这些声明，不得假设 2026-08-18 证据截面永久有效。
+曾经支撑该下限的厂商能力证据随它所描述的产品壳一起退役。第一方执行器按自己的源码与部署包审计，
+不按厂商的文档截面。
 
 ## Agent-native R&D 创作
 
 目标产品只接纳一条面向用户的策略创作路径：用户用自然语言表达带来源的研究目标、问题、解释请求
-或修改请求，由 Agent 调用已接纳的 R&D 类型化 operation。Windmill App 可以直接提供 attended 对话
-表面，可选外部对话客户端也可以通过 Windmill MCP 调用同一组 operation。两个 channel 都不能创作
+或修改请求，由 Agent 调用已接纳的 R&D 类型化 operation。Dashboard 可以直接提供 attended 对话
+表面，可选外部对话客户端也可以通过 Dashboard MCP endpoint 调用同一组 operation。两个 channel 都不能创作
 业务事实或编辑 Artifact。
 
-该路径区分两个 Agent 角色。**Conversation Agent** 运行在有人值守的 Windmill 体验或 WorkBuddy 等
+该路径区分两个 Agent 角色。**Conversation Agent** 运行在有人值守的 Dashboard 体验或 WorkBuddy 等
 外部客户端中，负责组织意图、提交或查询类型化 operation，并解释返回视图。服务端
-**R&D Execution Agent** 在 Windmill 监督的 job 和已准入 Development Sandbox 中运行；对话断开后仍
+**R&D Execution Agent** 在执行器监督的 run 和已准入 Development Sandbox 中运行；对话断开后仍
 继续执行，完成有界研究与生成，再通过 R&D Owner port 提交候选输出。两个 Agent 都不拥有 Research
 事实，Conversation Agent 也绝不逐步维持 Execution Agent 的运行生命周期。
 
@@ -363,7 +331,7 @@ head。已由合法前驱准入的请求保留原 request 与 binding 身份，�
 Product Edge 是 deployment binding 与 head、内容寻址 operation manifest、不可变 request admission 及其
 outbox 的唯一 writer。独立命名的 **Operator Authorization Issuer** 是授权签发与 revocation frontier 的唯一
 writer。它是 Product Edge 边界内独立控制面 writer，不是另一个业务 Owner，也不是 Product Edge admission
-helper。Product Edge 只能直接解析其事实而不能写入；Windmill、API、R&D、配置和持有 token 都不能签发
+helper。Product Edge 只能直接解析其事实而不能写入；执行器、API、R&D、配置和持有 token 都不能签发
 authorization。
 
 两个 writer 在同一 authority database 使用不同 PostgreSQL role。Request-admission transaction 在写入
@@ -556,7 +524,7 @@ Product Edge 可以请求 Research 工作、独立 Qualification 评估，或准
 
 ## 禁止事项
 
-它不得让 Windmill App、MCP client 或 workflow 成为竞争业务写入者，不接受自我声明 operator identity，不得用任意 SQL 或
+它不得让 Dashboard、MCP client 或 workflow 成为竞争业务写入者，不接受自我声明 operator identity，不得用任意 SQL 或
 命令绕过 Owner 存储，不调用 admitted manifest 之外的 operation，不暴露 credential，不绕过 Risk
 创建订单 批准资格 解引用保护证据，也不得用 Agent 记忆宣告恢复成功。
 
@@ -580,7 +548,7 @@ Product Edge 可以请求 Research 工作、独立 Qualification 评估，或准
 切换外部对话客户端或 Product Edge transport 时必须保持相同的有效主体、权限范围、能力与审计政策
 和 Owner 权威规则。测试必须证明只选择一个准入网关、允许失败关闭的零活动切换窗口、前驱先
 `SUPERSEDED` 后继再 `ACTIVE`、取代不可逆、双写或政策漂移被拒、每个请求按准确权威 head 准入，
-以及所有已准入在途请求身份被保留。Windmill App 与 MCP 测试还必须证明相同语义请求到达相同带
+以及所有已准入在途请求身份被保留。Dashboard 与 MCP 测试还必须证明相同语义请求到达相同带
 版本 operation 与 Owner 回执，不兼容客户端在业务写入前失败关闭。每个写操作都有类型 可归因 可安全重放且绑定接收 Owner 回执。Qualification review 复用 Candidate Intake Receipt 作为关联请求终态回执，并独立于有界状态视图返回它。仅含义相同不能加入 Candidate 尝试 状态 结果或身份不同的回执。Research 与生命周期接受回执绑定准确结果事实，拒绝回执证明没有写入。Runtime 在证明 `APPLIED` 或 `REJECTED_NO_INSTANCE` 前必须显式保持 `APPLICATION_UNKNOWN`。自然语言存在歧义时必须在业务写入前失败关闭。
 
 只读模型测试必须证明每个视图保留稳定请求 principal scope 授权政策截面 来源 Owner 来源截面
