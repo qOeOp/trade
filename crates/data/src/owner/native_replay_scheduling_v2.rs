@@ -382,7 +382,7 @@ pub struct NativeReplayFrameSequenceReadbackV2 {
     v1_binding_identity: BindingDigest,
     window_start_ns: u64,
     window_end_ns_exclusive: u64,
-    sequence_digest: BindingDigest,
+    sealed: SealedNativeReplayFrameSequenceV2,
     frames: [NativeReplayFrameEvidenceV2; 2],
 }
 
@@ -425,7 +425,7 @@ impl NativeReplayFrameSequenceReadbackV2 {
         }
 
         let window_end_ns_exclusive = first.window_end_ns_exclusive();
-        let sequence_digest = seal_native_replay_frame_sequence_v2(
+        let sealed = seal_native_replay_frame_sequence_v2(
             v1_binding_identity,
             request_identity,
             window_start_ns,
@@ -440,14 +440,20 @@ impl NativeReplayFrameSequenceReadbackV2 {
             v1_binding_identity,
             window_start_ns,
             window_end_ns_exclusive,
-            sequence_digest,
+            sealed,
             frames,
         })
     }
 
     #[must_use]
-    pub const fn sequence_digest(&self) -> BindingDigest {
-        self.sequence_digest
+    pub fn sequence_digest(&self) -> BindingDigest {
+        self.sealed.sequence_digest()
+    }
+
+    /// The exact bytes custody stores so a replay can return history rather than a re-derivation.
+    #[must_use]
+    pub fn sealed(&self) -> &SealedNativeReplayFrameSequenceV2 {
+        &self.sealed
     }
 
     #[must_use]
@@ -525,7 +531,7 @@ pub fn seal_native_replay_frame_sequence_v2(
     window_start_ns: u64,
     window_end_ns_exclusive: u64,
     frames: &[NativeReplaySequenceFrameV2; 2],
-) -> BindingDigest {
+) -> SealedNativeReplayFrameSequenceV2 {
     let mut bytes = Vec::new();
     bytes.extend_from_slice(FRAME_SEQUENCE_DIGEST_DOMAIN_V2);
     bytes.extend_from_slice(&2_u16.to_be_bytes());
@@ -543,7 +549,196 @@ pub fn seal_native_replay_frame_sequence_v2(
         bytes.extend_from_slice(frame.scheduling_receipt_digest_v1.as_bytes());
         bytes.extend_from_slice(frame.liquidity_receipt_digest.as_bytes());
     }
-    BindingDigest::from_untrusted_bytes(Sha256::digest(&bytes).into())
+    SealedNativeReplayFrameSequenceV2 {
+        sequence_digest: BindingDigest::from_untrusted_bytes(Sha256::digest(&bytes).into()),
+        canonical_bytes: bytes,
+    }
+}
+
+/// One sealed sequence: the canonical bytes and the digest taken over exactly those bytes.
+///
+/// Custody stores the bytes. A replay that re-derived them would return whatever today's code
+/// produces, which is not the same claim as returning the history that was sealed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SealedNativeReplayFrameSequenceV2 {
+    canonical_bytes: Vec<u8>,
+    sequence_digest: BindingDigest,
+}
+
+impl SealedNativeReplayFrameSequenceV2 {
+    #[must_use]
+    pub fn canonical_bytes(&self) -> &[u8] {
+        &self.canonical_bytes
+    }
+
+    #[must_use]
+    pub const fn sequence_digest(&self) -> BindingDigest {
+        self.sequence_digest
+    }
+}
+
+/// Domain separating the sequence receipt from the sequence bytes it attests.
+pub const FRAME_SEQUENCE_RECEIPT_DOMAIN_V2: &[u8] =
+    b"market-data.native-replay-frame-sequence-receipt.v2\0";
+
+/// Domain separating the outbox payload from the receipt it publishes.
+pub const FRAME_SEQUENCE_OUTBOX_DOMAIN_V2: &[u8] =
+    b"market-data.native-replay-frame-sequence-outbox.v2\0";
+
+/// Everything custody must store for one sealed V2 sequence, derived once from the sealed bytes.
+///
+/// `docs/owners/market-data.md` requires the sequence's "receipt/outbox and exact-locator
+/// readback" to be stored "atomically and append-only". Deriving all three here — rather than in
+/// the storage adapter — keeps one meaning: the receipt attests the sealed bytes, the outbox
+/// publishes that receipt, and the locator is the pair the request already fixes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeReplayFrameSequenceCustodyRecordV2 {
+    sequence_identity: BindingDigest,
+    request_identity: BindingDigest,
+    v1_binding_identity: BindingDigest,
+    window_start_ns: u64,
+    window_end_ns_exclusive: u64,
+    first_snapshot_identity: BindingDigest,
+    second_snapshot_identity: BindingDigest,
+    sequence_bytes: Vec<u8>,
+    receipt_identity: BindingDigest,
+    receipt_bytes: Vec<u8>,
+    outbox_identity: BindingDigest,
+    outbox_payload: Vec<u8>,
+}
+
+impl NativeReplayFrameSequenceCustodyRecordV2 {
+    /// Derives the custody record from an issued sequence.
+    #[must_use]
+    pub fn seal(sequence: &NativeReplayFrameSequenceReadbackV2) -> Self {
+        let [first, second] = sequence.frames();
+        let (window_start_ns, window_end_ns_exclusive) = sequence.window();
+        Self::seal_from_parts(
+            sequence.sealed(),
+            sequence.request_identity(),
+            sequence.v1_binding_identity(),
+            window_start_ns,
+            window_end_ns_exclusive,
+            first.snapshot_identity(),
+            second.snapshot_identity(),
+        )
+    }
+
+    /// Derives the custody record from sealed bytes and the coordinates they were sealed over.
+    #[must_use]
+    pub fn seal_from_parts(
+        sealed: &SealedNativeReplayFrameSequenceV2,
+        request_identity: BindingDigest,
+        v1_binding_identity: BindingDigest,
+        window_start_ns: u64,
+        window_end_ns_exclusive: u64,
+        first_snapshot_identity: BindingDigest,
+        second_snapshot_identity: BindingDigest,
+    ) -> Self {
+        let sequence_identity = sealed.sequence_digest();
+        let mut receipt_bytes = Vec::new();
+        receipt_bytes.extend_from_slice(FRAME_SEQUENCE_RECEIPT_DOMAIN_V2);
+        receipt_bytes.extend_from_slice(sequence_identity.as_bytes());
+        receipt_bytes.extend_from_slice(request_identity.as_bytes());
+        receipt_bytes.extend_from_slice(v1_binding_identity.as_bytes());
+        receipt_bytes.extend_from_slice(&window_start_ns.to_be_bytes());
+        receipt_bytes.extend_from_slice(&window_end_ns_exclusive.to_be_bytes());
+        receipt_bytes.extend_from_slice(first_snapshot_identity.as_bytes());
+        receipt_bytes.extend_from_slice(second_snapshot_identity.as_bytes());
+        let receipt_identity =
+            BindingDigest::from_untrusted_bytes(Sha256::digest(&receipt_bytes).into());
+
+        let mut outbox_payload = Vec::new();
+        outbox_payload.extend_from_slice(FRAME_SEQUENCE_OUTBOX_DOMAIN_V2);
+        outbox_payload.extend_from_slice(sequence_identity.as_bytes());
+        outbox_payload.extend_from_slice(receipt_identity.as_bytes());
+        let outbox_identity =
+            BindingDigest::from_untrusted_bytes(Sha256::digest(&outbox_payload).into());
+
+        Self {
+            sequence_identity,
+            request_identity,
+            v1_binding_identity,
+            window_start_ns,
+            window_end_ns_exclusive,
+            first_snapshot_identity,
+            second_snapshot_identity,
+            sequence_bytes: sealed.canonical_bytes().to_vec(),
+            receipt_identity,
+            receipt_bytes,
+            outbox_identity,
+            outbox_payload,
+        }
+    }
+
+    #[must_use]
+    pub const fn sequence_identity(&self) -> BindingDigest {
+        self.sequence_identity
+    }
+
+    #[must_use]
+    pub const fn request_identity(&self) -> BindingDigest {
+        self.request_identity
+    }
+
+    #[must_use]
+    pub const fn v1_binding_identity(&self) -> BindingDigest {
+        self.v1_binding_identity
+    }
+
+    #[must_use]
+    pub const fn window_start_ns(&self) -> u64 {
+        self.window_start_ns
+    }
+
+    #[must_use]
+    pub const fn window_end_ns_exclusive(&self) -> u64 {
+        self.window_end_ns_exclusive
+    }
+
+    #[must_use]
+    pub const fn first_snapshot_identity(&self) -> BindingDigest {
+        self.first_snapshot_identity
+    }
+
+    #[must_use]
+    pub const fn second_snapshot_identity(&self) -> BindingDigest {
+        self.second_snapshot_identity
+    }
+
+    #[must_use]
+    pub fn sequence_bytes(&self) -> &[u8] {
+        &self.sequence_bytes
+    }
+
+    #[must_use]
+    pub const fn receipt_identity(&self) -> BindingDigest {
+        self.receipt_identity
+    }
+
+    #[must_use]
+    pub fn receipt_bytes(&self) -> &[u8] {
+        &self.receipt_bytes
+    }
+
+    #[must_use]
+    pub const fn outbox_identity(&self) -> BindingDigest {
+        self.outbox_identity
+    }
+
+    #[must_use]
+    pub fn outbox_payload(&self) -> &[u8] {
+        &self.outbox_payload
+    }
+}
+
+/// Why custody refused a V2 sequence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeReplayFrameSequenceCustodyRefusalV2 {
+    /// Custody could not be reached or read; nothing was decided.
+    CustodyUnavailable,
+    /// The request already holds a sequence whose sealed meaning differs. Nothing was written.
+    SequenceConflict,
 }
 
 /// One eligible frame offered to the two-frame census for a sealed request window.
@@ -1028,6 +1223,7 @@ mod frame_sequence_digest_tests {
 
     fn sealed(frames: &[NativeReplaySequenceFrameV2; 2]) -> BindingDigest {
         seal_native_replay_frame_sequence_v2(digest(0x01), digest(0x02), 1_000, 2_000, frames)
+            .sequence_digest()
     }
 
     fn pair() -> [NativeReplaySequenceFrameV2; 2] {
@@ -1085,10 +1281,14 @@ mod frame_sequence_digest_tests {
         let frames = pair();
 
         for moved in [
-            seal_native_replay_frame_sequence_v2(digest(0x99), digest(0x02), 1_000, 2_000, &frames),
-            seal_native_replay_frame_sequence_v2(digest(0x01), digest(0x99), 1_000, 2_000, &frames),
-            seal_native_replay_frame_sequence_v2(digest(0x01), digest(0x02), 1_001, 2_000, &frames),
-            seal_native_replay_frame_sequence_v2(digest(0x01), digest(0x02), 1_000, 2_001, &frames),
+            seal_native_replay_frame_sequence_v2(digest(0x99), digest(0x02), 1_000, 2_000, &frames)
+                .sequence_digest(),
+            seal_native_replay_frame_sequence_v2(digest(0x01), digest(0x99), 1_000, 2_000, &frames)
+                .sequence_digest(),
+            seal_native_replay_frame_sequence_v2(digest(0x01), digest(0x02), 1_001, 2_000, &frames)
+                .sequence_digest(),
+            seal_native_replay_frame_sequence_v2(digest(0x01), digest(0x02), 1_000, 2_001, &frames)
+                .sequence_digest(),
         ] {
             assert_ne!(base, moved);
         }

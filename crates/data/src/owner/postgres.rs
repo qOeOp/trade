@@ -42,6 +42,20 @@ use super::native_replay_scheduling_v1::{
 use super::pit_snapshot::{PitObservationBatchOwnerResolver, VerifiedPitObservationBatch};
 use super::pit_snapshot::PitSnapshotFact;
 
+/// Exactly what custody holds for one sealed V2 sequence, as stored.
+///
+/// Every field is read back from the relation, never re-derived, so a byte comparison against it
+/// is a claim about history rather than about the current code.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NativeReplayFrameSequenceCustodyReadbackV2 {
+    pub(crate) sequence_identity: BindingDigest,
+    pub(crate) sequence_bytes: Vec<u8>,
+    pub(crate) receipt_identity: BindingDigest,
+    pub(crate) receipt_bytes: Vec<u8>,
+    pub(crate) outbox_identity: BindingDigest,
+    pub(crate) outbox_payload: Vec<u8>,
+}
+
 /// The complete coordinate set for a successor frame, every field Owner-derived.
 ///
 /// `docs/owners/market-data.md` forbids a caller-supplied second snapshot, frame time, member
@@ -54,7 +68,10 @@ pub(crate) struct NativeReplaySuccessorFrameV2 {
     pub(crate) frame_time_ns: u64,
 }
 
-use super::native_replay_scheduling_v2::NativeReplayFrameCensusRefusalV2;
+use super::native_replay_scheduling_v2::{
+    NativeReplayFrameCensusRefusalV2, NativeReplayFrameSequenceCustodyRecordV2,
+    NativeReplayFrameSequenceCustodyRefusalV2,
+};
 use super::research_pit_terminal::{
     ResearchPitTerminal, ResearchPitTerminalResolver, UntrustedResearchPitTerminalRequest,
     seal_research_pit_terminal,
@@ -226,6 +243,13 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.source_binding_lineage_census_v1 (lineage_root BYTEA PRIMARY KEY CHECK (octet_length(lineage_root) = 32))",
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_snapshot_lineage_census_v1 (lineage_root BYTEA PRIMARY KEY CHECK (octet_length(lineage_root) = 32))",
     "CREATE TABLE IF NOT EXISTS market_data_private.native_replay_frame_census_v2 (scope_digest BYTEA NOT NULL CHECK (octet_length(scope_digest) = 32), frame_ordinal BIGINT NOT NULL CHECK (frame_ordinal > 0), snapshot_identity BYTEA NOT NULL UNIQUE REFERENCES market_data_private.pit_snapshot_facts_v1(snapshot_identity) ON DELETE RESTRICT, snapshot_fact_digest BYTEA NOT NULL CHECK (octet_length(snapshot_fact_digest) = 32), event_effective_ns BIGINT NOT NULL CHECK (event_effective_ns >= 0), decision_cut_ns BIGINT NOT NULL CHECK (decision_cut_ns >= 0), correction_branch_digest BYTEA NOT NULL CHECK (octet_length(correction_branch_digest) = 32), PRIMARY KEY (scope_digest, frame_ordinal))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.native_replay_frame_sequences_v2 (sequence_identity BYTEA PRIMARY KEY CHECK (octet_length(sequence_identity) = 32), request_identity BYTEA NOT NULL UNIQUE CHECK (octet_length(request_identity) = 32), v1_binding_identity BYTEA NOT NULL CHECK (octet_length(v1_binding_identity) = 32), window_start_ns BIGINT NOT NULL CHECK (window_start_ns >= 0), window_end_ns_exclusive BIGINT NOT NULL CHECK (window_end_ns_exclusive > window_start_ns), first_snapshot_identity BYTEA NOT NULL CHECK (octet_length(first_snapshot_identity) = 32), second_snapshot_identity BYTEA NOT NULL CHECK (octet_length(second_snapshot_identity) = 32), sequence_bytes BYTEA NOT NULL CHECK (octet_length(sequence_bytes) > 0), receipt_identity BYTEA NOT NULL UNIQUE CHECK (octet_length(receipt_identity) = 32), receipt_bytes BYTEA NOT NULL CHECK (octet_length(receipt_bytes) > 0), CHECK (first_snapshot_identity <> second_snapshot_identity))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.native_replay_frame_sequence_outbox_v2 (outbox_identity BYTEA PRIMARY KEY CHECK (octet_length(outbox_identity) = 32), sequence_identity BYTEA NOT NULL UNIQUE REFERENCES market_data_private.native_replay_frame_sequences_v2(sequence_identity) ON DELETE RESTRICT, payload_digest BYTEA NOT NULL CHECK (octet_length(payload_digest) = 32), payload BYTEA NOT NULL CHECK (octet_length(payload) > 0))",
+    "CREATE OR REPLACE FUNCTION market_data_private.native_replay_frame_sequence_append_only() RETURNS trigger LANGUAGE plpgsql AS $native_replay_frame_sequence_append_only$ BEGIN RAISE EXCEPTION 'native replay frame sequence custody is append-only'; END $native_replay_frame_sequence_append_only$",
+    "DROP TRIGGER IF EXISTS native_replay_frame_sequences_are_append_only ON market_data_private.native_replay_frame_sequences_v2",
+    "CREATE TRIGGER native_replay_frame_sequences_are_append_only BEFORE UPDATE OR DELETE ON market_data_private.native_replay_frame_sequences_v2 FOR EACH ROW EXECUTE FUNCTION market_data_private.native_replay_frame_sequence_append_only()",
+    "DROP TRIGGER IF EXISTS native_replay_frame_sequence_outbox_is_append_only ON market_data_private.native_replay_frame_sequence_outbox_v2",
+    "CREATE TRIGGER native_replay_frame_sequence_outbox_is_append_only BEFORE UPDATE OR DELETE ON market_data_private.native_replay_frame_sequence_outbox_v2 FOR EACH ROW EXECUTE FUNCTION market_data_private.native_replay_frame_sequence_append_only()",
     "CREATE TABLE IF NOT EXISTS market_data_private.owner_history_census_state_v1 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), source_lineage_count BIGINT NOT NULL CHECK (source_lineage_count >= 0), pit_lineage_count BIGINT NOT NULL CHECK (pit_lineage_count >= 0))",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_source_binding_v1(p_binding_id BYTEA) RETURNS TABLE(row_identity BYTEA, fact_digest BYTEA, request_identity BYTEA, request_digest BYTEA, correction_stream_identity TEXT, correction_sequence BIGINT, fact_lineage_root BYTEA, fact_lineage_version BIGINT, aggregate_json JSONB, outbox_event_identity BYTEA, outbox_aggregate_identity BYTEA, outbox_payload BYTEA, outbox_digest BYTEA, head_lineage_root BYTEA, head_identity BYTEA, head_digest BYTEA, head_version BIGINT, clock_identity TEXT, clock_epoch TEXT, monotonic_sequence BIGINT, wall_observed BIGINT, decision_cut BIGINT, valid_through BIGINT, restart_continuity_digest BYTEA, uncertainty_bound BIGINT, skew_bound BIGINT, comparison_rule SMALLINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT f.binding_id, f.fact_digest, NULL::BYTEA, NULL::BYTEA, NULL::TEXT, NULL::BIGINT, f.lineage_root, f.lineage_version, f.aggregate_json, o.event_identity, o.aggregate_identity, o.payload, o.payload_digest, h.lineage_root, h.binding_id, h.fact_digest, h.lineage_version, NULL::TEXT, NULL::TEXT, NULL::BIGINT, NULL::BIGINT, NULL::BIGINT, NULL::BIGINT, NULL::BYTEA, NULL::BIGINT, NULL::BIGINT, NULL::SMALLINT FROM market_data_private.source_binding_facts_v1 AS f JOIN market_data_private.source_binding_outbox_v1 AS o ON o.aggregate_identity = f.binding_id JOIN market_data_private.source_binding_heads_v1 AS h ON h.lineage_root = f.lineage_root WHERE f.binding_id = p_binding_id $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_pit_snapshot_v1(p_snapshot_identity BYTEA) RETURNS TABLE(row_identity BYTEA, fact_digest BYTEA, request_identity BYTEA, request_digest BYTEA, correction_stream_identity TEXT, correction_sequence BIGINT, fact_lineage_root BYTEA, fact_lineage_version BIGINT, aggregate_json JSONB, outbox_event_identity BYTEA, outbox_aggregate_identity BYTEA, outbox_payload BYTEA, outbox_digest BYTEA, head_lineage_root BYTEA, head_identity BYTEA, head_digest BYTEA, head_version BIGINT, clock_identity TEXT, clock_epoch TEXT, monotonic_sequence BIGINT, wall_observed BIGINT, decision_cut BIGINT, valid_through BIGINT, restart_continuity_digest BYTEA, uncertainty_bound BIGINT, skew_bound BIGINT, comparison_rule SMALLINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT f.snapshot_identity, f.fact_digest, f.request_identity, f.request_digest, f.correction_stream_identity, f.correction_sequence, f.lineage_root, f.lineage_version, f.aggregate_json, o.event_identity, o.aggregate_identity, o.payload, o.payload_digest, h.lineage_root, h.snapshot_identity, h.fact_digest, h.lineage_version, NULL::TEXT, NULL::TEXT, NULL::BIGINT, NULL::BIGINT, NULL::BIGINT, NULL::BIGINT, NULL::BYTEA, NULL::BIGINT, NULL::BIGINT, NULL::SMALLINT FROM market_data_private.pit_snapshot_facts_v1 AS f JOIN market_data_private.pit_snapshot_outbox_v1 AS o ON o.aggregate_identity = f.snapshot_identity JOIN market_data_private.pit_snapshot_heads_v1 AS h ON h.lineage_root = f.lineage_root WHERE f.snapshot_identity = p_snapshot_identity $function$",
@@ -439,6 +463,156 @@ impl MarketDataOwnerPostgres {
             snapshot_fact_digest: second.snapshot_fact_digest,
             frame_time_ns: second.event_effective_ns,
         })
+    }
+
+    /// Commits the sealed V2 sequence's receipt and outbox atomically, or refuses without writing.
+    ///
+    /// `docs/owners/market-data.md` requires that "exact same-meaning retry or response-loss
+    /// recovery re-resolves and re-verifies the whole sequence and returns byte-identical
+    /// historical bytes, while changed meaning conflicts without writing". The request identity is
+    /// the custody key, so a retry finds the stored row and returns its bytes; a different sealed
+    /// meaning for the same request hits that same row and refuses before any insert runs.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NativeReplayFrameSequenceCustodyRefusalV2`] when custody is unreachable or the
+    /// request already holds a differently sealed sequence.
+    pub(crate) async fn commit_native_replay_frame_sequence_v2(
+        &self,
+        record: &NativeReplayFrameSequenceCustodyRecordV2,
+    ) -> Result<
+        NativeReplayFrameSequenceCustodyReadbackV2,
+        NativeReplayFrameSequenceCustodyRefusalV2,
+    > {
+        use NativeReplayFrameSequenceCustodyRefusalV2 as Refusal;
+
+        let window_start =
+            i64::try_from(record.window_start_ns()).map_err(|_| Refusal::CustodyUnavailable)?;
+        let window_end = i64::try_from(record.window_end_ns_exclusive())
+            .map_err(|_| Refusal::CustodyUnavailable)?;
+
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| Refusal::CustodyUnavailable)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| Refusal::CustodyUnavailable)?;
+        // Two concurrent commits of the same request must serialize, so the loser observes the
+        // winner's row and either replays it or conflicts — never inserts a second meaning.
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(sample_advisory_key(*record.request_identity().as_bytes()))
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| Refusal::CustodyUnavailable)?;
+
+        let stored = sqlx::query(
+            "SELECT s.sequence_identity,s.sequence_bytes,s.receipt_identity,s.receipt_bytes,o.outbox_identity,o.payload FROM market_data_private.native_replay_frame_sequences_v2 s JOIN market_data_private.native_replay_frame_sequence_outbox_v2 o ON o.sequence_identity=s.sequence_identity WHERE s.request_identity=$1",
+        )
+        .bind(record.request_identity().as_bytes().as_slice())
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|_| Refusal::CustodyUnavailable)?;
+
+        if let Some(row) = stored {
+            let readback = decode_native_replay_frame_sequence_custody_v2(&row)?;
+            // Same meaning replays; changed meaning refuses. Either way nothing was inserted.
+            if readback.sequence_identity != record.sequence_identity()
+                || readback.sequence_bytes != record.sequence_bytes()
+                || readback.receipt_identity != record.receipt_identity()
+                || readback.receipt_bytes != record.receipt_bytes()
+            {
+                return Err(Refusal::SequenceConflict);
+            }
+            transaction
+                .commit()
+                .await
+                .map_err(|_| Refusal::CustodyUnavailable)?;
+            return Ok(readback);
+        }
+
+        sqlx::query(
+            "INSERT INTO market_data_private.native_replay_frame_sequences_v2(sequence_identity,request_identity,v1_binding_identity,window_start_ns,window_end_ns_exclusive,first_snapshot_identity,second_snapshot_identity,sequence_bytes,receipt_identity,receipt_bytes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+        )
+        .bind(record.sequence_identity().as_bytes().as_slice())
+        .bind(record.request_identity().as_bytes().as_slice())
+        .bind(record.v1_binding_identity().as_bytes().as_slice())
+        .bind(window_start)
+        .bind(window_end)
+        .bind(record.first_snapshot_identity().as_bytes().as_slice())
+        .bind(record.second_snapshot_identity().as_bytes().as_slice())
+        .bind(record.sequence_bytes())
+        .bind(record.receipt_identity().as_bytes().as_slice())
+        .bind(record.receipt_bytes())
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| Refusal::SequenceConflict)?;
+
+        // Same transaction: a receipt without its outbox row is not a state this Owner can reach.
+        sqlx::query(
+            "INSERT INTO market_data_private.native_replay_frame_sequence_outbox_v2(outbox_identity,sequence_identity,payload_digest,payload) VALUES ($1,$2,$3,$4)",
+        )
+        .bind(record.outbox_identity().as_bytes().as_slice())
+        .bind(record.sequence_identity().as_bytes().as_slice())
+        .bind(record.outbox_identity().as_bytes().as_slice())
+        .bind(record.outbox_payload())
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| Refusal::SequenceConflict)?;
+
+        transaction
+            .commit()
+            .await
+            .map_err(|_| Refusal::CustodyUnavailable)?;
+
+        Ok(NativeReplayFrameSequenceCustodyReadbackV2 {
+            sequence_identity: record.sequence_identity(),
+            sequence_bytes: record.sequence_bytes().to_vec(),
+            receipt_identity: record.receipt_identity(),
+            receipt_bytes: record.receipt_bytes().to_vec(),
+            outbox_identity: record.outbox_identity(),
+            outbox_payload: record.outbox_payload().to_vec(),
+        })
+    }
+
+    /// Reads one sealed V2 sequence back by its exact locator, or hands back nothing.
+    ///
+    /// The locator is the request identity paired with the sequence identity: neither alone names
+    /// a row the caller is entitled to, and a mismatched pair is absence rather than a near miss.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NativeReplayFrameSequenceCustodyRefusalV2::CustodyUnavailable`] when custody
+    /// cannot be read.
+    pub(crate) async fn resolve_native_replay_frame_sequence_v2(
+        &self,
+        request_identity: BindingDigest,
+        sequence_identity: BindingDigest,
+    ) -> Result<
+        Option<NativeReplayFrameSequenceCustodyReadbackV2>,
+        NativeReplayFrameSequenceCustodyRefusalV2,
+    > {
+        use NativeReplayFrameSequenceCustodyRefusalV2 as Refusal;
+
+        let mut transaction = self
+            .pool
+            .begin_with("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .await
+            .map_err(|_| Refusal::CustodyUnavailable)?;
+        let row = sqlx::query(
+            "SELECT s.sequence_identity,s.sequence_bytes,s.receipt_identity,s.receipt_bytes,o.outbox_identity,o.payload FROM market_data_private.native_replay_frame_sequences_v2 s JOIN market_data_private.native_replay_frame_sequence_outbox_v2 o ON o.sequence_identity=s.sequence_identity WHERE s.request_identity=$1 AND s.sequence_identity=$2",
+        )
+        .bind(request_identity.as_bytes().as_slice())
+        .bind(sequence_identity.as_bytes().as_slice())
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|_| Refusal::CustodyUnavailable)?;
+
+        row.as_ref()
+            .map(decode_native_replay_frame_sequence_custody_v2)
+            .transpose()
     }
 
     pub(crate) async fn resolve_replay_composition_readback_v1(
@@ -5393,6 +5567,32 @@ async fn load_native_replay_frame_census_v2(
             })
         })
         .collect()
+}
+
+fn decode_native_replay_frame_sequence_custody_v2(
+    row: &sqlx::postgres::PgRow,
+) -> Result<NativeReplayFrameSequenceCustodyReadbackV2, NativeReplayFrameSequenceCustodyRefusalV2> {
+    let digest = |column: &str| -> Result<BindingDigest, NativeReplayFrameSequenceCustodyRefusalV2> {
+        let bytes: Vec<u8> = row
+            .try_get(column)
+            .map_err(|_| NativeReplayFrameSequenceCustodyRefusalV2::CustodyUnavailable)?;
+        let bytes: [u8; 32] = bytes
+            .try_into()
+            .map_err(|_| NativeReplayFrameSequenceCustodyRefusalV2::CustodyUnavailable)?;
+        Ok(BindingDigest::from_untrusted_bytes(bytes))
+    };
+    let bytes = |column: &str| -> Result<Vec<u8>, NativeReplayFrameSequenceCustodyRefusalV2> {
+        row.try_get(column)
+            .map_err(|_| NativeReplayFrameSequenceCustodyRefusalV2::CustodyUnavailable)
+    };
+    Ok(NativeReplayFrameSequenceCustodyReadbackV2 {
+        sequence_identity: digest("sequence_identity")?,
+        sequence_bytes: bytes("sequence_bytes")?,
+        receipt_identity: digest("receipt_identity")?,
+        receipt_bytes: bytes("receipt_bytes")?,
+        outbox_identity: digest("outbox_identity")?,
+        outbox_payload: bytes("payload")?,
+    })
 }
 
 fn census_digest(
