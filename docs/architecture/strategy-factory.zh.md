@@ -537,7 +537,7 @@ request locator 与 attempt identity。只有 `BACKTEST_OWNER_DATABASE_URL` 准�
 确认的提交保持 unavailable。尚不声称 disposable PostgreSQL acceptance、已部署或正在运行的服务、production
 invocation、Paper/Live execution 或 trading。
 
-**TARGET / NOT_ADMITTED，Owner 封存的双帧 Native Replay V2：**现有
+**TARGET / NOT_ADMITTED，Owner 封存的双帧 Native Replay V2：** 现有
 `NativeReplayExecutionInputBindingV1`、单帧、28 项观测证据、执行 bundle、请求和 Result 的字节与身份
 均保持不变。新增独立的 `NativeReplayExecutionInputBindingV2`，只针对请求窗口内恰好两个相邻、完整且
 分别由 Market Data Owner 签发的双成员 frame。第一帧必须等于重新解析得到的 V1 初始帧；第二帧必须来自

@@ -1134,7 +1134,7 @@ request window，Market Data 才返回 frame 与 schedule readback。missing、d
 或 corrupt candidate 不返回任何正向 readback。caller 不提供 schedule locator、account scope、latest selector、
 raw row、SQL、pool、credential 或 replacement store。
 
-**TARGET / NOT_ADMITTED，Native Replay 双帧序列 V2：**现有初始帧 resolver、
+**TARGET / NOT_ADMITTED，Native Replay 双帧序列 V2：** 现有初始帧 resolver、
 `StrategyInputUniverseFrameReceipt` V1、BAR schedule readback 和 `NativeReplaySchedulingReadbackV1`
 保持逐字节不变。新增只能由 Owner 签发的 move-only `NativeReplayFrameSequenceReadbackV2`；首个有界档只接纳
 封存请求窗口内恰好两个相邻且完整的双成员 frame。第一帧是准确重解的 V1 初始帧，第二帧来自另一份经
