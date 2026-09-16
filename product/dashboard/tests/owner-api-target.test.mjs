@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { ARTIFACT_SHADOW_RESOLVE_OPERATION } from "../lib/operation-registry.ts";
+import {
+  ARTIFACT_SHADOW_RESOLVE_OPERATION,
+  RD_FORMATION_CATALOG_SHADOW_READ_OPERATION,
+  RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION,
+} from "../lib/operation-registry.ts";
 import {
   dedicatedDashboardReadApiTargetV1,
   ownerApiTargetForOperationV1,
@@ -12,6 +16,24 @@ test("Dedicated Dashboard reads never borrow write-side configuration", () => {
     RD_OWNER_API_URL: "http://owner-write:8080",
     RD_OWNER_API_TOKEN: "write-token",
   }), { baseUrl: undefined, token: undefined });
+});
+
+test("Formation and Iteration use the consolidated Dashboard reader", () => {
+  const environment = {
+    RD_DASHBOARD_OWNER_READ_API_URL: "http://dashboard-read:8082",
+    RD_DASHBOARD_OWNER_READ_API_TOKEN: "dashboard-token",
+    RD_OWNER_READ_API_URL: "http://legacy-read:8081",
+    RD_OWNER_READ_API_TOKEN: "legacy-token",
+  };
+  for (const operation of [
+    RD_FORMATION_CATALOG_SHADOW_READ_OPERATION,
+    RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION,
+  ]) {
+    assert.deepEqual(ownerApiTargetForOperationV1(operation, environment), {
+      baseUrl: "http://dashboard-read:8082",
+      token: "dashboard-token",
+    });
+  }
 });
 
 test("Artifact shadow read uses only the atomic consolidated Dashboard read target", () => {

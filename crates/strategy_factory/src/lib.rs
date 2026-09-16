@@ -32,6 +32,7 @@ mod complex_strategy_ir_tests;
 mod complex_strategy_program;
 #[cfg(test)]
 mod complex_strategy_program_tests;
+pub mod dashboard_read;
 mod decision;
 #[allow(
     dead_code,

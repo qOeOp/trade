@@ -9,13 +9,14 @@ import styles from "./schedule-calendar.module.css";
 
 // Vibe Journal's CalendarBody -> View -> Cell/Badge/Dialog hierarchy is retained.
 // Trade schedule custody is adapted as read-only point evidence; no editable duration event is invented.
-export function ScheduleCalendar({ schedules, date, view, selectedIdentity, onSelect, onDate, compact = false }: {
+export function ScheduleCalendar({ schedules, date, view, selectedIdentity, onSelect, onDate, onOpenRun, compact = false }: {
   schedules: readonly ScheduleProjectionV1[];
   date: string;
   view: ScheduleCalendarView;
   selectedIdentity: string | null;
   onSelect: (identity: string) => void;
   onDate: (date: string, view: ScheduleCalendarView) => void;
+  onOpenRun: (runIdentity: string) => void;
   compact?: boolean;
 }) {
   const [inspection, setInspection] = useState<ScheduleInspection | null>(null);
@@ -32,6 +33,6 @@ export function ScheduleCalendar({ schedules, date, view, selectedIdentity, onSe
       compact={compact} onDate={onDate} onInspect={inspect} />
     <ScheduleInspectionDialog inspection={inspection} groupIndex={groupIndex} page={page}
       onGroup={(index) => { setGroupIndex(index); setPage(0); onSelect(inspection!.groups[index].schedule_identity); }}
-      onPage={setPage} onClose={() => setInspection(null)} />
+      onPage={setPage} onOpenRun={onOpenRun} onClose={() => setInspection(null)} />
   </div>;
 }

@@ -276,7 +276,7 @@ test(testName, { skip: !url }, async () => {
     ], { cwd: dashboardRoot, env: { ...process.env, ...environment }, stdio: "inherit" });
     const origin = `http://127.0.0.1:${port}`;
     const pageResponse = await waitForHttp(`${origin}/operations/workers/`, preview);
-    assert.match(await pageResponse.text(), /Worker fleet/);
+    assert.match(await pageResponse.text(), /Service capacity/);
 
     const listResponse = await fetch(`${origin}/api/operations/workers/`);
     assert.equal(listResponse.status, 200);
@@ -293,12 +293,12 @@ test(testName, { skip: !url }, async () => {
     await browser.send("Page.enable");
     await browser.send("Page.navigate", { url: `${origin}/operations/workers/` });
     await waitForBrowserExpression(browser,
-      `document.body?.innerText.includes(${JSON.stringify(activeWorker)})
-        && document.body?.innerText.includes(${JSON.stringify(expiredWorker)})
-        && document.body?.innerText.includes(${JSON.stringify(effectWorker)})`);
+      `document.querySelector('[title=${JSON.stringify(activeWorker)}]')
+        && document.querySelector('[title=${JSON.stringify(expiredWorker)}]')
+        && document.querySelector('[title=${JSON.stringify(effectWorker)}]')`);
     const surface = await readBrowserValue(browser, `(() => {
-      const summary = document.querySelector('[aria-label="Worker summary"]')?.innerText ?? '';
-      const table = document.querySelector('table[aria-label="Dashboard runtime workers"]');
+      const summary = document.querySelector('[aria-label="Service capacity summary"]')?.innerText ?? '';
+      const table = document.querySelector('table[aria-label="Background services"]');
       const heads = [...(table?.querySelectorAll('th') ?? [])];
       const cells = [...(table?.querySelectorAll('tbody td') ?? [])];
       const separator = cells[1] ? getComputedStyle(cells[1], '::before') : null;
@@ -312,9 +312,9 @@ test(testName, { skip: !url }, async () => {
         separatorBottom: separator?.bottom,
       };
     })()`);
-    assert.match(surface.summary, /Available\s+2/);
-    assert.match(surface.summary, /Expired\s+1/);
-    assert.match(surface.summary, /Claimed\s+1/);
+    assert.match(surface.summary, /Ready\s+2/);
+    assert.match(surface.summary, /Offline\s+1/);
+    assert.match(surface.summary, /Processed\s+1/);
     assert.match(surface.summary, /Active\s+1/);
     assert.equal(surface.rows, 3);
     assert.equal(surface.allLeft, true);
@@ -371,15 +371,15 @@ test(testName, { skip: !url }, async () => {
     assert.equal(openedLastRun, true);
     await waitForBrowserExpression(browser,
       `location.pathname === "/operations/runs/${queued.run_identity}/"
-        && document.body?.innerText.toLowerCase().includes('exact operational readback')
-        && document.body?.innerText.includes(${JSON.stringify(queued.run_identity)})
-        && document.body?.innerText.includes(${JSON.stringify(SOURCE_INTAKE_SHADOW_READ_OPERATION)})`);
+        && document.body?.innerText.toLowerCase().includes('run activity')
+        && document.querySelector('[title=${JSON.stringify(queued.run_identity)}]')
+        && document.body?.innerText.includes('Formation catalog')`);
 
     await browser.send("Page.navigate", { url: `${origin}/operations/workers/${expiredWorker}/` });
     await waitForBrowserExpression(browser,
-      `document.body?.innerText.toLowerCase().includes('exact worker readback')
-        && document.body?.innerText.includes(${JSON.stringify(expiredWorker)})
-        && document.body?.innerText.toLowerCase().includes('registered operations')
+      `document.body?.innerText.toLowerCase().includes('service details')
+        && document.querySelector('[title=${JSON.stringify(expiredWorker)}]')
+        && document.body?.innerText.toLowerCase().includes('supported work')
         && [...document.querySelectorAll('button')]
           .some((button) => button.textContent?.trim() === 'Refresh')`);
     await pool.query("DELETE FROM dashboard_shadow_workers_v1 WHERE worker_identity = $1", [expiredWorker]);
@@ -388,41 +388,38 @@ test(testName, { skip: !url }, async () => {
     await clickRefresh(browser);
     await waitForBrowserExpression(browser,
       `document.body?.innerText.includes('WORKER_NOT_FOUND')
-        && !document.body?.innerText.toLowerCase().includes('registered operations')`);
+        && !document.body?.innerText.toLowerCase().includes('supported work')`);
 
     await browser.send("Page.navigate", { url: `${origin}/operations/workers/` });
     await waitForBrowserExpression(browser,
-      `document.body?.innerText.includes(${JSON.stringify(activeWorker)})
-        && !document.body?.innerText.includes(${JSON.stringify(expiredWorker)})
-        && document.body?.innerText.includes(${JSON.stringify(effectWorker)})
-        && document.querySelectorAll('table[aria-label="Dashboard runtime workers"] tbody tr').length === 2`);
+      `document.querySelector('[title=${JSON.stringify(activeWorker)}]')
+        && !document.querySelector('[title=${JSON.stringify(expiredWorker)}]')
+        && document.querySelector('[title=${JSON.stringify(effectWorker)}]')
+        && document.querySelectorAll('table[aria-label="Background services"] tbody tr').length === 2`);
 
     await browser.send("Page.navigate", { url: `${origin}/operations/workers/${activeWorker}/` });
     await waitForBrowserExpression(browser,
-      `document.body?.innerText.toLowerCase().includes('exact worker readback')
-        && document.body?.innerText.includes(${JSON.stringify(activeWorker)})
-        && document.body?.innerText.toLowerCase().includes('registered operations')`);
+      `document.body?.innerText.toLowerCase().includes('service details')
+        && document.querySelector('[title=${JSON.stringify(activeWorker)}]')
+        && document.body?.innerText.toLowerCase().includes('supported work')`);
     await pool.query("ALTER TABLE dashboard_shadow_workers_v1 RENAME TO dashboard_shadow_workers_unavailable_v1");
     workerTableRenamed = true;
     assert.equal((await fetch(`${origin}/api/operations/workers/${activeWorker}/`)).status, 503);
     assert.equal((await fetch(`${origin}/api/operations/workers/`)).status, 503);
     await clickRefresh(browser);
     await waitForBrowserExpression(browser,
-      `document.body?.innerText.includes('Worker store unavailable')
+      `document.body?.innerText.includes('Service capacity unavailable')
         && document.body?.innerText.includes('WORKER_DETAIL_RESPONSE_UNAVAILABLE')
-        && document.body?.innerText.includes(${JSON.stringify(activeWorker)})
-        && !document.body?.innerText.toLowerCase().includes('registered operations')`);
+        && document.querySelector('[title=${JSON.stringify(activeWorker)}]')
+        && !document.body?.innerText.toLowerCase().includes('supported work')`);
 
     await browser.send("Page.navigate", { url: `${origin}/operations/workers/` });
     await waitForBrowserExpression(browser,
-      `document.body?.innerText.includes('Worker store unavailable')
-        && !document.body?.innerText.includes(${JSON.stringify(activeWorker)})`);
+      `document.body?.innerText.includes('Service capacity unavailable')
+        && !document.querySelector('[title=${JSON.stringify(activeWorker)}]')`);
     const unavailableSummary = await readBrowserValue(browser,
-      "document.querySelector('[aria-label=\"Worker summary\"]')?.innerText ?? ''");
-    assert.match(unavailableSummary, /Available\s+-/);
-    assert.match(unavailableSummary, /Expired\s+-/);
-    assert.match(unavailableSummary, /Claimed\s+-/);
-    assert.match(unavailableSummary, /Active\s+-/);
+      "document.querySelector('[aria-label=\"Service capacity summary\"]')?.innerText ?? ''");
+    assert.equal(unavailableSummary, "");
   } finally {
     browser?.close();
     await stopProcess(browser?.child);

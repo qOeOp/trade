@@ -54,7 +54,7 @@ test("Visible nested surfaces share one inner radius while structural joins stay
     ".summary-metric",
     ".aggregate-summary",
     ".technical-disclosure",
-    ".prototype-notice",
+    '.unavailable-state[data-surface="card"]',
   ];
 
   for (const selector of tokenizedInnerSurfaces) {
@@ -62,7 +62,7 @@ test("Visible nested surfaces share one inner radius while structural joins stay
     assert.match(css, new RegExp(`${escaped} \\{[^}]*border-radius: var\\(--panel-inner-radius\\);`, "u"));
   }
 
-  assert.match(css, /\.prototype-notice \{[^}]*border: \.5px solid var\(--border-default\);[^}]*border-left: 3px solid var\(--status-warning\);/u);
+  assert.match(css, /\.unavailable-state\[data-surface="card"\] \{[^}]*border: \.5px solid var\(--border-default\);[^}]*box-shadow: var\(--elevation-hairline\);/u);
   assert.doesNotMatch(css, /\.bento-page-frame > \.panel-frame-body \{[^}]*border-radius: 0;/u);
   assert.doesNotMatch(css, /\.bento-page-frame > \.panel-frame-body \{[^}]*overflow: hidden;/u);
   assert.match(css, /\.split-bento > \.detail-inspector \{ position: sticky; top: 0; \}/u);
@@ -79,9 +79,9 @@ test("Run result reuses shared status and action atoms instead of a page-local e
   assert.match(detail, /<FilterButton density="compact" variant="secondary"/u);
   assert.match(detail, /<FilterLink density="compact"/u);
   assert.match(detail, /<FilterButton[\s\S]*?density="compact" variant="danger"/u);
-  assert.match(detail, /actions=\{<>[\s\S]*?<FilterButton density="compact" variant="secondary"[\s\S]*?Copy locator[\s\S]*?<FilterButton density="compact" variant="secondary"[\s\S]*?Refresh/u);
+  assert.match(detail, /actions=\{<>[\s\S]*?<FilterButton density="compact" variant="secondary"[\s\S]*?Copy reference[\s\S]*?<FilterButton density="compact" variant="secondary"[\s\S]*?Refresh/u);
   assert.match(detail, /<FilterLink density="compact" variant="warning" href="#dependency-cancellation-panel">/u);
-  assert.match(detail, /<FilterButton[\s\S]*?density="compact"[\s\S]*?variant="primary"[\s\S]*?Resolve same identity/u);
+  assert.match(detail, /<FilterButton[\s\S]*?density="compact"[\s\S]*?variant="primary"[\s\S]*?Check source result/u);
   assert.match(detail, /<FilterLink density="compact" variant="secondary" href=\{run\.owner_view\.href\}>/u);
   assert.doesNotMatch(detail, /data-action-variant=/u);
   assert.doesNotMatch(detail, /Evidence(?:Strip|Field|Actions)/u);
@@ -107,6 +107,8 @@ test("Compact toolbar controls share one density and semantic variant system", a
   ]);
 
   assert.match(toolbar, /export type FilterControlDensity = "default" \| "compact"/u);
+  assert.match(toolbar, /labelPresentation\?: "hidden" \| "inline"/u);
+  assert.match(toolbar, /data-labels=\{labelPresentation\}/u);
   assert.match(toolbar, /export type FilterActionVariant = "primary" \| "secondary" \| "ghost" \| "warning" \| "danger" \| "outline" \| "toggle"/u);
   assert.match(toolbar, /import \{ Button, buttonVariants, type ButtonProps \} from "\.\/button"/u);
   assert.match(toolbar, /satisfies Record<FilterActionVariant, NonNullable<ButtonProps\["variant"\]>>/u);
@@ -129,6 +131,9 @@ test("Compact toolbar controls share one density and semantic variant system", a
   assert.equal(panel.match(/shape="circle"/gu)?.length, 2);
   assert.match(explorer, /<TableFilterMenu[\s\S]*?density="compact"/u);
   assert.match(explorer, /<FilterSearch[\s\S]*?density="compact"/u);
+  assert.match(serviceLogs, /<TableFilterMenu[\s\S]*?density="compact"[\s\S]*?labelPresentation="inline"/u);
+  assert.match(serviceLogs, /<FilterSearch[\s\S]*?density="compact"/u);
+  assert.doesNotMatch(serviceLogs, /service-log-search/u);
   assert.doesNotMatch(explorer, /log-explorer-filter-select/u);
   assert.match(logs, /<FilterToggle density="compact"/u);
   assert.match(logs, /<FilterLink density="compact" variant="secondary"/u);

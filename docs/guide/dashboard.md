@@ -29,15 +29,30 @@ mutation control or secret value. Dynamic acceptance covers unavailable configur
 wrong credential, cookie attributes, authenticated page/API, tampering, expiry and logout. The fixed local preview
 port must not replace its listener until isolated acceptance passes and both session secrets are provisioned.
 
-## Bounded admission: read‑only shadow schedule calendar
+## Bounded admission: read-only schedule history and shadow schedule calendar
 
-The user admits `/operations/schedules` as `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED` for the
-first-party zero-effect shadow-read schedules only. This narrow exception supersedes the generic
-blueprint-only classification for this route; it does not admit Scanner due-slot resolution or
-Windmill generic schedules. Reuse `configuredShadowScheduleSetV1` and RunStore
-`readBoundScheduledReads`: exact configured identity, digest, operation and dispatch bindings must
-match every registered row (1-100). Missing configuration, registration or compatible custody fails
-closed. GET is the only API action; no scheduler, registration, tick or enqueue occurs on reading.
+The user admits `/operations/schedules` as `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED` for two
+strictly separated GET-only views. `History` is the default and reads persisted first-party RunStore
+registrations through `/api/operations/schedules/history/`; it is historical evidence only and must
+never be presented as current configuration or activity. `Current schedules` uses the existing
+configuration-bound `/api/operations/schedules/` contract. This narrow exception supersedes the
+generic blueprint-only classification for this route; it does not admit Scanner due-slot resolution
+or Windmill generic schedules. No scheduler, registration, tick or enqueue occurs on reading.
+
+History reads at most the latest 100 rows ordered by the millisecond projection of
+`COALESCE(last_due_at, created_at)` descending and immutable schedule identity ascending. A 101-row probe distinguishes `complete` from
+`partial_unavailable`; the browser receives only schedule identity, business operation, cadence,
+registration time, last observed time/run pair, and recorded time. Empty complete history is valid.
+Digests, recovery identity, registry bindings and projected next-due time do not cross this browser
+contract. Technical identity is collapsed behind an info control. The view uses shared PanelFrame,
+CompactStatusBar, DataTableSurface, DataWorkspaceTable, SplitBento and DetailInspector atoms, with
+business activity labels and one explicit `Historical registrations only - not current schedules`
+boundary. Search and activity filters are local and never mutate the RunStore.
+
+Current schedules reuse `configuredShadowScheduleSetV1` and RunStore `readBoundScheduledReads`:
+exact configured identity, digest, operation and dispatch bindings must match every registered row
+(1-100). Missing configuration, registration or compatible custody fails closed; historical rows
+must never be used to reconstruct or soften that unavailable state.
 
 The browser accepts positive data only from a successful HTTP response and a valid bound projection.
 Refreshing with unavailable or rejected evidence removes prior positive rows and selected details.
@@ -45,8 +60,7 @@ Use UTC throughout. `next_due_at` and cadence describe **expected triggers**, no
 the scheduler may skip elapsed slots. Only the returned `last_due_at` and `last_run_identity` pair is
 an **observed run**. Never infer older runs, completion, duration, success or Owner acceptance.
 
-The route has one outer title header (`Shadow-read schedules` with its one-line purpose) and an inset
-calendar body. Inside that body, the toolbar preserves the Vibe Journal source hierarchy instead of
+The current-schedules view has one calendar header and an inset calendar body. Inside that body, the toolbar preserves the Vibe Journal source hierarchy instead of
 replacing it with a Dashboard-specific control strip. The left identity group is Today card, month/year
 heading with schedule count or unavailable state, then Previous, range label and Next. The right tool
 group is Filter, one shared animated Agenda/Day/Week/Month/Year segmented control, operation selector,
@@ -55,7 +69,7 @@ while inactive views remain icon-only. The operation selector retains the source
 geometry, but derives markers only from returned operation identities; unavailable data creates no
 placeholder marker. Filter contains local operation/identity search and observed/not-observed scope;
 Settings contains compact density and Table mode. Controls horizontally scroll or wrap as one toolbar
-on narrow screens. Default view is Month at the current UTC date. No separate summary strip, duplicate
+on narrow screens. Its default calendar mode is Month at the current UTC date. No separate summary strip, duplicate
 Calendar/Table buttons or always-visible search field is inserted above the source calendar header.
 
 Calendar fidelity preserves Vibe's date navigation, five views, event inspection, overflow expansion
@@ -64,28 +78,42 @@ entries per day and an accessible overflow button. Day and Week show zero-durati
 grouped by UTC hour, not invented duration blocks. Year shows twelve month tiles opening Month;
 Agenda lists days in the selected month. Dense cadence is grouped arithmetically by schedule/day or
 schedule/hour; expanding a group pages exact expected timestamps, 50 per page, without materializing
-an unbounded event list. Observed records are separately labelled and link to existing Run Detail.
+an unbounded event list. Observed records are separately labelled and open the shared related-run preview;
+only its explicit canonical action links to Run Detail.
 Calendar navigation must not execute a schedule. Today resets the date but preserves the active view.
 
 Table columns are Operation, Cadence, Next expected trigger, Last observed run, in that order; default
 sort is next trigger ascending then immutable schedule identity. Search precedes pagination (20 rows;
 10/20/50 options). Selection opens the same detail as calendar selection. No column chooser, bulk
 selection or per-header decorative icons. Headers remain sticky inside the bounded body scroller.
-Details order operation/title, cadence and next expected trigger, last observed due/run link, then
+Details order operation/title, cadence and next expected trigger, last observed due/run preview trigger, then
 collapsed technical identity/digest/recovery fields. No Run, Resolve, CRUD, drag or resize action.
 
 At 1280px and above, calendar/table and detail use a 2:1 grid with 16px gap and a shared body height
-clamped to 420-760px from the available viewport; both scroll internally. Below 1280px details follow
-the primary card at natural height. Month and Week retain at least 700px internal scroll width below
-768px; other views fit their card. Headers and footers use the same theme chrome token, with inset
+clamped to 420-760px from the available viewport; both scroll internally. The History view likewise keeps
+its table and selected registration in the documented `SplitBento` at this width. Below 1280px, selection
+from either view opens the shared right-side `DetailSheet` without changing the schedules URL, while the
+calendar or table keeps the full inset width; below 768px the same sheet is full-screen. Closing returns
+focus to the selected calendar entry or table row. Month and Week retain at least 700px internal scroll width
+below 768px; other views fit their card. Headers and footers use the same theme chrome token, with inset
 body, subtle separators and restrained orange selection/focus. Icons use Lucide. Transitions last
 140-180ms and respect reduced motion. Keyboard users can navigate controls, open/close overflow,
 select entries and follow observed-run links without pointer gestures.
 
+The History and Current schedules views reuse one read-only related-run preview instead of changing
+the Schedules URL. It re-reads the exact `RunDetailEnvelopeV1`, shows only run state, activity, trigger, started
+time, duration and source result, and offers one explicit `Open full run details` canonical escalation. It never
+embeds logs or run actions. A trigger inside either compact schedule sheet replaces that sheet body and provides
+`Back to schedule`; the interaction never stacks a second overlay. A table-origin preview has no synthetic Back
+target: Close returns focus to that exact table trigger. Returning preserves filters, pagination, scroll and the
+selected registration.
+
 Loading occupies six 48px skeleton rows in the primary body; empty/search-empty shows one 160px
 message without fabricated events. Unavailable, incompatible, malformed and denied responses use
-that same bounded message region, a concise reason and Refresh; no stale positive detail survives.
-Dynamic acceptance requires disposable PostgreSQL bound reads reaching the browser, mismatch/HTTP
+that same bounded message region, a concise reason and Refresh; no stale positive detail survives. Related-run
+reads are on demand and clear prior positive data before every identity change. Non-success positive responses,
+malformed envelopes and request/envelope/run identity mismatch fail closed; an aborted or late read cannot refill
+a closed or newer preview. Dynamic acceptance requires disposable PostgreSQL bound reads reaching the browser, mismatch/HTTP
 failure rejection, distinction between predicted and observed entries, all five views, overflow,
 keyboard operation, both themes and narrow/desktop layouts. Fixtures alone are not dynamic acceptance.
 
@@ -356,13 +384,86 @@ authorize trading, or establish cutover.
 
 `ResearchDirectory` is the exact `P` surface for `/rd/research`. The route uses one full-width `PanelFrame` and
 does not reserve an empty detail column. Its frame header contains an eyebrow, title, one-line purpose, and one
-`Refresh` action. The body contains one horizontal table toolbar with a `Verified / Custody candidates` segmented
-control at the left and search at the right; `Verified` is always the default. The verified table has four plain,
+`Refresh` action. The body contains one horizontal table toolbar with a `Research history / Current intents` segmented
+control at the left and search at the right. `Research history` is the default because it is the complete available
+request workload; `Current intents` is the narrower verified-current view. The verified table has four plain,
 left-aligned columns in this order: `Research request`, `State`,
 `Intent`, and `Updated`. Column headings have no decorative icons and there is no View/column-chooser button,
 registered/visible count, multi-level filter popover, row action, or backend-only field. The table header remains
 sticky inside the bounded scroll viewport. Loading, valid empty, unavailable, and partial states preserve the same
 card geometry; narrow layouts scroll horizontally rather than inventing a reduced mobile fact.
+
+Both Research views use the shared domain-neutral `EntityReference` atom: the business entity is the primary
+label, while its opaque identity is a compact secondary reference with the exact value retained as title and search
+key. Default history copy says `Research question`, `Result`, `Recorded`, and user-readable availability; Owner, custody, point-read,
+candidate, and wire-state terms remain in the information disclosure or contract.
+
+In `Research history`, activating either the primary research-question reference or the row opens the same shared
+right-side `DetailSheet` without
+changing the directory URL or unmounting its filters, search, pagination, or scroll context. The sheet composes the
+existing `ResearchQuestionBrief`, `DetailFactGrid`, `StatusBadge`, and `PanelFrameInfo` atoms. It shows the verified
+hypothesis, falsifier, expected observation, `Ready to review / Awaiting result / Result unavailable` availability,
+and recorded time already present in the bound
+directory projections; exact request identity and the independently observed question/result cuts remain inside
+the information disclosure. Opening the sheet performs no additional read. When the bound result inventory says
+that the request is ready or still awaiting an outcome, an explicit `Review result` or `Check request status`
+action switches that same `DetailSheet` from summary to an exact read-only result drilldown. The drilldown reuses
+the same strict read hook and result-content atoms as `/rd/research/{requestIdentity}`; it does not mount another
+dialog, change the directory URL, or expose formation controls. `Back to request summary` restores the summary and
+focuses the drilldown trigger. Only a successfully verified exact read exposes `Open full research workspace`,
+which remains the transition to the canonical route with technical custody details and existing formation
+controls. A non-2xx response, identity mismatch, malformed payload, close, Back, or identity change invalidates
+the in-flight read and retains no positive result or workspace action. Closing restores focus to the originating
+reference or row.
+The sheet keeps its desktop right-side geometry, stacks the shared Result / Strategy / Timing groups into one
+readable column inside that narrow container, and becomes full-screen below 768 px. The canonical workspace keeps
+the same atoms in its wider multi-column composition. In `Current intents`, activating the primary request
+reference or its row opens that same `DetailSheet` directly in exact read-only result mode. It preserves the
+`/rd/research/?view=verified` URL, table filters, pagination, sort, scroll and origin focus; it does not fabricate a
+History summary or show `Back to request summary`. The read clears prior positive state before every identity
+change and rejects late, aborted, non-2xx, malformed or identity-mismatched responses. Only the explicit
+`Open full research workspace` action changes to the canonical request route. This current-intent preview never
+enables formation, submit or resolution controls.
+
+The default history view obtains one bounded `rd.research_question_directory.read.v1` projection from the
+read-only R&D Dashboard Owner. Question text is admitted only after canonical Research custody verification and may
+expose exactly `hypothesis`, `falsification_question`, and `expected_observation`; unsupported historical rows retain
+only their directory identity and time with explicit unavailable state. The projection must bind the
+complete historical-custody identity and commit-time set before any question text is rendered. The hypothesis then
+replaces the generic request label and participates in search; the opaque request identity stays secondary. Missing
+legacy meaning is rendered as `Research question unavailable`. It is never inferred from execution or outcome.
+
+The exact `/rd/research/{requestIdentity}` page frames one user task: understand the saved research result and what
+can happen next. Its journey and `Result / Strategy / Timing` groups use business copy such as `Needs current review`,
+`Not available`, and `Refresh this request`; they do not present quarantine or same-identity terminology as
+the task itself. `Raw outcome` and `Raw reason`, together with exact identities and receipts, remain available only
+inside the technical information disclosure.
+
+Before that journey, the page may render the verified research question through the shared `SummaryList` atom. It
+shows exactly `hypothesis`, `falsification_question`, and `expected_observation` only when the question-directory
+item matches the readback's request identity, Owner-receipt `semantic_digest`, and `committed_at_epoch_ms`. Any
+mismatch, unavailable question, or missing receipt field withdraws the whole question brief rather than showing
+stale meaning. `Refresh` re-reads both projections; neither read authorizes a write.
+
+When the historical-custody Owner projection is available, the route places one shared compact Bento status card
+before the directory. It organizes the user's R&D workspace into three thin-shoulder groups: `research`, `build`,
+and `families`. When the Research outcome inventory is complete and identity-bound to that same separately rendered
+custody set, `research` separates `results ready` from `waiting`; otherwise it fails back to the raw `requests`
+total. The `build` group shows `attempts` and, on the Artifact route when its independent review inventory is bound,
+`reviewable`. The `families` group shows `bindings`. The shared CompactStatusBar recognizes a `2 / 1 / 1` uneven
+cut: at wide widths the two-item group occupies the 3-part side while the two one-item groups stack on the 2-part
+side; narrower widths return to the ordinary responsive stack. This avoids stretching one-row data and does not
+draw a page-local component.
+
+This is a navigation map across independent work queues, not a conversion funnel, lifecycle, verified journey, or
+claim that the sets are one-to-one. It disappears when the projection is unavailable and never replaces the
+separately verified R&D loop. Refresh on either directory view refreshes the custody projection. Each metric is one
+quiet navigation target over the same Owner cut: `results ready` opens `/rd/research/?outcome=ready`, `waiting`
+opens `/rd/research/?outcome=awaiting`, fallback `requests` opens `/rd/research/`, `attempts` opens
+`/rd/artifacts/`, and `bindings` opens `/rd/artifacts/?kind=bindings`. Unknown or missing query values fail back to the useful
+`Request history / All` default; `view=verified` explicitly selects `Current intents`. The links admit no new
+read or write contract. Query changes preserve the mounted directory surface so the table does not flash through
+another view while the URL settles.
 
 The authenticated Owner GET `/v1/research-goals/directory` returns at most 20 verified V2 request outcomes. It
 considers at most 60 receipt candidates per page, ordered by `(committed_at_epoch_ms, request_identity)` descending
@@ -371,11 +472,27 @@ with PostgreSQL `C` collation for the bounded ASCII identity, and exposes the sa
 passes the existing complete Research custody verifier, including its stored request, receipt, frozen intent,
 Research view, authority lineage, independence basis, protected-feedback projection, and TrialFamily custody.
 Legacy or quarantined request schemas are omitted and make the cut explicitly partial. A malformed or changed
-candidate fails the entire read unavailable; it is never treated as an empty successful page. The secondary
-candidate view uses authenticated GET `/v1/historical-custodies`. Its dedicated Owner port opens only
+candidate fails the entire read unavailable; it is never treated as an empty successful page. The default
+all-research view uses authenticated GET `/v1/historical-custodies`. Its dedicated Owner port opens only
 `default_transaction_read_only=on` sessions and reads one bounded repeatable-read transaction. It returns at most
 200 request identities with their custody time and the exact state `POINT_READ_REQUIRED`; it exposes no request
 meaning, disposition, availability, receipt, authority, or current/legacy classification. Truncation is explicit.
+
+Dashboard-only authenticated GET `/api/rd/research/outcome-inventory` composes that bounded custody cut with one
+existing identity-bound Research exact read per scanned request, with at most six reads in flight. It distinguishes
+`outcome_ready`, `awaiting_outcome`, and `unavailable`; an available read with no outcome is explicitly awaiting,
+not unavailable. The projection preserves source and composition observation times, scanned and source totals,
+completeness, all three state totals, and each request identity. It is not one atomic cross-record Owner snapshot and
+creates no Research-to-Artifact or TrialFamily join. The browser may show `All / Results ready / Waiting`
+only after the inventory request-identity set exactly matches the separately rendered custody set. A mismatch or
+unavailable composition disables the filtered cuts without turning the raw candidate directory into an empty result.
+Only `outcome_ready` rows claim an Owner outcome; awaiting rows open their exact request status, and unavailable rows
+offer no false action. Unknown `outcome` values fail back to `All requests`.
+
+The inventory's `accepted | rejected | quarantined` resolution is Research request admission custody, not a
+scientific verdict and not an Iteration Decision. It cannot label a hypothesis active or falsified, populate
+`/rd/decisions`, or enable a Decision action. That route remains unavailable until a dedicated typed
+IterationDecision Owner read binds the exact decision, evidence, result, and lineage identities.
 
 The verified Research directory, Research exact-readback, Artifact exact-readback, Source Intake exact-readback,
 Develop Composer exact-readback, and Exploratory Replay V2 exact point-read GETs are packaged in the consolidated
@@ -383,9 +500,11 @@ Develop Composer exact-readback, and Exploratory Replay V2 exact point-read GETs
 source GETs, while its state retains separate typed `ResearchDirectoryOwnerPort`, `ResearchReadbackOwnerPortV1`,
 `ArtifactDirectoryOwnerPort`, `ArtifactReadbackOwnerPortV1`, `ArtifactSourceOwnerPort`,
 `SourceIntakeReadbackOwnerPort`, and
-`DevelopComposerReadbackOwnerPortV2` and `ExploratoryReplayReadbackOwnerPortV2` capabilities rather than collapsing
-domain boundaries into a generic repository. Its router exposes only `/health` and those eight
-admitted GETs. Dashboard binds them
+`DevelopComposerReadbackOwnerPortV2`, `ExploratoryReplayReadbackOwnerPortV2`,
+`FormationCatalogOwnerPortV1`, and `IterationTimelineOwnerPortV1` capabilities rather than collapsing
+domain boundaries into a generic repository. Its router exposes only `/health` and twelve admitted GETs after adding
+`GET /v1/formation-catalog` and
+`GET /v1/trial-families/{trial_family_identity}/iterations`; no write route is added. Dashboard binds them
 through the atomically configured `RD_DASHBOARD_OWNER_READ_API_URL` and
 `RD_DASHBOARD_OWNER_READ_API_TOKEN` pair. A partial pair fails closed and never borrows the write API's credential.
 The adapters reuse the canonical locking verifiers and expose no submit, resolve, sandbox, or mutation port.
@@ -397,6 +516,34 @@ and carries no fact-writer pool or mutation method.
 Replay delegates through an independent Dashboard typed point-read port to the existing sealed Replay V2 read port.
 Its adapter owns only the same `rd_owner` read pool, never assembles the legacy write-Owner composition root, and
 exposes no identify, submit, resolve, run, or result operation.
+
+`GET /v1/formation-catalog` is a bounded, read-only composition of the verified Research and Artifact directory and
+exact-readback ports. It returns at most 20 accepted TrialFamilies, ordered by
+`(research.committed_at_epoch_ms, trial_family_identity)` descending. Each row contains only the exact Research
+request/receipt/intent identities, current Research-view availability and next legal action, the frozen trial budget,
+the verified consumed budget, and zero or more current-custody successful Artifact attempts. Successful attempt rows
+contain their build request, attempt, Owner receipt, Artifact review, and TrialFamily binding identities plus the
+Owner commit time. The existing Artifact directory deliberately withholds failed, rejected, unknown, and in-flight
+attempts; therefore any non-empty catalog is explicitly `PARTIAL_UNAVAILABLE`. It never converts a commit time into a
+prepared time, and it never invents a negative attempt. A malformed cross-binding, changed identity, verifier error,
+or unavailable constituent read makes the whole catalog unavailable rather than silently dropping a family.
+
+`GET /v1/trial-families/{trial_family_identity}/iterations` is served by a separate typed read-only projection port.
+It freezes one bounded set of immutable Decision locators from the requested family, then resolves every locator
+through the canonical unified Decision resolver. The response exposes only the verified TrialFamily/census identities,
+trial and consumed budgets, observation time, and an ordered list of exact Decision identity/digest, round, request,
+Result, attempt, receipt, commit time, canonical `IterationDecisionOutcomeV1`, and its corresponding Product Edge
+action class. The action classes are exactly `SUBMIT_REPAIR_REQUEST`, `CREATE_SUCCESSOR_INTENT`,
+`STOP_ON_COMMITTED_DECISION`, and `SUBMIT_SELECTED_CANDIDATE_TO_QUALIFICATION`; the Dashboard does not rename all
+repairs as Replay repairs or manufacture an evidence state absent from Owner custody. Duplicate, non-monotonic,
+cross-family, oversized, malformed, or concurrently inconsistent cuts fail closed. An empty verified Decision list is
+valid and means `AWAITING_REPLAY_RESULT`.
+
+The `/rd/research` surface may render the shared `JourneyProgress` atom only after both the Formation row and its
+exact Iteration projection are available and identity-consistent. The Journey summarizes the current loop; it is not
+a second business state machine. While either projection is loading, unavailable, partial in a way that removes the
+selected family, or malformed, the route preserves its ordinary Research directory and renders no placeholder,
+synthetic stages, stale prior Journey, or explanatory filler.
 
 The browser receives only request identity, optional intent identity, accepted or rejected-no-write disposition,
 current Research-view availability and phase when accepted, and committed time. Rejected-no-write rows carry no
@@ -442,15 +589,70 @@ and S1 custody panels in the route registry remain future blueprint content.
 
 `ArtifactDirectory` is the exact `P` surface for `/rd/artifacts`. The route uses one full-width `PanelFrame` and
 does not reserve an empty detail column. Its frame header contains the eyebrow, title, one-line purpose, then one
-`Refresh` action. Its body contains one horizontal table toolbar with a `Verified / Custody candidates` segmented
-control at the left and search at the right; `Verified` is always the default. Candidate mode adds one inline
-`Attempts / Bindings` kind rail in the same row. The verified table has four plain, left-aligned columns in this
+`Refresh` action. Its body contains one horizontal table toolbar with a `Build history / Current artifacts` segmented
+control at the left and search at the right. `Build history` is the default because it exposes the available attempt
+workload; `Current artifacts` is the narrower verified-success view. Build history adds one inline
+`All attempts / Reviewable / Bindings` rail in the same row. The verified table has four plain, left-aligned columns in this
 order: `Artifact`, `Strategy intent`,
 `Verification`, and `Created`. Column headings have no decorative icons and there is no View/column-chooser button,
 registered/visible count, multi-level filter popover, or backend-only field. Opening the Artifact identity navigates
 to the exact read‑only source-viewer URL. The table header is sticky inside the bounded scroll viewport; loading,
 valid empty, unavailable, and partial states preserve the same card geometry. At narrow widths the table scrolls
 horizontally; it does not collapse identities into invented mobile facts.
+
+Research and Artifact directories share the domain-neutral `EntityReference` atom. The primary line names the
+business entity (`Research request`, `Build request`, `Build attempt`, `Strategy artifact`, `Strategy intent`, or
+`Strategy family`); the opaque identity is a compact secondary reference and the exact value remains available as
+its title and search key. Default table copy uses `Result`/`Outcome`, `Recorded`, and user-readable availability;
+Owner, custody, point-read, candidate, and wire-state language stays in the information disclosure or contract.
+An enabled asynchronous directory read projects its internal first-render `idle` state as `loading`. The table may
+be visually quiet during the short loading-delay threshold, but it must not render an empty/search-empty claim or a
+zero summary before the first Owner response settles. Only a completed available read with zero matching rows may
+render empty; unavailable remains a separate fail-closed state and never retains the previous route's rows.
+
+In `Build history`, activating the primary build reference or selecting its attempt row opens the same shared
+`DetailSheet` without changing the directory URL or
+unmounting its view, filters, search, pagination, or scroll position. The compact summary composes the shared
+`DetailFactGrid`, `StatusBadge`, and `PanelFrameInfo` atoms and answers only whether a readable build result exists
+and when the attempt was prepared. Exact identities and observation cuts stay in the information disclosure.
+Only a currently available inventory item that is bound to the same custody cut exposes `Review build result`.
+That explicit action switches the same sheet from summary to an exact read-only result drilldown; merely opening
+the summary performs no exact point read. The drilldown reuses the canonical historical readback hook and shared
+`Build journey` plus `Result / Review / Timing` content, while `Back to build summary` restores focus to the
+drilldown trigger. Only a successful HTTP response whose body passes both identity checks exposes
+`Open full build workspace`; non-2xx positive-looking bodies, mismatched identities, cancelled reads, and responses
+arriving after Back or Close remain fail closed. An `unavailable` or loading item remains summary-inspectable but
+exposes neither the result drilldown nor a canonical action. Closing the sheet restores focus to the originating
+control or row, and narrow screens reuse the shared full-viewport sheet geometry.
+During a refresh, retained rows may preserve table geometry, but the Bento summary count, primary-reference detail,
+outcome badge, secondary summary, and footer all switch to `Checking` or unavailable placeholders; no retained
+positive review state is presented as current.
+
+The exact historical-attempt route is titled `Build result` and answers whether the build produced an Artifact.
+It consumes the same fail-closed historical readback hook and shared journey plus `Result / Review / Timing` content
+as the directory drilldown. Those groups render `Historical only` and a human-readable failure
+reason. Exact `Raw result`, `Raw reason`, build request, attempt, and receipt values remain in the information
+disclosure; the page does not turn a historical read into a current Artifact or action.
+
+When the historical-custody Owner projection is available, the route reuses the shared compact Bento card before
+the directory. Its thin-shoulder groups are `research`, `build`, and `families`: `research` shows exact `requests`;
+`build` shows `reviewable` when the independent review inventory is bound beside exact `attempts`; `families`
+shows exact `bindings`. The values are independent work-queue counts and quiet links to their canonical views;
+they are not verified Artifact totals, a lifecycle, or a one-to-one flow. The card disappears on an unavailable
+projection, and Refresh in either directory view refreshes that same Owner cut without adding a scheduler,
+operational write, or Artifact action. `reviewable` opens `/rd/artifacts/?availability=reviewable`; `bindings`
+opens `/rd/artifacts/?kind=bindings`.
+
+The Dashboard-only GET `/api/rd/artifacts/review-inventory` composes that bounded custody cut with the existing
+identity-bound Artifact readback GETs using at most six concurrent reads. It does not create a new Owner fact or
+claim one cross-record snapshot: every candidate retains its own `reviewable | unavailable` point-read result,
+while the projection separately preserves the custody observation time, scanned count, total count, and truncation.
+The client admits the composition only when the complete candidate identity tuple set still matches its separately
+rendered custody cut; drift withdraws the reviewability overlay without hiding the ordinary candidate directory.
+When the complete cut is available, the compact card answers `reviewable / attempts`; its link opens
+the canonical `availability=reviewable` build-history view. Only reviewable rows link to Historical build outcome.
+Unavailable rows remain visible under `All attempts` but are not presented as actionable links. If the composition
+is unavailable, the ordinary candidate directory remains usable and no zero-reviewable claim is inferred.
 
 The authenticated Owner GET `/v1/artifact-builds/directory` returns at most 20 verified items. It considers at most
 60 attempt candidates per page, ordered by `(prepared_at_epoch_ms, build_request_identity)` descending with
@@ -462,7 +664,7 @@ attempt, Artifact, and strategy-intent identities, committed time, build target,
 security state. Nonterminal or non-success attempts are withheld and make the page explicitly partial. Any malformed
 custody, database/verification error, unknown wire key, contradictory completeness/count, invalid identity/time,
 oversized response, or transport/configuration failure makes the affected read unavailable; it never becomes an
-empty successful page. The candidate view uses the same authenticated GET `/v1/historical-custodies` and read‑only
+empty successful page. The default build-history view uses the same authenticated GET `/v1/historical-custodies` and read-only
 Owner cut as Research. It exposes at most 200 attempt and 200 TrialFamily-binding identities, their custody times,
 and only `POINT_READ_REQUIRED`. Counts are custody-index counts, never verified Artifact or valid-binding counts.
 No Artifact outcome, binding validity, current authority, raw receipt, payload, or storage field is inferred by the
@@ -1111,7 +1313,7 @@ implementation, provider/network execution, production write or trading authorit
 | Run Traces                                             | Observed run says no HTTP request captured or tracing disabled                                                                                                       | Run Detail `Traces` tab: explicit not‑captured reason and no empty success graph                                                                                                                                                                           | Deferred `RunTraceProjection`; `CURRENTLY_EXCLUDE_BACKEND`                                                                                                                                                                                                                                                            |
 | Run Assets                                             | Observed run says `No assets found`; workspace asset count is zero                                                                                                   | Run Detail `Assets` tab: explicit empty state only. No global Assets route                                                                                                                                                                                 | No store now. Future entries must be disposable operational attachments that point to, never replace, Owner artifact custody                                                                                                                                                                                          |
 | Workers / `worker_ping`                                | One live `rd-product-edge` worker, version `1.791.0`, job count, last‑job link, memory, status, tags; other groups have zero workers                                 | Operations / Workers: group chips, search, worker table, selected‑worker panel, last‑run link. Read actions are Refresh and Open last run                                                                                                                  | `WorkerLeaseStore` + heartbeats; retain identity/group/tags/version/start/last‑run/occupancy/memory, lease liveness and registered capabilities. Exact‑run readiness exists only in Run Detail. Exclude create config, cache clean, restart, REPL, autoscaling UI until separately admitted                           |
-| Service Logs / server and worker logs                  | Auto‑refresh page lists worker group and server hosts, time range, error‑only filter, service/host selector                                                          | Operations / Service Logs: time range, service, instance, severity, search, auto‑refresh, bounded log viewport                                                                                                                                             | `ServiceLogGateway`; read‑only, redacted, retention‑bounded. It is operational evidence, not Owner health or a telemetry backend                                                                                                                                                                                      |
+| Service Logs / server and worker activity              | Auto-refresh page summarizes recent activity, attention level, business source, related object, time range and source selector                                       | Operations / Service Logs: time range, service, instance, severity, search, auto-refresh, bounded log viewport                                                                                                                                             | `ServiceLogGateway`; read-only, redacted, retention-bounded. Exact implementation identities remain available through info affordances. It is operational evidence, not Owner health or a telemetry backend                                                                                                           |
 | Audit Logs / partitioned audit tables                  | Authenticated execute/update/create/delete records exist; CE exposes ID, time, principal, operation and redacts resource detail                                      | Operations / Audit: time/principal/operation/outcome filters, audit table, selected correlation panel; no mutation buttons                                                                                                                                 | `OperationAuditStore`; append‑only Dashboard/Product Edge control‑plane events with exact target/correlation/outcome. Owner business events remain in Owner/Event Rail custody                                                                                                                                        |
 | Workspace/folder/auth                                  | Folder `trade` contains three scripts and one App owned by `u/admin`; workspace and scoped tokens delimit access                                                     | Installation profile and Access settings only; no workspace/folder administration route                                                                                                                                                                    | `LocalSession` + `CapabilityManifest` + narrow token issuer; one installation, one operator profile, exact operation scopes                                                                                                                                                                                           |
 | Variables, Resources, global Assets, generic Schedules | `trade-rd` counts are 0/0/0/0. Compose injects an allowlisted environment into the worker; Data Tables and frontend SDK access are forbidden                         | No product tabs for these Windmill stores. Settings accepts opaque runtime references; the separately admitted first‑party bounded shadow schedules live at Operations / Schedules                                                                         | Exclude Windmill generic stores. `/operations/schedules` uses only the typed zero‑effect `configuredShadowScheduleSetV1` + RunStore contract defined above                                                                                                                                                            |
@@ -1540,43 +1742,53 @@ Metrics, Traces, and Assets remain run-scoped tabs and never become global route
 ```text
 H  Operations / Runs                        [Refresh] [Auto-refresh: Off v]
 N  [Runs] [Workers] [Schedules] [Service Logs] [Audit] [Event Rail] [Telemetry] [Alerts]
-F  [Runs|Dependencies] [All|Queued|Running|Succeeded|Failed|Unknown]
-   [Search path / run ID] [Duration v] [Concurrency v] [More filters]
-S  Queued | Running | Unknown | Completed/Failed
+F  [Action runs|Data reads] [All|Waiting|Running|Completed|Failed|Cancelled|Unknown]
+   [Search activity / run ID] [Duration v]
+S  Waiting | Running | Unknown | Completed | Failed
 T  RunTable / date group
-   Status | Started | Duration | Path | Trigger/principal | Tag | Owner outcome
-   row selection -> D; final column [Open] -> /operations/runs/:runId
-D  RunSummaryCard: statuses, immutable run/operation/Owner locators, retention
-   [Open run] [Resolve Owner outcome]
+   Status | Started | Duration | Activity | Started by | Source result
+   row selection or final-column [Open] -> D
+D  shared DetailSheet: status, activity, trigger, started, duration, source result
+   [Open full details] -> /operations/runs/:runId
 B  shown rows / filtered total | Rows per page [25|50|100] | Page n of m
    [First] [Previous] [Next] [Last]
 ```
 
+The row and its compact `Open` action are two accessible origins for the same contextual inspection; both open the
+single shared `DetailSheet` and preserve the Runs URL, filters, page, scroll position, and origin focus. Only the
+explicit `Open full details` action inside that sheet may navigate to the canonical run workspace.
+
 The Runs table uses fixed layout at `>=1280 px`: sticky header 40 px, date-group header 32 px, body row minimum
-44 px, 8 px horizontal cell padding, and column shares `Status 10 / Started 14 / Duration 9 / Path 21 /
-Trigger-principal 14 / Tag 10 / Owner outcome 14 / Open 8`. Path, trigger/principal, tag, and Owner outcome use one
-line plus ellipsis; hover/focus reveals the same redacted value, never raw payload. Default order is effective run
+44 px, and 8 px horizontal cell padding. `Activity` renders the shared business label; hover/focus reveals
+its same exact registered operation ID. Activity, Started by, and Source result use one line plus ellipsis,
+never raw payload. Default order is effective run
 time descending, then immutable run ID ascending. Effective time is `started_at`, falling back to `received_at`
 for an unstarted run; its Started cell remains an em dash. Only Started and Duration headers expose sort controls,
 each cycling descending then ascending then back to the default order. Date groups use the selected display time
 zone and remain newest first; changing filter, time zone, grouping, or sort returns to page one.
 
-The four `S` cards never change count or position. In the `Runs` segment their labels are exactly `Queued`,
-`Running`, `Unknown`, and `Completed / Failed`; in `Dependencies` they are
-`Queued dependencies`, `Running dependencies`, `Unknown dependencies`, and `Completed / Failed dependencies`. The first three values are one
-integer count and the fourth is `completed / failed` as two integer counts in that order. A missing count is an em
-dash in its existing value slot. Counts use the selected kind plus every applied non-status filter but ignore the
-selected status, so choosing one status never erases the other three summaries.
+The five `S` items never change count or position. Under the `action runs` or `data reads` group shoulder their
+labels are exactly `waiting`, `running`, `unknown`, `completed`, and `failed`. Each value is one integer count;
+a missing count is an em dash in its existing value slot. Counts use the selected kind plus every applied non-status
+filter but ignore the selected status, so choosing one status never erases the other summaries.
 
-The control contract is closed rather than inherited from Windmill defaults. `Runs` is the default kind segment;
-`Dependencies` is its only peer. `All` is the default status. Search is empty by default and matches only redacted
-path or immutable run ID. `Duration` is `Any` by default, followed by `<1 s`, `1-10 s`, `10-60 s`, and `>=60 s`.
-`Concurrency` is `Any` by default, followed by `Has key` and `No key`; it describes the presence of the immutable
-dispatcher concurrency key, not live worker count. The header auto-refresh menu is `Off` by default, followed by
+The positive list projection retains the newest 512 rows after kind, search, and Duration filters and before the
+selected status is applied. A 513th eligible row returns HTTP 200 with `availability=available`,
+`completeness=partial_unavailable`, and `retention_limit=512`; it never makes the verified newest rows unavailable.
+Summary counts, filtered total, pagination, and the page frontier are exact only inside that retained cut and must
+never be labelled or interpreted as all-history totals. The source cut binds the retained rows, retention limit,
+and completeness, so a boundary change invalidates an existing snapshot. A partial footer says that the latest 512
+are shown and older history is outside this view. A filtered empty partial view says that no retained row matches;
+it never claims that no matching historical row exists.
+
+The control contract is closed rather than inherited from Windmill defaults. `Action runs` is the default kind segment;
+`Data reads` is its only peer and maps only to the typed wire value `kind=dependencies`. `All` is the default status. Search is empty by default and matches only redacted
+activity identity or immutable run ID. `Duration` is `Any` by default, followed by `<1 s`, `1-10 s`, `10-60 s`, and `>=60 s`.
+The header auto-refresh menu is `Off` by default, followed by
 `5 s`, `15 s`, and `30 s`. A cadence change takes effect immediately, does not reset pagination, and performs only
 the same read as Refresh; hidden or offline tabs do not queue catch-up reads.
 
-Kind, status, Duration, and Concurrency apply immediately on selection and return to page one. Search applies
+Kind, status, and Duration apply immediately on selection and return to page one. Search applies
 exactly 300 ms after the last edit; Enter or clearing the field applies immediately, while blur adds no separate
 transition. A later search application cancels the earlier in-flight list read. The explicit Started and Duration
 sorts never reorder the newest-first date-group rows: they sort only inside each group, or the whole list when
@@ -1585,7 +1797,7 @@ ascending, then places unstarted rows ordered by `received_at` in that direction
 places rows with a duration first in the chosen direction, ties by effective time descending then run ID ascending,
 and places missing-duration rows last by effective time descending then run ID ascending.
 
-`More filters` opens one 360 px popover anchored below that button. Its fields are ordered `Trigger` (`All`
+When the extended filter surface is admitted, `More filters` opens one 360 px popover anchored below that button. Its fields are ordered `Trigger` (`All`
 default, `App`, `Webhook`, `Other`), `Principal` (empty exact-text input), `Tag` (empty exact-text input), `Time cut`
 (`Last 24 h` default, then `Last 1 h`, `Last 7 d`, `Last 30 d`, `Custom`), `Display time zone` (`UTC` default,
 `Browser local`), and `Group by` (`Day` default, `Hour`, `None`). `Custom` adds start then end inputs interpreted in
@@ -1599,15 +1811,17 @@ em dashes and disable page movement. Loading is exactly four summary skeletons, 
 header, three 32 px date-group bars for the default `Day` grouping, ten 44 px rows, and the complete pager skeleton.
 `Hour` uses the same three group bars; `None` uses no group bar and still exactly ten rows. Unfiltered empty, filtered
 empty, permission denied, and backend unavailable each occupy one 96 px full-width table row with a distinct title,
-one-line explanation, and no fabricated count. Only backend unavailable exposes Refresh through the existing route
-header.
+one-line explanation, and no fabricated count. An unfiltered empty Action runs view exposes one compact `View data reads`
+secondary action that selects the existing Data reads segment; it creates no run and issues no effect. Only backend
+unavailable exposes Refresh through the existing route header. Absent tag and concurrency fields are not promoted
+into empty business columns or explanatory copy.
 
 At `768-1279 px` the table retains the same order in a 960 px minimum-width bounded horizontal scroller. Its 8%
 action cell keeps the standard 8 px horizontal padding and contains a 32 px text Open button, a 4 px gap, and the
 24 px More button when admitted. Buttons plus padding occupy exactly 76 px, fitting the 76.8 px cell at the 960 px
 minimum table width; wider tables retain the same left-aligned geometry. Below
-`768 px` it becomes a six-row run card: status + effective time; path; Owner outcome; trigger/principal; duration +
-tag; then Open. Cards have 12 px padding, 12 px gap, and 156 px minimum height; six loading cards replace the table
+`768 px` it becomes a six-row run card: status + effective time; activity; Source result; Started by; duration;
+then Open. Cards have 12 px padding, 12 px gap, and 156 px minimum height; six loading cards replace the table
 rows, while the same filter order and pager remain. Card selection opens the same `D`; no checkbox, column chooser,
 selection count, bulk action, or swipe action exists.
 
@@ -1631,47 +1845,59 @@ the earlier Windmill worker-table sketch, not any other route's maturity. It nei
 `rd-product-edge` administration surface nor authorizes cutover, Owner effects, or production writes.
 
 ```text
-H  Trade worker custody / Shadow read workers                         [Refresh]
+H  Service capacity / Workers                                         [info] [Refresh]
 N  Existing Operations tabs; Workers remains in its existing position
-S  [Fleet] Online | Expired                 [Workload] Claimed | Active
-T  [Lease: All / Available / Expired]                  [Search workers]
-   Worker | Lease | Jobs | Last run | Operations
-D  Identity + lease badge -> Lease -> Activity -> Last run -> Capabilities
-   Heartbeat history unavailable -> artifact digest -> [Back to worker list]
+S  [Capacity] Ready | Offline               [Work handled] Processed | Active
+T  [Availability: All / Ready / Offline]               [Search services]
+   Service | Availability | Active / processed | Recent activity | Supports
+D  Service + availability -> Availability -> Work handled -> Recent activity -> Supported work
+   [Service information] -> [Back to services]
 ```
 
 - Layout: `PanelFrame` (flat) contains header then body; body contains `CompactStatusBar` then
   `SplitBento(T,D)`. `P/Q` are absent (zero reserved height). At widths >=1280 px, columns are
   `minmax(560px,1.55fr) minmax(300px,.8fr)` with 12 px gap and content-driven heights; D is sticky at top 0.
-  Below 1280 px, T precedes D in one column. At all widths T retains horizontal overflow, not a replacement
-  card list or full-screen drawer. The 62 px minimum-height summary pill scrolls horizontally when necessary;
+  On the list route below 1280 px, T occupies the full inset and row activation opens the shared right-side
+  `DetailSheet` without changing the URL; below 768 px that same sheet becomes full-screen. The exact route
+  remains the canonical full detail and keeps D in page flow. At all widths T retains horizontal overflow,
+  not a replacement card list. The 62 px minimum-height summary pill scrolls horizontally when necessary;
   each group is at least 52 px tall, with a 44 px title pill followed by its values. Shared theme tokens,
   title/action header, rounded inner content, subtle interrupted separators and Lucide icons remain authoritative.
-- Summary: Online counts available leases at the list observation cut; Expired counts expired leases;
-  Claimed sums durable job counts; Active sums active job counts. These are operational observations, not
+- Summary: Ready counts available leases at the list observation cut; Offline counts expired leases;
+  Processed sums durable job counts; Active sums active job counts. These are operational observations, not
   current process health or unbound-run readiness. A valid empty list yields four zeros; initial, invalid,
   transport-error or unavailable list yields four `-` values, never zeros inferred from failure.
   Detail availability cannot change list counts. No group, memory or occupancy estimate is invented.
-- Table: columns in exact order are Worker (minimum 250 px, identity link then registered time), Lease
-  (minimum 125 px, available/expired badge), Jobs (105 px, active / claimed), Last run (minimum 220 px,
-  identity then state/time; absent claim shows Unavailable / No durable claim), Operations (120 px, exact
+- Table: columns in exact order are Service (minimum 250 px, identity link then added time), Availability
+  (minimum 125 px, Ready/Offline badge), Active / processed (132 px), Recent activity (minimum 220 px,
+  compact run reference then business state/time; absent activity says No activity), Supports (120 px, exact
   registered-operation count). All headers/cells align left. Every column supports ascending/descending sort;
-  Jobs sorts active then claimed, Operations sorts count. Default is newest last-run time first, falling back
+  Active / processed sorts active then processed, Supports sorts count. Default is newest last-run time first, falling back
   to registration time; identity orders equal-time input rows. Browser validation requires unique identities,
   not JavaScript ordering of database-collated rows. No grouping, checkbox, bulk action or column chooser.
-- Filters: one inline Lease selector with All, Available, Expired in that order, followed by right-aligned
-  Search workers (maximum 128 characters). Case-insensitive local search covers identity, artifact digest,
-  last-run identity/state and registered operations. Shared Worker/Lease column filters remain local.
+- Filters: one inline Availability selector with All, Ready, Offline in that order, followed by right-aligned
+  Search services (maximum 128 characters). Case-insensitive local search covers identity, build fingerprint,
+  last-run identity/state, registered operation IDs and their business labels. Shared Service/Availability column filters remain local.
   Pagination follows filtering: 20 rows initially, choices 20/50/100, range then previous/next controls;
-  changing lease/search resets the page. Row selection updates D on the list route; the identity link opens
-  the exact route. Exact-route selection stays bound to the requested identity despite list/filter changes.
-- Detail: heading is Selected worker or Exact worker readback, exact identity, lease badge. Four ordered
+  changing lease/search resets the page. On desktop, row selection updates in-page D. Below 1280 px it opens
+  the shared short-detail sheet while preserving the list URL and returns focus to the originating row when
+  closed. The Service cell and row both use this same-context selection; they do not navigate or duplicate the
+  detail action. The exact route remains a deep-link compatibility surface, and its selection stays bound to the
+  requested identity despite list/filter changes.
+- Detail: heading is Selected service or Service details, compact service label, and Ready/Offline badge. Four ordered
   clusters have 8 px outer gap/padding, 13 px radius and 13 px by 14 px inner padding; facts use two equal
-  columns with 12 px gap. Lease: Registered, Expires. Activity: Claimed, Heartbeat, with active count in title.
-  Last run: Run link, Claimed at, with state or No claim in title. Capabilities: full-width Registered
-  operations, in registry order. Then show Heartbeat history unavailable, the explanation that only latest
-  heartbeat/deadline are retained and memory/host are not inferred; footer shows artifact digest and
-  no-unbound-run-readiness explanation. Back to worker list appears only on the exact route.
+  columns with 12 px gap. Availability: Added, Last seen. Work handled: Processed, Active.
+  Recent activity: contextual Run preview trigger, Started, with the business-facing run state or No activity in the title.
+  The trigger reuses the shared `OperationsRunPreview` facts and exact `RunDetailEnvelopeV1`; it does not navigate the
+  Workers surface or add a Run menu state. On desktop and the exact Worker route it opens the one shared `DetailSheet`.
+  In compact list detail it replaces the Worker body inside that same sheet; `Back to service` restores the same explicit
+  Worker and trigger, while Close restores the trigger that opened the sheet. The preview contains only bounded status facts
+  plus `Open full run details`; logs and Run actions remain on the canonical Run route. It never stacks a second overlay and
+  never infers its return target from a later table selection. Supported work: role and
+  full-width registered-operation labels in registry order; exact operation IDs remain title evidence rather than
+  primary copy. The footer exposes one shared `Service information` control containing exact service/build identity,
+  the latest-signal observation scope, and the per-service availability boundary. Back to services appears only on the
+  exact route.
 - State geometry: initial load uses the same header/summary and compact Worker store unavailable region
   with `READING_WORKERS`; loading-row count is exactly zero, not synthetic worker rows. Refresh is disabled
   and labelled Reading while pending; during refresh the previous observation remains until replacement,
@@ -1683,8 +1909,8 @@ D  Identity + lease badge -> Lease -> Activity -> Last run -> Capabilities
   Missing worker uses the same D geometry with WORKER_NOT_FOUND. The wire has no separate stale/partial
   status: expired lease remains an observed expired row; unsupported stale/partial envelopes fail closed,
   and no timer promotes old data to live health. A list error never overrides an independently valid D.
-- Action order/admission: header Refresh; table identity navigation; D Last run link only with exact run
-  identity; exact-route footer Back to worker list. Filters, sorting and pagination are local. All remote
+- Action order/admission: header info then Refresh; same-context table selection; D Recent activity preview only with exact
+  run identity; preview Open full run details; exact-route footer Back to services. Filters, sorting and pagination are local. All remote
   reads use GET/no-store and strict endpoint-specific envelopes; D must echo and match the path identity.
   There is no mutating action or operational/domain action envelope on this surface. Create/edit config,
   restart, cache-clean, REPL, autoscaling, host/group/version and heartbeat-history fabrication stay excluded.
@@ -1701,9 +1927,9 @@ H  Operational evidence / Service logs        [Refresh] [Auto-refresh on|off] [D
 N  Operations tabs in the fixed order above
 S  [Severity] Error | Warning | Info          [Instances] Worker | Server
 F  [Range: 15m|1h|6h|24h] [Kind: All|Worker|Server] [Service] [Instance] [Severity] [Search]
-P  Instance list: exact identity | kind/readiness | services | last observed
-Q  Selected instance: identity | kind/readiness | services | source cut | last observed
-T  Timestamp | Severity | Service | Instance | Correlation | Event
+P  Source list: business source | kind/readiness | last observed
+Q  Selected source: business source | services | kind/readiness | last observed | [technical info]
+T  Time | Level | Activity | Source | Related
 B  Showing newest n of retention limit | completeness/redaction/truncation disclosure
 ```
 
@@ -1712,8 +1938,9 @@ B  Showing newest n of retention limit | completeness/redaction/truncation discl
   permitted. The sole rounded inset is `PanelFrameBody`, containing `CompactStatusBar`, one-row filters, then
   `SplitBento(P, Q+T)`, followed by B. At widths >=1280 px, P is `minmax(248px, .55fr)` and Q+T is
   `minmax(620px, 1.45fr)` with a 12 px gap. Both columns are content-driven, neither receives a viewport-height
-  minimum or stretches to match the other, and the page owns vertical scrolling. Below 1280 px the order is S, F,
-  P, Q, T, B in one column. T retains horizontal overflow and
+  minimum or stretches to match the other, and the page owns vertical scrolling. When the cut contains only one
+  source, P is omitted and Q+T uses the full inset width; selection remains bound to that exact sole identity.
+  Below 1280 px the order is S, F, P, Q, T, B in one column. T retains horizontal overflow and
   never becomes a card-per-log list. Header/cell text is left aligned. Shared theme tokens, 13 px inner radii,
   subtle interrupted row/column separators, and Lucide icons are mandatory; no blue focus/selection outline or
   caller-defined radius/fill may override the shared atoms.
@@ -1731,18 +1958,33 @@ B  Showing newest n of retention limit | completeness/redaction/truncation discl
   instance remains selected only when it is present in the same cut. No host is displayed or shortened:
   `host_ref` is canonically `null`, and instance identity is the only selectable locator.
 - P/Q: P orders instances by last-observed descending then identity and uses one selected row tone from the shared
-  accent family, without a border halo. Each row shows exact identity, kind/readiness, allowlisted services, and
-  last observed; no memory, process health, hostname, version, occupancy, or heartbeat history is inferred. Q is
-  an identity-bound compact detail cluster with fields in the same order plus source-cut digest. If selection is
-  missing or mismatched, Q and T use the same compact selected-instance unavailable geometry and expose no rows.
-- T and retention: columns are exactly Timestamp (190 px), Severity (108 px), Service (190 px), Instance (220 px),
-  Correlation (260 px), Event (minimum 220 px). Event renders the bounded `event_code`; there is no free-form
+  accent family, without a border halo. Its primary copy is the business-facing source name, followed by
+  kind/readiness and last observed. Q keeps the same identity-bound selection but presents source, services and
+  observation state first. Exact instance identity and source/filter cut digests remain available only through the
+  shared info control; no memory, process health, hostname, version, occupancy, or heartbeat history is inferred.
+  If selection is missing or mismatched, Q and T use the same compact selected-instance unavailable geometry and
+  expose no rows.
+- T and retention: columns are exactly Time (190 px), Level (108 px), Activity (minimum 220 px), Source (190 px),
+  and Related (minimum 160 px). Activity is a deterministic sentence-case presentation of bounded `event_code`;
+  Source uses the exhaustive business label for its allowlisted service. Related links to Run Detail only when the
+  correlation identity satisfies the exact run-identity contract; otherwise it remains neutral copy. Exact wire
+  values stay in title/info affordances rather than the primary scan path. There is no free-form
   message field in V1 and the UI must not manufacture one. Default order is newest first by observed time,
   correlation identity, then sequence; every row key is correlation plus sequence. The viewport returns at most
   200 rows; pagination uses an opaque server-issued cursor bound to the echoed filter-cut digest, with 20/50/100/200
   page sizes. Cursor mismatch/expiry is unavailable, not an empty page. The gateway retention ceiling remains 512
   eligible rows per observation cut; changing any filter resets the cursor and page. `complete` and
   `partial_unavailable` stay visibly distinct.
+- Event drilldown: selecting a verified T row opens the shared `DetailSheet` without changing the Service Logs URL
+  or unmounting its filters, page, scroll position, or menu context. The sheet composes the shared `DetailFactGrid`,
+  `DetailCluster`, `StatusBadge`, and `PanelFrameInfo` atoms; it does not redraw a route-specific detail surface.
+  Selection is bound to filter-cut digest + correlation identity + sequence, so a replacement cut or page withdraws
+  stale detail. Primary content answers activity, level, observed time, source, and exact source context; event code,
+  sequence, correlation, instance identity, and source/filter cuts stay behind the information affordance. Only a
+  correlation that satisfies the exact run-identity contract exposes `Open related run`; other events expose no false
+  route. Opening a row performs no new read, closing returns focus to that row, and the shared sheet becomes a full
+  viewport surface below 768 px. It never embeds the action-bearing Run Detail or infers cause, Owner outcome, or
+  service health.
 - States: initial read keeps the exact header/body geometry and renders zero synthetic rows with
   `READING_SERVICE_LOGS`; Refresh is disabled and labelled Reading. A refresh may retain the prior cut only while
   pending and labels it Previous observation. Any failed replacement clears prior positive instances, counts,
@@ -1964,11 +2206,16 @@ A route name, an `S/P/Q/T` slot assignment, or a PascalCase label is not by itse
 contract. The following status is normative and prevents the experimental chapter from overstating how much of the
 Dashboard can already be drawn:
 
-| Completeness status                   | Current pages or surfaces                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Admission meaning                                                                                                                                                                                                                                                                                      |
-| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `DRAWABLE_EXACT`                      | Operations Runs `/operations`, Run Detail `/operations/runs/:runId`, Workers `/operations/workers` and `/operations/workers/:workerId`, Schedules `/operations/schedules`, Service Logs `/operations/service-logs`, Audit `/operations/audit`; R&D Intake `/rd` and Develop Composer `/rd/composer` exact‑readback workbenches, Research directory `/rd/research` and exact readback `/rd/research/:requestIdentity`, and Artifacts `/rd/artifacts`; Backtest Replay request and result readback `/backtest`; Market Data `/data` and `/data/pit-catalog`; all four Runtime routes | The chapter fixes route slots, internal field/column order, dimensions or responsive transformation, state geometry, and button order. Fail‑closed routes are drawable with fixed unavailable/not‑ready values; this status does not make their backend or Dashboard consumer available                |
-| `DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` | R&D Intake `/rd` composer and authority‑resolution panels beyond the admitted exact‑readback workbench                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | The named content/detail region is exact, but its enclosing route list still lacks one or more of summary labels, table columns, row actions, sort, pagination or loading‑row geometry; the broader surface is not drawable or implementable                                                           |
-| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`    | Every other complete route in the registry, explicitly including Event Rail, Telemetry, and Alerts                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | The registry fixes navigation position, route slots, named page‑local composites, and button intent only. An unattended agent must not infer missing list behavior, timeline rows, responsive table transformation, or internal geometry from a component‑like name or excluded Windmill/native layout |
+| Completeness status                   | Current pages or surfaces                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Admission meaning                                                                                                                                                                                                                                                                                      |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `DRAWABLE_EXACT`                      | Overview Status `/dashboard`; Operations Runs `/operations`, Run Detail `/operations/runs/:runId`, Workers `/operations/workers` and `/operations/workers/:workerId`, Schedules `/operations/schedules`, Service Logs `/operations/service-logs`, Audit `/operations/audit`; R&D Intake `/rd` and Develop Composer `/rd/composer` exact‑readback workbenches, Research directory `/rd/research` and exact readback `/rd/research/:requestIdentity`, and Artifacts `/rd/artifacts`; Backtest Replay request and result readback `/backtest`; Market Data `/data` and `/data/pit-catalog`; all four Runtime routes | The chapter fixes route slots, internal field/column order, dimensions or responsive transformation, state geometry, and button order. Fail‑closed routes are drawable with fixed unavailable/not‑ready values; this status does not make their backend or Dashboard consumer available                |
+| `DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` | R&D Intake `/rd` composer and authority‑resolution panels beyond the admitted exact‑readback workbench                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | The named content/detail region is exact, but its enclosing route list still lacks one or more of summary labels, table columns, row actions, sort, pagination or loading‑row geometry; the broader surface is not drawable or implementable                                                           |
+| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`    | Every other complete route in the registry, explicitly including Event Rail, Telemetry, and Alerts                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | The registry fixes navigation position, route slots, named page‑local composites, and button intent only. An unattended agent must not infer missing list behavior, timeline rows, responsive table transformation, or internal geometry from a component‑like name or excluded Windmill/native layout |
+
+A navigation-only route uses only the shared `UnavailableState`: its primary copy says that the workspace is not
+connected and has no Dashboard data or actions. The completeness code remains available only through that atom's
+technical information disclosure. It does not draw a private placeholder card, expose `S/P/Q/T` vocabulary, repeat
+a prototype footer, or turn the route into an implemented product surface.
 
 Names referenced by a route but absent from the reusable component inventory are page-local composite labels, not
 hidden reusable atoms. Promoting one blueprint to `DRAWABLE_EXACT` requires this chapter to specify, in both
@@ -2006,11 +2253,34 @@ URL. The broader composer, Research admission/outcome actions, receipt timeline,
 replay, and security-evidence panels in the registry stay future blueprint content and are not inferred into
 these slices.
 
+The currently admitted Status `/dashboard` is a bounded read-only queue overview and supersedes the future global
+status registry row below. It answers only “what is ready to review, and where can I continue?” It does not calculate
+global health, incident totals, workflow progress, or a cross-Owner state machine. Its first fixed panel is
+`DashboardOverview`: header `Overview / Continue your work`, the technical scope disclosure, then `Refresh`; its
+body uses the shared `CompactStatusBar` as a 3:2 bento: `R&D` (`results ready`, `waiting`, `reviewable`, `bindings`)
+and `operations` (`active`, `needs attention`). R&D totals come
+from the historical-custody projection; outcome and build-review counts appear only when their complete identity
+sets match that custody projection. Build-attempt totals remain available on the Artifact route and are not repeated
+as a home-page KPI. Operations uses the exact unfiltered RunStore V2 cut
+`runs/all/any/pageSize=50/page=1`; `active = queued + running` and `needs attention = failed + unknown`. An all-zero
+RunStore cut means only that no runs are recorded in that view, never that the system is healthy.
+
+The second fixed panel is `Next / Ready to review`. It contains up to four read-only navigation cards, in order:
+positive research results, positive reviewable build outcomes, positive waiting research, and positive failed or
+unknown runs. Zero counts omit their card; if no card remains, the body keeps its geometry and says that no recorded
+work is ready for review. Loading keeps both panel frames, replaces every metric with an em dash, and replaces the
+second body with one quiet loading state. Refresh starts all reads independently, disables duplicate refresh, and
+withdraws prior positive metrics until each current read succeeds. A rejected, malformed, partial, stale, or
+identity-mismatched source withdraws only the values and links that depend on it; it never becomes zero. Observation
+times, source cuts, completeness, and the explicit statement that sections are read independently remain inside the
+technical disclosure. There is no page-level observation time or aggregate status. At widths below 980 px the
+navigation cards become one column; the shared compact-status atom retains its documented responsive behavior.
+
 #### Overview and R&D
 
 | Tab and route                    | Fixed `S / P / Q / T` contents                                                                                                                                                                                                                                                                                                                                                                     | Buttons in order                                                                                                                                                                                                                                                          | Default evidence state                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Status `/dashboard`              | Four summaries: incidents, unknown effects, stale/unavailable Owners, active work; `P=GlobalStatusMatrix`; `Q=AttentionQueue + OwnerCustodyIncidentPanel`; `T=OwnerOutcomeTimeline`                                                                                                                                                                                                                | Refresh views, Open selected detail, Copy affected locator                                                                                                                                                                                                                | `CURRENT/PARTIAL`; missing Owner adapters remain unavailable. The Qualification incident occupies one row with current `1/1/1 + receipt` direct readback and `RESTORED_REVALIDATION_PENDING / NOT_ADMITTED`; the stale frontier remains unavailable, and the row never supplies a restore action or healthy score                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Status `/dashboard`              | Admitted queue Overview specified above: `P=DashboardOverview`; compact independent R&D and RunStore summaries; `T=ReadyToReview` navigation cards; no `Q`, global matrix, incident aggregate, or Owner timeline                                                                                                                                                                                   | Open the exact read-only queue from a metric/card; View data scope; Refresh                                                                                                                                                                                               | `IMPLEMENTATION_ADMITTED / CURRENT_PARTIAL`: positive values require their current typed projection and the documented identity-set binding. Missing or mismatched sources stay unavailable in place. No global health, restore, resolve, submit, run, or other effect action                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | Attention `/dashboard/attention` | Counts by stop predicate; `P=AttentionTable`; `Q=SelectedStopPredicate`; `T=EvidenceCompletenessMatrix`                                                                                                                                                                                                                                                                                            | Open detail, Resolve same identity when admitted, Copy locator                                                                                                                                                                                                            | Read‑only; no generic dismiss                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | Recent `/dashboard/recent`       | Owner terminal counts; `P=RecentOwnerOutcomes`; `Q=SourceFreshness`; `T=ReceiptTimeline`                                                                                                                                                                                                                                                                                                           | Filter, Open receipt, Copy identity                                                                                                                                                                                                                                       | Read‑only                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | Evidence `/dashboard/evidence`   | Available/stale/unavailable/quarantined counts; `P=OwnerFrontierMatrix`; `Q=RebuildState`; `T=EvidenceConflictTable`                                                                                                                                                                                                                                                                               | Refresh, Open evidence, Copy locator                                                                                                                                                                                                                                      | Static foundations do not become product availability                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
@@ -2071,20 +2341,20 @@ these slices.
 
 #### Operations and Settings
 
-| Tab and route                                                     | Fixed `S / P / Q / T` contents                                                                                                                                                                                                                                                                                                                                                                                     | Buttons in order                                                                                                  | Default evidence state                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Runs `/operations`                                                | Four fixed status cards scoped by the selected Runs/Dependencies kind: queued, running, unknown, and completed/failed; `T=RunTable` with status/date/path/trigger/principal/tag/duration; `D=RunSummaryCard` after row selection; `P/Q` omitted                                                                                                                                                                    | Refresh, Filter, Open run, Resolve Owner outcome, Delete disposable completed cache                               | Real Windmill use; operational only and deletion never changes business truth                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| Run Detail `/operations/runs/:runId`                              | Semantic/operational/timing summaries; `P=RunMetadataAndInputs + RunWorkerCompatibilityMatrix + OperationalCancellationReceiptCard` bound to `:runId`; `Q=OwnerViewCard`; `T=RunResultView` followed by fixed nested `Logs/Metrics/Traces/Assets` tabs                                                                                                                                                             | Copy locator, Refresh, conditionally Cancel queued dependency, Resolve same identity, Download bounded result/log | Exact fixed skeleton above; Cancel occupies the third slot only for a queued, unclaimed, zero‑domain‑effect dependency run and is otherwise absent. `Cancelling…` disables it during CAS; after terminal transition the action/panel disappear while P preserves receipt or unavailable readback. Worker readiness is derived only for this exact run. No batch cancel or generic rerun/edit/share                                                                                                                                                                                                                 |
-| Workers `/operations/workers` and `/operations/workers/:workerId` | Exact Workers read‑only skeleton above: Fleet/Workload summary; P/Q absent; T columns Worker, Lease, Jobs, Last run, Operations; identity‑bound D in four clusters                                                                                                                                                                                                                                                 | Refresh, Open exact worker, Open last run, Back to worker list                                                    | `IMPLEMENTATION_ADMITTED · FIRST_PARTY_RUN_STORE_GET_ONLY`; registration/lease/claim observation only, independent list/detail fail‑closed states; no Windmill administration, unbound‑run readiness, Owner acceptance or cutover                                                                                                                                                                                                                                                                                                                                                                                  |
-| Service Logs `/operations/service-logs`                           | Exact skeleton above: severity/instance summary; canonical filter cut; `P=ServiceInstanceList`; identity‑bound `Q=ServiceInstanceCard`; `T=ServiceLogPanel` composed with `BoundedLogViewport`; explicit complete/partial/empty/filtered‑empty/unavailable states                                                                                                                                                  | Refresh, Toggle auto‑refresh, Download bounded logs                                                               | `IMPLEMENTATION_ADMITTED · FIRST_PARTY_RUN_STORE_GET_ONLY`; real Windmill use is replaced only as a bounded operational read. One repeatable‑read PostgreSQL cut, strict echo/digest/cursor binding, no host/message invention, no administration, Owner fact, effect route or cutover                                                                                                                                                                                                                                                                                                                             |
-| Audit `/operations/audit`                                         | Execute/update/create/delete/success/failure counts; `P=OperationAuditTable`; `Q=AuditCorrelationCard + InvocationAdmissionReceipt + InvocationClaimReceipt + ProviderInvocationStateCard` in that order; `T=Timeline` for canonical operation events                                                                                                                                                              | Filter, Open correlation, Copy audit locator, Copy provider claim                                                 | Real Windmill audit remains append‑only control‑plane evidence, not Owner business truth. Product Edge separately shows invocation admission, claim disposition, `CLAIMED / INVOCATION_STARTED`, start disposition and state digest. `OUTCOME_UNKNOWN` is a persistent manual‑reconciliation stop; historical request admission, missing invocation admission, or claim resolution never implies a new effect or provider retry                                                                                                                                                                                    |
-| Event Rail `/operations/event-rail`                               | Ingested/conflict/quarantined/rebuilding counts; `P=EventRailTable`; `Q=EnvelopeEvidence`; `T=RebuildTimeline`                                                                                                                                                                                                                                                                                                     | Filter, Open event, Copy locator                                                                                  | Static Observability foundation until real adapter consumption                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| Telemetry `/operations/telemetry`                                 | Available/stale/partial/rebuilding/unavailable/quarantined counts; `P=TelemetryMatrix`; `Q=SourceFrontierCard`; `T=TelemetryTimeline`                                                                                                                                                                                                                                                                              | Refresh, Open source                                                                                              | PR #327 source projection is `CURRENT/PARTIAL`; per‑source frontier, freshness, completeness, rebuild state, quarantine, and opaque checkpoint have fixed read‑only geometry. Owner and telemetry adapters are unavailable, telemetry visibility is fixed `Unavailable`, and no empty, raw, stale, replayed, or self‑asserted signal may produce `Available`                                                                                                                                                                                                                                                       |
-| Alerts `/operations/alerts`                                       | Critical/warning/info/unread counts; `P=AlertTable`; `Q=AlertDetail`; `T=DeliveryHistory`                                                                                                                                                                                                                                                                                                                          | Open alert, Mark presentation read, Open Owner evidence                                                           | Read acknowledgement is not business acknowledgement                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| Data Sources `/settings`                                          | Configured/healthy/unavailable/secret‑missing counts; `P=DataSourceConfigList`; `Q=OpaqueConnectionRefForm`; `T=ValidationHistory`                                                                                                                                                                                                                                                                                 | Test read‑only connection, Save opaque reference                                                                  | No secret values displayed or stored in page state                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| Agents `/settings/agents`                                         | Configured/running/unavailable/budget‑blocked counts; `P=AgentProfileList`; `Q=ProviderAndBudgetForm`; `T=InvocationHistory`                                                                                                                                                                                                                                                                                       | Test provider, Save profile                                                                                       | No provider key pass‑through to Owner requests                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| Notifications `/settings/notifications`                           | Channel/enabled/failed/unavailable counts; `P=NotificationPreferenceForm`; `Q=ChannelStatus`; `T=DeliveryHistory`                                                                                                                                                                                                                                                                                                  | Send local test, Save preferences                                                                                 | Does not acknowledge Owner outcomes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| Access `/settings/access`                                         | Principal/session/token/revoked counts plus binding `ACTIVE/SUPERSEDED/zero‑active` and authorization available/expired/revoked/unavailable counts; `P=LocalPrincipalCard`; `Q=AuthorizationLineagePanel` with fixed `Current authority / Admission snapshot` tabs and separate `Operator Authorization / Product Edge readiness` rows; `T=AuthorizationSuccessorReadiness + CapabilityManifest + CredentialAudit` | Re‑authenticate local session, Issue narrow transport token, Revoke token, Copy once                              | Transport credential controls never mint, renew, revoke, or chain‑walk Operator Authorization. Historical expiry with no immediate equivalent successor, or `successor_distance>1`, renders `Current authority` unavailable with prior/current identity, generation, distance and exact stop; immutable snapshot remains visible with no renewal/replacement selector. `Current authority` alone feeds action state. Both tabs expose exact binding/head, issuer/audience/scope, expiry/revocation frontier, manifest digest, source cut, and stop predicate; secret/token values remain one‑time and never logged |
+| Tab and route                                                     | Fixed `S / P / Q / T` contents                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Buttons in order                                                                                                              | Default evidence state                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Runs `/operations`                                                | Four fixed status cards scoped by the selected Runs/Owner reads kind: queued, running, unknown, and completed/failed; `T=RunTable` with status/date/operation/trigger/principal/duration/Owner outcome; `D=RunSummaryCard` after row selection; `P/Q` omitted                                                                                                                                                                                                                                                                                                                       | Refresh, Filter, Open run, Resolve Owner outcome, Delete disposable completed cache                                           | Real Windmill use; operational only and deletion never changes business truth                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Run Detail `/operations/runs/:runId`                              | Business-facing result/timing summary; `P=Run inputs + worker assignment + OperationalCancellationReceiptCard` bound to `:runId`; `Q=Related source result`; `T=Logs and evidence` followed by fixed nested `Logs/Metrics/Traces/Assets` tabs. The primary path uses the registered business operation name, source result, run state, timing, request source, work type and related-result action; exact operation/run IDs, channel, transition, terminal code, dispatch digests/reasons, source-owner identity and protected-field reasons stay in shared information disclosure. | Copy reference, Refresh, conditionally Cancel queued dependency, Check source result, View source result, Download result/log | Exact fixed skeleton above; Cancel occupies the third slot only for a queued, unclaimed, zero-domain-effect dependency run and is otherwise absent. `Cancelling…` disables it during CAS; after terminal transition the action/panel disappear while P preserves receipt or unavailable readback. Worker assignment describes only the exact historical run and cannot assert current service health. Presentation labels never alter the typed result, transition, Owner locator, action envelope, or effect boundary. No batch cancel or generic rerun/edit/share.                                               |
+| Workers `/operations/workers` and `/operations/workers/:workerId` | Exact Workers read‑only skeleton above: Capacity/Work handled summary; P/Q absent; T columns Service, Availability, Active / processed, Recent activity, Supports; identity‑bound D in four clusters                                                                                                                                                                                                                                                                                                                                                                                | Refresh, select service in context, preview recent Run in the shared sheet, Open full run details, Back to service/services   | `IMPLEMENTATION_ADMITTED · FIRST_PARTY_RUN_STORE_GET_ONLY`; registration/lease/claim observation only, independently fail‑closed list/detail states; exact Run GET preview remains bounded and adds no Worker or Run effect; no Windmill administration, unbound‑run readiness, Owner acceptance or cutover                                                                                                                                                                                                                                                                                                        |
+| Service Logs `/operations/service-logs`                           | Exact skeleton above: severity/instance summary; canonical filter cut; `P=ServiceInstanceList` with business source names; identity-bound `Q=ServiceInstanceCard` with technical values behind info; `T=ServiceLogPanel` composed with `BoundedLogViewport` and a Time/Level/Activity/Source/Related scan path; explicit complete/partial/empty/filtered-empty/unavailable states                                                                                                                                                                                                   | Refresh, Toggle auto-refresh, Download bounded logs                                                                           | `IMPLEMENTATION_ADMITTED · FIRST_PARTY_RUN_STORE_GET_ONLY`; real Windmill use is replaced only as a bounded operational read. One repeatable-read PostgreSQL cut, strict echo/digest/cursor binding, no host/message invention, no administration, Owner fact, effect route or cutover                                                                                                                                                                                                                                                                                                                             |
+| Audit `/operations/audit`                                         | Execute/update/create/delete/success/failure counts; `P=OperationAuditTable`; `Q=AuditCorrelationCard + InvocationAdmissionReceipt + InvocationClaimReceipt + ProviderInvocationStateCard` in that order; `T=Timeline` for canonical operation events                                                                                                                                                                                                                                                                                                                               | Filter, Open correlation, Copy audit locator, Copy provider claim                                                             | Real Windmill audit remains append‑only control‑plane evidence, not Owner business truth. Product Edge separately shows invocation admission, claim disposition, `CLAIMED / INVOCATION_STARTED`, start disposition and state digest. `OUTCOME_UNKNOWN` is a persistent manual‑reconciliation stop; historical request admission, missing invocation admission, or claim resolution never implies a new effect or provider retry                                                                                                                                                                                    |
+| Event Rail `/operations/event-rail`                               | Ingested/conflict/quarantined/rebuilding counts; `P=EventRailTable`; `Q=EnvelopeEvidence`; `T=RebuildTimeline`                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Filter, Open event, Copy locator                                                                                              | Static Observability foundation until real adapter consumption                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Telemetry `/operations/telemetry`                                 | Available/stale/partial/rebuilding/unavailable/quarantined counts; `P=TelemetryMatrix`; `Q=SourceFrontierCard`; `T=TelemetryTimeline`                                                                                                                                                                                                                                                                                                                                                                                                                                               | Refresh, Open source                                                                                                          | PR #327 source projection is `CURRENT/PARTIAL`; per‑source frontier, freshness, completeness, rebuild state, quarantine, and opaque checkpoint have fixed read‑only geometry. Owner and telemetry adapters are unavailable, telemetry visibility is fixed `Unavailable`, and no empty, raw, stale, replayed, or self‑asserted signal may produce `Available`                                                                                                                                                                                                                                                       |
+| Alerts `/operations/alerts`                                       | Critical/warning/info/unread counts; `P=AlertTable`; `Q=AlertDetail`; `T=DeliveryHistory`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Open alert, Mark presentation read, Open Owner evidence                                                                       | Read acknowledgement is not business acknowledgement                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Data Sources `/settings`                                          | Configured/healthy/unavailable/secret‑missing counts; `P=DataSourceConfigList`; `Q=OpaqueConnectionRefForm`; `T=ValidationHistory`                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Test read‑only connection, Save opaque reference                                                                              | No secret values displayed or stored in page state                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Agents `/settings/agents`                                         | Configured/running/unavailable/budget‑blocked counts; `P=AgentProfileList`; `Q=ProviderAndBudgetForm`; `T=InvocationHistory`                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Test provider, Save profile                                                                                                   | No provider key pass‑through to Owner requests                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Notifications `/settings/notifications`                           | Channel/enabled/failed/unavailable counts; `P=NotificationPreferenceForm`; `Q=ChannelStatus`; `T=DeliveryHistory`                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Send local test, Save preferences                                                                                             | Does not acknowledge Owner outcomes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Access `/settings/access`                                         | Principal/session/token/revoked counts plus binding `ACTIVE/SUPERSEDED/zero‑active` and authorization available/expired/revoked/unavailable counts; `P=LocalPrincipalCard`; `Q=AuthorizationLineagePanel` with fixed `Current authority / Admission snapshot` tabs and separate `Operator Authorization / Product Edge readiness` rows; `T=AuthorizationSuccessorReadiness + CapabilityManifest + CredentialAudit`                                                                                                                                                                  | Re‑authenticate local session, Issue narrow transport token, Revoke token, Copy once                                          | Transport credential controls never mint, renew, revoke, or chain‑walk Operator Authorization. Historical expiry with no immediate equivalent successor, or `successor_distance>1`, renders `Current authority` unavailable with prior/current identity, generation, distance and exact stop; immutable snapshot remains visible with no renewal/replacement selector. `Current authority` alone feeds action state. Both tabs expose exact binding/head, issuer/audience/scope, expiry/revocation frontier, manifest digest, source cut, and stop predicate; secret/token values remain one‑time and never logged |
 
 `/settings/access` uses this fixed read/control separation:
 
@@ -2213,9 +2483,9 @@ Higher layers depend only on lower layers. Pages do not redefine color, spacing,
 | `OperationalCancellationReceiptCard`                                                                                     | fixed read‑only P location keyed by exact `run_id`; state is `none / pending / receipt / unavailable`. Receipt shows prior state/version, principal, authorization cut, transition time and immutable receipt locator. It persists after A disappears, never exposes an effect button, and never changes or stands in for Owner truth                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `RunDetailPanel`, `RunResultView`, `RunComparePanel`                                                                     | fixed metadata/result/tab skeleton; schema‑allowlisted and sensitivity‑redacted bounded result shared identically by viewport/copy/download; Owner‑correlated receipt/result, actual Artifact/PIT/runtime/simulator identities, diagnostics, invocation count, and handoff; missing/mismatched registry renders unavailable; no Selection authority                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `RunLogPanel`, `RunMetricPanel`, `RunTracePanel`, `RunAssetPanel`                                                        | exact four‑tab order; collected/not‑collected/unavailable/empty are distinct and keep identical geometry                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `CompactStatusBar`, `CompactStatusGroup`, `CompactStatusItem`, `DetailClusterGrid`, `DetailCluster`, `DetailClusterFact` | Workers exact skeleton: ordered title/value summary groups and Lease/Activity/Last run/Capabilities clusters with dimensions and unavailable behavior defined above. Compose existing `PanelFrame`, `SplitBento`, `DataTableSurface`, `DataWorkspaceTable`, `DetailInspector`, `DetailNotice`, `DetailEmpty` and `UnavailableState`; no independent color palette or worker administration. `WorkerGroupTabs` and fabricated heartbeat‑history panels are not part of this admitted route.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `CompactStatusBar`, `CompactStatusGroup`, `CompactStatusItem`, `DetailClusterGrid`, `DetailCluster`, `DetailClusterFact` | Workers exact skeleton: ordered title/value summary groups and Availability/Work handled/Recent activity/Supported work clusters with dimensions and unavailable behavior defined above. Compose existing `PanelFrame`, `SplitBento`, `DataTableSurface`, `DataWorkspaceTable`, `DetailInspector`, `DetailNotice`, `DetailEmpty` and `UnavailableState`; no independent color palette or worker administration. `WorkerGroupTabs` and fabricated heartbeat-history panels are not part of this admitted route.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `RunWorkerCompatibilityMatrix`                                                                                           | path‑bound `run_id`, required kind/tag/runtime/isolation, one projection observation cut, and each candidate worker's registration/lease evidence. `ready`, `online / incompatible`, expired lease, missing registration and isolation unavailable are distinct fail‑closed states; the matrix is never rendered without the exact run binding                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `ServiceLogFilters`, `ServiceInstanceList`, `ServiceInstanceCard`, `ServiceLogPanel`                                     | Service Logs exact skeleton above: canonical echoed filter cut/digest; fixed range/kind/service/instance/severity/search order; identity‑only selection because `host_ref=null`; bounded event‑code rows, cursor/retention/byte limits, auto‑tail behavior, and viewport/download parity. They compose shared `PanelFrame`, `CompactStatusBar`, `SplitBento`, `DataWorkspaceTable`, `DetailInspector`, `UnavailableState`, and `BoundedLogViewport`; no independent radius, header fill, palette, hostname/message fabrication, administration, or effect action.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `ServiceLogFilters`, `ServiceInstanceList`, `ServiceInstanceCard`, `ServiceLogPanel`                                     | Service Logs exact skeleton above: canonical echoed filter cut/digest; fixed range/kind/service/instance/severity/search order; exact identity-only selection because `host_ref=null`, while primary copy uses shared business source/event presentation and exact implementation values live behind title/info affordances; bounded rows, cursor/retention/byte limits, auto-tail behavior, and viewport/download parity. They compose shared `PanelFrame`, `CompactStatusBar`, `SplitBento`, `DataWorkspaceTable`, `DetailInspector`, `UnavailableState`, and `BoundedLogViewport`; no independent radius, header fill, palette, hostname/message fabrication, administration, or effect action.                                                                                                                                                                                                                                                                                                                           |
 | `AuditFilters`, `OperationAuditTable`, `AuditCorrelationCard`                                                            | principal/operation/outcome, exact target/correlation, redaction/retention; append‑only with no dismiss                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `TelemetryMatrix`, `SourceFrontierCard`, `TelemetryTimeline`                                                             | every positive cell binds Owner/source/cut, canonical fingerprint, observed/valid‑through time, and loss/rebuild state; raw, stale, replayed, self‑asserted, or identity‑conflicting input renders unavailable/stale/quarantined and never inherits the previous success color                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `QualificationIntakeConflictPanel`                                                                                       | fixed `RequestSemanticConflict` banner, immutable request/handoff identity, original `NOT_ADMITTED` receipt link, redacted changed‑meaning summary, semantic fingerprints, and optional Owner‑admitted successor action; never displays protected replay values or reuses the old receipt for changed meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
@@ -2301,6 +2571,17 @@ terminal custody switches the whole fixed geometry to `--status-unavailable` ins
 
 ## Interaction, responsive, and accessibility rules
 
+- The module rail names business domains, not every inspection state. Crossing into another domain or opening a
+  complete, long, multi-step, code, result, or log workspace uses its canonical route. A filter within one directory
+  uses the shared filter/tabs atoms; its bounded URL state may change without presenting a new page shell.
+- A short read-only inspection of one object within the current domain uses one shared right-side `DetailSheet`
+  composition over `DetailInspector`. It preserves the underlying list and scroll position, exposes a canonical
+  full-view link, forbids stacked sheets and never embeds an entire route. Below 768 px it becomes a full-screen
+  sheet. The selected identity/filter may be URL-backed only when it is bounded, parseable and independently
+  re-readable; URL state is presentation state, never Owner evidence.
+- Modal dialogs are reserved for independent, bounded tasks that must be completed or dismissed before returning;
+  explanatory or technical metadata stays in inline disclosure. A share requirement alone does not turn a short
+  inspection into a route: reload, Back/Forward and focus return must reconstruct the same truthful selection.
 - Keyboard order is rail, tape, tabs, page controls, content, detail drawer.
 - Icon-only controls have accessible names; focus is visible; overlays trap/restore focus.
 - State always uses text and optionally icon/color; color alone never carries meaning.

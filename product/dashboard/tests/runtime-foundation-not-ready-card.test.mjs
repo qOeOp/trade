@@ -36,7 +36,7 @@ test("all Runtime routes render the admitted not-ready foundation card", async (
   const shell = await readFile(shellUrl, "utf8");
   assert.match(shell, /const runtimeFoundation = current === "\/runtime" \|\| current\.startsWith\("\/runtime\/"\)/);
   assert.match(shell, /runtimeFoundation \? <RuntimeFoundationNotReadyCard \/>/);
-  assert.match(shell, /!marketDataFoundation[\s\S]*&& !runtimeFoundation && !portfolioUnavailable && !connected/);
+  assert.match(shell, /: marketDataFoundation \? <MarketDataOwnerFoundationCard \/>[\s\S]*: runtimeFoundation \? <RuntimeFoundationNotReadyCard \/>[\s\S]*: portfolioUnavailable \? <PortfolioViewUnavailableCard \/>/);
 });
 
 test("Runtime composes shared unavailable and data-workspace table atoms", async () => {

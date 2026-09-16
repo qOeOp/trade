@@ -1,0 +1,89 @@
+.sheet {
+  position: fixed;
+  inset: 12px 12px 12px auto;
+  width: min(480px, calc(100vw - 24px));
+  max-width: none;
+  height: calc(100dvh - 24px);
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--panel-radius);
+  color: var(--text-primary);
+  background: transparent;
+  box-shadow: var(--elevation-floating);
+  opacity: 1;
+  transform: translateX(0);
+  transition: opacity 180ms ease, transform 200ms cubic-bezier(.2, .8, .2, 1),
+    overlay 200ms allow-discrete, display 200ms allow-discrete;
+}
+
+.sheet::backdrop {
+  background: var(--backdrop-dim);
+  opacity: 1;
+  transition: opacity 180ms ease, overlay 200ms allow-discrete, display 200ms allow-discrete;
+}
+
+@starting-style {
+  .sheet[open] {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+
+  .sheet[open]::backdrop {
+    opacity: 0;
+  }
+}
+
+.frame {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.body {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+
+.footer {
+  min-height: 58px;
+  padding: 12px var(--panel-content-padding);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  background: var(--panel-chrome-bg);
+}
+
+@media (max-width: 767px) {
+  .sheet {
+    inset: 0;
+    width: 100vw;
+    height: 100dvh;
+    border-radius: 0;
+  }
+
+  .frame :global(.panel-frame-header) {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+
+  .frame :global(.panel-frame-heading) {
+    min-width: 0;
+  }
+
+  .frame :global(.panel-frame-actions) {
+    width: auto;
+    flex: 0 0 auto;
+    justify-content: flex-end;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet,
+  .sheet::backdrop {
+    transition: none;
+  }
+}

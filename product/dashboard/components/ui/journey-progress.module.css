@@ -1,0 +1,130 @@
+.journey {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border-default) 72%, transparent);
+  border-radius: var(--panel-inner-radius);
+  background: var(--surface-card);
+}
+
+.heading {
+  min-height: 46px;
+  padding: 9px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-default) 72%, transparent);
+  background: var(--panel-chrome-bg);
+}
+
+.heading span {
+  color: var(--text-muted);
+  font: 720 9px/1.2 var(--font-mono);
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.heading strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 660;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stages {
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(var(--journey-stage-count, 3), minmax(0, 1fr));
+  list-style: none;
+}
+
+.stage {
+  --journey-tone: var(--status-unavailable);
+  min-width: 0;
+  min-height: 68px;
+  padding: 12px 15px;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  background: var(--surface-card);
+}
+
+.stage + .stage {
+  border-left: 1px solid color-mix(in srgb, var(--border-default) 72%, transparent);
+}
+
+.stage[data-state="complete"] { --journey-tone: var(--status-positive); }
+.stage[data-state="current"] { --journey-tone: var(--primary); }
+.stage[data-state="warning"] { --journey-tone: var(--status-warning); }
+.stage[data-state="blocked"] { --journey-tone: var(--status-negative); }
+
+.marker {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--journey-tone) 28%, var(--border-default));
+  border-radius: 8px;
+  color: var(--journey-tone);
+  background: color-mix(in srgb, var(--journey-tone) 7%, var(--surface-card));
+  font: 720 8px/1 var(--font-mono);
+}
+
+.copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.copy b,
+.copy small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copy b {
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 680;
+}
+
+.copy small {
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.stage[data-state="current"] .copy b,
+.stage[data-state="warning"] .copy b,
+.stage[data-state="blocked"] .copy b {
+  color: var(--journey-tone);
+}
+
+@media (max-width: 760px) {
+  .heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .heading strong {
+    text-align: left;
+    white-space: normal;
+  }
+
+  .stages {
+    grid-template-columns: 1fr;
+  }
+
+  .stage + .stage {
+    border-top: 1px solid color-mix(in srgb, var(--border-default) 72%, transparent);
+    border-left: 0;
+  }
+}

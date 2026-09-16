@@ -9,6 +9,7 @@ import {
 } from "./rd-shadow-client.ts";
 
 const IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/u;
+const DIGEST = /^sha256:[0-9a-f]{64}$/u;
 const REASON = new Set<ResearchShadowUnavailableReason>([
   "INVALID_REQUEST_IDENTITY",
   "OWNER_CONFIGURATION_UNAVAILABLE",
@@ -36,6 +37,7 @@ export type ResearchReadbackViewV1 = Readonly<{
 
 export type ResearchReadbackTechnicalV1 = Readonly<{
   ownerReceiptIdentity: string;
+  semanticDigest: string;
   projectionIdentity: string | null;
   sourceCut: string | null;
   trialFamilyIdentity: string | null;
@@ -168,6 +170,7 @@ function projectResponse(
       view,
       technical: {
         ownerReceiptIdentity: receipt.receipt_identity,
+        semanticDigest: receipt.semantic_digest,
         projectionIdentity: researchView?.projection_identity ?? null,
         sourceCut: researchView?.source_cut ?? null,
         trialFamilyIdentity: accepted
@@ -211,8 +214,10 @@ export function parseResearchReadbackBrowserProjectionV1(
     || !(value.outcome.rejectionCode === null || identity(value.outcome.rejectionCode))
     || !canonicalTime(value.outcome.committedAt)
     || !object(value.technical) || !exactKeys(value.technical, [
-      "ownerReceiptIdentity", "projectionIdentity", "sourceCut", "trialFamilyIdentity",
+      "ownerReceiptIdentity", "semanticDigest", "projectionIdentity", "sourceCut", "trialFamilyIdentity",
     ]) || !identity(value.technical.ownerReceiptIdentity)
+    || typeof value.technical.semanticDigest !== "string"
+    || !DIGEST.test(value.technical.semanticDigest)
     || ![value.technical.projectionIdentity, value.technical.sourceCut, value.technical.trialFamilyIdentity]
       .every((entry) => entry === null || identity(entry))) return null;
   if (value.outcome.resolution === "rejected") {

@@ -24,7 +24,7 @@ test("Service Logs composes the shared SelectionList atom", async () => {
   assert.match(styles,
     /@media \(max-width: 1279px\)[\s\S]*grid-template-columns: repeat\(auto-fit, minmax\(min\(220px, 100%\), 1fr\)\)/u);
 
-  assert.match(serviceLogs, /<SelectionList aria-label="Service instances" count=\{instances\.length\} label="Instances">/u);
+  assert.match(serviceLogs, /<SelectionList aria-label="Service sources" count=\{instances\.length\} label="Sources">/u);
   assert.match(serviceLogs, /<SelectionListItem[\s\S]*selected=\{instance\.instance_identity === selectedIdentity\}/u);
   assert.match(serviceLogs, /onClick=\{\(\) => onSelect\(instance\.instance_identity\)\}/u);
   assert.doesNotMatch(serviceLogs, /className="selection-list|className="service-instance-list/u);

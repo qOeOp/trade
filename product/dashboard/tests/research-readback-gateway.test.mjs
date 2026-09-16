@@ -36,6 +36,7 @@ test("exact Research Owner readback becomes a bounded browser projection", async
   assert.equal(result.projection.view?.phase, "intent_frozen");
   assert.equal(result.projection.view?.availability, "available");
   assert.equal(result.projection.technical?.ownerReceiptIdentity, accepted.owner_receipt.receipt_identity);
+  assert.equal(result.projection.technical?.semanticDigest, accepted.owner_receipt.semantic_digest);
   assert.equal(result.projection.technical?.trialFamilyIdentity, accepted.trial_family.root.trial_family_identity);
   assert.deepEqual(parseResearchReadbackBrowserProjectionV1(result.projection), result.projection);
   assert.equal(calls.length, 1);
@@ -203,5 +204,9 @@ test("browser parser rejects identity drift and contradictory accepted fields", 
   assert.equal(parseResearchReadbackBrowserProjectionV1({
     ...result.projection,
     unexpected: true,
+  }), null);
+  assert.equal(parseResearchReadbackBrowserProjectionV1({
+    ...result.projection,
+    technical: { ...result.projection.technical, semanticDigest: "sha256:not-a-digest" },
   }), null);
 });

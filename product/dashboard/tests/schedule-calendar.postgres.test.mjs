@@ -19,6 +19,8 @@ const url = process.env.DASHBOARD_CALENDAR_TEST_DATABASE_URL;
 const browserAcceptance = process.env.DASHBOARD_CALENDAR_BROWSER_ACCEPTANCE === "1";
 const acceptanceCandidate = process.env.DASHBOARD_CALENDAR_ACCEPTANCE_CANDIDATE ?? "";
 const browserExecutable = process.env.DASHBOARD_CALENDAR_BROWSER_EXECUTABLE ?? "";
+const calendarLogin = "calendar-browser-login-0123456789-abcdefghijklmnop";
+const calendarSessionHmac = "calendar-browser-session-0123456789-abcdefghijklmnop";
 const dashboardRoot = new URL("../", import.meta.url);
 const browserVersion = browserAcceptance
   ? execFileSync(browserExecutable, ["--version"], { encoding: "utf8" }).trim()
@@ -27,12 +29,12 @@ const testName = browserAcceptance
   ? `browser acceptance reaches the schedule calendar from candidate ${acceptanceCandidate} with ${browserVersion}`
   : "disposable bound schedules reach the calendar without inventing execution history";
 
-async function waitForHttp(url, child, timeoutMs = 60_000) {
+async function waitForHttp(url, child, headers = {}, timeoutMs = 60_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) throw new Error(`calendar preview exited with ${child.exitCode}`);
     try {
-      const response = await fetch(url);
+      const response = await fetch(url, { headers });
       if (response.ok) return response;
     } catch {
       // The bounded local server is still starting.
@@ -190,7 +192,10 @@ test(testName, { skip: !url }, async () => {
         cadence_seconds: 120,
         anchor_epoch_ms: Math.floor(now / 60000) * 60000 - (5 + index) * 60000,
       };
-    }).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+    }).sort((a, b) => Buffer.compare(
+      Buffer.from(JSON.stringify(a)),
+      Buffer.from(JSON.stringify(b)),
+    ));
     if (browserAcceptance) {
       assert.equal(new Set(descriptors.map((descriptor) => descriptor.operation_id)).size, 10);
     }
@@ -231,21 +236,66 @@ test(testName, { skip: !url }, async () => {
       }), "");
       const port = 3219;
       preview = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "-H", "127.0.0.1", "-p", String(port)], {
-        cwd: dashboardRoot, env: { ...process.env, ...environment }, stdio: "inherit",
+        cwd: dashboardRoot, env: {
+          ...process.env,
+          ...environment,
+          DASHBOARD_LOCAL_OPERATOR_LOGIN_TOKEN: calendarLogin,
+          DASHBOARD_SESSION_HMAC_KEY: calendarSessionHmac,
+        }, stdio: "inherit",
       });
       const origin = `http://127.0.0.1:${port}`;
-      const pageResponse = await waitForHttp(`${origin}/operations/schedules/`, preview);
-      assert.match(await pageResponse.text(), /Schedule controls/);
-      const apiResponse = await fetch(`${origin}/api/operations/schedules/`);
+      const currentSchedulesUrl = `${origin}/operations/schedules/?view=current`;
+      await waitForHttp(`${origin}/api/health/`, preview);
+      const login = await fetch(`${origin}/api/auth/session/`, {
+        method: "POST",
+        headers: { "content-type": "application/json", origin },
+        body: JSON.stringify({ credential: calendarLogin }),
+      });
+      assert.equal(login.status, 200);
+      const cookie = (login.headers.get("set-cookie") ?? "").split(";", 1)[0];
+      assert.match(cookie, /^trade_dashboard_session_v1=/u);
+      const pageResponse = await waitForHttp(currentSchedulesUrl, preview, { cookie });
+      const pageHtml = await pageResponse.text();
+      assert.match(pageHtml, /Shadow-read schedules/);
+      assert.match(pageHtml, /Current schedules/);
+      const apiResponse = await fetch(`${origin}/api/operations/schedules/`, { headers: { cookie } });
       assert.equal(apiResponse.status, 200);
       const browserEnvelope = await parseScheduleEnvelopeV1(await apiResponse.json());
       assert.ok(browserEnvelope);
       assert.equal(browserEnvelope.schedules.length, descriptors.length);
+      let previewRunIdentity = null;
+      let previewScheduleIdentity = null;
+      for (const schedule of browserEnvelope.schedules.slice(0, 20)) {
+        if (!schedule.last_run_identity) continue;
+        const previewResponse = await fetch(
+          `${origin}/api/operations/runs/${encodeURIComponent(schedule.last_run_identity)}/`,
+          { headers: { cookie } },
+        );
+        const previewEnvelope = await previewResponse.json();
+        if (previewResponse.status === 200
+          && previewEnvelope.run_identity === schedule.last_run_identity) {
+          previewRunIdentity = schedule.last_run_identity;
+          previewScheduleIdentity = schedule.schedule_identity;
+          break;
+        }
+      }
+      assert.match(previewRunIdentity ?? "", /^dashboard-run-v1-[0-9a-f-]+$/u,
+        "the current table page exposes at least one verified related run");
+      assert.match(previewScheduleIdentity ?? "", /^dashboard-schedule-v1-[0-9a-f]+$/u);
       browser = await openBrowser(browserExecutable);
+      await browser.send("Network.enable");
+      const [cookieName, cookieValue] = cookie.split("=", 2);
+      assert.equal((await browser.send("Network.setCookie", {
+        name: cookieName,
+        value: cookieValue,
+        url: origin,
+        httpOnly: true,
+        sameSite: "Strict",
+      })).success, true);
       await browser.send("Page.enable");
       await browser.send("Page.bringToFront");
       await browser.send("Input.setIgnoreInputEvents", { ignore: false });
-      await browser.send("Page.navigate", { url: `${origin}/operations/schedules/` });
+      await browser.send("Page.navigate", { url: currentSchedulesUrl });
       const configuredOperations = JSON.stringify(descriptors.map((descriptor) => descriptor.operation_id));
       await waitForBrowserExpression(browser,
         `${configuredOperations}.some((operation) => document.body?.innerText.includes(operation)) === true`);
@@ -254,6 +304,99 @@ test(testName, { skip: !url }, async () => {
       });
       assert.match(visible.result.value, /observed/);
       assert.match(visible.result.value, /expected/);
+
+      const openedTable = await readBrowserValue(browser, `(() => {
+        document.querySelector('summary[aria-label="Calendar settings"]')?.click();
+        const button = document.querySelector('button[aria-label="Table view"]');
+        button?.click();
+        return Boolean(button);
+      })()`);
+      assert.equal(openedTable, true, "current schedules table control exists");
+      const previewTriggerSelector = `[data-run-preview-trigger="${previewRunIdentity}"]`;
+      await waitForBrowserExpression(browser,
+        `Boolean(document.querySelector('table ${previewTriggerSelector}'))`);
+      const schedulesUrl = currentSchedulesUrl;
+      const runPreviewOpened = await readBrowserValue(browser, `(() => {
+        const trigger = document.querySelector('table ${previewTriggerSelector}');
+        trigger?.focus();
+        trigger?.click();
+        return Boolean(trigger);
+      })()`);
+      assert.equal(runPreviewOpened, true, "observed run preview trigger exists");
+      await waitForBrowserExpression(browser,
+        "Boolean(document.querySelector('dialog[open] a[href^=\"/operations/runs/\"]'))");
+      const runPreview = await readBrowserValue(browser, `(() => {
+        const dialog = document.querySelector('dialog[open]');
+        const fullDetails = dialog?.querySelector('a[href^="/operations/runs/"]');
+        return {
+          url: location.href,
+          dialogs: document.querySelectorAll('dialog[open]').length,
+          title: dialog?.querySelector('h2')?.textContent?.trim() ?? null,
+          fullDetailsLabel: fullDetails?.textContent?.trim() ?? null,
+          focusInside: Boolean(dialog?.contains(document.activeElement)),
+        };
+      })()`);
+      assert.equal(runPreview.url, schedulesUrl);
+      assert.equal(runPreview.dialogs, 1);
+      assert.equal(runPreview.title, "Observed run");
+      assert.match(runPreview.fullDetailsLabel, /Open full run details/);
+      assert.equal(runPreview.focusInside, true);
+      await readBrowserValue(browser,
+        "document.querySelector('dialog[open] button[aria-label=\"Close panel\"]')?.click()");
+      await waitForBrowserExpression(browser, "document.querySelector('dialog[open]') === null");
+      assert.equal(await readBrowserValue(browser,
+        `document.activeElement?.matches('table ${previewTriggerSelector}') ?? false`),
+      true, "closing current-schedule run preview returns focus to its trigger");
+
+      await browser.send("Emulation.setDeviceMetricsOverride", {
+        width: 900, height: 900, deviceScaleFactor: 1, mobile: false,
+      });
+      await readBrowserValue(browser,
+        "new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))");
+      const scheduleTriggerSelector = `[data-schedule-select="${previewScheduleIdentity}"]`;
+      const compactScheduleOpened = await readBrowserValue(browser, `(() => {
+        const trigger = document.querySelector('table ${scheduleTriggerSelector}');
+        trigger?.focus();
+        trigger?.click();
+        return Boolean(trigger);
+      })()`);
+      assert.equal(compactScheduleOpened, true, "compact schedule trigger exists");
+      await waitForBrowserExpression(browser,
+        `Boolean(document.querySelector('dialog[open] ${previewTriggerSelector}'))`);
+      await readBrowserValue(browser,
+        `document.querySelector('dialog[open] ${previewTriggerSelector}')?.click()`);
+      await waitForBrowserExpression(browser,
+        "Boolean(document.querySelector('dialog[open] a[href^=\"/operations/runs/\"]'))");
+      const compactRunPreview = await readBrowserValue(browser, `(() => {
+        const dialog = document.querySelector('dialog[open]');
+        const back = [...(dialog?.querySelectorAll('button') ?? [])]
+          .find((button) => button.textContent?.includes('Back to schedule'));
+        return {
+          url: location.href,
+          dialogs: document.querySelectorAll('dialog[open]').length,
+          backFocused: document.activeElement === back,
+        };
+      })()`);
+      assert.deepEqual(compactRunPreview, { url: schedulesUrl, dialogs: 1, backFocused: true });
+      await readBrowserValue(browser, `(() => {
+        const dialog = document.querySelector('dialog[open]');
+        [...(dialog?.querySelectorAll('button') ?? [])]
+          .find((button) => button.textContent?.includes('Back to schedule'))?.click();
+      })()`);
+      await waitForBrowserExpression(browser,
+        `Boolean(document.querySelector('dialog[open] ${previewTriggerSelector}'))
+          && !document.querySelector('dialog[open] a[href^="/operations/runs/"]')`);
+      await waitForBrowserExpression(browser,
+        `document.activeElement?.matches('dialog[open] ${previewTriggerSelector}') ?? false`);
+      await readBrowserValue(browser,
+        "document.querySelector('dialog[open] button[aria-label=\"Close panel\"]')?.click()");
+      await waitForBrowserExpression(browser, "document.querySelector('dialog[open]') === null");
+      assert.equal(await readBrowserValue(browser,
+        `document.activeElement?.matches('table ${scheduleTriggerSelector}') ?? false`),
+      true, "closing compact schedule returns focus to its table trigger");
+      await browser.send("Emulation.setDeviceMetricsOverride", {
+        width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false,
+      });
 
       const viewSlots = {
         agenda: "calendar-agenda-view",
@@ -328,16 +471,86 @@ test(testName, { skip: !url }, async () => {
           text: dialog?.innerText ?? '',
           modal: dialog?.matches(':modal') ?? false,
           focusInside: Boolean(dialog?.contains(document.activeElement)),
+          activeElement: {
+            tag: document.activeElement?.tagName ?? null,
+            ariaLabel: document.activeElement?.getAttribute?.('aria-label') ?? null,
+            text: document.activeElement?.textContent?.trim()?.slice(0, 120) ?? null,
+          },
         };
       })()`);
       assert.match(inspection.text, /Expected triggers|Observed run reference/);
       assert.equal(inspection.modal, true);
-      assert.equal(inspection.focusInside, true);
+      assert.equal(inspection.focusInside, true, JSON.stringify(inspection.activeElement));
       await dispatchBrowserKey(browser, "Escape");
       await waitForBrowserExpression(browser, "document.querySelector('dialog[open]') === null");
       assert.equal(await readBrowserValue(browser,
         `document.activeElement?.matches('button[aria-label^="Show "][aria-label*=" more schedule groups on "]') ?? false`),
       true, "closing schedule inspection returns focus to the overflow trigger");
+
+      await waitForBrowserExpression(browser,
+        "document.querySelectorAll('[data-slot=\"calendar-month-view\"]').length === 1");
+      const calendarRunOrigin = await readBrowserValue(browser, `(() => {
+        const identity = ${JSON.stringify(previewRunIdentity)};
+        const month = document.querySelector('[data-slot="calendar-month-view"]');
+        const badge = month?.querySelector('[data-slot="calendar-event-badge"][data-run-identity="' + identity + '"]');
+        const overflow = month?.querySelector('[data-run-identities~="' + identity + '"]');
+        const trigger = badge ?? overflow;
+        trigger?.focus();
+        const rect = trigger?.getBoundingClientRect();
+        return {
+          kind: badge ? 'badge' : overflow ? 'overflow' : null,
+          focused: document.activeElement === trigger,
+          width: rect?.width ?? 0,
+          height: rect?.height ?? 0,
+          disabled: trigger?.disabled ?? null,
+        };
+      })()`);
+      assert.match(calendarRunOrigin.kind ?? "", /^(?:badge|overflow)$/u,
+        "calendar exposes the verified observed-run group");
+      assert.equal(calendarRunOrigin.focused, true, JSON.stringify(calendarRunOrigin));
+      assert.ok(calendarRunOrigin.width > 0 && calendarRunOrigin.height > 0, JSON.stringify(calendarRunOrigin));
+      assert.equal(calendarRunOrigin.disabled, false);
+      await dispatchBrowserKey(browser, "Enter");
+      await waitForBrowserExpression(browser,
+        "Boolean(document.querySelector('dialog[open][aria-label$=\"UTC\"]'))");
+      const calendarRunSelected = await readBrowserValue(browser, `(() => {
+        const option = document.querySelector('dialog[open] option[data-run-identity="${previewRunIdentity}"]');
+        const select = option?.closest('select');
+        if (!option || !select) return false;
+        select.value = option.value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+      })()`);
+      assert.equal(calendarRunSelected, true, "calendar inspection selects the verified observed-run group");
+      await waitForBrowserExpression(browser,
+        "Boolean(document.querySelector('dialog[open] [data-run-preview-trigger]'))");
+      await readBrowserValue(browser,
+        "document.querySelector('dialog[open] [data-run-preview-trigger]')?.click()");
+      await waitForBrowserExpression(browser,
+        "document.querySelectorAll('dialog[open]').length === 1 && Boolean(document.querySelector('dialog[open] a[href^=\"/operations/runs/\"]'))");
+      const calendarRunPreview = await readBrowserValue(browser, `(() => {
+        const dialog = document.querySelector('dialog[open]');
+        return {
+          url: location.href,
+          title: dialog?.querySelector('h2')?.textContent?.trim() ?? null,
+          focusInside: Boolean(dialog?.contains(document.activeElement)),
+        };
+      })()`);
+      assert.deepEqual(calendarRunPreview, {
+        url: schedulesUrl,
+        title: "Observed run",
+        focusInside: true,
+      });
+      await readBrowserValue(browser,
+        "document.querySelector('dialog[open] button[aria-label=\"Close panel\"]')?.click()");
+      await waitForBrowserExpression(browser, "document.querySelector('dialog[open]') === null");
+      assert.equal(await readBrowserValue(browser, `(() => {
+        const identity = ${JSON.stringify(previewRunIdentity)};
+        const originKind = ${JSON.stringify(calendarRunOrigin.kind)};
+        return originKind === 'badge'
+          ? document.activeElement?.matches('[data-slot="calendar-event-badge"][data-run-identity="' + identity + '"]') ?? false
+          : document.activeElement?.matches('[data-run-identities~="' + identity + '"]') ?? false;
+      })()`), true, "closing a calendar-origin run preview returns focus to its exact trigger");
 
       await browser.send("Emulation.setDeviceMetricsOverride", {
         width: 760, height: 900, deviceScaleFactor: 1, mobile: false,
@@ -438,7 +651,7 @@ test(testName, { skip: !url }, async () => {
       })()`);
       assert.deepEqual(operationMenuGeometry, {
         opened: true,
-        options: 10,
+        options: new Set(descriptors.map((descriptor) => descriptor.operation_id)).size + 1,
         withinFrame: true,
         withinBodyReach: true,
       });

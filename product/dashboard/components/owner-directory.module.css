@@ -98,50 +98,11 @@
   visibility: hidden;
 }
 
-.identityCell {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-  color: var(--text-primary);
-  text-decoration: none;
-}
-
-.identityCell strong,
-.identityCell span,
 .intent {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.identityCell strong {
-  font-size: 12px;
-  font-weight: 720;
-}
-
-.identityLink {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text-primary);
-  text-decoration: none;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.identityLink:hover {
-  color: var(--text-primary);
-  text-decoration: underline;
-  text-decoration-color: var(--border-strong);
-  text-underline-offset: 3px;
-}
-
-.identityLink:focus-visible {
-  border-radius: 3px;
-  outline: 2px solid var(--control-focus-ring);
-  outline-offset: 3px;
-}
-
-.identityCell span,
 .intent,
 .verification span {
   color: var(--text-muted);

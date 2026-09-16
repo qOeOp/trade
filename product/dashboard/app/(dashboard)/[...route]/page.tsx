@@ -36,6 +36,14 @@ export default async function DashboardPage({
     ? query.attemptIdentity
     : undefined;
   const replayHistoricalCustody = query.custody === "historical";
+  const researchDirectoryView = query.view === "verified" ? "verified" : "candidates";
+  const artifactDirectoryView = query.view === "verified" ? "verified" : "candidates";
+  const researchCandidateOutcome = query.outcome === "ready"
+    ? "ready"
+    : query.outcome === "awaiting" ? "awaiting" : "all";
+  const artifactCandidateKind = query.kind === "bindings" ? "bindings" : "attempts";
+  const artifactCandidateAvailability = query.availability === "reviewable" ? "reviewable" : "all";
+  const scheduleView = query.view === "current" ? "current" : "history";
   return <DashboardRouteContent
     current={current === "/market" ? "/dashboard" : current}
     sourceIntakeRequestIdentity={sourceIntakeRequestIdentity}
@@ -44,5 +52,11 @@ export default async function DashboardPage({
     replayMeaningDigest={replayMeaningDigest}
     replayAttemptIdentity={replayAttemptIdentity}
     replayHistoricalCustody={replayHistoricalCustody}
+    researchDirectoryView={researchDirectoryView}
+    artifactDirectoryView={artifactDirectoryView}
+    researchCandidateOutcome={researchCandidateOutcome}
+    artifactCandidateKind={artifactCandidateKind}
+    artifactCandidateAvailability={artifactCandidateAvailability}
+    scheduleView={scheduleView}
   />;
 }

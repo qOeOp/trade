@@ -3,6 +3,7 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 
 const componentUrl = new URL("../components/operations-service-logs.tsx", import.meta.url);
+const eventPreviewUrl = new URL("../components/service-log-event-preview.tsx", import.meta.url);
 const viewportUrl = new URL("../components/ui/bounded-log-viewport.tsx", import.meta.url);
 const shellUrl = new URL("../components/dashboard-route-content.tsx", import.meta.url);
 const cssUrl = new URL("../app/globals.css", import.meta.url);
@@ -11,8 +12,21 @@ test("Service Logs composes the fixed frame, status, filters, split, detail, and
   const source = await readFile(componentUrl, "utf8");
   assert.match(source, /<PanelFrame[\s\S]*<PanelFrameHeader[\s\S]*<PanelFrameBody/u);
   assert.match(source, /<CompactStatusBar/u);
-  assert.match(source, /className="service-log-filters"/u);
-  assert.match(source, /<SplitBento[^>]*columns="minmax\(248px, \.55fr\) minmax\(620px, 1\.45fr\)"/u);
+  assert.match(source, /<ServiceLogFilters/u);
+  assert.match(source, /<TableFilterMenu/u);
+  assert.match(source, /labelPresentation="inline"/u);
+  assert.match(source, /<FilterSearch/u);
+  const filters = source.slice(source.indexOf("function ServiceLogFilters"), source.indexOf("export function OperationsServiceLogs"));
+  let filterOffset = 0;
+  for (const label of ["Range", "Kind", "Service", "Instance", "Severity", "Search"]) {
+    const next = filters.indexOf(`\"${label}\"`, filterOffset);
+    assert.ok(next >= filterOffset, `${label} must retain its fixed filter position`);
+    filterOffset = next + label.length;
+  }
+  assert.doesNotMatch(filters, /<select|<input/u);
+  assert.match(source, /const sourceLayoutColumns = instances\.length > 1[\s\S]*"minmax\(248px, \.55fr\) minmax\(620px, 1\.45fr\)"[\s\S]*"minmax\(620px, 1fr\)"/u);
+  assert.match(source, /<SplitBento[^>]*columns=\{sourceLayoutColumns\}/u);
+  assert.match(source, /instances\.length > 1 \? <ServiceInstanceList/u);
   assert.match(source, /<ServiceInstanceList/u);
   assert.match(source, /<ServiceInstanceCard/u);
   assert.match(source, /<BoundedLogViewport/u);
@@ -67,12 +81,15 @@ test("Service Logs auto-refresh observes the bounded table tail and cannot repla
   assert.match(css, /@media \(max-width: 1279px\)[\s\S]*\.service-logs-viewport \.data-workspace-viewport \{ max-height: none; \}/u);
 });
 
-test("Service Logs table preserves exact field order, dimensions, and identity-bound row keys", async () => {
-  const source = await readFile(componentUrl, "utf8");
+test("Service Logs table presents the exact evidence as one business activity path", async () => {
+  const [source, preview] = await Promise.all([
+    readFile(componentUrl, "utf8"),
+    readFile(eventPreviewUrl, "utf8"),
+  ]);
   const columns = source.slice(source.indexOf("const columns"), source.indexOf("const viewportState"));
   const expected = [
-    ["Timestamp", "190px"], ["Severity", "108px"], ["Service", "190px"],
-    ["Instance", "220px"], ["Correlation", "260px"], ["Event", "220px"],
+    ["Time", "190px"], ["Level", "108px"], ["Activity", "220px"],
+    ["Source", "190px"], ["Related", "160px"],
   ];
   let offset = 0;
   for (const [label, width] of expected) {
@@ -83,8 +100,29 @@ test("Service Logs table preserves exact field order, dimensions, and identity-b
   }
   assert.match(source, /return `\$\{entry\.correlation_identity\}:\$\{entry\.sequence\}`/u);
   assert.match(source, /keyField="row_identity"/u);
-  assert.match(source, /entry\.event_code/u);
+  assert.match(source, /eventSelectionKey\(entry, page\.filter_cut_digest\)/u);
+  assert.match(source, /<DataWorkspaceTable<ServiceLogRow>[\s\S]*onRowClicked=\{\(entry\) =>/u);
+  assert.match(source, /<DetailSheet[\s\S]*canonicalLabel="Open related run"/u);
+  assert.match(source, /canonicalHref=\{selectedEventRunIdentity/u);
+  assert.match(columns, /serviceLogEventLabel\(entry\.event_code\)/u);
+  assert.match(columns, /serviceLogSourceLabel\(entry\.service\)/u);
+  assert.match(columns, /serviceLogRunIdentity\(entry\.correlation_identity\)/u);
+  assert.doesNotMatch(columns, /<code className="table-cell-identity"/u);
   assert.doesNotMatch(source, /entry\.message|instance\.host_ref/u);
+  for (const label of ["activity", "level", "observed", "source"]) {
+    assert.match(preview, new RegExp(`label="${label}"`, "u"));
+  }
+  assert.match(preview, /<DetailCluster[\s\S]*label="Source context"/u);
+  assert.match(preview, /<PanelFrameInfo label="View event information">/u);
+  assert.doesNotMatch(preview, /fetch\(|useRouter|OperationsRunDetail/u);
+});
+
+test("Service Logs keeps implementation identities behind shared information controls", async () => {
+  const source = await readFile(componentUrl, "utf8");
+  const instanceCard = source.slice(source.indexOf("function ServiceInstanceCard"), source.indexOf("function ServiceLogFilters"));
+  assert.match(instanceCard, /title=\{serviceLogInstanceLabel\(instance\)\}/u);
+  assert.match(instanceCard, /<PanelFrameInfo label="View source details">[\s\S]*<PanelFrameInfoFact label="Instance">/u);
+  assert.doesNotMatch(instanceCard, /title=\{instance\.instance_identity\}[\s\S]*<DetailInspectorBody>[\s\S]*<DetailClusterFact label="Instance"/u);
 });
 
 test("Service Logs keeps unavailable, permission, empty, filtered-empty, partial, and previous-cut states explicit", async () => {

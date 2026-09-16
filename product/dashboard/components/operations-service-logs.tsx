@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 
 import {
   parseServiceLogBrowserEnvelopeV1,
@@ -12,12 +13,24 @@ import {
   type ServiceLogInstanceV1,
   type ServiceLogSummaryV1,
 } from "../lib/service-log-contract";
+import {
+  serviceLogEventLabel,
+  serviceLogInstanceKindLabel,
+  serviceLogInstanceLabel,
+  serviceLogReadinessLabel,
+  serviceLogRelatedLabel,
+  serviceLogRunIdentity,
+  serviceLogSourceLabel,
+} from "../lib/service-log-presentation";
+import { emptyServiceLogPresentation } from "../lib/operations-presentation";
+import { ServiceLogEventPreview } from "./service-log-event-preview";
 import { BoundedLogViewport } from "./ui/bounded-log-viewport";
 import { Button } from "./ui/button";
 import { CompactStatusBar, CompactStatusGroup, CompactStatusItem } from "./ui/compact-status-bar";
 import { DataTableHeaderLabel } from "./ui/data-table";
 import { DataWorkspaceEmpty } from "./ui/data-workspace-empty";
 import { DataWorkspaceTable, type DataWorkspaceColumn } from "./ui/data-workspace-table";
+import { DetailSheet } from "./ui/detail-sheet";
 import {
   DetailCluster,
   DetailClusterFact,
@@ -29,14 +42,20 @@ import {
   DetailNotice,
 } from "./ui/detail-inspector";
 import { EmptyState, UnavailableState } from "./ui/evidence-strip";
-import { FilterButton } from "./ui/filter-toolbar";
+import { FilterButton, FilterSearch, TableFilterMenu } from "./ui/filter-toolbar";
 import { InterfaceIcons, ModuleIcons, RunIcons } from "./ui/iconography";
 import { PageStack } from "./ui/page-stack";
-import { PanelFrame, PanelFrameBody, PanelFrameHeader, PanelFrameInfo } from "./ui/panel-frame";
+import {
+  PanelFrame,
+  PanelFrameBody,
+  PanelFrameHeader,
+  PanelFrameInfo,
+  PanelFrameInfoFact,
+  PanelFrameInfoList,
+} from "./ui/panel-frame";
 import { SelectionList, SelectionListItem } from "./ui/selection-list";
 import { SplitBento } from "./ui/split-bento";
 import { StatusBadge } from "./ui/status-badge";
-import { emptyServiceLogPresentation } from "../lib/operations-presentation";
 import { availabilityTone, severityTone } from "./ui/status-tone-policy";
 
 type ServiceLogRange = ServiceLogFilterCutV1["range"];
@@ -97,6 +116,10 @@ function rowKey(entry: ServiceLogEntryV1) {
   return `${entry.correlation_identity}:${entry.sequence}`;
 }
 
+function eventSelectionKey(entry: ServiceLogEntryV1, filterCutDigest: string) {
+  return `${filterCutDigest}\u0000${entry.correlation_identity}\u0000${entry.sequence}`;
+}
+
 function serviceLogViewportAtTail(table: HTMLDivElement | null) {
   const viewport = table?.closest<HTMLElement>(".page-viewport");
   if (!viewport) return false;
@@ -122,14 +145,14 @@ function ServiceInstanceList({
   onSelect: (identity: string) => void;
 }) {
   return (
-    <SelectionList aria-label="Service instances" count={instances.length} label="Instances">
+    <SelectionList aria-label="Service sources" count={instances.length} label="Sources">
       {instances.map((instance) => (
         <SelectionListItem
           key={instance.instance_identity}
-          detail={<>{instance.services.join(" · ")} · {displayTime(instance.last_observed_at)}</>}
-          meta={<>{instance.instance_kind} · {instance.readiness}</>}
+          detail={<>Last observed {displayTime(instance.last_observed_at)}</>}
+          meta={<>{serviceLogInstanceKindLabel(instance.instance_kind)} · {serviceLogReadinessLabel(instance.readiness)}</>}
           onClick={() => onSelect(instance.instance_identity)}
-          primary={instance.instance_identity}
+          primary={serviceLogInstanceLabel(instance)}
           primaryTitle={instance.instance_identity}
           selected={instance.instance_identity === selectedIdentity}
         />
@@ -145,28 +168,84 @@ function ServiceInstanceCard({ instance, cutDigest }: {
   return (
     <DetailInspector className="service-instance-card" aria-label={`Service instance ${instance.instance_identity}`}>
       <DetailInspectorHeader
-        eyebrow="Selected instance"
-        title={instance.instance_identity}
+        eyebrow="Selected source"
+        title={serviceLogInstanceLabel(instance)}
         titleAttribute={instance.instance_identity}
-        status={<StatusBadge tone={availabilityTone(instance.readiness)}>{instance.readiness}</StatusBadge>}
+        status={<StatusBadge tone={availabilityTone(instance.readiness)}>{serviceLogReadinessLabel(instance.readiness)}</StatusBadge>}
       />
       <DetailInspectorBody>
         <DetailClusterGrid>
-          <DetailCluster label="Identity" meta={instance.instance_kind}>
-            <DetailClusterFact label="Instance" wide><code title={instance.instance_identity}>{instance.instance_identity}</code></DetailClusterFact>
-            <DetailClusterFact label="Last observed"><time dateTime={instance.last_observed_at}>{displayTime(instance.last_observed_at)}</time></DetailClusterFact>
+          <DetailCluster label="Activity" meta={serviceLogInstanceKindLabel(instance.instance_kind)}>
+            <DetailClusterFact label="Services" wide><span>{instance.services.map(serviceLogSourceLabel).join(" · ")}</span></DetailClusterFact>
           </DetailCluster>
-          <DetailCluster label="Evidence" meta={`${instance.services.length} services`}>
-            <DetailClusterFact label="Services" wide><span>{instance.services.join(" · ")}</span></DetailClusterFact>
-            <DetailClusterFact label="Source cut" wide><code title={instance.source_cut}>{instance.source_cut}</code></DetailClusterFact>
+          <DetailCluster label="Observation" meta={serviceLogReadinessLabel(instance.readiness)}>
+            <DetailClusterFact label="Last observed"><time dateTime={instance.last_observed_at}>{displayTime(instance.last_observed_at)}</time></DetailClusterFact>
           </DetailCluster>
         </DetailClusterGrid>
         <DetailInspectorFooter>
-          <code title={cutDigest}>{cutDigest}</code>
-          <span>Exact filter-cut digest · host identity is not projected</span>
+          <span>Verified read-only activity</span>
+          <PanelFrameInfo label="View source details"><PanelFrameInfoList>
+            <PanelFrameInfoFact label="Instance"><code>{instance.instance_identity}</code></PanelFrameInfoFact>
+            <PanelFrameInfoFact label="Services"><code>{instance.services.join(" · ")}</code></PanelFrameInfoFact>
+            <PanelFrameInfoFact label="Source cut"><code>{instance.source_cut}</code></PanelFrameInfoFact>
+            <PanelFrameInfoFact label="Filter cut"><code>{cutDigest}</code></PanelFrameInfoFact>
+            <PanelFrameInfoFact label="Boundary">Host identity is not projected</PanelFrameInfoFact>
+          </PanelFrameInfoList></PanelFrameInfo>
         </DetailInspectorFooter>
       </DetailInspectorBody>
     </DetailInspector>
+  );
+}
+
+function ServiceLogFilters({
+  filterCut,
+  instances,
+  replaceFilter,
+}: {
+  filterCut: ServiceLogFilterCutV1;
+  instances: readonly ServiceLogInstanceV1[];
+  replaceFilter: <Key extends keyof ServiceLogFilterCutV1>(
+    key: Key,
+    value: ServiceLogFilterCutV1[Key],
+  ) => void;
+}) {
+  return (
+    <div className="service-log-filters" role="group" aria-label="Service log filters">
+      <TableFilterMenu
+        className="service-log-filter-selects"
+        density="compact"
+        label="Service log dimensions"
+        labelPresentation="inline"
+        sections={[
+          { id: "range", label: "Range", selected: filterCut.range,
+            items: ranges.map((value) => ({ value, label: value })),
+            onSelect: (value) => replaceFilter("range", value as ServiceLogRange) },
+          { id: "kind", label: "Kind", selected: filterCut.kind,
+            items: kinds.map((value) => ({ value, label: value })),
+            onSelect: (value) => replaceFilter("kind", value as ServiceLogKind) },
+          { id: "service", label: "Service", selected: filterCut.service,
+            items: [{ value: "all", label: "All" }, ...serviceLogSourcesV1.map((value) => ({ value, label: serviceLogSourceLabel(value) }))],
+            onSelect: (value) => replaceFilter("service", value as ServiceLogFilterCutV1["service"]) },
+          { id: "instance", label: "Instance", selected: filterCut.instance_identity,
+            items: [{ value: "all", label: "All" }, ...instances.map((instance) => ({
+              value: instance.instance_identity,
+              label: serviceLogInstanceLabel(instance),
+            }))],
+            onSelect: (value) => replaceFilter("instance_identity", value) },
+          { id: "severity", label: "Severity", selected: filterCut.severity,
+            items: severities.map((value) => ({ value, label: value })),
+            onSelect: (value) => replaceFilter("severity", value as ServiceLogSeverity) },
+        ]}
+      />
+      <FilterSearch
+        density="compact"
+        label="Search"
+        value={filterCut.search}
+        maxLength={128}
+        placeholder="Activity, related item, or source"
+        onChange={(event) => replaceFilter("search", event.target.value.slice(0, 128))}
+      />
+    </div>
   );
 }
 
@@ -180,6 +259,8 @@ export function OperationsServiceLogs() {
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [unavailableReason, setUnavailableReason] = useState<string | null>(null);
   const [downloadDisclosure, setDownloadDisclosure] = useState<string | null>(null);
+  const [selectedEventKey, setSelectedEventKey] = useState<string | null>(null);
+  const [eventDetailOpen, setEventDetailOpen] = useState(false);
   const requestVersion = useRef(0);
   const pageIndexRef = useRef(pageIndex);
   const logTableRef = useRef<HTMLDivElement>(null);
@@ -275,17 +356,33 @@ export function OperationsServiceLogs() {
   const page = pages[pageIndex] ?? null;
   const instances = page?.instances ?? [];
   const selected = instances.find(({ instance_identity }) => instance_identity === selectedIdentity) ?? null;
+  const sourceLayoutColumns = instances.length > 1
+    ? "minmax(248px, .55fr) minmax(620px, 1.45fr)"
+    : "minmax(620px, 1fr)";
   // The server owns every filter boundary. In the unfiltered view the selected
   // instance provides Q context only; T, its cursor, and its download all retain
   // the same global eligible set. An explicit instance click replaces the
   // server filter cut, so no client-side post-pagination filter is needed.
   const entries: ServiceLogRow[] = (page?.entries ?? [])
     .map((entry) => ({ ...entry, row_identity: rowKey(entry) }));
+  const selectedEvent = page ? entries.find((entry) => (
+    eventSelectionKey(entry, page.filter_cut_digest) === selectedEventKey
+  )) ?? null : null;
+  const selectedEventInstance = selectedEvent
+    ? instances.find((instance) => instance.instance_identity === selectedEvent.instance_identity)
+    : undefined;
+  const selectedEventRunIdentity = selectedEvent
+    ? serviceLogRunIdentity(selectedEvent.correlation_identity)
+    : null;
   const summary = page?.summary;
   const summaryValue = (value: number | undefined) => page ? value ?? 0 : "-";
   const filtered = filterCut.kind !== "all" || filterCut.service !== "all" || filterCut.instance_identity !== "all"
     || filterCut.severity !== "all" || filterCut.search.length > 0;
   const permissionDenied = unavailableReason?.includes("PERMISSION_DENIED") ?? false;
+
+  useEffect(() => {
+    if (eventDetailOpen && !selectedEvent) setEventDetailOpen(false);
+  }, [eventDetailOpen, selectedEvent]);
 
   const replaceFilter = useCallback(<Key extends keyof ServiceLogFilterCutV1>(
     key: Key,
@@ -296,12 +393,14 @@ export function OperationsServiceLogs() {
     setPages([]);
     setPageIndex(0);
     setSelectedIdentity(null);
+    setEventDetailOpen(false);
     void load({ cut: next });
   }, [filterCut, load]);
 
   const refresh = useCallback(() => {
     const next = { ...filterCut, observed_at: new Date().toISOString() };
     setFilterCut(next);
+    setEventDetailOpen(false);
     void load({ cut: next });
   }, [filterCut, load]);
 
@@ -339,46 +438,44 @@ export function OperationsServiceLogs() {
 
   const columns = useMemo<DataWorkspaceColumn<ServiceLogRow>[]>(() => [
     {
-      id: "timestamp",
-      name: <DataTableHeaderLabel>Timestamp</DataTableHeaderLabel>,
+      id: "time",
+      name: <DataTableHeaderLabel>Time</DataTableHeaderLabel>,
       selector: (entry) => entry.observed_at,
       width: "190px",
       cell: (entry) => <time className="table-cell-time" dateTime={entry.observed_at}>{displayTime(entry.observed_at)}</time>,
     },
     {
-      id: "severity",
-      name: <DataTableHeaderLabel>Severity</DataTableHeaderLabel>,
+      id: "level",
+      name: <DataTableHeaderLabel>Level</DataTableHeaderLabel>,
       selector: (entry) => entry.severity,
       width: "108px",
       cell: (entry) => <StatusBadge tone={severityTone(entry.severity)}>{entry.severity}</StatusBadge>,
     },
     {
-      id: "service",
-      name: <DataTableHeaderLabel>Service</DataTableHeaderLabel>,
-      selector: (entry) => entry.service,
-      width: "190px",
-      cell: (entry) => <code className="table-cell-identity" title={entry.service}>{entry.service}</code>,
-    },
-    {
-      id: "instance",
-      name: <DataTableHeaderLabel>Instance</DataTableHeaderLabel>,
-      selector: (entry) => entry.instance_identity,
-      width: "220px",
-      cell: (entry) => <code className="table-cell-identity" title={entry.instance_identity}>{entry.instance_identity}</code>,
-    },
-    {
-      id: "correlation",
-      name: <DataTableHeaderLabel>Correlation</DataTableHeaderLabel>,
-      selector: (entry) => entry.correlation_identity,
-      width: "260px",
-      cell: (entry) => <code className="table-cell-identity" title={entry.correlation_identity}>{entry.correlation_identity}</code>,
-    },
-    {
-      id: "event",
-      name: <DataTableHeaderLabel>Event</DataTableHeaderLabel>,
-      selector: (entry) => entry.event_code,
+      id: "activity",
+      name: <DataTableHeaderLabel>Activity</DataTableHeaderLabel>,
+      selector: (entry) => serviceLogEventLabel(entry.event_code),
       minWidth: "220px",
-      cell: (entry) => <code className="table-cell-identity" title={entry.event_code}>{entry.event_code}</code>,
+      cell: (entry) => <span title={entry.event_code}>{serviceLogEventLabel(entry.event_code)}</span>,
+    },
+    {
+      id: "source",
+      name: <DataTableHeaderLabel>Source</DataTableHeaderLabel>,
+      selector: (entry) => serviceLogSourceLabel(entry.service),
+      width: "190px",
+      cell: (entry) => <span title={`${entry.service} · ${entry.instance_identity}`}>{serviceLogSourceLabel(entry.service)}</span>,
+    },
+    {
+      id: "related",
+      name: <DataTableHeaderLabel>Related</DataTableHeaderLabel>,
+      selector: (entry) => entry.correlation_identity,
+      minWidth: "160px",
+      cell: (entry) => {
+        const runIdentity = serviceLogRunIdentity(entry.correlation_identity);
+        return runIdentity
+          ? <Link href={`/operations/runs/${encodeURIComponent(runIdentity)}`} title={runIdentity}>{serviceLogRelatedLabel(runIdentity)}</Link>
+          : <span title={entry.correlation_identity}>{serviceLogRelatedLabel(entry.correlation_identity)}</span>;
+      },
     },
   ], []);
 
@@ -395,7 +492,7 @@ export function OperationsServiceLogs() {
           eyebrow="Operational evidence"
           title="Service logs"
           titleId="service-logs-title"
-          description="Inspect recent events by severity, service, and time."
+          description="See what happened recently, where it came from, and what needs attention."
           actions={<><PanelFrameInfo><b>Data scope</b><p>This is a read-only snapshot. Administrative controls and effect actions are not available here.</p></PanelFrameInfo><div className="service-logs-actions">
             <FilterButton density="compact" variant="secondary" type="button" onClick={refresh} disabled={pending}>
               <InterfaceIcons.refresh aria-hidden="true" size={12} /> {pending ? "Reading" : "Refresh"}
@@ -421,14 +518,7 @@ export function OperationsServiceLogs() {
             </CompactStatusGroup>
           </CompactStatusBar>
 
-          <div className="service-log-filters" role="group" aria-label="Service log filters">
-            <label><span>Range</span><select value={filterCut.range} onChange={(event) => replaceFilter("range", event.target.value as ServiceLogRange)}>{ranges.map((value) => <option key={value}>{value}</option>)}</select></label>
-            <label><span>Kind</span><select value={filterCut.kind} onChange={(event) => replaceFilter("kind", event.target.value as ServiceLogKind)}>{kinds.map((value) => <option key={value}>{value}</option>)}</select></label>
-            <label><span>Service</span><select value={filterCut.service} onChange={(event) => replaceFilter("service", event.target.value as ServiceLogFilterCutV1["service"])}><option value="all">All</option>{serviceLogSourcesV1.map((value) => <option key={value}>{value}</option>)}</select></label>
-            <label><span>Instance</span><select value={filterCut.instance_identity} onChange={(event) => replaceFilter("instance_identity", event.target.value)}><option value="all">All</option>{instances.map(({ instance_identity }) => <option key={instance_identity}>{instance_identity}</option>)}</select></label>
-            <label><span>Severity</span><select value={filterCut.severity} onChange={(event) => replaceFilter("severity", event.target.value as ServiceLogSeverity)}>{severities.map((value) => <option key={value}>{value}</option>)}</select></label>
-            <label className="service-log-search"><InterfaceIcons.search aria-hidden="true" size={14} /><span className="sr-only">Search</span><input value={filterCut.search} maxLength={128} placeholder="Event, correlation, service, instance" onChange={(event) => replaceFilter("search", event.target.value.slice(0, 128))} /></label>
-          </div>
+          <ServiceLogFilters filterCut={filterCut} instances={instances} replaceFilter={replaceFilter} />
 
           {unavailableReason || (!page && pending) ? (
             <SplitBento className="service-logs-layout" columns="minmax(248px, .55fr) minmax(620px, 1.45fr)">
@@ -476,8 +566,8 @@ export function OperationsServiceLogs() {
           ) : page && instances.length === 0 ? (
             <EmptyState density="compact" icon={<ModuleIcons.terminal aria-hidden="true" size={18} />} title={emptyPresentation?.title}>{emptyPresentation?.detail}</EmptyState>
           ) : page ? (
-            <SplitBento className="service-logs-layout" columns="minmax(248px, .55fr) minmax(620px, 1.45fr)">
-              <ServiceInstanceList instances={instances} selectedIdentity={selectedIdentity} onSelect={(identity) => replaceFilter("instance_identity", identity)} />
+            <SplitBento className="service-logs-layout" columns={sourceLayoutColumns}>
+              {instances.length > 1 ? <ServiceInstanceList instances={instances} selectedIdentity={selectedIdentity} onSelect={(identity) => replaceFilter("instance_identity", identity)} /> : null}
               <div className="service-logs-main">
                 {selected ? <ServiceInstanceCard instance={selected} cutDigest={page.filter_cut_digest} />
                   : <EmptyState density="compact" icon={<RunIcons.state aria-hidden="true" size={16} />} title="No instance selected">Choose an instance to inspect its events.</EmptyState>}
@@ -512,6 +602,11 @@ export function OperationsServiceLogs() {
                     dense
                     keyField="row_identity"
                     viewportRef={logTableRef}
+                    onRowClicked={(entry) => {
+                      setSelectedEventKey(eventSelectionKey(entry, page.filter_cut_digest));
+                      setEventDetailOpen(true);
+                    }}
+                    pointerOnHover
                     noDataComponent={<DataWorkspaceEmpty icon={<ModuleIcons.terminal aria-hidden="true" size={18} />}>
                       {filtered ? "No events match the current filters." : "No events in the selected time range."}
                     </DataWorkspaceEmpty>}
@@ -523,6 +618,25 @@ export function OperationsServiceLogs() {
           ) : null}
         </PanelFrameBody>
       </PanelFrame>
+      <DetailSheet
+        open={eventDetailOpen && Boolean(selectedEvent)}
+        onClose={() => setEventDetailOpen(false)}
+        eyebrow="Service activity"
+        title={selectedEvent ? serviceLogEventLabel(selectedEvent.event_code) : "Log event"}
+        description={selectedEvent
+          ? `Recorded by ${serviceLogSourceLabel(selectedEvent.service)} without leaving this log cut.`
+          : undefined}
+        canonicalHref={selectedEventRunIdentity
+          ? `/operations/runs/${encodeURIComponent(selectedEventRunIdentity)}`
+          : undefined}
+        canonicalLabel="Open related run"
+      >
+        {selectedEvent && page ? <ServiceLogEventPreview
+          entry={selectedEvent}
+          instance={selectedEventInstance}
+          filterCutDigest={page.filter_cut_digest}
+        /> : null}
+      </DetailSheet>
     </PageStack>
   );
 }

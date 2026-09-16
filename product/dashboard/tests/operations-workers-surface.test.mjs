@@ -39,19 +39,30 @@ test("Workers keeps one compact summary, one dense table, and one exact detail s
     source("app/globals.css"),
   ]);
 
-  assert.match(workers, /<CompactStatusBar[^>]*aria-label="Worker summary"/);
+  assert.match(workers, /<CompactStatusBar[^>]*aria-label="Service capacity summary"/);
   assert.match(workers, /<DataWorkspaceTable<WorkerBrowserProjectionV1>/);
+  assert.match(workers, /<DataTableHeaderLabel>Active \/ processed<\/DataTableHeaderLabel>/u);
   assert.match(workers, /columns="minmax\(560px, 1\.55fr\) minmax\(300px, \.8fr\)"/);
   assert.match(workers, /<TableToolbar filter=\{<TableFilterMenu/);
-  assert.match(workers, /<FilterSearch[\s\S]*?placeholder="Worker, operation, or run"/);
+  assert.match(workers, /<FilterSearch[\s\S]*?placeholder="Service, activity, or run"/);
   assert.match(workers, /dataWorkspaceSelectedRowStyles<WorkerBrowserProjectionV1>/);
   assert.match(workers, /pagination paginationPerPage=\{20\}/);
-  assert.match(workers, /Limited heartbeat history/);
-  assert.match(workers, /Only the latest heartbeat and lease window are available/);
+  assert.match(workers, /<PanelFrameInfo label="View service information">/);
+  assert.match(workers, /Latest service signal and availability window/);
   assert.match(workers, /compactWorkerLabel\(worker\.worker_identity\)/u);
   assert.match(workers, /compactRunLabel\(worker\.last_run_identity\)/u);
   assert.doesNotMatch(workers, /<b>\{worker\.worker_identity\}<\/b>|<code title=\{worker\.last_run_identity\}>\{worker\.last_run_identity\}<\/code>/u);
-  assert.match(workers, /no unbound-run readiness claim/);
+  assert.match(workers, /Availability applies only to this registered service/);
+  assert.match(workers, /runOperationLabel\(operation\)/u);
+  assert.match(workers, /workerRoleLabel\(worker\.worker_kind\)/u);
+  assert.match(workers, /workerAvailabilityLabel\(worker\.lease_state\)/u);
+  assert.match(workers, /runStateLabel\(worker\.last_run_state\)/u);
+  for (const heading of ["Service", "Availability", "Active / processed", "Recent activity", "Supports"]) {
+    assert.match(workers, new RegExp(`<DataTableHeaderLabel>${heading.replace("/", "\\/")}<\\/DataTableHeaderLabel>`, "u"));
+  }
+  assert.doesNotMatch(workers, /<DataTableHeaderLabel>(?:Worker|Lease|Active \/ claimed|Last run|Operations)<\/DataTableHeaderLabel>/u);
+  assert.doesNotMatch(workers, />\{operation\}<\/code>/u);
+  assert.doesNotMatch(workers, /\{worker\.operation_ids\.length\} exact/u);
   assert.match(css, /\.compact-status-bar \{[^}]*container: compact-status \/ inline-size;[^}]*width: 100%;/u);
   assert.match(css, /\.compact-status-bar-layout \{[^}]*display: grid;[^}]*grid-template-columns: repeat\(auto-fit, minmax\(min\(100%, 420px\), 1fr\)\);[^}]*align-items: stretch;[^}]*gap: 12px;/u);
   assert.doesNotMatch(css, /\.compact-status-bar \{[^}]*(?:border|border-radius|background):/u);
@@ -69,10 +80,15 @@ test("Workers keeps one compact summary, one dense table, and one exact detail s
   assert.match(statusBar, /columns: isAsymmetric && itemCount <= 2 \? 1 : Math\.min\(itemCount, 2\)/u);
   assert.match(statusBar, /weight: isAsymmetric \? 1 \+ Math\.log2\(itemCount\) : itemCount/u);
   assert.match(statusBar, /className="compact-status-bar-layout" data-layout=\{isAsymmetric \? "bento" : undefined\}/u);
-  assert.match(statusBar, /data-bento-columns=\{layout\?\.columns\} data-item-count=\{itemCount\} style=\{groupStyle\}/u);
+  assert.match(statusBar, /data-bento-pattern=\{pairedBento \? "2-1-1" : undefined\}/u);
+  assert.match(statusBar, /placement: pairedBento \? \(itemCount === 2 \? "tall" : "stacked"\) : undefined/u);
+  assert.match(statusBar, /data-bento-columns=\{layout\?\.columns\}[\s\S]+data-bento-placement=\{layout\?\.placement\} data-item-count=\{itemCount\} style=\{groupStyle\}/u);
   assert.match(css, /\.compact-status-bar-layout\[data-layout="bento"\] \.compact-status-group dl \{[^}]*display: grid;[^}]*repeat\(var\(--compact-status-columns\), minmax\(0, 1fr\)\)/u);
   assert.match(css, /@container compact-status \(min-width: 1320px\)[\s\S]+\.compact-status-bar-layout \{[^}]*display: flex;[^}]*flex-wrap: nowrap;[^}]*\}[\s\S]*\.compact-status-group \{[^}]*min-width: min\(100%, 260px\);[^}]*flex: var\(--compact-status-weight, 1\) 1 0;/u);
   assert.match(css, /\.compact-status-bar-layout\[data-layout="bento"\] \.compact-status-item \{[^}]*flex-direction: row;[^}]*justify-content: space-between;[^}]*text-align: left;/u);
+  assert.match(css, /@container compact-status \(min-width: 1120px\)[\s\S]+data-bento-pattern="2-1-1"[^}]+3fr[^}]+2fr/u);
+  assert.match(css, /data-bento-placement="tall"[^}]+grid-column: 1;[^}]+grid-row: 1 \/ span 2;/u);
+  assert.match(css, /data-bento-placement="stacked"[^}]+grid-column: 2;/u);
   assert.match(css, /\.compact-status-item\[data-tone="protected"\] dd \{ color: var\(--status-protected\); \}/u);
   assert.doesNotMatch(css, /\.compact-status-item \+ \.compact-status-item \{[^}]*border-(?:left|top):/u);
   assert.match(css, /@container compact-status-group \(max-width: 767px\)[\s\S]+grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/u);
@@ -81,9 +97,9 @@ test("Workers keeps one compact summary, one dense table, and one exact detail s
   assert.match(css, /@container compact-status-group \(max-width: 380px\)[\s\S]+\.compact-status-group dl \{ grid-template-columns: minmax\(0, 1fr\); \}/u);
   assert.match(css, /@container compact-status-group \(max-width: 380px\)[\s\S]+\.compact-status-item \{[^}]*min-height: 44px;[^}]*flex-direction: row;[^}]*justify-content: space-between;[^}]*gap: 12px;[^}]*text-align: left;/u);
   assert.match(css, /@container compact-status-group \(max-width: 380px\)[\s\S]+\.compact-status-bar-layout\[data-layout="bento"\] \.compact-status-group dl \{ grid-template-columns: minmax\(0, 1fr\); \}/u);
-  assert.match(workers, /<CompactStatusGroup label="fleet">/u);
-  assert.match(workers, /<CompactStatusGroup label="workload">/u);
-  for (const label of ["available", "expired", "claimed", "active"]) {
+  assert.match(workers, /<CompactStatusGroup label="capacity">/u);
+  assert.match(workers, /<CompactStatusGroup label="work handled">/u);
+  for (const label of ["ready", "offline", "processed", "active"]) {
     assert.match(workers, new RegExp(`<CompactStatusItem label="${label}"`, "u"));
   }
   assert.doesNotMatch(css, /\.compact-status-(?:bar|group|group-label) \{[^}]*border-radius: 999px/u);
@@ -99,9 +115,28 @@ test("Workers uses the shared Vibe, table, and Lucide-backed atoms", async () =>
     "DataWorkspaceTable", "DataTableSurface", "DetailInspector", "SplitBento",
   ]) assert.match(workers, new RegExp(shared));
   assert.match(workers, /from "\.\/ui\/iconography"/);
-  assert.match(workers, /encodeWorkerIdentitySegmentV1\(worker\.worker_identity\)/);
+  assert.match(workers, /function WorkerDetailClusters[\s\S]*label="Last seen"[\s\S]*label="Activities"/u);
+  assert.equal(workers.match(/<WorkerDetailClusters worker=\{worker\} onOpenRun=\{onOpenRun\} \/>/gu)?.length, 1);
+  assert.equal(workers.match(/<WorkerDetailClusters worker=\{selected\}/gu)?.length, 1);
+  assert.doesNotMatch(workers, /encodeWorkerIdentitySegmentV1\(worker\.worker_identity\)/);
+  assert.doesNotMatch(workers, /canonicalLabel="Open service details"/);
   assert.doesNotMatch(workers, /from "lucide-react"/);
   assert.doesNotMatch(workers, /#[0-9a-fA-F]{3,8}/);
+});
+
+test("Workers reuses one contextual Run preview without creating another route or overlay", async () => {
+  const workers = await source("components/operations-workers-preview.tsx");
+
+  assert.match(workers, /OperationsRunPreviewTrigger/);
+  assert.match(workers, /OperationsRunPreviewContent/);
+  assert.match(workers, /restoreRunPreviewTriggerFocus/);
+  assert.doesNotMatch(workers, /href=\{`\/operations\/runs\//u);
+  assert.match(workers, /onOpenRun=\{\(runIdentity\) => openRunPreview\(runIdentity, null\)\}/u);
+  assert.match(workers, /openRunPreview\(runIdentity, selected\.worker_identity\)/u);
+  assert.match(workers, /selected\?\.worker_identity === previewReturnWorkerIdentity/u);
+  assert.match(workers, /backLabel="Back to service"/u);
+  assert.equal((workers.match(/<DetailSheet/g) ?? []).length, 1);
+  assert.match(workers, /onClose=\{\(\) => \{[\s\S]*setPreviewRunIdentity\(null\);[\s\S]*setPreviewReturnWorkerIdentity\(null\);[\s\S]*\}\}/u);
 });
 
 test("Next worker page and API decode the same normalized identity and reject aliases before store reads", async () => {
@@ -197,6 +232,11 @@ test("exact detail rendering is independent of list availability", async () => {
         };
         if (path === "react/jsx-runtime") return require(path);
         if (path.includes("worker-browser-contract")) return {};
+        if (path.includes("operations-presentation")) return {
+          runStateLabel: (value) => value,
+          workerAvailabilityLabel: (value) => value,
+          workerRoleLabel: (value) => value,
+        };
         return new Proxy({}, { get: (_, key) => {
           if (String(key).endsWith("Icons")) return icons;
           if (key === "dataWorkspaceSelectedRowStyles") return () => [];
@@ -208,7 +248,7 @@ test("exact detail rendering is independent of list availability", async () => {
       // Execute the production render tree; only hooks and unrelated visual atoms are substituted.
       new Function("require", "exports", compiled)(load, exports);
       const html = renderToStaticMarkup(React.createElement(exports.OperationsWorkersPreview, { initialWorkerIdentity: identity }));
-      assert.match(html, /Exact worker readback/);
+      assert.match(html, /Service details/);
       if (detailAvailable) {
         assert.match(html, /test-artifact/);
         assert.doesNotMatch(html, /DETAIL_UNAVAILABLE/);

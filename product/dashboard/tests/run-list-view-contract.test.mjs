@@ -41,6 +41,7 @@ function envelope(overrides = {}) {
     unavailable_reason: null,
     completeness: "complete",
     observed_at: observedAt,
+    retention_limit: 512,
     source_cut: `sha256:${"a".repeat(64)}`,
     snapshot: "x".repeat(32),
     filter_cut: {
@@ -75,6 +76,21 @@ test("Runs v2 parser admits an exact available page and explicit unavailable sta
     runs: [],
   });
   assert.deepEqual(parseRunListViewEnvelopeV2(unavailable), unavailable);
+});
+
+test("Runs v2 parser admits only an exactly bounded available partial view", () => {
+  const runs = Array.from({ length: 25 }, (_, index) => run({
+    run_identity: `dashboard-run-v1-00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+  }));
+  assert.ok(parseRunListViewEnvelopeV2(envelope({
+    completeness: "partial_unavailable",
+    summary: { queued: 0, running: 512, unknown: 0, succeeded: 0, cancelled: 0, completed: 0, failed: 0 },
+    filtered_total: 512,
+    total_pages: 21,
+    runs,
+  })));
+  assert.equal(parseRunListViewEnvelopeV2(envelope({ completeness: "partial_unavailable" })), null);
+  assert.equal(parseRunListViewEnvelopeV2(envelope({ retention_limit: 1024 })), null);
 });
 
 test("Runs v2 parser rejects smuggled, inconsistent, duplicate, and misordered facts", () => {

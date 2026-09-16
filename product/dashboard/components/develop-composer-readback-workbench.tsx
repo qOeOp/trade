@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   parseDevelopComposerBrowserProjectionV1,
   type DevelopComposerBrowserProjectionV1,
+  type DevelopComposerDispositionV1,
   type DevelopComposerReadbackV1,
 } from "../lib/develop-composer-readback-gateway";
 import styles from "./source-intake-readback-workbench.module.css";
@@ -18,7 +19,7 @@ import { StatusBadge, type StatusBadgeTone } from "./ui/status-badge";
 
 const REQUEST_IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/;
 
-function tone(disposition: string): StatusBadgeTone {
+function tone(disposition: DevelopComposerDispositionV1): StatusBadgeTone {
   if (disposition === "SUCCESS") return "success";
   if (disposition === "CONFLICT" || disposition === "UNSUPPORTED") return "danger";
   if (disposition === "NEEDS_RESEARCH_REFINEMENT") return "warning";
