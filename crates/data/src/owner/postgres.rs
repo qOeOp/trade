@@ -41,6 +41,19 @@ use super::native_replay_scheduling_v1::{
 #[cfg(not(test))]
 use super::pit_snapshot::{PitObservationBatchOwnerResolver, VerifiedPitObservationBatch};
 use super::pit_snapshot::PitSnapshotFact;
+
+/// The complete coordinate set for a successor frame, every field Owner-derived.
+///
+/// `docs/owners/market-data.md` forbids a caller-supplied second snapshot, frame time, member
+/// values, schedule, event order or frame list. The frame time here is the successor's own
+/// event-effective coordinate as the Owner recorded it, not a window bound the caller chose.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct NativeReplaySuccessorFrameV2 {
+    pub(crate) snapshot_identity: BindingDigest,
+    pub(crate) snapshot_fact_digest: BindingDigest,
+    pub(crate) frame_time_ns: u64,
+}
+
 use super::native_replay_scheduling_v2::NativeReplayFrameCensusRefusalV2;
 use super::research_pit_terminal::{
     ResearchPitTerminal, ResearchPitTerminalResolver, UntrustedResearchPitTerminalRequest,
@@ -212,7 +225,7 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_observation_rows_v1 (snapshot_identity BYTEA NOT NULL REFERENCES market_data_private.pit_observation_batches_v1(snapshot_identity), ordinal BIGINT NOT NULL CHECK (ordinal > 0), symbolic_key TEXT NOT NULL CHECK (symbolic_key <> ''), member_key TEXT NOT NULL CHECK (member_key <> ''), row_bytes BYTEA NOT NULL CHECK (octet_length(row_bytes) > 0), PRIMARY KEY(snapshot_identity,ordinal), UNIQUE(snapshot_identity,symbolic_key,member_key))",
     "CREATE TABLE IF NOT EXISTS market_data_private.source_binding_lineage_census_v1 (lineage_root BYTEA PRIMARY KEY CHECK (octet_length(lineage_root) = 32))",
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_snapshot_lineage_census_v1 (lineage_root BYTEA PRIMARY KEY CHECK (octet_length(lineage_root) = 32))",
-    "CREATE TABLE IF NOT EXISTS market_data_private.native_replay_frame_census_v2 (scope_digest BYTEA NOT NULL CHECK (octet_length(scope_digest) = 32), frame_ordinal BIGINT NOT NULL CHECK (frame_ordinal > 0), snapshot_identity BYTEA NOT NULL UNIQUE REFERENCES market_data_private.pit_snapshot_facts_v1(snapshot_identity) ON DELETE RESTRICT, event_effective_ns BIGINT NOT NULL CHECK (event_effective_ns >= 0), decision_cut_ns BIGINT NOT NULL CHECK (decision_cut_ns >= 0), correction_branch_digest BYTEA NOT NULL CHECK (octet_length(correction_branch_digest) = 32), PRIMARY KEY (scope_digest, frame_ordinal))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.native_replay_frame_census_v2 (scope_digest BYTEA NOT NULL CHECK (octet_length(scope_digest) = 32), frame_ordinal BIGINT NOT NULL CHECK (frame_ordinal > 0), snapshot_identity BYTEA NOT NULL UNIQUE REFERENCES market_data_private.pit_snapshot_facts_v1(snapshot_identity) ON DELETE RESTRICT, snapshot_fact_digest BYTEA NOT NULL CHECK (octet_length(snapshot_fact_digest) = 32), event_effective_ns BIGINT NOT NULL CHECK (event_effective_ns >= 0), decision_cut_ns BIGINT NOT NULL CHECK (decision_cut_ns >= 0), correction_branch_digest BYTEA NOT NULL CHECK (octet_length(correction_branch_digest) = 32), PRIMARY KEY (scope_digest, frame_ordinal))",
     "CREATE TABLE IF NOT EXISTS market_data_private.owner_history_census_state_v1 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), source_lineage_count BIGINT NOT NULL CHECK (source_lineage_count >= 0), pit_lineage_count BIGINT NOT NULL CHECK (pit_lineage_count >= 0))",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_source_binding_v1(p_binding_id BYTEA) RETURNS TABLE(row_identity BYTEA, fact_digest BYTEA, request_identity BYTEA, request_digest BYTEA, correction_stream_identity TEXT, correction_sequence BIGINT, fact_lineage_root BYTEA, fact_lineage_version BIGINT, aggregate_json JSONB, outbox_event_identity BYTEA, outbox_aggregate_identity BYTEA, outbox_payload BYTEA, outbox_digest BYTEA, head_lineage_root BYTEA, head_identity BYTEA, head_digest BYTEA, head_version BIGINT, clock_identity TEXT, clock_epoch TEXT, monotonic_sequence BIGINT, wall_observed BIGINT, decision_cut BIGINT, valid_through BIGINT, restart_continuity_digest BYTEA, uncertainty_bound BIGINT, skew_bound BIGINT, comparison_rule SMALLINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT f.binding_id, f.fact_digest, NULL::BYTEA, NULL::BYTEA, NULL::TEXT, NULL::BIGINT, f.lineage_root, f.lineage_version, f.aggregate_json, o.event_identity, o.aggregate_identity, o.payload, o.payload_digest, h.lineage_root, h.binding_id, h.fact_digest, h.lineage_version, NULL::TEXT, NULL::TEXT, NULL::BIGINT, NULL::BIGINT, NULL::BIGINT, NULL::BIGINT, NULL::BYTEA, NULL::BIGINT, NULL::BIGINT, NULL::SMALLINT FROM market_data_private.source_binding_facts_v1 AS f JOIN market_data_private.source_binding_outbox_v1 AS o ON o.aggregate_identity = f.binding_id JOIN market_data_private.source_binding_heads_v1 AS h ON h.lineage_root = f.lineage_root WHERE f.binding_id = p_binding_id $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_pit_snapshot_v1(p_snapshot_identity BYTEA) RETURNS TABLE(row_identity BYTEA, fact_digest BYTEA, request_identity BYTEA, request_digest BYTEA, correction_stream_identity TEXT, correction_sequence BIGINT, fact_lineage_root BYTEA, fact_lineage_version BIGINT, aggregate_json JSONB, outbox_event_identity BYTEA, outbox_aggregate_identity BYTEA, outbox_payload BYTEA, outbox_digest BYTEA, head_lineage_root BYTEA, head_identity BYTEA, head_digest BYTEA, head_version BIGINT, clock_identity TEXT, clock_epoch TEXT, monotonic_sequence BIGINT, wall_observed BIGINT, decision_cut BIGINT, valid_through BIGINT, restart_continuity_digest BYTEA, uncertainty_bound BIGINT, skew_bound BIGINT, comparison_rule SMALLINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT f.snapshot_identity, f.fact_digest, f.request_identity, f.request_digest, f.correction_stream_identity, f.correction_sequence, f.lineage_root, f.lineage_version, f.aggregate_json, o.event_identity, o.aggregate_identity, o.payload, o.payload_digest, h.lineage_root, h.snapshot_identity, h.fact_digest, h.lineage_version, NULL::TEXT, NULL::TEXT, NULL::BIGINT, NULL::BIGINT, NULL::BIGINT, NULL::BIGINT, NULL::BYTEA, NULL::BIGINT, NULL::BIGINT, NULL::SMALLINT FROM market_data_private.pit_snapshot_facts_v1 AS f JOIN market_data_private.pit_snapshot_outbox_v1 AS o ON o.aggregate_identity = f.snapshot_identity JOIN market_data_private.pit_snapshot_heads_v1 AS h ON h.lineage_root = f.lineage_root WHERE f.snapshot_identity = p_snapshot_identity $function$",
@@ -378,7 +391,7 @@ impl MarketDataOwnerPostgres {
         request_decision_cut_ns: u64,
         window_start_ns: u64,
         window_end_ns_exclusive: u64,
-    ) -> Result<BindingDigest, NativeReplayFrameCensusRefusalV2> {
+    ) -> Result<NativeReplaySuccessorFrameV2, NativeReplayFrameCensusRefusalV2> {
         let mut transaction = self
             .pool
             .begin_with("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
@@ -421,7 +434,11 @@ impl MarketDataOwnerPostgres {
         if second.event_effective_ns <= first.event_effective_ns {
             return Err(NativeReplayFrameCensusRefusalV2::NonIncreasingEventOrder);
         }
-        Ok(second.snapshot_identity)
+        Ok(NativeReplaySuccessorFrameV2 {
+            snapshot_identity: second.snapshot_identity,
+            snapshot_fact_digest: second.snapshot_fact_digest,
+            frame_time_ns: second.event_effective_ns,
+        })
     }
 
     pub(crate) async fn resolve_replay_composition_readback_v1(
@@ -5318,6 +5335,7 @@ async fn validate_pit_lineage_shape(
 pub(crate) struct NativeReplayFrameCensusRowV2 {
     pub(crate) frame_ordinal: u64,
     pub(crate) snapshot_identity: BindingDigest,
+    pub(crate) snapshot_fact_digest: BindingDigest,
     pub(crate) event_effective_ns: u64,
     pub(crate) decision_cut_ns: u64,
     pub(crate) correction_branch_digest: BindingDigest,
@@ -5343,7 +5361,7 @@ async fn load_native_replay_frame_census_v2(
     let end = i64::try_from(window_end_ns_exclusive)
         .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
     let rows = sqlx::query(
-        "SELECT frame_ordinal,snapshot_identity,event_effective_ns,decision_cut_ns,correction_branch_digest FROM market_data_private.native_replay_frame_census_v2 WHERE scope_digest=$1 AND event_effective_ns>=$2 AND event_effective_ns<$3 ORDER BY frame_ordinal",
+        "SELECT frame_ordinal,snapshot_identity,snapshot_fact_digest,event_effective_ns,decision_cut_ns,correction_branch_digest FROM market_data_private.native_replay_frame_census_v2 WHERE scope_digest=$1 AND event_effective_ns>=$2 AND event_effective_ns<$3 ORDER BY frame_ordinal",
     )
     .bind(scope_digest.as_bytes().as_slice())
     .bind(start)
@@ -5360,6 +5378,7 @@ async fn load_native_replay_frame_census_v2(
                 )?)
                 .map_err(|_| PitSnapshotError::PersistenceUnavailable)?,
                 snapshot_identity: census_digest(&row, "snapshot_identity")?,
+                snapshot_fact_digest: census_digest(&row, "snapshot_fact_digest")?,
                 event_effective_ns: u64::try_from(
                     row.try_get::<i64, _>("event_effective_ns")
                         .map_err(|_| PitSnapshotError::PersistenceUnavailable)?,
@@ -5399,10 +5418,11 @@ async fn admit_native_replay_frame_census(
     let decision_cut = i64::try_from(time.decision_cut.value)
         .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
     sqlx::query(
-        "INSERT INTO market_data_private.native_replay_frame_census_v2(scope_digest,frame_ordinal,snapshot_identity,event_effective_ns,decision_cut_ns,correction_branch_digest) SELECT $1, COALESCE(MAX(frame_ordinal),0)+1, $2, $3, $4, $5 FROM market_data_private.native_replay_frame_census_v2 WHERE scope_digest=$1 ON CONFLICT (snapshot_identity) DO NOTHING",
+        "INSERT INTO market_data_private.native_replay_frame_census_v2(scope_digest,frame_ordinal,snapshot_identity,snapshot_fact_digest,event_effective_ns,decision_cut_ns,correction_branch_digest) SELECT $1, COALESCE(MAX(frame_ordinal),0)+1, $2, $3, $4, $5, $6 FROM market_data_private.native_replay_frame_census_v2 WHERE scope_digest=$1 ON CONFLICT (snapshot_identity) DO NOTHING",
     )
     .bind(fact.request().scope_digest.as_bytes().as_slice())
     .bind(fact.snapshot_identity().as_bytes().as_slice())
+    .bind(fact.digest().as_bytes().as_slice())
     .bind(event_effective)
     .bind(decision_cut)
     .bind(fact.lineage_root().as_bytes().as_slice())

@@ -5,6 +5,7 @@ use sqlx::{PgPool, Row, postgres::PgPoolOptions};
 
 use super::*;
 use crate::owner::native_replay_scheduling_v2::NativeReplayFrameCensusRefusalV2;
+use super::NativeReplaySuccessorFrameV2;
 use crate::owner::{
     bar_schedule::{
         BarScheduleResolverV1, UntrustedBarScheduleLocatorV1, prepare_bar_schedule_commit_v1,
@@ -6727,12 +6728,17 @@ async fn native_replay_successor_frame_oracle(owner: &MarketDataOwnerPostgres) {
     let successor_identity = successor.fact().snapshot_identity();
     assert_ne!(first_identity, successor_identity);
 
-    // The Owner names the successor; nothing offered it.
+    // The Owner names the successor and its frame time; nothing offered either.
     assert_eq!(
         owner
             .resolve_native_replay_successor_frame_v2(scope, first_identity, 100, 0, 100)
             .await,
-        Ok(successor_identity)
+        Ok(NativeReplaySuccessorFrameV2 {
+            snapshot_identity: successor_identity,
+            snapshot_fact_digest: successor.fact().digest(),
+            // The successor's own event-effective coordinate, not a caller-chosen bound.
+            frame_time_ns: 30,
+        })
     );
 
     // A window that excludes the successor yields no two-frame profile.
