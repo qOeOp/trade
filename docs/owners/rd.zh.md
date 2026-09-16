@@ -140,6 +140,19 @@ Artifact 已由 `ProgramHostV2` 动态接纳；这只证明 crate-local 合约�
 custody、跨进程重启恢复、provider/API/Windmill composition 和已部署 Owner readiness 仍不可用，不能从内存
 join 推断。
 
+**Composer 无法在生产运行，原因在它的托管之上游。**
+`derive_source_research_composer_request_v2` 并没有从重读的 Research 托管导出 Design。
+它取固定语料里的那个 Design，用该托管覆写四个身份字段
+（`research_request_identity`、`intent_identity`、`intent_digest`、`falsifier`），
+绑定则从一个硬编码的 selection identity 派生。插件源码、输入角色与宇宙都是语料的，
+不是这个研究请求的。所以默认 feature 下 `POST /v2/develop-composer/runs` 返回
+`SERVICE_UNAVAILABLE` 是**诚实**而非未完成：根本没有可编译的 Design。
+真正缺的是把冻结的 hypothesis、mechanism 与 falsification question 变成可执行
+`StrategyDesignV2` - 输入角色、reaction graph、插件源码 - 的能力，
+而本文档尚未写明这项导出依据什么判定。它下游的一切都已存在：
+生产提交函数、store、写入器、两张 build-receipt 关系，
+以及 Market Data resolver 落地后的生产 binding 接缝。
+
 **TARGET - 规范 Research-to-Composer custody：** public operation 只接收规范 Research request locator。在一笔
 R&D transaction 上，Owner-internal exact commit-cut capability 取得 request/aggregate row lock，规范重读
 current Research custody，并在任何写入前派生 request、Design、全部 Research/Intent/Design digest、binding、

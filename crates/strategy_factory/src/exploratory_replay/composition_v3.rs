@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use sqlx::{Postgres, Transaction};
+use std::fmt::Display;
 use vibe_backtest_owner_contracts::{
     CanonicalDigestV2, ContentIdentityV2, OpaqueIdentityV2, ReplayAuthorityClaimV2,
     ReplayModelProfilesV2, ReplayNamespaceV2, ReplayRequestDtoV2, ReplayRequestV2,
@@ -264,6 +265,7 @@ pub(super) fn verify_composer_replay_frozen_v3(
         frozen.product_edge_request_semantic_digest.clone(),
         frozen.committed_at_epoch_ms,
     )?;
+
     if frozen != &expected_frozen || receipt != &expected_receipt {
         return Err(unavailable("Composer Replay frozen custody mismatch"));
     }
@@ -360,6 +362,7 @@ pub(super) fn prepare_composer_backed_replay_v3(
     let root_receipt = family.root_receipt();
     let member = family.initial_intent_member();
     let frontier = &census.census_frontier;
+
     if root_receipt.root_digest() != root.root_digest()
         || root_receipt.intent_identity() != member.fact_identity()
         || frontier.trial_family_identity() != root.trial_family_identity()
@@ -441,6 +444,7 @@ pub(crate) fn compose_composer_backed_replay_request_v3(
     } else {
         "rd-successor-research-intent-v1-"
     };
+
     if proposal.request_identity.is_empty()
         || root.trial_family_identity() != proposal.trial_family_identity
         || composer_locator != &proposal.composer_locator
@@ -583,6 +587,6 @@ fn sha256_digest(digest: BindingDigest) -> Result<CanonicalDigestV2, Exploratory
     CanonicalDigestV2::try_from(format!("sha256:{}", hex(digest))).map_err(unavailable)
 }
 
-fn unavailable(error: impl std::fmt::Display) -> ExploratoryReplayOwnerError {
+fn unavailable(error: impl Display) -> ExploratoryReplayOwnerError {
     ExploratoryReplayOwnerError::Unavailable(error.to_string())
 }

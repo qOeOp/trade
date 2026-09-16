@@ -212,6 +212,7 @@ pub(crate) fn verify_native_replay_frame_evidence_v2(
     else {
         return Err(NativeReplaySchedulingErrorV1::FieldCensusMismatch);
     };
+
     if first_bar.bar_type.instrument_id() != member_instruments[0]
         || second_bar.bar_type.instrument_id() != member_instruments[1]
         || first_bar.ts_event.as_u64() != frame_time_ns
@@ -308,6 +309,7 @@ fn exact_rows<'a, const N: usize>(
                 && fields.contains(&row.field())
         })
         .collect::<Vec<_>>();
+
     if candidates.len() != N {
         return Err(NativeReplaySchedulingErrorV1::FieldCensusMismatch);
     }
@@ -370,7 +372,7 @@ pub enum NativeReplayFrameSequenceRefusalV2 {
 /// independently re-resolved initial V1 frame and the second issued from a distinct Owner-verified
 /// PIT snapshot and observation batch.
 ///
-/// It is move-only on purpose — no `Clone`, no `Deserialize`. A sequence cannot be copied into a
+/// It is move-only on purpose - no `Clone`, no `Deserialize`. A sequence cannot be copied into a
 /// second consumer or reconstructed from transported bytes; it is handed over once, by the Owner
 /// that verified it.
 ///
@@ -406,12 +408,14 @@ impl NativeReplayFrameSequenceReadbackV2 {
         {
             return Err(NativeReplayFrameSequenceRefusalV2::FramesDoNotShareTheirRequestShape);
         }
+
         if first.snapshot_identity() == second.snapshot_identity()
             || first.snapshot_fact_digest() == second.snapshot_fact_digest()
             || first.observation_batch_digest() == second.observation_batch_digest()
         {
             return Err(NativeReplayFrameSequenceRefusalV2::SuccessorRepeatsTheFirstCut);
         }
+
         if second.frame_time_ns() <= first.frame_time_ns() {
             return Err(NativeReplayFrameSequenceRefusalV2::NonIncreasingEventOrder);
         }
@@ -498,8 +502,7 @@ fn sequence_frame(
 }
 
 /// Domain separator for the V2 two-frame sequence digest.
-const FRAME_SEQUENCE_DIGEST_DOMAIN_V2: &[u8] =
-    b"market-data.native-replay-frame-sequence.v2\0";
+const FRAME_SEQUENCE_DIGEST_DOMAIN_V2: &[u8] = b"market-data.native-replay-frame-sequence.v2\0";
 
 /// The sealed constituents of one frame, in the order the sequence commits to them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -588,8 +591,8 @@ pub const FRAME_SEQUENCE_OUTBOX_DOMAIN_V2: &[u8] =
 /// Everything custody must store for one sealed V2 sequence, derived once from the sealed bytes.
 ///
 /// `docs/owners/market-data.md` requires the sequence's "receipt/outbox and exact-locator
-/// readback" to be stored "atomically and append-only". Deriving all three here — rather than in
-/// the storage adapter — keeps one meaning: the receipt attests the sealed bytes, the outbox
+/// readback" to be stored "atomically and append-only". Deriving all three here - rather than in
+/// the storage adapter - keeps one meaning: the receipt attests the sealed bytes, the outbox
 /// publishes that receipt, and the locator is the pair the request already fixes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeReplayFrameSequenceCustodyRecordV2 {
@@ -809,8 +812,7 @@ pub fn admit_two_frame_census_v2(
     let mut eligible: Vec<&NativeReplayFrameCensusCandidateV2> = census
         .iter()
         .filter(|frame| {
-            frame.frame_time_ns >= window_start_ns
-                && frame.frame_time_ns < window_end_ns_exclusive
+            frame.frame_time_ns >= window_start_ns && frame.frame_time_ns < window_end_ns_exclusive
         })
         .collect();
     eligible.sort_by_key(|frame| frame.frame_ordinal);
@@ -831,15 +833,19 @@ pub fn admit_two_frame_census_v2(
     if first.snapshot_identity == second.snapshot_identity {
         return Err(NativeReplayFrameCensusRefusalV2::DuplicateFrameIdentity);
     }
+
     if second.frame_ordinal != first.frame_ordinal + 1 {
         return Err(NativeReplayFrameCensusRefusalV2::SkippedEligibleFrame);
     }
+
     if second.frame_time_ns <= first.frame_time_ns {
         return Err(NativeReplayFrameCensusRefusalV2::NonIncreasingEventOrder);
     }
+
     if first.scope_digest != second.scope_digest {
         return Err(NativeReplayFrameCensusRefusalV2::ScopeMismatch);
     }
+
     if first.last_liquidity_event_ns >= second.first_bar_event_ns {
         return Err(NativeReplayFrameCensusRefusalV2::LiquidityDoesNotPrecedeSuccessorBar);
     }
@@ -929,6 +935,7 @@ fn append_liquidity_member(bytes: &mut Vec<u8>, member: &NativeReplayQuoteLiquid
     for digest in member.row_digests() {
         bytes.extend_from_slice(digest.as_bytes());
     }
+
     for (mantissa, scale) in member.values() {
         bytes.extend_from_slice(&mantissa.to_be_bytes());
         bytes.push(scale);
@@ -951,44 +958,84 @@ mod quote_liquidity_receipt_tests {
         BindingDigest::from_untrusted_bytes([seed; 32])
     }
 
-    fn member(instrument: &str, seed: u8, event_time_ns: u64) -> NativeReplayQuoteLiquidityEvidenceV2 {
+    fn member(
+        instrument: &str,
+        seed: u8,
+        event_time_ns: u64,
+    ) -> NativeReplayQuoteLiquidityEvidenceV2 {
         NativeReplayQuoteLiquidityEvidenceV2 {
             instrument: InstrumentId::from(instrument),
-            row_digests: [digest(seed), digest(seed + 1), digest(seed + 2), digest(seed + 3)],
+            row_digests: [
+                digest(seed),
+                digest(seed + 1),
+                digest(seed + 2),
+                digest(seed + 3),
+            ],
             values: [(101, 2), (103, 2), (5, 0), (7, 0)],
             event_time_ns,
             initialization_time_ns: event_time_ns,
         }
     }
 
-    fn sealed(liquidity: &[NativeReplayQuoteLiquidityEvidenceV2; 2]) -> NativeReplayQuoteLiquidityReceiptV2 {
-        NativeReplayQuoteLiquidityReceiptV2::seal(digest(0x10), digest(0x11), digest(0x12), 900, 1_000, liquidity)
+    fn sealed(
+        liquidity: &[NativeReplayQuoteLiquidityEvidenceV2; 2],
+    ) -> NativeReplayQuoteLiquidityReceiptV2 {
+        NativeReplayQuoteLiquidityReceiptV2::seal(
+            digest(0x10),
+            digest(0x11),
+            digest(0x12),
+            900,
+            1_000,
+            liquidity,
+        )
     }
 
     #[rstest]
     fn the_same_frame_liquidity_seals_to_the_same_receipt() {
-        let first = sealed(&[member("AAPL.NASDAQ", 0x20, 910), member("MSFT.NASDAQ", 0x30, 920)]);
-        let second = sealed(&[member("AAPL.NASDAQ", 0x20, 910), member("MSFT.NASDAQ", 0x30, 920)]);
+        let first = sealed(&[
+            member("AAPL.NASDAQ", 0x20, 910),
+            member("MSFT.NASDAQ", 0x30, 920),
+        ]);
+        let second = sealed(&[
+            member("AAPL.NASDAQ", 0x20, 910),
+            member("MSFT.NASDAQ", 0x30, 920),
+        ]);
 
         assert_eq!(first, second);
         assert_eq!(first.receipt_digest(), second.receipt_digest());
-        assert!(first.canonical_bytes().starts_with(QUOTE_LIQUIDITY_RECEIPT_DOMAIN_V2));
+        assert!(
+            first
+                .canonical_bytes()
+                .starts_with(QUOTE_LIQUIDITY_RECEIPT_DOMAIN_V2)
+        );
     }
 
     #[rstest]
     fn member_order_is_part_of_the_sealed_meaning() {
-        let forward = sealed(&[member("AAPL.NASDAQ", 0x20, 910), member("MSFT.NASDAQ", 0x30, 920)]);
-        let reversed = sealed(&[member("MSFT.NASDAQ", 0x30, 920), member("AAPL.NASDAQ", 0x20, 910)]);
+        let forward = sealed(&[
+            member("AAPL.NASDAQ", 0x20, 910),
+            member("MSFT.NASDAQ", 0x30, 920),
+        ]);
+        let reversed = sealed(&[
+            member("MSFT.NASDAQ", 0x30, 920),
+            member("AAPL.NASDAQ", 0x20, 910),
+        ]);
 
         assert_ne!(forward.receipt_digest(), reversed.receipt_digest());
     }
 
     #[rstest]
     fn every_sealed_liquidity_coordinate_changes_the_receipt() {
-        let base = sealed(&[member("AAPL.NASDAQ", 0x20, 910), member("MSFT.NASDAQ", 0x30, 920)]);
+        let base = sealed(&[
+            member("AAPL.NASDAQ", 0x20, 910),
+            member("MSFT.NASDAQ", 0x30, 920),
+        ]);
 
         // A different Owner row identity for the same rendered values.
-        let moved_row = sealed(&[member("AAPL.NASDAQ", 0x40, 910), member("MSFT.NASDAQ", 0x30, 920)]);
+        let moved_row = sealed(&[
+            member("AAPL.NASDAQ", 0x40, 910),
+            member("MSFT.NASDAQ", 0x30, 920),
+        ]);
         assert_ne!(base.receipt_digest(), moved_row.receipt_digest());
 
         // A different stored price mantissa.
@@ -1018,7 +1065,11 @@ mod quote_liquidity_receipt_tests {
         // A different event time, and an initialization time that no longer equals it.
         assert_ne!(
             base.receipt_digest(),
-            sealed(&[member("AAPL.NASDAQ", 0x20, 911), member("MSFT.NASDAQ", 0x30, 920)]).receipt_digest()
+            sealed(&[
+                member("AAPL.NASDAQ", 0x20, 911),
+                member("MSFT.NASDAQ", 0x30, 920)
+            ])
+            .receipt_digest()
         );
         let mut reinitialized = member("AAPL.NASDAQ", 0x20, 910);
         reinitialized.initialization_time_ns = 912;
@@ -1030,15 +1081,55 @@ mod quote_liquidity_receipt_tests {
 
     #[rstest]
     fn the_receipt_binds_its_own_frame_cut_and_window() {
-        let liquidity = || [member("AAPL.NASDAQ", 0x20, 910), member("MSFT.NASDAQ", 0x30, 920)];
+        let liquidity = || {
+            [
+                member("AAPL.NASDAQ", 0x20, 910),
+                member("MSFT.NASDAQ", 0x30, 920),
+            ]
+        };
         let base = sealed(&liquidity());
 
         for moved in [
-            NativeReplayQuoteLiquidityReceiptV2::seal(digest(0x99), digest(0x11), digest(0x12), 900, 1_000, &liquidity()),
-            NativeReplayQuoteLiquidityReceiptV2::seal(digest(0x10), digest(0x99), digest(0x12), 900, 1_000, &liquidity()),
-            NativeReplayQuoteLiquidityReceiptV2::seal(digest(0x10), digest(0x11), digest(0x99), 900, 1_000, &liquidity()),
-            NativeReplayQuoteLiquidityReceiptV2::seal(digest(0x10), digest(0x11), digest(0x12), 901, 1_000, &liquidity()),
-            NativeReplayQuoteLiquidityReceiptV2::seal(digest(0x10), digest(0x11), digest(0x12), 900, 1_001, &liquidity()),
+            NativeReplayQuoteLiquidityReceiptV2::seal(
+                digest(0x99),
+                digest(0x11),
+                digest(0x12),
+                900,
+                1_000,
+                &liquidity(),
+            ),
+            NativeReplayQuoteLiquidityReceiptV2::seal(
+                digest(0x10),
+                digest(0x99),
+                digest(0x12),
+                900,
+                1_000,
+                &liquidity(),
+            ),
+            NativeReplayQuoteLiquidityReceiptV2::seal(
+                digest(0x10),
+                digest(0x11),
+                digest(0x99),
+                900,
+                1_000,
+                &liquidity(),
+            ),
+            NativeReplayQuoteLiquidityReceiptV2::seal(
+                digest(0x10),
+                digest(0x11),
+                digest(0x12),
+                901,
+                1_000,
+                &liquidity(),
+            ),
+            NativeReplayQuoteLiquidityReceiptV2::seal(
+                digest(0x10),
+                digest(0x11),
+                digest(0x12),
+                900,
+                1_001,
+                &liquidity(),
+            ),
         ] {
             assert_ne!(base.receipt_digest(), moved.receipt_digest());
         }
@@ -1244,6 +1335,7 @@ mod frame_sequence_digest_tests {
     #[rstest]
     fn every_constituent_of_every_frame_is_covered() {
         let base = sealed(&pair());
+
         for mutate in [
             |f: &mut NativeReplaySequenceFrameV2| f.frame_ordinal += 1,
             |f: &mut NativeReplaySequenceFrameV2| f.snapshot_identity = digest(0x99),

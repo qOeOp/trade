@@ -968,24 +968,31 @@ pub(super) fn seal_strategy_input_custody_v1(
         if declaration.request_meaning_digest.as_bytes() == &[0; 32] {
             return Err(StrategyInputCustodyUnavailableV1::DeclarationUntrusted);
         }
+
         if request.research_request_identity != claim.research_request_identity {
             return Err(StrategyInputCustodyUnavailableV1::ResearchRequestMismatch);
         }
+
         if request.strategy_design_identity != claim.strategy_design_identity {
             return Err(StrategyInputCustodyUnavailableV1::DesignMismatch);
         }
+
         if request.pit_request_identity != claim.pit_request_identity {
             return Err(StrategyInputCustodyUnavailableV1::PitRequestMismatch);
         }
+
         if request.input_role_identity != *role_identity {
             return Err(StrategyInputCustodyUnavailableV1::RoleCoverageMismatch);
         }
+
         if request.decision_cut < claim.decision_cut {
             return Err(StrategyInputCustodyUnavailableV1::StaleDecisionCut);
         }
+
         if request.decision_cut > claim.decision_cut {
             return Err(StrategyInputCustodyUnavailableV1::UnexpectedDecisionCut);
         }
+
         if !shares_custody_lineage_cut_v1(first, request) {
             return Err(StrategyInputCustodyUnavailableV1::LineageDrift);
         }
@@ -995,6 +1002,7 @@ pub(super) fn seal_strategy_input_custody_v1(
         {
             return Err(StrategyInputCustodyUnavailableV1::DesignMismatch);
         }
+
         if locator.input_role_identity() != *role_identity {
             return Err(StrategyInputCustodyUnavailableV1::RoleCoverageMismatch);
         }
@@ -1007,6 +1015,7 @@ pub(super) fn seal_strategy_input_custody_v1(
     {
         return Err(StrategyInputCustodyUnavailableV1::LineageDrift);
     }
+
     if frame.values().len() != declarations.len() {
         return Err(StrategyInputCustodyUnavailableV1::FrameUnavailable);
     }
@@ -1025,6 +1034,7 @@ pub(super) fn seal_strategy_input_custody_v1(
             .iter()
             .find(|value| value.input_role_identity() == declaration.request.input_role_identity)
             .ok_or(StrategyInputCustodyUnavailableV1::FrameUnavailable)?;
+
         if value.binding_receipt_digest() != binding_digest
             || value.observation_batch_digest() != first.observation_batch_digest
         {

@@ -78,7 +78,7 @@ impl VerifiedOwnerSequenceV2 {
     /// The frame-zero bridge is the Owner's own: `seal_native_replay_frame_sequence_v2` binds the
     /// V1 binding identity into the sequence digest, and the Owner's census already refuses a
     /// first frame that is not the one the sealed request fixes. So requiring the sequence to
-    /// carry *this* V1 binding identity is what makes frame zero the V1 initial frame — R&D does
+    /// carry *this* V1 binding identity is what makes frame zero the V1 initial frame - R&D does
     /// not re-derive that claim, and V1's sealed meaning does not change to carry it.
     ///
     /// # Errors
@@ -115,6 +115,7 @@ fn verified_frame(
 
     let bar_rows = frame.bar_row_digests();
     let mut member_bar_schedule_receipt_digests = [[0u8; 32]; MEMBER_COUNT];
+
     for (member, rows) in bar_rows.iter().enumerate() {
         let mut bytes = Vec::with_capacity(32 + 8 + 32 * 5);
         bytes.extend_from_slice(&pit_cut_identity);
@@ -246,6 +247,7 @@ impl NativeReplayExecutionInputBindingV2 {
             v1.binding().binding_digest(),
             owner,
         )?;
+
         if *self != expected {
             return Err(NativeReplayExecutionInputBindingErrorV2::Unavailable);
         }
@@ -344,6 +346,7 @@ fn seal_meaning(
     owner: VerifiedOwnerSequenceV2,
 ) -> Result<NativeReplayExecutionInputBindingV2, NativeReplayExecutionInputBindingErrorV2> {
     let [first, second] = owner.frames;
+
     if v1_binding_identity == [0; 32]
         || v1_binding_identity != v1_binding_digest
         || owner.owner_sequence_digest == [0; 32]
@@ -643,6 +646,7 @@ fn recover_rows_v2(
         && rows.outbox_receipt_identity == receipt_identity
         && rows.payload_bytes == outbox_payload
         && rows.payload_digest == digest(OUTBOX_DOMAIN, &outbox_payload);
+
     if !agrees {
         return Err(NativeReplayExecutionInputBindingErrorV2::Unavailable);
     }
@@ -762,6 +766,7 @@ impl Cursor<'_> {
             first_bar_order: self.order()?,
             last_liquidity_event_order: self.order()?,
         };
+
         if !valid_frame(&frame) {
             return Err(NativeReplayExecutionInputBindingErrorV2::Unavailable);
         }
@@ -778,6 +783,8 @@ fn digest(domain: &[u8], bytes: &[u8]) -> [u8; 32] {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
 
     fn d(n: u8) -> [u8; 32] {
@@ -810,7 +817,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn ordered_sequence_has_stable_canonical_identity_and_distinct_domains() {
         let first = seal_meaning(d(60), d(60), owner()).unwrap();
         let second = seal_meaning(d(60), d(60), owner()).unwrap();
@@ -824,7 +831,7 @@ mod tests {
         assert_eq!(first.canonical_bytes.len(), 5 + 32 + 96 + 2 * (416 + 16));
     }
 
-    #[test]
+    #[rstest]
     fn altered_v1_or_owner_receipt_changes_identity() {
         let baseline = seal_meaning(d(60), d(60), owner()).unwrap();
         assert_ne!(baseline, seal_meaning(d(61), d(61), owner()).unwrap());
@@ -836,7 +843,7 @@ mod tests {
         assert_ne!(baseline, seal_meaning(d(60), d(60), changed).unwrap());
     }
 
-    #[test]
+    #[rstest]
     fn missing_duplicate_reordered_or_interleaved_frames_fail_closed() {
         assert!(matches!(
             seal_meaning([0; 32], [0; 32], owner()),
@@ -873,7 +880,7 @@ mod tests {
     }
 
     /// Recovery must rebuild the exact binding from stored bytes alone.
-    #[test]
+    #[rstest]
     fn stored_canonical_bytes_recover_to_the_same_binding() {
         let sealed = seal_meaning(d(60), d(60), owner()).unwrap();
         let recovered = recover_binding_v2(sealed.canonical_bytes()).unwrap();
@@ -902,7 +909,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn a_complete_consistent_row_set_recovers() {
         let binding = seal_meaning(d(60), d(60), owner()).unwrap();
         let rows = stored_rows_for(&binding);
@@ -913,11 +920,13 @@ mod tests {
     }
 
     /// A row edited in place must not be able to present itself as issued custody.
-    #[test]
+    #[rstest]
     fn rows_that_disagree_with_their_own_bytes_fail_closed() {
         let binding = seal_meaning(d(60), d(60), owner()).unwrap();
+
         for tamper in [
-            (|rows: &mut StoredRowsV2| rows.binding_identity = vec![9; 32]) as fn(&mut StoredRowsV2),
+            (|rows: &mut StoredRowsV2| rows.binding_identity = vec![9; 32])
+                as fn(&mut StoredRowsV2),
             |rows: &mut StoredRowsV2| rows.sequence_digest = vec![9; 32],
             |rows: &mut StoredRowsV2| rows.owner_sequence_digest = vec![9; 32],
             |rows: &mut StoredRowsV2| rows.v1_binding_identity = vec![9; 32],
@@ -940,7 +949,7 @@ mod tests {
     }
 
     /// The decoder reads exact offsets, so a short, long or mislabelled buffer is not a binding.
-    #[test]
+    #[rstest]
     fn malformed_canonical_bytes_fail_closed() {
         let sealed = seal_meaning(d(60), d(60), owner()).unwrap();
         let good = sealed.canonical_bytes();

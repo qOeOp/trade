@@ -71,7 +71,7 @@
 .scheduleNotice { margin: 16px; justify-content: center; }
 .skeleton { height: 48px; width: 100%; border-radius: 8px; background: var(--panel-chrome-bg); margin-bottom: 4px; }
 .foot { display: flex; justify-content: space-between; gap: 12px; color: var(--text-muted); font-size: 11px; }
-.operation { border: 0; padding: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.operation { max-width: 100%; justify-content: flex-start; overflow: hidden; color: inherit; text-align: left; text-overflow: ellipsis; }
 @media (max-width: 1279px) { .split { grid-template-columns: minmax(0, 1fr); } .detail { max-height: 520px; } }
 .calendar button:not([data-slot="button"]), .dialog button:not([data-slot="button"]) { font-family: inherit; color: inherit; cursor: pointer; }
 .dialog select { font: inherit; color: inherit; cursor: pointer; }

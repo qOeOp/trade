@@ -308,6 +308,7 @@ async fn recover_strategy_input_binding_declaration_for_rd_v1(
     )?;
     let binding =
         resolve_and_bind_with_mode(transaction, &request, DependencyReadModeV1::RdOwner).await?;
+
     if binding.digest() != stored_digest {
         return Err(StrategyInputBindingRegistryErrorV1::StoreUntrusted);
     }
@@ -410,7 +411,7 @@ async fn reread_persisted_strategy_input_custody_with_mode_v1(
                 .await
             }
         }
-        .map_err(|error| map_custody_error(&error))?;
+        .map_err(|e| map_custody_error(&e))?;
         declarations.push(declaration);
     }
 
@@ -452,7 +453,7 @@ async fn reread_persisted_strategy_input_custody_with_mode_v1(
         .ok_or(StrategyInputCustodyUnavailableV1::RoleCoverageMismatch)?;
     let batch = resolve_native_pit(transaction, first.request(), mode)
         .await
-        .map_err(|error| map_custody_error(&error))?;
+        .map_err(|e| map_custody_error(&e))?;
     let bindings = declarations
         .iter()
         .map(|declaration| declaration.binding().clone())

@@ -2772,6 +2772,7 @@ async fn resolve_research_admission_hints(
             // Its exact Owner dependencies are verified on the dedicated Replay read path.
             continue;
         }
+
         if !matches!(
             view.phase,
             crate::product_edge::ResearchViewPhase::ArtifactAvailable
@@ -2885,6 +2886,7 @@ async fn complete_research_custody_in_transaction(
             "native Composer Research View requires exact Owner readback".into(),
         ));
     }
+
     if custody.view().is_some_and(|view| {
         matches!(
             view.phase,
@@ -2977,6 +2979,7 @@ pub(crate) fn validate_historical_view(
                     "Composer Artifact-only Research View is not admitted".into(),
                 ));
             }
+
             if view.attempt_identity.is_none() {
                 return Err(ResearchGoalOwnerError::Storage(
                     "terminal research attempt identity missing".to_string(),

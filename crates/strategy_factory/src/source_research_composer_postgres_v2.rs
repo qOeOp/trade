@@ -1989,6 +1989,7 @@ async fn lock_historical_research_for_composer_replay_in_transaction(
     expected_binding: &ResearchComposerArtifactViewV3,
 ) -> Result<CurrentResearchDevelopCustodyV2, DevelopComposerSealedReadErrorV2> {
     let unavailable = || DevelopComposerSealedReadErrorV2::Unavailable;
+
     if !composer_exploration_research_view_is_valid_v3(expected_current_view, pre_transition_view)
         || expected_current_view.exploration.as_ref() != Some(expected_exploration)
         || expected_current_view.composer_artifact.as_ref() != Some(expected_binding)
@@ -2005,6 +2006,7 @@ async fn lock_historical_research_for_composer_replay_in_transaction(
     .await
     .map_err(|_| unavailable())?
     .ok_or_else(unavailable)?;
+
     if transition.old_view() != pre_transition_view
         || transition.new_view() != expected_current_view
         || transition.replay_request_identity() != expected_exploration.replay_request_identity
@@ -2021,6 +2023,7 @@ async fn lock_historical_research_for_composer_replay_in_transaction(
         let custody = lock_successor_research_view_in_transaction(transaction, &successor)
             .await
             .map_err(|_| unavailable())?;
+
         if successor.intent().request_identity() == pre_transition_view.request_identity
             && successor.intent().intent_identity() == pre_transition_view.intent_identity
         {
@@ -2043,6 +2046,7 @@ async fn lock_historical_research_for_composer_replay_in_transaction(
                 read_cut_epoch_ms,
             )
             .map_err(|_| unavailable())?;
+
             if research.research_request_identity() == locator.research_request_identity
                 && research.intent_identity() == locator.intent_identity
             {
@@ -2054,6 +2058,7 @@ async fn lock_historical_research_for_composer_replay_in_transaction(
     let custodies = admit_all_research_custodies_in_transaction(transaction)
         .await
         .map_err(|_| unavailable())?;
+
     for custody in custodies {
         if durable_research_identities(&custody).is_some_and(|(request, intent)| {
             request == locator.research_request_identity && intent == locator.intent_identity
@@ -2089,6 +2094,7 @@ fn validate_historical_descendant_view(
 ) -> Result<(), DevelopComposerSealedReadErrorV2> {
     validate_historical_view(current, original)
         .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+
     if current.projection_at_epoch_ms < committed_replay_view.projection_at_epoch_ms
         || (current.projection_at_epoch_ms == committed_replay_view.projection_at_epoch_ms
             && current != committed_replay_view)
@@ -2157,6 +2163,7 @@ pub(crate) async fn resolve_composer_record_for_historical_replay_in_transaction
             .map_err(|_| unavailable())?
     };
     let locked = DevelopComposerLockedEvidenceV2 { research, bindings };
+
     if let Some(frozen) = frozen.as_ref() {
         crate::develop_composer_operation_v2::resolve_positive_record_with_v3_restart_v2(
             record,

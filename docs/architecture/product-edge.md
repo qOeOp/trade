@@ -16,7 +16,7 @@ local ingress.
 
 The product entry is `product/dashboard`: one independently buildable `trade-dashboard` image carrying the
 Vibe-derived shell, the shared UI atoms, and the currently admitted first-party read surfaces. It owns its browser
-session gate, the Trade-owned RunStore, and four least-privilege process roles — `dashboard-web`,
+session gate, the Trade-owned RunStore, and four least-privilege process roles - `dashboard-web`,
 `dashboard-effect-worker`, `dashboard-shadow-worker`, and `dashboard-shadow-scheduler`. `/api/mcp` is a stateless
 Streamable HTTP endpoint over the same typed handlers. It sits outside the browser-session gate but requires its
 own finite, scoped Bearer capability and validates Host and Origin before dispatch. Its fixed tool registry carries
@@ -44,11 +44,11 @@ The retained Windmill deployment in `product/rd-workbench` still owns the typed 
 `rd_workbench.raw_app` is superseded by the Dashboard and is no longer the product entry.
 
 **Windmill removal is the target, not a coexistence.** The end state is that **no Windmill dependency remains
-anywhere in the repository** — no image, Compose service, script, flow, lock file, workspace declaration, client,
+anywhere in the repository** - no image, Compose service, script, flow, lock file, workspace declaration, client,
 environment variable, or channel constant that a global search can still find. The Dashboard becomes the sole
 truth entry, and Product Edge has exactly one surface again. Windmill stays in the documentation only as a
-reference for the capabilities the Dashboard still has to absorb — job execution and progress, scheduling, worker
-isolation, resource and secret custody — so that removing it does not quietly drop a capability that was load
+reference for the capabilities the Dashboard still has to absorb - job execution and progress, scheduling, worker
+isolation, resource and secret custody - so that removing it does not quietly drop a capability that was load
 bearing. A Windmill primitive described below is therefore a requirement the Dashboard inherits, not a dependency
 the product keeps.
 

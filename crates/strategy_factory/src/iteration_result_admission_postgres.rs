@@ -77,6 +77,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), IterationResultAdmissio
     )
     .await
     .map_err(|e| storage(e.to_string()))?;
+
     for statement in [
         "ALTER TABLE public.rd_iteration_result_admissions_v1 OWNER TO rd_owner",
         "REVOKE ALL ON TABLE public.rd_iteration_result_admissions_v1 FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer",
@@ -380,6 +381,7 @@ async fn load_by_result_in_transaction(
             "iteration result admission row storage is inconsistent",
         ));
     }
+
     if stored.result_identity != locator.result_identity
         || stored.request_identity != locator.request_identity
         || stored.attempt_identity != locator.attempt_identity
