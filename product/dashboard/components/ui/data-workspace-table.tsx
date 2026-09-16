@@ -208,6 +208,7 @@ export function DataWorkspaceTable<T extends RowData>({
   const filteredRowCount = table.getFilteredRowModel().rows.length;
   const pageSizeOptions = Array.from(new Set([...paginationRowsPerPageOptions, paginationPerPage])).sort((a, b) => a - b);
   const interactive = Boolean(onRowClicked || pointerOnHover);
+  const hasExpandedRow = Boolean(rowDisclosure && rows.some((row) => rowDisclosure.isExpanded(row.original)));
   const tableMinWidth = minimumTableWidth(columns);
 
   return (
@@ -216,6 +217,7 @@ export function DataWorkspaceTable<T extends RowData>({
       className={["data-workspace-table", className].filter(Boolean).join(" ")}
       data-density={dense ? "compact" : "default"}
       data-height-mode={heightMode}
+      data-has-expanded-row={hasExpandedRow || undefined}
       data-interactive={interactive || undefined}
     >
       <div className="data-workspace-viewport">
