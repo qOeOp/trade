@@ -55,6 +55,28 @@ pub const SOURCE_INTAKE_REQUIRED_EFFECTS_V1: [&str; 2] = [
     "R_AND_D_SOURCE_PROVIDER_INVOCATION_V1",
 ];
 
+/// Canonical identity of the one Product Edge admission gateway.
+///
+/// The gateway was first named after Windmill because Windmill was the only Product Edge surface
+/// when it was sealed. It never denoted Windmill the tool: the first-party Dashboard shares the
+/// same gateway and had to declare the old name to be admitted at all. This is the name that
+/// describes what it is.
+pub const PRODUCT_EDGE_GATEWAY_V1: &str = "TRADE_PRODUCT_EDGE";
+
+/// The gateway identity every admission sealed before the rename carries.
+///
+/// Admissions are content addressed, so a stored payload keeps the bytes it was sealed with
+/// forever. Both names are admitted, and nothing rewrites a sealed record.
+pub const LEGACY_WINDMILL_GATEWAY_V1: &str = "WINDMILL_PRODUCT_EDGE";
+
+/// Whether a declared gateway identity names this Product Edge gateway.
+///
+/// Fail-closed on anything else: the gateway is one authority, not an open vocabulary.
+#[must_use]
+pub fn is_product_edge_gateway_v1(declared: &str) -> bool {
+    declared == PRODUCT_EDGE_GATEWAY_V1 || declared == LEGACY_WINDMILL_GATEWAY_V1
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProductEdgeAuthorizationTrustV1 {
     pub issuer_identity: String,

@@ -68,6 +68,10 @@ pub struct UnsourcedResearchProposalV1 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ProductEdgeChannel {
+    /// Canonical identity of the one Product Edge admission gateway.
+    TradeProductEdge,
+    /// The same gateway under the name it was sealed with before the rename. A Research Goal
+    /// admitted earlier keeps these bytes, so the variant is read vocabulary, not a second channel.
     WindmillProductEdge,
 }
 

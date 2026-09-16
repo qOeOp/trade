@@ -387,7 +387,8 @@ evidence.
 ## Agent Shell deployment binding
 
 Product Edge owns one non-business Agent Shell Deployment Binding for each deployment. The target binding names the
-canonical `WINDMILL_PRODUCT_EDGE` admission gateway; Windmill App and MCP calls are channels behind that same
+canonical `TRADE_PRODUCT_EDGE` admission gateway, which every admission sealed before that name existed still
+carries as `WINDMILL_PRODUCT_EDGE`; App and MCP calls are channels behind that same
 gateway, not competing shell writers. The binding records the selection generation, effective principal, scope-policy version,
 approved Skill/MCP capability-set version, audit-policy version, and cutover epoch. The channels may use
 different credentials, but the effective principal and policies are identical; changing the external

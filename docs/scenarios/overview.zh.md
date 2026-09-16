@@ -7,7 +7,8 @@
 
 用户通过 Product Edge 提交带来源且可证伪的市场想法。Trade 自有的 Dashboard 与通过它的
 Dashboard MCP endpoint 接入的可选外部对话客户端，在同一准入网关后调用相同带版本的受限 Owner
-operation；该网关的 channel 常量仍沿用 Windmill 作表面时的拼写 `WINDMILL_PRODUCT_EDGE`。
+operation；该网关的 channel 常量是 `TRADE_PRODUCT_EDGE`。在该名字之前封存的记录仍保留
+Windmill 作表面时的拼写 `WINDMILL_PRODUCT_EDGE`，网关两者都接受。
 UI、MCP transport 与 workflow 都不保存业务事实，也不直接交易。
 
 ## Value path / 价值路径
