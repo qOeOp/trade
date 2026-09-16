@@ -506,6 +506,7 @@ impl SuccessorResearchViewCustodyV1 {
             artifact_identity: None,
             build_receipt_identity: None,
             artifact_review_identity: None,
+            composer_artifact: None,
             exploration: None,
             next_legal_action: ResearchNextLegalAction::WaitForRAndDExecution,
         };
@@ -561,6 +562,7 @@ fn issue_successor_artifact_custody(
         artifact_identity: None,
         build_receipt_identity: None,
         artifact_review_identity: None,
+        composer_artifact: None,
         exploration: None,
         next_legal_action: ResearchNextLegalAction::WaitForRAndDExecution,
     };
@@ -666,6 +668,7 @@ pub(crate) async fn lock_successor_research_view_in_transaction(
         artifact_identity: None,
         build_receipt_identity: None,
         artifact_review_identity: None,
+        composer_artifact: None,
         exploration: None,
         next_legal_action: ResearchNextLegalAction::WaitForRAndDExecution,
     };

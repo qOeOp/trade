@@ -1134,6 +1134,27 @@ request window，Market Data 才返回 frame 与 schedule readback。missing、d
 或 corrupt candidate 不返回任何正向 readback。caller 不提供 schedule locator、account scope、latest selector、
 raw row、SQL、pool、credential 或 replacement store。
 
+**TARGET / NOT_ADMITTED，Native Replay 双帧序列 V2：**现有初始帧 resolver、
+`StrategyInputUniverseFrameReceipt` V1、BAR schedule readback 和 `NativeReplaySchedulingReadbackV1`
+保持逐字节不变。新增只能由 Owner 签发的 move-only `NativeReplayFrameSequenceReadbackV2`；首个有界档只接纳
+封存请求窗口内恰好两个相邻且完整的双成员 frame。第一帧是准确重解的 V1 初始帧，第二帧来自另一份经
+Owner 验证的 PIT snapshot/batch，不得复制数值或使用测试 successor。Market Data 独立枚举窗口与决策 cut
+内的完整可用 frame，证明两帧身份不同、顺序严格递增、中间无漏帧；第三帧使该档不可用。两帧各自保存 PIT
+cut、batch、trigger、frame、source/correction lineage、BAR schedule 和 Quote/L2-MBP EVENT 流动性 receipt，
+后者绑定原始 Quote row digest、bid/ask 价量、事件和初始化时间及成员顺序。sequence digest 覆盖这些证据、
+请求身份、窗口与准确顺序。两帧必须共用 canonical universe、Design/role set、Instrument Master cut、
+timeframe、venue 与 account scope，并逐一校验半开有效期和相邻时间关系。
+
+Resolver 只接收由封存请求推导的首帧坐标与 Owner 认证的 Plan roles；第二 PIT cut、历史 schedule 和
+流动性证据必须由 Owner 自己的持久事实解析。调用方不得提交第二 snapshot/时间、frame 清单、价量、SQL、
+pool 或替代 resolver。缺失、多出、重复、部分、乱序、跨请求/成员/lineage、过期、篡改或 ACL 漂移都不得
+签发正向 V2 能力。V2 receipt/outbox 与序列托管必须原子追加；同意义重试和响应丢失只能重新核验并回读
+原字节，意义冲突零写入。Market Data 不签发 R&D binding、Backtest Result、合成出场信号或交易指令。
+
+实现这个目标还需新增按请求窗口枚举完整历史 frame 的 Owner 索引与准确读回。现有 PIT correction lineage
+记录的是同一请求的修正版本，不是下一时间 frame，也不能证明无漏帧；现有首帧 resolver 与 QuoteTick 投影
+本身不签发第二帧或独立流动性 receipt。
+
 在 CURRENT/PARTIAL BAR schedule 路径中，只有具备 custody verification 的 readback 才能授权以准确 V1
 binding-receipt digest 为键的新增 immutable `TimeframeProjectionReceiptV1`。其既有 canonical bytes 与 domain
 保持不变：schema `u16LE = 1`、

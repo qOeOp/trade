@@ -551,6 +551,10 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     let app = app
         .route(
+            "/v3/exploratory-replay-requests/composer-backed",
+            post(exploratory_replay::submit_composer_backed_v3),
+        )
+        .route(
             "/_sealed-acceptance/v1/develop-composer/a0-executions",
             get(develop_composer_a0_executions),
         )

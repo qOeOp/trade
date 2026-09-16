@@ -16,7 +16,7 @@ use crate::{
     develop_plugin_build_v3::VerifiedDevelopPluginBuildV3,
     product_edge::{
         FrozenResearchGoalIntent, ResearchRequestDisposition, ResearchViewAvailability,
-        ResearchViewPhase,
+        ResearchViewPhase, ResearchViewV1,
     },
     program_runtime::validate_plugin_candidate_v2,
     rd_bounded_feature_program_v1::{
@@ -311,6 +311,30 @@ impl CurrentResearchDevelopCustodyV2 {
         request_locator: &str,
         read_cut_epoch_ms: u64,
     ) -> Result<Self, DevelopComposerTerminalV2> {
+        let view = custody.view().ok_or_else(|| {
+            DevelopComposerTerminalV2::unavailable(
+                "research_custody.view",
+                "current Research View is unavailable",
+            )
+        })?;
+        if !custody.authority_available_at(read_cut_epoch_ms) {
+            return Err(DevelopComposerTerminalV2::unavailable(
+                "research_custody",
+                "current Research authority is unavailable at the read cut",
+            ));
+        }
+        Self::from_verified_with_view(custody, request_locator, view, read_cut_epoch_ms)
+    }
+
+    /// Rebuilds the original Composer research digest from an independently verified historical
+    /// View. The caller must prove this View is an authenticated preimage of a committed Owner
+    /// transition. Expiry of a later mutable View does not change this immutable operation fact.
+    pub(crate) fn from_verified_with_view(
+        custody: &VerifiedResearchCustodyV1,
+        request_locator: &str,
+        view: &ResearchViewV1,
+        read_cut_epoch_ms: u64,
+    ) -> Result<Self, DevelopComposerTerminalV2> {
         let receipt = custody.receipt();
         let intent = match custody.intent() {
             Some(FrozenResearchGoalIntent::V2(intent)) => intent,
@@ -321,12 +345,6 @@ impl CurrentResearchDevelopCustodyV2 {
                 ));
             }
         };
-        let view = custody.view().ok_or_else(|| {
-            DevelopComposerTerminalV2::unavailable(
-                "research_custody.view",
-                "current Research View is unavailable",
-            )
-        })?;
         let family = custody.family().ok_or_else(|| {
             DevelopComposerTerminalV2::unavailable(
                 "research_custody.trial_family",
@@ -342,7 +360,8 @@ impl CurrentResearchDevelopCustodyV2 {
             || view.phase != ResearchViewPhase::IntentFrozen
             || view.request_identity != request_locator
             || view.intent_identity != intent.intent_identity
-            || !custody.authority_available_at(read_cut_epoch_ms)
+            || view.projection_at_epoch_ms > read_cut_epoch_ms
+            || read_cut_epoch_ms >= view.valid_through_epoch_ms
         {
             return Err(DevelopComposerTerminalV2::unavailable(
                 "research_custody",
@@ -398,9 +417,25 @@ impl CurrentResearchDevelopCustodyV2 {
         family: &TrialFamilyCensusReadbackV2,
         read_cut_epoch_ms: u64,
     ) -> Result<Self, DevelopComposerTerminalV2> {
+        Self::from_verified_successor_with_view(
+            readback,
+            custody,
+            family,
+            custody.view(),
+            read_cut_epoch_ms,
+        )
+    }
+
+    /// Rebuilds the original successor Composer digest from a verified View preimage.
+    pub(crate) fn from_verified_successor_with_view(
+        readback: &SuccessorResearchIntentReadbackV1,
+        custody: &SuccessorResearchViewCustodyV1,
+        family: &TrialFamilyCensusReadbackV2,
+        view: &ResearchViewV1,
+        read_cut_epoch_ms: u64,
+    ) -> Result<Self, DevelopComposerTerminalV2> {
         let intent = readback.intent();
         let receipt = readback.receipt();
-        let view = custody.view();
         let latest_intent = family.latest_intent_binding().map_err(|_| {
             DevelopComposerTerminalV2::unavailable(
                 "research_custody.trial_family",
@@ -1121,6 +1156,8 @@ mod version_dispatch_tests {
 
 #[cfg(test)]
 mod successor_custody_tests {
+    use vibe_product_edge::ProductEdgeAdmissionLocatorV1;
+
     use super::*;
     use crate::{
         IterationExperimentModeV1, IterationHypothesisDimensionV1,
@@ -1135,7 +1172,6 @@ mod successor_custody_tests {
             TrialFamilyPolicyV1, append_attempt_to_census_v2, form_initial_family,
         },
     };
-    use vibe_product_edge::ProductEdgeAdmissionLocatorV1;
 
     fn digest(byte: char) -> String {
         format!("sha256:{}", byte.to_string().repeat(64))

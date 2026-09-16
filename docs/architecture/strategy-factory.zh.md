@@ -537,6 +537,28 @@ request locator 与 attempt identity。只有 `BACKTEST_OWNER_DATABASE_URL` 准�
 确认的提交保持 unavailable。尚不声称 disposable PostgreSQL acceptance、已部署或正在运行的服务、production
 invocation、Paper/Live execution 或 trading。
 
+**TARGET / NOT_ADMITTED，Owner 封存的双帧 Native Replay V2：**现有
+`NativeReplayExecutionInputBindingV1`、单帧、28 项观测证据、执行 bundle、请求和 Result 的字节与身份
+均保持不变。新增独立的 `NativeReplayExecutionInputBindingV2`，只针对请求窗口内恰好两个相邻、完整且
+分别由 Market Data Owner 签发的双成员 frame。第一帧必须等于重新解析得到的 V1 初始帧；第二帧必须来自
+另一份真实 PIT snapshot 和 observation batch，不能取 PIT correction successor、测试帧或调用方输入。
+Market Data 必须按封存的窗口和决策 cut 枚举完整可用 frame；多出第三帧、两帧之间漏帧、重复、乱序或证据
+缺失时，这个有界 V2 档不可用。每帧都绑定自己的 PIT cut、batch、trigger、BAR schedule，以及独立经过
+Owner 验证的 Quote/L2-MBP EVENT 流动性 receipt，包括成员顺序、价量和事件时间；两帧使用同一 Plan/Design
+role schema、两个 canonical member、universe selection、Instrument Master cut、timeframe、venue 和账户。
+
+R&D 仅在准确读取 V1 binding 和两帧的 Owner 能力后，原子托管 V2 binding、确定性 receipt 与 outbox；
+V2 sequence digest 覆盖两帧顺序及全部 frame、schedule、liquidity receipt。精确重试和响应丢失恢复只回读
+原记录，意义变化零写入冲突。Native preparation 必须独立重解两个 Owner cut、逐字节复现 V2 binding，再交付
+move-only bundle；bundle 在 ProgramHost 或 Backtest 改变状态前验证两帧完整 BAR、随后真实 EVENT 流动性、
+跨帧时间顺序和请求窗口。不能把 V1 解释成 V2，也不能在 V2 来源不可用时退回 V1。
+
+Backtest V2 Result custody 绑定 V2 binding、sequence digest、每帧消费顺序、实际 target set/fill 和本次
+canonical Result bytes；单帧 V1 的 28 项证据不能证明双帧运行。只有每个成员真实进场成交、出场再次成交、
+停机空仓且本次 canonical Result 记录仓位已关闭，才产生与 Result digest 绑定的闭环证据；仍持仓或部分成交
+不得声称闭环，无法对账的减仓必须失败。按准确 attempt/Result 的恢复只能回读已提交 Result 与证据，不能
+重跑或制造闭环。该设计尚未证明动态 Owner 签发、disposable PostgreSQL 验收、策略盈利或交易权限。
+
 **TARGET / NOT_ADMITTED，BAR FRAME 与 JOINED_CUT composition：** additive
 `StrategyInputSampleProjectionV4` 是唯一可在完整 native join 中组合 BAR component 的 projection。
 它的 projection kind 闭集为 `FRAME|JOINED_CUT`，lifecycle 闭集为 `BAR`；V2 EVENT/FRAME/JOINED_CUT 与 V3

@@ -2407,6 +2407,196 @@ async fn strategy_input_binding_registry_postgres_oracle(
     }
 }
 
+type PersistedStrategyInputCustodyOutcomeV1 = Result<
+    crate::owner::strategy_input_binding::StrategyInputCustodyReadbackV1,
+    crate::owner::strategy_input_binding::StrategyInputCustodyUnavailableV1,
+>;
+
+/// Re-reads the custody through the locking entry point in one throwaway caller transaction.
+async fn locked_persisted_strategy_input_custody_v1(
+    owner: &MarketDataOwnerPostgres,
+    claim: &crate::owner::strategy_input_binding::UntrustedStrategyInputCustodyClaimV1,
+) -> PersistedStrategyInputCustodyOutcomeV1 {
+    let mut transaction = owner.pool().begin().await.unwrap();
+    let outcome = super::strategy_input_binding_registry::reread_persisted_strategy_input_custody_for_update_v1(
+        &mut transaction,
+        claim,
+    )
+    .await;
+    transaction.commit().await.unwrap();
+    outcome
+}
+
+/// Re-reads the same custody through the non-locking entry point.
+async fn read_only_persisted_strategy_input_custody_v1(
+    owner: &MarketDataOwnerPostgres,
+    claim: &crate::owner::strategy_input_binding::UntrustedStrategyInputCustodyClaimV1,
+) -> PersistedStrategyInputCustodyOutcomeV1 {
+    let mut transaction = owner.pool().begin().await.unwrap();
+    let outcome = super::strategy_input_binding_registry::reread_persisted_strategy_input_custody_read_only_v1(
+        &mut transaction,
+        claim,
+    )
+    .await;
+    transaction.commit().await.unwrap();
+    outcome
+}
+
+/// Exercises the durable Composer input custody re-read against real persisted declarations.
+///
+/// This is the replacement path for a fixed in-memory acceptance corpus: every positive here is
+/// re-derived from the live PostgreSQL PIT, Universe, Source, Instrument Master, and Semantics
+/// dependencies inside the caller's own transaction, and every negative leaves no partial receipt.
+async fn persisted_strategy_input_custody_postgres_oracle_v1(
+    owner: &MarketDataOwnerPostgres,
+    fixture: &StrategyInputBindingRegistryFixtureV1,
+) {
+    use crate::owner::strategy_input_binding::{
+        StrategyInputCustodyUnavailableV1, UntrustedStrategyInputCustodyClaimV1,
+    };
+
+    let locked = locked_persisted_strategy_input_custody_v1;
+    let read_only = read_only_persisted_strategy_input_custody_v1;
+
+    let first = &fixture.binding_requests[0];
+    // Arrival order is deliberately reversed: the caller proposes a set, not a canonical order.
+    let claim = UntrustedStrategyInputCustodyClaimV1 {
+        research_request_identity: first.research_request_identity,
+        strategy_design_identity: first.strategy_design_identity,
+        pit_request_identity: first.pit_request_identity,
+        input_role_identities: fixture
+            .binding_requests
+            .iter()
+            .rev()
+            .map(|request| request.input_role_identity)
+            .collect(),
+        decision_cut: first.decision_cut,
+    };
+
+    let sealed = locked(owner, &claim).await.expect("complete custody");
+    assert_eq!(
+        read_only(owner, &claim).await.expect("complete custody"),
+        sealed
+    );
+    assert_eq!(sealed.bindings(), fixture.bindings.as_slice());
+    assert_eq!(sealed.frame().values().len(), fixture.bindings.len());
+    assert_eq!(sealed.observation_batch_digest(), fixture.batch.digest());
+    assert_eq!(sealed.decision_cut(), first.decision_cut);
+    assert_eq!(
+        sealed.research_request_identity(),
+        first.research_request_identity
+    );
+    assert_ne!(sealed.digest(), sealed.claim_identity());
+    assert_ne!(sealed.digest().as_bytes(), &[0; 32]);
+    let mut frame_binding_digests = BTreeSet::new();
+    for value in sealed.frame().values() {
+        frame_binding_digests.insert(value.binding_receipt_digest());
+    }
+    let mut owner_binding_digests = BTreeSet::new();
+    for binding in &fixture.bindings {
+        owner_binding_digests.insert(binding.digest());
+    }
+    assert_eq!(frame_binding_digests, owner_binding_digests);
+
+    // A role the Design never declared, another Design, and another PIT request are all unknown.
+    for mutate in [
+        (|claim: &mut UntrustedStrategyInputCustodyClaimV1| {
+            claim.input_role_identities.push(d(250));
+        }) as fn(&mut UntrustedStrategyInputCustodyClaimV1),
+        |claim| claim.strategy_design_identity = d(250),
+        |claim| claim.pit_request_identity = d(250),
+    ] {
+        let mut wrong = claim.clone();
+        mutate(&mut wrong);
+        assert_eq!(
+            locked(owner, &wrong).await,
+            Err(StrategyInputCustodyUnavailableV1::UnknownDeclaration)
+        );
+        assert_eq!(
+            read_only(owner, &wrong).await,
+            Err(StrategyInputCustodyUnavailableV1::UnknownDeclaration)
+        );
+    }
+
+    // The stored bytes name the R&D request; a claim that renames it cannot borrow the custody.
+    let mut renamed = claim.clone();
+    renamed.research_request_identity = d(250);
+    assert_eq!(
+        locked(owner, &renamed).await,
+        Err(StrategyInputCustodyUnavailableV1::ResearchRequestMismatch)
+    );
+
+    // Expired inputs fail closed in both directions around the stored decision cut.
+    let mut ahead = claim.clone();
+    ahead.decision_cut = first.decision_cut + 1;
+    assert_eq!(
+        locked(owner, &ahead).await,
+        Err(StrategyInputCustodyUnavailableV1::StaleDecisionCut)
+    );
+    let mut behind = claim.clone();
+    behind.decision_cut = first.decision_cut - 1;
+    assert_eq!(
+        locked(owner, &behind).await,
+        Err(StrategyInputCustodyUnavailableV1::UnexpectedDecisionCut)
+    );
+
+    let mut duplicated = claim.clone();
+    duplicated
+        .input_role_identities
+        .push(first.input_role_identity);
+    assert_eq!(
+        locked(owner, &duplicated).await,
+        Err(StrategyInputCustodyUnavailableV1::InvalidClaim)
+    );
+
+    // Omitting a persisted Design role cannot produce a positive partial custody.
+    let mut narrower = claim.clone();
+    narrower.input_role_identities.truncate(3);
+    assert_eq!(
+        locked(owner, &narrower).await,
+        Err(StrategyInputCustodyUnavailableV1::RoleCoverageMismatch)
+    );
+    assert_eq!(
+        read_only(owner, &narrower).await,
+        Err(StrategyInputCustodyUnavailableV1::RoleCoverageMismatch)
+    );
+
+    // Stored bytes are evidence, never authority: a moved Owner digest rejects the whole claim.
+    let tampered_role = first.input_role_identity;
+    let original: Vec<u8> = sqlx::query_scalar("SELECT owner_binding_digest FROM market_data_private.strategy_input_binding_declarations_v1 WHERE pit_request_identity=$1 AND strategy_design_identity=$2 AND input_role_identity=$3")
+        .bind(first.pit_request_identity.as_bytes().as_slice())
+        .bind(first.strategy_design_identity.as_bytes().as_slice())
+        .bind(tampered_role.as_bytes().as_slice())
+        .fetch_one(owner.pool())
+        .await
+        .unwrap();
+    sqlx::query("UPDATE market_data_private.strategy_input_binding_declarations_v1 SET owner_binding_digest=$4 WHERE pit_request_identity=$1 AND strategy_design_identity=$2 AND input_role_identity=$3")
+        .bind(first.pit_request_identity.as_bytes().as_slice())
+        .bind(first.strategy_design_identity.as_bytes().as_slice())
+        .bind(tampered_role.as_bytes().as_slice())
+        .bind(d(249).as_bytes().as_slice())
+        .execute(owner.pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        locked(owner, &claim).await,
+        Err(StrategyInputCustodyUnavailableV1::DeclarationUntrusted)
+    );
+    assert_eq!(
+        read_only(owner, &claim).await,
+        Err(StrategyInputCustodyUnavailableV1::DeclarationUntrusted)
+    );
+    sqlx::query("UPDATE market_data_private.strategy_input_binding_declarations_v1 SET owner_binding_digest=$4 WHERE pit_request_identity=$1 AND strategy_design_identity=$2 AND input_role_identity=$3")
+        .bind(first.pit_request_identity.as_bytes().as_slice())
+        .bind(first.strategy_design_identity.as_bytes().as_slice())
+        .bind(tampered_role.as_bytes().as_slice())
+        .bind(&original)
+        .execute(owner.pool())
+        .await
+        .unwrap();
+    assert_eq!(locked(owner, &claim).await.unwrap(), sealed);
+}
+
 async fn persist_historical_native_r0_fixture_v1(
     owner: &MarketDataOwnerPostgres,
     source: &SourceBindingCommit,
@@ -3635,8 +3825,13 @@ async fn instrument_master_postgres_oracle(owner_url: &str, reader_url: &str, ad
     let joined = owner.resolve_instrument_master(&exact, None).await.unwrap();
     assert_eq!(joined.canonical_bytes(), readback.canonical_bytes());
 
-    Box::pin(strategy_input_binding_registry_postgres_oracle(
+    let registry_fixture = Box::pin(strategy_input_binding_registry_postgres_oracle(
         &owner, &source, &readback, &clock, None,
+    ))
+    .await;
+    Box::pin(persisted_strategy_input_custody_postgres_oracle_v1(
+        &owner,
+        &registry_fixture,
     ))
     .await;
     let after: (i64, i64, i64, i64) = sqlx::query_as("SELECT (SELECT COUNT(*) FROM market_data_private.instrument_master_cuts_v1),(SELECT COUNT(*) FROM market_data_private.instrument_master_receipts_v1),(SELECT COUNT(*) FROM market_data_private.instrument_master_outbox_v1),(SELECT append_sequence FROM market_data_private.instrument_master_state_v1 WHERE singleton)").fetch_one(owner.pool()).await.unwrap();

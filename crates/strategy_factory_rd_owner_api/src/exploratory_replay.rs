@@ -28,6 +28,11 @@ use vibe_data::owner::{
     native_replay_scheduling_v1::NativeReplaySchedulingResolverV1,
 };
 use vibe_product_edge::{ProductEdgeAdmissionRequestV1, ProductEdgeError};
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use vibe_strategy_factory::exploratory_replay::{
+    ComposerBackedExploratoryReplayProposalV3, EXPLORATORY_REPLAY_MUTATION_EFFECT_V3,
+    EXPLORATORY_REPLAY_OPERATION_V3, EXPLORATORY_REPLAY_SCHEMA_V3,
+};
 #[cfg(test)]
 use vibe_strategy_factory::exploratory_replay::{
     ExploratoryReplayAvailabilityV1, ExploratoryReplayNextLegalActionV1,
@@ -879,6 +884,40 @@ pub(super) struct ExploratoryReplayOperationV2 {
     request: ReplayRequestDtoV2,
 }
 
+/// Only immutable locators are accepted from Product Edge. The positive Composer, TrialFamily,
+/// and Market Data facts are re-read by R&D during the Owner transaction.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ComposerBackedReplayOperationV3 {
+    request_identity: String,
+    trial_family_identity: String,
+    artifact_identity: String,
+    composer_locator:
+        vibe_strategy_factory::develop_composer_postgres_v2::DevelopComposerSealedReadLocatorV2,
+    market_data_locator:
+        vibe_data::owner::replay_market_facts_v2::ReplayCompositionBindingLocatorV1,
+    market_data_scope_digest: vibe_data::owner::source_binding::BindingDigest,
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+impl ComposerBackedReplayOperationV3 {
+    fn into_proposal(
+        self,
+        admission: vibe_product_edge::ProductEdgeAdmissionLocatorV1,
+    ) -> ComposerBackedExploratoryReplayProposalV3 {
+        ComposerBackedExploratoryReplayProposalV3 {
+            admission,
+            request_identity: self.request_identity,
+            trial_family_identity: self.trial_family_identity,
+            artifact_identity: self.artifact_identity,
+            composer_locator: self.composer_locator,
+            market_data_locator: self.market_data_locator,
+            market_data_scope_digest: self.market_data_scope_digest,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ExploratoryReplayResolveRequestV2 {
@@ -1010,6 +1049,78 @@ pub(super) async fn submit(
     {
         Ok(result) => (StatusCode::OK, Json(result)).into_response(),
         Err(e) => owner_error(&e, &request_identity),
+    }
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+pub(super) async fn submit_composer_backed_v3(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            "unbound",
+        );
+    }
+    let operation: ComposerBackedReplayOperationV3 = match serde_json::from_slice(&body) {
+        Ok(operation) => operation,
+        Err(_) => {
+            return rejection(
+                StatusCode::BAD_REQUEST,
+                "MALFORMED_TYPED_REQUEST",
+                "unbound",
+            );
+        }
+    };
+    let request_identity = operation.request_identity.clone();
+    if OpaqueIdentityV2::try_from(request_identity.clone()).is_err()
+        || operation.trial_family_identity.trim().is_empty()
+        || operation.artifact_identity.trim().is_empty()
+    {
+        return rejection(
+            StatusCode::BAD_REQUEST,
+            "INVALID_EXPLORATORY_REPLAY_REQUEST",
+            &request_identity,
+        );
+    }
+    let typed_payload = match serde_json::to_value(&operation) {
+        Ok(payload) => payload,
+        Err(_) => {
+            return rejection(
+                StatusCode::BAD_REQUEST,
+                "MALFORMED_TYPED_REQUEST",
+                &request_identity,
+            );
+        }
+    };
+    let admission = match state
+        .product_edge
+        .admit_request(ProductEdgeAdmissionRequestV1 {
+            request_identity: request_identity.clone(),
+            typed_payload,
+            operation: EXPLORATORY_REPLAY_OPERATION_V3.into(),
+            operation_schema: EXPLORATORY_REPLAY_SCHEMA_V3.into(),
+            target_owner: RESEARCH_OWNER_V1.into(),
+            requested_effects: vec![EXPLORATORY_REPLAY_MUTATION_EFFECT_V3.into()],
+            request_proof_digest: state.request_proof_digest.clone(),
+            audit_correlation: format!("rd-workbench:{request_identity}"),
+        })
+        .await
+    {
+        Ok(admission) => admission,
+        Err(error) => return product_edge_error(&error, &request_identity),
+    };
+    let proposal = operation.into_proposal(admission.locator().clone());
+    match state
+        .owner
+        .commit_composer_backed_exploratory_replay_request_v3(proposal)
+        .await
+    {
+        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
+        Err(error) => owner_error(&error, &request_identity),
     }
 }
 
@@ -1211,10 +1322,49 @@ fn rejection(status: StatusCode, code: &str, request_identity: &str) -> Response
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use super::*;
     use rstest::rstest;
     use sha2::Digest as _;
     use tower::ServiceExt;
+
+    use super::*;
+
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[test]
+    fn composer_v3_edge_payload_matches_owner_proposal_without_admission() {
+        let digest = vec![0_u8; 32];
+        let payload = json!({
+            "request_identity": "composer-replay-request-v3",
+            "trial_family_identity": "trial-family-v3",
+            "artifact_identity": "composer-artifact-v3",
+            "composer_locator": {
+                "schema_version": 2,
+                "request_identity": "composer-operation-v3",
+                "operation_receipt_identity": digest,
+                "artifact_locator": "composer-artifact-locator-v3",
+                "artifact_identity": digest,
+                "canonical_plan_digest": digest,
+                "design_digest": digest
+            },
+            "market_data_locator": {
+                "binding_identity": digest,
+                "binding_digest": digest
+            },
+            "market_data_scope_digest": digest
+        });
+        let operation: ComposerBackedReplayOperationV3 =
+            serde_json::from_value(payload.clone()).expect("locator-only V3 operation");
+        let proposal = operation.into_proposal(vibe_product_edge::ProductEdgeAdmissionLocatorV1 {
+            request_identity: "composer-replay-request-v3".into(),
+            admission_identity: "admission-v3".into(),
+            admission_digest: format!("sha256:{}", "0".repeat(64)),
+        });
+        let mut owner_payload = serde_json::to_value(proposal).expect("Owner V3 proposal");
+        owner_payload
+            .as_object_mut()
+            .expect("proposal object")
+            .remove("admission");
+        assert_eq!(owner_payload, payload);
+    }
 
     struct RepairedReplayOwnerStub {
         calls: AtomicUsize,

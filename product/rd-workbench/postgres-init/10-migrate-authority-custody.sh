@@ -178,6 +178,31 @@ CREATE TABLE IF NOT EXISTS public.rd_trial_family_candidate_experiments_v1 (
   committed_at_epoch_ms BIGINT NOT NULL,
   UNIQUE (trial_family_identity, attempt_ordinal, candidate_identity)
 );
+ALTER TABLE IF EXISTS public.rd_sealed_exploratory_replay_requests_v1 ADD COLUMN IF NOT EXISTS source_kind TEXT NOT NULL DEFAULT 'LEGACY_ARTIFACT_BUILD_V1';
+ALTER TABLE IF EXISTS public.rd_sealed_exploratory_replay_requests_v1 ADD COLUMN IF NOT EXISTS composer_source_json JSONB;
+ALTER TABLE IF EXISTS public.rd_sealed_exploratory_replay_requests_v1 ALTER COLUMN build_request_identity DROP NOT NULL;
+ALTER TABLE IF EXISTS public.rd_sealed_exploratory_replay_requests_v1 ALTER COLUMN attempt_identity DROP NOT NULL;
+ALTER TABLE IF EXISTS public.rd_sealed_exploratory_replay_requests_v1 ALTER COLUMN build_receipt_identity DROP NOT NULL;
+ALTER TABLE IF EXISTS public.rd_sealed_exploratory_replay_requests_v1 ALTER COLUMN artifact_family_binding_identity DROP NOT NULL;
+DO $source_shape$ BEGIN
+  IF pg_catalog.to_regclass('public.rd_sealed_exploratory_replay_requests_v1') IS NOT NULL
+     AND NOT EXISTS (
+       SELECT 1 FROM pg_catalog.pg_constraint
+        WHERE conrelid=pg_catalog.to_regclass('public.rd_sealed_exploratory_replay_requests_v1')
+          AND conname='rd_sealed_exploratory_replay_source_shape_v1' AND contype='c'
+     ) THEN
+    ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1
+      ADD CONSTRAINT rd_sealed_exploratory_replay_source_shape_v1 CHECK (
+        (source_kind='LEGACY_ARTIFACT_BUILD_V1' AND composer_source_json IS NULL
+         AND build_request_identity IS NOT NULL AND attempt_identity IS NOT NULL
+         AND build_receipt_identity IS NOT NULL AND artifact_family_binding_identity IS NOT NULL)
+        OR
+        (source_kind='COMPOSER_V3' AND composer_source_json IS NOT NULL
+         AND build_request_identity IS NULL AND attempt_identity IS NULL
+         AND build_receipt_identity IS NULL AND artifact_family_binding_identity IS NOT NULL)
+      );
+  END IF;
+END $source_shape$;
 ALTER TABLE IF EXISTS public.rd_sealed_exploratory_replay_requests_v1 ADD COLUMN IF NOT EXISTS v2_request_storage_digest TEXT;
 ALTER TABLE IF EXISTS public.rd_sealed_exploratory_replay_requests_v1 ADD COLUMN IF NOT EXISTS v2_receipt_storage_bytes BYTEA;
 ALTER TABLE IF EXISTS public.rd_sealed_exploratory_replay_requests_v1 ADD COLUMN IF NOT EXISTS v2_receipt_storage_digest TEXT;
@@ -219,6 +244,12 @@ AS $function$
             result_availability := 'STALE';
           END IF;
           IF sealed.lifecycle_state NOT IN ('FROZEN','REVOKED')
+             OR sealed.source_kind <> 'LEGACY_ARTIFACT_BUILD_V1'
+             OR sealed.composer_source_json IS NOT NULL
+             OR sealed.build_request_identity IS NULL
+             OR sealed.attempt_identity IS NULL
+             OR sealed.build_receipt_identity IS NULL
+             OR sealed.artifact_family_binding_identity IS NULL
              OR (requested_receipt_identity <> '' AND sealed.receipt_json->>'receipt_identity' <> requested_receipt_identity)
              OR sealed.frozen_json->>'schema_version' <> '1'
              OR coalesce(sealed.frozen_json->>'request_schema_version','1') <> sealed.request_schema_version::text
@@ -1038,6 +1069,7 @@ GRANT SELECT ON TABLE
   public.rd_trial_family_heads_v1,
   public.rd_trial_family_attempt_cuts_v2,
   public.rd_artifact_trial_family_bindings_v1,
+  public.rd_composer_artifact_family_bindings_v3,
   public.rd_artifact_build_attempts_v1,
   public.rd_strategy_artifacts_v1,
   public.rd_trial_family_members_v1,
@@ -1051,6 +1083,7 @@ REVOKE ALL ON TABLE
   public.rd_trial_family_heads_v1,
   public.rd_trial_family_attempt_cuts_v2,
   public.rd_artifact_trial_family_bindings_v1,
+  public.rd_composer_artifact_family_bindings_v3,
   public.rd_artifact_build_attempts_v1,
   public.rd_strategy_artifacts_v1,
   public.rd_trial_family_members_v1,
@@ -3954,12 +3987,16 @@ CREATE SCHEMA IF NOT EXISTS replay_policy_catalog_api AUTHORIZATION replay_polic
 CREATE SCHEMA IF NOT EXISTS composer_private AUTHORIZATION composer_owner;
 CREATE SCHEMA IF NOT EXISTS composer_owner_api AUTHORIZATION composer_owner;
 CREATE SCHEMA IF NOT EXISTS market_data_private AUTHORIZATION market_data_owner;
+CREATE SCHEMA IF NOT EXISTS market_data_rd_api AUTHORIZATION market_data_owner;
 ALTER SCHEMA replay_policy_catalog_private OWNER TO replay_policy_catalog_owner;
 ALTER SCHEMA replay_policy_catalog_api OWNER TO replay_policy_catalog_owner;
 ALTER SCHEMA composer_private OWNER TO composer_owner;
 ALTER SCHEMA composer_owner_api OWNER TO composer_owner;
 ALTER SCHEMA market_data_private OWNER TO market_data_owner;
+ALTER SCHEMA market_data_rd_api OWNER TO market_data_owner;
 REVOKE ALL ON SCHEMA replay_policy_catalog_private, replay_policy_catalog_api, composer_private, composer_owner_api, market_data_private FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
+REVOKE ALL ON SCHEMA market_data_rd_api FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
+GRANT USAGE ON SCHEMA market_data_rd_api TO rd_owner;
 GRANT USAGE ON SCHEMA replay_policy_catalog_api TO rd_owner, replay_policy_catalog_admin_writer;
 GRANT USAGE ON SCHEMA composer_owner_api TO rd_owner, rd_fact_writer, market_data_reader, market_data_owner;
 DO $market_data_owner_cutover$
@@ -3983,7 +4020,7 @@ BEGIN
     SELECT procedure.oid::pg_catalog.regprocedure AS identity
       FROM pg_catalog.pg_proc procedure
       JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
-     WHERE namespace.nspname='market_data_private'
+     WHERE namespace.nspname IN ('market_data_private','market_data_rd_api')
      ORDER BY procedure.oid
   LOOP
     EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO market_data_owner',object.identity);
@@ -3993,6 +4030,7 @@ $market_data_owner_cutover$;
 REVOKE ALL ON ALL TABLES IN SCHEMA market_data_private FROM PUBLIC, rd_owner, rd_fact_writer, market_data_reader;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA market_data_private FROM PUBLIC, rd_owner, rd_fact_writer, market_data_reader;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA market_data_private FROM PUBLIC, rd_owner, rd_fact_writer;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA market_data_rd_api FROM PUBLIC, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
 DO $catalog_composer_schema_acl_cutover$
 DECLARE grant_fact record;
 BEGIN

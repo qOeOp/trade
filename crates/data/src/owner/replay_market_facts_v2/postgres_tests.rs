@@ -1169,9 +1169,10 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
             },
         },
         replay_market_facts_v2::{
-            AuthenticatedComposerNativeJoinV1, ReplayCompositionContentLocatorV1,
-            ReplayCompositionLocatorOnlyIssuanceRequestV1, ReplayCompositionOwnerV1,
-            ReplayCompositionRequestLocatorV1, UntrustedComposerNativeJoinRequestV1,
+            AuthenticatedComposerNativeJoinV1, ReplayCompositionBindingLocatorV1,
+            ReplayCompositionContentLocatorV1, ReplayCompositionLocatorOnlyIssuanceRequestV1,
+            ReplayCompositionOwnerV1, ReplayCompositionRequestLocatorV1,
+            UntrustedComposerNativeJoinRequestV1,
             composition::{
                 ReplayCompositionBindingErrorV1, ReplayCompositionBindingIssuanceRequestV1,
             },
@@ -1182,6 +1183,9 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
             StrategyDesignJoinEntryV1, StrategyDesignJoinRoleV1, StrategyDesignNativeJoinReceiptV1,
             StrategyDesignRoleEntryV1, StrategyDesignRoleSetLocatorV1,
             StrategyDesignRoleSetReceiptV1,
+        },
+        strategy_input_binding::{
+            StrategyInputCustodyUnavailableV1, UntrustedStrategyInputCustodyClaimV1,
         },
     };
 
@@ -2014,6 +2018,83 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     );
     blocker.rollback().await.unwrap();
     let first = issue.await.unwrap().unwrap();
+    let (binding_identity, binding_digest): (Vec<u8>, Vec<u8>) = sqlx::query_as(
+        "SELECT binding_identity,binding_digest FROM market_data_private.replay_composition_bindings_v1",
+    )
+    .fetch_one(market_mutation_pool)
+    .await
+    .unwrap();
+    let binding_locator = ReplayCompositionBindingLocatorV1::from_untrusted(
+        BindingDigest::from_untrusted_bytes(binding_identity.try_into().unwrap()),
+        BindingDigest::from_untrusted_bytes(binding_digest.try_into().unwrap()),
+    );
+    let owner_cut = owner
+        .resolve_bound_replay_cut_v1(binding_locator)
+        .await
+        .unwrap();
+    let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+    let mut rd_transaction = rd_pool.begin().await.unwrap();
+    let rd_cut = owner
+        .resolve_bound_replay_cut_in_transaction_v1(&mut rd_transaction, binding_locator)
+        .await
+        .unwrap();
+    assert_eq!(rd_cut, owner_cut);
+    let first_role = &base.binding_requests[0];
+    let custody_claim = UntrustedStrategyInputCustodyClaimV1 {
+        research_request_identity: first_role.research_request_identity,
+        strategy_design_identity: first_role.strategy_design_identity,
+        pit_request_identity: first_role.pit_request_identity,
+        input_role_identities: base
+            .binding_requests
+            .iter()
+            .rev()
+            .map(|request| request.input_role_identity)
+            .collect(),
+        decision_cut: first_role.decision_cut,
+    };
+    let custody = crate::owner::postgres::strategy_input_binding_registry::
+        reread_persisted_strategy_input_custody_for_update_v1(&mut rd_transaction, &custody_claim)
+        .await
+        .expect("rd_owner re-derives durable Strategy Input receipts");
+    assert_eq!(custody.bindings(), base.bindings.as_slice());
+    assert_eq!(custody.frame().values().len(), base.bindings.len());
+    let mut missing_role = custody_claim.clone();
+    missing_role.input_role_identities.pop();
+    assert_eq!(
+        crate::owner::postgres::strategy_input_binding_registry::
+            reread_persisted_strategy_input_custody_for_update_v1(&mut rd_transaction, &missing_role)
+            .await,
+        Err(StrategyInputCustodyUnavailableV1::RoleCoverageMismatch)
+    );
+    rd_transaction.rollback().await.unwrap();
+    assert!(
+        sqlx::query("SELECT * FROM market_data_private.replay_composition_bindings_v1")
+            .fetch_optional(rd_pool)
+            .await
+            .is_err()
+    );
+    assert!(
+        sqlx::query("SELECT * FROM market_data_private.strategy_input_binding_declarations_v1")
+            .fetch_optional(rd_pool)
+            .await
+            .is_err()
+    );
+    for function in [
+        "market_data_rd_api.lock_strategy_input_declarations_v1(bytea,bytea)",
+        "market_data_rd_api.lock_pit_observation_batch_for_strategy_input_v1(bytea)",
+        "market_data_rd_api.lock_pit_observation_rows_for_strategy_input_v1(bytea)",
+        "market_data_rd_api.lock_source_for_strategy_input_v1(bytea)",
+        "market_data_rd_api.lock_universe_for_strategy_input_v1(bytea)",
+        "market_data_rd_api.lock_market_semantics_scope_for_strategy_input_v1(bytea)",
+        "market_data_rd_api.lock_market_semantics_readback_for_strategy_input_v1(bytea)",
+    ] {
+        let isolated: bool = sqlx::query_scalar("SELECT pg_catalog.has_function_privilege('rd_owner',$1,'EXECUTE') AND NOT pg_catalog.has_function_privilege('market_data_reader',$1,'EXECUTE')")
+            .bind(function)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+        assert!(isolated, "Market Data custody facade ACL: {function}");
+    }
     let fresh_owner = ReplayCompositionOwnerV1::connect(owner_url, reader_url)
         .await
         .unwrap();

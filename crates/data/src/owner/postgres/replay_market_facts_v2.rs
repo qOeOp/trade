@@ -25,9 +25,12 @@ use crate::owner::replay_market_facts_v2::{
         compose_replay_market_facts_v2, issue_replay_composition_binding_v1,
     },
     postgres::{
-        PreparedReplayMarketFactsStorageV2, persist_replay_composition_binding_in_transaction_v1,
+        PreparedReplayMarketFactsStorageV2, REPLAY_MARKET_RD_CUT_API_SCHEMA_V1,
+        persist_replay_composition_binding_in_transaction_v1,
         persist_replay_market_facts_in_transaction_v2,
+        recover_bound_replay_market_facts_for_rd_in_transaction_v2,
         recover_bound_replay_market_facts_readback_in_transaction_v2,
+        recover_replay_composition_binding_for_rd_in_transaction_v1,
         recover_replay_composition_binding_in_transaction_v1,
         recover_replay_market_facts_by_binding_in_transaction_v2,
     },
@@ -1107,73 +1110,30 @@ impl ReplayCompositionOwnerV1 {
             .begin()
             .await
             .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
-        let binding =
-            recover_replay_composition_binding_in_transaction_v1(&mut transaction, locator)
-                .await
-                .map_err(|_| ReplayCompositionBindingErrorV1::UnknownBinding)?;
-        let record = binding.record();
-        let pit = record
-            .native_locator(ReplayCompositionNativeLocatorKindV1::PitSnapshot)
-            .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
-        let instrument = record
-            .native_locator(ReplayCompositionNativeLocatorKindV1::InstrumentMaster)
-            .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
-        let aggregate = super::load_pit_for_update(&mut transaction, pit.identity, false)
-            .await
-            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?
-            .ok_or(ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
-        let pit_locator = aggregate.receipt().locator().clone();
-        if pit.digest != pit_locator.fact_digest
-            || record.replay_request_identity() != pit_locator.request_identity
-            || record.replay_request_digest() != pit_locator.request_digest
-        {
-            return Err(ReplayCompositionBindingErrorV1::DigestMismatch);
-        }
-        let request =
-            super::super::replay_market_facts_v2::UntrustedReplayMarketFactsRequestV2::new(
-                pit_locator,
-                record.replay_start_event_ns(),
-                record.replay_end_event_ns_exclusive(),
-            );
-        let market_facts = recover_bound_replay_market_facts_readback_in_transaction_v2(
-            &mut transaction,
-            &request,
-            *locator.binding_identity().as_bytes(),
-        )
-        .await
-        .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
-        let instrument_row = sqlx::query(
-            "SELECT request_identity FROM market_data_private.instrument_master_cuts_v1 WHERE cut_identity=$1",
-        )
-        .bind(instrument.identity.as_bytes().as_slice())
-        .fetch_optional(&mut *transaction)
-        .await
-        .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?
-        .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
-        let instrument_request_identity = digest_column(&instrument_row, "request_identity")?;
-        let instrument_master = super::load_durable_instrument_readback(
-            &mut transaction,
-            instrument_request_identity,
-            false,
-        )
-        .await
-        .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?
-        .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
-
-        if instrument_master.cut().identity() != instrument.identity
-            || instrument_master.cut().digest() != instrument.digest
-        {
-            return Err(ReplayCompositionBindingErrorV1::DigestMismatch);
-        }
+        let resolved =
+            resolve_bound_replay_cut_in_transaction_v1(&mut transaction, locator).await?;
         transaction
             .commit()
             .await
             .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
-        Ok(ResolvedReplayCompositionCutV1::from_owner_resolution(
-            binding,
-            market_facts,
-            instrument_master,
-        ))
+        Ok(resolved)
+    }
+
+    /// Recovers one exact bound Replay cut inside the caller's existing transaction.
+    ///
+    /// This facade neither opens nor terminalizes the transaction. The binding identity remains the
+    /// only lookup coordinate, and Market Data performs the same sealed PIT, Replay facts, and
+    /// Instrument Master verification as [`Self::resolve_bound_replay_cut_v1`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the binding, PIT aggregate, facts, or transaction is unavailable.
+    pub async fn resolve_bound_replay_cut_in_transaction_v1(
+        &self,
+        transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        locator: ReplayCompositionBindingLocatorV1,
+    ) -> Result<ResolvedReplayCompositionCutV1, ReplayCompositionBindingErrorV1> {
+        resolve_bound_replay_cut_for_rd_in_transaction_v1(transaction, locator).await
     }
 
     /// Recovers the byte-identical issuance response by the identity known before first send.
@@ -1915,6 +1875,248 @@ impl ReplayCompositionOwnerV1 {
         StrategyDesignNativeJoinReceiptV1::from_durable_attestation(locator, &bytes, digest)
             .map_err(|_| ReplayCompositionBindingErrorV1::DependencyMismatch)
     }
+}
+
+async fn resolve_bound_replay_cut_in_transaction_v1(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    locator: ReplayCompositionBindingLocatorV1,
+) -> Result<ResolvedReplayCompositionCutV1, ReplayCompositionBindingErrorV1> {
+    let binding = recover_replay_composition_binding_in_transaction_v1(transaction, locator)
+        .await
+        .map_err(|_| ReplayCompositionBindingErrorV1::UnknownBinding)?;
+    resolve_bound_replay_cut_from_binding_in_transaction_v1(
+        transaction,
+        locator,
+        binding,
+        ReplayCutReaderV1::MarketOwner,
+    )
+    .await
+}
+
+/// Reads one exact Market Data composition cut in the existing R&D transaction.
+///
+/// The database session must be the isolated `rd_owner` principal. The Market Data-owned
+/// definer functions lock the binding, PIT, facts, and Instrument Master rows; this path
+/// does not open a second connection or grant R&D raw-table access.
+pub(in crate::owner) async fn resolve_bound_replay_cut_for_rd_in_transaction_v1(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    locator: ReplayCompositionBindingLocatorV1,
+) -> Result<ResolvedReplayCompositionCutV1, ReplayCompositionBindingErrorV1> {
+    verify_rd_replay_cut_transport_v1(transaction).await?;
+    let binding = recover_replay_composition_binding_for_rd_in_transaction_v1(transaction, locator)
+        .await
+        .map_err(|_| ReplayCompositionBindingErrorV1::UnknownBinding)?;
+    resolve_bound_replay_cut_from_binding_in_transaction_v1(
+        transaction,
+        locator,
+        binding,
+        ReplayCutReaderV1::RdOwner,
+    )
+    .await
+}
+
+pub(super) async fn verify_rd_replay_cut_transport_v1(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<(), ReplayCompositionBindingErrorV1> {
+    let isolated: bool = sqlx::query_scalar(
+        "SELECT session_user='rd_owner'
+                AND current_user='rd_owner'
+                AND pg_catalog.pg_get_userbyid(namespace.nspowner)='market_data_owner'
+                AND pg_catalog.has_schema_privilege(current_user,namespace.oid,'USAGE')
+                AND NOT pg_catalog.has_schema_privilege(current_user,namespace.oid,'CREATE')
+                AND NOT EXISTS (
+                    SELECT 1 FROM pg_catalog.aclexplode(COALESCE(namespace.nspacl,pg_catalog.acldefault('n',namespace.nspowner))) acl
+                    LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+                    WHERE acl.grantee<>namespace.nspowner
+                      AND (role.rolname IS DISTINCT FROM 'rd_owner' OR acl.privilege_type<>'USAGE' OR acl.is_grantable)
+                )
+                AND NOT pg_catalog.has_schema_privilege(current_user,'market_data_private','USAGE')
+                AND NOT EXISTS (
+                    SELECT 1 FROM pg_catalog.pg_class relation
+                    JOIN pg_catalog.pg_namespace private_namespace ON private_namespace.oid=relation.relnamespace
+                    WHERE private_namespace.nspname='market_data_private'
+                      AND relation.relkind IN ('r','p','v','m','f')
+                      AND pg_catalog.has_table_privilege(current_user,relation.oid,'SELECT')
+                )
+           FROM pg_catalog.pg_namespace namespace
+          WHERE namespace.nspname='market_data_rd_api'",
+    )
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?
+    .unwrap_or(false);
+    if !isolated {
+        return Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable);
+    }
+
+    for function in [
+        "market_data_rd_api.lock_replay_composition_binding_v1(bytea)",
+        "market_data_rd_api.lock_pit_snapshot_for_replay_v1(bytea)",
+        "market_data_rd_api.lock_instrument_master_for_replay_v1(bytea)",
+        "market_data_rd_api.lock_replay_market_facts_for_replay_v1(bytea)",
+        "market_data_rd_api.lock_strategy_input_declarations_v1(bytea,bytea)",
+        "market_data_rd_api.lock_source_for_strategy_input_v1(bytea)",
+        "market_data_rd_api.lock_pit_observation_batch_for_strategy_input_v1(bytea)",
+        "market_data_rd_api.lock_pit_observation_rows_for_strategy_input_v1(bytea)",
+        "market_data_rd_api.lock_universe_for_strategy_input_v1(bytea)",
+        "market_data_rd_api.lock_market_semantics_scope_for_strategy_input_v1(bytea)",
+        "market_data_rd_api.lock_market_semantics_readback_for_strategy_input_v1(bytea)",
+    ] {
+        let name = function
+            .split_once('(')
+            .map(|(name, _)| name)
+            .ok_or(ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+        let source = REPLAY_MARKET_RD_CUT_API_SCHEMA_V1
+            .iter()
+            .chain(super::rd_strategy_input_custody::SCHEMA_V1.iter())
+            .find_map(|statement| {
+                statement
+                    .strip_prefix("CREATE OR REPLACE FUNCTION ")
+                    .filter(|definition| definition.starts_with(name))
+                    .and_then(|definition| {
+                        definition
+                            .split_once(" AS $function$")
+                            .map(|(_, source)| source)
+                    })
+                    .and_then(|source| source.strip_suffix("$function$"))
+            })
+            .ok_or(ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+        let exact: bool = sqlx::query_scalar(
+            "SELECT pg_catalog.pg_get_userbyid(procedure.proowner)='market_data_owner'
+                    AND language.lanname='sql'
+                    AND procedure.prosrc=$2
+                    AND procedure.prosecdef AND procedure.provolatile='v'
+                    AND procedure.proparallel='u' AND NOT procedure.proleakproof
+                    AND procedure.prokind='f' AND procedure.proretset
+                    AND procedure.pronargs=$3
+                    AND procedure.proconfig=ARRAY['search_path=pg_catalog']::text[]
+                    AND pg_catalog.has_function_privilege('rd_owner',procedure.oid,'EXECUTE')
+                    AND (SELECT count(*)=2
+                           AND count(*) FILTER (WHERE acl.grantee=procedure.proowner AND acl.privilege_type='EXECUTE')=1
+                           AND count(*) FILTER (WHERE role.rolname='rd_owner' AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=1
+                           AND count(*) FILTER (WHERE acl.grantee=0 OR acl.privilege_type<>'EXECUTE' OR (acl.grantee<>procedure.proowner AND (role.rolname<>'rd_owner' OR acl.is_grantable)))=0
+                         FROM pg_catalog.aclexplode(COALESCE(procedure.proacl,pg_catalog.acldefault('f',procedure.proowner))) acl
+                         LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee)
+               FROM pg_catalog.pg_proc procedure
+               JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang
+              WHERE procedure.oid=pg_catalog.to_regprocedure($1)",
+        )
+        .bind(function)
+        .bind(source)
+        .bind(i16::from(function.contains("bytea,bytea")) + 1)
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?
+        .unwrap_or(false);
+        if !exact {
+            return Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable);
+        }
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+enum ReplayCutReaderV1 {
+    MarketOwner,
+    RdOwner,
+}
+
+async fn resolve_bound_replay_cut_from_binding_in_transaction_v1(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    locator: ReplayCompositionBindingLocatorV1,
+    binding: crate::owner::replay_market_facts_v2::ReplayCompositionBindingReadbackV1,
+    reader: ReplayCutReaderV1,
+) -> Result<ResolvedReplayCompositionCutV1, ReplayCompositionBindingErrorV1> {
+    let record = binding.record();
+    let pit = record
+        .native_locator(ReplayCompositionNativeLocatorKindV1::PitSnapshot)
+        .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
+    let instrument = record
+        .native_locator(ReplayCompositionNativeLocatorKindV1::InstrumentMaster)
+        .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
+    let aggregate = match reader {
+        ReplayCutReaderV1::MarketOwner => {
+            super::load_pit_for_update(transaction, pit.identity, false)
+                .await
+                .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?
+        }
+        ReplayCutReaderV1::RdOwner => {
+            let row =
+                sqlx::query("SELECT * FROM market_data_rd_api.lock_pit_snapshot_for_replay_v1($1)")
+                    .bind(pit.identity.as_bytes().as_slice())
+                    .fetch_optional(&mut **transaction)
+                    .await
+                    .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+            row.map(|row| super::decode_pit_row(&row, false))
+                .transpose()
+                .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?
+        }
+    }
+    .ok_or(ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+    let market_data_scope_digest = aggregate.fact().request().scope_digest;
+    let pit_locator = aggregate.receipt().locator().clone();
+    if pit.digest != pit_locator.fact_digest
+        || record.replay_request_identity() != pit_locator.request_identity
+        || record.replay_request_digest() != pit_locator.request_digest
+    {
+        return Err(ReplayCompositionBindingErrorV1::DigestMismatch);
+    }
+    let request = super::super::replay_market_facts_v2::UntrustedReplayMarketFactsRequestV2::new(
+        pit_locator,
+        record.replay_start_event_ns(),
+        record.replay_end_event_ns_exclusive(),
+    );
+    let market_facts = match reader {
+        ReplayCutReaderV1::MarketOwner => {
+            recover_bound_replay_market_facts_readback_in_transaction_v2(
+                transaction,
+                &request,
+                *locator.binding_identity().as_bytes(),
+            )
+            .await
+        }
+        ReplayCutReaderV1::RdOwner => {
+            recover_bound_replay_market_facts_for_rd_in_transaction_v2(
+                transaction,
+                &request,
+                *locator.binding_identity().as_bytes(),
+            )
+            .await
+        }
+    }
+    .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+    let instrument_master = match reader {
+        ReplayCutReaderV1::MarketOwner => {
+            let instrument_row = sqlx::query(
+                "SELECT request_identity FROM market_data_private.instrument_master_cuts_v1 WHERE cut_identity=$1",
+            )
+            .bind(instrument.identity.as_bytes().as_slice())
+            .fetch_optional(&mut **transaction)
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?
+            .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
+            let request_identity = digest_column(&instrument_row, "request_identity")?;
+            super::load_durable_instrument_readback(transaction, request_identity, false).await
+        }
+        ReplayCutReaderV1::RdOwner => {
+            super::load_durable_instrument_readback_for_rd_replay(transaction, instrument.identity)
+                .await
+        }
+    }
+    .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?
+    .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
+
+    if instrument_master.cut().identity() != instrument.identity
+        || instrument_master.cut().digest() != instrument.digest
+    {
+        return Err(ReplayCompositionBindingErrorV1::DigestMismatch);
+    }
+    Ok(ResolvedReplayCompositionCutV1::from_owner_resolution(
+        binding,
+        market_data_scope_digest,
+        market_facts,
+        instrument_master,
+    ))
 }
 
 async fn verify_composer_cut_contract_v1(

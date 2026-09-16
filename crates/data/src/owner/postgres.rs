@@ -15,12 +15,14 @@ mod calendar;
 mod corporate_action;
 mod market_semantics;
 mod observation_census;
+mod rd_strategy_input_custody;
 mod reference_fact_catalog;
 mod reference_fact_coordinates;
 mod replay_market_facts_v2;
+pub(super) use replay_market_facts_v2::resolve_bound_replay_cut_for_rd_in_transaction_v1;
 mod sample_projection_v4;
 mod session;
-mod strategy_input_binding_registry;
+pub(in crate::owner) mod strategy_input_binding_registry;
 #[cfg(feature = "isolated-event-replay-acceptance")]
 pub(in crate::owner) mod strategy_input_event_binding_v1;
 #[cfg(not(feature = "isolated-event-replay-acceptance"))]
@@ -417,6 +419,13 @@ impl MarketDataOwnerPostgres {
                 .await
                 .map_err(|_| SourceBindingError::StoreUnavailable)?;
         }
+        for statement in super::replay_market_facts_v2::postgres::REPLAY_MARKET_RD_CUT_API_SCHEMA_V1
+        {
+            sqlx::query(*statement)
+                .execute(&mut *transaction)
+                .await
+                .map_err(|_| SourceBindingError::StoreUnavailable)?;
+        }
         sample_projection_v4::install(&mut transaction)
             .await
             .map_err(|_| SourceBindingError::StoreUnavailable)?;
@@ -466,6 +475,12 @@ impl MarketDataOwnerPostgres {
         )
         .await
         .map_err(|_| SourceBindingError::StoreUnavailable)?;
+        for statement in rd_strategy_input_custody::SCHEMA_V1 {
+            sqlx::query(*statement)
+                .execute(&mut *transaction)
+                .await
+                .map_err(|_| SourceBindingError::StoreUnavailable)?;
+        }
         observation_census::install_observation_census_schema_v1(&mut transaction)
             .await
             .map_err(|_| SourceBindingError::StoreUnavailable)?;
@@ -4195,6 +4210,36 @@ async fn load_durable_instrument_readback(
         .await
         .map_err(|_| InstrumentMasterError::StoreUnavailable)?
         .ok_or(InstrumentMasterError::StoreUntrusted)?;
+    decode_durable_instrument_readback_row(&row, request_identity).map(Some)
+}
+
+async fn load_durable_instrument_readback_for_rd_replay(
+    transaction: &mut Transaction<'_, Postgres>,
+    cut_identity: InstrumentMasterIdentity,
+) -> Result<Option<InstrumentMasterReadbackV1>, InstrumentMasterError> {
+    let row =
+        sqlx::query("SELECT * FROM market_data_rd_api.lock_instrument_master_for_replay_v1($1)")
+            .bind(cut_identity.as_bytes().as_slice())
+            .fetch_optional(&mut **transaction)
+            .await
+            .map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+    row.map(|row| {
+        let request_identity: Vec<u8> = row
+            .try_get("request_identity")
+            .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
+        decode_durable_instrument_readback_row(
+            &row,
+            digest_from_bytes(&request_identity)
+                .map_err(|_| InstrumentMasterError::StoreUntrusted)?,
+        )
+    })
+    .transpose()
+}
+
+fn decode_durable_instrument_readback_row(
+    row: &sqlx::postgres::PgRow,
+    request_identity: InstrumentMasterIdentity,
+) -> Result<InstrumentMasterReadbackV1, InstrumentMasterError> {
     let row_digest =
         |column: &'static str| -> Result<InstrumentMasterIdentity, InstrumentMasterError> {
             let bytes: Vec<u8> = row
@@ -4254,7 +4299,7 @@ async fn load_durable_instrument_readback(
     {
         return Err(InstrumentMasterError::StoreUntrusted);
     }
-    build_instrument_readback(&receipt).map(Some)
+    build_instrument_readback(&receipt)
 }
 
 async fn current_instrument_clock(
@@ -4419,6 +4464,18 @@ async fn load_source_for_update(
     .map_err(|_| SourceBindingError::StoreUnavailable)?;
     row.map(|row| decode_source_row(&row, require_current_head))
         .transpose()
+}
+
+async fn load_source_for_rd_strategy_input(
+    transaction: &mut Transaction<'_, Postgres>,
+    binding_id: BindingDigest,
+) -> Result<Option<SourceBindingStoredAggregate>, SourceBindingError> {
+    let row = sqlx::query("SELECT * FROM market_data_rd_api.lock_source_for_strategy_input_v1($1)")
+        .bind(binding_id.as_bytes().as_slice())
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|_| SourceBindingError::StoreUnavailable)?;
+    row.map(|row| decode_source_row(&row, false)).transpose()
 }
 
 fn decode_source_row(
@@ -5017,6 +5074,18 @@ async fn load_pit_for_update(
     load_pit(transaction, snapshot_identity, require_current_head, true).await
 }
 
+async fn load_pit_for_rd_strategy_input(
+    transaction: &mut Transaction<'_, Postgres>,
+    snapshot_identity: BindingDigest,
+) -> Result<Option<PitSnapshotCommitAggregate>, PitSnapshotError> {
+    let row = sqlx::query("SELECT * FROM market_data_rd_api.lock_pit_snapshot_for_replay_v1($1)")
+        .bind(snapshot_identity.as_bytes().as_slice())
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    row.map(|row| decode_pit_row(&row, false)).transpose()
+}
+
 async fn load_pit(
     transaction: &mut Transaction<'_, Postgres>,
     snapshot_identity: BindingDigest,
@@ -5266,8 +5335,26 @@ async fn load_pit_observation_batch(
     aggregate: &PitSnapshotCommitAggregate,
     lock: bool,
 ) -> Result<Option<StoredPitObservationBatch>, PitSnapshotError> {
+    load_pit_observation_batch_with_mode(transaction, aggregate, lock, false).await
+}
+
+async fn load_pit_observation_batch_for_rd_strategy_input(
+    transaction: &mut Transaction<'_, Postgres>,
+    aggregate: &PitSnapshotCommitAggregate,
+) -> Result<Option<StoredPitObservationBatch>, PitSnapshotError> {
+    load_pit_observation_batch_with_mode(transaction, aggregate, true, true).await
+}
+
+async fn load_pit_observation_batch_with_mode(
+    transaction: &mut Transaction<'_, Postgres>,
+    aggregate: &PitSnapshotCommitAggregate,
+    lock: bool,
+    rd_owner: bool,
+) -> Result<Option<StoredPitObservationBatch>, PitSnapshotError> {
     let fact = aggregate.fact();
-    let header_query = if lock {
+    let header_query = if rd_owner {
+        "SELECT * FROM market_data_rd_api.lock_pit_observation_batch_for_strategy_input_v1($1)"
+    } else if lock {
         "SELECT source_binding_identity,source_binding_lineage_root,source_binding_lineage_version,batch_digest,batch_bytes,row_count FROM market_data_private.pit_observation_batches_v1 WHERE snapshot_identity=$1 FOR UPDATE"
     } else {
         "SELECT source_binding_identity,source_binding_lineage_root,source_binding_lineage_version,batch_digest,batch_bytes,row_count FROM market_data_private.pit_observation_batches_v1 WHERE snapshot_identity=$1"
@@ -5305,7 +5392,9 @@ async fn load_pit_observation_batch(
     let bytes: Vec<u8> = header
         .try_get("batch_bytes")
         .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
-    let rows_query = if lock {
+    let rows_query = if rd_owner {
+        "SELECT * FROM market_data_rd_api.lock_pit_observation_rows_for_strategy_input_v1($1)"
+    } else if lock {
         "SELECT ordinal,symbolic_key,member_key,row_bytes FROM market_data_private.pit_observation_rows_v1 WHERE snapshot_identity=$1 ORDER BY ordinal FOR UPDATE"
     } else {
         "SELECT ordinal,symbolic_key,member_key,row_bytes FROM market_data_private.pit_observation_rows_v1 WHERE snapshot_identity=$1 ORDER BY ordinal"

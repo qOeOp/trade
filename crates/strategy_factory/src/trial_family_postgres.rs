@@ -134,6 +134,18 @@ pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
         "p:binding_identity:::false:false:true:", "u:artifact_identity:::false:false:true:",
         "u:build_receipt_identity:::false:false:true:"
     ], [primary "binding_identity", unique "artifact_identity", unique "build_receipt_identity"]),
+    table!("rd_composer_artifact_family_bindings_v3", &["rd_exploratory_replay_api_owner"], [
+        ("binding_identity", "text"), ("artifact_locator", "text"),
+        ("composer_request_identity", "text"), ("intent_identity", "text"),
+        ("trial_family_identity", "text"), ("census_frontier_identity", "text"),
+        ("binding_digest", "text"), ("binding_json", "jsonb"),
+        ("receipt_json", "jsonb"), ("committed_at_epoch_ms", "bigint")
+    ], [
+        "f:trial_family_identity:public.rd_trial_families_v1(trial_family_identity):a:a:s:false:false:true:",
+        "p:binding_identity:::false:false:true:",
+        "u:artifact_locator:::false:false:true:",
+        "u:composer_request_identity:::false:false:true:"
+    ], [primary "binding_identity", unique "artifact_locator", unique "composer_request_identity"]),
     table!("rd_owner_outbox_v1", &["rd_exploratory_replay_api_owner"], [
         ("event_identity", "text"), ("aggregate_identity", "text"), ("event_kind", "text"),
         ("payload_digest", "text"), ("payload_json", "jsonb"),
@@ -167,6 +179,10 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), TrialFamilyError> {
         (
             "rd_artifact_trial_family_bindings_v1",
             "CREATE TABLE IF NOT EXISTS rd_artifact_trial_family_bindings_v1 (binding_identity TEXT PRIMARY KEY, artifact_identity TEXT NOT NULL UNIQUE, build_receipt_identity TEXT NOT NULL UNIQUE, intent_identity TEXT NOT NULL, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), binding_digest TEXT NOT NULL, binding_json JSONB NOT NULL, binding_receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
+        ),
+        (
+            "rd_composer_artifact_family_bindings_v3",
+            "CREATE TABLE IF NOT EXISTS rd_composer_artifact_family_bindings_v3 (binding_identity TEXT PRIMARY KEY, artifact_locator TEXT NOT NULL UNIQUE, composer_request_identity TEXT NOT NULL UNIQUE, intent_identity TEXT NOT NULL, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), census_frontier_identity TEXT NOT NULL, binding_digest TEXT NOT NULL, binding_json JSONB NOT NULL, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
         ),
         (
             "rd_owner_outbox_v1",
@@ -208,6 +224,9 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), TrialFamilyError> {
             .map_err(storage)?;
     }
     crate::replay_policy_catalog_postgres_v2::migrate(pool)
+        .await
+        .map_err(|e| TrialFamilyError::Unavailable(e.to_string()))?;
+    crate::iteration_result_admission_postgres::migrate(pool)
         .await
         .map_err(|e| TrialFamilyError::Unavailable(e.to_string()))?;
     crate::iteration_decision_postgres::migrate(pool)
@@ -990,6 +1009,7 @@ pub(crate) async fn load_trial_family_census_v2_in_transaction(
         intent_identity,
         research_receipt_identity,
         PostgresReadLockMode::ForShare,
+        None,
     )
     .await
 }
@@ -999,6 +1019,7 @@ async fn load_trial_family_census_v2_with_lock_mode_in_transaction(
     intent_identity: &str,
     research_receipt_identity: &str,
     lock_mode: PostgresReadLockMode,
+    requested_frontier: Option<(&str, &str)>,
 ) -> Result<TrialFamilyCensusReadbackV2, TrialFamilyError> {
     let roots_query = lock_mode.query(
         "SELECT trial_family_identity, intent_identity, root_digest, root_json, root_receipt_json, root_storage_bytes, root_storage_digest, root_receipt_storage_bytes, root_receipt_storage_digest, initial_frontier_storage_bytes, initial_frontier_storage_digest, committed_at_epoch_ms FROM rd_trial_families_v1 WHERE intent_identity = $1",
@@ -1113,6 +1134,7 @@ async fn load_trial_family_census_v2_with_lock_mode_in_transaction(
         receipts.push(receipt);
     }
     let mut latest = None;
+    let mut historical = None;
 
     for (index, row) in cut_rows.iter().enumerate() {
         let census: TrialFamilyCensusFrontierV2 =
@@ -1202,6 +1224,12 @@ async fn load_trial_family_census_v2_with_lock_mode_in_transaction(
             lock_mode,
         )
         .await?;
+        if requested_frontier.is_some_and(|(identity, digest)| {
+            cut.census_frontier.frontier_identity() == identity
+                && cut.census_frontier.frontier_digest() == digest
+        }) {
+            historical = Some(cut.clone());
+        }
         latest = Some(cut);
     }
     let latest = latest
@@ -1241,7 +1269,29 @@ async fn load_trial_family_census_v2_with_lock_mode_in_transaction(
         &latest.census_frontier,
         crate::native_replay_rd_sources_v2::TRIAL_FAMILY_FRONTIER_STORAGE_DOMAIN_V1,
     )?;
-    Ok(latest)
+    if requested_frontier.is_some() {
+        historical.ok_or_else(|| {
+            TrialFamilyError::Unavailable("exact historical V2 census cut missing".to_string())
+        })
+    } else {
+        Ok(latest)
+    }
+}
+
+/// Reads an exact immutable Census prefix after validating the whole chain and current head.
+pub(crate) async fn load_trial_family_census_v2_at_frontier_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    trial_family_identity: &str,
+    frontier_identity: &str,
+    frontier_digest: &str,
+) -> Result<TrialFamilyCensusReadbackV2, TrialFamilyError> {
+    load_trial_family_census_v2_by_family_with_lock_mode_in_transaction(
+        transaction,
+        trial_family_identity,
+        PostgresReadLockMode::ForShare,
+        Some((frontier_identity, frontier_digest)),
+    )
+    .await
 }
 
 pub(crate) async fn load_trial_family_census_v2_by_family_in_transaction(
@@ -1252,6 +1302,7 @@ pub(crate) async fn load_trial_family_census_v2_by_family_in_transaction(
         transaction,
         trial_family_identity,
         PostgresReadLockMode::ForShare,
+        None,
     )
     .await
 }
@@ -1264,6 +1315,7 @@ pub(crate) async fn load_trial_family_census_v2_by_family_snapshot_in_transactio
         transaction,
         trial_family_identity,
         PostgresReadLockMode::Snapshot,
+        None,
     )
     .await
 }
@@ -1272,6 +1324,7 @@ async fn load_trial_family_census_v2_by_family_with_lock_mode_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     trial_family_identity: &str,
     lock_mode: PostgresReadLockMode,
+    requested_frontier: Option<(&str, &str)>,
 ) -> Result<TrialFamilyCensusReadbackV2, TrialFamilyError> {
     let family_query = lock_mode.query(
         "SELECT intent_identity FROM rd_trial_families_v1 WHERE trial_family_identity = $1",
@@ -1325,6 +1378,7 @@ async fn load_trial_family_census_v2_by_family_with_lock_mode_in_transaction(
         &intent_identity,
         &payload.research_receipt_identity,
         lock_mode,
+        requested_frontier,
     )
     .await?;
 
@@ -1619,7 +1673,7 @@ async fn verify_binding_outbox_in_transaction(
     Ok(())
 }
 
-async fn persist_outbox(
+pub(crate) async fn persist_outbox(
     transaction: &mut Transaction<'_, Postgres>,
     event_identity: String,
     aggregate_identity: &str,
@@ -1778,7 +1832,7 @@ fn verify_storage_record(
     Ok(())
 }
 
-fn verify_outbox_storage(
+pub(crate) fn verify_outbox_storage(
     row: &sqlx::postgres::PgRow,
     payload: &impl Serialize,
 ) -> Result<(), TrialFamilyError> {

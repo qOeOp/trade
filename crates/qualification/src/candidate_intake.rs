@@ -1424,6 +1424,58 @@ mod tests {
         }
     }
 
+    /// Builds the sixteen canonical bindings a Protected Replay Request proposal must carry,
+    /// with the authority-derived fields pinned to the frozen basis.
+    fn canonical_protected_bindings(
+        source: &ProtectedReplayAuthoritySourceV1,
+    ) -> Vec<crate::protected_replay_request::ProtectedReplayBindingV1> {
+        use crate::protected_replay_request::{
+            ProtectedReplayBindingFieldV1, ProtectedReplayBindingV1,
+        };
+
+        let mut bindings = ProtectedReplayBindingFieldV1::ALL
+            .into_iter()
+            .enumerate()
+            .map(|(index, field)| ProtectedReplayBindingV1 {
+                field,
+                identity: format!("requested-binding-{index}"),
+                digest: digest(char::from_digit((index % 10) as u32, 10).unwrap()),
+            })
+            .collect::<Vec<_>>();
+
+        for (index, identity_value, digest_value) in [
+            (0, &source.plan_identity, &source.plan_digest),
+            (1, &source.artifact_identity, &source.artifact_digest),
+            (
+                12,
+                &source.purge_embargo_policy_identity,
+                &source.purge_embargo_policy_digest,
+            ),
+            (
+                14,
+                &source.multiplicity_basis_identity,
+                &source.multiplicity_basis_digest,
+            ),
+            (
+                15,
+                &source.alternatives_thresholds_identity,
+                &source.alternatives_thresholds_digest,
+            ),
+        ] {
+            bindings[index].identity = identity_value.clone();
+            bindings[index].digest = digest_value.clone();
+        }
+
+        for (index, identity_value) in [
+            (9, &source.cost_model_identity),
+            (10, &source.slippage_model_identity),
+            (11, &source.capacity_model_identity),
+        ] {
+            bindings[index].identity = identity_value.clone();
+        }
+        bindings
+    }
+
     fn fixture() -> (CandidateIntakeRequestV1, ResolvedRdSelectionEnvelopeV1) {
         let evidence_cut = EvidenceCutV1 {
             decision_policy_identity: "rd-decision-policy".into(),
@@ -1633,7 +1685,6 @@ mod tests {
     #[rstest::rstest]
     fn protected_request_freezes_one_canonical_cell_and_all_sixteen_bindings() {
         use crate::protected_replay_request::{
-            ProtectedReplayBindingFieldV1, ProtectedReplayBindingV1,
             ProtectedReplayRequestProposalV1, decode_protected_replay_request_v1,
             form_protected_replay_request_v1,
         };
@@ -1643,46 +1694,7 @@ mod tests {
             form_candidate_intake_receipt_v1(&intake_request, &envelope, 20, true).unwrap();
         let source = protected_replay_authority_source_v1(&receipt, &envelope).unwrap();
         assert_eq!(source.plan_cells.len(), 4);
-        let mut bindings = ProtectedReplayBindingFieldV1::ALL
-            .into_iter()
-            .enumerate()
-            .map(|(index, field)| ProtectedReplayBindingV1 {
-                field,
-                identity: format!("requested-binding-{index}"),
-                digest: digest(char::from_digit((index % 10) as u32, 10).unwrap()),
-            })
-            .collect::<Vec<_>>();
-
-        for (index, identity_value, digest_value) in [
-            (0, &source.plan_identity, &source.plan_digest),
-            (1, &source.artifact_identity, &source.artifact_digest),
-            (
-                12,
-                &source.purge_embargo_policy_identity,
-                &source.purge_embargo_policy_digest,
-            ),
-            (
-                14,
-                &source.multiplicity_basis_identity,
-                &source.multiplicity_basis_digest,
-            ),
-            (
-                15,
-                &source.alternatives_thresholds_identity,
-                &source.alternatives_thresholds_digest,
-            ),
-        ] {
-            bindings[index].identity = identity_value.clone();
-            bindings[index].digest = digest_value.clone();
-        }
-
-        for (index, identity_value) in [
-            (9, &source.cost_model_identity),
-            (10, &source.slippage_model_identity),
-            (11, &source.capacity_model_identity),
-        ] {
-            bindings[index].identity = identity_value.clone();
-        }
+        let mut bindings = canonical_protected_bindings(&source);
         let proposal = ProtectedReplayRequestProposalV1::new(
             "protected-request-1".into(),
             receipt.review_request_identity().into(),
@@ -1716,6 +1728,87 @@ mod tests {
                 bindings,
             )
             .is_err()
+        );
+    }
+
+    /// The Origin admission path and the request-set terminal share one storage table but not one
+    /// canonical encoding, so the seal cannot decode every stored row for a review request. It
+    /// scopes the census on `request_json->>'schema_version'='2'` and the `frozen_basis` cell-set
+    /// path, matching the sealed `qualification_api` census. This pins the two JSON shapes that
+    /// predicate reads: change either and the seal silently stops finding its own members.
+    #[rstest::rstest]
+    fn origin_and_current_request_storage_carry_the_census_discriminator() {
+        use crate::protected_replay_request::{
+            ProtectedReplayRequestProposalV1, decode_protected_replay_request_v1,
+            decode_protected_replay_request_v2, form_protected_replay_request_v1,
+        };
+        use vibe_backtest_owner_contracts::{
+            ProtectedEvaluationComparisonRuleV1, ProtectedEvaluationStageV1,
+            ProtectedEvaluationTimeEvidenceV1, ProtectedReplayRequestDtoV2,
+        };
+
+        let (intake_request, envelope) = fixture();
+        let receipt =
+            form_candidate_intake_receipt_v1(&intake_request, &envelope, 20, true).unwrap();
+        let source = protected_replay_authority_source_v1(&receipt, &envelope).unwrap();
+        let proposal = ProtectedReplayRequestProposalV1::new(
+            "protected-request-1".into(),
+            receipt.review_request_identity().into(),
+            receipt.receipt_identity().into(),
+            receipt.receipt_digest().into(),
+            0,
+            canonical_protected_bindings(&source),
+        )
+        .unwrap();
+        let request = form_protected_replay_request_v1(&proposal, &receipt, &source).unwrap();
+
+        // Exactly the bytes `submit_protected_replay_request_v1` writes to
+        // `qualification_protected_replay_requests_v1.{request_json,canonical_request_bytes}`.
+        let origin_json = request.as_json().unwrap();
+        let origin_bytes = serde_json::to_vec(&origin_json).unwrap();
+        assert_eq!(
+            decode_protected_replay_request_v1(&origin_bytes).unwrap(),
+            request
+        );
+        assert_eq!(origin_json["schema_version"], serde_json::json!(1));
+        // The encoding partition the census predicate exists to respect.
+        assert!(decode_protected_replay_request_v2(&origin_bytes).is_err());
+
+        // The shape `submit_protected_replay_request_v2` stores for the same frozen basis.
+        let current_json = serde_json::to_value(ProtectedReplayRequestDtoV2 {
+            schema_version: 2,
+            request_identity: request.request_identity().to_string(),
+            request_digest: request.request_digest().to_string(),
+            frozen_basis: request.as_contract_dto(),
+            request_time_evidence: ProtectedEvaluationTimeEvidenceV1 {
+                cut_kind: "PROTECTED_EVALUATION".into(),
+                stage: ProtectedEvaluationStageV1::Request,
+                head_identity: [7; 32],
+                head_digest: [8; 32],
+                clock_identity: "protected-clock".into(),
+                clock_epoch: "protected-epoch".into(),
+                monotonic_sequence: 1,
+                wall_observed: 10,
+                decision_cut: 10,
+                valid_through: 20,
+                restart_continuity_digest: [9; 32],
+                uncertainty_bound: 1,
+                skew_bound: 1,
+                comparison_rule: ProtectedEvaluationComparisonRuleV1::ExclusiveValidThrough,
+                direct_predecessor_head_identity: None,
+                direct_predecessor_head_digest: None,
+                epoch_successor_proof: None,
+            },
+        })
+        .unwrap();
+        assert_eq!(current_json["schema_version"], serde_json::json!(2));
+        assert_eq!(
+            current_json["frozen_basis"]["plan_cell_set_identity"].as_str(),
+            Some(source.plan_cell_set_identity.as_str())
+        );
+        assert_eq!(
+            current_json["frozen_basis"]["plan_cell_set_digest"].as_str(),
+            Some(source.plan_cell_set_digest.as_str())
         );
     }
 

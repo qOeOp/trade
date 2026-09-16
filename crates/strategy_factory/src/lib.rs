@@ -32,6 +32,12 @@ mod complex_strategy_ir_tests;
 mod complex_strategy_program;
 #[cfg(test)]
 mod complex_strategy_program_tests;
+#[expect(
+    dead_code,
+    reason = "Composer Artifact-family binding awaits its durable Owner commit and Replay consumer"
+)]
+mod composer_artifact_family_binding_v3;
+mod composer_replay_intent_v3;
 mod decision;
 #[allow(
     dead_code,
@@ -81,6 +87,12 @@ pub mod iteration_analysis_postgres;
 mod iteration_candidate;
 pub mod iteration_decision;
 mod iteration_decision_postgres;
+pub mod iteration_result_admission;
+#[allow(
+    dead_code,
+    reason = "the R&D result-admission custody awaits its Owner API and Product Edge seam"
+)]
+mod iteration_result_admission_postgres;
 pub mod successor_intent;
 mod successor_intent_postgres;
 pub use iteration_candidate::{
@@ -130,6 +142,11 @@ pub mod native_replay_execution_bundle_owner_v2;
     reason = "T139 binding issuer awaits the T140 typed Owner-readback adapter"
 )]
 pub mod native_replay_execution_input_binding_v1;
+#[allow(
+    dead_code,
+    reason = "the two-frame binding awaits the typed Market Data Owner sequence capability"
+)]
+pub mod native_replay_execution_input_binding_v2;
 pub mod native_replay_execution_preparation_resolver_v2;
 #[allow(
     dead_code,

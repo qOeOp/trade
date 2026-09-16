@@ -11,6 +11,7 @@ pub mod instrument_master;
 pub mod instrument_master_v2;
 pub mod instrument_master_v2_postgres;
 pub mod native_replay_scheduling_v1;
+pub mod native_replay_scheduling_v2;
 pub mod observation_census;
 pub mod pit_snapshot;
 pub mod replay_market_facts_v2;
@@ -51,6 +52,17 @@ pub use postgres::bar_joined_cut_acceptance_v1;
 
 mod postgres;
 mod store_admission;
+
+/// Transaction-scoped re-read of the persisted Market Data strategy input binding custody.
+///
+/// A caller composing real Strategy Factory inputs passes its own open R&D transaction and a
+/// [`strategy_input_binding::UntrustedStrategyInputCustodyClaimV1`]. Market Data re-reads the
+/// write-once declarations, re-derives every binding from its live native dependencies, and seals
+/// one joint frame; a wrong or stale claim is rejected without a partial receipt.
+pub use postgres::strategy_input_binding_registry::{
+    reread_persisted_strategy_input_custody_for_update_v1,
+    reread_persisted_strategy_input_custody_read_only_v1,
+};
 
 /// Opens the sole configured Instrument Owner economic-terms authority.
 ///

@@ -101,8 +101,11 @@ pub(crate) struct TargetSetActualFillConsumptionV1 {
     pub(crate) instrument: String,
     pub(crate) intent_identity: [u8; 16],
     pub(crate) disposition: String,
+    pub(crate) position_intent: String,
     pub(crate) cumulative_filled_grid_units: u64,
     pub(crate) filled_native_quantity: String,
+    pub(crate) position_before_grid_units: i64,
+    pub(crate) position_after_grid_units: i64,
     pub(crate) checkpoint_before: [u8; 32],
     pub(crate) checkpoint_after: [u8; 32],
 }
@@ -119,6 +122,11 @@ pub(crate) struct TargetSetBacktestTraceV2 {
     pub(crate) equity_snapshots: Vec<TargetSetEquitySnapshotObservationV2>,
     pub(crate) canonical_target_sets: Vec<Vec<u8>>,
     pub(crate) actual_fill_consumptions: Vec<TargetSetActualFillConsumptionV1>,
+    /// Exact native grid position each member held when the real run stopped.
+    ///
+    /// It is recorded from the Backtest cache itself, before the frame-exhaustion check, so a
+    /// faulted run still reports what the venue actually held.
+    pub(crate) final_member_grid_units: Option<[i64; TARGET_SET_MEMBER_COUNT]>,
     pub(crate) venue_atomicity_claimed: bool,
     pub(crate) cold_restart_claimed: bool,
 }
@@ -133,6 +141,11 @@ struct NativeOrderBindingV2 {
 #[derive(Clone, Debug, Default)]
 struct MemberExecutionStateV2 {
     desired_protection: ProtectionStateV1,
+    /// Position intent of the reconciled target set this member's native order is advancing.
+    ///
+    /// A FILL lifecycle event carries no intent of its own, so a fill is attributed to the intent
+    /// the Host committed for the member when it accepted the target set.
+    desired_position_intent: Option<PositionIntentV1>,
     desired_grid_target: Option<i64>,
     active_protection_order: Option<ClientOrderId>,
     protection_orders: BTreeSet<ClientOrderId>,
@@ -459,6 +472,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
                     checkpoint_after: *checkpoint_after.as_bytes(),
                     trace: trace.encode().to_vec(),
                 });
+            self.members[ordinal].desired_position_intent = Some(trace.position_intent);
             self.members[ordinal].desired_grid_target = Some(grid_targets[ordinal]);
             self.apply_desired_protection(ordinal, trace.protection)?;
         }
@@ -856,8 +870,16 @@ impl BacktestTargetSetProgramHostStrategyV2 {
                         _ => unreachable!("fill-only branch checked above"),
                     }
                     .to_owned(),
+                    position_intent: position_intent_name(
+                        self.members[binding.member_ordinal]
+                            .desired_position_intent
+                            .context("member fill omitted its committed position intent")?,
+                    )
+                    .to_owned(),
                     cumulative_filled_grid_units: cumulative,
                     filled_native_quantity: native_filled.to_string(),
+                    position_before_grid_units: trace.position_before_units,
+                    position_after_grid_units: trace.position_after_units,
                     checkpoint_before: *checkpoint_before.as_bytes(),
                     checkpoint_after: *checkpoint_after.as_bytes(),
                 },
@@ -1099,6 +1121,11 @@ impl DataActor for BacktestTargetSetProgramHostStrategyV2 {
             for bar_type in self.bar_types {
                 self.unsubscribe_bars(bar_type, None, None);
             }
+            let final_member_grid_units = try_map_pair(|ordinal| {
+                let instrument = self.cache().try_instrument(&self.instrument_ids[ordinal])?;
+                self.cached_position_grid_units(ordinal, &instrument)
+            })?;
+            self.trace.borrow_mut().final_member_grid_units = Some(final_member_grid_units);
             anyhow::ensure!(
                 self.universe_frames.is_empty() && self.pending_bars.is_empty(),
                 "Backtest target-set frames were not exhausted"
