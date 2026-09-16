@@ -192,6 +192,28 @@ pub(crate) async fn read_research_bounded_feature_program_in_transaction_v1(
     Ok(stored)
 }
 
+/// Rechecks an immutable BFP freeze after Research has advanced beyond IntentFrozen. The caller
+/// supplies Research reconstructed from the authenticated original View preimage and current
+/// Owner custody; this port still rereads the freeze and outbox by exact locator.
+pub(crate) async fn read_research_bounded_feature_program_historical_in_transaction_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    request_locator: &str,
+    original_research: &CurrentResearchDevelopCustodyV2,
+    catalog: PrimitiveCatalogV1,
+) -> Result<FrozenResearchBoundedFeatureProgramV1, ResearchBoundedFeatureProgramFreezeErrorV1> {
+    if request_locator != original_research.request_locator() {
+        return Err(ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable);
+    }
+    let stored = load_stored_freeze(transaction, request_locator, false)
+        .await?
+        .ok_or(ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)?;
+    if !verify_stored_outbox(transaction, request_locator, &stored).await? {
+        return Err(ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable);
+    }
+    validate_stored_freeze(original_research, &stored, catalog)?;
+    Ok(stored)
+}
+
 fn validate_stored_freeze(
     custody: &CurrentResearchDevelopCustodyV2,
     stored: &FrozenResearchBoundedFeatureProgramV1,

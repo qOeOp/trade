@@ -1541,6 +1541,11 @@ impl PostgresQualificationOwnerV1 {
             .await
             .map_err(storage)?;
 
+        // The sealed `qualification_api` request-set census scopes the members it will admit to
+        // current-schema rows bound to this exact frozen basis. Origin (`schema_version=1`) rows
+        // stay registered for their own replay and disposition terminal but carry a different
+        // canonical encoding, so reading them here would fail the set decode and strand the
+        // frontier. Select on the same predicate the authority census uses.
         let rows = sqlx::query(
             "SELECT request.request_json,request.canonical_request_bytes,request.storage_digest,\
                     receipt.receipt_json \
@@ -1548,10 +1553,27 @@ impl PostgresQualificationOwnerV1 {
              JOIN public.qualification_protected_replay_request_receipts_v1 receipt \
                ON receipt.request_identity=request.request_identity \
              WHERE request.review_request_identity=$1 \
+               AND request.intake_receipt_identity=$2 \
+               AND request.holdout_reservation_identity=$3 \
+               AND request.protected_plan_identity=$4 \
+               AND request.protected_plan_digest=$5 \
+               AND request.request_json->>'schema_version'='2' \
+               AND request.request_json#>>'{frozen_basis,plan_cell_set_identity}'=$6 \
+               AND request.request_json#>>'{frozen_basis,plan_cell_set_digest}'=$7 \
              ORDER BY request.plan_cell_identity \
              FOR UPDATE OF request,receipt",
         )
         .bind(review_request_identity)
+        .bind(intake_receipt_identity)
+        .bind(
+            intake
+                .holdout_reservation_identity()
+                .ok_or_else(|| unavailable("ADMITTED holdout reservation is unavailable"))?,
+        )
+        .bind(&source.plan_identity)
+        .bind(&source.plan_digest)
+        .bind(&source.plan_cell_set_identity)
+        .bind(&source.plan_cell_set_digest)
         .fetch_all(&mut *transaction)
         .await
         .map_err(storage)?;

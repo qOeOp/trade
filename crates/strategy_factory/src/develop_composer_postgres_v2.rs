@@ -14,28 +14,19 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
-use vibe_data::owner::replay_market_facts_v2::AuthenticatedComposerNativeJoinV1;
-use vibe_data::owner::source_binding::BindingDigest;
-use vibe_data::owner::strategy_design_role_set::{
-    StrategyDesignNativeJoinReceiptV1, StrategyDesignRoleSetErrorV1,
-    StrategyDesignRoleSetLocatorV1, StrategyDesignRoleSetReceiptV1,
-};
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 use vibe_data::owner::strategy_design_role_set::{
     StrategyDesignRoleSetReadbackV1, StrategyDesignRoleSetResolverV1,
 };
-
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
-use crate::source_research_composer_postgres_v2::SealedPostgresSourceResearchComposerV2;
-
-use crate::develop_composer_operation_v2::{
-    DevelopComposerA0BuildPortV2, DevelopComposerDurableEvidenceLocatorV2,
-    DevelopComposerFinalEvidencePortV2, DevelopComposerLockedEvidenceV2,
-    DevelopComposerOperationDispositionV2, DevelopComposerOperationResponseV2,
-    DevelopComposerPreflightV2, DevelopComposerRunRequestV2, StoredDevelopComposerPositiveV2,
-    build_positive_record_from_preflight_v2, conflict_response, preflight_develop_composer_v2,
-    request_digest, resolve_positive_record_v2,
+use vibe_data::owner::{
+    replay_market_facts_v2::AuthenticatedComposerNativeJoinV1,
+    source_binding::BindingDigest,
+    strategy_design_role_set::{
+        StrategyDesignNativeJoinReceiptV1, StrategyDesignRoleSetErrorV1,
+        StrategyDesignRoleSetLocatorV1, StrategyDesignRoleSetReceiptV1,
+    },
 };
+
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::develop_composer_operation_v2::{
     DevelopComposerV3BuildRestartPortV2, PreparedDevelopComposerA0V2,
@@ -44,7 +35,19 @@ use crate::develop_composer_operation_v2::{
 };
 #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
 use crate::plugin_wire_v2::PLUGIN_FRAME_ABI_V2;
-use crate::strategy_plan_v2::project_strategy_design_role_set_v1;
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use crate::source_research_composer_postgres_v2::SealedPostgresSourceResearchComposerV2;
+use crate::{
+    develop_composer_operation_v2::{
+        DevelopComposerA0BuildPortV2, DevelopComposerDurableEvidenceLocatorV2,
+        DevelopComposerFinalEvidencePortV2, DevelopComposerLockedEvidenceV2,
+        DevelopComposerOperationDispositionV2, DevelopComposerOperationResponseV2,
+        DevelopComposerPreflightV2, DevelopComposerRunRequestV2, StoredDevelopComposerPositiveV2,
+        build_positive_record_from_preflight_v2, conflict_response, preflight_develop_composer_v2,
+        request_digest, resolve_positive_record_v2,
+    },
+    strategy_plan_v2::project_strategy_design_role_set_v1,
+};
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::{
     develop_plugin_build_v3::DevelopPluginBuildProducerV3,
@@ -670,7 +673,8 @@ END";
 ///
 /// Constructing or changing this locator grants no authority. The R&D-owned read port resolves the
 /// complete claim against one persisted positive operation and returns only a sealed readback.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct DevelopComposerSealedReadLocatorV2 {
     pub schema_version: u16,
     pub request_identity: String,
@@ -1402,6 +1406,101 @@ pub(crate) async fn read_accepted_in_transaction(
     if !locator_matches_record_keys(locator, &record) {
         return Err(DevelopComposerSealedReadErrorV2::Unavailable);
     }
+    seal_accepted_record(locator, record, locked_evidence)
+}
+
+/// Re-locks current Research and strategy-input Owner evidence in the same Replay transaction
+/// that reads Composer custody. The binding owner is an internal Owner port, never caller data.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+pub(crate) async fn read_accepted_for_replay_in_transaction<B>(
+    transaction: &mut Transaction<'_, Postgres>,
+    locator: &DevelopComposerSealedReadLocatorV2,
+    binding_owner: &B,
+    read_cut_epoch_ms: u64,
+) -> Result<SealedDevelopComposerReadbackV2, DevelopComposerSealedReadErrorV2>
+where
+    B: crate::source_research_composer_postgres_v2::SourceResearchComposerBindingOwnerV2,
+{
+    let record =
+        load_record_via_sealed_routine_in_transaction(transaction, &locator.request_identity)
+            .await?
+            .ok_or(DevelopComposerSealedReadErrorV2::Unavailable)?;
+    if !locator_matches_record_keys(locator, &record) {
+        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+    }
+    let evidence_locator = DevelopComposerDurableEvidenceLocatorV2::from_record(&record);
+    let locked_evidence = Box::pin(
+        crate::source_research_composer_postgres_v2::lock_resolve_evidence_with_binding(
+            binding_owner,
+            transaction,
+            &evidence_locator,
+            read_cut_epoch_ms,
+        ),
+    )
+    .await
+    .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    let response =
+        crate::source_research_composer_postgres_v2::resolve_composer_record_for_replay_in_transaction(
+            transaction,
+            &record,
+            locked_evidence,
+            &evidence_locator,
+            read_cut_epoch_ms,
+        )
+        .await
+        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    seal_readback(locator, record, &response)
+}
+
+/// Revalidates the original Composer positive after Research View has atomically advanced to
+/// the exact native Replay named by the caller's independently verified custody. The append-only
+/// View transition proves that original Replay even if the live View later advances.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+pub(crate) async fn read_accepted_for_replay_historical_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    locator: &DevelopComposerSealedReadLocatorV2,
+    pre_transition_view: &crate::product_edge::ResearchViewV1,
+    expected_current_view: &crate::product_edge::ResearchViewV1,
+    expected_exploration: &crate::product_edge::ResearchExplorationViewV1,
+    expected_binding: &crate::product_edge::ResearchComposerArtifactViewV3,
+) -> Result<SealedDevelopComposerReadbackV2, DevelopComposerSealedReadErrorV2> {
+    let record =
+        load_record_via_sealed_routine_in_transaction(transaction, &locator.request_identity)
+            .await?
+            .ok_or(DevelopComposerSealedReadErrorV2::Unavailable)?;
+    if !locator_matches_record_keys(locator, &record)
+        || expected_binding.artifact_locator != locator.artifact_locator
+        || expected_binding.composer_request_identity != locator.request_identity
+        || expected_binding.composer_operation_receipt_digest
+            != format!(
+                "sha256:{}",
+                locator
+                    .operation_receipt_identity
+                    .as_bytes()
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect::<String>()
+            )
+    {
+        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+    }
+    let response = crate::source_research_composer_postgres_v2::resolve_composer_record_for_historical_replay_in_transaction(
+        transaction,
+        &record,
+        pre_transition_view,
+        expected_current_view,
+        expected_exploration,
+        expected_binding,
+    )
+    .await?;
+    seal_readback(locator, record, &response)
+}
+
+fn seal_accepted_record(
+    locator: &DevelopComposerSealedReadLocatorV2,
+    record: StoredDevelopComposerPositiveV2,
+    locked_evidence: DevelopComposerLockedEvidenceV2,
+) -> Result<SealedDevelopComposerReadbackV2, DevelopComposerSealedReadErrorV2> {
     let response = resolve_positive_record_v2(&record, locked_evidence)
         .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
     seal_readback(locator, record, &response)

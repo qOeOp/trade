@@ -53,6 +53,22 @@ pub use composition::{
     ReplayCompositionRequestLocatorV1, UntrustedReplayMarketFactsCompositionRequestV1,
 };
 
+/// Resolves one exact Market Data cut inside an existing R&D Owner transaction.
+///
+/// This entry requires the isolated `rd_owner` database role and grants no direct access to
+/// Market Data private tables. The returned readback is constructed only after the Owner's
+/// exact binding, PIT, Replay facts, and Instrument Master checks succeed.
+///
+/// # Errors
+///
+/// Returns unavailable when the role, API contract, locator, or any bound fact is invalid.
+pub async fn resolve_bound_replay_cut_for_rd_in_transaction_v1(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    locator: ReplayCompositionBindingLocatorV1,
+) -> Result<ResolvedReplayCompositionCutV1, ReplayCompositionBindingErrorV1> {
+    super::postgres::resolve_bound_replay_cut_for_rd_in_transaction_v1(transaction, locator).await
+}
+
 /// Deployment-fixed Market Data Owner adapter for W3 positive composition.
 ///
 /// Its database handle is private and its positive issuance method accepts the non-deserializable
@@ -66,6 +82,7 @@ pub struct ReplayCompositionOwnerV1 {
 #[derive(Debug, Eq, PartialEq)]
 pub struct ResolvedReplayCompositionCutV1 {
     binding: ReplayCompositionBindingReadbackV1,
+    market_data_scope_digest: BindingDigest,
     market_facts: ReplayMarketFactsReadbackV2,
     instrument_master: InstrumentMasterReadbackV1,
 }
@@ -73,11 +90,13 @@ pub struct ResolvedReplayCompositionCutV1 {
 impl ResolvedReplayCompositionCutV1 {
     pub(in crate::owner) const fn from_owner_resolution(
         binding: ReplayCompositionBindingReadbackV1,
+        market_data_scope_digest: BindingDigest,
         market_facts: ReplayMarketFactsReadbackV2,
         instrument_master: InstrumentMasterReadbackV1,
     ) -> Self {
         Self {
             binding,
+            market_data_scope_digest,
             market_facts,
             instrument_master,
         }
@@ -86,6 +105,12 @@ impl ResolvedReplayCompositionCutV1 {
     #[must_use]
     pub const fn binding(&self) -> &ReplayCompositionBindingReadbackV1 {
         &self.binding
+    }
+
+    /// Returns the exact scope digest from the Owner-locked PIT request.
+    #[must_use]
+    pub const fn market_data_scope_digest(&self) -> BindingDigest {
+        self.market_data_scope_digest
     }
 
     #[must_use]

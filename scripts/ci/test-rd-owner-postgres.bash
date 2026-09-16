@@ -1941,17 +1941,17 @@ BEGIN
      AND relation.relpersistence='p'
      AND owner.rolname='rd_owner'
      AND (
-       SELECT pg_catalog.count(*)=22
+       SELECT pg_catalog.count(*)=24
           AND pg_catalog.bool_and(CASE attribute.attname
             WHEN 'request_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
             WHEN 'request_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
-            WHEN 'build_request_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
-            WHEN 'attempt_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+            WHEN 'build_request_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+            WHEN 'attempt_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
             WHEN 'intent_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
             WHEN 'trial_family_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
             WHEN 'artifact_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
-            WHEN 'build_receipt_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
-            WHEN 'artifact_family_binding_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+            WHEN 'build_receipt_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+            WHEN 'artifact_family_binding_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
             WHEN 'census_frontier_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
             WHEN 'frozen_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND attribute.attnotnull
             WHEN 'receipt_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND attribute.attnotnull
@@ -1965,6 +1965,8 @@ BEGIN
             WHEN 'v2_request_storage_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
             WHEN 'v2_receipt_storage_bytes' THEN attribute.atttypid='pg_catalog.bytea'::pg_catalog.regtype AND NOT attribute.attnotnull
             WHEN 'v2_receipt_storage_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+            WHEN 'source_kind' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+            WHEN 'composer_source_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
             ELSE false
           END)
          FROM pg_catalog.pg_attribute attribute
@@ -2060,6 +2062,7 @@ BEGIN
          'artifact_family_binding_identity','census_frontier_identity','frozen_json','receipt_json',
          'lifecycle_state','committed_at_epoch_ms','request_schema_version',
          'v2_canonical_request_bytes','v2_meaning_digest','v2_seal_digest','v2_receipt_json',
+         'source_kind','composer_source_json',
          'v2_request_storage_digest','v2_receipt_storage_bytes','v2_receipt_storage_digest'
        ]::name[]
        AND pg_catalog.array_agg(attribute.atttypid ORDER BY attribute.attnum)=ARRAY[
@@ -2073,11 +2076,12 @@ BEGIN
          'pg_catalog.int2'::pg_catalog.regtype,'pg_catalog.bytea'::pg_catalog.regtype,
          'pg_catalog.text'::pg_catalog.regtype,'pg_catalog.text'::pg_catalog.regtype,
          'pg_catalog.jsonb'::pg_catalog.regtype,'pg_catalog.text'::pg_catalog.regtype,
+         'pg_catalog.jsonb'::pg_catalog.regtype,'pg_catalog.text'::pg_catalog.regtype,
          'pg_catalog.bytea'::pg_catalog.regtype,'pg_catalog.text'::pg_catalog.regtype
        ]::oid[]
        AND pg_catalog.array_agg(attribute.attnotnull ORDER BY attribute.attnum)=ARRAY[
-         true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,
-         false,false,false,false,false,false,false
+         true,true,false,false,true,true,true,false,false,true,true,true,true,true,true,
+         false,false,false,false,true,false,false,false,false
        ]
          FROM pg_catalog.pg_attribute attribute
         WHERE attribute.attrelid=source_oid
@@ -2171,6 +2175,7 @@ BEGIN
          'artifact_family_binding_identity','census_frontier_identity','frozen_json','receipt_json',
          'lifecycle_state','committed_at_epoch_ms','request_schema_version',
          'v2_canonical_request_bytes','v2_meaning_digest','v2_seal_digest','v2_receipt_json',
+         'source_kind','composer_source_json',
          'v2_request_storage_digest','v2_receipt_storage_bytes','v2_receipt_storage_digest'
        ]::name[]
        AND pg_catalog.array_agg(attribute.atttypid ORDER BY attribute.attnum)=ARRAY[
@@ -2184,11 +2189,12 @@ BEGIN
          'pg_catalog.int2'::pg_catalog.regtype,'pg_catalog.bytea'::pg_catalog.regtype,
          'pg_catalog.text'::pg_catalog.regtype,'pg_catalog.text'::pg_catalog.regtype,
          'pg_catalog.jsonb'::pg_catalog.regtype,'pg_catalog.text'::pg_catalog.regtype,
+         'pg_catalog.jsonb'::pg_catalog.regtype,'pg_catalog.text'::pg_catalog.regtype,
          'pg_catalog.bytea'::pg_catalog.regtype,'pg_catalog.text'::pg_catalog.regtype
        ]::oid[]
        AND pg_catalog.array_agg(attribute.attnotnull ORDER BY attribute.attnum)=ARRAY[
-         true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,
-         false,false,false,false,false,false,false
+         true,true,false,false,true,true,true,false,false,true,true,true,true,true,true,
+         false,false,false,false,true,false,false,false,false
        ]
          FROM pg_catalog.pg_attribute attribute
         WHERE attribute.attrelid=target_oid

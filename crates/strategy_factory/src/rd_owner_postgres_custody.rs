@@ -453,6 +453,7 @@ async fn native_research_custody_from_boundary(
     let view_identity_is_valid =
         if view.phase == crate::product_edge::ResearchViewPhase::ExplorationActive {
             view.schema_version == 2
+                && view.composer_artifact.is_none()
                 && view.exploration.as_ref().is_some_and(|exploration| {
                     exploration.trial_family_identity == intent_v2.trial_family_identity
                 })
@@ -460,6 +461,7 @@ async fn native_research_custody_from_boundary(
                     == Some(view.projection_identity.as_str())
         } else {
             view.schema_version == 1
+                && view.composer_artifact.is_none()
                 && view.exploration.is_none()
                 && view.projection_identity == canonical_research_view_identity_v2(&view)
         };
@@ -590,8 +592,9 @@ use crate::{
         SourcedResearchGoalV2, StoredAdmittedResearchRequestV2, StoredIndependenceBasisV1,
         StoredProtectedFeedbackProjectionV1, StoredRejectedResearchRequestV2,
         TrialFamilyProposalV1, canonical_research_view_identity_v2,
-        canonical_research_view_identity_v3, canonical_v2_intent_identity, decide_commit,
-        decide_commit_v2, decide_rejected_commit_v2, semantic_digest, semantic_digest_v2,
+        canonical_research_view_identity_v3, canonical_v2_intent_identity,
+        composer_exploration_research_view_is_valid_v3, decide_commit, decide_commit_v2,
+        decide_rejected_commit_v2, semantic_digest, semantic_digest_v2,
         terminal_research_view_identity, validate_goal_request_v2,
         validate_goal_request_v2_meaning, validate_legacy_goal_meaning,
         verify_research_admission_v1, verify_research_admission_v2,
@@ -2764,6 +2767,11 @@ async fn resolve_research_admission_hints(
             continue;
         };
         let view = decode_exact::<ResearchViewV1>(view_json)?;
+        if view.composer_artifact.is_some() {
+            // The native Composer branch has no legacy Artifact Build attempt admission.
+            // Its exact Owner dependencies are verified on the dedicated Replay read path.
+            continue;
+        }
         if !matches!(
             view.phase,
             crate::product_edge::ResearchViewPhase::ArtifactAvailable
@@ -2869,6 +2877,14 @@ async fn complete_research_custody_in_transaction(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     mut custody: VerifiedResearchCustodyV1,
 ) -> Result<VerifiedResearchCustodyV1, ResearchGoalOwnerError> {
+    if custody
+        .view()
+        .is_some_and(|view| view.composer_artifact.is_some())
+    {
+        return Err(ResearchGoalOwnerError::Storage(
+            "native Composer Research View requires exact Owner readback".into(),
+        ));
+    }
     if custody.view().is_some_and(|view| {
         matches!(
             view.phase,
@@ -2956,6 +2972,11 @@ pub(crate) fn validate_historical_view(
                 && view == initial
         }
         crate::product_edge::ResearchViewPhase::ArtifactAvailable => {
+            if view.composer_artifact.is_some() {
+                return Err(ResearchGoalOwnerError::Storage(
+                    "Composer Artifact-only Research View is not admitted".into(),
+                ));
+            }
             if view.attempt_identity.is_none() {
                 return Err(ResearchGoalOwnerError::Storage(
                     "terminal research attempt identity missing".to_string(),
@@ -2989,30 +3010,34 @@ pub(crate) fn validate_historical_view(
                     == view.projection_at_epoch_ms.saturating_add(600_000)
         }
         crate::product_edge::ResearchViewPhase::ExplorationActive => {
-            let Some(exploration) = view.exploration.as_ref() else {
-                return Err(ResearchGoalOwnerError::Storage(
-                    "active research exploration reference missing".to_string(),
-                ));
-            };
-            view.schema_version == 2
-                && view.attempt_identity.is_some()
-                && view.artifact_identity.is_some()
-                && view.build_receipt_identity.is_some()
-                && view.artifact_review_identity.is_some()
-                && view.availability == crate::product_edge::ResearchViewAvailability::Available
-                && canonical_research_view_identity_v3(view).as_deref()
-                    == Some(view.projection_identity.as_str())
-                && view.next_legal_action == ResearchNextLegalAction::ViewExploratoryRun
-                && view.source_cut
-                    == format!(
-                        "rd-exploration-cut-v1-{}",
-                        exploration
-                            .replay_request_seal_digest
-                            .trim_start_matches("sha256:")
-                    )
-                && view.observed_at_epoch_ms == view.projection_at_epoch_ms
-                && view.valid_through_epoch_ms
-                    == view.projection_at_epoch_ms.saturating_add(600_000)
+            if view.composer_artifact.is_some() {
+                composer_exploration_research_view_is_valid_v3(view, initial)
+            } else {
+                let Some(exploration) = view.exploration.as_ref() else {
+                    return Err(ResearchGoalOwnerError::Storage(
+                        "active research exploration reference missing".to_string(),
+                    ));
+                };
+                view.schema_version == 2
+                    && view.attempt_identity.is_some()
+                    && view.artifact_identity.is_some()
+                    && view.build_receipt_identity.is_some()
+                    && view.artifact_review_identity.is_some()
+                    && view.availability == crate::product_edge::ResearchViewAvailability::Available
+                    && canonical_research_view_identity_v3(view).as_deref()
+                        == Some(view.projection_identity.as_str())
+                    && view.next_legal_action == ResearchNextLegalAction::ViewExploratoryRun
+                    && view.source_cut
+                        == format!(
+                            "rd-exploration-cut-v1-{}",
+                            exploration
+                                .replay_request_seal_digest
+                                .trim_start_matches("sha256:")
+                        )
+                    && view.observed_at_epoch_ms == view.projection_at_epoch_ms
+                    && view.valid_through_epoch_ms
+                        == view.projection_at_epoch_ms.saturating_add(600_000)
+            }
         }
         crate::product_edge::ResearchViewPhase::RequestUnresolved => false,
     };

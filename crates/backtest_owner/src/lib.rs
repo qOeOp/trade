@@ -14,6 +14,8 @@ use std::{collections::BTreeMap, fmt::Display};
 use serde::Serialize;
 use thiserror::Error;
 pub use vibe_backtest_owner_contracts::{
+    BacktestCommissionProjectionV1, BacktestRealizedPnlProjectionV1, BacktestResultProjectionDtoV1,
+    BacktestResultProjectionLocatorV1, BacktestReturnProjectionV1, BacktestSlippageProjectionV1,
     CanonicalDigestV2, ComponentObservationLocatorV2, ContentIdentityV2, DiagnosticCategoryV2,
     ObservationComponentV2, OpaqueIdentityV2, ReplayAuthorityClaimV2, ReplayNamespaceV2,
     ReplayRequestDtoV2, ReplayRequestV2, ReplayTerminalV2, VersionedIdentityV2,
@@ -28,6 +30,7 @@ pub mod outcome_evidence;
 pub mod postgres;
 mod protected_replay;
 mod protected_replay_postgres;
+pub mod result_projection;
 pub use protected_replay::{
     ProtectedConsumedBindingObservationProposalV3, ProtectedReplayResultProposalV3,
     ResolvedProtectedReplayRequestSetV1, SealedProtectedReplayResultV1,

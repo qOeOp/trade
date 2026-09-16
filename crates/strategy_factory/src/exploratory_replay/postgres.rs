@@ -1,5 +1,10 @@
 use std::fmt::Display;
 
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+pub(crate) mod composer_commit_v3;
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+pub(crate) mod composer_readback_v3;
+
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -57,6 +62,7 @@ const INTERNAL_VERIFY_FUNCTION: &str =
     "rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text)";
 const LOCK_FUNCTION_V2: &str =
     "rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)";
+const LEGACY_REPLAY_SOURCE_KIND_V1: &str = "LEGACY_ARTIFACT_BUILD_V1";
 #[expect(
     clippy::needless_raw_strings,
     reason = "fixed SQL source is compared byte-for-byte"
@@ -178,6 +184,12 @@ const INTERNAL_VERIFY_SOURCE_V1: &str = r#"
             result_availability := 'STALE';
           END IF;
           IF sealed.lifecycle_state NOT IN ('FROZEN','REVOKED')
+             OR sealed.source_kind <> 'LEGACY_ARTIFACT_BUILD_V1'
+             OR sealed.composer_source_json IS NOT NULL
+             OR sealed.build_request_identity IS NULL
+             OR sealed.attempt_identity IS NULL
+             OR sealed.build_receipt_identity IS NULL
+             OR sealed.artifact_family_binding_identity IS NULL
              OR (requested_receipt_identity <> '' AND sealed.receipt_json->>'receipt_identity' <> requested_receipt_identity)
              OR sealed.frozen_json->>'schema_version' <> '1'
              OR coalesce(sealed.frozen_json->>'request_schema_version','1') <> sealed.request_schema_version::text
@@ -879,10 +891,34 @@ struct StoredReceiptV2 {
 
 #[derive(Debug, Clone)]
 struct PreparedSealV2 {
-    proposal: ExploratoryReplayRequestProposalV2,
     canonical_request_bytes: Vec<u8>,
     meaning_digest: String,
     execution_profile_seal: Option<ReplayExecutionProfileRequestSealV1>,
+}
+
+#[derive(Debug, Clone)]
+struct PreparedLegacyReplayV2 {
+    proposal: ExploratoryReplayRequestProposalV2,
+    seal: PreparedSealV2,
+}
+
+#[derive(Clone, Copy)]
+struct ReplaySealBindingV2<'a> {
+    request_identity: &'a str,
+    request_digest: &'a str,
+    execution_profile_seal: Option<&'a ReplayExecutionProfileRequestSealV1>,
+    committed_at_epoch_ms: u64,
+}
+
+impl<'a> ReplaySealBindingV2<'a> {
+    fn from_legacy(frozen: &'a StoredFrozenV1) -> Self {
+        Self {
+            request_identity: &frozen.proposal.request_identity,
+            request_digest: &frozen.request_digest,
+            execution_profile_seal: frozen.execution_profile_seal.as_ref(),
+            committed_at_epoch_ms: frozen.committed_at_epoch_ms,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -1266,17 +1302,19 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
             SELECT relation.relkind='r'
                AND relation.relpersistence='p'
                AND (
-                 SELECT pg_catalog.count(*) IN (19,22)
+                 SELECT pg_catalog.count(*) IN (19,21,22,24)
                     AND pg_catalog.bool_and(CASE attribute.attname
                       WHEN 'request_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
                       WHEN 'request_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
-                      WHEN 'build_request_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
-                      WHEN 'attempt_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'source_kind' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'composer_source_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'build_request_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype
+                      WHEN 'attempt_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype
                       WHEN 'intent_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
                       WHEN 'trial_family_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
                       WHEN 'artifact_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
-                      WHEN 'build_receipt_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
-                      WHEN 'artifact_family_binding_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'build_receipt_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype
+                      WHEN 'artifact_family_binding_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype
                       WHEN 'census_frontier_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
                       WHEN 'frozen_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND attribute.attnotnull
                       WHEN 'receipt_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND attribute.attnotnull
@@ -1380,13 +1418,15 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
             CREATE TABLE public.rd_sealed_exploratory_replay_requests_v1 (
               request_identity TEXT PRIMARY KEY,
               request_digest TEXT NOT NULL,
-              build_request_identity TEXT NOT NULL,
-              attempt_identity TEXT NOT NULL,
+              source_kind TEXT NOT NULL DEFAULT 'LEGACY_ARTIFACT_BUILD_V1',
+              composer_source_json JSONB,
+              build_request_identity TEXT,
+              attempt_identity TEXT,
               intent_identity TEXT NOT NULL,
               trial_family_identity TEXT NOT NULL,
               artifact_identity TEXT NOT NULL,
-              build_receipt_identity TEXT NOT NULL,
-              artifact_family_binding_identity TEXT NOT NULL,
+              build_receipt_identity TEXT,
+              artifact_family_binding_identity TEXT,
               census_frontier_identity TEXT NOT NULL,
               frozen_json JSONB NOT NULL,
               receipt_json JSONB NOT NULL,
@@ -1411,6 +1451,13 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
     .map_err(storage)?;
 
     for statement in [
+        "ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1 ADD COLUMN IF NOT EXISTS source_kind TEXT NOT NULL DEFAULT 'LEGACY_ARTIFACT_BUILD_V1'",
+        "ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1 ADD COLUMN IF NOT EXISTS composer_source_json JSONB",
+        "ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1 ALTER COLUMN build_request_identity DROP NOT NULL",
+        "ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1 ALTER COLUMN attempt_identity DROP NOT NULL",
+        "ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1 ALTER COLUMN build_receipt_identity DROP NOT NULL",
+        "ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1 ALTER COLUMN artifact_family_binding_identity DROP NOT NULL",
+        "DO $source_shape$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint WHERE conrelid='public.rd_sealed_exploratory_replay_requests_v1'::pg_catalog.regclass AND conname='rd_sealed_exploratory_replay_source_shape_v1' AND contype='c') THEN ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1 ADD CONSTRAINT rd_sealed_exploratory_replay_source_shape_v1 CHECK ((source_kind='LEGACY_ARTIFACT_BUILD_V1' AND composer_source_json IS NULL AND build_request_identity IS NOT NULL AND attempt_identity IS NOT NULL AND build_receipt_identity IS NOT NULL AND artifact_family_binding_identity IS NOT NULL) OR (source_kind='COMPOSER_V3' AND composer_source_json IS NOT NULL AND build_request_identity IS NULL AND attempt_identity IS NULL AND build_receipt_identity IS NULL AND artifact_family_binding_identity IS NOT NULL)); END IF; END $source_shape$",
         "ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1 ADD COLUMN IF NOT EXISTS v2_request_storage_digest TEXT",
         "ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1 ADD COLUMN IF NOT EXISTS v2_receipt_storage_bytes BYTEA",
         "ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1 ADD COLUMN IF NOT EXISTS v2_receipt_storage_digest TEXT",
@@ -2046,6 +2093,8 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
             .map_err(storage)?;
     }
     publication.commit().await.map_err(storage)?;
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    composer_commit_v3::migrate_composer_research_view_transitions_v3(pool).await?;
     Ok(())
 }
 
@@ -2072,11 +2121,13 @@ pub(crate) async fn commit_v2(
     let committed = Box::pin(commit_inner(
         pool,
         lineage,
-        Some(PreparedSealV2 {
+        Some(PreparedLegacyReplayV2 {
             proposal,
-            canonical_request_bytes,
-            meaning_digest,
-            execution_profile_seal: None,
+            seal: PreparedSealV2 {
+                canonical_request_bytes,
+                meaning_digest,
+                execution_profile_seal: None,
+            },
         }),
         None,
     ))
@@ -2200,11 +2251,13 @@ async fn commit_market_data_repaired_with_authority_v2(
     let committed = Box::pin(commit_inner(
         pool,
         lineage,
-        Some(PreparedSealV2 {
+        Some(PreparedLegacyReplayV2 {
             proposal,
-            canonical_request_bytes,
-            meaning_digest,
-            execution_profile_seal: None,
+            seal: PreparedSealV2 {
+                canonical_request_bytes,
+                meaning_digest,
+                execution_profile_seal: None,
+            },
         }),
         Some(MarketDataRepairReplayCommitSourcesV1 {
             binding,
@@ -2225,7 +2278,7 @@ async fn commit_market_data_repaired_with_authority_v2(
 async fn commit_inner(
     pool: &PgPool,
     proposal: ExploratoryReplayRequestProposalV1,
-    mut prepared_v2: Option<PreparedSealV2>,
+    mut prepared_v2: Option<PreparedLegacyReplayV2>,
     market_data_repair_sources: Option<MarketDataRepairReplayCommitSourcesV1>,
 ) -> Result<CommittedReplay, ExploratoryReplayOwnerError> {
     validate_proposal(&proposal)?;
@@ -2368,11 +2421,11 @@ async fn commit_inner(
 
     if let Some(prepared) = prepared_v2.as_mut() {
         verify_request_equals_family_sealed_policy(root.policy(), &prepared.proposal.request)?;
-        prepared.execution_profile_seal = Some(
+        prepared.seal.execution_profile_seal = Some(
             ReplayExecutionProfileRequestSealV1::issue(
                 family.trial_family(),
                 &proposal.request_identity,
-                &prepared.meaning_digest,
+                &prepared.seal.meaning_digest,
             )
             .map_err(unavailable)?,
         );
@@ -2558,7 +2611,7 @@ async fn commit_inner(
         artifact_family_outbox_committed_at_epoch_ms: artifact_family_outbox.committed_at_epoch_ms,
         execution_profile_seal: prepared_v2
             .as_ref()
-            .and_then(|prepared| prepared.execution_profile_seal.clone()),
+            .and_then(|prepared| prepared.seal.execution_profile_seal.clone()),
         market_data_repair_reentry: market_data_repair_sources.map(|sources| sources.binding),
         committed_at_epoch_ms: final_cut,
         request_digest: String::new(),
@@ -2595,8 +2648,9 @@ async fn commit_inner(
     };
     let payload_digest = canonical_digest("rd.owner-outbox.payload.v1", &payload)?;
     let event_identity = identity("rd-owner-event-v1", &payload_digest);
+    let replay_seal_binding = ReplaySealBindingV2::from_legacy(&frozen);
     let stored_v2 = prepared_v2
-        .map(|prepared| seal_v2(prepared, &frozen))
+        .map(|prepared| seal_v2(prepared.seal, replay_seal_binding))
         .transpose()?;
     let replay_request_storage_digest = stored_v2.as_ref().map(|(prepared, _)| {
         crate::native_replay_rd_sources_v2::owner_storage_digest(
@@ -2692,9 +2746,10 @@ async fn commit_inner(
             Ok::<_, ExploratoryReplayOwnerError>((old_view, new_view))
         })
         .transpose()?;
-    sqlx::query("INSERT INTO public.rd_sealed_exploratory_replay_requests_v1 (request_identity,request_digest,build_request_identity,attempt_identity,intent_identity,trial_family_identity,artifact_identity,build_receipt_identity,artifact_family_binding_identity,census_frontier_identity,frozen_json,receipt_json,lifecycle_state,committed_at_epoch_ms,v2_canonical_request_bytes,v2_request_storage_digest,v2_meaning_digest,v2_seal_digest,v2_receipt_json,v2_receipt_storage_bytes,v2_receipt_storage_digest,request_schema_version) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'FROZEN',$13,$14,$15,$16,$17,$18,$19,$20,$21)")
+    sqlx::query("INSERT INTO public.rd_sealed_exploratory_replay_requests_v1 (request_identity,request_digest,source_kind,build_request_identity,attempt_identity,intent_identity,trial_family_identity,artifact_identity,build_receipt_identity,artifact_family_binding_identity,census_frontier_identity,frozen_json,receipt_json,lifecycle_state,committed_at_epoch_ms,v2_canonical_request_bytes,v2_request_storage_digest,v2_meaning_digest,v2_seal_digest,v2_receipt_json,v2_receipt_storage_bytes,v2_receipt_storage_digest,request_schema_version) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'FROZEN',$14,$15,$16,$17,$18,$19,$20,$21,$22)")
         .bind(&frozen.proposal.request_identity)
         .bind(&frozen.request_digest)
+        .bind(LEGACY_REPLAY_SOURCE_KIND_V1)
         .bind(&frozen.proposal.build_request_identity)
         .bind(&frozen.proposal.attempt_identity)
         .bind(&frozen.proposal.intent_identity)
@@ -2950,7 +3005,7 @@ fn canonical_storage_record_matches(
 async fn resolve_existing(
     transaction: &mut Transaction<'_, Postgres>,
     proposal: &ExploratoryReplayRequestProposalV1,
-    prepared_v2: Option<&PreparedSealV2>,
+    prepared_v2: Option<&PreparedLegacyReplayV2>,
     market_data_repair_reentry: Option<&MarketDataRepairReplayReentryBindingV1>,
 ) -> Result<Option<CommittedReplay>, ExploratoryReplayOwnerError> {
     let value: Option<serde_json::Value> = sqlx::query_scalar(
@@ -3032,19 +3087,26 @@ async fn resolve_existing(
             return Err(ExploratoryReplayOwnerError::ConflictingReplay);
         };
 
-        if canonical_request_bytes != expected.canonical_request_bytes
-            || meaning_digest != expected.meaning_digest
+        if canonical_request_bytes != expected.seal.canonical_request_bytes
+            || meaning_digest != expected.seal.meaning_digest
+            || legacy_lineage_projection_with_authority(
+                &expected.proposal,
+                market_data_repair_reentry.is_some(),
+            )? != validated.frozen.proposal
         {
             return Err(ExploratoryReplayOwnerError::ConflictingReplay);
         }
         let receipt: StoredReceiptV2 = decode_exact(&receipt_json)?;
         let prepared = PreparedSealV2 {
-            proposal: expected.proposal.clone(),
             canonical_request_bytes,
             meaning_digest,
             execution_profile_seal: receipt.execution_profile_seal.clone(),
         };
-        verify_v2_seal(&prepared, &receipt, &validated.frozen)?;
+        verify_v2_seal(
+            &prepared,
+            &receipt,
+            ReplaySealBindingV2::from_legacy(&validated.frozen),
+        )?;
         if receipt.seal_digest != seal_digest {
             return Err(ExploratoryReplayOwnerError::Unavailable(
                 "stored Replay V2 seal digest mismatch".into(),
@@ -3189,6 +3251,17 @@ pub(crate) async fn lock_for_backtest_v2(
 ) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError> {
     validate_backtest_binding(rd_pool, &backtest.pool).await?;
     validate_backtest_binding_v2(&backtest.pool).await?;
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    if let Some(result) = resolve_composer_v3_read_result(
+        rd_pool,
+        &locator.request_identity,
+        &locator.meaning_digest,
+        Some(locator),
+    )
+    .await?
+    {
+        return Ok(result);
+    }
     let value: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT rd_owner_api.lock_exploratory_replay_request_v2($1,$2,$3,$4)")
             .bind(&locator.request_identity)
@@ -3211,6 +3284,17 @@ pub(crate) async fn resolve_for_rd_v2(
     rd_pool: &PgPool,
     selector: &ExploratoryReplayRecoverySelectorV2,
 ) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError> {
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    if let Some(result) = resolve_composer_v3_read_result(
+        rd_pool,
+        &selector.request_identity,
+        &selector.meaning_digest,
+        None,
+    )
+    .await?
+    {
+        return Ok(result);
+    }
     let value: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT rd_owner_api.resolve_exploratory_replay_request_v2($1,$2)")
             .bind(&selector.request_identity)
@@ -3225,6 +3309,66 @@ pub(crate) async fn resolve_for_rd_v2(
         value,
     )?;
     Ok(result)
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+async fn resolve_composer_v3_read_result(
+    rd_pool: &PgPool,
+    request_identity: &str,
+    meaning_digest: &str,
+    exact_locator: Option<&ExploratoryReplayRequestLocatorV2>,
+) -> Result<Option<ExploratoryReplayReadResultV2>, ExploratoryReplayOwnerError> {
+    let mut transaction = rd_pool.begin().await.map_err(storage)?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        .execute(&mut *transaction)
+        .await
+        .map_err(storage)?;
+    let row = sqlx::query(
+        "SELECT source_kind,v2_receipt_json,v2_seal_digest,v2_meaning_digest \
+         FROM public.rd_sealed_exploratory_replay_requests_v1 \
+         WHERE request_identity=$1 FOR SHARE",
+    )
+    .bind(request_identity)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(storage)?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    if row.try_get::<String, _>("source_kind").map_err(storage)? != "COMPOSER_V3" {
+        return Ok(None);
+    }
+    let stored_meaning: String = row.try_get("v2_meaning_digest").map_err(storage)?;
+    let stored_seal: String = row.try_get("v2_seal_digest").map_err(storage)?;
+    let receipt: StoredReceiptV2 = decode_exact(
+        &row.try_get::<serde_json::Value, _>("v2_receipt_json")
+            .map_err(storage)?,
+    )?;
+    if stored_meaning != meaning_digest {
+        return Ok(Some(unavailable_result_v2(request_identity)));
+    }
+    let locator = ExploratoryReplayRequestLocatorV2 {
+        request_identity: request_identity.to_owned(),
+        meaning_digest: stored_meaning,
+        receipt_identity: receipt.receipt_identity,
+        seal_digest: stored_seal,
+    };
+    if exact_locator.is_some_and(|expected| expected != &locator) {
+        return Ok(Some(unavailable_result_v2(request_identity)));
+    }
+    let readback = composer_readback_v3::resolve_composer_v3_by_locator_in_transaction(
+        &mut transaction,
+        &locator,
+    )
+    .await?;
+    transaction.commit().await.map_err(storage)?;
+    Ok(Some(match readback {
+        Some(readback) => ExploratoryReplayReadResultV2 {
+            projection: projection_v2(request_identity, ExploratoryReplayAvailabilityV1::Available),
+            readback: Some(readback),
+        },
+        None => unavailable_result_v2(request_identity),
+    }))
 }
 
 pub(crate) async fn read_historical_rejection_for_dashboard_v1(
@@ -3474,11 +3618,10 @@ pub(crate) fn decode_v2_read_result(
         Ok(request) => request,
         Err(_) => return Ok(unavailable_result_v2(expected_request_identity)),
     };
+    if proposal_v2_from_stored(&validated.frozen, request.as_dto()).is_err() {
+        return Ok(unavailable_result_v2(expected_request_identity));
+    }
     let prepared = PreparedSealV2 {
-        proposal: match proposal_v2_from_stored(&validated.frozen, request.as_dto()) {
-            Ok(proposal) => proposal,
-            Err(_) => return Ok(unavailable_result_v2(expected_request_identity)),
-        },
         canonical_request_bytes: canonical_request_bytes.clone(),
         meaning_digest: meaning_digest.clone(),
         execution_profile_seal: receipt.execution_profile_seal.clone(),
@@ -3492,7 +3635,12 @@ pub(crate) fn decode_v2_read_result(
                 || locator.receipt_identity != receipt.receipt_identity
                 || locator.seal_digest != seal_digest
         })
-        || verify_v2_seal(&prepared, &receipt, &validated.frozen).is_err()
+        || verify_v2_seal(
+            &prepared,
+            &receipt,
+            ReplaySealBindingV2::from_legacy(&validated.frozen),
+        )
+        .is_err()
         || verify_v2_outbox(&outbox, &receipt, &validated.frozen).is_err()
     {
         return Ok(unavailable_result_v2(expected_request_identity));
@@ -4256,7 +4404,7 @@ fn verify_replay_admission(
 fn verify_replay_admission_for_commit(
     admission: &ProductEdgeAdmissionReadbackV1,
     lineage: &ExploratoryReplayRequestProposalV1,
-    prepared_v2: Option<&PreparedSealV2>,
+    prepared_v2: Option<&PreparedLegacyReplayV2>,
 ) -> Result<(), ExploratoryReplayOwnerError> {
     let Some(prepared_v2) = prepared_v2 else {
         return verify_replay_admission(admission, lineage);
@@ -4524,7 +4672,7 @@ fn locked_outbox_from_row(
 
 fn seal_v2(
     prepared: PreparedSealV2,
-    frozen: &StoredFrozenV1,
+    binding: ReplaySealBindingV2<'_>,
 ) -> Result<(PreparedSealV2, StoredReceiptV2), ExploratoryReplayOwnerError> {
     let profile_seal = prepared.execution_profile_seal.as_ref().ok_or_else(|| {
         ExploratoryReplayOwnerError::Unavailable("Replay execution-profile seal missing".into())
@@ -4533,42 +4681,42 @@ fn seal_v2(
         "rd.exploratory-replay-request-seal.v3",
         &(
             3_u16,
-            frozen.proposal.request_identity.as_str(),
+            binding.request_identity,
             prepared.meaning_digest.as_str(),
             BASE64.encode(&prepared.canonical_request_bytes),
-            frozen.request_digest.as_str(),
+            binding.request_digest,
             profile_seal,
-            frozen.committed_at_epoch_ms,
+            binding.committed_at_epoch_ms,
         ),
     )?;
     let receipt_digest = canonical_digest(
         "rd.exploratory-replay-request-receipt.v3",
         &(
             3_u16,
-            frozen.proposal.request_identity.as_str(),
+            binding.request_identity,
             prepared.meaning_digest.as_str(),
             seal_digest.as_str(),
             profile_seal,
-            frozen.committed_at_epoch_ms,
+            binding.committed_at_epoch_ms,
         ),
     )?;
     let receipt = StoredReceiptV2 {
         schema_version: 3,
         receipt_identity: identity("rd-exploratory-replay-receipt-v2", &receipt_digest),
-        request_identity: frozen.proposal.request_identity.clone(),
+        request_identity: binding.request_identity.to_owned(),
         meaning_digest: prepared.meaning_digest.clone(),
         seal_digest,
         execution_profile_seal: Some(profile_seal.clone()),
-        committed_at_epoch_ms: frozen.committed_at_epoch_ms,
+        committed_at_epoch_ms: binding.committed_at_epoch_ms,
     };
-    verify_v2_seal(&prepared, &receipt, frozen)?;
+    verify_v2_seal(&prepared, &receipt, binding)?;
     Ok((prepared, receipt))
 }
 
 fn verify_v2_seal(
     prepared: &PreparedSealV2,
     receipt: &StoredReceiptV2,
-    frozen: &StoredFrozenV1,
+    binding: ReplaySealBindingV2<'_>,
 ) -> Result<(), ExploratoryReplayOwnerError> {
     let dto: ReplayRequestDtoV2 =
         serde_json::from_slice(&prepared.canonical_request_bytes).map_err(unavailable)?;
@@ -4576,10 +4724,6 @@ fn verify_v2_seal(
     if request.namespace() != ReplayNamespaceV2::Exploratory
         || request.to_canonical_bytes().map_err(unavailable)? != prepared.canonical_request_bytes
         || request.meaning_digest().map_err(unavailable)?.as_str() != prepared.meaning_digest
-        || legacy_lineage_projection_with_authority(
-            &prepared.proposal,
-            frozen.market_data_repair_reentry.is_some(),
-        )? != frozen.proposal
     {
         return Err(ExploratoryReplayOwnerError::Unavailable(
             "sealed Replay V2 canonical meaning mismatch".into(),
@@ -4587,7 +4731,7 @@ fn verify_v2_seal(
     }
     let (expected_seal, receipt_digest) =
         if let Some(profile_seal) = prepared.execution_profile_seal.as_ref() {
-            if frozen.execution_profile_seal.as_ref() != Some(profile_seal)
+            if binding.execution_profile_seal != Some(profile_seal)
                 || receipt.execution_profile_seal.as_ref() != Some(profile_seal)
                 || receipt.schema_version != 3
             {
@@ -4599,28 +4743,28 @@ fn verify_v2_seal(
                 "rd.exploratory-replay-request-seal.v3",
                 &(
                     3_u16,
-                    frozen.proposal.request_identity.as_str(),
+                    binding.request_identity,
                     prepared.meaning_digest.as_str(),
                     BASE64.encode(&prepared.canonical_request_bytes),
-                    frozen.request_digest.as_str(),
+                    binding.request_digest,
                     profile_seal,
-                    frozen.committed_at_epoch_ms,
+                    binding.committed_at_epoch_ms,
                 ),
             )?;
             let receipt = canonical_digest(
                 "rd.exploratory-replay-request-receipt.v3",
                 &(
                     3_u16,
-                    frozen.proposal.request_identity.as_str(),
+                    binding.request_identity,
                     prepared.meaning_digest.as_str(),
                     seal.as_str(),
                     profile_seal,
-                    frozen.committed_at_epoch_ms,
+                    binding.committed_at_epoch_ms,
                 ),
             )?;
             (seal, receipt)
         } else {
-            if frozen.execution_profile_seal.is_some()
+            if binding.execution_profile_seal.is_some()
                 || receipt.execution_profile_seal.is_some()
                 || receipt.schema_version != 2
             {
@@ -4632,30 +4776,30 @@ fn verify_v2_seal(
                 "rd.exploratory-replay-request-seal.v2",
                 &(
                     2_u16,
-                    frozen.proposal.request_identity.as_str(),
+                    binding.request_identity,
                     prepared.meaning_digest.as_str(),
                     BASE64.encode(&prepared.canonical_request_bytes),
-                    frozen.request_digest.as_str(),
-                    frozen.committed_at_epoch_ms,
+                    binding.request_digest,
+                    binding.committed_at_epoch_ms,
                 ),
             )?;
             let receipt = canonical_digest(
                 "rd.exploratory-replay-request-receipt.v2",
                 &(
                     2_u16,
-                    frozen.proposal.request_identity.as_str(),
+                    binding.request_identity,
                     prepared.meaning_digest.as_str(),
                     seal.as_str(),
-                    frozen.committed_at_epoch_ms,
+                    binding.committed_at_epoch_ms,
                 ),
             )?;
             (seal, receipt)
         };
 
-    if receipt.request_identity != frozen.proposal.request_identity
+    if receipt.request_identity != binding.request_identity
         || receipt.meaning_digest != prepared.meaning_digest
         || receipt.seal_digest != expected_seal
-        || receipt.committed_at_epoch_ms != frozen.committed_at_epoch_ms
+        || receipt.committed_at_epoch_ms != binding.committed_at_epoch_ms
         || receipt.receipt_identity != identity("rd-exploratory-replay-receipt-v2", &receipt_digest)
     {
         return Err(ExploratoryReplayOwnerError::Unavailable(

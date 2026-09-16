@@ -40,6 +40,12 @@
   `TERMINAL_RESULT` 可以进入 Research Selection。
 - 只追加 TrialFamily Census Frontier，记录冻结截面前每个探索 Intent Request Result 身份，包括失败 被拒 无效 未知试验以及已消费族预算。
 - 可以支持新 Research Intent 的探索发现，但不能改写已冻结前序事实。
+- 写一次的 Iteration Result Admission，把一个已加锁的 canonical Backtest Result 绑定到可以消费它的迭代。
+  Owner 在单个可串行化 R&D 事务内，从加锁的 Result 字节、确切 TrialFamily 普查截面与已封存试验预算推导全部被接纳事实；
+  调用方只提供定位符、result 与 request meaning 摘要，以及按规范排序的候选提案集合。提案集合为空 超限 乱序 重复
+  与声明基数不一致或超出剩余封存预算时，接纳关闭且不创建任何托管。同一请求的精确重放汇入已提交的接纳；
+  同一 Result 上改变的含义返回 `Conflict`。接纳发出一条 `RD_ITERATION_RESULT_ADMITTED_V1` outbox 事件，
+  不创建 Decision Selection Candidate 或 Qualification 转换。
 - Research Iteration Decision：唯一记录完整支持诊断集合、按确定规则选出的单一类型修复类别与目标边界的 `REPAIR_INPUTS` 后继实验
   `READY_FOR_SELECTION` 或命名终态停止的 Research 事实。停止 修复和后继结果都不会创建 Selection。
   未知或非终态运行不存在 Iteration Decision。

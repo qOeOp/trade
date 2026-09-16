@@ -604,13 +604,13 @@ const RD_CORE_TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
         columns: &[
             crate::schema_materialization::required("request_identity", "text"),
             crate::schema_materialization::required("request_digest", "text"),
-            crate::schema_materialization::required("build_request_identity", "text"),
-            crate::schema_materialization::required("attempt_identity", "text"),
+            crate::schema_materialization::optional("build_request_identity", "text"),
+            crate::schema_materialization::optional("attempt_identity", "text"),
             crate::schema_materialization::required("intent_identity", "text"),
             crate::schema_materialization::required("trial_family_identity", "text"),
             crate::schema_materialization::required("artifact_identity", "text"),
-            crate::schema_materialization::required("build_receipt_identity", "text"),
-            crate::schema_materialization::required("artifact_family_binding_identity", "text"),
+            crate::schema_materialization::optional("build_receipt_identity", "text"),
+            crate::schema_materialization::optional("artifact_family_binding_identity", "text"),
             crate::schema_materialization::required("census_frontier_identity", "text"),
             crate::schema_materialization::required("frozen_json", "jsonb"),
             crate::schema_materialization::required("receipt_json", "jsonb"),
@@ -621,11 +621,23 @@ const RD_CORE_TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
             crate::schema_materialization::optional("v2_meaning_digest", "text"),
             crate::schema_materialization::optional("v2_seal_digest", "text"),
             crate::schema_materialization::optional("v2_receipt_json", "jsonb"),
+            // `source_kind` and `composer_source_json` are appended by migration, so they follow
+            // every column the original relation was created with. The manifest is compared in
+            // physical `attnum` order, so listing them earlier fails the whole relation.
+            crate::schema_materialization::defaulted(
+                "source_kind",
+                "text",
+                "'LEGACY_ARTIFACT_BUILD_V1'::text",
+            ),
+            crate::schema_materialization::optional("composer_source_json", "jsonb"),
             crate::schema_materialization::optional("v2_request_storage_digest", "text"),
             crate::schema_materialization::optional("v2_receipt_storage_bytes", "bytea"),
             crate::schema_materialization::optional("v2_receipt_storage_digest", "text"),
         ],
-        constraints: &["p:request_identity:::false:false:true:"],
+        constraints: &[
+            "p:request_identity:::false:false:true:",
+            "c:source_kind,composer_source_json,build_request_identity,attempt_identity,build_receipt_identity,artifact_family_binding_identity:::false:false:true:(((source_kind = 'LEGACY_ARTIFACT_BUILD_V1'::text) AND (composer_source_json IS NULL) AND (build_request_identity IS NOT NULL) AND (attempt_identity IS NOT NULL) AND (build_receipt_identity IS NOT NULL) AND (artifact_family_binding_identity IS NOT NULL)) OR ((source_kind = 'COMPOSER_V3'::text) AND (composer_source_json IS NOT NULL) AND (build_request_identity IS NULL) AND (attempt_identity IS NULL) AND (build_receipt_identity IS NULL) AND (artifact_family_binding_identity IS NOT NULL)))",
+        ],
         indexes: &[
             crate::schema_materialization::primary_index("request_identity"),
             crate::schema_materialization::unique_index("artifact_identity,request_identity"),
@@ -1480,6 +1492,9 @@ impl PostgresResearchGoalOwnerV1 {
             RD_CORE_TABLES,
             crate::trial_family_postgres::TABLES,
             crate::iteration_decision_postgres::TABLES,
+            crate::iteration_result_admission_postgres::TABLES,
+            #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+            crate::exploratory_replay::postgres::composer_commit_v3::TABLES,
             crate::successor_intent_postgres::TABLES,
             crate::market_data_repair_request_postgres::TABLES,
             crate::market_data_repair_resolution_postgres::TABLES,
@@ -1676,6 +1691,37 @@ impl PostgresResearchGoalOwnerV1 {
             .await
     }
 
+    /// Admits one locked canonical Backtest Result into its R&D iteration custody.
+    ///
+    /// The Owner derives every admitted fact inside one serializable transaction from the locked
+    /// Result, TrialFamily and sealed budget; the caller supplies only the operation request. An
+    /// exact replay of the same request joins the committed admission instead of creating a second
+    /// one.
+    pub async fn admit_iteration_result_v1(
+        &self,
+        request: &crate::iteration_result_admission::IterationResultAdmissionOperationRequestV1,
+    ) -> Result<
+        crate::iteration_result_admission::IterationResultAdmissionReadbackV1,
+        crate::iteration_result_admission::IterationResultAdmissionErrorV1,
+    > {
+        crate::iteration_result_admission_postgres::admit_iteration_result_v1(&self.pool, request)
+            .await
+    }
+
+    /// Resolves exact iteration result admission custody without creating first custody.
+    pub async fn resolve_iteration_result_admission_v1(
+        &self,
+        locator: &crate::iteration_result_admission::IterationResultAdmissionLocatorV1,
+    ) -> Result<
+        Option<crate::iteration_result_admission::IterationResultAdmissionReadbackV1>,
+        crate::iteration_result_admission::IterationResultAdmissionErrorV1,
+    > {
+        crate::iteration_result_admission_postgres::resolve_iteration_result_admission_v1(
+            &self.pool, locator,
+        )
+        .await
+    }
+
     /// Commits an effect-free repair request from exact stored Decision custody.
     pub async fn compose_repair_action_request_v1(
         &self,
@@ -1802,6 +1848,21 @@ impl PostgresResearchGoalOwnerV1 {
         Box::pin(crate::exploratory_replay::postgres::commit_v2(
             &self.pool, proposal,
         ))
+        .await
+    }
+
+    /// Commits a Composer-backed Replay from exact R&D, Composer, and Market Data Owner facts.
+    /// The locator-only proposal cannot provide a positive sealed source or execution profile.
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    pub async fn commit_composer_backed_exploratory_replay_request_v3(
+        &self,
+        proposal: crate::exploratory_replay::ComposerBackedExploratoryReplayProposalV3,
+    ) -> Result<ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError> {
+        Box::pin(
+            crate::exploratory_replay::postgres::composer_commit_v3::commit_composer_v3(
+                &self.pool, proposal,
+            ),
+        )
         .await
     }
 

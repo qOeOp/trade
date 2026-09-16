@@ -420,8 +420,29 @@ pub struct ResearchViewV1 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifact_review_identity: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub composer_artifact: Option<ResearchComposerArtifactViewV3>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exploration: Option<ResearchExplorationViewV1>,
     pub next_legal_action: ResearchNextLegalAction,
+}
+
+/// Exact R&D references for one Composer artifact admitted to a TrialFamily.
+///
+/// A Composer artifact can use several intrinsic plugin Build Receipts, so none of these
+/// coordinates is represented as a legacy Artifact Build attempt or review.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResearchComposerArtifactViewV3 {
+    pub artifact_locator: String,
+    pub artifact_identity_digest: String,
+    pub composer_request_identity: String,
+    pub composer_operation_receipt_digest: String,
+    pub artifact_family_binding_identity: String,
+    pub artifact_family_binding_digest: String,
+    pub artifact_family_binding_receipt_identity: String,
+    pub trial_family_identity: String,
+    pub census_frontier_identity: String,
+    pub census_frontier_digest: String,
 }
 
 /// Bounded R&D-owned facts proving that one exact exploratory request is active.
@@ -1465,6 +1486,7 @@ pub(crate) fn decide_commit_v2(
         artifact_identity: None,
         build_receipt_identity: None,
         artifact_review_identity: None,
+        composer_artifact: None,
         exploration: None,
         next_legal_action: ResearchNextLegalAction::WaitForRAndDExecution,
     };
@@ -1634,6 +1656,7 @@ pub(crate) fn decide_commit(
         artifact_identity: None,
         build_receipt_identity: None,
         artifact_review_identity: None,
+        composer_artifact: None,
         exploration: None,
         next_legal_action: ResearchNextLegalAction::WaitForRAndDExecution,
     };
@@ -2040,6 +2063,249 @@ pub(crate) fn canonical_research_view_identity_v3(view: &ResearchViewV1) -> Opti
     Some(format!("rd-research-view-v3-{:x}", Sha256::digest(bytes)))
 }
 
+#[derive(Serialize)]
+struct ResearchViewIdentityEnvelopeV4<'a> {
+    domain: &'static str,
+    view: ResearchViewIdentityMeaningV4<'a>,
+}
+
+#[derive(Serialize)]
+struct ResearchViewIdentityMeaningV4<'a> {
+    schema_version: u32,
+    request_identity: &'a str,
+    trusted_principal: &'a str,
+    authorized_scope: &'a [String],
+    authorization_policy_cut: &'a str,
+    source_owner: &'a str,
+    source_cut: &'a str,
+    observed_at_epoch_ms: u64,
+    projection_at_epoch_ms: u64,
+    valid_through_epoch_ms: u64,
+    availability: &'a ResearchViewAvailability,
+    phase: &'a ResearchViewPhase,
+    intent_identity: &'a str,
+    source_frontier: &'a [ResearchSourceV1],
+    composer_artifact: &'a ResearchComposerArtifactViewV3,
+    exploration: &'a ResearchExplorationViewV1,
+    next_legal_action: &'a ResearchNextLegalAction,
+}
+
+/// A separate identity domain keeps legacy Artifact Build and Replay View bytes unchanged.
+pub(crate) fn canonical_research_view_identity_v4(view: &ResearchViewV1) -> Option<String> {
+    let composer_artifact = view.composer_artifact.as_ref()?;
+    let exploration = view.exploration.as_ref()?;
+    let bytes = serde_json::to_vec(&ResearchViewIdentityEnvelopeV4 {
+        domain: "rd.research-view.identity.v4",
+        view: ResearchViewIdentityMeaningV4 {
+            schema_version: view.schema_version,
+            request_identity: &view.request_identity,
+            trusted_principal: &view.trusted_principal,
+            authorized_scope: &view.authorized_scope,
+            authorization_policy_cut: &view.authorization_policy_cut,
+            source_owner: &view.source_owner,
+            source_cut: &view.source_cut,
+            observed_at_epoch_ms: view.observed_at_epoch_ms,
+            projection_at_epoch_ms: view.projection_at_epoch_ms,
+            valid_through_epoch_ms: view.valid_through_epoch_ms,
+            availability: &view.availability,
+            phase: &view.phase,
+            intent_identity: &view.intent_identity,
+            source_frontier: &view.source_frontier,
+            composer_artifact,
+            exploration,
+            next_legal_action: &view.next_legal_action,
+        },
+    })
+    .ok()?;
+    Some(format!("rd-research-view-v4-{:x}", Sha256::digest(bytes)))
+}
+
+fn binding_digest_hex(digest: vibe_data::owner::source_binding::BindingDigest) -> String {
+    let mut value = String::with_capacity(71);
+    value.push_str("sha256:");
+    for byte in digest.as_bytes() {
+        use std::fmt::Write as _;
+        write!(&mut value, "{byte:02x}").expect("writing to String");
+    }
+    value
+}
+
+fn canonical_sha256_text(value: &str) -> bool {
+    value.strip_prefix("sha256:").is_some_and(|digest| {
+        digest.len() == 64
+            && digest
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    })
+}
+
+fn canonical_named_sha256(value: &str, prefix: &str) -> bool {
+    value.strip_prefix(prefix).is_some_and(|digest| {
+        digest.len() == 64
+            && digest
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    })
+}
+
+/// Validates only the historical View shape. The consuming Owner must separately reread the
+/// exact Composer, Artifact-family binding, and Replay facts in its own transaction.
+pub(crate) fn composer_exploration_research_view_is_valid_v3(
+    view: &ResearchViewV1,
+    initial: &ResearchViewV1,
+) -> bool {
+    let Some(composer) = view.composer_artifact.as_ref() else {
+        return false;
+    };
+    let Some(exploration) = view.exploration.as_ref() else {
+        return false;
+    };
+    initial.schema_version == 1
+        && initial.phase == ResearchViewPhase::IntentFrozen
+        && initial.availability == ResearchViewAvailability::Available
+        && initial.attempt_identity.is_none()
+        && initial.artifact_identity.is_none()
+        && initial.build_receipt_identity.is_none()
+        && initial.artifact_review_identity.is_none()
+        && initial.composer_artifact.is_none()
+        && initial.exploration.is_none()
+        && initial.projection_identity == canonical_research_view_identity_v2(initial)
+        && view.schema_version == 3
+        && view.phase == ResearchViewPhase::ExplorationActive
+        && view.availability == ResearchViewAvailability::Available
+        && view.attempt_identity.is_none()
+        && view.artifact_identity.is_none()
+        && view.build_receipt_identity.is_none()
+        && view.artifact_review_identity.is_none()
+        && view.next_legal_action == ResearchNextLegalAction::ViewExploratoryRun
+        && view.observed_at_epoch_ms == view.projection_at_epoch_ms
+        && view.projection_at_epoch_ms >= initial.projection_at_epoch_ms
+        && view.valid_through_epoch_ms == view.projection_at_epoch_ms.saturating_add(600_000)
+        && canonical_sha256_text(&composer.artifact_identity_digest)
+        && composer.artifact_locator
+            == format!(
+                "rd-strategy-artifact-v2-{}",
+                composer
+                    .artifact_identity_digest
+                    .trim_start_matches("sha256:")
+            )
+        && !composer.composer_request_identity.is_empty()
+        && canonical_sha256_text(&composer.composer_operation_receipt_digest)
+        && canonical_sha256_text(&composer.artifact_family_binding_digest)
+        && composer.artifact_family_binding_identity
+            == format!(
+                "rd-composer-artifact-family-binding-v3-{}",
+                composer
+                    .artifact_family_binding_digest
+                    .trim_start_matches("sha256:")
+            )
+        && canonical_named_sha256(
+            &composer.artifact_family_binding_receipt_identity,
+            "rd-composer-artifact-family-binding-receipt-v3-",
+        )
+        && !composer.trial_family_identity.is_empty()
+        && !composer.census_frontier_identity.is_empty()
+        && canonical_sha256_text(&composer.census_frontier_digest)
+        && composer.trial_family_identity == exploration.trial_family_identity
+        && composer.census_frontier_identity == exploration.census_frontier_identity
+        && composer.census_frontier_digest == exploration.census_frontier_digest
+        && !exploration.replay_request_identity.is_empty()
+        && canonical_sha256_text(&exploration.replay_request_meaning_digest)
+        && canonical_sha256_text(&exploration.replay_request_seal_digest)
+        && canonical_named_sha256(
+            &exploration.replay_receipt_identity,
+            "rd-exploratory-replay-receipt-v2-",
+        )
+        && view.source_cut
+            == format!(
+                "rd-composer-exploration-cut-v3-{}",
+                exploration
+                    .replay_request_seal_digest
+                    .trim_start_matches("sha256:")
+            )
+        && canonical_research_view_identity_v4(view).as_deref()
+            == Some(view.projection_identity.as_str())
+}
+
+/// Projects one native Composer Replay View from an authenticated frozen Intent and exact Owner
+/// readbacks. The caller still owns atomic persistence and final same-transaction revalidation.
+pub(crate) fn project_composer_exploration_research_view_v3(
+    initial: &ResearchViewV1,
+    composer: &crate::develop_composer_postgres_v2::SealedDevelopComposerReadbackV2,
+    binding: &crate::composer_artifact_family_binding_v3::ComposerArtifactFamilyReadbackV3,
+    exploration: ResearchExplorationViewV1,
+    projection_at_epoch_ms: u64,
+) -> Result<ResearchViewV1, ResearchGoalOwnerError> {
+    let unavailable =
+        || ResearchGoalOwnerError::Storage("Composer Research View source unavailable".into());
+    let locator = composer.locator();
+    let bound = binding.binding();
+    let intent_digest = binding_digest_hex(composer.intent_identity());
+    if initial.schema_version != 1
+        || initial.phase != ResearchViewPhase::IntentFrozen
+        || initial.availability != ResearchViewAvailability::Available
+        || initial.attempt_identity.is_some()
+        || initial.artifact_identity.is_some()
+        || initial.build_receipt_identity.is_some()
+        || initial.artifact_review_identity.is_some()
+        || initial.composer_artifact.is_some()
+        || initial.exploration.is_some()
+        || initial.projection_identity != canonical_research_view_identity_v2(initial)
+        || !initial
+            .intent_identity
+            .ends_with(intent_digest.trim_start_matches("sha256:"))
+        || !(initial
+            .intent_identity
+            .starts_with("rd-research-intent-v2-")
+            || initial
+                .intent_identity
+                .starts_with("rd-successor-research-intent-v1-"))
+        || projection_at_epoch_ms < initial.projection_at_epoch_ms
+        || projection_at_epoch_ms >= initial.valid_through_epoch_ms
+        || binding.receipt().committed_at_epoch_ms() > projection_at_epoch_ms
+        || bound.artifact_locator() != locator.artifact_locator
+        || bound.composer_request_identity() != locator.request_identity
+        || bound.trial_family_identity() != exploration.trial_family_identity
+        || bound.census_frontier_identity() != exploration.census_frontier_identity
+        || bound.census_frontier_digest() != exploration.census_frontier_digest
+    {
+        return Err(unavailable());
+    }
+    let composer_artifact = ResearchComposerArtifactViewV3 {
+        artifact_locator: locator.artifact_locator.clone(),
+        artifact_identity_digest: binding_digest_hex(locator.artifact_identity),
+        composer_request_identity: locator.request_identity.clone(),
+        composer_operation_receipt_digest: binding_digest_hex(locator.operation_receipt_identity),
+        artifact_family_binding_identity: bound.identity().to_owned(),
+        artifact_family_binding_digest: bound.digest().to_owned(),
+        artifact_family_binding_receipt_identity: binding.receipt().identity().to_owned(),
+        trial_family_identity: bound.trial_family_identity().to_owned(),
+        census_frontier_identity: bound.census_frontier_identity().to_owned(),
+        census_frontier_digest: bound.census_frontier_digest().to_owned(),
+    };
+    let mut view = initial.clone();
+    view.schema_version = 3;
+    view.phase = ResearchViewPhase::ExplorationActive;
+    view.source_cut = format!(
+        "rd-composer-exploration-cut-v3-{}",
+        exploration
+            .replay_request_seal_digest
+            .trim_start_matches("sha256:")
+    );
+    view.observed_at_epoch_ms = projection_at_epoch_ms;
+    view.projection_at_epoch_ms = projection_at_epoch_ms;
+    view.valid_through_epoch_ms = projection_at_epoch_ms.saturating_add(600_000);
+    view.composer_artifact = Some(composer_artifact);
+    view.exploration = Some(exploration);
+    view.next_legal_action = ResearchNextLegalAction::ViewExploratoryRun;
+    view.projection_identity =
+        canonical_research_view_identity_v4(&view).ok_or_else(unavailable)?;
+    if !composer_exploration_research_view_is_valid_v3(&view, initial) {
+        return Err(unavailable());
+    }
+    Ok(view)
+}
+
 fn trial_family_storage(error: &TrialFamilyError) -> ResearchGoalOwnerError {
     ResearchGoalOwnerError::Storage(error.to_string())
 }
@@ -2284,6 +2550,64 @@ mod v2_sealing_tests {
         );
     }
 
+    #[test]
+    fn composer_replay_view_has_distinct_history_and_rejects_legacy_build_fields() {
+        let mut initial = research_view(1_000, 601_000);
+        initial.projection_identity = canonical_research_view_identity_v2(&initial);
+        assert!(
+            serde_json::to_value(&initial)
+                .unwrap()
+                .get("composer_artifact")
+                .is_none()
+        );
+        let digest = |digit: char| format!("sha256:{}", digit.to_string().repeat(64));
+        let mut view = initial.clone();
+        view.schema_version = 3;
+        view.phase = ResearchViewPhase::ExplorationActive;
+        view.observed_at_epoch_ms = 2_000;
+        view.projection_at_epoch_ms = 2_000;
+        view.valid_through_epoch_ms = 602_000;
+        view.source_cut = format!("rd-composer-exploration-cut-v3-{}", "3".repeat(64));
+        view.composer_artifact = Some(ResearchComposerArtifactViewV3 {
+            artifact_locator: format!("rd-strategy-artifact-v2-{}", "1".repeat(64)),
+            artifact_identity_digest: digest('1'),
+            composer_request_identity: "composer-request".into(),
+            composer_operation_receipt_digest: digest('2'),
+            artifact_family_binding_identity: format!(
+                "rd-composer-artifact-family-binding-v3-{}",
+                "4".repeat(64)
+            ),
+            artifact_family_binding_digest: digest('4'),
+            artifact_family_binding_receipt_identity: format!(
+                "rd-composer-artifact-family-binding-receipt-v3-{}",
+                "7".repeat(64)
+            ),
+            trial_family_identity: "trial-family".into(),
+            census_frontier_identity: "census-frontier".into(),
+            census_frontier_digest: digest('5'),
+        });
+        view.exploration = Some(ResearchExplorationViewV1 {
+            trial_family_identity: "trial-family".into(),
+            census_frontier_identity: "census-frontier".into(),
+            census_frontier_digest: digest('5'),
+            replay_request_identity: "replay-request".into(),
+            replay_request_meaning_digest: digest('6'),
+            replay_request_seal_digest: digest('3'),
+            replay_receipt_identity: format!("rd-exploratory-replay-receipt-v2-{}", "8".repeat(64)),
+        });
+        view.next_legal_action = ResearchNextLegalAction::ViewExploratoryRun;
+        view.projection_identity = canonical_research_view_identity_v4(&view).unwrap();
+        assert!(
+            crate::rd_owner_postgres_custody::validate_historical_view(&view, &initial).is_ok()
+        );
+
+        view.attempt_identity = Some("legacy-attempt".into());
+        view.projection_identity = canonical_research_view_identity_v4(&view).unwrap();
+        assert!(
+            crate::rd_owner_postgres_custody::validate_historical_view(&view, &initial).is_err()
+        );
+    }
+
     #[rstest]
     fn owner_projection_becomes_stale_after_its_valid_through_cut() {
         let view = project_research_view_at(&research_view(1_000, 601_000), 601_001);
@@ -2494,6 +2818,7 @@ mod v2_sealing_tests {
             artifact_identity: None,
             build_receipt_identity: None,
             artifact_review_identity: None,
+            composer_artifact: None,
             exploration: None,
             next_legal_action: ResearchNextLegalAction::WaitForRAndDExecution,
         }

@@ -10,6 +10,11 @@ use thiserror::Error;
 use vibe_backtest_owner_contracts::{ReplayRequestDtoV2, ReplayRequestV2};
 use vibe_product_edge::ProductEdgeAdmissionLocatorV1;
 
+#[expect(
+    dead_code,
+    reason = "Composer Replay composition awaits its same-transaction commit consumer in this candidate"
+)]
+pub(crate) mod composition_v3;
 pub mod postgres;
 
 pub const EXPLORATORY_REPLAY_REQUEST_FROZEN_EVENT_V1: &str = "EXPLORATORY_REPLAY_REQUEST_FROZEN_V1";
@@ -22,6 +27,10 @@ pub const EXPLORATORY_REPLAY_OPERATION_V2: &str = "exploratory_replay.submit_or_
 pub const EXPLORATORY_REPLAY_SCHEMA_V2: &str = "rd-exploratory-replay-request-v2";
 pub const EXPLORATORY_REPLAY_MUTATION_EFFECT_V2: &str =
     "R_AND_D_EXPLORATORY_REPLAY_REQUEST_MUTATION_V2";
+pub const EXPLORATORY_REPLAY_OPERATION_V3: &str = "exploratory_replay.compose_or_resolve.v3";
+pub const EXPLORATORY_REPLAY_SCHEMA_V3: &str = "rd-exploratory-replay-composition-v3";
+pub const EXPLORATORY_REPLAY_MUTATION_EFFECT_V3: &str =
+    "R_AND_D_EXPLORATORY_REPLAY_COMPOSITION_MUTATION_V3";
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -83,8 +92,41 @@ pub struct ExploratoryReplayRequestProposalV2 {
     pub request: ReplayRequestDtoV2,
 }
 
+/// Locator-only Replay composition proposal.
+///
+/// The caller chooses no Replay policy or request field. R&D resolves the exact TrialFamily,
+/// Composer package, and Market Data composition cut before it constructs the canonical V2
+/// request inside Owner custody.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ComposerBackedExploratoryReplayProposalV3 {
+    pub admission: ProductEdgeAdmissionLocatorV1,
+    pub request_identity: String,
+    pub trial_family_identity: String,
+    pub artifact_identity: String,
+    pub composer_locator: crate::develop_composer_postgres_v2::DevelopComposerSealedReadLocatorV2,
+    pub market_data_locator:
+        vibe_data::owner::replay_market_facts_v2::ReplayCompositionBindingLocatorV1,
+    pub market_data_scope_digest: vibe_data::owner::source_binding::BindingDigest,
+}
+
 pub(crate) fn exploratory_replay_admission_payload_v2(
     proposal: &ExploratoryReplayRequestProposalV2,
+) -> Result<serde_json::Value, serde_json::Error> {
+    let mut payload = serde_json::to_value(proposal)?;
+    let removed = payload
+        .as_object_mut()
+        .and_then(|object| object.remove("admission"));
+    debug_assert!(
+        removed.is_some(),
+        "proposal schema includes admission locator"
+    );
+    Ok(payload)
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+pub(crate) fn exploratory_replay_admission_payload_v3(
+    proposal: &ComposerBackedExploratoryReplayProposalV3,
 ) -> Result<serde_json::Value, serde_json::Error> {
     let mut payload = serde_json::to_value(proposal)?;
     let removed = payload

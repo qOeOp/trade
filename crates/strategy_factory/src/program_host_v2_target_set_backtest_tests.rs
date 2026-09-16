@@ -53,10 +53,12 @@ use super::{
         issue_plugin_implementation_receipt_v2_for_test,
     },
 };
-
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 use super::{
-    program_host_sim_event_consumer_v1::run_program_host_sim_event_consumer_v1,
+    program_host_sim_event_consumer_v1::{
+        ProgramHostSimEventRoundTripV1, program_host_sim_event_canonical_result_digest_for_test,
+        program_host_sim_event_round_trip_for_test, run_program_host_sim_event_consumer_v1,
+    },
     replay_execution_profile_binding_v1::owner_replay_execution_profile_binding_fixture_v1,
     replay_target_set_execution_bundle_v1::ReplayTargetSetExecutionBundleV1,
 };
@@ -245,6 +247,7 @@ struct Corpus<'a> {
 struct RunEvidence {
     corpus: Vec<u8>,
     trace: TargetSetBacktestTraceV2,
+    canonical_result: Vec<u8>,
     restored: bool,
     native_order_count: usize,
 }
@@ -559,6 +562,306 @@ fn every_invalid_batch_fact_prevents_both_submits_and_preserves_the_host_checkpo
     }
 }
 
+struct RoundTripEvidence {
+    trace: TargetSetBacktestTraceV2,
+    canonical_result: Vec<u8>,
+    closure: Option<ProgramHostSimEventRoundTripV1>,
+}
+
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn real_sim_event_run_enters_fills_exits_fills_again_and_ends_flat() {
+    let evidence = run_round_trip_corpus().expect("target-set round-trip corpus");
+    let trace = &evidence.trace;
+    assert!(trace.callback_failure.is_none());
+    assert_eq!(trace.canonical_target_sets.len(), 2);
+    assert_eq!(trace.equity_snapshots.len(), 2);
+    assert_eq!(trace.equity_snapshots[1].current_grid_units, [5, 4]);
+    assert_eq!(trace.equity_snapshots[1].derived_grid_targets, [0, 0]);
+
+    let legs = trace
+        .actual_fill_consumptions
+        .iter()
+        .map(|fill| {
+            (
+                fill.instrument.as_str(),
+                fill.position_intent.as_str(),
+                fill.position_after_grid_units,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        legs,
+        [
+            ("AAPL.XNAS", "ENTER", 2),
+            ("MSFT.XNAS", "ENTER", 1),
+            ("AAPL.XNAS", "ENTER", 5),
+            ("MSFT.XNAS", "ENTER", 4),
+            ("AAPL.XNAS", "EXIT", 0),
+            ("MSFT.XNAS", "EXIT", 0),
+        ],
+        "the run must enter, fill, exit, and fill again on the real Sim EVENT route"
+    );
+    assert_eq!(
+        trace.final_member_grid_units,
+        Some([0, 0]),
+        "both members must hold no native position when the real run stops"
+    );
+
+    let closure = evidence
+        .closure
+        .as_ref()
+        .expect("a complete Sim EVENT round trip");
+    assert_eq!(closure.target_set_count(), 2);
+    assert_eq!(closure.members()[0].instrument(), "AAPL.XNAS");
+    assert_eq!(closure.members()[1].instrument(), "MSFT.XNAS");
+    assert_eq!(closure.members()[0].peak_grid_units(), 5);
+    assert_eq!(closure.members()[1].peak_grid_units(), 4);
+    assert!(closure.members().iter().all(|member| {
+        member.entry_fill_count() == 2
+            && member.exit_fill_count() == 1
+            && member.final_grid_units() == 0
+            && member.closed_position_count() == 1
+    }));
+    assert!(
+        closure.is_bound_to(program_host_sim_event_canonical_result_digest_for_test(
+            &evidence.canonical_result
+        )),
+        "closure evidence must be sealed against this run's canonical Backtest result"
+    );
+
+    let result = CanonicalBacktestResult::from_slice(&evidence.canonical_result)
+        .expect("the run must produce an exact canonical Backtest result");
+    let positions = result.as_value()["positions"]
+        .as_array()
+        .expect("canonical position records");
+    assert_eq!(positions.len(), 2);
+    assert!(
+        positions.iter().all(|position| {
+            !position["ts_closed"].is_null() && !position["closing_order_id"].is_null()
+        }),
+        "the canonical Backtest result must report every member position closed"
+    );
+}
+
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn real_sim_event_run_which_only_entered_claims_no_round_trip() {
+    let evidence = run_corpus(false).expect("uninterrupted target-set Backtest corpus");
+    assert_eq!(evidence.trace.final_member_grid_units, Some([5, 4]));
+    assert!(
+        evidence
+            .trace
+            .actual_fill_consumptions
+            .iter()
+            .all(|fill| fill.position_intent == "ENTER")
+    );
+    let closure = program_host_sim_event_round_trip_for_test(
+        &evidence.trace,
+        &["AAPL.XNAS".to_owned(), "MSFT.XNAS".to_owned()],
+        &evidence.canonical_result,
+    )
+    .expect("an entry-only run is not a fault");
+    assert!(
+        closure.is_none(),
+        "a run still holding both members must not claim a closure"
+    );
+}
+
+fn run_round_trip_corpus() -> anyhow::Result<RoundTripEvidence> {
+    let instruments = instruments();
+    let instrument_ids = [instruments[0].id(), instruments[1].id()];
+    let bar_types = instrument_ids.map(|instrument_id| {
+        BarType::new(
+            instrument_id,
+            BarSpecification::new(1, BarAggregation::Day, PriceType::Last),
+            AggregationSource::External,
+        )
+    });
+    let (plan, artifact, frame) = fixture_with_target_sets(target_set(), Some(exit_target_set()))?;
+    let admitted = admit_market_data_universe_program_event_v2(&plan, &frame)?;
+    let entry_time = admitted.envelope().order_key.logical_time_ns;
+    let exit_time = entry_time + 100;
+    let successor = issue_backtest_universe_successor_for_test(
+        &plan,
+        &frame,
+        exit_time,
+        [[18_725, 18_700], [42_115, 42_100]],
+    )?;
+    let entry_bars = [
+        Bar::new(
+            bar_types[0],
+            Price::from("186.41"),
+            Price::from("188.00"),
+            Price::from("185.00"),
+            Price::from("187.25"),
+            Quantity::from("100"),
+            entry_time.into(),
+            entry_time.into(),
+        ),
+        Bar::new(
+            bar_types[1],
+            Price::from("419.81"),
+            Price::from("425.00"),
+            Price::from("418.00"),
+            Price::from("421.15"),
+            Quantity::from("100.0"),
+            entry_time.into(),
+            entry_time.into(),
+        ),
+    ];
+    let exit_bars = [
+        Bar::new(
+            bar_types[0],
+            Price::from("187.25"),
+            Price::from("188.00"),
+            Price::from("186.00"),
+            Price::from("187.00"),
+            Quantity::from("100"),
+            exit_time.into(),
+            exit_time.into(),
+        ),
+        Bar::new(
+            bar_types[1],
+            Price::from("421.15"),
+            Price::from("422.00"),
+            Price::from("420.00"),
+            Price::from("421.00"),
+            Quantity::from("100.0"),
+            exit_time.into(),
+            exit_time.into(),
+        ),
+    ];
+    let mut data = Vec::new();
+
+    // Entry leg: each member's ask ladder fills the ENTER intent in two real native fills.
+    for (ordinal, (instrument, bar)) in instruments.iter().zip(entry_bars).enumerate() {
+        data.push(Data::Delta(OrderBookDelta::clear(
+            instrument.id(),
+            ordinal as u64 * 100 + 1,
+            entry_time.into(),
+            entry_time.into(),
+        )));
+        data.push(book_level(
+            instrument,
+            OrderSide::Buy,
+            bar.close.as_f64() - 0.01,
+            "100",
+            ordinal as u64 * 100 + 2,
+            entry_time,
+        ));
+        data.push(book_level(
+            instrument,
+            OrderSide::Sell,
+            bar.close.as_f64(),
+            if ordinal == 0 { "2" } else { "0.5" },
+            ordinal as u64 * 100 + 3,
+            entry_time,
+        ));
+        data.push(Data::Bar(bar));
+    }
+    data.extend([
+        book_level(
+            &instruments[0],
+            OrderSide::Sell,
+            187.25,
+            "3",
+            1_001,
+            entry_time + 1,
+        ),
+        book_level(
+            &instruments[1],
+            OrderSide::Sell,
+            421.15,
+            "1.5",
+            1_002,
+            entry_time + 2,
+        ),
+    ]);
+
+    // Exit leg: resting bids absorb the whole reduce-only EXIT order of each member.
+    data.extend([
+        book_level(
+            &instruments[0],
+            OrderSide::Buy,
+            187.00,
+            "100",
+            2_001,
+            exit_time,
+        ),
+        book_level(
+            &instruments[1],
+            OrderSide::Buy,
+            421.00,
+            "100.0",
+            2_002,
+            exit_time,
+        ),
+        Data::Bar(exit_bars[0]),
+        Data::Bar(exit_bars[1]),
+    ]);
+    let trace = Rc::new(RefCell::new(TargetSetBacktestTraceV2::default()));
+    let mut strategy = BacktestTargetSetProgramHostStrategyV2::new(
+        StrategyId::from("TARGET-SET-BACKTEST-B3-ROUND-TRIP-001"),
+        plan,
+        artifact,
+        instrument_ids,
+        bar_types,
+        [frame],
+        None,
+        false,
+        Rc::new(Cell::new(false)),
+        Rc::clone(&trace),
+    )?;
+    strategy.add_admitted_frame_for_test(successor)?;
+    let mut engine = BacktestEngine::new(BacktestEngineConfig {
+        bypass_logging: true,
+        run_analysis: false,
+        ..Default::default()
+    })?;
+    engine.add_venue(
+        SimulatedVenueConfig::builder()
+            .venue(Venue::from("XNAS"))
+            .oms_type(OmsType::Netting)
+            .account_type(AccountType::Margin)
+            .book_type(BookType::L2_MBP)
+            .starting_balances(vec![Money::from("1_000_000 USD")])
+            .bar_execution(false)
+            .liquidity_consumption(true)
+            .use_random_ids(false)
+            .build()?,
+    )?;
+
+    for instrument in &instruments {
+        engine.add_instrument(instrument)?;
+    }
+    engine.add_strategy(strategy)?;
+    engine.add_data(data, None, true, true)?;
+    engine.run(
+        None,
+        None,
+        Some("target-set-backtest-b3-round-trip".to_owned()),
+        false,
+    )?;
+    let trace = trace.borrow().clone();
+    anyhow::ensure!(
+        trace.callback_failure.is_none(),
+        "round-trip callback failed: {:?}",
+        trace.callback_failure
+    );
+    let canonical_result = engine.get_canonical_result()?.to_bytes()?;
+    let closure = program_host_sim_event_round_trip_for_test(
+        &trace,
+        &instrument_ids.map(|instrument_id| instrument_id.to_string()),
+        &canonical_result,
+    )?;
+    Ok(RoundTripEvidence {
+        trace,
+        canonical_result,
+        closure,
+    })
+}
+
 fn run_corpus(restore: bool) -> anyhow::Result<RunEvidence> {
     run_corpus_with_fault(restore, false)
 }
@@ -711,12 +1014,13 @@ fn run_corpus_with_fault(restore: bool, second_submit_fault: bool) -> anyhow::Re
         .collect::<Vec<_>>();
     let corpus = serde_json::to_vec(&Corpus {
         trace: &trace,
-        result,
+        result: result.clone(),
         positions,
     })?;
     Ok(RunEvidence {
         corpus,
         trace,
+        canonical_result: result,
         restored: restored.get(),
         native_order_count,
     })
@@ -1176,6 +1480,29 @@ fn second_target_set() -> InstrumentTargetSetV2 {
                 target: TargetProposalV1::Position(5),
                 reconciliation_target_units: Some(5),
                 protection: ProtectionProposalV1::Keep,
+            },
+        ],
+    )
+    .unwrap()
+}
+
+fn exit_target_set() -> InstrumentTargetSetV2 {
+    InstrumentTargetSetV2::new(
+        2,
+        [
+            MemberTargetV2 {
+                instrument: InstrumentKeyV2::new(b"AAPL.XNAS").unwrap(),
+                position: PositionIntentV1::Exit,
+                target: TargetProposalV1::Position(0),
+                reconciliation_target_units: Some(0),
+                protection: ProtectionProposalV1::Clear,
+            },
+            MemberTargetV2 {
+                instrument: InstrumentKeyV2::new(b"MSFT.XNAS").unwrap(),
+                position: PositionIntentV1::Exit,
+                target: TargetProposalV1::Position(0),
+                reconciliation_target_units: Some(0),
+                protection: ProtectionProposalV1::Clear,
             },
         ],
     )

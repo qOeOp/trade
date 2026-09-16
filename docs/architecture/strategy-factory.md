@@ -570,6 +570,55 @@ persisted canonical Result bytes after the coordinator acknowledges the Result, 
 semantic trace; an unacknowledged submission remains unavailable. This does not yet claim disposable PostgreSQL
 acceptance, a deployed or running service, production invocation, Paper/Live execution, or trading.
 
+**TARGET / NOT_ADMITTED, Owner-sealed two-frame Native Replay V2:** the existing
+`NativeReplayExecutionInputBindingV1`, its single universe frame, native scheduling receipt,
+28-component observation package, execution bundle, request and Result identities remain
+byte-for-byte unchanged. A separate `NativeReplayExecutionInputBindingV2` may bind one already
+sealed Exploratory Replay request to exactly two complete, independently Owner-sealed universe
+frames and their native BAR plus Quote/L2-MBP EVENT liquidity schedules. This bounded profile
+applies only when the request window contains exactly those two eligible frames. The first frame
+must equal the independently re-resolved V1 initial frame. Market Data alone derives the complete
+eligible two-frame sequence within the
+request's half-open replay window and decision cut; a third eligible frame makes this bounded V2
+profile unavailable rather than silently truncating it. The two frames have distinct identities,
+strictly increasing canonical event order and no eligible frame between them; each retains its own
+PIT snapshot/fact, observation-batch, trigger, frame, native scheduling and liquidity EVENT receipt
+identities. Each liquidity receipt binds the Owner-verified Quote row digests, source cut,
+bid/ask prices and sizes, event/initialization times and member order consumed by the real Sim
+Exchange; a BAR receipt alone cannot authorize a fill. Both frames must bind the same request,
+Plan/Design role schema, two canonical members, universe selection, Instrument
+Master cut, BAR timeframe, venue and account scope, and the instrument/economic terms must be
+valid at both frame times. Market Data verifies each frame's source and correction lineage at its
+own cut and their valid successor relationship. The caller cannot provide
+the second snapshot, frame time, member values, schedule, event order or a frame list.
+
+R&D issues V2 binding, deterministic receipt and outbox atomically only after exact-locator
+readback of the V1 binding and both Market Data frame/scheduling capabilities. The V2 meaning
+includes the V1 binding identity, both ordered frame, native scheduling and liquidity EVENT
+receipt digests, their distinct PIT cuts and a domain-separated sequence digest covering all of
+them. Exact request/V2-locator retry or response-loss recovery returns the same stored bytes after
+re-verifying every constituent;
+changed meaning conflicts with zero append. Native preparation independently re-resolves both
+Owner cuts, proves byte-for-byte equality to the stored V2 binding, and then constructs a
+move-only V2 execution bundle. The bundle validates two complete BAR signals and their later
+Owner-verified Quote/L2-MBP EVENT liquidity for each frame. The first frame's final liquidity
+EVENT must precede the second frame's first BAR. Strict cross-frame temporal order and the request
+window are checked before ProgramHost or Backtest state changes. A V1 binding is never upgraded by interpretation,
+and an unavailable V2 constituent never falls back to V1 or a test-issued successor frame.
+
+Backtest V2 result custody binds the exact V2 binding and sequence digest, each consumed frame's
+identity and ordinal, both native schedules and liquidity EVENT receipts, the canonical target set
+and actual fill evidence for each frame, and the canonical Backtest Result bytes. Its versioned evidence package includes
+the unchanged V1 constituent set plus the ordered V2 frame-sequence evidence; a V1 28-component
+package alone cannot attest a two-frame run. A round-trip closure is present only if actual Sim
+EVENT fills entered and then exited every member, the run ended flat, and its own canonical Result
+reports those positions closed. The closure digest binds that Result digest, V2 sequence digest
+and exact fill/position facts. Entry-only, rejected, partially filled or still-open runs never
+claim closure; a reduction that cannot be reconciled to a complete run fails closed. Exact
+attempt/Result response-loss readback returns the already committed Result and evidence, never
+re-executes or fabricates a closure. This contract does not itself prove dynamic Owner issuance,
+disposable PostgreSQL acceptance, profitable strategy behavior, Paper, Live or trading authority.
+
 **TARGET / NOT_ADMITTED, BAR FRAME and JOINED_CUT composition:** the additive
 `StrategyInputSampleProjectionV4` is the only projection that may compose BAR components across a complete
 native join. It has closed `FRAME|JOINED_CUT` projection kinds and the closed `BAR` lifecycle; V2 EVENT/FRAME/

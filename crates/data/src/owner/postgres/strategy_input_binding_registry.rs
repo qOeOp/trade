@@ -21,16 +21,21 @@ use crate::owner::{
     strategy_design_role_set::StrategyDesignRoleSetReceiptV1,
     strategy_input_binding::{
         StrategyInputBindingReceipt, StrategyInputBindingUnavailable,
-        StrategyInputEventFrameReceipt, UntrustedStrategyInputBindingRequest,
+        StrategyInputCustodyDeclarationV1, StrategyInputCustodyReadbackV1,
+        StrategyInputCustodyUnavailableV1, StrategyInputEventFrameReceipt,
+        UntrustedStrategyInputBindingRequest, UntrustedStrategyInputCustodyClaimV1,
         UntrustedStrategyInputScope, bind_strategy_input_event_frame, bind_strategy_input_role,
-        codec, request_matches_authenticated_role_v1,
+        canonical_strategy_input_custody_roles_v1, codec, request_matches_authenticated_role_v1,
+        seal_strategy_input_custody_v1,
     },
     universe_selection::{UniverseSelectionReadbackV1, authority::decode_readback_v1},
 };
 
 use super::{
-    load_durable_instrument_readback, load_pit, load_pit_for_update, load_pit_observation_batch,
-    load_pit_observation_batch_for_update, load_source, load_source_for_update,
+    load_durable_instrument_readback, load_durable_instrument_readback_for_rd_replay, load_pit,
+    load_pit_for_rd_strategy_input, load_pit_for_update, load_pit_observation_batch,
+    load_pit_observation_batch_for_rd_strategy_input, load_pit_observation_batch_for_update,
+    load_source, load_source_for_rd_strategy_input, load_source_for_update,
 };
 
 pub(super) const MAX_STRATEGY_INPUT_BINDING_REQUEST_BYTES_V1: usize = codec::MAX_REQUEST_BYTES;
@@ -266,6 +271,241 @@ pub(super) async fn recover_strategy_input_binding_declaration_v1(
     })
 }
 
+async fn recover_strategy_input_binding_declaration_for_rd_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    pit_request_identity: BindingDigest,
+    strategy_design_identity: BindingDigest,
+    input_role_identity: BindingDigest,
+) -> Result<StrategyInputBindingDeclarationReadbackV1, StrategyInputBindingRegistryErrorV1> {
+    lock_key_values(
+        transaction,
+        pit_request_identity,
+        strategy_design_identity,
+        input_role_identity,
+    )
+    .await?;
+    let rows =
+        sqlx::query("SELECT * FROM market_data_rd_api.lock_strategy_input_declarations_v1($1,$2)")
+            .bind(pit_request_identity.as_bytes().as_slice())
+            .bind(strategy_design_identity.as_bytes().as_slice())
+            .fetch_all(&mut **transaction)
+            .await
+            .map_err(|_| StrategyInputBindingRegistryErrorV1::StoreUnavailable)?;
+    let row = rows
+        .iter()
+        .find(|row| row_digest(row, "input_role_identity").ok() == Some(input_role_identity))
+        .ok_or(StrategyInputBindingRegistryErrorV1::UnknownDeclaration)?;
+    let request_bytes = row_bytes(row, "request_bytes")?;
+    let meaning = row_digest(row, "request_meaning_digest")?;
+    let stored_digest = row_digest(row, "owner_binding_digest")?;
+    let request = verify_stored(
+        pit_request_identity,
+        strategy_design_identity,
+        input_role_identity,
+        request_bytes,
+        meaning,
+        stored_digest,
+    )?;
+    let binding =
+        resolve_and_bind_with_mode(transaction, &request, DependencyReadModeV1::RdOwner).await?;
+    if binding.digest() != stored_digest {
+        return Err(StrategyInputBindingRegistryErrorV1::StoreUntrusted);
+    }
+    Ok(StrategyInputBindingDeclarationReadbackV1 {
+        request,
+        request_meaning_digest: meaning,
+        binding,
+    })
+}
+
+/// Re-reads one complete persisted Composer input custody inside the caller's open transaction.
+///
+/// This is the durable replacement for a fixed in-memory acceptance corpus. Every claimed role is
+/// re-read from its write-once declaration, re-bound against the live native PIT, Universe, Source,
+/// Instrument Master, and Market Semantics dependencies, and joined into one event frame. Stored
+/// bytes never mint a receipt: a declaration that no longer re-derives to its recorded Owner digest,
+/// names another Research request, Design, or PIT request, or carries any decision cut other than
+/// the one the caller requires is rejected, and the whole claim fails closed with it.
+///
+/// Declaration rows remain locked for the caller transaction (`FOR UPDATE` for Market Data,
+/// `FOR SHARE` through the R&D facade), so concurrent mutation cannot move the custody.
+///
+/// # Errors
+///
+/// Returns only a redacted [`StrategyInputCustodyUnavailableV1`] category. No error carries store
+/// evidence, a partial binding, or a partial frame.
+pub async fn reread_persisted_strategy_input_custody_for_update_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    claim: &UntrustedStrategyInputCustodyClaimV1,
+) -> Result<StrategyInputCustodyReadbackV1, StrategyInputCustodyUnavailableV1> {
+    let principal: String = sqlx::query_scalar("SELECT session_user::text")
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(|_| StrategyInputCustodyUnavailableV1::StoreUnavailable)?;
+    let mode = if principal == "rd_owner" {
+        super::replay_market_facts_v2::verify_rd_replay_cut_transport_v1(transaction)
+            .await
+            .map_err(|_| StrategyInputCustodyUnavailableV1::StoreUnavailable)?;
+        DependencyReadModeV1::RdOwner
+    } else {
+        DependencyReadModeV1::LockRows
+    };
+    reread_persisted_strategy_input_custody_with_mode_v1(transaction, claim, mode).await
+}
+
+/// Non-locking form of the persisted Composer input custody re-read.
+///
+/// It applies the identical re-derivation and rejection rules but takes no row lock, so it suits a
+/// read-only projection that must not block Market Data writers.
+///
+/// # Errors
+///
+/// Returns only a redacted [`StrategyInputCustodyUnavailableV1`] category.
+pub async fn reread_persisted_strategy_input_custody_read_only_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    claim: &UntrustedStrategyInputCustodyClaimV1,
+) -> Result<StrategyInputCustodyReadbackV1, StrategyInputCustodyUnavailableV1> {
+    reread_persisted_strategy_input_custody_with_mode_v1(
+        transaction,
+        claim,
+        DependencyReadModeV1::ReadOnly,
+    )
+    .await
+}
+
+async fn reread_persisted_strategy_input_custody_with_mode_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    claim: &UntrustedStrategyInputCustodyClaimV1,
+    mode: DependencyReadModeV1,
+) -> Result<StrategyInputCustodyReadbackV1, StrategyInputCustodyUnavailableV1> {
+    let roles = canonical_strategy_input_custody_roles_v1(claim)?;
+    let mut declarations = Vec::with_capacity(roles.len());
+    for role_identity in &roles {
+        let declaration = match mode {
+            DependencyReadModeV1::LockRows => {
+                recover_strategy_input_binding_declaration_v1(
+                    transaction,
+                    claim.pit_request_identity,
+                    claim.strategy_design_identity,
+                    *role_identity,
+                )
+                .await
+            }
+            DependencyReadModeV1::ReadOnly => {
+                rederive_strategy_input_binding_declaration_read_only_v1(
+                    transaction,
+                    claim.pit_request_identity,
+                    claim.strategy_design_identity,
+                    *role_identity,
+                )
+                .await
+            }
+            DependencyReadModeV1::RdOwner => {
+                recover_strategy_input_binding_declaration_for_rd_v1(
+                    transaction,
+                    claim.pit_request_identity,
+                    claim.strategy_design_identity,
+                    *role_identity,
+                )
+                .await
+            }
+        }
+        .map_err(|error| map_custody_error(&error))?;
+        declarations.push(declaration);
+    }
+
+    // A caller cannot turn a persisted Design role set into a positive subset by omitting
+    // declarations from the claim. Production registration admits each row only against the
+    // authenticated complete Design role set.
+    let all_rows = match mode {
+        DependencyReadModeV1::LockRows => sqlx::query("SELECT input_role_identity FROM market_data_private.strategy_input_binding_declarations_v1 WHERE pit_request_identity=$1 AND strategy_design_identity=$2 FOR UPDATE")
+            .bind(claim.pit_request_identity.as_bytes().as_slice())
+            .bind(claim.strategy_design_identity.as_bytes().as_slice())
+            .fetch_all(&mut **transaction)
+            .await,
+        DependencyReadModeV1::ReadOnly => sqlx::query("SELECT input_role_identity FROM market_data_private.strategy_input_binding_declarations_v1 WHERE pit_request_identity=$1 AND strategy_design_identity=$2")
+            .bind(claim.pit_request_identity.as_bytes().as_slice())
+            .bind(claim.strategy_design_identity.as_bytes().as_slice())
+            .fetch_all(&mut **transaction)
+            .await,
+        DependencyReadModeV1::RdOwner => sqlx::query("SELECT input_role_identity FROM market_data_rd_api.lock_strategy_input_declarations_v1($1,$2)")
+            .bind(claim.pit_request_identity.as_bytes().as_slice())
+            .bind(claim.strategy_design_identity.as_bytes().as_slice())
+            .fetch_all(&mut **transaction)
+            .await,
+    }
+    .map_err(|_| StrategyInputCustodyUnavailableV1::StoreUnavailable)?;
+    let mut stored_roles = all_rows
+        .iter()
+        .map(|row| {
+            row_digest(row, "input_role_identity")
+                .map_err(|_| StrategyInputCustodyUnavailableV1::DeclarationUntrusted)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    stored_roles.sort_unstable_by(|left, right| left.as_bytes().cmp(right.as_bytes()));
+    if stored_roles != roles {
+        return Err(StrategyInputCustodyUnavailableV1::RoleCoverageMismatch);
+    }
+
+    let first = declarations
+        .first()
+        .ok_or(StrategyInputCustodyUnavailableV1::RoleCoverageMismatch)?;
+    let batch = resolve_native_pit(transaction, first.request(), mode)
+        .await
+        .map_err(|error| map_custody_error(&error))?;
+    let bindings = declarations
+        .iter()
+        .map(|declaration| declaration.binding().clone())
+        .collect::<Vec<_>>();
+    let frame = bind_strategy_input_event_frame(&bindings, &batch)
+        .map_err(|_| StrategyInputCustodyUnavailableV1::FrameUnavailable)?;
+    let sealed = declarations
+        .iter()
+        .map(|declaration| StrategyInputCustodyDeclarationV1 {
+            request: declaration.request(),
+            request_meaning_digest: declaration.request_meaning_digest(),
+            binding: declaration.binding(),
+        })
+        .collect::<Vec<_>>();
+    seal_strategy_input_custody_v1(claim, &sealed, &frame)
+}
+
+/// Projects an internal registry failure onto the redacted public custody category.
+fn map_custody_error(
+    error: &StrategyInputBindingRegistryErrorV1,
+) -> StrategyInputCustodyUnavailableV1 {
+    use StrategyInputBindingRegistryErrorV1 as Registry;
+    match error {
+        Registry::UnknownDeclaration => StrategyInputCustodyUnavailableV1::UnknownDeclaration,
+        Registry::StoreUnavailable => StrategyInputCustodyUnavailableV1::StoreUnavailable,
+        Registry::InvalidRequest
+        | Registry::CapacityExceeded
+        | Registry::CodecMismatch
+        | Registry::RequestConflict
+        | Registry::StoreUntrusted => StrategyInputCustodyUnavailableV1::DeclarationUntrusted,
+        Registry::PitUnavailable
+        | Registry::UniverseUnavailable
+        | Registry::SourceUnavailable
+        | Registry::InstrumentMasterScopeUnavailable
+        | Registry::InstrumentMasterBatchDigestUnavailable
+        | Registry::InstrumentMasterCutLocatorUnavailable
+        | Registry::InstrumentMasterReadbackUnavailable
+        | Registry::InstrumentMasterFactCountUnavailable
+        | Registry::InstrumentMasterDigestUnavailable
+        | Registry::InstrumentMasterCutUnavailable
+        | Registry::InstrumentMasterCanonicalIdentityUnavailable
+        | Registry::InstrumentMasterSemanticsIdentityUnavailable
+        | Registry::InstrumentMasterSourceFrontierUnavailable
+        | Registry::InstrumentMasterCorrectionFrontierUnavailable
+        | Registry::InstrumentMasterEffectiveRangeUnavailable
+        | Registry::MarketSemanticsUnavailable
+        | Registry::BindingUnavailable(_)
+        | Registry::StrategyDesignRoleSetUnavailable => {
+            StrategyInputCustodyUnavailableV1::DependencyUnavailable
+        }
+    }
+}
+
 async fn resolve_and_bind(
     transaction: &mut Transaction<'_, Postgres>,
     request: &UntrustedStrategyInputBindingRequest,
@@ -277,6 +517,7 @@ async fn resolve_and_bind(
 enum DependencyReadModeV1 {
     LockRows,
     ReadOnly,
+    RdOwner,
 }
 
 async fn resolve_and_bind_with_mode(
@@ -391,6 +632,15 @@ async fn resolve_complete_strategy_input_roles_with_mode_v1(
                 )
                 .await?
             }
+            DependencyReadModeV1::RdOwner => {
+                recover_strategy_input_binding_declaration_for_rd_v1(
+                    transaction,
+                    pit_request_identity,
+                    strategy_design_identity,
+                    role_identity,
+                )
+                .await?
+            }
         });
     }
     let request = declarations
@@ -460,6 +710,9 @@ async fn validate_native_source(
         DependencyReadModeV1::ReadOnly => {
             load_source(transaction, batch.source_binding_identity(), false).await
         }
+        DependencyReadModeV1::RdOwner => {
+            load_source_for_rd_strategy_input(transaction, batch.source_binding_identity()).await
+        }
     }
     .map_err(|_| StrategyInputBindingRegistryErrorV1::SourceUnavailable)?
     .ok_or(StrategyInputBindingRegistryErrorV1::SourceUnavailable)?;
@@ -520,18 +773,29 @@ async fn validate_native_instrument_master(
     }
     // The semantics fact carries the complete version coordinate. The unique cut locator selects
     // one durable readback without choosing a latest fact or scanning the instrument history.
-    let request_rows: Vec<Vec<u8>> = sqlx::query_scalar(
-        "SELECT request_identity FROM market_data_private.instrument_master_receipts_v1 WHERE cut_identity=$1 ORDER BY request_identity",
-    )
-    .bind(semantics.instrument_master_cut_digest.as_bytes().as_slice())
-    .fetch_all(&mut **transaction)
-    .await
-    .map_err(|_| StrategyInputBindingRegistryErrorV1::StoreUnavailable)?;
-    let request_identity = exact_instrument_request_identity(&request_rows)?;
-    let readback = load_durable_instrument_readback(transaction, request_identity, false)
+    let principal: String = sqlx::query_scalar("SELECT session_user::text")
+        .fetch_one(&mut **transaction)
         .await
-        .map_err(map_instrument_error)?
-        .ok_or(StrategyInputBindingRegistryErrorV1::StoreUntrusted)?;
+        .map_err(|_| StrategyInputBindingRegistryErrorV1::StoreUnavailable)?;
+    let readback = if principal == "rd_owner" {
+        load_durable_instrument_readback_for_rd_replay(
+            transaction,
+            semantics.instrument_master_cut_digest,
+        )
+        .await
+    } else {
+        let request_rows: Vec<Vec<u8>> = sqlx::query_scalar(
+            "SELECT request_identity FROM market_data_private.instrument_master_receipts_v1 WHERE cut_identity=$1 ORDER BY request_identity",
+        )
+        .bind(semantics.instrument_master_cut_digest.as_bytes().as_slice())
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(|_| StrategyInputBindingRegistryErrorV1::StoreUnavailable)?;
+        let request_identity = exact_instrument_request_identity(&request_rows)?;
+        load_durable_instrument_readback(transaction, request_identity, false).await
+    }
+    .map_err(map_instrument_error)?
+    .ok_or(StrategyInputBindingRegistryErrorV1::StoreUntrusted)?;
     let [fact] = readback.facts() else {
         return Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterFactCountUnavailable);
     };
@@ -662,6 +926,16 @@ async fn resolve_native_market_semantics(
             )
             .await
         }
+        DependencyReadModeV1::RdOwner => {
+            super::market_semantics::resolve_market_semantics_scope_for_rd_strategy_input_v1(
+                transaction,
+                request.market_semantics_identity,
+                i128::from(batch.time_evidence().event_effective.value),
+                i128::from(batch.time_evidence().observed_at),
+                request.decision_cut,
+            )
+            .await
+        }
     }
     .map_err(map_market_semantics_error)
 }
@@ -705,6 +979,9 @@ async fn resolve_native_pit(
         DependencyReadModeV1::ReadOnly => {
             load_pit(transaction, request.snapshot_identity, false, false).await
         }
+        DependencyReadModeV1::RdOwner => {
+            load_pit_for_rd_strategy_input(transaction, request.snapshot_identity).await
+        }
     }
     .map_err(map_pit_error)?
     .ok_or(StrategyInputBindingRegistryErrorV1::PitUnavailable)?;
@@ -714,6 +991,9 @@ async fn resolve_native_pit(
         }
         DependencyReadModeV1::ReadOnly => {
             load_pit_observation_batch(transaction, &aggregate, false).await
+        }
+        DependencyReadModeV1::RdOwner => {
+            load_pit_observation_batch_for_rd_strategy_input(transaction, &aggregate).await
         }
     }
     .map_err(map_pit_error)?
@@ -741,6 +1021,9 @@ async fn resolve_native_universe(
         }
         DependencyReadModeV1::ReadOnly => {
             "SELECT r.request_identity,r.request_meaning_digest,r.selection_identity,r.record_bytes,c.receipt_identity,c.receipt_bytes,o.outbox_identity,o.receipt_bytes AS outbox_receipt_bytes FROM market_data_private.universe_selection_records_v1 AS r JOIN market_data_private.universe_selection_receipts_v1 AS c ON c.request_identity=r.request_identity JOIN market_data_private.universe_selection_outbox_v1 AS o ON o.request_identity=r.request_identity WHERE r.selection_identity=$1"
+        }
+        DependencyReadModeV1::RdOwner => {
+            "SELECT * FROM market_data_rd_api.lock_universe_for_strategy_input_v1($1)"
         }
     };
     let row = sqlx::query(query)
@@ -1024,6 +1307,124 @@ mod tests {
             vec![],
         )
         .unwrap()
+    }
+
+    #[rstest]
+    fn custody_failures_are_redacted_onto_the_documented_public_categories() {
+        use StrategyInputBindingRegistryErrorV1 as Registry;
+        use StrategyInputCustodyUnavailableV1 as Custody;
+
+        let cases = [
+            (Registry::UnknownDeclaration, Custody::UnknownDeclaration),
+            (Registry::StoreUnavailable, Custody::StoreUnavailable),
+            (Registry::InvalidRequest, Custody::DeclarationUntrusted),
+            (Registry::CapacityExceeded, Custody::DeclarationUntrusted),
+            (Registry::CodecMismatch, Custody::DeclarationUntrusted),
+            (Registry::RequestConflict, Custody::DeclarationUntrusted),
+            (Registry::StoreUntrusted, Custody::DeclarationUntrusted),
+            (Registry::PitUnavailable, Custody::DependencyUnavailable),
+            (
+                Registry::UniverseUnavailable,
+                Custody::DependencyUnavailable,
+            ),
+            (Registry::SourceUnavailable, Custody::DependencyUnavailable),
+            (
+                Registry::InstrumentMasterScopeUnavailable,
+                Custody::DependencyUnavailable,
+            ),
+            (
+                Registry::InstrumentMasterBatchDigestUnavailable,
+                Custody::DependencyUnavailable,
+            ),
+            (
+                Registry::InstrumentMasterCutLocatorUnavailable,
+                Custody::DependencyUnavailable,
+            ),
+            (
+                Registry::InstrumentMasterReadbackUnavailable,
+                Custody::DependencyUnavailable,
+            ),
+            (
+                Registry::InstrumentMasterFactCountUnavailable,
+                Custody::DependencyUnavailable,
+            ),
+            (
+                Registry::InstrumentMasterDigestUnavailable,
+                Custody::DependencyUnavailable,
+            ),
+            (
+                Registry::InstrumentMasterCutUnavailable,
+                Custody::DependencyUnavailable,
+            ),
+            (
+                Registry::InstrumentMasterCanonicalIdentityUnavailable,
+                Custody::DependencyUnavailable,
+            ),
+            (
+                Registry::InstrumentMasterSemanticsIdentityUnavailable,
+                Custody::DependencyUnavailable,
+            ),
+            (
+                Registry::InstrumentMasterSourceFrontierUnavailable,
+                Custody::DependencyUnavailable,
+            ),
+            (
+                Registry::InstrumentMasterCorrectionFrontierUnavailable,
+                Custody::DependencyUnavailable,
+            ),
+            (
+                Registry::InstrumentMasterEffectiveRangeUnavailable,
+                Custody::DependencyUnavailable,
+            ),
+            (
+                Registry::MarketSemanticsUnavailable,
+                Custody::DependencyUnavailable,
+            ),
+            (
+                Registry::BindingUnavailable(StrategyInputBindingUnavailable::StaleBatch),
+                Custody::DependencyUnavailable,
+            ),
+            (
+                Registry::StrategyDesignRoleSetUnavailable,
+                Custody::DependencyUnavailable,
+            ),
+        ];
+
+        for (registry, expected) in &cases {
+            assert_eq!(map_custody_error(registry), *expected);
+        }
+        // Every internal category is projected, and 25 of them collapse into 4 public ones, so a
+        // caller cannot read store evidence back out of the rejection it receives.
+        assert_eq!(cases.len(), 25);
+        let mut projected = cases
+            .iter()
+            .map(|(_, custody)| format!("{custody}"))
+            .collect::<Vec<_>>();
+        projected.sort_unstable();
+        projected.dedup();
+        assert_eq!(projected.len(), 4);
+    }
+
+    #[rstest]
+    fn custody_claim_canonicalization_is_shared_with_the_owner_authority() {
+        let claim = UntrustedStrategyInputCustodyClaimV1 {
+            research_request_identity: d(1),
+            strategy_design_identity: d(2),
+            pit_request_identity: d(4),
+            input_role_identities: vec![d(9), d(3), d(6)],
+            decision_cut: 15,
+        };
+        assert_eq!(
+            canonical_strategy_input_custody_roles_v1(&claim),
+            Ok(vec![d(3), d(6), d(9)])
+        );
+
+        let mut duplicated = claim;
+        duplicated.input_role_identities = vec![d(3), d(3)];
+        assert_eq!(
+            canonical_strategy_input_custody_roles_v1(&duplicated),
+            Err(StrategyInputCustodyUnavailableV1::InvalidClaim)
+        );
     }
 
     #[rstest]

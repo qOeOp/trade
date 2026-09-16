@@ -44,6 +44,15 @@ Unify Research and Develop under one business-fact Owner. The Research capabilit
   slippage, and capacity-model identities. Only a request-equal `TERMINAL_RESULT` may enter Research Selection.
 - Append-only TrialFamily Census Frontier containing every exploratory Intent, Request, and Result identity through a frozen cut, including losing, rejected, invalid, and unknown trials, plus the consumed family budget.
 - Exploratory findings that may justify a new Research Intent, without mutating the frozen predecessor.
+- Write-once Iteration Result Admission binding one locked canonical Backtest Result to the iteration that may
+  consume it. The Owner derives every admitted fact inside one serializable R&D transaction from the locked
+  Result bytes, the exact TrialFamily census cut and the sealed trial budget; the caller supplies only the
+  locator, the result and request-meaning digests, and the canonically ordered candidate proposal set. A
+  proposal set that is empty, oversized, misordered, duplicated, inconsistent with its declared cardinality, or
+  larger than the remaining sealed budget closes the admission and creates no custody. Exact request replay joins
+  the committed admission; a changed meaning for the same Result is `Conflict`. The admission emits one
+  `RD_ITERATION_RESULT_ADMITTED_V1` outbox event and creates no Decision, Selection, Candidate, or Qualification
+  transition.
 - Research Iteration Decision: the sole Research fact that records `REPAIR_INPUTS` with the complete supported
   diagnostic set plus one deterministically selected typed repair category and target boundary, a successor
   experiment, `READY_FOR_SELECTION`, or a named terminal stop. Stop, repair, and
