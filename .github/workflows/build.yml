@@ -592,6 +592,16 @@ jobs:
           make cargo-test NEXTEST_PROFILE=ci
           EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
 
+      - name: Report disk space after workspace Rust tests
+        if: always()
+        run: bash scripts/ci/report-disk-space.bash "after workspace Rust tests"
+
+      - name: Reclaim Cargo target before the R&D Owner chain
+        if: >-
+          ${{ (steps.rust-tests.outcome == 'success' ||
+          steps.rust-tests.outcome == 'failure') && !cancelled() }}
+        run: bash scripts/ci/reclaim-cargo-target.bash "before the R&D Owner chain"
+
       - name: Run isolated R&D Owner PostgreSQL tests
         if: >-
           ${{ (steps.rust-tests.outcome == 'success' ||
@@ -599,6 +609,10 @@ jobs:
         run: >-
           make cargo-test-rd-owner-postgres-isolated NEXTEST_PROFILE=ci
           EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
+
+      - name: Report disk space after the R&D Owner chain
+        if: always()
+        run: bash scripts/ci/report-disk-space.bash "after the R&D Owner chain"
 
       - name: Run isolated Market Data PostgreSQL owner tests
         if: >-
