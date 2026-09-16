@@ -90,6 +90,7 @@ fn project_verified_outcome(
     let canonical_result_digest = canonical_result_digest(canonical_result_bytes)?;
     let canonical_result_length = u64::try_from(canonical_result_bytes.len())
         .map_err(|_| BacktestResultProjectionErrorV1::CanonicalResultBindingMismatch)?;
+
     if evidence.canonical_result.schema_identity.as_str() != CANONICAL_RESULT_SCHEMA_V1
         || evidence.canonical_result.canonical_bytes_length != canonical_result_length
         || evidence.canonical_result.canonical_bytes_digest != canonical_result_digest
@@ -123,6 +124,7 @@ fn project_verified_outcome(
         ],
         "canonical result",
     )?;
+
     if string(root, "schema", "canonical result schema")? != CANONICAL_RESULT_SCHEMA_V1 {
         return Err(invalid("canonical result schema"));
     }
@@ -160,6 +162,7 @@ fn project_verified_outcome(
                 .and_then(Value::as_str)
                 == Some("FLAT")
         });
+
     if !terminal_flat {
         return Err(BacktestResultProjectionErrorV1::TerminalPositionOpen);
     }
@@ -170,6 +173,7 @@ fn project_verified_outcome(
         "returns_series",
         "canonical returns series",
     )?)?;
+
     if returns_series.is_empty() {
         return Err(missing("returns series"));
     }
@@ -481,6 +485,8 @@ pub enum BacktestResultProjectionErrorV1 {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use serde_json::json;
     use vibe_backtest_owner_contracts::{
         BacktestOutcomeEvidenceBindingsV1, CanonicalResultBindingDtoV1,
@@ -606,7 +612,7 @@ mod tests {
         (bytes, evidence, locator)
     }
 
-    #[test]
+    #[rstest]
     fn canonical_owner_result_projects_bound_economic_facts() {
         let document = canonical_document();
         let (bytes, evidence, locator) = authority(&document);
@@ -629,7 +635,7 @@ mod tests {
         assert_eq!(projection.sortino_ratio, "4000000000000000");
     }
 
-    #[test]
+    #[rstest]
     fn authority_or_canonical_bytes_mismatch_yields_no_projection() {
         let document = canonical_document();
         let (bytes, evidence, locator) = authority(&document);
@@ -646,7 +652,7 @@ mod tests {
         let mut wrong = locator.clone();
         wrong.attempt_identity = identity("attempt-2");
         mismatches.push(wrong);
-        let mut wrong = locator.clone();
+        let mut wrong = locator;
         wrong.canonical_result_digest = digest('8');
         mismatches.push(wrong);
 
@@ -666,7 +672,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn incomplete_economic_facts_fail_closed() {
         let mut cases = Vec::new();
 

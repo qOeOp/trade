@@ -1,0 +1,76 @@
+name: pre-commit-pr
+
+# `build.yml` owns the pre-commit job, but that workflow only triggers on pushes to its own branch
+# list, so no pull request has ever run a single hook. Six hooks had gone red on `main` that way:
+# cargo fmt (32 sites), Unicode typography (22 lines), error conventions (20 closures), testing
+# conventions (15 attributes), vibe conventions (15 qualified paths), and the Rust formatting check.
+# None of them needs a compiled workspace, so all of them can gate a pull request.
+#
+# The four hooks that do compile the workspace - cargo-clippy, its non-Linux turmoil sibling,
+# cargo-doc and cargo-machete - stay in `build.yml`, where the Rust cache lives. check-links-offline
+# stays there too because it needs a pinned lychee install.
+#
+# This lives outside `build.yml` on purpose: that file's contents are hashed into the Rust cache key,
+# so editing it would evict the whole workspace cache for every job.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pre-commit-pr-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  AUDIT_PR: >-
+    ${{ github.repository == 'qOeOp/trade'
+    || github.event_name == 'pull_request'
+    && (!github.event.pull_request.head.repo.full_name
+    || github.event.pull_request.head.repo.full_name != github.repository) }}
+
+jobs:
+  hooks:
+    name: pre-commit (no-compile hooks)
+    runs-on: ubuntu-22.04
+    steps:
+      # https://github.com/step-security/harden-runner
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: >-
+            ${{ env.AUDIT_PR == 'true' && 'audit'
+            || vars.STEP_SECURITY_EGRESS_POLICY
+            || 'block' }}
+          allowed-endpoints: >-
+            ${{ vars.COMMON_ALLOWED_ENDPOINTS }}
+            ${{ vars.CI_ALLOWED_ENDPOINTS }}
+
+      - name: Checkout repository
+        # https://github.com/actions/checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # The same setup `build.yml`'s pre-commit job uses, so the two cannot drift into disagreeing
+      # about toolchains. The Rust cache stays off: no hook here compiles anything.
+      - name: Common setup
+        uses: ./.github/actions/common-setup
+        with:
+          python-version: "3.13"
+          build-type: "pre-commit"
+          rust-cache-enabled: "false"
+
+      # --all-files rather than a diff range: these hooks read the whole repository anyway, and the
+      # full pass takes about the same time as resolving a merge base would save.
+      - name: Run the hooks that need no compiled workspace
+        run: |-
+          prek run --all-files \
+            --skip cargo-clippy \
+            --skip cargo-clippy-network-turmoil-non-linux \
+            --skip cargo-doc \
+            --skip cargo-machete \
+            --skip check-links-offline

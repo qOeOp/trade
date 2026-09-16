@@ -71,6 +71,9 @@ test("Research directory uses the shared compact read-only table surface", async
   assert.match(component, /Search research questions/u);
   assert.match(component, /label="Research request"/u);
   assert.match(component, /label="Strategy intent"/u);
+  assert.match(component, /setOmittedCount\(\(current\) => cursor \? current \+ parsed\.omittedCount : parsed\.omittedCount\)/u);
+  assert.match(component, /<OwnerDirectoryCandidateSummary omittedCount=\{omittedCount\} \/>/u);
+  assert.match(component, /"Request, intent, or state"/u);
   for (const header of ["Research request", "State", "Intent", "Updated"]) {
     assert.match(component, new RegExp(`DataTableHeaderLabel>${header}<`, "u"));
   }
@@ -98,6 +101,8 @@ test("Research directory uses the shared compact read-only table surface", async
   assert.doesNotMatch(component, /meta="Owner custody/u);
   assert.match(state, /<details className=\{styles\.infoDisclosure\}>/u);
   assert.match(state, /label="View technical reason"/u);
+  assert.match(state, /custody.*candidate.*need verification/u);
+  assert.match(component, /omittedCount === 1 \? "candidate needs" : "candidates need"/u);
   assert.match(css, /\.directoryUnavailable \{[^}]*min-height: 96px;[^}]*justify-content: center;/su);
   assert.match(css, /\.infoPopover \{[^}]*position: absolute;[^}]*border-radius: var\(--panel-inner-radius\);/su);
   assert.match(component, /useDelayedPending\(pending\)/u);

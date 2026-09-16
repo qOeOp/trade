@@ -545,6 +545,7 @@ async fn load_artifact_trial_family_with_intent_in_transaction(
             "artifact binding row mismatch".to_string(),
         ));
     }
+
     match successor_family {
         Some((family_identity, policy_digest)) => {
             verify_successor_artifact_binding(&readback, family_identity, policy_digest)?;
@@ -1281,6 +1282,7 @@ async fn load_trial_family_census_v2_with_lock_mode_in_transaction(
             lock_mode,
         )
         .await?;
+
         if requested_frontier.is_some_and(|(identity, digest)| {
             cut.census_frontier.frontier_identity() == identity
                 && cut.census_frontier.frontier_digest() == digest
@@ -1326,6 +1328,7 @@ async fn load_trial_family_census_v2_with_lock_mode_in_transaction(
         &latest.census_frontier,
         crate::native_replay_rd_sources_v2::TRIAL_FAMILY_FRONTIER_STORAGE_DOMAIN_V1,
     )?;
+
     if requested_frontier.is_some() {
         historical.ok_or_else(|| {
             TrialFamilyError::Unavailable("exact historical V2 census cut missing".to_string())
@@ -1360,11 +1363,16 @@ pub(crate) async fn load_trial_family_census_v2_by_family_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     trial_family_identity: &str,
 ) -> Result<TrialFamilyCensusReadbackV2, TrialFamilyError> {
-    load_trial_family_census_v2_by_family_with_lock_mode_in_transaction(
-        transaction,
-        trial_family_identity,
-        PostgresReadLockMode::ForShare,
-        None,
+    // Boxed once here rather than at every caller: the lock-mode loader's future is ~16 KB, and
+    // these two wrappers are the only paths to it, so boxing them keeps every downstream future
+    // small instead of scattering `Box::pin` across a dozen call sites.
+    Box::pin(
+        load_trial_family_census_v2_by_family_with_lock_mode_in_transaction(
+            transaction,
+            trial_family_identity,
+            PostgresReadLockMode::ForShare,
+            None,
+        ),
     )
     .await
 }
@@ -1373,11 +1381,16 @@ pub(crate) async fn load_trial_family_census_v2_by_family_snapshot_in_transactio
     transaction: &mut Transaction<'_, Postgres>,
     trial_family_identity: &str,
 ) -> Result<TrialFamilyCensusReadbackV2, TrialFamilyError> {
-    load_trial_family_census_v2_by_family_with_lock_mode_in_transaction(
-        transaction,
-        trial_family_identity,
-        PostgresReadLockMode::Snapshot,
-        None,
+    // Boxed once here rather than at every caller: the lock-mode loader's future is ~16 KB, and
+    // these two wrappers are the only paths to it, so boxing them keeps every downstream future
+    // small instead of scattering `Box::pin` across a dozen call sites.
+    Box::pin(
+        load_trial_family_census_v2_by_family_with_lock_mode_in_transaction(
+            transaction,
+            trial_family_identity,
+            PostgresReadLockMode::Snapshot,
+            None,
+        ),
     )
     .await
 }

@@ -3862,7 +3862,7 @@ mod postgres_acceptance_tests {
             )
             .await
         {
-            Err(error) => error,
+            Err(e) => e,
             Ok(_) => panic!("successor custody must serialize before later attempt locks"),
         };
         assert!(competing.to_string().contains("lock timeout"));
@@ -4884,7 +4884,7 @@ mod postgres_acceptance_tests {
             identity: identity(format!("{name}-{suffix}")),
             version: identity(format!("v1-{byte}")),
         };
-        let from_binding = |value: vibe_data::owner::source_binding::BindingDigest| {
+        let from_binding = |value: BindingDigest| {
             CanonicalDigestV2::try_from(format!("sha256:{}", hex(value.as_bytes()))).unwrap()
         };
         ReplayRequestV2::try_from(ReplayRequestDtoV2 {

@@ -3637,8 +3637,8 @@
             "recovery"
           ],
           "description": {
-            "en": "Exposes the Workbench operation set to optional MCP clients\nShares one WINDMILL_PRODUCT_EDGE admission gateway with the App\nNever grants a client direct business write authority",
-            "zh": "把 Workbench operation set 暴露给可选 MCP 客户端\n与 App 共用一个 WINDMILL_PRODUCT_EDGE 准入网关\n任何客户端都不能绕过 Owner 直接写入业务事实"
+            "en": "Exposes the Workbench operation set to optional MCP clients\nShares one TRADE_PRODUCT_EDGE admission gateway with the App\nNever grants a client direct business write authority",
+            "zh": "把 Workbench operation set 暴露给可选 MCP 客户端\n与 App 共用一个 TRADE_PRODUCT_EDGE 准入网关\n任何客户端都不能绕过 Owner 直接写入业务事实"
           }
         }
       ]
@@ -4205,7 +4205,7 @@
         "ACTIVE and SUPERSEDED are the only canonical binding states and a binding identity is immutable",
         "Product Edge is the unique writer of deployment bindings history heads content-addressed operation manifests immutable request admissions and their outbox",
         "Deployment genesis is an explicit one-time administrative operation and never a service-start or request-path default",
-        "At most one ACTIVE binding selects the canonical WINDMILL_PRODUCT_EDGE admission gateway for a deployment and zero ACTIVE is an allowed fail-closed cutover window while multiple ACTIVE bindings admit no mutating Owner request",
+        "At most one ACTIVE binding selects the canonical TRADE_PRODUCT_EDGE admission gateway for a deployment and zero ACTIVE is an allowed fail-closed cutover window while multiple ACTIVE bindings admit no mutating Owner request",
         "A client-only or transport-only successor preserves the same effective principal scope capability and audit policies while changing attribution only",
         "The first binding may use genesis only when the authoritative deployment history is empty and its expected history head is EMPTY",
         "SUPERSEDED is the predecessor request-origin fence and a successor may commit ACTIVE only by one durable atomic serialization against the exact history head after its exact predecessor identity is SUPERSEDED the policies match exactly and the deployment has zero current ACTIVE bindings",

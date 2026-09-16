@@ -206,7 +206,7 @@ Protected Replay Request Set、Attempt Frontier、Robustness Assessment 或 Elig
 这些步骤严格串联，而第一步卡在**缺少 Owner 输入**而非缺少驱动。V2 请求是 V1 提案加一个
 `ClockHeadHandoff`，共享时钟 resolver 由 `DEPLOYMENT_STORE_ADMISSION_MODE` 构造，而门禁没有设置它，
 所以 resolver 返回空，V2 请求在那个环境里根本无法构造。其后 set 封存只接纳 `schema_version=2`
-成员——Origin 行的规范编码不同，读进来会让 frontier 搁浅——所以只有 Origin 行时，即便调用也只会
+成员--Origin 行的规范编码不同，读进来会让 frontier 搁浅--所以只有 Origin 行时，即便调用也只会
 封出一个空集合。
 
 因此把共享时钟证据准入到门禁环境，是终端的第一前置；在那之前写任何驱动都没有意义。

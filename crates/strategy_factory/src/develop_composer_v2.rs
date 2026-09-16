@@ -317,6 +317,7 @@ impl CurrentResearchDevelopCustodyV2 {
                 "current Research View is unavailable",
             )
         })?;
+
         if !custody.authority_available_at(read_cut_epoch_ms) {
             return Err(DevelopComposerTerminalV2::unavailable(
                 "research_custody",

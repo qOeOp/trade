@@ -407,7 +407,7 @@ pub(crate) fn verify_successor_research_intent_admission_v1(
 ) -> Result<(), SuccessorResearchIntentErrorV1> {
     let admitted = admission.request();
     let payload = serde_json::to_value(request.operation_request())
-        .map_err(|error| SuccessorResearchIntentErrorV1::Encoding(error.to_string()))?;
+        .map_err(|e| SuccessorResearchIntentErrorV1::Encoding(e.to_string()))?;
     if admission.locator() != &request.admission
         || admitted.request_identity != request.request_identity
         || admitted.operation != SUCCESSOR_RESEARCH_INTENT_OPERATION_V1

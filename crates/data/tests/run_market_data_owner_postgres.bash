@@ -40,13 +40,33 @@ trap 'exit 143' TERM
 docker run --detach --name "$container" --publish 127.0.0.1::5432 \
   --env POSTGRES_PASSWORD="$admin_password" postgres:16.10-alpine > /dev/null
 
+# The postgres entrypoint runs initdb against a temporary server, stops it, then starts the real
+# one. A single `pg_isready` can answer for the temporary server and be followed immediately by the
+# restart, which is how this bootstrap failed on main at 19:14 on 2026-09-16: `pg_isready` returned
+# 2 (no response) about 1.5 s after the container started, and because it reports on stdout the
+# `> /dev/null` left the step with no diagnosis at all. Requiring consecutive successes spans the
+# restart instead of racing it.
+required_consecutive_ready=3
+consecutive_ready=0
 for _ in $(seq 1 60); do
   if docker exec "$container" pg_isready -U postgres > /dev/null 2>&1; then
-    break
+    consecutive_ready=$((consecutive_ready + 1))
+    if [[ "$consecutive_ready" -ge "$required_consecutive_ready" ]]; then
+      break
+    fi
+  else
+    consecutive_ready=0
   fi
   sleep 1
 done
-docker exec "$container" pg_isready -U postgres > /dev/null
+
+if [[ "$consecutive_ready" -lt "$required_consecutive_ready" ]]; then
+  # Keep stdout and stderr: this is the only place that can say why the server never settled.
+  echo "market-data bootstrap: ${container} never reported ready ${required_consecutive_ready} times" >&2
+  docker exec "$container" pg_isready -U postgres >&2 || true
+  docker logs --tail 50 "$container" >&2 || true
+  exit 1
+fi
 
 port="$(docker port "$container" 5432/tcp | sed -E 's/.*:([0-9]+)$/\1/')"
 docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d postgres \

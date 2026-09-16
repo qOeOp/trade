@@ -148,7 +148,7 @@ join 推断。
 不是这个研究请求的。所以默认 feature 下 `POST /v2/develop-composer/runs` 返回
 `SERVICE_UNAVAILABLE` 是**诚实**而非未完成：根本没有可编译的 Design。
 真正缺的是把冻结的 hypothesis、mechanism 与 falsification question 变成可执行
-`StrategyDesignV2`（输入角色、reaction graph、插件源码）的能力，
+`StrategyDesignV2` - 输入角色、reaction graph、插件源码 - 的能力，
 而本文档尚未写明这项导出依据什么判定。它下游的一切都已存在：
 生产提交函数、store、写入器、两张 build-receipt 关系，
 以及 Market Data resolver 落地后的生产 binding 接缝。

@@ -37,7 +37,11 @@ import { useDelayedPending } from "./ui/use-delayed-pending";
 import { useHistoricalCustodyDirectory } from "./use-historical-custody-directory";
 import { useResearchOutcomeInventory } from "./use-research-outcome-inventory";
 import { useResearchQuestionDirectory } from "./use-research-question-directory";
-import { OwnerDirectoryInfo, OwnerDirectoryUnavailable } from "./owner-directory-state";
+import {
+  OwnerDirectoryCandidateSummary,
+  OwnerDirectoryInfo,
+  OwnerDirectoryUnavailable,
+} from "./owner-directory-state";
 import { ResearchLoopJourney } from "./research-loop-journey";
 import { ResearchReadbackDrilldown } from "./research-readback-drilldown";
 import { ResearchRequestPreview, researchRequestOutcomeLabel } from "./research-request-preview";
@@ -86,6 +90,7 @@ export function ResearchDirectory({
   const [nextCursor, setNextCursor] = useState<ResearchDirectoryCursorV1 | null>(null);
   const [availability, setAvailability] = useState<"loading" | "available" | "unavailable">("loading");
   const [partial, setPartial] = useState(false);
+  const [omittedCount, setOmittedCount] = useState(0);
   const [reason, setReason] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [journeyRefreshKey, setJourneyRefreshKey] = useState(0);
@@ -120,6 +125,7 @@ export function ResearchDirectory({
         if (!cursor) {
           itemsRef.current = [];
           setItems([]);
+          setOmittedCount(0);
           setAvailability("unavailable");
           setReason(parsed?.reason ?? "RESEARCH_DIRECTORY_RESPONSE_UNAVAILABLE");
         } else {
@@ -134,6 +140,7 @@ export function ResearchDirectory({
       if (!merged) {
         itemsRef.current = [];
         setItems([]);
+        setOmittedCount(0);
         setNextCursor(null);
         setAvailability("unavailable");
         setReason("RESEARCH_DIRECTORY_PAGE_IDENTITY_CONFLICT");
@@ -142,6 +149,7 @@ export function ResearchDirectory({
       itemsRef.current = merged;
       setItems(merged);
       setNextCursor(parsed.nextCursor);
+      setOmittedCount((current) => cursor ? current + parsed.omittedCount : parsed.omittedCount);
       setPartial((current) => Boolean(cursor && current) || parsed.completeness === "partial");
       setReason(null);
       setAvailability("available");
@@ -150,6 +158,7 @@ export function ResearchDirectory({
       if (!cursor) {
         itemsRef.current = [];
         setItems([]);
+        setOmittedCount(0);
         setAvailability("unavailable");
         setReason("RESEARCH_DIRECTORY_TRANSPORT_UNAVAILABLE");
       } else {
@@ -541,7 +550,11 @@ export function ResearchDirectory({
               noDataComponent={<DataWorkspaceEmpty state={availability === "loading" ? "loading" : "empty"}
                 className={availability === "loading" && !showPending ? styles.pendingQuiet : undefined}
                 icon={<EvidenceIcons.research aria-hidden="true" size={18} />}>
-                {availability === "loading" ? "Reading verified research…" : "No verified request matches this cut."}
+                {availability === "loading"
+                  ? "Reading verified research…"
+                  : omittedCount > 0
+                  ? `${omittedCount} custody ${omittedCount === 1 ? "candidate needs" : "candidates need"} verification.`
+                  : "No verified request matches this cut."}
               </DataWorkspaceEmpty>}
             /> : custodyCandidates.availability === "unavailable" ? (
               <OwnerDirectoryUnavailable
@@ -628,12 +641,15 @@ export function ResearchDirectory({
                 : "Research questions are grouped by result status."}
             />
           </PanelFrameFooter>
-        ) : view === "verified" && availability === "available" && (partial || nextCursor) ? (
+        ) : view === "verified" && availability === "available" && (partial || nextCursor)
+          && !(partial && omittedCount > 0 && items.length === 0) ? (
           <PanelFrameFooter layout="split">
-            <PanelFrameFooterSummary
-              primary={partial ? "Partial verified cut" : "More verified requests available"}
-              secondary={partial ? "Legacy or unverifiable candidates remain withheld." : "Load an older bounded observation window."}
-            />
+            {partial && omittedCount > 0
+              ? <OwnerDirectoryCandidateSummary omittedCount={omittedCount} />
+              : <PanelFrameFooterSummary
+                primary={partial ? "Partial verified cut" : "More verified requests available"}
+                secondary={partial ? "An older verified cut could not be read." : "Load an older bounded observation window."}
+              />}
             {nextCursor ? <PanelFrameFooterActions>
               <FilterButton density="compact" variant="secondary" type="button" onClick={() => void readPage(nextCursor)} disabled={pendingOlder}>
                 {pendingOlder ? "Reading…" : "Load older"}

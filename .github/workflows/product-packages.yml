@@ -1,0 +1,83 @@
+name: product-packages
+
+# Three product packages carry their own test suites and nothing ran any of them. The Dashboard's
+# 424 tests included two bilingual assertions that had never matched the documents they read, and
+# the R&D Workbench's 255 included a content-addressed lock that had drifted from three of its
+# scripts. Neither is visible until the suites execute somewhere.
+#
+# They are kept out of `build.yml` so a package change does not wait on that workflow's hour, and so
+# adding them does not invalidate the Rust cache key that hashes it.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/product-packages.yml
+      - product/dashboard/**
+      - product/rd-workbench/**
+      - product/rd-owner-client/**
+      - docs/guide/dashboard.md
+      - docs/guide/dashboard.zh.md
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/product-packages.yml
+      - product/dashboard/**
+      - product/rd-workbench/**
+      - product/rd-owner-client/**
+      - docs/guide/dashboard.md
+      - docs/guide/dashboard.zh.md
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: product-packages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Product package tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden runner
+        # https://github.com/step-security/harden-runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: ${{ vars.STEP_SECURITY_EGRESS_POLICY || 'audit' }}
+          allowed-endpoints: >-
+            ${{ vars.COMMON_ALLOWED_ENDPOINTS }}
+            ${{ vars.CI_ALLOWED_ENDPOINTS }}
+
+      - name: Checkout repository
+        # https://github.com/actions/checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        # https://github.com/actions/setup-node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: product/dashboard/package-lock.json
+
+      - name: Install Dashboard dependencies
+        run: npm ci --prefix product/dashboard
+
+      - name: Run Dashboard tests
+        run: npm run test --prefix product/dashboard
+
+      - name: Check Dashboard types
+        run: npm run typecheck --prefix product/dashboard
+
+      # These two have no package manifest and no dependencies; they run on the standard library
+      # alone, which is why nothing had to install them and why nothing ran them either.
+      - name: Run R&D Workbench tests
+        working-directory: product/rd-workbench
+        run: node --test $(find . -name '*.test.mjs' -not -path './node_modules/*')
+
+      - name: Run R&D Owner client tests
+        working-directory: product/rd-owner-client
+        run: node --test ./*.test.mjs

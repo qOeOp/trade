@@ -12,7 +12,7 @@ Dashboard 尚未完成切换。
 目标发行物是一套 VibeTrader Docker Compose 安装包，而不是一个单体镜像。它组合 Trade Runtime 与
 Owner API、Dashboard、保留的 Windmill server 与 worker、所需持久化和本地入口。
 
-产品入口是 `product/dashboard`——一个独立可构建的 `trade-dashboard` 镜像，包含 Vibe 衍生外壳、共享
+产品入口是 `product/dashboard`--一个独立可构建的 `trade-dashboard` 镜像，包含 Vibe 衍生外壳、共享
 UI 原子，以及当前已准入的第一方读面。它自带浏览器会话网关、Trade 自有的 RunStore，以及
 `dashboard-web`、`dashboard-effect-worker`、`dashboard-shadow-worker`、`dashboard-shadow-scheduler`
 四个最小权限进程角色。`/api/mcp` 是一个无状态 Streamable HTTP endpoint，走同一批有类型 handler，在
@@ -36,10 +36,10 @@ Windmill 切换。** Windmill 仍是生产效应的当前执行器；Dashboard �
 它们仍是这些操作的当前传输与执行路径。其中的 `rd_workbench.raw_app` 已被 Dashboard 取代，不再是产品
 入口。
 
-**移除 Windmill 是目标，不是共存。** 终态是仓库里**全局搜不到任何 Windmill 依赖**——没有镜像、
+**移除 Windmill 是目标，不是共存。** 终态是仓库里**全局搜不到任何 Windmill 依赖**--没有镜像、
 Compose service、script、flow、lock 文件、workspace 声明、客户端、环境变量或 channel 常量。Dashboard
 成为唯一事实入口，Product Edge 重新只有一个表面。Windmill 之所以还留在文档里，只是作为 Dashboard
-仍需吸收的那些能力的参照——job 执行与进度、调度、worker 隔离、resource 与 secret 托管——以免移除时
+仍需吸收的那些能力的参照--job 执行与进度、调度、worker 隔离、resource 与 secret 托管--以免移除时
 悄悄丢掉一项本来承重的能力。因此下文描述的每个 Windmill 原语，都是 Dashboard 要继承的需求，
 不是产品要保留的依赖。
 
@@ -50,7 +50,7 @@ Compose service、script、flow、lock 文件、workspace 声明、客户端、�
 
 ## Windmill 能力采用合同
 
-本节治理**保留的 Windmill 执行器路径**，不是产品入口——产品入口见上一节。这些边界在切换完成前持续
+本节治理**保留的 Windmill 执行器路径**，不是产品入口--产品入口见上一节。这些边界在切换完成前持续
 适用，因为生产效应今天仍由 Windmill 执行。
 
 已审计的实现下限是自托管 Windmill Community Edition。2026-08-18 证据截面验证了本地
@@ -340,7 +340,8 @@ Qualification 细节。
 ## Agent Shell 部署绑定
 
 Product Edge 为每个部署拥有一个非业务 Agent Shell Deployment Binding。目标 binding 指向规范
-`WINDMILL_PRODUCT_EDGE` 准入网关；Windmill App 与 MCP 调用是同一网关后的 channel，不是竞争 Shell
+`TRADE_PRODUCT_EDGE` 准入网关；在该名字存在之前封存的每条准入仍带着
+`WINDMILL_PRODUCT_EDGE`。App 与 MCP 调用是同一网关后的 channel，不是竞争 Shell
 writer。binding 记录选择 generation、有效 principal、scope policy 版本、已批准 Skill/MCP 能力集版本、
 审计政策版本和 cutover epoch。不同 channel 可以使用不同凭证，但有效 principal 与政策必须完全相同；
 切换外部对话客户端或 transport 只改变归因，不改变权限。

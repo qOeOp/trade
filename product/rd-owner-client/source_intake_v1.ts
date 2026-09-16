@@ -10,7 +10,10 @@ export type SourceInterpretationV1 = {
 }
 
 const OWNER_URL = "http://rd-owner-api:8080"
-const PRODUCT_EDGE_CHANNEL = "WINDMILL_PRODUCT_EDGE" as const
+// The one Product Edge admission gateway. It was named after Windmill because Windmill was the
+// only Product Edge surface when it was sealed; the Owner admits both names, and every admission
+// sealed before the rename keeps the bytes it was sealed with.
+const PRODUCT_EDGE_CHANNEL = "TRADE_PRODUCT_EDGE" as const
 const LIVE_EXTERNAL_ENVIRONMENT_IDENTITY = "PRODUCTION_LIVE_EXTERNAL"
 const LIVE_EXTERNAL_PROVIDER_PROFILE_DIGEST = "sha256:18e4411c991be0a92514bc8ff238ef0429f379d7aa0fd17c1169c7a4c0f45c6b"
 const SEALED_ACCEPTANCE_ENVIRONMENT_IDENTITY = "source-intake-sealed-acceptance-environment-v1"

@@ -40,7 +40,11 @@ import { DetailSheet } from "./ui/detail-sheet";
 import { useDelayedPending } from "./ui/use-delayed-pending";
 import { useHistoricalCustodyDirectory } from "./use-historical-custody-directory";
 import { useArtifactReviewInventory } from "./use-artifact-review-inventory";
-import { OwnerDirectoryInfo, OwnerDirectoryUnavailable } from "./owner-directory-state";
+import {
+  OwnerDirectoryCandidateSummary,
+  OwnerDirectoryInfo,
+  OwnerDirectoryUnavailable,
+} from "./owner-directory-state";
 import { RdCustodyReviewSummary } from "./rd-custody-review-summary";
 import styles from "./owner-directory.module.css";
 
@@ -137,6 +141,7 @@ export function ArtifactDirectory({
   const [nextCursor, setNextCursor] = useState<ArtifactDirectoryCursorV1 | null>(null);
   const [availability, setAvailability] = useState<"loading" | "available" | "unavailable">("loading");
   const [partial, setPartial] = useState(false);
+  const [omittedCount, setOmittedCount] = useState(0);
   const [reason, setReason] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [pendingOlder, setPendingOlder] = useState(false);
@@ -172,6 +177,7 @@ export function ArtifactDirectory({
         if (!cursor) {
           itemsRef.current = [];
           setItems([]);
+          setOmittedCount(0);
           setAvailability("unavailable");
           setReason(parsed?.reason ?? "ARTIFACT_DIRECTORY_RESPONSE_UNAVAILABLE");
         } else {
@@ -186,6 +192,7 @@ export function ArtifactDirectory({
       if (!merged) {
         itemsRef.current = [];
         setItems([]);
+        setOmittedCount(0);
         setNextCursor(null);
         setAvailability("unavailable");
         setReason("ARTIFACT_DIRECTORY_PAGE_IDENTITY_CONFLICT");
@@ -194,6 +201,7 @@ export function ArtifactDirectory({
       itemsRef.current = merged;
       setItems(merged);
       setNextCursor(parsed.nextCursor);
+      setOmittedCount((current) => cursor ? current + parsed.omittedCount : parsed.omittedCount);
       setPartial((current) => Boolean(cursor && current) || parsed.completeness === "partial");
       setReason(null);
       setAvailability("available");
@@ -202,6 +210,7 @@ export function ArtifactDirectory({
       if (!cursor) {
         itemsRef.current = [];
         setItems([]);
+        setOmittedCount(0);
         setAvailability("unavailable");
         setReason("ARTIFACT_DIRECTORY_TRANSPORT_UNAVAILABLE");
       } else {
@@ -581,7 +590,11 @@ export function ArtifactDirectory({
               noDataComponent={<DataWorkspaceEmpty state={availability === "loading" ? "loading" : "empty"}
                 className={availability === "loading" && !showPending ? styles.pendingQuiet : undefined}
                 icon={<EvidenceIcons.artifact aria-hidden="true" size={18} />}>
-                {availability === "loading" ? "Reading verified artifacts…" : "No verified artifact matches this cut."}
+                {availability === "loading"
+                  ? "Reading verified artifacts…"
+                  : omittedCount > 0
+                  ? `${omittedCount} custody ${omittedCount === 1 ? "candidate needs" : "candidates need"} verification.`
+                  : "No verified artifact matches this cut."}
               </DataWorkspaceEmpty>}
             /> : custodyCandidates.availability === "unavailable" ? (
               <OwnerDirectoryUnavailable
@@ -660,12 +673,15 @@ export function ArtifactDirectory({
                 : "Available outcomes can be opened from the table."}
             />
           </PanelFrameFooter>
-        ) : view === "verified" && availability === "available" && (partial || nextCursor) ? (
+        ) : view === "verified" && availability === "available" && (partial || nextCursor)
+          && !(partial && omittedCount > 0 && items.length === 0) ? (
           <PanelFrameFooter layout="split">
-            <PanelFrameFooterSummary
-              primary={partial ? "Partial verified cut" : "More verified artifacts available"}
-              secondary={partial ? "Unverified candidates remain withheld." : "Load an older bounded observation window."}
-            />
+            {partial && omittedCount > 0
+              ? <OwnerDirectoryCandidateSummary omittedCount={omittedCount} />
+              : <PanelFrameFooterSummary
+                primary={partial ? "Partial verified cut" : "More verified artifacts available"}
+                secondary={partial ? "An older verified cut could not be read." : "Load an older bounded observation window."}
+              />}
             {nextCursor ? <PanelFrameFooterActions>
               <FilterButton density="compact" variant="secondary" type="button" onClick={() => void readPage(nextCursor)} disabled={pendingOlder}>
                 {pendingOlder ? "Reading…" : "Load older"}

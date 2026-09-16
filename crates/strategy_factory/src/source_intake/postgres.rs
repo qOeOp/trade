@@ -137,7 +137,7 @@ pub async fn prepare_source_invocation_in_transaction(
         || admission.request().target_owner != SOURCE_INTAKE_TARGET_OWNER_V1
         || admission.request().requested_effects.as_slice() != SOURCE_INTAKE_REQUIRED_EFFECTS_V1
         || payload.request_identity != admission_locator.request_identity
-        || payload.gateway != "WINDMILL_PRODUCT_EDGE"
+        || !vibe_product_edge::is_product_edge_gateway_v1(&payload.gateway)
     {
         return Err(SourceIntakeError::CustodyMismatch);
     }
@@ -1325,7 +1325,7 @@ pub const SOURCE_INTAKE_MIGRATION_SQL_V1: &[&str] = &[
            OR locked.binding_json->>'request_identity' <> locked.request_identity
            OR locked.binding_json->>'binding_identity' <> locked.binding_identity
            OR rd_owner_api.valid_source_intake_binding_contract_v1(locked.binding_json) IS NOT TRUE
-           OR locked.binding_json->>'gateway' <> 'WINDMILL_PRODUCT_EDGE'
+           OR locked.binding_json->>'gateway' NOT IN ('TRADE_PRODUCT_EDGE','WINDMILL_PRODUCT_EDGE')
            OR locked.binding_json#>>'{product_edge_admission,request_identity}' <> locked.request_identity
            OR locked.binding_json#>>'{product_edge_admission,admission_identity}' IS NULL
            OR locked.binding_json#>>'{product_edge_admission,admission_digest}' IS NULL
@@ -1971,7 +1971,7 @@ pub const SOURCE_INTAKE_MIGRATION_SQL_V1: &[&str] = &[
             'tls_stack_identity'
           ]::text[]
           AND binding->>'schema_version' = '1'
-          AND binding->>'gateway' = 'WINDMILL_PRODUCT_EDGE'
+          AND binding->>'gateway' IN ('TRADE_PRODUCT_EDGE','WINDMILL_PRODUCT_EDGE')
           AND binding->>'predecessor_binding_identity' IS NULL
           AND pg_catalog.jsonb_typeof(binding->'authority') = 'object'
           AND (SELECT pg_catalog.array_agg(key ORDER BY key)

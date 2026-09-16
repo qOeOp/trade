@@ -19,10 +19,17 @@ import {
   type RunListSummaryV2,
   type RunListViewEnvelopeV2,
 } from "./run-list-view-contract.ts";
-import { isRunIdentityV1, isRunTerminalCodeV1, type RunTerminalCodeV1 } from "./run-contract.ts";
+import {
+  isRunIdentityV1,
+  isRunTerminalCodeV1,
+  RUN_TERMINAL_CODES_V1,
+  type RunTerminalCodeV1,
+} from "./run-contract.ts";
 
 const { Pool } = pg;
+const MAX_OPERATION_BINDING_COMBINATIONS = 42;
 const PRINCIPAL = /^[A-Za-z0-9._:/-]{1,192}$/;
+const SQL_RUN_TERMINAL_CODES = RUN_TERMINAL_CODES_V1.map((code) => `'${code}'`).join(", ");
 
 type RunListRow = pg.QueryResultRow & {
   run_identity: string;
@@ -44,6 +51,20 @@ type SnapshotV2 = {
   observed_at: string;
   filter_digest: string;
   source_cut: string;
+};
+
+type RunListAggregateRow = pg.QueryResultRow & {
+  row_count: string;
+  invalid_projection_rows: string;
+  transition_sum: string;
+  fingerprint_sum_a: string;
+  fingerprint_sum_b: string;
+  queued: string;
+  running: string;
+  unknown: string;
+  succeeded: string;
+  cancelled: string;
+  failed: string;
 };
 
 export type RunListViewInputV2 = {
@@ -121,6 +142,33 @@ function durationMilliseconds(row: RunListRow) {
   return Math.max(0, (row.finished_at ?? row.updated_at).getTime() - row.started_at.getTime());
 }
 
+function durationMatches(value: number | null, filter: RunListDurationV2) {
+  if (filter === "any") return true;
+  if (value === null) return false;
+  if (filter === "lt_1s") return value < 1_000;
+  if (filter === "1_10s") return value >= 1_000 && value < 10_000;
+  if (filter === "10_60s") return value >= 10_000 && value < 60_000;
+  return value >= 60_000;
+}
+
+function durationPredicate(filter: RunListDurationV2) {
+  if (filter === "any") return null;
+  const duration = `date_trunc('milliseconds', COALESCE(r.finished_at, r.updated_at))
+    - date_trunc('milliseconds', r.started_at)`;
+  if (filter === "lt_1s") return `r.started_at IS NOT NULL AND ${duration} < interval '1 second'`;
+  if (filter === "1_10s") return `r.started_at IS NOT NULL AND ${duration} >= interval '1 second'
+    AND ${duration} < interval '10 seconds'`;
+  if (filter === "10_60s") return `r.started_at IS NOT NULL AND ${duration} >= interval '10 seconds'
+    AND ${duration} < interval '60 seconds'`;
+  return `r.started_at IS NOT NULL AND ${duration} >= interval '60 seconds'`;
+}
+
+function exactCount(value: string) {
+  const count = Number(value);
+  if (!Number.isSafeInteger(count) || count < 0) throw new Error("RUN_LIST_ROW_INVALID");
+  return count;
+}
+
 function projectRow(row: RunListRow, kind: RunListKindV2): RunListItemV2 {
   if (!isRunIdentityV1(row.run_identity) || !isRunListOperationIdV1(row.operation_id)
     || !["dashboard_bff", "dashboard_api", "dashboard_scheduler"].includes(row.trigger_kind)
@@ -152,20 +200,6 @@ function projectRow(row: RunListRow, kind: RunListKindV2): RunListItemV2 {
     tag: null,
     concurrency_key_present: null,
     terminal_code: row.terminal_code as RunTerminalCodeV1 | null,
-  };
-}
-
-function summarize(rows: readonly RunListItemV2[]): RunListSummaryV2 {
-  const succeeded = rows.filter(({ state }) => state === "succeeded").length;
-  const cancelled = rows.filter(({ state }) => state === "cancelled").length;
-  return {
-    queued: rows.filter(({ state }) => state === "queued").length,
-    running: rows.filter(({ state }) => state === "running").length,
-    unknown: rows.filter(({ state }) => state === "unknown").length,
-    succeeded,
-    cancelled,
-    completed: succeeded + cancelled,
-    failed: rows.filter(({ state }) => state === "failed").length,
   };
 }
 
@@ -210,54 +244,166 @@ export class PostgresRunListViewGatewayV2 {
       )).rows[0].observed_at.toISOString();
       const runKind = filterCut.kind === "runs" ? "owner_effect" : "owner_read";
       const values: unknown[] = [observedAt, runKind];
-      const predicates = ["r.created_at <= $1::timestamptz", "r.run_kind = $2"];
+      const predicates = [
+        "r.created_at <= $1::timestamptz",
+        "r.updated_at <= $1::timestamptz",
+        "r.run_kind = $2",
+      ];
       if (filterCut.search) {
         values.push(`%${filterCut.search.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`);
         predicates.push(`(lower(r.operation_id) LIKE $${values.length} ESCAPE '\\'
           OR lower(r.run_identity) LIKE $${values.length} ESCAPE '\\')`);
       }
-      if (filterCut.duration !== "any") {
-        predicates.push("r.started_at IS NOT NULL");
-        const durationExpression = "EXTRACT(EPOCH FROM (COALESCE(r.finished_at, r.updated_at) - r.started_at)) * 1000";
-        if (filterCut.duration === "lt_1s") predicates.push(`${durationExpression} < 1000`);
-        if (filterCut.duration === "1_10s") predicates.push(`${durationExpression} >= 1000 AND ${durationExpression} < 10000`);
-        if (filterCut.duration === "10_60s") predicates.push(`${durationExpression} >= 10000 AND ${durationExpression} < 60000`);
-        if (filterCut.duration === "gte_60s") predicates.push(`${durationExpression} >= 60000`);
+      const durationFilter = durationPredicate(filterCut.duration);
+      if (durationFilter) predicates.push(durationFilter);
+      const where = predicates.join(" AND ");
+
+      const bindings = await client.query<Pick<RunListRow, "operation_id" | "run_kind" | "trigger_kind">>(
+        `SELECT r.operation_id, r.run_kind, r.trigger_kind
+           FROM dashboard_operation_runs_v1 r
+          WHERE ${where}
+          GROUP BY r.operation_id, r.run_kind, r.trigger_kind
+          LIMIT ${MAX_OPERATION_BINDING_COMBINATIONS + 1}`,
+        values,
+      );
+      if (bindings.rows.length > MAX_OPERATION_BINDING_COMBINATIONS
+        || bindings.rows.some((row) => !isRunListOperationBindingV1(
+          row.operation_id,
+          row.run_kind,
+          row.trigger_kind,
+        ))) throw new Error("RUN_LIST_ROW_INVALID");
+
+      // The view is retention bounded: `completeness` and every summary bucket describe the newest
+      // RUN_LIST_RETENTION_LIMIT_V2 matching runs, never the whole table. The contract requires the
+      // buckets to sum to exactly that limit when the cut is partial, so the bound belongs in the
+      // aggregate's row source rather than in a cap applied afterwards.
+      const aggregate = (await client.query<RunListAggregateRow>(
+        `WITH retained AS (
+           SELECT r.run_identity
+             FROM dashboard_operation_runs_v1 r
+            WHERE ${where}
+            ORDER BY COALESCE(r.started_at, r.created_at) DESC, r.run_identity ASC
+            LIMIT ${RUN_LIST_RETENTION_LIMIT_V2}
+         )
+         SELECT COUNT(*)::text AS row_count,
+                COUNT(*) FILTER (WHERE
+                  r.run_identity !~ '^dashboard-run-v1-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+                  OR r.state NOT IN ('queued', 'running', 'succeeded', 'failed', 'cancelled', 'unknown')
+                  OR r.owner_outcome_state NOT IN (
+                    'available', 'rejected', 'unknown', 'unavailable', 'not_applicable'
+                  )
+                  OR NOT isfinite(r.created_at)
+                  OR NOT isfinite(r.updated_at)
+                  OR (r.started_at IS NOT NULL AND NOT isfinite(r.started_at))
+                  OR (r.finished_at IS NOT NULL AND NOT isfinite(r.finished_at))
+                  OR r.created_at < TIMESTAMPTZ '0001-01-01 BC'
+                  OR r.updated_at < TIMESTAMPTZ '0001-01-01 BC'
+                  OR (r.started_at IS NOT NULL AND r.started_at < TIMESTAMPTZ '0001-01-01 BC')
+                  OR (r.finished_at IS NOT NULL AND r.finished_at < TIMESTAMPTZ '0001-01-01 BC')
+                  OR COALESCE(r.started_at, r.created_at) > $1::timestamptz
+                  OR (r.finished_at IS NOT NULL AND r.finished_at > $1::timestamptz)
+                  OR (r.state = 'queued' AND r.started_at IS NOT NULL)
+                  OR (r.state IN ('running', 'succeeded', 'failed', 'unknown') AND r.started_at IS NULL)
+                  OR (r.terminal_code IS NOT NULL AND r.terminal_code NOT IN (${SQL_RUN_TERMINAL_CODES}))
+                  OR (r.state IN ('queued', 'running') AND r.terminal_code IS NOT NULL)
+                  OR (COALESCE(q.principal_ref, admission.principal_ref) IS NOT NULL
+                    AND COALESCE(q.principal_ref, admission.principal_ref)
+                      !~ '^[A-Za-z0-9._:/-]{1,192}$')
+                )::text AS invalid_projection_rows,
+                COALESCE(SUM(r.transition_version), 0)::text AS transition_sum,
+                COALESCE(SUM(hashtextextended(row_fingerprint.value, 0)::numeric), 0)::text
+                  AS fingerprint_sum_a,
+                COALESCE(SUM(hashtextextended(row_fingerprint.value, 1)::numeric), 0)::text
+                  AS fingerprint_sum_b,
+                COUNT(*) FILTER (WHERE r.state = 'queued')::text AS queued,
+                COUNT(*) FILTER (WHERE r.state = 'running')::text AS running,
+                COUNT(*) FILTER (WHERE r.state = 'unknown')::text AS unknown,
+                COUNT(*) FILTER (WHERE r.state = 'succeeded')::text AS succeeded,
+                COUNT(*) FILTER (WHERE r.state = 'cancelled')::text AS cancelled,
+                COUNT(*) FILTER (WHERE r.state = 'failed')::text AS failed
+           FROM dashboard_operation_runs_v1 r
+           LEFT JOIN dashboard_effect_dispatch_queue_v1 q
+             ON q.run_identity = r.run_identity AND q.enqueued_at <= $1::timestamptz
+           LEFT JOIN LATERAL (
+             SELECT principal_ref
+               FROM dashboard_control_plane_admission_receipts_v1 receipt
+              WHERE receipt.run_identity = r.run_identity
+                AND receipt.admitted_at <= $1::timestamptz
+              ORDER BY admitted_at, receipt_identity
+              LIMIT 1
+           ) admission ON true
+           CROSS JOIN LATERAL (
+             SELECT jsonb_build_array(
+               r.run_identity, r.operation_id, r.run_kind, r.trigger_kind, r.state,
+               r.owner_outcome_state, r.created_at, r.updated_at, r.started_at,
+               r.finished_at, r.terminal_code,
+               COALESCE(q.principal_ref, admission.principal_ref)
+             )::text AS value
+           ) row_fingerprint
+          WHERE ${where}
+            AND r.run_identity IN (SELECT run_identity FROM retained)`,
+        values,
+      )).rows[0];
+      if (!aggregate || exactCount(aggregate.invalid_projection_rows) !== 0) {
+        throw new Error("RUN_LIST_ROW_INVALID");
       }
+      const summary = {
+        queued: exactCount(aggregate.queued),
+        running: exactCount(aggregate.running),
+        unknown: exactCount(aggregate.unknown),
+        succeeded: exactCount(aggregate.succeeded),
+        cancelled: exactCount(aggregate.cancelled),
+        completed: exactCount(aggregate.succeeded) + exactCount(aggregate.cancelled),
+        failed: exactCount(aggregate.failed),
+      };
+      const sourceCount = exactCount(aggregate.row_count);
+      const completeness = sourceCount >= RUN_LIST_RETENTION_LIMIT_V2
+        ? "partial_unavailable" as const : "complete" as const;
+      const sourceCut = sha256({
+        row_count: sourceCount,
+        transition_sum: aggregate.transition_sum,
+        fingerprint_sum_a: aggregate.fingerprint_sum_a,
+        fingerprint_sum_b: aggregate.fingerprint_sum_b,
+      });
+      if (prior && prior.source_cut !== sourceCut) throw new Error("RUN_LIST_SNAPSHOT_STALE");
+      const filteredTotal = filterCut.state === "all" ? sourceCount : summary[filterCut.state];
+      const totalPages = Math.max(1, Math.ceil(filteredTotal / filterCut.page_size));
+      if (filterCut.page > totalPages) throw new Error("RUN_LIST_PAGE_INVALID");
+      const offset = (filterCut.page - 1) * filterCut.page_size;
+      const pagePredicates = filterCut.state === "all"
+        ? predicates : [...predicates, `r.state = $${values.length + 1}`];
+      const pageValues = filterCut.state === "all" ? values : [...values, filterCut.state];
       const result = await client.query<RunListRow>(
         `SELECT r.run_identity, r.operation_id, r.run_kind, r.trigger_kind, r.state,
                 r.owner_outcome_state, r.created_at, r.updated_at, r.started_at,
                 r.finished_at, r.terminal_code,
                 COALESCE(q.principal_ref, admission.principal_ref) AS principal_ref
            FROM dashboard_operation_runs_v1 r
-           LEFT JOIN dashboard_effect_dispatch_queue_v1 q USING (run_identity)
+           LEFT JOIN dashboard_effect_dispatch_queue_v1 q
+             ON q.run_identity = r.run_identity AND q.enqueued_at <= $1::timestamptz
            LEFT JOIN LATERAL (
              SELECT principal_ref
                FROM dashboard_control_plane_admission_receipts_v1 receipt
               WHERE receipt.run_identity = r.run_identity
+                AND receipt.admitted_at <= $1::timestamptz
               ORDER BY admitted_at, receipt_identity
               LIMIT 1
            ) admission ON true
-          WHERE ${predicates.join(" AND ")}
+          WHERE ${pagePredicates.join(" AND ")}
+            AND r.run_identity IN (
+              SELECT run_identity FROM dashboard_operation_runs_v1 r
+               WHERE ${where}
+               ORDER BY COALESCE(r.started_at, r.created_at) DESC, r.run_identity ASC
+               LIMIT ${RUN_LIST_RETENTION_LIMIT_V2}
+            )
           ORDER BY COALESCE(r.started_at, r.created_at) DESC, r.run_identity ASC
-          LIMIT ${RUN_LIST_RETENTION_LIMIT_V2 + 1}`,
-        values,
+          LIMIT ${filterCut.page_size} OFFSET ${offset}`,
+        pageValues,
       );
-      const completeness = result.rows.length > RUN_LIST_RETENTION_LIMIT_V2
-        ? "partial_unavailable" : "complete";
-      const projected = result.rows.slice(0, RUN_LIST_RETENTION_LIMIT_V2)
-        .map((row) => projectRow(row, filterCut.kind));
-      const sourceCut = sha256({
-        retention_limit: RUN_LIST_RETENTION_LIMIT_V2,
-        completeness,
-        rows: projected,
-      });
-      if (prior && prior.source_cut !== sourceCut) throw new Error("RUN_LIST_SNAPSHOT_STALE");
-      const filtered = filterCut.state === "all"
-        ? projected : projected.filter(({ state }) => state === filterCut.state);
-      const totalPages = Math.max(1, Math.ceil(filtered.length / filterCut.page_size));
-      if (filterCut.page > totalPages) throw new Error("RUN_LIST_PAGE_INVALID");
-      const offset = (filterCut.page - 1) * filterCut.page_size;
+      const projected = result.rows.map((row) => projectRow(row, filterCut.kind));
+      if (projected.some((row) => !durationMatches(row.duration_ms, filterCut.duration))) {
+        throw new Error("RUN_LIST_ROW_INVALID");
+      }
       const snapshot = encodeSnapshot({
         schema_version: 1,
         observed_at: observedAt,
@@ -277,10 +423,10 @@ export class PostgresRunListViewGatewayV2 {
         source_cut: sourceCut,
         snapshot,
         filter_cut: filterCut,
-        summary: summarize(projected),
-        filtered_total: filtered.length,
+        summary,
+        filtered_total: filteredTotal,
         total_pages: totalPages,
-        runs: filtered.slice(offset, offset + filterCut.page_size),
+        runs: projected,
       };
     } catch (error) {
       await client.query("ROLLBACK").catch(() => undefined);

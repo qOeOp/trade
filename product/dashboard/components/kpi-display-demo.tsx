@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { ThemeToggle } from "./theme-toggle";
+import { FilterTabs } from "./ui/filter-toolbar";
 import { KpiDisplay, type KpiLayout, type KpiMetric } from "./ui/kpi-display";
 
 const layouts: Array<{ value: KpiLayout; label: string }> = [
@@ -34,11 +35,9 @@ export function KpiDisplayDemo() {
         </div>
         <ThemeToggle />
       </header>
-      <nav className="kpi-demo-switcher" aria-label="KPI layout">
-        {layouts.map((item) => (
-          <button key={item.value} type="button" data-active={layout === item.value || undefined}
-            onClick={() => setLayout(item.value)}>{item.label}</button>
-        ))}
+      <nav className="kpi-demo-switcher" aria-label="KPI layout controls">
+        <FilterTabs label="KPI layout" items={layouts} selected={layout}
+          onSelect={(value) => setLayout(value as KpiLayout)} variant="rail" />
       </nav>
       <KpiDisplay metrics={demoMetrics} layout={layout} currency="CNY" percentFractionDigits={2}
         aria-label={`${layout} KPI example`} />

@@ -28,11 +28,16 @@ use vibe_strategy_factory::{
     iteration_decision::{
         CandidateComparisonDecisionReadbackV1, ExistingIterationDecisionReadbackV1,
         IterationDecisionEvidenceCutV1, IterationDecisionOutcomeV1, IterationRepairCategoryV1,
-        PositiveAssessmentEvidenceV1, ReadyForSelectionDecisionReadbackV1,
-        RepairInputIterationDecisionReadbackV1, ResearchSelectionDispositionV1,
-        TrialBudgetTerminalStopDecisionReadbackV1, is_valid_iteration_decision_locator_v1,
+        IterationRepairTargetV1, PositiveAssessmentEvidenceReferenceV1,
+        PositiveAssessmentEvidenceV1, ProtectedInstrumentScopeV1,
+        ReadyForSelectionDecisionReadbackV1, RepairInputIterationDecisionReadbackV1,
+        ResearchSelectionDispositionV1, TrialBudgetTerminalStopDecisionReadbackV1,
+        is_valid_iteration_decision_locator_v1,
     },
-    product_edge::{ResearchIterationActionProjectionV1, ResearchIterationActionV1},
+    product_edge::{
+        RESEARCH_OWNER_V1, ResearchIterationActionProjectionV1, ResearchIterationActionV1,
+        SourcedResearchGoalV2,
+    },
     product_edge_postgres::PostgresResearchGoalOwnerV1,
     repair_action::RepairActionRequestReadbackV1,
     successor_intent::{
@@ -184,10 +189,10 @@ impl SuccessorResearchIntentAdmissionPort for ProductEdgePostgresOwnerV1 {
         self.admit_request(ProductEdgeAdmissionRequestV1 {
             request_identity: request.request_identity.clone(),
             typed_payload: serde_json::to_value(request)
-                .map_err(|error| ProductEdgeError::Storage(error.to_string()))?,
+                .map_err(|e| ProductEdgeError::Storage(e.to_string()))?,
             operation: SUCCESSOR_RESEARCH_INTENT_OPERATION_V1.to_string(),
             operation_schema: SUCCESSOR_RESEARCH_INTENT_SCHEMA_V1.to_string(),
-            target_owner: vibe_strategy_factory::product_edge::RESEARCH_OWNER_V1.to_string(),
+            target_owner: RESEARCH_OWNER_V1.to_string(),
             requested_effects: vec![SUCCESSOR_RESEARCH_INTENT_MUTATION_EFFECT_V1.to_string()],
             request_proof_digest: request_proof_digest.to_string(),
             audit_correlation: format!("rd-workbench:{}", request.request_identity),
@@ -485,7 +490,7 @@ struct SuccessorResearchIntentActionResponseV1 {
     intent_identity: String,
     intent_digest: String,
     request_identity: String,
-    goal: vibe_strategy_factory::product_edge::SourcedResearchGoalV2,
+    goal: SourcedResearchGoalV2,
     predecessor_intent_identity: String,
     predecessor_intent_digest: String,
     decision_identity: String,
@@ -670,7 +675,7 @@ struct RepairActionRequestActionResponseV1 {
     decision_digest: String,
     result_identity: String,
     category: IterationRepairCategoryV1,
-    target: vibe_strategy_factory::iteration_decision::IterationRepairTargetV1,
+    target: IterationRepairTargetV1,
     receipt_identity: String,
     receipt_digest: String,
     committed_at_epoch_ms: u64,
@@ -1777,7 +1782,7 @@ fn valid_ready_for_selection_request(request: &ReadyForSelectionCompositionReque
         &plan.embargo_policy,
         &plan.multiplicity_policy,
     ];
-    let valid_reference = |reference: &vibe_strategy_factory::iteration_decision::PositiveAssessmentEvidenceReferenceV1| {
+    let valid_reference = |reference: &PositiveAssessmentEvidenceReferenceV1| {
         is_valid_iteration_decision_locator_v1(&reference.identity)
             && valid_sha256(&reference.digest)
     };
@@ -1830,8 +1835,7 @@ fn valid_ready_for_selection_request(request: &ReadyForSelectionCompositionReque
             .all(|entry| entry.lower < entry.center && entry.center < entry.upper)
         && (plan.required_parameter_neighborhoods.is_empty()
             != plan.no_tunable_parameters_basis.is_none())
-        && !(plan.instrument_scope
-            == vibe_strategy_factory::iteration_decision::ProtectedInstrumentScopeV1::MultipleInstruments
+        && !(plan.instrument_scope == ProtectedInstrumentScopeV1::MultipleInstruments
             && plan.instrument_non_applicability_basis.is_some())
         && plan.preregistered_capacity_ceiling > 0
         && plan.protected_decision_policy.version > 0
@@ -1902,6 +1906,8 @@ fn correlated_rejection(
 
 #[cfg(test)]
 mod tests {
+    use vibe_strategy_factory::product_edge::ResearchSourceV1;
+
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
@@ -2424,7 +2430,7 @@ mod tests {
             intent_identity: "successor-intent-1".into(),
             intent_digest: format!("sha256:{}", "1".repeat(64)),
             request_identity: "successor-intent-request-1".into(),
-            goal: vibe_strategy_factory::product_edge::SourcedResearchGoalV2 {
+            goal: SourcedResearchGoalV2 {
                 hypothesis: "A narrower entry signal improves net returns.".into(),
                 mechanism: "The entry filter removes low-conviction observations.".into(),
                 falsification_question: "Does the filtered signal fail after costs?".into(),
@@ -2432,7 +2438,7 @@ mod tests {
                 required_data: vec!["sealed market bars".into()],
                 cost_assumption: "Canonical cost model remains fixed.".into(),
                 capacity_assumption: "Canonical capacity model remains fixed.".into(),
-                sources: vec![vibe_strategy_factory::product_edge::ResearchSourceV1 {
+                sources: vec![ResearchSourceV1 {
                     locator: "urn:research:source:1".into(),
                     content_digest: format!("sha256:{}", "2".repeat(64)),
                     observed_at: "2026-09-14T00:00:00Z".into(),
