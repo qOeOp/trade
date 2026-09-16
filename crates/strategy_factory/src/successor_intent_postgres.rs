@@ -1,5 +1,6 @@
 //! PostgreSQL custody for Decision-selected successor Research Intents.
 
+use std::fmt::Display;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -116,6 +117,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), SuccessorResearchIntent
     )
     .await
     .map_err(storage)?;
+
     for statement in [
         "ALTER TABLE rd_successor_research_intents_v1 ADD COLUMN IF NOT EXISTS request_semantic_digest TEXT",
         "ALTER TABLE rd_successor_research_intents_v1 ADD COLUMN IF NOT EXISTS admission_lineage_digest TEXT",
@@ -297,6 +299,7 @@ async fn migrate_successor_artifact_read_port(
     .execute(pool)
     .await
     .map_err(storage)?;
+
     for statement in [
         "ALTER FUNCTION rd_owner_api.peek_current_successor_research_for_artifact_v1(text) OWNER TO rd_owner",
         "REVOKE ALL ON FUNCTION rd_owner_api.peek_current_successor_research_for_artifact_v1(text) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_writer",
@@ -348,6 +351,7 @@ pub(crate) async fn compose_successor_research_intent_v1(
         transaction.commit().await.map_err(storage)?;
         return Ok(existing);
     }
+
     if !admission.authorizes_first_mutation_at(admission_cut) {
         return Err(storage("Product Edge successor admission is not current"));
     }
@@ -685,6 +689,7 @@ pub(crate) async fn lock_successor_research_view_in_transaction(
         intent.intent_identity(),
         initial_view.projection_identity
     );
+
     if row
         .try_get::<Option<String>, _>("request_semantic_digest")
         .map_err(storage)?
@@ -946,6 +951,7 @@ async fn verify_persisted_product_edge_custody(
             .ok_or_else(|| storage("successor Product Edge Research View is missing"))?,
     )
     .map_err(storage)?;
+
     if row
         .try_get::<Option<String>, _>("request_semantic_digest")
         .map_err(storage)?
@@ -1282,7 +1288,7 @@ fn storage_digest(domain: &str, bytes: &[u8]) -> String {
     crate::native_replay_rd_sources_v2::owner_storage_digest(domain, bytes)
 }
 
-fn storage(error: impl std::fmt::Display) -> SuccessorResearchIntentPostgresErrorV1 {
+fn storage(error: impl Display) -> SuccessorResearchIntentPostgresErrorV1 {
     SuccessorResearchIntentPostgresErrorV1::Storage(error.to_string())
 }
 

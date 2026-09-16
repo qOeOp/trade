@@ -2079,6 +2079,7 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
             .await
             .is_err()
     );
+
     for function in [
         "market_data_rd_api.lock_strategy_input_declarations_v1(bytea,bytea)",
         "market_data_rd_api.lock_pit_observation_batch_for_strategy_input_v1(bytea)",

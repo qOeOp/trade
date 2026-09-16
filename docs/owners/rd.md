@@ -164,8 +164,8 @@ derives its bindings from a hardcoded selection identity. The plugin source, inp
 are the corpus's, not the research request's. So `POST /v2/develop-composer/runs` returning
 `SERVICE_UNAVAILABLE` under default features is **honest** rather than unfinished: there is no Design to
 compile. What is missing is the capability of turning a frozen hypothesis, mechanism and
-falsification question into an executable `StrategyDesignV2` — input roles, reaction graph and plugin
-source — and this document does not yet state how that derivation is decided. Everything downstream
+falsification question into an executable `StrategyDesignV2` - input roles, reaction graph and plugin
+source - and this document does not yet state how that derivation is decided. Everything downstream
 of it exists: the production commit function, the store, the writer, the two build-receipt relations,
 and, since the Market Data resolver landed, the production binding seam.
 

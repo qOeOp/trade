@@ -155,7 +155,7 @@ pub(crate) async fn require_existing_public_tables_for_readback(
             Err(sqlx::Error::Protocol(_)) if !spec.runtime_read_grantees.is_empty() => {
                 require_existing_public_table(pool, spec, spec.runtime_read_grantees).await?;
             }
-            Err(error) => return Err(error),
+            Err(e) => return Err(e),
         }
     }
     Ok(())
