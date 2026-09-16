@@ -135,9 +135,11 @@ function minimumTableWidth<T extends RowData>(columns: DataWorkspaceColumn<T>[])
 function preserveRowViewportPosition(row: HTMLTableRowElement): void {
   const before = row.getBoundingClientRect().top;
   requestAnimationFrame(() => {
-    if (!row.isConnected) return;
-    const delta = row.getBoundingClientRect().top - before;
-    if (delta) window.scrollBy(0, delta);
+    requestAnimationFrame(() => {
+      if (!row.isConnected) return;
+      const delta = row.getBoundingClientRect().top - before;
+      if (delta) window.scrollBy(0, delta);
+    });
   });
 }
 

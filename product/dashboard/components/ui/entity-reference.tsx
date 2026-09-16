@@ -48,9 +48,11 @@ export function EntityReference({
         const before = row?.getBoundingClientRect().top;
         onActivate();
         if (row && before !== undefined) requestAnimationFrame(() => {
-          if (!row.isConnected) return;
-          const delta = row.getBoundingClientRect().top - before;
-          if (delta) window.scrollBy(0, delta);
+          requestAnimationFrame(() => {
+            if (!row.isConnected) return;
+            const delta = row.getBoundingClientRect().top - before;
+            if (delta) window.scrollBy(0, delta);
+          });
         });
       }}
     >{content}</button>;
