@@ -25,6 +25,8 @@ test("DataWorkspaceTable owns one reusable controlled row-detail disclosure", as
   assert.match(entity, /if \(row\) preserveRowViewportPosition\(row\)/u);
   assert.match(anchor, /let current = row\.parentElement/u);
   assert.match(anchor, /overflowY === "auto" \|\| overflowY === "scroll"/u);
+  assert.match(anchor, /const beforeScrollPosition = scrollHost\?\.scrollTop \?\? window\.scrollY/u);
+  assert.match(anchor, /Math\.abs\(currentScrollPosition - beforeScrollPosition\) > 0\.5/u);
   assert.match(anchor, /scrollHost\.scrollTop \+= delta/u);
   assert.match(anchor, /else window\.scrollBy\(0, delta\)/u);
   assert.match(anchor, /requestAnimationFrame\(\(\) => \{\s*requestAnimationFrame/u);
