@@ -38,12 +38,18 @@ use crate::develop_composer_operation_v2::{
 };
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::develop_composer_operation_v2::{
-    PreparedDevelopComposerA0V2, finish_positive_record_from_prepared_a0_v2,
-    prepare_develop_composer_a0_v2,
+    DevelopComposerV3BuildRestartPortV2, PreparedDevelopComposerA0V2,
+    finish_positive_record_from_prepared_a0_v2, prepare_develop_composer_a0_v2,
+    prepare_develop_composer_bfp_v3, resolve_positive_record_with_v3_restart_v2,
 };
 #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
 use crate::plugin_wire_v2::PLUGIN_FRAME_ABI_V2;
 use crate::strategy_plan_v2::project_strategy_design_role_set_v1;
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use crate::{
+    develop_plugin_build_v3::DevelopPluginBuildProducerV3,
+    rd_bounded_feature_program_v1::FrozenResearchBoundedFeatureProgramV1,
+};
 
 const SEALED_READ_SCHEMA_V2: u16 = 2;
 const SEALED_READ_FUNCTION_V2: &str = "composer_owner_api.lock_accepted_develop_composer_v2(text)";
@@ -1397,6 +1403,25 @@ pub(crate) async fn read_accepted_in_transaction(
         return Err(DevelopComposerSealedReadErrorV2::Unavailable);
     }
     let response = resolve_positive_record_v2(&record, locked_evidence)
+        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    seal_readback(locator, record, &response)
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+pub(crate) async fn read_accepted_in_transaction_with_v3_restart(
+    transaction: &mut Transaction<'_, Postgres>,
+    locator: &DevelopComposerSealedReadLocatorV2,
+    locked_evidence: DevelopComposerLockedEvidenceV2,
+    v3_restart: &impl DevelopComposerV3BuildRestartPortV2,
+) -> Result<SealedDevelopComposerReadbackV2, DevelopComposerSealedReadErrorV2> {
+    let record =
+        load_record_via_sealed_routine_in_transaction(transaction, &locator.request_identity)
+            .await?
+            .ok_or(DevelopComposerSealedReadErrorV2::Unavailable)?;
+    if !locator_matches_record_keys(locator, &record) {
+        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+    }
+    let response = resolve_positive_record_with_v3_restart_v2(&record, locked_evidence, v3_restart)
         .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
     seal_readback(locator, record, &response)
 }
@@ -2758,6 +2783,49 @@ impl PostgresDevelopComposerStoreV2 {
         ))
     }
 
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    pub(crate) async fn resolve_with_evidence_and_v3_restart(
+        &self,
+        request_identity: &str,
+        evidence: &impl DevelopComposerFinalEvidencePortV2,
+        v3_restart: &impl DevelopComposerV3BuildRestartPortV2,
+        read_cut_epoch_ms: u64,
+    ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
+        let record = match load_record(self, request_identity).await {
+            Ok(Some(record)) => record,
+            Ok(None) => {
+                return Ok(unavailable_response(
+                    request_identity,
+                    "terminal is unavailable",
+                ));
+            }
+            Err(e) if is_record_integrity_error(&e) => {
+                return Ok(unavailable_response(
+                    request_identity,
+                    "stored terminal custody is incomplete or malformed",
+                ));
+            }
+            Err(e) => return Err(e),
+        };
+        Ok(evidence
+            .lock_and_reread_durable(
+                &DevelopComposerDurableEvidenceLocatorV2::from_record(&record),
+                read_cut_epoch_ms,
+            )
+            .and_then(|current| {
+                resolve_positive_record_with_v3_restart_v2(&record, current, v3_restart)
+            })
+            .unwrap_or_else(|terminal| DevelopComposerOperationResponseV2 {
+                schema_version: 2,
+                request_identity: record.request_identity.clone(),
+                disposition: DevelopComposerOperationDispositionV2::Unavailable,
+                receipt_identity: None,
+                artifact: None,
+                coordinate: Some(terminal.coordinate),
+                reason: Some(terminal.reason),
+            }))
+    }
+
     pub(crate) async fn resolve_with_native_join(
         &self,
         request_identity: &str,
@@ -2953,6 +3021,81 @@ impl PostgresDevelopComposerStoreV2 {
     }
 
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    pub(crate) async fn prepare_bfp_v3_run_in_transaction(
+        &self,
+        transaction: &mut Transaction<'_, Postgres>,
+        producer: &mut DevelopPluginBuildProducerV3,
+        evidence: &impl DevelopComposerFinalEvidencePortV2,
+        v3_restart: &impl DevelopComposerV3BuildRestartPortV2,
+        request: &DevelopComposerRunRequestV2,
+        frozen: &FrozenResearchBoundedFeatureProgramV1,
+        read_cut_epoch_ms: u64,
+    ) -> Result<PreparedDevelopComposerRunInTransactionV2, sqlx::Error> {
+        verify_transaction_database(transaction, &self.database_fingerprint).await?;
+        let prepared_transaction_identity = transaction_identity(transaction).await?;
+        acquire_advisory_locks(transaction, &[request_lock_key(&request.request_identity)]).await?;
+        let existing =
+            match load_record_via_commit_cut_in_transaction(transaction, &request.request_identity)
+                .await
+            {
+                Ok(existing) => existing,
+                Err(e) if is_record_integrity_error(&e) => {
+                    return Ok(PreparedDevelopComposerRunInTransactionV2::Complete(
+                        Box::new(unavailable_response(
+                            &request.request_identity,
+                            "stored terminal custody is incomplete or malformed",
+                        )),
+                    ));
+                }
+                Err(e) => return Err(e),
+            };
+
+        if let Some(existing) = existing {
+            return Ok(PreparedDevelopComposerRunInTransactionV2::Complete(
+                Box::new(if existing.request_digest == request_digest(request) {
+                    evidence
+                        .lock_and_reread(request, existing.design_identity, read_cut_epoch_ms)
+                        .and_then(|current| {
+                            resolve_positive_record_with_v3_restart_v2(
+                                &existing, current, v3_restart,
+                            )
+                        })
+                        .unwrap_or_else(|terminal| terminal_response(request, terminal))
+                } else {
+                    conflict_response(&request.request_identity, "request_identity")
+                }),
+            ));
+        }
+
+        let preflight = match preflight_develop_composer_v2(evidence, request, read_cut_epoch_ms) {
+            Ok(preflight) => preflight,
+            Err(terminal) => {
+                return Ok(PreparedDevelopComposerRunInTransactionV2::Complete(
+                    Box::new(terminal_response(request, terminal)),
+                ));
+            }
+        };
+        let a0 = match prepare_develop_composer_bfp_v3(producer, request, frozen, preflight) {
+            Ok(prepared) => prepared,
+            Err(terminal) => {
+                return Ok(PreparedDevelopComposerRunInTransactionV2::Complete(
+                    Box::new(terminal_response(request, terminal)),
+                ));
+            }
+        };
+        acquire_advisory_locks(transaction, &preflight_lock_keys(a0.preflight())).await?;
+        Ok(PreparedDevelopComposerRunInTransactionV2::Prepared(
+            Box::new(PreparedPostgresDevelopComposerRunV2 {
+                database_fingerprint: self.database_fingerprint.clone(),
+                transaction_identity: prepared_transaction_identity,
+                request_identity: request.request_identity.clone(),
+                request_digest: request_digest(request),
+                a0,
+            }),
+        ))
+    }
+
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     pub(crate) async fn commit_prepared_run_in_transaction(
         &self,
         transaction: &mut Transaction<'_, Postgres>,
@@ -2968,6 +3111,66 @@ impl PostgresDevelopComposerStoreV2 {
             None,
         )
         .await
+    }
+
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    pub(crate) async fn commit_prepared_bfp_v3_run_in_transaction(
+        &self,
+        transaction: &mut Transaction<'_, Postgres>,
+        request: &DevelopComposerRunRequestV2,
+        prepared: PreparedPostgresDevelopComposerRunV2,
+        final_locked: DevelopComposerLockedEvidenceV2,
+        v3_restart: &impl DevelopComposerV3BuildRestartPortV2,
+    ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
+        verify_transaction_database(transaction, &self.database_fingerprint).await?;
+        let current_transaction_identity = transaction_identity(transaction).await?;
+        if prepared.database_fingerprint != self.database_fingerprint
+            || prepared.transaction_identity != current_transaction_identity
+            || prepared.request_identity != request.request_identity
+            || prepared.request_digest != request_digest(request)
+        {
+            return Err(sqlx::Error::Protocol(
+                "prepared Composer A0 state does not bind this transaction and request".to_owned(),
+            ));
+        }
+        let (record, current) =
+            match finish_positive_record_from_prepared_a0_v2(request, prepared.a0, final_locked) {
+                Ok(record) => record,
+                Err(terminal) => return Ok(terminal_response(request, terminal)),
+            };
+        acquire_advisory_locks(transaction, &postbuild_lock_keys(&record)).await?;
+        let response =
+            resolve_positive_record_with_v3_restart_v2(&record, current.clone(), v3_restart)
+                .map_err(|terminal| {
+                    sqlx::Error::Protocol(format!(
+                        "fresh Composer record failed V3 readback: {}",
+                        terminal.reason
+                    ))
+                })?;
+        let role_set = project_role_set_from_record(&record, &response)
+            .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+        if let Err(e) = persist_record(
+            transaction,
+            &self.database_fingerprint,
+            &record,
+            &role_set,
+            None,
+            current.bindings.clone(),
+            None,
+        )
+        .await
+        {
+            if e.as_database_error()
+                .is_some_and(|database| database.is_unique_violation())
+            {
+                return Ok(conflict_response(
+                    &request.request_identity,
+                    "operation.semantic_identity",
+                ));
+            }
+            return Err(e);
+        }
+        Ok(response)
     }
 
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]

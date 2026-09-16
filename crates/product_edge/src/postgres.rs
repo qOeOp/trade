@@ -3907,6 +3907,31 @@ pub async fn resolve_admission_for_downstream_in_transaction(
     )
 }
 
+/// Resolves committed Product Edge admission custody from one repeatable, read-only snapshot.
+///
+/// This port deliberately supports historical verification only. First-mutation admission still
+/// requires the locking read-committed port above so current policy cannot be inferred from a stale
+/// snapshot.
+pub async fn resolve_historical_admission_snapshot_for_downstream_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    locator: &ProductEdgeAdmissionLocatorV1,
+) -> Result<ProductEdgeAdmissionReadbackV1, ProductEdgeError> {
+    let envelope: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT product_edge_api.resolve_historical_downstream_admission_snapshot_v1($1,$2,$3)",
+    )
+    .bind(&locator.request_identity)
+    .bind(&locator.admission_identity)
+    .bind(&locator.admission_digest)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    verify_locked_downstream_envelope(
+        envelope.ok_or(ProductEdgeError::Unavailable)?,
+        locator,
+        DownstreamAdmissionModeV1::Historical,
+    )
+}
+
 pub async fn resolve_source_invocation_claim_for_downstream_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     request_identity: &str,

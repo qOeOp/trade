@@ -21,6 +21,7 @@ pub use invocation::{
 pub use postgres::{
     ProductEdgePostgresAdmissionPointReadPortV1, ProductEdgePostgresAdmissionReadPortV1,
     ProductEdgePostgresOwnerV1, resolve_admission_for_downstream_in_transaction,
+    resolve_historical_admission_snapshot_for_downstream_in_transaction,
     resolve_portfolio_read_policy_in_transaction,
     resolve_source_invocation_claim_for_downstream_in_transaction,
     resolve_source_invocation_started_for_downstream_in_transaction,

@@ -34,7 +34,9 @@ use crate::{
         issue_repair_action_request_v1,
     },
     trial_family::TrialFamilyError,
-    trial_family_postgres::load_trial_family_census_v2_by_family_in_transaction,
+    trial_family_postgres::{
+        PostgresReadLockMode, load_trial_family_census_v2_by_family_in_transaction,
+    },
 };
 
 const DECISION_COMMITTED_EVENT_V1: &str = "ITERATION_DECISION_COMMITTED_V1";
@@ -819,6 +821,41 @@ pub(crate) async fn compose_candidate_comparison_decision_v1(
     }
     transaction.commit().await.map_err(storage)?;
     Ok(readback)
+}
+
+/// Seals one candidate-comparison Decision while retaining the caller's R&D Owner transaction.
+pub(crate) async fn compose_candidate_comparison_decision_in_transaction_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    census: &crate::trial_family::TrialFamilyCensusReadbackV2,
+    interpretation: crate::iteration_decision::IterationInterpretationContextV1,
+    candidate_evaluations: crate::IterationCandidateEvaluationSetV1,
+    committed_at_epoch_ms: u64,
+) -> Result<CandidateComparisonDecisionReadbackV1, IterationDecisionPostgresErrorV1> {
+    let result_identity = interpretation.evidence_cut().result_identity.clone();
+    if sqlx::query("SELECT 1 FROM rd_iteration_decisions_v1 WHERE result_identity=$1 FOR SHARE")
+        .bind(&result_identity)
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(storage)?
+        .is_some()
+    {
+        return Err(IterationDecisionPostgresErrorV1::CandidateComparisonNotApplicable);
+    }
+    let issued = issue_candidate_comparison_decision_v1(
+        census,
+        interpretation,
+        candidate_evaluations,
+        committed_at_epoch_ms,
+    )
+    .map_err(|e| match e {
+        IterationDecisionErrorV1::InvalidStoredDecision(_)
+        | IterationDecisionErrorV1::CandidateComparisonUnavailable(_) => {
+            IterationDecisionPostgresErrorV1::CandidateComparisonNotApplicable
+        }
+        other => IterationDecisionPostgresErrorV1::Decision(other),
+    })?;
+    persist_candidate_comparison_decision(transaction, &issued).await?;
+    Ok(issued)
 }
 
 pub(crate) async fn resolve_candidate_comparison_decision_v1(
@@ -1702,7 +1739,44 @@ pub(crate) async fn load_candidate_comparison_by_result_in_transaction(
     result_identity: &str,
     composition: Option<&CandidateComparisonCompositionRequestV1>,
 ) -> Result<Option<CandidateComparisonDecisionReadbackV1>, IterationDecisionPostgresErrorV1> {
-    let rows = sqlx::query("SELECT decision_identity,trial_family_identity,request_identity,result_identity,attempt_identity,decision_digest,decision_json,receipt_json,decision_storage_bytes,decision_storage_digest,receipt_storage_bytes,receipt_storage_digest,committed_at_epoch_ms FROM rd_iteration_decisions_v1 WHERE result_identity=$1 FOR SHARE")
+    load_candidate_comparison_by_result_with_lock_mode_in_transaction(
+        transaction,
+        census,
+        result_identity,
+        composition,
+        PostgresReadLockMode::ForShare,
+    )
+    .await
+}
+
+pub(crate) async fn load_candidate_comparison_by_result_snapshot_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    census: &crate::trial_family::TrialFamilyCensusReadbackV2,
+    result_identity: &str,
+    composition: Option<&CandidateComparisonCompositionRequestV1>,
+) -> Result<Option<CandidateComparisonDecisionReadbackV1>, IterationDecisionPostgresErrorV1> {
+    load_candidate_comparison_by_result_with_lock_mode_in_transaction(
+        transaction,
+        census,
+        result_identity,
+        composition,
+        PostgresReadLockMode::Snapshot,
+    )
+    .await
+}
+
+async fn load_candidate_comparison_by_result_with_lock_mode_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    census: &crate::trial_family::TrialFamilyCensusReadbackV2,
+    result_identity: &str,
+    composition: Option<&CandidateComparisonCompositionRequestV1>,
+    lock_mode: PostgresReadLockMode,
+) -> Result<Option<CandidateComparisonDecisionReadbackV1>, IterationDecisionPostgresErrorV1> {
+    let query = lock_mode.query(
+        "SELECT decision_identity,trial_family_identity,request_identity,result_identity,attempt_identity,decision_digest,decision_json,receipt_json,decision_storage_bytes,decision_storage_digest,receipt_storage_bytes,receipt_storage_digest,committed_at_epoch_ms FROM rd_iteration_decisions_v1 WHERE result_identity=$1",
+        " FOR SHARE",
+    );
+    let rows = sqlx::query(query)
         .bind(result_identity)
         .fetch_all(&mut **transaction)
         .await
@@ -1785,7 +1859,7 @@ pub(crate) async fn load_candidate_comparison_by_result_in_transaction(
     {
         return Err(storage("candidate-comparison composition retry changed"));
     }
-    verify_candidate_comparison_outbox_in_transaction(transaction, &readback).await?;
+    verify_candidate_comparison_outbox_in_transaction(transaction, &readback, lock_mode).await?;
     Ok(Some(readback))
 }
 
@@ -2143,8 +2217,13 @@ async fn verify_trial_budget_terminal_stop_outbox_in_transaction(
 async fn verify_candidate_comparison_outbox_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     readback: &CandidateComparisonDecisionReadbackV1,
+    lock_mode: PostgresReadLockMode,
 ) -> Result<(), IterationDecisionPostgresErrorV1> {
-    let rows = sqlx::query("SELECT aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms FROM rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2 FOR SHARE")
+    let query = lock_mode.query(
+        "SELECT aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms FROM rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2",
+        " FOR SHARE",
+    );
+    let rows = sqlx::query(query)
         .bind(readback.decision().decision_identity())
         .bind(DECISION_COMMITTED_EVENT_V1)
         .fetch_all(&mut **transaction)
@@ -2390,6 +2469,8 @@ fn storage(error: impl Display) -> IterationDecisionPostgresErrorV1 {
 
 #[cfg(all(test, feature = "sealed-develop-composer-acceptance"))]
 mod postgres_acceptance_tests {
+    use vibe_data::owner::source_binding::BindingDigest;
+
     use super::*;
     use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
     use serde::Serialize;
@@ -2417,6 +2498,7 @@ mod postgres_acceptance_tests {
         ProductEdgeBootstrapProposalV1, ProductEdgeInvocationClaimRequestV1,
         ProductEdgePostgresOwnerV1,
     };
+    use vibe_qualification::PostgresQualificationOwnerV1;
     use vibe_rd_market_data_repair_custody::{
         SealedMarketDataRepairRequestLocatorV1, lock_market_data_repair_request_v1,
     };
@@ -2467,6 +2549,8 @@ mod postgres_acceptance_tests {
         },
     };
 
+    mod iteration_analysis_postgres_acceptance_tests;
+
     const RESULT_STORAGE_DOMAIN: &str = "vibe.backtest.replay-result-storage.v2";
     const RECEIPT_STORAGE_DOMAIN: &str = "vibe.backtest.result-receipt-storage.v1";
     const OUTBOX_STORAGE_DOMAIN: &str = "vibe.backtest.result-outbox-storage.v1";
@@ -2486,6 +2570,15 @@ mod postgres_acceptance_tests {
         independence_basis_locator: vibe_qualification::RdIndependenceBasisLocatorV1,
         research_receipt_identity: String,
         request_proof_digest: String,
+    }
+
+    struct ReadyDecisionPostgresHarnessV1 {
+        database: CanonicalOwnerPostgresTestDatabaseV1,
+        qualification: PostgresQualificationOwnerV1,
+        suffix: String,
+        result_identity: String,
+        composition: ReadyForSelectionCompositionRequestV1,
+        issued: ReadyForSelectionDecisionReadbackV1,
     }
 
     #[derive(Serialize)]
@@ -3586,7 +3679,9 @@ mod postgres_acceptance_tests {
         let result_identity = result.result_identity.as_str().to_string();
         let result_digest = result.result_digest.as_str().to_string();
         let candidate_identity = format!("successor-experiment-{suffix}");
-        let candidate_digest = digest('b');
+        let candidate_experiment = IterationExperimentModeV1::SingleDimension {
+            changed_dimension: IterationHypothesisDimensionV1::ReturnMechanism,
+        };
         let candidate_set: TrialFamilyCandidateSetProposalV2 =
             serde_json::from_value(serde_json::json!({
                 "generation_rule_identity": format!("successor-generation-rule-{suffix}"),
@@ -3594,7 +3689,7 @@ mod postgres_acceptance_tests {
                 "expected_cardinality": 1,
                 "candidates": [{
                     "candidate_identity": candidate_identity,
-                    "candidate_digest": candidate_digest,
+                    "experiment": candidate_experiment,
                 }],
             }))
             .expect("candidate-set fixture");
@@ -3633,11 +3728,7 @@ mod postgres_acceptance_tests {
             result_identity: result_identity.clone(),
             request_identity: request_identity.clone(),
             attempt_identity,
-            candidate_evaluations: successor_candidate_evaluations(
-                &census,
-                &candidate_identity,
-                &candidate_digest,
-            ),
+            candidate_evaluations: successor_candidate_evaluations(&census, &candidate_identity),
         };
         let issued =
             crate::iteration_decision::tests::candidate_comparison_storage_acceptance_fixture_v1(
@@ -3740,6 +3831,8 @@ mod postgres_acceptance_tests {
             successor.intent().predecessor_intent_identity(),
             harness.intent_identity
         );
+        let _frozen_bfp =
+            assert_successor_bounded_feature_program_freeze(rd_pool, &successor).await;
 
         let mut first_successor_consumer = rd_pool
             .begin()
@@ -3798,6 +3891,121 @@ mod postgres_acceptance_tests {
             .rollback()
             .await
             .expect("successor custody retry rollback");
+        #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+        {
+            let mut composer_transaction = rd_pool.begin().await.expect("Composer transaction");
+            let successor_research = crate::successor_research_custody_postgres_v1::lock_successor_research_for_intent_in_transaction_v1(
+                    &mut composer_transaction,
+                    successor.intent().intent_identity(),
+                    successor.intent().frozen_at_epoch_ms(),
+                )
+                .await
+                .expect("successor Develop custody");
+            composer_transaction
+                .rollback()
+                .await
+                .expect("Composer rollback");
+            assert_eq!(
+                successor_research.request_locator(),
+                successor.intent().intent_identity()
+            );
+            assert_eq!(
+                successor_research.falsifier(),
+                successor.intent().goal().falsification_question
+            );
+
+            let composer = crate::source_research_composer_postgres_v2::SealedPostgresSourceResearchComposerV2::connect(
+                database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+                database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+            )
+            .await
+            .expect("successor Develop Composer");
+            let projection = composer
+                .request_projection(successor.intent().intent_identity())
+                .await
+                .expect("successor Composer request projection");
+            assert_eq!(
+                projection.research_request_locator,
+                successor.intent().intent_identity()
+            );
+            let composed_v3 = composer
+                .run_bfp_v3(successor.intent().intent_identity())
+                .await
+                .expect("successor BFP V3 Composer RUN");
+            assert_eq!(
+                composed_v3.disposition,
+                crate::develop_composer_operation_v2::DevelopComposerOperationDispositionV2::Success
+            );
+            assert_ne!(composed_v3.request_identity, projection.request_identity);
+            let retried_v3 = composer
+                .run_bfp_v3(successor.intent().intent_identity())
+                .await
+                .expect("successor BFP V3 Composer retry");
+            assert_eq!(retried_v3.canonical_bytes(), composed_v3.canonical_bytes());
+            let resolved_v3 = composer
+                .resolve(&composed_v3.request_identity)
+                .await
+                .expect("successor BFP V3 Composer RESOLVE");
+            assert_eq!(resolved_v3.canonical_bytes(), composed_v3.canonical_bytes());
+
+            let sealed_locator = crate::develop_composer_postgres_v2::DevelopComposerSealedReadLocatorV2::from_accepted_response(&composed_v3)
+                .expect("successor BFP V3 sealed locator");
+            let sealed = crate::develop_composer_postgres_v2::DevelopComposerSealedReadPortV2::read_accepted(
+                &composer,
+                &sealed_locator,
+            )
+            .await
+            .expect("successor BFP V3 sealed readback");
+            assert_eq!(sealed.build_receipt_tags(), &[3]);
+
+            let fresh_composer = crate::source_research_composer_postgres_v2::SealedPostgresSourceResearchComposerV2::connect(
+                database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+                database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+            )
+            .await
+            .expect("fresh successor BFP V3 Composer");
+            let fresh_resolved = fresh_composer
+                .resolve(&composed_v3.request_identity)
+                .await
+                .expect("fresh successor BFP V3 Composer RESOLVE");
+            assert_eq!(
+                fresh_resolved.canonical_bytes(),
+                composed_v3.canonical_bytes()
+            );
+
+            sqlx::query(
+                "UPDATE rd_bounded_feature_program_freezes_v1
+                    SET program_bytes=program_bytes || decode('00','hex')
+                  WHERE request_identity=$1",
+            )
+            .bind(successor.intent().intent_identity())
+            .execute(rd_pool)
+            .await
+            .expect("commit successor BFP tamper");
+            let unavailable = fresh_composer
+                .resolve(&composed_v3.request_identity)
+                .await
+                .expect("tampered successor BFP V3 RESOLVE");
+            assert_eq!(
+                unavailable.disposition,
+                crate::develop_composer_operation_v2::DevelopComposerOperationDispositionV2::Unavailable
+            );
+            sqlx::query(
+                "UPDATE rd_bounded_feature_program_freezes_v1
+                    SET program_bytes=$2
+                  WHERE request_identity=$1",
+            )
+            .bind(successor.intent().intent_identity())
+            .bind(_frozen_bfp.program_bytes())
+            .execute(rd_pool)
+            .await
+            .expect("restore successor BFP bytes");
+            let restored = fresh_composer
+                .resolve(&composed_v3.request_identity)
+                .await
+                .expect("restored successor BFP V3 RESOLVE");
+            assert_eq!(restored.canonical_bytes(), composed_v3.canonical_bytes());
+        }
 
         let successor_replay = persist_successor_artifact_replay(
             &database,
@@ -3825,6 +4033,215 @@ mod postgres_acceptance_tests {
                 .as_str(),
             successor.intent().intent_digest()
         );
+    }
+
+    async fn assert_successor_bounded_feature_program_freeze(
+        rd_pool: &sqlx::PgPool,
+        successor: &crate::successor_intent::SuccessorResearchIntentReadbackV1,
+    ) -> crate::rd_bounded_feature_program_v1::FrozenResearchBoundedFeatureProgramV1 {
+        let intent = successor.intent();
+        let read_cut = intent.frozen_at_epoch_ms();
+        let mut custody_transaction = rd_pool.begin().await.expect("BFP custody transaction");
+        let custody = crate::successor_research_custody_postgres_v1::lock_successor_research_for_intent_in_transaction_v1(
+            &mut custody_transaction,
+            intent.intent_identity(),
+            read_cut,
+        )
+        .await
+        .expect("successor BFP Research custody");
+        custody_transaction
+            .rollback()
+            .await
+            .expect("BFP custody rollback");
+
+        let (mut design, mut proposal, catalog) =
+            crate::bounded_feature_program_v1::tests::candidate();
+        let plugin_semantic_id = proposal.plugin_semantic_id.clone();
+        design
+            .plugins
+            .retain(|plugin| plugin.semantic_id == plugin_semantic_id);
+
+        for reaction in &mut design.reactions {
+            reaction
+                .nodes
+                .retain(|node| node.plugin_semantic_id == plugin_semantic_id);
+            if reaction.kind != crate::strategy_design_v2::LifecycleKindV2::Bar {
+                reaction.nodes.clear();
+            }
+
+            if reaction.nodes.is_empty() {
+                reaction.state_writes.clear();
+                reaction.proposal = None;
+            }
+        }
+        design.parameters.clear();
+        let retained_state_ids = design
+            .reactions
+            .iter()
+            .flat_map(|reaction| reaction.state_writes.iter())
+            .map(|write| write.state_id.as_str())
+            .collect::<Vec<_>>();
+        design
+            .state
+            .retain(|state| retained_state_ids.contains(&state.semantic_id.as_str()));
+        design.resources.max_state_bytes = design.state.iter().map(|state| state.max_bytes).sum();
+        design.research_request_identity = custody.research_request_identity();
+        design.intent_identity = custody.intent_identity();
+        design.intent_digest = custody.intent_digest();
+        design.falsifier = custody.falsifier().to_owned();
+        let prepared = crate::strategy_plan_v2::prepare_strategy_design_v2(&design);
+        let (design_identity, design_digest) = match prepared {
+            crate::strategy_plan_v2::StrategyDesignPreparationV2::Prepared {
+                design_identity,
+                design_digest,
+            } => (design_identity, design_digest),
+            other => panic!("successor BFP Design must prepare: {other:?}"),
+        };
+        proposal.research_request_identity = design.research_request_identity;
+        proposal.intent_identity = design.intent_identity;
+        proposal.intent_digest = design.intent_digest;
+        proposal.design_identity = design_identity;
+        proposal.design_digest = design_digest;
+        let market = vibe_data::owner::pit_snapshot::sealed_acceptance::issue_strategy_input_exact_instrument_bar_frame_for_owner_lineage(
+            design.research_request_identity,
+            design_identity,
+        )
+        .expect("successor BFP exact Market Data authority");
+        let input_role_identity =
+            crate::strategy_plan_v2::strategy_input_role_identity_v2(&design.inputs[0]);
+        let binding = market
+            .bindings()
+            .iter()
+            .find(|receipt| receipt.locator().input_role_identity() == input_role_identity)
+            .expect("successor BFP exact input binding");
+        proposal.inputs[0].static_binding_receipt_digest = binding.digest();
+
+        let mut rejected_design = design.clone();
+        rejected_design.intent_digest = BindingDigest::from_untrusted_bytes([99; 32]);
+        let mut rejected = rd_pool.begin().await.expect("rejected BFP transaction");
+        assert_eq!(
+            Box::pin(
+                crate::rd_bounded_feature_program_v1::commit_research_bounded_feature_program_in_transaction_v1(
+                    &mut rejected,
+                    intent.intent_identity(),
+                    read_cut,
+                    read_cut.saturating_add(1),
+                    &rejected_design,
+                    proposal.clone(),
+                    catalog,
+                ),
+            )
+            .await,
+            Err(crate::rd_bounded_feature_program_v1::ResearchBoundedFeatureProgramFreezeErrorV1::ResearchCustody)
+        );
+        rejected.rollback().await.expect("rejected BFP rollback");
+        let rejected_counts: (i64, i64) = sqlx::query_as(
+            "SELECT
+                (SELECT COUNT(*) FROM rd_bounded_feature_program_freezes_v1 WHERE request_identity=$1),
+                (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2)",
+        )
+        .bind(intent.intent_identity())
+        .bind(crate::rd_bounded_feature_program_v1::JOINT_FREEZE_EVENT_KIND_V1)
+        .fetch_one(rd_pool)
+        .await
+        .expect("rejected successor BFP counts");
+        assert_eq!(rejected_counts, (0, 0));
+
+        let committed_at = read_cut.saturating_add(1);
+        let mut first = rd_pool.begin().await.expect("successor BFP transaction");
+        let committed = Box::pin(
+            crate::rd_bounded_feature_program_v1::commit_research_bounded_feature_program_in_transaction_v1(
+                &mut first,
+                intent.intent_identity(),
+                read_cut,
+                committed_at,
+                &design,
+                proposal.clone(),
+                catalog,
+            ),
+        )
+        .await
+        .expect("successor BFP freeze");
+        first.commit().await.expect("successor BFP commit");
+        assert_eq!(committed.intent_identity(), custody.intent_identity());
+        assert_eq!(
+            committed.research_custody_digest(),
+            custody.custody_digest()
+        );
+
+        let mut retry = rd_pool.begin().await.expect("successor BFP retry");
+        let retried = Box::pin(
+            crate::rd_bounded_feature_program_v1::commit_research_bounded_feature_program_in_transaction_v1(
+                &mut retry,
+                intent.intent_identity(),
+                read_cut,
+                committed_at,
+                &design,
+                proposal,
+                catalog,
+            ),
+        )
+        .await
+        .expect("exact successor BFP retry");
+        assert_eq!(retried, committed);
+        retry.commit().await.expect("successor BFP retry commit");
+
+        let committed_counts: (i64, i64) = sqlx::query_as(
+            "SELECT
+                (SELECT COUNT(*) FROM rd_bounded_feature_program_freezes_v1 WHERE request_identity=$1),
+                (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2)",
+        )
+        .bind(intent.intent_identity())
+        .bind(crate::rd_bounded_feature_program_v1::JOINT_FREEZE_EVENT_KIND_V1)
+        .fetch_one(rd_pool)
+        .await
+        .expect("committed successor BFP counts");
+        assert_eq!(committed_counts, (1, 1));
+
+        let mut readback = rd_pool.begin().await.expect("successor BFP readback");
+        let resolved = Box::pin(
+            crate::rd_bounded_feature_program_v1::read_research_bounded_feature_program_in_transaction_v1(
+                &mut readback,
+                intent.intent_identity(),
+                read_cut,
+                catalog,
+            ),
+        )
+        .await
+        .expect("successor BFP readback");
+        assert_eq!(resolved, committed);
+        readback
+            .rollback()
+            .await
+            .expect("successor BFP readback rollback");
+
+        let mut tampered = rd_pool.begin().await.expect("successor BFP tamper");
+        sqlx::query(
+            "UPDATE rd_bounded_feature_program_freezes_v1
+                SET program_bytes=program_bytes || decode('00','hex')
+              WHERE request_identity=$1",
+        )
+        .bind(intent.intent_identity())
+        .execute(&mut *tampered)
+        .await
+        .expect("tamper successor BFP bytes");
+        assert_eq!(
+            Box::pin(
+                crate::rd_bounded_feature_program_v1::read_research_bounded_feature_program_in_transaction_v1(
+                    &mut tampered,
+                    intent.intent_identity(),
+                    read_cut,
+                    catalog,
+                ),
+            )
+            .await,
+            Err(crate::rd_bounded_feature_program_v1::ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)
+        );
+        tampered
+            .rollback()
+            .await
+            .expect("successor BFP tamper rollback");
+        committed
     }
 
     async fn persist_successor_artifact_replay(
@@ -4045,8 +4462,13 @@ mod postgres_acceptance_tests {
     fn successor_candidate_evaluations(
         census: &TrialFamilyCensusReadbackV2,
         candidate_identity: &str,
-        candidate_digest: &str,
     ) -> IterationCandidateEvaluationSetV1 {
+        let candidate = census
+            .candidate_set_frontier
+            .candidates()
+            .iter()
+            .find(|candidate| candidate.candidate_identity() == candidate_identity)
+            .expect("candidate is present in exact Owner Census readback");
         let reference = |name: &str, byte: char| IterationEvidenceReferenceV1 {
             identity: format!("{name}-{candidate_identity}"),
             digest: digest(byte),
@@ -4080,7 +4502,7 @@ mod postgres_acceptance_tests {
             },
             candidates: vec![IterationCandidateEvaluationV1 {
                 candidate_identity: candidate_identity.to_string(),
-                candidate_digest: candidate_digest.to_string(),
+                candidate_digest: candidate.candidate_digest().to_string(),
                 admissibility: IterationCandidateAdmissibilityV1::AdmissibleAboveThreshold,
                 information_value: IterationInformationValueEvidenceV1 {
                     decision_uncertainty: reference("decision-uncertainty", '1'),
@@ -4106,20 +4528,20 @@ mod postgres_acceptance_tests {
     #[tokio::test]
     #[ignore = "requires the canonical disposable R&D and Backtest Owner PostgreSQL topology"]
     async fn positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic() {
-        Box::pin(
-            run_positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic(),
-        )
-        .await;
+        // Keep each phase independently pinned: one aggregate scenario future exhausts the Linux
+        // test thread stack while its nested READY futures are constructed and polled.
+        let harness = Box::pin(prepare_ready_decision_postgres_harness()).await;
+        Box::pin(assert_ready_retry_resolve_and_qualification(&harness)).await;
+        Box::pin(assert_ready_tamper_closure(&harness)).await;
     }
 
-    async fn run_positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic() {
+    async fn prepare_ready_decision_postgres_harness() -> Box<ReadyDecisionPostgresHarnessV1> {
         let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
             .await
             .expect("canonical disposable topology");
         let mutation = database.mutation();
         let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
         let backtest_pool = mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner);
-        let qualification_pool = mutation.pool(CanonicalOwnerTestRoleV1::QualificationWriter);
         let suffix = unique_suffix();
         let market_data_evidence =
             issue_market_data_repair_evidence_v1().expect("sealed Market Data evidence");
@@ -4138,7 +4560,7 @@ mod postgres_acceptance_tests {
             &suffix,
         ))
         .await;
-        let qualification = vibe_qualification::PostgresQualificationOwnerV1::connect(
+        let qualification = PostgresQualificationOwnerV1::connect(
             &database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
         )
         .await
@@ -4261,20 +4683,46 @@ mod postgres_acceptance_tests {
             .await
             .expect("committed READY persistence");
         commit_transaction.commit().await.expect("READY commit");
-        let retried = compose_ready_for_selection_decision_v1(rd_pool, composition.clone())
-            .await
-            .expect("response-loss retry");
+
+        Box::new(ReadyDecisionPostgresHarnessV1 {
+            database,
+            qualification,
+            suffix,
+            result_identity,
+            composition,
+            issued,
+        })
+    }
+
+    async fn assert_ready_retry_resolve_and_qualification(
+        harness: &ReadyDecisionPostgresHarnessV1,
+    ) {
+        let mutation = harness.database.mutation();
+        let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+        let qualification_pool = mutation.pool(CanonicalOwnerTestRoleV1::QualificationWriter);
+        let composition = &harness.composition;
+        let issued = &harness.issued;
+        let result_identity = &harness.result_identity;
+        let suffix = &harness.suffix;
+        let qualification = &harness.qualification;
+
+        let retried = Box::pin(compose_ready_for_selection_decision_v1(
+            rd_pool,
+            composition.clone(),
+        ))
+        .await
+        .expect("response-loss retry");
         assert_eq!(
             serde_json::to_vec(&retried).unwrap(),
             serde_json::to_vec(&issued).unwrap()
         );
-        let resolved = resolve_ready_for_selection_decision_v1(
+        let resolved = Box::pin(resolve_ready_for_selection_decision_v1(
             rd_pool,
             IterationDecisionResolutionLocatorV1 {
                 decision_identity: issued.decision().decision_identity().to_string(),
                 result_identity: result_identity.clone(),
             },
-        )
+        ))
         .await
         .expect("READY resolve")
         .expect("stored READY custody");
@@ -4282,18 +4730,18 @@ mod postgres_acceptance_tests {
             serde_json::to_vec(&resolved).unwrap(),
             serde_json::to_vec(&issued).unwrap()
         );
-        let unified = resolve_iteration_decision_v1(
+        let unified = Box::pin(resolve_iteration_decision_v1(
             rd_pool,
             IterationDecisionResolutionLocatorV1 {
                 decision_identity: issued.decision().decision_identity().to_string(),
                 result_identity: result_identity.clone(),
             },
-        )
+        ))
         .await
         .expect("unified Decision resolve")
         .expect("unified READY custody");
         assert!(
-            matches!(unified, ExistingIterationDecisionReadbackV1::ReadyForSelection(value) if value == issued)
+            matches!(unified, ExistingIterationDecisionReadbackV1::ReadyForSelection(value) if value == *issued)
         );
         let policy = &issued
             .candidate()
@@ -4351,12 +4799,20 @@ mod postgres_acceptance_tests {
                 .await,
             Err(vibe_qualification::QualificationOwnerError::ConflictingIdentity)
         ));
+    }
 
-        let mut changed = composition;
+    async fn assert_ready_tamper_closure(harness: &ReadyDecisionPostgresHarnessV1) {
+        let mutation = harness.database.mutation();
+        let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+        let issued = &harness.issued;
+        let result_identity = &harness.result_identity;
+        let suffix = &harness.suffix;
+
+        let mut changed = harness.composition.clone();
         changed.protected_robustness_plan.metric.identity =
             format!("changed-protected-metric-{suffix}");
         assert!(
-            compose_ready_for_selection_decision_v1(rd_pool, changed)
+            Box::pin(compose_ready_for_selection_decision_v1(rd_pool, changed))
                 .await
                 .is_err()
         );
@@ -4367,11 +4823,11 @@ mod postgres_acceptance_tests {
             .await
             .expect("temporary assessment tamper");
         assert!(
-            load_ready_for_selection_by_result_in_transaction(
+            Box::pin(load_ready_for_selection_by_result_in_transaction(
                 &mut tamper_transaction,
                 &result_identity,
                 None,
-            )
+            ))
             .await
             .is_err()
         );
@@ -4387,11 +4843,11 @@ mod postgres_acceptance_tests {
             .await
             .expect("temporary Selection tamper");
         assert!(
-            load_ready_for_selection_by_result_in_transaction(
+            Box::pin(load_ready_for_selection_by_result_in_transaction(
                 &mut selection_tamper_transaction,
                 &result_identity,
                 None,
-            )
+            ))
             .await
             .is_err()
         );
@@ -4400,13 +4856,13 @@ mod postgres_acceptance_tests {
             .await
             .expect("Selection tamper rollback");
         assert!(
-            resolve_ready_for_selection_decision_v1(
+            Box::pin(resolve_ready_for_selection_decision_v1(
                 rd_pool,
                 IterationDecisionResolutionLocatorV1 {
                     decision_identity: issued.decision().decision_identity().to_string(),
-                    result_identity,
+                    result_identity: result_identity.clone(),
                 },
-            )
+            ))
             .await
             .expect("post-tamper resolve")
             .is_some()

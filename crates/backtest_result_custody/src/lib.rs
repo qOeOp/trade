@@ -788,10 +788,88 @@ pub enum BacktestResultCustodyErrorV2 {
 #[derive(Debug)]
 pub struct LockedExploratoryReplayResultV2 {
     result: ReplayResultDtoV2,
+    receipt_reference: ExploratoryReplayResultReceiptReferenceV1,
     result_canonical_bytes: Vec<u8>,
     receipt_canonical_bytes: Vec<u8>,
     outbox_canonical_bytes: Vec<u8>,
     semantic_trace_canonical_bytes: Option<Vec<u8>>,
+}
+
+/// Serializable reference to one validated Backtest-owned exploratory Result receipt.
+///
+/// The fields are private and this type has no public constructor or deserializer. A caller can
+/// obtain it only from a [`LockedExploratoryReplayResultV2`] after the complete Result, receipt,
+/// outbox, and locator bindings have been validated.
+///
+/// ```compile_fail
+/// use vibe_backtest_result_custody::ExploratoryReplayResultReceiptReferenceV1;
+/// let _: ExploratoryReplayResultReceiptReferenceV1 = serde_json::from_str("{}").unwrap();
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExploratoryReplayResultReceiptReferenceV1 {
+    schema_version: u16,
+    receipt_identity: OpaqueIdentityV2,
+    receipt_digest: CanonicalDigestV2,
+    request_identity: OpaqueIdentityV2,
+    request_meaning_digest: CanonicalDigestV2,
+    result_identity: OpaqueIdentityV2,
+    result_digest: CanonicalDigestV2,
+    namespace: ReplayNamespaceV2,
+    outbox_event_identity: OpaqueIdentityV2,
+    committed_at_epoch_ms: u64,
+}
+
+impl ExploratoryReplayResultReceiptReferenceV1 {
+    #[must_use]
+    pub const fn schema_version(&self) -> u16 {
+        self.schema_version
+    }
+
+    #[must_use]
+    pub fn receipt_identity(&self) -> &OpaqueIdentityV2 {
+        &self.receipt_identity
+    }
+
+    #[must_use]
+    pub fn receipt_digest(&self) -> &CanonicalDigestV2 {
+        &self.receipt_digest
+    }
+
+    #[must_use]
+    pub fn request_identity(&self) -> &OpaqueIdentityV2 {
+        &self.request_identity
+    }
+
+    #[must_use]
+    pub fn request_meaning_digest(&self) -> &CanonicalDigestV2 {
+        &self.request_meaning_digest
+    }
+
+    #[must_use]
+    pub fn result_identity(&self) -> &OpaqueIdentityV2 {
+        &self.result_identity
+    }
+
+    #[must_use]
+    pub fn result_digest(&self) -> &CanonicalDigestV2 {
+        &self.result_digest
+    }
+
+    #[must_use]
+    pub const fn namespace(&self) -> ReplayNamespaceV2 {
+        self.namespace
+    }
+
+    #[must_use]
+    pub fn outbox_event_identity(&self) -> &OpaqueIdentityV2 {
+        &self.outbox_event_identity
+    }
+
+    #[must_use]
+    pub const fn committed_at_epoch_ms(&self) -> u64 {
+        self.committed_at_epoch_ms
+    }
 }
 
 /// Move-only positive Backtest custody readback including the exact native outcome evidence.
@@ -841,6 +919,12 @@ impl LockedExploratoryReplayResultV2 {
     #[must_use]
     pub const fn result(&self) -> &ReplayResultDtoV2 {
         &self.result
+    }
+
+    /// Returns the typed receipt reference derived from the validated locked aggregate.
+    #[must_use]
+    pub const fn receipt_reference(&self) -> &ExploratoryReplayResultReceiptReferenceV1 {
+        &self.receipt_reference
     }
 
     #[must_use]
@@ -1622,6 +1706,18 @@ fn validate_envelope(
         return Err(BacktestResultCustodyErrorV2::Unavailable);
     }
     Ok(LockedExploratoryReplayResultV2 {
+        receipt_reference: ExploratoryReplayResultReceiptReferenceV1 {
+            schema_version: receipt.schema_version,
+            receipt_identity: receipt.receipt_identity.clone(),
+            receipt_digest: receipt.receipt_digest.clone(),
+            request_identity: receipt.request_identity.clone(),
+            request_meaning_digest: receipt.request_meaning_digest.clone(),
+            result_identity: receipt.result_identity.clone(),
+            result_digest: receipt.result_digest.clone(),
+            namespace: receipt.namespace,
+            outbox_event_identity: receipt.outbox_event_identity.clone(),
+            committed_at_epoch_ms: receipt.committed_at_epoch_ms,
+        },
         result,
         result_canonical_bytes: result_bytes,
         receipt_canonical_bytes: receipt_bytes,
@@ -2382,7 +2478,7 @@ mod tests {
                 &semantic_trace_b,
             ),
         ] {
-            validate_envelope(
+            let locked = validate_envelope(
                 envelope(
                     result,
                     result_bytes,
@@ -2399,6 +2495,30 @@ mod tests {
                 },
             )
             .expect("independently valid canonical aggregate");
+            let reference = locked.receipt_reference();
+            assert_eq!(reference.schema_version(), 1);
+            assert_eq!(reference.receipt_identity(), &receipt.receipt_identity);
+            assert_eq!(reference.receipt_digest(), &receipt.receipt_digest);
+            assert_eq!(reference.request_identity(), &result.request_identity);
+            assert_eq!(
+                reference.request_meaning_digest(),
+                &result.request_meaning_digest
+            );
+            assert_eq!(reference.result_identity(), &result.result_identity);
+            assert_eq!(reference.result_digest(), &result.result_digest);
+            assert_eq!(reference.namespace(), ReplayNamespaceV2::Exploratory);
+            assert_eq!(
+                reference.outbox_event_identity(),
+                &receipt.outbox_event_identity
+            );
+            assert_eq!(
+                reference.committed_at_epoch_ms(),
+                receipt.committed_at_epoch_ms
+            );
+            let serialized =
+                serde_json::to_value(reference).expect("serializable receipt reference");
+            assert!(serialized.get("canonical_bytes").is_none());
+            assert!(serialized.get("canonical_bytes_base64").is_none());
         }
 
         let cross_spliced = envelope(
