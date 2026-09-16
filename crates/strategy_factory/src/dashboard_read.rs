@@ -170,15 +170,16 @@ impl FormationCatalogOwnerPortV1 for ComposedFormationCatalogOwnerV1 {
             .research_directory
             .list_research(None, FORMATION_LIMIT)
             .await
-            .map_err(|error| unavailable(error.to_string()))?;
+            .map_err(|e| unavailable(e.to_string()))?;
         let artifact_directory = self
             .artifact_directory
             .list_artifacts(None, ARTIFACT_LIMIT)
             .await
-            .map_err(|error| unavailable(error.to_string()))?;
+            .map_err(|e| unavailable(e.to_string()))?;
 
         let mut families = Vec::new();
         let mut family_identities = BTreeSet::new();
+
         for item in research_directory.items.iter().filter(|item| {
             item.disposition == crate::product_edge::ResearchRequestDisposition::Accepted
         }) {
@@ -186,7 +187,7 @@ impl FormationCatalogOwnerPortV1 for ComposedFormationCatalogOwnerV1 {
                 .research_readback
                 .read_research_v2(&item.request_identity)
                 .await
-                .map_err(|error| unavailable(error.to_string()))?;
+                .map_err(|e| unavailable(e.to_string()))?;
             if readback.resolution() != ProductEdgeResolution::Accepted {
                 return Err(unavailable(
                     "verified Research directory/readback resolution mismatch",
@@ -202,6 +203,7 @@ impl FormationCatalogOwnerPortV1 for ComposedFormationCatalogOwnerV1 {
                 .trial_family()
                 .ok_or_else(|| unavailable("accepted Research TrialFamily is missing"))?;
             let family_identity = family.root().trial_family_identity();
+
             if item.intent_identity.as_deref() != Some(view.intent_identity.as_str())
                 || receipt.request_identity != item.request_identity
                 || receipt.resulting_research_intent_identity.as_deref()
@@ -215,6 +217,7 @@ impl FormationCatalogOwnerPortV1 for ComposedFormationCatalogOwnerV1 {
             }
 
             let mut attempts = Vec::new();
+
             for artifact in artifact_directory
                 .items
                 .iter()
@@ -224,7 +227,7 @@ impl FormationCatalogOwnerPortV1 for ComposedFormationCatalogOwnerV1 {
                     .artifact_readback
                     .read_artifact(&artifact.build_request_identity, &artifact.attempt_identity)
                     .await
-                    .map_err(|error| unavailable(error.to_string()))?;
+                    .map_err(|e| unavailable(e.to_string()))?;
                 let owner_receipt = artifact_readback
                     .owner_receipt()
                     .ok_or_else(|| unavailable("verified Artifact receipt is missing"))?;
@@ -234,6 +237,7 @@ impl FormationCatalogOwnerPortV1 for ComposedFormationCatalogOwnerV1 {
                 let binding = artifact_readback.artifact_trial_family().ok_or_else(|| {
                     unavailable("verified Artifact TrialFamily binding is missing")
                 })?;
+
                 if artifact_readback.resolution() != ArtifactBuildResolution::Success
                     || owner_receipt.disposition
                         != crate::artifact_build::ArtifactBuildDisposition::Success
@@ -375,18 +379,18 @@ impl PostgresIterationTimelineOwnerV1 {
             .max_connections(4)
             .connect(database_url)
             .await
-            .map_err(|error| unavailable(error.to_string()))?;
+            .map_err(|e| unavailable(e.to_string()))?;
         crate::schema_materialization::require_existing_public_tables_for_readback(
             &pool,
             &crate::iteration_decision_postgres::TABLES[..1],
         )
         .await
-        .map_err(|error| unavailable(error.to_string()))?;
+        .map_err(|e| unavailable(e.to_string()))?;
         let census_v2_available: bool =
             sqlx::query_scalar("SELECT to_regclass('rd_trial_family_attempt_cuts_v2') IS NOT NULL")
                 .fetch_one(&pool)
                 .await
-                .map_err(|error| unavailable(error.to_string()))?;
+                .map_err(|e| unavailable(e.to_string()))?;
         Ok(Self {
             pool,
             census_v2_available,
@@ -408,15 +412,15 @@ impl IterationTimelineOwnerPortV1 for PostgresIterationTimelineOwnerV1 {
             .pool
             .begin()
             .await
-            .map_err(|error| unavailable(error.to_string()))?;
+            .map_err(|e| unavailable(e.to_string()))?;
         let exists = sqlx::query("SELECT trial_family_identity FROM rd_trial_families_v1 WHERE trial_family_identity=$1 FOR SHARE")
             .bind(trial_family_identity).fetch_optional(&mut *transaction).await
-            .map_err(|error| unavailable(error.to_string()))?;
+            .map_err(|e| unavailable(e.to_string()))?;
         if exists.is_none() {
             transaction
                 .commit()
                 .await
-                .map_err(|error| unavailable(error.to_string()))?;
+                .map_err(|e| unavailable(e.to_string()))?;
             return Err(DashboardReadErrorV1::NotFound);
         }
         let (census_frontier_identity, census_frontier_digest, consumed_trial_budget, trial_budget) =
@@ -426,7 +430,7 @@ impl IterationTimelineOwnerPortV1 for PostgresIterationTimelineOwnerV1 {
                 trial_family_identity,
             )
             .await
-            .map_err(|error| unavailable(error.to_string()))?;
+            .map_err(|e| unavailable(e.to_string()))?;
                 (
                     census.census_frontier.frontier_identity().to_owned(),
                     census.census_frontier.frontier_digest().to_owned(),
@@ -440,7 +444,7 @@ impl IterationTimelineOwnerPortV1 for PostgresIterationTimelineOwnerV1 {
                         trial_family_identity,
                     )
                     .await
-                    .map_err(|error| unavailable(error.to_string()))?;
+                    .map_err(|e| unavailable(e.to_string()))?;
                 (
                     family.census_frontier().frontier_identity().to_owned(),
                     family.census_frontier().frontier_digest().to_owned(),
@@ -451,7 +455,7 @@ impl IterationTimelineOwnerPortV1 for PostgresIterationTimelineOwnerV1 {
         let rows = sqlx::query(
             "SELECT decision_identity,result_identity,decision_digest,committed_at_epoch_ms FROM rd_iteration_decisions_v1 WHERE trial_family_identity=$1 ORDER BY committed_at_epoch_ms ASC, decision_identity COLLATE \"C\" ASC LIMIT $2",
         ).bind(trial_family_identity).bind(ITERATION_LIMIT + 1).fetch_all(&mut *transaction).await
-            .map_err(|error| unavailable(error.to_string()))?;
+            .map_err(|e| unavailable(e.to_string()))?;
         if rows.len() > usize::try_from(ITERATION_LIMIT).unwrap_or(128) {
             return Err(unavailable(
                 "Iteration timeline exceeds the bounded response",
@@ -462,23 +466,23 @@ impl IterationTimelineOwnerPortV1 for PostgresIterationTimelineOwnerV1 {
             .map(|row| {
                 Ok((
                     row.try_get::<String, _>("decision_identity")
-                        .map_err(|error| unavailable(error.to_string()))?,
+                        .map_err(|e| unavailable(e.to_string()))?,
                     row.try_get::<String, _>("result_identity")
-                        .map_err(|error| unavailable(error.to_string()))?,
+                        .map_err(|e| unavailable(e.to_string()))?,
                     row.try_get::<String, _>("decision_digest")
-                        .map_err(|error| unavailable(error.to_string()))?,
+                        .map_err(|e| unavailable(e.to_string()))?,
                     u64::try_from(
                         row.try_get::<i64, _>("committed_at_epoch_ms")
-                            .map_err(|error| unavailable(error.to_string()))?,
+                            .map_err(|e| unavailable(e.to_string()))?,
                     )
-                    .map_err(|error| unavailable(error.to_string()))?,
+                    .map_err(|e| unavailable(e.to_string()))?,
                 ))
             })
             .collect::<Result<Vec<_>, DashboardReadErrorV1>>()?;
         transaction
             .commit()
             .await
-            .map_err(|error| unavailable(error.to_string()))?;
+            .map_err(|e| unavailable(e.to_string()))?;
 
         let mut decisions = Vec::with_capacity(locators.len());
         for (index, (decision_identity, result_identity, stored_digest, stored_commit)) in
@@ -494,7 +498,7 @@ impl IterationTimelineOwnerPortV1 for PostgresIterationTimelineOwnerV1 {
                 ),
             )
             .await
-            .map_err(|error| unavailable(error.to_string()))?
+            .map_err(|e| unavailable(e.to_string()))?
             .ok_or_else(|| unavailable("frozen Iteration Decision locator disappeared"))?;
             let (decision_identity, decision_digest, evidence, outcome, receipt, action) =
                 match &readback {
@@ -546,6 +550,7 @@ impl IterationTimelineOwnerPortV1 for PostgresIterationTimelineOwnerV1 {
                         IterationTimelineActionV1::SubmitSelectedCandidateToQualification,
                     ),
                 };
+
             if decision_digest != stored_digest
                 || receipt.committed_at_epoch_ms() != stored_commit
                 || evidence.trial_family_identity != trial_family_identity
@@ -557,8 +562,7 @@ impl IterationTimelineOwnerPortV1 for PostgresIterationTimelineOwnerV1 {
             decisions.push(IterationTimelineDecisionV1 {
                 decision_identity: decision_identity.to_owned(),
                 decision_digest: decision_digest.to_owned(),
-                round_ordinal: u32::try_from(index + 1)
-                    .map_err(|error| unavailable(error.to_string()))?,
+                round_ordinal: u32::try_from(index + 1).map_err(|e| unavailable(e.to_string()))?,
                 trial_family_identity: evidence.trial_family_identity.clone(),
                 census_frontier_identity: evidence.census_frontier_identity.clone(),
                 census_frontier_digest: evidence.census_frontier_digest.clone(),
@@ -608,8 +612,8 @@ impl IterationTimelineOwnerPortV1 for PostgresIterationTimelineOwnerV1 {
 fn current_epoch_ms() -> Result<u64, DashboardReadErrorV1> {
     let elapsed = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_err(|error| unavailable(error.to_string()))?;
-    u64::try_from(elapsed.as_millis()).map_err(|error| unavailable(error.to_string()))
+        .map_err(|e| unavailable(e.to_string()))?;
+    u64::try_from(elapsed.as_millis()).map_err(|e| unavailable(e.to_string()))
 }
 
 fn unavailable(message: impl Into<String>) -> DashboardReadErrorV1 {

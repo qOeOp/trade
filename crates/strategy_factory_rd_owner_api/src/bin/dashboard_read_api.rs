@@ -634,14 +634,15 @@ async fn read_research_question_directory(
     if !authorized(&headers, &state.token_digest) {
         return StatusCode::FORBIDDEN.into_response();
     }
+
     match state
         .research_questions
         .read_research_question_directory()
         .await
     {
         Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
-        Err(error) => {
-            tracing::warn!(%error, "Research question directory read unavailable");
+        Err(e) => {
+            tracing::warn!(%e, "Research question directory read unavailable");
             StatusCode::SERVICE_UNAVAILABLE.into_response()
         }
     }
@@ -677,10 +678,11 @@ async fn read_formation_catalog(State(state): State<ApiState>, headers: HeaderMa
     if !authorized(&headers, &state.token_digest) {
         return StatusCode::FORBIDDEN.into_response();
     }
+
     match state.formation_catalog.read_formation_catalog().await {
         Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
-        Err(error) => {
-            tracing::warn!(%error, "Formation Catalog Dashboard read unavailable");
+        Err(e) => {
+            tracing::warn!(%e, "Formation Catalog Dashboard read unavailable");
             StatusCode::SERVICE_UNAVAILABLE.into_response()
         }
     }
@@ -694,9 +696,11 @@ async fn read_iteration_timeline(
     if !authorized(&headers, &state.token_digest) {
         return StatusCode::FORBIDDEN.into_response();
     }
+
     if !valid_identity(&trial_family_identity) {
         return StatusCode::BAD_REQUEST.into_response();
     }
+
     match state
         .iteration_timeline
         .read_iteration_timeline(&trial_family_identity)
@@ -704,8 +708,8 @@ async fn read_iteration_timeline(
     {
         Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
         Err(DashboardReadErrorV1::NotFound) => StatusCode::NOT_FOUND.into_response(),
-        Err(error) => {
-            tracing::warn!(%error, "Iteration Timeline Dashboard read unavailable");
+        Err(e) => {
+            tracing::warn!(%e, "Iteration Timeline Dashboard read unavailable");
             StatusCode::SERVICE_UNAVAILABLE.into_response()
         }
     }

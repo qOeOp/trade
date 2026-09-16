@@ -25,7 +25,7 @@ import {
 import styles from "./dashboard-overview.module.css";
 
 function displayValue(value: number | null, pending: boolean) {
-  return pending ? "—" : value ?? "Unavailable";
+  return pending ? "-" : value ?? "Unavailable";
 }
 
 function OverviewStatusItem({ label, value, tone, href, actionLabel }: {

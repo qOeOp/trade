@@ -3147,23 +3147,23 @@ impl ResearchQuestionDirectoryOwnerPortV1 for PostgresResearchReadbackOwnerV1 {
             .pool
             .begin()
             .await
-            .map_err(|error| DashboardReadErrorV1::Unavailable(error.to_string()))?;
+            .map_err(|e| DashboardReadErrorV1::Unavailable(e.to_string()))?;
         let observed_at_epoch_ms = u64::try_from(
             sqlx::query_scalar::<_, i64>(
                 "SELECT floor(extract(epoch FROM statement_timestamp()) * 1000)::bigint",
             )
             .fetch_one(&mut *transaction)
             .await
-            .map_err(|error| DashboardReadErrorV1::Unavailable(error.to_string()))?,
+            .map_err(|e| DashboardReadErrorV1::Unavailable(e.to_string()))?,
         )
-        .map_err(|error| DashboardReadErrorV1::Unavailable(error.to_string()))?;
+        .map_err(|e| DashboardReadErrorV1::Unavailable(e.to_string()))?;
         let total = u64::try_from(
             sqlx::query_scalar::<_, i64>("SELECT count(*) FROM rd_research_request_receipts_v1")
                 .fetch_one(&mut *transaction)
                 .await
-                .map_err(|error| DashboardReadErrorV1::Unavailable(error.to_string()))?,
+                .map_err(|e| DashboardReadErrorV1::Unavailable(e.to_string()))?,
         )
-        .map_err(|error| DashboardReadErrorV1::Unavailable(error.to_string()))?;
+        .map_err(|e| DashboardReadErrorV1::Unavailable(e.to_string()))?;
         if total > MAX_QUESTIONS as u64 {
             return Err(DashboardReadErrorV1::Unavailable(
                 "Research question directory exceeds bounded read cut".into(),
@@ -3175,26 +3175,26 @@ impl ResearchQuestionDirectoryOwnerPortV1 for PostgresResearchReadbackOwnerV1 {
         .bind(MAX_QUESTIONS)
         .fetch_all(&mut *transaction)
         .await
-        .map_err(|error| DashboardReadErrorV1::Unavailable(error.to_string()))?;
+        .map_err(|e| DashboardReadErrorV1::Unavailable(e.to_string()))?;
         let mut items = Vec::with_capacity(rows.len());
         for row in rows {
             let request_identity: String = row
                 .try_get("request_identity")
-                .map_err(|error| DashboardReadErrorV1::Unavailable(error.to_string()))?;
+                .map_err(|e| DashboardReadErrorV1::Unavailable(e.to_string()))?;
             let semantic_digest: String = row
                 .try_get("semantic_digest")
-                .map_err(|error| DashboardReadErrorV1::Unavailable(error.to_string()))?;
+                .map_err(|e| DashboardReadErrorV1::Unavailable(e.to_string()))?;
             let committed_at_epoch_ms = u64::try_from(
                 row.try_get::<i64, _>("committed_at_epoch_ms")
-                    .map_err(|error| DashboardReadErrorV1::Unavailable(error.to_string()))?,
+                    .map_err(|e| DashboardReadErrorV1::Unavailable(e.to_string()))?,
             )
-            .map_err(|error| DashboardReadErrorV1::Unavailable(error.to_string()))?;
+            .map_err(|e| DashboardReadErrorV1::Unavailable(e.to_string()))?;
             let custody = Box::pin(admit_research_custody_in_transaction(
                 &mut transaction,
                 ResearchCustodyLookupV1::RequestAny(&request_identity),
             ))
             .await
-            .map_err(|error| DashboardReadErrorV1::Unavailable(error.to_string()))?;
+            .map_err(|e| DashboardReadErrorV1::Unavailable(e.to_string()))?;
             let question = if let Some(custody) = custody {
                 if custody.receipt().semantic_digest != semantic_digest
                     || custody.receipt().committed_at_epoch_ms != committed_at_epoch_ms
@@ -3231,7 +3231,7 @@ impl ResearchQuestionDirectoryOwnerPortV1 for PostgresResearchReadbackOwnerV1 {
         transaction
             .commit()
             .await
-            .map_err(|error| DashboardReadErrorV1::Unavailable(error.to_string()))?;
+            .map_err(|e| DashboardReadErrorV1::Unavailable(e.to_string()))?;
         Ok(ResearchQuestionDirectoryReadbackV1 {
             schema_version: 1,
             operation: "rd.research_question_directory.read.v1",

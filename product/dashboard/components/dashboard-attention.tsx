@@ -281,13 +281,13 @@ export function DashboardAttention() {
       <PageStack gap="compact">
         <CompactStatusBar aria-label="Attention summary" aria-busy={pending}>
           <CompactStatusGroup label="needs attention">
-            <CompactStatusItem label="research" value={researchPending ? "—" : projection.researchCount ?? "—"}
+            <CompactStatusItem label="research" value={researchPending ? "-" : projection.researchCount ?? "-"}
               tone={projection.researchCount ? "warning" : "neutral"} />
-            <CompactStatusItem label="builds" value={buildsPending ? "—" : projection.buildCount ?? "—"}
+            <CompactStatusItem label="builds" value={buildsPending ? "-" : projection.buildCount ?? "-"}
               tone={projection.buildCount ? "warning" : "neutral"} />
-            <CompactStatusItem label="runs" value={runsPending ? "—" : projection.runCount ?? "—"}
+            <CompactStatusItem label="runs" value={runsPending ? "-" : projection.runCount ?? "-"}
               tone={projection.runCount ? "danger" : "neutral"} />
-            <CompactStatusItem label="total" value={pending ? "—" : projection.totalCount ?? "—"} />
+            <CompactStatusItem label="total" value={pending ? "-" : projection.totalCount ?? "-"} />
           </CompactStatusGroup>
         </CompactStatusBar>
         <DataTableSurface className={[styles.tableSurface, styles.pageScrollSurface].join(" ")}

@@ -696,6 +696,7 @@ pub(crate) async fn load_trial_family_by_family_in_transaction(
         &payload.research_receipt_identity,
     )
     .await?;
+
     if family.root().trial_family_identity() != trial_family_identity {
         return Err(TrialFamilyError::Unavailable(
             "TrialFamily locator resolved a different family".to_string(),

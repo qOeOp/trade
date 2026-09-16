@@ -202,10 +202,10 @@ export function DashboardEvidence() {
       <PageStack gap="compact">
         <CompactStatusBar aria-label="Dashboard data coverage" aria-busy={pending}>
           <CompactStatusGroup label="data coverage">
-            <CompactStatusItem label="connected" value={pending ? "—" : projection.readyCount} tone="success" />
-            <CompactStatusItem label="limited" value={pending ? "—" : projection.limitedCount}
+            <CompactStatusItem label="connected" value={pending ? "-" : projection.readyCount} tone="success" />
+            <CompactStatusItem label="limited" value={pending ? "-" : projection.limitedCount}
               tone={projection.limitedCount ? "warning" : "neutral"} />
-            <CompactStatusItem label="unavailable" value={pending ? "—" : projection.unavailableCount}
+            <CompactStatusItem label="unavailable" value={pending ? "-" : projection.unavailableCount}
               tone={projection.unavailableCount ? "danger" : "neutral"} />
           </CompactStatusGroup>
         </CompactStatusBar>

@@ -31,15 +31,15 @@ export function RdCustodyReviewSummary({
     return (
       <CompactStatusBar aria-label="R&D work cycle" aria-busy="true">
         <CompactStatusGroup label="research">
-          <CompactStatusItem label={scope === "research" ? "results ready" : "requests"} value="—" />
-          {scope === "research" ? <CompactStatusItem label="waiting" value="—" /> : null}
+          <CompactStatusItem label={scope === "research" ? "results ready" : "requests"} value="-" />
+          {scope === "research" ? <CompactStatusItem label="waiting" value="-" /> : null}
         </CompactStatusGroup>
         <CompactStatusGroup label="build">
-          {scope === "artifacts" ? <CompactStatusItem label="reviewable" value="—" /> : null}
-          <CompactStatusItem label="attempts" value="—" />
+          {scope === "artifacts" ? <CompactStatusItem label="reviewable" value="-" /> : null}
+          <CompactStatusItem label="attempts" value="-" />
         </CompactStatusGroup>
         <CompactStatusGroup label="families">
-          <CompactStatusItem label="bindings" value="—" />
+          <CompactStatusItem label="bindings" value="-" />
         </CompactStatusGroup>
       </CompactStatusBar>
     );

@@ -229,11 +229,11 @@ export function RecentOwnerOutcomes() {
       <PageStack gap="compact">
         <CompactStatusBar aria-label="Recent outcome summary" aria-busy={pending}>
           <CompactStatusGroup label="recent outcomes">
-            <CompactStatusItem label="research" value={researchPending ? "—" : projection.researchCount ?? "—"}
+            <CompactStatusItem label="research" value={researchPending ? "-" : projection.researchCount ?? "-"}
               tone={projection.researchCount ? "success" : "neutral"} />
-            <CompactStatusItem label="builds" value={buildsPending ? "—" : projection.buildCount ?? "—"}
+            <CompactStatusItem label="builds" value={buildsPending ? "-" : projection.buildCount ?? "-"}
               tone={projection.buildCount ? "warning" : "neutral"} />
-            <CompactStatusItem label="total" value={pending ? "—" : projection.totalCount ?? "—"} />
+            <CompactStatusItem label="total" value={pending ? "-" : projection.totalCount ?? "-"} />
           </CompactStatusGroup>
         </CompactStatusBar>
         <DataTableSurface className={[styles.tableSurface, styles.pageScrollSurface].join(" ")}
