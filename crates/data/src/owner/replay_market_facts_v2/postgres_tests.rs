@@ -2075,7 +2075,10 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         )
         .await
         .expect("rd_owner resolves the Design's one admitted PIT coordinate");
-    assert_eq!(coordinate.pit_request_identity, first_role.pit_request_identity);
+    assert_eq!(
+        coordinate.pit_request_identity,
+        first_role.pit_request_identity
+    );
     assert_eq!(coordinate.decision_cut, first_role.decision_cut);
     let mut stored_roles = coordinate.input_role_identities.clone();
     let mut declared_roles = base

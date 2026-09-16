@@ -26,14 +26,14 @@ use vibe_data::owner::pit_snapshot::sealed_acceptance::{
 };
 use vibe_data::owner::source_binding::BindingDigest;
 use vibe_data::owner::strategy_input_binding::UntrustedStrategyInputCustodyClaimV1;
-use vibe_data::owner::{
-    reread_persisted_strategy_input_custody_for_update_v1,
-    resolve_pit_request_for_strategy_design_v1,
-};
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use vibe_data::owner::strategy_input_binding::{
     MarketDataFieldSemantic, StrategyInputChannel, StrategyInputUnit,
     UntrustedStrategyInputBindingRequest, UntrustedStrategyInputScope,
+};
+use vibe_data::owner::{
+    reread_persisted_strategy_input_custody_for_update_v1,
+    resolve_pit_request_for_strategy_design_v1,
 };
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use vibe_indicators_kernel::PrimitiveCatalogV1;
@@ -46,7 +46,6 @@ use crate::develop_composer_operation_v2::{
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::develop_composer_postgres_v2::PostgresDevelopComposerReadStoreV2;
 use crate::develop_composer_postgres_v2::PreparedPostgresDevelopComposerRunV2;
-use crate::develop_plugin_build_v2::DevelopPluginBuildProducerV2;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::develop_composer_postgres_v2::{
     DevelopComposerAcceptanceWriteBoundaryV2, DevelopComposerSealedReadErrorV2,
@@ -55,6 +54,7 @@ use crate::develop_composer_postgres_v2::{
     read_accepted_for_replay_in_transaction, read_accepted_in_transaction,
     read_accepted_in_transaction_with_v3_restart,
 };
+use crate::develop_plugin_build_v2::DevelopPluginBuildProducerV2;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::product_edge::{
     ResearchComposerArtifactViewV3, ResearchExplorationViewV1, ResearchViewV1,
@@ -1169,10 +1169,9 @@ impl PostgresSourceResearchComposerBindingOwnerV2 {
         design_identity: BindingDigest,
         declared_roles: Option<Vec<BindingDigest>>,
     ) -> Result<VerifiedStrategyInputBindingsV2, DevelopComposerTerminalV2> {
-        let coordinate =
-            resolve_pit_request_for_strategy_design_v1(transaction, design_identity)
-                .await
-                .map_err(|_| production_market_data_unavailable())?;
+        let coordinate = resolve_pit_request_for_strategy_design_v1(transaction, design_identity)
+            .await
+            .map_err(|_| production_market_data_unavailable())?;
 
         // On the run path R&D holds the Design and must state its own complete role set; the
         // Owner's stored roles may only agree with it. The recovery path has no Design, so there
@@ -1202,6 +1201,7 @@ impl PostgresSourceResearchComposerBindingOwnerV2 {
         let readback = reread_persisted_strategy_input_custody_for_update_v1(transaction, &claim)
             .await
             .map_err(|_| production_market_data_unavailable())?;
+
         if readback.research_request_identity() != research_request_identity
             || readback.strategy_design_identity() != design_identity
         {
@@ -1748,7 +1748,12 @@ where
             }
             _ => {
                 self.store
-                    .commit_prepared_run_in_transaction(transaction, request, prepared, final_locked)
+                    .commit_prepared_run_in_transaction(
+                        transaction,
+                        request,
+                        prepared,
+                        final_locked,
+                    )
                     .await
             }
         }
@@ -2481,10 +2486,10 @@ impl PostgresSourceResearchComposerProductionV2 {
         &self,
         research_request_locator: &str,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
-        Box::pin(
-            self.inner
-                .run(&mut DevelopPluginBuildProducerV2::default(), research_request_locator),
-        )
+        Box::pin(self.inner.run(
+            &mut DevelopPluginBuildProducerV2::default(),
+            research_request_locator,
+        ))
         .await
     }
 

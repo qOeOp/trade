@@ -391,7 +391,11 @@ pub async fn resolve_pit_request_for_strategy_design_v1(
             BindingDigest::from_untrusted_bytes(bytes),
             request.decision_cut,
         );
-        match resolved.as_ref().map(|c| (c.pit_request_identity, c.decision_cut)) {
+
+        match resolved
+            .as_ref()
+            .map(|c| (c.pit_request_identity, c.decision_cut))
+        {
             None => {
                 resolved = Some(StrategyDesignPitCoordinateV1 {
                     pit_request_identity: candidate.0,
