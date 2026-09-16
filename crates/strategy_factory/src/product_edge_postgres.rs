@@ -604,12 +604,6 @@ const RD_CORE_TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
         columns: &[
             crate::schema_materialization::required("request_identity", "text"),
             crate::schema_materialization::required("request_digest", "text"),
-            crate::schema_materialization::defaulted(
-                "source_kind",
-                "text",
-                "'LEGACY_ARTIFACT_BUILD_V1'::text",
-            ),
-            crate::schema_materialization::optional("composer_source_json", "jsonb"),
             crate::schema_materialization::optional("build_request_identity", "text"),
             crate::schema_materialization::optional("attempt_identity", "text"),
             crate::schema_materialization::required("intent_identity", "text"),
@@ -627,6 +621,15 @@ const RD_CORE_TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
             crate::schema_materialization::optional("v2_meaning_digest", "text"),
             crate::schema_materialization::optional("v2_seal_digest", "text"),
             crate::schema_materialization::optional("v2_receipt_json", "jsonb"),
+            // `source_kind` and `composer_source_json` are appended by migration, so they follow
+            // every column the original relation was created with. The manifest is compared in
+            // physical `attnum` order, so listing them earlier fails the whole relation.
+            crate::schema_materialization::defaulted(
+                "source_kind",
+                "text",
+                "'LEGACY_ARTIFACT_BUILD_V1'::text",
+            ),
+            crate::schema_materialization::optional("composer_source_json", "jsonb"),
             crate::schema_materialization::optional("v2_request_storage_digest", "text"),
             crate::schema_materialization::optional("v2_receipt_storage_bytes", "bytea"),
             crate::schema_materialization::optional("v2_receipt_storage_digest", "text"),
