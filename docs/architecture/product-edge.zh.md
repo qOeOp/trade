@@ -340,7 +340,8 @@ Qualification 细节。
 ## Agent Shell 部署绑定
 
 Product Edge 为每个部署拥有一个非业务 Agent Shell Deployment Binding。目标 binding 指向规范
-`WINDMILL_PRODUCT_EDGE` 准入网关；Windmill App 与 MCP 调用是同一网关后的 channel，不是竞争 Shell
+`TRADE_PRODUCT_EDGE` 准入网关；在该名字存在之前封存的每条准入仍带着
+`WINDMILL_PRODUCT_EDGE`。App 与 MCP 调用是同一网关后的 channel，不是竞争 Shell
 writer。binding 记录选择 generation、有效 principal、scope policy 版本、已批准 Skill/MCP 能力集版本、
 审计政策版本和 cutover epoch。不同 channel 可以使用不同凭证，但有效 principal 与政策必须完全相同；
 切换外部对话客户端或 transport 只改变归因，不改变权限。

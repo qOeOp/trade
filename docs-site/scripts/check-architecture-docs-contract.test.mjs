@@ -373,7 +373,7 @@ test('one Windmill Product Edge gateway has permission-equivalent replay-safe Ow
   assert.ok(binding.identityBinds.includes('authoritative-deployment-history-head-before'));
   assert.ok(binding.identityBinds.includes('authoritative-deployment-history-head-after'));
   assert.ok(binding.identityBinds.includes('predecessor-binding-identity-or-genesis-only-when-history-empty'));
-  assert.match(binding.invariants.join('\n'), /At most one ACTIVE binding selects the canonical WINDMILL_PRODUCT_EDGE admission gateway/);
+  assert.match(binding.invariants.join('\n'), /At most one ACTIVE binding selects the canonical TRADE_PRODUCT_EDGE admission gateway/);
   assert.match(binding.invariants.join('\n'), /zero ACTIVE is an allowed fail-closed cutover window/);
   assert.match(binding.invariants.join('\n'), /SUPERSEDED is the predecessor request-origin fence/);
   assert.match(binding.invariants.join('\n'), /genesis only when the authoritative deployment history is empty/);
@@ -413,7 +413,8 @@ test('one Windmill Product Edge gateway has permission-equivalent replay-safe Ow
     const candidate = active[0];
     const identities = new Set(bindings.map((current) => current.bindingId));
     if (identities.size !== bindings.length) return false;
-    return candidate.shell === 'WINDMILL_PRODUCT_EDGE'
+    // One gateway, two spellings: a binding sealed before the rename carries the Windmill name.
+    return ['TRADE_PRODUCT_EDGE', 'WINDMILL_PRODUCT_EDGE'].includes(candidate.shell)
       && candidate.bindingId === historyHead
       && candidate.deploymentId === expectedPolicy.deploymentId
       && Number.isInteger(candidate.generation)
@@ -449,7 +450,7 @@ test('one Windmill Product Edge gateway has permission-equivalent replay-safe Ow
     predecessorBindingId: windmillV1.bindingId,
     historyHeadBefore: windmillV1.bindingId,
     historyHeadAfter: 'binding-windmill-2',
-    shell: 'WINDMILL_PRODUCT_EDGE',
+    shell: 'TRADE_PRODUCT_EDGE',
   };
   assert.equal(admitsMutation([], expectedPolicy, null), false);
   assert.equal(admitsMutation([windmillV1, { ...windmillV2, state: 'ACTIVE' }], expectedPolicy, windmillV2.bindingId), false);

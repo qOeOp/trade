@@ -7,8 +7,9 @@ and known-safe recovery. It shows owner contracts; scenario pages contain the de
 
 A person submits a sourced, falsifiable market idea through Product Edge. The Trade-owned Dashboard and
 optional external conversation clients connected through its Dashboard MCP endpoint invoke the same versioned,
-bounded Owner operations behind one admission gateway, whose channel constant is still spelled
-`WINDMILL_PRODUCT_EDGE` from when Windmill was the surface. Neither UI, MCP transport, nor workflow stores
+bounded Owner operations behind one admission gateway, whose channel constant is `TRADE_PRODUCT_EDGE`. Records
+sealed before that name keep the `WINDMILL_PRODUCT_EDGE` spelling from when Windmill was the surface, and the
+gateway admits both. Neither UI, MCP transport, nor workflow stores
 business truth or trades directly.
 
 ## Value path
