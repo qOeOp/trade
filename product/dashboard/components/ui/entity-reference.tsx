@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 import styles from "./entity-reference.module.css";
+import { preserveRowViewportPosition } from "./preserve-row-viewport-position";
 
 type EntityReferenceDestination =
   | { href?: string; onActivate?: never }
@@ -45,15 +46,8 @@ export function EntityReference({
       onClick={(event) => {
         event.currentTarget.focus();
         const row = disclosure ? event.currentTarget.closest("tr") : null;
-        const before = row?.getBoundingClientRect().top;
+        if (row) preserveRowViewportPosition(row);
         onActivate();
-        if (row && before !== undefined) requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            if (!row.isConnected) return;
-            const delta = row.getBoundingClientRect().top - before;
-            if (delta) window.scrollBy(0, delta);
-          });
-        });
       }}
     >{content}</button>;
   }

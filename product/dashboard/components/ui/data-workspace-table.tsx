@@ -31,6 +31,7 @@ import {
 import { Button } from "./button";
 import { DataWorkspaceEmpty } from "./data-workspace-empty";
 import { InterfaceIcons } from "./iconography";
+import { preserveRowViewportPosition } from "./preserve-row-viewport-position";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./table";
 
 const workspaceTableFeatures = tableFeatures({
@@ -130,17 +131,6 @@ function columnCellStyle<T extends RowData>(column: DataWorkspaceColumn<T>): CSS
 function minimumTableWidth<T extends RowData>(columns: DataWorkspaceColumn<T>[]): string | undefined {
   const widths = columns.map((column) => Number.parseFloat(column.minWidth ?? column.width ?? ""));
   return widths.every(Number.isFinite) ? `${widths.reduce((sum, value) => sum + value, 0)}px` : undefined;
-}
-
-function preserveRowViewportPosition(row: HTMLTableRowElement): void {
-  const before = row.getBoundingClientRect().top;
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      if (!row.isConnected) return;
-      const delta = row.getBoundingClientRect().top - before;
-      if (delta) window.scrollBy(0, delta);
-    });
-  });
 }
 
 export function DataWorkspaceTable<T extends RowData>({
