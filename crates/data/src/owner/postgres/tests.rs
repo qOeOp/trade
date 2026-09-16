@@ -4,6 +4,7 @@ use rstest::rstest;
 use sqlx::{PgPool, Row, postgres::PgPoolOptions};
 
 use super::*;
+use crate::owner::native_replay_scheduling_v2::NativeReplayFrameCensusRefusalV2;
 use crate::owner::{
     bar_schedule::{
         BarScheduleResolverV1, UntrustedBarScheduleLocatorV1, prepare_bar_schedule_commit_v1,
@@ -386,6 +387,24 @@ fn distinct_pit_proposal(
     let mut value = pit_proposal(source);
     value.request.correlation_identity = d(identity_byte);
     value.request.scope_digest = d(identity_byte.wrapping_add(1));
+    refresh_request_claims(&mut value.request);
+    value
+}
+
+/// A second snapshot in the *same* scope, from its own lineage at a later event-effective time.
+///
+/// This is the sibling lineage `docs/owners/market-data.md` says the correction lineage cannot
+/// see: same scope, unrelated root, later in canonical event order. It is a genuinely committed
+/// Owner snapshot, not a copy of the first with its values moved.
+fn same_scope_successor_pit_proposal(
+    source: &SourceBindingCommit,
+    correlation_byte: u8,
+    event_effective: u64,
+) -> UntrustedPitSnapshotProposal {
+    let mut value = pit_proposal(source);
+    value.request.correlation_identity = d(correlation_byte);
+    value.request.time_evidence.event_effective =
+        UntrustedEventEffectiveTime::from_untrusted(event_effective, "market-clock", "epoch-1");
     refresh_request_claims(&mut value.request);
     value
 }
@@ -6658,5 +6677,93 @@ async fn run_postgres_owner_scenario() {
         &admin,
     ))
     .await;
+    // The frame census needs an unadvanced clock, so it takes a freshly materialized schema,
+    // exactly as the Instrument Master oracle above does: drop first, because
+    // `materialize_disposable_owner_schema` creates the schema unconditionally.
+    sqlx::query("DROP SCHEMA market_data_private CASCADE")
+        .execute(&admin)
+        .await
+        .unwrap();
+    materialize_disposable_owner_schema(&admin).await;
+    let census_owner = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
+    Box::pin(native_replay_successor_frame_oracle(&census_owner)).await;
     admin.close().await;
+}
+
+
+/// The successor frame comes out of Owner custody, or the profile is unavailable.
+///
+/// `docs/owners/market-data.md` admits "no caller-supplied second PIT locator", so this commits
+/// two genuinely distinct snapshots in one scope — the second from its own lineage, later in
+/// canonical event order, never a copy of the first — and asks the Owner which frame succeeds the
+/// one the sealed request already fixes.
+async fn native_replay_successor_frame_oracle(owner: &MarketDataOwnerPostgres) {
+    let source = owner
+        .commit_source_initial(
+            source_proposal(10, 40),
+            OwnerSourceBindingDecision {
+                blockers: BTreeSet::new(),
+            },
+            &clock(40, 1),
+        )
+        .await
+        .expect("source binding for the frame census");
+    let scope = d(21);
+
+    let first = pit_proposal(&source);
+    let first_basis = basis(&first);
+    let first = owner
+        .commit_pit_initial(first, &first_basis, &clock(40, 1))
+        .await
+        .expect("first frame");
+    let successor = same_scope_successor_pit_proposal(&source, 60, 30);
+    let successor_basis = basis(&successor);
+    let successor = owner
+        .commit_pit_initial(successor, &successor_basis, &clock(40, 1))
+        .await
+        .expect("successor frame");
+
+    let first_identity = first.fact().snapshot_identity();
+    let successor_identity = successor.fact().snapshot_identity();
+    assert_ne!(first_identity, successor_identity);
+
+    // The Owner names the successor; nothing offered it.
+    assert_eq!(
+        owner
+            .resolve_native_replay_successor_frame_v2(scope, first_identity, 100, 0, 100)
+            .await,
+        Ok(successor_identity)
+    );
+
+    // A window that excludes the successor yields no two-frame profile.
+    assert_eq!(
+        owner
+            .resolve_native_replay_successor_frame_v2(scope, first_identity, 100, 0, 30)
+            .await,
+        Err(NativeReplayFrameCensusRefusalV2::EligibleFrameCountIsNotTwo)
+    );
+
+    // The census decides which frame is first; naming the successor is not agreement.
+    assert_eq!(
+        owner
+            .resolve_native_replay_successor_frame_v2(scope, successor_identity, 100, 0, 100)
+            .await,
+        Err(NativeReplayFrameCensusRefusalV2::FirstFrameIsNotTheSealedRequestFrame)
+    );
+
+    // Observation after the sealed decision cut is inadmissible however eligible it looks.
+    assert_eq!(
+        owner
+            .resolve_native_replay_successor_frame_v2(scope, first_identity, 39, 0, 100)
+            .await,
+        Err(NativeReplayFrameCensusRefusalV2::ObservationAfterDecisionCut)
+    );
+
+    // Another scope's census says nothing about this one.
+    assert_eq!(
+        owner
+            .resolve_native_replay_successor_frame_v2(d(99), first_identity, 100, 0, 100)
+            .await,
+        Err(NativeReplayFrameCensusRefusalV2::EligibleFrameCountIsNotTwo)
+    );
 }
