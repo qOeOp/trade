@@ -210,6 +210,7 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_observation_rows_v1 (snapshot_identity BYTEA NOT NULL REFERENCES market_data_private.pit_observation_batches_v1(snapshot_identity), ordinal BIGINT NOT NULL CHECK (ordinal > 0), symbolic_key TEXT NOT NULL CHECK (symbolic_key <> ''), member_key TEXT NOT NULL CHECK (member_key <> ''), row_bytes BYTEA NOT NULL CHECK (octet_length(row_bytes) > 0), PRIMARY KEY(snapshot_identity,ordinal), UNIQUE(snapshot_identity,symbolic_key,member_key))",
     "CREATE TABLE IF NOT EXISTS market_data_private.source_binding_lineage_census_v1 (lineage_root BYTEA PRIMARY KEY CHECK (octet_length(lineage_root) = 32))",
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_snapshot_lineage_census_v1 (lineage_root BYTEA PRIMARY KEY CHECK (octet_length(lineage_root) = 32))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.native_replay_frame_census_v2 (scope_digest BYTEA NOT NULL CHECK (octet_length(scope_digest) = 32), frame_ordinal BIGINT NOT NULL CHECK (frame_ordinal > 0), snapshot_identity BYTEA NOT NULL UNIQUE REFERENCES market_data_private.pit_snapshot_facts_v1(snapshot_identity) ON DELETE RESTRICT, PRIMARY KEY (scope_digest, frame_ordinal))",
     "CREATE TABLE IF NOT EXISTS market_data_private.owner_history_census_state_v1 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), source_lineage_count BIGINT NOT NULL CHECK (source_lineage_count >= 0), pit_lineage_count BIGINT NOT NULL CHECK (pit_lineage_count >= 0))",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_source_binding_v1(p_binding_id BYTEA) RETURNS TABLE(row_identity BYTEA, fact_digest BYTEA, request_identity BYTEA, request_digest BYTEA, correction_stream_identity TEXT, correction_sequence BIGINT, fact_lineage_root BYTEA, fact_lineage_version BIGINT, aggregate_json JSONB, outbox_event_identity BYTEA, outbox_aggregate_identity BYTEA, outbox_payload BYTEA, outbox_digest BYTEA, head_lineage_root BYTEA, head_identity BYTEA, head_digest BYTEA, head_version BIGINT, clock_identity TEXT, clock_epoch TEXT, monotonic_sequence BIGINT, wall_observed BIGINT, decision_cut BIGINT, valid_through BIGINT, restart_continuity_digest BYTEA, uncertainty_bound BIGINT, skew_bound BIGINT, comparison_rule SMALLINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT f.binding_id, f.fact_digest, NULL::BYTEA, NULL::BYTEA, NULL::TEXT, NULL::BIGINT, f.lineage_root, f.lineage_version, f.aggregate_json, o.event_identity, o.aggregate_identity, o.payload, o.payload_digest, h.lineage_root, h.binding_id, h.fact_digest, h.lineage_version, NULL::TEXT, NULL::TEXT, NULL::BIGINT, NULL::BIGINT, NULL::BIGINT, NULL::BIGINT, NULL::BYTEA, NULL::BIGINT, NULL::BIGINT, NULL::SMALLINT FROM market_data_private.source_binding_facts_v1 AS f JOIN market_data_private.source_binding_outbox_v1 AS o ON o.aggregate_identity = f.binding_id JOIN market_data_private.source_binding_heads_v1 AS h ON h.lineage_root = f.lineage_root WHERE f.binding_id = p_binding_id $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_pit_snapshot_v1(p_snapshot_identity BYTEA) RETURNS TABLE(row_identity BYTEA, fact_digest BYTEA, request_identity BYTEA, request_digest BYTEA, correction_stream_identity TEXT, correction_sequence BIGINT, fact_lineage_root BYTEA, fact_lineage_version BIGINT, aggregate_json JSONB, outbox_event_identity BYTEA, outbox_aggregate_identity BYTEA, outbox_payload BYTEA, outbox_digest BYTEA, head_lineage_root BYTEA, head_identity BYTEA, head_digest BYTEA, head_version BIGINT, clock_identity TEXT, clock_epoch TEXT, monotonic_sequence BIGINT, wall_observed BIGINT, decision_cut BIGINT, valid_through BIGINT, restart_continuity_digest BYTEA, uncertainty_bound BIGINT, skew_bound BIGINT, comparison_rule SMALLINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT f.snapshot_identity, f.fact_digest, f.request_identity, f.request_digest, f.correction_stream_identity, f.correction_sequence, f.lineage_root, f.lineage_version, f.aggregate_json, o.event_identity, o.aggregate_identity, o.payload, o.payload_digest, h.lineage_root, h.snapshot_identity, h.fact_digest, h.lineage_version, NULL::TEXT, NULL::TEXT, NULL::BIGINT, NULL::BIGINT, NULL::BIGINT, NULL::BIGINT, NULL::BYTEA, NULL::BIGINT, NULL::BIGINT, NULL::SMALLINT FROM market_data_private.pit_snapshot_facts_v1 AS f JOIN market_data_private.pit_snapshot_outbox_v1 AS o ON o.aggregate_identity = f.snapshot_identity JOIN market_data_private.pit_snapshot_heads_v1 AS h ON h.lineage_root = f.lineage_root WHERE f.snapshot_identity = p_snapshot_identity $function$",
@@ -5236,6 +5237,32 @@ async fn validate_pit_lineage_shape(
     Ok(())
 }
 
+/// Assigns this snapshot the next dense frame ordinal within its scope.
+///
+/// The ordinal is commit order, not event order. Market Data persists no canonical time column on
+/// a snapshot fact, so nothing can order frames across lineages after the fact; the k-th frame
+/// committed for a scope is the only total order the Owner can assert. Strictly increasing
+/// canonical event order is a separate admission rule, checked when a two-frame profile is
+/// resolved, so a census that is dense but out of event order refuses rather than admits.
+///
+/// Density is what proves "no skipped eligible frame": the existing correction lineage orders
+/// revisions of one request and cannot see a sibling lineage's frame in the same window.
+async fn admit_native_replay_frame_census(
+    transaction: &mut Transaction<'_, Postgres>,
+    scope_digest: BindingDigest,
+    snapshot_identity: BindingDigest,
+) -> Result<(), PitSnapshotError> {
+    sqlx::query(
+        "INSERT INTO market_data_private.native_replay_frame_census_v2(scope_digest,frame_ordinal,snapshot_identity) SELECT $1, COALESCE(MAX(frame_ordinal),0)+1, $2 FROM market_data_private.native_replay_frame_census_v2 WHERE scope_digest=$1 ON CONFLICT (snapshot_identity) DO NOTHING",
+    )
+    .bind(scope_digest.as_bytes().as_slice())
+    .bind(snapshot_identity.as_bytes().as_slice())
+    .execute(&mut **transaction)
+    .await
+    .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    Ok(())
+}
+
 async fn admit_pit_lineage_census(
     transaction: &mut Transaction<'_, Postgres>,
     lineage_root: BindingDigest,
@@ -5288,6 +5315,12 @@ async fn insert_pit(
     .execute(&mut **transaction)
     .await
     .map_err(|e| map_pit_insert_error(&e))?;
+    admit_native_replay_frame_census(
+        transaction,
+        fact.request().scope_digest,
+        fact.snapshot_identity(),
+    )
+    .await?;
     if fault == PostgresCommitFault::AfterFactBeforeOutbox {
         return Err(PitSnapshotError::CommitInterrupted);
     }
