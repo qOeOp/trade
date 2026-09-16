@@ -326,6 +326,108 @@ fn exact_rows<'a, const N: usize>(
         .map_err(|_| NativeReplaySchedulingErrorV1::FieldCensusMismatch)
 }
 
+/// One eligible frame offered to the two-frame census for a sealed request window.
+///
+/// `frame_ordinal` is the scope-dense position Market Data assigns when it commits the frame's
+/// PIT cut. Density is what proves "no skipped eligible frame": the existing correction lineage
+/// orders revisions of one request and cannot see a sibling lineage's frame in the same window,
+/// which is why `docs/owners/market-data.md` calls for a census rather than reusing it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeReplayFrameCensusCandidateV2 {
+    pub frame_ordinal: u64,
+    pub snapshot_identity: BindingDigest,
+    /// Everything both frames must hold in common: the canonical two-member universe, the
+    /// Design/role set, the Instrument Master cut, the timeframe, and the venue/account scope.
+    pub scope_digest: BindingDigest,
+    /// Identifies which correction branch produced this frame at its ordinal.
+    pub correction_branch_digest: BindingDigest,
+    pub frame_time_ns: u64,
+    /// When Market Data observed the frame. Observation after the request's decision cut is
+    /// inadmissible however eligible the frame otherwise looks.
+    pub observed_decision_cut_ns: u64,
+    pub first_bar_event_ns: u64,
+    pub last_liquidity_event_ns: u64,
+}
+
+/// Why a candidate set cannot become a two-frame profile.
+///
+/// Every variant is a refusal to issue, never a truncation: the bounded V2 profile is unavailable
+/// rather than silently narrowed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeReplayFrameCensusRefusalV2 {
+    ObservationAfterDecisionCut,
+    EligibleFrameCountIsNotTwo,
+    DuplicateFrameIdentity,
+    AmbiguousCorrectionBranch,
+    SkippedEligibleFrame,
+    NonIncreasingEventOrder,
+    ScopeMismatch,
+    LiquidityDoesNotPrecedeSuccessorBar,
+}
+
+/// Admits the bounded two-frame profile, or refuses with the exact reason.
+///
+/// The caller supplies no frame list of its own: this reads a census Market Data resolved for the
+/// sealed request window and decision cut. A third eligible frame makes the profile unavailable
+/// rather than truncating it to the first two.
+///
+/// # Errors
+///
+/// Returns the exact [`NativeReplayFrameCensusRefusalV2`] for the first violated admission rule.
+pub fn admit_two_frame_census_v2(
+    request_decision_cut_ns: u64,
+    window_start_ns: u64,
+    window_end_ns_exclusive: u64,
+    census: &[NativeReplayFrameCensusCandidateV2],
+) -> Result<[&NativeReplayFrameCensusCandidateV2; 2], NativeReplayFrameCensusRefusalV2> {
+    if census
+        .iter()
+        .any(|frame| frame.observed_decision_cut_ns > request_decision_cut_ns)
+    {
+        return Err(NativeReplayFrameCensusRefusalV2::ObservationAfterDecisionCut);
+    }
+
+    let mut eligible: Vec<&NativeReplayFrameCensusCandidateV2> = census
+        .iter()
+        .filter(|frame| {
+            frame.frame_time_ns >= window_start_ns
+                && frame.frame_time_ns < window_end_ns_exclusive
+        })
+        .collect();
+    eligible.sort_by_key(|frame| frame.frame_ordinal);
+
+    // Two frames at one ordinal are competing correction branches; the census cannot choose.
+    if eligible.windows(2).any(|pair| {
+        pair[0].frame_ordinal == pair[1].frame_ordinal
+            && pair[0].correction_branch_digest != pair[1].correction_branch_digest
+    }) {
+        return Err(NativeReplayFrameCensusRefusalV2::AmbiguousCorrectionBranch);
+    }
+
+    let [first, second] = match eligible.as_slice() {
+        [first, second] => [*first, *second],
+        _ => return Err(NativeReplayFrameCensusRefusalV2::EligibleFrameCountIsNotTwo),
+    };
+
+    if first.snapshot_identity == second.snapshot_identity {
+        return Err(NativeReplayFrameCensusRefusalV2::DuplicateFrameIdentity);
+    }
+    if second.frame_ordinal != first.frame_ordinal + 1 {
+        return Err(NativeReplayFrameCensusRefusalV2::SkippedEligibleFrame);
+    }
+    if second.frame_time_ns <= first.frame_time_ns {
+        return Err(NativeReplayFrameCensusRefusalV2::NonIncreasingEventOrder);
+    }
+    if first.scope_digest != second.scope_digest {
+        return Err(NativeReplayFrameCensusRefusalV2::ScopeMismatch);
+    }
+    if first.last_liquidity_event_ns >= second.first_bar_event_ns {
+        return Err(NativeReplayFrameCensusRefusalV2::LiquidityDoesNotPrecedeSuccessorBar);
+    }
+
+    Ok([first, second])
+}
+
 /// Domain separator for the per-frame Quote liquidity EVENT receipt.
 const QUOTE_LIQUIDITY_RECEIPT_DOMAIN_V2: &[u8] =
     b"market-data.native-replay-quote-liquidity-receipt.v2\0";
@@ -521,5 +623,160 @@ mod quote_liquidity_receipt_tests {
         ] {
             assert_ne!(base.receipt_digest(), moved.receipt_digest());
         }
+    }
+}
+
+#[cfg(test)]
+mod frame_census_tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    const CUT: u64 = 10_000;
+    const WINDOW_START: u64 = 1_000;
+    const WINDOW_END: u64 = 2_000;
+
+    fn digest(seed: u8) -> BindingDigest {
+        BindingDigest::from_untrusted_bytes([seed; 32])
+    }
+
+    fn frame(ordinal: u64, seed: u8, frame_time_ns: u64) -> NativeReplayFrameCensusCandidateV2 {
+        NativeReplayFrameCensusCandidateV2 {
+            frame_ordinal: ordinal,
+            snapshot_identity: digest(seed),
+            scope_digest: digest(0x01),
+            correction_branch_digest: digest(0x02),
+            frame_time_ns,
+            observed_decision_cut_ns: CUT - 1,
+            first_bar_event_ns: frame_time_ns,
+            last_liquidity_event_ns: frame_time_ns + 10,
+        }
+    }
+
+    fn admit(
+        census: &[NativeReplayFrameCensusCandidateV2],
+    ) -> Result<[&NativeReplayFrameCensusCandidateV2; 2], NativeReplayFrameCensusRefusalV2> {
+        admit_two_frame_census_v2(CUT, WINDOW_START, WINDOW_END, census)
+    }
+
+    fn pair() -> Vec<NativeReplayFrameCensusCandidateV2> {
+        vec![frame(7, 0x20, 1_100), frame(8, 0x30, 1_500)]
+    }
+
+    #[rstest]
+    fn a_dense_in_window_pair_is_admitted_in_event_order() {
+        let census = pair();
+        let [first, second] = admit(&census).expect("bounded two-frame profile");
+
+        assert_eq!(first.frame_ordinal, 7);
+        assert_eq!(second.frame_ordinal, 8);
+        assert!(first.last_liquidity_event_ns < second.first_bar_event_ns);
+    }
+
+    #[rstest]
+    #[case::none(vec![])]
+    #[case::one(vec![frame(7, 0x20, 1_100)])]
+    #[case::three(vec![frame(7, 0x20, 1_100), frame(8, 0x30, 1_400), frame(9, 0x40, 1_700)])]
+    fn only_exactly_two_eligible_frames_admit_the_bounded_profile(
+        #[case] census: Vec<NativeReplayFrameCensusCandidateV2>,
+    ) {
+        assert_eq!(
+            admit(&census),
+            Err(NativeReplayFrameCensusRefusalV2::EligibleFrameCountIsNotTwo)
+        );
+    }
+
+    #[rstest]
+    fn a_gap_in_the_scope_census_is_a_skipped_eligible_frame() {
+        let census = vec![frame(7, 0x20, 1_100), frame(9, 0x30, 1_500)];
+
+        assert_eq!(
+            admit(&census),
+            Err(NativeReplayFrameCensusRefusalV2::SkippedEligibleFrame)
+        );
+    }
+
+    #[rstest]
+    fn two_branches_at_one_ordinal_cannot_be_chosen_between() {
+        let mut competing = frame(7, 0x30, 1_500);
+        competing.correction_branch_digest = digest(0x99);
+        let census = vec![frame(7, 0x20, 1_100), competing];
+
+        assert_eq!(
+            admit(&census),
+            Err(NativeReplayFrameCensusRefusalV2::AmbiguousCorrectionBranch)
+        );
+    }
+
+    #[rstest]
+    fn a_frame_observed_after_the_decision_cut_is_inadmissible() {
+        let mut late = frame(8, 0x30, 1_500);
+        late.observed_decision_cut_ns = CUT + 1;
+        let census = vec![frame(7, 0x20, 1_100), late];
+
+        assert_eq!(
+            admit(&census),
+            Err(NativeReplayFrameCensusRefusalV2::ObservationAfterDecisionCut)
+        );
+    }
+
+    #[rstest]
+    fn frames_outside_the_half_open_window_are_not_eligible() {
+        // The window is half-open, so its exclusive end is outside it.
+        let census = vec![frame(7, 0x20, 1_100), frame(8, 0x30, WINDOW_END)];
+        assert_eq!(
+            admit(&census),
+            Err(NativeReplayFrameCensusRefusalV2::EligibleFrameCountIsNotTwo)
+        );
+
+        // ...while its inclusive start is inside it.
+        let census = vec![frame(7, 0x20, WINDOW_START), frame(8, 0x30, 1_500)];
+        assert!(admit(&census).is_ok());
+    }
+
+    #[rstest]
+    fn the_successor_must_advance_canonical_event_order() {
+        let census = vec![frame(7, 0x20, 1_500), frame(8, 0x30, 1_500)];
+
+        assert_eq!(
+            admit(&census),
+            Err(NativeReplayFrameCensusRefusalV2::NonIncreasingEventOrder)
+        );
+    }
+
+    #[rstest]
+    fn both_frames_must_hold_the_same_scope() {
+        let mut moved = frame(8, 0x30, 1_500);
+        moved.scope_digest = digest(0x77);
+        let census = vec![frame(7, 0x20, 1_100), moved];
+
+        assert_eq!(
+            admit(&census),
+            Err(NativeReplayFrameCensusRefusalV2::ScopeMismatch)
+        );
+    }
+
+    #[rstest]
+    fn first_frame_liquidity_must_precede_the_successor_bar() {
+        let mut first = frame(7, 0x20, 1_100);
+        let second = frame(8, 0x30, 1_500);
+        first.last_liquidity_event_ns = second.first_bar_event_ns;
+
+        assert_eq!(
+            admit(&[first, second]),
+            Err(NativeReplayFrameCensusRefusalV2::LiquidityDoesNotPrecedeSuccessorBar)
+        );
+    }
+
+    #[rstest]
+    fn two_frames_can_never_share_one_snapshot_identity() {
+        let mut duplicate = frame(8, 0x20, 1_500);
+        duplicate.correction_branch_digest = digest(0x02);
+        let census = vec![frame(7, 0x20, 1_100), duplicate];
+
+        assert_eq!(
+            admit(&census),
+            Err(NativeReplayFrameCensusRefusalV2::DuplicateFrameIdentity)
+        );
     }
 }
