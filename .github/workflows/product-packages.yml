@@ -1,22 +1,29 @@
-name: dashboard
+name: product-packages
 
-# The Dashboard package carries its own test suite, and nothing ran it. Two of its bilingual
-# completeness assertions had never matched the documents they read, which is only visible once the
-# suite executes somewhere. It is kept out of `build.yml` so a Dashboard change does not wait on
-# that workflow's hour, and so adding it does not invalidate the Rust cache key.
+# Three product packages carry their own test suites and nothing ran any of them. The Dashboard's
+# 424 tests included two bilingual assertions that had never matched the documents they read, and
+# the R&D Workbench's 255 included a content-addressed lock that had drifted from three of its
+# scripts. Neither is visible until the suites execute somewhere.
+#
+# They are kept out of `build.yml` so a package change does not wait on that workflow's hour, and so
+# adding them does not invalidate the Rust cache key that hashes it.
 on:
   push:
     branches: [main]
     paths:
-      - .github/workflows/dashboard.yml
+      - .github/workflows/product-packages.yml
       - product/dashboard/**
+      - product/rd-workbench/**
+      - product/rd-owner-client/**
       - docs/guide/dashboard.md
       - docs/guide/dashboard.zh.md
   pull_request:
     branches: [main]
     paths:
-      - .github/workflows/dashboard.yml
+      - .github/workflows/product-packages.yml
       - product/dashboard/**
+      - product/rd-workbench/**
+      - product/rd-owner-client/**
       - docs/guide/dashboard.md
       - docs/guide/dashboard.zh.md
   workflow_dispatch:
@@ -25,12 +32,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: dashboard-${{ github.ref }}
+  group: product-packages-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   test:
-    name: Dashboard package tests
+    name: Product package tests
     runs-on: ubuntu-latest
     steps:
       - name: Harden runner
@@ -64,3 +71,13 @@ jobs:
 
       - name: Check Dashboard types
         run: npm run typecheck --prefix product/dashboard
+
+      # These two have no package manifest and no dependencies; they run on the standard library
+      # alone, which is why nothing had to install them and why nothing ran them either.
+      - name: Run R&D Workbench tests
+        working-directory: product/rd-workbench
+        run: node --test $(find . -name '*.test.mjs' -not -path './node_modules/*')
+
+      - name: Run R&D Owner client tests
+        working-directory: product/rd-owner-client
+        run: node --test ./*.test.mjs
