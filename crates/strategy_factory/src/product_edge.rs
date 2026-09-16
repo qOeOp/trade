@@ -9,6 +9,7 @@ use vibe_backtest_owner_contracts::{
 use vibe_backtest_result_custody::{
     ExploratoryReplayResultReceiptReferenceV1, LockedExploratoryReplayResultV2,
 };
+use vibe_data::owner::source_binding::BindingDigest;
 use vibe_product_edge::{ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionReadbackV1};
 
 use crate::iteration_decision::{
@@ -67,6 +68,10 @@ pub struct UnsourcedResearchProposalV1 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ProductEdgeChannel {
+    /// Canonical identity of the one Product Edge admission gateway.
+    TradeProductEdge,
+    /// The same gateway under the name it was sealed with before the rename. A Research Goal
+    /// admitted earlier keeps these bytes, so the variant is read vocabulary, not a second channel.
     WindmillProductEdge,
 }
 
@@ -2120,9 +2125,10 @@ pub(crate) fn canonical_research_view_identity_v4(view: &ResearchViewV1) -> Opti
     Some(format!("rd-research-view-v4-{:x}", Sha256::digest(bytes)))
 }
 
-fn binding_digest_hex(digest: vibe_data::owner::source_binding::BindingDigest) -> String {
+fn binding_digest_hex(digest: BindingDigest) -> String {
     let mut value = String::with_capacity(71);
     value.push_str("sha256:");
+
     for byte in digest.as_bytes() {
         use std::fmt::Write as _;
         write!(&mut value, "{byte:02x}").expect("writing to String");
@@ -2241,6 +2247,7 @@ pub(crate) fn project_composer_exploration_research_view_v3(
     let locator = composer.locator();
     let bound = binding.binding();
     let intent_digest = binding_digest_hex(composer.intent_identity());
+
     if initial.schema_version != 1
         || initial.phase != ResearchViewPhase::IntentFrozen
         || initial.availability != ResearchViewAvailability::Available
@@ -2550,7 +2557,7 @@ mod v2_sealing_tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn composer_replay_view_has_distinct_history_and_rejects_legacy_build_fields() {
         let mut initial = research_view(1_000, 601_000);
         initial.projection_identity = canonical_research_view_identity_v2(&initial);

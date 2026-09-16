@@ -4,8 +4,8 @@ use rstest::rstest;
 use sqlx::{PgPool, Row, postgres::PgPoolOptions};
 
 use super::*;
-use crate::owner::native_replay_scheduling_v2::NativeReplayFrameCensusRefusalV2;
 use super::{NativeReplayFrameSequenceCustodyReadbackV2, NativeReplaySuccessorFrameV2};
+use crate::owner::native_replay_scheduling_v2::NativeReplayFrameCensusRefusalV2;
 use crate::owner::native_replay_scheduling_v2::{
     NativeReplayFrameSequenceCustodyRecordV2, NativeReplayFrameSequenceCustodyRefusalV2,
     NativeReplaySequenceFrameV2, seal_native_replay_frame_sequence_v2,
@@ -6696,12 +6696,11 @@ async fn run_postgres_owner_scenario() {
     admin.close().await;
 }
 
-
 /// The successor frame comes out of Owner custody, or the profile is unavailable.
 ///
 /// `docs/owners/market-data.md` admits "no caller-supplied second PIT locator", so this commits
-/// two genuinely distinct snapshots in one scope — the second from its own lineage, later in
-/// canonical event order, never a copy of the first — and asks the Owner which frame succeeds the
+/// two genuinely distinct snapshots in one scope - the second from its own lineage, later in
+/// canonical event order, never a copy of the first - and asks the Owner which frame succeeds the
 /// one the sealed request already fixes.
 async fn native_replay_successor_frame_oracle(owner: &MarketDataOwnerPostgres) {
     let source = owner
@@ -6849,7 +6848,7 @@ async fn native_replay_frame_sequence_custody_oracle(owner: &MarketDataOwnerPost
         .expect("first commit of the sealed sequence");
     assert_matches_record(&committed, &record);
 
-    // Exact same-meaning retry — the response-loss case — replays stored history, not a re-derivation.
+    // Exact same-meaning retry - the response-loss case - replays stored history, not a re-derivation.
     let replayed = owner
         .commit_native_replay_frame_sequence_v2(&record)
         .await
@@ -6860,9 +6859,7 @@ async fn native_replay_frame_sequence_custody_oracle(owner: &MarketDataOwnerPost
     let changed = sequence_custody_record(request, 200);
     assert_ne!(changed.sequence_identity(), record.sequence_identity());
     assert_eq!(
-        owner
-            .commit_native_replay_frame_sequence_v2(&changed)
-            .await,
+        owner.commit_native_replay_frame_sequence_v2(&changed).await,
         Err(NativeReplayFrameSequenceCustodyRefusalV2::SequenceConflict)
     );
 

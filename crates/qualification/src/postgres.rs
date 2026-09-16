@@ -800,7 +800,7 @@ async fn persist_protected_attempt_public_terminal_v1(
         &request.candidate_identity,
     )
     .await
-    .map_err(|error| error.into_negative_closure(&[]))?;
+    .map_err(|e| e.into_negative_closure(&[]))?;
 
     if let Some(current) = current {
         if current.fact.status() == QualificationPublicStatusV1::ClosedNotQualified {
@@ -840,8 +840,8 @@ async fn persist_protected_attempt_public_terminal_v1(
         None,
     )
     .await
-    .map_err(|error| {
-        error.into_negative_closure(&[
+    .map_err(|e| {
+        e.into_negative_closure(&[
             "qualification_public_status_facts_v1",
             "qualification_public_status_heads_v1",
             "qualification_owner_outbox_v1",
@@ -939,8 +939,8 @@ async fn verify_existing_attempt_public_terminal_source_v1(
     }
     verify_negative_protected_attempt_commit_v1(transaction, &prior)
         .await
-        .map_err(|error| match error {
-            NegativeClosureAttemptError::RetryableContention => error,
+        .map_err(|e| match e {
+            NegativeClosureAttemptError::RetryableContention => e,
             NegativeClosureAttemptError::Public(_) => {
                 QualificationOwnerError::ConflictingIdentity.into()
             }
@@ -2239,7 +2239,7 @@ impl PostgresQualificationOwnerV1 {
             .bind(disposition.holdout_reservation_identity())
             .bind(&disposition_json)
             .bind(i64::try_from(committed_at_epoch_ms).map_err(json_storage)?)
-            .execute(&mut *transaction).await.map_err(|error| negative_closure_sql_error(error, &["qualification_protected_attempt_dispositions_v1"]))?;
+            .execute(&mut *transaction).await.map_err(|e| negative_closure_sql_error(e, &["qualification_protected_attempt_dispositions_v1"]))?;
         sqlx::query("INSERT INTO public.qualification_holdout_closures_v1 (closure_identity,closure_digest,reservation_identity,disposition_identity,closure_disposition,closure_json,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7)")
             .bind(disposition.holdout_closure_identity())
             .bind(disposition.holdout_closure_digest())
@@ -2248,14 +2248,14 @@ impl PostgresQualificationOwnerV1 {
             .bind(closure_status(disposition.closure_disposition()))
             .bind(serde_json::json!({"schema_version":1,"closure_identity":disposition.holdout_closure_identity(),"closure_digest":disposition.holdout_closure_digest(),"reservation_identity":disposition.holdout_reservation_identity(),"disposition_identity":disposition.disposition_identity(),"closure_disposition":closure_status(disposition.closure_disposition())}))
             .bind(i64::try_from(committed_at_epoch_ms).map_err(json_storage)?)
-            .execute(&mut *transaction).await.map_err(|error| negative_closure_sql_error(error, &["qualification_holdout_closures_v1"]))?;
+            .execute(&mut *transaction).await.map_err(|e| negative_closure_sql_error(e, &["qualification_holdout_closures_v1"]))?;
         sqlx::query("INSERT INTO public.qualification_protected_attempt_disposition_receipts_v1 (disposition_identity,receipt_identity,receipt_digest,receipt_json,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5)")
             .bind(disposition.disposition_identity())
             .bind(receipt.receipt_identity())
             .bind(receipt.receipt_digest())
             .bind(&receipt_json)
             .bind(i64::try_from(committed_at_epoch_ms).map_err(json_storage)?)
-            .execute(&mut *transaction).await.map_err(|error| negative_closure_sql_error(error, &["qualification_protected_attempt_disposition_receipts_v1"]))?;
+            .execute(&mut *transaction).await.map_err(|e| negative_closure_sql_error(e, &["qualification_protected_attempt_disposition_receipts_v1"]))?;
         let payload = serde_json::to_value(&commit).map_err(json_storage)?;
         let event_digest = canonical_digest(
             "qualification.protected-attempt-disposition-event.v1",
@@ -2267,7 +2267,7 @@ impl PostgresQualificationOwnerV1 {
             .bind(&event_digest)
             .bind(&payload)
             .bind(i64::try_from(committed_at_epoch_ms).map_err(json_storage)?)
-            .execute(&mut *transaction).await.map_err(|error| negative_closure_sql_error(error, &["qualification_owner_outbox_v1"]))?;
+            .execute(&mut *transaction).await.map_err(|e| negative_closure_sql_error(e, &["qualification_owner_outbox_v1"]))?;
         persist_protected_attempt_public_terminal_v1(
             &mut transaction,
             &request_dto,
@@ -4610,6 +4610,7 @@ async fn admit_projection_row_in_transaction(
     let row_valid_through: i64 = row
         .try_get("valid_through_epoch_ms")
         .map_err(transaction_storage)?;
+
     if row
         .try_get::<String, _>("projection_identity")
         .map_err(transaction_storage)?
@@ -5825,7 +5826,7 @@ mod postgres_tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    #[test]
+    #[rstest]
     fn negative_closure_retry_classification_is_structurally_bounded() {
         assert!(negative_closure_sqlstate_is_retryable(
             Some("40001"),
@@ -5859,7 +5860,7 @@ mod postgres_tests {
         ));
     }
 
-    #[test]
+    #[rstest]
     fn public_terminal_frontier_helper_chain_preserves_sqlstate() {
         let source = include_str!("postgres.rs");
         let public_terminal_persist = source
@@ -5947,7 +5948,7 @@ mod postgres_tests {
         assert!(!basis.contains(".map_err(storage)?"));
     }
 
-    #[test]
+    #[rstest]
     fn prior_attempt_source_read_preserves_append_only_writer_acl() {
         let source = include_str!("postgres.rs");
         let verifier = source
@@ -6980,9 +6981,11 @@ mod postgres_tests {
             .await
             .expect("canonical public history for negative oracle")
             .expect("terminal public head for negative oracle");
+
             if let Some(identity) = native_source_identity {
                 current.native_source_identity = identity.to_string();
             }
+
             if let Some(digest) = native_source_digest {
                 current.native_source_digest = digest.to_string();
             }
@@ -6994,6 +6997,7 @@ mod postgres_tests {
             if let Some(identity) = request_delta {
                 checked_request.request_identity = identity.to_string();
             }
+
             if let Some(identity) = candidate_delta {
                 checked_request.candidate_identity = identity.to_string();
             }

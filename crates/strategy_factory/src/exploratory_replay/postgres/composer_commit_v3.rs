@@ -156,6 +156,7 @@ pub(super) fn verify_research_view_transition_v3(
         stored.new_view.clone(),
         receipt,
     )?;
+
     if stored != &expected
         || stored.old_view.phase != ResearchViewPhase::IntentFrozen
         || stored.new_view.phase != ResearchViewPhase::ExplorationActive
@@ -250,6 +251,7 @@ pub(crate) async fn commit_composer_v3(
         .execute(&mut *transaction)
         .await
         .map_err(storage)?;
+
     if let Some(existing) =
         super::composer_readback_v3::resolve_existing_composer_v3_in_transaction(
             &mut transaction,
@@ -380,6 +382,7 @@ pub(crate) async fn commit_composer_v3(
     )
     .await?
     .ok_or_else(|| unavailable("Composer Replay post-write readback is unavailable"))?;
+
     if sealed.canonical_request_bytes() != prepared.canonical_request_bytes
         || sealed.meaning_digest() != v2_receipt.meaning_digest
         || sealed.receipt.receipt_identity != v2_receipt.receipt_identity
@@ -475,6 +478,7 @@ async fn lock_exact_research_view(
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
+
     if rows.len() != 1 {
         return Err(unavailable("exact Composer Research View is unavailable"));
     }
@@ -520,6 +524,7 @@ async fn update_exact_research_view(
         .execute(&mut **transaction)
         .await
         .map_err(storage)?;
+
     if updated.rows_affected() != 1 {
         return Err(unavailable(
             "Composer Research View changed before Replay commit",

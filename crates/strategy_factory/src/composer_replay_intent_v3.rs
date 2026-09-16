@@ -4,6 +4,8 @@
 //! Census Frontier and the last completed attempt, while the initial Intent is eligible only
 //! before any attempt has been appended.
 
+use std::fmt::Display;
+
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use sqlx::{Postgres, Transaction};
 use vibe_data::owner::source_binding::BindingDigest;
@@ -119,6 +121,6 @@ pub(crate) fn hex(value: BindingDigest) -> String {
         .collect()
 }
 
-fn unavailable(error: impl std::fmt::Display) -> ExploratoryReplayOwnerError {
+fn unavailable(error: impl Display) -> ExploratoryReplayOwnerError {
     ExploratoryReplayOwnerError::Unavailable(error.to_string())
 }

@@ -2351,7 +2351,7 @@ async fn commit_inner(
                 readback.clone(),
                 lock_successor_research_view_in_transaction(&mut transaction, readback)
                     .await
-                    .map_err(|error| ExploratoryReplayOwnerError::Unavailable(error.to_string()))?,
+                    .map_err(|e| ExploratoryReplayOwnerError::Unavailable(e.to_string()))?,
             )),
             ArtifactBuildIntentV1::Initial(_) => None,
         }
@@ -2364,7 +2364,7 @@ async fn commit_inner(
             readback.intent().trial_family_identity(),
         )
         .await
-        .map_err(|error| ExploratoryReplayOwnerError::Unavailable(error.to_string()))?;
+        .map_err(|e| ExploratoryReplayOwnerError::Unavailable(e.to_string()))?;
         if census.census_frontier.frontier_identity()
             != readback.intent().census_frontier_identity()
             || census.census_frontier.frontier_digest()
@@ -2783,7 +2783,7 @@ async fn commit_inner(
                 &new_view,
             )
             .await
-            .map_err(|error| ExploratoryReplayOwnerError::Unavailable(error.to_string()))?;
+            .map_err(|e| ExploratoryReplayOwnerError::Unavailable(e.to_string()))?;
         } else {
             let updated = sqlx::query("UPDATE public.rd_research_request_receipts_v1 SET view_json=$1 WHERE request_identity=$2 AND view_json=$3")
                 .bind(serde_json::to_value(&new_view).map_err(unavailable)?)
@@ -3110,6 +3110,7 @@ async fn resolve_existing(
             &receipt,
             ReplaySealBindingV2::from_legacy(&validated.frozen),
         )?;
+
         if receipt.seal_digest != seal_digest {
             return Err(ExploratoryReplayOwnerError::Unavailable(
                 "stored Replay V2 seal digest mismatch".into(),
@@ -3338,6 +3339,7 @@ async fn resolve_composer_v3_read_result(
     let Some(row) = row else {
         return Ok(None);
     };
+
     if row.try_get::<String, _>("source_kind").map_err(storage)? != "COMPOSER_V3" {
         return Ok(None);
     }
@@ -3347,6 +3349,7 @@ async fn resolve_composer_v3_read_result(
         &row.try_get::<serde_json::Value, _>("v2_receipt_json")
             .map_err(storage)?,
     )?;
+
     if stored_meaning != meaning_digest {
         return Ok(Some(unavailable_result_v2(request_identity)));
     }
@@ -3356,6 +3359,7 @@ async fn resolve_composer_v3_read_result(
         receipt_identity: receipt.receipt_identity,
         seal_digest: stored_seal,
     };
+
     if exact_locator.is_some_and(|expected| expected != &locator) {
         return Ok(Some(unavailable_result_v2(request_identity)));
     }
@@ -3621,6 +3625,7 @@ pub(crate) fn decode_v2_read_result(
         Ok(request) => request,
         Err(_) => return Ok(unavailable_result_v2(expected_request_identity)),
     };
+
     if proposal_v2_from_stored(&validated.frozen, request.as_dto()).is_err() {
         return Ok(unavailable_result_v2(expected_request_identity));
     }

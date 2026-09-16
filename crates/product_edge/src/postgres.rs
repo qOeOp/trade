@@ -2130,7 +2130,7 @@ impl ProductEdgePostgresOwnerV1 {
             || payload.build_request_identity.trim().is_empty()
             || payload.attempt_identity.trim().is_empty()
             || payload.intent_identity.trim().is_empty()
-            || payload.channel != "WINDMILL_PRODUCT_EDGE"
+            || !crate::is_product_edge_gateway_v1(&payload.channel)
         {
             return Err(ProductEdgeError::Unavailable);
         }
@@ -2153,7 +2153,7 @@ impl ProductEdgePostgresOwnerV1 {
                 .map_err(|_| ProductEdgeError::Unavailable)?;
 
         if payload.request_identity != request.request_identity
-            || payload.gateway != "WINDMILL_PRODUCT_EDGE"
+            || !crate::is_product_edge_gateway_v1(&payload.gateway)
             || !valid_source_doi(&payload.normalized_doi)
             || !valid_source_interpretation(&payload.interpretation)
         {
@@ -6119,6 +6119,30 @@ mod tests {
             !authority_windows_are_current_at(199, 100, 200, 100, 200, false),
             "an authorization that expires while locks are held must authorize zero write"
         );
+    }
+
+    #[rstest]
+    fn one_gateway_is_admitted_under_both_of_its_names() {
+        // The gateway was sealed under the Windmill name and renamed once the Dashboard shared it.
+        // Admissions are content addressed, so a stored payload keeps the bytes it was sealed with
+        // and both spellings must stay admitted. Nothing else is a gateway.
+        assert!(crate::is_product_edge_gateway_v1(
+            crate::PRODUCT_EDGE_GATEWAY_V1
+        ));
+        assert!(crate::is_product_edge_gateway_v1(
+            crate::LEGACY_WINDMILL_GATEWAY_V1
+        ));
+
+        for forged in [
+            "",
+            "trade_product_edge",
+            "TRADE_PRODUCT_EDGE ",
+            "WORKBENCH_WEB",
+            "APP",
+            "MCP",
+        ] {
+            assert!(!crate::is_product_edge_gateway_v1(forged), "{forged}");
+        }
     }
 
     #[rstest]

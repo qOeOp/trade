@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use sqlx::{PgPool, Postgres, Row, Transaction};
+use std::fmt::Display;
 use vibe_data::owner::source_binding::BindingDigest;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use vibe_product_edge::{
@@ -199,6 +200,7 @@ pub(crate) fn issue_composer_artifact_family_binding_v3(
     } else {
         "rd-successor-research-intent-v1-"
     };
+
     if locator.artifact_locator.is_empty()
         || committed_at_epoch_ms == 0
         || parse_named_sha256(intent.identity(), intent_prefix).map_err(unavailable)?
@@ -283,6 +285,7 @@ pub(crate) fn admit_stored_composer_artifact_family_binding_v3(
         composer,
         receipt.committed_at_epoch_ms,
     )?;
+
     if binding != expected.binding || receipt != expected.receipt {
         return Err(unavailable(
             "Composer Artifact-family binding content mismatch",
@@ -426,6 +429,7 @@ pub(crate) async fn load_composer_artifact_family_binding_for_replay_v3(
         &receipt_json,
     )?;
     let binding = &readback.binding;
+
     if row
         .try_get::<String, _>("binding_identity")
         .map_err(unavailable)?
@@ -586,6 +590,6 @@ fn identity(prefix: &str, digest: &str) -> String {
     format!("{prefix}-{}", digest.trim_start_matches("sha256:"))
 }
 
-fn unavailable(error: impl std::fmt::Display) -> TrialFamilyError {
+fn unavailable(error: impl Display) -> TrialFamilyError {
     TrialFamilyError::Unavailable(error.to_string())
 }

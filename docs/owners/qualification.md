@@ -214,6 +214,31 @@ evaluation, and decision frontier, while duplicates inside that frontier join an
 - **Prohibitions** - no R&D tuning feedback, artifact mutation, lifecycle, capital widening, Runtime
   activation, order, account effect, or protected-detail Product view.
 
+## Eligibility terminal status
+
+**The eligibility terminal has never been driven.** Every step below is implemented and none has a
+caller, so no Protected Replay Request Set, Attempt Frontier, Robustness Assessment or Eligibility
+Fact has ever existed. The ordered PostgreSQL gate reaches only an `ADMITTED` intake and an Origin
+(`schema_version=1`) replay request, and its two closing entries assert that Eligibility is **absent**.
+
+| Step                                            | State     |
+| ----------------------------------------------- | --------- |
+| `submit_protected_replay_request_v2`            | no caller |
+| `seal_protected_replay_request_set_v1`          | no caller |
+| `produce_and_commit_protected_replay_result_v3` | no caller |
+| `close_protected_replay_attempt_frontier_v1`    | no caller |
+| `close_economic_pass_assessment_v1`             | no caller |
+
+The steps are strictly serial, and the first one is blocked on **a missing Owner input** rather than on a
+missing driver. A V2 request is a V1 proposal plus a `ClockHeadHandoff`, the shared-time resolver is
+built from `DEPLOYMENT_STORE_ADMISSION_MODE`, and the gate does not set it, so the resolver yields
+nothing and no V2 request can be constructed there at all. Set sealing then admits only
+`schema_version=2` members - Origin rows carry a different canonical encoding and would strand the
+frontier - so an Origin-only gate seals an empty set even if it were called.
+
+Admitting shared-time evidence into the gate environment is therefore the first prerequisite for the
+terminal, before any driver is worth writing.
+
 ## Subsequent implementation acceptance
 
 - Candidate and evaluation rules are immutable before protected evidence is revealed.

@@ -1,7 +1,14 @@
 // Trade-owned S2 orchestration shared by the Windmill compatibility adapter
 // and the first-party Dashboard adapter.
-const PRODUCT_EDGE_GATEWAY = "WINDMILL_PRODUCT_EDGE" as const
-type Channel = typeof PRODUCT_EDGE_GATEWAY
+// The one Product Edge admission gateway; see source_intake_v1.ts for why it is no longer named
+// after Windmill and why the Owner still admits the sealed name.
+const PRODUCT_EDGE_GATEWAY = "TRADE_PRODUCT_EDGE" as const
+// Custody sealed before the rename carries the old identity forever, so reads admit both names
+// while writes only ever emit the canonical one.
+const LEGACY_WINDMILL_GATEWAY = "WINDMILL_PRODUCT_EDGE" as const
+const isProductEdgeGateway = (value: unknown): value is Channel =>
+  value === PRODUCT_EDGE_GATEWAY || value === LEGACY_WINDMILL_GATEWAY
+type Channel = typeof PRODUCT_EDGE_GATEWAY | typeof LEGACY_WINDMILL_GATEWAY
 type Action = "RUN" | "RESOLVE"
 type IdentityMode = "GENERATE" | "EXACT"
 
@@ -183,7 +190,7 @@ export async function validProviderInvocationStartV1(
     ])
     && request.build_request_identity === buildRequestIdentity
     && request.attempt_identity === attemptIdentity
-    && request.channel === PRODUCT_EDGE_GATEWAY
+    && isProductEdgeGateway(request.channel)
     && nonEmpty(request.intent_identity)
     && admission && typeof admission === "object" && !Array.isArray(admission)
     && exactKeys(admission, ["admission_digest", "admission_identity", "request_identity"])

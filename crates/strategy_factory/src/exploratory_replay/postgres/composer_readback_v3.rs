@@ -92,15 +92,18 @@ pub(crate) async fn read_verified_research_view_transition_v3_in_transaction(
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
+
     if rows.is_empty() {
         return Ok(None);
     }
+
     if rows.len() != 1 {
         return Err(corrupt("COMPOSER_V3 Replay row cardinality mismatch"));
     }
     let row = &rows[0];
     let frozen: StoredComposerReplayFrozenV3 =
         decode_exact(&row.try_get::<Value, _>("frozen_json").map_err(storage)?)?;
+
     if frozen.source.proposal.request_identity != replay_request_identity {
         return Err(corrupt("COMPOSER_V3 transition Replay identity mismatch"));
     }
@@ -128,6 +131,7 @@ pub(super) async fn resolve_composer_v3_by_locator_in_transaction(
     }
     let frozen: StoredComposerReplayFrozenV3 =
         decode_exact(&row.try_get::<Value, _>("frozen_json").map_err(storage)?)?;
+
     if frozen.source.proposal.request_identity != locator.request_identity {
         return Err(corrupt("COMPOSER_V3 locator and stored source differ"));
     }
@@ -135,6 +139,7 @@ pub(super) async fn resolve_composer_v3_by_locator_in_transaction(
         resolve_existing_composer_v3_in_transaction(transaction, &frozen.source.proposal)
             .await?
             .ok_or_else(|| corrupt("COMPOSER_V3 Replay row disappeared"))?;
+
     if readback.meaning_digest() != locator.meaning_digest
         || readback.receipt.receipt_identity != locator.receipt_identity
         || readback.receipt.seal_digest != locator.seal_digest
@@ -173,6 +178,7 @@ pub(super) async fn resolve_existing_composer_v3_in_transaction(
     )
     .await
     .map_err(unavailable)?;
+
     if admission.locator() != &proposal.admission
         || admission.request().request_identity != proposal.request_identity
         || admission.request().operation != EXPLORATORY_REPLAY_OPERATION_V3
@@ -210,6 +216,7 @@ pub(super) async fn resolve_existing_composer_v3_in_transaction(
         &claim.receipt.meaning_digest,
     )
     .map_err(unavailable)?;
+
     if source.trial_family_root_receipt_identity != root_receipt.receipt_identity()
         || source.trial_family_root_digest != root.root_digest()
         || source.trial_family_member_identity != member.member_identity()
@@ -218,6 +225,7 @@ pub(super) async fn resolve_existing_composer_v3_in_transaction(
     {
         return Err(corrupt("COMPOSER_V3 TrialFamily Owner readback mismatch"));
     }
+
     if market.market_data_scope_digest() != proposal.market_data_scope_digest
         || source.market_binding_receipt_identity != binding.receipt().identity()
         || source.market_binding_outbox_identity != binding.outbox().identity()
@@ -269,6 +277,7 @@ pub(super) async fn resolve_existing_composer_v3_in_transaction(
         &artifact_family,
         &market,
     )?;
+
     if composed.source != *source {
         return Err(corrupt("COMPOSER_V3 historical Owner source differs"));
     }
@@ -279,6 +288,7 @@ pub(super) async fn resolve_existing_composer_v3_in_transaction(
         claim.frozen.product_edge_request_semantic_digest.clone(),
         claim.frozen.committed_at_epoch_ms,
     )?;
+
     if prepared.frozen != claim.frozen
         || prepared.canonical_request_bytes != claim.canonical_request_bytes
         || prepared.meaning_digest != claim.receipt.meaning_digest
@@ -335,6 +345,7 @@ async fn load_stored_claim(
         &row.try_get::<Value, _>("composer_source_json")
             .map_err(storage)?,
     )?;
+
     if source.proposal != *proposal {
         return Err(ExploratoryReplayOwnerError::ConflictingReplay);
     }
@@ -467,6 +478,7 @@ async fn verify_outbox(
     .fetch_all(&mut **transaction)
     .await
     .map_err(storage)?;
+
     if rows.len() != 1 {
         return Err(corrupt("COMPOSER_V3 Replay outbox cardinality mismatch"));
     }
@@ -493,6 +505,7 @@ async fn verify_outbox(
         committed_at_epoch_ms: frozen.committed_at_epoch_ms,
     };
     let envelope_bytes = serde_json::to_vec(&expected_envelope).map_err(unavailable)?;
+
     if row
         .try_get::<String, _>("event_identity")
         .map_err(storage)?
@@ -546,6 +559,7 @@ async fn load_research_transition(
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
+
     if rows.len() != 1 {
         return Err(corrupt(
             "COMPOSER_V3 Research transition cardinality mismatch",
@@ -596,6 +610,7 @@ async fn load_research_transition(
             "COMPOSER_V3 Research Composer reference is missing",
         ));
     };
+
     if view.request_identity != initial.request_identity
         || view.intent_identity != initial.intent_identity
         || !composer_exploration_research_view_is_valid_v3(&view, initial)
@@ -629,6 +644,7 @@ async fn verify_research_transition_outbox(
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
+
     if rows.len() != 1 {
         return Err(corrupt(
             "COMPOSER_V3 Research transition outbox cardinality mismatch",

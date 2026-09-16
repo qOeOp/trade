@@ -345,6 +345,7 @@ pub(crate) fn project_locked_backtest_result_v1(
         terminal: result.terminal,
         result_storage_digest: result_storage_digest.to_owned(),
     };
+
     if !is_valid_iteration_decision_locator_v1(&binding.result_identity)
         || !is_valid_iteration_decision_locator_v1(&binding.request_identity)
         || !is_valid_iteration_decision_locator_v1(&binding.attempt_identity)
@@ -451,11 +452,13 @@ fn verify_admission_identity_v1(
     {
         return Err(IterationResultAdmissionErrorV1::IdentityMismatch);
     }
+
     if backtest.namespace != ReplayNamespaceV2::Exploratory
         || backtest.terminal != ReplayTerminalV2::TerminalResult
     {
         return Err(IterationResultAdmissionErrorV1::NotApplicable);
     }
+
     if !is_valid_iteration_decision_locator_v1(&input.family.census_frontier_identity)
         || !is_valid_iteration_decision_locator_v1(&input.family.candidate_set_frontier_identity)
         || !is_sha256_digest(&input.family.census_frontier_digest)
@@ -466,6 +469,7 @@ fn verify_admission_identity_v1(
     {
         return Err(IterationResultAdmissionErrorV1::InvalidLocator);
     }
+
     if input.proposals.proposals.iter().any(|proposal| {
         input
             .family
@@ -485,6 +489,7 @@ fn verify_admission_budget_v1(
     {
         return Err(IterationResultAdmissionErrorV1::NotApplicable);
     }
+
     if input.proposals.expected_cardinality > input.budget.remaining_trial_budget() {
         return Err(IterationResultAdmissionErrorV1::BudgetExceeded);
     }
@@ -528,6 +533,7 @@ fn validate_proposal_set(
     {
         return Err(IterationResultAdmissionErrorV1::InvalidLocator);
     }
+
     if proposals.proposals.is_empty()
         || proposals.proposals.len() > MAX_PROPOSALS
         || usize::try_from(proposals.expected_cardinality)
@@ -537,12 +543,14 @@ fn validate_proposal_set(
         return Err(IterationResultAdmissionErrorV1::NotApplicable);
     }
     let mut previous: Option<&str> = None;
+
     for proposal in &proposals.proposals {
         if !is_valid_iteration_decision_locator_v1(&proposal.candidate_identity)
             || !is_sha256_digest(&proposal.candidate_digest)
         {
             return Err(IterationResultAdmissionErrorV1::InvalidLocator);
         }
+
         if previous.is_some_and(|previous| previous >= proposal.candidate_identity.as_str()) {
             return Err(IterationResultAdmissionErrorV1::NotApplicable);
         }
@@ -558,6 +566,7 @@ fn validate_experiment(
     let IterationExperimentModeV1::PreregisteredFiniteJoint { contract } = experiment else {
         return Ok(());
     };
+
     if contract.changed_dimensions.is_empty() || contract.bounded_combinations.is_empty() {
         return Err(IterationResultAdmissionErrorV1::NotApplicable);
     }
@@ -842,6 +851,7 @@ pub(crate) mod tests {
         if let Some(value) = request_identity {
             input.backtest.request_identity = value.to_owned();
         }
+
         if let Some(value) = attempt_identity {
             input.backtest.attempt_identity = value.to_owned();
         }

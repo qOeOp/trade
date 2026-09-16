@@ -1468,6 +1468,7 @@ pub(crate) async fn read_accepted_for_replay_historical_in_transaction(
         load_record_via_sealed_routine_in_transaction(transaction, &locator.request_identity)
             .await?
             .ok_or(DevelopComposerSealedReadErrorV2::Unavailable)?;
+
     if !locator_matches_record_keys(locator, &record)
         || expected_binding.artifact_locator != locator.artifact_locator
         || expected_binding.composer_request_identity != locator.request_identity

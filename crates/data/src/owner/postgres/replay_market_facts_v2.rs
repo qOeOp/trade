@@ -1945,6 +1945,7 @@ pub(super) async fn verify_rd_replay_cut_transport_v1(
     .await
     .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?
     .unwrap_or(false);
+
     if !isolated {
         return Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable);
     }
@@ -2008,6 +2009,7 @@ pub(super) async fn verify_rd_replay_cut_transport_v1(
         .await
         .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?
         .unwrap_or(false);
+
         if !exact {
             return Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable);
         }

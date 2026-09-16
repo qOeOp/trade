@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use vibe_backtest_owner_contracts::{ReplayRequestDtoV2, ReplayRequestV2};
+use vibe_data::owner::source_binding::BindingDigest;
 use vibe_product_edge::ProductEdgeAdmissionLocatorV1;
 
 #[expect(
@@ -107,7 +108,7 @@ pub struct ComposerBackedExploratoryReplayProposalV3 {
     pub composer_locator: crate::develop_composer_postgres_v2::DevelopComposerSealedReadLocatorV2,
     pub market_data_locator:
         vibe_data::owner::replay_market_facts_v2::ReplayCompositionBindingLocatorV1,
-    pub market_data_scope_digest: vibe_data::owner::source_binding::BindingDigest,
+    pub market_data_scope_digest: BindingDigest,
 }
 
 pub(crate) fn exploratory_replay_admission_payload_v2(

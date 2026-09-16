@@ -1263,6 +1263,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             transaction.commit().await.map_err(storage)?;
             return result_from_verified(custody, self.now()?);
         }
+
         if custody.intent != intent {
             return Err(ArtifactBuildError::Storage(
                 "attempt intent changed during build".to_string(),
@@ -1274,7 +1275,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             ArtifactBuildIntentV1::Successor(readback) => Some(
                 lock_successor_research_view_in_transaction(&mut transaction, readback)
                     .await
-                    .map_err(|error| ArtifactBuildError::Storage(error.to_string()))?,
+                    .map_err(|e| ArtifactBuildError::Storage(e.to_string()))?,
             ),
             ArtifactBuildIntentV1::Initial(_) => None,
         };
@@ -1286,10 +1287,12 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
                     && now < successor.view().valid_through_epoch_ms
             },
         );
+
         if started_binding.is_none() && !research_view_available {
             transaction.rollback().await.map_err(storage)?;
             return result_from_verified(custody, now);
         }
+
         if successor_view_custody.as_ref().is_some_and(|successor| {
             successor.view().phase != ResearchViewPhase::IntentFrozen
                 || successor.view().attempt_identity.is_some()
@@ -1395,7 +1398,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
                     view,
                 )
                 .await
-                .map_err(|error| ArtifactBuildError::Storage(error.to_string()))?;
+                .map_err(|e| ArtifactBuildError::Storage(e.to_string()))?;
             } else {
                 let research_intent = custody.research.intent().ok_or_else(|| {
                     ArtifactBuildError::Storage("initial research intent missing".to_string())
