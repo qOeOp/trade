@@ -326,6 +326,200 @@ fn exact_rows<'a, const N: usize>(
         .map_err(|_| NativeReplaySchedulingErrorV1::FieldCensusMismatch)
 }
 
+/// Domain separator for the per-frame Quote liquidity EVENT receipt.
+const QUOTE_LIQUIDITY_RECEIPT_DOMAIN_V2: &[u8] =
+    b"market-data.native-replay-quote-liquidity-receipt.v2\0";
+
+/// The canonical per-frame Quote liquidity EVENT receipt.
+///
+/// `docs/owners/market-data.md` requires each frame to carry its own Owner-verified liquidity, and
+/// requires that receipt to seal "the exact Owner-verified Quote row digests, bid/ask prices and
+/// sizes, event/initialization times and member order from that frame's PIT cut". Two halves of
+/// that already existed and neither sealed the other: [`NativeReplayQuoteLiquidityEvidenceV2`]
+/// carries the row digests and the exact stored `(mantissa, scale)` values but is never digested,
+/// while the V1 scheduling receipt digests prices and times as Nautilus display strings and binds
+/// no row identity at all. This type seals both halves under one domain, against the frame's own
+/// PIT cut, so a fill can be authorized by an Owner fact rather than by transported values.
+///
+/// The bytes are fixed width apart from the two instrument identifiers, which are length-prefixed.
+/// Member order is the canonical universe member order and is part of the sealed meaning: the same
+/// two members in the opposite order seal to a different digest.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeReplayQuoteLiquidityReceiptV2 {
+    canonical_bytes: Vec<u8>,
+    receipt_digest: BindingDigest,
+}
+
+impl NativeReplayQuoteLiquidityReceiptV2 {
+    /// Seals one frame's complete two-member Quote liquidity against that frame's PIT cut.
+    #[must_use]
+    pub fn seal(
+        snapshot_identity: BindingDigest,
+        snapshot_fact_digest: BindingDigest,
+        observation_batch_digest: BindingDigest,
+        frame_time_ns: u64,
+        window_end_ns_exclusive: u64,
+        liquidity: &[NativeReplayQuoteLiquidityEvidenceV2; 2],
+    ) -> Self {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(QUOTE_LIQUIDITY_RECEIPT_DOMAIN_V2);
+        bytes.extend_from_slice(&2_u16.to_be_bytes());
+        bytes.extend_from_slice(&0_u16.to_be_bytes());
+        bytes.extend_from_slice(snapshot_identity.as_bytes());
+        bytes.extend_from_slice(snapshot_fact_digest.as_bytes());
+        bytes.extend_from_slice(observation_batch_digest.as_bytes());
+        bytes.extend_from_slice(&frame_time_ns.to_be_bytes());
+        bytes.extend_from_slice(&window_end_ns_exclusive.to_be_bytes());
+        bytes.push(u8::try_from(liquidity.len()).unwrap_or(u8::MAX));
+        for member in liquidity {
+            append_liquidity_member(&mut bytes, member);
+        }
+        let receipt_digest = BindingDigest::from_untrusted_bytes(Sha256::digest(&bytes).into());
+        Self {
+            canonical_bytes: bytes,
+            receipt_digest,
+        }
+    }
+
+    #[must_use]
+    pub fn canonical_bytes(&self) -> &[u8] {
+        &self.canonical_bytes
+    }
+
+    #[must_use]
+    pub const fn receipt_digest(&self) -> BindingDigest {
+        self.receipt_digest
+    }
+}
+
+/// Appends one member in the fixed `BID_PRICE, ASK_PRICE, BID_SIZE, ASK_SIZE` field order.
+///
+/// Values are the exact stored PIT `(mantissa, scale)` pair rather than any rendered decimal, so
+/// the receipt cannot drift with a display convention.
+fn append_liquidity_member(bytes: &mut Vec<u8>, member: &NativeReplayQuoteLiquidityEvidenceV2) {
+    let instrument = member.instrument().to_string();
+    let instrument = instrument.as_bytes();
+    bytes.extend_from_slice(
+        &u32::try_from(instrument.len())
+            .unwrap_or(u32::MAX)
+            .to_be_bytes(),
+    );
+    bytes.extend_from_slice(instrument);
+    for digest in member.row_digests() {
+        bytes.extend_from_slice(digest.as_bytes());
+    }
+    for (mantissa, scale) in member.values() {
+        bytes.extend_from_slice(&mantissa.to_be_bytes());
+        bytes.push(scale);
+    }
+    bytes.extend_from_slice(&member.event_time_ns().to_be_bytes());
+    bytes.extend_from_slice(&member.initialization_time_ns().to_be_bytes());
+}
+
 fn row_digest(row: &VerifiedPitObservation) -> BindingDigest {
     BindingDigest::from_untrusted_bytes(Sha256::digest(canonical_observation_bytes(row)).into())
+}
+
+#[cfg(test)]
+mod quote_liquidity_receipt_tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    fn digest(seed: u8) -> BindingDigest {
+        BindingDigest::from_untrusted_bytes([seed; 32])
+    }
+
+    fn member(instrument: &str, seed: u8, event_time_ns: u64) -> NativeReplayQuoteLiquidityEvidenceV2 {
+        NativeReplayQuoteLiquidityEvidenceV2 {
+            instrument: InstrumentId::from(instrument),
+            row_digests: [digest(seed), digest(seed + 1), digest(seed + 2), digest(seed + 3)],
+            values: [(101, 2), (103, 2), (5, 0), (7, 0)],
+            event_time_ns,
+            initialization_time_ns: event_time_ns,
+        }
+    }
+
+    fn sealed(liquidity: &[NativeReplayQuoteLiquidityEvidenceV2; 2]) -> NativeReplayQuoteLiquidityReceiptV2 {
+        NativeReplayQuoteLiquidityReceiptV2::seal(digest(0x10), digest(0x11), digest(0x12), 900, 1_000, liquidity)
+    }
+
+    #[rstest]
+    fn the_same_frame_liquidity_seals_to_the_same_receipt() {
+        let first = sealed(&[member("AAPL.NASDAQ", 0x20, 910), member("MSFT.NASDAQ", 0x30, 920)]);
+        let second = sealed(&[member("AAPL.NASDAQ", 0x20, 910), member("MSFT.NASDAQ", 0x30, 920)]);
+
+        assert_eq!(first, second);
+        assert_eq!(first.receipt_digest(), second.receipt_digest());
+        assert!(first.canonical_bytes().starts_with(QUOTE_LIQUIDITY_RECEIPT_DOMAIN_V2));
+    }
+
+    #[rstest]
+    fn member_order_is_part_of_the_sealed_meaning() {
+        let forward = sealed(&[member("AAPL.NASDAQ", 0x20, 910), member("MSFT.NASDAQ", 0x30, 920)]);
+        let reversed = sealed(&[member("MSFT.NASDAQ", 0x30, 920), member("AAPL.NASDAQ", 0x20, 910)]);
+
+        assert_ne!(forward.receipt_digest(), reversed.receipt_digest());
+    }
+
+    #[rstest]
+    fn every_sealed_liquidity_coordinate_changes_the_receipt() {
+        let base = sealed(&[member("AAPL.NASDAQ", 0x20, 910), member("MSFT.NASDAQ", 0x30, 920)]);
+
+        // A different Owner row identity for the same rendered values.
+        let moved_row = sealed(&[member("AAPL.NASDAQ", 0x40, 910), member("MSFT.NASDAQ", 0x30, 920)]);
+        assert_ne!(base.receipt_digest(), moved_row.receipt_digest());
+
+        // A different stored price mantissa.
+        let mut repriced = member("AAPL.NASDAQ", 0x20, 910);
+        repriced.values[0] = (102, 2);
+        assert_ne!(
+            base.receipt_digest(),
+            sealed(&[repriced, member("MSFT.NASDAQ", 0x30, 920)]).receipt_digest()
+        );
+
+        // The same mantissa under a different scale is a different price.
+        let mut rescaled = member("AAPL.NASDAQ", 0x20, 910);
+        rescaled.values[0] = (101, 3);
+        assert_ne!(
+            base.receipt_digest(),
+            sealed(&[rescaled, member("MSFT.NASDAQ", 0x30, 920)]).receipt_digest()
+        );
+
+        // A different size.
+        let mut resized = member("AAPL.NASDAQ", 0x20, 910);
+        resized.values[2] = (6, 0);
+        assert_ne!(
+            base.receipt_digest(),
+            sealed(&[resized, member("MSFT.NASDAQ", 0x30, 920)]).receipt_digest()
+        );
+
+        // A different event time, and an initialization time that no longer equals it.
+        assert_ne!(
+            base.receipt_digest(),
+            sealed(&[member("AAPL.NASDAQ", 0x20, 911), member("MSFT.NASDAQ", 0x30, 920)]).receipt_digest()
+        );
+        let mut reinitialized = member("AAPL.NASDAQ", 0x20, 910);
+        reinitialized.initialization_time_ns = 912;
+        assert_ne!(
+            base.receipt_digest(),
+            sealed(&[reinitialized, member("MSFT.NASDAQ", 0x30, 920)]).receipt_digest()
+        );
+    }
+
+    #[rstest]
+    fn the_receipt_binds_its_own_frame_cut_and_window() {
+        let liquidity = || [member("AAPL.NASDAQ", 0x20, 910), member("MSFT.NASDAQ", 0x30, 920)];
+        let base = sealed(&liquidity());
+
+        for moved in [
+            NativeReplayQuoteLiquidityReceiptV2::seal(digest(0x99), digest(0x11), digest(0x12), 900, 1_000, &liquidity()),
+            NativeReplayQuoteLiquidityReceiptV2::seal(digest(0x10), digest(0x99), digest(0x12), 900, 1_000, &liquidity()),
+            NativeReplayQuoteLiquidityReceiptV2::seal(digest(0x10), digest(0x11), digest(0x99), 900, 1_000, &liquidity()),
+            NativeReplayQuoteLiquidityReceiptV2::seal(digest(0x10), digest(0x11), digest(0x12), 901, 1_000, &liquidity()),
+            NativeReplayQuoteLiquidityReceiptV2::seal(digest(0x10), digest(0x11), digest(0x12), 900, 1_001, &liquidity()),
+        ] {
+            assert_ne!(base.receipt_digest(), moved.receipt_digest());
+        }
+    }
 }
