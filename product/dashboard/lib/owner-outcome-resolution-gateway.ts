@@ -1,6 +1,7 @@
 import {
   ARTIFACT_SHADOW_RESOLVE_OPERATION,
   DEVELOP_COMPOSER_SHADOW_READ_OPERATION,
+  EXPLORATORY_REPLAY_RESULT_SHADOW_READ_OPERATION,
   EXPLORATORY_REPLAY_SHADOW_READ_OPERATION,
   RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION,
   RESEARCH_SHADOW_RESOLVE_OPERATION,
@@ -8,6 +9,10 @@ import {
   type RegisteredOperationId,
 } from "./operation-registry.ts";
 import { resolveExploratoryReplayShadowV2 } from "./exploratory-replay-readback-client.ts";
+import {
+  parseExploratoryReplayResultBrowserProjectionV1,
+  readExploratoryReplayResultGatewayV1,
+} from "./exploratory-replay-result-gateway.ts";
 import { EXPLORATORY_REPLAY_EXECUTE_OPERATION } from "./exploratory-replay-operation.ts";
 import { DEVELOP_COMPOSER_EXECUTE_OPERATION } from "./develop-composer-operation.ts";
 import {
@@ -21,6 +26,7 @@ import { resolveArtifactShadowV1, resolveResearchShadowV1, resolveSourceIntakeSh
 import {
   journalShadowReadV1,
   ownerOutcomeForDevelopComposerResultV1,
+  ownerOutcomeForExploratoryReplayResultV1,
 } from "./shadow-run-journal.ts";
 import {
   configuredRunStoreV1,
@@ -57,6 +63,12 @@ type ResolutionReadersV1 = {
   ) => Promise<ShadowResponse>;
   iteration: (trialFamilyIdentity: string) => Promise<ShadowResponse>;
   replay: (requestIdentity: string, meaningDigest: string) => Promise<ShadowResponse>;
+  replayResult: (
+    resultIdentity: string,
+    requestIdentity: string,
+    attemptIdentity: string,
+    meaningDigest: string,
+  ) => Promise<ShadowResponse>;
   composer: (requestIdentity: string) => Promise<ShadowResponse>;
 };
 
@@ -89,6 +101,9 @@ function defaultReaders(): ResolutionReadersV1 {
   const artifactOwner = ownerApiTargetForOperationV1(ARTIFACT_SHADOW_RESOLVE_OPERATION);
   const iterationOwner = ownerApiTargetForOperationV1(RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION);
   const replayOwner = ownerApiTargetForOperationV1(EXPLORATORY_REPLAY_SHADOW_READ_OPERATION);
+  const replayResultOwner = ownerApiTargetForOperationV1(
+    EXPLORATORY_REPLAY_RESULT_SHADOW_READ_OPERATION,
+  );
   const composerOwner = ownerApiTargetForOperationV1(DEVELOP_COMPOSER_SHADOW_READ_OPERATION);
   return {
     source: (requestIdentity) => resolveSourceIntakeShadowV1({
@@ -121,6 +136,26 @@ function defaultReaders(): ResolutionReadersV1 {
       baseUrl: replayOwner.baseUrl,
       token: replayOwner.token,
     }),
+    replayResult: async (resultIdentity, requestIdentity, attemptIdentity, meaningDigest) => {
+      const result = await readExploratoryReplayResultGatewayV1({
+        resultIdentity,
+        requestIdentity,
+        attemptIdentity,
+        meaningDigest,
+        environment: {
+          RD_DASHBOARD_OWNER_READ_API_URL: replayResultOwner.baseUrl,
+          RD_DASHBOARD_OWNER_READ_API_TOKEN: replayResultOwner.token,
+        },
+      });
+      return {
+        status: result.status,
+        envelope: {
+          availability: result.projection.availability,
+          unavailable_reason: result.projection.reason,
+          projection: result.projection,
+        },
+      };
+    },
     composer: async (requestIdentity) => {
       const result = await readDevelopComposerGatewayV1({
         requestIdentity,
@@ -193,6 +228,31 @@ function targetForRun(
         meaning_digest: identity.meaning_digest,
       },
       read: () => readers.replay(identity.request_identity, identity.meaning_digest),
+    };
+  }
+  if (run.operation_id === EXPLORATORY_REPLAY_RESULT_SHADOW_READ_OPERATION) {
+    return {
+      operationId: EXPLORATORY_REPLAY_RESULT_SHADOW_READ_OPERATION,
+      recoveryIdentity: {
+        result_identity: identity.result_identity,
+        request_identity: identity.request_identity,
+        attempt_identity: identity.attempt_identity,
+        meaning_digest: identity.meaning_digest,
+      },
+      read: () => readers.replayResult(
+        identity.result_identity,
+        identity.request_identity,
+        identity.attempt_identity,
+        identity.meaning_digest,
+      ),
+      classifyOwnerOutcome: (result) => {
+        const projection = parseExploratoryReplayResultBrowserProjectionV1(
+          result.envelope.projection,
+        );
+        return projection
+          ? ownerOutcomeForExploratoryReplayResultV1({ status: result.status, projection })
+          : { state: "unavailable", terminalCode: "OWNER_UNAVAILABLE" };
+      },
     };
   }
   if (run.operation_id === DEVELOP_COMPOSER_SHADOW_READ_OPERATION

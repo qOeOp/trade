@@ -74,9 +74,40 @@ function harness(sourceRun = operationRun()) {
     async artifact(...values) { calls.push(["artifact", ...values]); return owner("SUCCESS"); },
     async iteration(value) { calls.push(["iteration", value]); return owner(); },
     async replay(...values) { calls.push(["replay", ...values]); return owner(); },
+    async replayResult(...values) {
+      calls.push(["replay-result", ...values]);
+      return replayResultOwner("TERMINAL_RESULT");
+    },
     async composer(value) { calls.push(["composer", value]); return composerOwner("SUCCESS"); },
   };
   return { calls, store, readers };
+}
+
+function replayResultOwner(terminal) {
+  return {
+    status: 200,
+    envelope: {
+      availability: "available",
+      unavailable_reason: null,
+      projection: {
+        schemaVersion: 1,
+        availability: "available",
+        requestIdentity: "replay-request-resolution-1",
+        meaningDigest: `blake3:${"e".repeat(64)}`,
+        attemptIdentity: "replay-attempt-resolution-1",
+        resultIdentity: "replay-result-resolution-1",
+        observedAt: "2026-09-01T00:00:02.000Z",
+        result: {
+          terminal,
+          exactComponents: 28,
+          totalComponents: 28,
+          diagnostics: [],
+          semanticTraceAvailable: false,
+        },
+        reason: null,
+      },
+    },
+  };
 }
 
 function owner(resolution) {
@@ -194,6 +225,41 @@ test("Replay request custody resolution maps to the zero-effect Replay owner-rea
     "replay", "replay-α", `blake3:${"e".repeat(64)}`,
   ]);
   assert.equal(calls.some(([kind]) => ["source", "research", "artifact", "iteration"].includes(kind)), false);
+});
+
+test("Replay result resolution repeats the exact zero-effect result point-read", async () => {
+  const meaningDigest = `blake3:${"e".repeat(64)}`;
+  const source = operationRun({
+    operation_id: "exploratory_replay_result.shadow_read.v2",
+    recovery_identity: {
+      result_identity: "replay-result-resolution-1",
+      request_identity: "replay-request-resolution-1",
+      attempt_identity: "replay-attempt-resolution-1",
+      meaning_digest: meaningDigest,
+    },
+  });
+  const { calls, store, readers } = harness(source);
+  const result = await resolveRunOwnerOutcomeV1({
+    runIdentity: sourceRunIdentity,
+    expectedTransitionVersion: 2,
+    store,
+    readers,
+  });
+  assert.equal(result.status, 200);
+  assert.equal(result.envelope.resolved_operation_id, "exploratory_replay_result.shadow_read.v2");
+  assert.equal(result.envelope.owner_outcome_state, "available");
+  assert.deepEqual(calls.find(([kind]) => kind === "replay-result"), [
+    "replay-result",
+    "replay-result-resolution-1",
+    "replay-request-resolution-1",
+    "replay-attempt-resolution-1",
+    meaningDigest,
+  ]);
+  assert.deepEqual(calls.find(([kind]) => kind === "begin"), [
+    "begin",
+    "exploratory_replay_result.shadow_read.v2",
+    source.recovery_identity,
+  ]);
 });
 
 test("Composer resolution preserves typed disposition instead of defaulting to success", async () => {

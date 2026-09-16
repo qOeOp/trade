@@ -59,6 +59,11 @@ test("Backtest route renders one compact exact Replay request and result workben
   assert.match(shell, /Replay request and result readback/u);
   assert.doesNotMatch(shell, /NO_RUN_OR_RESULT|ResultProjectionUnavailable/u);
   assert.match(page, /query\.replayRequestIdentity/u);
+  assert.match(page, /query\.resultIdentity/u);
+  assert.match(shell, /initialResultIdentity=\{replayHistoricalCustody \? undefined : replayResultIdentity\}/u);
+  assert.match(shell, /initialAttemptIdentity=\{replayHistoricalCustody \? undefined : replayAttemptIdentity\}/u);
+  assert.match(component, /useState\(initialResultIdentity \?\? ""\)/u);
+  assert.match(component, /useState\(initialAttemptIdentity \?\? ""\)/u);
   assert.match(ownerApi, /resolve_sealed_exploratory_replay_request_v2/u);
   assert.match(ownerRouter, /"\/v2\/exploratory-replay-requests\/readback"/u);
   assert.match(ownerReadApi, /"\/v2\/exploratory-replay-results\/\{result_identity\}"/u);

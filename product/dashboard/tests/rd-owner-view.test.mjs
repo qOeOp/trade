@@ -13,6 +13,15 @@ const fields = [
   { key: "meaning_digest", value: meaningDigest },
 ];
 const href = `/backtest?replayRequestIdentity=${requestIdentity}&meaningDigest=${encodeURIComponent(meaningDigest)}`;
+const resultIdentity = "replay-result-1";
+const attemptIdentity = "replay-attempt-1";
+const resultFields = [
+  { key: "result_identity", value: resultIdentity },
+  { key: "request_identity", value: requestIdentity },
+  { key: "attempt_identity", value: attemptIdentity },
+  { key: "meaning_digest", value: meaningDigest },
+];
+const resultHref = `${href}&resultIdentity=${resultIdentity}&attemptIdentity=${attemptIdentity}`;
 
 test("Replay operations point Run Detail at the canonical Backtest selector", () => {
   for (const operationId of [
@@ -27,6 +36,19 @@ test("Replay operations point Run Detail at the canonical Backtest selector", ()
       identity_fields: fields,
     });
   }
+});
+
+test("Replay result reads point Run Detail at the exact Backtest result selector", () => {
+  assert.deepEqual(projectRdOwnerViewLocatorV1(
+    "exploratory_replay_result.shadow_read.v2",
+    resultFields,
+  ), {
+    schema_version: 1,
+    source_owner: "exploratory_replay_owner",
+    href: resultHref,
+    action_label: "Resolve same identity",
+    identity_fields: resultFields,
+  });
 });
 
 test("Replay owner locator rejects malformed selectors before navigation", () => {
@@ -52,5 +74,26 @@ test("Backtest parses the exact Replay selector and rejects former aliases", () 
   assert.equal(parseRdOwnerViewRequestV1("/rd/decisions", {
     replayRequestIdentity: requestIdentity,
     replayMeaningDigest: meaningDigest,
+  }), null);
+});
+
+test("Backtest parses the exact Replay result selector without accepting partial aliases", () => {
+  const search = {
+    replayRequestIdentity: requestIdentity,
+    meaningDigest,
+    resultIdentity,
+    attemptIdentity,
+  };
+  assert.deepEqual(parseRdOwnerViewRequestV1("/backtest", search), {
+    kind: "replay_result",
+    requestIdentity,
+    meaningDigest,
+    resultIdentity,
+    attemptIdentity,
+  });
+  assert.equal(parseRdOwnerViewRequestV1("/backtest", {
+    replayRequestIdentity: requestIdentity,
+    meaningDigest,
+    resultIdentity,
   }), null);
 });

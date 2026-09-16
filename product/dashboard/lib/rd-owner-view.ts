@@ -21,6 +21,7 @@ export type RdOwnerViewRequestV1 =
   | { kind: "artifact"; researchRequestIdentity: string; buildRequestIdentity: string; attemptIdentity: string }
   | { kind: "decision"; trialFamilyIdentity: string }
   | { kind: "replay"; requestIdentity: string; meaningDigest: string }
+  | { kind: "replay_result"; requestIdentity: string; meaningDigest: string; attemptIdentity: string; resultIdentity: string }
   | { kind: "composer"; requestIdentity: string };
 
 type InputField = { key: string; value: string };
@@ -36,6 +37,17 @@ function exactReplayFields(fields: readonly InputField[]): boolean {
     && fields[0].key === "request_identity"
     && validExploratoryReplayOpaqueIdentityV2(fields[0].value)
     && fields[1].key === "meaning_digest" && DIGEST.test(fields[1].value);
+}
+
+function exactReplayResultFields(fields: readonly InputField[]): boolean {
+  return fields.length === 4
+    && fields[0].key === "result_identity"
+    && validExploratoryReplayOpaqueIdentityV2(fields[0].value)
+    && fields[1].key === "request_identity"
+    && validExploratoryReplayOpaqueIdentityV2(fields[1].value)
+    && fields[2].key === "attempt_identity"
+    && validExploratoryReplayOpaqueIdentityV2(fields[2].value)
+    && fields[3].key === "meaning_digest" && DIGEST.test(fields[3].value);
 }
 
 function exactComposerEffectFields(fields: readonly InputField[]): boolean {
@@ -154,6 +166,21 @@ export function projectRdOwnerViewLocatorV1(
       identity_fields: fields.map(({ key, value }) => ({ key, value })),
     };
   }
+  if (operationId === "exploratory_replay_result.shadow_read.v2"
+    && exactReplayResultFields(fields)) {
+    return {
+      schema_version: 1,
+      source_owner: "exploratory_replay_owner",
+      href: query("/backtest", [
+        { key: "replayRequestIdentity", value: fields[1].value },
+        { key: "meaningDigest", value: fields[3].value },
+        { key: "resultIdentity", value: fields[0].value },
+        { key: "attemptIdentity", value: fields[2].value },
+      ]),
+      action_label: "Resolve same identity",
+      identity_fields: fields.map(({ key, value }) => ({ key, value })),
+    };
+  }
   if (operationId === "rd_formation_catalog.shadow_read.v1" && fields.length === 0) {
     return {
       schema_version: 1,
@@ -211,6 +238,17 @@ function exactReplaySearch(search: SearchParams): boolean {
     && DIGEST.test(search.meaningDigest);
 }
 
+function exactReplayResultSearch(search: SearchParams): boolean {
+  return Object.keys(search).filter((key) => search[key] !== undefined).length === 4
+    && typeof search.replayRequestIdentity === "string"
+    && validExploratoryReplayOpaqueIdentityV2(search.replayRequestIdentity)
+    && typeof search.meaningDigest === "string" && DIGEST.test(search.meaningDigest)
+    && typeof search.attemptIdentity === "string"
+    && validExploratoryReplayOpaqueIdentityV2(search.attemptIdentity)
+    && typeof search.resultIdentity === "string"
+    && validExploratoryReplayOpaqueIdentityV2(search.resultIdentity);
+}
+
 export function parseRdOwnerViewRequestV1(
   route: string,
   search: SearchParams,
@@ -237,6 +275,15 @@ export function parseRdOwnerViewRequestV1(
   }
   if (route === "/rd/decisions" && exactSearch(search, ["trialFamilyIdentity"])) {
     return { kind: "decision", trialFamilyIdentity: search.trialFamilyIdentity as string };
+  }
+  if (route === "/backtest" && exactReplayResultSearch(search)) {
+    return {
+      kind: "replay_result",
+      requestIdentity: search.replayRequestIdentity as string,
+      meaningDigest: search.meaningDigest as string,
+      attemptIdentity: search.attemptIdentity as string,
+      resultIdentity: search.resultIdentity as string,
+    };
   }
   if (route === "/backtest" && exactReplaySearch(search)) {
     return {

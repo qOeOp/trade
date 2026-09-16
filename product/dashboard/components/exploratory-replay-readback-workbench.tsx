@@ -137,12 +137,16 @@ function AvailableHistoricalRejection({
 export function ExploratoryReplayReadbackWorkbench({
   initialRequestIdentity,
   initialMeaningDigest,
+  initialResultIdentity,
+  initialAttemptIdentity,
   initialHistoricalRequestIdentity,
   initialHistoricalAttemptIdentity,
   initialHistoricalSemanticDigest,
 }: {
   initialRequestIdentity?: string;
   initialMeaningDigest?: string;
+  initialResultIdentity?: string;
+  initialAttemptIdentity?: string;
   initialHistoricalRequestIdentity?: string;
   initialHistoricalAttemptIdentity?: string;
   initialHistoricalSemanticDigest?: string;
@@ -155,8 +159,8 @@ export function ExploratoryReplayReadbackWorkbench({
   }> | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "available" | "unavailable">("idle");
   const [projection, setProjection] = useState<ExploratoryReplayBrowserProjectionV1 | null>(null);
-  const [resultIdentity, setResultIdentity] = useState("");
-  const [attemptIdentity, setAttemptIdentity] = useState("");
+  const [resultIdentity, setResultIdentity] = useState(initialResultIdentity ?? "");
+  const [attemptIdentity, setAttemptIdentity] = useState(initialAttemptIdentity ?? "");
   const [resultStatus, setResultStatus] = useState<"idle" | "loading" | "available" | "unavailable">("idle");
   const [resultProjection, setResultProjection] = useState<ExploratoryReplayResultBrowserProjectionV1 | null>(null);
   const [resultValidation, setResultValidation] = useState<string | null>(null);

@@ -111,6 +111,7 @@ export function DashboardRouteContent({
   replayRequestIdentity,
   replayMeaningDigest,
   replayAttemptIdentity,
+  replayResultIdentity,
   replayHistoricalCustody = false,
   researchRequestIdentity,
   researchDirectoryView = "candidates",
@@ -131,6 +132,7 @@ export function DashboardRouteContent({
   replayRequestIdentity?: string;
   replayMeaningDigest?: string;
   replayAttemptIdentity?: string;
+  replayResultIdentity?: string;
   replayHistoricalCustody?: boolean;
   researchRequestIdentity?: string;
   researchDirectoryView?: "verified" | "candidates";
@@ -252,6 +254,8 @@ export function DashboardRouteContent({
               : exploratoryReplayReadback ? <ExploratoryReplayReadbackWorkbench
                 initialRequestIdentity={replayHistoricalCustody ? undefined : replayRequestIdentity}
                 initialMeaningDigest={replayHistoricalCustody ? undefined : replayMeaningDigest}
+                initialResultIdentity={replayHistoricalCustody ? undefined : replayResultIdentity}
+                initialAttemptIdentity={replayHistoricalCustody ? undefined : replayAttemptIdentity}
                 initialHistoricalRequestIdentity={replayHistoricalCustody
                   ? replayRequestIdentity : undefined}
                 initialHistoricalAttemptIdentity={replayHistoricalCustody

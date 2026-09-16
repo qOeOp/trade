@@ -6,6 +6,7 @@ import {
   serializeBoundedRunResultV1,
 } from "../lib/run-detail-projection.ts";
 import {
+  EXPLORATORY_REPLAY_RESULT_SHADOW_READ_OPERATION,
   EXPLORATORY_REPLAY_SHADOW_READ_OPERATION,
   operationRegistryEntryDigestV1,
   RD_FORMATION_CATALOG_SHADOW_READ_OPERATION,
@@ -200,6 +201,30 @@ test("Run Detail binds Replay runs to the canonical Backtest point-read", () => 
   const legacyAlias = structuredClone(replay);
   legacyAlias.run.owner_view.href = `/rd/decisions?replayRequestIdentity=replay-request-detail-1&replayMeaningDigest=${encodeURIComponent(meaningDigest)}`;
   assert.equal(parseRunDetailEnvelopeV1(legacyAlias), null);
+
+  const result = envelope();
+  result.run.operation_id = EXPLORATORY_REPLAY_RESULT_SHADOW_READ_OPERATION;
+  result.bounded_result.operation_id = EXPLORATORY_REPLAY_RESULT_SHADOW_READ_OPERATION;
+  result.run.input_fields = [
+    { key: "result_identity", value: "replay-result-detail-1" },
+    { key: "request_identity", value: "replay-request-detail-1" },
+    { key: "attempt_identity", value: "replay-attempt-detail-1" },
+    { key: "meaning_digest", value: meaningDigest },
+  ];
+  result.run.dispatch_binding.required_operation_id = EXPLORATORY_REPLAY_RESULT_SHADOW_READ_OPERATION;
+  result.run.dispatch_binding.dependency_operation_ids = [EXPLORATORY_REPLAY_SHADOW_READ_OPERATION];
+  result.run.dispatch_binding.registry_entry_digest = operationRegistryEntryDigestV1(
+    EXPLORATORY_REPLAY_RESULT_SHADOW_READ_OPERATION,
+  );
+  result.run.worker_compatibility.required_operation_id = EXPLORATORY_REPLAY_RESULT_SHADOW_READ_OPERATION;
+  result.run.owner_view = {
+    schema_version: 1,
+    source_owner: "exploratory_replay_owner",
+    href: `/backtest?replayRequestIdentity=replay-request-detail-1&meaningDigest=${encodeURIComponent(meaningDigest)}&resultIdentity=replay-result-detail-1&attemptIdentity=replay-attempt-detail-1`,
+    action_label: "Resolve same identity",
+    identity_fields: result.run.input_fields,
+  };
+  assert.equal(parseRunDetailEnvelopeV1(result)?.run?.owner_view.href, result.run.owner_view.href);
 });
 
 test("Run Detail projects claimed owner-effect worker custody without inventing a shadow binding", () => {
