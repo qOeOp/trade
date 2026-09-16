@@ -231,10 +231,10 @@ The generic MessageBus may carry commands and uncommitted internal traffic. Even
 
 The existing MessageBus and Event Store are reusable mechanisms, not an Observability authority. Adopt MessageBus only behind typed Owner ports and Event Rail; adopt Event Store only behind Owner-scoped append/read APIs and transactional outbox boundaries. Existing logging, tracing, metrics, collector, broker durability, Dashboard, or OpenTelemetry capability is not inferred from crate names.
 
-Product closure is not an Observability capability. A Windmill Dashboard, trace, or alert may explain the current
+Product closure is not an Observability capability. A Dashboard, trace, or alert may explain the current
 stage, but it cannot close a user journey, choose its next action, or substitute for a native Owner receipt. The
-selected Windmill R&D Workbench therefore remains `ABSENT_TARGET_ONLY` until its App and MCP consumers implement
-the same typed request-and-view journey above.
+product surface therefore remains `TARGET` until the Dashboard and its MCP consumers implement the same typed
+request-and-view journey above and production deployment lands.
 
 The target Telemetry Gateway admits OTLP-compatible receivers, processors, and exporters behind one replaceable port. The target Status Projection consumes committed Event Wakes and policy-admitted telemetry idempotently, stores checkpoints, and can rebuild. Alert Routing wraps Telegram and future adapters without making delivery a business result. Dashboard API serves only the Global Status View. Kafka, NATS, Redpanda, OpenTelemetry Collector, ClickHouse, PostgreSQL, and vendor backends remain implementation candidates, not preselected product dependencies.
 

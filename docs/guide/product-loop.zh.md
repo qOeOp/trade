@@ -11,13 +11,15 @@
 
 - `CURRENT/PARTIAL` - `crates/strategy_factory` 提供从窄范围冻结 `ResearchIntent` 到 `StrategyArtifact`、
   native replay 和 `TrialReceipt` 的 pilot。它是 `SURVIVED_NOT_ADMITTED`，不是完整 R&D 产品。
-- `TARGET/ABSENT_TARGET_ONLY` - 选定的 Windmill R&D Workbench 展示 Source 与 Hypothesis、冻结 Intent、Artifact 与 Build
-  Receipt、探索 Run Detail 与 Compare、Diagnosis、Iteration Decision，以及准确的停止、修复、后继或
-  Qualification 交接动作。Windmill App 与 Windmill MCP 调用同一组带版本 operation。
-- `NOT_ADMITTED` - 架构页面、本地 Windmill 安装、MCP 握手、目标 read model、Dashboard 或可访问底层
-  API 都不能让 Workbench 成为 `CURRENT`。
+- `TARGET` - 产品表面是 `product/dashboard` 里 Trade 自有的 Dashboard，展示 Source 与 Hypothesis、
+  冻结 Intent、Artifact 与 Build Receipt、探索 Run Detail 与 Compare、Diagnosis、Iteration Decision，
+  以及准确的停止、修复、后继或 Qualification 交接动作。Dashboard 与它的 `/api/mcp` 调用同一组带版本
+  operation。它的已准入第一方读面已经发货，但仍只在 opt-in 的 `dashboard-preview` profile 下启动；
+  生产部署与 Windmill 切换保持 `TARGET`。
+- `NOT_ADMITTED` - 架构页面、preview profile 下可达的 Dashboard、MCP 握手、目标 read model 或可访问
+  底层 API 都不能让产品表面成为 `CURRENT`。
 
-目标以一套 Docker Compose 产品包交付，只提供一个默认 Windmill Web 入口与一个 Windmill MCP 对话
+目标以一套 Docker Compose 产品包交付，只提供一个默认 Dashboard Web 入口与一个 Dashboard MCP 对话
 出口。外部对话客户端可选接入，但不随产品打包，也不逐一维护 adapter。Windmill 调度长时间运行的
 研究与 scanner job；真实策略循环、行情会话、Risk、订单与恢复效果的权威和进程边界仍属于 Trade Runtime。
 
@@ -42,7 +44,7 @@ Conversation Agent 的职责止于提交类型化请求和查询有界状态。�
 disposition；绝不编辑或覆盖既有 Artifact。Windmill Job 进度只能解释执行过程；业务阶段和允许的
 下一步动作由接收 Owner 的回执与投影决定。
 
-目标 Windmill R&D Workbench 通过以下应用区域闭合旅程：
+Dashboard 通过以下应用区域闭合旅程：
 
 | 区域             | 首期必需产品视图                                                                       | 权威边界                                                                                     |
 | ---------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |

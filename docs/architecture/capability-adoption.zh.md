@@ -224,9 +224,9 @@ unavailable 且有条件。
 
 现有 MessageBus 与 Event Store 是可复用机制，不是 Observability 权威。MessageBus 只能放在 typed Owner port 与 Event Rail 后；Event Store 只能放在 Owner-scoped append/read API 与 transactional outbox 边界后。不能从 crate 名称推断现有 logging、tracing、metrics、collector、broker durability、Dashboard 或 OpenTelemetry 能力已经实现。
 
-产品闭环不是 Observability 能力。Windmill Dashboard、trace 或 alert 可以解释当前阶段，但不能闭合用户
-旅程、选择下一动作或替代原生 Owner 回执。因此在 Windmill App 与 MCP consumer 实现相同的上述类型化
-请求与视图旅程前，选定的 Windmill R&D Workbench 保持 `ABSENT_TARGET_ONLY`。
+产品闭环不是 Observability 能力。Dashboard、trace 或 alert 可以解释当前阶段，但不能闭合用户
+旅程、选择下一动作或替代原生 Owner 回执。因此在 Dashboard 与 MCP consumer 实现相同的上述类型化
+请求与视图旅程、并完成生产部署前，产品表面保持 `TARGET`。
 
 目标 Telemetry Gateway 在一个可替换端口后接纳 OTLP-compatible receiver、processor 与 exporter。目标 Status Projection 幂等消费已提交 Event Wake 与策略接纳 telemetry，保存 checkpoint 并支持重建。Alert Routing 封装 Telegram 与未来适配器，但投递不是业务结果。Dashboard API 只提供 Global Status View。Kafka、NATS、Redpanda、OpenTelemetry Collector、ClickHouse、PostgreSQL 与 vendor backend 都保持实现候选，不是预选产品依赖。
 
