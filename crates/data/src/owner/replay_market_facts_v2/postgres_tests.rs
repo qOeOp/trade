@@ -2088,11 +2088,25 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         "market_data_rd_api.lock_market_semantics_scope_for_strategy_input_v1(bytea)",
         "market_data_rd_api.lock_market_semantics_readback_for_strategy_input_v1(bytea)",
     ] {
-        let isolated: bool = sqlx::query_scalar("SELECT pg_catalog.has_function_privilege('rd_owner',$1,'EXECUTE') AND NOT pg_catalog.has_function_privilege('market_data_reader',$1,'EXECUTE')")
-            .bind(function)
-            .fetch_one(admin)
-            .await
-            .unwrap();
+        // The textual `has_function_privilege` overload parses the signature, which needs USAGE on
+        // the facade schema. Only `rd_owner` holds that, so resolve the catalog entry and ask
+        // about the OID instead; catalog reads need no schema grant.
+        let name = function
+            .split_once('(')
+            .map_or(function, |(name, _)| name)
+            .rsplit_once('.')
+            .map_or(function, |(_, name)| name);
+        let isolated: bool = sqlx::query_scalar(
+            "SELECT pg_catalog.has_function_privilege('rd_owner',procedure.oid,'EXECUTE')
+                    AND NOT pg_catalog.has_function_privilege('market_data_reader',procedure.oid,'EXECUTE')
+               FROM pg_catalog.pg_proc procedure
+               JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
+              WHERE namespace.nspname='market_data_rd_api' AND procedure.proname=$1",
+        )
+        .bind(name)
+        .fetch_one(admin)
+        .await
+        .unwrap();
         assert!(isolated, "Market Data custody facade ACL: {function}");
     }
     let fresh_owner = ReplayCompositionOwnerV1::connect(owner_url, reader_url)
