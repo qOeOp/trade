@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   normalizeStrategyCodeViewerProjection,
@@ -26,21 +26,41 @@ export function ArtifactSourceWorkspace({
   attemptIdentity: string;
 }) {
   const [projection, setProjection] = useState<StrategyCodeViewerProjection>(loadingProjection);
+  const generation = useRef(0);
+  const activeRequest = useRef<AbortController | null>(null);
 
   const refresh = useCallback(async () => {
+    const current = ++generation.current;
+    activeRequest.current?.abort();
+    const controller = new AbortController();
+    activeRequest.current = controller;
     setProjection(loadingProjection);
     try {
       const response = await fetch(
         `/api/rd/artifacts/${encodeURIComponent(buildRequestIdentity)}/attempts/${encodeURIComponent(attemptIdentity)}/source/`,
-        { method: "GET", cache: "no-store" },
+        { method: "GET", cache: "no-store", signal: controller.signal },
       );
-      setProjection(normalizeStrategyCodeViewerProjection(await response.json()));
+      const parsed = normalizeStrategyCodeViewerProjection(await response.json());
+      if (generation.current !== current || controller.signal.aborted) return;
+      setProjection(response.ok
+        ? parsed
+        : unavailableStrategyCodeViewer("ARTIFACT_SOURCE_RESPONSE_UNAVAILABLE"));
     } catch {
+      if (generation.current !== current || controller.signal.aborted) return;
       setProjection(unavailableStrategyCodeViewer("ARTIFACT_SOURCE_TRANSPORT_UNAVAILABLE"));
+    } finally {
+      if (activeRequest.current === controller) activeRequest.current = null;
     }
   }, [attemptIdentity, buildRequestIdentity]);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    void refresh();
+    return () => {
+      generation.current += 1;
+      activeRequest.current?.abort();
+      activeRequest.current = null;
+    };
+  }, [refresh]);
 
   return (
     <StrategyCodeViewer

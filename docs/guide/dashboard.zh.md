@@ -520,6 +520,13 @@ View/column chooser、registered/visible 数量、多级 filter popover 或 back
 进入精确只读 source-viewer URL。表头固定在有界 scroll viewport 内；loading、合法 empty、unavailable、
 partial 保持相同 card geometry。窄屏只横向滚动，不把 identity 折叠成编造的 mobile fact。
 
+Source viewer 是 canonical long-content workspace，不是 `DetailSheet`：source folding、selection、scroll、copy、
+WASM evidence 与完整技术检查继续留在精确 build/attempt route。浏览器 read 绑定该 identity pair，并在开始时
+先清除旧 Artifact identity、source、WASM preview 与 Copy capability。新 identity 或 unmount 会 abort 并使旧 read
+失效。只有当前 request、成功 HTTP response 与现有 strict projection normalizer 同时成立时才能恢复 positive source；
+late、aborted、非 2xx、malformed 或 transport-failed response 只能保留固定 unavailable viewer geometry，不能重新
+填回旧 source。该 workspace 仍然只有 GET，且不暴露 edit、save、run、build、deploy 或 Owner/Windmill effect control。
+
 Research 与 Artifact directory 共用 domain-neutral `EntityReference` 原子。主行只显示业务实体名称
 （`Research request`、`Build request`、`Build attempt`、`Strategy artifact`、`Strategy intent` 或
 `Strategy family`）；opaque identity 退为紧凑次级引用，完整值仍作为 title 与 search key 保留。默认表格

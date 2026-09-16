@@ -39,6 +39,7 @@ test("historical Artifact detail composes the shared panel and fact atoms", asyn
   assert.match(hook, /!response\.ok \|\| !parsed \|\| parsed\.availability !== "available"/u);
   assert.match(hook, /setProjection\(parsed\?\.availability === "unavailable" \? parsed : null\)/u);
   assert.match(drilldown, /Back to build summary/u);
+  assert.match(drilldown, /<Button autoFocus type="button"/u);
   assert.match(drilldown, /Open full build workspace/u);
   assert.match(drilldown, /readback\.status === "available" && readback\.projection/u);
   assert.doesNotMatch(workspace, /IMPLEMENTATION_ADMITTED|OWNER_POINT_READ_ONLY/u);

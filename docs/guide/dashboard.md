@@ -600,6 +600,15 @@ to the exact read‑only source-viewer URL. The table header is sticky inside th
 valid empty, unavailable, and partial states preserve the same card geometry. At narrow widths the table scrolls
 horizontally; it does not collapse identities into invented mobile facts.
 
+The source viewer is a canonical long-content workspace rather than a `DetailSheet`: source folding, selection,
+scrolling, copy, WASM evidence, and complete technical inspection remain on the exact build/attempt route. Its
+browser read is bound to that identity pair and begins by clearing the prior Artifact identity, source, WASM
+preview, and Copy capability. A new identity or unmount aborts and invalidates the prior read. Only the current
+request, a successful HTTP response, and the strict existing projection normalizer may restore positive source;
+late, aborted, non-2xx, malformed, or transport-failed responses retain the fixed unavailable viewer geometry and
+cannot refill an older source. The workspace remains GET-only and exposes no edit, save, run, build, deploy, or
+Owner/Windmill effect control.
+
 Research and Artifact directories share the domain-neutral `EntityReference` atom. The primary line names the
 business entity (`Research request`, `Build request`, `Build attempt`, `Strategy artifact`, `Strategy intent`, or
 `Strategy family`); the opaque identity is a compact secondary reference and the exact value remains available as

@@ -23,7 +23,7 @@ export function ArtifactHistoricalReadbackDrilldown({
   return (
     <PageStack gap="compact">
       <div>
-        <Button type="button" variant="ghost" size="tool" onClick={onBack} data-artifact-readback-back>
+        <Button autoFocus type="button" variant="ghost" size="tool" onClick={onBack} data-artifact-readback-back>
           <InterfaceIcons.previous aria-hidden="true" /> Back to build summary
         </Button>
       </div>
