@@ -45,12 +45,12 @@ and in the Skill's own description still reads as an affirmative invocation. The
 The Skill's lane roles are Codex agent profiles under `~/.codex/agents/*.toml`. This host maps them to
 user-level subagents:
 
-| Skill role          | Claude Code subagent | Tools                              | Model  |
-| ------------------- | -------------------- | ---------------------------------- | ------ |
-| `mission_planner`   | `mission-planner`    | Read, Grep, Glob                   | opus   |
-| `mission_researcher`| `mission-researcher` | Read, Grep, Glob, WebSearch, WebFetch | sonnet |
-| `mission_evaluator` | `mission-evaluator`  | Read, Grep, Glob, Bash             | opus   |
-| `fast_builder`      | `fast-builder`       | Read, Write, Edit, Grep, Glob, Bash | haiku |
+| Skill role           | Claude Code subagent | Tools                                 | Model  |
+| -------------------- | -------------------- | ------------------------------------- | ------ |
+| `mission_planner`    | `mission-planner`    | Read, Grep, Glob                      | opus   |
+| `mission_researcher` | `mission-researcher` | Read, Grep, Glob, WebSearch, WebFetch | sonnet |
+| `mission_evaluator`  | `mission-evaluator`  | Read, Grep, Glob, Bash                | opus   |
+| `fast_builder`       | `fast-builder`       | Read, Write, Edit, Grep, Glob, Bash   | haiku  |
 
 `explorer` maps to the built-in `Explore` subagent; `worker` has no dedicated profile on either host
 and runs on the host default route. `fork_turns: none` has no Claude Code counterpart because a

@@ -3,30 +3,57 @@
 ## Responsibility
 
 Product Edge is the application and conversation boundary. It turns attended UI or natural-language intent into
-bounded requests and returns read-only product views. The selected target surface is a Windmill R&D Workbench;
-Windmill's MCP endpoint exposes the same admitted operations to optional external conversation clients.
+bounded requests and returns read-only product views. The product surface is the Trade-owned Dashboard in
+`product/dashboard`; its `/api/mcp` endpoint exposes the same admitted operations to optional external
+conversation clients. The retained Windmill deployment in `product/rd-workbench` is still the current executor for
+production effects; the Dashboard has not cut over.
 
-## Target product surface and package
+## Product surface and package
 
 The target distribution is one VibeTrader Docker Compose package, not one monolithic image. It composes the Trade
-Runtime and Owner APIs, a Windmill server and workers, their required persistence and local ingress. The Windmill
-web application is the sole default product entry. Its native MCP endpoint is the sole target conversation outlet,
-so LobeHub, OpenClaw, WorkBuddy, or another compatible client may connect without a project-owned adapter or a
-second `trade-rd` MCP service. Those external clients are optional consumers: they are not bundled product shells,
-business authorities, or implementation-acceptance dependencies.
+Runtime and Owner APIs, the Dashboard, the retained Windmill server and workers, their required persistence and
+local ingress.
 
-The Windmill App and MCP endpoint invoke one curated set of versioned scripts and flows over typed Owner ports.
-They may not call arbitrary Owner SQL, mint business facts, or keep a shadow workflow truth. Scheduled research,
-scanner, replay, report, and maintenance work may run as Windmill jobs with live operational progress, logs,
-retries, and Owner-owned artifact references. A live strategy loop, market session, order state machine, and recovery effect remain owned by
-Trade Runtime, Risk, Execution, and Recovery; Windmill may supervise and display them but is never the trading
+The product entry is `product/dashboard`: one independently buildable `trade-dashboard` image carrying the
+Vibe-derived shell, the shared UI atoms, and the currently admitted first-party read surfaces. It owns its browser
+session gate, the Trade-owned RunStore, and four least-privilege process roles — `dashboard-web`,
+`dashboard-effect-worker`, `dashboard-shadow-worker`, and `dashboard-shadow-scheduler`. `/api/mcp` is a stateless
+Streamable HTTP endpoint over the same typed handlers. It sits outside the browser-session gate but requires its
+own finite, scoped Bearer capability and validates Host and Origin before dispatch. Its fixed tool registry carries
+only Artifact preflight/action, Source/Research action, the Develop Composer and Replay V2 request-custody actions,
+exact run detail, and bounded run-log reads; it exposes no arbitrary script, database, shell, or administrative
+tool. External conversation clients are optional consumers: they are not bundled product shells, business
+authorities, or implementation-acceptance dependencies.
+
+The Dashboard and its MCP endpoint invoke one curated set of versioned operations over typed Owner ports. They may
+not call arbitrary Owner SQL, mint business facts, or keep a shadow workflow truth. The Operations APIs read only
+Trade-owned operational RunStore data; typed R&D and Backtest reads use their exact Owner contracts. They never
+copy Windmill job rows or raw Owner payloads, and operational completion is never reinterpreted as business
+success. A live strategy loop, market session, order state machine, and recovery effect remain owned by Trade
+Runtime, Risk, Execution, and Recovery; the product surface may supervise and display them but is never the trading
 runtime.
 
-This selection remains `TARGET/ABSENT_TARGET_ONLY`. A local Windmill installation, an MCP handshake, or a mock
-dashboard does not make the workbench `CURRENT`; acceptance requires the bounded user journeys, common operations,
-Owner receipts, unresolved states, and direct browser evidence defined below.
+**Current deployment state:** every Dashboard service starts only under the opt-in `dashboard-preview` profile, the
+image tag defaults to `preview`, the web host port defaults to `127.0.0.1:3100`, and the runtime roles expose no
+host port. **There is no production deployment and no Windmill cutover.** Windmill remains the current executor for
+production effects; the Dashboard effect worker is disabled by default, holds only explicit disposable-local
+authority, and carries no production trading authority.
+
+The retained Windmill deployment in `product/rd-workbench` still owns the typed scripts and flows under
+`f/trade/product_edge/`, which remain the current transport and execution path for those operations. Its
+`rd_workbench.raw_app` is superseded by the Dashboard and is no longer the product entry.
+
+Routes below the bilingual `DRAWABLE_EXACT` gate remain navigation-only placeholders; a route name or a retained
+source is not implementation authority. Production deployment and the Windmill cutover remain `TARGET`. Dashboard
+reachability under the preview profile, an MCP handshake, or a local Windmill installation does not make the
+product surface `CURRENT`; acceptance requires the bounded user journeys, common operations, Owner receipts,
+unresolved states, and direct browser evidence defined below.
 
 ## Windmill capability adoption contract
+
+This section governs the **retained Windmill executor path**, not the product entry, which the section above
+defines. These boundaries keep applying until the cutover completes, because production effects still execute on
+Windmill today.
 
 The audited implementation floor is self-hosted Windmill Community Edition. The 2026-08-18 evidence cut verified
 local `CE v1.791.0` server and worker health and checked the official Windmill capability documentation for Apps,
@@ -36,7 +63,7 @@ exact compatible version and container digest; `main`, `latest`, or another movi
 
 | Windmill primitive                | Adopted Product Edge role                                                                               | Mandatory boundary                                                                                                                                                                                                                           |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Full‑code App                     | One repository‑owned React workbench, bundled from `.raw_app/` sources                                  | Authenticated and `viewer` execution policy only. `publisher`, `anonymous`, and `public` are forbidden because they erase the caller's effective permission boundary.                                                                        |
+| Full‑code App                     | Superseded by the Dashboard. `rd_workbench.raw_app` is a retained stub, not the product entry           | Authenticated and `viewer` execution policy only. `publisher`, `anonymous`, and `public` are forbidden because they erase the caller's effective permission boundary.                                                                        |
 | Native MCP                        | Optional conversation channel to the same versioned operation set                                       | Workspace‑scoped OAuth or a scoped token exposes an exact allowlist. It must not expose preview or create/update/delete tools for Apps, scripts, flows, resources, variables, schedules, or workers. Folder filtering alone is insufficient. |
 | Scripts and flows                 | Typed adapters and bounded orchestration over Owner ports                                               | They may route, wait, retry, and compose; they never write Owner storage, invent business state, or turn flow success into an Owner result.                                                                                                  |
 | Jobs, progress, logs, and SSE     | Operational run identity, live progress, diagnostics, and UI streaming                                  | A Windmill job ID, percentage, result, or log is not an Owner receipt. Self‑hosted CE job detail retention is bounded, so durable research artifacts and outcome facts remain with Trade Owners.                                             |
@@ -282,7 +309,7 @@ The composed runner must prove all of the following against the deployed operati
 
 Until those gates pass, durable Composer custody, public API composition, typed Source Intake-to-Research handoff,
 and the Windmill A2 topology remain `TARGET`. A production Market Data binding resolver, live OpenAlex
-policy/rights/DNS/credentials/egress, `PRODUCT_CURRENT`, Dashboard implementation, Paper, Live, deployment, and any
+policy/rights/DNS/credentials/egress, `PRODUCT_CURRENT`, Paper, Live, deployment, and any
 trading effect remain unavailable and outside this acceptance authority. Passing the fixed-corpus, fixed-adapter,
 isolated PostgreSQL/Windmill runner is `SEALED_ACCEPTANCE` evidence only and never production readiness.
 
@@ -635,7 +662,7 @@ Owner, source cut, observed/projection time, freshness, valid-through time, and 
 rejects mixed cuts, stale policy, conflicting replay, and unauthorized scope; and proves protected Qualification
 detail, Risk headroom, or authorization cannot enter a projection.
 
-The future Dashboard reads the Observability-owned Global Status View only. That view exposes its projection
+The Dashboard reads the Observability-owned Global Status View only. That view exposes its projection
 version, cited Owner/telemetry frontier, freshness, completeness, lag, quarantine, and rebuild state. A stale,
 partial, rebuilding, or unavailable view stays visibly non-current. Any Dashboard action that could mutate an
 Owner becomes a new typed and separately authorized Product Edge request; it never writes through the projection.
