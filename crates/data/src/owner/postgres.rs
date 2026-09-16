@@ -40,6 +40,7 @@ use super::native_replay_scheduling_v1::{
 };
 #[cfg(not(test))]
 use super::pit_snapshot::{PitObservationBatchOwnerResolver, VerifiedPitObservationBatch};
+use super::pit_snapshot::PitSnapshotFact;
 use super::research_pit_terminal::{
     ResearchPitTerminal, ResearchPitTerminalResolver, UntrustedResearchPitTerminalRequest,
     seal_research_pit_terminal,
@@ -210,7 +211,7 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_observation_rows_v1 (snapshot_identity BYTEA NOT NULL REFERENCES market_data_private.pit_observation_batches_v1(snapshot_identity), ordinal BIGINT NOT NULL CHECK (ordinal > 0), symbolic_key TEXT NOT NULL CHECK (symbolic_key <> ''), member_key TEXT NOT NULL CHECK (member_key <> ''), row_bytes BYTEA NOT NULL CHECK (octet_length(row_bytes) > 0), PRIMARY KEY(snapshot_identity,ordinal), UNIQUE(snapshot_identity,symbolic_key,member_key))",
     "CREATE TABLE IF NOT EXISTS market_data_private.source_binding_lineage_census_v1 (lineage_root BYTEA PRIMARY KEY CHECK (octet_length(lineage_root) = 32))",
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_snapshot_lineage_census_v1 (lineage_root BYTEA PRIMARY KEY CHECK (octet_length(lineage_root) = 32))",
-    "CREATE TABLE IF NOT EXISTS market_data_private.native_replay_frame_census_v2 (scope_digest BYTEA NOT NULL CHECK (octet_length(scope_digest) = 32), frame_ordinal BIGINT NOT NULL CHECK (frame_ordinal > 0), snapshot_identity BYTEA NOT NULL UNIQUE REFERENCES market_data_private.pit_snapshot_facts_v1(snapshot_identity) ON DELETE RESTRICT, PRIMARY KEY (scope_digest, frame_ordinal))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.native_replay_frame_census_v2 (scope_digest BYTEA NOT NULL CHECK (octet_length(scope_digest) = 32), frame_ordinal BIGINT NOT NULL CHECK (frame_ordinal > 0), snapshot_identity BYTEA NOT NULL UNIQUE REFERENCES market_data_private.pit_snapshot_facts_v1(snapshot_identity) ON DELETE RESTRICT, event_effective_ns BIGINT NOT NULL CHECK (event_effective_ns >= 0), decision_cut_ns BIGINT NOT NULL CHECK (decision_cut_ns >= 0), correction_branch_digest BYTEA NOT NULL CHECK (octet_length(correction_branch_digest) = 32), PRIMARY KEY (scope_digest, frame_ordinal))",
     "CREATE TABLE IF NOT EXISTS market_data_private.owner_history_census_state_v1 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), source_lineage_count BIGINT NOT NULL CHECK (source_lineage_count >= 0), pit_lineage_count BIGINT NOT NULL CHECK (pit_lineage_count >= 0))",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_source_binding_v1(p_binding_id BYTEA) RETURNS TABLE(row_identity BYTEA, fact_digest BYTEA, request_identity BYTEA, request_digest BYTEA, correction_stream_identity TEXT, correction_sequence BIGINT, fact_lineage_root BYTEA, fact_lineage_version BIGINT, aggregate_json JSONB, outbox_event_identity BYTEA, outbox_aggregate_identity BYTEA, outbox_payload BYTEA, outbox_digest BYTEA, head_lineage_root BYTEA, head_identity BYTEA, head_digest BYTEA, head_version BIGINT, clock_identity TEXT, clock_epoch TEXT, monotonic_sequence BIGINT, wall_observed BIGINT, decision_cut BIGINT, valid_through BIGINT, restart_continuity_digest BYTEA, uncertainty_bound BIGINT, skew_bound BIGINT, comparison_rule SMALLINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT f.binding_id, f.fact_digest, NULL::BYTEA, NULL::BYTEA, NULL::TEXT, NULL::BIGINT, f.lineage_root, f.lineage_version, f.aggregate_json, o.event_identity, o.aggregate_identity, o.payload, o.payload_digest, h.lineage_root, h.binding_id, h.fact_digest, h.lineage_version, NULL::TEXT, NULL::TEXT, NULL::BIGINT, NULL::BIGINT, NULL::BIGINT, NULL::BIGINT, NULL::BYTEA, NULL::BIGINT, NULL::BIGINT, NULL::SMALLINT FROM market_data_private.source_binding_facts_v1 AS f JOIN market_data_private.source_binding_outbox_v1 AS o ON o.aggregate_identity = f.binding_id JOIN market_data_private.source_binding_heads_v1 AS h ON h.lineage_root = f.lineage_root WHERE f.binding_id = p_binding_id $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_pit_snapshot_v1(p_snapshot_identity BYTEA) RETURNS TABLE(row_identity BYTEA, fact_digest BYTEA, request_identity BYTEA, request_digest BYTEA, correction_stream_identity TEXT, correction_sequence BIGINT, fact_lineage_root BYTEA, fact_lineage_version BIGINT, aggregate_json JSONB, outbox_event_identity BYTEA, outbox_aggregate_identity BYTEA, outbox_payload BYTEA, outbox_digest BYTEA, head_lineage_root BYTEA, head_identity BYTEA, head_digest BYTEA, head_version BIGINT, clock_identity TEXT, clock_epoch TEXT, monotonic_sequence BIGINT, wall_observed BIGINT, decision_cut BIGINT, valid_through BIGINT, restart_continuity_digest BYTEA, uncertainty_bound BIGINT, skew_bound BIGINT, comparison_rule SMALLINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT f.snapshot_identity, f.fact_digest, f.request_identity, f.request_digest, f.correction_stream_identity, f.correction_sequence, f.lineage_root, f.lineage_version, f.aggregate_json, o.event_identity, o.aggregate_identity, o.payload, o.payload_digest, h.lineage_root, h.snapshot_identity, h.fact_digest, h.lineage_version, NULL::TEXT, NULL::TEXT, NULL::BIGINT, NULL::BIGINT, NULL::BIGINT, NULL::BIGINT, NULL::BYTEA, NULL::BIGINT, NULL::BIGINT, NULL::SMALLINT FROM market_data_private.pit_snapshot_facts_v1 AS f JOIN market_data_private.pit_snapshot_outbox_v1 AS o ON o.aggregate_identity = f.snapshot_identity JOIN market_data_private.pit_snapshot_heads_v1 AS h ON h.lineage_root = f.lineage_root WHERE f.snapshot_identity = p_snapshot_identity $function$",
@@ -5247,16 +5248,99 @@ async fn validate_pit_lineage_shape(
 ///
 /// Density is what proves "no skipped eligible frame": the existing correction lineage orders
 /// revisions of one request and cannot see a sibling lineage's frame in the same window.
-async fn admit_native_replay_frame_census(
+/// One census row for a scope, as the Owner recorded it at commit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NativeReplayFrameCensusRowV2 {
+    pub(crate) frame_ordinal: u64,
+    pub(crate) snapshot_identity: BindingDigest,
+    pub(crate) event_effective_ns: u64,
+    pub(crate) decision_cut_ns: u64,
+    pub(crate) correction_branch_digest: BindingDigest,
+}
+
+/// Reads one scope's frames whose event-effective coordinate falls inside the half-open window.
+///
+/// This answers only what the census itself knows: which frames a scope holds, in commit order,
+/// with the coordinates a window question is asked in. Whether those frames form an admissible
+/// two-frame profile is decided by `admit_two_frame_census_v2`, which additionally needs each
+/// frame's resolved schedule and liquidity.
+///
+/// Rows outside the window are excluded here rather than filtered later, so an ordinal gap in the
+/// returned rows is exactly what "a skipped eligible frame" means for this window.
+async fn load_native_replay_frame_census_v2(
     transaction: &mut Transaction<'_, Postgres>,
     scope_digest: BindingDigest,
-    snapshot_identity: BindingDigest,
-) -> Result<(), PitSnapshotError> {
-    sqlx::query(
-        "INSERT INTO market_data_private.native_replay_frame_census_v2(scope_digest,frame_ordinal,snapshot_identity) SELECT $1, COALESCE(MAX(frame_ordinal),0)+1, $2 FROM market_data_private.native_replay_frame_census_v2 WHERE scope_digest=$1 ON CONFLICT (snapshot_identity) DO NOTHING",
+    window_start_ns: u64,
+    window_end_ns_exclusive: u64,
+) -> Result<Vec<NativeReplayFrameCensusRowV2>, PitSnapshotError> {
+    let start =
+        i64::try_from(window_start_ns).map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    let end = i64::try_from(window_end_ns_exclusive)
+        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    let rows = sqlx::query(
+        "SELECT frame_ordinal,snapshot_identity,event_effective_ns,decision_cut_ns,correction_branch_digest FROM market_data_private.native_replay_frame_census_v2 WHERE scope_digest=$1 AND event_effective_ns>=$2 AND event_effective_ns<$3 ORDER BY frame_ordinal",
     )
     .bind(scope_digest.as_bytes().as_slice())
-    .bind(snapshot_identity.as_bytes().as_slice())
+    .bind(start)
+    .bind(end)
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+
+    rows.into_iter()
+        .map(|row| {
+            Ok(NativeReplayFrameCensusRowV2 {
+                frame_ordinal: u64::try_from(row.try_get::<i64, _>("frame_ordinal").map_err(
+                    |_| PitSnapshotError::PersistenceUnavailable,
+                )?)
+                .map_err(|_| PitSnapshotError::PersistenceUnavailable)?,
+                snapshot_identity: census_digest(&row, "snapshot_identity")?,
+                event_effective_ns: u64::try_from(
+                    row.try_get::<i64, _>("event_effective_ns")
+                        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?,
+                )
+                .map_err(|_| PitSnapshotError::PersistenceUnavailable)?,
+                decision_cut_ns: u64::try_from(
+                    row.try_get::<i64, _>("decision_cut_ns")
+                        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?,
+                )
+                .map_err(|_| PitSnapshotError::PersistenceUnavailable)?,
+                correction_branch_digest: census_digest(&row, "correction_branch_digest")?,
+            })
+        })
+        .collect()
+}
+
+fn census_digest(
+    row: &sqlx::postgres::PgRow,
+    column: &str,
+) -> Result<BindingDigest, PitSnapshotError> {
+    let bytes: Vec<u8> = row
+        .try_get(column)
+        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    let bytes: [u8; 32] = bytes
+        .try_into()
+        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    Ok(BindingDigest::from_untrusted_bytes(bytes))
+}
+
+async fn admit_native_replay_frame_census(
+    transaction: &mut Transaction<'_, Postgres>,
+    fact: &PitSnapshotFact,
+) -> Result<(), PitSnapshotError> {
+    let time = &fact.request().time_evidence;
+    let event_effective = i64::try_from(time.event_effective.value)
+        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    let decision_cut = i64::try_from(time.decision_cut.value)
+        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    sqlx::query(
+        "INSERT INTO market_data_private.native_replay_frame_census_v2(scope_digest,frame_ordinal,snapshot_identity,event_effective_ns,decision_cut_ns,correction_branch_digest) SELECT $1, COALESCE(MAX(frame_ordinal),0)+1, $2, $3, $4, $5 FROM market_data_private.native_replay_frame_census_v2 WHERE scope_digest=$1 ON CONFLICT (snapshot_identity) DO NOTHING",
+    )
+    .bind(fact.request().scope_digest.as_bytes().as_slice())
+    .bind(fact.snapshot_identity().as_bytes().as_slice())
+    .bind(event_effective)
+    .bind(decision_cut)
+    .bind(fact.lineage_root().as_bytes().as_slice())
     .execute(&mut **transaction)
     .await
     .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
@@ -5315,12 +5399,7 @@ async fn insert_pit(
     .execute(&mut **transaction)
     .await
     .map_err(|e| map_pit_insert_error(&e))?;
-    admit_native_replay_frame_census(
-        transaction,
-        fact.request().scope_digest,
-        fact.snapshot_identity(),
-    )
-    .await?;
+    admit_native_replay_frame_census(transaction, fact).await?;
     if fault == PostgresCommitFault::AfterFactBeforeOutbox {
         return Err(PitSnapshotError::CommitInterrupted);
     }
