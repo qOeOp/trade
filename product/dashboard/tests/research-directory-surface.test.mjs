@@ -38,9 +38,13 @@ test("Research directory uses the shared compact read-only table surface", async
   assert.match(statusAtom, /className="compact-status-item-link"/u);
   assert.match(component, /<DataWorkspaceTable<HistoricalResearchCandidateV1>/u);
   assert.match(component, /const openCandidateDetail = useCallback[\s\S]*setSelectedRequestIdentity\(requestIdentity\);[\s\S]*setDetailOpen\(true\)/u);
+  assert.match(component, /const openCurrentIntentDetail = useCallback[\s\S]*setSelectedDetailSource\("current"\)[\s\S]*setDetailMode\("readback"\)/u);
+  assert.match(component, /label="Research request"[\s\S]*detail="Review result"[\s\S]*onActivate=\{\(\) => openCurrentIntentDetail\(item\.requestIdentity\)\}/u);
+  assert.match(component, /<DataWorkspaceTable<ResearchDirectoryItemV1>[\s\S]*onRowClicked=\{\(item\) => openCurrentIntentDetail\(item\.requestIdentity\)\}/u);
   assert.match(component, /onActivate=\{\(\) => openCandidateDetail\(item\.requestIdentity\)\}/u);
   assert.match(component, /onRowClicked=\{\(item\) => openCandidateDetail\(item\.requestIdentity\)\}/u);
   assert.doesNotMatch(component, /onActivate=\{\(\) => router\.push/u);
+  assert.doesNotMatch(component, /href=\{`\/rd\/research\/\$\{encodeURIComponent\(item\.requestIdentity\)\}`\}/u);
   assert.match(component, /<ResearchRequestPreview/u);
   assert.match(component, /const \[detailMode, setDetailMode\] = useState<"summary" \| "readback">\("summary"\)/u);
   assert.match(component, /<ResearchReadbackDrilldown/u);
@@ -116,6 +120,7 @@ test("bilingual Research directory contract fixes layout, fields and no-effect b
       "/rd/artifacts/?kind=bindings",
       "/api/rd/research/outcome-inventory", "outcome_ready", "awaiting_outcome",
       "All / Results ready / Waiting", "EntityReference", "opaque identity",
+      "/rd/research/?view=verified", "Open full research workspace", "Back to request summary",
     ]) assert.ok(specification.includes(token), `${suffix || "en"} missing ${token}`);
   }
 });

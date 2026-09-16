@@ -54,6 +54,9 @@ test("Research detail reuses shared atoms and exposes the admitted Artifact cont
   assert.match(drilldown, /<ResearchReadbackContent/u);
   assert.doesNotMatch(drilldown, /allowFormation|ArtifactFormationControl/u);
   assert.match(drilldown, /Back to request summary/u);
+  assert.match(drilldown, /onBack\?: \(\) => void/u);
+  assert.match(drilldown, /\{onBack \? <div>/u);
+  assert.match(drilldown, /<Button autoFocus type="button"/u);
   assert.match(drilldown, /readback\.status === "available"[\s\S]+Open full research workspace/u);
   assert.match(content, /className=\{styles\.readbackGrid\}/u);
   assert.match(css, /\.readbackGrid \{[\s\S]*repeat\(auto-fit, minmax\(min\(100%, 240px\), 1fr\)\)/u);

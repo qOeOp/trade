@@ -88,6 +88,7 @@ export function ResearchDirectory({
   const [journeyRefreshKey, setJourneyRefreshKey] = useState(0);
   const [pendingOlder, setPendingOlder] = useState(false);
   const [selectedRequestIdentity, setSelectedRequestIdentity] = useState<string | null>(null);
+  const [selectedDetailSource, setSelectedDetailSource] = useState<"history" | "current" | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailMode, setDetailMode] = useState<"summary" | "readback">("summary");
   const itemsRef = useRef<readonly ResearchDirectoryItemV1[]>([]);
@@ -210,17 +211,34 @@ export function ResearchDirectory({
   const selectedCandidate = useMemo(() => visibleCandidates.find(
     (item) => item.requestIdentity === selectedRequestIdentity,
   ) ?? null, [selectedRequestIdentity, visibleCandidates]);
+  const selectedCurrentIntent = useMemo(() => visibleItems.find(
+    (item) => item.requestIdentity === selectedRequestIdentity,
+  ) ?? null, [selectedRequestIdentity, visibleItems]);
+  const selectedDetailExists = selectedDetailSource === "history"
+    ? Boolean(selectedCandidate)
+    : selectedDetailSource === "current"
+    ? Boolean(selectedCurrentIntent)
+    : false;
 
   useEffect(() => {
-    if (detailOpen && !selectedCandidate) {
+    if (detailOpen && !selectedDetailExists) {
       setDetailOpen(false);
       setDetailMode("summary");
+      setSelectedDetailSource(null);
     }
-  }, [detailOpen, selectedCandidate]);
+  }, [detailOpen, selectedDetailExists]);
 
   const openCandidateDetail = useCallback((requestIdentity: string) => {
     setSelectedRequestIdentity(requestIdentity);
+    setSelectedDetailSource("history");
     setDetailMode("summary");
+    setDetailOpen(true);
+  }, []);
+
+  const openCurrentIntentDetail = useCallback((requestIdentity: string) => {
+    setSelectedRequestIdentity(requestIdentity);
+    setSelectedDetailSource("current");
+    setDetailMode("readback");
     setDetailOpen(true);
   }, []);
 
@@ -228,6 +246,7 @@ export function ResearchDirectory({
     restoreSummaryFocus.current = false;
     setDetailOpen(false);
     setDetailMode("summary");
+    setSelectedDetailSource(null);
   }, []);
 
   const returnToCandidateSummary = useCallback(() => {
@@ -255,9 +274,10 @@ export function ResearchDirectory({
       cell: (item) => <EntityReference
         label="Research request"
         identity={item.requestIdentity}
-        detail="Open details"
-        href={`/rd/research/${encodeURIComponent(item.requestIdentity)}`}
+        detail="Review result"
+        onActivate={() => openCurrentIntentDetail(item.requestIdentity)}
       />,
+      ignoreRowClick: true,
     },
     {
       id: "state",
@@ -294,7 +314,7 @@ export function ResearchDirectory({
       minWidth: "190px",
       cell: (item) => <time dateTime={item.committedAt}>{displayTime(item.committedAt)}</time>,
     },
-  ], []);
+  ], [openCurrentIntentDetail]);
   const candidateColumns = useMemo<DataWorkspaceColumn<HistoricalResearchCandidateV1>[]>(() => [
     {
       id: "request",
@@ -376,6 +396,7 @@ export function ResearchDirectory({
     setDetailOpen(false);
     setDetailMode("summary");
     setSelectedRequestIdentity(null);
+    setSelectedDetailSource(null);
     setJourneyRefreshKey((value) => value + 1);
     void outcomeInventory.read();
     void questionDirectory.read();
@@ -391,6 +412,7 @@ export function ResearchDirectory({
     setDetailOpen(false);
     setDetailMode("summary");
     setSelectedRequestIdentity(null);
+    setSelectedDetailSource(null);
     router.replace(nextView === "candidates"
       ? `/rd/research/${candidateOutcome === "all" ? "" : `?outcome=${candidateOutcome}`}`
       : "/rd/research/?view=verified", { scroll: false });
@@ -491,6 +513,8 @@ export function ResearchDirectory({
               paginationPerPage={20}
               paginationResetKey={normalizedSearch}
               paginationRowsPerPageOptions={[20, 50]}
+              onRowClicked={(item) => openCurrentIntentDetail(item.requestIdentity)}
+              pointerOnHover
               noDataComponent={<DataWorkspaceEmpty state={availability === "loading" ? "loading" : "empty"}
                 className={availability === "loading" && !showPending ? styles.pendingQuiet : undefined}
                 icon={<EvidenceIcons.research aria-hidden="true" size={18} />}>
@@ -570,19 +594,26 @@ export function ResearchDirectory({
         ) : null}
       </PanelFrame>
       <DetailSheet
-        open={detailOpen && Boolean(selectedCandidate)}
+        open={detailOpen && selectedDetailExists}
         onClose={closeCandidateDetail}
-        eyebrow="Research history"
-        title={detailMode === "readback" ? "Research result" : "Research question"}
-        description={selectedCandidate
-          ? detailMode === "readback"
+        eyebrow={selectedDetailSource === "current" ? "Current intent" : "Research history"}
+        title={selectedDetailSource === "current" || detailMode === "readback" ? "Research result" : "Research question"}
+        description={selectedDetailExists
+          ? selectedDetailSource === "current"
+            ? "Review the current result without losing this directory context."
+            : detailMode === "readback"
             ? "Review the exact result without losing this list context."
-            : outcomeByRequest.get(selectedCandidate.requestIdentity)?.status === "outcome_ready"
+            : selectedCandidate && outcomeByRequest.get(selectedCandidate.requestIdentity)?.status === "outcome_ready"
             ? "A saved result is ready to review."
             : "Review the saved question without leaving this list."
           : undefined}
       >
-        {selectedCandidate ? detailMode === "readback" ? (
+        {selectedDetailSource === "current" && selectedCurrentIntent ? (
+          <ResearchReadbackDrilldown
+            requestIdentity={selectedCurrentIntent.requestIdentity}
+            questions={questionDirectory.projection}
+          />
+        ) : selectedCandidate ? detailMode === "readback" ? (
           <ResearchReadbackDrilldown
             requestIdentity={selectedCandidate.requestIdentity}
             questions={questionDirectory.projection}

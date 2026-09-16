@@ -17,18 +17,18 @@ export function ResearchReadbackDrilldown({
 }: {
   requestIdentity: string;
   questions: ResearchQuestionDirectoryV1 | null;
-  onBack: () => void;
+  onBack?: () => void;
 }) {
   const readback = useResearchReadback(requestIdentity);
   const question = researchQuestionForReadbackV1(questions, readback.projection);
 
   return (
     <PageStack gap="compact">
-      <div>
-        <Button type="button" variant="ghost" size="tool" onClick={onBack} data-research-readback-back>
+      {onBack ? <div>
+        <Button autoFocus type="button" variant="ghost" size="tool" onClick={onBack} data-research-readback-back>
           <InterfaceIcons.previous aria-hidden="true" /> Back to request summary
         </Button>
-      </div>
+      </div> : null}
       <ResearchReadbackContent
         status={readback.status}
         projection={readback.projection}

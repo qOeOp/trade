@@ -357,7 +357,12 @@ drilldown trigger。只有成功验证的 exact read 才显示 `Open full resear
 identity 变化都会使在途 read 失效，且不保留任何 positive result 或 workspace action。关闭后 focus 返回原
 reference 或 row。Sheet 在 desktop 保持右侧 geometry，并在这个窄容器中把共享的 Result / Strategy / Timing
 group 排成一列以保证可读性；低于 768 px 时变为 full-screen。Canonical workspace 继续以同一组原子保持较宽的
-多列组合。本切片中的 `Current intents` 仍保持普通 exact-directory table。
+多列组合。在 `Current intents` 中，激活主要 request reference 或其 row 会直接在同一个 `DetailSheet` 中进入
+exact read-only result mode。它保留 `/rd/research/?view=verified` URL、table filter、pagination、sort、scroll 与
+origin focus；不会伪造 History summary，也不显示 `Back to request summary`。每次 identity 变化前都先清除旧的
+positive state，并拒绝 late、aborted、非 2xx、malformed 或 identity-mismatched response。只有显式的
+`Open full research workspace` action 才切换到 canonical request route。这个 current-intent preview 永远不启用
+formation、submit 或 resolution control。
 
 默认 history view 从只读 R&D Dashboard Owner 获取一个有界的
 `rd.research_question_directory.read.v1` 投影。问题文本必须先通过 canonical Research custody 校验，且只可暴露

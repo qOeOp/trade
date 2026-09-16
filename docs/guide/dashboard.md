@@ -417,8 +417,13 @@ the in-flight read and retains no positive result or workspace action. Closing r
 reference or row.
 The sheet keeps its desktop right-side geometry, stacks the shared Result / Strategy / Timing groups into one
 readable column inside that narrow container, and becomes full-screen below 768 px. The canonical workspace keeps
-the same atoms in its wider multi-column composition. `Current intents` remains a
-plain exact-directory table in this bounded slice.
+the same atoms in its wider multi-column composition. In `Current intents`, activating the primary request
+reference or its row opens that same `DetailSheet` directly in exact read-only result mode. It preserves the
+`/rd/research/?view=verified` URL, table filters, pagination, sort, scroll and origin focus; it does not fabricate a
+History summary or show `Back to request summary`. The read clears prior positive state before every identity
+change and rejects late, aborted, non-2xx, malformed or identity-mismatched responses. Only the explicit
+`Open full research workspace` action changes to the canonical request route. This current-intent preview never
+enables formation, submit or resolution controls.
 
 The default history view obtains one bounded `rd.research_question_directory.read.v1` projection from the
 read-only R&D Dashboard Owner. Question text is admitted only after canonical Research custody verification and may
