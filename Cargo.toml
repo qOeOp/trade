@@ -507,7 +507,13 @@ strip = "debuginfo" # Improves compile times
 inherits = "test"
 opt-level = 0
 debug = false
-strip = "debuginfo"
+# Test binaries are statically linked per crate, so the workspace test build is dominated by their
+# size rather than by any one artifact. Measured on one 279 MB binary: stripping debug info alone
+# reclaims 9%, stripping the symbol table as well reclaims 40%. The profile already sets
+# `debug = false`, so backtraces have no line numbers either way; what a stripped symbol table costs
+# is frame names, while the failing test name and panic message that actually diagnose a CI failure
+# are unaffected.
+strip = "symbols"
 lto = false
 incremental = false
 codegen-units = 1
