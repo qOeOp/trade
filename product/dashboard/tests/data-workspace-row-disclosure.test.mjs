@@ -16,10 +16,12 @@ test("DataWorkspaceTable owns one reusable controlled row-detail disclosure", as
     "aria-controls={rowDisclosure ? detailsId : undefined}", "colSpan={row.getAllCells().length}",
     'role="region"', "onDismiss?: () => void", "rowDisclosure?.onDismiss?.()", "workspace-table-row-details",
     "data-has-expanded-row={hasExpandedRow || undefined}",
+    "preserveRowViewportPosition(event.currentTarget)", "window.scrollBy(0, delta)",
   ]) assert.ok(table.includes(token), `shared row disclosure missing ${token}`);
   assert.match(entity, /disclosure\?: \{ controls: string; expanded: boolean \}/u);
   assert.match(entity, /aria-controls=\{disclosure\?\.controls\}/u);
   assert.match(entity, /aria-expanded=\{disclosure\?\.expanded\}/u);
+  assert.match(entity, /const before = row\?\.getBoundingClientRect\(\)\.top[\s\S]*window\.scrollBy\(0, delta\)/u);
   assert.match(css, /\.data-workspace-row-details \{[^}]*background: var\(--surface-panel\)/su);
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*\.data-workspace-row-details[\s\S]*position: sticky;/u);
   assert.doesNotMatch(css, /\.research[^}]*data-workspace-row-details/iu);

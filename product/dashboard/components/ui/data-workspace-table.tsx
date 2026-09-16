@@ -132,6 +132,15 @@ function minimumTableWidth<T extends RowData>(columns: DataWorkspaceColumn<T>[])
   return widths.every(Number.isFinite) ? `${widths.reduce((sum, value) => sum + value, 0)}px` : undefined;
 }
 
+function preserveRowViewportPosition(row: HTMLTableRowElement): void {
+  const before = row.getBoundingClientRect().top;
+  requestAnimationFrame(() => {
+    if (!row.isConnected) return;
+    const delta = row.getBoundingClientRect().top - before;
+    if (delta) window.scrollBy(0, delta);
+  });
+}
+
 export function DataWorkspaceTable<T extends RowData>({
   ariaLabel,
   className = "",
@@ -271,12 +280,14 @@ export function DataWorkspaceTable<T extends RowData>({
                     tabIndex={onRowClicked ? 0 : undefined}
                     onClick={onRowClicked ? (event) => {
                       if ((event.target as HTMLElement).closest("a,button,input,select,textarea,[data-table-stop-row-click]")) return;
+                      if (rowDisclosure) preserveRowViewportPosition(event.currentTarget);
                       onRowClicked(row.original, event);
                     } : undefined}
                     onKeyDown={onRowClicked ? (event) => {
                       if (event.target !== event.currentTarget) return;
                       if (event.key !== "Enter" && event.key !== " ") return;
                       event.preventDefault();
+                      if (rowDisclosure) preserveRowViewportPosition(event.currentTarget);
                       onRowClicked(row.original, event as unknown as ReactMouseEvent<HTMLTableRowElement>);
                     } : undefined}
                   >

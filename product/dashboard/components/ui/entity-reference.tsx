@@ -44,7 +44,14 @@ export function EntityReference({
       aria-expanded={disclosure?.expanded}
       onClick={(event) => {
         event.currentTarget.focus();
+        const row = disclosure ? event.currentTarget.closest("tr") : null;
+        const before = row?.getBoundingClientRect().top;
         onActivate();
+        if (row && before !== undefined) requestAnimationFrame(() => {
+          if (!row.isConnected) return;
+          const delta = row.getBoundingClientRect().top - before;
+          if (delta) window.scrollBy(0, delta);
+        });
       }}
     >{content}</button>;
   }
