@@ -13,12 +13,21 @@ design cannot be implemented as written, or implementation reveals that the docu
 design must change, stop the task and request explicit user authorization before changing the
 documentation or continuing the implementation.
 
-## Dashboard design status
+## Dashboard implementation status
 
-The Dashboard documentation under `docs/guide/dashboard.md` and
-`docs/guide/dashboard.zh.md` is an experimental design artifact only. It does not authorize Dashboard
-implementation. Do not develop, scaffold, deploy, or package Dashboard code unless the user later gives
-explicit implementation authority and the documentation's status is changed accordingly.
+The Dashboard documentation under `docs/guide/dashboard.md` and `docs/guide/dashboard.zh.md` is the
+governing route, component, and geometry contract for `product/dashboard`. It is no longer a
+blueprint-only artifact: it now carries per-slice admission status, and the user has admitted specific
+routes as `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED`.
+
+Dashboard work is admitted only for a route or reusable atom that document marks
+`IMPLEMENTATION_ADMITTED`, and only as the bounded, separately reviewable slice described there.
+Everything below that gate stays blueprint-only and must not be developed, scaffolded, deployed, or
+packaged; a route name, a navigation entry, or retained upstream source is not implementation
+authority. `IMPLEMENTATION_ADMITTED` is permission to build and verify. It never proves that a backend,
+Owner consumer, or effect path exists, and it never authorizes a production effect, a Windmill cutover,
+or real trading. Widening the admitted set requires changing that document first under the Architecture
+authority rule above.
 
 ## Local API keys
 
