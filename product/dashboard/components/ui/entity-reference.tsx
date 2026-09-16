@@ -2,7 +2,6 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 import styles from "./entity-reference.module.css";
-import { preserveRowViewportPosition } from "./preserve-row-viewport-position";
 
 type EntityReferenceDestination =
   | { href?: string; onActivate?: never }
@@ -47,8 +46,6 @@ export function EntityReference({
       aria-expanded={disclosure?.expanded}
       onClick={(event) => {
         event.currentTarget.focus();
-        const row = disclosure ? event.currentTarget.closest("tr") : null;
-        if (row) preserveRowViewportPosition(row);
         onActivate();
       }}
     >{content}</button>;

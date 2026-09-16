@@ -31,7 +31,6 @@ import {
 import { Button } from "./button";
 import { DataWorkspaceEmpty } from "./data-workspace-empty";
 import { InterfaceIcons } from "./iconography";
-import { preserveRowViewportPosition } from "./preserve-row-viewport-position";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./table";
 
 const workspaceTableFeatures = tableFeatures({
@@ -272,14 +271,12 @@ export function DataWorkspaceTable<T extends RowData>({
                     tabIndex={onRowClicked ? 0 : undefined}
                     onClick={onRowClicked ? (event) => {
                       if ((event.target as HTMLElement).closest("a,button,input,select,textarea,[data-table-stop-row-click]")) return;
-                      if (rowDisclosure) preserveRowViewportPosition(event.currentTarget);
                       onRowClicked(row.original, event);
                     } : undefined}
                     onKeyDown={onRowClicked ? (event) => {
                       if (event.target !== event.currentTarget) return;
                       if (event.key !== "Enter" && event.key !== " ") return;
                       event.preventDefault();
-                      if (rowDisclosure) preserveRowViewportPosition(event.currentTarget);
                       onRowClicked(row.original, event as unknown as ReactMouseEvent<HTMLTableRowElement>);
                     } : undefined}
                   >
