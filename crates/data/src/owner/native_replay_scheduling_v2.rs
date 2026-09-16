@@ -344,6 +344,61 @@ fn exact_rows<'a, const N: usize>(
         .map_err(|_| NativeReplaySchedulingErrorV1::FieldCensusMismatch)
 }
 
+/// Domain separator for the V2 two-frame sequence digest.
+const FRAME_SEQUENCE_DIGEST_DOMAIN_V2: &[u8] =
+    b"market-data.native-replay-frame-sequence.v2\0";
+
+/// The sealed constituents of one frame, in the order the sequence commits to them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NativeReplaySequenceFrameV2 {
+    pub frame_ordinal: u64,
+    pub snapshot_identity: BindingDigest,
+    pub snapshot_fact_digest: BindingDigest,
+    pub frame_receipt_digest: BindingDigest,
+    pub scheduling_receipt_digest_v1: BindingDigest,
+    pub liquidity_receipt_digest: BindingDigest,
+}
+
+/// The V2 sequence digest.
+///
+/// `docs/architecture/strategy-factory.md` requires the V2 meaning to include "the V1 binding
+/// identity, both ordered frame, native scheduling and liquidity EVENT receipt digests, their
+/// distinct PIT cuts and a domain-separated sequence digest covering all of them", and
+/// `docs/owners/market-data.md` requires it to bind "both complete frame/schedule/liquidity
+/// receipt sets in canonical order and the request identity/window".
+///
+/// Frame order is part of the sealed meaning: the same two frames transposed seal differently, so
+/// a sequence cannot be reinterpreted by reordering what it contains. The distinct PIT cuts are
+/// committed per frame rather than as a set, so moving a receipt from one cut to the other cannot
+/// preserve the digest.
+#[must_use]
+pub fn seal_native_replay_frame_sequence_v2(
+    v1_binding_identity: BindingDigest,
+    request_identity: BindingDigest,
+    window_start_ns: u64,
+    window_end_ns_exclusive: u64,
+    frames: &[NativeReplaySequenceFrameV2; 2],
+) -> BindingDigest {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(FRAME_SEQUENCE_DIGEST_DOMAIN_V2);
+    bytes.extend_from_slice(&2_u16.to_be_bytes());
+    bytes.extend_from_slice(&0_u16.to_be_bytes());
+    bytes.extend_from_slice(v1_binding_identity.as_bytes());
+    bytes.extend_from_slice(request_identity.as_bytes());
+    bytes.extend_from_slice(&window_start_ns.to_be_bytes());
+    bytes.extend_from_slice(&window_end_ns_exclusive.to_be_bytes());
+    bytes.push(u8::try_from(frames.len()).unwrap_or(u8::MAX));
+    for frame in frames {
+        bytes.extend_from_slice(&frame.frame_ordinal.to_be_bytes());
+        bytes.extend_from_slice(frame.snapshot_identity.as_bytes());
+        bytes.extend_from_slice(frame.snapshot_fact_digest.as_bytes());
+        bytes.extend_from_slice(frame.frame_receipt_digest.as_bytes());
+        bytes.extend_from_slice(frame.scheduling_receipt_digest_v1.as_bytes());
+        bytes.extend_from_slice(frame.liquidity_receipt_digest.as_bytes());
+    }
+    BindingDigest::from_untrusted_bytes(Sha256::digest(&bytes).into())
+}
+
 /// One eligible frame offered to the two-frame census for a sealed request window.
 ///
 /// `frame_ordinal` is the scope-dense position Market Data assigns when it commits the frame's
@@ -800,5 +855,95 @@ mod frame_census_tests {
             admit(&census),
             Err(NativeReplayFrameCensusRefusalV2::DuplicateFrameIdentity)
         );
+    }
+}
+
+#[cfg(test)]
+mod frame_sequence_digest_tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    fn digest(seed: u8) -> BindingDigest {
+        BindingDigest::from_untrusted_bytes([seed; 32])
+    }
+
+    fn frame(ordinal: u64, seed: u8) -> NativeReplaySequenceFrameV2 {
+        NativeReplaySequenceFrameV2 {
+            frame_ordinal: ordinal,
+            snapshot_identity: digest(seed),
+            snapshot_fact_digest: digest(seed + 1),
+            frame_receipt_digest: digest(seed + 2),
+            scheduling_receipt_digest_v1: digest(seed + 3),
+            liquidity_receipt_digest: digest(seed + 4),
+        }
+    }
+
+    fn sealed(frames: &[NativeReplaySequenceFrameV2; 2]) -> BindingDigest {
+        seal_native_replay_frame_sequence_v2(digest(0x01), digest(0x02), 1_000, 2_000, frames)
+    }
+
+    fn pair() -> [NativeReplaySequenceFrameV2; 2] {
+        [frame(7, 0x20), frame(8, 0x40)]
+    }
+
+    #[rstest]
+    fn the_same_sequence_seals_identically() {
+        assert_eq!(sealed(&pair()), sealed(&pair()));
+    }
+
+    #[rstest]
+    fn frame_order_is_part_of_the_sealed_meaning() {
+        let [first, second] = pair();
+        assert_ne!(sealed(&pair()), sealed(&[second, first]));
+    }
+
+    #[rstest]
+    fn every_constituent_of_every_frame_is_covered() {
+        let base = sealed(&pair());
+        for mutate in [
+            |f: &mut NativeReplaySequenceFrameV2| f.frame_ordinal += 1,
+            |f: &mut NativeReplaySequenceFrameV2| f.snapshot_identity = digest(0x99),
+            |f: &mut NativeReplaySequenceFrameV2| f.snapshot_fact_digest = digest(0x99),
+            |f: &mut NativeReplaySequenceFrameV2| f.frame_receipt_digest = digest(0x99),
+            |f: &mut NativeReplaySequenceFrameV2| f.scheduling_receipt_digest_v1 = digest(0x99),
+            |f: &mut NativeReplaySequenceFrameV2| f.liquidity_receipt_digest = digest(0x99),
+        ] {
+            // Moving the constituent on either frame must move the sequence digest.
+            let mut only_first = pair();
+            mutate(&mut only_first[0]);
+            assert_ne!(base, sealed(&only_first));
+
+            let mut only_second = pair();
+            mutate(&mut only_second[1]);
+            assert_ne!(base, sealed(&only_second));
+        }
+    }
+
+    #[rstest]
+    fn a_receipt_moved_between_the_two_cuts_cannot_preserve_the_digest() {
+        // The cuts are committed per frame, not as a set, so swapping one frame's liquidity
+        // receipt onto the other is a different sequence even though the multiset is unchanged.
+        let mut swapped = pair();
+        let first_liquidity = swapped[0].liquidity_receipt_digest;
+        swapped[0].liquidity_receipt_digest = swapped[1].liquidity_receipt_digest;
+        swapped[1].liquidity_receipt_digest = first_liquidity;
+
+        assert_ne!(sealed(&pair()), sealed(&swapped));
+    }
+
+    #[rstest]
+    fn the_sequence_binds_its_v1_binding_request_and_window() {
+        let base = sealed(&pair());
+        let frames = pair();
+
+        for moved in [
+            seal_native_replay_frame_sequence_v2(digest(0x99), digest(0x02), 1_000, 2_000, &frames),
+            seal_native_replay_frame_sequence_v2(digest(0x01), digest(0x99), 1_000, 2_000, &frames),
+            seal_native_replay_frame_sequence_v2(digest(0x01), digest(0x02), 1_001, 2_000, &frames),
+            seal_native_replay_frame_sequence_v2(digest(0x01), digest(0x02), 1_000, 2_001, &frames),
+        ] {
+            assert_ne!(base, moved);
+        }
     }
 }
