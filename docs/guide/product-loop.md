@@ -12,13 +12,16 @@ receipts, logs, or terminal output.
 
 - `CURRENT/PARTIAL` - `crates/strategy_factory` provides a narrow frozen `ResearchIntent` to `StrategyArtifact`
   to native replay and `TrialReceipt` pilot. It is `SURVIVED_NOT_ADMITTED`, not a complete R&D product.
-- `TARGET/ABSENT_TARGET_ONLY` - the selected Windmill R&D Workbench presents Source and Hypothesis, frozen Intent, Artifact and Build
-  Receipt, exploratory Run Detail and Compare, Diagnosis, Iteration Decision, and the exact stop, repair,
-  successor, or Qualification handoff action. Windmill App and Windmill MCP invoke the same versioned operations.
-- `NOT_ADMITTED` - an architecture page, local Windmill installation, MCP handshake, target read model, Dashboard,
-  or reachable low-level API does not make the workbench `CURRENT`.
+- `TARGET` - the product surface is the Trade-owned Dashboard in `product/dashboard`. It presents Source and
+  Hypothesis, frozen Intent, Artifact and Build Receipt, exploratory Run Detail and Compare, Diagnosis, Iteration
+  Decision, and the exact stop, repair, successor, or Qualification handoff action. The Dashboard and its
+  `/api/mcp` invoke the same versioned operations. Its admitted first-party read surfaces ship, but every service
+  still starts only under the opt-in `dashboard-preview` profile; production deployment and the Windmill cutover
+  remain `TARGET`.
+- `NOT_ADMITTED` - an architecture page, a Dashboard reachable under the preview profile, an MCP handshake, a
+  target read model, or a reachable low-level API does not make the product surface `CURRENT`.
 
-The target ships as one Docker Compose product package with one default Windmill web entry and one Windmill MCP
+The target ships as one Docker Compose product package with one default Dashboard web entry and one Dashboard MCP
 conversation outlet. Optional external conversation clients are not bundled or individually adapted. Windmill
 schedules long-running research and scanner jobs; Trade Runtime remains the authority and process boundary for
 live strategy loops, market sessions, risk, orders, and recovery effects.
@@ -46,7 +49,7 @@ immutable Artifact or an explicit native terminal disposition; it never edits or
 Windmill Job progress explains execution only. The receiving Owner receipt and projection determine the business
 phase and allowed next actions.
 
-The target Windmill R&D Workbench closes the journey through these application areas:
+The Dashboard closes the journey through these application areas:
 
 | Area             | Required first product view                                                                                                                       | Authority boundary                                                                                                              |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |

@@ -5,9 +5,10 @@
 
 ## Entry / 入口
 
-用户通过目标 Windmill Product Edge 提交带来源且可证伪的市场想法。默认 Windmill App 与通过
-Windmill MCP 接入的可选外部对话客户端，在同一 `WINDMILL_PRODUCT_EDGE` 准入网关后调用相同带
-版本的受限 Owner operation。UI、MCP transport 与 workflow 都不保存业务事实，也不直接交易。
+用户通过 Product Edge 提交带来源且可证伪的市场想法。Trade 自有的 Dashboard 与通过它的
+Dashboard MCP endpoint 接入的可选外部对话客户端，在同一准入网关后调用相同带版本的受限 Owner
+operation；该网关的 channel 常量仍沿用 Windmill 作表面时的拼写 `WINDMILL_PRODUCT_EDGE`。
+UI、MCP transport 与 workflow 都不保存业务事实，也不直接交易。
 
 ## Value path / 价值路径
 

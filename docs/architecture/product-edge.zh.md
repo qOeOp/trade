@@ -3,28 +3,48 @@
 ## 职责
 
 Product Edge 是应用与对话边界，把有人值守 UI 或自然语言意图转成受限请求，并返回只读产品视图。
-选定的目标产品表面是 Windmill R&D Workbench；Windmill MCP endpoint 把同一组已准入操作暴露给可选
-外部对话客户端。
+产品表面是 `product/dashboard` 里由 Trade 自有的 Dashboard；它的 `/api/mcp` endpoint 把同一组已准入
+操作暴露给可选外部对话客户端。`product/rd-workbench` 保留的 Windmill 部署仍是生产效应的当前执行器，
+Dashboard 尚未完成切换。
 
-## 目标产品表面与安装包
+## 产品表面与安装包
 
 目标发行物是一套 VibeTrader Docker Compose 安装包，而不是一个单体镜像。它组合 Trade Runtime 与
-Owner API、Windmill server 与 worker、所需持久化和本地入口。Windmill Web 应用是唯一默认产品入口，
-其原生 MCP endpoint 是唯一目标对话出口，因此 LobeHub、OpenClaw、WorkBuddy 或其他兼容客户端无需
-项目自有 adapter 或第二个 `trade-rd` MCP 服务即可接入。这些外部客户端只是可选 consumer，不随产品
-打包，不拥有业务权威，也不作为实现验收依赖。
+Owner API、Dashboard、保留的 Windmill server 与 worker、所需持久化和本地入口。
 
-Windmill App 与 MCP endpoint 调用同一组经过挑选、带版本的 script 与 flow，并且只能通过有类型 Owner
-port 工作。它们不能执行任意 Owner SQL、产生业务事实或保存影子 workflow truth。定时研究、scanner、
-replay、报告与维护任务可以作为 Windmill job 运行并提供实时运维进度、日志、重试和 Owner-owned 工件引用。真实策略
-循环、行情会话、订单状态机与恢复效果仍由 Trade Runtime、Risk、Execution 与 Recovery 拥有；Windmill
-只能监督和展示，永远不是交易运行内核。
+产品入口是 `product/dashboard`——一个独立可构建的 `trade-dashboard` 镜像，包含 Vibe 衍生外壳、共享
+UI 原子，以及当前已准入的第一方读面。它自带浏览器会话网关、Trade 自有的 RunStore，以及
+`dashboard-web`、`dashboard-effect-worker`、`dashboard-shadow-worker`、`dashboard-shadow-scheduler`
+四个最小权限进程角色。`/api/mcp` 是一个无状态 Streamable HTTP endpoint，走同一批有类型 handler，在
+浏览器会话闸门之外但需要自己的有限 scoped Bearer capability，并在 dispatch 前校验 Host 与 Origin。
+它的固定工具表只含 Artifact preflight/action、Source/Research action、Develop Composer 与 Replay V2 的
+request-custody action、准确 run detail 与有界 run-log 读，不暴露任意 script、database、shell 或管理工具。
+外部对话客户端只是可选 consumer，不随产品打包，不拥有业务权威，也不作为实现验收依赖。
 
-该选择仍是 `TARGET/ABSENT_TARGET_ONLY`。本地安装 Windmill、MCP 握手成功或 mock dashboard 都不能
-让 Workbench 成为 `CURRENT`；验收必须覆盖下文定义的有界用户旅程、共同操作、Owner 回执、未解析
-状态以及直接浏览器证据。
+Dashboard 与 MCP 调用同一组经过挑选、带版本的操作，并且只能通过有类型 Owner port 工作。它们不能执行
+任意 Owner SQL、产生业务事实或保存影子 workflow truth。Operations API 只读 Trade 自有的 RunStore 运维
+数据；有类型的 R&D 与 Backtest 读走各自准确的 Owner 合同。它们绝不复制 Windmill job 行或原始 Owner
+payload，运维完成也绝不被重新解释成业务成功。真实策略循环、行情会话、订单状态机与恢复效果仍由
+Trade Runtime、Risk、Execution 与 Recovery 拥有；产品表面只能监督和展示，永远不是交易运行内核。
+
+**当前部署状态：** Dashboard 的全部服务只在 opt-in 的 `dashboard-preview` profile 下启动，镜像 tag 默认
+`preview`，web 主机端口默认 `127.0.0.1:3100`，运行时角色不暴露主机端口。**尚无生产部署，也尚未从
+Windmill 切换。** Windmill 仍是生产效应的当前执行器；Dashboard 的 effect worker 默认禁用，只有明确的
+一次性本地权限，且不具备任何生产交易权威。
+
+`product/rd-workbench` 保留的 Windmill 部署仍持有 `f/trade/product_edge/` 下那组有类型 script 与 flow，
+它们仍是这些操作的当前传输与执行路径。其中的 `rd_workbench.raw_app` 已被 Dashboard 取代，不再是产品
+入口。
+
+已准入读面之下的路由由双语 `DRAWABLE_EXACT` 闸门约束，闸门以下仍是只能导航的占位符；路由名或保留的
+源码都不是实现权威。生产部署与 Windmill 切换保持 `TARGET`。Dashboard 在 preview profile 下可达、MCP
+握手成功或本地装好 Windmill，都不能让产品表面成为 `CURRENT`；验收必须覆盖下文定义的有界用户旅程、
+共同操作、Owner 回执、未解析状态以及直接浏览器证据。
 
 ## Windmill 能力采用合同
+
+本节治理**保留的 Windmill 执行器路径**，不是产品入口——产品入口见上一节。这些边界在切换完成前持续
+适用，因为生产效应今天仍由 Windmill 执行。
 
 已审计的实现下限是自托管 Windmill Community Edition。2026-08-18 证据截面验证了本地
 `CE v1.791.0` server 与 worker 健康状态，并核对了 App、MCP、job、日志、schedule、worker、resource、
@@ -34,7 +54,7 @@ digest；禁止 `main`、`latest` 或其他浮动 tag。
 
 | Windmill 原语                 | Product Edge 采用职责                                                                               | 强制边界                                                                                                                                                                                        |
 | ----------------------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Full‑code App                 | 一个由仓库拥有、从 `.raw_app/` 源码打包的 React Workbench                                           | 只允许登录访问和 `viewer` 执行政策。禁止 `publisher`、`anonymous` 和 `public`，因为它们会抹掉调用者的有效权限边界。                                                                             |
+| Full‑code App                 | 已被 Dashboard 取代。`rd_workbench.raw_app` 仅为保留存根，不是产品入口                              | 只允许登录访问和 `viewer` 执行政策。禁止 `publisher`、`anonymous` 和 `public`，因为它们会抹掉调用者的有效权限边界。                                                                             |
 | Native MCP                    | 面向同一组带版本 operation 的可选对话 channel                                                       | workspace 范围 OAuth 或 scoped token 只暴露准确 allowlist。不得暴露 App、script、flow、resource、variable、schedule 或 worker 的 preview 与 create/update/delete 工具。只做 folder 过滤不充分。 |
 | Script 与 Flow                | Owner port 上的类型化 adapter 与有界 orchestration                                                  | 可以路由、等待、重试和组合；不得写 Owner storage、发明业务状态，或把 flow success 变成 Owner 结果。                                                                                             |
 | Job、progress、log 与 SSE     | 运行身份、实时进度、诊断和 UI streaming                                                             | Windmill job id、百分比、result 或 log 都不是 Owner receipt。自托管 CE 的 job detail 保留期有界，持久研究工件和结果事实仍归 Trade Owner。                                                       |
@@ -252,7 +272,7 @@ authority。
 
 在这些 gate 全部通过前，持久 Composer custody、公开 API composition、类型化 Source
 Intake-to-Research handoff 与 Windmill A2 topology 都保持 `TARGET`。生产 Market Data binding resolver、
-live OpenAlex policy/rights/DNS/credentials/egress、`PRODUCT_CURRENT`、Dashboard implementation、Paper、
+live OpenAlex policy/rights/DNS/credentials/egress、`PRODUCT_CURRENT`、Paper、
 Live、deployment 与任何 trading effect 都保持不可用，也不在本验收权威内。固定 corpus、固定 adapter、
 隔离 PostgreSQL/Windmill runner 即使通过也只构成 `SEALED_ACCEPTANCE` 证据，绝不代表生产 readiness。
 
@@ -559,7 +579,7 @@ Product Edge 可以请求 Research 工作、独立 Qualification 评估，或准
 observed/projection time 新鲜度 valid-through 和明确可用状态；拒绝混合截面 过期政策 冲突重放和未授权
 scope；并证明保护 Qualification 细节 Risk headroom 或授权不能进入任何投影。
 
-未来 Dashboard 只读取 Observability-owned Global Status View。该视图必须显示 projection 版本、引用的
+Dashboard 只读取 Observability-owned Global Status View。该视图必须显示 projection 版本、引用的
 Owner/telemetry frontier、新鲜度、完整性、lag、quarantine 与 rebuild 状态。过期、部分、重建中或不可用
 视图必须保持明确非当前。Dashboard 中任何可能改变 Owner 的动作都要转成新的 typed 且独立授权的
 Product Edge 请求，绝不能直接写入 projection。
