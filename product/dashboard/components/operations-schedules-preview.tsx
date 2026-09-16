@@ -8,6 +8,7 @@ import { filterScheduleRowsV1, type ScheduleCalendarView,
 import { scheduleAvailabilityPresentationV1 } from "../lib/schedule-availability-policy";
 import { ScheduleCalendar } from "./ui/schedule-calendar";
 import { CalendarHeader } from "./ui/schedule-calendar/header/calendar-header";
+import { Button } from "./ui/button";
 import { DataWorkspaceTable, dataWorkspaceSelectedRowStyles, type DataWorkspaceColumn } from "./ui/data-workspace-table";
 import {
   DetailEmpty,
@@ -79,7 +80,8 @@ export function OperationsSchedulesPreview() {
   };
   const columns = useMemo<DataWorkspaceColumn<ScheduleProjectionV1>[]>(() => [
     { id: "operation", name: "Operation", selector: (row) => row.operation_id, minWidth: "230px",
-      cell: (row) => <button type="button" className={styles.operation} onClick={() => setSelectedIdentity(row.schedule_identity)}>{row.operation_id}</button> },
+      cell: (row) => <Button type="button" variant="text" size="xs" className={styles.operation}
+        onClick={() => setSelectedIdentity(row.schedule_identity)}>{row.operation_id}</Button> },
     { id: "cadence", name: "Cadence", selector: (row) => row.cadence_seconds, width: "95px", cell: (row) => cadence(row.cadence_seconds) },
     { id: "next", name: "Next expected trigger", selector: (row) => row.next_due_at, minWidth: "180px", cell: (row) => timestamp(row.next_due_at) },
     { id: "observed", name: "Last observed run", selector: (row) => row.last_due_at ?? "", minWidth: "180px",

@@ -126,6 +126,83 @@ test("Runs v2 keeps summary, filters, and pages on one fail-closed PostgreSQL cu
     assert.equal(dependencies.filtered_total, 4);
     assert.ok(dependencies.runs.every(({ workload_kind }) => workload_kind === "dependencies"));
 
+    await pool.query(`WITH generated AS (
+        SELECT sequence, md5('run-list-retention-' || sequence::text) AS identity_hash
+          FROM generate_series(1, 509) AS sequence
+      )
+      INSERT INTO dashboard_operation_runs_v1 (
+        run_identity, schema_version, operation_id, channel, run_kind, trigger_kind, state,
+        owner_outcome_state, recovery_identity_json, recovery_identity_digest, transition_version,
+        created_at, updated_at, started_at, finished_at, retained_until, terminal_code
+      )
+      SELECT 'dashboard-run-v1-' || substr(identity_hash, 1, 8) || '-'
+               || substr(identity_hash, 9, 4) || '-4' || substr(identity_hash, 14, 3) || '-8'
+               || substr(identity_hash, 18, 3) || '-' || substr(identity_hash, 21, 12),
+             1, 'source_intake.shadow_read.v1', 'DASHBOARD_SHADOW_READ', 'owner_read',
+             'dashboard_api', 'succeeded', 'available', '{}'::jsonb,
+             'sha256:' || repeat('b', 64), 1,
+             clock_timestamp() - interval '2 days' - sequence * interval '1 second',
+             clock_timestamp() - interval '2 days' - sequence * interval '1 second',
+             clock_timestamp() - interval '2 days' - sequence * interval '1 second',
+             clock_timestamp() - interval '2 days' - sequence * interval '1 second',
+             clock_timestamp() + interval '5 days', 'OWNER_AVAILABLE'
+        FROM generated`);
+    const retainedDependencies = await gateway.read({ kind: "dependencies", pageSize: 25 });
+    assert.equal(retainedDependencies.filtered_total, 513);
+    assert.equal(retainedDependencies.total_pages, 21);
+    assert.equal(retainedDependencies.runs.length, 25);
+    assert.deepEqual(retainedDependencies.summary, {
+      queued: 0, running: 1, unknown: 0, succeeded: 512, cancelled: 0, completed: 512, failed: 0,
+    });
+
+    const malformedRun = (await pool.query(`SELECT run_identity
+      FROM dashboard_operation_runs_v1
+      WHERE run_kind = 'owner_read'
+      ORDER BY COALESCE(started_at, created_at), run_identity
+      LIMIT 1`)).rows[0];
+    assert.ok(malformedRun?.run_identity);
+    await pool.query(`UPDATE dashboard_operation_runs_v1
+      SET started_at = '-infinity'::timestamptz
+      WHERE run_identity = $1`, [malformedRun.run_identity]);
+    await assert.rejects(
+      gateway.read({ kind: "dependencies", pageSize: 25 }),
+      /RUN_LIST_ROW_INVALID/u,
+    );
+    await pool.query(`UPDATE dashboard_operation_runs_v1
+      SET started_at = created_at, finished_at = clock_timestamp() + interval '1 day'
+      WHERE run_identity = $1`, [malformedRun.run_identity]);
+    await assert.rejects(
+      gateway.read({ kind: "dependencies", pageSize: 25 }),
+      /RUN_LIST_ROW_INVALID/u,
+    );
+    await pool.query(`UPDATE dashboard_operation_runs_v1
+      SET state = 'running', owner_outcome_state = 'not_applicable',
+          finished_at = NULL, terminal_code = 'OWNER_AVAILABLE'
+      WHERE run_identity = $1`, [malformedRun.run_identity]);
+    await assert.rejects(
+      gateway.read({ kind: "dependencies", pageSize: 25 }),
+      /RUN_LIST_ROW_INVALID/u,
+    );
+    await pool.query(`UPDATE dashboard_operation_runs_v1
+      SET terminal_code = NULL
+      WHERE run_identity = $1`, [malformedRun.run_identity]);
+    const validNonterminal = await gateway.read({ kind: "dependencies", pageSize: 25 });
+    assert.equal(validNonterminal.filtered_total, 513);
+    await pool.query(`UPDATE dashboard_operation_runs_v1
+      SET state = 'succeeded', owner_outcome_state = 'available',
+          created_at = '2026-09-01T00:00:00Z', updated_at = '2026-09-01T00:00:01.000001Z',
+          started_at = '2026-09-01T00:00:00.000999Z',
+          finished_at = '2026-09-01T00:00:01.000001Z', terminal_code = 'OWNER_AVAILABLE'
+      WHERE run_identity = $1`, [malformedRun.run_identity]);
+    const shorterThanOneSecond = await gateway.read({
+      kind: "dependencies", duration: "lt_1s", pageSize: 25,
+    });
+    const oneToTenSeconds = await gateway.read({
+      kind: "dependencies", duration: "1_10s", pageSize: 25,
+    });
+    assert.equal(shorterThanOneSecond.filtered_total, 509);
+    assert.equal(oneToTenSeconds.filtered_total, 4);
+
     const appendedRun = await insertRun(pool, {
       kind: "owner_effect", state: "queued", offset: 90,
       operation: "artifact_build.formation_execute.v1",
