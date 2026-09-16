@@ -341,23 +341,25 @@ scroll viewport 内；loading、合法 empty、unavailable、partial 保持相�
 用户可读 availability；默认 history 的首列使用 `Research question`。Owner、custody、point-read、candidate 与
 wire-state 术语只保留在信息披露或 contract。
 
-在 `Research history` 中，激活主要 research-question reference 或点击 row 都会打开同一个共享右侧
-`DetailSheet`，不改变 directory URL，也不卸载
-filter、search、pagination 或 scroll context。Sheet 复用既有 `ResearchQuestionBrief`、`DetailFactGrid`、
+在 `Research history` 中，激活主要 research-question reference 或点击 row，会在来源 row 正下方展开一个共享
+`DataWorkspaceTable` row-detail，不改变 directory URL，也不卸载 filter、search、pagination 或 scroll context。
+Row-detail 复用既有 `ResearchQuestionBrief`、`DetailFactGrid`、
 `StatusBadge` 与 `PanelFrameInfo` 原子，且只展示已经存在于已绑定 directory projection 中的 verified hypothesis、
 falsifier、expected observation、`Ready to review / Awaiting result / Result unavailable` availability 与
 recorded time；精确 request identity 以及分别观测的
-question/result cut 只保留在 information disclosure。打开 sheet 不会触发额外 read。只有显式的
+question/result cut 只保留在 information disclosure。打开摘要不会触发额外 read。只有显式的
 当已绑定的 result inventory 表明请求已有结果或仍在等待时，显式的 `Review result` 或
-`Check request status` 会在同一个 `DetailSheet` 内从摘要切换到 exact read-only result drilldown。该 drilldown
+`Check request status` 会在同一个 row-detail 内以 exact read-only result drilldown 替换摘要。该 drilldown
 复用 `/rd/research/{requestIdentity}` 的同一套 strict read hook 与 result-content 原子；它不会再打开一层 dialog、
 不会改变 directory URL，也不暴露 formation control。`Back to request summary` 返回摘要并把 focus 还给
 drilldown trigger。只有成功验证的 exact read 才显示 `Open full research workspace`，进入保留技术 custody 详情
-与既有 formation control 的 canonical route。非 2xx、identity mismatch、malformed payload、关闭、Back 或
+与既有 formation control 的 canonical route。非 2xx、identity mismatch、malformed payload、收起、Back 或
 identity 变化都会使在途 read 失效，且不保留任何 positive result 或 workspace action。关闭后 focus 返回原
-reference 或 row。Sheet 在 desktop 保持右侧 geometry，并在这个窄容器中把共享的 Result / Strategy / Timing
-group 排成一列以保证可读性；低于 768 px 时变为 full-screen。Canonical workspace 继续以同一组原子保持较宽的
-多列组合。在 `Current intents` 中，激活主要 request reference 或其 row 会直接在同一个 `DetailSheet` 中进入
+reference 或 row。一次只展开一条；再次激活当前 row 会收起，激活另一条会替换。排序、翻页、page-size、filter、
+tab 或 Refresh 改变都会收起 detail 并使其 read 失效。Detail row 跨越全部 table column，但不参与记录数、分页或
+排序；窄屏在既有横向 table viewport 中保持单列正文，不增加嵌套滚动。Canonical workspace 继续以同一组原子
+保持较宽的多列组合。在 `Current intents` 中，激活主要 request reference 或其 row 会直接在同一个共享
+row-detail 中进入
 exact read-only result mode。它保留 `/rd/research/?view=verified` URL、table filter、pagination、sort、scroll 与
 origin focus；不会伪造 History summary，也不显示 `Back to request summary`。每次 identity 变化前都先清除旧的
 positive state，并拒绝 late、aborted、非 2xx、malformed 或 identity-mismatched response。只有显式的
@@ -2398,13 +2400,14 @@ fixed geometry 切换为 `--status-unavailable`，不能复用 stale style。
 - Module rail 表示业务域，不表示每一个查看状态。跨业务域，或打开完整、长内容、多步骤、代码、结果、
   log workspace 时使用 canonical route。同一目录内的筛选复用共享 filter/tab 原子；其有界 URL state 可以
   更新，但不能呈现成一次新的页面切换。
-- 当前业务域内单个对象的短只读速览，统一使用由 `DetailInspector` 组合出的右侧 `DetailSheet`。它保留
-  底层列表与滚动位置，提供 canonical full-view link，禁止 sheet 层叠，也不能把整页 route 嵌入 sheet。
-  低于 768 px 时转换为 full-screen sheet。只有有界、可解析且可独立重读的 selected identity/filter 才能
-  写入 URL；URL 只是展示状态，绝不是 Owner evidence。
+- 当前业务域内独立对象的短只读速览使用由 `DetailInspector` 组合出的右侧 `DetailSheet`。当用户任务是比较
+  相邻 table record 时，同类短速览改用来源 row 正下方的共享受控 `DataWorkspaceTable` row-detail；一次只展开
+  一条，不改变记录数，长内容仍进入 canonical route。Sheet 保留底层列表与滚动位置，提供 canonical full-view
+  link，禁止层叠，也不能嵌入整页 route；低于 768 px 时变为 full-screen。Row-detail 则保持 inline 与单列。
+  Selected identity/filter 的 URL 只是展示状态，绝不是 Owner evidence。
 - Modal 只用于返回前必须完成或取消的独立有界任务；解释性或技术元数据继续放 inline disclosure。
   “需要分享”本身不要求把短速览改成 route，但 reload、Back/Forward 与 focus return 必须能恢复同一真实选择。
-- Keyboard 顺序是 rail、tape、tab、page control、content、detail drawer。
+- Keyboard 顺序是 rail、tape、tab、page control、content，然后是 inline detail 或 detail drawer。
 - Icon-only control 有 accessible name；focus 可见；overlay trap/restore focus。
 - State 必须有 text，并可结合 icon/color；禁止 color-only。
 - `PREFLIGHTING` 与 `ADMITTING` 使用 amber pending text，并分别显示 `Checking…` 与 `Submitting…`；

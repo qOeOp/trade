@@ -398,27 +398,29 @@ label, while its opaque identity is a compact secondary reference with the exact
 key. Default history copy says `Research question`, `Result`, `Recorded`, and user-readable availability; Owner, custody, point-read,
 candidate, and wire-state terms remain in the information disclosure or contract.
 
-In `Research history`, activating either the primary research-question reference or the row opens the same shared
-right-side `DetailSheet` without
-changing the directory URL or unmounting its filters, search, pagination, or scroll context. The sheet composes the
+In `Research history`, activating either the primary research-question reference or the row expands one shared
+`DataWorkspaceTable` row-detail directly beneath that source row, without changing the directory URL or unmounting
+its filters, search, pagination, or scroll context. The row-detail composes the
 existing `ResearchQuestionBrief`, `DetailFactGrid`, `StatusBadge`, and `PanelFrameInfo` atoms. It shows the verified
 hypothesis, falsifier, expected observation, `Ready to review / Awaiting result / Result unavailable` availability,
 and recorded time already present in the bound
 directory projections; exact request identity and the independently observed question/result cuts remain inside
-the information disclosure. Opening the sheet performs no additional read. When the bound result inventory says
+the information disclosure. Opening the summary performs no additional read. When the bound result inventory says
 that the request is ready or still awaiting an outcome, an explicit `Review result` or `Check request status`
-action switches that same `DetailSheet` from summary to an exact read-only result drilldown. The drilldown reuses
+action replaces the summary inside that same row-detail with an exact read-only result drilldown. The drilldown reuses
 the same strict read hook and result-content atoms as `/rd/research/{requestIdentity}`; it does not mount another
 dialog, change the directory URL, or expose formation controls. `Back to request summary` restores the summary and
 focuses the drilldown trigger. Only a successfully verified exact read exposes `Open full research workspace`,
 which remains the transition to the canonical route with technical custody details and existing formation
-controls. A non-2xx response, identity mismatch, malformed payload, close, Back, or identity change invalidates
+controls. A non-2xx response, identity mismatch, malformed payload, collapse, Back, or identity change invalidates
 the in-flight read and retains no positive result or workspace action. Closing restores focus to the originating
-reference or row.
-The sheet keeps its desktop right-side geometry, stacks the shared Result / Strategy / Timing groups into one
-readable column inside that narrow container, and becomes full-screen below 768 px. The canonical workspace keeps
-the same atoms in its wider multi-column composition. In `Current intents`, activating the primary request
-reference or its row opens that same `DetailSheet` directly in exact read-only result mode. It preserves the
+reference or row. Only one row may be expanded. Activating it again collapses it; activating another row replaces
+it. Sorting, pagination, page-size, filter, tab, and Refresh changes collapse the detail and invalidate its read.
+The detail row spans the table columns without joining pagination counts or sort order. At narrow widths it keeps
+one readable content column inside the existing horizontal table viewport and adds no nested scroll container.
+The canonical workspace keeps the same atoms in its wider multi-column composition. In `Current intents`,
+activating the primary request reference or its row expands the same shared row-detail directly in exact read-only
+result mode. It preserves the
 `/rd/research/?view=verified` URL, table filters, pagination, sort, scroll and origin focus; it does not fabricate a
 History summary or show `Back to request summary`. The read clears prior positive state before every identity
 change and rejects late, aborted, non-2xx, malformed or identity-mismatched responses. Only the explicit
@@ -2583,15 +2585,17 @@ terminal custody switches the whole fixed geometry to `--status-unavailable` ins
 - The module rail names business domains, not every inspection state. Crossing into another domain or opening a
   complete, long, multi-step, code, result, or log workspace uses its canonical route. A filter within one directory
   uses the shared filter/tabs atoms; its bounded URL state may change without presenting a new page shell.
-- A short read-only inspection of one object within the current domain uses one shared right-side `DetailSheet`
-  composition over `DetailInspector`. It preserves the underlying list and scroll position, exposes a canonical
-  full-view link, forbids stacked sheets and never embeds an entire route. Below 768 px it becomes a full-screen
-  sheet. The selected identity/filter may be URL-backed only when it is bounded, parseable and independently
-  re-readable; URL state is presentation state, never Owner evidence.
+- A short read-only inspection of an independent object within the current domain uses one shared right-side
+  `DetailSheet` composition over `DetailInspector`. When the user's task is to compare adjacent table records, the
+  same short inspection instead uses the shared controlled `DataWorkspaceTable` row-detail directly beneath its
+  source row; only one row expands, it never changes record counts, and long content still opens its canonical
+  route. Sheets preserve the underlying list and scroll position, expose a canonical full-view link, forbid stacked
+  sheets and never embed an entire route. Below 768 px a sheet becomes full-screen, while a row-detail remains inline
+  and single-column. Selected identity/filter URL state is presentation state, never Owner evidence.
 - Modal dialogs are reserved for independent, bounded tasks that must be completed or dismissed before returning;
   explanatory or technical metadata stays in inline disclosure. A share requirement alone does not turn a short
   inspection into a route: reload, Back/Forward and focus return must reconstruct the same truthful selection.
-- Keyboard order is rail, tape, tabs, page controls, content, detail drawer.
+- Keyboard order is rail, tape, tabs, page controls, content, then inline detail or detail drawer.
 - Icon-only controls have accessible names; focus is visible; overlays trap/restore focus.
 - State always uses text and optionally icon/color; color alone never carries meaning.
 - `PREFLIGHTING` and `ADMITTING` use amber pending text plus distinct `Checking…`/`Submitting…` labels;

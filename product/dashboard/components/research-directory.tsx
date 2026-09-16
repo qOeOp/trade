@@ -17,7 +17,6 @@ import {
   type ResearchOutcomeInventoryItemV1,
 } from "../lib/research-outcome-inventory";
 import { DataTableHeaderLabel, DataTableSurface } from "./ui/data-table";
-import { DetailSheet } from "./ui/detail-sheet";
 import { DataWorkspaceEmpty } from "./ui/data-workspace-empty";
 import { DataWorkspaceTable, type DataWorkspaceColumn } from "./ui/data-workspace-table";
 import { EntityReference } from "./ui/entity-reference";
@@ -67,6 +66,10 @@ function directoryUrl(cursor?: ResearchDirectoryCursorV1): string {
   return `/api/rd/research/directory/?${search}`;
 }
 
+function researchRowDetailsId(source: "history" | "current", requestIdentity: string): string {
+  return `research-${source}-details-${encodeURIComponent(requestIdentity)}`;
+}
+
 export function ResearchDirectory({
   initialView = "candidates",
   initialCandidateOutcome = "all",
@@ -89,7 +92,6 @@ export function ResearchDirectory({
   const [pendingOlder, setPendingOlder] = useState(false);
   const [selectedRequestIdentity, setSelectedRequestIdentity] = useState<string | null>(null);
   const [selectedDetailSource, setSelectedDetailSource] = useState<"history" | "current" | null>(null);
-  const [detailOpen, setDetailOpen] = useState(false);
   const [detailMode, setDetailMode] = useState<"summary" | "readback">("summary");
   const itemsRef = useRef<readonly ResearchDirectoryItemV1[]>([]);
   const requestGuard = useRef(createResearchDirectoryRequestGuardV1());
@@ -221,33 +223,39 @@ export function ResearchDirectory({
     : false;
 
   useEffect(() => {
-    if (detailOpen && !selectedDetailExists) {
-      setDetailOpen(false);
+    if (selectedDetailSource && !selectedDetailExists) {
       setDetailMode("summary");
       setSelectedDetailSource(null);
+      setSelectedRequestIdentity(null);
     }
-  }, [detailOpen, selectedDetailExists]);
+  }, [selectedDetailExists, selectedDetailSource]);
+
+  const closeRowDetail = useCallback(() => {
+    restoreSummaryFocus.current = false;
+    setDetailMode("summary");
+    setSelectedDetailSource(null);
+    setSelectedRequestIdentity(null);
+  }, []);
 
   const openCandidateDetail = useCallback((requestIdentity: string) => {
+    if (selectedDetailSource === "history" && selectedRequestIdentity === requestIdentity) {
+      closeRowDetail();
+      return;
+    }
     setSelectedRequestIdentity(requestIdentity);
     setSelectedDetailSource("history");
     setDetailMode("summary");
-    setDetailOpen(true);
-  }, []);
+  }, [closeRowDetail, selectedDetailSource, selectedRequestIdentity]);
 
   const openCurrentIntentDetail = useCallback((requestIdentity: string) => {
+    if (selectedDetailSource === "current" && selectedRequestIdentity === requestIdentity) {
+      closeRowDetail();
+      return;
+    }
     setSelectedRequestIdentity(requestIdentity);
     setSelectedDetailSource("current");
     setDetailMode("readback");
-    setDetailOpen(true);
-  }, []);
-
-  const closeCandidateDetail = useCallback(() => {
-    restoreSummaryFocus.current = false;
-    setDetailOpen(false);
-    setDetailMode("summary");
-    setSelectedDetailSource(null);
-  }, []);
+  }, [closeRowDetail, selectedDetailSource, selectedRequestIdentity]);
 
   const returnToCandidateSummary = useCallback(() => {
     restoreSummaryFocus.current = true;
@@ -256,12 +264,12 @@ export function ResearchDirectory({
 
   useEffect(() => {
     if (!restoreSummaryFocus.current || detailMode !== "summary"
-      || !detailOpen || !selectedRequestIdentity) return;
+      || selectedDetailSource !== "history" || !selectedRequestIdentity) return;
     restoreSummaryFocus.current = false;
     document.querySelector<HTMLElement>(
       `[data-research-readback-trigger="${CSS.escape(selectedRequestIdentity)}"]`,
     )?.focus();
-  }, [detailMode, detailOpen, selectedRequestIdentity]);
+  }, [detailMode, selectedDetailSource, selectedRequestIdentity]);
 
   const columns = useMemo<DataWorkspaceColumn<ResearchDirectoryItemV1>[]>(() => [
     {
@@ -275,6 +283,10 @@ export function ResearchDirectory({
         label="Research request"
         identity={item.requestIdentity}
         detail="Review result"
+        disclosure={{
+          controls: researchRowDetailsId("current", item.requestIdentity),
+          expanded: selectedDetailSource === "current" && selectedRequestIdentity === item.requestIdentity,
+        }}
         onActivate={() => openCurrentIntentDetail(item.requestIdentity)}
       />,
       ignoreRowClick: true,
@@ -314,7 +326,7 @@ export function ResearchDirectory({
       minWidth: "190px",
       cell: (item) => <time dateTime={item.committedAt}>{displayTime(item.committedAt)}</time>,
     },
-  ], [openCurrentIntentDetail]);
+  ], [openCurrentIntentDetail, selectedDetailSource, selectedRequestIdentity]);
   const candidateColumns = useMemo<DataWorkspaceColumn<HistoricalResearchCandidateV1>[]>(() => [
     {
       id: "request",
@@ -338,6 +350,10 @@ export function ResearchDirectory({
           labelTitle={question?.hypothesis}
           identity={item.requestIdentity}
           detail={detail}
+          disclosure={{
+            controls: researchRowDetailsId("history", item.requestIdentity),
+            expanded: selectedDetailSource === "history" && selectedRequestIdentity === item.requestIdentity,
+          }}
           onActivate={() => openCandidateDetail(item.requestIdentity)}
         />;
       },
@@ -385,7 +401,8 @@ export function ResearchDirectory({
         {new Date(item.committedAtEpochMs).toLocaleString()}
       </time>,
     },
-  ], [openCandidateDetail, outcomeAvailability, outcomeByRequest, questionByRequest]);
+  ], [openCandidateDetail, outcomeAvailability, outcomeByRequest, questionByRequest,
+    selectedDetailSource, selectedRequestIdentity]);
 
   const pending = view === "verified"
     ? availability === "loading" || outcomeInventory.availability === "loading"
@@ -393,10 +410,7 @@ export function ResearchDirectory({
       || questionDirectory.availability === "loading";
   const showPending = useDelayedPending(pending);
   const refresh = () => {
-    setDetailOpen(false);
-    setDetailMode("summary");
-    setSelectedRequestIdentity(null);
-    setSelectedDetailSource(null);
+    closeRowDetail();
     setJourneyRefreshKey((value) => value + 1);
     void outcomeInventory.read();
     void questionDirectory.read();
@@ -409,10 +423,7 @@ export function ResearchDirectory({
   const selectView = (value: string) => {
     const nextView = value === "candidates" ? "candidates" : "verified";
     setView(nextView);
-    setDetailOpen(false);
-    setDetailMode("summary");
-    setSelectedRequestIdentity(null);
-    setSelectedDetailSource(null);
+    closeRowDetail();
     router.replace(nextView === "candidates"
       ? `/rd/research/${candidateOutcome === "all" ? "" : `?outcome=${candidateOutcome}`}`
       : "/rd/research/?view=verified", { scroll: false });
@@ -420,9 +431,7 @@ export function ResearchDirectory({
   const selectCandidateOutcome = (value: string) => {
     const nextOutcome = value === "ready" ? "ready" : value === "awaiting" ? "awaiting" : "all";
     setCandidateOutcome(nextOutcome);
-    setDetailOpen(false);
-    setDetailMode("summary");
-    setSelectedRequestIdentity(null);
+    closeRowDetail();
     router.replace(`/rd/research/${nextOutcome === "all" ? "" : `?outcome=${nextOutcome}`}`, {
       scroll: false,
     });
@@ -489,7 +498,10 @@ export function ResearchDirectory({
               <FilterSearch
                 label={view === "verified" ? "Search verified research" : "Search research questions"}
                 value={search}
-                onChange={(event) => setSearch(event.target.value)}
+                onChange={(event) => {
+                  closeRowDetail();
+                  setSearch(event.target.value);
+                }}
                 placeholder={view === "verified" ? "Request, intent, or state" : "Search research questions"}
                 maxLength={128}
               />
@@ -515,6 +527,17 @@ export function ResearchDirectory({
               paginationRowsPerPageOptions={[20, 50]}
               onRowClicked={(item) => openCurrentIntentDetail(item.requestIdentity)}
               pointerOnHover
+              rowDisclosure={{
+                detailsId: (item) => researchRowDetailsId("current", item.requestIdentity),
+                detailsLabel: () => "Current research result",
+                isExpanded: (item) => selectedDetailSource === "current"
+                  && selectedRequestIdentity === item.requestIdentity,
+                onDismiss: closeRowDetail,
+                render: (item) => <ResearchReadbackDrilldown
+                  requestIdentity={item.requestIdentity}
+                  questions={questionDirectory.projection}
+                />,
+              }}
               noDataComponent={<DataWorkspaceEmpty state={availability === "loading" ? "loading" : "empty"}
                 className={availability === "loading" && !showPending ? styles.pendingQuiet : undefined}
                 icon={<EvidenceIcons.research aria-hidden="true" size={18} />}>
@@ -549,6 +572,32 @@ export function ResearchDirectory({
               paginationRowsPerPageOptions={[20, 50]}
               onRowClicked={(item) => openCandidateDetail(item.requestIdentity)}
               pointerOnHover
+              rowDisclosure={{
+                detailsId: (item) => researchRowDetailsId("history", item.requestIdentity),
+                detailsLabel: () => detailMode === "readback"
+                  ? "Research result"
+                  : "Research question summary",
+                isExpanded: (item) => selectedDetailSource === "history"
+                  && selectedRequestIdentity === item.requestIdentity,
+                onDismiss: closeRowDetail,
+                render: (item) => detailMode === "readback" ? (
+                  <ResearchReadbackDrilldown
+                    requestIdentity={item.requestIdentity}
+                    questions={questionDirectory.projection}
+                    onBack={returnToCandidateSummary}
+                  />
+                ) : (
+                  <ResearchRequestPreview
+                    candidate={item}
+                    question={questionByRequest.get(item.requestIdentity)}
+                    outcome={outcomeByRequest.get(item.requestIdentity)}
+                    outcomeAvailability={outcomeAvailability}
+                    questionObservedAtEpochMs={questionDirectory.projection?.observedAtEpochMs}
+                    outcomeObservedAt={outcomeInventory.projection?.observedAt}
+                    onOpenReadback={() => setDetailMode("readback")}
+                  />
+                ),
+              }}
               noDataComponent={<DataWorkspaceEmpty state={custodyCandidates.availability === "loading"
                 || outcomeAvailability === "loading" ? "loading" : "empty"}
                 className={custodyCandidates.availability === "loading" && !showPending ? styles.pendingQuiet : undefined}
@@ -593,44 +642,6 @@ export function ResearchDirectory({
           </PanelFrameFooter>
         ) : null}
       </PanelFrame>
-      <DetailSheet
-        open={detailOpen && selectedDetailExists}
-        onClose={closeCandidateDetail}
-        eyebrow={selectedDetailSource === "current" ? "Current intent" : "Research history"}
-        title={selectedDetailSource === "current" || detailMode === "readback" ? "Research result" : "Research question"}
-        description={selectedDetailExists
-          ? selectedDetailSource === "current"
-            ? "Review the current result without losing this directory context."
-            : detailMode === "readback"
-            ? "Review the exact result without losing this list context."
-            : selectedCandidate && outcomeByRequest.get(selectedCandidate.requestIdentity)?.status === "outcome_ready"
-            ? "A saved result is ready to review."
-            : "Review the saved question without leaving this list."
-          : undefined}
-      >
-        {selectedDetailSource === "current" && selectedCurrentIntent ? (
-          <ResearchReadbackDrilldown
-            requestIdentity={selectedCurrentIntent.requestIdentity}
-            questions={questionDirectory.projection}
-          />
-        ) : selectedCandidate ? detailMode === "readback" ? (
-          <ResearchReadbackDrilldown
-            requestIdentity={selectedCandidate.requestIdentity}
-            questions={questionDirectory.projection}
-            onBack={returnToCandidateSummary}
-          />
-        ) : (
-          <ResearchRequestPreview
-            candidate={selectedCandidate}
-            question={questionByRequest.get(selectedCandidate.requestIdentity)}
-            outcome={outcomeByRequest.get(selectedCandidate.requestIdentity)}
-            outcomeAvailability={outcomeAvailability}
-            questionObservedAtEpochMs={questionDirectory.projection?.observedAtEpochMs}
-            outcomeObservedAt={outcomeInventory.projection?.observedAt}
-            onOpenReadback={() => setDetailMode("readback")}
-          />
-        ) : null}
-      </DetailSheet>
     </PageStack>
   );
 }

@@ -19,12 +19,14 @@ export function EntityReference({
   exactTitle,
   labelTitle,
   onActivate,
+  disclosure,
 }: {
   label: ReactNode;
   identity: string;
   detail?: ReactNode;
   exactTitle?: string;
   labelTitle?: string;
+  disclosure?: { controls: string; expanded: boolean };
 } & EntityReferenceDestination) {
   const content = <>
     <strong title={labelTitle}>{label}</strong>
@@ -38,6 +40,8 @@ export function EntityReference({
     return <button
       className={styles.reference}
       type="button"
+      aria-controls={disclosure?.controls}
+      aria-expanded={disclosure?.expanded}
       onClick={(event) => {
         event.currentTarget.focus();
         onActivate();
