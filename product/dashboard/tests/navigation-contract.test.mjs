@@ -54,7 +54,7 @@ test("only the current bilingual completeness closure is drawable exact", () => 
     .filter(({ href }) => maturityFor(href) === "DRAWABLE_EXACT")
     .map(({ href }) => href);
   assert.deepEqual(exact, [
-    "/dashboard", "/rd", "/rd/research", "/rd/hypotheses", "/rd/artifacts", "/rd/composer", "/rd/decisions",
+    "/dashboard", "/dashboard/recent", "/rd", "/rd/research", "/rd/hypotheses", "/rd/artifacts", "/rd/composer", "/rd/decisions",
     "/backtest",
     "/runtime", "/runtime/generations", "/runtime/checkpoints", "/runtime/incidents",
     "/portfolio", "/portfolio/exposure", "/portfolio/capacity", "/portfolio/attribution",

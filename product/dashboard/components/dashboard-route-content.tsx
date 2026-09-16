@@ -28,6 +28,7 @@ import { RuntimeFoundationNotReadyCard } from "./runtime-foundation-not-ready-ca
 import { PortfolioViewUnavailableCard } from "./portfolio-view-unavailable-card";
 import { LocalOperatorAccess } from "./local-operator-access";
 import { DashboardOverview } from "./dashboard-overview";
+import { RecentOwnerOutcomes } from "./recent-owner-outcomes";
 import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
 import { PanelFrame, PanelFrameBody, PanelFrameHeader } from "./ui/panel-frame";
 import { UnavailableState } from "./ui/evidence-strip";
@@ -163,11 +164,12 @@ export function DashboardRouteContent({
   const portfolioUnavailable = current === "/portfolio" || current.startsWith("/portfolio/");
   const settingsAccess = current === "/settings/access";
   const dashboardOverview = current === "/dashboard";
+  const dashboardRecent = current === "/dashboard/recent";
   const operationsConnected = operationsRuns || operationsRunDetail || operationsWorkers
     || operationsSchedules || operationsServiceLogs || operationsAudit;
   const embedsRouteChrome = sourceIntakeReadback || sourceResearchControl || composerReadback || researchDirectory || researchReadback || hypothesisDirectory || decisionDirectory
     || artifactDirectory || artifactSourceDetail;
-  const ownsRouteChrome = embedsRouteChrome || settingsAccess || dashboardOverview;
+  const ownsRouteChrome = embedsRouteChrome || settingsAccess || dashboardOverview || dashboardRecent;
   const suppressShellPageHeader = operationsSchedules || operationsServiceLogs || operationsAudit || ownsRouteChrome;
   const drawableExact = maturity === "DRAWABLE_EXACT";
 
@@ -231,6 +233,7 @@ export function DashboardRouteContent({
             </details>
           </header>}
           {dashboardOverview ? <DashboardOverview />
+            : dashboardRecent ? <RecentOwnerOutcomes />
             : operationsRuns ? <OperationsRunStorePreview />
             : operationsRunDetail ? <OperationsRunDetail runIdentity={runIdentity ?? "example"} />
               : operationsWorkers ? <OperationsWorkersPreview initialWorkerIdentity={workerIdentity} />

@@ -19,7 +19,7 @@ test("every R&D top tab owns one stable card-level route header", async () => {
   ]);
 
   assert.match(shell, /const decisionDirectory = current === "\/rd\/decisions";/u);
-  assert.match(shell, /const ownsRouteChrome = embedsRouteChrome \|\| settingsAccess \|\| dashboardOverview;/u);
+  assert.match(shell, /const ownsRouteChrome = embedsRouteChrome \|\| settingsAccess \|\| dashboardOverview \|\| dashboardRecent;/u);
   assert.match(decisions, /<PanelFrame aria-labelledby="rd-decision-directory-title">/u);
   assert.match(decisions, /<PanelFrameHeader[\s\S]*eyebrow="Decisions"[\s\S]*title="Iteration decisions"/u);
   assert.match(shell, /\{suppressShellPageHeader \? <h1 className="sr-only">/u);
