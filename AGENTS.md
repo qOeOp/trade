@@ -31,7 +31,7 @@ authority rule above.
 
 ## Local API keys
 
-Codex may use the following API keys from the local environment when an admitted repository task
+An agent may use the following API keys from the local environment when an admitted repository task
 requires them:
 
 - `DEEPSEEK_API_KEY`
@@ -43,18 +43,27 @@ Treat their values as local secrets: never commit, print, log, or copy them into
 Availability authorizes credential use only within the admitted task's scope; it does not authorize
 real trading or another production write.
 
-## Codex bootstrap
+## Agent bootstrap
 
-`qOeOp/pareto` is the sole source for `run-bounded-mission` and its Codex agent profiles. Before any
+This gate binds every agent that performs repository work, not only Codex. Claude Code and any other
+agent must satisfy it on the same terms; an agent that cannot satisfy a step records that step as
+unavailable and freezes, rather than treating the step as somebody else's obligation.
+
+`qOeOp/pareto` is the sole source for `run-bounded-mission` and its agent profiles. Before any
 non-trivial implementation or delivery, and after switching branch or worktree:
 
 1. fetch `origin/main` and read `codex-skills.lock.json` from that exact ref;
 2. materialize its exact `qOeOp/pareto` commit in an immutable user cache outside this repository;
 3. run that checkout's `node scripts/install-codex.mjs --lock <origin-main-lock> --install-trade-session-hook`,
-   then the same command with `--check`;
-4. after hook content changes, review the exact user `SessionStart` command in `/hooks` and trust only
-   that installed command;
-5. freeze implementation and delivery if the pin, install, hook trust, or check is unavailable or mismatched.
+   then the same command with `--check`. Pass `--agents-root` to install the pinned Skill into the
+   current agent's own Skill root; the installer verifies content and file mode, so step 2's cache must
+   actually be immutable or `--check` reports a Skill mismatch for every agent;
+4. after hook content changes, review the exact installed user `SessionStart` command in the current
+   agent's own hook configuration and trust only that command. The installer currently provides this
+   session-hook trust step for Codex only; for an agent without it, record the step as unavailable;
+5. freeze implementation and delivery if the pin, install, hook trust, or check is unavailable or
+   mismatched. A red `--check` freezes every agent equally. Proceeding anyway requires the user's
+   explicit authorization for that exact delivery, and the unmet step must be named in the handoff.
 
 Normal branches use the latest `origin/main` pin, not their historical copy. A dedicated pin-update PR
 may use its candidate lock only after the referenced commit is merged to `qOeOp/pareto/main`. A branch
