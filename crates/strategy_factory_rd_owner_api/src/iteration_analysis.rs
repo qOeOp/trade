@@ -536,7 +536,7 @@ mod tests {
 
     fn send(
         uri: &str,
-        body: serde_json::Value,
+        body: &serde_json::Value,
         token: Option<&str>,
     ) -> axum::http::Request<axum::body::Body> {
         let mut request = axum::http::Request::builder()
@@ -593,19 +593,19 @@ mod tests {
             completion_calls: AtomicUsize::new(0),
         });
         let unauthorized = test_router(owner.clone(), digest)
-            .oneshot(send("/v1/iteration-analysis-requests", locator(), None))
+            .oneshot(send("/v1/iteration-analysis-requests", &locator(), None))
             .await
             .expect("response");
         assert_eq!(unauthorized.status(), StatusCode::FORBIDDEN);
         let unauthorized_completion = test_router(owner.clone(), digest)
-            .oneshot(send("/v1/iteration-analysis-results", json!({}), None))
+            .oneshot(send("/v1/iteration-analysis-results", &json!({}), None))
             .await
             .expect("response");
         assert_eq!(unauthorized_completion.status(), StatusCode::FORBIDDEN);
         let malformed = test_router(owner.clone(), digest)
             .oneshot(send(
                 "/v1/iteration-analysis-requests",
-                json!({"result_identity": "result-1"}),
+                &json!({"result_identity": "result-1"}),
                 Some(&format!("Bearer {token}")),
             ))
             .await
@@ -614,7 +614,7 @@ mod tests {
         let malformed_completion = test_router(owner.clone(), digest)
             .oneshot(send(
                 "/v1/iteration-analysis-results",
-                json!({"result_identity": "result-1"}),
+                &json!({"result_identity": "result-1"}),
                 Some(&format!("Bearer {token}")),
             ))
             .await
@@ -638,7 +638,7 @@ mod tests {
         let response = test_router(owner.clone(), digest)
             .oneshot(send(
                 "/v1/iteration-analysis-results",
-                completion_operation(),
+                &completion_operation(),
                 Some(&format!("Bearer {token}")),
             ))
             .await
@@ -652,7 +652,7 @@ mod tests {
         let rejected = test_router(owner.clone(), digest)
             .oneshot(send(
                 "/v1/iteration-analysis-results",
-                injected,
+                &injected,
                 Some(&format!("Bearer {token}")),
             ))
             .await
@@ -675,7 +675,7 @@ mod tests {
         let response = test_router(owner.clone(), digest)
             .oneshot(send(
                 "/v1/iteration-analysis-requests/resolve",
-                locator(),
+                &locator(),
                 Some(&format!("Bearer {token}")),
             ))
             .await

@@ -652,7 +652,7 @@ mod tests {
         let mut wrong = locator.clone();
         wrong.attempt_identity = identity("attempt-2");
         mismatches.push(wrong);
-        let mut wrong = locator.clone();
+        let mut wrong = locator;
         wrong.canonical_result_digest = digest('8');
         mismatches.push(wrong);
 

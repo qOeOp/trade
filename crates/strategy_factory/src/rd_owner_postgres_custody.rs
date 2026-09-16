@@ -948,16 +948,16 @@ fn verify_legacy_quarantined_commit(
             let view_json = view_json.ok_or_else(|| {
                 ResearchGoalOwnerError::Storage("legacy research view missing".into())
             })?;
-            let view = verify_legacy_research_view(
+            let view = verify_legacy_research_view(LegacyResearchViewClaimV1 {
                 receipt,
-                &suffix,
-                &intent.intent_identity,
-                &intent.source_frontier,
-                "v1",
-                None,
-                None,
+                suffix: &suffix,
+                intent_identity: &intent.intent_identity,
+                source_frontier: &intent.source_frontier,
+                initial_source_version: "v1",
+                expected_authorized_scope: None,
+                expected_valid_through_epoch_ms: None,
                 view_json,
-            )?;
+            })?;
             Ok(VerifiedLegacyResearchCommitV1 {
                 intent: Some(intent),
                 effective_principal: view.trusted_principal,
@@ -1066,18 +1066,18 @@ async fn verify_legacy_missing_request_v2(
                     "legacy V2 family custody mismatch".into(),
                 ));
             }
-            let view = verify_legacy_research_view(
+            let view = verify_legacy_research_view(LegacyResearchViewClaimV1 {
                 receipt,
-                &suffix,
-                &intent.intent_identity,
-                &intent.source_frontier,
-                "v2",
-                None,
-                None,
-                view_json.ok_or_else(|| {
+                suffix: &suffix,
+                intent_identity: &intent.intent_identity,
+                source_frontier: &intent.source_frontier,
+                initial_source_version: "v2",
+                expected_authorized_scope: None,
+                expected_valid_through_epoch_ms: None,
+                view_json: view_json.ok_or_else(|| {
                     ResearchGoalOwnerError::Storage("legacy V2 research view missing".into())
                 })?,
-            )?;
+            })?;
             Ok(VerifiedLegacyResearchCommitV1 {
                 intent: None,
                 effective_principal: view.trusted_principal,
@@ -1188,18 +1188,18 @@ async fn verify_legacy_self_authorized_v2(
                     "legacy self-authorized family mismatch".into(),
                 ));
             }
-            let view = verify_legacy_research_view(
+            let view = verify_legacy_research_view(LegacyResearchViewClaimV1 {
                 receipt,
-                &suffix,
-                &intent.intent_identity,
-                &intent.source_frontier,
-                "v2",
-                Some(&request.context.authorized_scope),
-                None,
-                view_json.ok_or_else(|| {
+                suffix: &suffix,
+                intent_identity: &intent.intent_identity,
+                source_frontier: &intent.source_frontier,
+                initial_source_version: "v2",
+                expected_authorized_scope: Some(&request.context.authorized_scope),
+                expected_valid_through_epoch_ms: None,
+                view_json: view_json.ok_or_else(|| {
                     ResearchGoalOwnerError::Storage("legacy self-authorized view missing".into())
                 })?,
-            )?;
+            })?;
 
             if view.trusted_principal != request.context.effective_principal
                 || view.authorized_scope != request.context.authorized_scope
@@ -1441,18 +1441,18 @@ async fn verify_legacy_admitted_v2(
             "legacy candidate intent or family mismatch".into(),
         ));
     }
-    let view = verify_legacy_research_view(
+    let view = verify_legacy_research_view(LegacyResearchViewClaimV1 {
         receipt,
-        &suffix,
-        &intent.intent_identity,
-        &intent.source_frontier,
-        "v2",
-        Some(authorized_scope),
-        Some(protected_snapshot.valid_through_epoch_ms),
-        view_json.ok_or_else(|| {
+        suffix: &suffix,
+        intent_identity: &intent.intent_identity,
+        source_frontier: &intent.source_frontier,
+        initial_source_version: "v2",
+        expected_authorized_scope: Some(authorized_scope),
+        expected_valid_through_epoch_ms: Some(protected_snapshot.valid_through_epoch_ms),
+        view_json: view_json.ok_or_else(|| {
             ResearchGoalOwnerError::Storage("legacy candidate view missing".into())
         })?,
-    )?;
+    })?;
 
     if view.trusted_principal != effective_principal
         || view.authorized_scope != authorized_scope
@@ -1544,16 +1544,38 @@ async fn verify_legacy_product_edge_rejected_v2(
     })
 }
 
-fn verify_legacy_research_view(
-    receipt: &ResearchRequestReceiptV1,
-    suffix: &str,
-    intent_identity: &str,
-    source_frontier: &[crate::product_edge::ResearchSourceV1],
-    initial_source_version: &str,
-    expected_authorized_scope: Option<&[String]>,
+/// Everything one legacy Research view verification reads.
+///
+/// Every field is a borrow or a small scalar, so the claim is `Copy`: it carries no ownership and
+/// passing it costs no more than the eight arguments it replaces.
+///
+/// The four subject fields always travel together - every caller passes the same receipt, suffix
+/// and Intent - so they are one claim rather than eight positional arguments.
+#[derive(Clone, Copy)]
+struct LegacyResearchViewClaimV1<'a> {
+    receipt: &'a ResearchRequestReceiptV1,
+    suffix: &'a str,
+    intent_identity: &'a str,
+    source_frontier: &'a [crate::product_edge::ResearchSourceV1],
+    initial_source_version: &'a str,
+    expected_authorized_scope: Option<&'a [String]>,
     expected_valid_through_epoch_ms: Option<u64>,
-    view_json: &serde_json::Value,
+    view_json: &'a serde_json::Value,
+}
+
+fn verify_legacy_research_view(
+    claim: LegacyResearchViewClaimV1<'_>,
 ) -> Result<LegacyResearchViewV1, ResearchGoalOwnerError> {
+    let LegacyResearchViewClaimV1 {
+        receipt,
+        suffix,
+        intent_identity,
+        source_frontier,
+        initial_source_version,
+        expected_authorized_scope,
+        expected_valid_through_epoch_ms,
+        view_json,
+    } = claim;
     let view: LegacyResearchViewV1 = decode_exact(view_json)?;
     let baseline_scope = [
         RESEARCH_SCOPE_V1.to_string(),

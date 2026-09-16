@@ -340,16 +340,26 @@ pub(crate) fn prepare_binding_from_verified_owner_v2(
     })
 }
 
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "VerifiedOwnerSequenceV2 is a move-only token; spending it here is the invariant, and \
+              borrowing it would let one Owner readback seal two bindings"
+)]
 fn seal_meaning(
     v1_binding_identity: [u8; 32],
     v1_binding_digest: [u8; 32],
     owner: VerifiedOwnerSequenceV2,
 ) -> Result<NativeReplayExecutionInputBindingV2, NativeReplayExecutionInputBindingErrorV2> {
-    let [first, second] = owner.frames;
+    // Destructured whole rather than read field by field: `VerifiedOwnerSequenceV2` is a move-only
+    // token, and consuming it here is what makes sealing the one place it can be spent.
+    let VerifiedOwnerSequenceV2 {
+        owner_sequence_digest,
+        frames: [first, second],
+    } = owner;
 
     if v1_binding_identity == [0; 32]
         || v1_binding_identity != v1_binding_digest
-        || owner.owner_sequence_digest == [0; 32]
+        || owner_sequence_digest == [0; 32]
         || first.frame_identity == second.frame_identity
         || first.pit_cut_identity == second.pit_cut_identity
         || !valid_frame(&first)
@@ -363,7 +373,7 @@ fn seal_meaning(
     let mut sequence_bytes = Vec::with_capacity(32 * 3 + 2 * (32 * 13 + 16));
     sequence_bytes.extend_from_slice(&v1_binding_identity);
     sequence_bytes.extend_from_slice(&v1_binding_digest);
-    sequence_bytes.extend_from_slice(&owner.owner_sequence_digest);
+    sequence_bytes.extend_from_slice(&owner_sequence_digest);
     for frame in &frames {
         append_frame(&mut sequence_bytes, frame);
     }
@@ -379,7 +389,7 @@ fn seal_meaning(
     Ok(NativeReplayExecutionInputBindingV2 {
         v1_binding_identity,
         v1_binding_digest,
-        owner_sequence_digest: owner.owner_sequence_digest,
+        owner_sequence_digest,
         sequence_digest,
         frames,
         binding_identity,
