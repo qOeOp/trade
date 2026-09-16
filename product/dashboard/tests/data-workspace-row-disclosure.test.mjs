@@ -23,10 +23,11 @@ test("DataWorkspaceTable owns one reusable controlled row-detail disclosure", as
   assert.match(entity, /aria-controls=\{disclosure\?\.controls\}/u);
   assert.match(entity, /aria-expanded=\{disclosure\?\.expanded\}/u);
   assert.match(entity, /if \(row\) preserveRowViewportPosition\(row\)/u);
-  assert.match(anchor, /row\.closest<HTMLElement>\("\.data-workspace-table"\)\?\.parentElement/u);
+  assert.match(anchor, /let current = row\.parentElement/u);
   assert.match(anchor, /overflowY === "auto" \|\| overflowY === "scroll"/u);
   assert.match(anchor, /scrollHost\.scrollTop \+= delta/u);
   assert.match(anchor, /else window\.scrollBy\(0, delta\)/u);
+  assert.match(anchor, /if \(frame < 5\) requestAnimationFrame/u);
   assert.match(css, /\.data-workspace-row-details \{[^}]*background: var\(--surface-panel\)/su);
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*\.data-workspace-row-details[\s\S]*position: sticky;/u);
   assert.doesNotMatch(css, /\.research[^}]*data-workspace-row-details/iu);
