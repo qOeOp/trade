@@ -131,6 +131,10 @@ test("Evidence is an admitted same-page read-only coverage workspace", async () 
     "useDashboardOverviewRuns"]) {
     assert.ok(component.includes(token), `Dashboard evidence missing ${token}`);
   }
+  for (const token of ["custodyPending", "researchPending", "buildsPending", "runsPending"]) {
+    assert.ok(component.includes(token), `Dashboard evidence missing independent loading boundary ${token}`);
+  }
+  assert.doesNotMatch(component, /custody: pending \? null|runs: pending \? null/u);
   assert.doesNotMatch(component, /Resolve same identity|Rebuild evidence|Submit|Run strategy|Delete evidence/u);
   for (const doc of [en, zh]) {
     assert.match(doc, /DashboardEvidence/u);

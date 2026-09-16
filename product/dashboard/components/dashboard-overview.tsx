@@ -60,22 +60,32 @@ export function DashboardOverview() {
   const runs = useDashboardOverviewRuns(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const pending = refreshing
-    || custody.availability === "loading"
-    || outcomes.availability === "loading"
-    || reviews.availability === "loading"
-    || runs.availability === "loading";
+  const custodyPending = custody.availability === "loading";
+  const researchPending = custodyPending || outcomes.availability === "loading";
+  const buildsPending = custodyPending || reviews.availability === "loading";
+  const runsPending = runs.availability === "loading";
+  const pending = researchPending || buildsPending || runsPending;
+  const refreshPending = refreshing || pending;
   const projection = useMemo(() => projectDashboardOverviewV1({
-    custody: pending ? null : custody.projection,
-    researchOutcomes: pending ? null : outcomes.projection,
-    artifactReviews: pending ? null : reviews.projection,
-    runs: pending ? null : runs.projection,
-  }), [custody.projection, outcomes.projection, pending, reviews.projection, runs.projection]);
-  const researchBound = !pending && researchOutcomeInventoryMatchesCustodyV1(
+    custody: custodyPending ? null : custody.projection,
+    researchOutcomes: researchPending ? null : outcomes.projection,
+    artifactReviews: buildsPending ? null : reviews.projection,
+    runs: runsPending ? null : runs.projection,
+  }), [
+    buildsPending,
+    custody.projection,
+    custodyPending,
+    outcomes.projection,
+    researchPending,
+    reviews.projection,
+    runs.projection,
+    runsPending,
+  ]);
+  const researchBound = !researchPending && researchOutcomeInventoryMatchesCustodyV1(
     outcomes.projection,
     custody.projection,
   );
-  const reviewsBound = !pending && artifactReviewInventoryMatchesCustodyV1(
+  const reviewsBound = !buildsPending && artifactReviewInventoryMatchesCustodyV1(
     reviews.projection,
     custody.projection,
   );
@@ -123,39 +133,39 @@ export function DashboardOverview() {
               <PanelFrameInfoFact label="RunStore">{projection.operations.observedAt ?? runs.reason ?? "Unavailable"}</PanelFrameInfoFact>
             </PanelFrameInfoList>
           </PanelFrameInfo>
-          <Button type="button" variant="outline" size="tool" disabled={pending}
+          <Button type="button" variant="outline" size="tool" disabled={refreshPending}
             onClick={() => void refresh()}>
-            <InterfaceIcons.refresh aria-hidden="true" />{pending ? "Refreshing…" : "Refresh"}
+            <InterfaceIcons.refresh aria-hidden="true" />{refreshPending ? "Refreshing…" : "Refresh"}
           </Button>
         </>}
       />
       <PanelFrameBody className={styles.summaryBody}>
         <CompactStatusBar aria-label="Workspace activity" aria-busy={pending}>
           <CompactStatusGroup label="R&D">
-            <OverviewStatusItem label="results ready" value={displayValue(projection.research.resultsReady, pending)}
+            <OverviewStatusItem label="results ready" value={displayValue(projection.research.resultsReady, researchPending)}
               tone={projection.research.resultsReady ? "success" : "neutral"}
-              href={!pending && researchBound ? "/rd/research/?outcome=ready" : null}
+              href={researchBound ? "/rd/research/?outcome=ready" : null}
               actionLabel="Review research results" />
-            <OverviewStatusItem label="waiting" value={displayValue(projection.research.waiting, pending)}
+            <OverviewStatusItem label="waiting" value={displayValue(projection.research.waiting, researchPending)}
               tone={projection.research.waiting ? "warning" : "neutral"}
-              href={!pending && researchBound ? "/rd/research/?outcome=awaiting" : null}
+              href={researchBound ? "/rd/research/?outcome=awaiting" : null}
               actionLabel="Review waiting research" />
-            <OverviewStatusItem label="reviewable" value={displayValue(projection.builds.reviewable, pending)}
+            <OverviewStatusItem label="reviewable" value={displayValue(projection.builds.reviewable, buildsPending)}
               tone={projection.builds.reviewable ? "success" : "neutral"}
-              href={!pending && reviewsBound ? "/rd/artifacts/?availability=reviewable" : null}
+              href={reviewsBound ? "/rd/artifacts/?availability=reviewable" : null}
               actionLabel="Review build outcomes" />
-            <OverviewStatusItem label="bindings" value={displayValue(projection.families.bindings, pending)}
-              href={!pending && projection.custodyAvailable ? "/rd/artifacts/?kind=bindings" : null}
+            <OverviewStatusItem label="bindings" value={displayValue(projection.families.bindings, custodyPending)}
+              href={!custodyPending && projection.custodyAvailable ? "/rd/artifacts/?kind=bindings" : null}
               actionLabel="Browse family bindings" />
           </CompactStatusGroup>
           <CompactStatusGroup label="operations">
-            <OverviewStatusItem label="active" value={displayValue(projection.operations.active, pending)}
+            <OverviewStatusItem label="active" value={displayValue(projection.operations.active, runsPending)}
               tone={projection.operations.active ? "info" : "neutral"}
-              href={!pending && projection.operations.active !== null ? "/operations/" : null}
+              href={!runsPending && projection.operations.active !== null ? "/operations/" : null}
               actionLabel="Inspect active runs" />
-            <OverviewStatusItem label="needs attention" value={displayValue(projection.operations.attention, pending)}
+            <OverviewStatusItem label="needs attention" value={displayValue(projection.operations.attention, runsPending)}
               tone={projection.operations.attention ? "danger" : "neutral"}
-              href={!pending && projection.operations.attention !== null ? "/operations/" : null}
+              href={!runsPending && projection.operations.attention !== null ? "/operations/" : null}
               actionLabel="Inspect run attention" />
           </CompactStatusGroup>
         </CompactStatusBar>
@@ -165,8 +175,8 @@ export function DashboardOverview() {
     <PanelFrame>
       <PanelFrameHeader eyebrow="Next" title="Ready to review" density="compact" />
       <PanelFrameBody className={styles.summaryBody}>
-        {pending ? <div className={styles.quietState} aria-busy="true"><b>Reading current queues…</b></div>
-          : queueCards.length > 0 ? <div className={styles.queueGrid}>{queueCards}</div>
+        {queueCards.length > 0 ? <div className={styles.queueGrid}>{queueCards}</div>
+          : pending ? <div className={styles.quietState} aria-busy="true"><b>Reading current queues…</b></div>
             : <div className={styles.quietState}><b>No recorded work is ready for review.</b>
               <span>Open R&amp;D or Operations to browse the available history.</span></div>}
       </PanelFrameBody>

@@ -109,17 +109,27 @@ export function RecentOwnerOutcomes() {
   const [cut, setCut] = useState<RecentCut>("all");
   const [search, setSearch] = useState("");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const pending = custody.availability === "loading"
+  const custodyPending = custody.availability === "loading";
+  const researchPending = custodyPending
     || outcomes.availability === "loading"
-    || reviews.availability === "loading"
     || questions.availability === "loading";
+  const buildsPending = custodyPending || reviews.availability === "loading";
+  const pending = researchPending || buildsPending;
   const showPending = useDelayedPending(pending);
   const projection = useMemo(() => projectRecentOwnerOutcomesV1({
-    custody: pending ? null : custody.projection,
-    researchOutcomes: pending ? null : outcomes.projection,
-    questions: pending ? null : questions.projection,
-    buildReviews: pending ? null : reviews.projection,
-  }), [custody.projection, outcomes.projection, pending, questions.projection, reviews.projection]);
+    custody: custodyPending ? null : custody.projection,
+    researchOutcomes: researchPending ? null : outcomes.projection,
+    questions: researchPending ? null : questions.projection,
+    buildReviews: buildsPending ? null : reviews.projection,
+  }), [
+    buildsPending,
+    custody.projection,
+    custodyPending,
+    outcomes.projection,
+    questions.projection,
+    researchPending,
+    reviews.projection,
+  ]);
   const normalizedSearch = search.trim().toLowerCase();
   const visibleRows = useMemo(() => projection.rows.filter((item) => {
     if (cut !== "all" && item.kind !== cut) return false;
@@ -219,9 +229,9 @@ export function RecentOwnerOutcomes() {
       <PageStack gap="compact">
         <CompactStatusBar aria-label="Recent outcome summary" aria-busy={pending}>
           <CompactStatusGroup label="recent outcomes">
-            <CompactStatusItem label="research" value={pending ? "—" : projection.researchCount ?? "—"}
+            <CompactStatusItem label="research" value={researchPending ? "—" : projection.researchCount ?? "—"}
               tone={projection.researchCount ? "success" : "neutral"} />
-            <CompactStatusItem label="builds" value={pending ? "—" : projection.buildCount ?? "—"}
+            <CompactStatusItem label="builds" value={buildsPending ? "—" : projection.buildCount ?? "—"}
               tone={projection.buildCount ? "warning" : "neutral"} />
             <CompactStatusItem label="total" value={pending ? "—" : projection.totalCount ?? "—"} />
           </CompactStatusGroup>
@@ -288,7 +298,12 @@ export function RecentOwnerOutcomes() {
       </PageStack>
     </PanelFrameBody>
     <PanelFrameFooter>
-      <PanelFrameFooterSummary primary={pending ? "Reading current Owner outcomes" : `${visibleRows.length} outcomes shown`} />
+      <PanelFrameFooterSummary
+        primary={pending && visibleRows.length === 0
+          ? "Reading current Owner outcomes"
+          : `${visibleRows.length} outcomes shown`}
+        secondary={pending && visibleRows.length > 0 ? "Other outcome sources are still being read." : undefined}
+      />
     </PanelFrameFooter>
   </PanelFrame>;
 }

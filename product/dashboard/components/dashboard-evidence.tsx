@@ -91,20 +91,36 @@ export function DashboardEvidence() {
   const runs = useDashboardOverviewRuns(true);
   const [cut, setCut] = useState<EvidenceCut>("all");
   const [selectedKey, setSelectedKey] = useState<DashboardEvidenceRowV1["key"] | null>(null);
-  const pending = custody.availability === "loading"
-    || outcomes.availability === "loading"
-    || reviews.availability === "loading"
-    || runs.availability === "loading";
+  const custodyPending = custody.availability === "loading";
+  const researchPending = custodyPending || outcomes.availability === "loading";
+  const buildsPending = custodyPending || reviews.availability === "loading";
+  const runsPending = runs.availability === "loading";
+  const pending = researchPending || buildsPending || runsPending;
   const showPending = useDelayedPending(pending);
   const projection = useMemo(() => projectDashboardEvidenceV1({
-    custody: pending ? null : custody.projection,
-    researchOutcomes: pending ? null : outcomes.projection,
-    artifactReviews: pending ? null : reviews.projection,
-    runs: pending ? null : runs.projection,
-  }), [custody.projection, outcomes.projection, pending, reviews.projection, runs.projection]);
-  const visibleRows = useMemo(() => projection.rows.filter((row) => (
-    cut === "all" || (cut === "ready" ? row.state === "ready" : row.state !== "ready")
-  )), [cut, projection.rows]);
+    custody: custodyPending ? null : custody.projection,
+    researchOutcomes: researchPending ? null : outcomes.projection,
+    artifactReviews: buildsPending ? null : reviews.projection,
+    runs: runsPending ? null : runs.projection,
+  }), [
+    buildsPending,
+    custody.projection,
+    custodyPending,
+    outcomes.projection,
+    researchPending,
+    reviews.projection,
+    runs.projection,
+    runsPending,
+  ]);
+  const visibleRows = useMemo(() => projection.rows.filter((row) => {
+    const sourcePending = row.key === "custody"
+      ? custodyPending
+      : row.key === "research"
+        ? researchPending
+        : row.key === "builds" ? buildsPending : runsPending;
+    return !sourcePending
+      && (cut === "all" || (cut === "ready" ? row.state === "ready" : row.state !== "ready"));
+  }), [buildsPending, custodyPending, cut, projection.rows, researchPending, runsPending]);
   const closeDetail = useCallback(() => setSelectedKey(null), []);
   const toggleDetail = useCallback((key: DashboardEvidenceRowV1["key"]) => {
     setSelectedKey((current) => current === key ? null : key);
@@ -240,11 +256,10 @@ export function DashboardEvidence() {
     </PanelFrameBody>
     <PanelFrameFooter>
       <PanelFrameFooterSummary
-        primary={
-          pending
-            ? "Reading current data coverage"
-            : `${visibleRows.length} ${visibleRows.length === 1 ? "area" : "areas"} shown`
-        }
+        primary={pending && visibleRows.length === 0
+          ? "Reading current data coverage"
+          : `${visibleRows.length} ${visibleRows.length === 1 ? "area" : "areas"} shown`}
+        secondary={pending && visibleRows.length > 0 ? "Other source coverage is still being read." : undefined}
       />
     </PanelFrameFooter>
   </PanelFrame>;

@@ -116,6 +116,10 @@ test("Recent is an admitted same-page read-only outcome workspace", async () => 
     "ArtifactAttemptPreview", "PanelFrameInfo", "CompactStatusBar"]) {
     assert.ok(component.includes(token), `Recent outcomes missing ${token}`);
   }
+  for (const token of ["custodyPending", "researchPending", "buildsPending"]) {
+    assert.ok(component.includes(token), `Recent outcomes missing independent loading boundary ${token}`);
+  }
+  assert.doesNotMatch(component, /custody: pending \? null|buildReviews: pending \? null/u);
   assert.doesNotMatch(component, /Resolve same identity|Submit|Run strategy|Delete/u);
   for (const doc of [en, zh]) {
     assert.match(doc, /RecentOwnerOutcomes/u);

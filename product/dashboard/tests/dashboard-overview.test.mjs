@@ -121,6 +121,11 @@ test("the admitted Overview remains a read-only independent-source consumer", as
   for (const token of ["CompactStatusBar", "PanelFrame", "Each section is observed independently", "useDashboardOverviewRuns"]) {
     assert.ok(component.includes(token), `Overview missing ${token}`);
   }
+  for (const token of ["custodyPending", "researchPending", "buildsPending", "runsPending"]) {
+    assert.ok(component.includes(token), `Overview missing independent loading boundary ${token}`);
+  }
+  assert.doesNotMatch(component, /custody: pending \? null|runs: pending \? null/u);
+  assert.match(component, /queueCards\.length > 0 \? <div className=\{styles\.queueGrid\}>/u);
   assert.match(runHook, /useRunListView\(enabled, DASHBOARD_OVERVIEW_RUN_FILTER_V1\)/u);
   assert.equal(DASHBOARD_OVERVIEW_RUN_FILTER_V1.page_size, 50);
   assert.doesNotMatch(component, /GlobalStatusMatrix|global health|Resolve same identity|Submit|Run strategy/u);
