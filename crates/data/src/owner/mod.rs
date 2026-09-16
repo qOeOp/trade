@@ -62,6 +62,7 @@ mod store_admission;
 pub use postgres::strategy_input_binding_registry::{
     reread_persisted_strategy_input_custody_for_update_v1,
     reread_persisted_strategy_input_custody_read_only_v1,
+    StrategyDesignPitCoordinateV1, resolve_pit_request_for_strategy_design_v1,
 };
 
 /// Opens the sole configured Instrument Owner economic-terms authority.
