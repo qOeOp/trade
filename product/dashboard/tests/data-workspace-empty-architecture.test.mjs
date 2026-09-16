@@ -48,7 +48,7 @@ test("table empty rows compose the shared DataWorkspaceEmpty atom", async () => 
     }
   }
 
-  assert.equal(usages, 16);
+  assert.equal(usages, 17);
   const table = await readFile(join(componentsRoot, "ui/data-workspace-table.tsx"), "utf8");
   assert.match(table, /noDataComponent \?\? <DataWorkspaceEmpty>No data<\/DataWorkspaceEmpty>/u);
 });

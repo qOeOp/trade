@@ -60,7 +60,7 @@ export const allRoutes = [
 ];
 
 const exactRoutes = new Set([
-  "/dashboard", "/dashboard/recent", "/dashboard/evidence",
+  "/dashboard", "/dashboard/attention", "/dashboard/recent", "/dashboard/evidence",
   "/operations", "/operations/runs/example", "/data", "/data/pit-catalog",
   "/operations/workers", "/operations/workers/example", "/operations/schedules", "/operations/service-logs", "/operations/audit",
   "/runtime", "/runtime/generations", "/runtime/checkpoints", "/runtime/incidents",
@@ -107,6 +107,7 @@ export function pageFor(href) {
 
 export const exactBlueprints = {
   "/dashboard": { summaries: ["Research results ready", "Research waiting", "Build outcomes reviewable", "Family bindings", "Active Dashboard runs", "Run attention"], primary: "DashboardOverview", context: "Independent source scope disclosure", terminal: "ReadyToReview", state: "IMPLEMENTATION_ADMITTED - INDEPENDENT_READ_ONLY_QUEUES - NO_GLOBAL_HEALTH_OR_EFFECTS" },
+  "/dashboard/attention": { summaries: ["Research", "Builds", "Runs", "Total"], primary: "DashboardAttention", context: "Independent source scope disclosure", terminal: "Inline follow-up detail", state: "IMPLEMENTATION_ADMITTED - INDEPENDENT_READ_ONLY_ATTENTION - NO_RESOLVE_DISMISS_OR_EFFECTS" },
   "/dashboard/recent": { summaries: ["Research outcomes", "Build outcomes", "Verified total"], primary: "RecentOwnerOutcomes", context: "Independent source scope disclosure", terminal: "Inline outcome detail", state: "IMPLEMENTATION_ADMITTED - OWNER_OUTCOME_READ_ONLY - NO_OWNER_OR_EFFECT_MUTATION" },
   "/dashboard/evidence": { summaries: ["Connected", "Limited", "Unavailable"], primary: "DashboardEvidence", context: "Independent source evidence disclosure", terminal: "Inline coverage detail", state: "IMPLEMENTATION_ADMITTED - INDEPENDENT_READ_COVERAGE - NO_OWNER_OR_EFFECT_MUTATION" },
   "/settings/access": { summaries: ["Session", "Credentials", "Authority"], primary: "LocalOperatorAccess", context: null, terminal: "AuthorizationUnavailable", state: "IMPLEMENTATION_ADMITTED - LOCAL_SESSION_READ_ONLY - NO_AUTHORITY_OR_TOKEN_MUTATION" },

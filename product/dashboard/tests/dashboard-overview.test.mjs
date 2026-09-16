@@ -121,7 +121,8 @@ test("the admitted Overview remains a read-only independent-source consumer", as
   for (const token of ["CompactStatusBar", "PanelFrame", "Each section is observed independently", "useDashboardOverviewRuns"]) {
     assert.ok(component.includes(token), `Overview missing ${token}`);
   }
-  assert.match(runHook, /pageSize: "50"/u);
+  assert.match(runHook, /useRunListView\(enabled, DASHBOARD_OVERVIEW_RUN_FILTER_V1\)/u);
+  assert.equal(DASHBOARD_OVERVIEW_RUN_FILTER_V1.page_size, 50);
   assert.doesNotMatch(component, /GlobalStatusMatrix|global health|Resolve same identity|Submit|Run strategy/u);
   for (const doc of [en, zh]) {
     assert.match(doc, /IMPLEMENTATION_ADMITTED \/ CURRENT_PARTIAL/u);

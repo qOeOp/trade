@@ -27,6 +27,7 @@ import { MarketDataOwnerFoundationCard } from "./market-data-owner-foundation-ca
 import { RuntimeFoundationNotReadyCard } from "./runtime-foundation-not-ready-card";
 import { PortfolioViewUnavailableCard } from "./portfolio-view-unavailable-card";
 import { LocalOperatorAccess } from "./local-operator-access";
+import { DashboardAttention } from "./dashboard-attention";
 import { DashboardOverview } from "./dashboard-overview";
 import { DashboardEvidence } from "./dashboard-evidence";
 import { RecentOwnerOutcomes } from "./recent-owner-outcomes";
@@ -165,13 +166,14 @@ export function DashboardRouteContent({
   const portfolioUnavailable = current === "/portfolio" || current.startsWith("/portfolio/");
   const settingsAccess = current === "/settings/access";
   const dashboardOverview = current === "/dashboard";
+  const dashboardAttention = current === "/dashboard/attention";
   const dashboardRecent = current === "/dashboard/recent";
   const dashboardEvidence = current === "/dashboard/evidence";
   const operationsConnected = operationsRuns || operationsRunDetail || operationsWorkers
     || operationsSchedules || operationsServiceLogs || operationsAudit;
   const embedsRouteChrome = sourceIntakeReadback || sourceResearchControl || composerReadback || researchDirectory || researchReadback || hypothesisDirectory || decisionDirectory
     || artifactDirectory || artifactSourceDetail;
-  const ownsRouteChrome = embedsRouteChrome || settingsAccess || dashboardOverview || dashboardRecent || dashboardEvidence;
+  const ownsRouteChrome = embedsRouteChrome || settingsAccess || dashboardOverview || dashboardAttention || dashboardRecent || dashboardEvidence;
   const suppressShellPageHeader = operationsSchedules || operationsServiceLogs || operationsAudit || ownsRouteChrome;
   const drawableExact = maturity === "DRAWABLE_EXACT";
 
@@ -235,6 +237,7 @@ export function DashboardRouteContent({
             </details>
           </header>}
           {dashboardOverview ? <DashboardOverview />
+            : dashboardAttention ? <DashboardAttention />
             : dashboardRecent ? <RecentOwnerOutcomes />
             : dashboardEvidence ? <DashboardEvidence />
             : operationsRuns ? <OperationsRunStorePreview />
