@@ -472,7 +472,7 @@ export function ResearchDirectory({
           </>}
         />
         <PanelFrameBody>
-          <DataTableSurface className={styles.tableSurface} geometry="inner" toolbarLabel="Research table controls" toolbar={
+          <DataTableSurface className={[styles.tableSurface, styles.pageScrollSurface].join(" ")} geometry="inner" toolbarLabel="Research table controls" toolbar={
             <TableToolbar filter={<div className={styles.filterGroup}>
               <FilterTabs
                 label="Research directory view"

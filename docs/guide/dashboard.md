@@ -416,8 +416,10 @@ controls. A non-2xx response, identity mismatch, malformed payload, collapse, Ba
 the in-flight read and retains no positive result or workspace action. Closing restores focus to the originating
 reference or row. Only one row may be expanded. Activating it again collapses it; activating another row replaces
 it. Sorting, pagination, page-size, filter, tab, and Refresh changes collapse the detail and invalidate its read.
-The detail row spans the table columns without joining pagination counts or sort order. At narrow widths it keeps
-one readable content column inside the existing horizontal table viewport and adds no nested scroll container.
+The detail row spans the table columns without joining pagination counts or sort order. The directory and its
+row-detail always use the page viewport as their single vertical scroll owner; expanding or collapsing a row never
+switches to a table-owned vertical scroller. At narrow widths the detail keeps one readable content column inside
+the existing horizontal table viewport and adds no nested vertical scroll container.
 The canonical workspace keeps the same atoms in its wider multi-column composition. In `Current intents`,
 activating the primary request reference or its row expands the same shared row-detail directly in exact read-only
 result mode. It preserves the

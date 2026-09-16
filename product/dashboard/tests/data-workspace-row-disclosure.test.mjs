@@ -27,9 +27,11 @@ test("DataWorkspaceTable owns one reusable controlled row-detail disclosure", as
   assert.match(anchor, /overflowY === "auto" \|\| overflowY === "scroll"/u);
   assert.match(anchor, /scrollHost\.scrollTop \+= delta/u);
   assert.match(anchor, /else window\.scrollBy\(0, delta\)/u);
-  assert.match(anchor, /if \(frame < 5\) requestAnimationFrame/u);
+  assert.match(anchor, /requestAnimationFrame\(\(\) => \{\s*requestAnimationFrame/u);
+  assert.doesNotMatch(anchor, /frame < 5/u);
   assert.match(css, /\.data-workspace-row-details \{[^}]*background: var\(--surface-panel\)/su);
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*\.data-workspace-row-details[\s\S]*position: sticky;/u);
   assert.doesNotMatch(css, /\.research[^}]*data-workspace-row-details/iu);
-  assert.match(directoryCss, /data-has-expanded-row="true"[\s\S]*max-height: none;[\s\S]*overflow-y: clip;/u);
+  assert.match(directoryCss, /\.pageScrollSurface :global\(\.data-workspace-viewport\) \{[^}]*max-height: none;[^}]*overflow-y: visible;[^}]*overscroll-behavior: auto;/su);
+  assert.doesNotMatch(directoryCss, /data-has-expanded-row/u);
 });

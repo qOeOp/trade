@@ -103,7 +103,8 @@ test("Research directory uses the shared compact read-only table surface", async
   assert.match(component, /useDelayedPending\(pending\)/u);
   assert.match(component, /availability === "loading" && !showPending[\s\S]+styles\.pendingQuiet/u);
   assert.match(css, /\.pendingQuiet \{\s*visibility: hidden;/u);
-  assert.match(css, /overflow-y: auto/u);
+  assert.match(css, /overflow-y: visible/u);
+  assert.match(component, /className=\{\[styles\.tableSurface, styles\.pageScrollSurface\]\.join\(" "\)\}/u);
   assert.doesNotMatch(css, /min-height:\s*min\(620px/u);
   assert.doesNotMatch(component, /column chooser|registered|visible count|>Submit<|>Resolve<|>Run<|>Save<|textarea|contentEditable/u);
   assert.doesNotMatch(css, /#[0-9a-f]{3,8}|rgba?\(|hsla?\(/iu);

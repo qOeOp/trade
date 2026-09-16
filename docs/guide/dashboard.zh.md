@@ -357,7 +357,8 @@ drilldown trigger。只有成功验证的 exact read 才显示 `Open full resear
 identity 变化都会使在途 read 失效，且不保留任何 positive result 或 workspace action。关闭后 focus 返回原
 reference 或 row。一次只展开一条；再次激活当前 row 会收起，激活另一条会替换。排序、翻页、page-size、filter、
 tab 或 Refresh 改变都会收起 detail 并使其 read 失效。Detail row 跨越全部 table column，但不参与记录数、分页或
-排序；窄屏在既有横向 table viewport 中保持单列正文，不增加嵌套滚动。Canonical workspace 继续以同一组原子
+排序；directory 与 row-detail 始终只把 page viewport 作为纵向滚动宿主，展开或收起不会切换成 table 自有的
+纵向滚动。窄屏在既有横向 table viewport 中保持单列正文，不增加嵌套纵向滚动。Canonical workspace 继续以同一组原子
 保持较宽的多列组合。在 `Current intents` 中，激活主要 request reference 或其 row 会直接在同一个共享
 row-detail 中进入
 exact read-only result mode。它保留 `/rd/research/?view=verified` URL、table filter、pagination、sort、scroll 与
