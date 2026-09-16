@@ -130,6 +130,14 @@ export function decisionDispositionTone(value: string): StatusBadgeTone {
   return value === "TERMINAL_STOP" ? "info" : "warning";
 }
 
+export function iterationDecisionOutcomeTone(value: string): StatusBadgeTone {
+  if (value === "READY_FOR_SELECTION") return "success";
+  if (value === "REPAIR_INPUTS") return "warning";
+  if (value === "SUCCESSOR_EXPERIMENT") return "info";
+  if (value === "TERMINAL_STOP") return "neutral";
+  return "unavailable";
+}
+
 export function optionalDecisionDispositionTone(value: string | null | undefined): StatusBadgeTone {
   return value ? decisionDispositionTone(value) : "unavailable";
 }

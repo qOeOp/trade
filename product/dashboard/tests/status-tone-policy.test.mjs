@@ -14,6 +14,7 @@ import {
   formationAttemptTone,
   implementationBasisTone,
   intakeStateTone,
+  iterationDecisionOutcomeTone,
   iterationProjectionTone,
   optionalDecisionDispositionTone,
   presenceTone,
@@ -79,6 +80,11 @@ test("shared status policy keeps routing, progress, action, and R&D mappings exp
   assert.equal(decisionDispositionTone("CONTINUE"), "warning");
   assert.equal(optionalDecisionDispositionTone("TERMINAL_STOP"), "info");
   assert.equal(optionalDecisionDispositionTone(undefined), "unavailable");
+  assert.equal(iterationDecisionOutcomeTone("READY_FOR_SELECTION"), "success");
+  assert.equal(iterationDecisionOutcomeTone("REPAIR_INPUTS"), "warning");
+  assert.equal(iterationDecisionOutcomeTone("SUCCESSOR_EXPERIMENT"), "info");
+  assert.equal(iterationDecisionOutcomeTone("TERMINAL_STOP"), "neutral");
+  assert.equal(iterationDecisionOutcomeTone("UNKNOWN"), "unavailable");
 });
 
 test("R&D pages delegate badge surface semantics to the shared policy", () => {

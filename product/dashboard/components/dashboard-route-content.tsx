@@ -17,6 +17,7 @@ import { ArtifactSourceWorkspace } from "./artifact-source-workspace";
 import { ArtifactHistoricalReadbackWorkspace } from "./artifact-historical-readback-workspace";
 import { ResearchDirectory } from "./research-directory";
 import { HypothesisDirectory } from "./hypothesis-directory";
+import { RdDecisionDirectory } from "./rd-decision-directory";
 import { ResearchReadbackWorkspace } from "./research-readback-workspace";
 import { SourceIntakeReadbackWorkbench } from "./source-intake-readback-workbench";
 import { SourceResearchControl } from "./source-research-control";
@@ -152,6 +153,7 @@ export function DashboardRouteContent({
   const researchReadback = current === "/rd/research" && Boolean(researchRequestIdentity);
   const researchDirectory = current === "/rd/research" && !researchReadback;
   const hypothesisDirectory = current === "/rd/hypotheses";
+  const decisionDirectory = current === "/rd/decisions";
   const sourceIntakeReadback = current === "/rd";
   const sourceResearchControl = current === "/rd/intake/new";
   const composerReadback = current === "/rd/composer";
@@ -163,10 +165,9 @@ export function DashboardRouteContent({
   const dashboardOverview = current === "/dashboard";
   const operationsConnected = operationsRuns || operationsRunDetail || operationsWorkers
     || operationsSchedules || operationsServiceLogs || operationsAudit;
-  const embedsRouteChrome = sourceIntakeReadback || sourceResearchControl || composerReadback || researchDirectory || researchReadback || hypothesisDirectory
+  const embedsRouteChrome = sourceIntakeReadback || sourceResearchControl || composerReadback || researchDirectory || researchReadback || hypothesisDirectory || decisionDirectory
     || artifactDirectory || artifactSourceDetail;
-  const rdPlaceholderRoute = current === "/rd/decisions";
-  const ownsRouteChrome = embedsRouteChrome || rdPlaceholderRoute || settingsAccess || dashboardOverview;
+  const ownsRouteChrome = embedsRouteChrome || settingsAccess || dashboardOverview;
   const suppressShellPageHeader = operationsSchedules || operationsServiceLogs || operationsAudit || ownsRouteChrome;
   const drawableExact = maturity === "DRAWABLE_EXACT";
 
@@ -184,13 +185,15 @@ export function DashboardRouteContent({
               </summary>
               <div className="authority-block">
                 <span className={`maturity maturity-${maturity === "DRAWABLE_EXACT" ? "exact" : "unavailable"}`}>{maturity}</span>
-                <b>{artifactSourceDetail ? artifactHistoricalCustody ? "Historical Artifact outcome" : "Verified Artifact read" : artifactDirectory ? "Verified Artifact directory" : researchReadback ? "Verified Research readback" : hypothesisDirectory ? "Verified hypothesis directory" : researchDirectory ? "Verified Research directory" : sourceResearchControl ? "Sourced research execution" : sourceIntakeReadback ? "Source Intake exact readback" : composerReadback ? "Develop Composer exact readback" : exploratoryReplayReadback ? "Replay request and result readback" : marketDataFoundation ? "Market Data Owner foundation" : runtimeFoundation ? "Runtime foundation" : portfolioUnavailable ? "Portfolio contract" : operationsConnected ? "Shadow operations" : drawableExact ? "Documented unavailable state" : "Navigation only"}</b>
+                <b>{artifactSourceDetail ? artifactHistoricalCustody ? "Historical Artifact outcome" : "Verified Artifact read" : artifactDirectory ? "Verified Artifact directory" : researchReadback ? "Verified Research readback" : decisionDirectory ? "Verified iteration decisions" : hypothesisDirectory ? "Verified hypothesis directory" : researchDirectory ? "Verified Research directory" : sourceResearchControl ? "Sourced research execution" : sourceIntakeReadback ? "Source Intake exact readback" : composerReadback ? "Develop Composer exact readback" : exploratoryReplayReadback ? "Replay request and result readback" : marketDataFoundation ? "Market Data Owner foundation" : runtimeFoundation ? "Runtime foundation" : portfolioUnavailable ? "Portfolio contract" : operationsConnected ? "Shadow operations" : drawableExact ? "Documented unavailable state" : "Navigation only"}</b>
                 <small>{artifactSourceDetail
                 ? "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_EDIT_OR_EXECUTION"
                 : artifactDirectory
                 ? "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_BUILD_OR_EXECUTION"
                 : hypothesisDirectory
                 ? "IMPLEMENTATION_ADMITTED - OWNER_QUESTION_READ_ONLY - NO_HYPOTHESIS_OR_DECISION_MUTATION"
+                : decisionDirectory
+                ? "IMPLEMENTATION_ADMITTED - ITERATION_DECISION_READ_ONLY - NO_DECISION_ACTION"
                 : researchDirectory
                 ? "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_SUBMIT_OR_RESOLVE"
                 : researchReadback
@@ -249,6 +252,7 @@ export function DashboardRouteContent({
               />
               : researchReadback ? <ResearchReadbackWorkspace requestIdentity={researchRequestIdentity!} />
               : hypothesisDirectory ? <HypothesisDirectory />
+              : decisionDirectory ? <RdDecisionDirectory />
               : researchDirectory ? <ResearchDirectory
                 initialView={researchDirectoryView}
                 initialCandidateOutcome={researchCandidateOutcome}
@@ -272,8 +276,7 @@ export function DashboardRouteContent({
               : portfolioUnavailable ? <PortfolioViewUnavailableCard />
               : settingsAccess ? <LocalOperatorAccess />
               : drawableExact && exactBlueprint ? <ExactRouteGrid blueprint={exactBlueprint} />
-                : <UnavailableBlueprint maturity={maturity as "DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY" | "BLUEPRINT_ONLY_NOT_IMPLEMENTABLE"}
-                  routeLabel={rdPlaceholderRoute ? page.label : undefined} />}
+                : <UnavailableBlueprint maturity={maturity as "DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY" | "BLUEPRINT_ONLY_NOT_IMPLEMENTABLE"} />}
     </div>
   );
 }

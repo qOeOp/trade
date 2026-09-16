@@ -426,8 +426,8 @@ candidate directory 伪装成成功空集。只有 `outcome_ready` row 可以声
 
 inventory 的 `accepted | rejected | quarantined` resolution 是 Research request admission custody，不是科研
 结论，也不是 Iteration Decision。它不能把 hypothesis 标为 active 或 falsified，不能填充 `/rd/decisions`，
-也不能启用 Decision action。在专用 typed IterationDecision Owner read 绑定精确 decision、evidence、result 与
-lineage identity 前，该 route 必须保持 unavailable。
+也不能启用 Decision action。该 route 只能由专用 typed IterationDecision Owner read 填充，且必须绑定精确
+decision、evidence、result 与 lineage identity。
 
 verified Research directory、Research exact readback、Artifact exact readback、Source Intake exact readback、
 Develop Composer exact readback 与 Exploratory Replay V2 exact point-read GET 由统一的
@@ -532,6 +532,28 @@ route unavailable 或 transport failure 都只呈现一个紧凑 unavailable sta
 question unavailable 的 item 仍作为明确 unavailable record 可见，但绝不补造 question 文本。`Verified` 只表示
 保存的问题文本通过既有 Owner custody contract，并不表示 hypothesis 为真。该路由不暴露 submit、resolve、
 successor、formation、decision、edit 或 execution control，也不能影响 Windmill 或 effect routing。
+
+## 有界准入：已验证 Iteration Decision 目录
+
+`RdDecisionDirectory` 是 `/rd/decisions` 的精确只读 `P` surface。它只解决一类用户任务：审查每个 research round
+已经提交的结果，并理解 Owner 声明的下一步。browser 先读取现有有界 Formation catalog，再以最多 4 个并发请求
+读取其中每个 TrialFamily 的精确 Iteration timeline。family/timeline identity 或 trial budget 不一致、跨 cut 的
+decision/result/attempt/receipt identity 重复、任一 timeline unavailable、malformed response 或 transport failure
+都会撤回整个 Decision cut。available 且零 family 的 catalog 是合法 empty view，绝不能生成 synthetic Decision。
+
+页面复用 `PanelFrame`、紧凑 filter/search toolbar、`DataWorkspaceTable`、受控 inline row detail、
+`ResearchQuestionBrief`、`DetailFactGrid`、`StatusBadge` 与 `PanelFrameInfo`。主表只显示 `Research question`、
+`Decision`、`Next step` 与 `Recorded`；`All / Repair / Successor / Ready / Stopped` filter 和 search 只在已验证 cut
+上本地运行。opaque family、Decision、replay request/result/attempt、receipt、frontier 与 digest 全部收进 info
+disclosure。独立验证的 saved-question directory 若包含 Formation row 的 Research request，就用其中 hypothesis、
+falsifier 和 expected observation 提供 row/detail context；否则 Decision 仍然可见，但只显示明确 unavailable 的
+question，不补造业务含义。
+
+点击一行只在原位展开一个 detail，不改变 URL，也不创建 drawer、dialog 或第二个纵向滚动 owner。detail 展示
+committed outcome、round、已消耗/冻结 trial budget、时间和精确的 outcome-specific reason 或 target。唯一跳转
+`Open research record` 进入 Formation row 的 canonical Research workspace。Refresh 会在重新读取前清除旧的
+positive Decision cut。该路由不暴露 repair、successor、stop、qualification、replay、submit、resolve、mutation
+或 execution control，也不能改变 Windmill 或 effect routing。
 
 ## 有界准入：已验证 Artifact 目录
 
@@ -2140,7 +2162,7 @@ observation time 或 aggregate status。980 px 以下 navigation card 变为单�
 | Research `/rd/research`          | Active/stale/unknown/accepted/rejected 计数；`P=ResearchRequestTable`；`Q=ResearchViewCard + TrialFamilyReceiptPanel + S1TerminalCustodyPanel`；`T=ResearchReceiptTimeline`                                                                                                                                                                                                                    | Refresh、Open detail、Resolve same identity、准入时 Create successor                                                                                                                                                                       | 既有 S1 是 `CURRENT/PARTIAL`；v5 证明 `e5893fd550` 会把完整 stale S1 terminal 隐藏为 receipt‑less unknown，因此 TrialFamily root/member/frontier 与统一 read‑time freshness 是 `OBSERVED_VISIBLE_DEFECT_NOT_CURRENT`。TARGET current linked state 为 `ARTIFACT_AVAILABLE / AVAILABLE / REVIEW_ARTIFACT`；在 `now >= valid_through` 时继续显示同一 verified Research receipt/TrialFamily 与 historical Artifact availability，同时 currentness 变为 `STALE / ARTIFACT_AVAILABLE / RESOLVE_SAME_REQUEST_IDENTITY`，并隐藏所有 positive action                                                                                                                                                                                                                                                                 |
 | Hypotheses `/rd/hypotheses`      | verified/unavailable 已保存问题筛选；`P=HypothesisDirectory` 与 inline `ResearchQuestionBrief`；技术 custody 只进 `PanelFrameInfo`                                                                                                                                                                                                                                                         | 原位展开一行；Open research record                                                                                                                                                                                                         | 只读 `rd.research_question_directory.read.v1`；verified custody 不等于科学有效性、active/falsified 状态、outcome 或 Iteration Decision；本 tab 不直接 mutate Fact                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | Artifacts `/rd/artifacts`        | Available/failed/unknown/review‑required 计数；`P=ArtifactTable`；`Q=ArtifactRequestAdmissionPanel + ArtifactOutcomeProjectionGate + ArtifactReviewPanel + ArtifactTrialFamilyBindingPanel + NoArtifactReceiptPanel + InvocationAdmissionReceipt + ProviderInvocationStateCard + LegacyTerminalQuarantinePanel`；`T=BuildAndSecurityEvidence`，含 deterministic double‑build 与 sandbox policy | Check & Run、Open Artifact、仅 dispatch 后 Resolve same attempt、Copy provider claim、Open operational run、Ask Agent to revise、Start exploratory replay                                                                                  | 既有 S2 是 `CURRENT/PARTIAL`；action‑time admission、result‑authority precedence、binding、no‑Artifact closure 与 invocation state 都是 `OBSERVED_*_NOT_CURRENT`。Dispatch 前 failure 让 Artifact request 保持未提交且没有 attempt Resolve；只有 `ADMITTING` 歧义才进入 `SUBMITTED_OR_UNKNOWN`。Outcome gate 先选择 sealed R&D terminal receipt；只有不存在 terminal 时 `INVOCATION_STARTED` 才能投影 `OUTCOME_UNKNOWN`。TARGET 同时使用按 resolution 区分的 absent/present key、direct claimed start、stale‑safe terminal receipt 与四种 read‑only legacy disposition。Server‑admission panel 在 bounded public projection 暴露其 receipt 与 sealed current‑Research custody 前保持 unavailable；job success 不能填充它。无 provider retry button；`ACTUAL_PROVIDER_CALL_AT_MOST_ONCE` 仍为 `NOT_ADMITTED` |
-| Decisions `/rd/decisions`        | Accepted/rejected/unknown/action‑required 计数；`P=IterationDecisionTable`；`Q=DecisionEvidenceCard`；`T=DecisionLineage`                                                                                                                                                                                                                                                                      | Open decision、Resolve same identity、Prepare admitted successor                                                                                                                                                                           | Owner 返回 exact action 前只读                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Decisions `/rd/decisions`        | 已验证 Iteration Decision 筛选；`P=RdDecisionDirectory` 与 inline `ResearchQuestionBrief`；技术 lineage 只进 `PanelFrameInfo`                                                                                                                                                                                                                                                                 | 原位展开一行；Open research record                                                                                                                                                                                                          | 只读 Formation catalog 与每个 family 的 exact Iteration timeline；零 family 是真实 empty cut；不暴露 Decision action 或 effect mutation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 
 #### Backtest、Qualification 与 Scanner
 

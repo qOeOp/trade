@@ -13,12 +13,14 @@ test("module tabs use client navigation and settle their active position before 
 });
 
 test("every R&D top tab owns one stable card-level route header", async () => {
-  const shell = await readFile(new URL("../components/dashboard-route-content.tsx", import.meta.url), "utf8");
+  const [shell, decisions] = await Promise.all([
+    readFile(new URL("../components/dashboard-route-content.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/rd-decision-directory.tsx", import.meta.url), "utf8"),
+  ]);
 
-  assert.match(shell, /const rdPlaceholderRoute = current === "\/rd\/decisions";/u);
-  assert.match(shell, /const ownsRouteChrome = embedsRouteChrome \|\| rdPlaceholderRoute \|\| settingsAccess \|\| dashboardOverview;/u);
-  assert.match(shell, /<PanelFrame className="rd-placeholder-panel">[\s\S]*<PanelFrameHeader eyebrow="R&D" title=\{routeLabel\}/u);
-  assert.match(shell, /<PanelFrameBody density="compact">\{unavailable\}<\/PanelFrameBody>/u);
-  assert.match(shell, /routeLabel=\{rdPlaceholderRoute \? page\.label : undefined\}/u);
+  assert.match(shell, /const decisionDirectory = current === "\/rd\/decisions";/u);
+  assert.match(shell, /const ownsRouteChrome = embedsRouteChrome \|\| settingsAccess \|\| dashboardOverview;/u);
+  assert.match(decisions, /<PanelFrame aria-labelledby="rd-decision-directory-title">/u);
+  assert.match(decisions, /<PanelFrameHeader[\s\S]*eyebrow="Decisions"[\s\S]*title="Iteration decisions"/u);
   assert.match(shell, /\{suppressShellPageHeader \? <h1 className="sr-only">/u);
 });

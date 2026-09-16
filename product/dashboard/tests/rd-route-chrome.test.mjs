@@ -19,12 +19,12 @@ test("only admitted R&D surfaces embed their route chrome", async () => {
       "researchDirectory",
       "researchReadback",
       "hypothesisDirectory",
+      "decisionDirectory",
       "artifactDirectory",
       "artifactSourceDetail",
     ]),
   );
-  assert.match(shell, /const rdPlaceholderRoute = current === "\/rd\/decisions";/u);
-  assert.match(shell, /const ownsRouteChrome = embedsRouteChrome \|\| rdPlaceholderRoute \|\| settingsAccess \|\| dashboardOverview;/u);
+  assert.match(shell, /const ownsRouteChrome = embedsRouteChrome \|\| settingsAccess \|\| dashboardOverview;/u);
   assert.match(shell, /const suppressShellPageHeader = operationsSchedules \|\| operationsServiceLogs \|\| operationsAudit \|\| ownsRouteChrome;/u);
   assert.match(
     shell,
@@ -34,7 +34,7 @@ test("only admitted R&D surfaces embed their route chrome", async () => {
   assert.doesNotMatch(shell, /prototype-notice/u);
   assert.doesNotMatch(shell, /Only one exact sealed Replay request is exposed/u);
   assert.match(css, /\.module-tabs \{[^}]*justify-self: end;/u);
-  assert.doesNotMatch(predicate, /decision|backtest|market|runtime|portfolio|operation/iu);
+  assert.doesNotMatch(predicate, /backtest|market|runtime|portfolio|operation/iu);
 });
 
 test("each embedded R&D panel owns an exact read-only boundary", async () => {

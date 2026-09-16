@@ -65,7 +65,7 @@ const exactRoutes = new Set([
   "/operations/workers", "/operations/workers/example", "/operations/schedules", "/operations/service-logs", "/operations/audit",
   "/runtime", "/runtime/generations", "/runtime/checkpoints", "/runtime/incidents",
   "/portfolio", "/portfolio/exposure", "/portfolio/capacity", "/portfolio/attribution",
-  "/rd", "/rd/intake/new", "/rd/composer", "/rd/research", "/rd/hypotheses", "/rd/artifacts", "/backtest", "/settings/access",
+  "/rd", "/rd/intake/new", "/rd/composer", "/rd/research", "/rd/hypotheses", "/rd/artifacts", "/rd/decisions", "/backtest", "/settings/access",
 ]);
 /** @type {Set<string>} */
 const detailOnlyRoutes = new Set([]);
@@ -114,6 +114,7 @@ export const exactBlueprints = {
   "/rd/composer": { summaries: [], primary: "DevelopComposerReadbackWorkbench", context: null, terminal: "OwnerUnavailable", state: "IMPLEMENTATION_ADMITTED - OWNER_POINT_READ_ONLY - NO_RUN_RESOLVE_OR_EDIT" },
   "/rd/research": { summaries: [], primary: "VerifiedResearchDirectory", context: null, terminal: "OwnerUnavailable", state: "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_SUBMIT_OR_RESOLVE" },
   "/rd/hypotheses": { summaries: [], primary: "HypothesisDirectory", context: null, terminal: "OwnerUnavailable", state: "IMPLEMENTATION_ADMITTED - OWNER_QUESTION_READ_ONLY - NO_HYPOTHESIS_OR_DECISION_MUTATION" },
+  "/rd/decisions": { summaries: [], primary: "IterationDecisionDirectory", context: "ResearchQuestionBrief", terminal: "OwnerUnavailable", state: "IMPLEMENTATION_ADMITTED - ITERATION_DECISION_READ_ONLY - NO_DECISION_ACTION" },
   "/rd/artifacts": { summaries: [], primary: "VerifiedArtifactDirectory", context: null, terminal: "OwnerUnavailable", state: "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_BUILD_OR_EXECUTION" },
   "/operations/schedules": { summaries: ["Configured", "Due at observation", "Observed runs"], primary: "ShadowScheduleCalendarOrTable", context: "ReadOnlyScheduleDetail", terminal: "ScheduleUnavailable", state: "IMPLEMENTATION_ADMITTED - BOUND_SCHEDULE_READ_ONLY - NO_SCHEDULE_ACTIONS" },
   "/operations/service-logs": { summaries: ["Error", "Warning", "Info", "Worker", "Server"], primary: "ServiceInstanceList", context: "ServiceInstanceCard", terminal: "ServiceLogPanel", state: "IMPLEMENTATION_ADMITTED - FIRST_PARTY_RUN_STORE_GET_ONLY - NO_ADMIN_OR_EFFECT_ACTIONS" },
