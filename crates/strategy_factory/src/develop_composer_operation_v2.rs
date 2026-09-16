@@ -769,6 +769,7 @@ pub(crate) fn prepare_develop_composer_bfp_v3(
             "one frozen BFP must exactly cover one V3 plugin",
         ));
     };
+
     if manifest.abi_version != BUILD_RECEIPT_TAG_V3
         || durable_encode(&request.design) != frozen.design_bytes()
         || preflight.design_identity != frozen.design_identity()
@@ -780,16 +781,16 @@ pub(crate) fn prepare_develop_composer_bfp_v3(
             "current frozen BFP does not exactly bind the Composer request and ABI3 Design",
         ));
     }
-    let first = prepare_frozen_bounded_feature_source_inputs_v1(frozen).map_err(|error| {
+    let first = prepare_frozen_bounded_feature_source_inputs_v1(frozen).map_err(|e| {
         unavailable(
             "bounded_feature_program.lowering",
-            &format!("first current BFP lowering failed: {error}"),
+            &format!("first current BFP lowering failed: {e}"),
         )
     })?;
-    let second = prepare_frozen_bounded_feature_source_inputs_v1(frozen).map_err(|error| {
+    let second = prepare_frozen_bounded_feature_source_inputs_v1(frozen).map_err(|e| {
         unavailable(
             "bounded_feature_program.lowering",
-            &format!("second current BFP lowering failed: {error}"),
+            &format!("second current BFP lowering failed: {e}"),
         )
     })?;
     let build = match producer.build(manifest, first, second) {

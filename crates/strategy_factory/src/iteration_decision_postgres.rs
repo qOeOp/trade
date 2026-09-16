@@ -34,7 +34,9 @@ use crate::{
         issue_repair_action_request_v1,
     },
     trial_family::TrialFamilyError,
-    trial_family_postgres::load_trial_family_census_v2_by_family_in_transaction,
+    trial_family_postgres::{
+        PostgresReadLockMode, load_trial_family_census_v2_by_family_in_transaction,
+    },
 };
 
 const DECISION_COMMITTED_EVENT_V1: &str = "ITERATION_DECISION_COMMITTED_V1";
@@ -845,7 +847,7 @@ pub(crate) async fn compose_candidate_comparison_decision_in_transaction_v1(
         candidate_evaluations,
         committed_at_epoch_ms,
     )
-    .map_err(|error| match error {
+    .map_err(|e| match e {
         IterationDecisionErrorV1::InvalidStoredDecision(_)
         | IterationDecisionErrorV1::CandidateComparisonUnavailable(_) => {
             IterationDecisionPostgresErrorV1::CandidateComparisonNotApplicable
@@ -1737,7 +1739,44 @@ pub(crate) async fn load_candidate_comparison_by_result_in_transaction(
     result_identity: &str,
     composition: Option<&CandidateComparisonCompositionRequestV1>,
 ) -> Result<Option<CandidateComparisonDecisionReadbackV1>, IterationDecisionPostgresErrorV1> {
-    let rows = sqlx::query("SELECT decision_identity,trial_family_identity,request_identity,result_identity,attempt_identity,decision_digest,decision_json,receipt_json,decision_storage_bytes,decision_storage_digest,receipt_storage_bytes,receipt_storage_digest,committed_at_epoch_ms FROM rd_iteration_decisions_v1 WHERE result_identity=$1 FOR SHARE")
+    load_candidate_comparison_by_result_with_lock_mode_in_transaction(
+        transaction,
+        census,
+        result_identity,
+        composition,
+        PostgresReadLockMode::ForShare,
+    )
+    .await
+}
+
+pub(crate) async fn load_candidate_comparison_by_result_snapshot_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    census: &crate::trial_family::TrialFamilyCensusReadbackV2,
+    result_identity: &str,
+    composition: Option<&CandidateComparisonCompositionRequestV1>,
+) -> Result<Option<CandidateComparisonDecisionReadbackV1>, IterationDecisionPostgresErrorV1> {
+    load_candidate_comparison_by_result_with_lock_mode_in_transaction(
+        transaction,
+        census,
+        result_identity,
+        composition,
+        PostgresReadLockMode::Snapshot,
+    )
+    .await
+}
+
+async fn load_candidate_comparison_by_result_with_lock_mode_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    census: &crate::trial_family::TrialFamilyCensusReadbackV2,
+    result_identity: &str,
+    composition: Option<&CandidateComparisonCompositionRequestV1>,
+    lock_mode: PostgresReadLockMode,
+) -> Result<Option<CandidateComparisonDecisionReadbackV1>, IterationDecisionPostgresErrorV1> {
+    let query = lock_mode.query(
+        "SELECT decision_identity,trial_family_identity,request_identity,result_identity,attempt_identity,decision_digest,decision_json,receipt_json,decision_storage_bytes,decision_storage_digest,receipt_storage_bytes,receipt_storage_digest,committed_at_epoch_ms FROM rd_iteration_decisions_v1 WHERE result_identity=$1",
+        " FOR SHARE",
+    );
+    let rows = sqlx::query(query)
         .bind(result_identity)
         .fetch_all(&mut **transaction)
         .await
@@ -1820,7 +1859,7 @@ pub(crate) async fn load_candidate_comparison_by_result_in_transaction(
     {
         return Err(storage("candidate-comparison composition retry changed"));
     }
-    verify_candidate_comparison_outbox_in_transaction(transaction, &readback).await?;
+    verify_candidate_comparison_outbox_in_transaction(transaction, &readback, lock_mode).await?;
     Ok(Some(readback))
 }
 
@@ -2178,8 +2217,13 @@ async fn verify_trial_budget_terminal_stop_outbox_in_transaction(
 async fn verify_candidate_comparison_outbox_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     readback: &CandidateComparisonDecisionReadbackV1,
+    lock_mode: PostgresReadLockMode,
 ) -> Result<(), IterationDecisionPostgresErrorV1> {
-    let rows = sqlx::query("SELECT aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms FROM rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2 FOR SHARE")
+    let query = lock_mode.query(
+        "SELECT aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms FROM rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2",
+        " FOR SHARE",
+    );
+    let rows = sqlx::query(query)
         .bind(readback.decision().decision_identity())
         .bind(DECISION_COMMITTED_EVENT_V1)
         .fetch_all(&mut **transaction)
@@ -2425,6 +2469,8 @@ fn storage(error: impl Display) -> IterationDecisionPostgresErrorV1 {
 
 #[cfg(all(test, feature = "sealed-develop-composer-acceptance"))]
 mod postgres_acceptance_tests {
+    use vibe_data::owner::source_binding::BindingDigest;
+
     use super::*;
     use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
     use serde::Serialize;
@@ -2502,6 +2548,8 @@ mod postgres_acceptance_tests {
             load_trial_family_census_v2_by_family_in_transaction,
         },
     };
+
+    mod iteration_analysis_postgres_acceptance_tests;
 
     const RESULT_STORAGE_DOMAIN: &str = "vibe.backtest.replay-result-storage.v2";
     const RECEIPT_STORAGE_DOMAIN: &str = "vibe.backtest.result-receipt-storage.v1";
@@ -4012,6 +4060,7 @@ mod postgres_acceptance_tests {
         design
             .plugins
             .retain(|plugin| plugin.semantic_id == plugin_semantic_id);
+
         for reaction in &mut design.reactions {
             reaction
                 .nodes
@@ -4019,6 +4068,7 @@ mod postgres_acceptance_tests {
             if reaction.kind != crate::strategy_design_v2::LifecycleKindV2::Bar {
                 reaction.nodes.clear();
             }
+
             if reaction.nodes.is_empty() {
                 reaction.state_writes.clear();
                 reaction.proposal = None;
@@ -4067,8 +4117,7 @@ mod postgres_acceptance_tests {
         proposal.inputs[0].static_binding_receipt_digest = binding.digest();
 
         let mut rejected_design = design.clone();
-        rejected_design.intent_digest =
-            vibe_data::owner::source_binding::BindingDigest::from_untrusted_bytes([99; 32]);
+        rejected_design.intent_digest = BindingDigest::from_untrusted_bytes([99; 32]);
         let mut rejected = rd_pool.begin().await.expect("rejected BFP transaction");
         assert_eq!(
             Box::pin(

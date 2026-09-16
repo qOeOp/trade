@@ -536,6 +536,7 @@ fn derive_source_research_composer_bfp_v3_request(
             "frozen BFP Design does not prepare",
         ));
     };
+
     if design_identity != frozen.design_identity()
         || design_digest != frozen.design_digest()
         || design.research_request_identity != research.research_request_identity()
@@ -608,6 +609,7 @@ fn bfp_binding_request(
 ) -> Result<UntrustedStrategyInputBindingRequest, DevelopComposerTerminalV2> {
     let field_semantic = MarketDataFieldSemantic::from_identity(&input.field_semantic_id)
         .ok_or_else(|| market_data_unavailable())?;
+
     if input.scope != InputScopeV2::ExactInstrument
         || input.instrument.is_empty()
         || input.channel != "MARKET"
@@ -1341,6 +1343,7 @@ impl DevelopComposerReadbackOwnerPortV2 for PostgresDevelopComposerReadbackOwner
                     read_cut_epoch_ms,
                 )
                 .await;
+
                 match frozen {
                     Some(frozen) => crate::develop_composer_operation_v2::resolve_positive_record_with_v3_restart_v2(
                         &record,
@@ -1868,6 +1871,7 @@ async fn lock_resolve_evidence_with_binding(
             &family,
             read_cut_epoch_ms,
         )?;
+
         if research.research_request_identity() == locator.research_request_identity
             && research.intent_identity() == locator.intent_identity
         {
@@ -1878,6 +1882,7 @@ async fn lock_resolve_evidence_with_binding(
     let custodies = admit_all_research_custodies_in_transaction(transaction)
         .await
         .map_err(|_| research_unavailable())?;
+
     for custody in custodies {
         if durable_research_identities(&custody).is_some_and(|(request, intent)| {
             request == locator.research_request_identity && intent == locator.intent_identity
@@ -2246,7 +2251,7 @@ mod tests {
 
     static A0_COUNTER_TEST_LOCK: Mutex<()> = Mutex::new(());
 
-    #[test]
+    #[rstest::rstest]
     fn successor_intent_locator_round_trips_the_exact_durable_identity() {
         let identity = BindingDigest::from_untrusted_bytes([0x5a; 32]);
         let locator = successor_intent_locator(identity);

@@ -3231,6 +3231,36 @@ ALTER FUNCTION operator_authorization_api.lock_current_authorization_v1(text, te
 REVOKE ALL ON FUNCTION operator_authorization_api.lock_current_authorization_v1(text, text) FROM PUBLIC, rd_owner;
 GRANT EXECUTE ON FUNCTION operator_authorization_api.lock_current_authorization_v1(text, text) TO product_edge_owner, operator_authorization_writer;
 
+CREATE OR REPLACE FUNCTION operator_authorization_api.resolve_authorization_snapshot_v1(requested_authorization_identity text, requested_issuance_receipt_identity text)
+RETURNS jsonb LANGUAGE plpgsql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
+SET search_path = pg_catalog, operator_authorization_private
+AS $function$
+DECLARE
+  issuance operator_authorization_private.operator_authorization_issuances_v1%ROWTYPE;
+  head operator_authorization_private.operator_authorization_revocation_heads_v1%ROWTYPE;
+  current_frontier operator_authorization_private.operator_authorization_revocation_frontiers_v1%ROWTYPE;
+BEGIN
+  IF current_setting('transaction_isolation') <> 'repeatable read'
+     OR current_setting('transaction_read_only') <> 'on'
+  THEN RETURN NULL; END IF;
+  SELECT * INTO issuance FROM operator_authorization_private.operator_authorization_issuances_v1 WHERE authorization_identity = requested_authorization_identity;
+  IF NOT FOUND OR issuance.receipt_json->>'receipt_identity' <> requested_issuance_receipt_identity THEN RETURN NULL; END IF;
+  SELECT * INTO head FROM operator_authorization_private.operator_authorization_revocation_heads_v1 WHERE scope_digest = issuance.scope_digest;
+  IF NOT FOUND THEN RETURN NULL; END IF;
+  SELECT * INTO current_frontier FROM operator_authorization_private.operator_authorization_revocation_frontiers_v1 WHERE frontier_identity = head.frontier_identity AND scope_digest = issuance.scope_digest;
+  IF NOT FOUND THEN RETURN NULL; END IF;
+  RETURN jsonb_build_object(
+    'issuance', to_jsonb(issuance), 'head', to_jsonb(head), 'current_frontier', to_jsonb(current_frontier),
+    'issuances', COALESCE((SELECT jsonb_agg(to_jsonb(scope_issuance) ORDER BY scope_issuance.committed_at_epoch_ms, scope_issuance.authorization_identity) FROM operator_authorization_private.operator_authorization_issuances_v1 scope_issuance WHERE scope_issuance.scope_digest = issuance.scope_digest), '[]'::jsonb),
+    'frontiers', COALESCE((SELECT jsonb_agg(to_jsonb(frontier) ORDER BY frontier.sequence, frontier.frontier_identity) FROM operator_authorization_private.operator_authorization_revocation_frontiers_v1 frontier WHERE frontier.scope_digest = issuance.scope_digest), '[]'::jsonb),
+    'outboxes', COALESCE((SELECT jsonb_agg(to_jsonb(outbox) ORDER BY outbox.event_identity) FROM operator_authorization_private.operator_authorization_owner_outbox_v1 outbox WHERE outbox.aggregate_identity IN (SELECT scope_issuance.authorization_identity FROM operator_authorization_private.operator_authorization_issuances_v1 scope_issuance WHERE scope_issuance.scope_digest = issuance.scope_digest) OR outbox.aggregate_identity IN (SELECT frontier.frontier_identity FROM operator_authorization_private.operator_authorization_revocation_frontiers_v1 frontier WHERE frontier.scope_digest = issuance.scope_digest)), '[]'::jsonb)
+  );
+END
+$function$;
+ALTER FUNCTION operator_authorization_api.resolve_authorization_snapshot_v1(text, text) OWNER TO operator_authorization_owner;
+REVOKE ALL ON FUNCTION operator_authorization_api.resolve_authorization_snapshot_v1(text, text) FROM PUBLIC, rd_owner;
+GRANT EXECUTE ON FUNCTION operator_authorization_api.resolve_authorization_snapshot_v1(text, text) TO product_edge_owner, operator_authorization_writer;
+
 CREATE TABLE IF NOT EXISTS public.product_edge_operation_manifests_v1 (manifest_identity TEXT PRIMARY KEY, operation TEXT NOT NULL, operation_schema TEXT NOT NULL, target_owner TEXT NOT NULL, manifest_digest TEXT NOT NULL, manifest_json JSONB NOT NULL, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS public.product_edge_deployment_bindings_v1 (binding_identity TEXT PRIMARY KEY, deployment_identity TEXT NOT NULL, generation BIGINT NOT NULL, predecessor_binding_identity TEXT, authorization_identity TEXT, issuance_receipt_identity TEXT, authorization_frontier_identity TEXT, binding_digest TEXT NOT NULL, binding_json JSONB NOT NULL, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE(deployment_identity, generation));
 CREATE TABLE IF NOT EXISTS public.product_edge_deployment_supersessions_v1 (binding_identity TEXT PRIMARY KEY REFERENCES public.product_edge_deployment_bindings_v1(binding_identity), successor_binding_identity TEXT, supersession_digest TEXT NOT NULL, supersession_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
@@ -3613,6 +3643,97 @@ $function$;
 ALTER FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) OWNER TO product_edge_owner;
 REVOKE ALL ON FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) FROM PUBLIC, operator_authorization_writer, portfolio_owner, backtest_owner;
 GRANT EXECUTE ON FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) TO rd_owner, product_edge_owner, backtest_owner;
+
+CREATE OR REPLACE FUNCTION product_edge_api.resolve_historical_downstream_admission_snapshot_v1(
+  requested_request_identity text,
+  requested_admission_identity text,
+  requested_admission_digest text
+)
+RETURNS jsonb LANGUAGE plpgsql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+DECLARE
+  hinted_admission public.product_edge_request_admissions_v1%ROWTYPE;
+  locked_admission public.product_edge_request_admissions_v1%ROWTYPE;
+  requirement record;
+  authorization_envelope jsonb;
+  authorization_envelopes jsonb := '[]'::jsonb;
+  hinted_binding_locators jsonb;
+  locked_head jsonb;
+BEGIN
+  IF pg_catalog.current_setting('transaction_isolation') <> 'repeatable read'
+     OR pg_catalog.current_setting('transaction_read_only') <> 'on'
+  THEN RETURN NULL; END IF;
+
+  SELECT * INTO hinted_admission
+  FROM public.product_edge_request_admissions_v1
+  WHERE request_identity=requested_request_identity;
+  IF NOT FOUND
+     OR hinted_admission.admission_identity<>requested_admission_identity
+     OR hinted_admission.admission_digest<>requested_admission_digest
+  THEN RETURN NULL; END IF;
+
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+      'binding_identity', binding.binding_identity,
+      'generation', binding.generation,
+      'authorization_identity', binding.authorization_identity,
+      'issuance_receipt_identity', binding.issuance_receipt_identity,
+      'authorization_frontier_identity', binding.authorization_frontier_identity,
+      'binding_digest', binding.binding_digest
+    ) ORDER BY binding.generation, binding.binding_identity), '[]'::jsonb)
+  INTO hinted_binding_locators
+  FROM public.product_edge_deployment_bindings_v1 binding
+  WHERE binding.deployment_identity=hinted_admission.deployment_identity;
+
+  FOR requirement IN
+    SELECT authorization_identity, issuance_receipt_identity
+    FROM (
+      SELECT binding.authorization_identity, binding.issuance_receipt_identity
+      FROM public.product_edge_deployment_bindings_v1 binding
+      WHERE binding.deployment_identity=hinted_admission.deployment_identity
+      UNION
+      SELECT hinted_admission.authorization_identity, hinted_admission.issuance_receipt_identity
+    ) locator
+    ORDER BY authorization_identity, issuance_receipt_identity
+  LOOP
+    SELECT operator_authorization_api.resolve_authorization_snapshot_v1(
+      requirement.authorization_identity,
+      requirement.issuance_receipt_identity
+    ) INTO authorization_envelope;
+    IF authorization_envelope IS NULL THEN RETURN NULL; END IF;
+    authorization_envelopes := authorization_envelopes || jsonb_build_array(jsonb_build_object(
+      'authorization_identity', requirement.authorization_identity,
+      'issuance_receipt_identity', requirement.issuance_receipt_identity,
+      'envelope', authorization_envelope
+    ));
+  END LOOP;
+
+  SELECT * INTO locked_admission
+  FROM public.product_edge_request_admissions_v1
+  WHERE request_identity=requested_request_identity;
+  IF NOT FOUND OR to_jsonb(locked_admission)<>to_jsonb(hinted_admission) THEN RETURN NULL; END IF;
+
+  SELECT to_jsonb(head) INTO locked_head
+  FROM public.product_edge_deployment_heads_v1 head
+  WHERE head.deployment_identity=locked_admission.deployment_identity;
+
+  RETURN jsonb_build_object(
+    'hinted_admission', to_jsonb(hinted_admission),
+    'hinted_binding_locators', hinted_binding_locators,
+    'admission', to_jsonb(locked_admission),
+    'bindings', COALESCE((SELECT jsonb_agg(to_jsonb(binding) ORDER BY binding.generation, binding.binding_identity) FROM public.product_edge_deployment_bindings_v1 binding WHERE binding.deployment_identity=locked_admission.deployment_identity), '[]'::jsonb),
+    'head', locked_head,
+    'supersessions', COALESCE((SELECT jsonb_agg(to_jsonb(supersession) ORDER BY supersession.binding_identity) FROM public.product_edge_deployment_supersessions_v1 supersession JOIN public.product_edge_deployment_bindings_v1 binding ON binding.binding_identity=supersession.binding_identity WHERE binding.deployment_identity=locked_admission.deployment_identity), '[]'::jsonb),
+    'binding_manifests', COALESCE((SELECT jsonb_agg(to_jsonb(locator) ORDER BY locator.binding_identity, locator.manifest_identity) FROM public.product_edge_binding_manifests_v1 locator JOIN public.product_edge_deployment_bindings_v1 binding ON binding.binding_identity=locator.binding_identity WHERE binding.deployment_identity=locked_admission.deployment_identity), '[]'::jsonb),
+    'manifests', COALESCE((SELECT jsonb_agg(to_jsonb(manifest) ORDER BY manifest.manifest_identity) FROM public.product_edge_operation_manifests_v1 manifest WHERE manifest.manifest_identity IN (SELECT locator.manifest_identity FROM public.product_edge_binding_manifests_v1 locator JOIN public.product_edge_deployment_bindings_v1 binding ON binding.binding_identity=locator.binding_identity WHERE binding.deployment_identity=locked_admission.deployment_identity)), '[]'::jsonb),
+    'outboxes', COALESCE((SELECT jsonb_agg(to_jsonb(outbox) ORDER BY outbox.event_identity) FROM public.product_edge_owner_outbox_v1 outbox WHERE (outbox.aggregate_identity=locked_admission.admission_identity AND outbox.event_kind='PRODUCT_EDGE_REQUEST_ADMITTED_V1') OR (outbox.aggregate_identity IN (SELECT binding.binding_identity FROM public.product_edge_deployment_bindings_v1 binding WHERE binding.deployment_identity=locked_admission.deployment_identity) AND outbox.event_kind IN ('PRODUCT_EDGE_DEPLOYMENT_BINDING_ACTIVE_V1','PRODUCT_EDGE_DEPLOYMENT_BINDING_SUPERSEDED_V1')) OR (outbox.aggregate_identity IN (SELECT locator.manifest_identity FROM public.product_edge_binding_manifests_v1 locator JOIN public.product_edge_deployment_bindings_v1 binding ON binding.binding_identity=locator.binding_identity WHERE binding.deployment_identity=locked_admission.deployment_identity) AND outbox.event_kind='PRODUCT_EDGE_OPERATION_MANIFEST_APPROVED_V1')), '[]'::jsonb),
+    'authorizations', authorization_envelopes
+  );
+END
+$function$;
+ALTER FUNCTION product_edge_api.resolve_historical_downstream_admission_snapshot_v1(text,text,text) OWNER TO product_edge_owner;
+REVOKE ALL ON FUNCTION product_edge_api.resolve_historical_downstream_admission_snapshot_v1(text,text,text) FROM PUBLIC, operator_authorization_writer, portfolio_owner, backtest_owner;
+GRANT EXECUTE ON FUNCTION product_edge_api.resolve_historical_downstream_admission_snapshot_v1(text,text,text) TO rd_owner, product_edge_owner, backtest_owner;
 
 CREATE OR REPLACE FUNCTION product_edge_api.lock_source_invocation_state_v1(
   requested_request_identity text,

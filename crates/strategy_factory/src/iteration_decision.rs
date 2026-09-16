@@ -1190,6 +1190,7 @@ pub(crate) fn complete_interpretation_context_v1(
             information_value,
         ),
     ];
+
     for (dimension, proposal) in replacements {
         let finding = context
             .diagnosis_findings
@@ -1198,6 +1199,7 @@ pub(crate) fn complete_interpretation_context_v1(
             .ok_or(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
                 "required model analysis dimension is missing",
             ))?;
+
         if finding.disposition != IterationDiagnosisDispositionV1::Unresolved
             || proposal.evidence.is_empty()
         {
@@ -1222,6 +1224,7 @@ pub(crate) fn complete_interpretation_context_v1(
             })
             .collect();
     }
+
     if context.has_unresolved_diagnosis() {
         return Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
             "model analysis is incomplete",
@@ -1477,10 +1480,13 @@ fn issue_interpretation_context_from_result_v1(
         &owner_bindings,
         &outcome_evidence,
     )?;
+    let intent_authority = IterationDiagnosisIntentAuthorityV1 {
+        identity: intent_identity,
+        digest: intent_digest,
+    };
     let diagnosis_findings = derive_six_dimension_diagnosis_v1(
         census,
-        intent_identity,
-        intent_digest,
+        &intent_authority,
         diagnostic,
         &evidence_cut,
         &owner_bindings,
@@ -1499,10 +1505,14 @@ fn issue_interpretation_context_from_result_v1(
     })
 }
 
+struct IterationDiagnosisIntentAuthorityV1<'a> {
+    identity: &'a str,
+    digest: &'a str,
+}
+
 fn derive_six_dimension_diagnosis_v1(
     census: &TrialFamilyCensusReadbackV2,
-    intent_identity: &str,
-    intent_digest: &str,
+    intent_authority: &IterationDiagnosisIntentAuthorityV1<'_>,
     diagnostic: IterationInterpretationDiagnosticV1,
     evidence_cut: &IterationDecisionEvidenceCutV1,
     owner_bindings: &[IterationInterpretationOwnerBindingV1],
@@ -1510,8 +1520,8 @@ fn derive_six_dimension_diagnosis_v1(
     outcome_evidence: &IterationInterpretationOutcomeEvidenceV1,
 ) -> Result<Vec<IterationDiagnosisFindingV1>, IterationDecisionErrorV1> {
     let current_intent = census.latest_intent_binding()?;
-    if intent_identity != current_intent.intent_identity
-        || intent_digest != current_intent.intent_digest
+    if intent_authority.identity != current_intent.intent_identity
+        || intent_authority.digest != current_intent.intent_digest
         || census.census_frontier.trial_family_identity() != evidence_cut.trial_family_identity
     {
         return Err(IterationDecisionErrorV1::InterpretationEvidenceUnavailable(
@@ -1519,8 +1529,8 @@ fn derive_six_dimension_diagnosis_v1(
         ));
     }
     let intent_reference = IterationDiagnosisEvidenceReferenceV1 {
-        identity: intent_identity.to_string(),
-        digest: intent_digest.to_string(),
+        identity: intent_authority.identity.to_string(),
+        digest: intent_authority.digest.to_string(),
     };
     let census_reference = IterationDiagnosisEvidenceReferenceV1 {
         identity: evidence_cut.census_frontier_identity.clone(),

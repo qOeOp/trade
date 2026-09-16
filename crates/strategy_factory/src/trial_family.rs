@@ -1664,6 +1664,7 @@ fn form_candidate_set_frontier_from_facts_v2(
         &generation_rule_digest,
         "CANDIDATE_GENERATION_RULE_DIGEST_INVALID",
     )?;
+
     if usize::try_from(expected_cardinality).map_err(unavailable)? != candidates.len()
         || candidates.len() > MAX_FRONTIER_MEMBERS
     {
@@ -1673,6 +1674,7 @@ fn form_candidate_set_frontier_from_facts_v2(
     }
     let mut identities = std::collections::BTreeSet::new();
     let mut digests = std::collections::BTreeSet::new();
+
     for candidate in &candidates {
         require_identity(&candidate.candidate_identity, "CANDIDATE_IDENTITY_INVALID")?;
         require_sha256(&candidate.candidate_digest, "CANDIDATE_DIGEST_INVALID")?;
@@ -1720,8 +1722,8 @@ pub(crate) fn candidate_experiment_digest_v1(
         candidate_identity,
         experiment,
     };
-    let bytes = serde_json::to_vec(&meaning)
-        .map_err(|error| TrialFamilyError::Unavailable(error.to_string()))?;
+    let bytes =
+        serde_json::to_vec(&meaning).map_err(|e| TrialFamilyError::Unavailable(e.to_string()))?;
     let mut hasher = Sha256::new();
     hasher.update(b"rd.iteration-candidate-experiment.v1");
     hasher.update([0]);
@@ -1855,6 +1857,7 @@ pub(crate) fn admit_stored_candidate_experiment_v1(
         },
         stored.committed_at_epoch_ms,
     )?;
+
     if stored.schema_version != 1
         || stored.experiment_identity != readback.experiment.experiment_identity
         || stored.trial_family_identity != readback.experiment.trial_family_identity
@@ -3016,7 +3019,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn candidate_experiment_digest_and_positive_readback_are_owner_derived() {
         let fixed_experiment = crate::IterationExperimentModeV1::SingleDimension {
             changed_dimension: crate::IterationHypothesisDimensionV1::ReturnMechanism,

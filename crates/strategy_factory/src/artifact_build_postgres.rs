@@ -29,6 +29,7 @@ use crate::{
     governance_artifact_membership::{
         GovernanceArtifactMembershipLocatorV1, GovernanceArtifactMembershipReadErrorV1,
         GovernanceArtifactMembershipReadPortV1, GovernanceArtifactMembershipReadbackV1,
+        sealed_read_port::RdOwned,
     },
     legacy_prepared_attempt_drain::{
         LegacyPreparedAttemptBindingV1, append_receipt_and_outbox_in_transaction,
@@ -1975,10 +1976,7 @@ impl PostgresArtifactReadbackOwnerV1 {
     }
 }
 
-impl crate::governance_artifact_membership::sealed_read_port::RdOwned
-    for PostgresArtifactReadbackOwnerV1
-{
-}
+impl RdOwned for PostgresArtifactReadbackOwnerV1 {}
 
 #[async_trait]
 impl GovernanceArtifactMembershipReadPortV1 for PostgresArtifactReadbackOwnerV1 {
@@ -5134,6 +5132,7 @@ mod postgres_freshness_tests {
                 locator.artifact_identity.as_str(),
             ),
         ];
+
         for (tamper, restore, identity) in tamper_cases {
             sqlx::query(tamper)
                 .bind(identity)

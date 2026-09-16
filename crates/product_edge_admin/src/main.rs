@@ -78,6 +78,13 @@ async fn main() -> anyhow::Result<()> {
             &config,
         ),
         manifest(
+            "iteration_analysis.complete.v1",
+            "rd-iteration-analysis-completion-v1",
+            "R_AND_D",
+            vec!["R_AND_D_ITERATION_ANALYSIS_COMPLETION_MUTATION_V1".to_string()],
+            &config,
+        ),
+        manifest(
             SOURCE_INTAKE_OPERATION_V1,
             SOURCE_INTAKE_OPERATION_SCHEMA_V1,
             SOURCE_INTAKE_TARGET_OWNER_V1,

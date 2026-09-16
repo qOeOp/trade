@@ -1,11 +1,19 @@
 //! PostgreSQL custody for server-side R&D iteration-analysis work requests.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt::Display};
 
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Row, Transaction};
+use vibe_backtest_owner_contracts::outcome_evidence::BacktestOutcomeEvidenceDtoV1;
+use vibe_product_edge::{
+    DownstreamAdmissionModeV1, ProductEdgeError, resolve_admission_for_downstream_in_transaction,
+    resolve_historical_admission_snapshot_for_downstream_in_transaction,
+};
 
-use crate::trial_family_postgres::load_candidate_experiments_for_census_in_transaction;
+use crate::trial_family_postgres::{
+    PostgresReadLockMode, load_candidate_experiments_for_census_in_transaction,
+    load_candidate_experiments_for_census_snapshot_in_transaction,
+};
 use crate::{
     artifact_build::{ArtifactBuildDisposition, ArtifactBuildError, canonical_intent_bytes},
     exploratory_replay::postgres::decode_v2_read_result,
@@ -22,7 +30,7 @@ use crate::{
         bind_candidate_experiments_to_owner_frontier_v1, canonical_digest,
         ensure_same_completion_proposal_v1, identity, issue_iteration_analysis_request_v1,
         issue_iteration_analysis_result_v1, owner_storage_digest, validate_completion_proposal,
-        validate_locator,
+        validate_locator, verify_iteration_analysis_completion_admission_v1,
     },
     iteration_decision::{
         IterationDecisionGateV1, complete_interpretation_context_v1,
@@ -32,12 +40,16 @@ use crate::{
         CandidateComparisonCompositionRequestV1, IterationDecisionPostgresErrorV1,
         compose_candidate_comparison_decision_in_transaction_v1,
         load_candidate_comparison_by_result_in_transaction,
+        load_candidate_comparison_by_result_snapshot_in_transaction,
     },
     product_edge_postgres::PostgresResearchGoalOwnerV1,
     rd_owner_postgres_custody::{
         ExploratoryReplayResultLocatorV2, resolve_exploratory_replay_outcome_for_rd_in_transaction,
     },
-    trial_family_postgres::load_trial_family_census_v2_by_family_in_transaction,
+    trial_family_postgres::{
+        load_trial_family_census_v2_by_family_in_transaction,
+        load_trial_family_census_v2_by_family_snapshot_in_transaction,
+    },
 };
 use vibe_backtest::result::CanonicalBacktestResult;
 use vibe_backtest_result_custody::BacktestResultCustodyErrorV2;
@@ -296,7 +308,7 @@ fn project_canonical_engine_result_v1(
     engine_result_bytes: &[u8],
 ) -> Result<CanonicalEngineProjectionV1, IterationAnalysisRequestErrorV1> {
     let canonical = CanonicalBacktestResult::from_slice(engine_result_bytes)
-        .map_err(|error| unavailable(format!("canonical Backtest result is invalid: {error}")))?;
+        .map_err(|e| unavailable(format!("canonical Backtest result is invalid: {e}")))?;
     let document = canonical.as_value();
     let run = document
         .get("run")
@@ -374,6 +386,7 @@ fn validate_locked_engine_result_binding_v1(
         "vibe.backtest.canonical-result-bytes.v1",
         engine_result_bytes,
     );
+
     if schema_identity != "vibe-backtest-result/v1"
         || canonical_bytes_length != engine_len
         || canonical_bytes_digest != binding_digest
@@ -389,7 +402,7 @@ fn derive_locked_backtest_projection_v1(
     locator: &IterationAnalysisRequestLocatorV1,
     replay_request: &vibe_backtest_owner_contracts::ReplayRequestDtoV2,
     result: &vibe_backtest_owner_contracts::ReplayResultDtoV2,
-    outcome: &vibe_backtest_owner_contracts::outcome_evidence::BacktestOutcomeEvidenceDtoV1,
+    outcome: &BacktestOutcomeEvidenceDtoV1,
     engine_result_bytes: &[u8],
     engine_result_storage_digest: &str,
 ) -> Result<IterationAnalysisBacktestProjectionV1, IterationAnalysisRequestErrorV1> {
@@ -460,14 +473,15 @@ pub async fn materialize_schema(database_url: &str) -> Result<(), IterationAnaly
         "CREATE TABLE IF NOT EXISTS public.rd_iteration_analysis_requests_v1 (analysis_request_identity TEXT PRIMARY KEY, analysis_request_digest TEXT NOT NULL UNIQUE, trial_family_identity TEXT NOT NULL, result_identity TEXT NOT NULL UNIQUE, request_identity TEXT NOT NULL, attempt_identity TEXT NOT NULL, intent_identity TEXT NOT NULL, artifact_identity TEXT NOT NULL, request_json JSONB NOT NULL, receipt_json JSONB NOT NULL, request_storage_bytes BYTEA NOT NULL, request_storage_digest TEXT NOT NULL, receipt_storage_bytes BYTEA NOT NULL, receipt_storage_digest TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
     )
     .await
-    .map_err(|error| storage(error.to_string()))?;
+    .map_err(|e| storage(e.to_string()))?;
     crate::schema_materialization::materialize_public_table(
         &pool,
         "rd_iteration_analysis_results_v1",
         "CREATE TABLE IF NOT EXISTS public.rd_iteration_analysis_results_v1 (analysis_result_identity TEXT PRIMARY KEY, analysis_result_digest TEXT NOT NULL UNIQUE, analysis_request_identity TEXT NOT NULL UNIQUE, analysis_request_digest TEXT NOT NULL, result_identity TEXT NOT NULL UNIQUE, decision_identity TEXT NOT NULL UNIQUE, decision_digest TEXT NOT NULL, result_json JSONB NOT NULL, receipt_json JSONB NOT NULL, result_storage_bytes BYTEA NOT NULL, result_storage_digest TEXT NOT NULL, receipt_storage_bytes BYTEA NOT NULL, receipt_storage_digest TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
     )
     .await
-    .map_err(|error| storage(error.to_string()))?;
+    .map_err(|e| storage(e.to_string()))?;
+
     for statement in [
         "ALTER TABLE public.rd_iteration_analysis_requests_v1 OWNER TO rd_owner",
         "REVOKE ALL ON TABLE public.rd_iteration_analysis_requests_v1 FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer",
@@ -490,15 +504,22 @@ pub async fn compose_iteration_analysis_request_v1(
     let pool = owner.native_replay_pool_v2();
     require_schema(pool).await?;
     let mut transaction = pool.begin().await.map_err(storage)?;
-    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
         .execute(&mut *transaction)
         .await
         .map_err(storage)?;
     lock_composition_key(&mut transaction, &locator.result_identity).await?;
 
-    if let Some(existing) = load_by_result_in_transaction(&mut transaction, &locator).await? {
-        let census =
-            load_historical_census_for_request_in_transaction(&mut transaction, &existing).await?;
+    if let Some(existing) =
+        load_by_result_in_transaction(&mut transaction, &locator, PostgresReadLockMode::ForShare)
+            .await?
+    {
+        let census = load_historical_census_for_request_in_transaction(
+            &mut transaction,
+            &existing,
+            PostgresReadLockMode::ForShare,
+        )
+        .await?;
         let experiments =
             load_candidate_experiments_for_census_in_transaction(&mut transaction, &census)
                 .await
@@ -515,9 +536,10 @@ pub async fn compose_iteration_analysis_request_v1(
     let issued =
         issue_iteration_analysis_request_v1(locator.clone(), input, committed_at_epoch_ms)?;
     persist(&mut transaction, &issued).await?;
-    let readback = load_by_result_in_transaction(&mut transaction, &locator)
-        .await?
-        .ok_or_else(|| storage("committed iteration analysis request is missing"))?;
+    let readback =
+        load_by_result_in_transaction(&mut transaction, &locator, PostgresReadLockMode::ForShare)
+            .await?
+            .ok_or_else(|| storage("committed iteration analysis request is missing"))?;
     if readback != issued {
         return Err(storage("committed iteration analysis request changed"));
     }
@@ -543,14 +565,26 @@ pub async fn resolve_iteration_analysis_request_v1(
         .execute(&mut *transaction)
         .await
         .map_err(storage)?;
-    let readback = load_by_result_in_transaction(&mut transaction, &request_locator).await?;
+    let readback = load_by_result_in_transaction(
+        &mut transaction,
+        &request_locator,
+        PostgresReadLockMode::Snapshot,
+    )
+    .await?;
+
     if let Some(request) = &readback {
-        let census =
-            load_historical_census_for_request_in_transaction(&mut transaction, request).await?;
-        let experiments =
-            load_candidate_experiments_for_census_in_transaction(&mut transaction, &census)
-                .await
-                .map_err(map_trial_family_error)?;
+        let census = load_historical_census_for_request_in_transaction(
+            &mut transaction,
+            request,
+            PostgresReadLockMode::Snapshot,
+        )
+        .await?;
+        let experiments = load_candidate_experiments_for_census_snapshot_in_transaction(
+            &mut transaction,
+            &census,
+        )
+        .await
+        .map_err(map_trial_family_error)?;
         verify_request_candidate_experiment_custody(request, &experiments)?;
     }
     transaction.commit().await.map_err(storage)?;
@@ -565,27 +599,59 @@ pub async fn compose_iteration_analysis_completion_v1(
     let pool = owner.native_replay_pool_v2();
     require_schema(pool).await?;
     let mut transaction = pool.begin().await.map_err(storage)?;
-    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
         .execute(&mut *transaction)
         .await
         .map_err(storage)?;
     lock_composition_key(&mut transaction, &proposal.result_identity).await?;
 
-    let request = load_request_for_completion_in_transaction(&mut transaction, &proposal)
-        .await?
-        .ok_or_else(|| unavailable("iteration analysis request custody is missing"))?;
-    if let Some(analysis) =
-        load_analysis_result_in_transaction(&mut transaction, &proposal, None).await?
-    {
+    let request = load_request_for_completion_in_transaction(
+        &mut transaction,
+        &proposal,
+        PostgresReadLockMode::ForShare,
+    )
+    .await?
+    .ok_or_else(|| unavailable("iteration analysis request custody is missing"))?;
+    let existing = load_analysis_result_in_transaction(
+        &mut transaction,
+        &proposal,
+        None,
+        PostgresReadLockMode::ForShare,
+    )
+    .await?;
+    let admission_cut = current_epoch_ms(&mut transaction).await?;
+    let admission = resolve_admission_for_downstream_in_transaction(
+        &mut transaction,
+        &proposal.admission,
+        if existing.is_some() {
+            DownstreamAdmissionModeV1::Historical
+        } else {
+            DownstreamAdmissionModeV1::FirstMutation {
+                read_cut_epoch_ms: admission_cut,
+            }
+        },
+    )
+    .await
+    .map_err(map_product_edge_error)?;
+    verify_iteration_analysis_completion_admission_v1(&admission, &proposal)?;
+
+    if let Some(analysis) = existing {
         let completion = Box::pin(admit_committed_completion_in_transaction(
             &mut transaction,
             &request,
             &proposal,
             analysis,
+            PostgresReadLockMode::ForShare,
         ))
         .await?;
         transaction.commit().await.map_err(storage)?;
         return Ok(completion);
+    }
+
+    if !admission.authorizes_first_mutation_at(admission_cut) {
+        return Err(unavailable(
+            "Product Edge iteration-analysis admission is not current",
+        ));
     }
 
     let locator = request.request().locator().clone();
@@ -606,7 +672,7 @@ pub async fn compose_iteration_analysis_completion_v1(
         &proposal.robustness,
         &proposal.information_value,
     )
-    .map_err(|error| unavailable(error.to_string()))?;
+    .map_err(|e| unavailable(e.to_string()))?;
     let decision_request = CandidateComparisonCompositionRequestV1 {
         trial_family_identity: locator.trial_family_identity,
         result_identity: locator.result_identity,
@@ -630,6 +696,11 @@ pub async fn compose_iteration_analysis_completion_v1(
         ));
     }
     let committed_at_epoch_ms = current_epoch_ms(&mut transaction).await?;
+    if !admission.authorizes_first_mutation_at(committed_at_epoch_ms) {
+        return Err(unavailable(
+            "Product Edge iteration-analysis admission expired before mutation",
+        ));
+    }
     let issued_decision = compose_candidate_comparison_decision_in_transaction_v1(
         &mut transaction,
         &bundle.census,
@@ -664,6 +735,7 @@ pub async fn compose_iteration_analysis_completion_v1(
         &mut transaction,
         &proposal,
         Some(decision.decision().decision_identity()),
+        PostgresReadLockMode::ForShare,
     )
     .await?
     .ok_or_else(|| storage("committed analysis result is missing"))?;
@@ -686,20 +758,36 @@ pub async fn resolve_iteration_analysis_completion_v1(
         .execute(&mut *transaction)
         .await
         .map_err(storage)?;
-    let Some((analysis, proposal)) =
-        load_analysis_result_by_locator_in_transaction(&mut transaction, &locator).await?
+    let Some((analysis, proposal)) = load_analysis_result_by_locator_in_transaction(
+        &mut transaction,
+        &locator,
+        PostgresReadLockMode::Snapshot,
+    )
+    .await?
     else {
         transaction.commit().await.map_err(storage)?;
         return Ok(None);
     };
-    let request = load_request_for_completion_in_transaction(&mut transaction, &proposal)
-        .await?
-        .ok_or_else(|| storage("analysis completion request is missing"))?;
+    let admission = resolve_historical_admission_snapshot_for_downstream_in_transaction(
+        &mut transaction,
+        &proposal.admission,
+    )
+    .await
+    .map_err(map_product_edge_error)?;
+    verify_iteration_analysis_completion_admission_v1(&admission, &proposal)?;
+    let request = load_request_for_completion_in_transaction(
+        &mut transaction,
+        &proposal,
+        PostgresReadLockMode::Snapshot,
+    )
+    .await?
+    .ok_or_else(|| storage("analysis completion request is missing"))?;
     let completion = Box::pin(admit_committed_completion_in_transaction(
         &mut transaction,
         &request,
         &proposal,
         analysis,
+        PostgresReadLockMode::Snapshot,
     ))
     .await?;
     transaction.commit().await.map_err(storage)?;
@@ -711,11 +799,20 @@ async fn admit_committed_completion_in_transaction(
     request: &IterationAnalysisRequestReadbackV1,
     proposal: &IterationAnalysisCompletionProposalV1,
     analysis: IterationAnalysisResultReadbackV1,
+    lock_mode: PostgresReadLockMode,
 ) -> Result<IterationAnalysisCompletionReadbackV1, IterationAnalysisRequestErrorV1> {
-    let census = load_historical_census_for_request_in_transaction(transaction, request).await?;
-    let experiments = load_candidate_experiments_for_census_in_transaction(transaction, &census)
-        .await
-        .map_err(map_trial_family_error)?;
+    let census =
+        load_historical_census_for_request_in_transaction(transaction, request, lock_mode).await?;
+    let experiments = match lock_mode {
+        PostgresReadLockMode::ForShare => {
+            load_candidate_experiments_for_census_in_transaction(transaction, &census).await
+        }
+        PostgresReadLockMode::Snapshot => {
+            load_candidate_experiments_for_census_snapshot_in_transaction(transaction, &census)
+                .await
+        }
+    }
+    .map_err(map_trial_family_error)?;
     verify_request_candidate_experiment_custody(request, &experiments)?;
     let candidate_evaluations = bind_candidate_experiments_to_owner_frontier_v1(
         &request.request().input().candidate_frontier,
@@ -728,13 +825,26 @@ async fn admit_committed_completion_in_transaction(
         attempt_identity: request.request().locator().attempt_identity.clone(),
         candidate_evaluations,
     };
-    let decision = load_candidate_comparison_by_result_in_transaction(
-        transaction,
-        &census,
-        &proposal.result_identity,
-        Some(&decision_request),
-    )
-    .await
+    let decision = match lock_mode {
+        PostgresReadLockMode::ForShare => {
+            load_candidate_comparison_by_result_in_transaction(
+                transaction,
+                &census,
+                &proposal.result_identity,
+                Some(&decision_request),
+            )
+            .await
+        }
+        PostgresReadLockMode::Snapshot => {
+            load_candidate_comparison_by_result_snapshot_in_transaction(
+                transaction,
+                &census,
+                &proposal.result_identity,
+                Some(&decision_request),
+            )
+            .await
+        }
+    }
     .map_err(map_iteration_decision_error)?
     .ok_or_else(|| storage("analysis completion Decision is missing"))?;
     verify_completion_pair(&analysis, &decision)?;
@@ -798,16 +908,32 @@ fn completion_readback(
 async fn load_historical_census_for_request_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     request: &IterationAnalysisRequestReadbackV1,
+    lock_mode: PostgresReadLockMode,
 ) -> Result<crate::trial_family::TrialFamilyCensusReadbackV2, IterationAnalysisRequestErrorV1> {
     let locator = request.request().locator();
     let evidence = &request.request().input().evidence_cut;
-    let current = load_trial_family_census_v2_by_family_in_transaction(
-        transaction,
-        &locator.trial_family_identity,
-    )
-    .await
+    let current = match lock_mode {
+        PostgresReadLockMode::ForShare => {
+            load_trial_family_census_v2_by_family_in_transaction(
+                transaction,
+                &locator.trial_family_identity,
+            )
+            .await
+        }
+        PostgresReadLockMode::Snapshot => {
+            load_trial_family_census_v2_by_family_snapshot_in_transaction(
+                transaction,
+                &locator.trial_family_identity,
+            )
+            .await
+        }
+    }
     .map_err(map_trial_family_error)?;
-    let rows = sqlx::query("SELECT attempt_ordinal,census_frontier_json,attempt_frontier_json,candidate_set_frontier_json FROM rd_trial_family_attempt_cuts_v2 WHERE trial_family_identity=$1 AND census_frontier_identity=$2 FOR SHARE")
+    let query = lock_mode.query(
+        "SELECT attempt_ordinal,census_frontier_json,attempt_frontier_json,candidate_set_frontier_json FROM rd_trial_family_attempt_cuts_v2 WHERE trial_family_identity=$1 AND census_frontier_identity=$2",
+        " FOR SHARE",
+    );
+    let rows = sqlx::query(query)
         .bind(&locator.trial_family_identity)
         .bind(&evidence.census_frontier_identity)
         .fetch_all(&mut **transaction)
@@ -898,7 +1024,7 @@ async fn compose_locked_input(
         diagnostic,
         required_dimensions,
     } = gate_locked_exploratory_result_v1(&census, locked_result)
-        .map_err(|error| unavailable(error.to_string()))?
+        .map_err(|e| unavailable(e.to_string()))?
     else {
         return Err(IterationAnalysisRequestErrorV1::NotApplicable);
     };
@@ -917,7 +1043,7 @@ async fn compose_locked_input(
         None,
         replay_value,
     )
-    .map_err(|error| unavailable(error.to_string()))?;
+    .map_err(|e| unavailable(e.to_string()))?;
     let replay = replay_result
         .readback()
         .ok_or_else(|| unavailable("sealed Replay V2 custody is missing"))?;
@@ -1007,11 +1133,12 @@ async fn compose_locked_input(
 
     let intent_bytes = canonical_intent_bytes(actual_intent).map_err(map_artifact_build_error)?;
     let canonical_intent_json =
-        String::from_utf8(intent_bytes.clone()).map_err(|error| unavailable(error.to_string()))?;
+        String::from_utf8(intent_bytes.clone()).map_err(|e| unavailable(e.to_string()))?;
     let candidate: LockedCandidateFrontierV1 = serde_json::from_value(
         serde_json::to_value(&census.candidate_set_frontier).map_err(storage)?,
     )
     .map_err(storage)?;
+
     if candidate.schema_version != 2
         || candidate.trial_family_identity != locator.trial_family_identity
     {
@@ -1029,7 +1156,7 @@ async fn compose_locked_input(
         actual_intent.semantic_digest(),
         &locked_outcome,
     )
-    .map_err(|error| unavailable(error.to_string()))?;
+    .map_err(|e| unavailable(e.to_string()))?;
     let engine_result_storage_digest = owner_storage_digest(
         "rd.iteration-analysis.engine-result.v1",
         locked_outcome.engine_canonical_result_bytes(),
@@ -1310,14 +1437,20 @@ async fn persist(
 async fn load_request_for_completion_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     proposal: &IterationAnalysisCompletionProposalV1,
+    lock_mode: PostgresReadLockMode,
 ) -> Result<Option<IterationAnalysisRequestReadbackV1>, IterationAnalysisRequestErrorV1> {
-    let rows = sqlx::query("SELECT trial_family_identity,result_identity,request_identity,attempt_identity FROM public.rd_iteration_analysis_requests_v1 WHERE analysis_request_identity=$1 AND analysis_request_digest=$2 AND result_identity=$3 FOR SHARE")
+    let query = lock_mode.query(
+        "SELECT trial_family_identity,result_identity,request_identity,attempt_identity FROM public.rd_iteration_analysis_requests_v1 WHERE analysis_request_identity=$1 AND analysis_request_digest=$2 AND result_identity=$3",
+        " FOR SHARE",
+    );
+    let rows = sqlx::query(query)
         .bind(&proposal.analysis_request_identity)
         .bind(&proposal.analysis_request_digest)
         .bind(&proposal.result_identity)
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
+
     if rows.is_empty() {
         return Ok(None);
     }
@@ -1330,7 +1463,7 @@ async fn load_request_for_completion_in_transaction(
         request_identity: row.try_get("request_identity").map_err(storage)?,
         attempt_identity: row.try_get("attempt_identity").map_err(storage)?,
     };
-    load_by_result_in_transaction(transaction, &locator).await
+    load_by_result_in_transaction(transaction, &locator, lock_mode).await
 }
 
 async fn persist_analysis_result(
@@ -1397,20 +1530,26 @@ async fn load_analysis_result_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     proposal: &IterationAnalysisCompletionProposalV1,
     expected_decision_identity: Option<&str>,
+    lock_mode: PostgresReadLockMode,
 ) -> Result<Option<IterationAnalysisResultReadbackV1>, IterationAnalysisRequestErrorV1> {
-    let rows = sqlx::query("SELECT analysis_result_identity,analysis_result_digest,analysis_request_identity,analysis_request_digest,result_identity,decision_identity,decision_digest,result_json,receipt_json,result_storage_bytes,result_storage_digest,receipt_storage_bytes,receipt_storage_digest,committed_at_epoch_ms FROM public.rd_iteration_analysis_results_v1 WHERE analysis_request_identity=$1 OR result_identity=$2 FOR SHARE")
+    let query = lock_mode.query(
+        "SELECT analysis_result_identity,analysis_result_digest,analysis_request_identity,analysis_request_digest,result_identity,decision_identity,decision_digest,result_json,receipt_json,result_storage_bytes,result_storage_digest,receipt_storage_bytes,receipt_storage_digest,committed_at_epoch_ms FROM public.rd_iteration_analysis_results_v1 WHERE analysis_request_identity=$1 OR result_identity=$2",
+        " FOR SHARE",
+    );
+    let rows = sqlx::query(query)
         .bind(&proposal.analysis_request_identity)
         .bind(&proposal.result_identity)
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
+
     if rows.is_empty() {
         return Ok(None);
     }
     let [row] = rows.as_slice() else {
         return Err(storage("analysis result locator is ambiguous"));
     };
-    let readback = admit_analysis_result_row(transaction, row).await?;
+    let readback = admit_analysis_result_row(transaction, row, lock_mode).await?;
     ensure_same_completion_proposal_v1(&readback, proposal)?;
     if expected_decision_identity
         .is_some_and(|expected| readback.result().decision_identity() != expected)
@@ -1423,6 +1562,7 @@ async fn load_analysis_result_in_transaction(
 async fn load_analysis_result_by_locator_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     locator: &IterationAnalysisCompletionResolutionLocatorV1,
+    lock_mode: PostgresReadLockMode,
 ) -> Result<
     Option<(
         IterationAnalysisResultReadbackV1,
@@ -1430,20 +1570,25 @@ async fn load_analysis_result_by_locator_in_transaction(
     )>,
     IterationAnalysisRequestErrorV1,
 > {
-    let rows = sqlx::query("SELECT analysis_result_identity,analysis_result_digest,analysis_request_identity,analysis_request_digest,result_identity,decision_identity,decision_digest,result_json,receipt_json,result_storage_bytes,result_storage_digest,receipt_storage_bytes,receipt_storage_digest,committed_at_epoch_ms FROM public.rd_iteration_analysis_results_v1 WHERE analysis_result_identity=$1 AND analysis_request_identity=$2 AND result_identity=$3 FOR SHARE")
+    let query = lock_mode.query(
+        "SELECT analysis_result_identity,analysis_result_digest,analysis_request_identity,analysis_request_digest,result_identity,decision_identity,decision_digest,result_json,receipt_json,result_storage_bytes,result_storage_digest,receipt_storage_bytes,receipt_storage_digest,committed_at_epoch_ms FROM public.rd_iteration_analysis_results_v1 WHERE analysis_result_identity=$1 AND analysis_request_identity=$2 AND result_identity=$3",
+        " FOR SHARE",
+    );
+    let rows = sqlx::query(query)
         .bind(&locator.analysis_result_identity)
         .bind(&locator.analysis_request_identity)
         .bind(&locator.result_identity)
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
+
     if rows.is_empty() {
         return Ok(None);
     }
     let [row] = rows.as_slice() else {
         return Err(storage("analysis result resolution locator is ambiguous"));
     };
-    let readback = admit_analysis_result_row(transaction, row).await?;
+    let readback = admit_analysis_result_row(transaction, row, lock_mode).await?;
     let proposal = readback.result().proposal().clone();
     Ok(Some((readback, proposal)))
 }
@@ -1451,6 +1596,7 @@ async fn load_analysis_result_by_locator_in_transaction(
 async fn admit_analysis_result_row(
     transaction: &mut Transaction<'_, Postgres>,
     row: &sqlx::postgres::PgRow,
+    lock_mode: PostgresReadLockMode,
 ) -> Result<IterationAnalysisResultReadbackV1, IterationAnalysisRequestErrorV1> {
     let result_bytes: Vec<u8> = row.try_get("result_storage_bytes").map_err(storage)?;
     let receipt_bytes: Vec<u8> = row.try_get("receipt_storage_bytes").map_err(storage)?;
@@ -1464,6 +1610,7 @@ async fn admit_analysis_result_row(
         &stored.decision_digest,
         stored.committed_at_epoch_ms,
     )?;
+
     if stored.schema_version != 1
         || stored.analysis_result_identity != expected.result().analysis_result_identity()
         || stored.analysis_result_digest != expected.result().analysis_result_digest()
@@ -1532,19 +1679,25 @@ async fn admit_analysis_result_row(
     {
         return Err(storage("stored analysis result custody mismatch"));
     }
-    verify_analysis_completed_outbox(transaction, &expected).await?;
+    verify_analysis_completed_outbox(transaction, &expected, lock_mode).await?;
     Ok(expected)
 }
 
 async fn load_by_result_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     locator: &IterationAnalysisRequestLocatorV1,
+    lock_mode: PostgresReadLockMode,
 ) -> Result<Option<IterationAnalysisRequestReadbackV1>, IterationAnalysisRequestErrorV1> {
-    let rows = sqlx::query("SELECT analysis_request_identity,analysis_request_digest,trial_family_identity,result_identity,request_identity,attempt_identity,intent_identity,artifact_identity,request_json,receipt_json,request_storage_bytes,request_storage_digest,receipt_storage_bytes,receipt_storage_digest,committed_at_epoch_ms FROM public.rd_iteration_analysis_requests_v1 WHERE result_identity=$1 FOR SHARE")
+    let query = lock_mode.query(
+        "SELECT analysis_request_identity,analysis_request_digest,trial_family_identity,result_identity,request_identity,attempt_identity,intent_identity,artifact_identity,request_json,receipt_json,request_storage_bytes,request_storage_digest,receipt_storage_bytes,receipt_storage_digest,committed_at_epoch_ms FROM public.rd_iteration_analysis_requests_v1 WHERE result_identity=$1",
+        " FOR SHARE",
+    );
+    let rows = sqlx::query(query)
         .bind(&locator.result_identity)
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
+
     if rows.is_empty() {
         return Ok(None);
     }
@@ -1604,7 +1757,7 @@ async fn load_by_result_in_transaction(
     {
         return Err(storage("stored analysis request custody mismatch"));
     }
-    verify_outbox(transaction, &readback).await?;
+    verify_outbox(transaction, &readback, lock_mode).await?;
     Ok(Some(readback))
 }
 
@@ -1624,6 +1777,7 @@ fn decode_stored_readback(
         stored_request.input,
         stored_request.committed_at_epoch_ms,
     )?;
+
     if stored_request.analysis_request_identity != expected.request().analysis_request_identity()
         || stored_request.analysis_request_digest != expected.request().analysis_request_digest()
         || stored_receipt.receipt_identity != expected.receipt().receipt_identity()
@@ -1642,9 +1796,14 @@ fn decode_stored_readback(
 async fn verify_outbox(
     transaction: &mut Transaction<'_, Postgres>,
     readback: &IterationAnalysisRequestReadbackV1,
+    lock_mode: PostgresReadLockMode,
 ) -> Result<(), IterationAnalysisRequestErrorV1> {
     let request = readback.request();
-    let rows = sqlx::query("SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,canonical_payload_bytes,canonical_payload_storage_digest,canonical_envelope_bytes,canonical_envelope_storage_digest,committed_at_epoch_ms FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2 FOR SHARE")
+    let query = lock_mode.query(
+        "SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,canonical_payload_bytes,canonical_payload_storage_digest,canonical_envelope_bytes,canonical_envelope_storage_digest,committed_at_epoch_ms FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2",
+        " FOR SHARE",
+    );
+    let rows = sqlx::query(query)
         .bind(request.analysis_request_identity())
         .bind(ITERATION_ANALYSIS_REQUESTED_EVENT_V1)
         .fetch_all(&mut **transaction)
@@ -1669,6 +1828,7 @@ async fn verify_outbox(
         committed_at_epoch_ms: request.committed_at_epoch_ms(),
     };
     let envelope_bytes = serde_json::to_vec(&envelope).map_err(storage)?;
+
     if row
         .try_get::<String, _>("event_identity")
         .map_err(storage)?
@@ -1760,8 +1920,13 @@ fn analysis_completed_payload(
 async fn verify_analysis_completed_outbox(
     transaction: &mut Transaction<'_, Postgres>,
     readback: &IterationAnalysisResultReadbackV1,
+    lock_mode: PostgresReadLockMode,
 ) -> Result<(), IterationAnalysisRequestErrorV1> {
-    let rows = sqlx::query("SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,canonical_payload_bytes,canonical_payload_storage_digest,canonical_envelope_bytes,canonical_envelope_storage_digest,committed_at_epoch_ms FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2 FOR SHARE")
+    let query = lock_mode.query(
+        "SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,canonical_payload_bytes,canonical_payload_storage_digest,canonical_envelope_bytes,canonical_envelope_storage_digest,committed_at_epoch_ms FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2",
+        " FOR SHARE",
+    );
+    let rows = sqlx::query(query)
         .bind(readback.result().analysis_result_identity())
         .bind(ITERATION_ANALYSIS_COMPLETED_EVENT_V1)
         .fetch_all(&mut **transaction)
@@ -1785,6 +1950,7 @@ async fn verify_analysis_completed_outbox(
         committed_at_epoch_ms: readback.result().committed_at_epoch_ms(),
     };
     let envelope_bytes = serde_json::to_vec(&envelope).map_err(storage)?;
+
     if row
         .try_get::<String, _>("event_identity")
         .map_err(storage)?
@@ -1894,7 +2060,7 @@ async fn current_epoch_ms(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<u64, IterationAnalysisRequestErrorV1> {
     let value: i64 = sqlx::query_scalar(
-        "SELECT pg_catalog.floor(pg_catalog.extract(epoch FROM pg_catalog.clock_timestamp()) * 1000)::bigint",
+        "SELECT pg_catalog.floor(EXTRACT(epoch FROM pg_catalog.clock_timestamp()) * 1000)::bigint",
     )
     .fetch_one(&mut **transaction)
     .await
@@ -1908,18 +2074,31 @@ async fn require_schema(pool: &PgPool) -> Result<(), IterationAnalysisRequestErr
         crate::trial_family_postgres::TABLES,
     )
     .await
-    .map_err(|error| storage(error.to_string()))?;
+    .map_err(|e| storage(e.to_string()))?;
     crate::schema_materialization::require_existing_public_tables(pool, TABLES)
         .await
-        .map_err(|error| storage(error.to_string()))
+        .map_err(|e| storage(e.to_string()))
 }
 
-fn storage(error: impl std::fmt::Display) -> IterationAnalysisRequestErrorV1 {
+fn storage(error: impl Display) -> IterationAnalysisRequestErrorV1 {
     IterationAnalysisRequestErrorV1::Storage(error.to_string())
 }
 
-fn unavailable(error: impl std::fmt::Display) -> IterationAnalysisRequestErrorV1 {
+fn unavailable(error: impl Display) -> IterationAnalysisRequestErrorV1 {
     IterationAnalysisRequestErrorV1::Unavailable(error.to_string())
+}
+
+fn map_product_edge_error(error: ProductEdgeError) -> IterationAnalysisRequestErrorV1 {
+    match error {
+        ProductEdgeError::Storage(message) => storage(message),
+        ProductEdgeError::InvalidProposal(message) => unavailable(message),
+        ProductEdgeError::ConflictingReplay => unavailable(
+            "Product Edge iteration-analysis admission conflicts with committed meaning",
+        ),
+        ProductEdgeError::Unavailable => {
+            unavailable("Product Edge iteration-analysis admission is unavailable")
+        }
+    }
 }
 
 fn map_backtest_custody_error(
@@ -1993,6 +2172,8 @@ fn map_iteration_decision_error(
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
 
     fn canonical_engine_result() -> Vec<u8> {
@@ -2044,7 +2225,7 @@ mod tests {
         .expect("canonical engine fixture")
     }
 
-    #[test]
+    #[rstest]
     fn requested_event_has_one_frozen_kind() {
         assert_eq!(
             ITERATION_ANALYSIS_REQUESTED_EVENT_V1,
@@ -2052,7 +2233,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn canonical_engine_metrics_project_without_float_widening_or_loss() {
         let bytes = canonical_engine_result();
         let projection = project_canonical_engine_result_v1(&bytes)
@@ -2077,7 +2258,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn metric_or_engine_tamper_breaks_the_locked_binding_before_projection() {
         let bytes = canonical_engine_result();
         let digest = owner_storage_digest("vibe.backtest.canonical-result-bytes.v1", &bytes);
@@ -2113,7 +2294,7 @@ mod tests {
         ));
     }
 
-    #[test]
+    #[rstest]
     fn post_attempt_current_census_accepts_the_replay_frozen_prefix() {
         let replay_cut = vec!["intent-0".to_string()];
         let post_attempt = vec![
@@ -2125,7 +2306,7 @@ mod tests {
             .expect("Replay cut remains an immutable ancestor");
     }
 
-    #[test]
+    #[rstest]
     fn cross_spliced_replay_cut_is_not_an_ancestor() {
         let replay_cut = vec!["other-intent".to_string()];
         let post_attempt = vec![
@@ -2139,7 +2320,7 @@ mod tests {
         ));
     }
 
-    #[test]
+    #[rstest]
     fn typed_dependency_storage_errors_remain_storage_errors() {
         assert!(matches!(
             map_backtest_custody_error(BacktestResultCustodyErrorV2::Storage("db".to_string())),

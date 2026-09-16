@@ -9,8 +9,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use thiserror::Error;
-use vibe_data::owner::shared_time_evidence::{
-    ClockHeadHandoff, SharedTimeEvidenceResolver, UntrustedClockHeadLocator,
+use vibe_data::owner::{
+    shared_time_evidence::{
+        ClockHeadHandoff, SharedTimeEvidenceResolver, UntrustedClockHeadLocator,
+    },
+    source_binding::BindingDigest,
 };
 
 use crate::{
@@ -503,6 +506,7 @@ async fn verify_outbox(
             .map_err(unavailable)?,
         &expected_payload_digest,
     )?;
+
     if row
         .try_get::<String, _>("aggregate_identity")
         .map_err(unavailable)?
@@ -569,8 +573,8 @@ struct RequestedOutboxV1 {
     target: crate::iteration_decision::IterationRepairTargetV1,
     policy_identity: String,
     policy_digest: String,
-    clock_head_identity: vibe_data::owner::source_binding::BindingDigest,
-    clock_head_digest: vibe_data::owner::source_binding::BindingDigest,
+    clock_head_identity: BindingDigest,
+    clock_head_digest: BindingDigest,
 }
 
 impl RequestedOutboxV1 {
@@ -613,6 +617,7 @@ fn validate_locator(
         composition.replay.receipt_identity.as_str(),
         composition.replay.seal_digest.as_str(),
     ];
+
     if values
         .into_iter()
         .all(|value| !value.is_empty() && value.len() <= 512)
@@ -693,7 +698,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest::rstest]
     fn composition_accepts_only_complete_bounded_identity_locators() {
         let valid = composition();
         assert!(validate_locator(&valid).is_ok());
@@ -713,7 +718,7 @@ mod tests {
         ));
     }
 
-    #[test]
+    #[rstest::rstest]
     fn storage_and_outbox_domains_are_separated() {
         let bytes = br#"{"schema_version":1}"#;
         assert_ne!(
@@ -772,7 +777,7 @@ mod tests {
         ));
     }
 
-    #[test]
+    #[rstest::rstest]
     fn outbox_event_identity_tamper_fails_the_canonical_oracle() {
         let payload_digest = format!("sha256:{}", "a".repeat(64));
         let expected = outbox_event_identity(&payload_digest);
@@ -786,7 +791,7 @@ mod tests {
         ));
     }
 
-    #[test]
+    #[rstest::rstest]
     fn schema_declares_one_write_once_owner_row() {
         let table = &TABLES[0];
         assert_eq!(table.name, "rd_runtime_kernel_native_repair_requests_v1");
@@ -796,6 +801,7 @@ mod tests {
                 .iter()
                 .any(|value| value.starts_with("p:request_identity"))
         );
+
         for column in [
             "native_attempt_identity",
             "correlation_identity",

@@ -66,6 +66,7 @@ pub(crate) async fn commit_research_bounded_feature_program_in_transaction_v1(
         acquire_joint_freeze_lock(transaction, request_locator).await?;
         current_research_custody(transaction, request_locator, read_cut_epoch_ms).await?
     };
+
     if successor {
         acquire_joint_freeze_lock(transaction, request_locator).await?;
     }

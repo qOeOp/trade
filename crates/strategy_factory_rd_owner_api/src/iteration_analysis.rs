@@ -11,18 +11,25 @@ use axum::{
     routing::post,
 };
 use serde_json::json;
+use vibe_product_edge::{
+    ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionRequestV1, ProductEdgeError,
+    ProductEdgePostgresOwnerV1,
+};
 use vibe_strategy_factory::{
     iteration_analysis::{
-        IterationAnalysisCompletionProposalV1, IterationAnalysisCompletionReadbackV1,
-        IterationAnalysisCompletionResolutionLocatorV1, IterationAnalysisRequestErrorV1,
-        IterationAnalysisRequestLocatorV1, IterationAnalysisRequestReadbackV1,
-        IterationAnalysisResolutionLocatorV1,
+        ITERATION_ANALYSIS_COMPLETION_MUTATION_EFFECT_V1,
+        ITERATION_ANALYSIS_COMPLETION_OPERATION_V1, ITERATION_ANALYSIS_COMPLETION_SCHEMA_V1,
+        IterationAnalysisCompletionOperationRequestV1, IterationAnalysisCompletionProposalV1,
+        IterationAnalysisCompletionReadbackV1, IterationAnalysisCompletionResolutionLocatorV1,
+        IterationAnalysisRequestErrorV1, IterationAnalysisRequestLocatorV1,
+        IterationAnalysisRequestReadbackV1, IterationAnalysisResolutionLocatorV1,
     },
     iteration_analysis_postgres::{
         compose_iteration_analysis_completion_v1, compose_iteration_analysis_request_v1,
         resolve_iteration_analysis_completion_v1, resolve_iteration_analysis_request_v1,
     },
     iteration_decision::is_valid_iteration_decision_locator_v1,
+    product_edge::RESEARCH_OWNER_V1,
     product_edge_postgres::PostgresResearchGoalOwnerV1,
 };
 
@@ -83,19 +90,63 @@ impl IterationAnalysisRequestPort for PostgresResearchGoalOwnerV1 {
     }
 }
 
-#[derive(Clone)]
-struct IterationAnalysisApiState {
-    owner: Arc<dyn IterationAnalysisRequestPort>,
-    token_digest: [u8; 32],
+#[async_trait::async_trait]
+trait IterationAnalysisCompletionAdmissionPort: Send + Sync {
+    async fn admit_completion(
+        &self,
+        request: &IterationAnalysisCompletionOperationRequestV1,
+        request_proof_digest: &str,
+    ) -> Result<ProductEdgeAdmissionLocatorV1, ProductEdgeError>;
 }
 
-pub(super) fn router(owner: Arc<PostgresResearchGoalOwnerV1>, token_digest: [u8; 32]) -> Router {
-    iteration_analysis_router(owner, token_digest)
+#[async_trait::async_trait]
+impl IterationAnalysisCompletionAdmissionPort for ProductEdgePostgresOwnerV1 {
+    async fn admit_completion(
+        &self,
+        request: &IterationAnalysisCompletionOperationRequestV1,
+        request_proof_digest: &str,
+    ) -> Result<ProductEdgeAdmissionLocatorV1, ProductEdgeError> {
+        self.admit_request(ProductEdgeAdmissionRequestV1 {
+            request_identity: request.analysis_request_identity.clone(),
+            typed_payload: serde_json::to_value(request)
+                .map_err(|e| ProductEdgeError::Storage(e.to_string()))?,
+            operation: ITERATION_ANALYSIS_COMPLETION_OPERATION_V1.to_string(),
+            operation_schema: ITERATION_ANALYSIS_COMPLETION_SCHEMA_V1.to_string(),
+            target_owner: RESEARCH_OWNER_V1.to_string(),
+            requested_effects: vec![ITERATION_ANALYSIS_COMPLETION_MUTATION_EFFECT_V1.to_string()],
+            request_proof_digest: request_proof_digest.to_string(),
+            audit_correlation: format!(
+                "rd-iteration-analysis:{}",
+                request.analysis_request_identity
+            ),
+        })
+        .await
+        .map(|readback| readback.locator().clone())
+    }
+}
+
+#[derive(Clone)]
+struct IterationAnalysisApiState {
+    admission: Arc<dyn IterationAnalysisCompletionAdmissionPort>,
+    owner: Arc<dyn IterationAnalysisRequestPort>,
+    token_digest: [u8; 32],
+    request_proof_digest: String,
+}
+
+pub(super) fn router(
+    product_edge: Arc<ProductEdgePostgresOwnerV1>,
+    owner: Arc<PostgresResearchGoalOwnerV1>,
+    token_digest: [u8; 32],
+    request_proof_digest: String,
+) -> Router {
+    iteration_analysis_router(product_edge, owner, token_digest, request_proof_digest)
 }
 
 fn iteration_analysis_router(
+    admission: Arc<dyn IterationAnalysisCompletionAdmissionPort>,
     owner: Arc<dyn IterationAnalysisRequestPort>,
     token_digest: [u8; 32],
+    request_proof_digest: String,
 ) -> Router {
     Router::new()
         .route(
@@ -115,8 +166,10 @@ fn iteration_analysis_router(
             post(resolve_iteration_analysis_completion),
         )
         .with_state(IterationAnalysisApiState {
+            admission,
             owner,
             token_digest,
+            request_proof_digest,
         })
 }
 
@@ -132,20 +185,67 @@ async fn complete_iteration_analysis(
             "unbound",
         );
     }
-    let proposal: IterationAnalysisCompletionProposalV1 = match serde_json::from_slice(&body) {
+    let operation: IterationAnalysisCompletionOperationRequestV1 =
+        match serde_json::from_slice(&body) {
+            Ok(operation) => operation,
+            Err(_) => {
+                return rejection(
+                    StatusCode::BAD_REQUEST,
+                    "MALFORMED_TYPED_REQUEST",
+                    "unbound",
+                );
+            }
+        };
+    let result_identity = operation.result_identity.clone();
+    if operation.validate().is_err() {
+        return rejection(
+            StatusCode::BAD_REQUEST,
+            "INVALID_ITERATION_ANALYSIS_COMPLETION_PROPOSAL",
+            &result_identity,
+        );
+    }
+    let admission = match state
+        .admission
+        .admit_completion(&operation, &state.request_proof_digest)
+        .await
+    {
+        Ok(admission) => admission,
+        Err(ProductEdgeError::ConflictingReplay) => {
+            return rejection(
+                StatusCode::CONFLICT,
+                "CONFLICTING_PRODUCT_EDGE_REPLAY",
+                &result_identity,
+            );
+        }
+        Err(ProductEdgeError::InvalidProposal(_)) => {
+            return rejection(
+                StatusCode::BAD_REQUEST,
+                "INVALID_PRODUCT_EDGE_ITERATION_ANALYSIS_ADMISSION",
+                &result_identity,
+            );
+        }
+        Err(ProductEdgeError::Unavailable | ProductEdgeError::Storage(_)) => {
+            return rejection(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "PRODUCT_EDGE_ITERATION_ANALYSIS_ADMISSION_UNAVAILABLE",
+                &result_identity,
+            );
+        }
+    };
+    let proposal = match operation.with_admission(admission) {
         Ok(proposal) => proposal,
         Err(_) => {
             return rejection(
                 StatusCode::BAD_REQUEST,
-                "MALFORMED_TYPED_REQUEST",
-                "unbound",
+                "INVALID_PRODUCT_EDGE_ITERATION_ANALYSIS_ADMISSION",
+                &result_identity,
             );
         }
     };
-    let result_identity = proposal.result_identity.clone();
+
     match state.owner.complete(proposal).await {
         Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
-        Err(error) => owner_error(&error, &result_identity),
+        Err(e) => owner_error(&e, &result_identity),
     }
 }
 
@@ -180,7 +280,7 @@ async fn resolve_iteration_analysis_completion(
             "ITERATION_ANALYSIS_RESULT_NOT_FOUND",
             &result_identity,
         ),
-        Err(error) => owner_error(&error, &result_identity),
+        Err(e) => owner_error(&e, &result_identity),
     }
 }
 
@@ -222,7 +322,7 @@ async fn compose_iteration_analysis(
 
     match state.owner.compose(locator).await {
         Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
-        Err(error) => owner_error(&error, &result_identity),
+        Err(e) => owner_error(&e, &result_identity),
     }
 }
 
@@ -269,7 +369,7 @@ async fn resolve_iteration_analysis(
             "ITERATION_ANALYSIS_REQUEST_NOT_FOUND",
             &result_identity,
         ),
-        Err(error) => owner_error(&error, &result_identity),
+        Err(e) => owner_error(&e, &result_identity),
     }
 }
 
@@ -319,15 +419,33 @@ fn rejection(status: StatusCode, code: &str, result_identity: &str) -> Response 
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    use rstest::rstest;
     use sha2::{Digest as _, Sha256};
     use tower::ServiceExt;
 
     use super::*;
 
     struct OwnerStub {
+        admission_calls: AtomicUsize,
         compose_calls: AtomicUsize,
         resolve_calls: AtomicUsize,
         completion_calls: AtomicUsize,
+    }
+
+    #[async_trait::async_trait]
+    impl IterationAnalysisCompletionAdmissionPort for OwnerStub {
+        async fn admit_completion(
+            &self,
+            request: &IterationAnalysisCompletionOperationRequestV1,
+            _request_proof_digest: &str,
+        ) -> Result<ProductEdgeAdmissionLocatorV1, ProductEdgeError> {
+            self.admission_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(ProductEdgeAdmissionLocatorV1 {
+                request_identity: request.analysis_request_identity.clone(),
+                admission_identity: "iteration-analysis-admission-1".to_string(),
+                admission_digest: format!("sha256:{}", "b".repeat(64)),
+            })
+        }
     }
 
     #[async_trait::async_trait]
@@ -351,9 +469,13 @@ mod tests {
 
         async fn complete(
             &self,
-            _proposal: IterationAnalysisCompletionProposalV1,
+            proposal: IterationAnalysisCompletionProposalV1,
         ) -> Result<IterationAnalysisCompletionReadbackV1, IterationAnalysisRequestErrorV1>
         {
+            assert_eq!(
+                proposal.admission.request_identity,
+                proposal.analysis_request_identity
+            );
             self.completion_calls.fetch_add(1, Ordering::SeqCst);
             Err(IterationAnalysisRequestErrorV1::NotApplicable)
         }
@@ -377,6 +499,41 @@ mod tests {
         })
     }
 
+    fn completion_operation() -> serde_json::Value {
+        let digest = format!("sha256:{}", "a".repeat(64));
+        let finding = json!({
+            "conclusion": "ESTABLISHED",
+            "evidence": [{"identity": "evidence-1", "digest": digest}],
+        });
+        json!({
+            "analysis_request_identity": "analysis-request-1",
+            "analysis_request_digest": digest,
+            "result_identity": "result-1",
+            "mechanism_validity": finding,
+            "economic_viability": finding,
+            "robustness": finding,
+            "information_value": finding,
+            "candidate_evaluations": {
+                "frontier_identity": "frontier-1",
+                "frontier_digest": digest,
+                "generation_rule_identity": "generation-rule-1",
+                "generation_rule_digest": digest,
+                "expected_cardinality": 0,
+                "threshold": {"identity": "threshold-1", "digest": digest},
+                "candidates": [],
+            },
+        })
+    }
+
+    fn test_router(owner: Arc<OwnerStub>, token_digest: [u8; 32]) -> Router {
+        iteration_analysis_router(
+            owner.clone(),
+            owner,
+            token_digest,
+            format!("sha256:{}", "c".repeat(64)),
+        )
+    }
+
     fn send(
         uri: &str,
         body: serde_json::Value,
@@ -394,7 +551,7 @@ mod tests {
             .expect("HTTP request")
     }
 
-    #[test]
+    #[rstest]
     fn transport_accepts_only_owner_locators() {
         serde_json::from_value::<IterationAnalysisRequestLocatorV1>(locator())
             .expect("exact locator");
@@ -410,7 +567,7 @@ mod tests {
         assert!(serde_json::from_value::<IterationAnalysisRequestLocatorV1>(projected).is_err());
     }
 
-    #[test]
+    #[rstest]
     fn typed_storage_failure_is_a_retryable_owner_outage() {
         let response = owner_error(
             &IterationAnalysisRequestErrorV1::Storage("database".to_string()),
@@ -430,21 +587,22 @@ mod tests {
         let token = "iteration-analysis-test";
         let digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
         let owner = Arc::new(OwnerStub {
+            admission_calls: AtomicUsize::new(0),
             compose_calls: AtomicUsize::new(0),
             resolve_calls: AtomicUsize::new(0),
             completion_calls: AtomicUsize::new(0),
         });
-        let unauthorized = iteration_analysis_router(owner.clone(), digest)
+        let unauthorized = test_router(owner.clone(), digest)
             .oneshot(send("/v1/iteration-analysis-requests", locator(), None))
             .await
             .expect("response");
         assert_eq!(unauthorized.status(), StatusCode::FORBIDDEN);
-        let unauthorized_completion = iteration_analysis_router(owner.clone(), digest)
+        let unauthorized_completion = test_router(owner.clone(), digest)
             .oneshot(send("/v1/iteration-analysis-results", json!({}), None))
             .await
             .expect("response");
         assert_eq!(unauthorized_completion.status(), StatusCode::FORBIDDEN);
-        let malformed = iteration_analysis_router(owner.clone(), digest)
+        let malformed = test_router(owner.clone(), digest)
             .oneshot(send(
                 "/v1/iteration-analysis-requests",
                 json!({"result_identity": "result-1"}),
@@ -453,8 +611,55 @@ mod tests {
             .await
             .expect("response");
         assert_eq!(malformed.status(), StatusCode::BAD_REQUEST);
+        let malformed_completion = test_router(owner.clone(), digest)
+            .oneshot(send(
+                "/v1/iteration-analysis-results",
+                json!({"result_identity": "result-1"}),
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("response");
+        assert_eq!(malformed_completion.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(owner.admission_calls.load(Ordering::SeqCst), 0);
         assert_eq!(owner.compose_calls.load(Ordering::SeqCst), 0);
         assert_eq!(owner.completion_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn completion_is_admitted_before_owner_and_caller_cannot_choose_action() {
+        let token = "iteration-analysis-completion-test";
+        let digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
+        let owner = Arc::new(OwnerStub {
+            admission_calls: AtomicUsize::new(0),
+            compose_calls: AtomicUsize::new(0),
+            resolve_calls: AtomicUsize::new(0),
+            completion_calls: AtomicUsize::new(0),
+        });
+        let response = test_router(owner.clone(), digest)
+            .oneshot(send(
+                "/v1/iteration-analysis-results",
+                completion_operation(),
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert_eq!(owner.admission_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(owner.completion_calls.load(Ordering::SeqCst), 1);
+
+        let mut injected = completion_operation();
+        injected["next_action"] = json!("CREATE_SUCCESSOR_INTENT");
+        let rejected = test_router(owner.clone(), digest)
+            .oneshot(send(
+                "/v1/iteration-analysis-results",
+                injected,
+                Some(&format!("Bearer {token}")),
+            ))
+            .await
+            .expect("response");
+        assert_eq!(rejected.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(owner.admission_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(owner.completion_calls.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
@@ -462,11 +667,12 @@ mod tests {
         let token = "iteration-analysis-test";
         let digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
         let owner = Arc::new(OwnerStub {
+            admission_calls: AtomicUsize::new(0),
             compose_calls: AtomicUsize::new(0),
             resolve_calls: AtomicUsize::new(0),
             completion_calls: AtomicUsize::new(0),
         });
-        let response = iteration_analysis_router(owner.clone(), digest)
+        let response = test_router(owner.clone(), digest)
             .oneshot(send(
                 "/v1/iteration-analysis-requests/resolve",
                 locator(),

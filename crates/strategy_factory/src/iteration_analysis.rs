@@ -7,6 +7,7 @@ use vibe_backtest_owner_contracts::{
     ContentIdentityV2, ReplayRequestDtoV2, ReplayResultDtoV2, ReplayWindowV2,
     outcome_evidence::BacktestOutcomeEvidenceDtoV1,
 };
+use vibe_product_edge::{ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionReadbackV1};
 
 use crate::IterationCandidateEvaluationSetV1;
 use crate::iteration_decision::{
@@ -17,6 +18,10 @@ use crate::iteration_decision::{
 
 pub const ITERATION_ANALYSIS_REQUESTED_EVENT_V1: &str = "RD_ITERATION_ANALYSIS_REQUESTED_V1";
 pub const ITERATION_ANALYSIS_COMPLETED_EVENT_V1: &str = "RD_ITERATION_ANALYSIS_COMPLETED_V1";
+pub const ITERATION_ANALYSIS_COMPLETION_OPERATION_V1: &str = "iteration_analysis.complete.v1";
+pub const ITERATION_ANALYSIS_COMPLETION_SCHEMA_V1: &str = "rd-iteration-analysis-completion-v1";
+pub const ITERATION_ANALYSIS_COMPLETION_MUTATION_EFFECT_V1: &str =
+    "R_AND_D_ITERATION_ANALYSIS_COMPLETION_MUTATION_V1";
 
 /// Caller-owned lookup only. It carries no Result, diagnosis, analysis, or Decision authority.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -206,7 +211,55 @@ pub struct IterationAnalysisCandidateEvaluationSetProposalV1 {
     pub candidates: Vec<IterationAnalysisCandidateEvaluationProposalV1>,
 }
 
-/// Caller-mintable completion proposal. It cannot choose a Decision outcome or next action.
+/// Caller-mintable analytical evaluation. It cannot choose a Decision outcome, next action, or
+/// Product Edge admission.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct IterationAnalysisCompletionOperationRequestV1 {
+    pub analysis_request_identity: String,
+    pub analysis_request_digest: String,
+    pub result_identity: String,
+    pub mechanism_validity: IterationAnalysisFindingProposalV1,
+    pub economic_viability: IterationAnalysisFindingProposalV1,
+    pub robustness: IterationAnalysisFindingProposalV1,
+    pub information_value: IterationAnalysisFindingProposalV1,
+    pub candidate_evaluations: IterationAnalysisCandidateEvaluationSetProposalV1,
+}
+
+impl IterationAnalysisCompletionOperationRequestV1 {
+    pub fn validate(&self) -> Result<(), IterationAnalysisRequestErrorV1> {
+        validate_completion_operation_request(self)
+    }
+
+    pub fn with_admission(
+        self,
+        admission: ProductEdgeAdmissionLocatorV1,
+    ) -> Result<IterationAnalysisCompletionProposalV1, IterationAnalysisRequestErrorV1> {
+        self.validate()?;
+
+        if admission.request_identity != self.analysis_request_identity
+            || !is_valid_iteration_decision_locator_v1(&admission.admission_identity)
+            || !is_sha256_digest(&admission.admission_digest)
+        {
+            return Err(IterationAnalysisRequestErrorV1::InvalidLocator);
+        }
+        Ok(IterationAnalysisCompletionProposalV1 {
+            analysis_request_identity: self.analysis_request_identity,
+            analysis_request_digest: self.analysis_request_digest,
+            result_identity: self.result_identity,
+            mechanism_validity: self.mechanism_validity,
+            economic_viability: self.economic_viability,
+            robustness: self.robustness,
+            information_value: self.information_value,
+            candidate_evaluations: self.candidate_evaluations,
+            admission,
+        })
+    }
+}
+
+/// Product Edge-admitted completion proposal passed to the R&D Owner. The caller supplies only the
+/// analytical evaluation; Product Edge supplies the locator and the Owner alone derives the Decision
+/// and next action.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct IterationAnalysisCompletionProposalV1 {
@@ -218,6 +271,23 @@ pub struct IterationAnalysisCompletionProposalV1 {
     pub robustness: IterationAnalysisFindingProposalV1,
     pub information_value: IterationAnalysisFindingProposalV1,
     pub candidate_evaluations: IterationAnalysisCandidateEvaluationSetProposalV1,
+    pub admission: ProductEdgeAdmissionLocatorV1,
+}
+
+impl IterationAnalysisCompletionProposalV1 {
+    #[must_use]
+    pub fn operation_request(&self) -> IterationAnalysisCompletionOperationRequestV1 {
+        IterationAnalysisCompletionOperationRequestV1 {
+            analysis_request_identity: self.analysis_request_identity.clone(),
+            analysis_request_digest: self.analysis_request_digest.clone(),
+            result_identity: self.result_identity.clone(),
+            mechanism_validity: self.mechanism_validity.clone(),
+            economic_viability: self.economic_viability.clone(),
+            robustness: self.robustness.clone(),
+            information_value: self.information_value.clone(),
+            candidate_evaluations: self.candidate_evaluations.clone(),
+        }
+    }
 }
 
 /// Read-only response-loss recovery locator. It cannot create first custody.
@@ -492,7 +562,7 @@ pub(crate) fn canonical_digest(
     value: &impl Serialize,
 ) -> Result<String, IterationAnalysisRequestErrorV1> {
     let bytes = serde_json::to_vec(value)
-        .map_err(|error| IterationAnalysisRequestErrorV1::Storage(error.to_string()))?;
+        .map_err(|e| IterationAnalysisRequestErrorV1::Storage(e.to_string()))?;
     let mut hasher = Sha256::new();
     hasher.update(domain.as_bytes());
     hasher.update([0]);
@@ -524,6 +594,50 @@ pub(crate) fn validate_locator(
 pub(crate) fn validate_completion_proposal(
     proposal: &IterationAnalysisCompletionProposalV1,
 ) -> Result<(), IterationAnalysisRequestErrorV1> {
+    validate_completion_operation_request(&proposal.operation_request())?;
+
+    if proposal.admission.request_identity != proposal.analysis_request_identity
+        || !is_valid_iteration_decision_locator_v1(&proposal.admission.admission_identity)
+        || !is_sha256_digest(&proposal.admission.admission_digest)
+    {
+        return Err(IterationAnalysisRequestErrorV1::InvalidLocator);
+    }
+    Ok(())
+}
+
+pub(crate) fn verify_iteration_analysis_completion_admission_v1(
+    admission: &ProductEdgeAdmissionReadbackV1,
+    proposal: &IterationAnalysisCompletionProposalV1,
+) -> Result<(), IterationAnalysisRequestErrorV1> {
+    let admitted = admission.request();
+    let typed_payload = serde_json::to_value(proposal.operation_request())
+        .map_err(|e| IterationAnalysisRequestErrorV1::Storage(e.to_string()))?;
+
+    if admission.locator() != &proposal.admission
+        || admitted.request_identity != proposal.analysis_request_identity
+        || admitted.operation != ITERATION_ANALYSIS_COMPLETION_OPERATION_V1
+        || admitted.operation_schema != ITERATION_ANALYSIS_COMPLETION_SCHEMA_V1
+        || admitted.target_owner != crate::product_edge::RESEARCH_OWNER_V1
+        || admitted.typed_payload != typed_payload
+        || !matches!(
+            admitted.requested_effects.as_slice(),
+            [effect] if effect == ITERATION_ANALYSIS_COMPLETION_MUTATION_EFFECT_V1
+        )
+        || !admission
+            .authorized_scope()
+            .iter()
+            .any(|scope| scope == crate::product_edge::RESEARCH_SCOPE_V1)
+    {
+        return Err(IterationAnalysisRequestErrorV1::Unavailable(
+            "canonical Product Edge iteration-analysis admission mismatch".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_completion_operation_request(
+    proposal: &IterationAnalysisCompletionOperationRequestV1,
+) -> Result<(), IterationAnalysisRequestErrorV1> {
     let valid_finding = |finding: &IterationAnalysisFindingProposalV1| {
         !finding.evidence.is_empty()
             && finding.evidence.len() <= 4_096
@@ -532,6 +646,7 @@ pub(crate) fn validate_completion_proposal(
                     && is_sha256_digest(&evidence.digest)
             })
     };
+
     if !is_valid_iteration_decision_locator_v1(&proposal.analysis_request_identity)
         || !is_sha256_digest(&proposal.analysis_request_digest)
         || !is_valid_iteration_decision_locator_v1(&proposal.result_identity)
@@ -564,6 +679,7 @@ pub(crate) fn bind_candidate_experiments_to_owner_frontier_v1(
     {
         return Err(IterationAnalysisRequestErrorV1::Conflict);
     }
+
     if frontier.candidates.iter().any(|candidate| {
         candidate.attempt_ordinal != frontier.attempt_ordinal
             || candidate.candidate_set_frontier_identity != frontier.frontier_identity
@@ -589,6 +705,7 @@ pub(crate) fn bind_candidate_experiments_to_owner_frontier_v1(
         })
         .collect::<std::collections::BTreeSet<_>>();
     let mut admitted_members = std::collections::BTreeSet::new();
+
     for candidate in &evaluations.candidates {
         if !owner_members.contains(&(
             candidate.candidate_identity.as_str(),
@@ -600,6 +717,7 @@ pub(crate) fn bind_candidate_experiments_to_owner_frontier_v1(
             return Err(IterationAnalysisRequestErrorV1::Conflict);
         }
     }
+
     if admitted_members != owner_members {
         return Err(IterationAnalysisRequestErrorV1::Conflict);
     }
@@ -646,6 +764,7 @@ pub(crate) fn ensure_same_completion_proposal_v1(
     Ok(())
 }
 
+#[derive(Clone, Copy)]
 struct BacktestProjectionAuthorityV1<'a> {
     locator: &'a IterationAnalysisRequestLocatorV1,
     pit_scope: &'a ContentIdentityV2,
@@ -702,6 +821,7 @@ fn validate_input(
                 )
                 .map_or(true, |digest| digest != candidate.candidate_digest)
         });
+
     if input.required_dimensions != canonical_dimensions
         || candidate_projection_invalid
         || input.evidence_cut.trial_family_identity != locator.trial_family_identity
@@ -912,6 +1032,8 @@ impl IterationAnalysisCompletionReadbackV1 {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
 
     fn content(identity: &str, marker: char) -> ContentIdentityV2 {
@@ -998,10 +1120,15 @@ mod tests {
                 },
                 candidates: Vec::new(),
             },
+            admission: ProductEdgeAdmissionLocatorV1 {
+                request_identity: "analysis-request-1".to_string(),
+                admission_identity: "analysis-admission-1".to_string(),
+                admission_digest: format!("sha256:{}", "b".repeat(64)),
+            },
         }
     }
 
-    #[test]
+    #[rstest]
     fn locator_rejects_derived_or_missing_authority() {
         let locator = IterationAnalysisRequestLocatorV1 {
             trial_family_identity: "family-1".to_string(),
@@ -1015,7 +1142,7 @@ mod tests {
         ));
     }
 
-    #[test]
+    #[rstest]
     fn backtest_projection_rejects_locator_pit_window_and_digest_splices() {
         let locator = IterationAnalysisRequestLocatorV1 {
             trial_family_identity: "family-1".to_string(),
@@ -1085,10 +1212,26 @@ mod tests {
         ));
     }
 
-    #[test]
+    #[rstest]
     fn completion_requires_all_four_evidence_sets_and_rejects_outcome_injection() {
         let proposal = completion_proposal();
         validate_completion_proposal(&proposal).expect("complete analytical proposal");
+
+        let operation = proposal.operation_request();
+        operation.validate().expect("caller evaluation");
+        let mut injected_admission =
+            serde_json::to_value(&operation).expect("operation request JSON");
+        injected_admission["admission"] = serde_json::json!({
+            "request_identity": "analysis-request-1",
+            "admission_identity": "caller-admission",
+            "admission_digest": format!("sha256:{}", "c".repeat(64)),
+        });
+        assert!(
+            serde_json::from_value::<IterationAnalysisCompletionOperationRequestV1>(
+                injected_admission
+            )
+            .is_err()
+        );
 
         let mut incomplete = proposal.clone();
         incomplete.robustness.evidence.clear();
@@ -1100,9 +1243,21 @@ mod tests {
         let mut injected = serde_json::to_value(proposal).expect("proposal JSON");
         injected["outcome"] = serde_json::json!({"next_action": "CREATE_SUCCESSOR_INTENT"});
         assert!(serde_json::from_value::<IterationAnalysisCompletionProposalV1>(injected).is_err());
+
+        let mismatched = operation
+            .with_admission(ProductEdgeAdmissionLocatorV1 {
+                request_identity: "other-request".to_string(),
+                admission_identity: "analysis-admission-1".to_string(),
+                admission_digest: format!("sha256:{}", "d".repeat(64)),
+            })
+            .expect_err("admission must bind the exact operation request");
+        assert!(matches!(
+            mismatched,
+            IterationAnalysisRequestErrorV1::InvalidLocator
+        ));
     }
 
-    #[test]
+    #[rstest]
     fn candidate_experiment_must_match_owner_custodied_digest() {
         let candidate_identity = "candidate-1".to_string();
         let experiment = crate::IterationExperimentModeV1::SingleDimension {
@@ -1186,7 +1341,7 @@ mod tests {
         ));
     }
 
-    #[test]
+    #[rstest]
     fn identical_completion_retry_requires_the_exact_frozen_proposal() {
         let proposal = completion_proposal();
         let stored = issue_iteration_analysis_result_v1(

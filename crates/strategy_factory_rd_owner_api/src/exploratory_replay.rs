@@ -1482,6 +1482,7 @@ mod tests {
             let mut request = axum::http::Request::builder()
                 .method(axum::http::Method::GET)
                 .uri(uri);
+
             if let Some(authorization) = authorization {
                 request = request.header(axum::http::header::AUTHORIZATION, authorization);
             }

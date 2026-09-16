@@ -51,6 +51,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-product-edge|vibe_product_edge|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation'
   'vibe-data|instrument_economic_terms_postgres_v1|atomic_exact_replay_restart_tamper_and_acl_fail_closed'
   'vibe-strategy-factory|vibe_strategy_factory|program_host_bar_joined_cut_postgres_acceptance_tests::owner_postgres_v4_moves_through_program_host_and_real_backtest'
+  'vibe-strategy-factory|vibe_strategy_factory|iteration_decision_postgres::postgres_acceptance_tests::iteration_analysis_postgres_acceptance_tests::analysis_request_completion_resolve_restart_and_tamper_are_atomic'
   'vibe-strategy-factory|vibe_strategy_factory|iteration_decision_postgres::postgres_acceptance_tests::positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic'
   'vibe-qualification|vibe_qualification|postgres::postgres_tests::protected_replay_request_is_atomic_retry_exact_and_backtest_sealed'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_protected_result_is_atomic_request_bound_and_qualification_sealed'
@@ -82,8 +83,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 40 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all forty ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 41 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all forty-one ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -112,13 +113,14 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[30]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]] ||
     [[ "${rd_owner_postgres_tests[31]}" != *'|atomic_exact_replay_restart_tamper_and_acl_fail_closed' ]] ||
     [[ "${rd_owner_postgres_tests[32]}" != *'|program_host_bar_joined_cut_postgres_acceptance_tests::owner_postgres_v4_moves_through_program_host_and_real_backtest' ]] ||
-    [[ "${rd_owner_postgres_tests[33]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic' ]] ||
-    [[ "${rd_owner_postgres_tests[34]}" != *'|postgres::postgres_tests::protected_replay_request_is_atomic_retry_exact_and_backtest_sealed' ]] ||
-    [[ "${rd_owner_postgres_tests[35]}" != *'|tests::postgres_protected_result_is_atomic_request_bound_and_qualification_sealed' ]] ||
-    [[ "${rd_owner_postgres_tests[36]}" != *'|postgres::postgres_tests::negative_protected_attempt_closure_is_atomic_retry_exact_and_eligibility_absent' ]] ||
-    [[ "${rd_owner_postgres_tests[37]}" != *'|postgres::postgres_tests::diagnostic_protected_attempt_closure_is_atomic_and_creates_no_assessment_or_eligibility' ]] ||
-    [[ "${rd_owner_postgres_tests[38]}" != *'|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed' ]] ||
-    [[ "${rd_owner_postgres_tests[39]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[33]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::iteration_analysis_postgres_acceptance_tests::analysis_request_completion_resolve_restart_and_tamper_are_atomic' ]] ||
+    [[ "${rd_owner_postgres_tests[34]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic' ]] ||
+    [[ "${rd_owner_postgres_tests[35]}" != *'|postgres::postgres_tests::protected_replay_request_is_atomic_retry_exact_and_backtest_sealed' ]] ||
+    [[ "${rd_owner_postgres_tests[36]}" != *'|tests::postgres_protected_result_is_atomic_request_bound_and_qualification_sealed' ]] ||
+    [[ "${rd_owner_postgres_tests[37]}" != *'|postgres::postgres_tests::negative_protected_attempt_closure_is_atomic_retry_exact_and_eligibility_absent' ]] ||
+    [[ "${rd_owner_postgres_tests[38]}" != *'|postgres::postgres_tests::diagnostic_protected_attempt_closure_is_atomic_and_creates_no_assessment_or_eligibility' ]] ||
+    [[ "${rd_owner_postgres_tests[39]}" != *'|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed' ]] ||
+    [[ "${rd_owner_postgres_tests[40]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -221,8 +223,8 @@ for line in array_body.splitlines():
     if len(fields) != 3 or any(not field for field in fields):
         raise SystemExit("ERROR: ordered PostgreSQL test literal must contain three fields.")
     entries.append(tuple(fields))
-if len(entries) != 40:
-    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain forty entries.")
+if len(entries) != 41:
+    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain forty-one entries.")
 if sum(test_name == poison_test for _, _, test_name in entries) != 1:
     raise SystemExit(
         "ERROR: recovery-sidecar poison test must occur exactly once as a parsed test name."
@@ -315,7 +317,7 @@ if invocation != expected_invocation:
     )
 PY
   if ! rg -Uq \
-    "strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody'.*\n[[:space:]]+\[\[.*successor_artifact_enters_exploratory_replay_with_exact_owner_custody'.*\n[[:space:]]+\[\[.*positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic'.*\n[[:space:]]+RUST_MIN_STACK=16777216.*\n[[:space:]]+cargo nextest run" \
+    "strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody'.*\n[[:space:]]+\[\[.*successor_artifact_enters_exploratory_replay_with_exact_owner_custody'.*\n[[:space:]]+\[\[.*analysis_request_completion_resolve_restart_and_tamper_are_atomic'.*\n[[:space:]]+\[\[.*positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic'.*\n[[:space:]]+RUST_MIN_STACK=16777216.*\n[[:space:]]+cargo nextest run" \
     "${BASH_SOURCE[0]}"; then
     echo "ERROR: large composed acceptances must use their admitted test-thread stack." >&2
     return 1
@@ -1485,8 +1487,7 @@ existing_cutover_candidate_experiment_fingerprint_after="$(
   existing_cutover_replay_fingerprint
 )"
 readonly existing_cutover_candidate_experiment_fingerprint_after
-if [[ "$existing_cutover_candidate_experiment_fingerprint_after" != \
-  "$existing_cutover_candidate_experiment_fingerprint_before" ]]; then
+if [[ "$existing_cutover_candidate_experiment_fingerprint_after" != "$existing_cutover_candidate_experiment_fingerprint_before" ]]; then
   echo "ERROR: Candidate experiment cutover upgrade changed existing R&D OID or canonical row bytes." >&2
   exit 1
 fi
@@ -2886,6 +2887,7 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       -E "$test_filter"
   elif [[ "$test_name" == 'tests::strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody' ]] ||
     [[ "$test_name" == 'iteration_decision_postgres::postgres_acceptance_tests::successor_artifact_enters_exploratory_replay_with_exact_owner_custody' ]] ||
+    [[ "$test_name" == 'iteration_decision_postgres::postgres_acceptance_tests::iteration_analysis_postgres_acceptance_tests::analysis_request_completion_resolve_restart_and_tamper_are_atomic' ]] ||
     [[ "$test_name" == 'iteration_decision_postgres::postgres_acceptance_tests::positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic' ]]; then
     RUST_MIN_STACK=16777216 \
       cargo nextest run \

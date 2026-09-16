@@ -573,7 +573,12 @@ async fn main() -> anyhow::Result<()> {
             owner.clone(),
             token_digest,
         ))
-        .merge(iteration_analysis::router(owner.clone(), token_digest))
+        .merge(iteration_analysis::router(
+            product_edge.clone(),
+            owner.clone(),
+            token_digest,
+            request_proof_digest.clone(),
+        ))
         .merge(iteration_decision::router(
             product_edge.clone(),
             owner.clone(),

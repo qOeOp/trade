@@ -1,11 +1,3 @@
-#![cfg_attr(
-    test,
-    expect(
-        clippy::large_futures,
-        reason = "transactional TrialFamily tests retain complete typed append readbacks across awaited checks"
-    )
-)]
-
 use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
@@ -33,6 +25,25 @@ const ARTIFACT_BOUND_EVENT: &str = "ARTIFACT_TRIAL_FAMILY_BOUND_V1";
 const CENSUS_ADVANCED_EVENT: &str = "TRIAL_FAMILY_CENSUS_ADVANCED_V2";
 const OUTBOX_PAYLOAD_STORAGE_DOMAIN_V1: &str = "rd.trial-family-outbox-payload.storage.v1";
 const OUTBOX_ENVELOPE_STORAGE_DOMAIN_V1: &str = "rd.trial-family-outbox-envelope.storage.v1";
+
+#[derive(Clone, Copy)]
+pub(crate) enum PostgresReadLockMode {
+    ForShare,
+    Snapshot,
+}
+
+impl PostgresReadLockMode {
+    pub(crate) fn query(
+        self,
+        statement: &'static str,
+        for_share: &'static str,
+    ) -> sqlx::AssertSqlSafe<String> {
+        sqlx::AssertSqlSafe(match self {
+            Self::ForShare => format!("{statement}{for_share}"),
+            Self::Snapshot => statement.to_string(),
+        })
+    }
+}
 
 macro_rules! table {
     ($name:literal, $runtime_read_grantees:expr, [$(($column:literal, $data_type:literal)),* $(,)?], [$($constraint:literal),* $(,)?], [$($kind:ident $keys:literal),* $(,)?]) => {
@@ -606,7 +617,13 @@ pub(crate) async fn load_trial_family_in_transaction(
     )?;
     verify_row_bindings(&readback, root_row, member_row, head_row)?;
     verify_family(&readback)?;
-    verify_family_outbox_in_transaction(transaction, &readback, research_receipt_identity).await?;
+    verify_family_outbox_in_transaction(
+        transaction,
+        &readback,
+        research_receipt_identity,
+        PostgresReadLockMode::ForShare,
+    )
+    .await?;
     Ok(readback)
 }
 
@@ -729,6 +746,7 @@ pub(crate) async fn append_trial_family_attempt_in_transaction(
         &candidate_experiment_proposals,
         now_epoch_ms,
     )?;
+
     for readback in &experiment_readbacks {
         let (experiment_json, experiment_bytes, experiment_storage_digest) = source_encode(
             "rd.trial-family-candidate-experiment.storage.v1",
@@ -799,6 +817,7 @@ pub(crate) async fn append_trial_family_attempt_in_transaction(
     .await?;
     let stored_experiments =
         load_candidate_experiments_for_census_in_transaction(transaction, &stored).await?;
+
     if stored_experiments.len() != experiment_readbacks.len()
         || stored_experiments
             .iter()
@@ -817,10 +836,42 @@ pub(crate) async fn load_candidate_experiments_for_census_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     census: &TrialFamilyCensusReadbackV2,
 ) -> Result<Vec<TrialFamilyCandidateExperimentReadbackV1>, TrialFamilyError> {
+    load_candidate_experiments_for_census_with_lock_mode_in_transaction(
+        transaction,
+        census,
+        PostgresReadLockMode::ForShare,
+    )
+    .await
+}
+
+pub(crate) async fn load_candidate_experiments_for_census_snapshot_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    census: &TrialFamilyCensusReadbackV2,
+) -> Result<Vec<TrialFamilyCandidateExperimentReadbackV1>, TrialFamilyError> {
+    load_candidate_experiments_for_census_with_lock_mode_in_transaction(
+        transaction,
+        census,
+        PostgresReadLockMode::Snapshot,
+    )
+    .await
+}
+
+async fn load_candidate_experiments_for_census_with_lock_mode_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    census: &TrialFamilyCensusReadbackV2,
+    lock_mode: PostgresReadLockMode,
+) -> Result<Vec<TrialFamilyCandidateExperimentReadbackV1>, TrialFamilyError> {
     verify_census_v2(census)?;
-    let rows = sqlx::query("SELECT e.experiment_identity,e.trial_family_identity,e.attempt_ordinal,e.candidate_set_frontier_identity,e.candidate_identity,e.candidate_digest,e.experiment_json,e.receipt_json,e.experiment_storage_bytes,e.experiment_storage_digest,e.receipt_storage_bytes,e.receipt_storage_digest,e.committed_at_epoch_ms,c.committed_at_epoch_ms AS cut_committed_at_epoch_ms FROM rd_trial_family_candidate_experiments_v1 e JOIN rd_trial_family_attempt_cuts_v2 c ON c.candidate_set_frontier_identity=e.candidate_set_frontier_identity WHERE e.candidate_set_frontier_identity=$1 ORDER BY e.candidate_identity FOR SHARE OF e,c")
+    let query = lock_mode.query(
+        "SELECT e.experiment_identity,e.trial_family_identity,e.attempt_ordinal,e.candidate_set_frontier_identity,e.candidate_identity,e.candidate_digest,e.experiment_json,e.receipt_json,e.experiment_storage_bytes,e.experiment_storage_digest,e.receipt_storage_bytes,e.receipt_storage_digest,e.committed_at_epoch_ms,c.committed_at_epoch_ms AS cut_committed_at_epoch_ms FROM rd_trial_family_candidate_experiments_v1 e JOIN rd_trial_family_attempt_cuts_v2 c ON c.candidate_set_frontier_identity=e.candidate_set_frontier_identity WHERE e.candidate_set_frontier_identity=$1 ORDER BY e.candidate_identity",
+        " FOR SHARE OF e,c",
+    );
+    let rows = sqlx::query(query)
         .bind(census.candidate_set_frontier.frontier_identity())
-        .fetch_all(&mut **transaction).await.map_err(storage)?;
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
+
     if rows.len() != census.candidate_set_frontier.candidates().len() {
         return Err(TrialFamilyError::Unavailable(
             "candidate experiment custody is incomplete".to_string(),
@@ -850,6 +901,7 @@ pub(crate) async fn load_candidate_experiments_for_census_in_transaction(
             readback.receipt(),
             "rd.trial-family-candidate-experiment-receipt.storage.v1",
         )?;
+
         if row
             .try_get::<serde_json::Value, _>("experiment_json")
             .map_err(storage)?
@@ -863,6 +915,7 @@ pub(crate) async fn load_candidate_experiments_for_census_in_transaction(
                 "candidate experiment JSON mismatch".to_string(),
             ));
         }
+
         if row
             .try_get::<String, _>("experiment_identity")
             .map_err(storage)?
@@ -918,6 +971,7 @@ pub(crate) async fn load_candidate_experiments_for_census_in_transaction(
             )
         })
         .collect::<std::collections::BTreeSet<_>>();
+
     if actual != expected {
         return Err(TrialFamilyError::Unavailable(
             "candidate experiment frontier mismatch".to_string(),
@@ -931,7 +985,26 @@ pub(crate) async fn load_trial_family_census_v2_in_transaction(
     intent_identity: &str,
     research_receipt_identity: &str,
 ) -> Result<TrialFamilyCensusReadbackV2, TrialFamilyError> {
-    let roots = sqlx::query("SELECT trial_family_identity, intent_identity, root_digest, root_json, root_receipt_json, root_storage_bytes, root_storage_digest, root_receipt_storage_bytes, root_receipt_storage_digest, initial_frontier_storage_bytes, initial_frontier_storage_digest, committed_at_epoch_ms FROM rd_trial_families_v1 WHERE intent_identity = $1 FOR SHARE")
+    load_trial_family_census_v2_with_lock_mode_in_transaction(
+        transaction,
+        intent_identity,
+        research_receipt_identity,
+        PostgresReadLockMode::ForShare,
+    )
+    .await
+}
+
+async fn load_trial_family_census_v2_with_lock_mode_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    intent_identity: &str,
+    research_receipt_identity: &str,
+    lock_mode: PostgresReadLockMode,
+) -> Result<TrialFamilyCensusReadbackV2, TrialFamilyError> {
+    let roots_query = lock_mode.query(
+        "SELECT trial_family_identity, intent_identity, root_digest, root_json, root_receipt_json, root_storage_bytes, root_storage_digest, root_receipt_storage_bytes, root_receipt_storage_digest, initial_frontier_storage_bytes, initial_frontier_storage_digest, committed_at_epoch_ms FROM rd_trial_families_v1 WHERE intent_identity = $1",
+        " FOR SHARE",
+    );
+    let roots = sqlx::query(roots_query)
         .bind(intent_identity)
         .fetch_all(&mut **transaction)
         .await
@@ -943,17 +1016,29 @@ pub(crate) async fn load_trial_family_census_v2_in_transaction(
         ));
     }
     let family_identity: String = roots[0].try_get("trial_family_identity").map_err(storage)?;
-    let member_rows = sqlx::query("SELECT member_identity, trial_family_identity, ordinal, fact_identity, member_digest, member_json, membership_receipt_json, member_storage_bytes, member_storage_digest, membership_receipt_storage_bytes, membership_receipt_storage_digest, committed_at_epoch_ms FROM rd_trial_family_members_v1 WHERE trial_family_identity = $1 ORDER BY ordinal FOR SHARE")
+    let members_query = lock_mode.query(
+        "SELECT member_identity, trial_family_identity, ordinal, fact_identity, member_digest, member_json, membership_receipt_json, member_storage_bytes, member_storage_digest, membership_receipt_storage_bytes, membership_receipt_storage_digest, committed_at_epoch_ms FROM rd_trial_family_members_v1 WHERE trial_family_identity = $1 ORDER BY ordinal",
+        " FOR SHARE",
+    );
+    let member_rows = sqlx::query(members_query)
         .bind(&family_identity)
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
-    let cut_rows = sqlx::query("SELECT census_frontier_identity, trial_family_identity, attempt_ordinal, attempt_frontier_identity, candidate_set_frontier_identity, census_frontier_json, attempt_frontier_json, candidate_set_frontier_json, census_frontier_storage_bytes, census_frontier_storage_digest, attempt_frontier_storage_bytes, attempt_frontier_storage_digest, candidate_set_frontier_storage_bytes, candidate_set_frontier_storage_digest, committed_at_epoch_ms FROM rd_trial_family_attempt_cuts_v2 WHERE trial_family_identity = $1 ORDER BY attempt_ordinal FOR SHARE")
+    let cuts_query = lock_mode.query(
+        "SELECT census_frontier_identity, trial_family_identity, attempt_ordinal, attempt_frontier_identity, candidate_set_frontier_identity, census_frontier_json, attempt_frontier_json, candidate_set_frontier_json, census_frontier_storage_bytes, census_frontier_storage_digest, attempt_frontier_storage_bytes, attempt_frontier_storage_digest, candidate_set_frontier_storage_bytes, candidate_set_frontier_storage_digest, committed_at_epoch_ms FROM rd_trial_family_attempt_cuts_v2 WHERE trial_family_identity = $1 ORDER BY attempt_ordinal",
+        " FOR SHARE",
+    );
+    let cut_rows = sqlx::query(cuts_query)
         .bind(&family_identity)
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
-    let head_rows = sqlx::query("SELECT frontier_identity, frontier_digest, frontier_json, frontier_storage_bytes, frontier_storage_digest, committed_at_epoch_ms FROM rd_trial_family_heads_v1 WHERE trial_family_identity = $1 FOR SHARE")
+    let heads_query = lock_mode.query(
+        "SELECT frontier_identity, frontier_digest, frontier_json, frontier_storage_bytes, frontier_storage_digest, committed_at_epoch_ms FROM rd_trial_family_heads_v1 WHERE trial_family_identity = $1",
+        " FOR SHARE",
+    );
+    let head_rows = sqlx::query(heads_query)
         .bind(&family_identity)
         .fetch_all(&mut **transaction)
         .await
@@ -977,8 +1062,13 @@ pub(crate) async fn load_trial_family_census_v2_in_transaction(
         &initial_receipt_json,
     )?;
     verify_legacy_root_and_initial_member_row_bindings(&legacy_family, &roots[0], &member_rows[0])?;
-    verify_family_outbox_in_transaction(transaction, &legacy_family, research_receipt_identity)
-        .await?;
+    verify_family_outbox_in_transaction(
+        transaction,
+        &legacy_family,
+        research_receipt_identity,
+        lock_mode,
+    )
+    .await?;
     let (initial_member, initial_receipt) = legacy_initial_member_for_census_v2(&legacy_family);
     let mut members = vec![initial_member];
     let mut receipts = vec![initial_receipt];
@@ -1109,6 +1199,7 @@ pub(crate) async fn load_trial_family_census_v2_in_transaction(
             &cut,
             research_receipt_identity,
             cut_committed_at,
+            lock_mode,
         )
         .await?;
         latest = Some(cut);
@@ -1157,25 +1248,55 @@ pub(crate) async fn load_trial_family_census_v2_by_family_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     trial_family_identity: &str,
 ) -> Result<TrialFamilyCensusReadbackV2, TrialFamilyError> {
-    let family_rows = sqlx::query(
-        "SELECT intent_identity FROM rd_trial_families_v1 WHERE trial_family_identity = $1 FOR SHARE",
+    load_trial_family_census_v2_by_family_with_lock_mode_in_transaction(
+        transaction,
+        trial_family_identity,
+        PostgresReadLockMode::ForShare,
     )
-    .bind(trial_family_identity)
-    .fetch_all(&mut **transaction)
     .await
-    .map_err(storage)?;
-    let outbox_rows = sqlx::query(
-        "SELECT aggregate_identity,event_kind,payload_json FROM rd_owner_outbox_v1 WHERE aggregate_identity = $1 AND event_kind = $2 FOR SHARE",
+}
+
+pub(crate) async fn load_trial_family_census_v2_by_family_snapshot_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    trial_family_identity: &str,
+) -> Result<TrialFamilyCensusReadbackV2, TrialFamilyError> {
+    load_trial_family_census_v2_by_family_with_lock_mode_in_transaction(
+        transaction,
+        trial_family_identity,
+        PostgresReadLockMode::Snapshot,
     )
-    .bind(trial_family_identity)
-    .bind(FAMILY_FROZEN_EVENT)
-    .fetch_all(&mut **transaction)
     .await
-    .map_err(storage)?;
+}
+
+async fn load_trial_family_census_v2_by_family_with_lock_mode_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    trial_family_identity: &str,
+    lock_mode: PostgresReadLockMode,
+) -> Result<TrialFamilyCensusReadbackV2, TrialFamilyError> {
+    let family_query = lock_mode.query(
+        "SELECT intent_identity FROM rd_trial_families_v1 WHERE trial_family_identity = $1",
+        " FOR SHARE",
+    );
+    let family_rows = sqlx::query(family_query)
+        .bind(trial_family_identity)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    let outbox_query = lock_mode.query(
+        "SELECT aggregate_identity,event_kind,payload_json FROM rd_owner_outbox_v1 WHERE aggregate_identity = $1 AND event_kind = $2",
+        " FOR SHARE",
+    );
+    let outbox_rows = sqlx::query(outbox_query)
+        .bind(trial_family_identity)
+        .bind(FAMILY_FROZEN_EVENT)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
 
     if family_rows.is_empty() && outbox_rows.is_empty() {
         return Err(TrialFamilyError::NotFound);
     }
+
     if family_rows.len() != 1 || outbox_rows.len() != 1 {
         return Err(TrialFamilyError::InvalidStoredEvidence(
             "TrialFamily locator custody is incomplete",
@@ -1199,10 +1320,11 @@ pub(crate) async fn load_trial_family_census_v2_by_family_in_transaction(
             "TrialFamily locator/outbox cross-binding mismatch",
         ));
     }
-    let census = load_trial_family_census_v2_in_transaction(
+    let census = load_trial_family_census_v2_with_lock_mode_in_transaction(
         transaction,
         &intent_identity,
         &payload.research_receipt_identity,
+        lock_mode,
     )
     .await?;
 
@@ -1329,8 +1451,13 @@ async fn verify_family_outbox_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     family: &TrialFamilyReadbackV1,
     research_receipt_identity: &str,
+    lock_mode: PostgresReadLockMode,
 ) -> Result<(), TrialFamilyError> {
-    let rows = sqlx::query("SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json, canonical_payload_bytes, canonical_payload_storage_digest, canonical_envelope_bytes, canonical_envelope_storage_digest, committed_at_epoch_ms FROM rd_owner_outbox_v1 WHERE aggregate_identity = $1 AND event_kind = $2 FOR SHARE")
+    let query = lock_mode.query(
+        "SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json, canonical_payload_bytes, canonical_payload_storage_digest, canonical_envelope_bytes, canonical_envelope_storage_digest, committed_at_epoch_ms FROM rd_owner_outbox_v1 WHERE aggregate_identity = $1 AND event_kind = $2",
+        " FOR SHARE",
+    );
+    let rows = sqlx::query(query)
         .bind(family.root.trial_family_identity())
         .bind(FAMILY_FROZEN_EVENT)
         .fetch_all(&mut **transaction)
@@ -1389,8 +1516,13 @@ async fn verify_census_outbox_in_transaction(
     readback: &TrialFamilyCensusReadbackV2,
     research_receipt_identity: &str,
     expected_committed_at_epoch_ms: i64,
+    lock_mode: PostgresReadLockMode,
 ) -> Result<(), TrialFamilyError> {
-    let rows = sqlx::query("SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json, canonical_payload_bytes, canonical_payload_storage_digest, canonical_envelope_bytes, canonical_envelope_storage_digest, committed_at_epoch_ms FROM rd_owner_outbox_v1 WHERE event_identity = $1 FOR SHARE")
+    let query = lock_mode.query(
+        "SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json, canonical_payload_bytes, canonical_payload_storage_digest, canonical_envelope_bytes, canonical_envelope_storage_digest, committed_at_epoch_ms FROM rd_owner_outbox_v1 WHERE event_identity = $1",
+        " FOR SHARE",
+    );
+    let rows = sqlx::query(query)
         .bind(census_event_identity(readback))
         .fetch_all(&mut **transaction)
         .await

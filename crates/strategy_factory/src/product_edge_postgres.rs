@@ -1896,17 +1896,16 @@ impl PostgresResearchGoalOwnerV1 {
         locator: ResearchExploratoryDiagnosisLocatorV1,
     ) -> Result<ResearchExploratoryDiagnosisGateProjectionV1, ResearchExploratoryDiagnosisGateErrorV1>
     {
-        let mut transaction =
-            self.pool.begin().await.map_err(|error| {
-                ResearchExploratoryDiagnosisGateErrorV1::Storage(error.to_string())
-            })?;
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| ResearchExploratoryDiagnosisGateErrorV1::Storage(e.to_string()))?;
         let result = async {
             sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
                 .execute(&mut *transaction)
                 .await
-                .map_err(|error| {
-                    ResearchExploratoryDiagnosisGateErrorV1::Storage(error.to_string())
-                })?;
+                .map_err(|e| ResearchExploratoryDiagnosisGateErrorV1::Storage(e.to_string()))?;
             let census = load_trial_family_census_v2_by_family_in_transaction(
                 &mut transaction,
                 &locator.trial_family_identity,
@@ -1922,7 +1921,7 @@ impl PostgresResearchGoalOwnerV1 {
                 },
             )
             .await
-            .map_err(|error| match error {
+            .map_err(|e| match e {
                 crate::BacktestResultCustodyErrorV2::Unavailable => {
                     ResearchExploratoryDiagnosisGateErrorV1::Unavailable
                 }
@@ -1935,7 +1934,7 @@ impl PostgresResearchGoalOwnerV1 {
                 &census,
                 &locked_result,
             )
-            .map_err(|error| match error {
+            .map_err(|e| match e {
                 crate::iteration_decision::IterationDecisionErrorV1::Census(error) => {
                     diagnosis_gate_trial_family_error(error)
                 }
@@ -1947,7 +1946,7 @@ impl PostgresResearchGoalOwnerV1 {
         transaction
             .rollback()
             .await
-            .map_err(|error| ResearchExploratoryDiagnosisGateErrorV1::Storage(error.to_string()))?;
+            .map_err(|e| ResearchExploratoryDiagnosisGateErrorV1::Storage(e.to_string()))?;
         result
     }
 
@@ -3832,6 +3831,7 @@ mod tests {
             diagnosis_gate_trial_family_error(TrialFamilyError::Storage("database".into())),
             ResearchExploratoryDiagnosisGateErrorV1::Storage(message) if message == "database"
         ));
+
         for error in [
             TrialFamilyError::InvalidPolicy("policy"),
             TrialFamilyError::ConflictingIdentity,
