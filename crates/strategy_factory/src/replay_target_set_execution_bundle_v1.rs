@@ -21,6 +21,7 @@ use vibe_model::{
 use crate::{
     artifact_v2::StrategyArtifactV2,
     exploratory_replay::ExploratoryReplayRequestLocatorV2,
+    native_replay_execution_input_binding_v2::NativeReplayExecutionInputBindingReadbackV2,
     program_host_v2::admit_market_data_universe_program_event_v2,
     replay_economic_configuration_v1::{ReplayEconomicConfigurationV1, ReplayFixedDecimalV1},
     replay_execution_profile_binding_v1::{
@@ -365,6 +366,24 @@ impl ReplayTargetSetExecutionBundleV1 {
         self.census.native_materialization_digest()
     }
 
+    /// Binds this executable bundle to one Owner-sealed two-frame Native Replay sequence.
+    ///
+    /// Without this there is no binding point between the frame and the fills it produces: the
+    /// bundle's frame time is only checked against the request window's start bound, which is a
+    /// caller-chosen coordinate that any frame could be made to match. Requiring the sealed V2
+    /// binding is what makes the frame that produced the fills the frame Market Data sealed.
+    ///
+    /// # Errors
+    ///
+    /// Returns when the bundle's frame is not the sequence's first frame, or when its scheduling
+    /// data does not lie inside that frame and before the successor frame's first BAR.
+    pub fn verify_against_native_replay_sequence_v2(
+        &self,
+        v2: &NativeReplayExecutionInputBindingReadbackV2,
+    ) -> anyhow::Result<()> {
+        verify_scheduling_data_against_sealed_frames(&self.data, v2.binding().frame_orders())
+    }
+
     /// Consumes one Owner-issued dual-profile authority and admits an exact complete execution.
     ///
     /// # Errors
@@ -675,6 +694,51 @@ fn digest_census(census: &ReplayTargetSetExecutionCensusV1) -> anyhow::Result<[u
     Ok(hasher.finalize().into())
 }
 
+/// Checks executed scheduling data against the Owner's sealed two-frame order boundaries.
+///
+/// Separated from the bundle so the ordering rule can be exercised on its own: it is the rule,
+/// not the surrounding fixture, that decides whether a fill belongs to a sealed frame.
+fn verify_scheduling_data_against_sealed_frames(
+    data: &[Data],
+    frame_orders: [(u64, u64); 2],
+) -> anyhow::Result<()> {
+    let [(first_bar_order, last_liquidity_event_order), (successor_bar_order, _)] = frame_orders;
+    let bars: Vec<u64> = data
+        .iter()
+        .filter_map(|value| match value {
+            Data::Bar(bar) => Some(bar.ts_event.as_u64()),
+            _ => None,
+        })
+        .collect();
+    let events: Vec<u64> = data
+        .iter()
+        .filter_map(|value| match value {
+            Data::Quote(quote) => Some(quote.ts_event.as_u64()),
+            _ => None,
+        })
+        .collect();
+    anyhow::ensure!(
+        !bars.is_empty() && !events.is_empty(),
+        "executed bundle carries no BAR or no EVENT to bind to the sealed sequence"
+    );
+    anyhow::ensure!(
+        bars.iter().all(|order| *order == first_bar_order),
+        "executed bundle BAR frame is not the sealed sequence's first frame"
+    );
+    anyhow::ensure!(
+        events
+            .iter()
+            .all(|order| *order > first_bar_order && *order <= last_liquidity_event_order),
+        "executed bundle EVENT falls outside its sealed frame"
+    );
+    // "All first-frame liquidity EVENTs must precede the second frame's first BAR."
+    anyhow::ensure!(
+        last_liquidity_event_order < successor_bar_order,
+        "sealed first-frame liquidity does not precede the successor frame's first BAR"
+    );
+    Ok(())
+}
+
 fn validate_and_digest_scheduling_data(
     data: &[Data],
     instruments: &[InstrumentAny; TARGET_SET_MEMBER_COUNT],
@@ -854,6 +918,44 @@ mod tests {
             time.into(),
             time.into(),
         ))
+    }
+
+    /// The executed frame must be the sealed one, and its fills must stay inside it.
+    #[rstest::rstest]
+    fn executed_schedule_binds_only_to_its_own_sealed_frame() {
+        let (_, _, data) = scheduling_fixture();
+        let sealed = [(FRAME_TIME, FRAME_TIME + 2), (FRAME_TIME + 3, FRAME_TIME + 5)];
+        verify_scheduling_data_against_sealed_frames(&data, sealed).unwrap();
+
+        // A different sealed first frame does not accept these fills.
+        assert!(
+            verify_scheduling_data_against_sealed_frames(
+                &data,
+                [(FRAME_TIME + 1, FRAME_TIME + 2), (FRAME_TIME + 3, FRAME_TIME + 5)],
+            )
+            .is_err()
+        );
+        // An EVENT after the sealed frame's last liquidity is outside it.
+        assert!(
+            verify_scheduling_data_against_sealed_frames(
+                &data,
+                [(FRAME_TIME, FRAME_TIME + 1), (FRAME_TIME + 3, FRAME_TIME + 5)],
+            )
+            .is_err()
+        );
+        // First-frame liquidity must precede the successor's first BAR.
+        assert!(
+            verify_scheduling_data_against_sealed_frames(
+                &data,
+                [(FRAME_TIME, FRAME_TIME + 2), (FRAME_TIME + 2, FRAME_TIME + 5)],
+            )
+            .is_err()
+        );
+        // A bundle with no EVENT has nothing to bind.
+        assert!(
+            verify_scheduling_data_against_sealed_frames(&data[0..2], sealed).is_err()
+        );
+        assert!(verify_scheduling_data_against_sealed_frames(&[], sealed).is_err());
     }
 
     #[rstest::rstest]

@@ -157,6 +157,15 @@ impl NativeReplayExecutionInputBindingReceiptV1 {
     pub fn canonical_bytes(&self) -> &[u8] {
         &self.canonical_bytes
     }
+
+    /// The Owner cut epoch this binding was committed against.
+    ///
+    /// The V2 binding extends exactly this V1 binding, so it commits against the same epoch
+    /// rather than reading a clock of its own.
+    #[must_use]
+    pub(crate) const fn committed_at_epoch_ms(&self) -> u64 {
+        self.committed_at_epoch_ms
+    }
 }
 
 #[derive(Debug, Eq, PartialEq)]
