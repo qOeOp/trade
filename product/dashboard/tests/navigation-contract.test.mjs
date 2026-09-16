@@ -135,7 +135,7 @@ test("Workers bilingual completeness includes geometry, failure states and actio
   const specs = [];
   for (const suffix of ["", ".zh"]) {
     const doc = await readFile(new URL(`../../../docs/guide/dashboard${suffix}.md`, import.meta.url), "utf8");
-    const start = doc.indexOf(suffix ? "#### Workers 精确只读 skeleton" : "#### Exact Workers read-only skeleton");
+    const start = doc.indexOf(suffix ? "#### Workers 精确只读 skeleton" : "#### Exact Workers read‑only skeleton");
     assert.ok(start >= 0);
     const spec = doc.slice(start, doc.indexOf("`/operations/service-logs`", start));
     for (const token of [
@@ -157,7 +157,7 @@ test("Operations Audit bilingual completeness closes source, geometry and mutati
   const skeletons = [];
   for (const suffix of ["", ".zh"]) {
     const doc = await readFile(new URL(`../../../docs/guide/dashboard${suffix}.md`, import.meta.url), "utf8");
-    const start = doc.indexOf(suffix ? "#### Operations Audit 精确只读 skeleton" : "#### Exact Operations Audit read-only skeleton");
+    const start = doc.indexOf(suffix ? "#### Operations Audit 精确只读 skeleton" : "#### Exact Operations Audit read‑only skeleton");
     assert.ok(start >= 0);
     const endHeading = suffix ? "#### 精确 Run Detail 骨架" : "#### Exact Run Detail skeleton";
     const spec = doc.slice(start, doc.indexOf(endHeading, start));
