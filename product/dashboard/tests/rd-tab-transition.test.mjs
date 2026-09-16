@@ -15,7 +15,7 @@ test("module tabs use client navigation and settle their active position before 
 test("every R&D top tab owns one stable card-level route header", async () => {
   const shell = await readFile(new URL("../components/dashboard-route-content.tsx", import.meta.url), "utf8");
 
-  assert.match(shell, /const rdPlaceholderRoute = current === "\/rd\/hypotheses" \|\| current === "\/rd\/decisions";/u);
+  assert.match(shell, /const rdPlaceholderRoute = current === "\/rd\/decisions";/u);
   assert.match(shell, /const ownsRouteChrome = embedsRouteChrome \|\| rdPlaceholderRoute \|\| settingsAccess \|\| dashboardOverview;/u);
   assert.match(shell, /<PanelFrame className="rd-placeholder-panel">[\s\S]*<PanelFrameHeader eyebrow="R&D" title=\{routeLabel\}/u);
   assert.match(shell, /<PanelFrameBody density="compact">\{unavailable\}<\/PanelFrameBody>/u);

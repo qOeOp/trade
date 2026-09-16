@@ -107,6 +107,10 @@ export function researchAvailabilityTone(value: string | null | undefined): Stat
   return "neutral";
 }
 
+export function researchQuestionAvailabilityTone(value: string): StatusBadgeTone {
+  return value === "available" ? "success" : "unavailable";
+}
+
 export function researchOutcomeTone({
   status,
   resolution,

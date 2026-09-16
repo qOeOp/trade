@@ -8,7 +8,7 @@ test("Research admission outcomes cannot impersonate Iteration Decisions", async
   const shell = await readFile(new URL("../components/dashboard-route-content.tsx", import.meta.url), "utf8");
 
   assert.equal(maturityFor("/rd/decisions"), "BLUEPRINT_ONLY_NOT_IMPLEMENTABLE");
-  assert.match(shell, /const rdPlaceholderRoute = current === "\/rd\/hypotheses" \|\| current === "\/rd\/decisions";/u);
+  assert.match(shell, /const rdPlaceholderRoute = current === "\/rd\/decisions";/u);
   assert.doesNotMatch(shell, /ResearchDecisionDirectory|researchDecisionDirectory|researchDecisionFilter/u);
 });
 

@@ -23,6 +23,7 @@ import {
   progressStateTone,
   replacementReadinessTone,
   researchAvailabilityTone,
+  researchQuestionAvailabilityTone,
   researchOutcomeTone,
   scheduleStateTone,
 } from "../components/ui/status-tone-policy.ts";
@@ -64,6 +65,8 @@ test("shared status policy keeps routing, progress, action, and R&D mappings exp
   assert.equal(researchAvailabilityTone("AVAILABLE"), "info");
   assert.equal(researchAvailabilityTone("STALE"), "warning");
   assert.equal(researchAvailabilityTone("UNAVAILABLE"), "unavailable");
+  assert.equal(researchQuestionAvailabilityTone("available"), "success");
+  assert.equal(researchQuestionAvailabilityTone("unavailable"), "unavailable");
   assert.equal(researchOutcomeTone({ status: "outcome_ready", resolution: "accepted" }), "success");
   assert.equal(researchOutcomeTone({ status: "outcome_ready", resolution: "rejected" }), "danger");
   assert.equal(researchOutcomeTone({

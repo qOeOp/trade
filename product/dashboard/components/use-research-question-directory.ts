@@ -15,6 +15,7 @@ export function useResearchQuestionDirectory(enabled: boolean) {
   const read = useCallback(async () => {
     if (!enabled) return;
     const current = ++generation.current;
+    setProjection(null);
     setAvailability("loading");
     try {
       const response = await fetch("/api/rd/research/questions/", { cache: "no-store" });

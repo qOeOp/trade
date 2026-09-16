@@ -14,7 +14,8 @@ test("EntityReference keeps opaque identities secondary across R&D tables", asyn
 
   assert.match(atom, /export function compactEntityIdentity/u);
   assert.match(atom, /identity\.slice\(-8\)/u);
-  assert.match(atom, /title=\{exactTitle \?\? identity\}/u);
+  assert.match(atom, /title=\{showIdentity \? exactTitle \?\? identity : undefined\}/u);
+  assert.match(atom, /showIdentity = true/u);
   assert.match(atom, /if \(href\) return <Link/u);
   assert.match(atom, /onActivate: \(\) => void/u);
   assert.match(atom, /onActivate\?: never/u);

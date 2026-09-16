@@ -19,6 +19,7 @@ export function EntityReference({
   href,
   exactTitle,
   labelTitle,
+  showIdentity = true,
   onActivate,
   disclosure,
 }: {
@@ -27,13 +28,14 @@ export function EntityReference({
   detail?: ReactNode;
   exactTitle?: string;
   labelTitle?: string;
+  showIdentity?: boolean;
   disclosure?: { controls: string; expanded: boolean };
 } & EntityReferenceDestination) {
   const content = <>
     <strong title={labelTitle}>{label}</strong>
-    <span title={exactTitle ?? identity}>
-      {compactEntityIdentity(identity)}{detail ? <> · {detail}</> : null}
-    </span>
+    {showIdentity || detail ? <span title={showIdentity ? exactTitle ?? identity : undefined}>
+      {showIdentity ? compactEntityIdentity(identity) : null}{showIdentity && detail ? <> · </> : null}{detail}
+    </span> : null}
   </>;
 
   if (href) return <Link className={styles.reference} href={href}>{content}</Link>;
