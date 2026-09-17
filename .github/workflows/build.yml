@@ -640,6 +640,12 @@ jobs:
           make cargo-test NEXTEST_PROFILE=ci
           EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
 
+      - name: Run the wasm toolchain proofs
+        # These are `#[ignore]`, so `make cargo-test` never selects them. They need the pinned
+        # wasm target this job already installs and no database, and they reuse the binary the
+        # step above just built.
+        run: make cargo-test-wasm-toolchain-proofs NEXTEST_PROFILE=ci
+
       - name: Report disk space after workspace Rust tests
         if: always()
         run: bash scripts/ci/report-disk-space.bash "after workspace Rust tests"

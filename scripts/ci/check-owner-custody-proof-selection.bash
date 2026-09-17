@@ -54,12 +54,10 @@ readonly -A unselected_reason=(
   ["catalog_unlogged_drift_is_unavailable_to_migration_and_runtime"]="replay policy catalog V3 is TARGET / NOT_ADMITTED in docs/owners/rd.md"
   ["catalog_v3_admin_restart_tamper_and_acl_are_fail_closed"]="replay policy catalog V3 is TARGET / NOT_ADMITTED in docs/owners/rd.md"
   ["composer_unlogged_drift_is_unavailable_to_migration_and_runtime"]="needs sealed-source-intake-composer-acceptance, which the chain's archive does not enable"
-  ["every_executable_operation_builds_and_runs_as_strict_abi_three_wasm"]="needs the pinned wasm toolchain; no chain job has both a database and that toolchain"
   ["exact_complex_cache_executes_program_family_path_reproducibly"]="frozen external dataset; the chain provisions a database, not a corpus"
   ["exact_pilot_cache_executes_native_family_path"]="frozen external dataset; the chain provisions a database, not a corpus"
   ["forged_v3_admission_fails_without_replay_transition_or_outbox_write"]="needs sealed-source-intake-composer-acceptance, which the chain's archive does not enable"
   ["frozen_program_runs_the_production_composer_to_a_durable_artifact"]="needs a database and the pinned wasm toolchain together; job placement is undecided"
-  ["generated_candidate_is_a_real_strict_abi_three_module"]="needs the pinned wasm toolchain; no chain job has both a database and that toolchain"
   ["live_bounded_pit_probe_stops_on_cost_or_returns_authentic_evidence"]="live vendor probe; needs a real vendor request and its credential"
   ["live_probe_answers_the_owner_scope_or_refuses"]="live vendor probe; needs a real vendor request and its credential"
   ["market_data_answers_one_frozen_request_from_live_vendor_data"]="live vendor probe; needs a real vendor request and its credential"
@@ -68,13 +66,12 @@ readonly -A unselected_reason=(
   ["official_holdout_integrity_probe_is_deterministic"]="frozen external dataset; the chain provisions a database, not a corpus"
   ["postgres_v4_is_atomic_idempotent_exact_and_tamper_closed"]="broken: it commits a second sample for a second role, but the fact identity covers what was observed and not who asked, so the Owner refuses it as IdentityConflict; its batch offers no second observable fact"
   ["postgres_every_transaction_write_boundary_fault_leaves_zero_positive_rows"]="needs sealed-source-intake-composer-acceptance, which the chain's archive does not enable"
-  ["real_v3_owner_build_reaches_composer_program_host_and_durable_abi3_artifact"]="needs the pinned wasm toolchain; no chain job has both a database and that toolchain"
+  ["real_v3_owner_build_reaches_composer_program_host_and_durable_abi3_artifact"]="compiled only on aarch64; the job that runs the wasm proofs is x86_64 and the aarch64 jobs build without running tests"
   ["regenerate_sealed_a0_corpus_from_real_producer"]="regenerates a committed corpus or measures cost; asserts no Owner custody"
   ["regenerate_source_research_composer_sealed_a0_corpus_from_real_producer"]="regenerates a committed corpus or measures cost; asserts no Owner custody"
   ["representative_coordinates_share_read_only_catalog_and_reproduce_fresh"]="frozen external dataset; the chain provisions a database, not a corpus"
   ["sealed_run_and_restarted_resolve_return_the_same_public_receipt"]="needs sealed-source-intake-composer-acceptance, which the chain's archive does not enable"
   ["stale_artifact_policy_reaches_real_owner_chain_and_cannot_open_risk"]="frozen external dataset; the chain provisions a database, not a corpus"
-  ["two_lowerings_two_builds_and_strict_replay_mint_one_v3_identity"]="needs the pinned wasm toolchain; no chain job has both a database and that toolchain"
 )
 
 echo "Checking that every Owner custody proof is selected or explained..."
@@ -98,6 +95,12 @@ if [ -f scripts/ci/test-rd-owner-postgres.bash ]; then
   ' scripts/ci/test-rd-owner-postgres.bash >> "$selected"
   rg -o "seed_test='[a-z_0-9:]+'" scripts/ci/test-rd-owner-postgres.bash 2> /dev/null |
     sed "s/.*:://;s/'//" >> "$selected" || true
+fi
+
+# The wasm proof script lists each name as a quoted array entry, one selector per entry.
+if [ -f scripts/ci/test-wasm-toolchain-proofs.bash ]; then
+  rg -o "^[[:space:]]*'[a-z_0-9]+(::[a-z_0-9]+)+'$" scripts/ci/test-wasm-toolchain-proofs.bash 2> /dev/null |
+    sed "s/[[:space:]]*//g;s/'//g;s/.*:://" >> "$selected" || true
 fi
 
 for script in crates/data/tests/run_market_data_owner_postgres.bash \
