@@ -342,3 +342,30 @@ fn resolution_admits_only_published_versions() {
         );
     }
 }
+
+/// Version 1's semantic digest, pinned.
+///
+/// This is the guarantee that publishing a later version costs an earlier one nothing. Version 1's
+/// meaning is its number, its rows and its goldens, so anything that leaves those alone - a new
+/// version, a new contract-rule variant, a kernel implementation change - must leave this digest
+/// alone too. A change here means some program frozen against version 1 can no longer be read back,
+/// and that is a decision to make deliberately rather than discover.
+const VERSION_1_SEMANTIC_DIGEST: [u8; 32] = [
+    0x34, 0x9e, 0x82, 0x6f, 0xe5, 0x3a, 0x5d, 0x07, 0xb4, 0xaf, 0xcb, 0x93, 0x8d, 0x6a, 0x4a, 0x9b,
+    0xbd, 0x42, 0x34, 0xd0, 0xb0, 0xb8, 0x13, 0xc8, 0x8c, 0x54, 0xc6, 0xa4, 0xc5, 0xd4, 0xce, 0xf2,
+];
+
+#[rstest::rstest]
+fn version_1_meaning_is_pinned_against_every_later_change() {
+    let catalog = PrimitiveCatalogV1::resolve(1).unwrap();
+
+    assert_eq!(
+        catalog.semantic_digest(),
+        VERSION_1_SEMANTIC_DIGEST,
+        "version 1's meaning changed; every program frozen against it stops reading back"
+    );
+
+    // The implementation identity is free to move; the meaning is not. That separation is the
+    // whole point, so assert they are actually different values.
+    assert_ne!(catalog.semantic_digest(), catalog.identity());
+}
