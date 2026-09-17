@@ -1,0 +1,68 @@
+name: pr-cache-cleanup
+
+# A repository holds 10 GB of Actions cache in total, and this one lives at the limit: entries the
+# build needs are evicted by least recent use on almost every run, so jobs recompile from scratch.
+# A merged or closed pull request keeps its own cache entries until eviction reaches them, and those
+# entries can never be restored again -- a closed ref has no further runs. Deleting them returns
+# their space to the branches that are still building.
+
+# The trigger is `pull_request`, not `pull_request_target`: this repository's pull requests come
+# from its own branches, where that token can still delete a cache, and it keeps the job out of the
+# privileged context entirely. A fork's pull request gets a read-only token and simply finds nothing
+# to do, which is the correct outcome -- a fork's caches are not this repository's to reclaim.
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-cache-cleanup-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    name: pr-cache-cleanup
+    runs-on: ubuntu-22.04
+    # `actions: write` is the one permission that can delete a cache, and it is granted here only,
+    # for a job that checks out no code and runs nothing from the pull request.
+    permissions:
+      actions: write
+    steps:
+      # https://github.com/step-security/harden-runner
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Delete the closed pull request's caches
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR_REF: refs/pull/${{ github.event.pull_request.number }}/merge
+        run: |-
+          set -euo pipefail
+
+          # Only this pull request's own ref is touched. A cache on `main` or on another branch is
+          # never a candidate, however stale it looks from here.
+          mapfile -t ids < <(
+            gh api --paginate \
+              "repos/${GH_REPO}/actions/caches?ref=${PR_REF}&per_page=100" \
+              --jq '.actions_caches[].id'
+          )
+
+          if [ "${#ids[@]}" -eq 0 ]; then
+            echo "No caches held by ${PR_REF}."
+            exit 0
+          fi
+
+          echo "Deleting ${#ids[@]} cache entries held by ${PR_REF}."
+          for id in "${ids[@]}"; do
+            # A cache can disappear between listing and deletion, either by eviction or by a
+            # concurrent cleanup. That is the outcome this job wanted, so it is not a failure.
+            if gh api --method DELETE "repos/${GH_REPO}/actions/caches/${id}" >/dev/null 2>&1; then
+              echo "  deleted ${id}"
+            else
+              echo "  already gone ${id}"
+            fi
+          done
