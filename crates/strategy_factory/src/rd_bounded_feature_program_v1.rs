@@ -43,6 +43,9 @@ pub(crate) enum ResearchBoundedFeatureProgramFreezeErrorV1 {
     Design,
     #[error("Bounded Feature Program is unsupported: {0}")]
     Program(#[from] BoundedFeatureProgramErrorV1),
+    /// The declared first-party SDK source digest is not the pinned first-party SDK.
+    #[error("declared first-party SDK source digest is not the pinned first-party SDK")]
+    SdkSource,
     #[error("R&D Owner joint-freeze custody is unavailable")]
     Unavailable,
     #[error("a different R&D Owner joint freeze already occupies this Research identity")]
@@ -512,6 +515,17 @@ pub(crate) fn freeze_research_bounded_feature_program_v1(
         || design.falsifier != custody.falsifier()
     {
         return Err(ResearchBoundedFeatureProgramFreezeErrorV1::ResearchCustody);
+    }
+
+    // The lowerer refuses a program whose declared SDK source digest is not the pinned first-party
+    // SDK. A freeze is permanent, though, and a second different declaration for the same Research
+    // identity is a conflict rather than an update, so admitting a program that can never be
+    // lowered would leave that Research identity with no second chance. The same pinned check
+    // therefore runs here, before any custody is written.
+    if proposal.first_party_sdk_source_digest
+        != crate::bounded_feature_program_lowerer_v1::first_party_bfp_sdk_source_digest_v1()
+    {
+        return Err(ResearchBoundedFeatureProgramFreezeErrorV1::SdkSource);
     }
 
     let canonical_design =

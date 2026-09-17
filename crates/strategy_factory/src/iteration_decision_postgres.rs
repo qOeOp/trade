@@ -4114,6 +4114,7 @@ mod postgres_acceptance_tests {
             .find(|receipt| receipt.locator().input_role_identity() == input_role_identity)
             .expect("successor BFP exact input binding");
         proposal.inputs[0].static_binding_receipt_digest = binding.digest();
+        let admitted = (design.clone(), proposal.clone());
 
         let mut rejected_design = design.clone();
         rejected_design.intent_digest = BindingDigest::from_untrusted_bytes([99; 32]);
@@ -4193,6 +4194,14 @@ mod postgres_acceptance_tests {
         .await
         .expect("committed successor BFP counts");
         assert_eq!(committed_counts, (1, 1));
+        assert_permanent_freeze_refuses_a_second_meaning(
+            rd_pool,
+            intent.intent_identity(),
+            read_cut,
+            committed_at,
+            admitted,
+        )
+        .await;
 
         let mut readback = rd_pool.begin().await.expect("successor BFP readback");
         let resolved = Box::pin(
@@ -4236,6 +4245,107 @@ mod postgres_acceptance_tests {
             .await
             .expect("successor BFP tamper rollback");
         committed
+    }
+
+    /// A freeze is permanent, so the two ways a caller can lose a Research identity must both fail
+    /// before any custody is written.
+    ///
+    /// The enclosing assertion already proves that an exact repeat joins and that tampered stored
+    /// bytes are refused. Neither covers a *valid* second declaration that simply means something
+    /// else, nor a program naming an SDK source the first-party lowerer will never accept, which
+    /// would freeze successfully and then be un-lowerable forever.
+    async fn assert_permanent_freeze_refuses_a_second_meaning(
+        rd_pool: &sqlx::PgPool,
+        request_locator: &str,
+        read_cut: u64,
+        committed_at: u64,
+        admitted: (
+            crate::strategy_design_v2::StrategyDesignV2,
+            crate::bounded_feature_program_v1::BoundedFeatureProgramProposalV1,
+        ),
+    ) {
+        use crate::rd_bounded_feature_program_v1::{
+            ResearchBoundedFeatureProgramFreezeErrorV1,
+            commit_research_bounded_feature_program_in_transaction_v1,
+        };
+
+        let counts = |pool: sqlx::PgPool, key: String| async move {
+            sqlx::query_as::<_, (i64, i64)>(
+                "SELECT
+                    (SELECT COUNT(*) FROM rd_bounded_feature_program_freezes_v1 WHERE request_identity=$1),
+                    (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2)",
+            )
+            .bind(key)
+            .bind(crate::rd_bounded_feature_program_v1::JOINT_FREEZE_EVENT_KIND_V1)
+            .fetch_one(&pool)
+            .await
+            .expect("permanent freeze counts")
+        };
+        let before = counts(rd_pool.clone(), request_locator.to_owned()).await;
+        assert_eq!(before, (1, 1));
+
+        // A different entry threshold is a real change of program meaning, not a tamper. The Owner
+        // must refuse to update rather than accept the newer declaration.
+        let (design, proposal) = admitted;
+        let mut changed = proposal.clone();
+        let threshold = changed
+            .constants
+            .iter_mut()
+            .find(|constant| constant.constant_id == "threshold")
+            .expect("fixture threshold constant");
+        match &mut threshold.value {
+            crate::bounded_feature_program_v1::BoundedFeatureConstantValueV1::FixedI128 {
+                coefficient,
+                ..
+            } => *coefficient += 1,
+            other => panic!("fixture threshold must be fixed-I128: {other:?}"),
+        }
+        let mut conflicting = rd_pool.begin().await.expect("changed-meaning transaction");
+        assert_eq!(
+            Box::pin(commit_research_bounded_feature_program_in_transaction_v1(
+                &mut conflicting,
+                request_locator,
+                read_cut,
+                committed_at,
+                &design,
+                changed,
+            ))
+            .await,
+            Err(ResearchBoundedFeatureProgramFreezeErrorV1::Conflict)
+        );
+        conflicting
+            .rollback()
+            .await
+            .expect("changed-meaning rollback");
+        assert_eq!(
+            counts(rd_pool.clone(), request_locator.to_owned()).await,
+            before,
+            "a changed declaration writes nothing"
+        );
+
+        // A program naming a foreign SDK source is refused at admission rather than frozen into a
+        // permanently un-lowerable state.
+        let mut foreign = proposal;
+        foreign.first_party_sdk_source_digest = BindingDigest::from_untrusted_bytes([7; 32]);
+        let mut rejected = rd_pool.begin().await.expect("foreign SDK transaction");
+        assert_eq!(
+            Box::pin(commit_research_bounded_feature_program_in_transaction_v1(
+                &mut rejected,
+                request_locator,
+                read_cut,
+                committed_at,
+                &design,
+                foreign,
+            ))
+            .await,
+            Err(ResearchBoundedFeatureProgramFreezeErrorV1::SdkSource)
+        );
+        rejected.rollback().await.expect("foreign SDK rollback");
+        assert_eq!(
+            counts(rd_pool.clone(), request_locator.to_owned()).await,
+            before,
+            "a foreign SDK declaration writes nothing"
+        );
     }
 
     async fn persist_successor_artifact_replay(
