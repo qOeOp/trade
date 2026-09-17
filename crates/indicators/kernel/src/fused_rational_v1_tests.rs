@@ -112,11 +112,13 @@ impl DeclaredRsi {
                 .rescale(self.output_scale, self.rounding)
                 .unwrap();
         }
+
         if loss.coefficient() == 0 {
             return FixedI128::from_parts(100, zero)
                 .rescale(self.output_scale, self.rounding)
                 .unwrap();
         }
+
         if gain.coefficient() == 0 {
             return FixedI128::from_parts(0, zero)
                 .rescale(self.output_scale, self.rounding)
@@ -208,6 +210,7 @@ fn assert_identical_over(closes: &[i128], rounding: Option<RoundingMode>, case: 
 
         if let Some(value) = mine {
             observed += 1;
+
             if !distinct.contains(&value.coefficient()) {
                 distinct.push(value.coefficient());
             }
