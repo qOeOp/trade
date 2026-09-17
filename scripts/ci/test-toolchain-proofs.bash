@@ -32,7 +32,6 @@ readonly wasm_proof_features='sealed-develop-composer-acceptance'
 # fresh hosted A0 readback. Selecting it here would add a red check that reports that one fact a
 # second time.
 readonly portable_wasm_proofs=(
-  'bounded_feature_program_lowerer_v1::tests::generated_candidate_is_a_real_strict_abi_three_module'
   'bounded_feature_program_lowerer_v1::tests::every_executable_operation_builds_and_runs_as_strict_abi_three_wasm'
 )
 
