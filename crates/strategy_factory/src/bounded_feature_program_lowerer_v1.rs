@@ -356,8 +356,7 @@ pub(crate) fn prepare_frozen_bounded_feature_source_inputs_v1(
         return Err(BoundedFeatureLoweringErrorV1::Design);
     }
 
-    let canonical_program = parse_bounded_feature_program_v1(frozen.program_bytes(), &design)
-        .map_err(|_| BoundedFeatureLoweringErrorV1::Catalog)?;
+    let canonical_program = parse_bounded_feature_program_v1(frozen.program_bytes(), &design)?;
     // The program names its own catalog version; resolve that one rather than the newest.
     let catalog = PrimitiveCatalogV1::resolve(canonical_program.program().catalog_semantic_version)
         .map_err(|_| BoundedFeatureLoweringErrorV1::Catalog)?;
