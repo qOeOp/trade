@@ -132,6 +132,14 @@ use vibe_strategy_factory::source_research_composer_postgres_v2::{
     sealed_source_research_composer_a0_execution_count_v2,
 };
 
+// The locator is the whole public input on both paths that accept one: the production path,
+// which reads the Design from the request's frozen program, and the sealed acceptance path.
+// The middle configuration - sealed Develop Composer without the source-intake Composer - runs
+// a corpus and takes no locator at all.
+#[cfg(any(
+    not(feature = "sealed-develop-composer-acceptance"),
+    feature = "sealed-source-intake-composer-acceptance"
+))]
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SourceResearchComposerLocatorV2 {
@@ -139,6 +147,10 @@ struct SourceResearchComposerLocatorV2 {
     research_request_locator: String,
 }
 
+#[cfg(any(
+    not(feature = "sealed-develop-composer-acceptance"),
+    feature = "sealed-source-intake-composer-acceptance"
+))]
 fn deserialize_research_locator_v2<'de, D>(deserializer: D) -> Result<String, D::Error>
 where
     D: serde::Deserializer<'de>,
