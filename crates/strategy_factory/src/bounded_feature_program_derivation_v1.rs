@@ -15,7 +15,7 @@
 //! Derivation is not admission. The result is still a proposal, carries no Owner authority, and
 //! must pass the same canonical verification as one assembled by hand.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use thiserror::Error;
 use vibe_data::owner::source_binding::BindingDigest;
@@ -32,8 +32,8 @@ use crate::{
     },
     strategy_design_v2::StrategyDesignV2,
     strategy_plan_v2::{
-        StrategyDesignPreparationV2, plugin_manifest_digest, prepare_strategy_design_v2,
-        strategy_input_role_identity_v2,
+        StrategyDesignPreparationV2, VerifiedStrategyInputBindingsV2, plugin_manifest_digest,
+        prepare_strategy_design_v2, strategy_input_role_identity_v2,
     },
 };
 
@@ -137,20 +137,21 @@ pub enum BoundedFeatureProgramDerivationErrorV1 {
 /// silently narrow the program's inputs, and a repeated one would leave which declaration wins to
 /// ordering, so both are refused rather than resolved.
 ///
-/// `binding_receipts` maps an input role identity to the static binding receipt digest the Owner
-/// holds for it. It is a parameter rather than a lookup because receipts are Owner custody and this
-/// function mints none.
+/// `bindings` is the Owner's verified binding custody, not a caller-supplied map. Its fields are
+/// private and it is constructible only from Owner receipts, so derivation cannot be handed a
+/// receipt that no Owner issued. That is also why this function is crate-private: assembly belongs
+/// inside the Owner, and only the declared meaning crosses the API boundary.
 ///
 /// # Errors
 ///
 /// Returns the reason the declared meaning does not fit the Design: a Design that does not
 /// canonicalize, an unknown plugin, an unknown, duplicated or uncovered input role, or a role with
 /// no binding receipt.
-pub fn derive_bounded_feature_program_proposal_v1(
+pub(crate) fn derive_bounded_feature_program_proposal_v1(
     design: &StrategyDesignV2,
     catalog: PrimitiveCatalogV1,
     meaning: &BoundedFeatureProgramMeaningV1,
-    binding_receipts: &BTreeMap<BindingDigest, BindingDigest>,
+    bindings: &VerifiedStrategyInputBindingsV2,
 ) -> Result<BoundedFeatureProgramProposalV1, BoundedFeatureProgramDerivationErrorV1> {
     let (design_identity, design_digest) = match prepare_strategy_design_v2(design) {
         StrategyDesignPreparationV2::Prepared {
@@ -184,12 +185,13 @@ pub fn derive_bounded_feature_program_proposal_v1(
                 )
             })?;
         let input_role_identity = strategy_input_role_identity_v2(role);
-        let static_binding_receipt_digest =
-            *binding_receipts.get(&input_role_identity).ok_or_else(|| {
-                BoundedFeatureProgramDerivationErrorV1::MissingBindingReceipt(
-                    input.role_semantic_id.clone(),
-                )
-            })?;
+        let static_binding_receipt_digest = bindings
+            .receipt_digest_for_role(input_role_identity)
+            .ok_or_else(|| {
+            BoundedFeatureProgramDerivationErrorV1::MissingBindingReceipt(
+                input.role_semantic_id.clone(),
+            )
+        })?;
 
         inputs.push(BoundedFeatureInputV1 {
             owner_semantic_id: MARKET_DATA_OWNER_SEMANTIC_ID_V1.to_owned(),
@@ -297,19 +299,27 @@ mod tests {
         }
     }
 
-    fn receipts(
+    /// Builds Owner-shaped verified custody carrying the fixture's own receipts.
+    fn bindings_of(
+        design: &StrategyDesignV2,
         proposal: &BoundedFeatureProgramProposalV1,
-    ) -> BTreeMap<BindingDigest, BindingDigest> {
-        proposal
+    ) -> VerifiedStrategyInputBindingsV2 {
+        let receipts = proposal
             .inputs
             .iter()
             .map(|input| {
-                (
-                    input.input_role_identity,
-                    input.static_binding_receipt_digest,
-                )
+                let role = design
+                    .inputs
+                    .iter()
+                    .find(|role| role.semantic_id == input.input_role_id)
+                    .expect("the fixture proposal names the Design's own roles")
+                    .clone();
+
+                (role, input.static_binding_receipt_digest)
             })
-            .collect()
+            .collect();
+
+        crate::strategy_plan_v2::verified_strategy_input_bindings_for_test(design, receipts)
     }
 
     /// Derivation must reproduce a known-good proposal exactly, field for field.
@@ -324,7 +334,7 @@ mod tests {
             &design,
             catalog,
             &meaning_of(&expected),
-            &receipts(&expected),
+            &bindings_of(&design, &expected),
         )
         .expect("declared meaning assembles against its own Design");
 
@@ -342,7 +352,7 @@ mod tests {
                 &design,
                 catalog,
                 &meaning,
-                &receipts(&proposal),
+                &bindings_of(&design, &proposal),
             ),
             Err(BoundedFeatureProgramDerivationErrorV1::UnknownInputRole(
                 "role-the-design-never-declared".to_owned()
@@ -362,7 +372,7 @@ mod tests {
                 &design,
                 catalog,
                 &meaning,
-                &receipts(&proposal),
+                &bindings_of(&design, &proposal),
             ),
             Err(BoundedFeatureProgramDerivationErrorV1::UncoveredInputRole(
                 dropped
@@ -384,7 +394,7 @@ mod tests {
                 &design,
                 catalog,
                 &meaning,
-                &receipts(&proposal),
+                &bindings_of(&design, &proposal),
             ),
             Err(BoundedFeatureProgramDerivationErrorV1::DuplicateInputRole(
                 role
@@ -404,7 +414,10 @@ mod tests {
                 &design,
                 catalog,
                 &meaning,
-                &BTreeMap::new(),
+                &crate::strategy_plan_v2::verified_strategy_input_bindings_for_test(
+                    &design,
+                    vec![],
+                ),
             ),
             Err(BoundedFeatureProgramDerivationErrorV1::MissingBindingReceipt(role))
         );
@@ -421,7 +434,7 @@ mod tests {
                 &design,
                 catalog,
                 &meaning,
-                &receipts(&proposal),
+                &bindings_of(&design, &proposal),
             ),
             Err(BoundedFeatureProgramDerivationErrorV1::UnknownPlugin)
         );
