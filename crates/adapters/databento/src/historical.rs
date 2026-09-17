@@ -1093,7 +1093,11 @@ mod tests {
                 assert_eq!(evidence.untrusted_bbo_cost_usd(), 0.0);
                 assert_eq!(evidence.untrusted_definition_cost_usd(), 0.0);
             }
-            Err(e) if e.to_string().contains("cost preflight is non-zero") => {}
+            // The safe terminal. `pit_probe` refuses with the measured cost, so match the
+            // refusal rather than a price that differs on every run.
+            Err(e)
+                if e.to_string().contains("above the admitted")
+                    && e.to_string().contains("ceiling") => {}
             Err(e) => panic!("bounded live PIT probe failed before a safe terminal: {e}"),
         }
     }

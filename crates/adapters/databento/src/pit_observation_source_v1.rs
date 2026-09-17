@@ -441,8 +441,8 @@ mod tests {
 
     /// Drives the whole client against the live provider.
     ///
-    /// The probe stops before any download when the cost preflight is non-zero, so a run without
-    /// the entitlement is a refusal rather than a spend. Either way the client must not invent
+    /// The probe stops before any download when the cost preflight exceeds the admitted ceiling,
+    /// so a run without the entitlement is a refusal rather than a spend. Either way the client must not invent
     /// rows: an entitled run answers with the two sides of one quote, and an unentitled one is
     /// `Unavailable`.
     ///
