@@ -578,6 +578,10 @@ MARKDOWN_FILES = $(shell git ls-files '*.md' | grep -v '^patches/pyo3-stub-gen/'
 MARKDOWNLINT_FILES = $(shell git ls-files '*.md' | \
 	grep -vE '^patches/pyo3-stub-gen/')
 
+.PHONY: check-owner-custody-proof-selection
+check-owner-custody-proof-selection:  #-- Check every Owner custody proof is chain-selected or explained
+	bash scripts/ci/check-owner-custody-proof-selection.bash "$(CURDIR)"
+
 .PHONY: check-markdown
 check-markdown:  #-- Lint Markdown with markdownlint-cli2 and check table delimiter padding
 	$(info $(M) Checking Markdown...)
