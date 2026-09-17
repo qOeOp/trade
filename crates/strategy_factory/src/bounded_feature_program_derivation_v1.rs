@@ -30,8 +30,13 @@
 use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
+use sqlx::{Postgres, Transaction};
 use thiserror::Error;
-use vibe_data::owner::source_binding::BindingDigest;
+use vibe_data::owner::{
+    reread_persisted_strategy_input_custody_for_update_v1,
+    resolve_pit_request_for_strategy_design_v1, source_binding::BindingDigest,
+    strategy_input_binding::UntrustedStrategyInputCustodyClaimV1,
+};
 use vibe_indicators_kernel::PrimitiveCatalogV1;
 
 use crate::{
@@ -508,4 +513,92 @@ mod tests {
             Err(BoundedFeatureProgramDerivationErrorV1::UnknownPlugin)
         );
     }
+}
+
+/// Why declared meaning could not be assembled against live Owner custody.
+#[derive(Clone, Debug, Eq, Error, PartialEq)]
+pub enum BoundedFeatureProgramAssemblyErrorV1 {
+    /// Market Data custody did not answer, or answered about something else.
+    #[error("Market Data input custody is unavailable for this Design")]
+    MarketDataUnavailable,
+    /// The declared meaning does not fit the Design.
+    #[error(transparent)]
+    Derivation(#[from] BoundedFeatureProgramDerivationErrorV1),
+}
+
+/// Resolves live Owner binding custody for a Design and assembles declared meaning against it.
+///
+/// This is the four-step custody path `source_research_composer_postgres_v2` performs, lifted out
+/// of `sealed-source-intake-composer-acceptance` so that an ordinary R&D Owner transaction can take
+/// it: the Design's admitted PIT coordinate, a custody claim built from it, the persisted custody
+/// readback, and the verified binding token that readback issues.
+///
+/// The Design states its own complete role set and the Owner's stored roles may only agree with it.
+/// Taking the Owner's roles instead would let stored custody decide which inputs a Design has,
+/// which is the Design's to declare.
+///
+/// The readback is re-checked against the Research and Design identities it was asked about, because
+/// a readback that answers about a different Design would otherwise supply real receipts for the
+/// wrong program.
+///
+/// # Errors
+///
+/// Returns [`BoundedFeatureProgramAssemblyErrorV1::MarketDataUnavailable`] when the coordinate, the
+/// claim or the readback does not resolve or does not agree, and the derivation error otherwise.
+#[allow(
+    dead_code,
+    reason = "assembly awaits the R&D Owner freeze route that will hand it declared meaning"
+)]
+pub(crate) async fn assemble_declared_bounded_feature_program_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    design: &StrategyDesignV2,
+    catalog: PrimitiveCatalogV1,
+    meaning: &BoundedFeatureProgramMeaningV1,
+) -> Result<BoundedFeatureProgramProposalV1, BoundedFeatureProgramAssemblyErrorV1> {
+    let design_identity = match prepare_strategy_design_v2(design) {
+        StrategyDesignPreparationV2::Prepared {
+            design_identity, ..
+        } => design_identity,
+        _ => return Err(BoundedFeatureProgramDerivationErrorV1::Design.into()),
+    };
+
+    let coordinate = resolve_pit_request_for_strategy_design_v1(transaction, design_identity)
+        .await
+        .map_err(|_| BoundedFeatureProgramAssemblyErrorV1::MarketDataUnavailable)?;
+
+    let mut declared: Vec<BindingDigest> = design
+        .inputs
+        .iter()
+        .map(strategy_input_role_identity_v2)
+        .collect();
+    let mut stored = coordinate.input_role_identities.clone();
+    declared.sort_unstable();
+    stored.sort_unstable();
+    if declared != stored {
+        return Err(BoundedFeatureProgramAssemblyErrorV1::MarketDataUnavailable);
+    }
+
+    let claim = UntrustedStrategyInputCustodyClaimV1 {
+        research_request_identity: design.research_request_identity,
+        strategy_design_identity: design_identity,
+        pit_request_identity: coordinate.pit_request_identity,
+        input_role_identities: declared,
+        decision_cut: coordinate.decision_cut,
+    };
+    let readback = reread_persisted_strategy_input_custody_for_update_v1(transaction, &claim)
+        .await
+        .map_err(|_| BoundedFeatureProgramAssemblyErrorV1::MarketDataUnavailable)?;
+
+    if readback.research_request_identity() != design.research_request_identity
+        || readback.strategy_design_identity() != design_identity
+    {
+        return Err(BoundedFeatureProgramAssemblyErrorV1::MarketDataUnavailable);
+    }
+
+    Ok(derive_bounded_feature_program_proposal_v1(
+        design,
+        catalog,
+        meaning,
+        &VerifiedStrategyInputBindingsV2::from_owner_receipts(readback.bindings()),
+    )?)
 }
