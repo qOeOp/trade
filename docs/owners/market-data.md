@@ -1074,14 +1074,15 @@ default build selects that function - but no run has been seen carrying a Compos
 Bounded Feature Program freeze. The proof above supplies the attestation by writing the Composer rows directly, which a
 test may do and a deployment may not, so the sequence itself stays unwitnessed rather than unbuilt.
 
-**ADMITTED, operator-authorized first attestation:** every later cycle mints its own attestation from a Composer commit,
-and the first has no commit to mint it. One operation closes that and only that: under an operator authorization
-carrying the `market-data.strategy-input-bindings.bootstrap.v1` permission, its own request proof digest and a validity
-window, the R&D Owner mints one role-set attestation for a Design the authorization names. It is refused when an
-attestation already exists for that Design, so it cannot be used twice or to restate a Design a Composer has already
-attested, and it grants nothing else: registration, census, join and issuance stay exactly as they are, and W3 keeps
-admitting only attestations. The bootstrap is an authority for who may create the first one, not an exemption from what
-Market Data does with it.
+**TARGET, and the schema says which shapes are possible:**
+`rd_develop_strategy_design_role_set_attestations_v1` takes `request_identity` as a primary key that references
+`rd_develop_operations_v2`, and requires a unique `operation_receipt_identity`, `artifact_identity` and
+`canonical_plan_digest`. An attestation therefore cannot exist without a Composer operation that produced an artifact.
+Minting one on its own, however it is authorized, would mean inserting an operation row for an artifact nobody built,
+which is the fabrication this seam exists to refuse. So the first cycle cannot be opened by authorizing an attestation;
+it can only be opened by a first Composer operation, and the only production entry to one requires the frozen program
+that the attestation would have made possible. Whichever way out is taken - an entry that admits an operator-authored
+Design directly, or something else - it changes what may start a Composer operation, not what W3 accepts afterwards.
 **NOT_ADMITTED:** caller-proposed Design/role/join fields, receipt/readback/token, receipt hash,
 latest/history/full scans, raw R&D table parsing or Market Data storage do not authenticate Design meaning; Market Data
 does not depend on Strategy Factory, own or reinterpret Strategy Design roles or joins.
