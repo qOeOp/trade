@@ -393,6 +393,23 @@ vector。使较早冻结程序保持诚实的是这项证明，而不是 kernel 
 这是一次有意的取舍。冻结不再钉死产出它的准确 kernel 二进制，其强度恰好等于该版本 golden 语料的覆盖度，而上
 文逐 primitive 的穷举要求已经固定了这一覆盖度。
 
+<a id="declared-expressions-and-what-bounds-them"></a>
+
+##### 声明的表达式，以及什么在约束它
+
+指标不必是 primitive。版本 2 发布一个 fused rational primitive，它的参数是一个声明的表达式：在该节点的两个输入
+与整数常量之上的分子程序与分母程序，全程在 I256 中求值，只做一次最终舍入。Wilder 更新、初始均值与 RSI 收盘是同
+一个形状配不同的程序，因此它们可以是库片段而不是 catalog row，而这样的组合逐系数复现现货 primitive 的值。
+
+这种精确性是由分别舍入的节点组合而成的写法达不到的。每个节点输出都是已舍入的 `FixedI128`，所以用分立算术节点组
+合 Wilder 会舍入三次，而 primitive 只舍一次。把指标逼进 catalog 的是精确性而不是表达力，而声明的表达式把它还
+了回来。
+
+把指标移出 catalog 就是把它移进程序，于是 bound 也跟着移。**Description bound** 约束一个程序被写得多长：node、
+edge、port、input、constant、decision branch 与 fan-out。**Resource bound** 约束它做多少事：fuel、state byte、
+linear memory、每事件调用次数、window 与 lag。组合改变前者而不改变后者，所以只有前者被重新标定，并且依据的是准
+入成本对程序规模的实测而不是猜测。Depth 保持原值：它才是有意义的结构上限，而并排放置的指标并不增加它。
+
 每个 golden 都是规范 `BoundedFeatureGoldenVectorV1` binary bytes：magic `BFGV` `[u8; 4]`、schema
 `u16 = 1`、reserved-zero `u16`、ASCII vector semantic ID 与 primitive semantic ID（各自编码为
 `u16 length || bytes`）、rounding tag `u8`（`0 = none`、`1 = TowardZero`、
