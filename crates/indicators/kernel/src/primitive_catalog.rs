@@ -11,7 +11,7 @@ use crate::{
 
 const DOMAIN: &[u8] = b"bfp.primitive-catalog.v1\0";
 const HEADER: &[u8; 12] = b"BFPC\x01\0\0\0\x01\0\0\0";
-const SOURCES: [(&str, &[u8]); 16] = [
+const SOURCES: [(&str, &[u8]); 17] = [
     ("Cargo.toml", include_bytes!("../Cargo.toml")),
     ("catalog_contract.rs", include_bytes!("catalog_contract.rs")),
     ("catalog_rows.rs", include_bytes!("catalog_rows.rs")),
@@ -21,6 +21,10 @@ const SOURCES: [(&str, &[u8]); 16] = [
     ("fixed_rsi_state.rs", include_bytes!("fixed_rsi_state.rs")),
     ("fixed_state.rs", include_bytes!("fixed_state.rs")),
     ("fixed_window.rs", include_bytes!("fixed_window.rs")),
+    (
+        "fused_rational_v1.rs",
+        include_bytes!("fused_rational_v1.rs"),
+    ),
     ("golden_corpus.rs", include_bytes!("golden_corpus.rs")),
     ("golden_execution.rs", include_bytes!("golden_execution.rs")),
     ("golden_vector.rs", include_bytes!("golden_vector.rs")),
