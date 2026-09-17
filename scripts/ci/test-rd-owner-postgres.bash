@@ -90,6 +90,14 @@ readonly rd_owner_postgres_tests=(
   'vibe-operator-authorization|vibe_operator_authorization|postgres::tests::portfolio_resource_grant_issue_read_replay_successor_revoke_restart_acl_and_expiry'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::exact_stale_cut_blocks_every_artifact_transition_without_writes'
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::postgres_v2_resolve_uses_exclusive_owner_validity_cut'
+  'vibe-strategy-factory|vibe_strategy_factory|schema_materialization::tests::readback_accepts_only_declared_exact_acl_topologies'
+  'vibe-strategy-factory|vibe_strategy_factory|repair_action::runtime_kernel_native_request::postgres::tests::migration_materializes_private_runtime_kernel_request_custody'
+  'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::stored_attempt_catalog_is_exactly_classifiable_without_writes'
+  'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::opaque_legacy_success_is_classified_but_never_promoted'
+  'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::exact_origin_terminal_legacy_is_read_only_and_nonterminal_blocks_activation'
+  'vibe-strategy-factory|source_intake|postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_rejects_mismatches'
+  'vibe-strategy-factory|develop_composer_postgres_v2|transaction_bound_read_uses_the_borrowed_backend_locks_and_writes_nothing'
+  'vibe-strategy-factory|develop_composer_postgres_v2|transaction_bound_read_rejects_wrong_owner_acl_and_stale_custody'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -116,8 +124,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 74 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all seventy-four ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 82 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all eighty-two ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -186,7 +194,15 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[70]}" != *'|postgres::tests::portfolio_resource_grant_issue_read_replay_successor_revoke_restart_acl_and_expiry' ]] ||
     [[ "${rd_owner_postgres_tests[71]}" != *'|artifact_build_postgres::postgres_freshness_tests::exact_stale_cut_blocks_every_artifact_transition_without_writes' ]] ||
     [[ "${rd_owner_postgres_tests[72]}" != *'|product_edge_postgres::tests::postgres_v2_resolve_uses_exclusive_owner_validity_cut' ]] ||
-    [[ "${rd_owner_postgres_tests[73]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[73]}" != *'|schema_materialization::tests::readback_accepts_only_declared_exact_acl_topologies' ]] ||
+    [[ "${rd_owner_postgres_tests[74]}" != *'|repair_action::runtime_kernel_native_request::postgres::tests::migration_materializes_private_runtime_kernel_request_custody' ]] ||
+    [[ "${rd_owner_postgres_tests[75]}" != *'|artifact_build_postgres::postgres_freshness_tests::stored_attempt_catalog_is_exactly_classifiable_without_writes' ]] ||
+    [[ "${rd_owner_postgres_tests[76]}" != *'|artifact_build_postgres::postgres_freshness_tests::opaque_legacy_success_is_classified_but_never_promoted' ]] ||
+    [[ "${rd_owner_postgres_tests[77]}" != *'|artifact_build_postgres::postgres_freshness_tests::exact_origin_terminal_legacy_is_read_only_and_nonterminal_blocks_activation' ]] ||
+    [[ "${rd_owner_postgres_tests[78]}" != *'|postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_rejects_mismatches' ]] ||
+    [[ "${rd_owner_postgres_tests[79]}" != *'|transaction_bound_read_uses_the_borrowed_backend_locks_and_writes_nothing' ]] ||
+    [[ "${rd_owner_postgres_tests[80]}" != *'|transaction_bound_read_rejects_wrong_owner_acl_and_stale_custody' ]] ||
+    [[ "${rd_owner_postgres_tests[81]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -289,8 +305,8 @@ for line in array_body.splitlines():
     if len(fields) != 3 or any(not field for field in fields):
         raise SystemExit("ERROR: ordered PostgreSQL test literal must contain three fields.")
     entries.append(tuple(fields))
-if len(entries) != 74:
-    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain seventy-four entries.")
+if len(entries) != 82:
+    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain eighty-two entries.")
 if sum(test_name == poison_test for _, _, test_name in entries) != 1:
     raise SystemExit(
         "ERROR: recovery-sidecar poison test must occur exactly once as a parsed test name."
