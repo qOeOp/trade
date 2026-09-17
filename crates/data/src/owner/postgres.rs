@@ -9658,9 +9658,16 @@ pub(super) async fn source_binding_admission_from_environment_v1()
     if url.is_empty() || url.trim() != url {
         return Err(SourceBindingAdmissionErrorV1::StoreUnavailable);
     }
-    let owner = MarketDataOwnerPostgres::connect(&url)
-        .await
-        .map_err(|_| SourceBindingAdmissionErrorV1::StoreUnavailable)?;
+    let owner = MarketDataOwnerPostgres::connect(&url).await.map_err(|e| {
+        // Opening the store runs its migration, and every statement in there reports the same
+        // unavailable value. Without this the caller cannot tell a missing URL from a refused
+        // grant, which is the difference between a configuration mistake and a real defect.
+        super::storage_diagnostic::refused_by_store(
+            "source_binding_admission.environment.connect",
+            &e,
+        );
+        SourceBindingAdmissionErrorV1::StoreUnavailable
+    })?;
     Ok(std::sync::Arc::new(SourceBindingAdmissionPostgresV1 {
         owner,
     }))
