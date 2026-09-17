@@ -39,9 +39,13 @@ fn capsule() -> UntrustedDevelopPluginCapsuleV2 {
 }
 
 #[rstest]
+// Every admitted host, so that admitting one and never building on it cannot pass unnoticed. This
+// is also the only test that verifies a host's frozen target sysroot digest, because that check
+// runs inside the build rather than beside it.
 #[cfg(any(
     all(target_os = "macos", target_arch = "aarch64"),
-    all(target_os = "linux", target_arch = "aarch64")
+    all(target_os = "linux", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64")
 ))]
 fn real_bounded_plugin_builds_twice_and_exact_replay_joins() {
     let capsule = capsule();
