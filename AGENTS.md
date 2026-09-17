@@ -53,27 +53,33 @@ unavailable and freezes, rather than treating the step as somebody else's obliga
 non-trivial implementation or delivery, and after switching branch or worktree:
 
 1. fetch `origin/main` and read `codex-skills.lock.json` from that exact ref;
-2. materialize its exact `qOeOp/pareto` commit in an immutable user cache outside this repository;
-3. run that checkout's `node scripts/install-codex.mjs --lock <origin-main-lock> --install-trade-session-hook`,
-   then the same command with `--check`. Pass `--agents-root` to install the pinned Skill into the
-   current agent's own Skill root; the installer verifies content and file mode, so step 2's cache must
+2. materialize its exact `qOeOp/pareto` commit in an immutable user cache outside this repository, as a
+   Git checkout that carries `origin` and `refs/remotes/origin/main`; step 3 verifies the pin against
+   both, so an archive or any other Git-less materialization fails there instead of installing;
+3. run that checkout's
+   `node scripts/install-codex.mjs --host <codex|claude> --lock <origin-main-lock> --install-trade-session-hook`,
+   then the same command with `--check`. The host selects the Skill root, the profile format and
+   directory, and the hook configuration the installer writes; `--agents-root` and `--host-root`
+   override those defaults. The installer verifies content and file mode, so step 2's cache must
    actually be immutable or `--check` reports a Skill mismatch for every agent;
 4. after hook content changes, review the exact installed user `SessionStart` command in the current
-   agent's own hook configuration and trust only that command. The installer currently provides this
-   session-hook trust step for Codex only; for an agent without it, record the step as unavailable;
+   agent's own hook configuration - `~/.codex/hooks.json` for Codex, `~/.claude/settings.json` for
+   Claude Code - and trust only that command. The command names the host it was installed for. An
+   agent host the pinned installer does not support records this step as unavailable;
 5. freeze implementation and delivery if the pin, install, hook trust, or check is unavailable or
    mismatched. A red `--check` freezes every agent equally. Proceeding anyway requires the user's
    explicit authorization for that exact delivery, and the unmet step must be named in the handoff.
 
 Normal branches use the latest `origin/main` pin, not their historical copy. A dedicated pin-update PR
 may use its candidate lock only after the referenced commit is merged to `qOeOp/pareto/main`. A branch
-that still tracks `.agents/` or `.codex/` is outdated and must absorb the migration from main before
-further work. This migration cannot retroactively govern a worktree that has not absorbed it; treat
-such a worktree as unsafe rather than loading its repository-local Skill.
+that still tracks `.agents/`, `.codex/`, or `.claude/` Skill or profile sources is outdated and must
+absorb the migration from main before further work. This migration cannot retroactively govern a
+worktree that has not absorbed it; treat such a worktree as unsafe rather than loading its
+repository-local Skill.
 
 Do not edit installed copies or add repository-local Skill/profile sources. Skill, profile, installer,
 and eval changes go to `qOeOp/pareto` first; after merge, update only this repository's pin. The
-project keeps `.agents/` and `.codex/` ignored.
+project keeps `.agents/`, `.codex/`, and `.claude/` ignored.
 
 After bootstrap, non-trivial implementation or delivery must use `$run-bounded-mission`. Answer-only,
 explain/audit/diagnose-only, mechanical edits, routine status, and task management do not auto-trigger
