@@ -3,7 +3,14 @@
 #[path = "pit_probe.rs"]
 pub mod pit_probe;
 
-use std::{fmt::Debug, fs, num::NonZeroU64, path::PathBuf, str::FromStr, sync::Arc};
+use std::{
+    fmt::Debug,
+    fs,
+    num::NonZeroU64,
+    path::PathBuf,
+    str::FromStr,
+    sync::{Arc, atomic::AtomicU64},
+};
 
 use ahash::AHashMap;
 use databento::{
@@ -46,6 +53,13 @@ pub struct DatabentoHistoricalClient {
     use_exchange_as_venue: bool,
     historical_api_endpoint: String,
     pit_probe_transport: PitProbeTransport,
+    /// Provider spend already admitted through this client, in nano-USD.
+    ///
+    /// The probe's cost ceiling is a rough budget rather than a per-attempt allowance: every
+    /// attempt draws from this one total, so a loop cannot spend the ceiling once per iteration.
+    /// It is deliberately coarse - clones share it, a new client starts at zero, and nothing is
+    /// persisted - because the point is to bound a runaway rather than to account for spend.
+    pit_probe_spent_nano_usd: Arc<AtomicU64>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -184,6 +198,7 @@ impl DatabentoHistoricalClient {
             use_exchange_as_venue,
             historical_api_endpoint,
             pit_probe_transport,
+            pit_probe_spent_nano_usd: Arc::new(AtomicU64::new(0)),
         })
     }
 
@@ -1068,6 +1083,11 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires explicit local DATABENTO_API_KEY read-only probe authority"]
     async fn live_bounded_pit_probe_stops_on_cost_or_returns_authentic_evidence() {
+        // One second of this dataset quotes near two hundredths of a cent, so this ceiling is
+        // three orders of magnitude of headroom and still far below any weekly allowance. It is a
+        // running total for this client, not an allowance per attempt.
+        const PROBE_MAX_COST_USD: f64 = 0.05;
+
         let api_key = std::env::var("DATABENTO_API_KEY")
             .expect("DATABENTO_API_KEY is required for the explicitly invoked live probe");
         let client = DatabentoHistoricalClient::new(
@@ -1080,7 +1100,7 @@ mod tests {
         let start = UnixNanos::from(1_704_205_800_000_000_000_u64);
         let end = UnixNanos::from(start.as_u64() + 1_000_000_000);
         let result = client
-            .attempt_bounded_pit_probe(start, end, [0xA5; 32])
+            .attempt_bounded_pit_probe_within_cost(start, end, [0xA5; 32], PROBE_MAX_COST_USD)
             .await;
 
         match result {
@@ -1090,14 +1110,31 @@ mod tests {
                     crate::pit_probe::PIT_PROBE_DATASET
                 );
                 assert_eq!(evidence.receipt().range(), (start.as_u64(), end.as_u64()));
-                assert_eq!(evidence.untrusted_bbo_cost_usd(), 0.0);
-                assert_eq!(evidence.untrusted_definition_cost_usd(), 0.0);
+
+                // The download happened, so the quote is what the provider charged rather than
+                // zero. Both schemas drew from one running total, so each is at most the ceiling.
+                let bbo = evidence.untrusted_bbo_cost_usd();
+                let definition = evidence.untrusted_definition_cost_usd();
+                println!(
+                    "live PIT probe downloaded: bbo {bbo} USD, definition {definition} USD, \
+                     ceiling {PROBE_MAX_COST_USD} USD"
+                );
+
+                for cost in [bbo, definition] {
+                    assert!(
+                        cost.is_finite() && (0.0..=PROBE_MAX_COST_USD).contains(&cost),
+                        "a downloaded schema cost {cost} USD, outside the authorized ceiling"
+                    );
+                }
             }
-            // The safe terminal. `pit_probe` refuses with the measured cost, so match the
-            // refusal rather than a price that differs on every run.
+            // The other safe terminal: the provider quoted above the ceiling and nothing was
+            // downloaded. Match the refusal rather than a price that differs on every run.
             Err(e)
                 if e.to_string().contains("above the admitted")
-                    && e.to_string().contains("ceiling") => {}
+                    && e.to_string().contains("ceiling") =>
+            {
+                println!("live PIT probe stopped on cost without downloading: {e}");
+            }
             Err(e) => panic!("bounded live PIT probe failed before a safe terminal: {e}"),
         }
     }
