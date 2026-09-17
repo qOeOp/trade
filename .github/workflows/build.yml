@@ -582,9 +582,25 @@ jobs:
           rust-cache-save-if: ${{ github.event_name == 'push' }}
           rust-cache-workspace-crates: "true"
 
-      - name: Limit Cargo build jobs on GitHub-hosted runners
+      # A GitHub-hosted `ubuntu-22.04` runner on a public repository has 4 vCPUs and 16 GB, and
+      # this job is the whole gate's critical path: run 35184756502 spent 23m43s compiling and
+      # then 1165s running 26353 tests, 2988s in all, while every other job finished within 21
+      # minutes. Both halves were pinned to half the machine -- `CARGO_BUILD_JOBS=2` arrived
+      # undocumented with #201 and the profile's `test-threads = 2` came in with the #180 naming
+      # baseline, inherited rather than measured. The tests are uniformly small (26353 of them
+      # averaging 88ms, one single `slow`), so the second pair of cores has nothing to do.
+      # `NEXTEST_TEST_THREADS` is set here rather than in `.config/nextest.toml` so the Postgres
+      # chain jobs, `dst.yml` and `performance.yml`, which share the `ci` profile, keep the
+      # parallelism they were verified at. The `serial-tests` and `large-data-tests` groups still
+      # hold their members to one thread.
+      - name: Use the whole runner for the critical-path job
         if: runner.environment == 'github-hosted'
-        run: echo "CARGO_BUILD_JOBS=2" >> "$GITHUB_ENV"
+        run: |
+          set -euo pipefail
+          {
+            echo "CARGO_BUILD_JOBS=4"
+            echo "NEXTEST_TEST_THREADS=4"
+          } >> "$GITHUB_ENV"
 
       - name: Install Vibe CLI
         env:
