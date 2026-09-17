@@ -103,12 +103,15 @@ sample coordinate, build provenance, Host proposal identity, lifecycle transitio
 trading effect.
 
 **CURRENT_PARTIAL - R&D joint freeze write path:** the R&D Owner now carries a durable PostgreSQL
-composition root and one authenticated route, `POST /v1/bounded-feature-programs/freeze`. It admits a
-declared `StrategyDesignV2` and `BoundedFeatureProgramProposalV1` against currently accepted Research
-custody and the pinned primitive catalog, writes exactly one joint-freeze row with its outbox event, and
-answers a changed meaning for the same Research identity with a conflict. The same root also reads that
-frozen pair back and lowers it, so a frozen program now yields canonical first-party ABI3 source through a
-production path rather than only inside sealed acceptance.
+composition root and three authenticated routes,
+`POST /v1/bounded-feature-programs/{declare,freeze,lower}`. `declare` is the proposer's route: it takes
+a Design and the program's meaning, derives everything a proposer cannot know from that Design, the
+pinned catalog and the Owner's own binding custody, and freezes the result in the transaction those
+binding row locks were taken in. `freeze` takes an already assembled pair instead. Both admit the pair
+against currently accepted Research custody and the pinned primitive catalog, write exactly one
+joint-freeze row with its outbox event, and answer a changed meaning for the same Research identity
+with a conflict. `lower` reads that frozen pair back and lowers it, so a frozen program now yields
+canonical first-party ABI3 source through a production path rather than only inside sealed acceptance.
 
 **CURRENT_PARTIAL - lowered source is not an executable:** the lowering carries no build receipt, no Wasm,
 no Artifact and no qualification meaning. It proves only that the frozen program, the pinned

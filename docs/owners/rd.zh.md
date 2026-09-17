@@ -89,11 +89,13 @@ bytes/digest。R&D 拥有这些冻结的 Research/Design/program 含义；它不
 coordinate、build provenance、Host proposal identity、lifecycle transition、Backtest result、raw order 或
 trading effect。
 
-**CURRENT_PARTIAL - R&D 联合冻结写入路径：** R&D Owner 现在具备持久 PostgreSQL 组合根与一条带鉴权的路由
-`POST /v1/bounded-feature-programs/freeze`。它对照当前已接纳的 Research custody 与钉定的 primitive catalog
-接纳被声明的 `StrategyDesignV2` 与 `BoundedFeatureProgramProposalV1`，恰好写入一行联合冻结及其 outbox
-event，并对同一 Research identity 的不同含义以 conflict 回应。同一个组合根还会把这份冻结对读回并降级，
-因此被冻结的 program 现在经由生产路径产出规范的第一方 ABI3 源码，而不再只存在于 sealed 验收内部。
+**CURRENT_PARTIAL - R&D 联合冻结写入路径：** R&D Owner 现在具备持久 PostgreSQL 组合根与三条带鉴权的路由
+`POST /v1/bounded-feature-programs/{declare,freeze,lower}`。`declare` 是提案者的路由：它接收 Design 与
+program 的含义，从该 Design、钉定的 catalog 与 Owner 自己的 binding custody 推导出提案者无从知晓的一切，
+并在取得这些 binding 行锁的同一个事务内冻结结果。`freeze` 则接收已经组装好的一对。两者都对照当前已接纳的
+Research custody 与钉定的 primitive catalog 接纳这一对，恰好写入一行联合冻结及其 outbox event，并对同一
+Research identity 的不同含义以 conflict 回应。`lower` 把这份冻结对读回并降级，因此被冻结的 program 现在
+经由生产路径产出规范的第一方 ABI3 源码，而不再只存在于 sealed 验收内部。
 
 **CURRENT_PARTIAL - 降级出的源码不是可执行物：** 该降级不带 build receipt、不带 Wasm、不带 Artifact，
 也不带任何 qualification 含义。它只证明冻结 program、钉定的 `vibe-indicators-kernel` catalog
