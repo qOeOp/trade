@@ -1021,8 +1021,11 @@ positive path；Market Data 随后独立解析自身 registry、census、join、
 发布，其 admission 在两个 principal 均已配置时组合，而部署文件要求每次运行都提供它们。写入路径由
 `postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_market_transaction_overlap` 驱动：
 它把 terminal 绑定到 Owner 自己已提交的 PIT request 而非 caller 的 claim，在重新 admission 时重新汇合，
-并拒绝未经 attest 的 locator。**TARGET：** 该 attestation 的生产来源。尚未观察到任何 Composer operation 铸造它；
-上述证明是直接写入 Composer 行来提供的，测试可以这样做，部署不可以。
+并拒绝未经 attest 的 locator。**TARGET：** 一次被观察到的端到端序列。每一环都已存在且无门控：生产 Composer 的
+commit function 在与 operation、receipts、outbox 同一个事务里写入 role-set attestation，默认构建选中的正是该
+function；但尚未见到任何一次运行把 Composer commit 经 W3 registration 带到 Bounded Feature Program freeze。
+上述证明是直接写入 Composer 行来提供 attestation 的，测试可以这样做，部署不可以，所以缺的是这个序列**未被见证**，
+而不是它未被建造。
 **NOT_ADMITTED：** caller-proposed Design/role/join 字段、receipt/readback/token、receipt
 hash、latest/history/full scan、raw R&D table parsing 或 Market Data storage 都不能认证 Design meaning；Market
 Data 不依赖 Strategy Factory，不拥有也不重新解释 Strategy Design role/join。

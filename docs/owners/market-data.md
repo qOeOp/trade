@@ -1068,8 +1068,11 @@ unconditionally in the deployed binary, and its admission is composed whenever b
 deployment file requires of every run. The write path is exercised by
 `postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_market_transaction_overlap`, which binds the
 terminal to the Owner's own committed PIT request rather than a caller's claim, rejoins on re-admission and refuses an
-unattested locator. **TARGET:** the attestation's production origin. No Composer operation has been observed minting one;
-the proof above supplies it by writing the Composer rows directly, which a test may do and a deployment may not.
+unattested locator. **TARGET:** an observed end-to-end sequence. Every link exists ungated - the production Composer's
+commit function writes the role-set attestation in the same transaction as its operation, receipts and outbox, and the
+default build selects that function - but no run has been seen carrying a Composer commit through W3 registration into a
+Bounded Feature Program freeze. The proof above supplies the attestation by writing the Composer rows directly, which a
+test may do and a deployment may not, so the sequence itself stays unwitnessed rather than unbuilt.
 **NOT_ADMITTED:** caller-proposed Design/role/join fields, receipt/readback/token, receipt hash,
 latest/history/full scans, raw R&D table parsing or Market Data storage do not authenticate Design meaning; Market Data
 does not depend on Strategy Factory, own or reinterpret Strategy Design roles or joins.
