@@ -10,6 +10,16 @@ on:
   push:
     branches: [main]
 
+# A CodeQL analysis of this repository runs for over two hours, and `main` is squash-merged in
+# sequence, so a merge that lands while one is still scanning has already superseded it. Without
+# a group every push started an analysis of its own: the nine merges of 2026-09-17 09:34-09:38
+# each queued a full scan, and the runner budget they held is what the next pull request's gate
+# waits for. Keep the newest tip's analysis and let it replace the ones it supersedes; the tip is
+# the commit whose alerts anyone reads.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   ready-gate:
     name: codeql-ready-gate
