@@ -53,7 +53,9 @@ unavailable and freezes, rather than treating the step as somebody else's obliga
 non-trivial implementation or delivery, and after switching branch or worktree:
 
 1. fetch `origin/main` and read `codex-skills.lock.json` from that exact ref;
-2. materialize its exact `qOeOp/pareto` commit in an immutable user cache outside this repository;
+2. materialize its exact `qOeOp/pareto` commit in an immutable user cache outside this repository, as a
+   Git checkout that carries `origin` and `refs/remotes/origin/main`; step 3 verifies the pin against
+   both, so an archive or any other Git-less materialization fails there instead of installing;
 3. run that checkout's
    `node scripts/install-codex.mjs --host <codex|claude> --lock <origin-main-lock> --install-trade-session-hook`,
    then the same command with `--check`. The host selects the Skill root, the profile format and
