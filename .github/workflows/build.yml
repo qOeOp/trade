@@ -326,11 +326,15 @@ jobs:
           free-disk-space: "true"
           free-disk-space-max-build: ${{ runner.environment == 'github-hosted' && 'true' || 'false' }}
           rust-cache-enabled: ${{ runner.environment == 'github-hosted' && 'true' || 'false' }}
+          # rust-cache already folds `rustc -vV`, every CARGO_/RUST_ variable, the toolchain file
+          # and the Cargo manifests and lockfile into the key it computes, so this input only has
+          # to name what that key cannot see. It used to hash this workflow and the setup action
+          # as well, which decide nothing about the compiled artifacts, so every CI edit threw the
+          # whole entry away. `pyproject.toml` stays because maturin reads the profile and feature
+          # selection from it and rust-cache does not read that file.
           rust-cache-key: >-
             python-wheel-py${{ matrix.python-version }}-${{ env.MATURIN_PROFILE }}-
-            ${{ hashFiles('.github/workflows/build.yml',
-            '.github/actions/common-setup/action.yml', 'Cargo.lock',
-            'rust-toolchain.toml', 'python/pyproject.toml') }}
+            ${{ hashFiles('python/pyproject.toml') }}
           rust-cache-workspaces: . -> target/py${{ matrix.python-version }}
           rust-cache-on-failure: "false"
           rust-cache-save-if: ${{ github.event_name == 'push' }}
@@ -452,15 +456,16 @@ jobs:
           free-disk-space: "true"
           free-disk-space-max-build: ${{ runner.environment == 'github-hosted' && 'true' || 'false' }}
           rust-cache-enabled: ${{ runner.environment == 'github-hosted' && 'true' || 'false' }}
-          # Doctests select a narrower feature set than `rust tests`, so the crates that differ
-          # still rebuild here. The third-party dependency graph does not differ, and that is what
-          # a cold build spends its time on, so this shares the `rust tests` cache identity and
-          # restores only rather than keeping a second multi-GB copy of an equivalent directory.
-          rust-cache-key: >-
-            rust-tests-linux-x86-${{ env.CARGO_CI_PROFILE }}-
-            ${{ hashFiles('.github/workflows/build.yml',
-            '.github/actions/common-setup/action.yml', 'Cargo.lock',
-            'rust-toolchain.toml', '.config/nextest.toml', 'Makefile') }}
+          # This names the shared target directory and nothing else. rust-cache derives the rest
+          # of the key itself -- `rustc -vV`, every CARGO_/RUST_ variable, the toolchain file, the
+          # Cargo manifests and the lockfile -- and appends `GITHUB_JOB`, so a cache entry is
+          # always scoped to one job whatever this string says. Naming compile inputs here can
+          # therefore only lose entries, never share them: the earlier value also hashed this
+          # workflow, the setup action, the nextest config and the Makefile, so an edit to a
+          # trigger or a make target invalidated every Rust entry at once. On 2026-09-17 seven
+          # main commits did that, four of them CI changes, and each cold run then pushed a fresh
+          # multi-GB entry that evicted the rest of the 10 GB quota. Optimising CI made CI slower.
+          rust-cache-key: rust-tests-linux-x86
           rust-cache-workspaces: . -> target/rust-tests-linux-x86
           rust-cache-on-failure: "false"
           rust-cache-save-if: "false"
@@ -567,11 +572,7 @@ jobs:
             || github.event_name == 'push'
             && (github.ref_name == 'main' || github.ref_name == 'test-ci'))
             && 'true' || 'false' }}
-          rust-cache-key: >-
-            rust-tests-linux-x86-${{ env.CARGO_CI_PROFILE }}-
-            ${{ hashFiles('.github/workflows/build.yml',
-            '.github/actions/common-setup/action.yml', 'Cargo.lock',
-            'rust-toolchain.toml', '.config/nextest.toml', 'Makefile') }}
+          rust-cache-key: rust-tests-linux-x86
           rust-cache-workspaces: . -> target/rust-tests-linux-x86
           rust-cache-on-failure: "false"
           rust-cache-save-if: ${{ github.event_name == 'push' }}
@@ -694,17 +695,14 @@ jobs:
             && (github.ref_name == 'main' || github.ref_name == 'test-ci'))
             && 'true' || 'false' }}
           # These chains build a different selection from `rust tests` -- five packages under the
-          # sealed Owner features rather than the whole workspace -- but into the same target
-          # directory and on top of largely the same third-party dependency graph, which is what a
-          # cold build actually spends its time on. They therefore share its cache identity and
-          # restore only, instead of storing a second and third copy of one directory. A repository
-          # only gets 10 GB of Actions cache, and those copies evicted every other entry, which is
-          # why every run started from a cold `serde_core` rebuild.
-          rust-cache-key: >-
-            rust-tests-linux-x86-${{ env.CARGO_CI_PROFILE }}-
-            ${{ hashFiles('.github/workflows/build.yml',
-            '.github/actions/common-setup/action.yml', 'Cargo.lock',
-            'rust-toolchain.toml', '.config/nextest.toml', 'Makefile') }}
+          # sealed Owner features rather than the whole workspace -- into the same target
+          # directory. Writing `rust tests`'s key here was meant to share its entry; it cannot,
+          # because rust-cache appends `GITHUB_JOB` to whatever this string is, and run
+          # 35184756502 duly logged `No cache found.` for this job. The string is kept as the
+          # directory's name, and the job keeps `save-if: "false"` so it does not spend the 10 GB
+          # quota on a third copy of one directory. Sharing needs rust-cache's `shared-key`, which
+          # is not wired through `common-setup` yet.
+          rust-cache-key: rust-tests-linux-x86
           rust-cache-workspaces: . -> target/rust-tests-linux-x86
           rust-cache-on-failure: "false"
           rust-cache-save-if: "false"
