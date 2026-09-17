@@ -17,8 +17,9 @@ use axum::{
 };
 use serde_json::json;
 use vibe_strategy_factory::rd_bounded_feature_program_postgres_v1::{
-    PostgresResearchBoundedFeatureProgramOwnerV1, ResearchBoundedFeatureProgramFreezeReceiptV1,
-    ResearchBoundedFeatureProgramFreezeRequestV1, ResearchBoundedFeatureProgramOwnerErrorV1,
+    PostgresResearchBoundedFeatureProgramOwnerV1, ResearchBoundedFeatureProgramDeclarationV1,
+    ResearchBoundedFeatureProgramFreezeReceiptV1, ResearchBoundedFeatureProgramFreezeRequestV1,
+    ResearchBoundedFeatureProgramOwnerErrorV1,
 };
 
 use super::{authorized, insert_rejection_code};
@@ -28,6 +29,14 @@ trait ResearchBoundedFeatureProgramPort: Send + Sync {
     async fn freeze(
         &self,
         request: ResearchBoundedFeatureProgramFreezeRequestV1,
+    ) -> Result<
+        ResearchBoundedFeatureProgramFreezeReceiptV1,
+        ResearchBoundedFeatureProgramOwnerErrorV1,
+    >;
+
+    async fn declare(
+        &self,
+        declaration: ResearchBoundedFeatureProgramDeclarationV1,
     ) -> Result<
         ResearchBoundedFeatureProgramFreezeReceiptV1,
         ResearchBoundedFeatureProgramOwnerErrorV1,
@@ -44,6 +53,16 @@ impl ResearchBoundedFeatureProgramPort for PostgresResearchBoundedFeatureProgram
         ResearchBoundedFeatureProgramOwnerErrorV1,
     > {
         Self::freeze(self, request).await
+    }
+
+    async fn declare(
+        &self,
+        declaration: ResearchBoundedFeatureProgramDeclarationV1,
+    ) -> Result<
+        ResearchBoundedFeatureProgramFreezeReceiptV1,
+        ResearchBoundedFeatureProgramOwnerErrorV1,
+    > {
+        Self::declare(self, declaration).await
     }
 }
 
@@ -68,6 +87,10 @@ fn bounded_feature_program_router(
         .route(
             "/v1/bounded-feature-programs/freeze",
             post(freeze_bounded_feature_program),
+        )
+        .route(
+            "/v1/bounded-feature-programs/declare",
+            post(declare_bounded_feature_program),
         )
         .with_state(BoundedFeatureProgramApiState {
             owner,
@@ -106,6 +129,39 @@ async fn freeze_bounded_feature_program(
     }
 }
 
+/// Meaning-only entry. The caller declares a Design and program meaning; the Owner derives every
+/// identity, digest and binding receipt itself and freezes the result in one transaction.
+async fn declare_bounded_feature_program(
+    State(state): State<BoundedFeatureProgramApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            "unbound",
+        );
+    }
+    let declaration: ResearchBoundedFeatureProgramDeclarationV1 =
+        match serde_json::from_slice(&body) {
+            Ok(declaration) => declaration,
+            Err(_) => {
+                return rejection(
+                    StatusCode::BAD_REQUEST,
+                    "MALFORMED_TYPED_REQUEST",
+                    "unbound",
+                );
+            }
+        };
+    let research_request_locator = declaration.research_request_locator.clone();
+
+    match state.owner.declare(declaration).await {
+        Ok(receipt) => (StatusCode::OK, Json(receipt)).into_response(),
+        Err(e) => owner_error(&e, &research_request_locator),
+    }
+}
+
 fn owner_error(
     error: &ResearchBoundedFeatureProgramOwnerErrorV1,
     research_request_locator: &str,
@@ -133,6 +189,10 @@ fn owner_error(
         ResearchBoundedFeatureProgramOwnerErrorV1::Conflict => {
             (StatusCode::CONFLICT, "JOINT_FREEZE_CHANGED_MEANING")
         }
+        ResearchBoundedFeatureProgramOwnerErrorV1::Assembly(_) => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "DECLARED_MEANING_DOES_NOT_ASSEMBLE",
+        ),
     };
     rejection(status, code, research_request_locator)
 }

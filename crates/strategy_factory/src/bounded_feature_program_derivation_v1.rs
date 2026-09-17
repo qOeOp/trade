@@ -545,10 +545,6 @@ pub enum BoundedFeatureProgramAssemblyErrorV1 {
 ///
 /// Returns [`BoundedFeatureProgramAssemblyErrorV1::MarketDataUnavailable`] when the coordinate, the
 /// claim or the readback does not resolve or does not agree, and the derivation error otherwise.
-#[allow(
-    dead_code,
-    reason = "assembly awaits the R&D Owner freeze route that will hand it declared meaning"
-)]
 pub(crate) async fn assemble_declared_bounded_feature_program_v1(
     transaction: &mut Transaction<'_, Postgres>,
     design: &StrategyDesignV2,

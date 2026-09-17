@@ -19,6 +19,10 @@ use vibe_data::owner::source_binding::BindingDigest;
 use vibe_indicators_kernel::PrimitiveCatalogV1;
 
 use crate::{
+    bounded_feature_program_derivation_v1::{
+        BoundedFeatureProgramAssemblyErrorV1, BoundedFeatureProgramMeaningV1,
+        assemble_declared_bounded_feature_program_v1,
+    },
     bounded_feature_program_v1::BoundedFeatureProgramProposalV1,
     rd_bounded_feature_program_v1::{
         FrozenResearchBoundedFeatureProgramV1, ResearchBoundedFeatureProgramFreezeErrorV1,
@@ -37,6 +41,21 @@ pub struct ResearchBoundedFeatureProgramFreezeRequestV1 {
     pub design: StrategyDesignV2,
     /// Declared canonical Bounded Feature Program. The Owner verifies it against the pinned catalog.
     pub proposal: BoundedFeatureProgramProposalV1,
+}
+
+/// One declared Design and program meaning, from which the Owner assembles and freezes.
+///
+/// A proposer sends meaning, never identities or receipts. Everything the proposal needs beyond
+/// meaning is derived from this Design, the pinned catalog and the Owner's own binding custody.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResearchBoundedFeatureProgramDeclarationV1 {
+    /// Research request or successor Research intent locator that owns this freeze.
+    pub research_request_locator: String,
+    /// Declared canonical Design. The Owner admits it only against current Research custody.
+    pub design: StrategyDesignV2,
+    /// Declared program meaning: the typed graph and what only a proposer can decide.
+    pub meaning: BoundedFeatureProgramMeaningV1,
 }
 
 /// Positive freeze projection.
@@ -87,6 +106,9 @@ pub enum ResearchBoundedFeatureProgramOwnerErrorV1 {
     /// The declared program is outside the admitted Bounded Feature Program meaning.
     #[error("the declared Bounded Feature Program is unsupported")]
     Program,
+    /// Declared meaning does not fit the Design, or Owner binding custody did not answer.
+    #[error("declared meaning does not assemble against Owner custody: {0}")]
+    Assembly(String),
     /// R&D Owner joint-freeze custody is unavailable.
     #[error("R&D Owner joint-freeze custody is unavailable")]
     Unavailable,
@@ -192,6 +214,82 @@ impl PostgresResearchBoundedFeatureProgramOwnerV1 {
             }
         }
     }
+
+    /// Assembles declared meaning against live Owner custody and freezes the result.
+    ///
+    /// Assembly and the freeze share one transaction. The custody readback assembly performs takes
+    /// row locks at a cut, and freezing against a different cut would seal a program whose binding
+    /// receipts were never proven at the moment it was sealed.
+    ///
+    /// A proposer sends meaning only. The identities, digests, catalog identity, SDK digest,
+    /// manifest-fixed bounds and static binding receipts are all derived here, so a proposer cannot
+    /// declare one and cannot disagree with the Design it names.
+    ///
+    /// # Errors
+    ///
+    /// Returns the assembly reason when declared meaning does not fit the Design or Owner binding
+    /// custody does not answer, and the freeze reason otherwise.
+    pub async fn declare(
+        &self,
+        declaration: ResearchBoundedFeatureProgramDeclarationV1,
+    ) -> Result<
+        ResearchBoundedFeatureProgramFreezeReceiptV1,
+        ResearchBoundedFeatureProgramOwnerErrorV1,
+    > {
+        let catalog = PrimitiveCatalogV1::verify()
+            .map_err(|_| ResearchBoundedFeatureProgramOwnerErrorV1::Catalog)?;
+        let read_cut_epoch_ms = (self.clock)();
+        let committed_at_epoch_ms = (self.clock)().max(read_cut_epoch_ms);
+        let mut transaction = self.pool.begin().await?;
+
+        let assembled = Box::pin(assemble_declared_bounded_feature_program_v1(
+            &mut transaction,
+            &declaration.design,
+            catalog,
+            &declaration.meaning,
+        ))
+        .await;
+        let proposal = match assembled {
+            Ok(proposal) => proposal,
+            Err(e) => {
+                transaction.rollback().await?;
+                return Err(assembly_error(&e));
+            }
+        };
+
+        let committed = Box::pin(commit_research_bounded_feature_program_in_transaction_v1(
+            &mut transaction,
+            &declaration.research_request_locator,
+            read_cut_epoch_ms,
+            committed_at_epoch_ms,
+            &declaration.design,
+            proposal,
+            catalog,
+        ))
+        .await;
+
+        match committed {
+            Ok(frozen) => {
+                transaction.commit().await?;
+                Ok(receipt(&frozen, committed_at_epoch_ms))
+            }
+            Err(e) => {
+                transaction.rollback().await?;
+                Err(owner_error(&e))
+            }
+        }
+    }
+}
+
+/// Carries why assembly refused, without widening what the refusal grants.
+///
+/// The reasons name a shape mismatch between declared meaning and a Design the caller already
+/// holds, or say that Owner custody did not answer. Neither discloses custody, and discarding them
+/// would leave a caller unable to tell a malformed declaration from an unavailable Owner.
+fn assembly_error(
+    error: &BoundedFeatureProgramAssemblyErrorV1,
+) -> ResearchBoundedFeatureProgramOwnerErrorV1 {
+    ResearchBoundedFeatureProgramOwnerErrorV1::Assembly(error.to_string())
 }
 
 fn receipt(
