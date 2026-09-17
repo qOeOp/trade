@@ -1027,13 +1027,15 @@ function；但尚未见到任何一次运行把 Composer commit 经 W3 registrat
 上述证明是直接写入 Composer 行来提供 attestation 的，测试可以这样做，部署不可以，所以缺的是这个序列未被见证，
 而不是它未被建造。
 
-**ADMITTED，operator 授权的首份 attestation：** 此后每一圈都由一次 Composer 提交铸造自己的 attestation，
-唯独第一圈没有可供铸造的提交。有且只有一个操作补上这一点：在一份携带
-`market-data.strategy-input-bindings.bootstrap.v1` 权限、自身 request proof digest 与有效期窗口的 operator
-authorization 之下，R&D Owner 为该 authorization 指名的一份 Design 铸造一份 role-set attestation。
-当该 Design 已存在 attestation 时该操作被拒绝，因此它无法被使用两次，也无法用来重述某个 Composer 已经
-attest 过的 Design；它不授予其他任何东西：registration、census、join 与 issuance 全部保持原样，W3 仍然只接纳
-attestation。这条引导是"谁有资格创建第一份"的授权，不是对"Market Data 拿它做什么"的豁免。
+**TARGET，而且 schema 已经限定了可能的形状：**
+`rd_develop_strategy_design_role_set_attestations_v1` 以 `request_identity` 为主键并引用
+`rd_develop_operations_v2`，同时要求 `operation_receipt_identity`、`artifact_identity` 与
+`canonical_plan_digest` 各自唯一。因此一份 attestation 不可能脱离"产出了 artifact 的 Composer 操作"而存在。
+无论用什么授权去单独铸造它，都意味着为一件无人构建的 artifact 插入一行 operation，而那正是这条 seam 存在
+所要拒绝的伪造。所以第一圈无法靠授权一份 attestation 打开；它只能靠第一次 Composer 操作打开，
+而通往 Composer 操作的唯一生产入口，需要的恰是那份 attestation 本该使之成为可能的冻结程序。
+无论最终选择哪条出路（一个直接接纳 operator 撰写的 Design 的入口，或别的方案），它改变的都是
+"什么可以启动一次 Composer 操作"，而不是"W3 此后接纳什么"。
 **NOT_ADMITTED：** caller-proposed Design/role/join 字段、receipt/readback/token、receipt
 hash、latest/history/full scan、raw R&D table parsing 或 Market Data storage 都不能认证 Design meaning；Market
 Data 不依赖 Strategy Factory，不拥有也不重新解释 Strategy Design role/join。
