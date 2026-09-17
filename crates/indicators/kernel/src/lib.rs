@@ -9,6 +9,7 @@ mod fixed_i128;
 mod fixed_rsi_state;
 mod fixed_state;
 mod fixed_window;
+mod fused_rational_v1;
 mod golden_corpus;
 mod golden_execution;
 mod golden_vector;
@@ -39,6 +40,10 @@ pub use fixed_state::{
 };
 pub use fixed_window::{
     FixedWindowFunction, FixedWindowOutput, FixedWindowState, FixedWindowUpdate,
+};
+pub use fused_rational_v1::{
+    FUSED_RATIONAL_STACK_DEPTH_V1, FusedRationalFailureV1, FusedRationalStepV1,
+    evaluate_fused_rational_v1,
 };
 pub use golden_execution::{GoldenVerificationFailure, verify_required_golden_corpus_v1};
 pub use golden_vector::{
