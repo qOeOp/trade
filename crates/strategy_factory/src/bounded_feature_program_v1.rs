@@ -721,14 +721,14 @@ fn validate_bounds(
         || proposal.constants.len() > usize::from(b.max_constants)
         || proposal.state_cells.len() > usize::from(b.max_state_cells)
         || proposal.proposal_decision_table.branches.len() > usize::from(b.max_decision_branches)
-        || proposal.nodes.len() > 64
-        || proposal.inputs.len() > 64
-        || proposal.constants.len() > 64
-        || b.max_decision_branches > 64
-        || b.max_edges > 512
-        || b.max_ports > 512
+        || proposal.nodes.len() > 1_024
+        || proposal.inputs.len() > 256
+        || proposal.constants.len() > 256
+        || b.max_decision_branches > 256
+        || b.max_edges > 4_096
+        || b.max_ports > 4_096
         || b.max_depth > 64
-        || b.max_fan_out > 64
+        || b.max_fan_out > 1_024
         || b.max_lag > 65_535
         || b.max_window > 65_536
         || b.max_state_bytes > 1_048_576
@@ -1764,6 +1764,28 @@ fn validate_parameters(
                     (Some(expected), Some(actual)) => actual.kernel() == expected,
                     _ => false,
                 }
+        }
+        (
+            CatalogParameterRuleV1::FusedRationalProgram,
+            BoundedFeatureParametersV1::FusedRational {
+                numerator,
+                denominator,
+                quotient_scale,
+                output_scale,
+                output_unit,
+                rounding,
+            },
+        ) => {
+            // Both programs must decode to a balanced expression here, so one that does not parse is
+            // refused at admission rather than at evaluation.
+            let mut steps = [vibe_indicators_kernel::FusedRationalStepV1::Add;
+                vibe_indicators_kernel::MAX_FUSED_PROGRAM_STEPS_V1];
+            *quotient_scale <= 38
+                && *output_scale <= 38
+                && !output_unit.is_empty()
+                && rounding_matches(*rounding)
+                && vibe_indicators_kernel::decode_fused_program_v1(numerator, &mut steps).is_ok()
+                && vibe_indicators_kernel::decode_fused_program_v1(denominator, &mut steps).is_ok()
         }
         _ => false,
     };
@@ -4275,6 +4297,147 @@ pub(crate) mod tests {
         assert_eq!(
             parse_bounded_feature_program_v1(&bytes, &design),
             Err(BoundedFeatureProgramErrorV1::Identity)
+        );
+    }
+
+    /// Builds a valid program of roughly `count` fused nodes as a balanced reduction tree.
+    ///
+    /// A tree rather than a chain, because a chain is maximally deep and real programs are not:
+    /// indicators sit beside each other, so width is what a node ceiling has to admit while depth
+    /// stays small. Every node consumes the level below it, which is what makes the tree
+    /// admissible - an unconsumed output is refused.
+    fn wide_fused_program(count: usize) -> (StrategyDesignV2, BoundedFeatureProgramProposalV1) {
+        let (design, mut proposal) = candidate();
+        let mut next_id = 0_usize;
+        let mut level: Vec<BoundedFeatureValueRefV1> = (0..count.div_ceil(2))
+            .map(|_| BoundedFeatureValueRefV1::InputValue {
+                input_role_id: INPUT.into(),
+            })
+            .collect();
+
+        let push = |proposal: &mut BoundedFeatureProgramProposalV1,
+                    next_id: &mut usize,
+                    a: BoundedFeatureValueRefV1,
+                    b: BoundedFeatureValueRefV1| {
+            let node_id = std::format!("fused-{next_id}");
+            *next_id += 1;
+            proposal.nodes.push(BoundedFeatureNodeV1 {
+                node_id: node_id.clone(),
+                primitive_semantic_id:
+                    "bfp.fused-rational.two-input.i256-single-round.toward-zero.v1".into(),
+                input_bindings: vec![
+                    BoundedFeatureInputBindingV1 {
+                        port_id: "a".into(),
+                        source: a,
+                        require_ready: false,
+                    },
+                    BoundedFeatureInputBindingV1 {
+                        port_id: "b".into(),
+                        source: b,
+                        require_ready: false,
+                    },
+                ],
+                output_ports: vec![BoundedFeatureOutputPortV1 {
+                    port_id: "value".into(),
+                    value_type: BoundedFeatureValueTypeV1::FixedI128 {
+                        unit: "PRICE".into(),
+                        scale: 2,
+                    },
+                    availability: BoundedFeatureAvailabilityV1::Ready,
+                }],
+                parameters: BoundedFeatureParametersV1::FusedRational {
+                    numerator: std::vec![1_u8, 0],
+                    denominator: {
+                        let mut bytes = std::vec![2_u8];
+                        bytes.extend_from_slice(&1_i128.to_le_bytes());
+                        bytes
+                    },
+                    quotient_scale: 2,
+                    output_scale: 2,
+                    output_unit: "PRICE".into(),
+                    rounding: BoundedFeatureRoundingV1::TowardZero,
+                },
+                state_id: None,
+                update_clock: None,
+            });
+            BoundedFeatureValueRefV1::NodeOutput {
+                node_id,
+                port_id: "value".into(),
+            }
+        };
+
+        while level.len() > 1 {
+            let mut above = Vec::new();
+
+            for pair in level.chunks(2) {
+                let a = pair[0].clone();
+                let b = pair.get(1).cloned().unwrap_or_else(|| a.clone());
+                above.push(push(&mut proposal, &mut next_id, a, b));
+            }
+            level = above;
+        }
+        let root = level.pop().unwrap_or(BoundedFeatureValueRefV1::InputValue {
+            input_role_id: INPUT.into(),
+        });
+
+        let compare = proposal
+            .nodes
+            .iter_mut()
+            .find(|node| node.node_id == "compare")
+            .expect("fixture compare");
+        let value = compare
+            .input_bindings
+            .iter_mut()
+            .find(|binding| binding.port_id == "a")
+            .expect("compare value input");
+        value.source = root;
+
+        let total = u16::try_from(proposal.nodes.len()).expect("node count fits");
+        proposal.bounds.max_nodes = total;
+        proposal.bounds.max_edges = 4_096;
+        proposal.bounds.max_ports = 4_096;
+        proposal.bounds.max_fan_out = 1_024;
+        proposal.bounds.max_depth = 64;
+        proposal.catalog_semantic_version = 2;
+        proposal.catalog_digest = BindingDigest::from_untrusted_bytes(
+            PrimitiveCatalogV1::resolve(2).unwrap().semantic_digest(),
+        );
+        (design, proposal)
+    }
+
+    /// Reports admission cost against program size, so a node ceiling can be chosen from a
+    /// measurement rather than from a guess.
+    #[rstest::rstest]
+    #[ignore = "measurement: reports admission cost against program size"]
+    fn measure_admission_cost_by_program_size() {
+        use std::time::Instant;
+
+        for count in [64_usize, 256, 1_024, 2_048] {
+            let (design, proposal) = wide_fused_program(count);
+            let nodes = proposal.nodes.len();
+            let edges = proposal.bounds.max_edges;
+            let started = Instant::now();
+            let prepared = prepare_bounded_feature_program_v1(proposal, &design);
+            let elapsed = started.elapsed();
+
+            std::println!(
+                "nodes={nodes:>5} max_edges={edges:>6} prepare={elapsed:>10.3?} ok={}",
+                prepared.is_ok()
+            );
+            assert!(prepared.is_ok(), "{nodes}-node tree must prepare");
+        }
+    }
+
+    #[rstest::rstest]
+    fn a_tree_of_declared_expressions_is_admissible() {
+        let (design, proposal) = wide_fused_program(8);
+        let nodes = proposal.nodes.len();
+
+        let outcome = prepare_bounded_feature_program_v1(proposal, &design);
+        assert!(
+            outcome.is_ok(),
+            "a {nodes}-node tree must prepare; it was refused as {:?}",
+            outcome.err()
         );
     }
 
