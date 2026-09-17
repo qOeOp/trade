@@ -554,12 +554,18 @@ fn emit_program_source(
     source.push_str(EXECUTABLE_RUNTIME_SOURCE);
 
     let names = ValueNames::new(program)?;
-    emit_input_decode(&mut source, program, manifest, &names)?;
-    emit_constants(&mut source, program, &names)?;
-    emit_state_initialization(&mut source, canonical, program, &names)?;
-    emit_nodes(&mut source, program, &names)?;
-    emit_state_bundle(&mut source, canonical, program, &names)?;
-    emit_output_frame(&mut source, program, manifest, &names)?;
+    // The body is generated first so the decode above it can tell which decoded values this
+    // program actually reads. A frame carries a port for every declared input whether or not the
+    // program's nodes read it, and a lowering that bound every one of them would emit a name
+    // nothing uses, which the guest's own warning gate refuses to compile.
+    let mut body = String::new();
+    emit_constants(&mut body, program, &names)?;
+    emit_state_initialization(&mut body, canonical, program, &names)?;
+    emit_nodes(&mut body, program, &names)?;
+    emit_state_bundle(&mut body, canonical, program, &names)?;
+    emit_output_frame(&mut body, program, manifest, &names)?;
+    emit_input_decode(&mut source, program, manifest, &names, &body)?;
+    source.push_str(&body);
     source.push_str("}\n\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]\npub extern \"C\" fn strategy_factory_plugin_input_ptr_v2() -> i32 { INPUT.as_ptr().cast::<u8>() as usize as i32 }\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]\npub extern \"C\" fn strategy_factory_plugin_input_capacity_v2() -> i32 { INPUT_CAPACITY as i32 }\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]\npub extern \"C\" fn strategy_factory_plugin_output_ptr_v2() -> i32 { OUTPUT.as_ptr().cast::<u8>() as usize as i32 }\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]\npub extern \"C\" fn strategy_factory_plugin_output_capacity_v2() -> i32 { OUTPUT_CAPACITY as i32 }\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]\npub extern \"C\" fn strategy_factory_plugin_invoke_v2(input_len: i32) -> i32 {\n    if input_len < 0 { return -2; }\n    match run(input_len as usize) { Ok(len) => i32::try_from(len).unwrap_or(-2), Err(Failure::Numeric) => -1, Err(Failure::Unsupported) => -2 }\n}\n");
     Ok(source.into_bytes())
 }
@@ -918,11 +924,17 @@ fn push_array_literal(source: &mut String, bytes: &[u8]) {
     source.push(']');
 }
 
+/// Decodes every port the frame carries, and binds only the values the program goes on to read.
+///
+/// Every port is still read and still validated in declaration order, because the frame is one
+/// canonical layout and skipping a port would misread the next one. What varies is whether the
+/// decoded datum is given a name: an input a program declares but never reads has no use for one.
 fn emit_input_decode(
     source: &mut String,
     program: &BoundedFeatureProgramProposalV1,
     manifest: &PluginManifestV2,
     names: &ValueNames,
+    body: &str,
 ) -> Result<(), BoundedFeatureLoweringErrorV1> {
     source.push_str("    let mut reader = Reader::new(input_len)?;\n    reader.header(");
     push_bytes_literal(source, program.plugin_manifest_digest.as_bytes());
@@ -951,7 +963,8 @@ fn emit_input_decode(
                     "    let {name}_bytes = reader.entry::<16>({ordinal}u16, 4)?;"
                 )
                 .unwrap();
-                writeln!(source, "    let {name} = Datum::fixed(numeric(FixedI128::new(i128::from_le_bytes({name}_bytes), {}u8))?);", input.scale).unwrap();
+                let binding = read_binding_name(name, body);
+                writeln!(source, "    let {binding} = Datum::fixed(numeric(FixedI128::new(i128::from_le_bytes({name}_bytes), {}u8))?);", input.scale).unwrap();
             }
             (None, Some(input), ValueTypeV2::Bytes, 308) => {
                 let name = names.name(&BoundedFeatureValueRefV1::InputCoordinate {
@@ -962,13 +975,22 @@ fn emit_input_decode(
                     "    let {name}_bytes = reader.entry::<308>({ordinal}u16, 5)?;"
                 )
                 .unwrap();
-                writeln!(source, "    let {name} = Datum::raw(&{name}_bytes)?;").unwrap();
+                let binding = read_binding_name(name, body);
+                writeln!(source, "    let {binding} = Datum::raw(&{name}_bytes)?;").unwrap();
             }
             _ => return Err(BoundedFeatureLoweringErrorV1::Program),
         }
     }
     source.push_str("    let mut pre_state = [0u8; STATE_BYTES];\n    let pre_empty = reader.state(&mut pre_state)?;\n    reader.finish()?;\n");
     Ok(())
+}
+
+/// The name a decoded value is bound to, or `_` when the program's body never reads it.
+///
+/// Binding to `_` keeps the decode and its refusal exactly where they were; it only declines to
+/// name a value nothing asks for.
+fn read_binding_name<'a>(name: &'a str, body: &str) -> &'a str {
+    if body.contains(name) { name } else { "_" }
 }
 
 fn emit_constants(
@@ -2625,6 +2647,78 @@ mod tests {
         );
         assert_eq!(output.state.bytes(), &[1]);
         assert_eq!(output.values[0].bytes(), b"kernel.position.enter.v1");
+    }
+
+    /// No lowered program names a decoded value it never reads.
+    ///
+    /// The guest crate compiles with warnings denied, so a binding nothing reads is not untidy
+    /// there, it is a build failure. That failure only appears once a real toolchain runs, which is
+    /// what the ignored proof below costs a compiler run to do. This one asserts the same property
+    /// from the lowered text alone, on every host, in milliseconds.
+    #[rstest::rstest]
+    fn no_lowered_program_names_a_value_it_never_reads() {
+        use PrimitiveOperationV1 as Op;
+
+        for operation in [
+            Op::Add,
+            Op::Sub,
+            Op::Mul,
+            Op::Div,
+            Op::Rescale,
+            Op::Compare,
+            Op::Select,
+            Op::Body,
+            Op::Range,
+            Op::UpperWick,
+            Op::LowerWick,
+            Op::Fraction,
+            Op::Ema,
+            Op::Wilder,
+            Op::TrueRange,
+            Op::Atr,
+            Op::Gap,
+            Op::Rsi,
+            Op::Lag,
+            Op::Sum,
+            Op::Mean,
+            Op::Minimum,
+            Op::Maximum,
+            Op::SwingHigh,
+            Op::SwingLow,
+        ] {
+            let (design, proposal) = dynamic_operation_candidate(operation);
+            let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
+            let frozen = freeze_research_bounded_feature_program_v1(&custody, &design, proposal)
+                .unwrap_or_else(|error| panic!("{operation:?} joint Owner freeze: {error}"));
+            let lowered = prepare_frozen_bounded_feature_source_inputs_v1(&frozen)
+                .unwrap_or_else(|error| panic!("{operation:?} source lowering: {error}"));
+            let Some((_, program_bytes)) = lowered
+                .source_files()
+                .find(|(path, _)| path.ends_with("program.rs"))
+            else {
+                panic!("{operation:?} lowering emits a program source");
+            };
+            let program = std::str::from_utf8(program_bytes).expect("lowered source is UTF-8");
+
+            for line in program.lines() {
+                let Some(rest) = line.trim_start().strip_prefix("let ") else {
+                    continue;
+                };
+                let name = rest.split(' ').next().unwrap_or_default();
+
+                if !name.starts_with("input_") || name.ends_with("_bytes") {
+                    continue;
+                }
+                // `{name}_bytes` merely carries the same prefix, so those occurrences are not reads
+                // of this binding. One occurrence remains for the binding itself.
+                let reads = program.matches(name).count()
+                    - program.matches(&format!("{name}_bytes")).count();
+                assert!(
+                    reads >= 2,
+                    "{operation:?} lowering binds {name}, which nothing reads"
+                );
+            }
+        }
     }
 
     #[test]
