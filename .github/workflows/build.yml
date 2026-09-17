@@ -646,6 +646,10 @@ jobs:
       - name: Run the toolchain proofs
         # These are `#[ignore]`, so `make cargo-test` never selects them. They need the pinned
         # wasm target this job already installs, or Docker, and no database.
+        #
+        # They report whether or not the step above passed. They share nothing with it, and a proof
+        # that only speaks when its neighbour succeeds is one an unrelated failure can silence.
+        if: ${{ !cancelled() }}
         run: make cargo-test-toolchain-proofs NEXTEST_PROFILE=ci
 
       - name: Report disk space after workspace Rust tests
