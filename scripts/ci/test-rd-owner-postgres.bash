@@ -24,6 +24,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::fresh_rd_owner_migrates_before_qualification_writer_validates'
   'vibe-strategy-factory|develop_composer_owner_v2|durable_owner_is_atomic_restart_exact_and_fail_closed'
   'vibe-data|vibe_data|owner::replay_market_facts_v2::postgres_tests::postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_market_transaction_overlap'
+  'vibe-data|vibe_data|owner::replay_market_facts_v2::postgres_tests::postgres_published_design_role_intent_declares_bindings_without_any_composer_operation'
   'vibe-strategy-factory|source_intake|postgres_source_invocation_lifecycle_is_canonical_once_only_and_acl_sealed'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::same_identity_started_retry_returns_http_ok_with_exact_custody_once'
   'vibe-product-edge|vibe_product_edge|postgres::tests::genesis_admission_claim_cutover_and_revocation_are_canonical'
@@ -126,86 +127,87 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 83 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all eighty-three ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 84 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all eighty-four ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
     [[ "${rd_owner_postgres_tests[1]}" != *'|legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back' ]] ||
     [[ "${rd_owner_postgres_tests[2]}" != *'|origin_current_replay_table_renames_with_exact_v1_v2_read_continuity' ]] ||
     [[ "${rd_owner_postgres_tests[5]}" != *'|owner::replay_market_facts_v2::postgres_tests::postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_market_transaction_overlap' ]] ||
-    [[ "${rd_owner_postgres_tests[9]}" != *'|postgres::tests::expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows' ]] ||
-    [[ "${rd_owner_postgres_tests[11]}" != *'|market_data_owner_sealed_request_port_is_exact_serializable_and_runtime_immutable' ]] ||
-    [[ "${rd_owner_postgres_tests[13]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
-    [[ "${rd_owner_postgres_tests[14]}" != *'|tests::postgres_result_owner_is_atomic_restart_exact_and_rd_locked_read_only' ]] ||
-    [[ "${rd_owner_postgres_tests[15]}" != *'|tests::exploratory_replay_result_http_readback_is_exact_locked_and_rd_read_only' ]] ||
-    [[ "${rd_owner_postgres_tests[16]}" != *'|tests::replay_result_dashboard_read_api_returns_exact_canonical_bytes' ]] ||
-    [[ "${rd_owner_postgres_tests[17]}" != *'|tests::postgres_result_rd_read_rejects_function_source_drift' ]] ||
-    [[ "${rd_owner_postgres_tests[18]}" != *'|tests::postgres_result_rd_read_rejects_owner_api_routine_sibling' ]] ||
-    [[ "${rd_owner_postgres_tests[19]}" != *'|tests::postgres_result_rd_read_rejects_raw_table_acl_drift' ]] ||
-    [[ "${rd_owner_postgres_tests[20]}" != *'|tests::postgres_result_rd_read_rejects_inherited_owner_membership' ]] ||
-    [[ "${rd_owner_postgres_tests[21]}" != *'|tests::postgres_result_rd_read_rejects_owner_attribute_drift' ]] ||
-    [[ "${rd_owner_postgres_tests[22]}" != *'|tests::postgres_result_topology_fence_serializes_managed_acl_drift' ]] ||
-    [[ "${rd_owner_postgres_tests[23]}" != *'|tests::postgres_result_mid_commit_failure_rolls_back_every_aggregate_row' ]] ||
-    [[ "${rd_owner_postgres_tests[24]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
-    [[ "${rd_owner_postgres_tests[25]}" != *'|artifact_build_postgres::postgres_freshness_tests::governance_artifact_membership_readback_is_restart_exact_and_fail_closed' ]] ||
-    [[ "${rd_owner_postgres_tests[26]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::successor_artifact_enters_exploratory_replay_with_exact_owner_custody' ]] ||
-    [[ "${rd_owner_postgres_tests[27]}" != *'|tests::strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody' ]] ||
-    [[ "${rd_owner_postgres_tests[28]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::repair_decision_action_and_market_data_request_commit_retry_resolve_and_rejection_are_atomic' ]] ||
-    [[ "${rd_owner_postgres_tests[29]}" != *'|replay_execution_profile_binding_v1::tests::verified_owner_readback_mints_provenance_and_wrong_coordinates_fail' ]] ||
-    [[ "${rd_owner_postgres_tests[30]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]] ||
-    [[ "${rd_owner_postgres_tests[31]}" != *'|atomic_exact_replay_restart_tamper_and_acl_fail_closed' ]] ||
-    [[ "${rd_owner_postgres_tests[32]}" != *'|program_host_bar_joined_cut_postgres_acceptance_tests::owner_postgres_v4_moves_through_program_host_and_real_backtest' ]] ||
-    [[ "${rd_owner_postgres_tests[33]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::iteration_analysis_postgres_acceptance_tests::analysis_request_completion_resolve_restart_and_tamper_are_atomic' ]] ||
-    [[ "${rd_owner_postgres_tests[34]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic' ]] ||
-    [[ "${rd_owner_postgres_tests[35]}" != *'|postgres::postgres_tests::protected_replay_request_is_atomic_retry_exact_and_backtest_sealed' ]] ||
-    [[ "${rd_owner_postgres_tests[36]}" != *'|tests::postgres_protected_result_is_atomic_request_bound_and_qualification_sealed' ]] ||
-    [[ "${rd_owner_postgres_tests[37]}" != *'|postgres::postgres_tests::negative_protected_attempt_closure_is_atomic_retry_exact_and_eligibility_absent' ]] ||
-    [[ "${rd_owner_postgres_tests[38]}" != *'|postgres::postgres_tests::diagnostic_protected_attempt_closure_is_atomic_and_creates_no_assessment_or_eligibility' ]] ||
-    [[ "${rd_owner_postgres_tests[39]}" != *'|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed' ]] ||
-    [[ "${rd_owner_postgres_tests[40]}" != *'|product_edge_postgres::tests::declared_bounded_feature_program_assembles_from_owner_custody_and_freezes' ]] ||
-    [[ "${rd_owner_postgres_tests[41]}" != *'|postgres_migration_materializes_only_private_binary_authority' ]] ||
-    [[ "${rd_owner_postgres_tests[42]}" != *'|sealed_read_port_is_restart_exact_fail_closed_and_query_only' ]] ||
-    [[ "${rd_owner_postgres_tests[43]}" != *'|iteration_result_admission_postgres::tests::a_committed_admission_is_read_back_by_its_locator_and_never_created_by_one' ]] ||
-    [[ "${rd_owner_postgres_tests[44]}" != *'|iteration_result_admission_postgres::tests::a_retry_reads_the_committed_admission_back_and_a_changed_request_conflicts' ]] ||
-    [[ "${rd_owner_postgres_tests[45]}" != *'|iteration_result_admission_postgres::tests::a_locator_from_another_experiment_never_reads_this_admission_back' ]] ||
-    [[ "${rd_owner_postgres_tests[46]}" != *'|iteration_result_admission_postgres::tests::row_scalar_storage_or_outbox_tamper_closes_the_readback' ]] ||
-    [[ "${rd_owner_postgres_tests[47]}" != *'|iteration_result_admission_postgres::tests::a_malformed_request_never_reaches_owner_custody' ]] ||
-    [[ "${rd_owner_postgres_tests[48]}" != *'|trial_family_postgres::postgres_binding_tests::every_relational_scalar_is_bound_and_rollback_restores_exact_readback' ]] ||
-    [[ "${rd_owner_postgres_tests[49]}" != *'|trial_family_postgres::postgres_binding_tests::v2_census_append_restart_readback_and_fail_close_are_atomic' ]] ||
-    [[ "${rd_owner_postgres_tests[50]}" != *'|postgres_owner_persists_one_family_and_replays_without_partial_conflict_writes' ]] ||
-    [[ "${rd_owner_postgres_tests[51]}" != *'|every_v2_semantic_rejection_is_rejection_only_and_replays_exactly' ]] ||
-    [[ "${rd_owner_postgres_tests[52]}" != *'|invalid_successor_cannot_poison_heads_and_verified_lineage_never_skips_corruption' ]] ||
-    [[ "${rd_owner_postgres_tests[53]}" != *'|qualification_basis_cannot_terminalize_after_authority_revocation' ]] ||
-    [[ "${rd_owner_postgres_tests[54]}" != *'|qualification_basis_recovers_under_immediate_policy_equivalent_successor' ]] ||
-    [[ "${rd_owner_postgres_tests[55]}" != *'|committed_basis_cannot_terminalize_after_original_authority_expires' ]] ||
-    [[ "${rd_owner_postgres_tests[56]}" != *'|concurrent_invalid_and_valid_same_scope_serialize_without_invalid_authority' ]] ||
-    [[ "${rd_owner_postgres_tests[57]}" != *'|exhaustive_lineage_waits_for_row_mutation_and_recovers_after_restore' ]] ||
-    [[ "${rd_owner_postgres_tests[58]}" != *'|stored_request_meaning_corruption_is_unavailable_until_exact_restoration' ]] ||
-    [[ "${rd_owner_postgres_tests[59]}" != *'|missing_research_custody_prepares_no_attempt' ]] ||
-    [[ "${rd_owner_postgres_tests[60]}" != *'|research_and_attempt_resolve_share_one_deadlock_free_lock_order' ]] ||
-    [[ "${rd_owner_postgres_tests[61]}" != *'|no_artifact_receipt_mutation_fails_closed_and_exact_restore_replays' ]] ||
-    [[ "${rd_owner_postgres_tests[62]}" != *'|expired_attempt_receipt_is_independently_outcome_unknown' ]] ||
-    [[ "${rd_owner_postgres_tests[63]}" != *'|market_data_repair_resolution_postgres::tests::repaired_readback_is_reverified_inside_successor_transaction' ]] ||
-    [[ "${rd_owner_postgres_tests[64]}" != *'|market_data_repair_resolution_postgres::tests::commit_retry_resolve_conflict_and_tamper_are_atomic' ]] ||
-    [[ "${rd_owner_postgres_tests[65]}" != *'|postgres::tests::postgres_successor_is_append_only_replay_safe_and_preserves_history' ]] ||
-    [[ "${rd_owner_postgres_tests[66]}" != *'|postgres::tests::postgres_history_mutations_fail_closed_and_restore_exactly' ]] ||
-    [[ "${rd_owner_postgres_tests[67]}" != *'|postgres::tests::shared_resolver_blocks_revoke_update_lock' ]] ||
-    [[ "${rd_owner_postgres_tests[68]}" != *'|postgres::tests::select_only_consumer_resolve_serializes_with_revoke' ]] ||
-    [[ "${rd_owner_postgres_tests[69]}" != *'|postgres::tests::portfolio_resource_grant_advisory_lock_serializes_distinct_grants' ]] ||
-    [[ "${rd_owner_postgres_tests[70]}" != *'|postgres::tests::portfolio_resource_grant_issue_read_replay_successor_revoke_restart_acl_and_expiry' ]] ||
-    [[ "${rd_owner_postgres_tests[71]}" != *'|artifact_build_postgres::postgres_freshness_tests::exact_stale_cut_blocks_every_artifact_transition_without_writes' ]] ||
-    [[ "${rd_owner_postgres_tests[72]}" != *'|product_edge_postgres::tests::postgres_v2_resolve_uses_exclusive_owner_validity_cut' ]] ||
-    [[ "${rd_owner_postgres_tests[73]}" != *'|schema_materialization::tests::readback_accepts_only_declared_exact_acl_topologies' ]] ||
-    [[ "${rd_owner_postgres_tests[74]}" != *'|repair_action::runtime_kernel_native_request::postgres::tests::migration_materializes_private_runtime_kernel_request_custody' ]] ||
-    [[ "${rd_owner_postgres_tests[75]}" != *'|artifact_build_postgres::postgres_freshness_tests::stored_attempt_catalog_is_exactly_classifiable_without_writes' ]] ||
-    [[ "${rd_owner_postgres_tests[76]}" != *'|artifact_build_postgres::postgres_freshness_tests::opaque_legacy_success_is_classified_but_never_promoted' ]] ||
-    [[ "${rd_owner_postgres_tests[77]}" != *'|artifact_build_postgres::postgres_freshness_tests::exact_origin_terminal_legacy_is_read_only_and_nonterminal_blocks_activation' ]] ||
-    [[ "${rd_owner_postgres_tests[78]}" != *'|postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_rejects_mismatches' ]] ||
-    [[ "${rd_owner_postgres_tests[79]}" != *'|transaction_bound_read_uses_the_borrowed_backend_locks_and_writes_nothing' ]] ||
-    [[ "${rd_owner_postgres_tests[80]}" != *'|transaction_bound_read_rejects_wrong_owner_acl_and_stale_custody' ]] ||
-    [[ "${rd_owner_postgres_tests[81]}" != *'|product_edge_postgres::tests::frozen_program_runs_the_production_composer_to_a_durable_artifact' ]] ||
-    [[ "${rd_owner_postgres_tests[82]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[6]}" != *'|owner::replay_market_facts_v2::postgres_tests::postgres_published_design_role_intent_declares_bindings_without_any_composer_operation' ]] ||
+    [[ "${rd_owner_postgres_tests[10]}" != *'|postgres::tests::expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows' ]] ||
+    [[ "${rd_owner_postgres_tests[12]}" != *'|market_data_owner_sealed_request_port_is_exact_serializable_and_runtime_immutable' ]] ||
+    [[ "${rd_owner_postgres_tests[14]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
+    [[ "${rd_owner_postgres_tests[15]}" != *'|tests::postgres_result_owner_is_atomic_restart_exact_and_rd_locked_read_only' ]] ||
+    [[ "${rd_owner_postgres_tests[16]}" != *'|tests::exploratory_replay_result_http_readback_is_exact_locked_and_rd_read_only' ]] ||
+    [[ "${rd_owner_postgres_tests[17]}" != *'|tests::replay_result_dashboard_read_api_returns_exact_canonical_bytes' ]] ||
+    [[ "${rd_owner_postgres_tests[18]}" != *'|tests::postgres_result_rd_read_rejects_function_source_drift' ]] ||
+    [[ "${rd_owner_postgres_tests[19]}" != *'|tests::postgres_result_rd_read_rejects_owner_api_routine_sibling' ]] ||
+    [[ "${rd_owner_postgres_tests[20]}" != *'|tests::postgres_result_rd_read_rejects_raw_table_acl_drift' ]] ||
+    [[ "${rd_owner_postgres_tests[21]}" != *'|tests::postgres_result_rd_read_rejects_inherited_owner_membership' ]] ||
+    [[ "${rd_owner_postgres_tests[22]}" != *'|tests::postgres_result_rd_read_rejects_owner_attribute_drift' ]] ||
+    [[ "${rd_owner_postgres_tests[23]}" != *'|tests::postgres_result_topology_fence_serializes_managed_acl_drift' ]] ||
+    [[ "${rd_owner_postgres_tests[24]}" != *'|tests::postgres_result_mid_commit_failure_rolls_back_every_aggregate_row' ]] ||
+    [[ "${rd_owner_postgres_tests[25]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
+    [[ "${rd_owner_postgres_tests[26]}" != *'|artifact_build_postgres::postgres_freshness_tests::governance_artifact_membership_readback_is_restart_exact_and_fail_closed' ]] ||
+    [[ "${rd_owner_postgres_tests[27]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::successor_artifact_enters_exploratory_replay_with_exact_owner_custody' ]] ||
+    [[ "${rd_owner_postgres_tests[28]}" != *'|tests::strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody' ]] ||
+    [[ "${rd_owner_postgres_tests[29]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::repair_decision_action_and_market_data_request_commit_retry_resolve_and_rejection_are_atomic' ]] ||
+    [[ "${rd_owner_postgres_tests[30]}" != *'|replay_execution_profile_binding_v1::tests::verified_owner_readback_mints_provenance_and_wrong_coordinates_fail' ]] ||
+    [[ "${rd_owner_postgres_tests[31]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]] ||
+    [[ "${rd_owner_postgres_tests[32]}" != *'|atomic_exact_replay_restart_tamper_and_acl_fail_closed' ]] ||
+    [[ "${rd_owner_postgres_tests[33]}" != *'|program_host_bar_joined_cut_postgres_acceptance_tests::owner_postgres_v4_moves_through_program_host_and_real_backtest' ]] ||
+    [[ "${rd_owner_postgres_tests[34]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::iteration_analysis_postgres_acceptance_tests::analysis_request_completion_resolve_restart_and_tamper_are_atomic' ]] ||
+    [[ "${rd_owner_postgres_tests[35]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic' ]] ||
+    [[ "${rd_owner_postgres_tests[36]}" != *'|postgres::postgres_tests::protected_replay_request_is_atomic_retry_exact_and_backtest_sealed' ]] ||
+    [[ "${rd_owner_postgres_tests[37]}" != *'|tests::postgres_protected_result_is_atomic_request_bound_and_qualification_sealed' ]] ||
+    [[ "${rd_owner_postgres_tests[38]}" != *'|postgres::postgres_tests::negative_protected_attempt_closure_is_atomic_retry_exact_and_eligibility_absent' ]] ||
+    [[ "${rd_owner_postgres_tests[39]}" != *'|postgres::postgres_tests::diagnostic_protected_attempt_closure_is_atomic_and_creates_no_assessment_or_eligibility' ]] ||
+    [[ "${rd_owner_postgres_tests[40]}" != *'|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed' ]] ||
+    [[ "${rd_owner_postgres_tests[41]}" != *'|product_edge_postgres::tests::declared_bounded_feature_program_assembles_from_owner_custody_and_freezes' ]] ||
+    [[ "${rd_owner_postgres_tests[42]}" != *'|postgres_migration_materializes_only_private_binary_authority' ]] ||
+    [[ "${rd_owner_postgres_tests[43]}" != *'|sealed_read_port_is_restart_exact_fail_closed_and_query_only' ]] ||
+    [[ "${rd_owner_postgres_tests[44]}" != *'|iteration_result_admission_postgres::tests::a_committed_admission_is_read_back_by_its_locator_and_never_created_by_one' ]] ||
+    [[ "${rd_owner_postgres_tests[45]}" != *'|iteration_result_admission_postgres::tests::a_retry_reads_the_committed_admission_back_and_a_changed_request_conflicts' ]] ||
+    [[ "${rd_owner_postgres_tests[46]}" != *'|iteration_result_admission_postgres::tests::a_locator_from_another_experiment_never_reads_this_admission_back' ]] ||
+    [[ "${rd_owner_postgres_tests[47]}" != *'|iteration_result_admission_postgres::tests::row_scalar_storage_or_outbox_tamper_closes_the_readback' ]] ||
+    [[ "${rd_owner_postgres_tests[48]}" != *'|iteration_result_admission_postgres::tests::a_malformed_request_never_reaches_owner_custody' ]] ||
+    [[ "${rd_owner_postgres_tests[49]}" != *'|trial_family_postgres::postgres_binding_tests::every_relational_scalar_is_bound_and_rollback_restores_exact_readback' ]] ||
+    [[ "${rd_owner_postgres_tests[50]}" != *'|trial_family_postgres::postgres_binding_tests::v2_census_append_restart_readback_and_fail_close_are_atomic' ]] ||
+    [[ "${rd_owner_postgres_tests[51]}" != *'|postgres_owner_persists_one_family_and_replays_without_partial_conflict_writes' ]] ||
+    [[ "${rd_owner_postgres_tests[52]}" != *'|every_v2_semantic_rejection_is_rejection_only_and_replays_exactly' ]] ||
+    [[ "${rd_owner_postgres_tests[53]}" != *'|invalid_successor_cannot_poison_heads_and_verified_lineage_never_skips_corruption' ]] ||
+    [[ "${rd_owner_postgres_tests[54]}" != *'|qualification_basis_cannot_terminalize_after_authority_revocation' ]] ||
+    [[ "${rd_owner_postgres_tests[55]}" != *'|qualification_basis_recovers_under_immediate_policy_equivalent_successor' ]] ||
+    [[ "${rd_owner_postgres_tests[56]}" != *'|committed_basis_cannot_terminalize_after_original_authority_expires' ]] ||
+    [[ "${rd_owner_postgres_tests[57]}" != *'|concurrent_invalid_and_valid_same_scope_serialize_without_invalid_authority' ]] ||
+    [[ "${rd_owner_postgres_tests[58]}" != *'|exhaustive_lineage_waits_for_row_mutation_and_recovers_after_restore' ]] ||
+    [[ "${rd_owner_postgres_tests[59]}" != *'|stored_request_meaning_corruption_is_unavailable_until_exact_restoration' ]] ||
+    [[ "${rd_owner_postgres_tests[60]}" != *'|missing_research_custody_prepares_no_attempt' ]] ||
+    [[ "${rd_owner_postgres_tests[61]}" != *'|research_and_attempt_resolve_share_one_deadlock_free_lock_order' ]] ||
+    [[ "${rd_owner_postgres_tests[62]}" != *'|no_artifact_receipt_mutation_fails_closed_and_exact_restore_replays' ]] ||
+    [[ "${rd_owner_postgres_tests[63]}" != *'|expired_attempt_receipt_is_independently_outcome_unknown' ]] ||
+    [[ "${rd_owner_postgres_tests[64]}" != *'|market_data_repair_resolution_postgres::tests::repaired_readback_is_reverified_inside_successor_transaction' ]] ||
+    [[ "${rd_owner_postgres_tests[65]}" != *'|market_data_repair_resolution_postgres::tests::commit_retry_resolve_conflict_and_tamper_are_atomic' ]] ||
+    [[ "${rd_owner_postgres_tests[66]}" != *'|postgres::tests::postgres_successor_is_append_only_replay_safe_and_preserves_history' ]] ||
+    [[ "${rd_owner_postgres_tests[67]}" != *'|postgres::tests::postgres_history_mutations_fail_closed_and_restore_exactly' ]] ||
+    [[ "${rd_owner_postgres_tests[68]}" != *'|postgres::tests::shared_resolver_blocks_revoke_update_lock' ]] ||
+    [[ "${rd_owner_postgres_tests[69]}" != *'|postgres::tests::select_only_consumer_resolve_serializes_with_revoke' ]] ||
+    [[ "${rd_owner_postgres_tests[70]}" != *'|postgres::tests::portfolio_resource_grant_advisory_lock_serializes_distinct_grants' ]] ||
+    [[ "${rd_owner_postgres_tests[71]}" != *'|postgres::tests::portfolio_resource_grant_issue_read_replay_successor_revoke_restart_acl_and_expiry' ]] ||
+    [[ "${rd_owner_postgres_tests[72]}" != *'|artifact_build_postgres::postgres_freshness_tests::exact_stale_cut_blocks_every_artifact_transition_without_writes' ]] ||
+    [[ "${rd_owner_postgres_tests[73]}" != *'|product_edge_postgres::tests::postgres_v2_resolve_uses_exclusive_owner_validity_cut' ]] ||
+    [[ "${rd_owner_postgres_tests[74]}" != *'|schema_materialization::tests::readback_accepts_only_declared_exact_acl_topologies' ]] ||
+    [[ "${rd_owner_postgres_tests[75]}" != *'|repair_action::runtime_kernel_native_request::postgres::tests::migration_materializes_private_runtime_kernel_request_custody' ]] ||
+    [[ "${rd_owner_postgres_tests[76]}" != *'|artifact_build_postgres::postgres_freshness_tests::stored_attempt_catalog_is_exactly_classifiable_without_writes' ]] ||
+    [[ "${rd_owner_postgres_tests[77]}" != *'|artifact_build_postgres::postgres_freshness_tests::opaque_legacy_success_is_classified_but_never_promoted' ]] ||
+    [[ "${rd_owner_postgres_tests[78]}" != *'|artifact_build_postgres::postgres_freshness_tests::exact_origin_terminal_legacy_is_read_only_and_nonterminal_blocks_activation' ]] ||
+    [[ "${rd_owner_postgres_tests[79]}" != *'|postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_rejects_mismatches' ]] ||
+    [[ "${rd_owner_postgres_tests[80]}" != *'|transaction_bound_read_uses_the_borrowed_backend_locks_and_writes_nothing' ]] ||
+    [[ "${rd_owner_postgres_tests[81]}" != *'|transaction_bound_read_rejects_wrong_owner_acl_and_stale_custody' ]] ||
+    [[ "${rd_owner_postgres_tests[82]}" != *'|product_edge_postgres::tests::frozen_program_runs_the_production_composer_to_a_durable_artifact' ]] ||
+    [[ "${rd_owner_postgres_tests[83]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -308,8 +310,8 @@ for line in array_body.splitlines():
     if len(fields) != 3 or any(not field for field in fields):
         raise SystemExit("ERROR: ordered PostgreSQL test literal must contain three fields.")
     entries.append(tuple(fields))
-if len(entries) != 83:
-    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain eighty-three entries.")
+if len(entries) != 84:
+    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain eighty-four entries.")
 if sum(test_name == poison_test for _, _, test_name in entries) != 1:
     raise SystemExit(
         "ERROR: recovery-sidecar poison test must occur exactly once as a parsed test name."
