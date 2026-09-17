@@ -70,6 +70,7 @@ readonly -A unselected_reason=(
   ["regenerate_source_research_composer_sealed_a0_corpus_from_real_producer"]="regenerates a committed corpus or measures cost; asserts no Owner custody"
   ["representative_coordinates_share_read_only_catalog_and_reproduce_fresh"]="frozen external dataset; the chain provisions a database, not a corpus"
   ["sealed_run_and_restarted_resolve_return_the_same_public_receipt"]="needs sealed-source-intake-composer-acceptance, which the chain's archive does not enable"
+  ["two_lowerings_two_builds_and_strict_replay_mint_one_v3_identity"]="builds through the sandbox, which verifies the frozen Linux target sysroot; docs/owners/rd.md holds that freeze until a fresh hosted A0 readback"
   ["stale_artifact_policy_reaches_real_owner_chain_and_cannot_open_risk"]="frozen external dataset; the chain provisions a database, not a corpus"
 )
 
