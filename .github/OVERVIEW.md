@@ -57,6 +57,12 @@ CI/CD, testing, publishing, and automation within the NautilusTrader repository.
   with the current base authority because a same-head title edit can race an earlier status. The
   status must not become required unless repository settings can bind the exact base workflow rather
   than only the shared GitHub Actions integration identity.
+- **pr-cache-cleanup.yml**: deletes the Actions cache entries held by a pull request's own ref once
+  that pull request closes. A repository holds 10 GB of cache in total and this one sits at the
+  limit, so entries the build still needs are evicted by least recent use; a closed ref can never
+  restore its own entries again, and returning that space is what keeps the shared build caches
+  from being evicted between runs. It checks out no code, runs on `pull_request` rather than
+  `pull_request_target`, and touches no ref but the closing pull request's.
 - **docker.yml**: builds and pushes multi‑platform `nautilus_trader` and `jupyterlab` images with
   Buildx and native ARM runners, then signs them with cosign and verifies their SPDX SBOM
   attestations.
