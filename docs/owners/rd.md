@@ -205,6 +205,16 @@ What turns a frozen hypothesis, mechanism and falsification question into an exe
 `StrategyDesignV2` is not a rule this Owner applies but a declaration it admits. The contract below
 states who authors it.
 
+**TARGET - the first cycle has nothing to stand on.** Sealing the corpus run leaves
+`run_bounded_feature_program` as the only production entry, and it requires a frozen joint program.
+Freezing one requires Strategy Input declarations; Market Data registers those only from a Composer
+attestation; and a Composer commit is what mints that attestation. Every later cycle closes on
+itself - a commit's own response carries exactly the locator the registration takes - but the first
+has no origin. This is not a missing component: each link is built and ungated, and sealing the
+corpus path did not create the gap so much as stop concealing it, since that path answered with a
+fixture Design rather than the request's own. Who authors the first admissible declaration is the
+open question, and it is the same one the paragraph above defers to the contract below.
+
 The binding half of that entry is `dynamic`. The isolated R&D Owner PostgreSQL chain declares and
 freezes a six-role BAR program against bindings the Market Data Owner issued through its own
 acceptance basis, then resolves that frozen pair through the same production binding Owner a RUN

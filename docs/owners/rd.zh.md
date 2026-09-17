@@ -179,6 +179,13 @@ Bounded Feature Program，从这对冻结值导出 Composer 请求，按 Market 
 把冻结的 hypothesis、mechanism 与 falsification question 变成可执行 `StrategyDesignV2`
 不是这个 Owner 施加的规则，而是它接纳的一份声明，下面的契约写明这份 Design 由谁撰写。
 
+**TARGET：第一圈无处立足。** 封存语料 run 之后，`run_bounded_feature_program` 成为唯一的生产入口，
+而它需要一份已冻结的 joint program。冻结需要 Strategy Input declaration；Market Data 只从一份
+Composer attestation 注册它们；而铸造该 attestation 的正是一次 Composer 提交。此后每一圈都自洽：
+一次提交的响应恰好带着注册所需的 locator；唯独第一圈没有来源。这不是缺少组件：每一环都已建成且无门控，
+封存语料路径与其说制造了这个缺口，不如说停止了对它的遮蔽，因为那条路径回答的是夹具 Design 而非请求自身的 Design。
+第一份可准入的声明由谁撰写，就是上一段交给下面契约的那同一个问题。
+
 这条入口的绑定那一半是 `dynamic`。隔离 R&D Owner PostgreSQL 链路会针对 Market Data Owner
 经自身验收 basis 签发的绑定，声明并冻结一个六角色 BAR program，再用 RUN 所用的同一个生产
 绑定 Owner 解析该冻结对，并要求每个已声明角色恰好对应一份回执。
