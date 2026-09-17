@@ -5100,6 +5100,9 @@ pub(crate) mod tests {
                 ResearchBoundedFeatureProgramDeclarationV1,
                 ResearchBoundedFeatureProgramOwnerErrorV1,
             },
+            source_research_composer_postgres_v2::{
+                PostgresSourceResearchComposerBindingOwnerV2, SourceResearchComposerBindingOwnerV2,
+            },
             strategy_plan_v2::{StrategyDesignPreparationV2, prepare_strategy_design_v2},
         };
 
@@ -5268,6 +5271,38 @@ pub(crate) mod tests {
                 .iter()
                 .any(|file| file.source.contains("strategy_factory_plugin_invoke_v2"))
         );
+
+        // The production Composer binds a run from this freeze and nothing else. Resolving it here
+        // proves the seam a Composer RUN depends on: the Design inside the frozen pair, read back
+        // against the Strategy Input custody Market Data issued above, with no acceptance fixture
+        // and no caller-supplied receipt in the path.
+        let mut binding_transaction = owner.pool.begin().await.unwrap();
+        let frozen = Box::pin(
+            crate::rd_bounded_feature_program_v1::read_research_bounded_feature_program_in_transaction_v1(
+                &mut binding_transaction,
+                &request_identity,
+                read_cut,
+            ),
+        )
+        .await
+        .expect("the frozen pair reads back for the production Composer");
+        let bindings = PostgresSourceResearchComposerBindingOwnerV2
+            .lock_for_frozen_program(&mut binding_transaction, &frozen, read_cut)
+            .await
+            .expect("the production binding Owner resolves the frozen Design against Market Data");
+        binding_transaction.rollback().await.unwrap();
+
+        assert_eq!(
+            bindings.receipt_digests().len(),
+            input_role_identities.len()
+        );
+
+        for role in input_role_identities {
+            assert!(
+                bindings.receipt_digest_for_role(role).is_some(),
+                "every declared BAR role resolves to exactly one Owner receipt"
+            );
+        }
     }
 
     fn expected_digest_text(digest: BindingDigest) -> String {

@@ -205,10 +205,15 @@ What turns a frozen hypothesis, mechanism and falsification question into an exe
 `StrategyDesignV2` is not a rule this Owner applies but a declaration it admits. The contract below
 states who authors it.
 
-**TARGET:** the isolated PostgreSQL acceptance for this production entry, deployed Owner readiness,
-and restart recovery across processes. The composition is assembled and statically checked; no
-disposable-PostgreSQL run has yet exercised it end to end, so its maturity is `declared`, not
-`dynamic`.
+The binding half of that entry is `dynamic`. The isolated R&D Owner PostgreSQL chain declares and
+freezes a six-role BAR program against bindings the Market Data Owner issued through its own
+acceptance basis, then resolves that frozen pair through the same production binding Owner a RUN
+uses and requires exactly one receipt per declared role.
+
+**TARGET:** the RUN acceptance itself - two byte-identical builds of the lowered source, the tagged
+V3 receipt, and the single-transaction commit of every positive Composer fact - plus deployed Owner
+readiness and restart recovery across processes. No disposable-PostgreSQL run has yet carried this
+entry past its bindings, so the RUN stays `declared`.
 
 ### CURRENT_PARTIAL - who authors a Strategy Design
 
