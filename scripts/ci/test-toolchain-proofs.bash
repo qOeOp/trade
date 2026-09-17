@@ -43,7 +43,13 @@ readonly aarch64_wasm_proofs=(
 
 # Seals and reseals a caller-edited project through `docker buildx`. Its exemption named Docker as
 # the obstacle; every job that provisions Docker already has buildx, and the proof takes sixteen
-# seconds, so the obstacle was never real.
+# seconds, so the obstacle was never real. The real one is the architecture: the sealed project's
+# image is built for the host profile the repository admits, and #612 withdrew the x86_64 Linux
+# build host. On an x86_64 runner its toolchain stage cannot execute at all, measured as
+#   #9 [toolchain 2/2] RUN rustup target add wasm32v1-none
+#   #9 0.109 exec /bin/sh: exec format error
+#   #9 ERROR: process "/bin/sh -c rustup target add wasm32v1-none" did not complete successfully: exit code: 255
+# which is the host reporting that the image is for another machine, not the proof failing.
 readonly docker_seal_proof='materially_different_external_project_is_artifact_only_and_exactly_recoverable'
 
 selected_proofs=("${portable_wasm_proofs[@]}")
@@ -74,16 +80,21 @@ for proof in "${selected_proofs[@]}"; do
   fi
 done
 
-echo "--- $docker_seal_proof"
-if ! cargo nextest run \
-  --locked \
-  --package vibe-strategy-factory \
-  --test product_skeleton \
-  --profile "$nextest_profile" \
-  --run-ignored ignored-only \
-  --fail-fast \
-  -E "test(=${docker_seal_proof})"; then
-  refused+=("$docker_seal_proof")
+if [[ "$(uname -m)" == "arm64" || "$(uname -m)" == "aarch64" ]]; then
+  echo "--- $docker_seal_proof"
+  if ! cargo nextest run \
+    --locked \
+    --package vibe-strategy-factory \
+    --test product_skeleton \
+    --profile "$nextest_profile" \
+    --run-ignored ignored-only \
+    --fail-fast \
+    -E "test(=${docker_seal_proof})"; then
+    refused+=("$docker_seal_proof")
+  fi
+else
+  echo "Host is $(uname -m): skipping the Docker seal proof, whose image is built for the"
+  echo "withdrawn x86_64 build host and cannot execute its toolchain stage here."
 fi
 
 if [ "${#refused[@]}" -gt 0 ]; then
