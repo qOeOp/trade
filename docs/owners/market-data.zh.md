@@ -1014,13 +1014,18 @@ Owner-driven Strategy Factory/Backtest consumption 的前置条件；它不是 p
 前必须取得 authenticated complete role set。它校验请求的 Design、Research request、派生 role identity、每项
 semantic coordinate 及准确完整的 role coverage。observation-census seam 同样要求未改变的 V1 join claim 在
 complete-census/latest-not-after selection 前准确重复一个 authenticated join。既有 V1 request、binding、
-receipt bytes 与准确 legacy recovery 均保持不变。**TARGET：** W3 只通过 R&D-owned、same-Composer-transaction
+receipt bytes 与准确 legacy recovery 均保持不变。**CURRENT/PARTIAL：** W3 只通过 R&D-owned、same-Composer-transaction
 durable attestation 的准确 locator DB-ACL read function 接纳该 attestation，并让这条 seam 成为唯一可达的
 positive path；Market Data 随后独立解析自身 registry、census、join、V4 sample、R0 与 Market Semantics authority，
-再原子签发 binding。**NOT_ADMITTED：** caller-proposed Design/role/join 字段、receipt/readback/token、receipt
+再原子签发 binding。该 resolver 已注册而非仅在计划中：`/v1/market-data/strategy-input-bindings` 无条件随部署二进制
+发布，其 admission 在两个 principal 均已配置时组合，而部署文件要求每次运行都提供它们。写入路径由
+`postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_market_transaction_overlap` 驱动：
+它把 terminal 绑定到 Owner 自己已提交的 PIT request 而非 caller 的 claim，在重新 admission 时重新汇合，
+并拒绝未经 attest 的 locator。**TARGET：** 该 attestation 的生产来源。尚未观察到任何 Composer operation 铸造它；
+上述证明是直接写入 Composer 行来提供的，测试可以这样做，部署不可以。
+**NOT_ADMITTED：** caller-proposed Design/role/join 字段、receipt/readback/token、receipt
 hash、latest/history/full scan、raw R&D table parsing 或 Market Data storage 都不能认证 Design meaning；Market
-Data 不依赖 Strategy Factory，不拥有也不重新解释 Strategy Design role/join，且该 foundation 不声称 registered
-W3 resolver 或 production write。
+Data 不依赖 Strategy Factory，不拥有也不重新解释 Strategy Design role/join。
 
 Market Data 只消费、但不定义也不重新解释 R&D Owner contract 中明确规定的 big-endian canonical binary
 codec；其 JSON 表示不是 canonical receipt material。registration 必须通过固定 R&D adapter 取得

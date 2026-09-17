@@ -1060,13 +1060,19 @@ authenticated complete role set before it accepts the unchanged V1 request. It v
 Research request, derived role identity and every semantic coordinate, plus exact complete role coverage. The
 observation-census seam likewise verifies that the unchanged V1 join claim exactly repeats one authenticated join
 before complete-census/latest-not-after selection. Existing V1 request, binding and receipt bytes and exact legacy
-recovery stay unchanged. **TARGET:** W3 admits only the R&D-owned, same-Composer-transaction durable attestation through
-its exact-locator DB-ACL read function and makes that seam the only reachable positive path; Market Data then
-independently resolves its registry, census, join, V4 sample, R0 and Market Semantics authorities before atomic binding
-issuance. **NOT_ADMITTED:** caller-proposed Design/role/join fields, receipt/readback/token, receipt hash,
+recovery stay unchanged. **CURRENT/PARTIAL:** W3 admits only the R&D-owned, same-Composer-transaction durable
+attestation through its exact-locator DB-ACL read function and makes that seam the only reachable positive path; Market
+Data then independently resolves its registry, census, join, V4 sample, R0 and Market Semantics authorities before
+atomic binding issuance. The resolver is registered rather than planned: `/v1/market-data/strategy-input-bindings` ships
+unconditionally in the deployed binary, and its admission is composed whenever both principals are configured, which the
+deployment file requires of every run. The write path is exercised by
+`postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_market_transaction_overlap`, which binds the
+terminal to the Owner's own committed PIT request rather than a caller's claim, rejoins on re-admission and refuses an
+unattested locator. **TARGET:** the attestation's production origin. No Composer operation has been observed minting one;
+the proof above supplies it by writing the Composer rows directly, which a test may do and a deployment may not.
+**NOT_ADMITTED:** caller-proposed Design/role/join fields, receipt/readback/token, receipt hash,
 latest/history/full scans, raw R&D table parsing or Market Data storage do not authenticate Design meaning; Market Data
-does not depend on Strategy Factory, own or reinterpret Strategy Design roles or joins, and this foundation claims no
-registered W3 resolver or production write.
+does not depend on Strategy Factory, own or reinterpret Strategy Design roles or joins.
 
 Market Data consumes, but does not define or reinterpret, the explicit big-endian R&D canonical binary codec
 specified in the R&D Owner contract. Its JSON representation is not canonical receipt material. Registration
