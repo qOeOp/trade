@@ -255,7 +255,9 @@ pub(crate) fn derive_bounded_feature_program_proposal_v1(
         // semantic version, so a proposal that named a fixed one would claim a provenance it might
         // not have.
         catalog_semantic_version: catalog.semantic_version(),
-        catalog_digest: BindingDigest::from_untrusted_bytes(catalog.identity()),
+        // The catalog's semantic digest, which is what canonical verification compares against.
+        // `identity()` is a different value and a proposal carrying it is rejected at freeze time.
+        catalog_digest: BindingDigest::from_untrusted_bytes(catalog.semantic_digest()),
         first_party_sdk_source_digest: first_party_bfp_sdk_source_digest_v1(),
         inputs,
         constants: meaning.constants.clone(),
