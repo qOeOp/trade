@@ -289,8 +289,8 @@ rm -f "$invalid_base_output"
 rm -rf "$invalid_base_checkout"
 echo "ok: invalid base history fails closed"
 
+# The heavy scanners stay paused on pull requests; only `build` gates them.
 for workflow in \
-  "$repo_root/.github/workflows/build.yml" \
   "$repo_root/.github/workflows/codeql-analysis.yml" \
   "$repo_root/.github/workflows/security-audit.yml"; do
   if grep -Eq '^[[:space:]]+pull_request:' "$workflow"; then
@@ -302,6 +302,30 @@ test ! -e "$repo_root/.github/workflows/pr-fast.yml"
 build_triggers="$(sed -n '/^on:/,/^concurrency:/p' "$repo_root/.github/workflows/build.yml")"
 for branch in test-ci test-pre-commit main nightly master; do
   [[ "$build_triggers" == *"- $branch"* ]]
+done
+
+# `build` gates pull requests, but only on the events `ready-gate` can answer `run-full` for.
+# Admitting `synchronize` here would fail every push instead of validating it.
+if [[ "$build_triggers" != *"pull_request:"* ]]; then
+  echo "build.yml must gate pull requests" >&2
+  exit 1
+fi
+for pr_type in opened reopened ready_for_review; do
+  if [[ "$build_triggers" != *"- $pr_type"* ]]; then
+    echo "build.yml pull_request trigger must admit $pr_type" >&2
+    exit 1
+  fi
+done
+if [[ "$build_triggers" == *"- synchronize"* ]]; then
+  echo "build.yml must not admit synchronize: ready-gate cannot answer it" >&2
+  exit 1
+fi
+ready_gate_cases="$(sed -n '/ready-gate:/,/^  plan:/p' "$repo_root/.github/workflows/build.yml")"
+for pr_case in 'ready_for_review:' 'opened:false' 'reopened:false'; do
+  if [[ "$ready_gate_cases" != *"$pr_case"* ]]; then
+    echo "ready-gate must still admit $pr_case" >&2
+    exit 1
+  fi
 done
 codeql_triggers="$(sed -n '/^on:/,/^jobs:/p' "$repo_root/.github/workflows/codeql-analysis.yml")"
 [[ "$codeql_triggers" == *'workflow_dispatch:'* ]]
@@ -325,7 +349,7 @@ security_triggers="$(sed -n '/^on:/,/^jobs:/p' "$repo_root/.github/workflows/sec
 [[ "$security_triggers" == *'schedule:'* ]]
 [[ "$security_triggers" == *'workflow_dispatch:'* ]]
 grep -Fq 'pull_request_target:' "$repo_root/.github/workflows/pr-title.yml"
-echo "ok: heavy PR CI paused; main and title validation retained"
+echo "ok: build gates ready pull requests; heavy scanners paused; title validation retained"
 
 build_workflow="$repo_root/.github/workflows/build.yml"
 common_setup="$repo_root/.github/actions/common-setup/action.yml"
