@@ -7,31 +7,26 @@ repository rule, AGENTS.md wins; this file governs only host mechanics.
 ## Skill discovery on this host
 
 Claude Code discovers Skills under `~/.claude/skills`, project `.claude/skills`, and plugins. It does
-not scan `~/.agents/skills`, so the AGENTS.md bootstrap alone leaves `run-bounded-mission`
-undiscoverable here. The installation chain on this host extends the bootstrap by one mirror step:
+not scan `~/.agents/skills`, so this host runs the AGENTS.md bootstrap with `--host claude`:
 
-1. AGENTS.md bootstrap steps 1-3 install and verify `~/.agents/skills/run-bounded-mission` against the
-   `origin/main` `codex-skills.lock.json` pin;
-2. mirror that verified copy byte for byte, without editing it:
+```bash
+node scripts/install-codex.mjs --host claude --lock <origin-main-lock> --install-trade-session-hook
+node scripts/install-codex.mjs --host claude --lock <origin-main-lock> --install-trade-session-hook --check
+```
 
-   ```bash
-   cp -R ~/.agents/skills/run-bounded-mission ~/.claude/skills/run-bounded-mission
-   ```
+That installs the pinned Skill under `~/.claude/skills/run-bounded-mission`, the four lane profiles
+under `~/.claude/agents/`, and the pin hook in `~/.claude/settings.json`, all from the same
+`codex-skills.lock.json` pin the Codex host uses. The installed copies are under pin custody, not
+sources: Skill or profile content changes still go to `qOeOp/pareto` first, then to this repository's
+pin, then through the bootstrap again. No repository-local mirror, copy, or `~/.agents` step is
+required here, and `--check` is this host's proof exactly as it is on Codex.
 
-3. before any non-trivial implementation or delivery, and after every pin change, prove the mirror:
-
-   ```bash
-   diff -rq ~/.agents/skills/run-bounded-mission ~/.claude/skills/run-bounded-mission
-   ```
-
-A missing, mismatched, or unverifiable mirror freezes implementation and delivery exactly as a failed
-bootstrap check does. The mirror is a copy under pin custody, not a source: Skill content changes
-still go to `qOeOp/pareto` first, then to this repository's pin, then through steps 1-3 again.
-
-AGENTS.md bootstrap step 4 trusts an installed Codex `SessionStart` hook. That hook is a Codex host
-capability; `qOeOp/pareto` installs no Claude-side hook and no Claude-side behavior depends on one, so
-its absence here is an unavailable capability that freezes nothing. The step 3 mirror proof is this
-host's equivalent check.
+AGENTS.md bootstrap step 4 trusts the exact installed `SessionStart` command. On this host that
+command lives in `~/.claude/settings.json` and names its host (`--host claude`). Claude Code ignores
+`continue: false` on `SessionStart`, so the hook reports a failed pin, a drifted install, or a
+project-scoped Skill or profile override as session context instead: treat that context as the freeze
+it names, exactly as a red `--check` freezes Codex. `fork_turns` has no Claude Code counterpart, so no
+`PreToolUse` hook is installed here and its absence is not a gap.
 
 ## Invoking the Skill
 
@@ -42,8 +37,9 @@ and in the Skill's own description still reads as an affirmative invocation. The
 
 ## Agent lanes
 
-The Skill's lane roles are Codex agent profiles under `~/.codex/agents/*.toml`. This host maps them to
-user-level subagents:
+The Skill's lane roles ship as one profile per host: `~/.codex/agents/*.toml` on Codex and
+`~/.claude/agents/*.md` here, both installed and verified by the same pinned installer. The bootstrap
+owns those files; do not hand-edit an installed profile. They bind these user-level subagents:
 
 | Skill role           | Claude Code subagent | Tools                                 | Model  |
 | -------------------- | -------------------- | ------------------------------------- | ------ |
