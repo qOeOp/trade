@@ -131,9 +131,14 @@ jobs:
           set -euo pipefail
           if [[ "$EVENT_NAME" == pull_request ]]; then
             [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
-            test "$BASE_SHA" = "$(git rev-parse --verify "refs/remotes/origin/${BASE_REF}^{commit}")"
+            # Take the plan from the base branch, never from the pull request: the head is the
+            # untrusted side. Read it at the branch tip rather than at BASE_SHA. BASE_SHA is
+            # frozen in the event payload, so it goes stale the moment anything lands on the
+            # base, and pinning to it refused every open pull request with a bare exit 1.
+            # scripts/ci/plan.sh already merge-bases BASE_SHA against HEAD, so the tip's copy
+            # selects the same jobs while always being the plan the base branch has in force.
             trusted_plan="${RUNNER_TEMP}/ci-plan.sh"
-            git show "${BASE_SHA}:scripts/ci/plan.sh" > "$trusted_plan"
+            git show "refs/remotes/origin/${BASE_REF}:scripts/ci/plan.sh" > "$trusted_plan"
             bash "$trusted_plan"
           else
             bash scripts/ci/plan.sh
@@ -422,7 +427,7 @@ jobs:
         && (github.ref_name == 'main' || github.ref_name == 'test-ci')
         && 'ci-pr'
         || 'nextest' }}
-      CARGO_TARGET_DIR: target/rust-doctests-linux-x86
+      CARGO_TARGET_DIR: target/rust-tests-linux-x86
       RUST_BACKTRACE: 1
     steps:
       # https://github.com/step-security/harden-runner
@@ -452,14 +457,18 @@ jobs:
           free-disk-space: "true"
           free-disk-space-max-build: ${{ runner.environment == 'github-hosted' && 'true' || 'false' }}
           rust-cache-enabled: ${{ runner.environment == 'github-hosted' && 'true' || 'false' }}
+          # Doctests select a narrower feature set than `rust tests`, so the crates that differ
+          # still rebuild here. The third-party dependency graph does not differ, and that is what
+          # a cold build spends its time on, so this shares the `rust tests` cache identity and
+          # restores only rather than keeping a second multi-GB copy of an equivalent directory.
           rust-cache-key: >-
-            rust-doctests-linux-x86-${{ env.CARGO_CI_PROFILE }}-
+            rust-tests-linux-x86-${{ env.CARGO_CI_PROFILE }}-
             ${{ hashFiles('.github/workflows/build.yml',
             '.github/actions/common-setup/action.yml', 'Cargo.lock',
-            'rust-toolchain.toml', 'Makefile') }}
-          rust-cache-workspaces: . -> target/rust-doctests-linux-x86
+            'rust-toolchain.toml', '.config/nextest.toml', 'Makefile') }}
+          rust-cache-workspaces: . -> target/rust-tests-linux-x86
           rust-cache-on-failure: "false"
-          rust-cache-save-if: ${{ github.event_name == 'push' }}
+          rust-cache-save-if: "false"
           rust-cache-workspace-crates: "true"
 
       - name: Limit Cargo build jobs on GitHub-hosted runners
@@ -689,14 +698,21 @@ jobs:
             || github.event_name == 'push'
             && (github.ref_name == 'main' || github.ref_name == 'test-ci'))
             && 'true' || 'false' }}
+          # These chains build a different selection from `rust tests` -- five packages under the
+          # sealed Owner features rather than the whole workspace -- but into the same target
+          # directory and on top of largely the same third-party dependency graph, which is what a
+          # cold build actually spends its time on. They therefore share its cache identity and
+          # restore only, instead of storing a second and third copy of one directory. A repository
+          # only gets 10 GB of Actions cache, and those copies evicted every other entry, which is
+          # why every run started from a cold `serde_core` rebuild.
           rust-cache-key: >-
-            postgres-owner-chain-${{ matrix.chain.key }}-${{ env.CARGO_CI_PROFILE }}-
+            rust-tests-linux-x86-${{ env.CARGO_CI_PROFILE }}-
             ${{ hashFiles('.github/workflows/build.yml',
             '.github/actions/common-setup/action.yml', 'Cargo.lock',
             'rust-toolchain.toml', '.config/nextest.toml', 'Makefile') }}
           rust-cache-workspaces: . -> target/rust-tests-linux-x86
           rust-cache-on-failure: "false"
-          rust-cache-save-if: ${{ github.event_name == 'push' }}
+          rust-cache-save-if: "false"
           rust-cache-workspace-crates: "true"
 
       - name: Limit Cargo build jobs on GitHub-hosted runners
