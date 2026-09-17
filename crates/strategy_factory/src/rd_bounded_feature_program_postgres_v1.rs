@@ -285,20 +285,6 @@ impl PostgresResearchBoundedFeatureProgramOwnerV1 {
         }
     }
 
-    /// Assembles declared meaning against live Owner custody and freezes the result.
-    ///
-    /// Assembly and the freeze share one transaction. The custody readback assembly performs takes
-    /// row locks at a cut, and freezing against a different cut would seal a program whose binding
-    /// receipts were never proven at the moment it was sealed.
-    ///
-    /// A proposer sends meaning only. The identities, digests, catalog identity, SDK digest,
-    /// manifest-fixed bounds and static binding receipts are all derived here, so a proposer cannot
-    /// declare one and cannot disagree with the Design it names.
-    ///
-    /// # Errors
-    ///
-    /// Returns the assembly reason when declared meaning does not fit the Design or Owner binding
-    /// custody does not answer, and the freeze reason otherwise.
     /// Publishes what this Owner knows about a Design, so Market Data can authenticate it.
     ///
     /// This is the one statement about a Design that does not depend on a program, which is what
@@ -407,6 +393,20 @@ impl PostgresResearchBoundedFeatureProgramOwnerV1 {
         Ok(recovered)
     }
 
+    /// Assembles declared meaning against live Owner custody and freezes the result.
+    ///
+    /// Assembly and the freeze share one transaction. The custody readback assembly performs takes
+    /// row locks at a cut, and freezing against a different cut would seal a program whose binding
+    /// receipts were never proven at the moment it was sealed.
+    ///
+    /// A proposer sends meaning only. The identities, digests, catalog identity, SDK digest,
+    /// manifest-fixed bounds and static binding receipts are all derived here, so a proposer cannot
+    /// declare one and cannot disagree with the Design it names.
+    ///
+    /// # Errors
+    ///
+    /// Returns the assembly reason when declared meaning does not fit the Design or Owner binding
+    /// custody does not answer, and the freeze reason otherwise.
     pub async fn declare(
         &self,
         declaration: ResearchBoundedFeatureProgramDeclarationV1,
