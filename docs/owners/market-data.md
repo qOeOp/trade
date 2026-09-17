@@ -1083,8 +1083,11 @@ which is the fabrication this seam exists to refuse. Freezing is not the obstacl
 never consults this registry, which the chain's joint-freeze proof shows by passing without touching Market Data at all.
 The obstacle is the run. Binding resolution calls `resolve_pit_request_for_strategy_design_v1` before it examines the
 declared role set, so a frozen program is refused for want of declarations even when it declares no input roles at all -
-and an attestation is scoped to one Design, so a first program cannot vouch for a second. Each Design therefore closes
-its own circle: running it needs declarations, declarations need an attestation naming it, and that attestation needs
+and an attestation is scoped to one Design, so a first program cannot vouch for a second. There is no input-free escape
+either: `validate_declarations` refuses a Design with no inputs, because at least one typed Owner-bound input is
+required. The circle is thus a consequence of that requirement rather than an oversight - every admissible Design binds
+to Owner-verified custody, which is what makes the artifact trustworthy and what leaves the first one with nothing to
+bind to. Each Design therefore closes its own circle: running it needs declarations, declarations need an attestation naming it, and that attestation needs
 the operation only a run produces. Whichever link is opened, it changes what may start a Composer operation for a
 Design, not what W3 accepts once one exists.
 **NOT_ADMITTED:** caller-proposed Design/role/join fields, receipt/readback/token, receipt hash,
