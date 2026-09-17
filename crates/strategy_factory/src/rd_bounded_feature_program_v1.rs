@@ -13,7 +13,6 @@ use sha2::{Digest, Sha256};
 use sqlx::{Postgres, Row, Transaction};
 use thiserror::Error;
 use vibe_data::owner::source_binding::BindingDigest;
-use vibe_indicators_kernel::PrimitiveCatalogV1;
 
 use crate::{
     bounded_feature_program_v1::{
@@ -57,7 +56,6 @@ pub(crate) async fn commit_research_bounded_feature_program_in_transaction_v1(
     committed_at_epoch_ms: u64,
     design: &StrategyDesignV2,
     proposal: BoundedFeatureProgramProposalV1,
-    catalog: PrimitiveCatalogV1,
 ) -> Result<FrozenResearchBoundedFeatureProgramV1, ResearchBoundedFeatureProgramFreezeErrorV1> {
     let successor = is_successor_research_intent_locator_v1(request_locator);
     let custody = if successor {
@@ -70,11 +68,10 @@ pub(crate) async fn commit_research_bounded_feature_program_in_transaction_v1(
     if successor {
         acquire_joint_freeze_lock(transaction, request_locator).await?;
     }
-    let candidate =
-        freeze_research_bounded_feature_program_v1(&custody, design, proposal, catalog)?;
+    let candidate = freeze_research_bounded_feature_program_v1(&custody, design, proposal)?;
 
     if let Some(stored) = load_stored_freeze(transaction, request_locator, true).await? {
-        validate_stored_freeze(&custody, &stored, catalog)?;
+        validate_stored_freeze(&custody, &stored)?;
         if !verify_stored_outbox(transaction, request_locator, &stored).await? {
             return Err(ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable);
         }
@@ -126,7 +123,7 @@ pub(crate) async fn commit_research_bounded_feature_program_in_transaction_v1(
         .await?
         .filter(|stored| stored == &candidate)
         .ok_or(ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)?;
-    validate_stored_freeze(&custody, &stored, catalog)?;
+    validate_stored_freeze(&custody, &stored)?;
     if !verify_stored_outbox(transaction, request_locator, &stored).await? {
         return Err(ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable);
     }
@@ -179,7 +176,6 @@ pub(crate) async fn read_research_bounded_feature_program_in_transaction_v1(
     transaction: &mut Transaction<'_, Postgres>,
     request_locator: &str,
     read_cut_epoch_ms: u64,
-    catalog: PrimitiveCatalogV1,
 ) -> Result<FrozenResearchBoundedFeatureProgramV1, ResearchBoundedFeatureProgramFreezeErrorV1> {
     let custody = current_research_custody(transaction, request_locator, read_cut_epoch_ms).await?;
     let stored = load_stored_freeze(transaction, request_locator, false)
@@ -188,7 +184,7 @@ pub(crate) async fn read_research_bounded_feature_program_in_transaction_v1(
     if !verify_stored_outbox(transaction, request_locator, &stored).await? {
         return Err(ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable);
     }
-    validate_stored_freeze(&custody, &stored, catalog)?;
+    validate_stored_freeze(&custody, &stored)?;
     Ok(stored)
 }
 
@@ -199,7 +195,6 @@ pub(crate) async fn read_research_bounded_feature_program_historical_in_transact
     transaction: &mut Transaction<'_, Postgres>,
     request_locator: &str,
     original_research: &CurrentResearchDevelopCustodyV2,
-    catalog: PrimitiveCatalogV1,
 ) -> Result<FrozenResearchBoundedFeatureProgramV1, ResearchBoundedFeatureProgramFreezeErrorV1> {
     if request_locator != original_research.request_locator() {
         return Err(ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable);
@@ -210,28 +205,26 @@ pub(crate) async fn read_research_bounded_feature_program_historical_in_transact
     if !verify_stored_outbox(transaction, request_locator, &stored).await? {
         return Err(ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable);
     }
-    validate_stored_freeze(original_research, &stored, catalog)?;
+    validate_stored_freeze(original_research, &stored)?;
     Ok(stored)
 }
 
+/// Rebuilds the stored freeze from its own bytes under the catalog version those bytes declare.
 fn validate_stored_freeze(
     custody: &CurrentResearchDevelopCustodyV2,
     stored: &FrozenResearchBoundedFeatureProgramV1,
-    catalog: PrimitiveCatalogV1,
 ) -> Result<(), ResearchBoundedFeatureProgramFreezeErrorV1> {
     let design: StrategyDesignV2 = serde_json::from_slice(stored.design_bytes())
         .map_err(|_| ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)?;
     let parsed_program = crate::bounded_feature_program_v1::parse_bounded_feature_program_v1(
         stored.program_bytes(),
         &design,
-        catalog,
     )
     .map_err(|_| ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)?;
     let rebuilt = freeze_research_bounded_feature_program_v1(
         custody,
         &design,
         parsed_program.program().clone(),
-        catalog,
     )
     .map_err(|_| ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)?;
     if &rebuilt != stored {
@@ -512,7 +505,6 @@ pub(crate) fn freeze_research_bounded_feature_program_v1(
     custody: &CurrentResearchDevelopCustodyV2,
     design: &StrategyDesignV2,
     proposal: BoundedFeatureProgramProposalV1,
-    catalog: PrimitiveCatalogV1,
 ) -> Result<FrozenResearchBoundedFeatureProgramV1, ResearchBoundedFeatureProgramFreezeErrorV1> {
     if design.research_request_identity != custody.research_request_identity()
         || design.intent_identity != custody.intent_identity()
@@ -524,7 +516,7 @@ pub(crate) fn freeze_research_bounded_feature_program_v1(
 
     let canonical_design =
         prepare_canonical_strategy_design_v2(design).map_err(map_design_error)?;
-    let canonical_program = prepare_bounded_feature_program_v1(proposal, design, catalog)?;
+    let canonical_program = prepare_bounded_feature_program_v1(proposal, design)?;
 
     let program = canonical_program.program();
     if program.design_identity != canonical_design.design_identity()
@@ -615,14 +607,9 @@ pub(crate) fn frozen_program_matches_current_static_bindings_v1(
     program_bytes: &[u8],
     bindings: &VerifiedStrategyInputBindingsV2,
 ) -> bool {
-    let Ok(catalog) = PrimitiveCatalogV1::verify() else {
-        return false;
-    };
-    let Ok(program) = crate::bounded_feature_program_v1::parse_bounded_feature_program_v1(
-        program_bytes,
-        design,
-        catalog,
-    ) else {
+    let Ok(program) =
+        crate::bounded_feature_program_v1::parse_bounded_feature_program_v1(program_bytes, design)
+    else {
         return false;
     };
     program.program().inputs.iter().all(|input| {
@@ -641,22 +628,17 @@ mod tests {
 
     #[rstest::rstest]
     fn freezes_exact_custody_and_canonical_design_program_bytes() {
-        let (design, proposal, catalog) = candidate();
+        let (design, proposal) = candidate();
         let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
 
-        let frozen = freeze_research_bounded_feature_program_v1(
-            &custody,
-            &design,
-            proposal.clone(),
-            catalog,
-        )
-        .unwrap();
+        let frozen =
+            freeze_research_bounded_feature_program_v1(&custody, &design, proposal.clone())
+                .unwrap();
 
         let mut reordered = design;
         reordered.reactions.reverse();
         let reordered_frozen =
-            freeze_research_bounded_feature_program_v1(&custody, &reordered, proposal, catalog)
-                .unwrap();
+            freeze_research_bounded_feature_program_v1(&custody, &reordered, proposal).unwrap();
 
         assert_eq!(frozen.schema_version(), 1);
         assert_eq!(frozen.research_custody_digest(), custody.custody_digest());
@@ -670,12 +652,12 @@ mod tests {
 
     #[rstest::rstest]
     fn rejects_cross_spliced_research_custody_before_freeze() {
-        let (mut design, proposal, catalog) = candidate();
+        let (mut design, proposal) = candidate();
         let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
         design.intent_digest = BindingDigest::from_untrusted_bytes([99; 32]);
 
         assert_eq!(
-            freeze_research_bounded_feature_program_v1(&custody, &design, proposal, catalog),
+            freeze_research_bounded_feature_program_v1(&custody, &design, proposal),
             Err(ResearchBoundedFeatureProgramFreezeErrorV1::ResearchCustody)
         );
     }
