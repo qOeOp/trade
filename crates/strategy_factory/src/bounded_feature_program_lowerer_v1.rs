@@ -356,13 +356,14 @@ pub(crate) fn prepare_frozen_bounded_feature_source_inputs_v1(
         return Err(BoundedFeatureLoweringErrorV1::Design);
     }
 
-    let catalog =
-        PrimitiveCatalogV1::verify().map_err(|_| BoundedFeatureLoweringErrorV1::Catalog)?;
-    let canonical_program =
-        parse_bounded_feature_program_v1(frozen.program_bytes(), &design, catalog)?;
+    let canonical_program = parse_bounded_feature_program_v1(frozen.program_bytes(), &design)
+        .map_err(|_| BoundedFeatureLoweringErrorV1::Catalog)?;
+    // The program names its own catalog version; resolve that one rather than the newest.
+    let catalog = PrimitiveCatalogV1::resolve(canonical_program.program().catalog_semantic_version)
+        .map_err(|_| BoundedFeatureLoweringErrorV1::Catalog)?;
     let program = canonical_program.program();
     if canonical_program.digest() != frozen.program_digest()
-        || program.catalog_digest.as_bytes() != &catalog.identity()
+        || program.catalog_digest.as_bytes() != &catalog.semantic_digest()
         || program.design_identity != frozen.design_identity()
         || program.design_digest != frozen.design_digest()
         || program.plugin_manifest_digest != frozen.plugin_manifest_digest()
@@ -2062,11 +2063,10 @@ mod tests {
 
     #[test]
     fn only_the_joint_owner_freeze_produces_repeatable_source_inputs() {
-        let (design, proposal, catalog) = candidate();
+        let (design, proposal) = candidate();
         let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
-        let frozen =
-            freeze_research_bounded_feature_program_v1(&custody, &design, proposal, catalog)
-                .expect("joint Owner freeze");
+        let frozen = freeze_research_bounded_feature_program_v1(&custody, &design, proposal)
+            .expect("joint Owner freeze");
 
         let one = prepare_frozen_bounded_feature_source_inputs_v1(&frozen)
             .expect("first source preparation");
@@ -2231,7 +2231,6 @@ mod tests {
     ) -> (
         StrategyDesignV2,
         crate::bounded_feature_program_v1::BoundedFeatureProgramProposalV1,
-        PrimitiveCatalogV1,
     ) {
         use crate::bounded_feature_program_v1::{
             BoundedFeatureAvailabilityV1, BoundedFeatureClockV1, BoundedFeatureInitialStateV1,
@@ -2242,9 +2241,10 @@ mod tests {
             CatalogAvailabilityRuleV1, CatalogOutputRuleV1, RoundingMode,
         };
 
-        let (design, mut proposal, catalog) = candidate();
+        let catalog = PrimitiveCatalogV1::verify().unwrap();
+        let (design, mut proposal) = candidate();
         if operation == PrimitiveOperationV1::Compare {
-            return (design, proposal, catalog);
+            return (design, proposal);
         }
         let parameters = operation_parameters(operation);
         let row = catalog
@@ -2336,7 +2336,7 @@ mod tests {
                 max_bytes,
             });
         }
-        (design, proposal, catalog)
+        (design, proposal)
     }
 
     fn canonical_coordinate(sample: u64) -> [u8; 308] {
@@ -2352,11 +2352,10 @@ mod tests {
     #[test]
     #[ignore = "invokes the pinned local wasm compiler"]
     fn generated_candidate_is_a_real_strict_abi_three_module() {
-        let (design, proposal, catalog) = candidate();
+        let (design, proposal) = candidate();
         let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
-        let frozen =
-            freeze_research_bounded_feature_program_v1(&custody, &design, proposal, catalog)
-                .expect("joint Owner freeze");
+        let frozen = freeze_research_bounded_feature_program_v1(&custody, &design, proposal)
+            .expect("joint Owner freeze");
         let canonical_design: StrategyDesignV2 =
             serde_json::from_slice(frozen.design_bytes()).unwrap();
         let manifest = canonical_design.plugins[0].clone();
@@ -2513,11 +2512,10 @@ mod tests {
         let target_dir = root.path().join("target-out");
 
         for operation in OPERATIONS {
-            let (design, proposal, catalog) = dynamic_operation_candidate(operation);
+            let (design, proposal) = dynamic_operation_candidate(operation);
             let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
-            let frozen =
-                freeze_research_bounded_feature_program_v1(&custody, &design, proposal, catalog)
-                    .unwrap_or_else(|error| panic!("{operation:?} joint Owner freeze: {error}"));
+            let frozen = freeze_research_bounded_feature_program_v1(&custody, &design, proposal)
+                .unwrap_or_else(|error| panic!("{operation:?} joint Owner freeze: {error}"));
             let canonical_design: StrategyDesignV2 =
                 serde_json::from_slice(frozen.design_bytes()).unwrap();
             let manifest = canonical_design.plugins[0].clone();
