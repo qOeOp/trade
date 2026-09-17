@@ -99,6 +99,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|source_intake|postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_rejects_mismatches'
   'vibe-strategy-factory|develop_composer_postgres_v2|transaction_bound_read_uses_the_borrowed_backend_locks_and_writes_nothing'
   'vibe-strategy-factory|develop_composer_postgres_v2|transaction_bound_read_rejects_wrong_owner_acl_and_stale_custody'
+  'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::frozen_program_runs_the_production_composer_to_a_durable_artifact'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -125,8 +126,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 82 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all eighty-two ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 83 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all eighty-three ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -203,7 +204,8 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[78]}" != *'|postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_rejects_mismatches' ]] ||
     [[ "${rd_owner_postgres_tests[79]}" != *'|transaction_bound_read_uses_the_borrowed_backend_locks_and_writes_nothing' ]] ||
     [[ "${rd_owner_postgres_tests[80]}" != *'|transaction_bound_read_rejects_wrong_owner_acl_and_stale_custody' ]] ||
-    [[ "${rd_owner_postgres_tests[81]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[81]}" != *'|product_edge_postgres::tests::frozen_program_runs_the_production_composer_to_a_durable_artifact' ]] ||
+    [[ "${rd_owner_postgres_tests[82]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -306,8 +308,8 @@ for line in array_body.splitlines():
     if len(fields) != 3 or any(not field for field in fields):
         raise SystemExit("ERROR: ordered PostgreSQL test literal must contain three fields.")
     entries.append(tuple(fields))
-if len(entries) != 82:
-    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain eighty-two entries.")
+if len(entries) != 83:
+    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain eighty-three entries.")
 if sum(test_name == poison_test for _, _, test_name in entries) != 1:
     raise SystemExit(
         "ERROR: recovery-sidecar poison test must occur exactly once as a parsed test name."
