@@ -10,6 +10,13 @@ use crate::{
 };
 
 const DOMAIN: &[u8] = b"bfp.primitive-catalog.v1\0";
+const SEMANTIC_DOMAIN: &[u8] = b"bfp.primitive-catalog.semantic.v1\0";
+
+/// Catalog semantic versions this kernel publishes, ascending.
+///
+/// A frozen program names one of these; publishing a later version never removes an earlier one,
+/// because an earlier freeze stays readable only while its own version is still resolvable here.
+pub const CATALOG_SEMANTIC_VERSIONS_V1: [u16; 1] = [1];
 const HEADER: &[u8; 12] = b"BFPC\x01\0\0\0\x01\0\0\0";
 const SOURCES: [(&str, &[u8]); 17] = [
     ("Cargo.toml", include_bytes!("../Cargo.toml")),
@@ -50,22 +57,56 @@ pub enum PrimitiveCatalogFailure {
     LengthOverflow,
     InvalidBufferLength,
     NonCanonicalCatalog,
+    UnpublishedSemanticVersion,
 }
 
 /// Only the complete compiled catalog can construct this verification result.
 /// It carries no Research, build, Artifact, Owner-receipt or execution authority.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PrimitiveCatalogV1 {
+    semantic_version: u16,
+    semantic_digest: [u8; 32],
     identity: [u8; 32],
     canonical_len: usize,
 }
 
 impl PrimitiveCatalogV1 {
+    /// Resolves the newest published semantic version.
+    ///
+    /// Minting a fresh proposal legitimately wants the newest catalog. Verifying an existing frozen
+    /// program does not: that program names its own version, so its path must resolve that version
+    /// rather than whichever one happens to be newest.
     pub fn verify() -> Result<Self, PrimitiveCatalogFailure> {
+        let newest = *CATALOG_SEMANTIC_VERSIONS_V1
+            .last()
+            .ok_or(PrimitiveCatalogFailure::UnpublishedSemanticVersion)?;
+        Self::resolve(newest)
+    }
+
+    /// Resolves one published semantic version and proves the running kernel still honors it.
+    ///
+    /// The proof is the version's own required golden corpus, executed here before any program can
+    /// be parsed against it. An implementation change that preserves this version's meaning keeps
+    /// every freeze naming it readable; one that does not fails these goldens, so the freeze becomes
+    /// unavailable instead of being re-evaluated under changed meaning.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PrimitiveCatalogFailure::UnpublishedSemanticVersion`] for a version this kernel does
+    /// not publish, and the row, golden, contract, or execution failure that closed the resolution
+    /// otherwise.
+    pub fn resolve(semantic_version: u16) -> Result<Self, PrimitiveCatalogFailure> {
+        if !CATALOG_SEMANTIC_VERSIONS_V1.contains(&semantic_version) {
+            return Err(PrimitiveCatalogFailure::UnpublishedSemanticVersion);
+        }
+
+        // One version is published today, so its rows and goldens are the compiled set. A second
+        // version selects its own rows and goldens here and then runs the identical proof.
         validate_rows(&ROWS)?;
         validate_goldens()?;
         verify_required_golden_corpus_v1()
             .map_err(|_| PrimitiveCatalogFailure::GoldenExecutionFailed)?;
+
         let mut canonical_len = 0_usize;
         let mut hasher = Sha256::new();
         hasher.update(DOMAIN);
@@ -76,7 +117,18 @@ impl PrimitiveCatalogV1 {
             hasher.update(bytes);
             Ok(())
         })?;
+
+        let mut semantic = Sha256::new();
+        semantic.update(SEMANTIC_DOMAIN);
+        semantic.update(semantic_version.to_le_bytes());
+        emit_rows_and_goldens(&mut |bytes| {
+            semantic.update(bytes);
+            Ok(())
+        })?;
+
         Ok(Self {
+            semantic_version,
+            semantic_digest: semantic.finalize().into(),
             identity: hasher.finalize().into(),
             canonical_len,
         })
@@ -103,6 +155,25 @@ impl PrimitiveCatalogV1 {
         Self::verify()
     }
 
+    /// The version this catalog was resolved for.
+    #[must_use]
+    pub const fn semantic_version(self) -> u16 {
+        self.semantic_version
+    }
+
+    /// Binds this version's meaning: its number, its canonical rows, and its canonical goldens.
+    ///
+    /// It deliberately excludes the kernel source set, so a kernel change that preserves this
+    /// version's meaning leaves every program frozen against it verifiable.
+    #[must_use]
+    pub const fn semantic_digest(self) -> [u8; 32] {
+        self.semantic_digest
+    }
+
+    /// Binds the exact compiled kernel that resolved this catalog, including its source set.
+    ///
+    /// It identifies one build and changes with any kernel source byte, so it is evidence about
+    /// provenance rather than an admission gate.
     #[must_use]
     pub const fn identity(self) -> [u8; 32] {
         self.identity
@@ -315,6 +386,11 @@ fn source_identity() -> Result<[u8; 32], PrimitiveCatalogFailure> {
 fn emit_catalog(sink: &mut Sink<'_>) -> Result<(), PrimitiveCatalogFailure> {
     sink(HEADER)?;
     sink(&source_identity()?)?;
+    emit_rows_and_goldens(sink)
+}
+
+/// The version's meaning alone: its rows and goldens, with no kernel source bytes.
+fn emit_rows_and_goldens(sink: &mut Sink<'_>) -> Result<(), PrimitiveCatalogFailure> {
     emit_length(ROWS.len(), sink)?;
 
     for row in ROWS {

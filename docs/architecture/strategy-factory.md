@@ -383,6 +383,41 @@ golden-vector identities in canonical catalog bytes. Missing or adding one row, 
 or failure oracle makes the entire V1 catalog digest unavailable; Strategy Factory must reject the BFP and cannot
 publish or substitute a partial toy catalog.
 
+<a id="catalog-versioning-and-frozen-program-readback"></a>
+
+##### Catalog versioning and frozen-program readback
+
+The catalog is published per semantic version rather than once. Version `N` fixes a closed row set with its
+formulas, rounding IDs, availability rules, state encodings, and required golden-vector identities. Within that
+version the closure statement above is exact: missing or adding one row, formula, semantic ID, golden vector, or
+failure oracle makes version `N` unavailable.
+
+Two identities are separate, and neither substitutes for the other.
+
+- The **semantic digest** of version `N` is SHA-256 over a version-semantic domain, the version number, that
+  version's canonical rows, and that version's canonical goldens. It binds meaning rather than code, so it is
+  stable across kernel implementation changes.
+- The **kernel implementation identity** is SHA-256 over the exact compiled kernel source set. It identifies one
+  build, changes whenever any kernel source byte changes, and is evidence rather than an admission gate.
+
+A frozen `BoundedFeatureProgramV1` declares its catalog semantic version and that version's semantic digest.
+Admission resolves the declared version, refuses an unpublished version, and refuses a digest that is not that
+version's semantic digest. It never compares the declaration against whichever version happens to be newest.
+
+Reading back a program frozen under version `N` requires the running kernel to reproduce every required golden
+vector of version `N` byte-for-byte before the program is parsed. That proof, not the kernel implementation
+identity, is what keeps an older frozen program honest. An implementation change that preserves version `N`
+semantics keeps the freeze readable; one that does not fails those goldens and makes the freeze unavailable
+rather than silently re-evaluating committed Research meaning under changed semantics.
+
+Publishing version `N+1` neither changes nor invalidates version `N`. A retired primitive leaves the row set of
+`N+1` while version `N` keeps its rows and goldens compiled for as long as a frozen program declares it, so
+retirement removes a primitive from new programs without rewriting committed Research meaning.
+
+This is a deliberate trade. A freeze no longer pins the exact kernel binary that produced it, and its strength is
+exactly the coverage of that version's golden corpus, which the exhaustive per-primitive requirements above
+already fix.
+
 Each golden is canonical `BoundedFeatureGoldenVectorV1` binary bytes: magic `BFGV` `[u8; 4]`, schema `u16 = 1`,
 reserved-zero `u16`, ASCII vector semantic ID and primitive semantic ID as `u16 length || bytes`, rounding tag
 `u8` (`0 = none`, `1 = TowardZero`, `2 = NearestTiesToEven`), terminal tag `u8` (`0 = READY`, `1 = WARMING`,
