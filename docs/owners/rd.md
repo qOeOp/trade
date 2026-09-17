@@ -185,10 +185,20 @@ is a judgement, and a judgement an Owner makes is a fact the Owner invented.
 
 A **proposer** declares it instead. The proposer may be a language model, a person or any other
 caller; this contract does not name it and does not change with it. What the contract fixes is the
-**output**: exactly one canonical `StrategyDesignV2` and, on the bounded-plugin path, exactly one
-canonical `BoundedFeatureProgramProposalV1`. The input is unbounded research prose; the output is a
-closed typed schema that rejects unknown fields and unknown semantic IDs. That translation is the
-proposer's whole job.
+**output**: exactly one canonical `StrategyDesignV2` and, on the bounded-plugin path, the program's
+meaning - its typed node graph, constants, state cells, decision-table terminals, warmup contract,
+graph bounds, and per declared input role the value port the graph reads and the clock that advances
+it. The input is unbounded research prose; the output is a closed typed schema that rejects unknown
+fields and unknown semantic IDs. That translation is the proposer's whole job.
+
+A proposer declares meaning and never an identity. It does not declare the schema or semantic
+versions, the Research, Intent and Design identities and digests, the plugin manifest digest, the
+pinned catalog identity, the first-party SDK digest, the four bounds the plugin manifest fixes, or a
+static binding receipt. The Owner derives each of those from the Design it was given, the pinned
+catalog and its own binding custody, so a proposer cannot state a fact it has no way to know and
+cannot disagree with the Design it names. Assembling those derivations and freezing the result
+happen in one transaction: the binding custody read takes row locks at a cut, and freezing against a
+different cut would seal a program whose receipts were never proven at the moment it was sealed.
 
 The Owner **admits** rather than derives. It binds the declared pair to currently accepted Research
 custody and refuses a Design whose Research and Intent identities or digests do not match it. It

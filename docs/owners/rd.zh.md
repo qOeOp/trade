@@ -167,8 +167,18 @@ R&D 不导出 Design。本仓库没有任何规则把 hypothesis、mechanism 与
 
 改由**提案者**声明。提案者可以是语言模型、人，或任何其他 caller；本契约不指名它，
 也不随它改变。契约钉死的是**输出**：恰好一份规范 `StrategyDesignV2`，在 bounded-plugin
-路径上再加恰好一份规范 `BoundedFeatureProgramProposalV1`。输入是不设边界的研究散文，
-输出是一个拒绝未知字段与未知 semantic ID 的封闭类型 schema。那项转换就是提案者的全部职责。
+路径上再加该 program 的含义：它的类型化节点图、常量、状态单元、决策表终端、warmup 契约、
+图自身的界，以及每个被声明输入角色上「图读取哪个取值端口」与「哪个时钟推进它」。
+输入是不设边界的研究散文，输出是一个拒绝未知字段与未知 semantic ID 的封闭类型 schema。
+那项转换就是提案者的全部职责。
+
+提案者只声明含义，绝不声明身份。它不声明 schema 与 semantic 版本、不声明 Research/Intent/Design
+的身份与摘要、不声明 plugin manifest 摘要、不声明钉定 catalog 身份、不声明第一方 SDK 摘要、
+不声明 plugin manifest 已固定的那四个界，也不声明任何静态绑定回执。Owner 从收到的 Design、
+钉定的 catalog 与自己的绑定托管中逐一推导，因此提案者无法陈述它无从知道的事实，
+也无法与它所命名的 Design 发生分歧。这些推导与随后的冻结发生在同一笔事务内：
+绑定托管读取在某个切面上取行锁，用另一个切面去冻结，就会封印一个
+「其回执在封印那一刻从未被证明」的 program。
 
 Owner 只**接纳**，不导出。它把被声明的这一对绑定到当前已接纳的 Research custody，
 并拒绝 Research 与 Intent 身份或摘要不匹配的 Design。它重新规范化被声明的字节而不信任
