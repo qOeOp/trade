@@ -7,8 +7,6 @@
 
 use std::{collections::BTreeSet, fmt::Debug};
 
-use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
-
 use super::{
     MarketDataOwnerPostgres, load_pit_for_update, load_pit_observation_batch_for_update,
     load_source_for_update,
@@ -261,6 +259,10 @@ impl OwnerBarJoinedCutAcceptanceFixtureV1 {
 
 /// Builds the real PostgreSQL basis needed to compile the final plan and role set.
 ///
+/// The caller resolves `owner_url` for the Market Data Owner role. Taking the resolved URL rather
+/// than a test-database handle keeps the disposable harness out of this crate's dependency graph,
+/// so enabling this feature links no test harness into a deployed image.
+///
 /// This phase performs no registry, joined-cut, schedule, V3, or V4 write. It validates only that
 /// caller identities are non-zero and unique, then issues the native Owner facts through PIT and
 /// derives the exact six bindings from the re-read PostgreSQL batch.
@@ -269,12 +271,11 @@ impl OwnerBarJoinedCutAcceptanceFixtureV1 {
 ///
 /// Returns a redacted unavailable value if any real Owner write, exact readback, or binding fails.
 pub async fn prepare_owner_bar_joined_cut_acceptance_basis_v1(
-    database: &CanonicalOwnerPostgresTestDatabaseV1,
+    owner_url: &str,
     claims: UntrustedBarJoinedCutAcceptanceDesignClaimsV1,
 ) -> Result<OwnerBarJoinedCutAcceptanceBasisV1, BarJoinedCutAcceptanceBasisUnavailableV1> {
     validate_initial_claims(&claims)
         .map_err(|_| BarJoinedCutAcceptanceBasisUnavailableV1::Claims)?;
-    let owner_url = database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner);
     let owner = MarketDataOwnerPostgres::connect_existing(owner_url)
         .await
         .map_err(|_| BarJoinedCutAcceptanceBasisUnavailableV1::OwnerConnection)?;
