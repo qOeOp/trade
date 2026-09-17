@@ -16,6 +16,11 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::net::TcpListener;
+use vibe_binance::{
+    common::enums::BinanceEnvironment,
+    pit_observation_source_v1::BinanceSpotBarObservationSourceV1,
+    spot::http::client::BinanceSpotHttpClient,
+};
 use vibe_core::time::get_atomic_clock_realtime;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 use vibe_data::owner::replay_market_facts_v2::{
@@ -658,20 +663,36 @@ fn schema_materialization_requested(arguments: &[String]) -> anyhow::Result<bool
 
 /// Composes the Market Data PIT intake when the deployment has configured a Data Client.
 ///
-/// Absent provider configuration is not a startup failure: Market Data simply has no retrieval
-/// path, so the intake is absent and its routes answer `503`. A present but broken configuration
-/// is a startup failure, because silently degrading to "no data source" would hide it.
+/// Absent configuration is not a startup failure: Market Data simply has no retrieval path, so the
+/// intake is absent and its routes answer `503`. A named but unusable configuration is a startup
+/// failure, because silently degrading to "no data source" would hide it.
+///
+/// The Data Client is named rather than inferred. Which venue a snapshot's rows come from changes
+/// what the snapshot means, so it is not something a deployment should fall into by which
+/// environment variables happen to be set.
 async fn bootstrap_market_data_pit_intake()
 -> anyhow::Result<Option<Arc<dyn PitMarketSnapshotIntakeV1>>> {
-    let (Ok(api_key), Ok(publishers)) = (
-        env::var("DATABENTO_API_KEY"),
-        env::var("DATABENTO_PUBLISHERS_PATH"),
-    ) else {
-        return Ok(None);
+    let observations = match env::var("MARKET_DATA_OBSERVATION_SOURCE") {
+        Err(env::VarError::NotPresent) => return Ok(None),
+        Err(e) => return Err(e.into()),
+        Ok(name) => match name.trim() {
+            "" => return Ok(None),
+            "databento" => databento_observation_source()?,
+            "binance-spot" => binance_spot_observation_source()?,
+            other => anyhow::bail!(
+                "MARKET_DATA_OBSERVATION_SOURCE must be databento or binance-spot, not {other}"
+            ),
+        },
     };
-    if api_key.trim().is_empty() || publishers.trim().is_empty() {
-        anyhow::bail!("DATABENTO_API_KEY and DATABENTO_PUBLISHERS_PATH must be exact values");
-    }
+    Ok(Some(
+        pit_market_snapshot_intake_from_environment_v1(observations).await?,
+    ))
+}
+
+/// Builds the Databento Data Client under an explicit provider-cost allowance.
+fn databento_observation_source() -> anyhow::Result<Arc<dyn PitObservationSourceV1>> {
+    let api_key = required_env("DATABENTO_API_KEY")?;
+    let publishers = required_env("DATABENTO_PUBLISHERS_PATH")?;
     let client = DatabentoHistoricalClient::new(
         Credential::new(api_key),
         PathBuf::from(publishers),
@@ -687,14 +708,46 @@ async fn bootstrap_market_data_pit_intake()
             .parse::<f64>()
             .map_err(|_| anyhow::anyhow!("DATABENTO_MAX_PROBE_COST_USD must be a number"))?,
     };
-    let observations: Arc<dyn PitObservationSourceV1> =
-        Arc::new(DatabentoBboObservationSourceV1::new(
-            client,
-            MARKET_DATA_PROBE_CORRELATION_V1,
-            max_cost_usd,
-        ));
-    Ok(Some(
-        pit_market_snapshot_intake_from_environment_v1(observations).await?,
+    Ok(Arc::new(DatabentoBboObservationSourceV1::new(
+        client,
+        MARKET_DATA_PROBE_CORRELATION_V1,
+        max_cost_usd,
+    )))
+}
+
+/// Builds the keyless Binance Spot Data Client from its admitted member mapping.
+///
+/// The mapping is stated as `member=symbol` pairs so a deployment says exactly which Owner member
+/// each venue symbol answers for; a client that guessed the mapping would be deciding what a
+/// universe member is.
+fn binance_spot_observation_source() -> anyhow::Result<Arc<dyn PitObservationSourceV1>> {
+    let members = required_env("BINANCE_PIT_MEMBERS")?;
+    let interval = required_env("BINANCE_PIT_INTERVAL")?;
+    let mut mapping = std::collections::BTreeMap::new();
+
+    for entry in members.split(',') {
+        let (member, symbol) = entry
+            .split_once('=')
+            .ok_or_else(|| anyhow::anyhow!("BINANCE_PIT_MEMBERS entries are member=symbol"))?;
+        if member.trim().is_empty() || symbol.trim().is_empty() {
+            anyhow::bail!("BINANCE_PIT_MEMBERS entries are member=symbol");
+        }
+        mapping.insert(member.trim().to_string(), symbol.trim().to_string());
+    }
+    let client = BinanceSpotHttpClient::new_with_json_responses(
+        BinanceEnvironment::Live,
+        get_atomic_clock_realtime(),
+        None,
+        None,
+        None,
+        None,
+        Some(30),
+        None,
+        true,
+    )?;
+    Ok(Arc::new(
+        BinanceSpotBarObservationSourceV1::new(client, mapping, &interval)
+            .map_err(|e| anyhow::anyhow!("the Binance Data Client is unusable: {e}"))?,
     ))
 }
 

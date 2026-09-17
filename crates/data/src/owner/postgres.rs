@@ -9,6 +9,8 @@
     reason = "private durable Owner composition is exercised by disposable PostgreSQL tests until product composition exists"
 )]
 
+use std::fmt::Debug;
+
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 pub mod bar_joined_cut_acceptance_v1;
 mod calendar;
@@ -134,7 +136,7 @@ use super::{
     },
     pit_market_snapshot_intake_v1::{
         MarketDataDecisionCutV1, PitMarketSnapshotDispositionV1, PitMarketSnapshotIntakeErrorV1,
-        PitMarketSnapshotIntakeV1, PitMarketSnapshotTerminalV1,
+        PitMarketSnapshotIntakeV1, PitMarketSnapshotTerminalV1, sealed::Sealed as PitIntakeSealed,
     },
     pit_observation_source_v1::{PitObservationScopeV1, PitObservationSourceV1},
     pit_snapshot::{
@@ -189,7 +191,7 @@ use super::{
         ProviderReachabilityEvidenceV1, ProviderRightsEvidenceV1,
         SourceBindingAdmissionDispositionV1, SourceBindingAdmissionErrorV1,
         SourceBindingAdmissionRequestV1, SourceBindingAdmissionTerminalV1,
-        SourceBindingAdmissionV1,
+        SourceBindingAdmissionV1, sealed::Sealed as SourceBindingAdmissionSealed,
     },
     universe_selection::{
         UntrustedUniverseSelectionRequestV1,
@@ -200,6 +202,7 @@ use super::{
     universe_selection_admission_v1::{
         HistoricalMembershipAdmissionRequestV1, UniverseSelectionAdmissionErrorV1,
         UniverseSelectionAdmissionV1, UniverseSelectionTerminalV1,
+        sealed::Sealed as UniverseSelectionAdmissionSealed,
     },
 };
 #[cfg(test)]
@@ -9486,7 +9489,7 @@ struct MarketDataPitIntakePostgresV1 {
     observations: std::sync::Arc<dyn PitObservationSourceV1>,
 }
 
-impl std::fmt::Debug for MarketDataPitIntakePostgresV1 {
+impl Debug for MarketDataPitIntakePostgresV1 {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct(stringify!(MarketDataPitIntakePostgresV1))
@@ -9494,7 +9497,7 @@ impl std::fmt::Debug for MarketDataPitIntakePostgresV1 {
     }
 }
 
-impl crate::owner::pit_market_snapshot_intake_v1::sealed::Sealed for MarketDataPitIntakePostgresV1 {}
+impl PitIntakeSealed for MarketDataPitIntakePostgresV1 {}
 
 #[async_trait::async_trait]
 impl PitMarketSnapshotIntakeV1 for MarketDataPitIntakePostgresV1 {
@@ -9600,7 +9603,7 @@ struct SourceBindingAdmissionPostgresV1 {
     owner: MarketDataOwnerPostgres,
 }
 
-impl std::fmt::Debug for SourceBindingAdmissionPostgresV1 {
+impl Debug for SourceBindingAdmissionPostgresV1 {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct(stringify!(SourceBindingAdmissionPostgresV1))
@@ -9608,10 +9611,7 @@ impl std::fmt::Debug for SourceBindingAdmissionPostgresV1 {
     }
 }
 
-impl crate::owner::source_binding_admission_v1::sealed::Sealed
-    for SourceBindingAdmissionPostgresV1
-{
-}
+impl SourceBindingAdmissionSealed for SourceBindingAdmissionPostgresV1 {}
 
 #[async_trait::async_trait]
 impl SourceBindingAdmissionV1 for SourceBindingAdmissionPostgresV1 {
@@ -9669,6 +9669,7 @@ fn derive_source_blockers_v1(
     reachability: ProviderReachabilityEvidenceV1,
 ) -> std::collections::BTreeSet<SourceBindingBlocker> {
     let mut blockers = std::collections::BTreeSet::new();
+
     match rights {
         ProviderRightsEvidenceV1::Granted => {}
         ProviderRightsEvidenceV1::Revoked => {
@@ -9681,6 +9682,7 @@ fn derive_source_blockers_v1(
             blockers.insert(SourceBindingBlocker::RightsEvidenceUnresolved);
         }
     }
+
     if reachability == ProviderReachabilityEvidenceV1::Unreachable {
         blockers.insert(SourceBindingBlocker::SourceUnavailable);
     }
@@ -9722,7 +9724,7 @@ struct UniverseSelectionAdmissionPostgresV1 {
     owner: MarketDataOwnerPostgres,
 }
 
-impl std::fmt::Debug for UniverseSelectionAdmissionPostgresV1 {
+impl Debug for UniverseSelectionAdmissionPostgresV1 {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct(stringify!(UniverseSelectionAdmissionPostgresV1))
@@ -9730,10 +9732,7 @@ impl std::fmt::Debug for UniverseSelectionAdmissionPostgresV1 {
     }
 }
 
-impl crate::owner::universe_selection_admission_v1::sealed::Sealed
-    for UniverseSelectionAdmissionPostgresV1
-{
-}
+impl UniverseSelectionAdmissionSealed for UniverseSelectionAdmissionPostgresV1 {}
 
 #[async_trait::async_trait]
 impl UniverseSelectionAdmissionV1 for UniverseSelectionAdmissionPostgresV1 {

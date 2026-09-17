@@ -148,6 +148,7 @@ async fn admit_source_binding(
         Ok(request) => request,
         Err(_) => return rejection(StatusCode::BAD_REQUEST, "MALFORMED_TYPED_REQUEST"),
     };
+
     match admission.admit(request).await {
         Ok(terminal) => (StatusCode::OK, Json(terminal)).into_response(),
         Err(e) => admission_error(e),
@@ -172,6 +173,7 @@ async fn admit_historical_membership(
         Ok(request) => request,
         Err(_) => return rejection(StatusCode::BAD_REQUEST, "MALFORMED_TYPED_REQUEST"),
     };
+
     match universe.admit_membership(request).await {
         Ok(()) => (StatusCode::OK, Json(json!({ "admitted": true }))).into_response(),
         Err(e) => universe_error(e),
@@ -196,6 +198,7 @@ async fn evaluate_universe_selection(
         Ok(submission) => submission,
         Err(_) => return rejection(StatusCode::BAD_REQUEST, "MALFORMED_TYPED_REQUEST"),
     };
+
     match universe.evaluate(submission.into_request()).await {
         Ok(terminal) => (StatusCode::OK, Json(terminal)).into_response(),
         Err(e) => universe_error(e),
@@ -240,6 +243,7 @@ async fn submit_pit_market_snapshot_request(
         Ok(submission) => submission,
         Err(_) => return rejection(StatusCode::BAD_REQUEST, "MALFORMED_TYPED_REQUEST"),
     };
+
     match intake
         .submit(submission.request, submission.universe_selection)
         .await
@@ -263,6 +267,7 @@ async fn resolve_decision_cut(
             "MARKET_DATA_INTAKE_UNAVAILABLE",
         );
     };
+
     match intake.current_decision_cut().await {
         Ok(cut) => (StatusCode::OK, Json(cut)).into_response(),
         Err(e) => intake_error(e),

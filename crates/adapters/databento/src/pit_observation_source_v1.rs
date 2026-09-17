@@ -10,7 +10,7 @@
 //! everything the provider published later. When nothing qualifies it answers with no rows, which
 //! becomes insufficient coverage and an explicit terminal negative, never a silent empty success.
 
-use std::io::Cursor;
+use std::{fmt::Debug, io::Cursor};
 
 use async_trait::async_trait;
 use databento::dbn::{self, decode::DecodeRecord};
@@ -49,7 +49,7 @@ pub struct DatabentoBboObservationSourceV1 {
     max_cost_usd: f64,
 }
 
-impl std::fmt::Debug for DatabentoBboObservationSourceV1 {
+impl Debug for DatabentoBboObservationSourceV1 {
     /// Redacts the client so a credential can never reach a log or a rejection body.
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -125,6 +125,7 @@ fn admitted_window(
     let [member] = scope.members() else {
         return Err(PitObservationSourceErrorV1::ScopeMismatch);
     };
+
     if member != PIT_PROBE_INSTRUMENT {
         return Err(PitObservationSourceErrorV1::ScopeMismatch);
     }
@@ -145,6 +146,7 @@ fn rows_from_quote(
     quote: &AvailableQuote,
 ) -> Vec<VendorObservationV1> {
     let mut rows = Vec::with_capacity(2);
+
     for (field, price) in [("BID_PRICE", quote.bid_px), ("ASK_PRICE", quote.ask_px)] {
         // DBN marks an absent side with the sentinel rather than a zero price, so an absent side
         // must not become a value of zero.
@@ -191,6 +193,7 @@ const fn canonical_decimal(mantissa: i128, scale: u8) -> (i128, u8) {
         mantissa /= 10;
         scale -= 1;
     }
+
     if mantissa == 0 {
         (0, 0)
     } else {
@@ -222,6 +225,7 @@ fn latest_available_quote(
     .map_err(|_| PitObservationSourceErrorV1::Unavailable)?;
 
     let mut best: Option<(u64, u64, AvailableQuote)> = None;
+
     while let Some(record) = decoder
         .decode_record::<dbn::Bbo1SMsg>()
         .map_err(|_| PitObservationSourceErrorV1::Unavailable)?
@@ -233,6 +237,7 @@ fn latest_available_quote(
         }
         let level = &record.levels[0];
         let candidate = (ts_recv, ts_event);
+
         if best
             .as_ref()
             .is_none_or(|(recv, event, _)| candidate > (*recv, *event))
@@ -259,6 +264,8 @@ mod tests {
         encode::{DbnEncoder, EncodeRecord},
     };
     use time::{Date, Month};
+
+    use rstest::rstest;
 
     use super::*;
     use crate::pit_probe::{
@@ -294,6 +301,7 @@ mod tests {
         let mut bytes = Vec::new();
         {
             let mut encoder = DbnEncoder::new(&mut bytes, &metadata).unwrap();
+
             for &(ts_event, ts_recv, bid_px, ask_px) in records {
                 let mut record = dbn::Bbo1SMsg::default_for_schema(dbn::Schema::Bbo1S);
                 record.hd.instrument_id = 101;
@@ -318,7 +326,7 @@ mod tests {
         )
     }
 
-    #[test]
+    #[rstest]
     fn takes_the_latest_quote_that_was_already_available() {
         let dbn_bytes = quotes(&[
             (START + 10, START + 20, 100, 200),
@@ -330,7 +338,7 @@ mod tests {
         assert_eq!((quote.bid_px, quote.ask_px), (300, 400));
     }
 
-    #[test]
+    #[rstest]
     fn a_quote_published_after_the_coordinate_never_backfills() {
         let dbn_bytes = quotes(&[
             (START + 10, START + 20, 100, 200),
@@ -347,7 +355,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn an_event_after_the_effective_coordinate_is_dropped() {
         let dbn_bytes = quotes(&[(START + 61, START + 62, 100, 200)]);
         assert!(
@@ -357,7 +365,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn no_qualifying_record_is_empty_coverage_rather_than_an_error() {
         let dbn_bytes = quotes(&[]);
         assert!(
@@ -367,7 +375,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn an_absent_side_is_omitted_instead_of_becoming_a_zero_price() {
         let rows = rows_from_quote(
             &scope(&[PIT_PROBE_INSTRUMENT]),
@@ -385,7 +393,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn a_value_has_exactly_one_canonical_spelling() {
         assert_eq!(canonical_decimal(201_090_000_000, 9), (20_109, 2));
         assert_eq!(canonical_decimal(1, 9), (1, 9));
@@ -393,7 +401,7 @@ mod tests {
         assert_eq!(canonical_decimal(-201_090_000_000, 9), (-20_109, 2));
     }
 
-    #[test]
+    #[rstest]
     fn rows_are_emitted_in_the_owners_canonical_order() {
         let rows = rows_from_quote(
             &scope(&[PIT_PROBE_INSTRUMENT]),
@@ -411,7 +419,7 @@ mod tests {
         assert_eq!(keys, sorted, "the batch is strictly ascending by key");
     }
 
-    #[test]
+    #[rstest]
     fn every_row_repeats_the_coordinates_the_owner_issued() {
         let scope = scope(&[PIT_PROBE_INSTRUMENT]);
         let rows = rows_from_quote(
@@ -493,7 +501,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn a_scope_the_probe_is_not_entitled_to_is_refused() {
         for members in [
             vec![],
@@ -507,7 +515,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn a_cut_before_its_own_effective_coordinate_is_refused() {
         let inverted = PitObservationScopeV1::from_owner_request(
             vec![PIT_PROBE_INSTRUMENT.to_string()],
@@ -523,7 +531,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn the_admitted_window_ends_just_after_the_effective_coordinate() {
         assert_eq!(
             admitted_window(&scope(&[PIT_PROBE_INSTRUMENT])),

@@ -10,6 +10,9 @@ use crate::owner::native_replay_scheduling_v2::{
     NativeReplayFrameSequenceCustodyRecordV2, NativeReplayFrameSequenceCustodyRefusalV2,
     NativeReplaySequenceFrameV2, seal_native_replay_frame_sequence_v2,
 };
+use crate::owner::pit_observation_source_v1::{
+    PitObservationScopeV1, PitObservationSourceErrorV1, PitObservationSourceV1, VendorObservationV1,
+};
 use crate::owner::{
     bar_schedule::{
         BarScheduleResolverV1, UntrustedBarScheduleLocatorV1, prepare_bar_schedule_commit_v1,
@@ -4343,33 +4346,26 @@ struct ScopeFaithfulObservationSourceV1 {
 }
 
 #[async_trait::async_trait]
-impl crate::owner::pit_observation_source_v1::PitObservationSourceV1
-    for ScopeFaithfulObservationSourceV1
-{
+impl PitObservationSourceV1 for ScopeFaithfulObservationSourceV1 {
     async fn observe(
         &self,
-        scope: &crate::owner::pit_observation_source_v1::PitObservationScopeV1,
-    ) -> Result<
-        Vec<crate::owner::pit_observation_source_v1::VendorObservationV1>,
-        crate::owner::pit_observation_source_v1::PitObservationSourceErrorV1,
-    > {
-        Ok(vec![
-            crate::owner::pit_observation_source_v1::VendorObservationV1 {
-                symbolic_key: "AAPL.CLOSE.1M".into(),
-                member_key: self.member_key.clone(),
-                instrument: "AAPL".into(),
-                channel: "MARKET".into(),
-                data_kind: "BAR".into(),
-                timeframe: "1M".into(),
-                field: "CLOSE".into(),
-                value_mantissa: 12_345,
-                value_scale: 2,
-                event_effective: scope.event_effective(),
-                provider_available: scope.provider_available(),
-                retrieval: scope.retrieval(),
-                correction_publication: scope.correction_publication(),
-            },
-        ])
+        scope: &PitObservationScopeV1,
+    ) -> Result<Vec<VendorObservationV1>, PitObservationSourceErrorV1> {
+        Ok(vec![VendorObservationV1 {
+            symbolic_key: "AAPL.CLOSE.1M".into(),
+            member_key: self.member_key.clone(),
+            instrument: "AAPL".into(),
+            channel: "MARKET".into(),
+            data_kind: "BAR".into(),
+            timeframe: "1M".into(),
+            field: "CLOSE".into(),
+            value_mantissa: 12_345,
+            value_scale: 2,
+            event_effective: scope.event_effective(),
+            provider_available: scope.provider_available(),
+            retrieval: scope.retrieval(),
+            correction_publication: scope.correction_publication(),
+        }])
     }
 }
 
@@ -4377,17 +4373,12 @@ impl crate::owner::pit_observation_source_v1::PitObservationSourceV1
 struct UnavailableObservationSourceV1;
 
 #[async_trait::async_trait]
-impl crate::owner::pit_observation_source_v1::PitObservationSourceV1
-    for UnavailableObservationSourceV1
-{
+impl PitObservationSourceV1 for UnavailableObservationSourceV1 {
     async fn observe(
         &self,
-        _scope: &crate::owner::pit_observation_source_v1::PitObservationScopeV1,
-    ) -> Result<
-        Vec<crate::owner::pit_observation_source_v1::VendorObservationV1>,
-        crate::owner::pit_observation_source_v1::PitObservationSourceErrorV1,
-    > {
-        Err(crate::owner::pit_observation_source_v1::PitObservationSourceErrorV1::Unavailable)
+        _scope: &PitObservationScopeV1,
+    ) -> Result<Vec<VendorObservationV1>, PitObservationSourceErrorV1> {
+        Err(PitObservationSourceErrorV1::Unavailable)
     }
 }
 

@@ -54,8 +54,9 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   在 `crates/data` 内还是 `pub(crate)`。解除条件：一个由本文档点名的固定消费者。
 - **`B6` 还没有任何部署准入过供应商。** 整条链路已端到端验证：2026-09-17 的一次性 PostgreSQL 运行里，准入了
   Databento Source Binding、准入其成员、求值选择规则、读取 Owner 决策切面、提交一份冻结请求，并从一条真实
-  `AAPL` 报价提交出 `AVAILABLE` 快照。剩下的是运维而非结构问题：没有任何运行中的部署向
-  `/v1/market-data/source-bindings` 提交过绑定，且未配置 Data Client 时 intake 保持缺席。
+  `AAPL` 报价提交出 `AVAILABLE` 快照，另有一个免密钥的币安现货客户端以零成本回答同一条缝。剩下的是运维而非
+  结构问题：没有任何运行中的部署向 `/v1/market-data/source-bindings` 提交过绑定，且未经
+  `MARKET_DATA_OBSERVATION_SOURCE` 指名 Data Client 时 intake 保持缺席。
 
 ### 逐片台账
 
@@ -65,18 +66,18 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
 | Source Binding 与 Owner 本地 clock head           | `CURRENT / PARTIAL` | `crates/data/src/owner/source_binding.rs`、`owner/postgres.rs`                                                                                                                                                  | `B1`       |
 | 面向 R&D 的 `ResearchPitTerminal` 输出交接        | `CURRENT / PARTIAL` | `crates/data/src/owner/research_pit_terminal.rs`                                                                                                                                                                | `B3`       |
 | Deployment Store Admission 私有接缝               | `CURRENT / PARTIAL` | `crates/data/src/owner/store_admission`                                                                                                                                                                         | `B3`       |
-| R0 观测证据与 reference-fact 目录                 | `CURRENT / PARTIAL` | `owner/reference_fact_coordinates`、`owner/reference_fact_catalog.rs`                                                                                                                                           | `B5`       |
+| R0 观测证据与 reference‑fact 目录                 | `CURRENT / PARTIAL` | `owner/reference_fact_coordinates`、`owner/reference_fact_catalog.rs`                                                                                                                                           | `B5`       |
 | Calendar、Time Zone 与 Session 原生权威           | `CURRENT / PARTIAL` | `owner/calendar`、`owner/time_zone`、`owner/session`                                                                                                                                                            | `B5`       |
 | Market Semantics Owner 契约                       | `CURRENT / PARTIAL` | `owner/market_semantics`                                                                                                                                                                                        | `B5`       |
 | Correction Policy 私有 Replay projection          | `CURRENT / PARTIAL` | `owner/correction_policy_projection`                                                                                                                                                                            | `B5`       |
 | Corporate Action 的 Instrument Master 子权威      | `CURRENT / PARTIAL` | `owner/corporate_action`                                                                                                                                                                                        | `B5`       |
-| Universe Selection Record                         | `CURRENT / PARTIAL` | `owner/universe_selection.rs`，持久 custody 与事务内规则求值在 `owner/postgres/universe_selection.rs`（`universe_selection_records_v1`、receipts、outbox、historical-membership frontier/facts/heads/manifest） | `B1`       |
+| Universe Selection Record                         | `CURRENT / PARTIAL` | `owner/universe_selection.rs`，持久 custody 与事务内规则求值在 `owner/postgres/universe_selection.rs`（`universe_selection_records_v1`、receipts、outbox、historical‑membership frontier/facts/heads/manifest） | `B1`       |
 | Replay Market Facts V2 基础                       | `CURRENT / PARTIAL` | `owner/replay_market_facts_v2`                                                                                                                                                                                  | `B4`       |
 | Instrument Master V1 与 V2 及经济条款             | `CURRENT / PARTIAL` | `owner/instrument_master.rs`、`owner/instrument_master_v2*.rs`、`owner/instrument_economic_terms*_v1.rs`                                                                                                        | `B4`       |
-| Strategy input-role binding 与 Design 的 PIT 坐标 | `CURRENT / PARTIAL` | `owner/postgres/strategy_input_binding_registry.rs`                                                                                                                                                             | `B2`、`B4` |
+| Strategy input‑role binding 与 Design 的 PIT 坐标 | `CURRENT / PARTIAL` | `owner/postgres/strategy_input_binding_registry.rs`                                                                                                                                                             | `B2`、`B4` |
 | EVENT 与 BAR Owner custody                        | `CURRENT / PARTIAL` | `owner/sample_fact.rs`、`owner/sample_projection*.rs`、`owner/bar_schedule.rs`                                                                                                                                  | `B4`       |
-| Shared Time clock-head 交接                       | `TARGET`            | `owner/shared_time_evidence.rs`                                                                                                                                                                                 | `B3`       |
-| 供应商 Data Clients                               | `CURRENT / PARTIAL` | `crates/adapters/databento/src/pit_observation_source_v1.rs`，由 `crates/adapters/databento/tests/market_data_end_to_end.rs` 端到端验证                                                                         | `B6`       |
+| Shared Time clock‑head 交接                       | `TARGET`            | `owner/shared_time_evidence.rs`                                                                                                                                                                                 | `B3`       |
+| 供应商 Data Clients                               | `CURRENT / PARTIAL` | `crates/adapters/databento/src/pit_observation_source_v1.rs` 与 `crates/adapters/binance/src/pit_observation_source_v1.rs`，均已实盘验证                                                                        | `B6`       |
 
 ## 拥有的权威事实
 

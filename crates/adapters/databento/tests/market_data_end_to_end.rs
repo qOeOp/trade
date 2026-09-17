@@ -24,9 +24,10 @@ use vibe_data::owner::{
         seal_request_claims_v1,
     },
     source_binding::{
-        BindingDigest, UntrustedAdapterBinding, UntrustedCredentialAudienceClaim,
-        UntrustedCredentialCapabilityClaim, UntrustedLicensePolicy, UntrustedMarketDataAsOf,
-        UntrustedMarketSemantics, UntrustedOpaqueCredentialHandle, UntrustedSourceBindingLocator,
+        BindingDigest, UntrustedAdapterBinding, UntrustedCompleteFrontier,
+        UntrustedCredentialAudienceClaim, UntrustedCredentialCapabilityClaim,
+        UntrustedLicensePolicy, UntrustedMarketDataAsOf, UntrustedMarketSemantics,
+        UntrustedOpaqueCredentialHandle, UntrustedSourceBindingLocator,
         UntrustedSourceBindingProposal, UntrustedTrustPolicy, seal_binding_claim_v1,
     },
     source_binding_admission_v1::{
@@ -34,10 +35,12 @@ use vibe_data::owner::{
         SourceBindingAdmissionDispositionV1, SourceBindingAdmissionRequestV1,
         source_binding_admission_from_environment_v1,
     },
-    universe_selection::UntrustedUniverseSelectionRequestV1,
+    universe_selection::{
+        UntrustedUniverseSelectionLocatorV1, UntrustedUniverseSelectionRequestV1,
+    },
     universe_selection_admission_v1::{
         HistoricalMembershipAdmissionRequestV1, HistoricalMembershipSubmissionV1,
-        universe_selection_admission_from_environment_v1,
+        UniverseSelectionTerminalV1, universe_selection_admission_from_environment_v1,
     },
 };
 use vibe_databento::{
@@ -187,9 +190,9 @@ async fn market_data_answers_one_frozen_request_from_live_vendor_data() {
 }
 
 fn universe_locator(
-    selection: &vibe_data::owner::universe_selection_admission_v1::UniverseSelectionTerminalV1,
-) -> vibe_data::owner::universe_selection::UntrustedUniverseSelectionLocatorV1 {
-    vibe_data::owner::universe_selection::UntrustedUniverseSelectionLocatorV1::from_untrusted(
+    selection: &UniverseSelectionTerminalV1,
+) -> UntrustedUniverseSelectionLocatorV1 {
+    UntrustedUniverseSelectionLocatorV1::from_untrusted(
         selection.request_identity(),
         selection.request_meaning_digest(),
     )
@@ -246,13 +249,11 @@ fn frozen_request(
 /// Every field is a claim: the endpoint identity is not a reachability assertion, and the
 /// credential crosses as an opaque least-privilege handle rather than as key material.
 fn databento_source_proposal() -> UntrustedSourceBindingProposal {
-    let frontier = |digest_byte: u8, sequence: u64| {
-        vibe_data::owner::source_binding::UntrustedCompleteFrontier {
-            stream_identity: "databento/EQUS.MINI".to_string(),
-            cut_identity: "databento/EQUS.MINI/cut-1".to_string(),
-            sequence,
-            digest: digest(digest_byte),
-        }
+    let frontier = |digest_byte: u8, sequence: u64| UntrustedCompleteFrontier {
+        stream_identity: "databento/EQUS.MINI".to_string(),
+        cut_identity: "databento/EQUS.MINI/cut-1".to_string(),
+        sequence,
+        digest: digest(digest_byte),
     };
     let mut proposal = UntrustedSourceBindingProposal {
         claimed_binding_id: digest(0),
