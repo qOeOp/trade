@@ -1035,8 +1035,10 @@ function；但尚未见到任何一次运行把 Composer commit 经 W3 registrat
 所要拒绝的伪造。冻结不是障碍：`freeze` 收的是已装配好的 pair，完全不查询本注册表，链路中的 joint-freeze
 证明正是在完全不接触 Market Data 的情况下通过的。障碍在 run。绑定解析在检查已声明角色集之前就调用
 `resolve_pit_request_for_strategy_design_v1`，因此一个冻结程序即便一个输入角色都没有声明，也会因缺少
-declaration 而被拒；而 attestation 的作用域限于单个 Design，所以第一个程序无法为第二个背书。
-于是每个 Design 各自成环：运行它需要 declaration，declaration 需要一份指名它的 attestation，
+declaration 而被拒；而 attestation 的作用域限于单个 Design，所以第一个程序无法为第二个背书。也没有"零输入"这条退路：
+`validate_declarations` 拒绝不含输入的 Design，因为至少需要一个 typed Owner-bound input。
+因此这个环是那条要求的推论，而不是疏忽：每个可准入的 Design 都绑定到 Owner 验证过的 custody，
+这既是 artifact 可信的来源，也正是第一个 Design 无物可绑的原因。于是每个 Design 各自成环：运行它需要 declaration，declaration 需要一份指名它的 attestation，
 而这份 attestation 需要只有运行才能产出的那次 operation。无论打开哪一环，改变的都是
 "什么可以为某个 Design 启动一次 Composer 操作"，而不是"W3 在操作存在之后接纳什么"。
 **NOT_ADMITTED：** caller-proposed Design/role/join 字段、receipt/readback/token、receipt
