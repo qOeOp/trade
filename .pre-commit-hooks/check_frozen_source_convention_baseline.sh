@@ -3,7 +3,7 @@
 set -euo pipefail
 
 readonly FROZEN_SOURCE_PATH="crates/strategy_factory/src/bounded_feature_program_lowerer_v1.rs"
-readonly FROZEN_SOURCE_SHA256="ebcf6259588a78b87128d0cbc5192d96ec545476b4c90ac55cbca54e028658c3"
+readonly FROZEN_SOURCE_SHA256="ae85bba8e3bc4d198efba047fb3b4bdabfeddc8d79d01edf91b6b6461d2a2db5"
 
 if [ "$#" -ne 1 ]; then
   echo "ERROR: frozen source baseline check requires one repository root" >&2
