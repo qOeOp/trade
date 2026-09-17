@@ -5,13 +5,13 @@
 Product Edge is the application and conversation boundary. It turns attended UI or natural-language intent into
 bounded requests and returns read-only product views. The product surface is the Trade-owned Dashboard in
 `product/dashboard`; its `/api/mcp` endpoint exposes the same admitted operations to optional external
-conversation clients. The retained Windmill deployment in `product/rd-workbench` is still the current executor for
+conversation clients. The deployment package in `product/rd-workbench` is still the current executor for
 production effects; the Dashboard has not cut over.
 
 ## Product surface and package
 
 The target distribution is one VibeTrader Docker Compose package, not one monolithic image. It composes the Trade
-Runtime and Owner APIs, the Dashboard, the retained Windmill server and workers, their required persistence and
+Runtime and Owner APIs, the Dashboard, their required persistence and
 local ingress.
 
 The product entry is `product/dashboard`: one independently buildable `trade-dashboard` image carrying the
@@ -28,76 +28,58 @@ authorities, or implementation-acceptance dependencies.
 The Dashboard and its MCP endpoint invoke one curated set of versioned operations over typed Owner ports. They may
 not call arbitrary Owner SQL, mint business facts, or keep a shadow workflow truth. The Operations APIs read only
 Trade-owned operational RunStore data; typed R&D and Backtest reads use their exact Owner contracts. They never
-copy Windmill job rows or raw Owner payloads, and operational completion is never reinterpreted as business
+copy operational run rows or raw Owner payloads, and operational completion is never reinterpreted as business
 success. A live strategy loop, market session, order state machine, and recovery effect remain owned by Trade
 Runtime, Risk, Execution, and Recovery; the product surface may supervise and display them but is never the trading
 runtime.
 
 **Current deployment state:** every Dashboard service starts only under the opt-in `dashboard-preview` profile, the
 image tag defaults to `preview`, the web host port defaults to `127.0.0.1:3100`, and the runtime roles expose no
-host port. **There is no production deployment and no Windmill cutover.** Windmill remains the current executor for
-production effects; the Dashboard effect worker is disabled by default, holds only explicit disposable-local
-authority, and carries no production trading authority.
+host port. **There is no production deployment.** The Dashboard effect worker is disabled by default, holds only
+explicit disposable-local authority, and carries no production trading authority.
 
-The retained Windmill deployment in `product/rd-workbench` still owns the typed scripts and flows under
-`f/trade/product_edge/`, which remain the current transport and execution path for those operations. Its
-`rd_workbench.raw_app` is superseded by the Dashboard and is no longer the product entry.
+**The previous executor is retired.** No deployment ran it, so it left rather than waiting for a cutover: its
+typed scripts, workspace manifest and services are gone, and `product/rd-workbench` is now the **Deployment Package**
+for Postgres, the Owner APIs and the Dashboard alone. Product Edge has exactly one surface again.
 
-**Windmill removal is the target, not a coexistence.** The end state is that **no Windmill dependency remains
-anywhere in the repository** - no image, Compose service, script, flow, lock file, workspace declaration, client,
-environment variable, or channel constant that a global search can still find. The Dashboard becomes the sole
-truth entry, and Product Edge has exactly one surface again. Windmill stays in the documentation only as a
-reference for the capabilities the Dashboard still has to absorb - job execution and progress, scheduling, worker
-isolation, resource and secret custody - so that removing it does not quietly drop a capability that was load
-bearing. A Windmill primitive described below is therefore a requirement the Dashboard inherits, not a dependency
-the product keeps.
+`Capability Adoption` records where each capability the retired shell supplied went, so that removing it did not
+quietly drop one that was load bearing. Two retired rather than moved, and the cost of the second - the sealed
+acceptance chains that only it drove - is stated there rather than left to be discovered.
 
 Routes below the bilingual `DRAWABLE_EXACT` gate remain navigation-only placeholders; a route name or a retained
-source is not implementation authority. Production deployment and the Windmill cutover remain `TARGET`. Dashboard
-reachability under the preview profile, an MCP handshake, or a local Windmill installation does not make the
+source is not implementation authority. Production deployment remains `TARGET`. Dashboard
+reachability under the preview profile or an MCP handshake does not make the
 product surface `CURRENT`; acceptance requires the bounded user journeys, common operations, Owner receipts,
 unresolved states, and direct browser evidence defined below.
 
-## Windmill capability adoption contract
+## Executor capability contract
 
-This section governs the **retained Windmill executor path**, not the product entry, which the section above
-defines. These boundaries keep applying until the cutover completes, because production effects still execute on
-Windmill today.
+This section governs the **first-party executor path**, not the product entry, which the section above defines.
+The product shell that once executed these effects is retired; `Capability Adoption` records where each of its
+capabilities went. The boundaries below outlived it, because they constrain any executor, and they now bind the
+Dashboard's effect custody.
 
-The audited implementation floor is self-hosted Windmill Community Edition. The 2026-08-18 evidence cut verified
-local `CE v1.791.0` server and worker health and checked the official Windmill capability documentation for Apps,
-MCP, jobs, logs, schedules, workers, resources, and variables. That cut is `VENDOR_DECLARED` and
-`LOCAL_REACHABLE`, not `PRODUCT_CURRENT`. Every product release must pin the Windmill server, worker, and CLI to an
-exact compatible version and container digest; `main`, `latest`, or another moving tag is forbidden.
+| Executor primitive                | Product Edge role                                                                           | Mandatory boundary                                                                                                                                                                                                                   |
+| --------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Product application               | The Dashboard is the product entry                                                          | Authenticated operator execution only. Public, anonymous, and publisher execution are forbidden because they erase the caller's effective permission boundary.                                                                       |
+| MCP endpoint                      | Optional conversation channel to the same versioned operation set                           | A scoped token exposes an exact allowlist, deny by default. It must not expose preview or create/update/delete tools for applications, scripts, resources, variables, schedules, or workers. Folder filtering alone is insufficient. |
+| Typed adapters and orchestration  | Typed adapters and bounded orchestration over Owner ports                                   | They may route, wait, retry, and compose; they never write Owner storage, invent business state, or turn orchestration success into an Owner result.                                                                                 |
+| Runs, progress, logs, and streams | Operational run identity, live progress, diagnostics, and UI streaming                      | An operational run ID, percentage, result, or log is not an Owner receipt. Operational retention is bounded, so durable research artifacts and outcome facts remain with Trade Owners.                                               |
+| Schedules                         | Trigger bounded research, scanner, replay, report, and maintenance work                     | A schedule is not a deployment registry, lifecycle authority, or live strategy runtime. Correctness uses an error path and same‑request resolution at the executor level.                                                            |
+| Workers and workload isolation    | Queue‑backed execution and workload isolation by admitted role                              | Worker loss leaves the business result unresolved until the receiving Owner is queried.                                                                                                                                              |
+| Bounded reasoning step            | Optional bounded internal R&D reasoning step with explicitly admitted tools                 | Agent memory, model output, and tool‑call success are non‑authoritative. The step gets no arbitrary shell, Owner SQL, lifecycle, Risk, Execution, secret‑management, or workspace‑management capability.                             |
+| Connection config and secrets     | Typed connection configuration and opaque credential custody                                | Executor secret access is not Operator Authorization. Least‑privilege paths are mandatory; secret values never enter prompts, Owner requests, logs, artifacts, or receipts.                                                          |
+| Operational state                 | UI preferences and explicitly rebuildable non‑authoritative caches only                     | Research lineage, receipts, Qualification, Governance, Runtime, Risk, Execution, Portfolio, and Recovery truth are forbidden. Long‑lived artifacts use Owner storage or admitted object storage.                                     |
+| Deployment versions               | Repository‑first source for the application, its operations, schedules, and resource schema | Deployed state is a projection of the repository. Promotion records the Git revision, image digest, schema versions, and rollback target as one compatibility cut.                                                                   |
 
-| Windmill primitive                | Adopted Product Edge role                                                                               | Mandatory boundary                                                                                                                                                                                                                           |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Full‑code App                     | Superseded by the Dashboard. `rd_workbench.raw_app` is a retained stub, not the product entry           | Authenticated and `viewer` execution policy only. `publisher`, `anonymous`, and `public` are forbidden because they erase the caller's effective permission boundary.                                                                        |
-| Native MCP                        | Optional conversation channel to the same versioned operation set                                       | Workspace‑scoped OAuth or a scoped token exposes an exact allowlist. It must not expose preview or create/update/delete tools for Apps, scripts, flows, resources, variables, schedules, or workers. Folder filtering alone is insufficient. |
-| Scripts and flows                 | Typed adapters and bounded orchestration over Owner ports                                               | They may route, wait, retry, and compose; they never write Owner storage, invent business state, or turn flow success into an Owner result.                                                                                                  |
-| Jobs, progress, logs, and SSE     | Operational run identity, live progress, diagnostics, and UI streaming                                  | A Windmill job ID, percentage, result, or log is not an Owner receipt. Self‑hosted CE job detail retention is bounded, so durable research artifacts and outcome facts remain with Trade Owners.                                             |
-| Schedules                         | Trigger bounded research, scanner, replay, report, and maintenance flows                                | A schedule is not a deployment registry, lifecycle authority, or live strategy runtime. CE correctness uses a flow‑level error path and same‑request resolution; it does not depend on the Enterprise schedule error handler.                |
-| Workers and worker groups         | Queue‑backed execution and workload isolation by admitted tags                                          | Worker loss leaves the business result unresolved until the receiving Owner is queried. Enterprise Agent Workers are not required and must not be confused with LLM agents.                                                                  |
-| AI Agent flow step                | Optional bounded internal R&D reasoning step with explicitly admitted script or MCP tools               | Agent memory, model output, and tool‑call success are non‑authoritative. The step gets no arbitrary shell, Owner SQL, lifecycle, Risk, Execution, secret‑management, or workspace‑management capability.                                     |
-| Resources, variables, and secrets | Typed connection configuration and opaque credential custody                                            | Windmill secret access is not Operator Authorization. Least‑privilege paths are mandatory; secret values never enter prompts, Owner requests, logs, artifacts, or receipts.                                                                  |
-| Data tables and transient state   | UI preferences and explicitly rebuildable non‑authoritative caches only                                 | Research lineage, receipts, Qualification, Governance, Runtime, Risk, Execution, Portfolio, and Recovery truth are forbidden. Long‑lived artifacts use Owner storage or admitted object storage.                                             |
-| Git and deployment versions       | Repository‑first source for App, script, flow, schedule, resource schema, and `wmill.yaml` declarations | UI state is a deployed projection. Promotion records the Git revision, Windmill resource versions, CLI version, image digest, schema versions, and rollback target as one compatibility cut.                                                 |
-
-The Community Edition floor must remain correct without service accounts, Agent Workers, schedule-level error
-handlers, job debouncing, critical alerts, full-text job/log search, unlimited retention, or Enterprise OTLP export.
-Enterprise features may improve isolation or operations, but cannot be required for business correctness. On CE,
-unattended schedules run on behalf of dedicated least-privilege virtual users; on EE a service account may replace
-that identity without changing its Product Edge principal, scope, manifest, or Owner semantics. Operator UI
-visibility is not an authorization boundary.
-
-Windmill's native MCP includes powerful workspace-management tools, so the distributable MCP profile is deny by
-default. Its allowed tools are only the curated Product Edge operations plus the read-only built-in tools `getJob`
-and `getJobLogs`. App and MCP calls bind the same operation version and semantic request;
-neither channel may deploy or edit the operation it is currently using.
+Operator UI visibility is not an authorization boundary. The distributable MCP profile is deny by default: its
+allowed tools are only the curated Product Edge operations plus read-only operational run reads. Application and
+MCP calls bind the same operation version and semantic request; neither channel may deploy or edit the operation
+it is currently using.
 
 Unattended execution begins from a canonical due-slot identity and derives one stable Product Edge request
 identity before the first Owner call. Retries, worker restart, timeout recovery, and manual resolution reuse that
-identity and meaning. If Windmill cannot prove whether an Owner accepted the call, the run stays
+identity and meaning. If the executor cannot prove whether an Owner accepted the call, the run stays
 `SUBMITTED_OR_UNKNOWN` and a resolver queries the Owner receipt; it never submits a naked successor. Parallel or
 overlapping schedule delivery is harmless only when the due-slot and Owner idempotency contract join the same
 receipt. Flow error handling may notify and enqueue resolution, but only an Owner receipt closes the business
@@ -110,7 +92,7 @@ for different semantics is an identity conflict. The exhaustive Owner dispositio
 business disposition. Only `SUCCESS` atomically commits a new immutable Artifact, Build Receipt, Artifact Review,
 and `ARTIFACT_AVAILABLE` projection. Every other disposition has no Artifact. Response loss after commit resolves
 to that exact receipt, while timeout before commit can only close unknown without an Artifact. App and MCP invoke
-the same versioned Formation operation and never use Windmill job state as a substitute.
+the same versioned Formation operation and never use operational run state as a substitute.
 
 Product Edge samples the request-admission commit cut only after the canonical authorization, deployment binding,
 manifest, and admission locks are held, immediately before its first write. It revalidates all four authorities at
@@ -125,38 +107,31 @@ same-attempt resolution returns the exact `CLAIMED` claim and the sole action
 successor claim or invoke the provider a second time; after `INVOCATION_STARTED`, the only safe projection is
 manual provider reconciliation unless an authoritative terminal Owner receipt exists.
 
-### Sealed Source Intake acceptance topology
+### Retired sealed Source Intake acceptance topology
 
-Source Intake has one explicitly separate, compile-time `SEALED_ACCEPTANCE` composition. It is not part of the
-production artifact, is disabled by default, and cannot be selected by an ordinary Product Edge request, generic
-production environment variable, runtime provider name, URL, header, credential, or DSN. The production artifact
-contains no acceptance adapter. Its only acquisition class is `LIVE_EXTERNAL`, and it fails closed until all real
-policy, time, DNS, rights, credential, egress, and provider authorities are configured and current.
+Source Intake had one explicitly separate, compile-time `SEALED_ACCEPTANCE` composition. It retired with
+the product shell that deployed and transported it, because the shell was its only driver. No first-party
+equivalent exists yet, so Source Intake currently has unit coverage and no sealed chain.
 
-The acceptance composition replaces only the provider boundary with a sealed adapter over a fixed DOI corpus,
-fixed response bytes, and deterministic rejection cases. It uses a non-public provider identity, has no external
-network capability, and shares no database, volume, workspace, or mutable state with production or another
-acceptance run. It still traverses the production Product Edge admission gateway, the same Source Intake Owner
-orchestrator, durable claim/start, move-only permit, R&D PostgreSQL atomic terminal transaction, terminal receipt,
-readback, and the default Windmill `RUN` and `RESOLVE` transport. The API performs authentication, DTO validation,
-and projection only; Windmill schedules or transports calls only. Neither owns or reconstructs the lifecycle.
+What that composition proved is recorded here so a replacement cannot quietly prove less. It replaced only
+the provider boundary with a sealed adapter over a fixed DOI corpus, fixed response bytes, and deterministic
+rejection cases; it used a non-public provider identity, had no external network capability, and shared no
+database, volume, workspace, or mutable state with production or another acceptance run. It still traversed
+the production Product Edge admission gateway, the same Source Intake Owner orchestrator, durable
+claim/start, move-only permit, R&D PostgreSQL atomic terminal transaction, terminal receipt, and readback.
 
-Each acceptance deployment is created from exact script content plus its lock and content hash in a fresh unique
-Windmill project/workspace, ingress port, database, and volume. Its environment identity, provider-profile digest,
-fixture-corpus digest, sealed policy and Time Evidence, binding evidence, and retrieval evidence are cross-bound
-into the admission, acquisition binding, terminal receipt, and readback. The runner must:
+Its runner established five things, and a first-party replacement owes the same five:
 
-1. deploy that exact identity and invoke deployed `RUN`, the same `RUN` again, and same-request `RESOLVE`;
-2. verify one full `RETRIEVED` receipt and its content-addressed locator, content digest, acquisition provenance,
-   Source Candidate, and outbox records;
+1. deploy one exact identity and invoke `RUN`, the same `RUN` again, and same-request `RESOLVE`;
+2. verify one full `RETRIEVED` receipt and its content-addressed locator, content digest, acquisition
+   provenance, Source Candidate, and outbox records;
 3. verify a sealed policy rejection causes zero provider invocations and zero positive records;
-4. induce loss of the first `RUN` response after provider execution and the atomic terminal commit, resolve the
-   same attempt, and prove provider invocation count is exactly one; and
-5. remove the unique project/workspace, port allocation, database, and volume, then read back that every isolated
-   artifact is absent and no shared target changed.
+4. induce loss of the first `RUN` response after provider execution and the atomic terminal commit, resolve
+   the same attempt, and prove provider invocation count is exactly one; and
+5. remove every isolated resource, then read back that each is absent and no shared target changed.
 
-Passing this runner is `SEALED_ACCEPTANCE` evidence only. It is never evidence that the Workbench is `CURRENT` or
-that production policy, time, DNS, rights, credentials, egress, PostgreSQL, Windmill, or a live provider is ready.
+Passing such a runner is `SEALED_ACCEPTANCE` evidence only. It was never evidence that production policy,
+time, DNS, rights, credentials, egress, PostgreSQL, or a live provider is ready.
 
 ### Source Intake-to-Composer D0 contract
 
@@ -165,13 +140,13 @@ capability current. The maturity split is exact:
 
 - **CURRENT/PARTIAL:** crate-local Source Intake contract/regression evidence and Develop Composer V2, including
   its local deterministic bounded-plugin build producer and `ProgramHostV2` consumer proof. These are separate
-  local proofs. No current evidence establishes the isolated PostgreSQL/Windmill Source Intake runner or a
+  local proofs. No current evidence establishes the isolated PostgreSQL Source Intake runner or a
   composed Source Intake-to-Research-to-Composer path.
 - **TARGET A1 - durable Composer Owner operation:** one public Composer `RUN`/`RESOLVE` contract, in-process A0
   build consumption, and atomic R&D PostgreSQL custody of the private canonical A0 Build Receipt bytes plus restart
   readback as specified below.
 - **TARGET A2 - typed ancestry and isolated transport:** one R&D-owned Source Intake-to-Research operation followed
-  by the A1 Composer operation through the isolated Windmill topology specified below.
+  by the A1 Composer operation through the isolated topology specified below.
 - **SEALED_ACCEPTANCE:** only a completed A2 runner with all listed dynamic gates may claim the composed acceptance
   topology. It remains acceptance-only and cannot establish `PRODUCT_CURRENT` or production readiness.
 
@@ -181,17 +156,17 @@ formation resolver locks and rereads the explicit current unrevoked head on its 
 policy and Catalog cross-binding permanently into the family. Later Composer and Replay compositions use only that
 family-sealed policy and cross-binding; it never rereads the Catalog as authority. An optional Catalog reread is
 audit-only and cannot affect admissibility, so later Catalog revocation, deletion, unavailability, or tamper cannot
-invalidate a formed family. Public Composer or Research requests carry no policy selector. Product Edge, Windmill,
+invalidate a formed family. Public Composer or Research requests carry no policy selector. Product Edge,
 callers, providers, environment values, defaults, migrations, and deployment configuration cannot create or
 select a version, advance the head, revoke a version, seed the Catalog, or synthesize a fallback. Only the private
 audited R&D Catalog Administration Port owns those writes.
 
 The separately authorized Catalog bootstrap composition remains outside Product Edge. It is a dedicated, opt-in,
-one-shot `authority-admin` unit with no HTTP or Windmill route and uses the broker-only
+one-shot `authority-admin` unit with no HTTP route and uses the broker-only
 `REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` only after the Rust composition has authenticated its sealed,
 deny-unknown-fields V1 request by Ed25519 against a separately trusted verifier identity and key. PostgreSQL does
 not repeat that cryptographic verification; it trusts only the exclusive `replay_policy_catalog_admin_writer`
-broker principal. Distributing or using that credential in Product Edge, Windmill, an ordinary service, an
+broker principal. Distributing or using that credential in Product Edge, an ordinary service, an
 operator workflow, or a generic SQL client is a trust-boundary breach. The `authentication_fact_digest` derives
 from the verified evidence before database access. Product Edge cannot
 provide the request, verifier, key, administrator identity, policy bytes, command identities, event time, signature,
@@ -208,7 +183,7 @@ request identity, Design, digest, binding request, plugin-source capsule, provid
 other field. Under the same Owner lock/write transaction used for the positive commit, R&D canonically rereads the
 located current Research custody and alone derives the Composer request identity and digest, Research/Intent and
 Design identities and digests, Design, binding set, source capsule, and provider identity. The derivation retains
-the exact Product Edge Operator Authorization frontier and final commit cut; neither Windmill nor a caller can
+the exact Product Edge Operator Authorization frontier and final commit cut; neither the executor nor a caller can
 replace, omit, or recompute them. The Owner-internal exact commit-cut capability locks only that request and its
 aggregate rows and never takes a table-wide lock.
 
@@ -226,14 +201,14 @@ canonically ordered use relation. Multiple Research-derived Artifacts may theref
 build fact while retaining distinct use rows and complete Research/Design/Artifact lineage. An exact legacy schema
 that embedded those same bytes may be normalized once by byte-preserving migration; every other legacy shape,
 partial relation, byte mismatch, or ambiguous duplicate fails closed. There is no public verified-build locator,
-verified-build read port, database or API token representation, and no provider, caller, Windmill flow, or restart
+verified-build read port, database or API token representation, and no provider, caller, executor, or restart
 path may reconstruct a verified token from bytes, digests, receipts, or labels.
 
 After A0 and immediately before its positive commit, A1 uses the same admitted R&D PostgreSQL transaction to lock
 and canonically reread the final accepted Research custody, derive all Composer meaning, and reread every exact
 fact-Owner binding. A1 passes its existing transaction capability to each applicable Owner-owned sealed Composer
 or Market Data read method. Each Owner locks, canonically rereads, validates, and seals its own facts on
-that exact transaction. No method may open another pool, connection, or transaction; neither caller nor Windmill
+that exact transaction. No method may open another pool, connection, or transaction; neither caller nor executor
 may read raw Owner tables, reconstruct sealed evidence, or acquire the Owner's fact authority. Missing,
 unavailable, stale, mismatched, cross-cut, or wrong-owner Composer or Market Data evidence, or an invalid
 family-sealed policy cross-binding, fails before the first positive write. That same R&D transaction atomically
@@ -274,7 +249,7 @@ without Owner reread, or merely deploying Source Intake and Composer together is
 mismatched, stale, non-`RETRIEVED`, or unavailable ancestry member, or any failed canonical Research admission,
 creates no accepted Research custody and makes Composer unavailable for that ancestry.
 
-A2 uses Windmill only as transport in this fixed order:
+A2 uses the executor only as transport in this fixed order:
 
 `Source Intake RUN/RESOLVE -> typed Research RUN/RESOLVE -> Composer RUN/RESOLVE`.
 
@@ -282,13 +257,13 @@ Each deployed script parses a typed request or receipt and calls the next Owner 
 verified build, canonical bytes, or business result. The acceptance binary selects sealed adapters at compile time,
 uses the fixed Source Intake corpus and fixed A0 source/build corpus, and exposes no runtime provider selector,
 provider URL, credential, fixture path, DSN, header, or environment switch. Every run receives a unique internal
-PostgreSQL instance/schema, Windmill project/workspace, network, ingress allocation, and volumes, with no route or
+PostgreSQL instance/schema, executor workspace, network, ingress allocation, and volumes, with no route or
 mutable state shared with production or another run. A fixed content-addressed Replay Policy Catalog fixture is
 test-only: the isolated harness creates it and explicitly advances its head through the private administration
 port before forming the disposable TrialFamily; later acceptance steps consume only the family-sealed policy. The
 fixture, administration hook, and policy bytes exist only in the compile-time `SEALED_ACCEPTANCE` composition;
 they are not a runtime default, migration seed, production artifact, or deployment selector. That fixed fixture
-hook is distinct from the sealed one-shot product bootstrap: neither path gives Product Edge or Windmill Catalog
+hook is distinct from the sealed one-shot product bootstrap: neither path gives Product Edge or the executor Catalog
 authority.
 
 The composed runner must prove all of the following against the deployed operations and canonical Owner readback:
@@ -309,46 +284,38 @@ The composed runner must prove all of the following against the deployed operati
 6. a single-field mutation of every Source Intake ancestry member and every Owner-derived Research/Design/binding/
    source-capsule input, A0 identity, stored canonical object, module byte, receipt, or outbox binding fails closed and creates no
    positive successor; a separate single-field mutation of the private canonical A0 Build Receipt does the same;
-7. the deployed Windmill golden path reaches `RETRIEVED`, canonical Research admission with typed accepted Research
+7. the deployed golden path reaches `RETRIEVED`, canonical Research admission with typed accepted Research
    custody, and the durable Composer terminal; exact replay uses all three same-request `RESOLVE` paths and joins
    the same receipts; and
-8. cleanup removes the unique Windmill project/workspace, PostgreSQL state, network, ingress allocation, and every
+8. cleanup removes the unique executor workspace, PostgreSQL state, network, ingress allocation, and every
    volume, then proves byte-for-byte or enumerated baseline equality, zero isolated residue, and zero shared-target
    change.
 
 Until those gates pass, durable Composer custody, public API composition, typed Source Intake-to-Research handoff,
-and the Windmill A2 topology remain `TARGET`. A production Market Data binding resolver, live OpenAlex
+and the A2 topology remain `TARGET`. A production Market Data binding resolver, live OpenAlex
 policy/rights/DNS/credentials/egress, `PRODUCT_CURRENT`, Paper, Live, deployment, and any
 trading effect remain unavailable and outside this acceptance authority. Passing the fixed-corpus, fixed-adapter,
-isolated PostgreSQL/Windmill runner is `SEALED_ACCEPTANCE` evidence only and never production readiness.
+isolated PostgreSQL runner is `SEALED_ACCEPTANCE` evidence only and never production readiness.
 
-The external conversation client and Windmill internal AI are separate credential planes. A client may use its
-own model provider key before calling MCP; an internal AI Agent step uses an independently scoped Windmill AI
-resource. Neither model credential authenticates to Trade, and sharing one provider account is an operator choice,
-not an architecture dependency.
+The external conversation client and any internal reasoning step are separate credential planes. A client may use
+its own model provider key before calling MCP; an internal step uses an independently scoped resource. Neither
+model credential authenticates to Trade, and sharing one provider account is an operator choice, not an
+architecture dependency.
 
-Official capability evidence for this floor is the Windmill documentation for
-[full-code App deployment](https://www.windmill.dev/docs/full_code_apps/deployment),
-[MCP tools and scopes](https://www.windmill.dev/docs/core_concepts/mcp),
-[jobs and retention](https://www.windmill.dev/docs/core_concepts/jobs),
-[roles and run-on-behalf](https://www.windmill.dev/docs/core_concepts/roles_and_permissions),
-[schedules](https://www.windmill.dev/docs/core_concepts/scheduling),
-[flow error handling](https://www.windmill.dev/docs/core_concepts/error_handling),
-[persistent storage](https://www.windmill.dev/docs/core_concepts/persistent_storage), and
-[Git sync](https://www.windmill.dev/docs/advanced/git_sync). A later implementation chunk must re-audit these
-claims against its exact pinned Windmill version rather than assuming the 2026-08-18 evidence cut is timeless.
+The vendor capability evidence that once backed this floor retired with the shell it described. A first-party
+executor is audited against its own source and deployment package, not against a vendor's documentation cut.
 
 ## Agent-native R&D authoring
 
 The target product admits one user-facing strategy-authoring path: a person expresses a sourced research goal,
 question, explanation request, or revision request in natural language, and an Agent invokes the admitted typed
-R&D operations. The Windmill App may provide that attended conversation surface directly, while an optional
-external conversation client may invoke the same operations through Windmill MCP. Neither channel authors a
+R&D operations. The Dashboard may provide that attended conversation surface directly, while an optional
+external conversation client may invoke the same operations through the Dashboard MCP endpoint. Neither channel authors a
 business fact or edits an Artifact.
 
-This path separates two Agent roles. A **Conversation Agent** runs in the attended Windmill experience or an
+This path separates two Agent roles. A **Conversation Agent** runs in the attended Dashboard experience or an
 external client such as WorkBuddy; it frames intent, submits or queries typed operations, and explains returned
-views. A server-side **R&D Execution Agent** runs in a Windmill-supervised job and the admitted Development Sandbox;
+views. A server-side **R&D Execution Agent** runs in an executor-supervised run and the admitted Development Sandbox;
 it continues after the conversation disconnects, performs bounded research and generation, and submits candidate
 outputs through R&D Owner ports. Neither Agent owns Research facts, and the Conversation Agent never drives the
 step-by-step lifetime of the execution Agent.
@@ -418,7 +385,7 @@ Product Edge is the sole writer of deployment bindings and heads, content-addres
 immutable request admissions, and its outbox. A separately named **Operator Authorization Issuer** is the sole
 writer of authorization issuance and the revocation frontier. It is a distinct control-plane writer behind the
 Product Edge boundary, not another business Owner or a Product Edge admission helper. Product Edge direct-resolves
-its facts and cannot write them; Windmill, the API, R&D, configuration, and possession of a token cannot issue an
+its facts and cannot write them; the executor, the API, R&D, configuration, and possession of a token cannot issue an
 authorization.
 
 Both writers use separate PostgreSQL roles in the same authority database. A request-admission transaction locks
@@ -637,7 +604,7 @@ Product Edge can request Research work, independent Qualification review, or exa
 
 ## Prohibitions
 
-It must not let the Windmill App, an MCP client, or a workflow become competing business writers, accept self-asserted operator identity, execute arbitrary
+It must not let the Dashboard, an MCP client, or a workflow become competing business writers, accept self-asserted operator identity, execute arbitrary
 SQL or commands against Owner storage, invoke an operation absent from the admitted manifest, expose credentials,
 bypass Risk, create orders, approve eligibility, dereference protected evidence, or report recovery success from
 agent memory.
@@ -663,7 +630,7 @@ Changing the external conversation client or Product Edge transport preserves th
 capability and audit policies, and Owner authority rules. Tests prove exactly one selected admission gateway, an
 allowed zero-active cutover interval, predecessor `SUPERSEDED` before successor `ACTIVE`, irreversible
 supersession, rejection of dual writers or policy drift, per-request admission against the exact authoritative
-head, and preservation of every already admitted in-flight request identity. Windmill App and MCP tests must prove
+head, and preservation of every already admitted in-flight request identity. Dashboard and MCP tests must prove
 that the same semantic request reaches the same versioned operation and Owner receipt, while incompatible clients
 fail before a business write. Every mutating operation is typed, attributable, replay-safe, and bound to a receiving-Owner receipt. Qualification review reuses the Candidate Intake Receipt as that request-correlated terminal receipt and returns it independently of the bounded status view. Same meaning alone never joins a receipt whose Candidate, attempt, state, result, or identity differs. Accepted Research and lifecycle receipts bind the exact resulting fact; rejected receipts prove no write. Runtime application remains visibly `APPLICATION_UNKNOWN` until Runtime proves `APPLIED` or `REJECTED_NO_INSTANCE`. Natural-language ambiguity fails closed before any business write.
 

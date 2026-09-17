@@ -211,6 +211,14 @@ Protected Replay Request Set、Attempt Frontier、Robustness Assessment 或 Elig
 
 因此把共享时钟证据准入到门禁环境，是终端的第一前置；在那之前写任何驱动都没有意义。
 
+**TARGET - 需要部署授权的终端，以及它在等什么：** 这条终端是 TARGET，不是未完成的工作。
+`DEPLOYMENT_STORE_ADMISSION_MODE` 保持 `disabled`，直到存在一个部署授权方能够签发 `required`
+所要求的东西：custodian 签名历史、反回滚 witness、凭据租约与直接测量。这些在本仓库都不存在，
+也未授权任何真实交易或生产写入，因此 resolver 返回空是正确的关闭状态而非缺陷。
+Qualification 的其余部分并不排在它后面：attempt frontier、候选与评估规则，
+以及上文的 protected-replay custody 都是可分离的工作；把这条终端当成它们的阻塞，
+是对依赖关系的误读，而不是依赖本身的性质。
+
 ## 后续实现验收
 
 - 候选和评估规则在保护证据揭示前不可变。

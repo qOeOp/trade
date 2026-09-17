@@ -160,10 +160,31 @@ join 推断。
 `SERVICE_UNAVAILABLE` 是**诚实**而非未完成：根本没有可编译的 Design。
 真正缺的是把冻结的 hypothesis、mechanism 与 falsification question 变成可执行
 `StrategyDesignV2` - 输入角色、reaction graph、插件源码 - 的能力，
-而本文档尚未写明这项导出依据什么判定。它下游的一切都已存在：
+下面的契约写明这份 Design 由谁撰写。它下游的一切都已存在：
 生产提交函数、store、写入器、两张 build-receipt 关系，
 以及 Market Data resolver 落地后的生产 binding 接缝。
 
+### CURRENT_PARTIAL - Strategy Design 由谁撰写
+
+R&D 不导出 Design。本仓库没有任何规则把 hypothesis、mechanism 与 falsification question
+变成输入角色与 reaction graph，也不打算有：那项转换是一次判断，而 Owner 作出的判断
+就是 Owner 发明的事实。
+
+改由**提案者**声明。提案者可以是语言模型、人，或任何其他 caller；本契约不指名它，
+也不随它改变。契约钉死的是**输出**：恰好一份规范 `StrategyDesignV2`，在 bounded-plugin
+路径上再加恰好一份规范 `BoundedFeatureProgramProposalV1`。输入是不设边界的研究散文，
+输出是一个拒绝未知字段与未知 semantic ID 的封闭类型 schema。那项转换就是提案者的全部职责。
+
+Owner 只**接纳**，不导出。它把被声明的这一对绑定到当前已接纳的 Research custody，
+并拒绝 Research 与 Intent 身份或摘要不匹配的 Design。它重新规范化被声明的字节而不信任
+被声明的摘要，对照钉定的 `vibe-indicators-kernel` catalog 与 manifest 边界校验该 program，
+再以一个域分隔摘要冻结这一对。对同一 Research 身份的第二次、不同的声明是改变含义的冲突，
+绝不是更新。
+
+提案者只撰写 Research 含义，别无其他。它不得撰写 Rust、Wasm、依赖、ABI、公式实现、
+构建命令、时钟、Owner receipt、Market Data sample coordinate、Backtest result、raw order
+或可执行回退。那些来自确定性的第一方降级器、钉定的 catalog 以及持有它们的 Owner；
+伸手去碰其中任何一项的声明会被拒绝，而不是被净化。
 **TARGET - 规范 Research-to-Composer custody：** public operation 只接收规范 Research request locator。在一笔
 R&D transaction 上，Owner-internal exact commit-cut capability 取得 request/aggregate row lock，规范重读
 current Research custody，并在任何写入前派生 request、Design、全部 Research/Intent/Design digest、binding、
