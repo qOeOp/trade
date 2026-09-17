@@ -362,6 +362,37 @@ encoding 与 required golden-vector identity。缺失或增加任一行、formul
 failure oracle 都使整个 V1 catalog digest unavailable；Strategy Factory 必须拒绝 BFP，不能发布或替换为
 partial toy catalog。
 
+<a id="catalog-versioning-and-frozen-program-readback"></a>
+
+##### Catalog 版本化与冻结程序读回
+
+Catalog 按 semantic version 分版本发布，而不是一次性发布。版本 `N` 固定一个封闭行集及其 formula、rounding
+ID、availability rule、state encoding 与 required golden-vector identity。在该版本内上述封闭陈述是精确的：
+缺失或增加任一行、formula、semantic ID、golden vector 或 failure oracle 都使版本 `N` unavailable。
+
+两个 identity 相互独立，任何一个都不能替代另一个。
+
+- 版本 `N` 的 **semantic digest** 是对 version-semantic domain、版本号、该版本规范行集与该版本规范 goldens 的
+  SHA-256。它绑定含义而非代码，因此在 kernel 实现变动时保持稳定。
+- **kernel implementation identity** 是对准确编译 kernel 源文件集的 SHA-256。它标识一次构建，任何 kernel
+  源字节改动都会使其改变，它是证据而不是准入闸门。
+
+冻结的 `BoundedFeatureProgramV1` 声明自己的 catalog semantic version 与该版本的 semantic digest。准入解析所
+声明的版本，拒绝未发布的版本，拒绝不等于该版本 semantic digest 的 digest。它绝不把声明与恰好最新的那个版本
+比较。
+
+读回在版本 `N` 下冻结的程序，要求运行中的 kernel 在解析该程序之前逐字节复现版本 `N` 的每一个 required golden
+vector。使较早冻结程序保持诚实的是这项证明，而不是 kernel implementation identity。保持版本 `N` 语义的实现变
+动使冻结继续可读；不保持的实现变动在这些 goldens 上失败，使冻结 unavailable，而不是在改变后的语义下静默重新
+求值已提交的 Research 含义。
+
+发布版本 `N+1` 既不改变也不作废版本 `N`。被退役的 primitive 离开 `N+1` 的行集，而版本 `N` 只要仍有冻结程序声
+明它，就保留其行集与 goldens 处于编译状态；因此退役把一个 primitive 从新程序中移除，而不重写已提交的 Research
+含义。
+
+这是一次有意的取舍。冻结不再钉死产出它的准确 kernel 二进制，其强度恰好等于该版本 golden 语料的覆盖度，而上
+文逐 primitive 的穷举要求已经固定了这一覆盖度。
+
 每个 golden 都是规范 `BoundedFeatureGoldenVectorV1` binary bytes：magic `BFGV` `[u8; 4]`、schema
 `u16 = 1`、reserved-zero `u16`、ASCII vector semantic ID 与 primitive semantic ID（各自编码为
 `u16 length || bytes`）、rounding tag `u8`（`0 = none`、`1 = TowardZero`、

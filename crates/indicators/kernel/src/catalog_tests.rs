@@ -260,3 +260,74 @@ fn source_identity_covers_manifest_exports_and_every_production_module() {
     assert_eq!(SOURCES.len(), module_count + 2);
     assert!(SOURCES.windows(2).all(|pair| pair[0].0 < pair[1].0));
 }
+
+/// The semantic digest binds the version's meaning and deliberately excludes the kernel source set.
+///
+/// This is what lets a program frozen under one version stay verifiable after the kernel changes:
+/// `identity()` moves with any source byte, and the semantic digest does not.
+#[rstest::rstest]
+fn semantic_digest_separates_meaning_from_the_compiled_kernel() {
+    let catalog = PrimitiveCatalogV1::verify().unwrap();
+
+    let mut expected = Sha256::new();
+    expected.update(b"bfp.primitive-catalog.semantic.v1\0");
+    expected.update(catalog.semantic_version().to_le_bytes());
+    emit_rows_and_goldens(&mut |bytes| {
+        expected.update(bytes);
+        Ok(())
+    })
+    .unwrap();
+
+    assert_eq!(
+        catalog.semantic_digest(),
+        <[u8; 32]>::from(expected.finalize())
+    );
+    assert_ne!(catalog.semantic_digest(), catalog.identity());
+}
+
+/// Two versions over identical rows still get distinct semantic digests.
+///
+/// The version number is hashed in, so publishing a later version can never collide with an
+/// earlier one's digest, and an earlier freeze cannot be satisfied by a later version's digest.
+#[rstest::rstest]
+fn semantic_digest_is_separated_by_version_number() {
+    let digest_for = |version: u16| {
+        let mut hasher = Sha256::new();
+        hasher.update(b"bfp.primitive-catalog.semantic.v1\0");
+        hasher.update(version.to_le_bytes());
+        emit_rows_and_goldens(&mut |bytes| {
+            hasher.update(bytes);
+            Ok(())
+        })
+        .unwrap();
+        <[u8; 32]>::from(hasher.finalize())
+    };
+
+    assert_eq!(
+        PrimitiveCatalogV1::verify().unwrap().semantic_digest(),
+        digest_for(1)
+    );
+    assert_ne!(digest_for(1), digest_for(2));
+}
+
+/// Resolution keys on the requested version and refuses one this kernel does not publish.
+#[rstest::rstest]
+fn resolution_admits_only_published_versions() {
+    assert_eq!(CATALOG_SEMANTIC_VERSIONS_V1, [1]);
+    assert_eq!(
+        PrimitiveCatalogV1::resolve(1).unwrap().semantic_version(),
+        1
+    );
+    assert_eq!(
+        PrimitiveCatalogV1::verify().unwrap(),
+        PrimitiveCatalogV1::resolve(1).unwrap()
+    );
+
+    for unpublished in [0_u16, 2, 65_535] {
+        assert_eq!(
+            PrimitiveCatalogV1::resolve(unpublished),
+            Err(PrimitiveCatalogFailure::UnpublishedSemanticVersion),
+            "version {unpublished} is not published by this kernel"
+        );
+    }
+}

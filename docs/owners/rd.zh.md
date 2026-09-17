@@ -104,9 +104,13 @@ TARGET V1 catalog 是原子整体，不是 primitive name 菜单：fixed I128 sc
 rounding mode 只有 `TowardZero` 与 `NearestTiesToEven`，每项 operation 使用一个准确 I256 expression 并只做
 一次最终舍入。catalog 冻结 lag/rolling readiness、EMA/Wilder seed、Wilder ATR、period-delta RSI、OHLC
 geometry、trailing-window swing coordinate 与 closed-unit rational `range_fraction` 语义。缺失任何 required
-formula、semantic ID、golden vector 或 no-state-change oracle 都使整个 catalog unavailable。
+formula、semantic ID、golden vector 或 no-state-change oracle 都使该 catalog 版本 unavailable。
 
-封闭的 TARGET catalog namespace 与规范 golden-vector codec 必须以原子整体发布。对于每个 sample-clock
+封闭的 TARGET catalog namespace 与规范 golden-vector codec 按 semantic version 分版本发布，每个版本以原子整体
+发布。冻结程序声明自己的 catalog semantic version 与该版本的 semantic digest，后者绑定含义而非 kernel 代码；
+发布较晚的版本既不改变也不作废较早的版本，而读回较早的冻结要求运行中的 kernel 逐字节复现该版本的 required
+golden vector。参见
+[Catalog 版本化与冻结程序读回](../architecture/strategy-factory#catalog-versioning-and-frozen-program-readback)。对于每个 sample-clock
 role，R&D 在 Design/Plan 中绑定准确的版本化 Owner-coordinate source 与普通有界 Bytes port，但只有 Market
 Data 能封存 308-byte coordinate 及其 receipt cross-binding。唯一通用 `ProgramHostV2` 校验并传输这些 bytes；
 它不 mint coordinate，也不获得 feature opcode。BFP plugin 使用单独 tagged ABI 3 failure status 表达

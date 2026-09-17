@@ -119,9 +119,15 @@ The TARGET V1 catalog is atomic rather than a menu of names: fixed I128 scale is
 the only rounding modes are `TowardZero` and `NearestTiesToEven`, and each operation uses one exact I256 expression
 with one final rounding. The catalog freezes lag/rolling readiness, EMA/Wilder seeds, Wilder ATR, period-delta RSI,
 OHLC geometry, trailing-window swing coordinates, and closed-unit rational `range_fraction` semantics. Missing any
-required formula, semantic ID, golden vector, or no-state-change oracle makes the whole catalog unavailable.
+required formula, semantic ID, golden vector, or no-state-change oracle makes that catalog version unavailable.
 
-The closed TARGET catalog namespace and canonical golden-vector codec are published all-or-nothing. For every
+The closed TARGET catalog namespace and canonical golden-vector codec are published per semantic version, each
+version atomically. A frozen program declares its catalog semantic version and that version's semantic digest, which
+binds meaning rather than kernel code; publishing a later version neither changes nor invalidates an earlier one, and
+reading an earlier freeze back requires the running kernel to reproduce that version's required golden vectors
+byte-for-byte. See
+[Catalog versioning and frozen-program readback](../architecture/strategy-factory#catalog-versioning-and-frozen-program-readback).
+For every
 sample-clock role, R&D binds the exact versioned Owner-coordinate source and ordinary bounded Bytes port in the
 Design/Plan, but Market Data alone seals the 308-byte coordinate and its receipt cross-binding. The sole generic
 `ProgramHostV2` verifies and transports those bytes; it does not mint them or gain a feature opcode. BFP plugins use
