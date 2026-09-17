@@ -66,6 +66,7 @@ readonly -A unselected_reason=(
   ["materially_different_external_project_is_artifact_only_and_exactly_recoverable"]="frozen external dataset; the chain provisions a database, not a corpus"
   ["measure_admission_cost_by_program_size"]="regenerates a committed corpus or measures cost; asserts no Owner custody"
   ["official_holdout_integrity_probe_is_deterministic"]="frozen external dataset; the chain provisions a database, not a corpus"
+  ["postgres_v4_is_atomic_idempotent_exact_and_tamper_closed"]="broken: it commits a second sample for a second role, but the fact identity covers what was observed and not who asked, so the Owner refuses it as IdentityConflict; its batch offers no second observable fact"
   ["postgres_every_transaction_write_boundary_fault_leaves_zero_positive_rows"]="needs sealed-source-intake-composer-acceptance, which the chain's archive does not enable"
   ["real_v3_owner_build_reaches_composer_program_host_and_durable_abi3_artifact"]="needs the pinned wasm toolchain; no chain job has both a database and that toolchain"
   ["regenerate_sealed_a0_corpus_from_real_producer"]="regenerates a committed corpus or measures cost; asserts no Owner custody"
