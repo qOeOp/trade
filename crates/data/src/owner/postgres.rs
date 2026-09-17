@@ -150,6 +150,7 @@ use super::{
             prepare_initial_aggregate, prepare_observation_batch,
             verify_aggregate as verify_pit_aggregate, verify_observation_batch,
         },
+        seal_request_claims_v1,
     },
     replay_market_facts_v2::{
         ReplayCompositionBindingErrorV1, ReplayMarketFactsErrorV2, ReplayMarketFactsReadbackV2,
@@ -9515,6 +9516,13 @@ impl PitMarketSnapshotIntakeV1 for MarketDataPitIntakePostgresV1 {
         request: UntrustedPitSnapshotRequest,
         universe_selection: UntrustedUniverseSelectionLocatorV1,
     ) -> Result<PitMarketSnapshotTerminalV1, PitMarketSnapshotIntakeErrorV1> {
+        // The request identity is Market Data-derived by definition, so the Owner seals it here
+        // rather than asking a requester to reimplement the canonical encoding. Sealing decides
+        // nothing: the identity is a function of the content the requester already froze, and a
+        // requester that computed it itself gets the same value back.
+        let mut request = request;
+
+        seal_request_claims_v1(&mut request);
         let request_identity = request.claimed_request_identity;
         let request_digest = request.claimed_request_digest;
         let correlation_identity = request.correlation_identity;
