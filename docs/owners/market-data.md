@@ -1073,6 +1073,15 @@ commit function writes the role-set attestation in the same transaction as its o
 default build selects that function - but no run has been seen carrying a Composer commit through W3 registration into a
 Bounded Feature Program freeze. The proof above supplies the attestation by writing the Composer rows directly, which a
 test may do and a deployment may not, so the sequence itself stays unwitnessed rather than unbuilt.
+
+**ADMITTED, operator-authorized first attestation:** every later cycle mints its own attestation from a Composer commit,
+and the first has no commit to mint it. One operation closes that and only that: under an operator authorization
+carrying the `market-data.strategy-input-bindings.bootstrap.v1` permission, its own request proof digest and a validity
+window, the R&D Owner mints one role-set attestation for a Design the authorization names. It is refused when an
+attestation already exists for that Design, so it cannot be used twice or to restate a Design a Composer has already
+attested, and it grants nothing else: registration, census, join and issuance stay exactly as they are, and W3 keeps
+admitting only attestations. The bootstrap is an authority for who may create the first one, not an exemption from what
+Market Data does with it.
 **NOT_ADMITTED:** caller-proposed Design/role/join fields, receipt/readback/token, receipt hash,
 latest/history/full scans, raw R&D table parsing or Market Data storage do not authenticate Design meaning; Market Data
 does not depend on Strategy Factory, own or reinterpret Strategy Design roles or joins.
