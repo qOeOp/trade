@@ -9,7 +9,9 @@ use crate::{
     FixedFeatureFailure, FixedI128, FixedRsiState, FixedSampleUpdate, FixedSmoothingKind,
     FixedSmoothingState, FixedStateFailure, FixedWindowFunction, FixedWindowState,
     GoldenVectorPartsV1, GoldenVectorTerminalV1 as Terminal, ReducedUnitFraction, RoundingMode,
-    SampleClockInputV1, fixed_range_fraction, golden_corpus::GOLDENS, validate_required_golden_ids,
+    SampleClockInputV1,
+    catalog_version::{CatalogVersionV1, MAX_GOLDEN_VECTORS_V1},
+    fixed_range_fraction, validate_required_golden_ids,
 };
 
 const CAPACITY: usize = 4;
@@ -29,22 +31,46 @@ pub enum GoldenVerificationFailure {
     FailureChangedState,
 }
 
-/// Executes all 87 built-in vectors, including their exact expected output and post-state.
+/// Executes the newest published version's corpus, including expected output and post-state.
 /// This supplies kernel evidence only; it does not issue a catalog digest or authenticate a Host.
+///
+/// # Errors
+///
+/// Returns the vector, coverage, or execution failure that closed verification.
 pub fn verify_required_golden_corpus_v1() -> Result<(), GoldenVerificationFailure> {
-    let first = BoundedFeatureGoldenVectorV1::decode(GOLDENS[0])
-        .map_err(|_| GoldenVerificationFailure::InvalidVector)?;
-    let mut vectors = [first; 87];
+    verify_catalog_version_corpus_v1(crate::catalog_version::newest())
+}
 
-    for (vector, bytes) in vectors.iter_mut().zip(GOLDENS) {
+/// Executes one published version's corpus against the running kernel.
+///
+/// This is what lets a program frozen under an earlier version stay readable: the version's own
+/// vectors must still reproduce byte for byte before anything parses against it.
+pub(crate) fn verify_catalog_version_corpus_v1(
+    version: &CatalogVersionV1,
+) -> Result<(), GoldenVerificationFailure> {
+    let first_bytes = version
+        .goldens
+        .first()
+        .ok_or(GoldenVerificationFailure::InvalidCoverage)?;
+
+    if version.goldens.len() > MAX_GOLDEN_VECTORS_V1 {
+        return Err(GoldenVerificationFailure::InvalidCoverage);
+    }
+
+    let first = BoundedFeatureGoldenVectorV1::decode(first_bytes)
+        .map_err(|_| GoldenVerificationFailure::InvalidVector)?;
+    let mut vectors = [first; MAX_GOLDEN_VECTORS_V1];
+
+    for (vector, bytes) in vectors.iter_mut().zip(version.goldens) {
         *vector = BoundedFeatureGoldenVectorV1::decode(bytes)
             .map_err(|_| GoldenVerificationFailure::InvalidVector)?;
     }
 
-    validate_required_golden_ids(&vectors)
+    let declared = &vectors[..version.goldens.len()];
+    validate_required_golden_ids(declared)
         .map_err(|_| GoldenVerificationFailure::InvalidCoverage)?;
 
-    for vector in vectors {
+    for vector in declared {
         verify(vector.parts())?;
     }
 
@@ -518,6 +544,7 @@ fn primitive(id: &str) -> Result<(Op, Option<RoundingMode>), GoldenVerificationF
 
 #[cfg(test)]
 mod tests {
+    use crate::golden_corpus::GOLDENS;
     extern crate std;
     use super::*;
 

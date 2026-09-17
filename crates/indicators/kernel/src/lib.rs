@@ -3,6 +3,7 @@
 
 mod catalog_contract;
 mod catalog_rows;
+mod catalog_version;
 mod fixed_bar_state;
 mod fixed_features;
 mod fixed_i128;

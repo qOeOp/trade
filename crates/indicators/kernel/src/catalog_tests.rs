@@ -4,6 +4,8 @@ use super::*;
 use crate::{CatalogOutputRuleV1, PrimitiveOperationV1};
 use std::vec;
 
+use crate::golden_corpus::GOLDENS;
+
 #[rstest::rstest]
 fn complete_catalog_roundtrips_and_hashes_all_canonical_bytes() {
     let catalog = PrimitiveCatalogV1::verify().unwrap();
@@ -29,23 +31,30 @@ fn complete_catalog_roundtrips_and_hashes_all_canonical_bytes() {
 
 #[rstest::rstest]
 fn row_coverage_and_typed_comparison_are_closed() {
-    assert_eq!(validate_rows(&ROWS), Ok(()));
-    assert_eq!(
-        validate_rows(&ROWS[..56]),
-        Err(PrimitiveCatalogFailure::InvalidRows)
-    );
-    let mut rows = ROWS.to_vec();
-    rows.push(ROWS[0]);
-    assert_eq!(
-        validate_rows(&rows),
-        Err(PrimitiveCatalogFailure::InvalidRows)
-    );
-    rows.pop();
-    rows[1] = rows[0];
-    assert_eq!(
-        validate_rows(&rows),
-        Err(PrimitiveCatalogFailure::InvalidRows)
-    );
+    let published = crate::catalog_version::newest();
+    assert_eq!(validate_rows(published), Ok(()));
+
+    // A version is refused when its rows no longer match its own declared semantic IDs: one short,
+    // one long, or one duplicated.
+    for rows in [
+        &published.rows[..published.rows.len() - 1],
+        &*std::boxed::Box::leak({
+            let mut rows = published.rows.to_vec();
+            rows.push(published.rows[0]);
+            rows.into_boxed_slice()
+        }),
+        &*std::boxed::Box::leak({
+            let mut rows = published.rows.to_vec();
+            rows[1] = rows[0];
+            rows.into_boxed_slice()
+        }),
+    ] {
+        let mutated = crate::catalog_version::CatalogVersionV1 { rows, ..*published };
+        assert_eq!(
+            validate_rows(&mutated),
+            Err(PrimitiveCatalogFailure::InvalidRows)
+        );
+    }
     let catalog = PrimitiveCatalogV1::verify().unwrap();
     assert!(catalog.row("bfp.unknown.v1").is_none());
     let compare = catalog
@@ -69,7 +78,8 @@ fn row_coverage_and_typed_comparison_are_closed() {
         );
     }
 
-    for row in ROWS {
+    for row in published.rows {
+        let row = *row;
         let count = GOLDENS
             .iter()
             .filter(|bytes| required_by(row, vector(bytes).unwrap().parts()))
@@ -272,7 +282,7 @@ fn semantic_digest_separates_meaning_from_the_compiled_kernel() {
     let mut expected = Sha256::new();
     expected.update(b"bfp.primitive-catalog.semantic.v1\0");
     expected.update(catalog.semantic_version().to_le_bytes());
-    emit_rows_and_goldens(&mut |bytes| {
+    emit_rows_and_goldens(crate::catalog_version::newest(), &mut |bytes| {
         expected.update(bytes);
         Ok(())
     })
@@ -295,7 +305,7 @@ fn semantic_digest_is_separated_by_version_number() {
         let mut hasher = Sha256::new();
         hasher.update(b"bfp.primitive-catalog.semantic.v1\0");
         hasher.update(version.to_le_bytes());
-        emit_rows_and_goldens(&mut |bytes| {
+        emit_rows_and_goldens(crate::catalog_version::newest(), &mut |bytes| {
             hasher.update(bytes);
             Ok(())
         })
@@ -313,7 +323,8 @@ fn semantic_digest_is_separated_by_version_number() {
 /// Resolution keys on the requested version and refuses one this kernel does not publish.
 #[rstest::rstest]
 fn resolution_admits_only_published_versions() {
-    assert_eq!(CATALOG_SEMANTIC_VERSIONS_V1, [1]);
+    assert_eq!(crate::catalog_version::PUBLISHED_V1.len(), 1);
+    assert_eq!(crate::catalog_version::newest().semantic_version, 1);
     assert_eq!(
         PrimitiveCatalogV1::resolve(1).unwrap().semantic_version(),
         1
