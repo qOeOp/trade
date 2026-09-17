@@ -169,6 +169,15 @@ pub struct UntrustedPitSnapshotEvidence {
     pub source_available: bool,
 }
 
+/// Seals the request identity and content digest the Owner derives from a request's own content.
+///
+/// A frozen request has to carry the identity Market Data would compute for it, so a requester must
+/// be able to compute it too. This derives both claims in place and grants nothing: an identity is
+/// not an admission, and a request whose content later differs derives a different identity.
+pub fn seal_request_claims_v1(request: &mut UntrustedPitSnapshotRequest) {
+    authority::refresh_request_claims(request);
+}
+
 /// Complete untrusted PIT Snapshot proposal. It cannot mint a positive Owner fact directly.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct UntrustedPitSnapshotProposal {

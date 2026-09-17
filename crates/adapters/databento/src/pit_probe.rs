@@ -155,7 +155,7 @@ impl BoundedPitProbePlan {
             .symbols(vec![self.symbol])
             .stype_in(self.stype_in)
             .schema(schema)
-            .date_time_range(self.date_time_range()?)
+            .date_time_range(self.schema_range(schema)?)
             .maybe_limit(NonZeroU64::new(self.max_records_per_response))
             .build())
     }
@@ -167,13 +167,40 @@ impl BoundedPitProbePlan {
             .stype_in(self.stype_in)
             .stype_out(self.stype_out)
             .schema(schema)
-            .date_time_range(self.date_time_range()?)
+            .date_time_range(self.schema_range(schema)?)
             .maybe_limit(NonZeroU64::new(self.max_records_per_response))
             .build())
     }
 
-    fn date_time_range(&self) -> anyhow::Result<databento::historical::DateTimeRange> {
-        get_date_time_range(UnixNanos::from(self.start), UnixNanos::from(self.end))
+    /// The window one schema is fetched over.
+    ///
+    /// Quotes and instrument definitions are not the same kind of fact and cannot share a window.
+    /// A definition is published once, before the session: on `EQUS.MINI` it lands around 05:56Z,
+    /// hours before any regular-session quote. A window wide enough to contain it also contains
+    /// pre-session seconds, and `bbo-1s` marks those with an undefined event time and an undefined
+    /// price, which [`validate_record`] refuses as raw-time loss. So the quote window stays exactly
+    /// as requested, and the definition is fetched over the UTC day that window starts in. The
+    /// definition window is derived from the requested one rather than chosen, so the receipt's
+    /// recorded range still determines both.
+    fn schema_range(
+        &self,
+        schema: dbn::Schema,
+    ) -> anyhow::Result<databento::historical::DateTimeRange> {
+        let (start, end) = self.expected_schema_bounds(schema)?;
+        get_date_time_range(UnixNanos::from(start), UnixNanos::from(end))
+    }
+
+    /// The exact bounds one schema is requested over, which the response must echo.
+    fn expected_schema_bounds(&self, schema: dbn::Schema) -> anyhow::Result<(u64, u64)> {
+        if schema == dbn::Schema::Definition {
+            const DAY_NS: u64 = 86_400_000_000_000;
+            let day_start = self.start - (self.start % DAY_NS);
+            let day_end = day_start
+                .checked_add(DAY_NS)
+                .ok_or_else(|| anyhow::anyhow!("definition day window overflows"))?;
+            return Ok((day_start, day_end));
+        }
+        Ok((self.start, self.end))
     }
 
     fn digest(&self) -> [u8; 32] {
@@ -619,6 +646,28 @@ impl DatabentoHistoricalClient {
         end: UnixNanos,
         request_correlation: [u8; 32],
     ) -> anyhow::Result<DatabentoPitProbeEvidence> {
+        self.attempt_bounded_pit_probe_within_cost(start, end, request_correlation, 0.0)
+            .await
+    }
+
+    /// Runs the bounded probe under an explicit provider-cost ceiling in USD.
+    ///
+    /// [`Self::attempt_bounded_pit_probe`] passes zero, which is what every caller gets unless it
+    /// states an allowance. A ceiling is an authorization to spend up to that amount on one
+    /// attempt, not a budget that accumulates: the preflight is quoted and compared per schema.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid or oversized range, non-canonical endpoint, preflight
+    /// failure, a cost above the ceiling, provider error, response budget breach, or receipt
+    /// mismatch.
+    pub async fn attempt_bounded_pit_probe_within_cost(
+        &self,
+        start: UnixNanos,
+        end: UnixNanos,
+        request_correlation: [u8; 32],
+        max_cost_usd: f64,
+    ) -> anyhow::Result<DatabentoPitProbeEvidence> {
         anyhow::ensure!(
             self.historical_api_endpoint == PIT_PROBE_CANONICAL_ENDPOINT
                 && self.pit_probe_transport == PitProbeTransport::CanonicalDirect,
@@ -643,6 +692,7 @@ impl DatabentoHistoricalClient {
             start.as_u64(),
             end.as_u64(),
             request_correlation,
+            max_cost_usd,
             || self.clock.get_time_ns().as_u64(),
         )
         .await
@@ -655,16 +705,18 @@ async fn attempt_with_port<P: TypedReadOnlyPitProbePort + Send>(
     start: u64,
     end: u64,
     request_correlation: [u8; 32],
+    max_cost_usd: f64,
     mut observe_ns: impl FnMut() -> u64 + Send,
 ) -> anyhow::Result<DatabentoPitProbeEvidence> {
     let plan = BoundedPitProbePlan::new(endpoint_locator, start, end, request_correlation)?;
-    let attempt = perform_attempt(port, &plan, &mut observe_ns).await?;
+    let attempt = perform_attempt(port, &plan, max_cost_usd, &mut observe_ns).await?;
     capture(&plan, &attempt)
 }
 
 async fn perform_attempt<P: TypedReadOnlyPitProbePort + Send>(
     port: &mut P,
     plan: &BoundedPitProbePlan,
+    max_cost_usd: f64,
     observe_ns: &mut (impl FnMut() -> u64 + Send),
 ) -> anyhow::Result<TypedPitProbeAttempt> {
     let started_observation_ns = observe_ns();
@@ -684,7 +736,8 @@ async fn perform_attempt<P: TypedReadOnlyPitProbePort + Send>(
 
     let dataset_range = port.get_dataset_range(plan.dataset).await?;
     validate_entitlement_range(plan, &dataset_range)?;
-    let bbo_cost_usd = zero_cost_preflight(port, plan, dbn::Schema::Bbo1S).await?;
+    let bbo_cost_usd =
+        admitted_cost_preflight(port, plan, dbn::Schema::Bbo1S, max_cost_usd).await?;
 
     let bbo_dbn = port
         .get_range_dbn(
@@ -697,7 +750,8 @@ async fn perform_attempt<P: TypedReadOnlyPitProbePort + Send>(
         .max_artifact_bytes
         .checked_sub(bbo_dbn.len())
         .ok_or_else(|| anyhow::anyhow!("Databento BBO artifact exceeded the byte budget"))?;
-    let definition_cost_usd = zero_cost_preflight(port, plan, dbn::Schema::Definition).await?;
+    let definition_cost_usd =
+        admitted_cost_preflight(port, plan, dbn::Schema::Definition, max_cost_usd).await?;
     let definition_dbn = port
         .get_range_dbn(
             &plan.range_params(dbn::Schema::Definition)?,
@@ -756,10 +810,17 @@ async fn perform_attempt<P: TypedReadOnlyPitProbePort + Send>(
     Ok(attempt)
 }
 
-async fn zero_cost_preflight<P: TypedReadOnlyPitProbePort + Send>(
+/// Refuses any download whose provider cost exceeds the ceiling this attempt was admitted under.
+///
+/// The ceiling defaults to zero everywhere, so nothing spends by accident: a caller has to state a
+/// bounded allowance before a paid range can be fetched at all. A malformed, negative or
+/// non-finite quote is refused whatever the ceiling, because an unreadable price is not a small
+/// one.
+async fn admitted_cost_preflight<P: TypedReadOnlyPitProbePort + Send>(
     port: &mut P,
     plan: &BoundedPitProbePlan,
     schema: dbn::Schema,
+    max_cost_usd: f64,
 ) -> anyhow::Result<f64> {
     let cost_usd = port.get_cost(&plan.cost_params(schema)?).await?;
     anyhow::ensure!(
@@ -767,8 +828,12 @@ async fn zero_cost_preflight<P: TypedReadOnlyPitProbePort + Send>(
         "Databento {schema} cost preflight returned a malformed value"
     );
     anyhow::ensure!(
-        cost_usd == 0.0,
-        "Databento {schema} cost preflight is non-zero; timeseries download prohibited"
+        max_cost_usd.is_finite() && max_cost_usd >= 0.0,
+        "Databento {schema} cost ceiling is malformed"
+    );
+    anyhow::ensure!(
+        cost_usd <= max_cost_usd,
+        "Databento {schema} cost preflight is {cost_usd} USD, above the admitted {max_cost_usd} USD ceiling; timeseries download prohibited"
     );
     Ok(cost_usd)
 }
@@ -955,8 +1020,11 @@ fn validate_dbn(
     let metadata = decoder.metadata().clone();
     anyhow::ensure!(metadata.dataset == plan.dataset, "DBN dataset mismatch");
     anyhow::ensure!(metadata.schema == Some(schema), "DBN schema mismatch");
+    // The response must echo the window that schema was actually requested over, which for a
+    // definition is the derived UTC day rather than the requested quote window.
+    let (expected_start, expected_end) = plan.expected_schema_bounds(schema)?;
     anyhow::ensure!(
-        metadata.start == plan.start && metadata.end.map(NonZeroU64::get) == Some(plan.end),
+        metadata.start == expected_start && metadata.end.map(NonZeroU64::get) == Some(expected_end),
         "DBN range mismatch"
     );
     anyhow::ensure!(metadata.symbols == [plan.symbol], "DBN symbol mismatch");
@@ -998,6 +1066,7 @@ fn validate_dbn(
                 validate_record(
                     plan,
                     &metadata,
+                    schema,
                     record.hd.instrument_id,
                     record.hd.ts_event,
                     record.ts_recv,
@@ -1061,7 +1130,12 @@ fn validate_dbn(
             version => anyhow::bail!("unsupported provider-native DBN version {version}"),
         },
     }
-    anyhow::ensure!(record_count != 0, "DBN response contains no records");
+    // Both fetches share this check, so the message has to name which one was empty: "no records"
+    // on its own cannot tell a missing quote window from a missing instrument definition.
+    anyhow::ensure!(
+        record_count != 0,
+        "DBN {schema} response contains no records"
+    );
     Ok(mappings[0].clone())
 }
 
@@ -1084,6 +1158,7 @@ fn validate_definition_record<R: dbn::compat::InstrumentDefRec>(
     validate_record(
         plan,
         metadata,
+        dbn::Schema::Definition,
         header.instrument_id,
         header.ts_event,
         ts_recv,
@@ -1093,10 +1168,13 @@ fn validate_definition_record<R: dbn::compat::InstrumentDefRec>(
 fn validate_record(
     plan: &BoundedPitProbePlan,
     metadata: &dbn::Metadata,
+    schema: dbn::Schema,
     instrument_id: u32,
     ts_event: u64,
     ts_recv: u64,
 ) -> anyhow::Result<()> {
+    // Each schema is bounded by the window it was actually requested over.
+    let (window_start, window_end) = plan.expected_schema_bounds(schema)?;
     anyhow::ensure!(
         ts_event != 0 && ts_event != dbn::UNDEF_TIMESTAMP,
         "raw-time loss: missing provider ts_event"
@@ -1106,7 +1184,7 @@ fn validate_record(
         "raw-time loss: missing provider ts_recv"
     );
     anyhow::ensure!(
-        ts_recv >= plan.start && ts_recv < plan.end,
+        ts_recv >= window_start && ts_recv < window_end,
         "provider ts_recv is outside the requested half-open interval"
     );
     let event_mapping = mapped_instrument_id(metadata, plan, ts_event, "ts_event")?;
@@ -1348,6 +1426,7 @@ mod tests {
             START,
             END,
             CORRELATION,
+            0.0,
             observations(),
         )
         .await
@@ -1454,6 +1533,7 @@ mod tests {
             START,
             END,
             CORRELATION,
+            0.0,
             observations(),
         )
         .await
@@ -1496,6 +1576,7 @@ mod tests {
             START,
             END,
             CORRELATION,
+            0.0,
             observations(),
         )
         .await
@@ -1521,6 +1602,7 @@ mod tests {
             START,
             END,
             CORRELATION,
+            0.0,
             observations(),
         )
         .await
@@ -1556,6 +1638,7 @@ mod tests {
             START,
             END,
             CORRELATION,
+            0.0,
             observations(),
         )
         .await
@@ -1593,6 +1676,7 @@ mod tests {
             START,
             END,
             CORRELATION,
+            0.0,
             observations(),
         )
         .await
@@ -1615,6 +1699,7 @@ mod tests {
             START,
             END,
             CORRELATION,
+            0.0,
             observations(),
         )
         .await
@@ -1629,9 +1714,56 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn nonzero_cost_stops_before_any_timeseries_download() {
+    async fn cost_above_the_admitted_ceiling_stops_before_any_timeseries_download() {
+        // The default ceiling is zero, so an unstated allowance still refuses any charged range.
+        for (cost, ceiling) in [(0.01_f64, 0.0_f64), (0.51, 0.50)] {
+            let mut port = fixture_port();
+            port.bbo_cost_usd = cost;
+
+            let error = attempt_with_port(
+                &mut port,
+                "https://hist.databento.com",
+                START,
+                END,
+                CORRELATION,
+                ceiling,
+                observations(),
+            )
+            .await
+            .unwrap_err()
+            .to_string();
+
+            assert!(error.contains("ceiling"), "unexpected refusal: {error}");
+            assert_eq!(port.calls, [ProbeStep::DatasetRange, ProbeStep::BboCost]);
+        }
+    }
+
+    #[tokio::test]
+    async fn cost_within_the_admitted_ceiling_proceeds() {
         let mut port = fixture_port();
-        port.bbo_cost_usd = 0.01;
+        port.bbo_cost_usd = 0.25;
+
+        attempt_with_port(
+            &mut port,
+            "https://hist.databento.com",
+            START,
+            END,
+            CORRELATION,
+            0.50,
+            observations(),
+        )
+        .await
+        .expect("a quoted cost at or under the stated allowance is admitted");
+        assert!(
+            port.calls.contains(&ProbeStep::Bbo),
+            "the download runs once the cost is admitted"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_malformed_ceiling_refuses_whatever_the_cost() {
+        let mut port = fixture_port();
+        port.bbo_cost_usd = 0.0;
 
         let error = attempt_with_port(
             &mut port,
@@ -1639,14 +1771,17 @@ mod tests {
             START,
             END,
             CORRELATION,
+            f64::NAN,
             observations(),
         )
         .await
         .unwrap_err()
         .to_string();
 
-        assert!(error.contains("non-zero"));
-        assert_eq!(port.calls, [ProbeStep::DatasetRange, ProbeStep::BboCost]);
+        assert!(
+            error.contains("ceiling is malformed"),
+            "unexpected: {error}"
+        );
     }
 
     #[tokio::test]
@@ -1660,6 +1795,7 @@ mod tests {
             START,
             END,
             CORRELATION,
+            0.0,
             observations(),
         )
         .await
@@ -1671,7 +1807,7 @@ mod tests {
     }
 
     #[rstest]
-    #[case(0.01, "non-zero")]
+    #[case(0.01, "ceiling")]
     #[case(f64::NAN, "malformed")]
     #[tokio::test]
     async fn definition_cost_failure_stops_before_definition_download(
@@ -1687,6 +1823,7 @@ mod tests {
             START,
             END,
             CORRELATION,
+            0.0,
             observations(),
         )
         .await
@@ -1714,6 +1851,7 @@ mod tests {
             START,
             START + PIT_PROBE_MAX_WINDOW_NS + 1,
             CORRELATION,
+            0.0,
             observations(),
         )
         .await
@@ -1732,6 +1870,7 @@ mod tests {
             START,
             END,
             [0; 32],
+            0.0,
             observations(),
         )
         .await
@@ -1751,6 +1890,7 @@ mod tests {
             START,
             END,
             CORRELATION,
+            0.0,
             observations(),
         )
         .await
@@ -1777,6 +1917,7 @@ mod tests {
             START,
             END,
             CORRELATION,
+            0.0,
             observations(),
         )
         .await
@@ -1796,6 +1937,7 @@ mod tests {
             START,
             END,
             CORRELATION,
+            0.0,
             observations(),
         )
         .await
@@ -1824,6 +1966,7 @@ mod tests {
             START,
             END,
             CORRELATION,
+            0.0,
             observations(),
         )
         .await
@@ -1842,6 +1985,7 @@ mod tests {
             START,
             END,
             CORRELATION,
+            0.0,
             observations(),
         )
         .await
@@ -1870,6 +2014,7 @@ mod tests {
             START,
             END,
             CORRELATION,
+            0.0,
             observations(),
         )
         .await
@@ -1900,6 +2045,7 @@ mod tests {
             START,
             END,
             CORRELATION,
+            0.0,
             observations(),
         )
         .await
@@ -1928,6 +2074,7 @@ mod tests {
             START,
             END,
             CORRELATION,
+            0.0,
             observations(),
         )
         .await
@@ -1953,6 +2100,7 @@ mod tests {
             START,
             END,
             CORRELATION,
+            0.0,
             observations(),
         )
         .await
@@ -1967,7 +2115,7 @@ mod tests {
             .unwrap();
         let mut port = fixture_port();
         let mut observe = observations();
-        let mut attempt = perform_attempt(&mut port, &plan, &mut observe)
+        let mut attempt = perform_attempt(&mut port, &plan, 0.0, &mut observe)
             .await
             .unwrap();
         attempt.bbo_dbn.push(0);
@@ -1981,7 +2129,7 @@ mod tests {
             .unwrap();
         let mut port = fixture_port();
         let mut observe = observations();
-        let mut attempt = perform_attempt(&mut port, &plan, &mut observe)
+        let mut attempt = perform_attempt(&mut port, &plan, 0.0, &mut observe)
             .await
             .unwrap();
         attempt.receipt.request_correlation = [8; 32];
@@ -1995,7 +2143,7 @@ mod tests {
             .unwrap();
         let mut port = fixture_port();
         let mut observe = observations();
-        let mut attempt = perform_attempt(&mut port, &plan, &mut observe)
+        let mut attempt = perform_attempt(&mut port, &plan, 0.0, &mut observe)
             .await
             .unwrap();
         attempt.receipt.dbn_upgrade_policy_locator = "dbn-version-upgrade:upgrade-to-v3".into();
@@ -2009,7 +2157,7 @@ mod tests {
             .unwrap();
         let mut port = fixture_port();
         let mut observe = observations();
-        let attempt = perform_attempt(&mut port, &plan, &mut observe)
+        let attempt = perform_attempt(&mut port, &plan, 0.0, &mut observe)
             .await
             .unwrap();
         let mut other =

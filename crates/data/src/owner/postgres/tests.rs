@@ -10,6 +10,9 @@ use crate::owner::native_replay_scheduling_v2::{
     NativeReplayFrameSequenceCustodyRecordV2, NativeReplayFrameSequenceCustodyRefusalV2,
     NativeReplaySequenceFrameV2, seal_native_replay_frame_sequence_v2,
 };
+use crate::owner::pit_observation_source_v1::{
+    PitObservationScopeV1, PitObservationSourceErrorV1, PitObservationSourceV1, VendorObservationV1,
+};
 use crate::owner::{
     bar_schedule::{
         BarScheduleResolverV1, UntrustedBarScheduleLocatorV1, prepare_bar_schedule_commit_v1,
@@ -4337,6 +4340,325 @@ async fn assert_detached_clock_history_unavailable(
     assert!(MarketDataOwnerPostgres::connect(owner_url).await.is_ok());
 }
 
+/// A Data Client that answers exactly the scope Market Data issued.
+struct ScopeFaithfulObservationSourceV1 {
+    member_key: String,
+}
+
+#[async_trait::async_trait]
+impl PitObservationSourceV1 for ScopeFaithfulObservationSourceV1 {
+    async fn observe(
+        &self,
+        scope: &PitObservationScopeV1,
+    ) -> Result<Vec<VendorObservationV1>, PitObservationSourceErrorV1> {
+        Ok(vec![VendorObservationV1 {
+            symbolic_key: "AAPL.CLOSE.1M".into(),
+            member_key: self.member_key.clone(),
+            instrument: "AAPL".into(),
+            channel: "MARKET".into(),
+            data_kind: "BAR".into(),
+            timeframe: "1M".into(),
+            field: "CLOSE".into(),
+            value_mantissa: 12_345,
+            value_scale: 2,
+            event_effective: scope.event_effective(),
+            provider_available: scope.provider_available(),
+            retrieval: scope.retrieval(),
+            correction_publication: scope.correction_publication(),
+        }])
+    }
+}
+
+/// A Data Client that cannot reach its provider.
+struct UnavailableObservationSourceV1;
+
+#[async_trait::async_trait]
+impl PitObservationSourceV1 for UnavailableObservationSourceV1 {
+    async fn observe(
+        &self,
+        _scope: &PitObservationScopeV1,
+    ) -> Result<Vec<VendorObservationV1>, PitObservationSourceErrorV1> {
+        Err(PitObservationSourceErrorV1::Unavailable)
+    }
+}
+
+/// Proves the production mint resolves its own canonical basis instead of trusting the requester.
+///
+/// The fixture admits one Source Binding, evaluates one Universe Selection Record over a single
+/// member, then mints through `commit_pit_initial_from_owner_custody_v1`. Every negative case keeps
+/// the requester claiming a perfect snapshot, so a disposition that is not `AVAILABLE` can only
+/// come from Market Data's own determination.
+async fn production_pit_mint_postgres_oracle_v1(
+    owner: &MarketDataOwnerPostgres,
+    source: &SourceBindingCommit,
+    clock: &MarketDataClockAdmission,
+) {
+    let membership_frontier = d(200);
+    let correction_digest = source.receipt().locator().correction_frontier.digest;
+    let owner_semantics_identity =
+        derive_market_semantics_compatibility_identity_v1(&source.fact().proposal().semantics);
+
+    let universe_request = UntrustedUniverseSelectionRequestV1::new(
+        d(201),
+        "RESEARCH_OWNER_V1",
+        d(202),
+        vec![0, 1, 1],
+        membership_frontier,
+        10,
+        39,
+        40,
+        source.fact().lineage_root(),
+        correction_digest,
+        d(203),
+    );
+    let universe = {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        super::universe_selection::persist_historical_membership_frontier_v1(
+            &mut transaction,
+            membership_frontier,
+            vec![HistoricalMembershipFactProposalV1 {
+                member_key: b"AAPL".to_vec(),
+                instrument: b"AAPL".to_vec(),
+                predecessor_identity: None,
+                effective_from_ns: 1,
+                effective_until_ns: None,
+                provider_available_ns: 20,
+                retrieval_ns: 30,
+                correction_publication_ns: 25,
+                owner_observation_ns: 39,
+                decision_cut: 40,
+                source_binding_lineage_root: source.fact().lineage_root(),
+                correction_frontier_digest: correction_digest,
+            }],
+        )
+        .await
+        .unwrap();
+        let readback = super::universe_selection::resolve_universe_selection_in_transaction_v1(
+            &mut transaction,
+            &universe_request,
+            Some(&CanonicalUniverseSelectionRuleEvaluatorV1),
+        )
+        .await
+        .unwrap();
+        transaction.commit().await.unwrap();
+        readback
+    };
+    let universe_locator = UntrustedUniverseSelectionLocatorV1::from_untrusted(
+        universe_request.request_identity(),
+        universe_request.request_meaning_digest(),
+    );
+
+    // One builder so every case differs only in what it is meant to probe.
+    let build = |correlation: u8,
+                 semantics_identity: BindingDigest,
+                 universe_digest: BindingDigest,
+                 member_key: &str| {
+        let locator = source.receipt().locator();
+        let request = UntrustedPitSnapshotRequest {
+            claimed_request_identity: d(0),
+            claimed_request_digest: d(0),
+            correlation_identity: d(correlation),
+            requester_identity: d(204),
+            scope_digest: d(205),
+            source_binding: locator.clone(),
+            instrument_master_digest: d(206),
+            universe_selection_digest: universe_digest,
+            market_semantics_identity: semantics_identity,
+            time_evidence: pit_time(40, 1),
+        };
+        let observation = UntrustedPitObservationBatchProposal {
+            rows: vec![UntrustedPitObservation {
+                symbolic_key: "AAPL.CLOSE.1M".into(),
+                member_key: member_key.into(),
+                instrument: "AAPL".into(),
+                channel: "MARKET".into(),
+                data_kind: "BAR".into(),
+                timeframe: "1M".into(),
+                field: "CLOSE".into(),
+                value_mantissa: 12_345,
+                value_scale: 2,
+                event_effective: 10,
+                provider_available: 20,
+                retrieval: 30,
+                correction_publication: 25,
+                source_binding_identity: source.fact().binding_id(),
+                source_frontier_digest: locator.source_frontier.digest,
+                instrument_master_digest: d(206),
+                universe_selection_digest: universe_digest,
+                market_semantics_identity: semantics_identity,
+                correction_stream_identity: locator.correction_frontier.stream_identity.clone(),
+                correction_sequence: locator.correction_frontier.sequence,
+                correction_frontier_digest: locator.correction_frontier.digest,
+            }],
+        };
+        // The requester always claims a perfect snapshot; only the Owner may contradict it.
+        let mut proposal = UntrustedPitSnapshotProposal {
+            request,
+            evidence: UntrustedPitSnapshotEvidence {
+                normalized_records_digest: derive_observation_batch_digest(&observation).unwrap(),
+                source_frontier: locator.source_frontier.clone(),
+                correction_frontier: locator.correction_frontier.clone(),
+                coverage_complete: true,
+                semantics_compatible: true,
+                source_available: true,
+            },
+        };
+        refresh_request_claims(&mut proposal.request);
+        (proposal, observation)
+    };
+
+    let (proposal, observation) = build(
+        207,
+        owner_semantics_identity,
+        universe.record().identity(),
+        "AAPL",
+    );
+    let admitted = owner
+        .commit_pit_initial_from_owner_custody_v1(
+            proposal.clone(),
+            observation.clone(),
+            &universe_locator,
+            clock,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        admitted.fact().disposition(),
+        PitSnapshotDisposition::Available,
+        "an admitted binding, a matching semantics identity and complete coverage mint AVAILABLE"
+    );
+    assert!(
+        admitted.fact().evidence().coverage_complete
+            && admitted.fact().evidence().semantics_compatible
+            && admitted.fact().evidence().source_available,
+        "the persisted fact records the Owner's determinations"
+    );
+
+    let replay = owner
+        .commit_pit_initial_from_owner_custody_v1(proposal, observation, &universe_locator, clock)
+        .await
+        .unwrap();
+    assert_eq!(replay, admitted, "byte-identical retry joins the same fact");
+
+    // The requester still claims `semantics_compatible: true`; Market Data derives otherwise.
+    let (proposal, observation) = build(208, d(209), universe.record().identity(), "AAPL");
+    let ambiguous = owner
+        .commit_pit_initial_from_owner_custody_v1(proposal, observation, &universe_locator, clock)
+        .await
+        .unwrap();
+    assert_eq!(
+        ambiguous.fact().disposition(),
+        PitSnapshotDisposition::Ambiguous,
+        "a semantics identity the admitted binding does not imply is AMBIGUOUS, not AVAILABLE"
+    );
+    assert!(
+        !ambiguous.fact().evidence().semantics_compatible,
+        "the claimed compatibility never reaches the fact"
+    );
+
+    // The batch covers a member the evaluated Universe Selection Record does not contain.
+    let (proposal, observation) = build(
+        210,
+        owner_semantics_identity,
+        universe.record().identity(),
+        "MSFT",
+    );
+    let insufficient = owner
+        .commit_pit_initial_from_owner_custody_v1(proposal, observation, &universe_locator, clock)
+        .await
+        .unwrap();
+    assert_eq!(
+        insufficient.fact().disposition(),
+        PitSnapshotDisposition::Insufficient,
+        "observations that miss the evaluated universe are INSUFFICIENT"
+    );
+
+    // A universe digest the Owner's record does not carry cannot buy coverage either.
+    let (proposal, observation) = build(211, owner_semantics_identity, d(212), "AAPL");
+    let mismatched = owner
+        .commit_pit_initial_from_owner_custody_v1(proposal, observation, &universe_locator, clock)
+        .await
+        .unwrap();
+    assert_eq!(
+        mismatched.fact().disposition(),
+        PitSnapshotDisposition::Insufficient,
+        "a universe digest that is not the resolved record's identity is INSUFFICIENT"
+    );
+
+    // From here the caller supplies a frozen request and nothing else: no observations, no
+    // evidence, no digest. Market Data issues the retrieval scope and stamps its own bindings.
+    let request_only = |correlation: u8| {
+        let locator = source.receipt().locator();
+        let mut request = UntrustedPitSnapshotRequest {
+            claimed_request_identity: d(0),
+            claimed_request_digest: d(0),
+            correlation_identity: d(correlation),
+            requester_identity: d(204),
+            scope_digest: d(205),
+            source_binding: locator.clone(),
+            instrument_master_digest: d(206),
+            universe_selection_digest: universe.record().identity(),
+            market_semantics_identity: owner_semantics_identity,
+            time_evidence: pit_time(40, 1),
+        };
+        refresh_request_claims(&mut request);
+        request
+    };
+
+    let retrieved = owner
+        .commit_pit_initial_from_request_v1(
+            request_only(213),
+            &ScopeFaithfulObservationSourceV1 {
+                member_key: "AAPL".into(),
+            },
+            &universe_locator,
+            clock,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        retrieved.fact().disposition(),
+        PitSnapshotDisposition::Available,
+        "a frozen request alone mints AVAILABLE once the Owner retrieves its own observations"
+    );
+    assert_eq!(
+        retrieved.fact().evidence().normalized_records_digest,
+        admitted.fact().evidence().normalized_records_digest,
+        "the Owner-stamped batch is byte-identical to the one the acceptance mint canonicalized"
+    );
+
+    // A client that answers for a member the Owner never scoped cannot widen the universe.
+    let widened = owner
+        .commit_pit_initial_from_request_v1(
+            request_only(214),
+            &ScopeFaithfulObservationSourceV1 {
+                member_key: "MSFT".into(),
+            },
+            &universe_locator,
+            clock,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        widened.fact().disposition(),
+        PitSnapshotDisposition::Insufficient,
+        "an off-scope member is INSUFFICIENT, never an admitted substitution"
+    );
+
+    assert_eq!(
+        owner
+            .commit_pit_initial_from_request_v1(
+                request_only(215),
+                &UnavailableObservationSourceV1,
+                &universe_locator,
+                clock,
+            )
+            .await,
+        Err(PitSnapshotError::ObservationBatchUnavailable),
+        "an unreachable provider fails closed instead of minting an empty snapshot"
+    );
+}
+
 async fn owner_counts(pool: &PgPool) -> (i64, i64, i64, i64) {
     sqlx::query_as(
         "SELECT (SELECT COUNT(*) FROM market_data_private.source_binding_facts_v1), (SELECT COUNT(*) FROM market_data_private.source_binding_outbox_v1), (SELECT COUNT(*) FROM market_data_private.pit_snapshot_facts_v1), (SELECT COUNT(*) FROM market_data_private.pit_snapshot_outbox_v1)",
@@ -4416,6 +4738,13 @@ async fn run_postgres_owner_scenario() {
         )
         .await;
     assert_eq!(conflict, Err(SourceBindingError::ReplayConflict));
+
+    Box::pin(production_pit_mint_postgres_oracle_v1(
+        &owner,
+        &source,
+        &clock(40, 1),
+    ))
+    .await;
 
     let pit_value = pit_proposal(&source);
     let pit_basis = basis(&pit_value);
@@ -4533,7 +4862,7 @@ async fn run_postgres_owner_scenario() {
     let before_counts: (i64, i64, i64, i64) = sqlx::query_as(
         "SELECT (SELECT COUNT(*) FROM market_data_private.source_binding_facts_v1), (SELECT COUNT(*) FROM market_data_private.source_binding_outbox_v1), (SELECT COUNT(*) FROM market_data_private.pit_snapshot_facts_v1), (SELECT COUNT(*) FROM market_data_private.pit_snapshot_outbox_v1)",
     ).fetch_one(owner.pool()).await.unwrap();
-    assert_eq!(before_counts, (1, 1, 2, 2));
+    assert_eq!(before_counts, (1, 1, 8, 8));
 
     let mut interrupted = source_proposal(10, 40);
     interrupted.adapter.configuration_digest = d(31);
@@ -5337,7 +5666,7 @@ async fn run_postgres_owner_scenario() {
     )
     .await;
 
-    assert_eq!(owner_counts(final_owner.pool()).await, (4, 4, 4, 4));
+    assert_eq!(owner_counts(final_owner.pool()).await, (4, 4, 10, 10));
 
     let first_clock_head = build_head_fact(&clock(40, 1), None).unwrap();
     let second_clock_head =

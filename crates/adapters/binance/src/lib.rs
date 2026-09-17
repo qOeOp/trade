@@ -51,6 +51,7 @@ pub mod config;
 pub mod data_types;
 pub mod factories;
 pub mod futures;
+pub mod pit_observation_source_v1;
 pub mod spot;
 
 #[cfg(feature = "python")]

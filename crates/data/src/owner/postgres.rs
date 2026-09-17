@@ -9,12 +9,15 @@
     reason = "private durable Owner composition is exercised by disposable PostgreSQL tests until product composition exists"
 )]
 
+use std::fmt::Debug;
+
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 pub mod bar_joined_cut_acceptance_v1;
 mod calendar;
 mod corporate_action;
 mod market_semantics;
 mod observation_census;
+mod pit_role_resolution_v1;
 mod rd_strategy_input_custody;
 mod reference_fact_catalog;
 mod reference_fact_coordinates;
@@ -99,6 +102,7 @@ use super::store_admission::{
     MarketDataSourceBindingStorageEvidence, StrategyInputSampleProjectionStorageEvidenceV2,
     StrategyInputSampleProjectionStorageEvidenceV3,
 };
+use super::universe_selection::{UniverseSelectionErrorV1, UntrustedUniverseSelectionLocatorV1};
 use super::{
     bar_schedule::{
         BarScheduleCompletionV1, BarScheduleIdentity, BarScheduleKindV1, BarScheduleLabelV1,
@@ -131,15 +135,23 @@ use super::{
         UntrustedObservationCensusLocatorV1, UntrustedObservationCensusRequestV1,
         UntrustedStrategyInputJoinedCutLocatorV1,
     },
+    pit_market_snapshot_intake_v1::{
+        MarketDataDecisionCutV1, PitMarketSnapshotDispositionV1, PitMarketSnapshotIntakeErrorV1,
+        PitMarketSnapshotIntakeV1, PitMarketSnapshotTerminalV1, sealed::Sealed as PitIntakeSealed,
+    },
+    pit_observation_source_v1::{PitObservationScopeV1, PitObservationSourceV1},
     pit_snapshot::{
-        PitSnapshotCommitAggregate, PitSnapshotError, UntrustedPitObservationBatchProposal,
-        UntrustedPitSnapshotLocator, UntrustedPitSnapshotProposal,
+        PitSnapshotCommitAggregate, PitSnapshotDisposition, PitSnapshotError,
+        UntrustedPitObservation, UntrustedPitObservationBatchProposal, UntrustedPitSnapshotLocator,
+        UntrustedPitSnapshotProposal, UntrustedPitSnapshotRequest,
         authority::{
-            ObservedPitObservationNativeRow, PreparedPitObservationBatch,
-            TestOnlyCanonicalBasisResolver, prepare_correction_aggregate,
+            CanonicalBasisResolverV1, ObservedPitObservationNativeRow, OwnerCanonicalBasisV1,
+            OwnerSnapshotDeterminationV1, PreparedPitObservationBatch,
+            derive_observation_batch_digest, prepare_correction_aggregate,
             prepare_initial_aggregate, prepare_observation_batch,
             verify_aggregate as verify_pit_aggregate, verify_observation_batch,
         },
+        seal_request_claims_v1,
     },
     replay_market_facts_v2::{
         ReplayCompositionBindingErrorV1, ReplayMarketFactsErrorV2, ReplayMarketFactsReadbackV2,
@@ -165,15 +177,39 @@ use super::{
         verify_head_fact,
     },
     source_binding::{
-        BindingDigest, MarketDataClockAdmission, MarketDataClockComparisonRule, SourceBindingError,
-        SourceBindingOwnerReadback, SourceBindingOwnerResolver, UntrustedSourceBindingLocator,
-        UntrustedSourceBindingProposal,
+        BindingDigest, MarketDataClockAdmission, MarketDataClockComparisonRule,
+        SourceBindingBlocker, SourceBindingError, SourceBindingOwnerReadback,
+        SourceBindingOwnerResolver, UntrustedSourceBindingLocator, UntrustedSourceBindingProposal,
         authority::{
             OwnerLineage as SourceOwnerLineage, OwnerSourceBindingDecision, SourceBindingCommit,
-            SourceBindingStoredAggregate, build_stored_aggregate, derive_binding_id,
-            validate_clock_for_readback, validate_proposal, validate_successor_advances,
-            verify_stored_aggregate as verify_source_aggregate,
+            SourceBindingDisposition, SourceBindingFact, SourceBindingStoredAggregate,
+            build_stored_aggregate, derive_binding_id,
+            derive_market_semantics_compatibility_identity_v1, derive_time_evidence_identity,
+            seal_owner_clock_admission_v1, validate_clock_for_readback, validate_proposal,
+            validate_successor_advances, verify_stored_aggregate as verify_source_aggregate,
         },
+    },
+    source_binding_admission_v1::{
+        ProviderReachabilityEvidenceV1, ProviderRightsEvidenceV1,
+        SourceBindingAdmissionDispositionV1, SourceBindingAdmissionErrorV1,
+        SourceBindingAdmissionRequestV1, SourceBindingAdmissionTerminalV1,
+        SourceBindingAdmissionV1, sealed::Sealed as SourceBindingAdmissionSealed,
+    },
+    strategy_design_role_set::StrategyDesignRoleSetLocatorV1,
+    strategy_input_binding_admission_v1::{
+        StrategyInputBindingAdmissionErrorV1, StrategyInputBindingAdmissionTerminalV1,
+        StrategyInputBindingAdmissionV1, sealed::Sealed as StrategyInputBindingAdmissionSealed,
+    },
+    universe_selection::{
+        UntrustedUniverseSelectionRequestV1,
+        authority::{
+            CanonicalUniverseSelectionRuleEvaluatorV1, HistoricalMembershipFactProposalV1,
+        },
+    },
+    universe_selection_admission_v1::{
+        HistoricalMembershipAdmissionRequestV1, UniverseSelectionAdmissionErrorV1,
+        UniverseSelectionAdmissionV1, UniverseSelectionTerminalV1,
+        sealed::Sealed as UniverseSelectionAdmissionSealed,
     },
 };
 #[cfg(test)]
@@ -242,6 +278,13 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_observation_rows_v1 (snapshot_identity BYTEA NOT NULL REFERENCES market_data_private.pit_observation_batches_v1(snapshot_identity), ordinal BIGINT NOT NULL CHECK (ordinal > 0), symbolic_key TEXT NOT NULL CHECK (symbolic_key <> ''), member_key TEXT NOT NULL CHECK (member_key <> ''), row_bytes BYTEA NOT NULL CHECK (octet_length(row_bytes) > 0), PRIMARY KEY(snapshot_identity,ordinal), UNIQUE(snapshot_identity,symbolic_key,member_key))",
     "CREATE TABLE IF NOT EXISTS market_data_private.source_binding_lineage_census_v1 (lineage_root BYTEA PRIMARY KEY CHECK (octet_length(lineage_root) = 32))",
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_snapshot_lineage_census_v1 (lineage_root BYTEA PRIMARY KEY CHECK (octet_length(lineage_root) = 32))",
+    // One row per committed observation coordinate, so that a Design's authenticated input
+    // role can be resolved to the Owner's own snapshot without scanning or decoding rows. The
+    // coordinates are exactly what `request_matches_authenticated_role_v1` authenticates, and
+    // the lineage root is part of the key: a correction advances its own lineage and is not
+    // ambiguity, while two lineages answering one coordinate at one cut is, and resolution
+    // fails closed on it rather than choosing.
+    "CREATE TABLE IF NOT EXISTS market_data_private.pit_role_coordinate_index_v1 (instrument TEXT NOT NULL CHECK (instrument <> ''), channel TEXT NOT NULL CHECK (channel <> ''), data_kind TEXT NOT NULL CHECK (data_kind <> ''), field TEXT NOT NULL CHECK (field <> ''), timeframe TEXT NOT NULL CHECK (timeframe <> ''), value_scale SMALLINT NOT NULL CHECK (value_scale >= 0 AND value_scale <= 255), decision_cut BIGINT NOT NULL CHECK (decision_cut > 0), lineage_root BYTEA NOT NULL CHECK (octet_length(lineage_root) = 32), lineage_version BIGINT NOT NULL CHECK (lineage_version > 0), snapshot_identity BYTEA NOT NULL REFERENCES market_data_private.pit_snapshot_facts_v1(snapshot_identity), PRIMARY KEY(instrument,channel,data_kind,field,timeframe,value_scale,decision_cut,lineage_root))",
     "CREATE TABLE IF NOT EXISTS market_data_private.native_replay_frame_census_v2 (scope_digest BYTEA NOT NULL CHECK (octet_length(scope_digest) = 32), frame_ordinal BIGINT NOT NULL CHECK (frame_ordinal > 0), snapshot_identity BYTEA NOT NULL UNIQUE REFERENCES market_data_private.pit_snapshot_facts_v1(snapshot_identity) ON DELETE RESTRICT, snapshot_fact_digest BYTEA NOT NULL CHECK (octet_length(snapshot_fact_digest) = 32), event_effective_ns BIGINT NOT NULL CHECK (event_effective_ns >= 0), decision_cut_ns BIGINT NOT NULL CHECK (decision_cut_ns >= 0), correction_branch_digest BYTEA NOT NULL CHECK (octet_length(correction_branch_digest) = 32), PRIMARY KEY (scope_digest, frame_ordinal))",
     "CREATE TABLE IF NOT EXISTS market_data_private.native_replay_frame_sequences_v2 (sequence_identity BYTEA PRIMARY KEY CHECK (octet_length(sequence_identity) = 32), request_identity BYTEA NOT NULL UNIQUE CHECK (octet_length(request_identity) = 32), v1_binding_identity BYTEA NOT NULL CHECK (octet_length(v1_binding_identity) = 32), window_start_ns BIGINT NOT NULL CHECK (window_start_ns >= 0), window_end_ns_exclusive BIGINT NOT NULL CHECK (window_end_ns_exclusive > window_start_ns), first_snapshot_identity BYTEA NOT NULL CHECK (octet_length(first_snapshot_identity) = 32), second_snapshot_identity BYTEA NOT NULL CHECK (octet_length(second_snapshot_identity) = 32), sequence_bytes BYTEA NOT NULL CHECK (octet_length(sequence_bytes) > 0), receipt_identity BYTEA NOT NULL UNIQUE CHECK (octet_length(receipt_identity) = 32), receipt_bytes BYTEA NOT NULL CHECK (octet_length(receipt_bytes) > 0), CHECK (first_snapshot_identity <> second_snapshot_identity))",
     "CREATE TABLE IF NOT EXISTS market_data_private.native_replay_frame_sequence_outbox_v2 (outbox_identity BYTEA PRIMARY KEY CHECK (octet_length(outbox_identity) = 32), sequence_identity BYTEA NOT NULL UNIQUE REFERENCES market_data_private.native_replay_frame_sequences_v2(sequence_identity) ON DELETE RESTRICT, payload_digest BYTEA NOT NULL CHECK (octet_length(payload_digest) = 32), payload BYTEA NOT NULL CHECK (octet_length(payload) > 0))",
@@ -275,11 +318,13 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_bar_schedule_history_v1(p_canonical_instrument TEXT) RETURNS TABLE(head_fact_digest BYTEA,fact_digest BYTEA,predecessor_fact_digest BYTEA,fact_bytes BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT h.fact_digest,f.fact_digest,f.predecessor_fact_digest,f.fact_bytes FROM (SELECT fact_digest FROM market_data_private.bar_schedule_heads_v1 WHERE canonical_instrument=p_canonical_instrument) AS h FULL OUTER JOIN (SELECT fact_digest,predecessor_fact_digest,fact_bytes FROM market_data_private.bar_schedule_facts_v1 WHERE canonical_instrument=p_canonical_instrument) AS f ON TRUE $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_strategy_input_sample_projection_v3(p_receipt_digest BYTEA) RETURNS TABLE(receipt_digest BYTEA,kind SMALLINT,lifecycle SMALLINT,subject_identity BYTEA,component_count BIGINT,receipt_bytes BYTEA,custody_digest BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT p.receipt_digest,p.kind,p.lifecycle,p.subject_identity,p.component_count,p.receipt_bytes,p.custody_digest FROM market_data_private.strategy_input_sample_projection_receipts_v3 AS p WHERE p.receipt_digest=p_receipt_digest $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3(p_receipt_digest BYTEA) RETURNS TABLE(component_ordinal BIGINT,role_identity BYTEA,binding_receipt_digest BYTEA,schedule_readback_identity BYTEA,schedule_fact_digest BYTEA,schedule_cut_identity BYTEA,schedule_cut_digest BYTEA,schedule_receipt_identity BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT d.component_ordinal,d.role_identity,d.binding_receipt_digest,d.schedule_readback_identity,d.schedule_fact_digest,d.schedule_cut_identity,d.schedule_cut_digest,d.schedule_receipt_identity FROM market_data_private.strategy_input_sample_projection_schedule_dependencies_v3 AS d WHERE d.receipt_digest=p_receipt_digest ORDER BY d.component_ordinal $function$",
+    "CREATE OR REPLACE FUNCTION market_data_private.resolve_pit_role_coordinate_v1(p_instrument TEXT, p_channel TEXT, p_data_kind TEXT, p_field TEXT, p_timeframe TEXT, p_value_scale SMALLINT, p_decision_cut_at_or_before BIGINT) RETURNS TABLE(decision_cut BIGINT, lineage_root BYTEA, snapshot_identity BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ WITH matched AS (SELECT i.decision_cut, i.lineage_root, i.lineage_version FROM market_data_private.pit_role_coordinate_index_v1 AS i WHERE i.instrument = p_instrument AND i.channel = p_channel AND i.data_kind = p_data_kind AND i.field = p_field AND i.timeframe = p_timeframe AND i.value_scale = p_value_scale AND i.decision_cut <= p_decision_cut_at_or_before) SELECT m.decision_cut, m.lineage_root, h.snapshot_identity FROM matched AS m JOIN market_data_private.pit_snapshot_heads_v1 AS h ON h.lineage_root = m.lineage_root AND h.lineage_version = m.lineage_version WHERE m.decision_cut = (SELECT MAX(decision_cut) FROM matched) ORDER BY m.lineage_root $function$",
     "REVOKE ALL ON ALL TABLES IN SCHEMA market_data_private FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_source_binding_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_pit_snapshot_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_pit_observation_batch_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_pit_observation_rows_v1(BYTEA) FROM PUBLIC",
+    "REVOKE ALL ON FUNCTION market_data_private.resolve_pit_role_coordinate_v1(TEXT,TEXT,TEXT,TEXT,TEXT,SMALLINT,BIGINT) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_source_lineage_custody_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_pit_lineage_custody_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_source_lineage_members_v1(BYTEA) FROM PUBLIC",
@@ -922,7 +967,7 @@ impl MarketDataOwnerPostgres {
     pub(crate) async fn commit_pit_initial(
         &self,
         proposal: UntrustedPitSnapshotProposal,
-        canonical_basis: &TestOnlyCanonicalBasisResolver,
+        canonical_basis: &dyn CanonicalBasisResolverV1,
         clock: &MarketDataClockAdmission,
     ) -> Result<PitSnapshotCommitAggregate, PitSnapshotError> {
         Box::pin(self.commit_pit_initial_with_fault(
@@ -937,7 +982,7 @@ impl MarketDataOwnerPostgres {
     async fn commit_pit_initial_with_fault(
         &self,
         proposal: UntrustedPitSnapshotProposal,
-        canonical_basis: &TestOnlyCanonicalBasisResolver,
+        canonical_basis: &dyn CanonicalBasisResolverV1,
         clock: &MarketDataClockAdmission,
         fault: PostgresCommitFault,
     ) -> Result<PitSnapshotCommitAggregate, PitSnapshotError> {
@@ -947,7 +992,7 @@ impl MarketDataOwnerPostgres {
     async fn commit_pit_initial_inner(
         &self,
         proposal: UntrustedPitSnapshotProposal,
-        canonical_basis: &TestOnlyCanonicalBasisResolver,
+        canonical_basis: &dyn CanonicalBasisResolverV1,
         clock: &MarketDataClockAdmission,
         fault: PostgresCommitFault,
     ) -> Result<PitSnapshotCommitAggregate, PitSnapshotError> {
@@ -976,7 +1021,7 @@ impl MarketDataOwnerPostgres {
         &self,
         proposal: UntrustedPitSnapshotProposal,
         batch: UntrustedPitObservationBatchProposal,
-        canonical_basis: &TestOnlyCanonicalBasisResolver,
+        canonical_basis: &dyn CanonicalBasisResolverV1,
         clock: &MarketDataClockAdmission,
     ) -> Result<PitSnapshotCommitAggregate, PitSnapshotError> {
         Box::pin(self.commit_pit_initial_with_observation_batch_and_fault(
@@ -993,7 +1038,7 @@ impl MarketDataOwnerPostgres {
         &self,
         proposal: UntrustedPitSnapshotProposal,
         batch: UntrustedPitObservationBatchProposal,
-        canonical_basis: &TestOnlyCanonicalBasisResolver,
+        canonical_basis: &dyn CanonicalBasisResolverV1,
         clock: &MarketDataClockAdmission,
         fault: PostgresCommitFault,
     ) -> Result<PitSnapshotCommitAggregate, PitSnapshotError> {
@@ -1035,11 +1080,347 @@ impl MarketDataOwnerPostgres {
         .await
     }
 
+    /// Mints the next Owner clock admission for a commit that establishes or advances the head.
+    ///
+    /// The cut is the Owner's own wall observation, and the sequence strictly advances the
+    /// persisted head. A wall clock that has not moved past the head cannot mint, because a cut
+    /// that did not advance would let two different findings claim the same instant.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SourceBindingAdmissionErrorV1::ClockUnavailable`] when no advancing cut can be
+    /// minted and [`SourceBindingAdmissionErrorV1::StoreUnavailable`] when the store fails.
+    pub(crate) async fn mint_clock_admission_v1(
+        &self,
+    ) -> Result<MarketDataClockAdmission, SourceBindingAdmissionErrorV1> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| SourceBindingAdmissionErrorV1::StoreUnavailable)?;
+        let head = load_current_clock_for_update(&mut transaction)
+            .await
+            .map_err(|_| SourceBindingAdmissionErrorV1::StoreUnavailable)?;
+        transaction
+            .rollback()
+            .await
+            .map_err(|_| SourceBindingAdmissionErrorV1::StoreUnavailable)?;
+
+        let observed_ns = u64::try_from(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|_| SourceBindingAdmissionErrorV1::ClockUnavailable)?
+                .as_nanos(),
+        )
+        .map_err(|_| SourceBindingAdmissionErrorV1::ClockUnavailable)?;
+
+        let sequence = match &head {
+            None => 1,
+            Some(current) => {
+                if observed_ns <= current.decision_cut {
+                    return Err(SourceBindingAdmissionErrorV1::ClockUnavailable);
+                }
+                current
+                    .monotonic_sequence
+                    .checked_add(1)
+                    .ok_or(SourceBindingAdmissionErrorV1::ClockUnavailable)?
+            }
+        };
+        seal_owner_clock_admission_v1(
+            OWNER_CLOCK_IDENTITY_V1,
+            OWNER_CLOCK_EPOCH_V1,
+            sequence,
+            observed_ns,
+            OWNER_CLOCK_VALIDITY_WINDOW_NS,
+            OWNER_CLOCK_UNCERTAINTY_BOUND_NS,
+            OWNER_CLOCK_SKEW_BOUND_NS,
+        )
+        .ok_or(SourceBindingAdmissionErrorV1::ClockUnavailable)
+    }
+
+    /// Returns the one canonical clock head this Owner persists with its own facts.
+    ///
+    /// The caller of an intake never supplies a decision cut. An Owner that holds no head yet has
+    /// no cut to bind, so it fails closed instead of inventing one from wall time.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PitMarketSnapshotIntakeErrorV1::ClockUnavailable`] when no head is persisted and
+    /// [`PitMarketSnapshotIntakeErrorV1::StoreUnavailable`] when the store cannot be read.
+    pub(crate) async fn current_clock_admission_v1(
+        &self,
+    ) -> Result<MarketDataClockAdmission, PitMarketSnapshotIntakeErrorV1> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| PitMarketSnapshotIntakeErrorV1::StoreUnavailable)?;
+        let clock = load_current_clock_for_update(&mut transaction)
+            .await
+            .map_err(|_| PitMarketSnapshotIntakeErrorV1::StoreUnavailable)?
+            .ok_or(PitMarketSnapshotIntakeErrorV1::ClockUnavailable)?;
+        transaction
+            .rollback()
+            .await
+            .map_err(|_| PitMarketSnapshotIntakeErrorV1::StoreUnavailable)?;
+        Ok(clock)
+    }
+
+    /// Answers one frozen PIT Market Snapshot Request end to end.
+    ///
+    /// The requester supplies the request and nothing else: no observations, no evidence, no
+    /// digest, no disposition. Market Data resolves the admitted Source Binding and the evaluated
+    /// Universe Selection Record, issues the retrieval scope itself, stamps its own bindings onto
+    /// the vendor rows, and derives the terminal disposition. A Data Client can therefore state
+    /// what it measured and when, and nothing about what that measurement is bound to.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PitSnapshotError::SourceBindingUnavailable`] when the request names a binding the
+    /// Owner does not hold, [`PitSnapshotError::ObservationBatchUnavailable`] when the retrieval
+    /// fails or exceeds the admitted batch, and the usual persistence failures otherwise. An empty
+    /// or partial retrieval is not an error: it becomes insufficient coverage.
+    pub(crate) async fn commit_pit_initial_from_request_v1(
+        &self,
+        request: UntrustedPitSnapshotRequest,
+        observations: &dyn PitObservationSourceV1,
+        universe_locator: &UntrustedUniverseSelectionLocatorV1,
+        clock: &MarketDataClockAdmission,
+    ) -> Result<PitSnapshotCommitAggregate, PitSnapshotError> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+        let source =
+            load_source_for_update(&mut transaction, request.source_binding.binding_id, false)
+                .await
+                .map_err(|_| PitSnapshotError::SourceBindingUnavailable)?
+                .ok_or(PitSnapshotError::SourceBindingUnavailable)?;
+        if source.commit().receipt().locator() != &request.source_binding {
+            return Err(PitSnapshotError::SourceBindingUnavailable);
+        }
+        let source_fact = source.commit().fact();
+
+        // The scope carries the Owner's resolution of the selection rule. A record the Owner
+        // cannot recover leaves the scope empty, which becomes insufficient coverage rather than a
+        // licence for the client to choose its own members.
+        let members = match universe_selection::recover_universe_selection_in_transaction_v1(
+            &mut transaction,
+            universe_locator,
+        )
+        .await
+        {
+            Ok(readback) if readback.record().identity() == request.universe_selection_digest => {
+                readback
+                    .record()
+                    .membership()
+                    .iter()
+                    .filter(|member| member.included())
+                    .map(|member| String::from_utf8(member.member_key().to_vec()))
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|_| PitSnapshotError::ObservationBatchUnavailable)?
+            }
+            Ok(_) => Vec::new(),
+            Err(UniverseSelectionErrorV1::StoreUnavailable) => {
+                return Err(PitSnapshotError::PersistenceUnavailable);
+            }
+            Err(_) => Vec::new(),
+        };
+
+        let time = &request.time_evidence;
+        let correction_publication = time
+            .correction_publication
+            .as_ref()
+            .ok_or(PitSnapshotError::InvalidObservationBatch)?;
+        let scope = PitObservationScopeV1::from_owner_request(
+            members,
+            time.event_effective.value,
+            time.provider_available.value,
+            time.retrieval.value,
+            correction_publication.value,
+            time.decision_cut.value,
+        );
+        let vendor_rows = observations
+            .observe(&scope)
+            .await
+            .map_err(|_| PitSnapshotError::ObservationBatchUnavailable)?;
+
+        let batch = UntrustedPitObservationBatchProposal {
+            rows: vendor_rows
+                .into_iter()
+                .map(|row| UntrustedPitObservation {
+                    symbolic_key: row.symbolic_key,
+                    member_key: row.member_key,
+                    instrument: row.instrument,
+                    channel: row.channel,
+                    data_kind: row.data_kind,
+                    timeframe: row.timeframe,
+                    field: row.field,
+                    value_mantissa: row.value_mantissa,
+                    value_scale: row.value_scale,
+                    event_effective: row.event_effective,
+                    provider_available: row.provider_available,
+                    retrieval: row.retrieval,
+                    correction_publication: row.correction_publication,
+                    // Every binding below is the Owner's, never the client's.
+                    source_binding_identity: source_fact.binding_id(),
+                    source_frontier_digest: source_fact.source_frontier().digest,
+                    instrument_master_digest: request.instrument_master_digest,
+                    universe_selection_digest: request.universe_selection_digest,
+                    market_semantics_identity: request.market_semantics_identity,
+                    correction_stream_identity: source_fact
+                        .correction_frontier()
+                        .stream_identity
+                        .clone(),
+                    correction_sequence: source_fact.correction_frontier().sequence,
+                    correction_frontier_digest: source_fact.correction_frontier().digest,
+                })
+                .collect(),
+        };
+
+        let observed_members = batch
+            .rows
+            .iter()
+            .map(|row| row.member_key.as_bytes().to_vec())
+            .collect::<std::collections::BTreeSet<_>>();
+        let determination = Box::pin(resolve_owner_snapshot_determination_v1(
+            &mut transaction,
+            &request,
+            universe_locator,
+            &observed_members,
+            source_fact,
+        ))
+        .await?;
+        let owner_basis = OwnerCanonicalBasisV1::resolve_from_owner_custody(
+            &request,
+            source_fact,
+            derive_observation_batch_digest(&batch)?,
+            determination,
+            clock,
+        );
+        let proposal = UntrustedPitSnapshotProposal {
+            request,
+            evidence: owner_basis.owner_evidence().clone(),
+        };
+        let prepared = prepare_observation_batch(&proposal, &batch)?;
+        let aggregate = prepare_initial_aggregate(proposal, &owner_basis, source_fact, clock)?;
+        if aggregate.fact().disposition() == PitSnapshotDisposition::Available {
+            verify_observation_batch(
+                &aggregate,
+                aggregate.fact().source_binding_identity(),
+                aggregate.fact().source_binding_lineage_root(),
+                aggregate.fact().source_binding_lineage_version(),
+                prepared.digest(),
+                prepared.bytes(),
+                &prepared.native_rows()?,
+            )?;
+        }
+        Box::pin(persist_pit(
+            transaction,
+            aggregate,
+            Some(prepared),
+            clock,
+            PostgresCommitFault::None,
+        ))
+        .await
+    }
+
+    /// Mints one PIT Market Snapshot whose canonical basis Market Data resolved for itself.
+    ///
+    /// This is the production counterpart of the acceptance mint. The requester supplies only its
+    /// frozen proposal, the observation batch and the locator of an already-evaluated Universe
+    /// Selection Record; every value that decides the terminal disposition is read back from Owner
+    /// custody inside this one transaction. An unresolvable universe record, semantics scope or
+    /// unadmitted Source Binding is not an error: it becomes the corresponding blocker, so the
+    /// consumer receives an explicit `INSUFFICIENT`, `AMBIGUOUS`, `UNLICENSED` or `UNAVAILABLE`
+    /// terminal instead of a synthetic success. Only a store failure aborts.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PitSnapshotError::CanonicalBasisMismatch`] when the requester's claimed evidence
+    /// differs from what the Owner resolved, and the usual persistence and observation-batch
+    /// failures otherwise.
+    pub(crate) async fn commit_pit_initial_from_owner_custody_v1(
+        &self,
+        proposal: UntrustedPitSnapshotProposal,
+        batch: UntrustedPitObservationBatchProposal,
+        universe_locator: &UntrustedUniverseSelectionLocatorV1,
+        clock: &MarketDataClockAdmission,
+    ) -> Result<PitSnapshotCommitAggregate, PitSnapshotError> {
+        let prepared = prepare_observation_batch(&proposal, &batch)?;
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+        let source = load_source_for_update(
+            &mut transaction,
+            proposal.request.source_binding.binding_id,
+            false,
+        )
+        .await
+        .map_err(|_| PitSnapshotError::SourceBindingUnavailable)?
+        .ok_or(PitSnapshotError::SourceBindingUnavailable)?;
+        if source.commit().receipt().locator() != &proposal.request.source_binding {
+            return Err(PitSnapshotError::SourceBindingUnavailable);
+        }
+        let source_fact = source.commit().fact();
+
+        let observed_members = prepared
+            .native_rows()?
+            .iter()
+            .map(|row| row.member_key.as_bytes().to_vec())
+            .collect::<std::collections::BTreeSet<_>>();
+        let determination = Box::pin(resolve_owner_snapshot_determination_v1(
+            &mut transaction,
+            &proposal.request,
+            universe_locator,
+            &observed_members,
+            source_fact,
+        ))
+        .await?;
+
+        let owner_basis = OwnerCanonicalBasisV1::resolve_from_owner_custody(
+            &proposal.request,
+            source_fact,
+            prepared.digest(),
+            determination,
+            clock,
+        );
+        // The Owner's finding replaces the requester's claim before the fact is built, so the
+        // snapshot records what Market Data determined. The canonical batch was already validated
+        // against the claimed frontiers and digest, and those are byte-equal to the Owner's, so
+        // only the three determinations change here.
+        let mut proposal = proposal;
+        proposal.evidence = owner_basis.owner_evidence().clone();
+        let aggregate = prepare_initial_aggregate(proposal, &owner_basis, source_fact, clock)?;
+        if aggregate.fact().disposition() == PitSnapshotDisposition::Available {
+            verify_observation_batch(
+                &aggregate,
+                aggregate.fact().source_binding_identity(),
+                aggregate.fact().source_binding_lineage_root(),
+                aggregate.fact().source_binding_lineage_version(),
+                prepared.digest(),
+                prepared.bytes(),
+                &prepared.native_rows()?,
+            )?;
+        }
+        Box::pin(persist_pit(
+            transaction,
+            aggregate,
+            Some(prepared),
+            clock,
+            PostgresCommitFault::None,
+        ))
+        .await
+    }
+
     pub(crate) async fn commit_pit_correction(
         &self,
         predecessor: &UntrustedPitSnapshotLocator,
         proposal: UntrustedPitSnapshotProposal,
-        canonical_basis: &TestOnlyCanonicalBasisResolver,
+        canonical_basis: &dyn CanonicalBasisResolverV1,
         clock: &MarketDataClockAdmission,
     ) -> Result<PitSnapshotCommitAggregate, PitSnapshotError> {
         Box::pin(self.commit_pit_correction_inner(predecessor, proposal, canonical_basis, clock))
@@ -1050,7 +1431,7 @@ impl MarketDataOwnerPostgres {
         &self,
         predecessor: &UntrustedPitSnapshotLocator,
         proposal: UntrustedPitSnapshotProposal,
-        canonical_basis: &TestOnlyCanonicalBasisResolver,
+        canonical_basis: &dyn CanonicalBasisResolverV1,
         clock: &MarketDataClockAdmission,
     ) -> Result<PitSnapshotCommitAggregate, PitSnapshotError> {
         let mut transaction = self
@@ -1097,7 +1478,7 @@ impl MarketDataOwnerPostgres {
         predecessor: &UntrustedPitSnapshotLocator,
         proposal: UntrustedPitSnapshotProposal,
         batch: UntrustedPitObservationBatchProposal,
-        canonical_basis: &TestOnlyCanonicalBasisResolver,
+        canonical_basis: &dyn CanonicalBasisResolverV1,
         clock: &MarketDataClockAdmission,
     ) -> Result<PitSnapshotCommitAggregate, PitSnapshotError> {
         let prepared = prepare_observation_batch(&proposal, &batch)?;
@@ -5199,6 +5580,62 @@ async fn shared_time_migration_is_installed(
     .map_err(|_| SourceBindingError::StoreUnavailable)
 }
 
+/// Resolves the three PIT determinations that belong to Market Data alone.
+///
+/// Each determination is read back from Owner custody inside the caller's open transaction and
+/// never from the requester's claim. An identity the Owner does not hold, or a record whose digest
+/// does not match the frozen request, yields `false` so the snapshot carries an explicit blocker;
+/// only a store failure propagates as an error.
+async fn resolve_owner_snapshot_determination_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    request: &UntrustedPitSnapshotRequest,
+    universe_locator: &UntrustedUniverseSelectionLocatorV1,
+    observed_members: &std::collections::BTreeSet<Vec<u8>>,
+    source_fact: &SourceBindingFact,
+) -> Result<OwnerSnapshotDeterminationV1, PitSnapshotError> {
+    let source_available = source_fact.disposition() == SourceBindingDisposition::Admitted;
+
+    // The Market Semantics registry is keyed by a registry key that itself binds the PIT
+    // observation batch, so it is downstream of this mint and cannot be consulted here without a
+    // cycle. The non-circular Owner evidence at this cut is the admitted Source Binding's own
+    // authenticated semantics: the frozen request is compatible exactly when its identity is the
+    // one Market Data derives from that binding.
+    let semantics_compatible = request.market_semantics_identity
+        == derive_market_semantics_compatibility_identity_v1(&source_fact.proposal().semantics);
+
+    let coverage_complete = match universe_selection::recover_universe_selection_in_transaction_v1(
+        transaction,
+        universe_locator,
+    )
+    .await
+    {
+        Ok(readback) => {
+            let record = readback.record();
+            if record.identity() == request.universe_selection_digest {
+                let expected = record
+                    .membership()
+                    .iter()
+                    .filter(|member| member.included())
+                    .map(|member| member.member_key().to_vec())
+                    .collect::<std::collections::BTreeSet<_>>();
+                !expected.is_empty() && &expected == observed_members
+            } else {
+                false
+            }
+        }
+        Err(UniverseSelectionErrorV1::StoreUnavailable) => {
+            return Err(PitSnapshotError::PersistenceUnavailable);
+        }
+        Err(_) => false,
+    };
+
+    Ok(OwnerSnapshotDeterminationV1::from_owner_evidence(
+        coverage_complete,
+        semantics_compatible,
+        source_available,
+    ))
+}
+
 async fn persist_pit(
     mut transaction: Transaction<'_, Postgres>,
     aggregate: PitSnapshotCommitAggregate,
@@ -5886,6 +6323,51 @@ async fn insert_pit_observation_batch(
         .bind(row.symbolic_key())
         .bind(row.member_key())
         .bind(row_bytes)
+        .execute(&mut **transaction)
+        .await
+        .map_err(|e| map_pit_insert_error(&e))?;
+    }
+    index_pit_role_coordinates(transaction, aggregate, batch).await?;
+    Ok(())
+}
+
+/// Records the coordinates at which this snapshot answers, so that a Design's authenticated input
+/// role can later be resolved to it.
+///
+/// The coordinates written here are exactly the ones `resolve_strategy_input_row` selects a row by,
+/// which is what makes the index answer the same question the binder does. A correction re-answers
+/// its own lineage at the same cut, so it overwrites that lineage's row and never competes with
+/// itself; two rows of one batch sharing a coordinate write the same values, and the binder still
+/// rejects that batch as ambiguous when a role reaches it.
+async fn index_pit_role_coordinates(
+    transaction: &mut Transaction<'_, Postgres>,
+    aggregate: &PitSnapshotCommitAggregate,
+    batch: &PreparedPitObservationBatch,
+) -> Result<(), PitSnapshotError> {
+    let fact = aggregate.fact();
+    let decision_cut = i64::try_from(fact.request().time_evidence.decision_cut.value)
+        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    let lineage_version = i64::try_from(fact.lineage_version())
+        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+
+    if decision_cut <= 0 {
+        return Err(PitSnapshotError::InvalidObservationBatch);
+    }
+
+    for row in batch.rows() {
+        sqlx::query(
+            "INSERT INTO market_data_private.pit_role_coordinate_index_v1(instrument,channel,data_kind,field,timeframe,value_scale,decision_cut,lineage_root,lineage_version,snapshot_identity) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (instrument,channel,data_kind,field,timeframe,value_scale,decision_cut,lineage_root) DO UPDATE SET lineage_version=EXCLUDED.lineage_version,snapshot_identity=EXCLUDED.snapshot_identity WHERE market_data_private.pit_role_coordinate_index_v1.lineage_version<=EXCLUDED.lineage_version",
+        )
+        .bind(row.instrument())
+        .bind(row.channel())
+        .bind(row.data_kind())
+        .bind(row.field())
+        .bind(row.timeframe())
+        .bind(i16::from(row.value_scale()))
+        .bind(decision_cut)
+        .bind(fact.lineage_root().as_bytes().as_slice())
+        .bind(lineage_version)
+        .bind(fact.snapshot_identity().as_bytes().as_slice())
         .execute(&mut **transaction)
         .await
         .map_err(|e| map_pit_insert_error(&e))?;
@@ -9042,3 +9524,447 @@ fn nonnegative_u64(value: i64) -> Result<u64, sqlx::Error> {
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+/// Opens the sole configured Market Data intake and binds one Data Client to it.
+pub(super) async fn pit_market_snapshot_intake_from_environment_v1(
+    observations: std::sync::Arc<dyn PitObservationSourceV1>,
+) -> Result<std::sync::Arc<dyn PitMarketSnapshotIntakeV1>, PitMarketSnapshotIntakeErrorV1> {
+    let url =
+        std::env::var(super::instrument_master_v2_postgres::MARKET_DATA_OWNER_DATABASE_URL_ENV)
+            .map_err(|_| PitMarketSnapshotIntakeErrorV1::StoreUnavailable)?;
+    if url.is_empty() || url.trim() != url {
+        return Err(PitMarketSnapshotIntakeErrorV1::StoreUnavailable);
+    }
+    let owner = MarketDataOwnerPostgres::connect(&url)
+        .await
+        .map_err(|_| PitMarketSnapshotIntakeErrorV1::StoreUnavailable)?;
+    Ok(std::sync::Arc::new(MarketDataPitIntakePostgresV1 {
+        owner,
+        observations,
+    }))
+}
+
+/// The durable intake. It retains the Owner and the Data Client and exposes neither.
+struct MarketDataPitIntakePostgresV1 {
+    owner: MarketDataOwnerPostgres,
+    observations: std::sync::Arc<dyn PitObservationSourceV1>,
+}
+
+impl Debug for MarketDataPitIntakePostgresV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct(stringify!(MarketDataPitIntakePostgresV1))
+            .finish_non_exhaustive()
+    }
+}
+
+impl PitIntakeSealed for MarketDataPitIntakePostgresV1 {}
+
+#[async_trait::async_trait]
+impl PitMarketSnapshotIntakeV1 for MarketDataPitIntakePostgresV1 {
+    async fn current_decision_cut(
+        &self,
+    ) -> Result<MarketDataDecisionCutV1, PitMarketSnapshotIntakeErrorV1> {
+        self.owner
+            .current_clock_admission_v1()
+            .await
+            .map(|clock| public_decision_cut_v1(&clock))
+    }
+
+    async fn submit(
+        &self,
+        request: UntrustedPitSnapshotRequest,
+        universe_selection: UntrustedUniverseSelectionLocatorV1,
+    ) -> Result<PitMarketSnapshotTerminalV1, PitMarketSnapshotIntakeErrorV1> {
+        // The request identity is Market Data-derived by definition, so the Owner seals it here
+        // rather than asking a requester to reimplement the canonical encoding. Sealing decides
+        // nothing: the identity is a function of the content the requester already froze, and a
+        // requester that computed it itself gets the same value back.
+        let mut request = request;
+
+        seal_request_claims_v1(&mut request);
+        let request_identity = request.claimed_request_identity;
+        let request_digest = request.claimed_request_digest;
+        let correlation_identity = request.correlation_identity;
+        // The decision cut is the Owner's, never the caller's: it comes from the one canonical
+        // clock head Market Data persists with its own facts.
+        let clock = self.owner.current_clock_admission_v1().await?;
+        let aggregate = self
+            .owner
+            .commit_pit_initial_from_request_v1(
+                request,
+                self.observations.as_ref(),
+                &universe_selection,
+                &clock,
+            )
+            .await?;
+        let fact = aggregate.fact();
+        Ok(PitMarketSnapshotTerminalV1::seal(
+            request_identity,
+            request_digest,
+            correlation_identity,
+            fact.snapshot_identity(),
+            fact.digest(),
+            public_disposition_v1(fact.disposition()),
+        ))
+    }
+}
+
+/// Mirrors the Owner's private disposition onto the public terminal vocabulary.
+const fn public_disposition_v1(
+    disposition: PitSnapshotDisposition,
+) -> PitMarketSnapshotDispositionV1 {
+    match disposition {
+        PitSnapshotDisposition::Available => PitMarketSnapshotDispositionV1::Available,
+        PitSnapshotDisposition::Unlicensed => PitMarketSnapshotDispositionV1::Unlicensed,
+        PitSnapshotDisposition::Ambiguous => PitMarketSnapshotDispositionV1::Ambiguous,
+        PitSnapshotDisposition::Stale => PitMarketSnapshotDispositionV1::Stale,
+        PitSnapshotDisposition::Insufficient => PitMarketSnapshotDispositionV1::Insufficient,
+        PitSnapshotDisposition::Unavailable => PitMarketSnapshotDispositionV1::Unavailable,
+    }
+}
+
+/// Projects the Owner's clock head onto the public decision cut a requester must repeat.
+fn public_decision_cut_v1(clock: &MarketDataClockAdmission) -> MarketDataDecisionCutV1 {
+    MarketDataDecisionCutV1 {
+        clock_identity: clock.clock_identity.clone(),
+        clock_epoch: clock.clock_epoch.clone(),
+        decision_cut: clock.decision_cut,
+        monotonic_sequence: clock.monotonic_sequence,
+        restart_continuity_digest: clock.restart_continuity_digest,
+        valid_through: clock.valid_through,
+        uncertainty_bound: clock.uncertainty_bound,
+        skew_bound: clock.skew_bound,
+    }
+}
+
+/// The Owner clock identity every Market Data cut is minted under.
+const OWNER_CLOCK_IDENTITY_V1: &str = "MARKET_DATA_OWNER_V1";
+/// The only epoch this slice mints. An epoch change needs the Epoch Successor Proof, which is TARGET.
+const OWNER_CLOCK_EPOCH_V1: &str = "epoch-1";
+/// How long one minted cut stays valid.
+const OWNER_CLOCK_VALIDITY_WINDOW_NS: u64 = 3_600_000_000_000;
+/// The fixed uncertainty bound of the Owner clock.
+const OWNER_CLOCK_UNCERTAINTY_BOUND_NS: u64 = 1_000_000;
+/// The fixed skew bound of the Owner clock.
+const OWNER_CLOCK_SKEW_BOUND_NS: u64 = 1_000_000;
+
+/// Opens the sole configured Market Data Source Binding admission.
+pub(super) async fn source_binding_admission_from_environment_v1()
+-> Result<std::sync::Arc<dyn SourceBindingAdmissionV1>, SourceBindingAdmissionErrorV1> {
+    let url =
+        std::env::var(super::instrument_master_v2_postgres::MARKET_DATA_OWNER_DATABASE_URL_ENV)
+            .map_err(|_| SourceBindingAdmissionErrorV1::StoreUnavailable)?;
+    if url.is_empty() || url.trim() != url {
+        return Err(SourceBindingAdmissionErrorV1::StoreUnavailable);
+    }
+    let owner = MarketDataOwnerPostgres::connect(&url)
+        .await
+        .map_err(|_| SourceBindingAdmissionErrorV1::StoreUnavailable)?;
+    Ok(std::sync::Arc::new(SourceBindingAdmissionPostgresV1 {
+        owner,
+    }))
+}
+
+/// The durable admission. It retains the Owner and exposes no pool, writer or clock.
+struct SourceBindingAdmissionPostgresV1 {
+    owner: MarketDataOwnerPostgres,
+}
+
+impl Debug for SourceBindingAdmissionPostgresV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct(stringify!(SourceBindingAdmissionPostgresV1))
+            .finish_non_exhaustive()
+    }
+}
+
+impl SourceBindingAdmissionSealed for SourceBindingAdmissionPostgresV1 {}
+
+#[async_trait::async_trait]
+impl SourceBindingAdmissionV1 for SourceBindingAdmissionPostgresV1 {
+    async fn admit(
+        &self,
+        request: SourceBindingAdmissionRequestV1,
+    ) -> Result<SourceBindingAdmissionTerminalV1, SourceBindingAdmissionErrorV1> {
+        let decision = OwnerSourceBindingDecision {
+            blockers: derive_source_blockers_v1(request.rights, request.reachability),
+        };
+        let clock = self.owner.mint_clock_admission_v1().await?;
+        // When a binding was observed is the Owner's fact, not the submitter's, and the first
+        // admission is what establishes the clock head at all, so Operations could not state these
+        // fields even in principle. The Owner stamps them and re-derives the identity the stamped
+        // content implies; the submitter's own four coordinates and effective instant are kept.
+        let mut proposal = request.proposal;
+        proposal.time_evidence.clock_identity = clock.clock_identity.clone();
+        proposal.time_evidence.clock_epoch = clock.clock_epoch.clone();
+        proposal.time_evidence.monotonic_sequence = clock.monotonic_sequence;
+        proposal.time_evidence.restart_continuity_digest = clock.restart_continuity_digest;
+        proposal.time_evidence.skew_bound = clock.skew_bound;
+        proposal.time_evidence.uncertainty_bound = clock.uncertainty_bound;
+        proposal.time_evidence.observed_at = clock.wall_observed;
+        // The instant a binding takes effect is the cut it was admitted at, not a time the
+        // submitter chose: an admission cannot be backdated to before the Owner observed it.
+        proposal.time_evidence.effective_at = clock.decision_cut;
+        proposal.time_evidence.valid_through = clock.valid_through;
+        proposal.time_evidence.claimed_evidence_identity =
+            derive_time_evidence_identity(&proposal.time_evidence);
+        proposal.claimed_binding_id = derive_binding_id(&proposal);
+        let commit = self
+            .owner
+            .commit_source_initial(proposal, decision, &clock)
+            .await?;
+        let fact = commit.fact();
+        Ok(SourceBindingAdmissionTerminalV1::seal(
+            fact.binding_id(),
+            fact.lineage_root(),
+            fact.lineage_version(),
+            public_source_disposition_v1(fact.disposition()),
+            commit.receipt().locator().clone(),
+            derive_market_semantics_compatibility_identity_v1(&fact.proposal().semantics),
+        ))
+    }
+}
+
+/// Derives the blocker set from the evidence Operations supplied.
+///
+/// The mapping is the document's own: a withdrawal is `REVOKED`, a decisive denial is
+/// `UNLICENSED`, and unknown rights or an unanswered endpoint are `UNAVAILABLE`. Unresolved rights
+/// never become a denial, because a source whose licence is merely unproven can still be admitted
+/// later, while a denied one needs a new grant.
+fn derive_source_blockers_v1(
+    rights: ProviderRightsEvidenceV1,
+    reachability: ProviderReachabilityEvidenceV1,
+) -> std::collections::BTreeSet<SourceBindingBlocker> {
+    let mut blockers = std::collections::BTreeSet::new();
+
+    match rights {
+        ProviderRightsEvidenceV1::Granted => {}
+        ProviderRightsEvidenceV1::Revoked => {
+            blockers.insert(SourceBindingBlocker::RightsRevoked);
+        }
+        ProviderRightsEvidenceV1::Denied => {
+            blockers.insert(SourceBindingBlocker::RightsDeniedOrUnlicensed);
+        }
+        ProviderRightsEvidenceV1::Unresolved => {
+            blockers.insert(SourceBindingBlocker::RightsEvidenceUnresolved);
+        }
+    }
+
+    if reachability == ProviderReachabilityEvidenceV1::Unreachable {
+        blockers.insert(SourceBindingBlocker::SourceUnavailable);
+    }
+    blockers
+}
+
+/// Mirrors the Owner's private source disposition onto the public vocabulary.
+const fn public_source_disposition_v1(
+    disposition: SourceBindingDisposition,
+) -> SourceBindingAdmissionDispositionV1 {
+    match disposition {
+        SourceBindingDisposition::Admitted => SourceBindingAdmissionDispositionV1::Admitted,
+        SourceBindingDisposition::Revoked => SourceBindingAdmissionDispositionV1::Revoked,
+        SourceBindingDisposition::Unlicensed => SourceBindingAdmissionDispositionV1::Unlicensed,
+        SourceBindingDisposition::Incompatible => SourceBindingAdmissionDispositionV1::Incompatible,
+        SourceBindingDisposition::Unavailable => SourceBindingAdmissionDispositionV1::Unavailable,
+    }
+}
+
+/// Opens the sole configured Market Data universe-selection intake.
+pub(super) async fn universe_selection_admission_from_environment_v1()
+-> Result<std::sync::Arc<dyn UniverseSelectionAdmissionV1>, UniverseSelectionAdmissionErrorV1> {
+    let url =
+        std::env::var(super::instrument_master_v2_postgres::MARKET_DATA_OWNER_DATABASE_URL_ENV)
+            .map_err(|_| UniverseSelectionAdmissionErrorV1::StoreUnavailable)?;
+    if url.is_empty() || url.trim() != url {
+        return Err(UniverseSelectionAdmissionErrorV1::StoreUnavailable);
+    }
+    let owner = MarketDataOwnerPostgres::connect(&url)
+        .await
+        .map_err(|_| UniverseSelectionAdmissionErrorV1::StoreUnavailable)?;
+    Ok(std::sync::Arc::new(UniverseSelectionAdmissionPostgresV1 {
+        owner,
+    }))
+}
+
+/// The durable universe-selection intake. It exposes no pool, evaluator or raw membership row.
+struct UniverseSelectionAdmissionPostgresV1 {
+    owner: MarketDataOwnerPostgres,
+}
+
+impl Debug for UniverseSelectionAdmissionPostgresV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct(stringify!(UniverseSelectionAdmissionPostgresV1))
+            .finish_non_exhaustive()
+    }
+}
+
+impl UniverseSelectionAdmissionSealed for UniverseSelectionAdmissionPostgresV1 {}
+
+#[async_trait::async_trait]
+impl UniverseSelectionAdmissionV1 for UniverseSelectionAdmissionPostgresV1 {
+    async fn admit_membership(
+        &self,
+        request: HistoricalMembershipAdmissionRequestV1,
+    ) -> Result<(), UniverseSelectionAdmissionErrorV1> {
+        let proposals = request
+            .members
+            .into_iter()
+            .map(|member| HistoricalMembershipFactProposalV1 {
+                member_key: member.member_key.into_bytes(),
+                instrument: member.instrument.into_bytes(),
+                // A submission states facts, never a lineage: the Owner links predecessors itself.
+                predecessor_identity: None,
+                effective_from_ns: member.effective_from_ns,
+                effective_until_ns: member.effective_until_ns,
+                provider_available_ns: member.provider_available_ns,
+                retrieval_ns: member.retrieval_ns,
+                correction_publication_ns: member.correction_publication_ns,
+                owner_observation_ns: member.owner_observation_ns,
+                decision_cut: member.decision_cut,
+                source_binding_lineage_root: member.source_binding_lineage_root,
+                correction_frontier_digest: member.correction_frontier_digest,
+            })
+            .collect();
+        let mut transaction = self
+            .owner
+            .pool
+            .begin()
+            .await
+            .map_err(|_| UniverseSelectionAdmissionErrorV1::StoreUnavailable)?;
+        universe_selection::persist_historical_membership_frontier_v1(
+            &mut transaction,
+            request.eligible_instrument_frontier,
+            proposals,
+        )
+        .await?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| UniverseSelectionAdmissionErrorV1::StoreUnavailable)
+    }
+
+    async fn evaluate(
+        &self,
+        request: UntrustedUniverseSelectionRequestV1,
+    ) -> Result<UniverseSelectionTerminalV1, UniverseSelectionAdmissionErrorV1> {
+        let mut transaction = self
+            .owner
+            .pool
+            .begin()
+            .await
+            .map_err(|_| UniverseSelectionAdmissionErrorV1::StoreUnavailable)?;
+        let readback = universe_selection::resolve_universe_selection_in_transaction_v1(
+            &mut transaction,
+            &request,
+            Some(&CanonicalUniverseSelectionRuleEvaluatorV1),
+        )
+        .await?;
+        let terminal = seal_universe_terminal_v1(&readback);
+        transaction
+            .commit()
+            .await
+            .map_err(|_| UniverseSelectionAdmissionErrorV1::StoreUnavailable)?;
+        Ok(terminal)
+    }
+
+    async fn recover(
+        &self,
+        locator: UntrustedUniverseSelectionLocatorV1,
+    ) -> Result<UniverseSelectionTerminalV1, UniverseSelectionAdmissionErrorV1> {
+        let mut transaction = self
+            .owner
+            .pool
+            .begin()
+            .await
+            .map_err(|_| UniverseSelectionAdmissionErrorV1::StoreUnavailable)?;
+        let readback = universe_selection::recover_universe_selection_in_transaction_v1(
+            &mut transaction,
+            &locator,
+        )
+        .await?;
+        let terminal = seal_universe_terminal_v1(&readback);
+        transaction
+            .rollback()
+            .await
+            .map_err(|_| UniverseSelectionAdmissionErrorV1::StoreUnavailable)?;
+        Ok(terminal)
+    }
+}
+
+/// Projects one readback onto the sealed terminal, which carries identities and no membership rows.
+fn seal_universe_terminal_v1(
+    readback: &crate::owner::universe_selection::UniverseSelectionReadbackV1,
+) -> UniverseSelectionTerminalV1 {
+    let record = readback.record();
+    UniverseSelectionTerminalV1::seal(
+        record.request_identity(),
+        record.request_meaning_digest(),
+        record.identity(),
+        record
+            .membership()
+            .iter()
+            .filter(|member| member.included())
+            .count() as u64,
+    )
+}
+
+/// The env var naming the principal that may read the Composer's role-set attestation.
+///
+/// It is a second principal on the same database rather than a second database: the Owner writes
+/// its custody as `market_data_owner`, which is denied that resolver, and reads the attestation as
+/// `market_data_reader`, which holds nothing in `market_data_private`.
+const MARKET_DATA_RD_ROLE_SET_DATABASE_URL_ENV: &str = "MARKET_DATA_RD_ROLE_SET_DATABASE_URL";
+
+pub(super) async fn strategy_input_binding_admission_from_environment_v1()
+-> Result<std::sync::Arc<dyn StrategyInputBindingAdmissionV1>, StrategyInputBindingAdmissionErrorV1>
+{
+    let owner_url =
+        std::env::var(super::instrument_master_v2_postgres::MARKET_DATA_OWNER_DATABASE_URL_ENV)
+            .map_err(|_| StrategyInputBindingAdmissionErrorV1::StoreUnavailable)?;
+    let reader_url = std::env::var(MARKET_DATA_RD_ROLE_SET_DATABASE_URL_ENV)
+        .map_err(|_| StrategyInputBindingAdmissionErrorV1::StoreUnavailable)?;
+
+    if owner_url.is_empty()
+        || owner_url.trim() != owner_url
+        || reader_url.is_empty()
+        || reader_url.trim() != reader_url
+    {
+        return Err(StrategyInputBindingAdmissionErrorV1::StoreUnavailable);
+    }
+    let binding =
+        super::replay_market_facts_v2::ReplayCompositionOwnerV1::connect(&owner_url, &reader_url)
+            .await
+            .map_err(|_| StrategyInputBindingAdmissionErrorV1::StoreUnavailable)?;
+    Ok(std::sync::Arc::new(
+        StrategyInputBindingAdmissionPostgresV1 { binding },
+    ))
+}
+
+/// The durable W3 admission. It exposes neither pool, attestation nor declaration row.
+struct StrategyInputBindingAdmissionPostgresV1 {
+    binding: super::replay_market_facts_v2::ReplayCompositionOwnerV1,
+}
+
+impl Debug for StrategyInputBindingAdmissionPostgresV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct(stringify!(StrategyInputBindingAdmissionPostgresV1))
+            .finish_non_exhaustive()
+    }
+}
+
+impl StrategyInputBindingAdmissionSealed for StrategyInputBindingAdmissionPostgresV1 {}
+
+#[async_trait::async_trait]
+impl StrategyInputBindingAdmissionV1 for StrategyInputBindingAdmissionPostgresV1 {
+    async fn admit(
+        &self,
+        locator: StrategyDesignRoleSetLocatorV1,
+    ) -> Result<StrategyInputBindingAdmissionTerminalV1, StrategyInputBindingAdmissionErrorV1> {
+        self.binding
+            .declare_strategy_input_bindings_v1(&locator)
+            .await
+    }
+}

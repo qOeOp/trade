@@ -35,6 +35,38 @@ pub(crate) struct OwnerResolvedCanonicalBasis {
     clock_admission: MarketDataClockAdmission,
 }
 
+/// The canonical basis one Market Data Owner resolved for an untrusted proposal.
+///
+/// A proposal is admitted only when the requester's claimed request, evidence and clock admission
+/// are byte-equal to what the Owner itself resolved. The requester therefore never supplies the
+/// coverage, semantics-compatibility or source-availability determinations that
+/// [`derive_blockers`] reads: it can only restate them, and a restatement that differs from the
+/// Owner's own resolution fails closed.
+pub(crate) trait CanonicalBasisResolverV1 {
+    fn resolve(
+        &self,
+        request: &UntrustedPitSnapshotRequest,
+        evidence: &super::UntrustedPitSnapshotEvidence,
+        clock_admission: &MarketDataClockAdmission,
+    ) -> Result<&OwnerResolvedCanonicalBasis, PitSnapshotError>;
+}
+
+fn resolve_against_owner_basis<'a>(
+    basis: &'a OwnerResolvedCanonicalBasis,
+    request: &UntrustedPitSnapshotRequest,
+    evidence: &super::UntrustedPitSnapshotEvidence,
+    clock_admission: &MarketDataClockAdmission,
+) -> Result<&'a OwnerResolvedCanonicalBasis, PitSnapshotError> {
+    if &basis.request == request
+        && &basis.evidence == evidence
+        && &basis.clock_admission == clock_admission
+    {
+        Ok(basis)
+    } else {
+        Err(PitSnapshotError::CanonicalBasisMismatch)
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct TestOnlyCanonicalBasisResolver {
     basis: OwnerResolvedCanonicalBasis,
@@ -54,21 +86,102 @@ impl TestOnlyCanonicalBasisResolver {
             },
         }
     }
+}
 
-    pub(crate) fn resolve(
+impl CanonicalBasisResolverV1 for TestOnlyCanonicalBasisResolver {
+    fn resolve(
         &self,
         request: &UntrustedPitSnapshotRequest,
         evidence: &super::UntrustedPitSnapshotEvidence,
         clock_admission: &MarketDataClockAdmission,
     ) -> Result<&OwnerResolvedCanonicalBasis, PitSnapshotError> {
-        if &self.basis.request == request
-            && &self.basis.evidence == evidence
-            && &self.basis.clock_admission == clock_admission
-        {
-            Ok(&self.basis)
-        } else {
-            Err(PitSnapshotError::CanonicalBasisMismatch)
+        resolve_against_owner_basis(&self.basis, request, evidence, clock_admission)
+    }
+}
+
+/// The three snapshot determinations that belong to Market Data alone.
+///
+/// Each field answers a question the requester cannot answer about itself: whether the Owner's own
+/// observation batch covers the evaluated Universe Selection Record, whether the request's frozen
+/// Market Semantics Compatibility identity resolves to an Owner-held semantics fact, and whether
+/// the admitted Source Binding is available at the decision cut. The struct has no public
+/// constructor: only [`OwnerCanonicalBasisV1::resolve_from_owner_custody`] and its callers inside
+/// Market Data can produce one.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct OwnerSnapshotDeterminationV1 {
+    coverage_complete: bool,
+    semantics_compatible: bool,
+    source_available: bool,
+}
+
+impl OwnerSnapshotDeterminationV1 {
+    pub(crate) const fn from_owner_evidence(
+        coverage_complete: bool,
+        semantics_compatible: bool,
+        source_available: bool,
+    ) -> Self {
+        Self {
+            coverage_complete,
+            semantics_compatible,
+            source_available,
         }
+    }
+}
+
+/// Production canonical basis built from Market Data's own custody.
+///
+/// The evidence is assembled entirely from Owner-side values: the frontiers come from the native
+/// Source Binding readback, the normalized-records digest comes from the Owner's canonical
+/// observation batch, and the three determinations come from [`OwnerSnapshotDeterminationV1`]. A
+/// requester that claimed anything else fails closed with `CanonicalBasisMismatch` instead of
+/// having its own claim admitted as the Owner's finding.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct OwnerCanonicalBasisV1 {
+    basis: OwnerResolvedCanonicalBasis,
+}
+
+impl OwnerCanonicalBasisV1 {
+    pub(crate) fn resolve_from_owner_custody(
+        request: &UntrustedPitSnapshotRequest,
+        source_fact: &crate::owner::source_binding::authority::SourceBindingFact,
+        normalized_records_digest: BindingDigest,
+        determination: OwnerSnapshotDeterminationV1,
+        clock_admission: &MarketDataClockAdmission,
+    ) -> Self {
+        Self {
+            basis: OwnerResolvedCanonicalBasis {
+                request: request.clone(),
+                evidence: super::UntrustedPitSnapshotEvidence {
+                    normalized_records_digest,
+                    source_frontier: source_fact.source_frontier().clone(),
+                    correction_frontier: source_fact.correction_frontier().clone(),
+                    coverage_complete: determination.coverage_complete,
+                    semantics_compatible: determination.semantics_compatible,
+                    source_available: determination.source_available,
+                },
+                clock_admission: clock_admission.clone(),
+            },
+        }
+    }
+
+    /// The evidence Market Data resolved, which replaces whatever the requester claimed.
+    ///
+    /// A requester that guessed the determinations wrong must still receive an explicit terminal
+    /// negative rather than a transport error, so the mint records this evidence instead of
+    /// rejecting the proposal.
+    pub(crate) const fn owner_evidence(&self) -> &super::UntrustedPitSnapshotEvidence {
+        &self.basis.evidence
+    }
+}
+
+impl CanonicalBasisResolverV1 for OwnerCanonicalBasisV1 {
+    fn resolve(
+        &self,
+        request: &UntrustedPitSnapshotRequest,
+        evidence: &super::UntrustedPitSnapshotEvidence,
+        clock_admission: &MarketDataClockAdmission,
+    ) -> Result<&OwnerResolvedCanonicalBasis, PitSnapshotError> {
+        resolve_against_owner_basis(&self.basis, request, evidence, clock_admission)
     }
 }
 
@@ -174,7 +287,7 @@ impl TestOnlyPitSnapshotOwner {
     pub(crate) fn commit_initial(
         &mut self,
         proposal: UntrustedPitSnapshotProposal,
-        canonical_basis: &TestOnlyCanonicalBasisResolver,
+        canonical_basis: &dyn CanonicalBasisResolverV1,
         source_owner: &TestOnlyInMemorySourceBindingOwner,
         clock: &MarketDataClockAdmission,
     ) -> Result<PitSnapshotCommitAggregate, PitSnapshotError> {
@@ -190,7 +303,7 @@ impl TestOnlyPitSnapshotOwner {
     pub(crate) fn commit_initial_with_fault(
         &mut self,
         proposal: UntrustedPitSnapshotProposal,
-        canonical_basis: &TestOnlyCanonicalBasisResolver,
+        canonical_basis: &dyn CanonicalBasisResolverV1,
         source_owner: &TestOnlyInMemorySourceBindingOwner,
         clock: &MarketDataClockAdmission,
         fault: CommitFault,
@@ -220,7 +333,7 @@ impl TestOnlyPitSnapshotOwner {
         &mut self,
         predecessor: &UntrustedPitSnapshotLocator,
         proposal: UntrustedPitSnapshotProposal,
-        canonical_basis: &TestOnlyCanonicalBasisResolver,
+        canonical_basis: &dyn CanonicalBasisResolverV1,
         source_owner: &TestOnlyInMemorySourceBindingOwner,
         clock: &MarketDataClockAdmission,
     ) -> Result<PitSnapshotCommitAggregate, PitSnapshotError> {
@@ -430,7 +543,7 @@ pub(crate) fn verify_terminal_basis(
 
 fn validate_and_resolve<'a>(
     proposal: &UntrustedPitSnapshotProposal,
-    canonical_basis: &'a TestOnlyCanonicalBasisResolver,
+    canonical_basis: &'a dyn CanonicalBasisResolverV1,
     source_owner: &TestOnlyInMemorySourceBindingOwner,
     clock: &MarketDataClockAdmission,
 ) -> Result<
@@ -458,7 +571,7 @@ fn validate_and_resolve<'a>(
 
 pub(crate) fn prepare_initial_aggregate(
     proposal: UntrustedPitSnapshotProposal,
-    canonical_basis: &TestOnlyCanonicalBasisResolver,
+    canonical_basis: &dyn CanonicalBasisResolverV1,
     source_fact: &crate::owner::source_binding::authority::SourceBindingFact,
     clock: &MarketDataClockAdmission,
 ) -> Result<PitSnapshotCommitAggregate, PitSnapshotError> {
@@ -483,7 +596,7 @@ pub(crate) fn prepare_initial_aggregate(
 pub(crate) fn prepare_correction_aggregate(
     predecessor: &PitSnapshotFact,
     proposal: UntrustedPitSnapshotProposal,
-    canonical_basis: &TestOnlyCanonicalBasisResolver,
+    canonical_basis: &dyn CanonicalBasisResolverV1,
     source_fact: &crate::owner::source_binding::authority::SourceBindingFact,
     clock: &MarketDataClockAdmission,
 ) -> Result<PitSnapshotCommitAggregate, PitSnapshotError> {
@@ -512,7 +625,7 @@ pub(crate) fn prepare_correction_aggregate(
 
 fn validate_and_resolve_fact<'a>(
     proposal: &UntrustedPitSnapshotProposal,
-    canonical_basis: &'a TestOnlyCanonicalBasisResolver,
+    canonical_basis: &'a dyn CanonicalBasisResolverV1,
     source_fact: &crate::owner::source_binding::authority::SourceBindingFact,
     clock: &MarketDataClockAdmission,
 ) -> Result<&'a OwnerResolvedCanonicalBasis, PitSnapshotError> {

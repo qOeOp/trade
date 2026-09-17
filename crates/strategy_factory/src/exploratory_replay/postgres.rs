@@ -1418,8 +1418,6 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
             CREATE TABLE public.rd_sealed_exploratory_replay_requests_v1 (
               request_identity TEXT PRIMARY KEY,
               request_digest TEXT NOT NULL,
-              source_kind TEXT NOT NULL DEFAULT 'LEGACY_ARTIFACT_BUILD_V1',
-              composer_source_json JSONB,
               build_request_identity TEXT,
               attempt_identity TEXT,
               intent_identity TEXT NOT NULL,
@@ -1437,6 +1435,13 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
               v2_meaning_digest TEXT,
               v2_seal_digest TEXT,
               v2_receipt_json JSONB,
+              -- These two sit here, between the V2 receipt and the storage columns, because that
+              -- is where an upgraded database has them: they were added before the storage
+              -- migration. The public manifest is compared in physical `attnum` order, so a fresh
+              -- database that created them anywhere else could never materialize even though its
+              -- content was identical.
+              source_kind TEXT NOT NULL DEFAULT 'LEGACY_ARTIFACT_BUILD_V1',
+              composer_source_json JSONB,
               v2_request_storage_digest TEXT,
               v2_receipt_storage_bytes BYTEA,
               v2_receipt_storage_digest TEXT

@@ -45,7 +45,10 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 vibe-backtest-owner = { workspace = true }
 vibe-backtest-owner-contracts = { workspace = true }
+vibe-binance = { workspace = true }
+vibe-core = { workspace = true }
 vibe-data = { workspace = true }
+vibe-databento = { workspace = true }
 vibe-product-edge = { workspace = true }
 vibe-strategy-factory = { workspace = true }
 

@@ -3,7 +3,7 @@
     reason = "the read-only HTTP handlers retain complete typed Owner readbacks across preflight and resolve awaits"
 )]
 
-use std::{env, future::Future, sync::Arc, time::Duration};
+use std::{env, future::Future, path::PathBuf, sync::Arc, time::Duration};
 
 use axum::{
     Json, Router,
@@ -16,6 +16,12 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::net::TcpListener;
+use vibe_binance::{
+    common::enums::BinanceEnvironment,
+    pit_observation_source_v1::BinanceSpotBarObservationSourceV1,
+    spot::http::client::BinanceSpotHttpClient,
+};
+use vibe_core::time::get_atomic_clock_realtime;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 use vibe_data::owner::replay_market_facts_v2::{
     ReplayCompositionIssuanceLocatorV1, ReplayCompositionLocatorOnlyIssuanceRequestV1,
@@ -26,6 +32,28 @@ use vibe_data::owner::{
     ResearchPitTerminalBootstrapError, ResearchPitTerminalBootstrapFailure,
     research_pit_terminal_resolver_from_store_admission_lookup,
 };
+use vibe_data::owner::{
+    pit_market_snapshot_intake_v1::{
+        PitMarketSnapshotIntakeV1, pit_market_snapshot_intake_from_environment_v1,
+    },
+    pit_observation_source_v1::PitObservationSourceV1,
+    source_binding_admission_v1::{
+        SourceBindingAdmissionV1, source_binding_admission_from_environment_v1,
+    },
+    strategy_input_binding_admission_v1::{
+        StrategyInputBindingAdmissionV1, strategy_input_binding_admission_from_environment_v1,
+    },
+    universe_selection_admission_v1::{
+        UniverseSelectionAdmissionV1, universe_selection_admission_from_environment_v1,
+    },
+};
+use vibe_databento::{
+    common::Credential, historical::DatabentoHistoricalClient,
+    pit_observation_source_v1::DatabentoBboObservationSourceV1,
+};
+
+/// The stable correlation every Market Data probe attempt repeats.
+const MARKET_DATA_PROBE_CORRELATION_V1: [u8; 32] = *b"vibe.market-data.pit-probe.v1\0\0\0";
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 use vibe_data::owner::{
     instrument_economic_terms_postgres_owner_from_environment_v1,
@@ -155,6 +183,7 @@ mod exploratory_replay;
 mod iteration_analysis;
 mod iteration_decision;
 mod iteration_result_admission;
+mod market_data_pit;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 mod market_data_repair;
 mod source_intake;
@@ -295,6 +324,12 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
     let market_data_research_pit = bootstrap_deployment_store_admission().await?;
+    let market_data_pit_intake = bootstrap_market_data_pit_intake().await?;
+    let market_data_source_binding_admission =
+        bootstrap_market_data_source_binding_admission().await?;
+    let market_data_universe_selection = bootstrap_market_data_universe_selection().await?;
+    let market_data_strategy_input_bindings =
+        bootstrap_market_data_strategy_input_bindings().await?;
     #[cfg(feature = "sealed-develop-composer-acceptance")]
     let native_replay_scheduling =
         native_replay_scheduling_resolver_v1_from_store_admission_environment().await?;
@@ -608,6 +643,15 @@ async fn main() -> anyhow::Result<()> {
             token_digest,
             request_proof_digest,
             allow_acceptance_faults,
+        ))
+        // Market Data answers for itself on the default feature set: these routes ship in the
+        // deployed binary rather than behind an acceptance feature.
+        .merge(market_data_pit::router(
+            market_data_pit_intake,
+            market_data_source_binding_admission,
+            market_data_universe_selection,
+            market_data_strategy_input_bindings,
+            token_digest,
         ));
     #[cfg(feature = "sealed-develop-composer-acceptance")]
     let app = app
@@ -629,6 +673,133 @@ fn schema_materialization_requested(arguments: &[String]) -> anyhow::Result<bool
         [argument] if argument == "--materialize-schema" => Ok(true),
         _ => anyhow::bail!("unsupported strategy-factory-rd-owner-api arguments"),
     }
+}
+
+/// Composes the Market Data PIT intake when the deployment has configured a Data Client.
+///
+/// Absent configuration is not a startup failure: Market Data simply has no retrieval path, so the
+/// intake is absent and its routes answer `503`. A named but unusable configuration is a startup
+/// failure, because silently degrading to "no data source" would hide it.
+///
+/// The Data Client is named rather than inferred. Which venue a snapshot's rows come from changes
+/// what the snapshot means, so it is not something a deployment should fall into by which
+/// environment variables happen to be set.
+async fn bootstrap_market_data_pit_intake()
+-> anyhow::Result<Option<Arc<dyn PitMarketSnapshotIntakeV1>>> {
+    let observations = match env::var("MARKET_DATA_OBSERVATION_SOURCE") {
+        Err(env::VarError::NotPresent) => return Ok(None),
+        Err(e) => return Err(e.into()),
+        Ok(name) => match name.trim() {
+            "" => return Ok(None),
+            "databento" => databento_observation_source()?,
+            "binance-spot" => binance_spot_observation_source()?,
+            other => anyhow::bail!(
+                "MARKET_DATA_OBSERVATION_SOURCE must be databento or binance-spot, not {other}"
+            ),
+        },
+    };
+    Ok(Some(
+        pit_market_snapshot_intake_from_environment_v1(observations).await?,
+    ))
+}
+
+/// Builds the Databento Data Client under an explicit provider-cost allowance.
+fn databento_observation_source() -> anyhow::Result<Arc<dyn PitObservationSourceV1>> {
+    let api_key = required_env("DATABENTO_API_KEY")?;
+    let publishers = required_env("DATABENTO_PUBLISHERS_PATH")?;
+    let client = DatabentoHistoricalClient::new(
+        Credential::new(api_key),
+        PathBuf::from(publishers),
+        get_atomic_clock_realtime(),
+        false,
+    )?;
+    // Nothing spends without an explicit allowance: the ceiling defaults to zero, under which the
+    // probe refuses any range the provider charges for.
+    let max_cost_usd = match env::var("DATABENTO_MAX_PROBE_COST_USD") {
+        Err(env::VarError::NotPresent) => 0.0,
+        Err(e) => return Err(e.into()),
+        Ok(value) => value
+            .parse::<f64>()
+            .map_err(|_| anyhow::anyhow!("DATABENTO_MAX_PROBE_COST_USD must be a number"))?,
+    };
+    Ok(Arc::new(DatabentoBboObservationSourceV1::new(
+        client,
+        MARKET_DATA_PROBE_CORRELATION_V1,
+        max_cost_usd,
+    )))
+}
+
+/// Builds the keyless Binance Spot Data Client from its admitted member mapping.
+///
+/// The mapping is stated as `member=symbol` pairs so a deployment says exactly which Owner member
+/// each venue symbol answers for; a client that guessed the mapping would be deciding what a
+/// universe member is.
+fn binance_spot_observation_source() -> anyhow::Result<Arc<dyn PitObservationSourceV1>> {
+    let members = required_env("BINANCE_PIT_MEMBERS")?;
+    let interval = required_env("BINANCE_PIT_INTERVAL")?;
+    let mut mapping = std::collections::BTreeMap::new();
+
+    for entry in members.split(',') {
+        let (member, symbol) = entry
+            .split_once('=')
+            .ok_or_else(|| anyhow::anyhow!("BINANCE_PIT_MEMBERS entries are member=symbol"))?;
+        if member.trim().is_empty() || symbol.trim().is_empty() {
+            anyhow::bail!("BINANCE_PIT_MEMBERS entries are member=symbol");
+        }
+        mapping.insert(member.trim().to_string(), symbol.trim().to_string());
+    }
+    let client = BinanceSpotHttpClient::new_with_json_responses(
+        BinanceEnvironment::Live,
+        get_atomic_clock_realtime(),
+        None,
+        None,
+        None,
+        None,
+        Some(30),
+        None,
+        true,
+    )?;
+    Ok(Arc::new(
+        BinanceSpotBarObservationSourceV1::new(client, mapping, &interval)
+            .map_err(|e| anyhow::anyhow!("the Binance Data Client is unusable: {e}"))?,
+    ))
+}
+
+/// Composes the Market Data universe-selection intake when its store is configured.
+async fn bootstrap_market_data_universe_selection()
+-> anyhow::Result<Option<Arc<dyn UniverseSelectionAdmissionV1>>> {
+    if env::var("MARKET_DATA_OWNER_DATABASE_URL").is_err() {
+        return Ok(None);
+    }
+    Ok(Some(
+        universe_selection_admission_from_environment_v1().await?,
+    ))
+}
+
+/// Composes the W3 Strategy Input Binding admission when both its principals are configured.
+///
+/// It needs two: the Owner URL writes the declarations and the R&D role-set URL reads the Composer
+/// attestation. A deployment that names only one has not separated those duties, so the route stays
+/// absent rather than running both halves as whichever principal it was given.
+async fn bootstrap_market_data_strategy_input_bindings()
+-> anyhow::Result<Option<Arc<dyn StrategyInputBindingAdmissionV1>>> {
+    if env::var("MARKET_DATA_OWNER_DATABASE_URL").is_err()
+        || env::var("MARKET_DATA_RD_ROLE_SET_DATABASE_URL").is_err()
+    {
+        return Ok(None);
+    }
+    Ok(Some(
+        strategy_input_binding_admission_from_environment_v1().await?,
+    ))
+}
+
+/// Composes the Market Data Source Binding admission when its store is configured.
+async fn bootstrap_market_data_source_binding_admission()
+-> anyhow::Result<Option<Arc<dyn SourceBindingAdmissionV1>>> {
+    if env::var("MARKET_DATA_OWNER_DATABASE_URL").is_err() {
+        return Ok(None);
+    }
+    Ok(Some(source_binding_admission_from_environment_v1().await?))
 }
 
 async fn bootstrap_deployment_store_admission()
