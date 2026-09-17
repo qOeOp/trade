@@ -1079,10 +1079,14 @@ test may do and a deployment may not, so the sequence itself stays unwitnessed r
 `rd_develop_operations_v2`, and requires a unique `operation_receipt_identity`, `artifact_identity` and
 `canonical_plan_digest`. An attestation therefore cannot exist without a Composer operation that produced an artifact.
 Minting one on its own, however it is authorized, would mean inserting an operation row for an artifact nobody built,
-which is the fabrication this seam exists to refuse. So the first cycle cannot be opened by authorizing an attestation;
-it can only be opened by a first Composer operation, and the only production entry to one requires the frozen program
-that the attestation would have made possible. Whichever way out is taken - an entry that admits an operator-authored
-Design directly, or something else - it changes what may start a Composer operation, not what W3 accepts afterwards.
+which is the fabrication this seam exists to refuse. Freezing is not the obstacle: `freeze` takes an assembled pair and
+never consults this registry, which the chain's joint-freeze proof shows by passing without touching Market Data at all.
+The obstacle is the run. Binding resolution calls `resolve_pit_request_for_strategy_design_v1` before it examines the
+declared role set, so a frozen program is refused for want of declarations even when it declares no input roles at all -
+and an attestation is scoped to one Design, so a first program cannot vouch for a second. Each Design therefore closes
+its own circle: running it needs declarations, declarations need an attestation naming it, and that attestation needs
+the operation only a run produces. Whichever link is opened, it changes what may start a Composer operation for a
+Design, not what W3 accepts once one exists.
 **NOT_ADMITTED:** caller-proposed Design/role/join fields, receipt/readback/token, receipt hash,
 latest/history/full scans, raw R&D table parsing or Market Data storage do not authenticate Design meaning; Market Data
 does not depend on Strategy Factory, own or reinterpret Strategy Design roles or joins.

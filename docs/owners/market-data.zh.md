@@ -1032,10 +1032,13 @@ function；但尚未见到任何一次运行把 Composer commit 经 W3 registrat
 `rd_develop_operations_v2`，同时要求 `operation_receipt_identity`、`artifact_identity` 与
 `canonical_plan_digest` 各自唯一。因此一份 attestation 不可能脱离"产出了 artifact 的 Composer 操作"而存在。
 无论用什么授权去单独铸造它，都意味着为一件无人构建的 artifact 插入一行 operation，而那正是这条 seam 存在
-所要拒绝的伪造。所以第一圈无法靠授权一份 attestation 打开；它只能靠第一次 Composer 操作打开，
-而通往 Composer 操作的唯一生产入口，需要的恰是那份 attestation 本该使之成为可能的冻结程序。
-无论最终选择哪条出路（一个直接接纳 operator 撰写的 Design 的入口，或别的方案），它改变的都是
-"什么可以启动一次 Composer 操作"，而不是"W3 此后接纳什么"。
+所要拒绝的伪造。冻结不是障碍：`freeze` 收的是已装配好的 pair，完全不查询本注册表，链路中的 joint-freeze
+证明正是在完全不接触 Market Data 的情况下通过的。障碍在 run。绑定解析在检查已声明角色集之前就调用
+`resolve_pit_request_for_strategy_design_v1`，因此一个冻结程序即便一个输入角色都没有声明，也会因缺少
+declaration 而被拒；而 attestation 的作用域限于单个 Design，所以第一个程序无法为第二个背书。
+于是每个 Design 各自成环：运行它需要 declaration，declaration 需要一份指名它的 attestation，
+而这份 attestation 需要只有运行才能产出的那次 operation。无论打开哪一环，改变的都是
+"什么可以为某个 Design 启动一次 Composer 操作"，而不是"W3 在操作存在之后接纳什么"。
 **NOT_ADMITTED：** caller-proposed Design/role/join 字段、receipt/readback/token、receipt
 hash、latest/history/full scan、raw R&D table parsing 或 Market Data storage 都不能认证 Design meaning；Market
 Data 不依赖 Strategy Factory，不拥有也不重新解释 Strategy Design role/join。
