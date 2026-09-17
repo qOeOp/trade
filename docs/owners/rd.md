@@ -216,8 +216,9 @@ names a Design, the Research request and custody it was admitted against, and th
 and nothing else. `POST /v1/strategy-designs/publish-role-intent` derives it from currently accepted
 custody and stores it write-once per Design;
 `rd_owner_api.resolve_design_role_intent_for_market_data_v1` exposes it to the Market Data reader
-principal alone. Ordered PostgreSQL chain entry 6 witnesses a Design that nothing in
-`composer_private` names moving from no PIT coordinate to the one Market Data resolved.
+principal alone. The ordered PostgreSQL chain witnesses a Design that nothing in
+`composer_private` names moving from no PIT coordinate to the one Market Data resolved, beside the attested admission it
+must agree with.
 
 **TARGET:** who authors that Design. Publication states what R&D knows about a Design it was given;
 it does not derive one, which is the open question the contract below still defers.

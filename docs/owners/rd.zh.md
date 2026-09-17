@@ -187,8 +187,8 @@ Composer attestation 注册它们，而铸造该 attestation 的正是一次 Com
 它只指名一个 Design、该 Design 被接纳时所依据的 Research request 与 custody，以及它所声明的角色，别无其他。
 `POST /v1/strategy-designs/publish-role-intent` 依据当前已接纳的 custody 派生它，并按 Design 一次性写入；
 `rd_owner_api.resolve_design_role_intent_for_market_data_v1` 只对 Market Data 的读取主体暴露它。
-有序 PostgreSQL 链路第 6 条见证了一个在 `composer_private` 中无人指名的 Design，
-从没有任何 PIT 坐标，走到 Market Data 自行解析出的那一个。
+有序 PostgreSQL 链路见证了一个在 `composer_private` 中无人指名的 Design，
+从没有任何 PIT 坐标，走到 Market Data 自行解析出的那一个，并与它必须一致的那次 attestation 准入并排。
 
 **TARGET：** 那份 Design 由谁撰写。发布陈述的是本 Owner 对收到的 Design 所知道的事实，
 它并不导出一份 Design，而这正是下面契约仍在交付的那个未决问题。
