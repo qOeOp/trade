@@ -38,17 +38,22 @@ never runs in CI.
 
 ### Production blockers
 
-- **`B1` no production composition root for the mint.** `commit_pit_initial_from_owner_custody_v1` in
-  `crates/data/src/owner/postgres.rs` resolves its own canonical basis from Owner custody and carries no test
-  dependency, and the isolated PostgreSQL chain accepts its `AVAILABLE`, `AMBIGUOUS` and `INSUFFICIENT` outcomes.
-  What remains is reach: it is crate-private, no deployed binary constructs it, and no request intake exists, so
-  the acceptance mint in `crates/data/src/owner/postgres/bar_joined_cut_acceptance_v1.rs` is still the only caller
-  outside the chain. Cleared by an Owner composition root and the request intake named in `B3` and `B4`.
-- **`B2` no production writer for the declaration store.** `register_strategy_input_binding_declaration_v1` has the
-  same single non-test caller as `B1`, so `resolve_pit_request_for_strategy_design_v1` returns `UnknownDeclaration`
-  for every production Design and the Composer seam in
-  `crates/strategy_factory/src/source_research_composer_postgres_v2.rs` always fails closed. Cleared with `B1`,
-  once that writer is reachable from the R&D transaction.
+A blocker a slice has cleared is removed rather than restated, and its identifier is retired rather than reused,
+so a reference in Git history keeps meaning what it meant. `B1`, the mint's missing composition root, was cleared
+this way: the production path is `commit_pit_initial_from_request_v1`, it resolves the canonical basis through
+`resolve_owner_snapshot_determination_v1` from Owner custody rather than from the requester's claim, and a deployed
+binary reaches it through the sealed intake and its routes. What still stops it answering is `B6`.
+
+- **`B2` nothing invokes the declaration admission.** The writer now exists and is reachable.
+  `crates/data/src/owner/strategy_input_binding_admission_v1.rs` takes a Composer locator and nothing else, reads
+  R&D's own attestation as `market_data_reader`, resolves each authenticated role to this Owner's committed
+  snapshot through `pit_role_coordinate_index_v1`, and registers the whole role set or none of it as
+  `market_data_owner`; it is routed at `/v1/market-data/strategy-input-bindings` in the deployed binary's default
+  features. The isolated chain proves the before and the after around one call: a Design with no declaration
+  resolves to no coordinate, and after the admission `resolve_pit_request_for_strategy_design_v1` returns the
+  Owner's own request. What remains is that nothing calls it, so the Composer seam in
+  `crates/strategy_factory/src/source_research_composer_postgres_v2.rs` still fails closed for every Design no one
+  has declared. Cleared by one Composer flow that admits its own locator.
 - **`B3` Deployment Store Admission disabled.** `DEPLOYMENT_STORE_ADMISSION_MODE` is `disabled` in
   `product/rd-workbench/.env.example` and `product/rd-workbench/docker-compose.yml`, so every sealed read port
   resolves to `None`, and `crates/strategy_factory_rd_owner_api/src/main.rs` retains the resolver in the unread
@@ -71,24 +76,24 @@ never runs in CI.
 
 ### Per-slice ledger
 
-| Slice                                                     | Status              | Implementation                                                                                                                                                                                                                           | Blocker    |
-| --------------------------------------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| PIT Market Snapshot authority and custody                 | `CURRENT / PARTIAL` | `crates/data/src/owner/pit_snapshot.rs`, `pit_snapshot/authority.rs`, `owner/postgres.rs` `pit_*` relations                                                                                                                              | `B1`       |
-| Source Binding and Owner‑local clock head                 | `CURRENT / PARTIAL` | `crates/data/src/owner/source_binding.rs`, `owner/postgres.rs`                                                                                                                                                                           | `B1`       |
-| `ResearchPitTerminal` output handoff to R&D               | `CURRENT / PARTIAL` | `crates/data/src/owner/research_pit_terminal.rs`                                                                                                                                                                                         | `B3`       |
-| Deployment Store Admission private seam                   | `CURRENT / PARTIAL` | `crates/data/src/owner/store_admission`                                                                                                                                                                                                  | `B3`       |
-| R0 observation evidence and reference‑fact catalog        | `CURRENT / PARTIAL` | `owner/reference_fact_coordinates`, `owner/reference_fact_catalog.rs`                                                                                                                                                                    | `B5`       |
-| Calendar, Time Zone and Session native authorities        | `CURRENT / PARTIAL` | `owner/calendar`, `owner/time_zone`, `owner/session`                                                                                                                                                                                     | `B5`       |
-| Market Semantics Owner contract                           | `CURRENT / PARTIAL` | `owner/market_semantics`                                                                                                                                                                                                                 | `B5`       |
-| Correction Policy private Replay projection               | `CURRENT / PARTIAL` | `owner/correction_policy_projection`                                                                                                                                                                                                     | `B5`       |
-| Corporate Action Instrument Master sub‑authority          | `CURRENT / PARTIAL` | `owner/corporate_action`                                                                                                                                                                                                                 | `B5`       |
-| Universe Selection Record                                 | `CURRENT / PARTIAL` | `owner/universe_selection.rs` with durable custody and in‑transaction rule evaluation in `owner/postgres/universe_selection.rs` (`universe_selection_records_v1`, receipts, outbox, historical‑membership frontier/facts/heads/manifest) | `B1`       |
-| Replay Market Facts V2 foundation                         | `CURRENT / PARTIAL` | `owner/replay_market_facts_v2`                                                                                                                                                                                                           | `B4`       |
-| Instrument Master V1 and V2 with economic terms           | `CURRENT / PARTIAL` | `owner/instrument_master.rs`, `owner/instrument_master_v2*.rs`, `owner/instrument_economic_terms*_v1.rs`                                                                                                                                 | `B4`       |
-| Strategy input‑role binding and a Design's PIT coordinate | `CURRENT / PARTIAL` | `owner/postgres/strategy_input_binding_registry.rs`                                                                                                                                                                                      | `B2`, `B4` |
-| EVENT and BAR Owner custody                               | `CURRENT / PARTIAL` | `owner/sample_fact.rs`, `owner/sample_projection*.rs`, `owner/bar_schedule.rs`                                                                                                                                                           | `B4`       |
-| Shared Time clock‑head handoff                            | `TARGET`            | `owner/shared_time_evidence.rs`                                                                                                                                                                                                          | `B3`       |
-| Vendor Data Clients                                       | `CURRENT / PARTIAL` | `crates/adapters/databento/src/pit_observation_source_v1.rs` and `crates/adapters/binance/src/pit_observation_source_v1.rs`, both live‑verified                                                                                          | `B6`       |
+| Slice                                                     | Status              | Implementation                                                                                                                                                                                                                           | Blocker |
+| --------------------------------------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| PIT Market Snapshot authority and custody                 | `CURRENT / PARTIAL` | `crates/data/src/owner/pit_snapshot.rs`, `pit_snapshot/authority.rs`, `owner/postgres.rs` `pit_*` relations                                                                                                                              | `B6`    |
+| Source Binding and Owner‑local clock head                 | `CURRENT / PARTIAL` | `crates/data/src/owner/source_binding.rs`, `owner/postgres.rs`                                                                                                                                                                           | `B6`    |
+| `ResearchPitTerminal` output handoff to R&D               | `CURRENT / PARTIAL` | `crates/data/src/owner/research_pit_terminal.rs`                                                                                                                                                                                         | `B3`    |
+| Deployment Store Admission private seam                   | `CURRENT / PARTIAL` | `crates/data/src/owner/store_admission`                                                                                                                                                                                                  | `B3`    |
+| R0 observation evidence and reference‑fact catalog        | `CURRENT / PARTIAL` | `owner/reference_fact_coordinates`, `owner/reference_fact_catalog.rs`                                                                                                                                                                    | `B5`    |
+| Calendar, Time Zone and Session native authorities        | `CURRENT / PARTIAL` | `owner/calendar`, `owner/time_zone`, `owner/session`                                                                                                                                                                                     | `B5`    |
+| Market Semantics Owner contract                           | `CURRENT / PARTIAL` | `owner/market_semantics`                                                                                                                                                                                                                 | `B5`    |
+| Correction Policy private Replay projection               | `CURRENT / PARTIAL` | `owner/correction_policy_projection`                                                                                                                                                                                                     | `B5`    |
+| Corporate Action Instrument Master sub‑authority          | `CURRENT / PARTIAL` | `owner/corporate_action`                                                                                                                                                                                                                 | `B5`    |
+| Universe Selection Record                                 | `CURRENT / PARTIAL` | `owner/universe_selection.rs` with durable custody and in‑transaction rule evaluation in `owner/postgres/universe_selection.rs` (`universe_selection_records_v1`, receipts, outbox, historical‑membership frontier/facts/heads/manifest) | `B6`    |
+| Replay Market Facts V2 foundation                         | `CURRENT / PARTIAL` | `owner/replay_market_facts_v2`                                                                                                                                                                                                           | `B4`    |
+| Instrument Master V1 and V2 with economic terms           | `CURRENT / PARTIAL` | `owner/instrument_master.rs`, `owner/instrument_master_v2*.rs`, `owner/instrument_economic_terms*_v1.rs`                                                                                                                                 | `B4`    |
+| Strategy input‑role binding and a Design's PIT coordinate | `CURRENT / PARTIAL` | `owner/postgres/strategy_input_binding_registry.rs`, `owner/strategy_input_binding_admission_v1.rs`, `owner/postgres/pit_role_resolution_v1.rs` (`pit_role_coordinate_index_v1`)                                                         | `B2`    |
+| EVENT and BAR Owner custody                               | `CURRENT / PARTIAL` | `owner/sample_fact.rs`, `owner/sample_projection*.rs`, `owner/bar_schedule.rs`                                                                                                                                                           | `B4`    |
+| Shared Time clock‑head handoff                            | `TARGET`            | `owner/shared_time_evidence.rs`                                                                                                                                                                                                          | `B3`    |
+| Vendor Data Clients                                       | `CURRENT / PARTIAL` | `crates/adapters/databento/src/pit_observation_source_v1.rs` and `crates/adapters/binance/src/pit_observation_source_v1.rs`, both live‑verified                                                                                          | `B6`    |
 
 ## Authoritative facts owned
 
