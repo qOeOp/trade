@@ -1039,8 +1039,17 @@ declaration 而被拒；而 attestation 的作用域限于单个 Design，所以
 `validate_declarations` 拒绝不含输入的 Design，因为至少需要一个 typed Owner-bound input。
 因此这个环是那条要求的推论，而不是疏忽：每个可准入的 Design 都绑定到 Owner 验证过的 custody，
 这既是 artifact 可信的来源，也正是第一个 Design 无物可绑的原因。于是每个 Design 各自成环：运行它需要 declaration，declaration 需要一份指名它的 attestation，
-而这份 attestation 需要只有运行才能产出的那次 operation。无论打开哪一环，改变的都是
-"什么可以为某个 Design 启动一次 Composer 操作"，而不是"W3 在操作存在之后接纳什么"。
+而这份 attestation 需要只有运行才能产出的那次 operation。
+
+**ADMITTED，从冻结程序完成首次注册：** 这个环无需构建任何"输入未绑定"的 artifact 即可打开，
+因为认证一个 Design 的从来不是 artifact，而是 R&D 自己的冻结 joint program。
+`rd_bounded_feature_program_freezes_v1` 本就携带 Research request 身份、该冻结据以准入的 custody 摘要，
+以及 Design 的身份、摘要与字节；而一次冻结若不绑定当前已接纳的 Research custody 就会被拒。
+因此 R&D 通过第二个精确 locator 的 DB-ACL 读函数暴露该行，与今天暴露 attestation 的那个并列；
+Market Data 从一次冻结认证 Design 的方式，与它从一份 attestation 认证的方式完全相同：读取、自行派生角色，
+并在签发任何东西之前解析自身的 registry、census、join 与 issuance authority。注册仍是 write-once，
+因此这条路径对一个 Design 只到达一次，此后每一圈都由 Composer 提交治理。这里没有放松 W3：
+W3 接纳的仍然只有 attestation，而这是 Design 语义的第二个已认证来源，不是一个未认证来源。
 **NOT_ADMITTED：** caller-proposed Design/role/join 字段、receipt/readback/token、receipt
 hash、latest/history/full scan、raw R&D table parsing 或 Market Data storage 都不能认证 Design meaning；Market
 Data 不依赖 Strategy Factory，不拥有也不重新解释 Strategy Design role/join。
