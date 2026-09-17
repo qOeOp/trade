@@ -43,6 +43,7 @@ defi = [
   "alloy-primitives",
 ]
 [dependencies]
+tracing = { workspace = true }
 vibe-common = { workspace = true }
 vibe-core = { workspace = true }
 vibe-model = { workspace = true, features = ["stubs"] }
