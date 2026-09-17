@@ -1114,6 +1114,22 @@ impl PostgresResearchGoalOwnerV1 {
         )
         .await
         .map_err(|e| storage(&e))?;
+        crate::schema_materialization::materialize_public_table(
+            pool,
+            "rd_design_role_intents_v1",
+            "CREATE TABLE IF NOT EXISTS rd_design_role_intents_v1 (
+                design_identity BYTEA PRIMARY KEY,
+                research_request_identity BYTEA NOT NULL,
+                intent_identity BYTEA NOT NULL,
+                research_custody_digest BYTEA NOT NULL,
+                design_digest BYTEA NOT NULL,
+                intent_digest BYTEA NOT NULL UNIQUE,
+                canonical_bytes BYTEA NOT NULL,
+                published_at_epoch_ms BIGINT NOT NULL
+            )",
+        )
+        .await
+        .map_err(|e| storage(&e))?;
 
         for statement in [
             "ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS artifact_evidence_digest TEXT",
@@ -1129,6 +1145,24 @@ impl PostgresResearchGoalOwnerV1 {
             "CREATE UNIQUE INDEX IF NOT EXISTS rd_research_intent_identity_v1 ON rd_research_request_receipts_v1 ((intent_json->>'intent_identity')) WHERE intent_json IS NOT NULL",
             "REVOKE ALL ON SCHEMA rd_owner_api FROM PUBLIC",
             "GRANT USAGE ON SCHEMA rd_owner_api TO product_edge_owner, qualification_writer",
+            "DROP FUNCTION IF EXISTS rd_owner_api.resolve_design_role_intent_for_market_data_v1(bytea)",
+            // Market Data authenticates a Design by reading what R&D published about it, exactly as
+            // it reads an attestation: through one exact-locator function, never by reaching into
+            // the table. The `session_user` test keeps the definer's rights from reaching anybody
+            // else who is later granted EXECUTE by mistake.
+            "CREATE FUNCTION rd_owner_api.resolve_design_role_intent_for_market_data_v1(
+                requested_design_identity bytea
+            ) RETURNS TABLE(intent_digest bytea, canonical_bytes bytea)
+            LANGUAGE sql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
+            SET search_path = pg_catalog
+            AS $function$
+            SELECT intent.intent_digest, intent.canonical_bytes
+            FROM public.rd_design_role_intents_v1 intent
+            WHERE intent.design_identity = requested_design_identity
+            AND session_user = 'market_data_owner'
+            $function$",
+            "REVOKE ALL ON FUNCTION rd_owner_api.resolve_design_role_intent_for_market_data_v1(bytea) FROM PUBLIC",
+            "GRANT EXECUTE ON FUNCTION rd_owner_api.resolve_design_role_intent_for_market_data_v1(bytea) TO market_data_owner",
             "REVOKE ALL ON TABLE public.rd_research_request_receipts_v1 FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_writer",
         ] {
             sqlx::query(statement)
