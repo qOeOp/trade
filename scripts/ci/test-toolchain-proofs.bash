@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Run the Owner proofs that need the pinned wasm compiler and nothing else.
+# Run the Owner proofs that need a real tool and no database.
 #
 # These proofs lower a bounded program to first-party source, invoke the toolchain `rust-toolchain.toml`
 # pins, and assert the result is a real strict-ABI-3 module rather than a shape. They are `#[ignore]`
@@ -42,6 +42,11 @@ readonly aarch64_wasm_proofs=(
   'develop_composer_v2_tests::real_v3_owner_build_reaches_composer_program_host_and_durable_abi3_artifact'
 )
 
+# Seals and reseals a caller-edited project through `docker buildx`. Its exemption named Docker as
+# the obstacle; every job that provisions Docker already has buildx, and the proof takes sixteen
+# seconds, so the obstacle was never real.
+readonly docker_seal_proof='materially_different_external_project_is_artifact_only_and_exactly_recoverable'
+
 selected_proofs=("${portable_wasm_proofs[@]}")
 if [[ "$(uname -m)" == "arm64" || "$(uname -m)" == "aarch64" ]]; then
   selected_proofs+=("${aarch64_wasm_proofs[@]}")
@@ -64,4 +69,14 @@ for proof in "${selected_proofs[@]}"; do
     -E "test(=${proof})"
 done
 
-echo "Every selected wasm toolchain proof built and ran a real strict-ABI-3 module"
+echo "--- $docker_seal_proof"
+cargo nextest run \
+  --locked \
+  --package vibe-strategy-factory \
+  --test product_skeleton \
+  --profile "$nextest_profile" \
+  --run-ignored ignored-only \
+  --fail-fast \
+  -E "test(=${docker_seal_proof})"
+
+echo "Every selected toolchain proof ran against the real tool it names"

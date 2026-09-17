@@ -43,35 +43,34 @@ readonly owner_crates=(
 # Proofs no chain selects, each with the reason it stays out. Adding a name here is a decision that
 # the next reader can audit; leaving one out fails this check.
 readonly -A unselected_reason=(
-  ["actual_dataset_recovers_into_fresh_derived_catalogs"]="frozen external dataset; the chain provisions a database, not a corpus"
-  ["actual_dual_tsmom_family_recovers_exact_terminal_receipt"]="frozen external dataset; the chain provisions a database, not a corpus"
-  ["actual_pairs_family_recovers_exact_terminal_receipt"]="frozen external dataset; the chain provisions a database, not a corpus"
-  ["actual_representative_family_recovers_exact_terminal_receipt"]="frozen external dataset; the chain provisions a database, not a corpus"
-  ["actual_representative_program_control_recovers_exact_receipt"]="frozen external dataset; the chain provisions a database, not a corpus"
-  ["actual_secac_formation_recovers_exact_without_claiming_holdout"]="frozen external dataset; the chain provisions a database, not a corpus"
-  ["authenticates_frozen_representative_dataset_2023"]="frozen external dataset; the chain provisions a database, not a corpus"
+  ["actual_dataset_recovers_into_fresh_derived_catalogs"]="requires the separately downloaded frozen 2023 USD-M and PAXG Spot datasets; no workflow, Makefile or script provides it"
+  ["actual_dual_tsmom_family_recovers_exact_terminal_receipt"]="requires frozen Binance, five-series ALFRED, and scheduled-event evidence; no workflow, Makefile or script provides it"
+  ["actual_pairs_family_recovers_exact_terminal_receipt"]="requires frozen Binance, five-series ALFRED, and scheduled-event evidence; no workflow, Makefile or script provides it"
+  ["actual_representative_family_recovers_exact_terminal_receipt"]="requires frozen Binance, five-series ALFRED, and scheduled-event evidence; no workflow, Makefile or script provides it"
+  ["actual_representative_program_control_recovers_exact_receipt"]="requires frozen Binance, five-series ALFRED, and scheduled-event evidence; no workflow, Makefile or script provides it"
+  ["actual_secac_formation_recovers_exact_without_claiming_holdout"]="requires exact 2023 Formation inputs plus intact unclaimed 2024 custody; no workflow, Makefile or script provides it"
+  ["authenticates_frozen_representative_dataset_2023"]="requires the separately downloaded frozen 2023 USD-M dataset; no workflow, Makefile or script provides it"
   ["catalog_rule_injection_is_unavailable_and_writes_nothing"]="replay policy catalog V3 is TARGET / NOT_ADMITTED in docs/owners/rd.md"
   ["catalog_unlogged_drift_is_unavailable_to_migration_and_runtime"]="replay policy catalog V3 is TARGET / NOT_ADMITTED in docs/owners/rd.md"
   ["catalog_v3_admin_restart_tamper_and_acl_are_fail_closed"]="replay policy catalog V3 is TARGET / NOT_ADMITTED in docs/owners/rd.md"
   ["composer_unlogged_drift_is_unavailable_to_migration_and_runtime"]="needs sealed-source-intake-composer-acceptance, which the chain's archive does not enable"
-  ["exact_complex_cache_executes_program_family_path_reproducibly"]="frozen external dataset; the chain provisions a database, not a corpus"
-  ["exact_pilot_cache_executes_native_family_path"]="frozen external dataset; the chain provisions a database, not a corpus"
+  ["exact_complex_cache_executes_program_family_path_reproducibly"]="requires the separately downloaded exact 24-month Binance Vision cache; no workflow, Makefile or script provides it"
+  ["exact_pilot_cache_executes_native_family_path"]="requires the separately downloaded exact 24-month Binance Vision cache; no workflow, Makefile or script provides it"
   ["forged_v3_admission_fails_without_replay_transition_or_outbox_write"]="needs sealed-source-intake-composer-acceptance, which the chain's archive does not enable"
   ["live_bounded_pit_probe_stops_on_cost_or_returns_authentic_evidence"]="live vendor probe; needs a real vendor request and its credential"
   ["live_probe_answers_the_owner_scope_or_refuses"]="live vendor probe; needs a real vendor request and its credential"
   ["market_data_answers_one_frozen_request_from_live_vendor_data"]="live vendor probe; needs a real vendor request and its credential"
-  ["materially_different_external_project_is_artifact_only_and_exactly_recoverable"]="frozen external dataset; the chain provisions a database, not a corpus"
   ["measure_admission_cost_by_program_size"]="regenerates a committed corpus or measures cost; asserts no Owner custody"
-  ["official_holdout_integrity_probe_is_deterministic"]="frozen external dataset; the chain provisions a database, not a corpus"
+  ["official_holdout_integrity_probe_is_deterministic"]="requires the separately custodied official 2024 source bundle; no workflow, Makefile or script provides it"
   ["postgres_v4_is_atomic_idempotent_exact_and_tamper_closed"]="broken: it commits a second sample for a second role, but the fact identity covers what was observed and not who asked, so the Owner refuses it as IdentityConflict; its batch offers no second observable fact"
   ["postgres_every_transaction_write_boundary_fault_leaves_zero_positive_rows"]="needs sealed-source-intake-composer-acceptance, which the chain's archive does not enable"
   ["real_v3_owner_build_reaches_composer_program_host_and_durable_abi3_artifact"]="compiled only on aarch64; the job that runs the wasm proofs is x86_64 and the aarch64 jobs build without running tests"
   ["regenerate_sealed_a0_corpus_from_real_producer"]="regenerates a committed corpus or measures cost; asserts no Owner custody"
   ["regenerate_source_research_composer_sealed_a0_corpus_from_real_producer"]="regenerates a committed corpus or measures cost; asserts no Owner custody"
-  ["representative_coordinates_share_read_only_catalog_and_reproduce_fresh"]="frozen external dataset; the chain provisions a database, not a corpus"
+  ["representative_coordinates_share_read_only_catalog_and_reproduce_fresh"]="requires frozen Binance, five-series ALFRED, and scheduled-event evidence; no workflow, Makefile or script provides it"
   ["sealed_run_and_restarted_resolve_return_the_same_public_receipt"]="needs sealed-source-intake-composer-acceptance, which the chain's archive does not enable"
   ["two_lowerings_two_builds_and_strict_replay_mint_one_v3_identity"]="builds through the sandbox, which verifies the frozen Linux target sysroot; docs/owners/rd.md holds that freeze until a fresh hosted A0 readback"
-  ["stale_artifact_policy_reaches_real_owner_chain_and_cannot_open_risk"]="frozen external dataset; the chain provisions a database, not a corpus"
+  ["stale_artifact_policy_reaches_real_owner_chain_and_cannot_open_risk"]="requires frozen Binance, five-series ALFRED, and scheduled-event evidence; no workflow, Makefile or script provides it"
 )
 
 echo "Checking that every Owner custody proof is selected or explained..."
@@ -97,10 +96,10 @@ if [ -f scripts/ci/test-rd-owner-postgres.bash ]; then
     sed "s/.*:://;s/'//" >> "$selected" || true
 fi
 
-# The wasm proof script lists each name as a quoted array entry, one selector per entry.
-if [ -f scripts/ci/test-wasm-toolchain-proofs.bash ]; then
-  rg -o "^[[:space:]]*'[a-z_0-9]+(::[a-z_0-9]+)+'$" scripts/ci/test-wasm-toolchain-proofs.bash 2> /dev/null |
-    sed "s/[[:space:]]*//g;s/'//g;s/.*:://" >> "$selected" || true
+# The toolchain proof script lists each name as a quoted string, one selector per entry.
+if [ -f scripts/ci/test-toolchain-proofs.bash ]; then
+  rg -o "'[a-z_0-9]+(::[a-z_0-9]+)*'" scripts/ci/test-toolchain-proofs.bash 2> /dev/null |
+    sed "s/'//g;s/.*:://" >> "$selected" || true
 fi
 
 for script in crates/data/tests/run_market_data_owner_postgres.bash \
