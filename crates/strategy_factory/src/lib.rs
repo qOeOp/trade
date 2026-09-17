@@ -257,7 +257,6 @@ mod robustness;
 mod schema_materialization;
 mod software_control;
 pub mod source_intake;
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 pub mod source_research_composer_postgres_v2;
 pub mod status;
 pub mod strategy_design_v2;

@@ -121,7 +121,8 @@ canonical first-party ABI3 source through a production path rather than only ins
 **CURRENT_PARTIAL - lowered source is not an executable:** the lowering carries no build receipt, no Wasm,
 no Artifact and no qualification meaning. It proves only that the frozen program, the pinned
 `vibe-indicators-kernel` catalog and the first-party SDK produce exactly those bytes, and that tampered
-stored bytes close the path. The V3 build, the durable Composer RUN and everything downstream stay TARGET.
+stored bytes close the path. The V3 build and the durable Composer RUN now have the production
+entry described below; everything downstream of the Artifact stays TARGET.
 
 The TARGET V1 catalog is atomic rather than a menu of names: fixed I128 scale is at most 38, rescale is explicit,
 the only rounding modes are `TowardZero` and `NearestTiesToEven`, and each operation uses one exact I256 expression
@@ -183,18 +184,31 @@ Artifact is dynamically accepted by `ProgramHostV2`; this proves only the crate-
 consumer path. Durable PostgreSQL custody, restart recovery across processes, provider/API/Windmill composition,
 and deployed Owner readiness remain unavailable and are not inferred from the in-memory join.
 
-**The Composer cannot run in production, and the reason is upstream of its custody.**
+**CURRENT_PARTIAL - the Composer runs in production from declared meaning.** The whole public input
+to `POST /v2/develop-composer/runs` is one canonical Research request locator. On one R&D transaction
+the Owner rereads currently accepted Research custody, reads that request's frozen joint Bounded
+Feature Program, derives the Composer request from the frozen pair, resolves each declared input role
+against the Strategy Input custody Market Data owns at the PIT cut Market Data chose, lowers the
+frozen program to canonical first-party source, and builds it through the tagged V3 producer. A
+Research request with no verifiable joint freeze returns a terminal disposition and writes nothing;
+no caller can supply a Design, a binding, a capsule or a PIT cut.
+
+**The corpus-backed run stays sealed, and that is the point.**
 `derive_source_research_composer_request_v2` does not derive a Design from the reread Research
 custody. It takes the fixed corpus Design, overwrites four identity fields
 (`research_request_identity`, `intent_identity`, `intent_digest`, `falsifier`) from that custody, and
 derives its bindings from a hardcoded selection identity. The plugin source, input roles and universe
-are the corpus's, not the research request's. So `POST /v2/develop-composer/runs` returning
-`SERVICE_UNAVAILABLE` under default features is **honest** rather than unfinished: there is no Design to
-compile. What is missing is the capability of turning a frozen hypothesis, mechanism and
-falsification question into an executable `StrategyDesignV2` - input roles, reaction graph and plugin
-source. The contract below states who authors it. Everything downstream
-of it exists: the production commit function, the store, the writer, the two build-receipt relations,
-and, since the Market Data resolver landed, the production binding seam.
+are the corpus's, not the research request's - there is no Design to compile. That path, its run
+entry and its tamper controls therefore live only under
+`sealed-source-intake-composer-acceptance`; it is acceptance apparatus, never a production entry.
+What turns a frozen hypothesis, mechanism and falsification question into an executable
+`StrategyDesignV2` is not a rule this Owner applies but a declaration it admits. The contract below
+states who authors it.
+
+**TARGET:** the isolated PostgreSQL acceptance for this production entry, deployed Owner readiness,
+and restart recovery across processes. The composition is assembled and statically checked; no
+disposable-PostgreSQL run has yet exercised it end to end, so its maturity is `declared`, not
+`dynamic`.
 
 ### CURRENT_PARTIAL - who authors a Strategy Design
 

@@ -101,10 +101,7 @@ use vibe_strategy_factory::{
     trial_family::{TrialFamilyDirectResultV1, TrialFamilyError},
 };
 
-#[cfg(feature = "sealed-develop-composer-acceptance")]
 use vibe_strategy_factory::develop_composer_operation_v2::DevelopComposerOperationDispositionV2;
-#[cfg(not(feature = "sealed-develop-composer-acceptance"))]
-use vibe_strategy_factory::develop_composer_operation_v2::DevelopComposerRunRequestV2;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use vibe_strategy_factory::develop_composer_postgres_v2::DevelopComposerSealedReadLocatorV2;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
@@ -126,6 +123,8 @@ use vibe_strategy_factory::develop_composer_sealed_acceptance_v2::SEALED_DEVELOP
 use vibe_strategy_factory::develop_composer_sealed_acceptance_v2::SealedDevelopComposerAcceptanceV2;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 use vibe_strategy_factory::develop_composer_sealed_acceptance_v2::submitted_or_unknown_response;
+#[cfg(not(feature = "sealed-develop-composer-acceptance"))]
+use vibe_strategy_factory::source_research_composer_postgres_v2::PostgresSourceResearchComposerProductionV2;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use vibe_strategy_factory::source_research_composer_postgres_v2::{
     SealedPostgresSourceResearchComposerV2, SourceResearchComposerAcceptanceControlV2,
@@ -133,7 +132,6 @@ use vibe_strategy_factory::source_research_composer_postgres_v2::{
     sealed_source_research_composer_a0_execution_count_v2,
 };
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SourceResearchComposerLocatorV2 {
@@ -141,7 +139,6 @@ struct SourceResearchComposerLocatorV2 {
     research_request_locator: String,
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 fn deserialize_research_locator_v2<'de, D>(deserializer: D) -> Result<String, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -218,6 +215,8 @@ struct ApiState {
     develop_composer: Arc<SealedDevelopComposerAcceptanceV2>,
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     develop_composer: Arc<SealedPostgresSourceResearchComposerV2>,
+    #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
+    develop_composer: Arc<PostgresSourceResearchComposerProductionV2>,
     #[cfg(feature = "sealed-develop-composer-acceptance")]
     replay_composition: Option<Arc<ReplayCompositionOwnerV1>>,
 }
@@ -342,7 +341,6 @@ async fn main() -> anyhow::Result<()> {
     let instrument_economic_terms =
         Arc::new(instrument_economic_terms_postgres_owner_from_environment_v1().await?);
     let database_url = required_env("RD_OWNER_DATABASE_URL")?;
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
     let composer_writer_database_url = required_env("RD_FACT_WRITER_DATABASE_URL")?;
     let qualification_database_url = required_env("QUALIFICATION_OWNER_DATABASE_URL")?;
     let product_edge_database_url = required_env("PRODUCT_EDGE_DATABASE_URL")?;
@@ -416,6 +414,14 @@ async fn main() -> anyhow::Result<()> {
         )
         .await?,
     );
+    #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
+    let develop_composer = Arc::new(
+        PostgresSourceResearchComposerProductionV2::connect(
+            &database_url,
+            &composer_writer_database_url,
+        )
+        .await?,
+    );
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     let develop_composer_read: Arc<dyn DevelopComposerSealedReadPortV2> = develop_composer.clone();
     #[cfg(feature = "sealed-develop-composer-acceptance")]
@@ -478,6 +484,8 @@ async fn main() -> anyhow::Result<()> {
         #[cfg(feature = "sealed-develop-composer-acceptance")]
         develop_composer_read: Some(develop_composer_read),
         #[cfg(feature = "sealed-develop-composer-acceptance")]
+        develop_composer,
+        #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
         develop_composer,
         #[cfg(feature = "sealed-develop-composer-acceptance")]
         replay_composition: Some(replay_composition),
@@ -1023,7 +1031,10 @@ async fn run_develop_composer(
 
     #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
     {
-        let request: DevelopComposerRunRequestV2 = match serde_json::from_slice(&body) {
+        // The whole public input is the Research request locator. The Design comes from that
+        // request's frozen Bounded Feature Program, and its Market Data bindings are resolved
+        // inside the Owner transaction, so a caller can supply neither.
+        let request: SourceResearchComposerLocatorV2 = match serde_json::from_slice(&body) {
             Ok(request) => request,
             Err(_) => {
                 return composer_response(
@@ -1032,10 +1043,18 @@ async fn run_develop_composer(
                 );
             }
         };
-        composer_response(
-            StatusCode::SERVICE_UNAVAILABLE,
-            default_unavailable_response(&request.request_identity),
-        )
+
+        match state
+            .develop_composer
+            .run_bounded_feature_program(&request.research_request_locator)
+            .await
+        {
+            Ok(response) => composer_operation_response(response),
+            Err(_) => composer_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                default_unavailable_response(&request.research_request_locator),
+            ),
+        }
     }
 
     #[cfg(all(
@@ -1214,7 +1233,6 @@ async fn read_develop_composer(
     }
 }
 
-#[cfg(feature = "sealed-develop-composer-acceptance")]
 fn composer_operation_response(response: DevelopComposerOperationResponseV2) -> Response {
     let status = match response.disposition {
         DevelopComposerOperationDispositionV2::Success => StatusCode::OK,
@@ -3126,6 +3144,15 @@ mod tests {
                 .await
                 .unwrap(),
             ),
+            #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
+            develop_composer: Arc::new(
+                PostgresSourceResearchComposerProductionV2::connect(
+                    test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+                    test_database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+                )
+                .await
+                .unwrap(),
+            ),
             #[cfg(feature = "sealed-develop-composer-acceptance")]
             replay_composition: None,
         };
@@ -3406,6 +3433,15 @@ mod tests {
             #[cfg(feature = "sealed-source-intake-composer-acceptance")]
             develop_composer: Arc::new(
                 SealedPostgresSourceResearchComposerV2::connect(
+                    test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+                    test_database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+                )
+                .await
+                .unwrap(),
+            ),
+            #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
+            develop_composer: Arc::new(
+                PostgresSourceResearchComposerProductionV2::connect(
                     test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
                     test_database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
                 )

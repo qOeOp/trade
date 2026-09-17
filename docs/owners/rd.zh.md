@@ -103,8 +103,8 @@ Research identity 的不同含义以 conflict 回应。`lower` 把这份冻结�
 
 **CURRENT_PARTIAL - 降级出的源码不是可执行物：** 该降级不带 build receipt、不带 Wasm、不带 Artifact，
 也不带任何 qualification 含义。它只证明冻结 program、钉定的 `vibe-indicators-kernel` catalog
-与第一方 SDK 恰好产出那些字节，以及被篡改的存储字节会关闭该路径。V3 build、持久 Composer RUN
-及其下游一律仍为 TARGET。
+与第一方 SDK 恰好产出那些字节，以及被篡改的存储字节会关闭该路径。V3 build 与持久 Composer RUN
+现在有了下文描述的生产入口；Artifact 下游的一切仍为 TARGET。
 
 TARGET V1 catalog 是原子整体，不是 primitive name 菜单：fixed I128 scale 最大为 38，rescale 必须显式，
 rounding mode 只有 `TowardZero` 与 `NearestTiesToEven`，每项 operation 使用一个准确 I256 expression 并只做
@@ -161,18 +161,27 @@ Artifact 已由 `ProgramHostV2` 动态接纳；这只证明 crate-local 合约�
 custody、跨进程重启恢复、provider/API/Windmill composition 和已部署 Owner readiness 仍不可用，不能从内存
 join 推断。
 
-**Composer 无法在生产运行，原因在它的托管之上游。**
+**CURRENT_PARTIAL - Composer 在生产中从被声明的含义运行。**
+`POST /v2/develop-composer/runs` 的全部公开输入只有一个规范 Research request locator。
+在同一个 R&D 事务内，Owner 重读当前已接纳的 Research 托管，读出该请求冻结的联合
+Bounded Feature Program，从这对冻结值导出 Composer 请求，按 Market Data 自己选定的 PIT cut
+对每个已声明输入角色解析 Market Data 自有的 Strategy Input 托管，把冻结 program 降级为规范的
+第一方源码，再经带标签的 V3 producer 构建。没有可验证联合冻结的 Research 请求返回终态处置
+且不写入任何内容；调用方无法提供 Design、绑定、capsule 或 PIT cut。
+
+**语料那条路径仍然封闭，而这正是要点。**
 `derive_source_research_composer_request_v2` 并没有从重读的 Research 托管导出 Design。
 它取固定语料里的那个 Design，用该托管覆写四个身份字段
 （`research_request_identity`、`intent_identity`、`intent_digest`、`falsifier`），
 绑定则从一个硬编码的 selection identity 派生。插件源码、输入角色与宇宙都是语料的，
-不是这个研究请求的。所以默认 feature 下 `POST /v2/develop-composer/runs` 返回
-`SERVICE_UNAVAILABLE` 是**诚实**而非未完成：根本没有可编译的 Design。
-真正缺的是把冻结的 hypothesis、mechanism 与 falsification question 变成可执行
-`StrategyDesignV2` - 输入角色、reaction graph、插件源码 - 的能力，
-下面的契约写明这份 Design 由谁撰写。它下游的一切都已存在：
-生产提交函数、store、写入器、两张 build-receipt 关系，
-以及 Market Data resolver 落地后的生产 binding 接缝。
+不是这个研究请求的 - 根本没有可编译的 Design。因此该路径、它的 run 入口与篡改控制
+只存在于 `sealed-source-intake-composer-acceptance` 之下；它是验收器具，永远不是生产入口。
+把冻结的 hypothesis、mechanism 与 falsification question 变成可执行 `StrategyDesignV2`
+不是这个 Owner 施加的规则，而是它接纳的一份声明，下面的契约写明这份 Design 由谁撰写。
+
+**TARGET：** 这条生产入口的隔离 PostgreSQL 验收、已部署 Owner 就绪度，以及跨进程重启恢复。
+该组合已装配并通过静态检查；尚无一次性 PostgreSQL 运行端到端跑过它，
+因此其成熟度是 `declared` 而非 `dynamic`。
 
 ### CURRENT_PARTIAL - Strategy Design 由谁撰写
 
