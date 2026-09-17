@@ -28,10 +28,11 @@ use vibe_data::owner::{
 };
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use crate::develop_composer_operation_v2::prepare_develop_composer_a0_v2;
 use crate::develop_composer_operation_v2::{
     DevelopComposerV3BuildRestartPortV2, PreparedDevelopComposerA0V2,
-    finish_positive_record_from_prepared_a0_v2, prepare_develop_composer_a0_v2,
-    prepare_develop_composer_bfp_v3, resolve_positive_record_with_v3_restart_v2,
+    finish_positive_record_from_prepared_a0_v2, prepare_develop_composer_bfp_v3,
+    resolve_positive_record_with_v3_restart_v2,
 };
 #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
 use crate::plugin_wire_v2::PLUGIN_FRAME_ABI_V2;
@@ -48,7 +49,6 @@ use crate::{
     },
     strategy_plan_v2::project_strategy_design_role_set_v1,
 };
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::{
     develop_plugin_build_v3::DevelopPluginBuildProducerV3,
     rd_bounded_feature_program_v1::FrozenResearchBoundedFeatureProgramV1,
@@ -93,7 +93,6 @@ const ACCEPTANCE_COMMIT_QUERY_V3: &str = "SELECT composer_owner_api.commit_devel
 const COMPOSER_OWNER_API_FUNCTION_COUNT_V2: i64 = 10;
 #[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
 const COMPOSER_OWNER_API_FUNCTION_COUNT_V2: i64 = 8;
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 const COMMIT_CUT_FUNCTION_V2: &str = "composer_owner_api.lock_develop_composer_commit_cut_v2(text)";
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 pub const SEALED_COMPOSER_FAIL_AFTER_GUC_V2: &str = "vibe.sealed_acceptance.composer_fail_after";
@@ -625,7 +624,6 @@ const SEALED_READ_FUNCTION_SOURCE_V2: &str = "BEGIN
     ) builds ON TRUE
    WHERE operation.request_identity=p_request_identity;
 END";
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 const COMMIT_CUT_FUNCTION_SOURCE_V2: &str = "BEGIN
   IF SESSION_USER<>'rd_owner' OR CURRENT_USER<>'composer_owner' THEN RAISE EXCEPTION 'R&D Owner required' USING ERRCODE='42501'; END IF;
   PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||p_request_identity,0));
@@ -1550,7 +1548,6 @@ async fn load_record_via_sealed_routine_in_transaction(
     Ok(record)
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 async fn load_record_via_commit_cut_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     request_identity: &str,
@@ -2163,7 +2160,6 @@ async fn verify_composer_acceptance_commit_authority_in_transaction(
     }
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 async fn verify_composer_commit_cut_authority_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<(), sqlx::Error> {
@@ -2535,7 +2531,6 @@ async fn verify_transaction_database(
     }
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 async fn transaction_identity(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<String, sqlx::Error> {
@@ -2660,13 +2655,11 @@ async fn verify_composer_read_pool(pool: &PgPool) -> Result<(), sqlx::Error> {
     transaction.rollback().await
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 pub(crate) enum PreparedDevelopComposerRunInTransactionV2 {
     Complete(Box<DevelopComposerOperationResponseV2>),
     Prepared(Box<PreparedPostgresDevelopComposerRunV2>),
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 pub(crate) struct PreparedPostgresDevelopComposerRunV2 {
     database_fingerprint: ComposerDatabaseFingerprintV2,
     transaction_identity: String,
@@ -2883,7 +2876,6 @@ impl PostgresDevelopComposerStoreV2 {
         ))
     }
 
-    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     pub(crate) async fn resolve_with_evidence_and_v3_restart(
         &self,
         request_identity: &str,
@@ -3120,7 +3112,7 @@ impl PostgresDevelopComposerStoreV2 {
         ))
     }
 
-    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn prepare_bfp_v3_run_in_transaction(
         &self,
         transaction: &mut Transaction<'_, Postgres>,
@@ -3195,7 +3187,6 @@ impl PostgresDevelopComposerStoreV2 {
         ))
     }
 
-    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     pub(crate) async fn commit_prepared_run_in_transaction(
         &self,
         transaction: &mut Transaction<'_, Postgres>,
@@ -3213,7 +3204,6 @@ impl PostgresDevelopComposerStoreV2 {
         .await
     }
 
-    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     pub(crate) async fn commit_prepared_bfp_v3_run_in_transaction(
         &self,
         transaction: &mut Transaction<'_, Postgres>,
@@ -3292,14 +3282,13 @@ impl PostgresDevelopComposerStoreV2 {
         .await
     }
 
-    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     async fn commit_prepared_run_in_transaction_with_fault_for_test(
         &self,
         transaction: &mut Transaction<'_, Postgres>,
         request: &DevelopComposerRunRequestV2,
         prepared: PreparedPostgresDevelopComposerRunV2,
         final_locked: DevelopComposerLockedEvidenceV2,
-        fail_after_boundary: Option<DevelopComposerAcceptanceWriteBoundaryV2>,
+        fail_after_boundary: Option<DevelopComposerFaultBoundaryV2>,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
         verify_transaction_database(transaction, &self.database_fingerprint).await?;
         let current_transaction_identity = transaction_identity(transaction).await?;

@@ -370,7 +370,6 @@ fn current_research_artifact_evidence_digest(
     Ok(format!("sha256:{:x}", Sha256::digest(bytes)))
 }
 
-#[cfg(any(test, feature = "sealed-source-intake-composer-acceptance"))]
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct CurrentResearchArtifactReadbackV1 {
     evidence_digest: String,
@@ -379,7 +378,6 @@ struct CurrentResearchArtifactReadbackV1 {
     owner_cut_epoch_ms: Option<u64>,
 }
 
-#[cfg(any(test, feature = "sealed-source-intake-composer-acceptance"))]
 fn decode_current_research_artifact_readback(
     value: &serde_json::Value,
     locked: bool,
@@ -400,7 +398,6 @@ fn decode_current_research_artifact_readback(
 }
 
 /// Keep Source and Artifact evidence locked in the consumer's existing Research transaction.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 pub(crate) async fn lock_current_research_artifact_custody_in_transaction(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     custody: &crate::rd_owner_postgres_custody::VerifiedResearchCustodyV1,
