@@ -596,34 +596,111 @@ jobs:
         if: always()
         run: bash scripts/ci/report-disk-space.bash "after workspace Rust tests"
 
-      - name: Reclaim Cargo target before the R&D Owner chain
-        if: >-
-          ${{ (steps.rust-tests.outcome == 'success' ||
-          steps.rust-tests.outcome == 'failure') && !cancelled() }}
-        run: bash scripts/ci/reclaim-cargo-target.bash "before the R&D Owner chain"
-
-      - name: Run isolated R&D Owner PostgreSQL tests
-        if: >-
-          ${{ (steps.rust-tests.outcome == 'success' ||
-          steps.rust-tests.outcome == 'failure') && !cancelled() }}
-        run: >-
-          make cargo-test-rd-owner-postgres-isolated NEXTEST_PROFILE=ci
-          EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
-
-      - name: Report disk space after the R&D Owner chain
-        if: always()
-        run: bash scripts/ci/report-disk-space.bash "after the R&D Owner chain"
-
-      - name: Run isolated Market Data PostgreSQL owner tests
-        if: >-
-          ${{ (steps.rust-tests.outcome == 'success' ||
-          steps.rust-tests.outcome == 'failure') && !cancelled() }}
-        run: >-
-          make cargo-test-market-data-owner-postgres-isolated
-
       - name: Report disk space after Rust tests
         if: always()
         run: bash scripts/ci/report-disk-space.bash "after Rust tests"
+
+  postgres-owner-chains-linux-x86:
+    if: >
+      github.ref != 'refs/heads/test-pre-commit' &&
+      needs.plan.outputs.run-tests == 'true' &&
+      (needs.plan.outputs.run-rust-tests == 'true' ||
+       needs.plan.outputs.publish_r2 == 'true' ||
+       github.ref == 'refs/heads/master')
+    name: ${{ matrix.chain.name }}
+    runs-on: ubuntu-22.04
+    needs:
+      - plan
+    strategy:
+      fail-fast: false
+      matrix:
+        chain:
+          - key: rd-owner
+            name: rd owner postgres (ubuntu-22.04)
+            make: >-
+              cargo-test-rd-owner-postgres-isolated NEXTEST_PROFILE=ci
+              EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
+          - key: market-data
+            name: market data owner postgres (ubuntu-22.04)
+            make: cargo-test-market-data-owner-postgres-isolated
+    env:
+      CARGO_CI_PROFILE: >-
+        ${{ github.event_name == 'pull_request'
+        && needs.plan.outputs.untrusted_pr != 'false'
+        && 'ci-pr'
+        || github.event_name == 'push'
+        && (github.ref_name == 'main' || github.ref_name == 'test-ci')
+        && 'ci-pr'
+        || 'nextest' }}
+      CARGO_TARGET_DIR: >-
+        ${{ github.event_name == 'pull_request'
+        && needs.plan.outputs.untrusted_pr != 'false'
+        && 'target/rust-tests-linux-x86'
+        || github.event_name == 'push'
+        && (github.ref_name == 'main' || github.ref_name == 'test-ci')
+        && 'target/rust-tests-linux-x86'
+        || '/home/runner/.cache/cargo-target/rust-tests-linux-x86' }}
+      # yamllint disable-line rule:line-length
+      RUST_TEST_EXTRA_FEATURES: capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,vibe-strategy-factory/sealed-develop-composer-acceptance
+      RUST_BACKTRACE: 1
+      VIBE_TEST_DATA_BASE_URL: ${{ vars.VIBE_TEST_DATA_BASE_URL }}
+    steps:
+      # https://github.com/step-security/harden-runner
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: >-
+            ${{ env.AUDIT_PR == 'true' && 'audit'
+            || vars.STEP_SECURITY_EGRESS_POLICY
+            || 'block' }}
+          allowed-endpoints: >-
+            ${{ vars.COMMON_ALLOWED_ENDPOINTS }}
+            ${{ vars.CI_ALLOWED_ENDPOINTS }}
+
+      - name: Checkout repository
+        # https://github.com/actions/checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Verify immutable CI inputs (post-checkout)
+        run: bash scripts/ci/verify-ci-inputs.sh post-checkout
+
+      - name: Common setup
+        uses: ./.github/actions/common-setup
+        with:
+          python-version: "3.13"
+          build-type: "test"
+          free-disk-space: "true"
+          free-disk-space-max-build: ${{ runner.environment == 'github-hosted' && 'true' || 'false' }}
+          minimum-free-space-gb: "110"
+          rust-cache-enabled: >-
+            ${{ (runner.environment == 'github-hosted'
+            || github.event_name == 'push'
+            && (github.ref_name == 'main' || github.ref_name == 'test-ci'))
+            && 'true' || 'false' }}
+          rust-cache-key: >-
+            postgres-owner-chain-${{ matrix.chain.key }}-${{ env.CARGO_CI_PROFILE }}-
+            ${{ hashFiles('.github/workflows/build.yml',
+            '.github/actions/common-setup/action.yml', 'Cargo.lock',
+            'rust-toolchain.toml', '.config/nextest.toml', 'Makefile') }}
+          rust-cache-workspaces: . -> target/rust-tests-linux-x86
+          rust-cache-on-failure: "false"
+          rust-cache-save-if: ${{ github.event_name == 'push' }}
+          rust-cache-workspace-crates: "true"
+
+      - name: Limit Cargo build jobs on GitHub-hosted runners
+        if: runner.environment == 'github-hosted'
+        run: echo "CARGO_BUILD_JOBS=2" >> "$GITHUB_ENV"
+
+      - name: Report disk space before the chain
+        run: bash scripts/ci/report-disk-space.bash "before ${{ matrix.chain.key }}"
+
+      - name: Run the isolated PostgreSQL Owner chain
+        run: make ${{ matrix.chain.make }}
+
+      - name: Report disk space after the chain
+        if: always()
+        run: bash scripts/ci/report-disk-space.bash "after ${{ matrix.chain.key }}"
 
   quality:
     name: quality
@@ -635,6 +712,7 @@ jobs:
       - build
       - rust-doctests-linux-x86
       - rust-tests-linux-x86
+      - postgres-owner-chains-linux-x86
     runs-on: ubuntu-22.04
     steps:
       - name: Verify required build graph
@@ -646,6 +724,7 @@ jobs:
           BUILD_RESULT: ${{ needs.build.result }}
           RUST_DOCTESTS_RESULT: ${{ needs.rust-doctests-linux-x86.result }}
           RUST_TESTS_RESULT: ${{ needs.rust-tests-linux-x86.result }}
+          POSTGRES_CHAINS_RESULT: ${{ needs.postgres-owner-chains-linux-x86.result }}
           RUN_TESTS: ${{ needs.plan.outputs.run-tests }}
           RUN_RUST_TESTS: ${{ needs.plan.outputs.run-rust-tests }}
           RUN_GENERATED_DRIFT: ${{ needs.plan.outputs.run-generated-drift }}
@@ -676,9 +755,11 @@ jobs:
                [[ "$REF_NAME" == master ]]; }; then
             test "$RUST_TESTS_RESULT" = success
             test "$RUST_DOCTESTS_RESULT" = success
+            test "$POSTGRES_CHAINS_RESULT" = success
           else
             test "$RUST_TESTS_RESULT" = skipped
             test "$RUST_DOCTESTS_RESULT" = skipped
+            test "$POSTGRES_CHAINS_RESULT" = skipped
           fi
 
   # Linux ARM64, macOS ARM64, and Windows x86_64 wheels build only on nightly and master
@@ -964,6 +1045,7 @@ jobs:
       - build-windows
       - rust-doctests-linux-x86
       - rust-tests-linux-x86
+      - postgres-owner-chains-linux-x86
       - security-gate-nightly
     runs-on: ubuntu-latest
     # Publish dev/nightly wheels to the R2 index. The platform jobs are skipped on develop
@@ -979,6 +1061,7 @@ jobs:
       needs.build-windows.result != 'failure' &&
       needs.rust-doctests-linux-x86.result == 'success' &&
       needs.rust-tests-linux-x86.result == 'success' &&
+      needs.postgres-owner-chains-linux-x86.result == 'success' &&
       github.event_name == 'push' &&
       needs.plan.outputs.publish_r2 == 'true' &&
       (needs.plan.outputs.wheel_matrix != 'nightly' ||
