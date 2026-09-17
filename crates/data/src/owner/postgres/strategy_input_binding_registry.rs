@@ -709,6 +709,7 @@ async fn resolve_and_bind_with_mode(
     validate_universe_dependency(request, &batch, &universe)?;
     validate_native_source(transaction, request, &batch, mode).await?;
     let semantics = resolve_native_market_semantics(transaction, request, &batch, mode).await?;
+
     let [semantics_fact] = semantics.facts() else {
         return Err(StrategyInputBindingRegistryErrorV1::MarketSemanticsUnavailable);
     };
@@ -1429,7 +1430,16 @@ fn map_instrument_error(_: InstrumentMasterError) -> StrategyInputBindingRegistr
     StrategyInputBindingRegistryErrorV1::InstrumentMasterReadbackUnavailable
 }
 
-fn map_market_semantics_error(_: MarketSemanticsErrorV1) -> StrategyInputBindingRegistryErrorV1 {
+fn map_market_semantics_error(
+    error: MarketSemanticsErrorV1,
+) -> StrategyInputBindingRegistryErrorV1 {
+    // The caller learns only that Market Semantics is unavailable, which is deliberate. Without
+    // this the Owner could not say why either, and a refusal here is two reads deep inside a
+    // registration: the scope the request names, at the batch's own instants and cut.
+    crate::owner::storage_diagnostic::refused_by_store(
+        "strategy_input_binding_registry.market_semantics.scope",
+        &error,
+    );
     StrategyInputBindingRegistryErrorV1::MarketSemanticsUnavailable
 }
 
