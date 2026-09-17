@@ -83,6 +83,12 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|trial_family_owner|expired_attempt_receipt_is_independently_outcome_unknown'
   'vibe-strategy-factory|vibe_strategy_factory|market_data_repair_resolution_postgres::tests::repaired_readback_is_reverified_inside_successor_transaction'
   'vibe-strategy-factory|vibe_strategy_factory|market_data_repair_resolution_postgres::tests::commit_retry_resolve_conflict_and_tamper_are_atomic'
+  'vibe-operator-authorization|vibe_operator_authorization|postgres::tests::postgres_successor_is_append_only_replay_safe_and_preserves_history'
+  'vibe-operator-authorization|vibe_operator_authorization|postgres::tests::postgres_history_mutations_fail_closed_and_restore_exactly'
+  'vibe-operator-authorization|vibe_operator_authorization|postgres::tests::shared_resolver_blocks_revoke_update_lock'
+  'vibe-operator-authorization|vibe_operator_authorization|postgres::tests::select_only_consumer_resolve_serializes_with_revoke'
+  'vibe-operator-authorization|vibe_operator_authorization|postgres::tests::portfolio_resource_grant_advisory_lock_serializes_distinct_grants'
+  'vibe-operator-authorization|vibe_operator_authorization|postgres::tests::portfolio_resource_grant_issue_read_replay_successor_revoke_restart_acl_and_expiry'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -90,6 +96,7 @@ readonly nextest_graph_args=(
   --package vibe-strategy-factory
   --package vibe-strategy-factory-rd-owner-api
   --package vibe-product-edge
+  --package vibe-operator-authorization
   --package vibe-backtest-owner
   --package vibe-data
   --package vibe-qualification
@@ -108,8 +115,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 66 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all sixty-six ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 72 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all seventy-two ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -170,11 +177,17 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[62]}" != *'|expired_attempt_receipt_is_independently_outcome_unknown' ]] ||
     [[ "${rd_owner_postgres_tests[63]}" != *'|market_data_repair_resolution_postgres::tests::repaired_readback_is_reverified_inside_successor_transaction' ]] ||
     [[ "${rd_owner_postgres_tests[64]}" != *'|market_data_repair_resolution_postgres::tests::commit_retry_resolve_conflict_and_tamper_are_atomic' ]] ||
-    [[ "${rd_owner_postgres_tests[65]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[65]}" != *'|postgres::tests::postgres_successor_is_append_only_replay_safe_and_preserves_history' ]] ||
+    [[ "${rd_owner_postgres_tests[66]}" != *'|postgres::tests::postgres_history_mutations_fail_closed_and_restore_exactly' ]] ||
+    [[ "${rd_owner_postgres_tests[67]}" != *'|postgres::tests::shared_resolver_blocks_revoke_update_lock' ]] ||
+    [[ "${rd_owner_postgres_tests[68]}" != *'|postgres::tests::select_only_consumer_resolve_serializes_with_revoke' ]] ||
+    [[ "${rd_owner_postgres_tests[69]}" != *'|postgres::tests::portfolio_resource_grant_advisory_lock_serializes_distinct_grants' ]] ||
+    [[ "${rd_owner_postgres_tests[70]}" != *'|postgres::tests::portfolio_resource_grant_issue_read_replay_successor_revoke_restart_acl_and_expiry' ]] ||
+    [[ "${rd_owner_postgres_tests[71]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
-  if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --package vibe-backtest-owner --package vibe-data --package vibe-qualification --lib --tests' ]] ||
+  if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --package vibe-operator-authorization --package vibe-backtest-owner --package vibe-data --package vibe-qualification --lib --tests' ]] ||
     [[ "$nextest_archive_features" != 'vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance' ]] ||
     [[ "$schema_materialization_features" != "${nextest_archive_features},vibe-strategy-factory-rd-owner-api/sealed-develop-composer-acceptance" ]] ||
     [[ "${nextest_execution_args[*]}" != '--fail-fast --run-ignored ignored-only' ]]; then
@@ -273,8 +286,8 @@ for line in array_body.splitlines():
     if len(fields) != 3 or any(not field for field in fields):
         raise SystemExit("ERROR: ordered PostgreSQL test literal must contain three fields.")
     entries.append(tuple(fields))
-if len(entries) != 66:
-    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain sixty-six entries.")
+if len(entries) != 72:
+    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain seventy-two entries.")
 if sum(test_name == poison_test for _, _, test_name in entries) != 1:
     raise SystemExit(
         "ERROR: recovery-sidecar poison test must occur exactly once as a parsed test name."
