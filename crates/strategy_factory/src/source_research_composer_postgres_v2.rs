@@ -2359,14 +2359,14 @@ pub(crate) async fn resolve_composer_record_for_historical_replay_in_transaction
 ) -> Result<DevelopComposerOperationResponseV2, DevelopComposerSealedReadErrorV2> {
     let unavailable = || DevelopComposerSealedReadErrorV2::Unavailable;
     let locator = DevelopComposerDurableEvidenceLocatorV2::from_record(record);
-    let research = lock_historical_research_for_composer_replay_in_transaction(
+    let research = Box::pin(lock_historical_research_for_composer_replay_in_transaction(
         transaction,
         &locator,
         pre_transition_view,
         expected_current_view,
         expected_exploration,
         expected_binding,
-    )
+    ))
     .await?;
     let frozen = matching_historical_bfp_v3(transaction, &research, &locator).await;
     let bindings = if let Some(frozen) = frozen.as_ref() {

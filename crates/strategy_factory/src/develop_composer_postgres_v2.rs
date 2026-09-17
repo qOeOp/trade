@@ -1483,14 +1483,14 @@ pub(crate) async fn read_accepted_for_replay_historical_in_transaction(
     {
         return Err(DevelopComposerSealedReadErrorV2::Unavailable);
     }
-    let response = crate::source_research_composer_postgres_v2::resolve_composer_record_for_historical_replay_in_transaction(
+    let response = Box::pin(crate::source_research_composer_postgres_v2::resolve_composer_record_for_historical_replay_in_transaction(
         transaction,
         &record,
         pre_transition_view,
         expected_current_view,
         expected_exploration,
         expected_binding,
-    )
+    ))
     .await?;
     seal_readback(locator, record, &response)
 }
