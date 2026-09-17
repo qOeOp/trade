@@ -257,6 +257,10 @@ fn owner_error(
             StatusCode::UNPROCESSABLE_ENTITY,
             "BOUNDED_FEATURE_PROGRAM_UNSUPPORTED",
         ),
+        ResearchBoundedFeatureProgramOwnerErrorV1::SdkSource => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "FIRST_PARTY_SDK_SOURCE_MISMATCH",
+        ),
         ResearchBoundedFeatureProgramOwnerErrorV1::Conflict => {
             (StatusCode::CONFLICT, "JOINT_FREEZE_CHANGED_MEANING")
         }
