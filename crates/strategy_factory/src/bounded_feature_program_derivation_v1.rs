@@ -12,11 +12,24 @@
 //! contract, the graph's own bounds, and for each declared input role the value port the graph
 //! reads and the clock that updates it.
 //!
+//! Derivation has no production caller yet, and the path it waits for is not missing so much as
+//! unassembled. Every step already exists and is re-exported from `vibe_data::owner`:
+//!
+//! 1. `resolve_pit_request_for_strategy_design_v1` returns the Design's admitted PIT coordinate;
+//! 2. that coordinate fills an `UntrustedStrategyInputCustodyClaimV1`;
+//! 3. `reread_persisted_strategy_input_custody_for_update_v1` answers it with a custody readback;
+//! 4. `VerifiedStrategyInputBindingsV2::from_owner_receipts(readback.bindings())` closes it.
+//!
+//! `source_research_composer_postgres_v2` already performs exactly those four steps, but only under
+//! `sealed-source-intake-composer-acceptance`. Lifting them into an ordinary R&D Owner path is what
+//! connects a declared meaning to the freeze.
+//!
 //! Derivation is not admission. The result is still a proposal, carries no Owner authority, and
 //! must pass the same canonical verification as one assembled by hand.
 
 use std::collections::BTreeSet;
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use vibe_data::owner::source_binding::BindingDigest;
 use vibe_indicators_kernel::PrimitiveCatalogV1;
@@ -44,7 +57,8 @@ const MARKET_DATA_OWNER_SEMANTIC_ID_V1: &str = "market-data.owner.v1";
 ///
 /// Everything else about the role - its fact type, timeframe, unit, scale and role identity - is
 /// the Design's and is derived from it.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct BoundedFeatureInputMeaningV1 {
     /// `InputRoleV2::semantic_id` of the Design role this describes.
     pub role_semantic_id: String,
@@ -59,7 +73,8 @@ pub struct BoundedFeatureInputMeaningV1 {
 /// The four resource bounds the manifest does fix - fuel, linear memory, invocations per event and
 /// state bytes - are absent here on purpose: a proposer restating them could only agree or be
 /// rejected, so it is not asked.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct BoundedFeatureGraphBoundsV1 {
     /// Maximum node count.
     pub max_nodes: u16,
@@ -88,7 +103,11 @@ pub struct BoundedFeatureGraphBoundsV1 {
 }
 
 /// Everything a proposer declares, and nothing it cannot decide.
-#[derive(Clone, Debug, Eq, PartialEq)]
+///
+/// Unknown fields are rejected. `docs/owners/rd.md` promises a proposer a closed typed schema, and
+/// a schema that tolerated an unknown field would accept meaning nothing here can admit.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct BoundedFeatureProgramMeaningV1 {
     /// Bounded plugin from the Design this program builds.
     pub plugin_semantic_id: String,
@@ -339,6 +358,56 @@ mod tests {
         .expect("declared meaning assembles against its own Design");
 
         assert_eq!(derived, expected);
+    }
+
+    /// The per-role half of declared meaning is a closed schema on the wire.
+    ///
+    /// `docs/owners/rd.md` promises a proposer a closed typed schema: unbounded prose in, one
+    /// schema out, unknown fields rejected. A schema that tolerated an unknown field would accept
+    /// meaning nothing here can admit, and would do it silently.
+    #[rstest]
+    fn declared_input_meaning_round_trips_and_rejects_what_it_does_not_name() {
+        let (_design, proposal, _catalog) = crate::bounded_feature_program_v1::tests::candidate();
+        let declared = meaning_of(&proposal).inputs.remove(0);
+
+        let bytes = serde_json::to_vec(&declared).expect("declared input meaning serializes");
+        let parsed: BoundedFeatureInputMeaningV1 =
+            serde_json::from_slice(&bytes).expect("declared input meaning parses");
+        assert_eq!(parsed, declared);
+
+        let mut smuggled: serde_json::Value = serde_json::from_slice(&bytes).expect("an object");
+        // The role identity and its binding receipt are derived, never declared. Sending either
+        // must be refused rather than ignored.
+        smuggled["input_role_identity"] = serde_json::json!(format!("sha256:{}", "a".repeat(64)));
+        assert!(serde_json::from_value::<BoundedFeatureInputMeaningV1>(smuggled).is_err());
+
+        let mut widened: serde_json::Value = serde_json::from_slice(&bytes).expect("an object");
+        widened["static_binding_receipt_digest"] =
+            serde_json::json!(format!("sha256:{}", "b".repeat(64)));
+        assert!(serde_json::from_value::<BoundedFeatureInputMeaningV1>(widened).is_err());
+    }
+
+    /// A fixed-I128 constant does not survive JSON, and that is not a defect to route around.
+    ///
+    /// This workspace builds `serde_json` without `arbitrary_precision`, so an `i128` cannot cross
+    /// it. The canonical program encoding is not JSON for exactly this reason, and a proposer that
+    /// declares numeric constants has to reach the Owner through that encoding rather than as JSON
+    /// numbers. Pinned here because the failure is a parse error far from its cause.
+    #[rstest]
+    fn a_fixed_i128_constant_does_not_cross_json() {
+        let (_design, proposal, _catalog) = crate::bounded_feature_program_v1::tests::candidate();
+        let meaning = meaning_of(&proposal);
+        assert!(meaning.constants.iter().any(|constant| matches!(
+            constant.value,
+            crate::bounded_feature_program_v1::BoundedFeatureConstantValueV1::FixedI128 { .. }
+        )));
+
+        let bytes = serde_json::to_vec(&meaning).expect("declared meaning serializes");
+        let parsed = serde_json::from_slice::<BoundedFeatureProgramMeaningV1>(&bytes);
+        assert!(
+            parsed.is_err(),
+            "if this starts passing, serde_json gained i128 support and the constraint above moved"
+        );
     }
 
     #[rstest]

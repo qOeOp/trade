@@ -14,8 +14,8 @@ mod binance_program_application;
 mod binance_program_data;
 #[allow(
     dead_code,
-    reason = "proposal derivation awaits an R&D Owner path that resolves verified Market Data \
-binding receipts outside the sealed Composer"
+    reason = "proposal derivation awaits an ordinary R&D Owner path that performs the four \
+custody steps the sealed Composer already performs"
 )]
 pub mod bounded_feature_program_derivation_v1;
 #[allow(
