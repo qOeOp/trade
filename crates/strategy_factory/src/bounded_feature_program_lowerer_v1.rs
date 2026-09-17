@@ -473,10 +473,7 @@ fn source_file(path: &str, bytes: &[u8]) -> LoweredSourceFileV1 {
 
 fn lowered_symbol(operation: PrimitiveOperationV1) -> &'static str {
     match operation {
-        // The fused evaluator exists in the kernel, but lowering a declared expression into
-        // first-party source is its own contract and no published catalog version offers the
-        // primitive yet. An empty symbol refuses through the caller's unsupported-primitive path.
-        PrimitiveOperationV1::FusedRational => "",
+        PrimitiveOperationV1::FusedRational => "evaluate_fused_rational_v1",
         PrimitiveOperationV1::Add => "FixedI128::checked_add_to_scale",
         PrimitiveOperationV1::Sub => "FixedI128::checked_sub_to_scale",
         PrimitiveOperationV1::Mul => "FixedI128::checked_mul",
@@ -516,7 +513,7 @@ fn emit_program_source(
     let output_capacity =
         frame_capacity_v3(&manifest.output_ports, manifest.state.max_bytes, true)?;
     let mut source = String::from(
-        "#![allow(dead_code, unused_imports)]\n\nuse core::{convert::TryFrom as _, num::NonZeroU32, sync::atomic::{AtomicU8, Ordering}};\nuse crate::{ComparisonPredicateV1, DecimalScale, FixedBarState, FixedFeatureFailure, FixedI128, FixedRsiState, FixedSampleUpdate, FixedSmoothingKind, FixedSmoothingState, FixedStateFailure, FixedWindowFunction, FixedWindowState, ReducedUnitFraction, RoundingMode, SampleClockInputV1, fixed_range_fraction};\n\n",
+        "#![allow(dead_code, unused_imports)]\n\nuse core::{convert::TryFrom as _, num::NonZeroU32, sync::atomic::{AtomicU8, Ordering}};\nuse crate::{ComparisonPredicateV1, DecimalScale, FixedBarState, FixedFeatureFailure, FixedI128, FixedRsiState, FixedSampleUpdate, FixedSmoothingKind, FixedSmoothingState, FixedStateFailure, FixedWindowFunction, FixedWindowState, FusedRationalStepV1, MAX_FUSED_PROGRAM_STEPS_V1, ReducedUnitFraction, RoundingMode, SampleClockInputV1, decode_fused_program_v1, evaluate_fused_rational_v1, fixed_range_fraction};\n\n",
     );
     push_byte_constant(&mut source, "PROGRAM_DIGEST", program_digest);
     for (ordinal, (node, symbol)) in program.nodes.iter().zip(lowered_symbols).enumerate() {
@@ -592,6 +589,34 @@ impl Datum {
         if !self.ready || self.len != 1 { return Err(Failure::Unsupported); }
         match self.bytes[0] { 0 => Ok(false), 1 => Ok(true), _ => Err(Failure::Unsupported) }
     }
+}
+
+/// Decodes the two declared programs and evaluates them wide, rounding once.
+///
+/// The bytes are the exact canonical programs the Owner froze; this decodes them with the same
+/// kernel decoder rather than re-deriving the expression.
+fn fused(
+    numerator: &[u8],
+    denominator: &[u8],
+    inputs: [FixedI128; 2],
+    quotient_scale: DecimalScale,
+    output_scale: DecimalScale,
+    rounding: Option<RoundingMode>,
+) -> Result<FixedI128, Failure> {
+    let mut left = [FusedRationalStepV1::Add; MAX_FUSED_PROGRAM_STEPS_V1];
+    let mut right = [FusedRationalStepV1::Add; MAX_FUSED_PROGRAM_STEPS_V1];
+    let left_len = decode_fused_program_v1(numerator, &mut left).map_err(|_| Failure::Unsupported)?;
+    let right_len =
+        decode_fused_program_v1(denominator, &mut right).map_err(|_| Failure::Unsupported)?;
+    evaluate_fused_rational_v1(
+        &left[..left_len],
+        &right[..right_len],
+        &inputs,
+        quotient_scale,
+        output_scale,
+        rounding,
+    )
+    .map_err(|_| Failure::Numeric)
 }
 
 fn coordinate(value: &Datum) -> Result<SampleClockInputV1<'_>, Failure> {
@@ -1114,6 +1139,21 @@ fn is_stateful(operation: PrimitiveOperationV1) -> bool {
     )
 }
 
+/// Emits a byte slice literal, so the generated source carries the exact declared program.
+fn byte_literal(bytes: &[u8]) -> String {
+    let mut out = String::from("&[");
+
+    for (index, byte) in bytes.iter().enumerate() {
+        if index > 0 {
+            out.push_str(", ");
+        }
+        write!(out, "{byte}u8").expect("string write");
+    }
+
+    out.push(']');
+    out
+}
+
 fn rounding_expr(rounding: BoundedFeatureRoundingV1) -> &'static str {
     match rounding {
         BoundedFeatureRoundingV1::TowardZero => "RoundingMode::TowardZero",
@@ -1147,6 +1187,28 @@ fn emit_stateless_expression(
 ) -> Result<(), BoundedFeatureLoweringErrorV1> {
     let fixed = |port: &str| binding(port).map(|name| format!("{name}.as_fixed()?"));
     let output = match (&node.parameters, operation) {
+        (
+            BoundedFeatureParametersV1::FusedRational {
+                numerator,
+                denominator,
+                quotient_scale,
+                output_scale,
+                rounding,
+                ..
+            },
+            PrimitiveOperationV1::FusedRational,
+        ) => {
+            // The declared programs travel as the exact canonical bytes the Owner froze; the guest
+            // decodes them with the same kernel decoder rather than re-deriving the expression.
+            format!(
+                "Datum::fixed(fused({}, {}, [{}, {}], numeric(DecimalScale::new({quotient_scale}))?, numeric(DecimalScale::new({output_scale}))?, Some({}))?)",
+                byte_literal(numerator),
+                byte_literal(denominator),
+                fixed("a")?,
+                fixed("b")?,
+                rounding_expr(*rounding)
+            )
+        }
         (
             BoundedFeatureParametersV1::OutputScale {
                 output_scale,

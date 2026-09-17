@@ -232,6 +232,18 @@ pub enum BoundedFeatureParametersV1 {
         output_scale: u8,
         rounding: Option<BoundedFeatureRoundingV1>,
     },
+    /// One declared rational expression: numerator over denominator, rounded once.
+    ///
+    /// The unit and the quotient's scale are declared because the expression decides them; nothing
+    /// about the inputs determines what `100 * gain / (gain + loss)` means.
+    FusedRational {
+        numerator: Vec<u8>,
+        denominator: Vec<u8>,
+        quotient_scale: u8,
+        output_scale: u8,
+        output_unit: String,
+        rounding: BoundedFeatureRoundingV1,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -1559,10 +1571,15 @@ fn derive_output_types(
     let output_scale = declared_output_scale(&node.parameters)
         .or_else(|| fixed_inputs.first().map(|(_, scale)| *scale));
     let output_unit = match contract.unit {
-        // A fused expression's unit follows from the expression, so it is declared rather than
-        // derived. Declaring it needs the parameter shape that carries the program, which no
-        // published catalog version offers yet, so a node reaching this today is refused.
-        CatalogUnitRuleV1::DeclaredOutput => return Err(BoundedFeatureProgramErrorV1::Type),
+        // A fused expression's unit follows from the expression, so the node declares it.
+        CatalogUnitRuleV1::DeclaredOutput => match &node.parameters {
+            BoundedFeatureParametersV1::FusedRational { output_unit, .. }
+                if !output_unit.is_empty() =>
+            {
+                output_unit.clone()
+            }
+            _ => return Err(BoundedFeatureProgramErrorV1::Type),
+        },
         CatalogUnitRuleV1::EqualInputsBooleanOutput
         | CatalogUnitRuleV1::PreserveEqualInputs
         | CatalogUnitRuleV1::EqualBranches => {
@@ -2178,7 +2195,7 @@ fn encode_program(
             });
             Ok(())
         })?;
-        writer.parameters(&node.parameters);
+        writer.parameters(&node.parameters)?;
         writer.optional_text(node.state_id.as_deref())?;
         writer.optional_clock(node.update_clock.as_ref())
     })?;
@@ -2251,6 +2268,14 @@ impl CanonicalWriter {
     }
     fn digest(&mut self, value: BindingDigest) {
         self.raw(value.as_bytes());
+    }
+    /// A length-prefixed opaque byte string, for a declared program rather than text.
+    fn bytes(&mut self, value: &[u8]) -> Result<(), BoundedFeatureProgramErrorV1> {
+        self.u16(
+            u16::try_from(value.len()).map_err(|_| BoundedFeatureProgramErrorV1::NonCanonical)?,
+        );
+        self.raw(value);
+        Ok(())
     }
     fn text(&mut self, value: &str) -> Result<(), BoundedFeatureProgramErrorV1> {
         valid_text(value)?;
@@ -2455,7 +2480,10 @@ impl CanonicalWriter {
         }
         Ok(())
     }
-    fn parameters(&mut self, value: &BoundedFeatureParametersV1) {
+    fn parameters(
+        &mut self,
+        value: &BoundedFeatureParametersV1,
+    ) -> Result<(), BoundedFeatureProgramErrorV1> {
         let rounding = |writer: &mut Self, value: BoundedFeatureRoundingV1| writer.u8(value.tag());
         let optional_rounding = |writer: &mut Self, value: Option<BoundedFeatureRoundingV1>| {
             writer.boolean(value.is_some());
@@ -2541,7 +2569,24 @@ impl CanonicalWriter {
                 self.u8(*output_scale);
                 optional_rounding(self, *mode);
             }
+            BoundedFeatureParametersV1::FusedRational {
+                numerator,
+                denominator,
+                quotient_scale,
+                output_scale,
+                output_unit,
+                rounding: mode,
+            } => {
+                self.u8(9);
+                self.bytes(numerator)?;
+                self.bytes(denominator)?;
+                self.u8(*quotient_scale);
+                self.u8(*output_scale);
+                self.text(output_unit)?;
+                rounding(self, *mode);
+            }
         }
+        Ok(())
     }
     fn bounds(&mut self, value: &BoundedFeatureBoundsV1) {
         for field in [
@@ -2764,6 +2809,10 @@ impl<'a> Decoder<'a> {
             self.take(32)?.try_into().unwrap(),
         ))
     }
+    fn bytes(&mut self) -> Result<Vec<u8>, BoundedFeatureProgramErrorV1> {
+        let length = usize::from(self.u16()?);
+        Ok(self.take(length)?.to_vec())
+    }
     fn text(&mut self) -> Result<String, BoundedFeatureProgramErrorV1> {
         let length = usize::from(self.u16()?);
         let bytes = self.take(length)?;
@@ -2977,6 +3026,14 @@ impl<'a> Decoder<'a> {
                 window: self.u32()?,
                 output_scale: self.u8()?,
                 rounding: self.optional_rounding()?,
+            }),
+            9 => Ok(BoundedFeatureParametersV1::FusedRational {
+                numerator: self.bytes()?,
+                denominator: self.bytes()?,
+                quotient_scale: self.u8()?,
+                output_scale: self.u8()?,
+                output_unit: self.text()?,
+                rounding: self.rounding()?,
             }),
             _ => Err(BoundedFeatureProgramErrorV1::NonCanonical),
         }
@@ -3319,7 +3376,8 @@ pub(crate) mod tests {
 
     pub(crate) fn candidate() -> (StrategyDesignV2, BoundedFeatureProgramProposalV1) {
         let design = design();
-        let catalog = PrimitiveCatalogV1::verify().unwrap();
+        let catalog =
+            PrimitiveCatalogV1::resolve(BOUNDED_FEATURE_CATALOG_SEMANTIC_VERSION_V1).unwrap();
         let (design_identity, design_digest) = match prepare_strategy_design_v2(&design) {
             StrategyDesignPreparationV2::Prepared {
                 design_identity,
@@ -4190,7 +4248,7 @@ pub(crate) mod tests {
         assert!(prepare_bounded_feature_program_v1(proposal.clone(), &design).is_ok());
 
         let mut unpublished = proposal.clone();
-        unpublished.catalog_semantic_version = 2;
+        unpublished.catalog_semantic_version = 3;
         assert_eq!(
             prepare_bounded_feature_program_v1(unpublished, &design),
             Err(BoundedFeatureProgramErrorV1::Identity)
@@ -4212,7 +4270,7 @@ pub(crate) mod tests {
         assert!(parse_bounded_feature_program_v1(canonical.canonical_bytes(), &design).is_ok());
 
         let mut moved = canonical.program().clone();
-        moved.catalog_semantic_version = 2;
+        moved.catalog_semantic_version = 3;
         let bytes = encode_program(&moved).unwrap();
         assert_eq!(
             parse_bounded_feature_program_v1(&bytes, &design),

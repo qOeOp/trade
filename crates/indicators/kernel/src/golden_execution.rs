@@ -2,7 +2,7 @@
 
 use core::num::NonZeroU32;
 
-use crate::{catalog_contract::PrimitiveOperationV1 as Op, catalog_rows::catalog_row_v1};
+use crate::catalog_contract::PrimitiveOperationV1 as Op;
 
 use crate::{
     BoundedFeatureGoldenVectorV1, ComparisonPredicateV1, DecimalScale, FixedBarState,
@@ -76,7 +76,7 @@ pub(crate) fn verify_catalog_version_corpus_v1(
     .map_err(|_| GoldenVerificationFailure::InvalidCoverage)?;
 
     for vector in declared {
-        verify(vector.parts())?;
+        verify(version, vector.parts())?;
     }
 
     Ok(())
@@ -395,8 +395,11 @@ fn scalar_execute(
     }
 }
 
-fn verify(parts: GoldenVectorPartsV1<'_>) -> Result<(), GoldenVerificationFailure> {
-    let (op, rounding) = primitive(parts.primitive_id)?;
+fn verify(
+    version: &CatalogVersionV1,
+    parts: GoldenVectorPartsV1<'_>,
+) -> Result<(), GoldenVerificationFailure> {
+    let (op, rounding) = primitive(version, parts.primitive_id)?;
 
     if parts.rounding != rounding {
         return Err(GoldenVerificationFailure::InvalidRounding);
@@ -576,8 +579,15 @@ fn state_execute(
     }
 }
 
-fn primitive(id: &str) -> Result<(Op, Option<RoundingMode>), GoldenVerificationFailure> {
-    let row = catalog_row_v1(id).ok_or(GoldenVerificationFailure::UnknownPrimitive)?;
+fn primitive(
+    version: &CatalogVersionV1,
+    id: &str,
+) -> Result<(Op, Option<RoundingMode>), GoldenVerificationFailure> {
+    let row = version
+        .rows
+        .iter()
+        .find(|row| row.semantic_id == id)
+        .ok_or(GoldenVerificationFailure::UnknownPrimitive)?;
     let operation = row
         .operation
         .ok_or(GoldenVerificationFailure::UnknownPrimitive)?;
@@ -594,7 +604,12 @@ mod tests {
     fn entire_builtin_corpus_executes_with_exact_output_and_state() {
         for bytes in GOLDENS {
             let parts = BoundedFeatureGoldenVectorV1::decode(bytes).unwrap().parts();
-            assert_eq!(verify(parts), Ok(()), "{}", parts.vector_id);
+            assert_eq!(
+                verify(crate::catalog_version::published(1).unwrap(), parts),
+                Ok(()),
+                "{}",
+                parts.vector_id
+            );
         }
 
         assert_eq!(verify_required_golden_corpus_v1(), Ok(()));
@@ -609,17 +624,24 @@ mod tests {
                 _ => Terminal::Ready,
             };
             assert!(
-                verify(GoldenVectorPartsV1 { terminal, ..parts }).is_err(),
+                verify(
+                    crate::catalog_version::published(1).unwrap(),
+                    GoldenVectorPartsV1 { terminal, ..parts }
+                )
+                .is_err(),
                 "{} terminal",
                 parts.vector_id
             );
             let mut output = parts.expected_output.to_vec();
             output.push(1);
             assert!(
-                verify(GoldenVectorPartsV1 {
-                    expected_output: &output,
-                    ..parts
-                })
+                verify(
+                    crate::catalog_version::published(1).unwrap(),
+                    GoldenVectorPartsV1 {
+                        expected_output: &output,
+                        ..parts
+                    }
+                )
                 .is_err(),
                 "{} output",
                 parts.vector_id
@@ -627,10 +649,13 @@ mod tests {
             let mut post = parts.post_state.to_vec();
             post.push(1);
             assert!(
-                verify(GoldenVectorPartsV1 {
-                    post_state: &post,
-                    ..parts
-                })
+                verify(
+                    crate::catalog_version::published(1).unwrap(),
+                    GoldenVectorPartsV1 {
+                        post_state: &post,
+                        ..parts
+                    }
+                )
                 .is_err(),
                 "{} post-state",
                 parts.vector_id
@@ -638,10 +663,13 @@ mod tests {
             let mut pre = parts.pre_state.to_vec();
             pre.push(1);
             assert!(
-                verify(GoldenVectorPartsV1 {
-                    pre_state: &pre,
-                    ..parts
-                })
+                verify(
+                    crate::catalog_version::published(1).unwrap(),
+                    GoldenVectorPartsV1 {
+                        pre_state: &pre,
+                        ..parts
+                    }
+                )
                 .is_err(),
                 "{} pre-state",
                 parts.vector_id
@@ -651,10 +679,13 @@ mod tests {
                 let mut output = parts.expected_output.to_vec();
                 output[0] ^= 1;
                 assert!(
-                    verify(GoldenVectorPartsV1 {
-                        expected_output: &output,
-                        ..parts
-                    })
+                    verify(
+                        crate::catalog_version::published(1).unwrap(),
+                        GoldenVectorPartsV1 {
+                            expected_output: &output,
+                            ..parts
+                        }
+                    )
                     .is_err(),
                     "{} changed output",
                     parts.vector_id
@@ -665,10 +696,13 @@ mod tests {
                 let mut post = parts.post_state.to_vec();
                 post[0] ^= 1;
                 assert!(
-                    verify(GoldenVectorPartsV1 {
-                        post_state: &post,
-                        ..parts
-                    })
+                    verify(
+                        crate::catalog_version::published(1).unwrap(),
+                        GoldenVectorPartsV1 {
+                            post_state: &post,
+                            ..parts
+                        }
+                    )
                     .is_err(),
                     "{} changed state",
                     parts.vector_id
@@ -684,10 +718,13 @@ mod tests {
 
             for length in 0..parts.input.len() {
                 assert_eq!(
-                    verify(GoldenVectorPartsV1 {
-                        input: &parts.input[..length],
-                        ..parts
-                    }),
+                    verify(
+                        crate::catalog_version::published(1).unwrap(),
+                        GoldenVectorPartsV1 {
+                            input: &parts.input[..length],
+                            ..parts
+                        }
+                    ),
                     Err(GoldenVerificationFailure::InvalidInput),
                     "{} length {}",
                     parts.vector_id,
@@ -698,19 +735,25 @@ mod tests {
             let mut input = parts.input.to_vec();
             input.push(0);
             assert_eq!(
-                verify(GoldenVectorPartsV1 {
-                    input: &input,
-                    ..parts
-                }),
+                verify(
+                    crate::catalog_version::published(1).unwrap(),
+                    GoldenVectorPartsV1 {
+                        input: &input,
+                        ..parts
+                    }
+                ),
                 Err(GoldenVerificationFailure::InvalidInput)
             );
             input = parts.input.to_vec();
             input[6] = 1;
             assert_eq!(
-                verify(GoldenVectorPartsV1 {
-                    input: &input,
-                    ..parts
-                }),
+                verify(
+                    crate::catalog_version::published(1).unwrap(),
+                    GoldenVectorPartsV1 {
+                        input: &input,
+                        ..parts
+                    }
+                ),
                 Err(GoldenVerificationFailure::InvalidInput)
             );
             let rounding = if parts.rounding == Some(RoundingMode::TowardZero) {
@@ -719,7 +762,10 @@ mod tests {
                 Some(RoundingMode::TowardZero)
             };
             assert_eq!(
-                verify(GoldenVectorPartsV1 { rounding, ..parts }),
+                verify(
+                    crate::catalog_version::published(1).unwrap(),
+                    GoldenVectorPartsV1 { rounding, ..parts }
+                ),
                 Err(GoldenVerificationFailure::InvalidRounding)
             );
         }

@@ -8,7 +8,7 @@ use crate::golden_corpus::GOLDENS;
 
 #[rstest::rstest]
 fn complete_catalog_roundtrips_and_hashes_all_canonical_bytes() {
-    let catalog = PrimitiveCatalogV1::verify().unwrap();
+    let catalog = PrimitiveCatalogV1::resolve(1).unwrap();
     let mut bytes = vec![0; catalog.canonical_len()];
     catalog.encode_into(&mut bytes).unwrap();
     assert_eq!(&bytes[..12], b"BFPC\x01\0\0\0\x01\0\0\0");
@@ -31,7 +31,7 @@ fn complete_catalog_roundtrips_and_hashes_all_canonical_bytes() {
 
 #[rstest::rstest]
 fn row_coverage_and_typed_comparison_are_closed() {
-    let published = crate::catalog_version::newest();
+    let published = crate::catalog_version::published(1).unwrap();
     assert_eq!(validate_rows(published), Ok(()));
 
     // A version is refused when its rows no longer match its own declared semantic IDs: one short,
@@ -92,7 +92,7 @@ fn row_coverage_and_typed_comparison_are_closed() {
 
 #[rstest::rstest]
 fn catalog_rejects_changed_rows_source_golden_and_envelope() {
-    let catalog = PrimitiveCatalogV1::verify().unwrap();
+    let catalog = PrimitiveCatalogV1::resolve(1).unwrap();
     let mut bytes = vec![0; catalog.canonical_len()];
     catalog.encode_into(&mut bytes).unwrap();
     let mut positions = vec![0, 4, 6, 8, 10, 12, 43, 44];
@@ -277,15 +277,18 @@ fn source_identity_covers_manifest_exports_and_every_production_module() {
 /// `identity()` moves with any source byte, and the semantic digest does not.
 #[rstest::rstest]
 fn semantic_digest_separates_meaning_from_the_compiled_kernel() {
-    let catalog = PrimitiveCatalogV1::verify().unwrap();
+    let catalog = PrimitiveCatalogV1::resolve(1).unwrap();
 
     let mut expected = Sha256::new();
     expected.update(b"bfp.primitive-catalog.semantic.v1\0");
     expected.update(catalog.semantic_version().to_le_bytes());
-    emit_rows_and_goldens(crate::catalog_version::newest(), &mut |bytes| {
-        expected.update(bytes);
-        Ok(())
-    })
+    emit_rows_and_goldens(
+        crate::catalog_version::published(1).unwrap(),
+        &mut |bytes| {
+            expected.update(bytes);
+            Ok(())
+        },
+    )
     .unwrap();
 
     assert_eq!(
@@ -305,16 +308,19 @@ fn semantic_digest_is_separated_by_version_number() {
         let mut hasher = Sha256::new();
         hasher.update(b"bfp.primitive-catalog.semantic.v1\0");
         hasher.update(version.to_le_bytes());
-        emit_rows_and_goldens(crate::catalog_version::newest(), &mut |bytes| {
-            hasher.update(bytes);
-            Ok(())
-        })
+        emit_rows_and_goldens(
+            crate::catalog_version::published(1).unwrap(),
+            &mut |bytes| {
+                hasher.update(bytes);
+                Ok(())
+            },
+        )
         .unwrap();
         <[u8; 32]>::from(hasher.finalize())
     };
 
     assert_eq!(
-        PrimitiveCatalogV1::verify().unwrap().semantic_digest(),
+        PrimitiveCatalogV1::resolve(1).unwrap().semantic_digest(),
         digest_for(1)
     );
     assert_ne!(digest_for(1), digest_for(2));
@@ -323,18 +329,19 @@ fn semantic_digest_is_separated_by_version_number() {
 /// Resolution keys on the requested version and refuses one this kernel does not publish.
 #[rstest::rstest]
 fn resolution_admits_only_published_versions() {
-    assert_eq!(crate::catalog_version::PUBLISHED_V1.len(), 1);
-    assert_eq!(crate::catalog_version::newest().semantic_version, 1);
+    assert_eq!(crate::catalog_version::PUBLISHED_V1.len(), 2);
+    assert_eq!(crate::catalog_version::newest().semantic_version, 2);
     assert_eq!(
         PrimitiveCatalogV1::resolve(1).unwrap().semantic_version(),
         1
     );
+    // `verify` means the newest published version, which is no longer version 1.
     assert_eq!(
         PrimitiveCatalogV1::verify().unwrap(),
-        PrimitiveCatalogV1::resolve(1).unwrap()
+        PrimitiveCatalogV1::resolve(2).unwrap()
     );
 
-    for unpublished in [0_u16, 2, 65_535] {
+    for unpublished in [0_u16, 3, 65_535] {
         assert_eq!(
             PrimitiveCatalogV1::resolve(unpublished),
             Err(PrimitiveCatalogFailure::UnpublishedSemanticVersion),
@@ -368,4 +375,39 @@ fn version_1_meaning_is_pinned_against_every_later_change() {
     // The implementation identity is free to move; the meaning is not. That separation is the
     // whole point, so assert they are actually different values.
     assert_ne!(catalog.semantic_digest(), catalog.identity());
+}
+
+/// Publishing version 2 leaves version 1 exactly as it was, and version 2 carries the new row.
+///
+/// This is the property the versioned catalog exists for. Until a second version existed it could
+/// only be argued; now it is checked.
+#[rstest::rstest]
+fn publishing_version_2_leaves_version_1_untouched() {
+    let one = PrimitiveCatalogV1::resolve(1).unwrap();
+    let two = PrimitiveCatalogV1::resolve(2).unwrap();
+
+    assert_eq!(one.semantic_digest(), VERSION_1_SEMANTIC_DIGEST);
+    assert_ne!(two.semantic_digest(), one.semantic_digest());
+    assert_eq!(one.rows().len(), 57);
+    assert_eq!(two.rows().len(), 59);
+
+    for semantic_id in [
+        "bfp.fused-rational.two-input.i256-single-round.toward-zero.v1",
+        "bfp.fused-rational.two-input.i256-single-round.nearest-ties-to-even.v1",
+    ] {
+        assert!(
+            one.row(semantic_id).is_none(),
+            "{semantic_id} is not in version 1"
+        );
+        let row = two
+            .row(semantic_id)
+            .expect("version 2 carries the fused row");
+        assert_eq!(row.operation, Some(PrimitiveOperationV1::FusedRational));
+    }
+
+    // Every version 1 row survives into version 2 unchanged and in order.
+    for (index, row) in one.rows().iter().enumerate() {
+        let shifted = if index < 22 { index } else { index + 2 };
+        assert_eq!(&two.rows()[shifted], row);
+    }
 }

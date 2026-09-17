@@ -347,11 +347,3 @@ pub(super) const ROWS: [CatalogRowV1; 57] = [
         rounding: None,
     },
 ];
-
-/// Exact lookup only; a row is a contract, not proof of complete catalog verification.
-#[must_use]
-pub(super) fn catalog_row_v1(semantic_id: &str) -> Option<&'static CatalogRowV1> {
-    ROWS.binary_search_by_key(&semantic_id, |row| row.semantic_id)
-        .ok()
-        .map(|index| &ROWS[index])
-}

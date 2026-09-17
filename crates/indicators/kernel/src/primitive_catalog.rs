@@ -12,10 +12,11 @@ const DOMAIN: &[u8] = b"bfp.primitive-catalog.v1\0";
 const SEMANTIC_DOMAIN: &[u8] = b"bfp.primitive-catalog.semantic.v1\0";
 
 const HEADER: &[u8; 12] = b"BFPC\x01\0\0\0\x01\0\0\0";
-const SOURCES: [(&str, &[u8]); 18] = [
+const SOURCES: [(&str, &[u8]); 21] = [
     ("Cargo.toml", include_bytes!("../Cargo.toml")),
     ("catalog_contract.rs", include_bytes!("catalog_contract.rs")),
     ("catalog_rows.rs", include_bytes!("catalog_rows.rs")),
+    ("catalog_rows_v2.rs", include_bytes!("catalog_rows_v2.rs")),
     ("catalog_version.rs", include_bytes!("catalog_version.rs")),
     ("fixed_bar_state.rs", include_bytes!("fixed_bar_state.rs")),
     ("fixed_features.rs", include_bytes!("fixed_features.rs")),
@@ -28,6 +29,7 @@ const SOURCES: [(&str, &[u8]); 18] = [
         include_bytes!("fused_rational_v1.rs"),
     ),
     ("golden_corpus.rs", include_bytes!("golden_corpus.rs")),
+    ("golden_corpus_v2.rs", include_bytes!("golden_corpus_v2.rs")),
     ("golden_execution.rs", include_bytes!("golden_execution.rs")),
     ("golden_vector.rs", include_bytes!("golden_vector.rs")),
     ("i256.rs", include_bytes!("i256.rs")),
@@ -39,6 +41,10 @@ const SOURCES: [(&str, &[u8]); 18] = [
     (
         "required_golden_ids.rs",
         include_bytes!("required_golden_ids.rs"),
+    ),
+    (
+        "required_golden_ids_v2.rs",
+        include_bytes!("required_golden_ids_v2.rs"),
     ),
 ];
 
@@ -123,26 +129,30 @@ impl PrimitiveCatalogV1 {
         })
     }
 
-    /// Accepts exactly the newest published version's complete catalog bytes, with no aliases.
+    /// Accepts exactly one published version's complete catalog bytes, with no aliases.
+    ///
+    /// The bytes identify their own version: each published version is tried and the one whose
+    /// canonical encoding matches exactly is resolved. Bytes matching none are refused.
     pub fn from_canonical_bytes(bytes: &[u8]) -> Result<Self, PrimitiveCatalogFailure> {
-        let version = crate::catalog_version::newest();
-        let mut offset = 0;
-        emit_catalog(version, &mut |expected| {
-            let end = offset + expected.len();
+        for version in crate::catalog_version::PUBLISHED_V1 {
+            let mut offset = 0;
+            let matched = emit_catalog(version, &mut |expected| {
+                let end = offset + expected.len();
 
-            if bytes.get(offset..end) != Some(expected) {
-                return Err(PrimitiveCatalogFailure::NonCanonicalCatalog);
+                if bytes.get(offset..end) != Some(expected) {
+                    return Err(PrimitiveCatalogFailure::NonCanonicalCatalog);
+                }
+
+                offset = end;
+                Ok(())
+            });
+
+            if matched.is_ok() && offset == bytes.len() {
+                return Self::resolve(version.semantic_version);
             }
-
-            offset = end;
-            Ok(())
-        })?;
-
-        if offset != bytes.len() {
-            return Err(PrimitiveCatalogFailure::NonCanonicalCatalog);
         }
 
-        Self::verify()
+        Err(PrimitiveCatalogFailure::NonCanonicalCatalog)
     }
 
     /// The version this catalog was resolved for.
@@ -263,7 +273,7 @@ fn validate_rows(version: &CatalogVersionV1) -> Result<(), PrimitiveCatalogFailu
         counts[usize::from(row.kind.tag() - 1)] += 1;
     }
 
-    if counts != [6, 36, 15] {
+    if counts != version.kind_counts {
         return Err(PrimitiveCatalogFailure::InvalidRows);
     }
     Ok(())
