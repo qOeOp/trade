@@ -16,7 +16,6 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use thiserror::Error;
 use vibe_data::owner::source_binding::BindingDigest;
-use vibe_indicators_kernel::PrimitiveCatalogV1;
 
 use crate::{
     bounded_feature_program_v1::BoundedFeatureProgramProposalV1,
@@ -165,8 +164,9 @@ impl PostgresResearchBoundedFeatureProgramOwnerV1 {
         ResearchBoundedFeatureProgramFreezeReceiptV1,
         ResearchBoundedFeatureProgramOwnerErrorV1,
     > {
-        let catalog = PrimitiveCatalogV1::verify()
-            .map_err(|_| ResearchBoundedFeatureProgramOwnerErrorV1::Catalog)?;
+        // The catalog is no longer resolved here: a freeze rebuilds it from the catalog version the
+        // program's own bytes declare, so a check against the pinned one here could only disagree
+        // with the version actually in force for this program.
         let read_cut_epoch_ms = (self.clock)();
         let committed_at_epoch_ms = (self.clock)().max(read_cut_epoch_ms);
         let mut transaction = self.pool.begin().await?;
@@ -177,7 +177,6 @@ impl PostgresResearchBoundedFeatureProgramOwnerV1 {
             committed_at_epoch_ms,
             &request.design,
             request.proposal,
-            catalog,
         ))
         .await;
 

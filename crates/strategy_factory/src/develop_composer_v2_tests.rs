@@ -85,18 +85,14 @@ fn real_local_plugin_builder_supplies_composer_and_program_host() {
     all(target_os = "linux", target_arch = "aarch64")
 ))]
 fn real_v3_owner_build_reaches_composer_program_host_and_durable_abi3_artifact() {
-    let (design, mut bfp_proposal, catalog) = bfp_composer_candidate();
+    let (design, mut bfp_proposal) = bfp_composer_candidate();
     let state_id = design.state[0].semantic_id.clone();
     let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
 
     let mut mismatched_producer = DevelopPluginBuildProducerV3::default();
-    let mismatched_frozen = freeze_research_bounded_feature_program_v1(
-        &custody,
-        &design,
-        bfp_proposal.clone(),
-        catalog,
-    )
-    .expect("joint Owner BFP freeze with a stale static binding receipt");
+    let mismatched_frozen =
+        freeze_research_bounded_feature_program_v1(&custody, &design, bfp_proposal.clone())
+            .expect("joint Owner BFP freeze with a stale static binding receipt");
     let mismatched_build = real_v3_plugin_build(
         &mut mismatched_producer,
         &design.plugins[0],
@@ -122,9 +118,8 @@ fn real_v3_owner_build_reaches_composer_program_host_and_durable_abi3_artifact()
         .1;
     bfp_proposal.inputs[0].static_binding_receipt_digest = current_binding;
     let mut producer = DevelopPluginBuildProducerV3::default();
-    let frozen =
-        freeze_research_bounded_feature_program_v1(&custody, &design, bfp_proposal, catalog)
-            .expect("joint Owner BFP freeze");
+    let frozen = freeze_research_bounded_feature_program_v1(&custody, &design, bfp_proposal)
+        .expect("joint Owner BFP freeze");
     let manifest = design.plugins[0].clone();
 
     let positive_build = real_v3_plugin_build(&mut producer, &manifest, &frozen);
@@ -250,7 +245,7 @@ fn real_v3_owner_build_reaches_composer_program_host_and_durable_abi3_artifact()
 
 #[rstest::rstest]
 fn abi3_bfp_parameter_inputs_cannot_bypass_market_owner_roles() {
-    let (mut design, proposal, _) = bfp_candidate();
+    let (mut design, proposal) = bfp_candidate();
     let bfp_plugin = proposal.plugin_semantic_id;
 
     for reaction in &mut design.reactions {
@@ -296,9 +291,8 @@ fn abi3_bfp_parameter_inputs_cannot_bypass_market_owner_roles() {
 fn bfp_composer_candidate() -> (
     StrategyDesignV2,
     super::bounded_feature_program_v1::BoundedFeatureProgramProposalV1,
-    vibe_indicators_kernel::PrimitiveCatalogV1,
 ) {
-    let (mut design, mut proposal, catalog) = bfp_candidate();
+    let (mut design, mut proposal) = bfp_candidate();
     let plugin_semantic_id = proposal.plugin_semantic_id.clone();
     design
         .plugins
@@ -337,7 +331,7 @@ fn bfp_composer_candidate() -> (
     };
     proposal.design_identity = design_identity;
     proposal.design_digest = design_digest;
-    (design, proposal, catalog)
+    (design, proposal)
 }
 
 #[cfg(any(
