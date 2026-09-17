@@ -239,6 +239,15 @@ frontier - so an Origin-only gate seals an empty set even if it were called.
 Admitting shared-time evidence into the gate environment is therefore the first prerequisite for the
 terminal, before any driver is worth writing.
 
+**TARGET - the deployment-authorized terminal, and what it waits for:** this terminal is TARGET, not
+unfinished work. `DEPLOYMENT_STORE_ADMISSION_MODE` stays `disabled` until a deployment authority
+exists to issue what `required` demands: a custodian signature history, an anti-rollback witness, a
+credential lease and direct measurement. None of those exist here, and no real trading or production
+write is authorized, so a resolver that yields nothing is the correct closed state rather than a
+defect. Nothing else in Qualification waits behind it - the attempt frontier, the candidate and
+evaluation rules, and the protected-replay custody above are separable work, and treating this
+terminal as a blocker on them was a misreading of the dependency rather than a property of it.
+
 ## Subsequent implementation acceptance
 
 - Candidate and evaluation rules are immutable before protected evidence is revealed.
