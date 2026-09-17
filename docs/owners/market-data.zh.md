@@ -1041,15 +1041,16 @@ declaration 而被拒；而 attestation 的作用域限于单个 Design，所以
 这既是 artifact 可信的来源，也正是第一个 Design 无物可绑的原因。于是每个 Design 各自成环：运行它需要 declaration，declaration 需要一份指名它的 attestation，
 而这份 attestation 需要只有运行才能产出的那次 operation。
 
-**ADMITTED，从冻结程序完成首次注册：** 这个环无需构建任何"输入未绑定"的 artifact 即可打开，
-因为认证一个 Design 的从来不是 artifact，而是 R&D 自己的冻结 joint program。
-`rd_bounded_feature_program_freezes_v1` 本就携带 Research request 身份、该冻结据以准入的 custody 摘要，
-以及 Design 的身份、摘要与字节；而一次冻结若不绑定当前已接纳的 Research custody 就会被拒。
-因此 R&D 通过第二个精确 locator 的 DB-ACL 读函数暴露该行，与今天暴露 attestation 的那个并列；
-Market Data 从一次冻结认证 Design 的方式，与它从一份 attestation 认证的方式完全相同：读取、自行派生角色，
-并在签发任何东西之前解析自身的 registry、census、join 与 issuance authority。注册仍是 write-once，
-因此这条路径对一个 Design 只到达一次，此后每一圈都由 Composer 提交治理。这里没有放松 W3：
-W3 接纳的仍然只有 attestation，而这是 Design 语义的第二个已认证来源，不是一个未认证来源。
+**ADMITTED，从已认证的 Design 完成首次注册：** 任何携带 program 的东西都打不开这个环。
+`BoundedFeatureInputV1` 为每个输入持有 `static_binding_receipt_digest`，全零会被拒，且该值进入 program 的
+规范摘要：所以 program 自身的身份就依赖这个注册表尚未签发的 receipt。冻结也逃不掉：它收的是已装配的 proposal，
+而装配它需要每个角色各有一份 receipt。唯一能先于 program 存在的是 Design，这正是上一段所说的
+"R&D 只可提供 Owner-authenticated Design/role intent"。因此 R&D 通过一个精确 locator 的 DB-ACL 读函数
+发布这份 intent（Design 的身份与摘要、它所属的 Research request、它据以准入的 custody 摘要，
+以及 R&D 从中派生的角色集），与今天暴露 attestation 的那个并列；Market Data 消费它的方式与消费 attestation
+完全相同：校验覆盖，再在签发任何东西之前解析自身的 registry、census、join 与 issuance authority。
+这条路径上不存在任何 program、artifact 或未绑定输入。注册仍是 write-once，因此它对一个 Design 只到达一次，
+此后每一圈都由 Composer 提交治理；W3 不受影响：它接纳的仍然只有 attestation。
 **NOT_ADMITTED：** caller-proposed Design/role/join 字段、receipt/readback/token、receipt
 hash、latest/history/full scan、raw R&D table parsing 或 Market Data storage 都不能认证 Design meaning；Market
 Data 不依赖 Strategy Factory，不拥有也不重新解释 Strategy Design role/join。

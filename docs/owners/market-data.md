@@ -1090,16 +1090,18 @@ to Owner-verified custody, which is what makes the artifact trustworthy and what
 bind to. Each Design therefore closes its own circle: running it needs declarations, declarations need an attestation naming it, and that attestation needs
 the operation only a run produces.
 
-**ADMITTED, first registration from a frozen program:** the circle is opened without ever building an artifact whose
-inputs are unbound, because an artifact is not what authenticates a Design - R&D's own frozen joint program is.
-`rd_bounded_feature_program_freezes_v1` already carries the Research request identity, the custody digest the freeze was
-admitted against, and the Design's identity, digest and bytes, and a freeze is refused unless it binds currently
-accepted Research custody. R&D therefore exposes that row through a second exact-locator DB-ACL read function, beside
-the one that exposes an attestation today, and Market Data authenticates a Design from a freeze exactly as it does from
-an attestation: it reads, it derives the roles itself, and it resolves its own registry, census, join and issuance
-authorities before issuing anything. Registration stays write-once, so this reaches a Design once and a Composer commit
-governs every cycle after it. Nothing here relaxes W3: an attestation remains the only thing W3 admits, and this is a
-second authenticated source of Design meaning rather than an unauthenticated one.
+**ADMITTED, first registration from an authenticated Design:** nothing that carries a program can open the circle.
+`BoundedFeatureInputV1` holds a `static_binding_receipt_digest` per input, an all-zero digest is refused, and the value
+enters the program's canonical digest, so a program's own identity depends on receipts this registry has not issued yet.
+Freezing does not escape that: it takes an assembled proposal, and assembling one requires a receipt for every role.
+The only thing that can precede a program is the Design, which is what the paragraph above already contemplates when it
+says R&D may supply Owner-authenticated Design/role intent. R&D therefore publishes that intent - the Design identity
+and digest, the Research request it belongs to, the custody digest it was admitted against, and the role set R&D derives
+from it - through an exact-locator DB-ACL read function beside the one that exposes an attestation, and Market Data
+consumes it exactly as it consumes an attestation: it verifies coverage, then resolves its own registry, census, join
+and issuance authorities before issuing anything. No program, artifact or unbound input exists anywhere in this path.
+Registration stays write-once, so it reaches a Design once and a Composer commit governs every cycle after it, and W3 is
+untouched: an attestation remains the only thing W3 admits.
 **NOT_ADMITTED:** caller-proposed Design/role/join fields, receipt/readback/token, receipt hash,
 latest/history/full scans, raw R&D table parsing or Market Data storage do not authenticate Design meaning; Market Data
 does not depend on Strategy Factory, own or reinterpret Strategy Design roles or joins.
