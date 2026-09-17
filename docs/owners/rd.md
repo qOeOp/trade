@@ -205,15 +205,22 @@ What turns a frozen hypothesis, mechanism and falsification question into an exe
 `StrategyDesignV2` is not a rule this Owner applies but a declaration it admits. The contract below
 states who authors it.
 
-**TARGET - the first cycle has nothing to stand on.** Sealing the corpus run leaves
+**CURRENT/PARTIAL - the first cycle now has something to stand on.** Sealing the corpus run leaves
 `run_bounded_feature_program` as the only production entry, and it requires a frozen joint program.
-Freezing one requires Strategy Input declarations; Market Data registers those only from a Composer
-attestation; and a Composer commit is what mints that attestation. Every later cycle closes on
-itself - a commit's own response carries exactly the locator the registration takes - but the first
-has no origin. This is not a missing component: each link is built and ungated, and sealing the
-corpus path did not create the gap so much as stop concealing it, since that path answered with a
-fixture Design rather than the request's own. Who authors the first admissible declaration is the
-open question, and it is the same one the paragraph above defers to the contract below.
+Freezing one requires Strategy Input declarations, and Market Data used to register those only from
+a Composer attestation, which a Composer commit is what mints. Every later cycle closes on itself -
+a commit's own response carries exactly the locator the registration takes - but the first had no
+origin, and no artifact-bound shape could supply one: a program's identity folds in the very binding
+receipts the registration issues. This Owner therefore publishes a Design-level role intent, which
+names a Design, the Research request and custody it was admitted against, and the roles it declares,
+and nothing else. `POST /v1/strategy-designs/publish-role-intent` derives it from currently accepted
+custody and stores it write-once per Design;
+`rd_owner_api.resolve_design_role_intent_for_market_data_v1` exposes it to the Market Data reader
+principal alone. Ordered PostgreSQL chain entry 6 witnesses a Design that nothing in
+`composer_private` names moving from no PIT coordinate to the one Market Data resolved.
+
+**TARGET:** who authors that Design. Publication states what R&D knows about a Design it was given;
+it does not derive one, which is the open question the contract below still defers.
 
 The binding half of that entry is `dynamic`. The isolated R&D Owner PostgreSQL chain declares and
 freezes a six-role BAR program against bindings the Market Data Owner issued through its own
