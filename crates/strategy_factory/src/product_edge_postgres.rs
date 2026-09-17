@@ -5065,15 +5065,44 @@ pub(crate) mod tests {
     #[rstest::rstest]
     #[ignore = "requires admitted OA/PE/R&D test database URLs"]
     fn declared_bounded_feature_program_assembles_from_owner_custody_and_freezes() {
+        declared_bounded_feature_program_fixture(ComposerRunCoverageV1::BindingsOnly);
+    }
+
+    /// The Composer RUN that a frozen pair authorises, carried all the way to a durable Artifact.
+    ///
+    /// Everything before the run is the same fixture: Market Data issues the six BAR bindings, the
+    /// composition root declares and freezes against them. What this adds is the operation itself,
+    /// which lowers the frozen program, builds it twice in the sandbox to byte-identical Wasm, and
+    /// commits every positive Composer fact in one transaction.
+    ///
+    /// It is separate from the assembly acceptance because it costs two real compiler invocations.
+    /// The chain that proves transactional custody should not pay for a toolchain proof.
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    #[rstest::rstest]
+    #[ignore = "requires admitted database URLs and invokes the pinned local wasm compiler"]
+    fn frozen_program_runs_the_production_composer_to_a_durable_artifact() {
+        declared_bounded_feature_program_fixture(ComposerRunCoverageV1::ThroughComposerRun);
+    }
+
+    /// How far the shared declare/freeze fixture carries one Research request.
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    #[derive(Clone, Copy, Eq, PartialEq)]
+    enum ComposerRunCoverageV1 {
+        BindingsOnly,
+        ThroughComposerRun,
+    }
+
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    fn declared_bounded_feature_program_fixture(coverage: ComposerRunCoverageV1) {
         std::thread::Builder::new()
             .name("bounded-feature-declare-test".into())
             .stack_size(16 * 1024 * 1024)
-            .spawn(|| {
+            .spawn(move || {
                 tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
                     .unwrap()
-                    .block_on(run_declared_bounded_feature_program_assembly());
+                    .block_on(run_declared_bounded_feature_program_assembly(coverage));
             })
             .unwrap()
             .join()
@@ -5081,7 +5110,7 @@ pub(crate) mod tests {
     }
 
     #[cfg(feature = "sealed-strategy-input-acceptance")]
-    async fn run_declared_bounded_feature_program_assembly() {
+    async fn run_declared_bounded_feature_program_assembly(coverage: ComposerRunCoverageV1) {
         use vibe_data::owner::bar_joined_cut_acceptance_v1::{
             UntrustedBarJoinedCutAcceptanceDesignClaimsV1,
             prepare_owner_bar_joined_cut_acceptance_basis_v1,
@@ -5101,7 +5130,8 @@ pub(crate) mod tests {
                 ResearchBoundedFeatureProgramOwnerErrorV1,
             },
             source_research_composer_postgres_v2::{
-                PostgresSourceResearchComposerBindingOwnerV2, SourceResearchComposerBindingOwnerV2,
+                PostgresSourceResearchComposerBindingOwnerV2,
+                PostgresSourceResearchComposerProductionV2, SourceResearchComposerBindingOwnerV2,
             },
             strategy_plan_v2::{StrategyDesignPreparationV2, prepare_strategy_design_v2},
         };
@@ -5303,6 +5333,51 @@ pub(crate) mod tests {
                 "every declared BAR role resolves to exactly one Owner receipt"
             );
         }
+
+        if coverage == ComposerRunCoverageV1::BindingsOnly {
+            return;
+        }
+
+        // The run takes the locator and nothing else. Everything it compiles comes from the freeze
+        // above and the custody Market Data owns, so a caller can supply no part of the Artifact.
+        crate::develop_composer_postgres_v2::PostgresDevelopComposerStoreV2::materialize_schema(
+            &rd_database_url,
+        )
+        .await
+        .expect("the Composer family materializes for the production store");
+        let composer = PostgresSourceResearchComposerProductionV2::connect(
+            &rd_database_url,
+            test_database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+        )
+        .await
+        .expect("the production Composer opens against its two R&D roles");
+        let response = Box::pin(composer.run_bounded_feature_program(&request_identity))
+            .await
+            .expect("the R&D transaction completes");
+
+        assert_eq!(
+            response.disposition,
+            crate::develop_composer_operation_v2::DevelopComposerOperationDispositionV2::Success,
+            "a frozen pair bound to live Market Data custody composes: {:?} at {:?}",
+            response.reason,
+            response.coordinate
+        );
+        let artifact = response
+            .artifact
+            .as_ref()
+            .expect("a successful Composer operation carries its Artifact");
+        assert_eq!(
+            expected_digest_text(artifact.design_digest),
+            declared.design_digest
+        );
+        assert!(response.receipt_identity.is_some());
+
+        // Replaying the same locator resolves the operation it already committed rather than
+        // building a second Artifact for one frozen meaning.
+        let replay = Box::pin(composer.run_bounded_feature_program(&request_identity))
+            .await
+            .expect("the replay transaction completes");
+        assert_eq!(replay, response);
     }
 
     fn expected_digest_text(digest: BindingDigest) -> String {
