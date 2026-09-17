@@ -3,25 +3,21 @@
 use sha2::{Digest as _, Sha256};
 
 use crate::{
-    BoundedFeatureGoldenVectorV1, CATALOG_SEMANTIC_IDS_V1, CatalogRowKindV1, CatalogRowV1,
-    EXECUTABLE_PRIMITIVE_IDS_V1, GoldenVectorPartsV1, GoldenVectorTerminalV1,
-    REQUIRED_GOLDEN_IDS_V1, RoundingMode, catalog_rows::ROWS, golden_corpus::GOLDENS,
-    verify_required_golden_corpus_v1,
+    BoundedFeatureGoldenVectorV1, CatalogRowKindV1, CatalogRowV1, GoldenVectorPartsV1,
+    GoldenVectorTerminalV1, RoundingMode,
+    catalog_version::{CatalogVersionV1, MAX_GOLDEN_VECTORS_V1},
 };
 
 const DOMAIN: &[u8] = b"bfp.primitive-catalog.v1\0";
 const SEMANTIC_DOMAIN: &[u8] = b"bfp.primitive-catalog.semantic.v1\0";
 
-/// Catalog semantic versions this kernel publishes, ascending.
-///
-/// A frozen program names one of these; publishing a later version never removes an earlier one,
-/// because an earlier freeze stays readable only while its own version is still resolvable here.
-pub const CATALOG_SEMANTIC_VERSIONS_V1: [u16; 1] = [1];
 const HEADER: &[u8; 12] = b"BFPC\x01\0\0\0\x01\0\0\0";
-const SOURCES: [(&str, &[u8]); 17] = [
+const SOURCES: [(&str, &[u8]); 21] = [
     ("Cargo.toml", include_bytes!("../Cargo.toml")),
     ("catalog_contract.rs", include_bytes!("catalog_contract.rs")),
     ("catalog_rows.rs", include_bytes!("catalog_rows.rs")),
+    ("catalog_rows_v2.rs", include_bytes!("catalog_rows_v2.rs")),
+    ("catalog_version.rs", include_bytes!("catalog_version.rs")),
     ("fixed_bar_state.rs", include_bytes!("fixed_bar_state.rs")),
     ("fixed_features.rs", include_bytes!("fixed_features.rs")),
     ("fixed_i128.rs", include_bytes!("fixed_i128.rs")),
@@ -33,6 +29,7 @@ const SOURCES: [(&str, &[u8]); 17] = [
         include_bytes!("fused_rational_v1.rs"),
     ),
     ("golden_corpus.rs", include_bytes!("golden_corpus.rs")),
+    ("golden_corpus_v2.rs", include_bytes!("golden_corpus_v2.rs")),
     ("golden_execution.rs", include_bytes!("golden_execution.rs")),
     ("golden_vector.rs", include_bytes!("golden_vector.rs")),
     ("i256.rs", include_bytes!("i256.rs")),
@@ -44,6 +41,10 @@ const SOURCES: [(&str, &[u8]); 17] = [
     (
         "required_golden_ids.rs",
         include_bytes!("required_golden_ids.rs"),
+    ),
+    (
+        "required_golden_ids_v2.rs",
+        include_bytes!("required_golden_ids_v2.rs"),
     ),
 ];
 
@@ -77,10 +78,7 @@ impl PrimitiveCatalogV1 {
     /// program does not: that program names its own version, so its path must resolve that version
     /// rather than whichever one happens to be newest.
     pub fn verify() -> Result<Self, PrimitiveCatalogFailure> {
-        let newest = *CATALOG_SEMANTIC_VERSIONS_V1
-            .last()
-            .ok_or(PrimitiveCatalogFailure::UnpublishedSemanticVersion)?;
-        Self::resolve(newest)
+        Self::resolve(crate::catalog_version::newest().semantic_version)
     }
 
     /// Resolves one published semantic version and proves the running kernel still honors it.
@@ -96,21 +94,18 @@ impl PrimitiveCatalogV1 {
     /// not publish, and the row, golden, contract, or execution failure that closed the resolution
     /// otherwise.
     pub fn resolve(semantic_version: u16) -> Result<Self, PrimitiveCatalogFailure> {
-        if !CATALOG_SEMANTIC_VERSIONS_V1.contains(&semantic_version) {
-            return Err(PrimitiveCatalogFailure::UnpublishedSemanticVersion);
-        }
+        let version = crate::catalog_version::published(semantic_version)
+            .ok_or(PrimitiveCatalogFailure::UnpublishedSemanticVersion)?;
 
-        // One version is published today, so its rows and goldens are the compiled set. A second
-        // version selects its own rows and goldens here and then runs the identical proof.
-        validate_rows(&ROWS)?;
-        validate_goldens()?;
-        verify_required_golden_corpus_v1()
+        validate_rows(version)?;
+        validate_goldens(version)?;
+        crate::golden_execution::verify_catalog_version_corpus_v1(version)
             .map_err(|_| PrimitiveCatalogFailure::GoldenExecutionFailed)?;
 
         let mut canonical_len = 0_usize;
         let mut hasher = Sha256::new();
         hasher.update(DOMAIN);
-        emit_catalog(&mut |bytes| {
+        emit_catalog(version, &mut |bytes| {
             canonical_len = canonical_len
                 .checked_add(bytes.len())
                 .ok_or(PrimitiveCatalogFailure::LengthOverflow)?;
@@ -121,7 +116,7 @@ impl PrimitiveCatalogV1 {
         let mut semantic = Sha256::new();
         semantic.update(SEMANTIC_DOMAIN);
         semantic.update(semantic_version.to_le_bytes());
-        emit_rows_and_goldens(&mut |bytes| {
+        emit_rows_and_goldens(version, &mut |bytes| {
             semantic.update(bytes);
             Ok(())
         })?;
@@ -134,25 +129,30 @@ impl PrimitiveCatalogV1 {
         })
     }
 
-    /// Accepts exactly the complete catalog for the current pinned kernel, with no aliases.
+    /// Accepts exactly one published version's complete catalog bytes, with no aliases.
+    ///
+    /// The bytes identify their own version: each published version is tried and the one whose
+    /// canonical encoding matches exactly is resolved. Bytes matching none are refused.
     pub fn from_canonical_bytes(bytes: &[u8]) -> Result<Self, PrimitiveCatalogFailure> {
-        let mut offset = 0;
-        emit_catalog(&mut |expected| {
-            let end = offset + expected.len();
+        for version in crate::catalog_version::PUBLISHED_V1 {
+            let mut offset = 0;
+            let matched = emit_catalog(version, &mut |expected| {
+                let end = offset + expected.len();
 
-            if bytes.get(offset..end) != Some(expected) {
-                return Err(PrimitiveCatalogFailure::NonCanonicalCatalog);
+                if bytes.get(offset..end) != Some(expected) {
+                    return Err(PrimitiveCatalogFailure::NonCanonicalCatalog);
+                }
+
+                offset = end;
+                Ok(())
+            });
+
+            if matched.is_ok() && offset == bytes.len() {
+                return Self::resolve(version.semantic_version);
             }
-
-            offset = end;
-            Ok(())
-        })?;
-
-        if offset != bytes.len() {
-            return Err(PrimitiveCatalogFailure::NonCanonicalCatalog);
         }
 
-        Self::verify()
+        Err(PrimitiveCatalogFailure::NonCanonicalCatalog)
     }
 
     /// The version this catalog was resolved for.
@@ -184,14 +184,24 @@ impl PrimitiveCatalogV1 {
         self.canonical_len
     }
 
+    /// The rows of the version this catalog was resolved for.
+    ///
+    /// # Panics
+    ///
+    /// Never: a resolved catalog can only carry a published version.
     #[must_use]
-    pub fn rows(self) -> &'static [CatalogRowV1; 57] {
-        &ROWS
+    pub fn rows(self) -> &'static [CatalogRowV1] {
+        crate::catalog_version::published(self.semantic_version)
+            .expect("a resolved catalog carries a published version")
+            .rows
     }
 
+    /// One row of the resolved version, by semantic ID.
     #[must_use]
     pub fn row(self, semantic_id: &str) -> Option<&'static CatalogRowV1> {
-        crate::catalog_rows::catalog_row_v1(semantic_id)
+        self.rows()
+            .iter()
+            .find(|row| row.semantic_id == semantic_id)
     }
 
     /// A wrongly sized destination is rejected before any bytes are written.
@@ -200,8 +210,10 @@ impl PrimitiveCatalogV1 {
             return Err(PrimitiveCatalogFailure::InvalidBufferLength);
         }
 
+        let version = crate::catalog_version::published(self.semantic_version)
+            .ok_or(PrimitiveCatalogFailure::UnpublishedSemanticVersion)?;
         let mut offset = 0;
-        emit_catalog(&mut |value| {
+        emit_catalog(version, &mut |value| {
             let end = offset + value.len();
             bytes[offset..end].copy_from_slice(value);
             offset = end;
@@ -212,18 +224,21 @@ impl PrimitiveCatalogV1 {
 
 type Sink<'a> = dyn FnMut(&[u8]) -> Result<(), PrimitiveCatalogFailure> + 'a;
 
-fn validate_rows(rows: &[CatalogRowV1]) -> Result<(), PrimitiveCatalogFailure> {
-    if rows.len() != CATALOG_SEMANTIC_IDS_V1.len() {
+fn validate_rows(version: &CatalogVersionV1) -> Result<(), PrimitiveCatalogFailure> {
+    let rows = version.rows;
+
+    if rows.len() != version.semantic_ids.len() {
         return Err(PrimitiveCatalogFailure::InvalidRows);
     }
 
     let mut counts = [0_u32; 3];
 
-    for (row, expected) in rows.iter().zip(CATALOG_SEMANTIC_IDS_V1) {
-        if row.semantic_id != expected {
+    for (row, expected) in rows.iter().zip(version.semantic_ids) {
+        if &row.semantic_id != expected {
             return Err(PrimitiveCatalogFailure::InvalidRows);
         }
-        let executable = EXECUTABLE_PRIMITIVE_IDS_V1
+        let executable = version
+            .executable_ids
             .binary_search(&row.semantic_id)
             .is_ok();
         let kind = if executable {
@@ -258,7 +273,7 @@ fn validate_rows(rows: &[CatalogRowV1]) -> Result<(), PrimitiveCatalogFailure> {
         counts[usize::from(row.kind.tag() - 1)] += 1;
     }
 
-    if counts != [6, 36, 15] {
+    if counts != version.kind_counts {
         return Err(PrimitiveCatalogFailure::InvalidRows);
     }
     Ok(())
@@ -268,9 +283,15 @@ fn vector(bytes: &[u8]) -> Result<BoundedFeatureGoldenVectorV1<'_>, PrimitiveCat
     BoundedFeatureGoldenVectorV1::decode(bytes).map_err(|_| PrimitiveCatalogFailure::InvalidGoldens)
 }
 
-fn validate_goldens() -> Result<(), PrimitiveCatalogFailure> {
-    for (bytes, expected) in GOLDENS.iter().zip(REQUIRED_GOLDEN_IDS_V1) {
-        if vector(bytes)?.parts().vector_id != expected {
+fn validate_goldens(version: &CatalogVersionV1) -> Result<(), PrimitiveCatalogFailure> {
+    if version.goldens.len() != version.required_golden_ids.len()
+        || version.goldens.len() > MAX_GOLDEN_VECTORS_V1
+    {
+        return Err(PrimitiveCatalogFailure::InvalidGoldens);
+    }
+
+    for (bytes, expected) in version.goldens.iter().zip(version.required_golden_ids) {
+        if &vector(bytes)?.parts().vector_id != expected {
             return Err(PrimitiveCatalogFailure::InvalidGoldens);
         }
     }
@@ -320,7 +341,11 @@ fn emit_length(length: usize, sink: &mut Sink<'_>) -> Result<(), PrimitiveCatalo
     )
 }
 
-fn emit_row(row: CatalogRowV1, sink: &mut Sink<'_>) -> Result<(), PrimitiveCatalogFailure> {
+fn emit_row(
+    version: &CatalogVersionV1,
+    row: CatalogRowV1,
+    sink: &mut Sink<'_>,
+) -> Result<(), PrimitiveCatalogFailure> {
     let contract = row.contract();
     emit_ascii(row.semantic_id, sink)?;
     sink(&[
@@ -332,7 +357,7 @@ fn emit_row(row: CatalogRowV1, sink: &mut Sink<'_>) -> Result<(), PrimitiveCatal
     emit_ascii(contract.state_encoding, sink)?;
     let mut count = 0_u32;
 
-    for bytes in GOLDENS {
+    for bytes in version.goldens {
         if required_by(row, vector(bytes)?.parts()) {
             count += 1;
         }
@@ -344,7 +369,7 @@ fn emit_row(row: CatalogRowV1, sink: &mut Sink<'_>) -> Result<(), PrimitiveCatal
 
     sink(&count.to_le_bytes())?;
 
-    for bytes in GOLDENS {
+    for bytes in version.goldens {
         let golden = vector(bytes)?;
 
         if required_by(row, golden.parts()) {
@@ -383,31 +408,37 @@ fn source_identity() -> Result<[u8; 32], PrimitiveCatalogFailure> {
     Ok(hasher.finalize().into())
 }
 
-fn emit_catalog(sink: &mut Sink<'_>) -> Result<(), PrimitiveCatalogFailure> {
+fn emit_catalog(
+    version: &CatalogVersionV1,
+    sink: &mut Sink<'_>,
+) -> Result<(), PrimitiveCatalogFailure> {
     sink(HEADER)?;
     sink(&source_identity()?)?;
-    emit_rows_and_goldens(sink)
+    emit_rows_and_goldens(version, sink)
 }
 
 /// The version's meaning alone: its rows and goldens, with no kernel source bytes.
-fn emit_rows_and_goldens(sink: &mut Sink<'_>) -> Result<(), PrimitiveCatalogFailure> {
-    emit_length(ROWS.len(), sink)?;
+fn emit_rows_and_goldens(
+    version: &CatalogVersionV1,
+    sink: &mut Sink<'_>,
+) -> Result<(), PrimitiveCatalogFailure> {
+    emit_length(version.rows.len(), sink)?;
 
-    for row in ROWS {
+    for row in version.rows {
         let mut length = 0_usize;
-        emit_row(row, &mut |bytes| {
+        emit_row(version, *row, &mut |bytes| {
             length = length
                 .checked_add(bytes.len())
                 .ok_or(PrimitiveCatalogFailure::LengthOverflow)?;
             Ok(())
         })?;
         emit_length(length, sink)?;
-        emit_row(row, sink)?;
+        emit_row(version, *row, sink)?;
     }
 
-    emit_length(GOLDENS.len(), sink)?;
+    emit_length(version.goldens.len(), sink)?;
 
-    for bytes in GOLDENS {
+    for bytes in version.goldens {
         emit_length(bytes.len(), sink)?;
         sink(bytes)?;
     }

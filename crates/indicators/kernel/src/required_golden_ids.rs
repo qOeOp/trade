@@ -2,6 +2,9 @@
 
 use crate::{BoundedFeatureGoldenVectorV1, RoundingMode};
 
+/// Upper bound on one version's required-ID list, matching the corpus decode bound.
+const MAX_REQUIRED_GOLDEN_IDS_V1: usize = crate::catalog_version::MAX_GOLDEN_VECTORS_V1;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GoldenSetFailure {
     WrongCount,
@@ -18,15 +21,32 @@ pub enum GoldenSetFailure {
 pub fn validate_required_golden_ids(
     vectors: &[BoundedFeatureGoldenVectorV1<'_>],
 ) -> Result<(), GoldenSetFailure> {
-    if vectors.len() != REQUIRED_GOLDEN_IDS_V1.len() {
+    validate_golden_ids_for(
+        vectors,
+        &REQUIRED_GOLDEN_IDS_V1,
+        &EXECUTABLE_PRIMITIVE_IDS_V1,
+    )
+}
+
+/// Checks one version's corpus against that version's own required IDs and executable primitives.
+///
+/// # Errors
+///
+/// Returns the count, coverage, duplicate, or success-binding failure that closed validation.
+pub(crate) fn validate_golden_ids_for(
+    vectors: &[BoundedFeatureGoldenVectorV1<'_>],
+    required_ids: &[&str],
+    executable_ids: &[&str],
+) -> Result<(), GoldenSetFailure> {
+    if vectors.len() != required_ids.len() {
         return Err(GoldenSetFailure::WrongCount);
     }
 
-    let mut seen = [false; REQUIRED_GOLDEN_IDS_V1.len()];
+    let mut seen = [false; MAX_REQUIRED_GOLDEN_IDS_V1];
 
     for vector in vectors {
         let parts = vector.parts();
-        let index = REQUIRED_GOLDEN_IDS_V1
+        let index = required_ids
             .binary_search(&parts.vector_id)
             .map_err(|_| GoldenSetFailure::UnknownVector)?;
 
@@ -36,10 +56,7 @@ pub fn validate_required_golden_ids(
 
         seen[index] = true;
 
-        if EXECUTABLE_PRIMITIVE_IDS_V1
-            .binary_search(&parts.primitive_id)
-            .is_err()
-        {
+        if executable_ids.binary_search(&parts.primitive_id).is_err() {
             return Err(GoldenSetFailure::UnknownPrimitive);
         }
 

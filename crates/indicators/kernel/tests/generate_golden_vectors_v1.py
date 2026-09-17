@@ -450,6 +450,97 @@ def vector_bytes(name, fields):
     return result
 
 
+# --- catalog version 2 -------------------------------------------------------
+#
+# Version 1's vectors and their file names are never touched. Version 2 adds its own vectors in
+# their own directory, and its registry interleaves both in sorted vector-ID order, so version 1's
+# bytes, file names and semantic digest are unaffected by publishing version 2.
+
+V2_CASES = {}
+
+
+def fused_program(steps):
+    """
+    Encode one postfix program.
+
+    Tags: 1 input(index), 2 integer(i128 LE), 3 add, 4 sub, 5 mul.
+
+    """
+    out = b""
+    for step in steps:
+        kind = step[0]
+        if kind == "input":
+            out += bytes([1, step[1]])
+        elif kind == "integer":
+            out += bytes([2]) + i128(step[1])
+        else:
+            out += bytes([{"add": 3, "sub": 4, "mul": 5}[kind]])
+    return out
+
+
+def build_v2():
+    """
+    Build `input0 / 2` with input0 = 7.
+
+    The quotient is exactly 3.5, so the two rounding modes must disagree: toward zero
+    truncates to 3, and nearest-ties-to-even carries the odd quotient to 4. Both
+    expectations are stated here rather than computed by the evaluator under test.
+
+    """
+    numerator = fused_program([("input", 0)])
+    denominator = fused_program([("integer", 2)])
+    frame = (
+        HEADER
+        + fixed(7)
+        + fixed(2)
+        + bytes([0])
+        + bytes([0])
+        + bytes([len(numerator)])
+        + numerator
+        + bytes([len(denominator)])
+        + denominator
+    )
+    for owner, rounding, expected in (
+        ("bfp.fused-rational.two-input.i256-single-round.toward-zero.v1", 1, 3),
+        ("bfp.fused-rational.two-input.i256-single-round.nearest-ties-to-even.v1", 2, 4),
+    ):
+        name = "bfp.golden.primitive." + owner[4:] + ".success.v1"
+        V2_CASES[name] = (owner, rounding, READY, b"", frame, fixed(expected), b"")
+
+
+def emit_v2(args):
+    """
+    Write version 2's own vectors and its registry.
+    """
+    build_v2()
+    artifacts = {}
+    v1_names = sorted(CASES)
+    v2_names = sorted(V2_CASES)
+    entries = []
+    for name in sorted(set(v1_names) | set(V2_CASES)):
+        if name in V2_CASES:
+            filename = f"{v2_names.index(name):02}.bfgv"
+            artifacts[ROOT / "src/goldens_v2" / filename] = vector_bytes(name, V2_CASES[name])
+            entries.append(f'    include_bytes!("goldens_v2/{filename}"),')
+        else:
+            entries.append(f'    include_bytes!("goldens_v1/{v1_names.index(name):02}.bfgv"),')
+    registry = (
+        "//! Literal canonical vectors for catalog version 2, regenerated only by\n"
+        "//! tests/generate_golden_vectors_v1.py. Version 1's files are referenced unchanged.\n\n"
+        f"pub(super) const GOLDENS_V2: [&[u8]; {len(entries)}] = [\n"
+        + "\n".join(entries)
+        + "\n];\n"
+    )
+    artifacts[ROOT / "src/golden_corpus_v2.rs"] = registry.encode("ascii")
+    (ROOT / "src/goldens_v2").mkdir(exist_ok=True)
+    for path, contents in artifacts.items():
+        if args.check:
+            assert path.read_bytes() == contents, path
+        else:
+            path.write_bytes(contents)
+    print(f"{len(entries)} version 2 vectors " + ("verified" if args.check else "generated"))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
@@ -478,6 +569,7 @@ def main():
         f"{n:02}.bfgv" for n in range(87)
     }
     print("87 canonical vectors verified" if args.check else "87 canonical vectors generated")
+    emit_v2(args)
 
 
 if __name__ == "__main__":

@@ -3,6 +3,8 @@
 
 mod catalog_contract;
 mod catalog_rows;
+mod catalog_rows_v2;
+mod catalog_version;
 mod fixed_bar_state;
 mod fixed_features;
 mod fixed_i128;
@@ -11,11 +13,13 @@ mod fixed_state;
 mod fixed_window;
 mod fused_rational_v1;
 mod golden_corpus;
+mod golden_corpus_v2;
 mod golden_execution;
 mod golden_vector;
 mod i256;
 mod primitive_catalog;
 mod required_golden_ids;
+mod required_golden_ids_v2;
 
 pub use catalog_contract::{
     CatalogAvailabilityRuleV1, CatalogClockRuleV1, CatalogContractV1, CatalogInputRuleV1,
@@ -43,7 +47,7 @@ pub use fixed_window::{
 };
 pub use fused_rational_v1::{
     FUSED_RATIONAL_STACK_DEPTH_V1, FusedRationalFailureV1, FusedRationalStepV1,
-    evaluate_fused_rational_v1,
+    MAX_FUSED_PROGRAM_STEPS_V1, decode_fused_program_v1, evaluate_fused_rational_v1,
 };
 pub use golden_execution::{GoldenVerificationFailure, verify_required_golden_corpus_v1};
 pub use golden_vector::{
