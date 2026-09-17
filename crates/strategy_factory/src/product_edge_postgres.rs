@@ -4919,7 +4919,7 @@ mod tests {
             read_cut,
             read_cut,
             &design,
-            proposal,
+            proposal.clone(),
             catalog,
         ))
         .await
@@ -4938,6 +4938,63 @@ mod tests {
         .unwrap();
         assert_eq!(resolved, committed);
         readback.rollback().await.unwrap();
+
+        // The durable PostgreSQL composition root is the only production caller of the joint
+        // freeze. Driving its own pool and transaction, it must reproduce this exact custody,
+        // must refuse a changed meaning for the same Research identity, and must leave the single
+        // committed freeze and its outbox event untouched when it refuses.
+        let composition_root = crate::rd_bounded_feature_program_postgres_v1::PostgresResearchBoundedFeatureProgramOwnerV1::with_clock(
+            owner.pool.clone(),
+            std::sync::Arc::new(move || read_cut),
+        );
+        let replayed = composition_root
+            .freeze(crate::rd_bounded_feature_program_postgres_v1::ResearchBoundedFeatureProgramFreezeRequestV1 {
+                research_request_locator: request_identity.clone(),
+                design: design.clone(),
+                proposal: proposal.clone(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(replayed.schema_version, committed.schema_version());
+        assert_eq!(
+            replayed.joint_freeze_digest,
+            expected_digest_text(committed.joint_freeze_digest())
+        );
+        assert_eq!(
+            replayed.research_custody_digest,
+            expected_digest_text(committed.research_custody_digest())
+        );
+        assert_eq!(
+            replayed.program_digest,
+            expected_digest_text(committed.program_digest())
+        );
+        assert_eq!(replayed.committed_at_epoch_ms, read_cut);
+
+        // A looser edge bound leaves every graph check satisfied yet changes the canonical bytes,
+        // so the only admissible answer is a changed-meaning conflict.
+        let mut changed = proposal.clone();
+        changed.bounds.max_edges = changed.bounds.max_edges.saturating_add(1);
+        assert!(matches!(
+            composition_root
+                .freeze(crate::rd_bounded_feature_program_postgres_v1::ResearchBoundedFeatureProgramFreezeRequestV1 {
+                    research_request_locator: request_identity.clone(),
+                    design: design.clone(),
+                    proposal: changed,
+                })
+                .await,
+            Err(crate::rd_bounded_feature_program_postgres_v1::ResearchBoundedFeatureProgramOwnerErrorV1::Conflict)
+        ));
+        let settled: (i64, i64) = sqlx::query_as(
+            "SELECT
+                (SELECT COUNT(*) FROM rd_bounded_feature_program_freezes_v1 WHERE request_identity=$1),
+                (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2)",
+        )
+        .bind(&request_identity)
+        .bind(crate::rd_bounded_feature_program_v1::JOINT_FREEZE_EVENT_KIND_V1)
+        .fetch_one(&owner.pool)
+        .await
+        .unwrap();
+        assert_eq!(settled, (1, 1));
 
         sqlx::query(
             "UPDATE rd_bounded_feature_program_freezes_v1
@@ -4960,6 +5017,15 @@ mod tests {
             Err(crate::rd_bounded_feature_program_v1::ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)
         );
         tampered.rollback().await.unwrap();
+    }
+
+    fn expected_digest_text(digest: BindingDigest) -> String {
+        let mut text = String::with_capacity(71);
+        text.push_str("sha256:");
+        for byte in digest.as_bytes() {
+            text.push_str(&format!("{byte:02x}"));
+        }
+        text
     }
 
     fn request(

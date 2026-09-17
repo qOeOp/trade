@@ -89,6 +89,12 @@ bytes/digest。R&D 拥有这些冻结的 Research/Design/program 含义；它不
 coordinate、build provenance、Host proposal identity、lifecycle transition、Backtest result、raw order 或
 trading effect。
 
+**CURRENT_PARTIAL - R&D 联合冻结写入路径：** R&D Owner 现在具备持久 PostgreSQL 组合根与一条带鉴权的路由
+`POST /v1/bounded-feature-programs/freeze`。它对照当前已接纳的 Research custody 与钉定的 primitive catalog
+接纳被声明的 `StrategyDesignV2` 与 `BoundedFeatureProgramProposalV1`，恰好写入一行联合冻结及其 outbox
+event，并对同一 Research identity 的不同含义以 conflict 回应。以上其余部分一律不变：持久 V3 readback、
+V3 producer 与降级后的 plugin 仍为 TARGET，因此被冻结的 program 目前仍无生产消费者。
+
 TARGET V1 catalog 是原子整体，不是 primitive name 菜单：fixed I128 scale 最大为 38，rescale 必须显式，
 rounding mode 只有 `TowardZero` 与 `NearestTiesToEven`，每项 operation 使用一个准确 I256 expression 并只做
 一次最终舍入。catalog 冻结 lag/rolling readiness、EMA/Wilder seed、Wilder ATR、period-delta RSI、OHLC

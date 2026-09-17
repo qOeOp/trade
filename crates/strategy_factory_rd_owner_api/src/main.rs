@@ -67,6 +67,7 @@ use vibe_strategy_factory::{
         unresolved_result_v2,
     },
     product_edge_postgres::{PostgresResearchGoalOwnerV1, ResearchRequestIdentityPreflightV1},
+    rd_bounded_feature_program_postgres_v1::PostgresResearchBoundedFeatureProgramOwnerV1,
     rd_historical_custody::{HistoricalCustodyErrorV1, HistoricalCustodyOwnerPortV1},
     rd_historical_custody_postgres::PostgresHistoricalCustodyOwnerV1,
     trial_family::{TrialFamilyDirectResultV1, TrialFamilyError},
@@ -149,6 +150,7 @@ struct DevelopComposerA0ExecutionsV1 {
     a0_executions: u64,
 }
 
+mod bounded_feature_program;
 mod exploratory_replay;
 mod iteration_analysis;
 mod iteration_decision;
@@ -329,6 +331,8 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(feature = "sealed-source-intake-acceptance")]
     let owner = owner.bind_sealed_source_intake_research_policy();
     let owner = Arc::new(owner);
+    let bounded_feature_program_owner =
+        Arc::new(PostgresResearchBoundedFeatureProgramOwnerV1::connect(&database_url).await?);
     let artifact_owner = Arc::new(
         PostgresArtifactBuildOwnerV1::connect(
             &database_url,
@@ -589,6 +593,10 @@ async fn main() -> anyhow::Result<()> {
             owner.clone(),
             token_digest,
             request_proof_digest.clone(),
+        ))
+        .merge(bounded_feature_program::router(
+            bounded_feature_program_owner,
+            token_digest,
         ))
         .merge(iteration_result_admission::router(
             owner.clone(),

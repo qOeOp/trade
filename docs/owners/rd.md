@@ -102,6 +102,14 @@ and canonical bytes/digest. R&D owns that frozen Research/Design/program meaning
 sample coordinate, build provenance, Host proposal identity, lifecycle transition, Backtest result, raw order, or
 trading effect.
 
+**CURRENT_PARTIAL - R&D joint freeze write path:** the R&D Owner now carries a durable PostgreSQL
+composition root and one authenticated route, `POST /v1/bounded-feature-programs/freeze`. It admits a
+declared `StrategyDesignV2` and `BoundedFeatureProgramProposalV1` against currently accepted Research
+custody and the pinned primitive catalog, writes exactly one joint-freeze row with its outbox event, and
+answers a changed meaning for the same Research identity with a conflict. Nothing else above moves: the
+durable V3 readback, the V3 producer and the lowered plugin stay TARGET, so a frozen program still has no
+production consumer.
+
 The TARGET V1 catalog is atomic rather than a menu of names: fixed I128 scale is at most 38, rescale is explicit,
 the only rounding modes are `TowardZero` and `NearestTiesToEven`, and each operation uses one exact I256 expression
 with one final rounding. The catalog freezes lag/rolling readiness, EMA/Wilder seeds, Wilder ATR, period-delta RSI,
