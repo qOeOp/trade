@@ -13,11 +13,9 @@ pub mod artifact_v2;
 mod binance_program_application;
 mod binance_program_data;
 pub mod bounded_feature_program_derivation_v1;
-#[allow(
-    dead_code,
-    reason = "the BFP lowerer awaits its tagged V3 build and durable Composer consumer"
-)]
 mod bounded_feature_program_lowerer_v1;
+#[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
+mod bounded_feature_program_six_role_bar_fixture_v1;
 pub mod bounded_feature_program_v1;
 #[allow(dead_code)]
 mod cargo_artifact;
@@ -204,10 +202,7 @@ mod program_project;
 mod program_runtime;
 pub mod program_runtime_v2;
 mod program_session;
-#[allow(
-    dead_code,
-    reason = "R&D joint BFP freeze awaits its PostgreSQL Owner composition root"
-)]
+pub mod rd_bounded_feature_program_postgres_v1;
 mod rd_bounded_feature_program_v1;
 pub mod rd_historical_custody;
 pub mod rd_historical_custody_postgres;

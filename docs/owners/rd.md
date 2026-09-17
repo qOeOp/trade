@@ -102,6 +102,22 @@ and canonical bytes/digest. R&D owns that frozen Research/Design/program meaning
 sample coordinate, build provenance, Host proposal identity, lifecycle transition, Backtest result, raw order, or
 trading effect.
 
+**CURRENT_PARTIAL - R&D joint freeze write path:** the R&D Owner now carries a durable PostgreSQL
+composition root and three authenticated routes,
+`POST /v1/bounded-feature-programs/{declare,freeze,lower}`. `declare` is the proposer's route: it takes
+a Design and the program's meaning, derives everything a proposer cannot know from that Design, the
+pinned catalog and the Owner's own binding custody, and freezes the result in the transaction those
+binding row locks were taken in. `freeze` takes an already assembled pair instead. Both admit the pair
+against currently accepted Research custody and the pinned primitive catalog, write exactly one
+joint-freeze row with its outbox event, and answer a changed meaning for the same Research identity
+with a conflict. `lower` reads that frozen pair back and lowers it, so a frozen program now yields
+canonical first-party ABI3 source through a production path rather than only inside sealed acceptance.
+
+**CURRENT_PARTIAL - lowered source is not an executable:** the lowering carries no build receipt, no Wasm,
+no Artifact and no qualification meaning. It proves only that the frozen program, the pinned
+`vibe-indicators-kernel` catalog and the first-party SDK produce exactly those bytes, and that tampered
+stored bytes close the path. The V3 build, the durable Composer RUN and everything downstream stay TARGET.
+
 The TARGET V1 catalog is atomic rather than a menu of names: fixed I128 scale is at most 38, rescale is explicit,
 the only rounding modes are `TowardZero` and `NearestTiesToEven`, and each operation uses one exact I256 expression
 with one final rounding. The catalog freezes lag/rolling readiness, EMA/Wilder seeds, Wilder ATR, period-delta RSI,
@@ -183,10 +199,20 @@ is a judgement, and a judgement an Owner makes is a fact the Owner invented.
 
 A **proposer** declares it instead. The proposer may be a language model, a person or any other
 caller; this contract does not name it and does not change with it. What the contract fixes is the
-**output**: exactly one canonical `StrategyDesignV2` and, on the bounded-plugin path, exactly one
-canonical `BoundedFeatureProgramProposalV1`. The input is unbounded research prose; the output is a
-closed typed schema that rejects unknown fields and unknown semantic IDs. That translation is the
-proposer's whole job.
+**output**: exactly one canonical `StrategyDesignV2` and, on the bounded-plugin path, the program's
+meaning - its typed node graph, constants, state cells, decision-table terminals, warmup contract,
+graph bounds, and per declared input role the value port the graph reads and the clock that advances
+it. The input is unbounded research prose; the output is a closed typed schema that rejects unknown
+fields and unknown semantic IDs. That translation is the proposer's whole job.
+
+A proposer declares meaning and never an identity. It does not declare the schema or semantic
+versions, the Research, Intent and Design identities and digests, the plugin manifest digest, the
+pinned catalog identity, the first-party SDK digest, the four bounds the plugin manifest fixes, or a
+static binding receipt. The Owner derives each of those from the Design it was given, the pinned
+catalog and its own binding custody, so a proposer cannot state a fact it has no way to know and
+cannot disagree with the Design it names. Assembling those derivations and freezing the result
+happen in one transaction: the binding custody read takes row locks at a cut, and freezing against a
+different cut would seal a program whose receipts were never proven at the moment it was sealed.
 
 The Owner **admits** rather than derives. It binds the declared pair to currently accepted Research
 custody and refuses a Design whose Research and Intent identities or digests do not match it. It

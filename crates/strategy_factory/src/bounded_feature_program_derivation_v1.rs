@@ -397,14 +397,13 @@ mod tests {
         assert!(serde_json::from_value::<BoundedFeatureInputMeaningV1>(widened).is_err());
     }
 
-    /// A fixed-I128 constant does not survive JSON, and that is not a defect to route around.
+    /// A fixed-I128 constant crosses JSON as canonical decimal text.
     ///
-    /// This workspace builds `serde_json` without `arbitrary_precision`, so an `i128` cannot cross
-    /// it. The canonical program encoding is not JSON for exactly this reason, and a proposer that
-    /// declares numeric constants has to reach the Owner through that encoding rather than as JSON
-    /// numbers. Pinned here because the failure is a parse error far from its cause.
+    /// `serde_json` is built here without `arbitrary_precision`, so an `i128` cannot cross it as a
+    /// number: declared meaning holding one could be serialized and never parsed back, which made
+    /// the whole type unusable as a request body. The coefficient is carried as a string instead.
     #[rstest]
-    fn a_fixed_i128_constant_does_not_cross_json() {
+    fn declared_meaning_round_trips_with_a_fixed_constant() {
         let (_design, proposal) = crate::bounded_feature_program_v1::tests::candidate();
         let meaning = meaning_of(&proposal);
         assert!(meaning.constants.iter().any(|constant| matches!(
@@ -413,11 +412,31 @@ mod tests {
         )));
 
         let bytes = serde_json::to_vec(&meaning).expect("declared meaning serializes");
-        let parsed = serde_json::from_slice::<BoundedFeatureProgramMeaningV1>(&bytes);
-        assert!(
-            parsed.is_err(),
-            "if this starts passing, serde_json gained i128 support and the constraint above moved"
-        );
+        let parsed: BoundedFeatureProgramMeaningV1 =
+            serde_json::from_slice(&bytes).expect("declared meaning parses");
+        assert_eq!(parsed, meaning);
+    }
+
+    /// Two declarations of one program must not differ on the wire while agreeing canonically.
+    #[rstest]
+    #[case("+100")]
+    #[case("0100")]
+    #[case(" 100")]
+    #[case("100 ")]
+    #[case("1e2")]
+    fn a_non_canonical_coefficient_is_refused(#[case] text: &str) {
+        let (_design, proposal) = crate::bounded_feature_program_v1::tests::candidate();
+        let bytes = serde_json::to_vec(&meaning_of(&proposal)).expect("serializes");
+        let mut smuggled: serde_json::Value = serde_json::from_slice(&bytes).expect("an object");
+        let constant = smuggled["constants"]
+            .as_array_mut()
+            .expect("constants are an array")
+            .iter_mut()
+            .find(|constant| constant["value"]["coefficient"].is_string())
+            .expect("the fixture declares a fixed coefficient");
+        constant["value"]["coefficient"] = serde_json::json!(text);
+
+        assert!(serde_json::from_value::<BoundedFeatureProgramMeaningV1>(smuggled).is_err());
     }
 
     #[rstest]
@@ -550,10 +569,6 @@ pub enum BoundedFeatureProgramAssemblyErrorV1 {
 ///
 /// Returns [`BoundedFeatureProgramAssemblyErrorV1::MarketDataUnavailable`] when the coordinate, the
 /// claim or the readback does not resolve or does not agree, and the derivation error otherwise.
-#[allow(
-    dead_code,
-    reason = "assembly awaits the R&D Owner freeze route that will hand it declared meaning"
-)]
 pub(crate) async fn assemble_declared_bounded_feature_program_v1(
     transaction: &mut Transaction<'_, Postgres>,
     design: &StrategyDesignV2,
@@ -606,4 +621,50 @@ pub(crate) async fn assemble_declared_bounded_feature_program_v1(
         meaning,
         &VerifiedStrategyInputBindingsV2::from_owner_receipts(readback.bindings()),
     )?)
+}
+
+#[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
+mod six_role_bar_tests {
+    use vibe_data::owner::source_binding::BindingDigest;
+
+    use super::*;
+
+    /// Declared meaning over the six-role BAR Design assembles into a canonical program.
+    ///
+    /// The Design is the only one the Market Data Owner acceptance basis issues real binding
+    /// custody for, so proving the meaning assembles here is what makes an Owner-custody
+    /// assembly test possible at all.
+    #[rstest::rstest]
+    fn six_role_bar_meaning_assembles_into_a_canonical_program() {
+        let design = crate::bounded_feature_program_six_role_bar_fixture_v1::six_role_bar_bounded_feature_design_v1();
+        let meaning =
+            crate::bounded_feature_program_six_role_bar_fixture_v1::six_role_bar_bounded_feature_meaning_v1(&design);
+        let receipts = design
+            .inputs
+            .iter()
+            .enumerate()
+            .map(|(index, role)| {
+                (
+                    role.clone(),
+                    BindingDigest::from_untrusted_bytes([u8::try_from(index).unwrap() + 1; 32]),
+                )
+            })
+            .collect();
+        let bindings =
+            crate::strategy_plan_v2::verified_strategy_input_bindings_for_test(&design, receipts);
+
+        let derived = derive_bounded_feature_program_proposal_v1(
+            &design,
+            PrimitiveCatalogV1::verify().expect("a published catalog verifies"),
+            &meaning,
+            &bindings,
+        )
+        .expect("declared six-role meaning assembles");
+
+        assert_eq!(derived.inputs.len(), 6);
+        let prepared =
+            crate::bounded_feature_program_v1::prepare_bounded_feature_program_v1(derived, &design)
+                .expect("the assembled six-role program prepares");
+        assert!(!prepared.canonical_bytes().is_empty());
+    }
 }

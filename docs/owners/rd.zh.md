@@ -89,6 +89,19 @@ bytes/digest。R&D 拥有这些冻结的 Research/Design/program 含义；它不
 coordinate、build provenance、Host proposal identity、lifecycle transition、Backtest result、raw order 或
 trading effect。
 
+**CURRENT_PARTIAL - R&D 联合冻结写入路径：** R&D Owner 现在具备持久 PostgreSQL 组合根与三条带鉴权的路由
+`POST /v1/bounded-feature-programs/{declare,freeze,lower}`。`declare` 是提案者的路由：它接收 Design 与
+program 的含义，从该 Design、钉定的 catalog 与 Owner 自己的 binding custody 推导出提案者无从知晓的一切，
+并在取得这些 binding 行锁的同一个事务内冻结结果。`freeze` 则接收已经组装好的一对。两者都对照当前已接纳的
+Research custody 与钉定的 primitive catalog 接纳这一对，恰好写入一行联合冻结及其 outbox event，并对同一
+Research identity 的不同含义以 conflict 回应。`lower` 把这份冻结对读回并降级，因此被冻结的 program 现在
+经由生产路径产出规范的第一方 ABI3 源码，而不再只存在于 sealed 验收内部。
+
+**CURRENT_PARTIAL - 降级出的源码不是可执行物：** 该降级不带 build receipt、不带 Wasm、不带 Artifact，
+也不带任何 qualification 含义。它只证明冻结 program、钉定的 `vibe-indicators-kernel` catalog
+与第一方 SDK 恰好产出那些字节，以及被篡改的存储字节会关闭该路径。V3 build、持久 Composer RUN
+及其下游一律仍为 TARGET。
+
 TARGET V1 catalog 是原子整体，不是 primitive name 菜单：fixed I128 scale 最大为 38，rescale 必须显式，
 rounding mode 只有 `TowardZero` 与 `NearestTiesToEven`，每项 operation 使用一个准确 I256 expression 并只做
 一次最终舍入。catalog 冻结 lag/rolling readiness、EMA/Wilder seed、Wilder ATR、period-delta RSI、OHLC
@@ -165,8 +178,18 @@ R&D 不导出 Design。本仓库没有任何规则把 hypothesis、mechanism 与
 
 改由**提案者**声明。提案者可以是语言模型、人，或任何其他 caller；本契约不指名它，
 也不随它改变。契约钉死的是**输出**：恰好一份规范 `StrategyDesignV2`，在 bounded-plugin
-路径上再加恰好一份规范 `BoundedFeatureProgramProposalV1`。输入是不设边界的研究散文，
-输出是一个拒绝未知字段与未知 semantic ID 的封闭类型 schema。那项转换就是提案者的全部职责。
+路径上再加该 program 的含义：它的类型化节点图、常量、状态单元、决策表终端、warmup 契约、
+图自身的界，以及每个被声明输入角色上「图读取哪个取值端口」与「哪个时钟推进它」。
+输入是不设边界的研究散文，输出是一个拒绝未知字段与未知 semantic ID 的封闭类型 schema。
+那项转换就是提案者的全部职责。
+
+提案者只声明含义，绝不声明身份。它不声明 schema 与 semantic 版本、不声明 Research/Intent/Design
+的身份与摘要、不声明 plugin manifest 摘要、不声明钉定 catalog 身份、不声明第一方 SDK 摘要、
+不声明 plugin manifest 已固定的那四个界，也不声明任何静态绑定回执。Owner 从收到的 Design、
+钉定的 catalog 与自己的绑定托管中逐一推导，因此提案者无法陈述它无从知道的事实，
+也无法与它所命名的 Design 发生分歧。这些推导与随后的冻结发生在同一笔事务内：
+绑定托管读取在某个切面上取行锁，用另一个切面去冻结，就会封印一个
+「其回执在封印那一刻从未被证明」的 program。
 
 Owner 只**接纳**，不导出。它把被声明的这一对绑定到当前已接纳的 Research custody，
 并拒绝 Research 与 Intent 身份或摘要不匹配的 Design。它重新规范化被声明的字节而不信任
