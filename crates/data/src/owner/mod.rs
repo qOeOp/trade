@@ -28,6 +28,8 @@ pub mod strategy_input_event_corpus_v1;
 pub mod strategy_input_joined_cut;
 pub mod universe_selection;
 
+pub(crate) mod storage_diagnostic;
+
 use instrument_economic_terms_postgres_v1::{
     INSTRUMENT_OWNER_DATABASE_URL_ENV, InstrumentEconomicTermsPostgresErrorV1,
     InstrumentEconomicTermsPostgresOwnerV1,
