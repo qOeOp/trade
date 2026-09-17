@@ -193,10 +193,6 @@ fn owner_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "RD_OWNER_CUSTODY_UNAVAILABLE",
         ),
-        ResearchBoundedFeatureProgramOwnerErrorV1::Catalog => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "PRIMITIVE_CATALOG_UNAVAILABLE",
-        ),
         ResearchBoundedFeatureProgramOwnerErrorV1::ResearchCustody => {
             (StatusCode::CONFLICT, "RESEARCH_CUSTODY_MISMATCH")
         }

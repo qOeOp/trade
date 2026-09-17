@@ -79,9 +79,6 @@ pub enum ResearchBoundedFeatureProgramOwnerErrorV1 {
     /// R&D Owner storage did not answer.
     #[error("R&D Owner storage is unavailable")]
     Storage(#[from] sqlx::Error),
-    /// The pinned primitive catalog did not verify, so no program meaning is admissible.
-    #[error("the pinned primitive catalog is unavailable")]
-    Catalog,
     /// The declared Design does not match currently accepted Research custody.
     #[error("the declared Design does not match current accepted Research custody")]
     ResearchCustody,
@@ -270,15 +267,14 @@ impl PostgresResearchBoundedFeatureProgramOwnerV1 {
         research_request_locator: &str,
     ) -> Result<ResearchBoundedFeatureProgramLoweringV1, ResearchBoundedFeatureProgramLoweringErrorV1>
     {
-        let catalog = PrimitiveCatalogV1::verify()
-            .map_err(|_| ResearchBoundedFeatureProgramLoweringErrorV1::Unavailable)?;
+        // The readback rebuilds the freeze under the catalog version its own stored bytes declare,
+        // so resolving a catalog here could only disagree with the one actually in force.
         let read_cut_epoch_ms = (self.clock)();
         let mut transaction = self.pool.begin().await?;
         let frozen = Box::pin(read_research_bounded_feature_program_in_transaction_v1(
             &mut transaction,
             research_request_locator,
             read_cut_epoch_ms,
-            catalog,
         ))
         .await;
         transaction.rollback().await?;
