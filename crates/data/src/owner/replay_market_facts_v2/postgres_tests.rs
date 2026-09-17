@@ -1625,7 +1625,7 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
             .declare_strategy_input_bindings_v1(&unattested)
             .await
             .unwrap_err(),
-        StrategyInputBindingAdmissionErrorV1::UnknownAttestation
+        StrategyInputBindingAdmissionErrorV1::UnknownAuthenticatedDesign
     );
 
     let reader_pool = mutation.pool(CanonicalOwnerTestRoleV1::MarketDataReader);

@@ -11,6 +11,7 @@
 
 use std::fmt::Debug;
 
+mod authenticated_design_registration_v1;
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 pub mod bar_joined_cut_acceptance_v1;
 mod calendar;
@@ -9972,6 +9973,15 @@ impl StrategyInputBindingAdmissionV1 for StrategyInputBindingAdmissionPostgresV1
     ) -> Result<StrategyInputBindingAdmissionTerminalV1, StrategyInputBindingAdmissionErrorV1> {
         self.binding
             .declare_strategy_input_bindings_v1(&locator)
+            .await
+    }
+
+    async fn admit_published_design(
+        &self,
+        design_identity: BindingDigest,
+    ) -> Result<StrategyInputBindingAdmissionTerminalV1, StrategyInputBindingAdmissionErrorV1> {
+        self.binding
+            .declare_strategy_input_bindings_from_design_intent_v1(design_identity)
             .await
     }
 }
