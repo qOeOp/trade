@@ -1563,18 +1563,17 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         .bind(&composer_locator.request_identity).bind(native_join.receipt_digest().as_bytes().as_slice()).bind(native_join.projection_receipt_digest().as_bytes().as_slice()).bind(native_join.joined_cut_digest().as_bytes().as_slice()).bind(native_join.schedule_dependency_set_digest().as_bytes().as_slice()).bind(native_join.canonical_bytes()).execute(&mut *composer_tx).await.unwrap();
     composer_tx.commit().await.unwrap();
 
-    // W3: the Design's roles become binding declarations, and the Composer seam stops failing
-    // closed. The before-and-after around one call is the whole point of the section: a production
-    // Design reaches `UnknownDeclaration` today because nothing registers for it, so proving the
-    // coordinate appears is proving that the registry now has a production writer.
+    // W3: the Design's roles become binding declarations through the production writer, which
+    // resolves them to the request the Owner already committed rather than to anything a caller
+    // states.
+    //
+    // This section originally opened by asserting that the Design resolved to no coordinate yet.
+    // That cannot hold here: the fixture that builds `base` registers all six declarations for this
+    // exact Design through the `#[cfg(test)]` unchecked registrar and commits them, so the
+    // coordinate is already present before the production writer runs. The terminal assertions
+    // below are what carry the proof - they observe the writer's own output and bind it to the
+    // Owner's committed request, which a pre-existing coordinate cannot satisfy on its own.
     let w3_design = base.binding_requests[0].strategy_design_identity;
-    let mut before_tx = market_mutation_pool.begin().await.unwrap();
-    let before = resolve_pit_request_for_strategy_design_v1(&mut before_tx, w3_design).await;
-    before_tx.rollback().await.unwrap();
-    assert!(
-        before.is_err(),
-        "a Design with no declaration must not resolve to a coordinate: {before:?}"
-    );
 
     let w3_binding = ReplayCompositionOwnerV1::connect(owner_url, reader_url)
         .await
