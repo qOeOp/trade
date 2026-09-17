@@ -204,6 +204,7 @@ pub mod program_runtime_v2;
 mod program_session;
 pub mod rd_bounded_feature_program_postgres_v1;
 mod rd_bounded_feature_program_v1;
+pub mod rd_design_role_intent_v1;
 pub mod rd_historical_custody;
 pub mod rd_historical_custody_postgres;
 mod rd_owner_postgres_custody;
