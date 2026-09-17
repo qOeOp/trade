@@ -1051,6 +1051,9 @@ declaration 而被拒；而 attestation 的作用域限于单个 Design，所以
 完全相同：校验覆盖，再在签发任何东西之前解析自身的 registry、census、join 与 issuance authority。
 这条路径上不存在任何 program、artifact 或未绑定输入。注册仍是 write-once，因此它对一个 Design 只到达一次，
 此后每一圈都由 Composer 提交治理；W3 不受影响：它接纳的仍然只有 attestation。
+`POST /v1/market-data/strategy-input-bindings/from-design-intent` 就是这个消费者，有序 PostgreSQL 链路第 6 条见证了它：
+一个在 `composer_private` 中无人指名的 Design，从没有任何 PIT 坐标走到本 Owner 自行解析出的那一个；
+未发布的 Design 到不了任何 declaration；被就地改写的已发布行，不再能认证它当初所发布的那个 Design。
 **NOT_ADMITTED：** caller-proposed Design/role/join 字段、receipt/readback/token、receipt
 hash、latest/history/full scan、raw R&D table parsing 或 Market Data storage 都不能认证 Design meaning；Market
 Data 不依赖 Strategy Factory，不拥有也不重新解释 Strategy Design role/join。

@@ -179,12 +179,19 @@ Bounded Feature Program，从这对冻结值导出 Composer 请求，按 Market 
 把冻结的 hypothesis、mechanism 与 falsification question 变成可执行 `StrategyDesignV2`
 不是这个 Owner 施加的规则，而是它接纳的一份声明，下面的契约写明这份 Design 由谁撰写。
 
-**TARGET：第一圈无处立足。** 封存语料 run 之后，`run_bounded_feature_program` 成为唯一的生产入口，
-而它需要一份已冻结的 joint program。冻结需要 Strategy Input declaration；Market Data 只从一份
-Composer attestation 注册它们；而铸造该 attestation 的正是一次 Composer 提交。此后每一圈都自洽：
-一次提交的响应恰好带着注册所需的 locator；唯独第一圈没有来源。这不是缺少组件：每一环都已建成且无门控，
-封存语料路径与其说制造了这个缺口，不如说停止了对它的遮蔽，因为那条路径回答的是夹具 Design 而非请求自身的 Design。
-第一份可准入的声明由谁撰写，就是上一段交给下面契约的那同一个问题。
+**CURRENT/PARTIAL：第一圈已有立足之处。** 封存语料 run 之后，`run_bounded_feature_program` 成为唯一的生产入口，
+而它需要一份已冻结的 joint program。冻结需要 Strategy Input declaration；Market Data 过去只从一份
+Composer attestation 注册它们，而铸造该 attestation 的正是一次 Composer 提交。此后每一圈都自洽：
+一次提交的响应恰好带着注册所需的 locator；唯独第一圈没有来源，且任何与 artifact 绑定的形状都给不出这个来源，
+因为 program 的身份恰恰折叠了该注册所签发的那些绑定回执。于是本 Owner 发布一份 Design 级 role intent：
+它只指名一个 Design、该 Design 被接纳时所依据的 Research request 与 custody，以及它所声明的角色，别无其他。
+`POST /v1/strategy-designs/publish-role-intent` 依据当前已接纳的 custody 派生它，并按 Design 一次性写入；
+`rd_owner_api.resolve_design_role_intent_for_market_data_v1` 只对 Market Data 的读取主体暴露它。
+有序 PostgreSQL 链路第 6 条见证了一个在 `composer_private` 中无人指名的 Design，
+从没有任何 PIT 坐标，走到 Market Data 自行解析出的那一个。
+
+**TARGET：** 那份 Design 由谁撰写。发布陈述的是本 Owner 对收到的 Design 所知道的事实，
+它并不导出一份 Design，而这正是下面契约仍在交付的那个未决问题。
 
 这条入口的绑定那一半是 `dynamic`。隔离 R&D Owner PostgreSQL 链路会针对 Market Data Owner
 经自身验收 basis 签发的绑定，声明并冻结一个六角色 BAR program，再用 RUN 所用的同一个生产
