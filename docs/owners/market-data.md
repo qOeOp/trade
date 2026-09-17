@@ -1102,10 +1102,11 @@ consumes it exactly as it consumes an attestation: it verifies coverage, then re
 and issuance authorities before issuing anything. No program, artifact or unbound input exists anywhere in this path.
 Registration stays write-once, so it reaches a Design once and a Composer commit governs every cycle after it, and W3 is
 untouched: an attestation remains the only thing W3 admits.
-`POST /v1/market-data/strategy-input-bindings/from-design-intent` is that consumer, and ordered PostgreSQL chain entry 6
-witnesses it: a Design nothing in `composer_private` names moves from no PIT coordinate to the one this Owner resolved,
-an unpublished Design reaches no declaration, and a published row edited in place stops authenticating the Design it was
-published for.
+`POST /v1/market-data/strategy-input-bindings/from-design-intent` is that consumer, and the ordered PostgreSQL chain
+witnesses it beside the attested admission, against the same custody and the same role entries: a Design nothing in
+`composer_private` names moves from no PIT coordinate to the one this Owner resolved, and to the same PIT request and
+decision cut the attested Design resolved to. An unpublished Design reaches no declaration, and a published row edited in
+place stops authenticating the Design it was published for.
 **NOT_ADMITTED:** caller-proposed Design/role/join fields, receipt/readback/token, receipt hash,
 latest/history/full scans, raw R&D table parsing or Market Data storage do not authenticate Design meaning; Market Data
 does not depend on Strategy Factory, own or reinterpret Strategy Design roles or joins.
