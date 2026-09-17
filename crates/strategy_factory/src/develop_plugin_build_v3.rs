@@ -1599,11 +1599,10 @@ mod tests {
 
     #[rstest::rstest]
     fn restart_requires_current_owner_inputs_before_receipt_bytes_can_be_used() {
-        let (design, proposal, catalog) = candidate();
+        let (design, proposal) = candidate();
         let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
-        let frozen =
-            freeze_research_bounded_feature_program_v1(&custody, &design, proposal, catalog)
-                .expect("joint Owner freeze");
+        let frozen = freeze_research_bounded_feature_program_v1(&custody, &design, proposal)
+            .expect("joint Owner freeze");
         let manifest = design.plugins[0].clone();
         let first = prepare_frozen_bounded_feature_source_inputs_v1(&frozen)
             .expect("first independent lowering");
@@ -1644,7 +1643,7 @@ mod tests {
             bfp_bytes: capsule.value.bfp_canonical_bytes.into_boxed_slice(),
             wasm: b"not-wasm".as_slice().into(),
         };
-        let (design, _, _) = candidate();
+        let (design, _) = candidate();
 
         let terminal = match build.into_verified_for_composer(&design.plugins[0]) {
             Ok(_) => panic!("a different current manifest must fail before Cargo verification"),
@@ -1661,11 +1660,10 @@ mod tests {
     #[rstest::rstest]
     #[ignore = "invokes the exact pinned local wasm compiler in two private roots"]
     fn two_lowerings_two_builds_and_strict_replay_mint_one_v3_identity() {
-        let (design, proposal, catalog) = candidate();
+        let (design, proposal) = candidate();
         let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
-        let frozen =
-            freeze_research_bounded_feature_program_v1(&custody, &design, proposal, catalog)
-                .expect("joint Owner freeze");
+        let frozen = freeze_research_bounded_feature_program_v1(&custody, &design, proposal)
+            .expect("joint Owner freeze");
         let manifest = design.plugins[0].clone();
         let first = prepare_frozen_bounded_feature_source_inputs_v1(&frozen)
             .expect("first independent lowering");

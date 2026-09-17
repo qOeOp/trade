@@ -4833,8 +4833,7 @@ pub(crate) mod tests {
         .unwrap();
         preparation.rollback().await.unwrap();
 
-        let (mut design, mut proposal, catalog) =
-            crate::bounded_feature_program_v1::tests::candidate();
+        let (mut design, mut proposal) = crate::bounded_feature_program_v1::tests::candidate();
         design.research_request_identity = custody.research_request_identity();
         design.intent_identity = custody.intent_identity();
         design.intent_digest = custody.intent_digest();
@@ -4876,9 +4875,8 @@ pub(crate) mod tests {
                 read_cut,
                 read_cut,
                 &design,
-                proposal.clone(),
-                catalog,
-            ))
+                proposal.clone()
+))
             .await,
             Err(crate::rd_bounded_feature_program_v1::ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)
         );
@@ -4905,9 +4903,8 @@ pub(crate) mod tests {
             read_cut,
             read_cut,
             &design,
-            proposal.clone(),
-            catalog,
-        ))
+            proposal.clone()
+))
         .await
         .unwrap();
         first.commit().await.unwrap();
@@ -4919,9 +4916,8 @@ pub(crate) mod tests {
             read_cut,
             read_cut,
             &design,
-            proposal,
-            catalog,
-        ))
+            proposal
+))
         .await
         .unwrap();
         assert_eq!(retried, committed);
@@ -4931,9 +4927,8 @@ pub(crate) mod tests {
         let resolved = Box::pin(crate::rd_bounded_feature_program_v1::read_research_bounded_feature_program_in_transaction_v1(
             &mut readback,
             &request_identity,
-            read_cut,
-            catalog,
-        ))
+            read_cut
+))
         .await
         .unwrap();
         assert_eq!(resolved, committed);
@@ -4953,9 +4948,8 @@ pub(crate) mod tests {
             Box::pin(crate::rd_bounded_feature_program_v1::read_research_bounded_feature_program_in_transaction_v1(
                 &mut tampered,
                 &request_identity,
-                read_cut,
-                catalog,
-            ))
+                read_cut
+))
             .await,
             Err(crate::rd_bounded_feature_program_v1::ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)
         );

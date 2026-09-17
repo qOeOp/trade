@@ -19,6 +19,12 @@ sealed-source-intake-research-acceptance = ["sealed-source-intake-acceptance"]
 sealed-source-intake-composer-acceptance = [
   "sealed-source-intake-research-acceptance",
   "sealed-develop-composer-acceptance",
+]
+# The disposable A2 tamper probe is the only non-test consumer of the test harness.
+# It carries `dep:vibe-testkit` alone so that enabling the Composer acceptance surface,
+# which `dashboard-composer-readback` does for a deployed image, links no harness.
+sealed-source-intake-composer-tamper-probe = [
+  "sealed-source-intake-composer-acceptance",
   "dep:vibe-testkit",
 ]
 sealed-strategy-input-acceptance = [
@@ -107,6 +113,6 @@ test = false
 [[bin]]
 name = "source-research-composer-stored-tamper-probe"
 path = "src/bin/source_research_composer_stored_tamper_probe.rs"
-required-features = ["sealed-source-intake-composer-acceptance"]
+required-features = ["sealed-source-intake-composer-tamper-probe"]
 doc = false
 test = false

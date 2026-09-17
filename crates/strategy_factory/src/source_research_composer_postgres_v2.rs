@@ -1603,7 +1603,6 @@ where
             &mut owner_transaction,
             research_request_locator,
             read_cut_epoch_ms,
-            catalog,
         )
         .await
         {
@@ -1671,7 +1670,6 @@ where
                     &mut owner_transaction,
                     research_request_locator,
                     read_cut_epoch_ms,
-                    catalog,
                 )
                 .await
                 {
@@ -2142,7 +2140,6 @@ async fn matching_current_bfp_v3(
         transaction,
         research.request_locator(),
         read_cut_epoch_ms,
-        catalog,
     )
     .await
     .ok()?;
@@ -2291,9 +2288,8 @@ async fn matching_historical_bfp_v3(
     let frozen = crate::rd_bounded_feature_program_v1::read_research_bounded_feature_program_historical_in_transaction_v1(
         transaction,
         research.request_locator(),
-        research,
-        catalog,
-    )
+        research
+)
     .await
     .ok()?;
     (frozen.research_request_identity() == locator.research_request_identity

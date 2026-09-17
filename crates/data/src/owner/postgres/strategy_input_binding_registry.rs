@@ -346,7 +346,13 @@ pub async fn resolve_pit_request_for_strategy_design_v1(
     let principal: String = sqlx::query_scalar("SELECT session_user::text")
         .fetch_one(&mut **transaction)
         .await
-        .map_err(|_| StrategyInputCustodyUnavailableV1::StoreUnavailable)?;
+        .map_err(|e| {
+            crate::owner::storage_diagnostic::refused_by_store(
+                "strategy_input_binding_registry.pit_coordinate.session_user",
+                &e,
+            );
+            StrategyInputCustodyUnavailableV1::StoreUnavailable
+        })?;
     // Market Data reads its own relation; R&D may only reach it through the locked facade.
     let query = if principal == "rd_owner" {
         "SELECT pit_request_identity,input_role_identity,request_bytes FROM market_data_rd_api.lock_pit_request_for_strategy_design_v1($1)"
@@ -357,27 +363,45 @@ pub async fn resolve_pit_request_for_strategy_design_v1(
         .bind(strategy_design_identity.as_bytes().as_slice())
         .fetch_all(&mut **transaction)
         .await
-        .map_err(|_| StrategyInputCustodyUnavailableV1::StoreUnavailable)?;
+        .map_err(|e| {
+            crate::owner::storage_diagnostic::refused_by_store(
+                "strategy_input_binding_registry.pit_coordinate.declarations.fetch_all",
+                &e,
+            );
+            StrategyInputCustodyUnavailableV1::StoreUnavailable
+        })?;
 
     let mut resolved: Option<StrategyDesignPitCoordinateV1> = None;
     let mut input_role_identities = Vec::with_capacity(rows.len());
     for row in &rows {
-        let bytes: Vec<u8> = row
-            .try_get("pit_request_identity")
-            .map_err(|_| StrategyInputCustodyUnavailableV1::StoreUnavailable)?;
+        let bytes: Vec<u8> = row.try_get("pit_request_identity").map_err(|e| {
+            crate::owner::storage_diagnostic::refused_by_store(
+                "strategy_input_binding_registry.pit_coordinate.column.pit_request_identity",
+                &e,
+            );
+            StrategyInputCustodyUnavailableV1::StoreUnavailable
+        })?;
         let bytes: [u8; 32] = bytes
             .try_into()
             .map_err(|_| StrategyInputCustodyUnavailableV1::DeclarationUntrusted)?;
-        let request_bytes: Vec<u8> = row
-            .try_get("request_bytes")
-            .map_err(|_| StrategyInputCustodyUnavailableV1::StoreUnavailable)?;
+        let request_bytes: Vec<u8> = row.try_get("request_bytes").map_err(|e| {
+            crate::owner::storage_diagnostic::refused_by_store(
+                "strategy_input_binding_registry.pit_coordinate.column.request_bytes",
+                &e,
+            );
+            StrategyInputCustodyUnavailableV1::StoreUnavailable
+        })?;
         // The cut lives inside the stored request, not in a column, so it is decoded with the
         // same codec the custody reread uses rather than read from a second source.
         let request = codec::decode_request_v1(&request_bytes)
             .map_err(|_| StrategyInputCustodyUnavailableV1::DeclarationUntrusted)?;
-        let role_bytes: Vec<u8> = row
-            .try_get("input_role_identity")
-            .map_err(|_| StrategyInputCustodyUnavailableV1::StoreUnavailable)?;
+        let role_bytes: Vec<u8> = row.try_get("input_role_identity").map_err(|e| {
+            crate::owner::storage_diagnostic::refused_by_store(
+                "strategy_input_binding_registry.pit_coordinate.column.input_role_identity",
+                &e,
+            );
+            StrategyInputCustodyUnavailableV1::StoreUnavailable
+        })?;
         let role_bytes: [u8; 32] = role_bytes
             .try_into()
             .map_err(|_| StrategyInputCustodyUnavailableV1::DeclarationUntrusted)?;
@@ -453,11 +477,23 @@ pub async fn reread_persisted_strategy_input_custody_for_update_v1(
     let principal: String = sqlx::query_scalar("SELECT session_user::text")
         .fetch_one(&mut **transaction)
         .await
-        .map_err(|_| StrategyInputCustodyUnavailableV1::StoreUnavailable)?;
+        .map_err(|e| {
+            crate::owner::storage_diagnostic::refused_by_store(
+                "strategy_input_binding_registry.custody_readback.session_user",
+                &e,
+            );
+            StrategyInputCustodyUnavailableV1::StoreUnavailable
+        })?;
     let mode = if principal == "rd_owner" {
         super::replay_market_facts_v2::verify_rd_replay_cut_transport_v1(transaction)
             .await
-            .map_err(|_| StrategyInputCustodyUnavailableV1::StoreUnavailable)?;
+            .map_err(|e| {
+                crate::owner::storage_diagnostic::refused_by_store(
+                    "strategy_input_binding_registry.custody_readback.rd_replay_cut_transport",
+                    &e,
+                );
+                StrategyInputCustodyUnavailableV1::StoreUnavailable
+            })?;
         DependencyReadModeV1::RdOwner
     } else {
         DependencyReadModeV1::LockRows
@@ -546,7 +582,13 @@ async fn reread_persisted_strategy_input_custody_with_mode_v1(
             .fetch_all(&mut **transaction)
             .await,
     }
-    .map_err(|_| StrategyInputCustodyUnavailableV1::StoreUnavailable)?;
+    .map_err(|e| {
+            crate::owner::storage_diagnostic::refused_by_store(
+                "strategy_input_binding_registry.custody_readback.declarations.fetch_all",
+                &e,
+            );
+            StrategyInputCustodyUnavailableV1::StoreUnavailable
+        })?;
     let mut stored_roles = all_rows
         .iter()
         .map(|row| {
@@ -1667,6 +1709,50 @@ mod tests {
         assert_eq!(
             verify_stored(d(4), d(2), d(3), &corrupted, meaning, d(90)),
             Err(StrategyInputBindingRegistryErrorV1::StoreUntrusted)
+        );
+    }
+    /// Every storage boundary in this file must say why it refused.
+    ///
+    /// The needle is assembled at run time. Written as one literal, this test's own source would
+    /// contain the pattern it forbids and the assertion could never fail.
+    ///
+    /// Not every refusal has a cause to record: a doc reference names the variant, and the
+    /// `Registry` mapping forwards an error the registry already closed. Only the `map_err(|_| ..)`
+    /// form discards something it was holding, and that form must not survive here.
+    #[rstest]
+    fn every_storage_refusal_records_its_cause() {
+        let source = include_str!("strategy_input_binding_registry.rs");
+        let discarding = [
+            "map_err(|_| StrategyInputCustodyUnavailableV1",
+            "::StoreUnavailable)",
+        ]
+        .concat();
+        assert!(
+            !source.contains(&discarding),
+            "a storage boundary discards its cause without recording it"
+        );
+
+        let recorded: Vec<&str> = source
+            .match_indices(&["storage_diagnostic::", "refused_by_store("].concat())
+            .map(|(at, needle)| {
+                let rest = &source[at + needle.len()..];
+                let open = rest.find('"').expect("a recorded coordinate is a literal");
+                let close = rest[open + 1..]
+                    .find('"')
+                    .expect("a closed coordinate literal");
+                &rest[open + 1..open + 1 + close]
+            })
+            .collect();
+        assert!(recorded.len() >= 8);
+        // A coordinate is only useful if it names one site, so no two may share one.
+        let mut distinct = recorded.clone();
+        distinct.sort_unstable();
+        distinct.dedup();
+        assert_eq!(distinct.len(), recorded.len());
+        assert!(
+            recorded
+                .iter()
+                .all(|coordinate| coordinate.starts_with("strategy_input_binding_registry."))
         );
     }
 }
