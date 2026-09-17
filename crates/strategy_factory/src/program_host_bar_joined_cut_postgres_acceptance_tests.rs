@@ -506,7 +506,7 @@ async fn owner_postgres_v4_moves_through_program_host_and_real_backtest() -> any
     let mutation = database.mutation();
     let market_mutation_pool = mutation.pool(CanonicalOwnerTestRoleV1::MarketDataOwner);
     let basis = Box::pin(prepare_owner_bar_joined_cut_acceptance_basis_v1(
-        &database,
+        database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner),
         UntrustedBarJoinedCutAcceptanceDesignClaimsV1 {
             research_request_identity: design.research_request_identity,
             strategy_design_identity: design_identity,
