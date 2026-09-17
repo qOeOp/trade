@@ -13,7 +13,6 @@ use crate::{
     catalog_version::{CatalogVersionV1, MAX_GOLDEN_VECTORS_V1},
     fixed_range_fraction,
     fused_rational_v1::MAX_FUSED_PROGRAM_STEPS_V1,
-    validate_required_golden_ids,
 };
 
 const CAPACITY: usize = 4;
@@ -69,8 +68,12 @@ pub(crate) fn verify_catalog_version_corpus_v1(
     }
 
     let declared = &vectors[..version.goldens.len()];
-    validate_required_golden_ids(declared)
-        .map_err(|_| GoldenVerificationFailure::InvalidCoverage)?;
+    crate::required_golden_ids::validate_golden_ids_for(
+        declared,
+        version.required_golden_ids,
+        version.executable_ids,
+    )
+    .map_err(|_| GoldenVerificationFailure::InvalidCoverage)?;
 
     for vector in declared {
         verify(vector.parts())?;
