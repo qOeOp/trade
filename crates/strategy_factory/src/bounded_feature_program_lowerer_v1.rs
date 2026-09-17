@@ -99,6 +99,7 @@ mod fixed_i128;
 mod fixed_rsi_state;
 mod fixed_state;
 mod fixed_window;
+mod fused_rational_v1;
 mod i256;
 mod program;
 mod sdk;
@@ -109,9 +110,10 @@ pub use fixed_i128::{CanonicalDecodeError, ComparisonPredicateV1, DecimalScale, 
 pub use fixed_rsi_state::FixedRsiState;
 pub use fixed_state::{FixedSampleUpdate, FixedSmoothingKind, FixedSmoothingState, FixedStateFailure, SampleClockInputV1};
 pub use fixed_window::{FixedWindowFunction, FixedWindowOutput, FixedWindowState, FixedWindowUpdate};
+pub use fused_rational_v1::{FusedRationalStepV1, MAX_FUSED_PROGRAM_STEPS_V1, decode_fused_program_v1, evaluate_fused_rational_v1};
 ";
 
-const GUEST_KERNEL_SOURCES: [(&str, &[u8]); 7] = [
+const GUEST_KERNEL_SOURCES: [(&str, &[u8]); 8] = [
     (
         "src/fixed_bar_state.rs",
         include_bytes!("../../indicators/kernel/src/fixed_bar_state.rs"),
@@ -137,6 +139,10 @@ const GUEST_KERNEL_SOURCES: [(&str, &[u8]); 7] = [
         include_bytes!("../../indicators/kernel/src/fixed_window.rs"),
     ),
     (
+        "src/fused_rational_v1.rs",
+        include_bytes!("../../indicators/kernel/src/fused_rational_v1.rs"),
+    ),
+    (
         "src/i256.rs",
         include_bytes!("../../indicators/kernel/src/i256.rs"),
     ),
@@ -144,7 +150,7 @@ const GUEST_KERNEL_SOURCES: [(&str, &[u8]); 7] = [
 
 // This is the exact source list committed by `PrimitiveCatalogV1`. It is hashed for the complete
 // catalog/source binding only. The legacy `lib.rs` is never copied into the guest source set.
-const COMPLETE_KERNEL_SOURCES: [(&str, &[u8]); 16] = [
+const COMPLETE_KERNEL_SOURCES: [(&str, &[u8]); 21] = [
     (
         "Cargo.toml",
         include_bytes!("../../indicators/kernel/Cargo.toml"),
@@ -156,6 +162,14 @@ const COMPLETE_KERNEL_SOURCES: [(&str, &[u8]); 16] = [
     (
         "catalog_rows.rs",
         include_bytes!("../../indicators/kernel/src/catalog_rows.rs"),
+    ),
+    (
+        "catalog_rows_v2.rs",
+        include_bytes!("../../indicators/kernel/src/catalog_rows_v2.rs"),
+    ),
+    (
+        "catalog_version.rs",
+        include_bytes!("../../indicators/kernel/src/catalog_version.rs"),
     ),
     (
         "fixed_bar_state.rs",
@@ -182,8 +196,16 @@ const COMPLETE_KERNEL_SOURCES: [(&str, &[u8]); 16] = [
         include_bytes!("../../indicators/kernel/src/fixed_window.rs"),
     ),
     (
+        "fused_rational_v1.rs",
+        include_bytes!("../../indicators/kernel/src/fused_rational_v1.rs"),
+    ),
+    (
         "golden_corpus.rs",
         include_bytes!("../../indicators/kernel/src/golden_corpus.rs"),
+    ),
+    (
+        "golden_corpus_v2.rs",
+        include_bytes!("../../indicators/kernel/src/golden_corpus_v2.rs"),
     ),
     (
         "golden_execution.rs",
@@ -208,6 +230,10 @@ const COMPLETE_KERNEL_SOURCES: [(&str, &[u8]); 16] = [
     (
         "required_golden_ids.rs",
         include_bytes!("../../indicators/kernel/src/required_golden_ids.rs"),
+    ),
+    (
+        "required_golden_ids_v2.rs",
+        include_bytes!("../../indicators/kernel/src/required_golden_ids_v2.rs"),
     ),
 ];
 
@@ -1930,6 +1956,63 @@ mod tests {
         }
     }
 
+    /// The complete binding claims to commit the catalog's whole source. A primitive whose
+    /// implementation is outside it would let the catalog's meaning change under a frozen program
+    /// without changing the digest that program is sealed against, so the list is compared to the
+    /// kernel directory rather than maintained by hand.
+    #[rstest::rstest]
+    fn the_complete_kernel_binding_commits_every_kernel_source() {
+        let kernel = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../indicators/kernel/src")
+            .canonicalize()
+            .expect("the pinned kernel source directory");
+        let mut present = std::collections::BTreeSet::new();
+
+        for entry in std::fs::read_dir(&kernel).expect("the kernel source directory reads") {
+            let name = entry.expect("a kernel source entry").file_name();
+            let name = name
+                .to_str()
+                .expect("kernel file names are UTF-8")
+                .to_owned();
+
+            // Test modules carry no catalog meaning and are excluded from every committed list.
+            if name.ends_with(".rs") && !name.ends_with("_tests.rs") {
+                present.insert(name);
+            }
+        }
+        let committed = COMPLETE_KERNEL_SOURCES
+            .iter()
+            .map(|(path, _)| (*path).to_owned())
+            .filter(|path| path.ends_with(".rs"))
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            present, committed,
+            "every non-test kernel source must be committed by the complete catalog binding"
+        );
+    }
+
+    /// A lowered symbol the guest crate does not re-export emits source that cannot compile, and
+    /// nothing else in this crate would notice until a real build ran.
+    #[rstest::rstest]
+    fn every_lowered_symbol_is_re_exported_by_the_guest_crate() {
+        let lib = std::str::from_utf8(LIB_SOURCE).expect("the guest crate root is UTF-8");
+        let catalog = PrimitiveCatalogV1::verify().expect("fixed catalog verifies");
+
+        for row in catalog.rows() {
+            if let Some(operation) = row.operation {
+                let symbol = lowered_symbol(operation);
+                let owner = symbol
+                    .split("::")
+                    .next()
+                    .expect("a lowered symbol is non-empty");
+                assert!(
+                    lib.contains(owner),
+                    "the guest crate root must re-export {owner} for {symbol}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn every_catalog_primitive_has_a_direct_first_party_symbol() {
         let catalog = PrimitiveCatalogV1::verify().expect("fixed catalog verifies");
@@ -2143,7 +2226,7 @@ mod tests {
         assert_eq!(one.program_digest(), frozen.program_digest());
         assert_eq!(one.program_bytes(), frozen.program_bytes());
         assert_eq!(one.manifest_digest(), frozen.plugin_manifest_digest());
-        assert_eq!(one.source_files().len(), 13);
+        assert_eq!(one.source_files().len(), 14);
     }
 
     fn operation_parameters(operation: PrimitiveOperationV1) -> BoundedFeatureParametersV1 {
