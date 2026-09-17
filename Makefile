@@ -797,10 +797,10 @@ check-rd-owner-postgres-isolation:  #-- Statically verify destructive PostgreSQL
 cargo-test-market-data-owner-postgres-isolated:  #-- Run isolated Market Data PostgreSQL owner tests
 	bash crates/data/tests/run_market_data_owner_postgres.bash
 
-.PHONY: cargo-test-wasm-toolchain-proofs
-cargo-test-wasm-toolchain-proofs:  #-- Run the Owner proofs that invoke the pinned wasm compiler
+.PHONY: cargo-test-toolchain-proofs
+cargo-test-toolchain-proofs:  #-- Run the Owner proofs that need a real tool and no database
 	NEXTEST_PROFILE="$(NEXTEST_PROFILE)" \
-	bash scripts/ci/test-wasm-toolchain-proofs.bash
+	bash scripts/ci/test-toolchain-proofs.bash
 
 # Doctests need their own target because `cargo nextest` cannot run them.
 # Sharing --features and --profile with the nextest targets lets both reuse the
