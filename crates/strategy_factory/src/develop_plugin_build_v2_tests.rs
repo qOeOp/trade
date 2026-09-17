@@ -72,7 +72,8 @@ fn real_bounded_plugin_builds_twice_and_exact_replay_joins() {
 #[rstest]
 #[cfg(not(any(
     all(target_os = "macos", target_arch = "aarch64"),
-    all(target_os = "linux", target_arch = "aarch64")
+    all(target_os = "linux", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64")
 )))]
 fn unsupported_host_returns_toolchain_unavailable_without_a_positive() {
     let capsule = capsule();

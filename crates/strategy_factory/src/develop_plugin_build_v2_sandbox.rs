@@ -448,15 +448,15 @@ pub(super) fn matches_frozen_execution_profile(
     linker_digest: [u8; 32],
     target_sysroot_digest: Option<[u8; 32]>,
 ) -> bool {
-    [MACOS_ARM64_PROFILE, LINUX_ARM64_PROFILE]
-        .into_iter()
-        .any(|profile| {
-            profile.host == host
-                && profile.cargo_digest == cargo_digest
-                && profile.rustc_digest == rustc_digest
-                && profile.linker_digest == linker_digest
-                && profile.target_sysroot_digest == target_sysroot_digest
-        })
+    // Derived from the frozen array rather than repeated. A third copy of the host list is how a
+    // newly admitted host silently failed to match an otherwise valid execution profile.
+    frozen_execution_profiles().into_iter().any(|profile| {
+        profile.host == host
+            && profile.cargo_digest == cargo_digest
+            && profile.rustc_digest == rustc_digest
+            && profile.linker_digest == linker_digest
+            && profile.target_sysroot_digest == target_sysroot_digest
+    })
 }
 
 fn verify_target_sysroot(
@@ -483,10 +483,22 @@ fn verify_target_sysroot_at(
     })?;
 
     if observed_digest != expected_digest {
+        // Naming the observed digest is what makes a host's pin obtainable at all: it can only be
+        // measured on the host it pins, and a refusal that reports nothing forces a guess.
         return Err(DevelopPluginBuildTerminalV2::new(
             DevelopPluginBuildTerminalKindV2::ToolchainUnavailable,
             "toolchain.target_sysroot_digest",
-            "the canonical target sysroot bytes do not match the frozen digest",
+            &format!(
+                "the canonical target sysroot bytes do not match the frozen digest: observed {}",
+                observed_digest
+                    .iter()
+                    .fold(String::with_capacity(64), |mut text, byte| {
+                        use std::fmt::Write as _;
+
+                        let _ = write!(text, "{byte:02x}");
+                        text
+                    })
+            ),
         ));
     }
     Ok(())
