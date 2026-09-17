@@ -284,11 +284,12 @@ custody、provider/API/Windmill 执行、部署或生产 readiness。
 `sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8`、platform manifest
 `sha256:5a8cd84cb3fcfd082789a08f92bd36f8e745c6231edd78e24a3bf34fd471a823`，以及 normalized exact
 `lib/rustlib/wasm32v1-none` sysroot tar SHA-256
-`92fcee2e35330d22e879b640064e2e4b4e47157af1a7e05fc942dc6cc12b8faf`。2026-09-14，现有准确 Rust 1.97.1
-安装与使用相同 rustc/cargo commit 的全新隔离安装均产生 canonical digest
-`830cb504e83fd5cc9a5ba451b555cd3c9fb177b39647f3a775ce0d5f1d63300f`；因此 replacement freeze 拒绝已被
-替换的字节，Linux 只有经过新的 hosted A0 回读后才能恢复 CURRENT/PARTIAL。旧 BuildKit observation
-只保留为历史 pin-generation evidence；基础 Rust image 仍由 Dockerfile pin，带 created timestamp 的 local OCI manifest
+`92fcee2e35330d22e879b640064e2e4b4e47157af1a7e05fc942dc6cc12b8faf`。2026-09-14 有一次测量报出
+`830cb504e83fd5cc9a5ba451b555cd3c9fb177b39647f3a775ce0d5f1d63300f`，freeze 因此被替换为该值，
+并等待一次新的 hosted A0 回读。该回读此后已在 `refs/heads/main` 上执行，报出的是原值；hosted x86_64
+测试主机、以及钉死的基础 image 在 `linux/arm64` 与 `linux/amd64` 上同样报出原值：五个互相独立的主机、
+一个 digest，而 2026-09-14 那个值在其中任何一个上都未被复现。因此 freeze 恢复为每台可达主机实际携带的值。
+基础 Rust image 仍由 Dockerfile pin，带 created timestamp 的 local OCI manifest
 不是 registry、deployment 或 reproducible-image pin。runtime authority 现在来自 pure-Rust canonical sysroot
 verifier：它复现 frozen GNU tar normalization，把 digest 绑定进每份 Linux build receipt，并与 executable
 的 build 前后重读一起，在两个相互独立的 build 每次执行前后重读准确 sysroot。准确 workflow
