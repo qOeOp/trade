@@ -108,6 +108,9 @@ pub enum ResearchBoundedFeatureProgramOwnerErrorV1 {
     /// The declared program is outside the admitted Bounded Feature Program meaning.
     #[error("the declared Bounded Feature Program is unsupported")]
     Program,
+    /// The declared first-party SDK source digest is not the pinned first-party SDK.
+    #[error("the declared first-party SDK source digest is not the pinned first-party SDK")]
+    SdkSource,
     /// Declared meaning does not fit the Design, or Owner binding custody did not answer.
     #[error("declared meaning does not assemble against Owner custody: {0}")]
     Assembly(String),
@@ -129,6 +132,7 @@ const fn owner_error(
         Freeze::ResearchCustody => Owner::ResearchCustody,
         Freeze::Design => Owner::Design,
         Freeze::Program(_) => Owner::Program,
+        Freeze::SdkSource => Owner::SdkSource,
         Freeze::Unavailable => Owner::Unavailable,
         Freeze::Conflict => Owner::Conflict,
     }
