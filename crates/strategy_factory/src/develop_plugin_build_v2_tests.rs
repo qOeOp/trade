@@ -394,9 +394,13 @@ fn conflicting_capsule_after_a_positive_returns_zero_verified_builds() {
     );
 }
 
+// Gated with its only caller, `real_bounded_plugin_builds_twice_and_exact_replay_joins`. Widening
+// that test's hosts without widening this one leaves the test calling a function that does not
+// exist on the newly admitted host, which no arm64 machine can see.
 #[cfg(any(
     all(target_os = "macos", target_arch = "aarch64"),
-    all(target_os = "linux", target_arch = "aarch64")
+    all(target_os = "linux", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64")
 ))]
 fn verified(
     result: DevelopPluginBuildResultV2,
