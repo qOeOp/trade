@@ -1488,7 +1488,10 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
         "REVOKE ALL ON SCHEMA product_edge_api FROM backtest_owner",
         "GRANT USAGE ON SCHEMA product_edge_api TO backtest_owner",
         "REVOKE ALL ON SCHEMA rd_owner_api FROM market_data_owner, market_data_reader",
-        "GRANT USAGE ON SCHEMA rd_owner_api TO market_data_owner",
+        // Both Market Data principals reach one R&D function each and nothing else: the Owner locks
+        // an exploratory replay request, and the reader resolves a published Design role intent.
+        // This is the last word on the schema, so it grants what each of them still needs.
+        "GRANT USAGE ON SCHEMA rd_owner_api TO market_data_owner, market_data_reader",
     ] {
         sqlx::query(statement)
             .execute(&mut *migration)

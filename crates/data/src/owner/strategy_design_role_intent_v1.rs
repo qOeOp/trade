@@ -58,8 +58,8 @@ impl StrategyDesignRoleIntentV1 {
     /// # Errors
     ///
     /// Returns [`StrategyDesignRoleIntentErrorV1::InvalidProjection`] when the Design declares no
-    /// roles, declares more than the bounded maximum, repeats a role identity, or carries a field
-    /// that is empty or longer than the bounded maximum.
+    /// roles, declares more than the bounded maximum, does not present them in ascending role
+    /// identity order, or carries a field that is empty or longer than the bounded maximum.
     pub fn from_rd_owner_projection(
         research_request_identity: BindingDigest,
         intent_identity: BindingDigest,
@@ -148,7 +148,7 @@ impl StrategyDesignRoleIntentV1 {
         self.design_digest
     }
 
-    /// The roles the Design declares, in the order R&D declared them.
+    /// The roles the Design declares, ascending by role identity.
     #[must_use]
     pub fn roles(&self) -> &[StrategyDesignRoleEntryV1] {
         &self.roles
@@ -197,12 +197,16 @@ fn validate(intent: &StrategyDesignRoleIntentV1) -> Result<(), StrategyDesignRol
         }
     }
 
-    let mut seen = Vec::with_capacity(intent.roles.len());
+    // Roles ascend by identity, which is both the uniqueness test and the canonical order: one
+    // role set then has exactly one publication, and a consumer that matches roles positionally
+    // against its own sorted requests is comparing the same sequence rather than two orderings
+    // that happened to agree.
+    let mut previous: Option<BindingDigest> = None;
     for role in &intent.roles {
-        if role.role_identity == zero || seen.contains(&role.role_identity) {
+        if role.role_identity == zero || previous.is_some_and(|last| last >= role.role_identity) {
             return Err(StrategyDesignRoleIntentErrorV1::InvalidProjection);
         }
-        seen.push(role.role_identity);
+        previous = Some(role.role_identity);
 
         for value in [
             role.semantic_id.as_str(),
@@ -357,8 +361,8 @@ mod tests {
     }
 
     #[rstest]
-    fn a_projection_that_declares_nothing_or_repeats_itself_is_refused() {
-        for roles in [vec![], vec![role(10), role(10)]] {
+    fn a_projection_that_declares_nothing_or_is_not_in_canonical_order_is_refused() {
+        for roles in [vec![], vec![role(10), role(10)], vec![role(11), role(10)]] {
             assert_eq!(
                 StrategyDesignRoleIntentV1::from_rd_owner_projection(
                     d(1),

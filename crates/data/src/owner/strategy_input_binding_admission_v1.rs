@@ -1,18 +1,21 @@
-//! The Owner-sealed W3 admission that turns a Design's declared roles into binding declarations.
+//! The Owner-sealed admission that turns a Design's declared roles into binding declarations.
 //!
 //! A Design names input roles; it never names a snapshot, a member, a frame or a digest. So the
-//! only thing this port accepts is the Composer locator of an attestation R&D already wrote in its
-//! own transaction. Market Data reads that attestation through R&D's exact-locator read function,
-//! and then resolves its own PIT, Universe Selection, Source Binding, Instrument Master and Market
-//! Semantics authorities before any declaration is stored.
+//! only thing this port accepts is something R&D already authenticated in its own transaction, and
+//! there are exactly two such things. Once a Composer has run, a role-set attestation names the
+//! operation that produced it. Before the first one has, nothing artifact-bound exists to name: a
+//! program's identity folds in the binding receipts this admission issues, so the first cycle is
+//! opened by the Design role intent R&D publishes instead. Market Data reads either through R&D's
+//! exact-locator read functions, and then resolves its own PIT, Universe Selection, Source Binding,
+//! Instrument Master and Market Semantics authorities before any declaration is stored.
 //!
-//! Reading the attestation and writing the declaration are deliberately not the same principal.
-//! `market_data_reader` may execute the Composer resolver and holds nothing in
-//! `market_data_private`; `market_data_owner` writes the Owner's custody and is denied that
-//! resolver. The composition root proves both halves of that separation before it returns a port,
-//! so a single compromised role cannot both invent an attestation and register against it.
+//! Reading what R&D authenticated and writing the declaration are deliberately not the same
+//! principal. `market_data_reader` may execute the two resolvers and holds nothing in
+//! `market_data_private`; `market_data_owner` writes the Owner's custody and is denied both. The
+//! composition root proves both halves of that separation before it returns a port, so a single
+//! compromised role cannot both state a Design's roles and register against them.
 //!
-//! Admission is idempotent because the declarations are write-once: re-admitting one locator
+//! Admission is idempotent because the declarations are write-once: re-admitting one Design
 //! re-derives every binding from live native dependencies and rejoins the stored bytes, or fails
 //! closed on a conflict. A lost commit acknowledgement is therefore safe to retry.
 
@@ -91,10 +94,10 @@ impl StrategyInputBindingAdmissionTerminalV1 {
 /// Why an admission reached no declaration.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StrategyInputBindingAdmissionErrorV1 {
-    /// The locator is malformed, or names no attestation R&D has written.
-    UnknownAttestation,
-    /// The attestation's own digest does not authenticate its bytes.
-    AttestationUntrusted,
+    /// The request names no authenticated Design R&D has written.
+    UnknownAuthenticatedDesign,
+    /// The authenticated shape's own digest does not authenticate its bytes.
+    AuthenticatedDesignUntrusted,
     /// A role is not a first-vertical exact-instrument market role this Owner can resolve.
     UnsupportedRole,
     /// No snapshot of this Owner answers a role at or before its decision cut.
@@ -114,8 +117,10 @@ pub enum StrategyInputBindingAdmissionErrorV1 {
 impl Display for StrategyInputBindingAdmissionErrorV1 {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let text = match self {
-            Self::UnknownAttestation => "the locator names no Composer attestation",
-            Self::AttestationUntrusted => "the attestation does not authenticate its own bytes",
+            Self::UnknownAuthenticatedDesign => "R&D has authenticated no such Design",
+            Self::AuthenticatedDesignUntrusted => {
+                "the authenticated Design does not authenticate its own bytes"
+            }
             Self::UnsupportedRole => "a role is outside the roles this Owner resolves",
             Self::NoMatchingSnapshot => "no snapshot answers a role at its decision cut",
             Self::AmbiguousSnapshot => "more than one lineage answers a role at that cut",
@@ -143,6 +148,21 @@ pub trait StrategyInputBindingAdmissionV1: Send + Sync + sealed::Sealed {
         &self,
         locator: StrategyDesignRoleSetLocatorV1,
     ) -> Result<StrategyInputBindingAdmissionTerminalV1, StrategyInputBindingAdmissionErrorV1>;
+
+    /// Declares every input role of the Design one published R&D role intent authenticates.
+    ///
+    /// This is what opens a Design's first cycle, when no Composer operation exists yet to attest
+    /// it. Everything after the declarations is identical, including their write-once custody, so a
+    /// later attestation for the same Design rejoins them rather than replacing them.
+    ///
+    /// # Errors
+    ///
+    /// Returns a bounded category. A role set is declared whole or not at all, and re-admitting the
+    /// same Design rejoins the same declarations.
+    async fn admit_published_design(
+        &self,
+        design_identity: BindingDigest,
+    ) -> Result<StrategyInputBindingAdmissionTerminalV1, StrategyInputBindingAdmissionErrorV1>;
 }
 
 pub(crate) mod sealed {
@@ -152,8 +172,8 @@ pub(crate) mod sealed {
 /// Opens the sole configured Strategy Input Binding admission.
 ///
 /// The deployment configuration root chooses both principals: `MARKET_DATA_OWNER_DATABASE_URL`
-/// writes the Owner's custody and `MARKET_DATA_RD_ROLE_SET_DATABASE_URL` reads the Composer
-/// attestation. Their capabilities are proved to be disjoint before a port is returned.
+/// writes the Owner's custody and `MARKET_DATA_RD_ROLE_SET_DATABASE_URL` reads what R&D
+/// authenticated. Their capabilities are proved to be disjoint before a port is returned.
 ///
 /// # Errors
 ///
