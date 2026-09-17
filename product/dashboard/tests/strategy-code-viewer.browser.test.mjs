@@ -458,12 +458,24 @@ test(browserAcceptance
     await waitForBrowserExpression(browser,
       `document.body?.innerText.includes('Strategy source unavailable') === true
         && document.querySelector('button[aria-label="Copy strategy source"]')?.disabled === true`);
+    // The reason is compared as its own text rather than as a boolean: a mismatched attempt that
+    // renders some other rejection code is a different defect from one that renders none, and a
+    // boolean reports both as `false`.
+    //
+    // The mismatch attempt names no stored source, so the Owner answers `Ok(None)` as
+    // `404 ARTIFACT_SOURCE_UNAVAILABLE`, and `artifact-source-gateway` maps a 404 to that same
+    // reason. `OWNER_RESPONSE_UNAVAILABLE` is the gateway's answer for a non-404 Owner failure,
+    // which an absent attempt is not, and which is why the assertion above already waits for the
+    // 'Strategy source unavailable' title that goes with it.
     assert.deepEqual(await readBrowserValue(browser, `(() => ({
       sourceAbsent: !document.body.innerText.includes(${JSON.stringify(sourceSentinel)}),
       editorAbsent: !document.querySelector('[data-slot="strategy-read-only-code"] .cm-editor'),
-      reason: document.querySelector('details.unavailable-state-info code')?.textContent
-        === 'OWNER_RESPONSE_UNAVAILABLE',
-    }))()`), { sourceAbsent: true, editorAbsent: true, reason: true });
+      reason: document.querySelector('details.unavailable-state-info code')?.textContent ?? null,
+    }))()`), {
+      sourceAbsent: true,
+      editorAbsent: true,
+      reason: "ARTIFACT_SOURCE_UNAVAILABLE",
+    });
   } catch (error) {
     executionError = error;
   }
