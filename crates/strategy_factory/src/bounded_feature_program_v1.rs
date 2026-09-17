@@ -483,11 +483,23 @@ pub enum BoundedFeatureProgramErrorV1 {
     InvalidDestinationLength,
 }
 
+/// Prepares one declared program against the catalog version the program itself names.
+///
+/// The catalog is resolved from `proposal.catalog_semantic_version` rather than supplied, so no
+/// caller can verify a program against a version it did not declare, and a program frozen under an
+/// earlier version keeps being checked against that version after a later one is published.
+///
+/// # Errors
+///
+/// Returns [`BoundedFeatureProgramErrorV1::Identity`] when the declared catalog version is not
+/// published or its declared digest is not that version's semantic digest, and the bounds, input,
+/// graph, or terminal error that closed preparation otherwise.
 pub fn prepare_bounded_feature_program_v1(
     mut proposal: BoundedFeatureProgramProposalV1,
     design: &StrategyDesignV2,
-    catalog: PrimitiveCatalogV1,
 ) -> Result<CanonicalBoundedFeatureProgramV1, BoundedFeatureProgramErrorV1> {
+    let catalog = PrimitiveCatalogV1::resolve(proposal.catalog_semantic_version)
+        .map_err(|_| BoundedFeatureProgramErrorV1::Identity)?;
     validate_identity(&proposal, design, catalog)?;
     canonicalize_collections(&mut proposal)?;
     validate_bounds(&proposal)?;
@@ -514,13 +526,18 @@ pub fn prepare_bounded_feature_program_v1(
     Ok(value)
 }
 
+/// Parses stored canonical bytes against the catalog version those bytes declare.
+///
+/// # Errors
+///
+/// Returns [`BoundedFeatureProgramErrorV1::NonCanonical`] when the bytes are not the canonical
+/// encoding of the program they decode to, and the preparation error otherwise.
 pub fn parse_bounded_feature_program_v1(
     canonical_bytes: &[u8],
     design: &StrategyDesignV2,
-    catalog: PrimitiveCatalogV1,
 ) -> Result<CanonicalBoundedFeatureProgramV1, BoundedFeatureProgramErrorV1> {
     let proposal = Decoder::new(canonical_bytes).program()?;
-    let value = prepare_bounded_feature_program_v1(proposal, design, catalog)?;
+    let value = prepare_bounded_feature_program_v1(proposal, design)?;
     if value.canonical_bytes != canonical_bytes {
         return Err(BoundedFeatureProgramErrorV1::NonCanonical);
     }
@@ -534,8 +551,8 @@ fn validate_identity(
 ) -> Result<(), BoundedFeatureProgramErrorV1> {
     if proposal.schema_version != BOUNDED_FEATURE_PROGRAM_SCHEMA_V1
         || proposal.semantic_version != BOUNDED_FEATURE_PROGRAM_SEMANTIC_VERSION_V1
-        || proposal.catalog_semantic_version != BOUNDED_FEATURE_CATALOG_SEMANTIC_VERSION_V1
-        || proposal.catalog_digest.as_bytes() != &catalog.identity()
+        || proposal.catalog_semantic_version != catalog.semantic_version()
+        || proposal.catalog_digest.as_bytes() != &catalog.semantic_digest()
         || proposal.first_party_sdk_source_digest.as_bytes() == &[0; 32]
         || proposal.research_request_identity != design.research_request_identity
         || proposal.intent_identity != design.intent_identity
@@ -3296,11 +3313,7 @@ pub(crate) mod tests {
         }
     }
 
-    pub(crate) fn candidate() -> (
-        StrategyDesignV2,
-        BoundedFeatureProgramProposalV1,
-        PrimitiveCatalogV1,
-    ) {
+    pub(crate) fn candidate() -> (StrategyDesignV2, BoundedFeatureProgramProposalV1) {
         let design = design();
         let catalog = PrimitiveCatalogV1::verify().unwrap();
         let (design_identity, design_digest) = match prepare_strategy_design_v2(&design) {
@@ -3422,7 +3435,7 @@ pub(crate) mod tests {
             plugin_semantic_id: PLUGIN.into(),
             plugin_manifest_digest: plugin_manifest_digest(manifest),
             catalog_semantic_version: BOUNDED_FEATURE_CATALOG_SEMANTIC_VERSION_V1,
-            catalog_digest: BindingDigest::from_untrusted_bytes(catalog.identity()),
+            catalog_digest: BindingDigest::from_untrusted_bytes(catalog.semantic_digest()),
             first_party_sdk_source_digest:
                 crate::bounded_feature_program_lowerer_v1::first_party_bfp_sdk_source_digest_v1(),
             inputs: vec![BoundedFeatureInputV1 {
@@ -3535,17 +3548,13 @@ pub(crate) mod tests {
                 max_invocations_per_event: manifest.max_invocations_per_event,
             },
         };
-        (design, proposal, catalog)
+        (design, proposal)
     }
 
     fn swing_candidate(
         primitive_semantic_id: &str,
-    ) -> (
-        StrategyDesignV2,
-        BoundedFeatureProgramProposalV1,
-        PrimitiveCatalogV1,
-    ) {
-        let (design, mut proposal, catalog) = candidate();
+    ) -> (StrategyDesignV2, BoundedFeatureProgramProposalV1) {
+        let (design, mut proposal) = candidate();
         let input_role_identity = proposal.inputs[0].input_role_identity;
         let parameters = BoundedFeatureParametersV1::Window {
             window: 2,
@@ -3609,13 +3618,13 @@ pub(crate) mod tests {
             port_id: "value".into(),
         };
         input.require_ready = true;
-        (design, proposal, catalog)
+        (design, proposal)
     }
 
     #[rstest::rstest]
     fn canonical_program_round_trips_and_reorders_schema_collections() {
-        let (design, proposal, catalog) = candidate();
-        let prepared = prepare_bounded_feature_program_v1(proposal, &design, catalog).unwrap();
+        let (design, proposal) = candidate();
+        let prepared = prepare_bounded_feature_program_v1(proposal, &design).unwrap();
         assert_eq!(
             prepared.program().proposal_decision_table.branches[0].priority,
             10
@@ -3629,81 +3638,79 @@ pub(crate) mod tests {
                 .manifest_port_id,
             "proposal.position-intent.v1"
         );
-        let parsed =
-            parse_bounded_feature_program_v1(prepared.canonical_bytes(), &design, catalog).unwrap();
+        let parsed = parse_bounded_feature_program_v1(prepared.canonical_bytes(), &design).unwrap();
         assert_eq!(parsed.digest(), prepared.digest());
         assert_eq!(parsed.canonical_bytes(), prepared.canonical_bytes());
     }
 
     #[rstest::rstest]
     fn canonical_decoder_rejects_trailing_bytes_and_tampered_manifest_binding() {
-        let (design, proposal, catalog) = candidate();
-        let prepared =
-            prepare_bounded_feature_program_v1(proposal.clone(), &design, catalog).unwrap();
+        let (design, proposal) = candidate();
+        let prepared = prepare_bounded_feature_program_v1(proposal.clone(), &design).unwrap();
         let mut trailing = prepared.canonical_bytes().to_vec();
         trailing.push(0);
         assert_eq!(
-            parse_bounded_feature_program_v1(&trailing, &design, catalog),
+            parse_bounded_feature_program_v1(&trailing, &design),
             Err(BoundedFeatureProgramErrorV1::NonCanonical)
         );
         let mut tampered = proposal;
         tampered.plugin_manifest_digest = digest(77);
         assert_eq!(
-            prepare_bounded_feature_program_v1(tampered, &design, catalog),
+            prepare_bounded_feature_program_v1(tampered, &design),
             Err(BoundedFeatureProgramErrorV1::Design)
         );
     }
 
     #[rstest::rstest]
     fn decision_branches_canonicalize_by_priority_and_priority_is_meaning() {
-        let (design, proposal, catalog) = candidate();
+        let (design, proposal) = candidate();
         let mut reordered = proposal.clone();
         reordered.proposal_decision_table.branches.reverse();
-        let canonical = prepare_bounded_feature_program_v1(proposal, &design, catalog).unwrap();
-        let reordered = prepare_bounded_feature_program_v1(reordered, &design, catalog).unwrap();
+        let canonical = prepare_bounded_feature_program_v1(proposal, &design).unwrap();
+        let reordered = prepare_bounded_feature_program_v1(reordered, &design).unwrap();
         assert_eq!(canonical.canonical_bytes(), reordered.canonical_bytes());
 
-        let (_, mut changed, _) = candidate();
+        let (_, mut changed) = candidate();
         changed.proposal_decision_table.branches[0].priority = 10;
         changed.proposal_decision_table.branches[1].priority = 20;
-        let changed = prepare_bounded_feature_program_v1(changed, &design, catalog).unwrap();
+        let changed = prepare_bounded_feature_program_v1(changed, &design).unwrap();
         assert_ne!(canonical.canonical_bytes(), changed.canonical_bytes());
     }
 
     #[rstest::rstest]
     fn decision_table_rejects_duplicate_priority_bad_predicate_and_partial_frame() {
-        let (design, mut proposal, catalog) = candidate();
+        let (design, mut proposal) = candidate();
         proposal.proposal_decision_table.branches[1].priority = 20;
         assert_eq!(
-            prepare_bounded_feature_program_v1(proposal, &design, catalog),
+            prepare_bounded_feature_program_v1(proposal, &design),
             Err(BoundedFeatureProgramErrorV1::Terminal)
         );
 
-        let (_, mut proposal, _) = candidate();
+        let (_, mut proposal) = candidate();
         proposal.proposal_decision_table.branches[0].predicate =
             BoundedFeatureValueRefV1::Constant {
                 constant_id: "threshold".into(),
             };
         assert_eq!(
-            prepare_bounded_feature_program_v1(proposal, &design, catalog),
+            prepare_bounded_feature_program_v1(proposal, &design),
             Err(BoundedFeatureProgramErrorV1::Terminal)
         );
 
-        let (_, mut proposal, _) = candidate();
+        let (_, mut proposal) = candidate();
         proposal
             .proposal_decision_table
             .default_frame
             .terminal_outputs
             .pop();
         assert_eq!(
-            prepare_bounded_feature_program_v1(proposal, &design, catalog),
+            prepare_bounded_feature_program_v1(proposal, &design),
             Err(BoundedFeatureProgramErrorV1::Terminal)
         );
     }
 
     #[rstest::rstest]
     fn state_layout_is_sorted_fixed_width_and_encodes_initial_constants() {
-        let (design, mut proposal, catalog) = candidate();
+        let (design, mut proposal) = candidate();
         proposal.constants.push(constant(
             "initial-second",
             BoundedFeatureConstantValueV1::Boolean { value: true },
@@ -3720,7 +3727,7 @@ pub(crate) mod tests {
             },
             max_bytes: 1,
         });
-        let prepared = prepare_bounded_feature_program_v1(proposal, &design, catalog).unwrap();
+        let prepared = prepare_bounded_feature_program_v1(proposal, &design).unwrap();
         let layout = prepared.state_layout();
         assert_eq!(layout.total_bytes(), 2);
         assert_eq!(layout.slots().len(), 2);
@@ -3732,10 +3739,10 @@ pub(crate) mod tests {
         assert_eq!(layout.slots()[1].offset(), 1);
         assert_eq!(layout.slots()[1].initial_bytes(), Some(&[0][..]));
 
-        let (_, mut invalid, _) = candidate();
+        let (_, mut invalid) = candidate();
         invalid.state_cells[0].max_bytes = 2;
         assert_eq!(
-            prepare_bounded_feature_program_v1(invalid, &design, catalog),
+            prepare_bounded_feature_program_v1(invalid, &design),
             Err(BoundedFeatureProgramErrorV1::State)
         );
 
@@ -3750,43 +3757,43 @@ pub(crate) mod tests {
             None
         );
 
-        let (_, mut empty, _) = candidate();
+        let (_, mut empty) = candidate();
         empty.state_cells.clear();
-        let empty = prepare_bounded_feature_program_v1(empty, &design, catalog).unwrap();
+        let empty = prepare_bounded_feature_program_v1(empty, &design).unwrap();
         assert_eq!(empty.state_layout().total_bytes(), 0);
         assert!(empty.state_layout().slots().is_empty());
     }
 
     #[rstest::rstest]
     fn decision_sources_count_toward_edges_and_fanout() {
-        let (design, mut proposal, catalog) = candidate();
+        let (design, mut proposal) = candidate();
         proposal.bounds.max_edges = 36;
         assert_eq!(
-            prepare_bounded_feature_program_v1(proposal, &design, catalog),
+            prepare_bounded_feature_program_v1(proposal, &design),
             Err(BoundedFeatureProgramErrorV1::Bounds)
         );
 
-        let (_, mut proposal, _) = candidate();
+        let (_, mut proposal) = candidate();
         proposal.bounds.max_fan_out = 2;
         assert_eq!(
-            prepare_bounded_feature_program_v1(proposal, &design, catalog),
+            prepare_bounded_feature_program_v1(proposal, &design),
             Err(BoundedFeatureProgramErrorV1::Bounds)
         );
     }
 
     #[rstest::rstest]
     fn caller_cannot_forge_sample_clock_source_or_lifecycle_constant() {
-        let (design, mut proposal, catalog) = candidate();
+        let (design, mut proposal) = candidate();
         proposal.inputs[0].update_clock = BoundedFeatureClockV1::Sample {
             input_role_id: INPUT.into(),
             source_semantic_id: "caller.coordinate.v1".into(),
         };
         assert_eq!(
-            prepare_bounded_feature_program_v1(proposal, &design, catalog),
+            prepare_bounded_feature_program_v1(proposal, &design),
             Err(BoundedFeatureProgramErrorV1::Input)
         );
 
-        let (_, mut proposal, _) = candidate();
+        let (_, mut proposal) = candidate();
         let BoundedFeatureConstantValueV1::PositionIntentV1 { semantic_id } = &mut proposal
             .constants
             .iter_mut()
@@ -3798,14 +3805,14 @@ pub(crate) mod tests {
         };
         *semantic_id = "caller.position.enter.v1".into();
         assert_eq!(
-            prepare_bounded_feature_program_v1(proposal, &design, catalog),
+            prepare_bounded_feature_program_v1(proposal, &design),
             Err(BoundedFeatureProgramErrorV1::Constant)
         );
     }
 
     #[rstest::rstest]
     fn terminal_integer_conversion_is_explicit_exact_and_unit_bound() {
-        let (design, mut proposal, catalog) = candidate();
+        let (design, mut proposal) = candidate();
         proposal
             .constants
             .iter_mut()
@@ -3840,7 +3847,7 @@ pub(crate) mod tests {
             unit: "TICKS".into(),
             scale: 0,
         };
-        assert!(prepare_bounded_feature_program_v1(proposal.clone(), &design, catalog).is_ok());
+        assert!(prepare_bounded_feature_program_v1(proposal.clone(), &design).is_ok());
 
         let terminal = proposal
             .proposal_decision_table
@@ -3854,14 +3861,14 @@ pub(crate) mod tests {
             scale: 0,
         };
         assert_eq!(
-            prepare_bounded_feature_program_v1(proposal, &design, catalog),
+            prepare_bounded_feature_program_v1(proposal, &design),
             Err(BoundedFeatureProgramErrorV1::Terminal)
         );
     }
 
     #[rstest::rstest]
     fn every_input_role_requires_exact_owner_coordinate_even_when_it_is_the_trigger() {
-        let (mut design, proposal, catalog) = candidate();
+        let (mut design, proposal) = candidate();
         assert!(matches!(
             proposal.inputs[0].update_clock,
             BoundedFeatureClockV1::Trigger { .. }
@@ -3870,14 +3877,19 @@ pub(crate) mod tests {
             .input_ports
             .retain(|port| port.value_type != ValueTypeV2::Bytes);
         assert!(matches!(
-            validate_inputs_and_constants(&proposal, &design, &design.plugins[0], catalog),
+            validate_inputs_and_constants(
+                &proposal,
+                &design,
+                &design.plugins[0],
+                PrimitiveCatalogV1::verify().unwrap(),
+            ),
             Err(BoundedFeatureProgramErrorV1::Input)
         ));
     }
 
     #[rstest::rstest]
     fn value_ports_cannot_be_permuted_across_owner_input_roles() {
-        let (mut design, mut proposal, catalog) = candidate();
+        let (mut design, mut proposal) = candidate();
         let mut second_role = design.inputs[0].clone();
         second_role.semantic_id = "research.input.open.v1".into();
         second_role.field_semantic_id = "MARKET_DATA.BAR.OPEN.PRICE.V1".into();
@@ -3953,31 +3965,36 @@ pub(crate) mod tests {
         proposal.inputs[1].value_port_semantic_id = value_port;
 
         assert!(matches!(
-            validate_inputs_and_constants(&proposal, &design, manifest, catalog),
+            validate_inputs_and_constants(
+                &proposal,
+                &design,
+                manifest,
+                PrimitiveCatalogV1::verify().unwrap(),
+            ),
             Err(BoundedFeatureProgramErrorV1::Input)
         ));
     }
 
     #[rstest::rstest]
     fn warmup_contract_is_the_complete_zeroed_keep_frame_with_advanced_state() {
-        let (design, mut proposal, catalog) = candidate();
+        let (design, mut proposal) = candidate();
         proposal.warmup.stop_loss_ticks = 1;
         assert_eq!(
-            prepare_bounded_feature_program_v1(proposal, &design, catalog),
+            prepare_bounded_feature_program_v1(proposal, &design),
             Err(BoundedFeatureProgramErrorV1::Terminal)
         );
 
-        let (design, mut proposal, catalog) = candidate();
+        let (design, mut proposal) = candidate();
         proposal.warmup.target_variant_semantic_id = "kernel.target.position.v1".into();
         assert_eq!(
-            prepare_bounded_feature_program_v1(proposal, &design, catalog),
+            prepare_bounded_feature_program_v1(proposal, &design),
             Err(BoundedFeatureProgramErrorV1::Terminal)
         );
     }
 
     #[rstest::rstest]
     fn lifecycle_variants_are_closed_and_manifest_widths_cover_ascii_semantics() {
-        let (design, mut proposal, catalog) = candidate();
+        let (design, mut proposal) = candidate();
         let BoundedFeatureConstantValueV1::ProtectionVariantV1 { semantic_id } = &mut proposal
             .constants
             .iter_mut()
@@ -3989,7 +4006,7 @@ pub(crate) mod tests {
         };
         *semantic_id = "kernel.protection.stop-loss.v1".into();
         assert_eq!(
-            prepare_bounded_feature_program_v1(proposal, &design, catalog),
+            prepare_bounded_feature_program_v1(proposal, &design),
             Err(BoundedFeatureProgramErrorV1::Constant)
         );
 
@@ -4013,8 +4030,8 @@ pub(crate) mod tests {
             "bfp.swing-high.trailing-full-window.latest-coordinate-tie.v1",
             "bfp.swing-low.trailing-full-window.latest-coordinate-tie.v1",
         ] {
-            let (design, proposal, catalog) = swing_candidate(primitive);
-            let prepared = prepare_bounded_feature_program_v1(proposal, &design, catalog).unwrap();
+            let (design, proposal) = swing_candidate(primitive);
+            let prepared = prepare_bounded_feature_program_v1(proposal, &design).unwrap();
             let swing = prepared
                 .program()
                 .nodes
@@ -4037,7 +4054,7 @@ pub(crate) mod tests {
 
     #[rstest::rstest]
     fn swing_pair_rejects_unguarded_value_and_independent_coordinate_references() {
-        let (design, mut proposal, catalog) =
+        let (design, mut proposal) =
             swing_candidate("bfp.swing-high.trailing-full-window.latest-coordinate-tie.v1");
         proposal
             .nodes
@@ -4050,11 +4067,11 @@ pub(crate) mod tests {
             .unwrap()
             .require_ready = false;
         assert_eq!(
-            prepare_bounded_feature_program_v1(proposal, &design, catalog),
+            prepare_bounded_feature_program_v1(proposal, &design),
             Err(BoundedFeatureProgramErrorV1::Type)
         );
 
-        let (design, mut proposal, catalog) =
+        let (design, mut proposal) =
             swing_candidate("bfp.swing-high.trailing-full-window.latest-coordinate-tie.v1");
         let input = proposal
             .nodes
@@ -4070,11 +4087,11 @@ pub(crate) mod tests {
             port_id: "coordinate".into(),
         };
         assert_eq!(
-            prepare_bounded_feature_program_v1(proposal, &design, catalog),
+            prepare_bounded_feature_program_v1(proposal, &design),
             Err(BoundedFeatureProgramErrorV1::Type)
         );
 
-        let (design, mut proposal, catalog) =
+        let (design, mut proposal) =
             swing_candidate("bfp.swing-high.trailing-full-window.latest-coordinate-tie.v1");
         proposal.proposal_decision_table.branches[0].predicate =
             BoundedFeatureValueRefV1::NodeOutput {
@@ -4082,11 +4099,11 @@ pub(crate) mod tests {
                 port_id: "coordinate".into(),
             };
         assert_eq!(
-            prepare_bounded_feature_program_v1(proposal, &design, catalog),
+            prepare_bounded_feature_program_v1(proposal, &design),
             Err(BoundedFeatureProgramErrorV1::Terminal)
         );
 
-        let (design, mut proposal, catalog) =
+        let (design, mut proposal) =
             swing_candidate("bfp.swing-high.trailing-full-window.latest-coordinate-tie.v1");
         let terminal = &mut proposal
             .proposal_decision_table
@@ -4097,14 +4114,14 @@ pub(crate) mod tests {
             port_id: "coordinate".into(),
         };
         assert_eq!(
-            prepare_bounded_feature_program_v1(proposal, &design, catalog),
+            prepare_bounded_feature_program_v1(proposal, &design),
             Err(BoundedFeatureProgramErrorV1::Terminal)
         );
     }
 
     #[rstest::rstest]
     fn swing_pair_rejects_availability_mismatch_state_sink_and_unconsumed_value() {
-        let (design, mut proposal, catalog) =
+        let (design, mut proposal) =
             swing_candidate("bfp.swing-low.trailing-full-window.latest-coordinate-tie.v1");
         proposal
             .nodes
@@ -4114,11 +4131,11 @@ pub(crate) mod tests {
             .output_ports[0]
             .availability = BoundedFeatureAvailabilityV1::Ready;
         assert_eq!(
-            prepare_bounded_feature_program_v1(proposal, &design, catalog),
+            prepare_bounded_feature_program_v1(proposal, &design),
             Err(BoundedFeatureProgramErrorV1::Type)
         );
 
-        let (design, mut proposal, catalog) =
+        let (design, mut proposal) =
             swing_candidate("bfp.swing-low.trailing-full-window.latest-coordinate-tie.v1");
         let state = proposal
             .state_cells
@@ -4134,11 +4151,11 @@ pub(crate) mod tests {
         };
         state.max_bytes = 308;
         assert_eq!(
-            prepare_bounded_feature_program_v1(proposal, &design, catalog),
+            prepare_bounded_feature_program_v1(proposal, &design),
             Err(BoundedFeatureProgramErrorV1::State)
         );
 
-        let (design, mut proposal, catalog) =
+        let (design, mut proposal) =
             swing_candidate("bfp.swing-low.trailing-full-window.latest-coordinate-tie.v1");
         let input = proposal
             .nodes
@@ -4154,24 +4171,64 @@ pub(crate) mod tests {
         };
         input.require_ready = false;
         assert_eq!(
-            prepare_bounded_feature_program_v1(proposal, &design, catalog),
+            prepare_bounded_feature_program_v1(proposal, &design),
             Err(BoundedFeatureProgramErrorV1::Graph)
+        );
+    }
+
+    /// A program is checked against the catalog version it declares, never the published one.
+    ///
+    /// This is the property that lets a later version be published without reinterpreting an
+    /// earlier freeze: an unpublished declaration fails closed instead of falling back.
+    #[rstest::rstest]
+    fn a_program_is_verified_against_the_catalog_version_it_declares() {
+        let (design, proposal) = candidate();
+        assert!(prepare_bounded_feature_program_v1(proposal.clone(), &design).is_ok());
+
+        let mut unpublished = proposal.clone();
+        unpublished.catalog_semantic_version = 2;
+        assert_eq!(
+            prepare_bounded_feature_program_v1(unpublished, &design),
+            Err(BoundedFeatureProgramErrorV1::Identity)
+        );
+
+        let mut foreign_digest = proposal;
+        foreign_digest.catalog_digest = BindingDigest::from_untrusted_bytes([7; 32]);
+        assert_eq!(
+            prepare_bounded_feature_program_v1(foreign_digest, &design),
+            Err(BoundedFeatureProgramErrorV1::Identity)
+        );
+    }
+
+    /// Stored bytes are read back against the version those exact bytes declare.
+    #[rstest::rstest]
+    fn stored_bytes_are_parsed_against_the_version_those_bytes_declare() {
+        let (design, proposal) = candidate();
+        let canonical = prepare_bounded_feature_program_v1(proposal, &design).unwrap();
+        assert!(parse_bounded_feature_program_v1(canonical.canonical_bytes(), &design).is_ok());
+
+        let mut moved = canonical.program().clone();
+        moved.catalog_semantic_version = 2;
+        let bytes = encode_program(&moved).unwrap();
+        assert_eq!(
+            parse_bounded_feature_program_v1(&bytes, &design),
+            Err(BoundedFeatureProgramErrorV1::Identity)
         );
     }
 
     #[rstest::rstest]
     fn graph_rejects_cycles_and_unconsumed_outputs_before_encoding() {
-        let (design, mut proposal, catalog) = candidate();
+        let (design, mut proposal) = candidate();
         proposal.nodes[0].input_bindings[0].source = BoundedFeatureValueRefV1::NodeOutput {
             node_id: "compare".into(),
             port_id: "value".into(),
         };
         assert_eq!(
-            prepare_bounded_feature_program_v1(proposal, &design, catalog),
+            prepare_bounded_feature_program_v1(proposal, &design),
             Err(BoundedFeatureProgramErrorV1::Graph)
         );
 
-        let (_, mut proposal, _) = candidate();
+        let (_, mut proposal) = candidate();
         proposal.state_cells.clear();
         for branch in &mut proposal.proposal_decision_table.branches {
             branch.predicate = BoundedFeatureValueRefV1::Constant {
@@ -4179,7 +4236,7 @@ pub(crate) mod tests {
             };
         }
         assert_eq!(
-            prepare_bounded_feature_program_v1(proposal, &design, catalog),
+            prepare_bounded_feature_program_v1(proposal, &design),
             Err(BoundedFeatureProgramErrorV1::Graph)
         );
     }

@@ -4054,8 +4054,7 @@ mod postgres_acceptance_tests {
             .await
             .expect("BFP custody rollback");
 
-        let (mut design, mut proposal, catalog) =
-            crate::bounded_feature_program_v1::tests::candidate();
+        let (mut design, mut proposal) = crate::bounded_feature_program_v1::tests::candidate();
         let plugin_semantic_id = proposal.plugin_semantic_id.clone();
         design
             .plugins
@@ -4127,9 +4126,8 @@ mod postgres_acceptance_tests {
                     read_cut,
                     read_cut.saturating_add(1),
                     &rejected_design,
-                    proposal.clone(),
-                    catalog,
-                ),
+                    proposal.clone()
+),
             )
             .await,
             Err(crate::rd_bounded_feature_program_v1::ResearchBoundedFeatureProgramFreezeErrorV1::ResearchCustody)
@@ -4156,9 +4154,8 @@ mod postgres_acceptance_tests {
                 read_cut,
                 committed_at,
                 &design,
-                proposal.clone(),
-                catalog,
-            ),
+                proposal.clone()
+),
         )
         .await
         .expect("successor BFP freeze");
@@ -4177,9 +4174,8 @@ mod postgres_acceptance_tests {
                 read_cut,
                 committed_at,
                 &design,
-                proposal,
-                catalog,
-            ),
+                proposal
+),
         )
         .await
         .expect("exact successor BFP retry");
@@ -4203,9 +4199,8 @@ mod postgres_acceptance_tests {
             crate::rd_bounded_feature_program_v1::read_research_bounded_feature_program_in_transaction_v1(
                 &mut readback,
                 intent.intent_identity(),
-                read_cut,
-                catalog,
-            ),
+                read_cut
+),
         )
         .await
         .expect("successor BFP readback");
@@ -4230,9 +4225,8 @@ mod postgres_acceptance_tests {
                 crate::rd_bounded_feature_program_v1::read_research_bounded_feature_program_in_transaction_v1(
                     &mut tampered,
                     intent.intent_identity(),
-                    read_cut,
-                    catalog,
-                ),
+                    read_cut
+),
             )
             .await,
             Err(crate::rd_bounded_feature_program_v1::ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)
