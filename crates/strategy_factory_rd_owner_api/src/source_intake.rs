@@ -1001,7 +1001,7 @@ mod tests {
             headers.clone(),
         )
         .await;
-        let windmill = resolve(
+        let second_caller = resolve(
             State(state),
             Path("source-request-1".to_string()),
             headers,
@@ -1012,7 +1012,7 @@ mod tests {
         assert_eq!(unauthorized.status(), StatusCode::FORBIDDEN);
         assert_eq!(malformed.status(), StatusCode::BAD_REQUEST);
         assert_eq!(dashboard.status(), StatusCode::ACCEPTED);
-        assert_eq!(windmill.status(), StatusCode::ACCEPTED);
+        assert_eq!(second_caller.status(), StatusCode::ACCEPTED);
         assert_eq!(probe.calls.load(Ordering::SeqCst), 2);
     }
 

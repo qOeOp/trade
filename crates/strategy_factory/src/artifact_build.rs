@@ -340,8 +340,8 @@ impl ArtifactBuildInvocationCustodyV1 {
 
 /// In-process handoff from the R&D Owner to Product Edge.
 ///
-/// The move-only start reservation is never serialized onto the HTTP or
-/// Windmill boundary. Only the execution custody remains observable there.
+/// The move-only start reservation is never serialized onto the HTTP or executor
+/// boundary. Only the execution custody remains observable there.
 #[derive(Debug)]
 pub struct ReservedArtifactBuildInvocationV1 {
     start_reservation: ArtifactInvocationStartReservationV1,
