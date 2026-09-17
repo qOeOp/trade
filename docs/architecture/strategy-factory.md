@@ -418,6 +418,28 @@ This is a deliberate trade. A freeze no longer pins the exact kernel binary that
 exactly the coverage of that version's golden corpus, which the exhaustive per-primitive requirements above
 already fix.
 
+<a id="declared-expressions-and-what-bounds-them"></a>
+
+##### Declared expressions and what bounds them
+
+An indicator does not have to be a primitive. Version 2 publishes one fused rational primitive whose parameter is a
+declared expression: a numerator program and a denominator program over the node's two inputs and integer
+constants, evaluated entirely in I256 with exactly one final rounding. Wilder's update, an initial average and the
+RSI close are that same shape with different programs, so they may be library fragments rather than catalog rows,
+and such a composition reproduces the shipped primitive's value coefficient for coefficient.
+
+That exactness is what a composition of separately rounded nodes cannot reach. Every node output is an
+already-rounded `FixedI128`, so composing Wilder from separate arithmetic nodes rounds three times where the
+primitive rounds once. Exactness rather than expressiveness is what forced indicators into the catalog, and it is
+what a declared expression gives back.
+
+Moving an indicator out of the catalog moves it into the program, so the bounds follow it. **Description bounds**
+limit how long a program is written: nodes, edges, ports, inputs, constants, decision branches and fan-out.
+**Resource bounds** limit what it does: fuel, state bytes, linear memory, invocations per event, window and lag. A
+composition changes the first and not the second, so only the first is recalibrated, and from a measurement of
+admission cost against program size rather than from a guess. Depth stays where it is: it is the meaningful
+structural limit, and indicators sitting beside each other do not add to it.
+
 Each golden is canonical `BoundedFeatureGoldenVectorV1` binary bytes: magic `BFGV` `[u8; 4]`, schema `u16 = 1`,
 reserved-zero `u16`, ASCII vector semantic ID and primitive semantic ID as `u16 length || bytes`, rounding tag
 `u8` (`0 = none`, `1 = TowardZero`, `2 = NearestTiesToEven`), terminal tag `u8` (`0 = READY`, `1 = WARMING`,
@@ -782,7 +804,8 @@ The first future executable corpus is immutable and precommitted. Its single `In
 open/high/low/close price roles plus 1-hour-close and 1-day-close regime-source price roles. Every joined role has
 the same fixed-I128 value type, price unit, and scale; the 1-minute-close role is the explicit trigger. No volume
 role is part of this V1 corpus. On the 1-minute trigger clock it evaluates ATR, RSI, candle geometry, rolling
-swings, and rational Fibonacci range fractions. On the named 1-hour-close and 1-day-close sample clocks it updates
+swings, and rational Fibonacci range fractions, whether as catalog primitives or as declared expressions
+composed over the fused rational primitive. On the named 1-hour-close and 1-day-close sample clocks it updates
 multi-timeframe regime state. The reaction consumes exactly that complete join role set. Bounded holding,
 add-count, high-water and protection state drives a
 continuous event sequence containing `ENTER -> ADD -> REDUCE -> EXIT` and explicit `HOLD`, with dynamic stop-loss,
