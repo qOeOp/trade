@@ -371,6 +371,15 @@ pub struct UntrustedSourceBindingProposal {
     pub time_evidence: UntrustedMarketDataAsOf,
 }
 
+/// Seals the binding identity the Owner derives from a proposal's own content.
+///
+/// Operations has to state the identity Market Data would derive, so the derivation is public. It
+/// confers nothing: the Owner recomputes it on admission and refuses a proposal that claims any
+/// other identity.
+pub fn seal_binding_claim_v1(proposal: &mut UntrustedSourceBindingProposal) {
+    proposal.claimed_binding_id = authority::derive_binding_id(proposal);
+}
+
 /// Untrusted locator used only for exact Owner-store resolution.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct UntrustedSourceBindingLocator {

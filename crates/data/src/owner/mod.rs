@@ -13,6 +13,8 @@ pub mod instrument_master_v2_postgres;
 pub mod native_replay_scheduling_v1;
 pub mod native_replay_scheduling_v2;
 pub mod observation_census;
+pub mod pit_market_snapshot_intake_v1;
+pub mod pit_observation_source_v1;
 pub mod pit_snapshot;
 pub mod replay_market_facts_v2;
 pub mod research_pit_terminal;
@@ -22,11 +24,13 @@ pub mod sample_projection_v4;
 pub mod sealed_replay_input;
 pub mod shared_time_evidence;
 pub mod source_binding;
+pub mod source_binding_admission_v1;
 pub mod strategy_design_role_set;
 pub mod strategy_input_binding;
 pub mod strategy_input_event_corpus_v1;
 pub mod strategy_input_joined_cut;
 pub mod universe_selection;
+pub mod universe_selection_admission_v1;
 
 pub(crate) mod storage_diagnostic;
 

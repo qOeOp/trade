@@ -15,15 +15,18 @@ use super::{
     BindingDigest, MarketDataClockAdmission, MarketDataClockComparisonRule, MarketDataClockCutKind,
     SourceBindingBlocker, SourceBindingError, UntrustedCompleteFrontier,
     UntrustedCredentialAudienceClaim, UntrustedCredentialCapabilityClaim,
-    UntrustedCredentialMaterialClaim, UntrustedMarketDataAsOf, UntrustedOpaqueCredentialHandle,
-    UntrustedSourceBindingLocator, UntrustedSourceBindingLocatorFields,
-    UntrustedSourceBindingProposal,
+    UntrustedCredentialMaterialClaim, UntrustedMarketDataAsOf, UntrustedMarketSemantics,
+    UntrustedOpaqueCredentialHandle, UntrustedSourceBindingLocator,
+    UntrustedSourceBindingLocatorFields, UntrustedSourceBindingProposal,
 };
 
 const IDENTITY_DOMAIN: &[u8] = b"vibe.market-data.source-binding.identity.v1";
 const TIME_IDENTITY_DOMAIN: &[u8] = b"vibe.market-data.source-binding.time-evidence.v1";
 const FACT_DOMAIN: &[u8] = b"vibe.market-data.source-binding.fact.v1";
 const OUTBOX_DOMAIN: &[u8] = b"vibe.market-data.source-binding.outbox.v1";
+const CLOCK_CONTINUITY_DOMAIN: &[u8] = b"vibe.market-data.owner-clock.continuity.v1";
+const SEMANTICS_COMPATIBILITY_DOMAIN: &[u8] =
+    b"vibe.market-data.source-binding.semantics-compatibility.v1";
 const OWNER_ID: &str = "MARKET_DATA";
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -582,6 +585,83 @@ pub(crate) fn verify_stored_aggregate(value: &SourceBindingStoredAggregate) -> b
 
 pub(crate) fn derive_binding_id(proposal: &UntrustedSourceBindingProposal) -> BindingDigest {
     digest(&canonical_semantic_bytes(proposal))
+}
+
+/// Seals one Owner-minted clock admission for a commit.
+///
+/// The Owner mints its own cut rather than accepting one: a caller that chose the decision cut
+/// would be choosing when its own evidence counted as observed. The continuity digest is derived
+/// from the clock identity and epoch alone, so it survives a restart inside the same epoch, which
+/// is exactly what a restart-continuity witness has to do.
+pub(crate) fn seal_owner_clock_admission_v1(
+    clock_identity: &str,
+    clock_epoch: &str,
+    monotonic_sequence: u64,
+    observed_ns: u64,
+    validity_window_ns: u64,
+    uncertainty_bound: u64,
+    skew_bound: u64,
+) -> Option<MarketDataClockAdmission> {
+    let valid_through = observed_ns.checked_add(validity_window_ns)?;
+    let admission = MarketDataClockAdmission {
+        cut_kind: MarketDataClockCutKind::MarketDataAsOf,
+        clock_identity: clock_identity.to_string(),
+        clock_epoch: clock_epoch.to_string(),
+        monotonic_sequence,
+        wall_observed: observed_ns,
+        decision_cut: observed_ns,
+        valid_through,
+        restart_continuity_digest: derive_clock_continuity_digest_v1(clock_identity, clock_epoch),
+        uncertainty_bound,
+        skew_bound,
+        comparison_rule: MarketDataClockComparisonRule::ExclusiveValidThrough,
+    };
+    admission.is_complete().then_some(admission)
+}
+
+/// Derives the restart-continuity digest for one clock identity and epoch.
+pub(crate) fn derive_clock_continuity_digest_v1(
+    clock_identity: &str,
+    clock_epoch: &str,
+) -> BindingDigest {
+    let mut encoder = Encoder::new(CLOCK_CONTINUITY_DOMAIN);
+    encoder.string(clock_identity);
+    encoder.string(clock_epoch);
+    digest(&encoder.finish())
+}
+
+/// Derives the Market Semantics Compatibility identity an admitted Source Binding implies.
+///
+/// The identity covers exactly the input-meaning rules the document binds to it: normalization,
+/// adjustment, price and timestamp meaning, calendar, session and time-zone rules, instrument
+/// lifecycle, corporate actions, historical membership, universe evaluation and correction policy.
+/// License scope is deliberately excluded: redistribution rights change what a consumer may do with
+/// a value, never what the value means, and folding them in would make two semantically identical
+/// sources incompatible.
+///
+/// A historical snapshot and a live stream carry the same identity exactly when they carry the same
+/// meaning, which is what lets a consumer reject a silent normalization change at deployment.
+pub(crate) fn derive_market_semantics_compatibility_identity_v1(
+    semantics: &UntrustedMarketSemantics,
+) -> BindingDigest {
+    let mut encoder = Encoder::new(SEMANTICS_COMPATIBILITY_DOMAIN);
+
+    for value in [
+        &semantics.normalization,
+        &semantics.adjustment,
+        &semantics.price_meaning,
+        &semantics.calendar_rules,
+        &semantics.session_rules,
+        &semantics.timezone_rules,
+        &semantics.instrument_lifecycle_rules,
+        &semantics.corporate_action_rules,
+        &semantics.membership_rules,
+        &semantics.universe_rules,
+        &semantics.correction_policy,
+    ] {
+        encoder.string(value);
+    }
+    digest(&encoder.finish())
 }
 
 pub(crate) fn derive_time_evidence_identity(time: &UntrustedMarketDataAsOf) -> BindingDigest {

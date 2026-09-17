@@ -17,6 +17,8 @@
 
 use std::fmt::Display;
 
+use serde::{Deserialize, Serialize};
+
 use super::source_binding::BindingDigest;
 
 pub(super) mod authority;
@@ -125,7 +127,7 @@ impl UntrustedUniverseSelectionRequestV1 {
 }
 
 /// Exact identity/meaning pair used for response-loss recovery.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct UntrustedUniverseSelectionLocatorV1 {
     request_identity: UniverseSelectionIdentity,
     request_meaning_digest: UniverseSelectionIdentity,
