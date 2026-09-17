@@ -1490,7 +1490,8 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
         "REVOKE ALL ON SCHEMA rd_owner_api FROM market_data_owner, market_data_reader",
         // Both Market Data principals reach one R&D function each and nothing else: the Owner locks
         // an exploratory replay request, and the reader resolves a published Design role intent.
-        // This is the last word on the schema, so it grants what each of them still needs.
+        // The deployment's own authority migration states the same pair, because it runs after this
+        // materializer and would otherwise take the reader's usage back.
         "GRANT USAGE ON SCHEMA rd_owner_api TO market_data_owner, market_data_reader",
     ] {
         sqlx::query(statement)
