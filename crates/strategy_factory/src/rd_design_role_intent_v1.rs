@@ -75,3 +75,81 @@ pub(crate) fn derive_design_role_intent_v1(
         project_design_role_entries_v1(&design.inputs),
     )?)
 }
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vibe_data::owner::source_binding::BindingDigest;
+
+    use super::{DesignRoleIntentErrorV1, derive_design_role_intent_v1};
+    use crate::{
+        bounded_feature_program_v1::tests::candidate,
+        develop_composer_v2::CurrentResearchDevelopCustodyV2,
+        strategy_plan_v2::project_design_role_entries_v1,
+    };
+
+    #[rstest]
+    fn the_published_intent_carries_the_custody_and_the_design_it_was_derived_from() {
+        let (design, _) = candidate();
+        let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
+
+        let intent = derive_design_role_intent_v1(&custody, &design).unwrap();
+
+        assert_eq!(
+            intent.research_request_identity(),
+            custody.research_request_identity()
+        );
+        assert_eq!(intent.intent_identity(), custody.intent_identity());
+        assert_eq!(intent.research_custody_digest(), custody.custody_digest());
+        assert_eq!(
+            intent.roles(),
+            project_design_role_entries_v1(&design.inputs)
+        );
+        assert!(!intent.roles().is_empty());
+    }
+
+    #[rstest]
+    fn a_design_reordered_but_not_changed_publishes_the_same_intent() {
+        let (design, _) = candidate();
+        let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
+        let mut reordered = design.clone();
+        reordered.reactions.reverse();
+        assert_ne!(
+            reordered.reactions, design.reactions,
+            "the fixture must carry more than one reaction for this to permute anything"
+        );
+
+        let intent = derive_design_role_intent_v1(&custody, &design).unwrap();
+        let reordered_intent = derive_design_role_intent_v1(&custody, &reordered).unwrap();
+
+        assert_eq!(intent.design_identity(), reordered_intent.design_identity());
+        assert_eq!(intent.intent_digest(), reordered_intent.intent_digest());
+        assert_eq!(intent.canonical_bytes(), reordered_intent.canonical_bytes());
+    }
+
+    #[rstest]
+    fn a_design_from_other_research_is_refused_rather_than_rewritten() {
+        let (design, _) = candidate();
+        let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
+        let mut spliced = design;
+        spliced.intent_digest = BindingDigest::from_untrusted_bytes([99; 32]);
+
+        assert_eq!(
+            derive_design_role_intent_v1(&custody, &spliced),
+            Err(DesignRoleIntentErrorV1::Custody)
+        );
+    }
+
+    #[rstest]
+    fn a_design_that_does_not_prepare_has_no_identity_to_publish_under() {
+        let (design, _) = candidate();
+        let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
+        let mut unprepared = design;
+        unprepared.falsifier = String::new();
+
+        assert_eq!(
+            derive_design_role_intent_v1(&custody, &unprepared),
+            Err(DesignRoleIntentErrorV1::Design)
+        );
+    }
+}
