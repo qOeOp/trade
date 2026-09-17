@@ -78,9 +78,14 @@ jobs:
           set -euo pipefail
           if [[ "$EVENT_NAME" == pull_request ]]; then
             [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
-            test "$BASE_SHA" = "$(git rev-parse --verify "refs/remotes/origin/${BASE_REF}^{commit}")"
+            # Take the plan from the base branch, never from the pull request: the head is the
+            # untrusted side. Read it at the branch tip rather than at BASE_SHA. BASE_SHA is
+            # frozen in the event payload, so it goes stale the moment anything lands on the
+            # base, and pinning to it refused every open pull request with a bare exit 1.
+            # scripts/ci/plan.sh already merge-bases BASE_SHA against HEAD, so the tip's copy
+            # selects the same jobs while always being the plan the base branch has in force.
             trusted_plan="${RUNNER_TEMP}/ci-plan.sh"
-            git show "${BASE_SHA}:scripts/ci/plan.sh" > "$trusted_plan"
+            git show "refs/remotes/origin/${BASE_REF}:scripts/ci/plan.sh" > "$trusted_plan"
             bash "$trusted_plan"
           else
             bash scripts/ci/plan.sh
