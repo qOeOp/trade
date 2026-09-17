@@ -422,7 +422,7 @@ jobs:
         && (github.ref_name == 'main' || github.ref_name == 'test-ci')
         && 'ci-pr'
         || 'nextest' }}
-      CARGO_TARGET_DIR: target/rust-doctests-linux-x86
+      CARGO_TARGET_DIR: target/rust-tests-linux-x86
       RUST_BACKTRACE: 1
     steps:
       # https://github.com/step-security/harden-runner
@@ -452,14 +452,18 @@ jobs:
           free-disk-space: "true"
           free-disk-space-max-build: ${{ runner.environment == 'github-hosted' && 'true' || 'false' }}
           rust-cache-enabled: ${{ runner.environment == 'github-hosted' && 'true' || 'false' }}
+          # Doctests select a narrower feature set than `rust tests`, so the crates that differ
+          # still rebuild here. The third-party dependency graph does not differ, and that is what
+          # a cold build spends its time on, so this shares the `rust tests` cache identity and
+          # restores only rather than keeping a second multi-GB copy of an equivalent directory.
           rust-cache-key: >-
-            rust-doctests-linux-x86-${{ env.CARGO_CI_PROFILE }}-
+            rust-tests-linux-x86-${{ env.CARGO_CI_PROFILE }}-
             ${{ hashFiles('.github/workflows/build.yml',
             '.github/actions/common-setup/action.yml', 'Cargo.lock',
-            'rust-toolchain.toml', 'Makefile') }}
-          rust-cache-workspaces: . -> target/rust-doctests-linux-x86
+            'rust-toolchain.toml', '.config/nextest.toml', 'Makefile') }}
+          rust-cache-workspaces: . -> target/rust-tests-linux-x86
           rust-cache-on-failure: "false"
-          rust-cache-save-if: ${{ github.event_name == 'push' }}
+          rust-cache-save-if: "false"
           rust-cache-workspace-crates: "true"
 
       - name: Limit Cargo build jobs on GitHub-hosted runners
