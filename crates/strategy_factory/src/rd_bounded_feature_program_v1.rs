@@ -175,10 +175,6 @@ async fn current_research_custody(
         .map_err(|_| ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)
 }
 
-#[allow(
-    dead_code,
-    reason = "durable BFP readback awaits its tagged V3 build and durable Composer consumer"
-)]
 pub(crate) async fn read_research_bounded_feature_program_in_transaction_v1(
     transaction: &mut Transaction<'_, Postgres>,
     request_locator: &str,

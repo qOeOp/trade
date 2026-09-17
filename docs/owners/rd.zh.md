@@ -92,8 +92,13 @@ trading effect。
 **CURRENT_PARTIAL - R&D 联合冻结写入路径：** R&D Owner 现在具备持久 PostgreSQL 组合根与一条带鉴权的路由
 `POST /v1/bounded-feature-programs/freeze`。它对照当前已接纳的 Research custody 与钉定的 primitive catalog
 接纳被声明的 `StrategyDesignV2` 与 `BoundedFeatureProgramProposalV1`，恰好写入一行联合冻结及其 outbox
-event，并对同一 Research identity 的不同含义以 conflict 回应。以上其余部分一律不变：持久 V3 readback、
-V3 producer 与降级后的 plugin 仍为 TARGET，因此被冻结的 program 目前仍无生产消费者。
+event，并对同一 Research identity 的不同含义以 conflict 回应。同一个组合根还会把这份冻结对读回并降级，
+因此被冻结的 program 现在经由生产路径产出规范的第一方 ABI3 源码，而不再只存在于 sealed 验收内部。
+
+**CURRENT_PARTIAL - 降级出的源码不是可执行物：** 该降级不带 build receipt、不带 Wasm、不带 Artifact，
+也不带任何 qualification 含义。它只证明冻结 program、钉定的 `vibe-indicators-kernel` catalog
+与第一方 SDK 恰好产出那些字节，以及被篡改的存储字节会关闭该路径。V3 build、持久 Composer RUN
+及其下游一律仍为 TARGET。
 
 TARGET V1 catalog 是原子整体，不是 primitive name 菜单：fixed I128 scale 最大为 38，rescale 必须显式，
 rounding mode 只有 `TowardZero` 与 `NearestTiesToEven`，每项 operation 使用一个准确 I256 expression 并只做

@@ -4996,6 +4996,44 @@ mod tests {
         .unwrap();
         assert_eq!(settled, (1, 1));
 
+        // The frozen program must lower to canonical first-party source through the same
+        // production root, and lower identically when asked twice.
+        let lowered = composition_root
+            .lower(&request_identity)
+            .await
+            .expect("frozen program lowers");
+        assert_eq!(
+            lowered.joint_freeze_digest,
+            expected_digest_text(committed.joint_freeze_digest())
+        );
+        assert_eq!(
+            lowered.program_digest,
+            expected_digest_text(committed.program_digest())
+        );
+        assert_eq!(
+            lowered.plugin_manifest_digest,
+            expected_digest_text(committed.plugin_manifest_digest())
+        );
+        assert!(!lowered.source_files.is_empty());
+        assert!(
+            lowered
+                .source_files
+                .iter()
+                .all(|file| !file.path.is_empty() && !file.source.is_empty())
+        );
+        // The lowering is executable ABI3 source, not a stub.
+        assert!(
+            lowered
+                .source_files
+                .iter()
+                .any(|file| file.source.contains("strategy_factory_plugin_invoke_v2"))
+        );
+        let relowered = composition_root
+            .lower(&request_identity)
+            .await
+            .expect("frozen program lowers again");
+        assert_eq!(relowered, lowered);
+
         sqlx::query(
             "UPDATE rd_bounded_feature_program_freezes_v1
                 SET program_bytes=program_bytes || decode('00','hex')
@@ -5017,6 +5055,13 @@ mod tests {
             Err(crate::rd_bounded_feature_program_v1::ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)
         );
         tampered.rollback().await.unwrap();
+
+        // Tampered stored bytes must close the production lowering path as well, since the
+        // lowerer reaches them only through the same verifying readback.
+        assert!(matches!(
+            composition_root.lower(&request_identity).await,
+            Err(crate::rd_bounded_feature_program_postgres_v1::ResearchBoundedFeatureProgramLoweringErrorV1::Unavailable)
+        ));
     }
 
     fn expected_digest_text(digest: BindingDigest) -> String {

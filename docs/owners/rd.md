@@ -106,9 +106,14 @@ trading effect.
 composition root and one authenticated route, `POST /v1/bounded-feature-programs/freeze`. It admits a
 declared `StrategyDesignV2` and `BoundedFeatureProgramProposalV1` against currently accepted Research
 custody and the pinned primitive catalog, writes exactly one joint-freeze row with its outbox event, and
-answers a changed meaning for the same Research identity with a conflict. Nothing else above moves: the
-durable V3 readback, the V3 producer and the lowered plugin stay TARGET, so a frozen program still has no
-production consumer.
+answers a changed meaning for the same Research identity with a conflict. The same root also reads that
+frozen pair back and lowers it, so a frozen program now yields canonical first-party ABI3 source through a
+production path rather than only inside sealed acceptance.
+
+**CURRENT_PARTIAL - lowered source is not an executable:** the lowering carries no build receipt, no Wasm,
+no Artifact and no qualification meaning. It proves only that the frozen program, the pinned
+`vibe-indicators-kernel` catalog and the first-party SDK produce exactly those bytes, and that tampered
+stored bytes close the path. The V3 build, the durable Composer RUN and everything downstream stay TARGET.
 
 The TARGET V1 catalog is atomic rather than a menu of names: fixed I128 scale is at most 38, rescale is explicit,
 the only rounding modes are `TowardZero` and `NearestTiesToEven`, and each operation uses one exact I256 expression
