@@ -5242,8 +5242,7 @@ pub(crate) mod tests {
     async fn run_declared_bounded_feature_program_assembly(coverage: ComposerRunCoverageV1) {
         use vibe_data::owner::bar_joined_cut_acceptance_v1::{
             UntrustedBarJoinedCutAcceptanceDesignClaimsV1,
-            complete_owner_bar_joined_cut_acceptance_fixture_v1,
-            prepare_owner_bar_joined_cut_acceptance_basis_v1,
+            register_bar_joined_cut_declarations_for_published_design_v1,
         };
 
         use crate::{
@@ -5361,40 +5360,34 @@ pub(crate) mod tests {
                 .map(crate::strategy_plan_v2::strategy_input_role_identity_v2)
                 .expect("the six-role bounded Design carries every fixed BAR role")
         });
-        let basis = Box::pin(prepare_owner_bar_joined_cut_acceptance_basis_v1(
-            &market_data_database_url,
-            UntrustedBarJoinedCutAcceptanceDesignClaimsV1 {
-                research_request_identity: design.research_request_identity,
-                strategy_design_identity: design_identity,
-                input_role_identities,
-            },
-        ))
-        .await
-        .expect("the Market Data Owner prepares the six BAR strategy input bindings");
-
-        // Preparing the basis computes the bindings and writes no registry declaration. Persisting
-        // them is phase two, and without it this Design resolves to no PIT coordinate, so the
-        // assembly below refuses with `MarketDataUnavailable` before reaching any Owner custody.
-        //
-        // Phase two takes the authenticated R&D role set, because the Owner will not register
-        // against an attestation that does not exist. The role set is projected from a sealed
-        // Composer readback of this Design rather than assembled here, so the role semantics it
-        // carries are exactly the ones the basis issued custody for.
-        let (plan, artifact) = joined_plan_and_artifact(design.clone(), basis.input_bindings());
-        let composer = issue_sealed_develop_composer_readback_for_acceptance_v2(&plan, &artifact)
-            .expect("the sealed Composer readback issues for the six-role BAR plan");
-        let role_set = issue_strategy_design_role_set_for_acceptance_v1(&composer)
-            .expect("the Composer readback projects the six-role BAR role set");
-        Box::pin(complete_owner_bar_joined_cut_acceptance_fixture_v1(
-            basis, role_set,
-        ))
-        .await
-        .expect("the Market Data Owner issues the six BAR strategy input bindings");
-
+        let claims = UntrustedBarJoinedCutAcceptanceDesignClaimsV1 {
+            research_request_identity: design.research_request_identity,
+            strategy_design_identity: design_identity,
+            input_role_identities,
+        };
         let composition_root = PostgresResearchBoundedFeatureProgramOwnerV1::with_clock(
             owner.pool.clone(),
             std::sync::Arc::new(move || read_cut),
         );
+
+        // Nothing has attested this Design, and nothing can: the Composer operation that would
+        // attest it runs over a program whose identity folds in the binding receipts the
+        // registration below issues. So R&D publishes what it knows about the Design, and Market
+        // Data binds it to the acceptance corpus this store already carries.
+        let published = composition_root
+            .publish_design_role_intent(&request_identity, &design)
+            .await
+            .expect("R&D publishes what it knows about the Design it admitted");
+        assert_eq!(published.design_identity(), design_identity);
+        Box::pin(
+            register_bar_joined_cut_declarations_for_published_design_v1(
+                &market_data_database_url,
+                &claims,
+                &published,
+            ),
+        )
+        .await
+        .expect("the published Design reaches the Owner's Strategy Input declarations");
         let meaning = six_role_bar_bounded_feature_meaning_v1(&design);
         let declaration = ResearchBoundedFeatureProgramDeclarationV1 {
             research_request_locator: request_identity.clone(),
