@@ -4978,6 +4978,77 @@ pub(crate) mod tests {
             owner.pool.clone(),
             std::sync::Arc::new(move || read_cut),
         );
+
+        // The one statement this Owner can make about a Design without a program. It is what opens
+        // a Design's first cycle, so it is proven here against the same accepted custody the freeze
+        // above used, and before any program exists for this Design.
+        let published = composition_root
+            .publish_design_role_intent(&request_identity, &design)
+            .await
+            .expect("R&D publishes what it knows about the Design it admitted");
+        assert_eq!(published.design_identity(), design_identity);
+        assert_eq!(published.design_digest(), design_digest);
+        assert_eq!(
+            published.research_request_identity(),
+            custody.research_request_identity()
+        );
+        assert_eq!(published.intent_identity(), custody.intent_identity());
+        assert_eq!(
+            published.research_custody_digest(),
+            custody.custody_digest()
+        );
+        assert_eq!(
+            published.roles(),
+            crate::strategy_plan_v2::project_design_role_entries_v1(&design.inputs)
+        );
+
+        // Publication is write-once per Design: the second call returns what is stored rather than
+        // what was offered, so a lost acknowledgement is safe to retry.
+        assert_eq!(
+            composition_root
+                .publish_design_role_intent(&request_identity, &design)
+                .await
+                .expect("republishing the same Design returns the stored publication"),
+            published
+        );
+        let published_rows: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM rd_design_role_intents_v1 WHERE design_identity=$1",
+        )
+        .bind(published.design_identity().as_bytes().as_slice())
+        .fetch_one(&owner.pool)
+        .await
+        .unwrap();
+        assert_eq!(published_rows, 1);
+
+        // A Design this Research custody does not back is refused rather than rewritten, because
+        // rewriting it here would publish a statement no custody stands behind.
+        let mut foreign = design.clone();
+        foreign.intent_digest = BindingDigest::from_untrusted_bytes([99; 32]);
+        assert!(matches!(
+            composition_root
+                .publish_design_role_intent(&request_identity, &foreign)
+                .await,
+            Err(crate::rd_bounded_feature_program_postgres_v1::ResearchBoundedFeatureProgramOwnerErrorV1::Design)
+        ));
+
+        // A locator with no currently accepted Research custody publishes nothing at all.
+        assert!(matches!(
+            composition_root
+                .publish_design_role_intent(&format!("{request_identity}-absent"), &design)
+                .await,
+            Err(crate::rd_bounded_feature_program_postgres_v1::ResearchBoundedFeatureProgramOwnerErrorV1::ResearchCustody)
+        ));
+        // Scoped to this Research request: the chain shares one database, and other entries publish
+        // their own Designs into the same table.
+        let stored_publications: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM rd_design_role_intents_v1 WHERE research_request_identity=$1",
+        )
+        .bind(custody.research_request_identity().as_bytes().as_slice())
+        .fetch_one(&owner.pool)
+        .await
+        .unwrap();
+        assert_eq!(stored_publications, 1);
+
         let replayed = composition_root
             .freeze(crate::rd_bounded_feature_program_postgres_v1::ResearchBoundedFeatureProgramFreezeRequestV1 {
                 research_request_locator: request_identity.clone(),
