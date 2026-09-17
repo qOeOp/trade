@@ -99,6 +99,14 @@ pub struct BoundedFeatureInputV1 {
 #[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
 pub enum BoundedFeatureConstantValueV1 {
     FixedI128 {
+        /// Signed fixed-point coefficient, carried on the wire as a decimal string.
+        ///
+        /// `serde_json` is built here without `arbitrary_precision`, so an `i128` cannot cross it
+        /// at all: a program holding one could be serialized and never parsed back. The canonical
+        /// program encoding is a binary codec and is unaffected either way, so representing the
+        /// coefficient as a string costs nothing and is what lets a declared program reach an Owner
+        /// as JSON.
+        #[serde(with = "fixed_coefficient_text_v1")]
         coefficient: i128,
         unit: String,
         scale: u8,
@@ -259,6 +267,32 @@ pub struct BoundedFeatureStateCellV1 {
     pub state_kind: BoundedFeatureStateKindV1,
     pub initial: BoundedFeatureInitialStateV1,
     pub max_bytes: u32,
+}
+
+/// Carries a fixed-point coefficient as a decimal string so that it survives JSON.
+///
+/// Rejects anything but an exact `i128` in canonical form: no leading `+`, no leading zeros beyond
+/// a bare `0`, no whitespace. A coefficient that round-trips to different text would make two
+/// declarations of the same program differ on the wire while agreeing in canonical bytes.
+mod fixed_coefficient_text_v1 {
+    use serde::{Deserialize as _, Deserializer, Serializer, de::Error as _};
+
+    pub(super) fn serialize<S: Serializer>(value: &i128, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&value.to_string())
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<i128, D::Error> {
+        let text = <&str>::deserialize(deserializer)?;
+        let value: i128 = text
+            .parse()
+            .map_err(|_| D::Error::custom("fixed coefficient is not an exact i128"))?;
+        if value.to_string() != text {
+            return Err(D::Error::custom("fixed coefficient is not canonical text"));
+        }
+        Ok(value)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
