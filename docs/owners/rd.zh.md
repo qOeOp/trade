@@ -179,9 +179,13 @@ Bounded Feature Program，从这对冻结值导出 Composer 请求，按 Market 
 把冻结的 hypothesis、mechanism 与 falsification question 变成可执行 `StrategyDesignV2`
 不是这个 Owner 施加的规则，而是它接纳的一份声明，下面的契约写明这份 Design 由谁撰写。
 
-**TARGET：** 这条生产入口的隔离 PostgreSQL 验收、已部署 Owner 就绪度，以及跨进程重启恢复。
-该组合已装配并通过静态检查；尚无一次性 PostgreSQL 运行端到端跑过它，
-因此其成熟度是 `declared` 而非 `dynamic`。
+这条入口的绑定那一半是 `dynamic`。隔离 R&D Owner PostgreSQL 链路会针对 Market Data Owner
+经自身验收 basis 签发的绑定，声明并冻结一个六角色 BAR program，再用 RUN 所用的同一个生产
+绑定 Owner 解析该冻结对，并要求每个已声明角色恰好对应一份回执。
+
+**TARGET：** RUN 验收本身 - 对降级源码的两次字节一致构建、带标签的 V3 回执，
+以及在单个事务内提交全部正向 Composer 事实 - 外加已部署 Owner 就绪度与跨进程重启恢复。
+尚无一次性 PostgreSQL 运行把这条入口带过绑定之后，因此 RUN 仍为 `declared`。
 
 ### CURRENT_PARTIAL - Strategy Design 由谁撰写
 

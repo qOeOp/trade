@@ -509,6 +509,11 @@ fn issue_exact_instrument_bar_frame_for_compile_time_corpus(
 ///
 /// This acceptance-only function performs no PostgreSQL, provider, network, or trading effect and
 /// accepts no request field from its caller.
+///
+/// # Errors
+///
+/// Fails closed if the fixed fixture claim fails Source Binding admission, PIT preparation, or
+/// Shared Time head advance.
 pub fn issue_market_data_repair_evidence_v1()
 -> Result<SealedAcceptanceMarketDataRepairEvidenceV1, SealedAcceptanceError> {
     let source_clock = clock();
