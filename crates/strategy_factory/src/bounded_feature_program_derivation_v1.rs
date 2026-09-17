@@ -42,11 +42,11 @@ use vibe_indicators_kernel::PrimitiveCatalogV1;
 use crate::{
     bounded_feature_program_lowerer_v1::first_party_bfp_sdk_source_digest_v1,
     bounded_feature_program_v1::{
-        BOUNDED_FEATURE_CATALOG_SEMANTIC_VERSION_V1, BOUNDED_FEATURE_PROGRAM_SCHEMA_V1,
-        BOUNDED_FEATURE_PROGRAM_SEMANTIC_VERSION_V1, BoundedFeatureBoundsV1, BoundedFeatureClockV1,
-        BoundedFeatureConstantV1, BoundedFeatureInputV1, BoundedFeatureNodeV1,
-        BoundedFeatureProgramProposalV1, BoundedFeatureProposalDecisionTableV1,
-        BoundedFeatureStateCellV1, BoundedFeatureWarmupContractV1,
+        BOUNDED_FEATURE_PROGRAM_SCHEMA_V1, BOUNDED_FEATURE_PROGRAM_SEMANTIC_VERSION_V1,
+        BoundedFeatureBoundsV1, BoundedFeatureClockV1, BoundedFeatureConstantV1,
+        BoundedFeatureInputV1, BoundedFeatureNodeV1, BoundedFeatureProgramProposalV1,
+        BoundedFeatureProposalDecisionTableV1, BoundedFeatureStateCellV1,
+        BoundedFeatureWarmupContractV1,
     },
     strategy_design_v2::StrategyDesignV2,
     strategy_plan_v2::{
@@ -251,7 +251,10 @@ pub(crate) fn derive_bounded_feature_program_proposal_v1(
         design_digest,
         plugin_semantic_id: meaning.plugin_semantic_id.clone(),
         plugin_manifest_digest: plugin_manifest_digest(manifest),
-        catalog_semantic_version: BOUNDED_FEATURE_CATALOG_SEMANTIC_VERSION_V1,
+        // The version actually assembled against, not a constant. The catalog is published per
+        // semantic version, so a proposal that named a fixed one would claim a provenance it might
+        // not have.
+        catalog_semantic_version: catalog.semantic_version(),
         catalog_digest: BindingDigest::from_untrusted_bytes(catalog.identity()),
         first_party_sdk_source_digest: first_party_bfp_sdk_source_digest_v1(),
         inputs,
@@ -353,10 +356,10 @@ mod tests {
     /// plugin manifest.
     #[rstest]
     fn derivation_reproduces_a_known_good_proposal() {
-        let (design, expected, catalog) = crate::bounded_feature_program_v1::tests::candidate();
+        let (design, expected) = crate::bounded_feature_program_v1::tests::candidate();
         let derived = derive_bounded_feature_program_proposal_v1(
             &design,
-            catalog,
+            PrimitiveCatalogV1::verify().expect("a published catalog verifies"),
             &meaning_of(&expected),
             &bindings_of(&design, &expected),
         )
@@ -372,7 +375,7 @@ mod tests {
     /// meaning nothing here can admit, and would do it silently.
     #[rstest]
     fn declared_input_meaning_round_trips_and_rejects_what_it_does_not_name() {
-        let (_design, proposal, _catalog) = crate::bounded_feature_program_v1::tests::candidate();
+        let (_design, proposal) = crate::bounded_feature_program_v1::tests::candidate();
         let declared = meaning_of(&proposal).inputs.remove(0);
 
         let bytes = serde_json::to_vec(&declared).expect("declared input meaning serializes");
@@ -399,7 +402,7 @@ mod tests {
     /// the whole type unusable as a request body. The coefficient is carried as a string instead.
     #[rstest]
     fn declared_meaning_round_trips_with_a_fixed_constant() {
-        let (_design, proposal, _catalog) = crate::bounded_feature_program_v1::tests::candidate();
+        let (_design, proposal) = crate::bounded_feature_program_v1::tests::candidate();
         let meaning = meaning_of(&proposal);
         assert!(meaning.constants.iter().any(|constant| matches!(
             constant.value,
@@ -420,7 +423,7 @@ mod tests {
     #[case("100 ")]
     #[case("1e2")]
     fn a_non_canonical_coefficient_is_refused(#[case] text: &str) {
-        let (_design, proposal, _catalog) = crate::bounded_feature_program_v1::tests::candidate();
+        let (_design, proposal) = crate::bounded_feature_program_v1::tests::candidate();
         let bytes = serde_json::to_vec(&meaning_of(&proposal)).expect("serializes");
         let mut smuggled: serde_json::Value = serde_json::from_slice(&bytes).expect("an object");
         let constant = smuggled["constants"]
@@ -436,14 +439,14 @@ mod tests {
 
     #[rstest]
     fn an_input_role_the_design_does_not_declare_is_refused() {
-        let (design, proposal, catalog) = crate::bounded_feature_program_v1::tests::candidate();
+        let (design, proposal) = crate::bounded_feature_program_v1::tests::candidate();
         let mut meaning = meaning_of(&proposal);
         meaning.inputs[0].role_semantic_id = "role-the-design-never-declared".to_owned();
 
         assert_eq!(
             derive_bounded_feature_program_proposal_v1(
                 &design,
-                catalog,
+                PrimitiveCatalogV1::verify().expect("a published catalog verifies"),
                 &meaning,
                 &bindings_of(&design, &proposal),
             ),
@@ -456,14 +459,14 @@ mod tests {
     /// An omitted role would silently narrow the program's inputs, so it closes derivation.
     #[rstest]
     fn an_uncovered_design_input_role_is_refused() {
-        let (design, proposal, catalog) = crate::bounded_feature_program_v1::tests::candidate();
+        let (design, proposal) = crate::bounded_feature_program_v1::tests::candidate();
         let mut meaning = meaning_of(&proposal);
         let dropped = meaning.inputs.remove(0).role_semantic_id;
 
         assert_eq!(
             derive_bounded_feature_program_proposal_v1(
                 &design,
-                catalog,
+                PrimitiveCatalogV1::verify().expect("a published catalog verifies"),
                 &meaning,
                 &bindings_of(&design, &proposal),
             ),
@@ -476,7 +479,7 @@ mod tests {
     /// A repeated role would leave which declaration wins to ordering.
     #[rstest]
     fn a_repeated_input_role_is_refused() {
-        let (design, proposal, catalog) = crate::bounded_feature_program_v1::tests::candidate();
+        let (design, proposal) = crate::bounded_feature_program_v1::tests::candidate();
         let mut meaning = meaning_of(&proposal);
         let repeated = meaning.inputs[0].clone();
         let role = repeated.role_semantic_id.clone();
@@ -485,7 +488,7 @@ mod tests {
         assert_eq!(
             derive_bounded_feature_program_proposal_v1(
                 &design,
-                catalog,
+                PrimitiveCatalogV1::verify().expect("a published catalog verifies"),
                 &meaning,
                 &bindings_of(&design, &proposal),
             ),
@@ -498,14 +501,14 @@ mod tests {
     /// Receipts are Owner custody; derivation mints none and refuses without them.
     #[rstest]
     fn a_role_without_a_binding_receipt_is_refused() {
-        let (design, proposal, catalog) = crate::bounded_feature_program_v1::tests::candidate();
+        let (design, proposal) = crate::bounded_feature_program_v1::tests::candidate();
         let meaning = meaning_of(&proposal);
         let role = meaning.inputs[0].role_semantic_id.clone();
 
         assert_eq!(
             derive_bounded_feature_program_proposal_v1(
                 &design,
-                catalog,
+                PrimitiveCatalogV1::verify().expect("a published catalog verifies"),
                 &meaning,
                 &crate::strategy_plan_v2::verified_strategy_input_bindings_for_test(
                     &design,
@@ -518,14 +521,14 @@ mod tests {
 
     #[rstest]
     fn a_plugin_the_design_does_not_carry_is_refused() {
-        let (design, proposal, catalog) = crate::bounded_feature_program_v1::tests::candidate();
+        let (design, proposal) = crate::bounded_feature_program_v1::tests::candidate();
         let mut meaning = meaning_of(&proposal);
         meaning.plugin_semantic_id = "plugin-the-design-never-declared".to_owned();
 
         assert_eq!(
             derive_bounded_feature_program_proposal_v1(
                 &design,
-                catalog,
+                PrimitiveCatalogV1::verify().expect("a published catalog verifies"),
                 &meaning,
                 &bindings_of(&design, &proposal),
             ),

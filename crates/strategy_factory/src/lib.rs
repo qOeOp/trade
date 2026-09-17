@@ -13,10 +13,6 @@ pub mod artifact_v2;
 mod binance_program_application;
 mod binance_program_data;
 pub mod bounded_feature_program_derivation_v1;
-#[allow(
-    dead_code,
-    reason = "the BFP lowerer awaits its tagged V3 build and durable Composer consumer"
-)]
 mod bounded_feature_program_lowerer_v1;
 pub mod bounded_feature_program_v1;
 #[allow(dead_code)]

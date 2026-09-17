@@ -92,16 +92,25 @@ trading effect。
 **CURRENT_PARTIAL - R&D 联合冻结写入路径：** R&D Owner 现在具备持久 PostgreSQL 组合根与一条带鉴权的路由
 `POST /v1/bounded-feature-programs/freeze`。它对照当前已接纳的 Research custody 与钉定的 primitive catalog
 接纳被声明的 `StrategyDesignV2` 与 `BoundedFeatureProgramProposalV1`，恰好写入一行联合冻结及其 outbox
-event，并对同一 Research identity 的不同含义以 conflict 回应。以上其余部分一律不变：持久 V3 readback、
-V3 producer 与降级后的 plugin 仍为 TARGET，因此被冻结的 program 目前仍无生产消费者。
+event，并对同一 Research identity 的不同含义以 conflict 回应。同一个组合根还会把这份冻结对读回并降级，
+因此被冻结的 program 现在经由生产路径产出规范的第一方 ABI3 源码，而不再只存在于 sealed 验收内部。
+
+**CURRENT_PARTIAL - 降级出的源码不是可执行物：** 该降级不带 build receipt、不带 Wasm、不带 Artifact，
+也不带任何 qualification 含义。它只证明冻结 program、钉定的 `vibe-indicators-kernel` catalog
+与第一方 SDK 恰好产出那些字节，以及被篡改的存储字节会关闭该路径。V3 build、持久 Composer RUN
+及其下游一律仍为 TARGET。
 
 TARGET V1 catalog 是原子整体，不是 primitive name 菜单：fixed I128 scale 最大为 38，rescale 必须显式，
 rounding mode 只有 `TowardZero` 与 `NearestTiesToEven`，每项 operation 使用一个准确 I256 expression 并只做
 一次最终舍入。catalog 冻结 lag/rolling readiness、EMA/Wilder seed、Wilder ATR、period-delta RSI、OHLC
 geometry、trailing-window swing coordinate 与 closed-unit rational `range_fraction` 语义。缺失任何 required
-formula、semantic ID、golden vector 或 no-state-change oracle 都使整个 catalog unavailable。
+formula、semantic ID、golden vector 或 no-state-change oracle 都使该 catalog 版本 unavailable。
 
-封闭的 TARGET catalog namespace 与规范 golden-vector codec 必须以原子整体发布。对于每个 sample-clock
+封闭的 TARGET catalog namespace 与规范 golden-vector codec 按 semantic version 分版本发布，每个版本以原子整体
+发布。冻结程序声明自己的 catalog semantic version 与该版本的 semantic digest，后者绑定含义而非 kernel 代码；
+发布较晚的版本既不改变也不作废较早的版本，而读回较早的冻结要求运行中的 kernel 逐字节复现该版本的 required
+golden vector。参见
+[Catalog 版本化与冻结程序读回](../architecture/strategy-factory#catalog-versioning-and-frozen-program-readback)。对于每个 sample-clock
 role，R&D 在 Design/Plan 中绑定准确的版本化 Owner-coordinate source 与普通有界 Bytes port，但只有 Market
 Data 能封存 308-byte coordinate 及其 receipt cross-binding。唯一通用 `ProgramHostV2` 校验并传输这些 bytes；
 它不 mint coordinate，也不获得 feature opcode。BFP plugin 使用单独 tagged ABI 3 failure status 表达

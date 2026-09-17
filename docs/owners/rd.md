@@ -106,17 +106,28 @@ trading effect.
 composition root and one authenticated route, `POST /v1/bounded-feature-programs/freeze`. It admits a
 declared `StrategyDesignV2` and `BoundedFeatureProgramProposalV1` against currently accepted Research
 custody and the pinned primitive catalog, writes exactly one joint-freeze row with its outbox event, and
-answers a changed meaning for the same Research identity with a conflict. Nothing else above moves: the
-durable V3 readback, the V3 producer and the lowered plugin stay TARGET, so a frozen program still has no
-production consumer.
+answers a changed meaning for the same Research identity with a conflict. The same root also reads that
+frozen pair back and lowers it, so a frozen program now yields canonical first-party ABI3 source through a
+production path rather than only inside sealed acceptance.
+
+**CURRENT_PARTIAL - lowered source is not an executable:** the lowering carries no build receipt, no Wasm,
+no Artifact and no qualification meaning. It proves only that the frozen program, the pinned
+`vibe-indicators-kernel` catalog and the first-party SDK produce exactly those bytes, and that tampered
+stored bytes close the path. The V3 build, the durable Composer RUN and everything downstream stay TARGET.
 
 The TARGET V1 catalog is atomic rather than a menu of names: fixed I128 scale is at most 38, rescale is explicit,
 the only rounding modes are `TowardZero` and `NearestTiesToEven`, and each operation uses one exact I256 expression
 with one final rounding. The catalog freezes lag/rolling readiness, EMA/Wilder seeds, Wilder ATR, period-delta RSI,
 OHLC geometry, trailing-window swing coordinates, and closed-unit rational `range_fraction` semantics. Missing any
-required formula, semantic ID, golden vector, or no-state-change oracle makes the whole catalog unavailable.
+required formula, semantic ID, golden vector, or no-state-change oracle makes that catalog version unavailable.
 
-The closed TARGET catalog namespace and canonical golden-vector codec are published all-or-nothing. For every
+The closed TARGET catalog namespace and canonical golden-vector codec are published per semantic version, each
+version atomically. A frozen program declares its catalog semantic version and that version's semantic digest, which
+binds meaning rather than kernel code; publishing a later version neither changes nor invalidates an earlier one, and
+reading an earlier freeze back requires the running kernel to reproduce that version's required golden vectors
+byte-for-byte. See
+[Catalog versioning and frozen-program readback](../architecture/strategy-factory#catalog-versioning-and-frozen-program-readback).
+For every
 sample-clock role, R&D binds the exact versioned Owner-coordinate source and ordinary bounded Bytes port in the
 Design/Plan, but Market Data alone seals the 308-byte coordinate and its receipt cross-binding. The sole generic
 `ProgramHostV2` verifies and transports those bytes; it does not mint them or gain a feature opcode. BFP plugins use

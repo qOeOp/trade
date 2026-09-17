@@ -390,7 +390,7 @@ fn select_host_profile(
         _ => Err(DevelopPluginBuildTerminalV2::new(
             DevelopPluginBuildTerminalKindV2::ToolchainUnavailable,
             "toolchain.host",
-            "the exact local build profile admits only aarch64-apple-darwin",
+            "the exact local build profile admits only aarch64-apple-darwin and aarch64-unknown-linux-gnu",
         )),
     }
 }
