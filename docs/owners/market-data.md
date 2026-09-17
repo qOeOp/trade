@@ -1088,8 +1088,18 @@ either: `validate_declarations` refuses a Design with no inputs, because at leas
 required. The circle is thus a consequence of that requirement rather than an oversight - every admissible Design binds
 to Owner-verified custody, which is what makes the artifact trustworthy and what leaves the first one with nothing to
 bind to. Each Design therefore closes its own circle: running it needs declarations, declarations need an attestation naming it, and that attestation needs
-the operation only a run produces. Whichever link is opened, it changes what may start a Composer operation for a
-Design, not what W3 accepts once one exists.
+the operation only a run produces.
+
+**ADMITTED, first registration from a frozen program:** the circle is opened without ever building an artifact whose
+inputs are unbound, because an artifact is not what authenticates a Design - R&D's own frozen joint program is.
+`rd_bounded_feature_program_freezes_v1` already carries the Research request identity, the custody digest the freeze was
+admitted against, and the Design's identity, digest and bytes, and a freeze is refused unless it binds currently
+accepted Research custody. R&D therefore exposes that row through a second exact-locator DB-ACL read function, beside
+the one that exposes an attestation today, and Market Data authenticates a Design from a freeze exactly as it does from
+an attestation: it reads, it derives the roles itself, and it resolves its own registry, census, join and issuance
+authorities before issuing anything. Registration stays write-once, so this reaches a Design once and a Composer commit
+governs every cycle after it. Nothing here relaxes W3: an attestation remains the only thing W3 admits, and this is a
+second authenticated source of Design meaning rather than an unauthenticated one.
 **NOT_ADMITTED:** caller-proposed Design/role/join fields, receipt/readback/token, receipt hash,
 latest/history/full scans, raw R&D table parsing or Market Data storage do not authenticate Design meaning; Market Data
 does not depend on Strategy Factory, own or reinterpret Strategy Design roles or joins.
