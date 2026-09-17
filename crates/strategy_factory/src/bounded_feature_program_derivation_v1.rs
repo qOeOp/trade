@@ -622,3 +622,49 @@ pub(crate) async fn assemble_declared_bounded_feature_program_v1(
         &VerifiedStrategyInputBindingsV2::from_owner_receipts(readback.bindings()),
     )?)
 }
+
+#[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
+mod six_role_bar_tests {
+    use vibe_data::owner::source_binding::BindingDigest;
+
+    use super::*;
+
+    /// Declared meaning over the six-role BAR Design assembles into a canonical program.
+    ///
+    /// The Design is the only one the Market Data Owner acceptance basis issues real binding
+    /// custody for, so proving the meaning assembles here is what makes an Owner-custody
+    /// assembly test possible at all.
+    #[rstest::rstest]
+    fn six_role_bar_meaning_assembles_into_a_canonical_program() {
+        let design = crate::bounded_feature_program_six_role_bar_fixture_v1::six_role_bar_bounded_feature_design_v1();
+        let meaning =
+            crate::bounded_feature_program_six_role_bar_fixture_v1::six_role_bar_bounded_feature_meaning_v1(&design);
+        let receipts = design
+            .inputs
+            .iter()
+            .enumerate()
+            .map(|(index, role)| {
+                (
+                    role.clone(),
+                    BindingDigest::from_untrusted_bytes([u8::try_from(index).unwrap() + 1; 32]),
+                )
+            })
+            .collect();
+        let bindings =
+            crate::strategy_plan_v2::verified_strategy_input_bindings_for_test(&design, receipts);
+
+        let derived = derive_bounded_feature_program_proposal_v1(
+            &design,
+            PrimitiveCatalogV1::verify().expect("a published catalog verifies"),
+            &meaning,
+            &bindings,
+        )
+        .expect("declared six-role meaning assembles");
+
+        assert_eq!(derived.inputs.len(), 6);
+        let prepared =
+            crate::bounded_feature_program_v1::prepare_bounded_feature_program_v1(derived, &design)
+                .expect("the assembled six-role program prepares");
+        assert!(!prepared.canonical_bytes().is_empty());
+    }
+}

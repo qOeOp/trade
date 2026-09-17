@@ -5058,6 +5058,221 @@ mod tests {
         ));
     }
 
+    /// A proposer declares meaning only, and the Owner assembles it against live binding custody.
+    ///
+    /// This is the one path where nothing is hand-built: the Market Data Owner issues the six BAR
+    /// strategy input bindings through its own acceptance basis, and the R&D composition root
+    /// resolves them, derives the proposal, freezes it and lowers it inside one transaction. A
+    /// program frozen this way is bound to receipts that were proven at the moment it was sealed.
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    #[rstest::rstest]
+    #[ignore = "requires admitted OA/PE/R&D test database URLs"]
+    fn declared_bounded_feature_program_assembles_from_owner_custody_and_freezes() {
+        std::thread::Builder::new()
+            .name("bounded-feature-declare-test".into())
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(run_declared_bounded_feature_program_assembly());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    async fn run_declared_bounded_feature_program_assembly() {
+        use vibe_data::owner::bar_joined_cut_acceptance_v1::{
+            UntrustedBarJoinedCutAcceptanceDesignClaimsV1,
+            prepare_owner_bar_joined_cut_acceptance_basis_v1,
+        };
+
+        use crate::{
+            bounded_feature_program_six_role_bar_fixture_v1::{
+                six_role_bar_bounded_feature_design_v1, six_role_bar_bounded_feature_meaning_v1,
+            },
+            program_host_v2::{
+                BAR_HOUR_CLOSE, BAR_MINUTE_CLOSE, BAR_MINUTE_HIGH, BAR_MINUTE_LOW, BAR_MINUTE_OPEN,
+                BAR_SESSION_DAY_CLOSE,
+            },
+            rd_bounded_feature_program_postgres_v1::{
+                PostgresResearchBoundedFeatureProgramOwnerV1,
+                ResearchBoundedFeatureProgramDeclarationV1,
+                ResearchBoundedFeatureProgramOwnerErrorV1,
+            },
+            strategy_plan_v2::{StrategyDesignPreparationV2, prepare_strategy_design_v2},
+        };
+
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let _mutation = test_database.mutation();
+        let operator_authorization_database_url = test_database
+            .database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter)
+            .to_string();
+        let product_edge_database_url = test_database
+            .database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner)
+            .to_string();
+        let rd_database_url = test_database
+            .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+            .to_string();
+        let qualification_database_url = test_database
+            .database_url(CanonicalOwnerTestRoleV1::QualificationWriter)
+            .to_string();
+        let market_data_database_url = test_database
+            .database_url(CanonicalOwnerTestRoleV1::MarketDataOwner)
+            .to_string();
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let request_identity = format!("research-bfp-declare-{suffix}");
+        let admission = bootstrap_admission(
+            BootstrapAdmissionTopology::Existing {
+                operator_authorization_database_url: &operator_authorization_database_url,
+                product_edge_database_url: &product_edge_database_url,
+            },
+            &request_identity,
+            suffix,
+        )
+        .await;
+        let owner =
+            PostgresResearchGoalOwnerV1::connect(&rd_database_url, &qualification_database_url)
+                .await
+                .unwrap();
+        let accepted = owner
+            .submit_v2(request(&request_identity, admission))
+            .await
+            .unwrap();
+        let read_cut = accepted
+            .research_view()
+            .unwrap()
+            .valid_through_epoch_ms
+            .saturating_sub(1);
+
+        let mut preparation = owner.pool.begin().await.unwrap();
+        let verified =
+            crate::rd_owner_postgres_custody::admit_research_v2_custody_read_only_in_transaction(
+                &mut preparation,
+                &request_identity,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        let custody = crate::develop_composer_v2::CurrentResearchDevelopCustodyV2::from_verified(
+            &verified,
+            &request_identity,
+            read_cut,
+        )
+        .unwrap();
+        preparation.rollback().await.unwrap();
+
+        // The Design must carry this Research identity before it has an identity of its own, so
+        // the Market Data bindings below are issued for the Design the Owner will actually admit.
+        let mut design = six_role_bar_bounded_feature_design_v1();
+        design.research_request_identity = custody.research_request_identity();
+        design.intent_identity = custody.intent_identity();
+        design.intent_digest = custody.intent_digest();
+        design.falsifier = custody.falsifier().to_owned();
+        let StrategyDesignPreparationV2::Prepared {
+            design_identity, ..
+        } = prepare_strategy_design_v2(&design)
+        else {
+            panic!("the six-role bounded Design must prepare");
+        };
+        let input_role_identities = [
+            BAR_MINUTE_OPEN,
+            BAR_MINUTE_HIGH,
+            BAR_MINUTE_LOW,
+            BAR_MINUTE_CLOSE,
+            BAR_HOUR_CLOSE,
+            BAR_SESSION_DAY_CLOSE,
+        ]
+        .map(|semantic_id| {
+            design
+                .inputs
+                .iter()
+                .find(|input| input.semantic_id == semantic_id)
+                .map(crate::strategy_plan_v2::strategy_input_role_identity_v2)
+                .expect("the six-role bounded Design carries every fixed BAR role")
+        });
+        Box::pin(prepare_owner_bar_joined_cut_acceptance_basis_v1(
+            &market_data_database_url,
+            UntrustedBarJoinedCutAcceptanceDesignClaimsV1 {
+                research_request_identity: design.research_request_identity,
+                strategy_design_identity: design_identity,
+                input_role_identities,
+            },
+        ))
+        .await
+        .expect("the Market Data Owner issues the six BAR strategy input bindings");
+
+        let composition_root = PostgresResearchBoundedFeatureProgramOwnerV1::with_clock(
+            owner.pool.clone(),
+            std::sync::Arc::new(move || read_cut),
+        );
+        let meaning = six_role_bar_bounded_feature_meaning_v1(&design);
+        let declaration = ResearchBoundedFeatureProgramDeclarationV1 {
+            research_request_locator: request_identity.clone(),
+            design: design.clone(),
+            meaning: meaning.clone(),
+        };
+        let declared = composition_root
+            .declare(declaration.clone())
+            .await
+            .expect("declared meaning assembles against live Owner custody and freezes");
+        assert_eq!(declared.committed_at_epoch_ms, read_cut);
+
+        // Replaying the identical declaration is the same freeze, not a second one.
+        let replayed = composition_root
+            .declare(declaration)
+            .await
+            .expect("the identical declaration replays");
+        assert_eq!(replayed, declared);
+        let settled: (i64, i64) = sqlx::query_as(
+            "SELECT
+                (SELECT COUNT(*) FROM rd_bounded_feature_program_freezes_v1 WHERE request_identity=$1),
+                (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2)",
+        )
+        .bind(&request_identity)
+        .bind(crate::rd_bounded_feature_program_v1::JOINT_FREEZE_EVENT_KIND_V1)
+        .fetch_one(&owner.pool)
+        .await
+        .unwrap();
+        assert_eq!(settled, (1, 1));
+
+        // Declared meaning is what the proposer owns, so changing it is a changed meaning even
+        // though every derived field still agrees with the same Design and the same custody.
+        let mut changed = meaning;
+        changed.graph_bounds.max_edges = changed.graph_bounds.max_edges.saturating_add(1);
+        assert!(matches!(
+            composition_root
+                .declare(ResearchBoundedFeatureProgramDeclarationV1 {
+                    research_request_locator: request_identity.clone(),
+                    design: design.clone(),
+                    meaning: changed,
+                })
+                .await,
+            Err(ResearchBoundedFeatureProgramOwnerErrorV1::Conflict)
+        ));
+
+        // What was assembled must lower to executable first-party source, or the freeze sealed a
+        // program nothing can build.
+        let lowered = composition_root
+            .lower(&request_identity)
+            .await
+            .expect("the assembled program lowers");
+        assert_eq!(lowered.program_digest, declared.program_digest);
+        assert_eq!(lowered.joint_freeze_digest, declared.joint_freeze_digest);
+        assert!(
+            lowered
+                .source_files
+                .iter()
+                .any(|file| file.source.contains("strategy_factory_plugin_invoke_v2"))
+        );
+    }
+
     fn expected_digest_text(digest: BindingDigest) -> String {
         let mut text = String::with_capacity(71);
         text.push_str("sha256:");

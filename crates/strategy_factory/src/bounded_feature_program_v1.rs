@@ -2052,7 +2052,7 @@ fn terminal_conversion_matches(
     }
 }
 
-fn manifest_width(value: ValueTypeV2) -> Option<u32> {
+pub(crate) fn manifest_width(value: ValueTypeV2) -> Option<u32> {
     match value {
         ValueTypeV2::I32 => Some(4),
         ValueTypeV2::I64 | ValueTypeV2::U64 => Some(8),
