@@ -23,6 +23,12 @@ use crate::{
     i256::I256,
 };
 
+/// Maximum steps one expression program may declare.
+///
+/// It bounds the canonical encoding and the decode buffer together, so a program too long to check
+/// is refused before any of it is evaluated.
+pub const MAX_FUSED_PROGRAM_STEPS_V1: usize = 32;
+
 /// Maximum operand stack depth one expression may use.
 ///
 /// It bounds verification and evaluation together: a program that would exceed it is refused rather
@@ -171,6 +177,60 @@ fn pop(
         .checked_sub(1)
         .ok_or(FusedRationalFailureV1::Unbalanced)?;
     Ok(stack[*depth])
+}
+
+/// Decodes one canonical expression program into `steps`, returning how many it wrote.
+///
+/// The encoding is one step per record: tag `1` pushes the input at the following byte, tag `2`
+/// pushes the following little-endian `i128`, and tags `3`, `4` and `5` are add, subtract and
+/// multiply with no payload. Trailing bytes, an unknown tag and an over-long program are refused,
+/// so one program has exactly one encoding.
+///
+/// # Errors
+///
+/// Returns [`FusedRationalFailureV1::Unbalanced`] for a malformed or over-long encoding.
+pub fn decode_fused_program_v1(
+    bytes: &[u8],
+    steps: &mut [FusedRationalStepV1; MAX_FUSED_PROGRAM_STEPS_V1],
+) -> Result<usize, FusedRationalFailureV1> {
+    let mut offset = 0_usize;
+    let mut count = 0_usize;
+
+    while offset < bytes.len() {
+        if count >= MAX_FUSED_PROGRAM_STEPS_V1 {
+            return Err(FusedRationalFailureV1::StackOverflow);
+        }
+        let tag = bytes[offset];
+        offset += 1;
+        steps[count] = match tag {
+            1 => {
+                let index = *bytes
+                    .get(offset)
+                    .ok_or(FusedRationalFailureV1::Unbalanced)?;
+                offset += 1;
+                FusedRationalStepV1::Input(index)
+            }
+            2 => {
+                let raw: [u8; 16] = bytes
+                    .get(offset..offset + 16)
+                    .ok_or(FusedRationalFailureV1::Unbalanced)?
+                    .try_into()
+                    .map_err(|_| FusedRationalFailureV1::Unbalanced)?;
+                offset += 16;
+                FusedRationalStepV1::Integer(i128::from_le_bytes(raw))
+            }
+            3 => FusedRationalStepV1::Add,
+            4 => FusedRationalStepV1::Subtract,
+            5 => FusedRationalStepV1::Multiply,
+            _ => return Err(FusedRationalFailureV1::Unbalanced),
+        };
+        count += 1;
+    }
+
+    if count == 0 {
+        return Err(FusedRationalFailureV1::Unbalanced);
+    }
+    Ok(count)
 }
 
 #[cfg(test)]

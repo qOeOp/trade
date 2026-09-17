@@ -44,7 +44,7 @@ pub use fixed_window::{
 };
 pub use fused_rational_v1::{
     FUSED_RATIONAL_STACK_DEPTH_V1, FusedRationalFailureV1, FusedRationalStepV1,
-    evaluate_fused_rational_v1,
+    MAX_FUSED_PROGRAM_STEPS_V1, decode_fused_program_v1, evaluate_fused_rational_v1,
 };
 pub use golden_execution::{GoldenVerificationFailure, verify_required_golden_corpus_v1};
 pub use golden_vector::{

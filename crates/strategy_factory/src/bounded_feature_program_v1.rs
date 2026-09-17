@@ -1559,6 +1559,10 @@ fn derive_output_types(
     let output_scale = declared_output_scale(&node.parameters)
         .or_else(|| fixed_inputs.first().map(|(_, scale)| *scale));
     let output_unit = match contract.unit {
+        // A fused expression's unit follows from the expression, so it is declared rather than
+        // derived. Declaring it needs the parameter shape that carries the program, which no
+        // published catalog version offers yet, so a node reaching this today is refused.
+        CatalogUnitRuleV1::DeclaredOutput => return Err(BoundedFeatureProgramErrorV1::Type),
         CatalogUnitRuleV1::EqualInputsBooleanOutput
         | CatalogUnitRuleV1::PreserveEqualInputs
         | CatalogUnitRuleV1::EqualBranches => {

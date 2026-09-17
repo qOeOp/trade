@@ -410,3 +410,48 @@ fn intermediates_stay_in_i256_until_the_single_rounding() {
         ))
     );
 }
+
+#[rstest]
+fn the_canonical_program_encoding_round_trips_and_refuses_malformed_bytes() {
+    let mut steps = [FusedRationalStepV1::Add; MAX_FUSED_PROGRAM_STEPS_V1];
+
+    // `input0 * 2 + input1`
+    let mut encoded = Vec::new();
+    encoded.extend_from_slice(&[1, 0]);
+    encoded.push(2);
+    encoded.extend_from_slice(&2_i128.to_le_bytes());
+    encoded.push(5);
+    encoded.extend_from_slice(&[1, 1]);
+    encoded.push(3);
+
+    let count = decode_fused_program_v1(&encoded, &mut steps).unwrap();
+    assert_eq!(
+        &steps[..count],
+        &[
+            FusedRationalStepV1::Input(0),
+            FusedRationalStepV1::Integer(2),
+            FusedRationalStepV1::Multiply,
+            FusedRationalStepV1::Input(1),
+            FusedRationalStepV1::Add,
+        ]
+    );
+
+    for malformed in [
+        &[][..],        // empty
+        &[9][..],       // unknown tag
+        &[1][..],       // input index cut off
+        &[2, 0, 0][..], // integer cut off
+    ] {
+        assert_eq!(
+            decode_fused_program_v1(malformed, &mut steps),
+            Err(FusedRationalFailureV1::Unbalanced),
+            "{malformed:?} must be refused"
+        );
+    }
+
+    let long: Vec<u8> = core::iter::repeat_n(3_u8, MAX_FUSED_PROGRAM_STEPS_V1 + 1).collect();
+    assert_eq!(
+        decode_fused_program_v1(&long, &mut steps),
+        Err(FusedRationalFailureV1::StackOverflow)
+    );
+}

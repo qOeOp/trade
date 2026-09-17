@@ -11,7 +11,9 @@ use crate::{
     GoldenVectorPartsV1, GoldenVectorTerminalV1 as Terminal, ReducedUnitFraction, RoundingMode,
     SampleClockInputV1,
     catalog_version::{CatalogVersionV1, MAX_GOLDEN_VECTORS_V1},
-    fixed_range_fraction, validate_required_golden_ids,
+    fixed_range_fraction,
+    fused_rational_v1::MAX_FUSED_PROGRAM_STEPS_V1,
+    validate_required_golden_ids,
 };
 
 const CAPACITY: usize = 4;
@@ -100,6 +102,9 @@ struct Frame<'a> {
     denominator: u32,
     condition: bool,
     comparison: Option<ComparisonPredicateV1>,
+    quotient_scale: u8,
+    numerator_program: &'a [u8],
+    denominator_program: &'a [u8],
 }
 
 impl<'a> Frame<'a> {
@@ -124,6 +129,9 @@ impl<'a> Frame<'a> {
             denominator: 0,
             condition: false,
             comparison: None,
+            quotient_scale: 0,
+            numerator_program: &[],
+            denominator_program: &[],
         };
 
         if op.stateful() {
@@ -166,9 +174,17 @@ impl<'a> Frame<'a> {
             }
         } else if matches!(
             op,
-            Op::Add | Op::Sub | Op::Mul | Op::Div | Op::Rescale | Op::Fraction
+            Op::Add | Op::Sub | Op::Mul | Op::Div | Op::Rescale | Op::Fraction | Op::FusedRational
         ) {
             frame.output_scale = input.byte()?;
+        }
+
+        if matches!(op, Op::FusedRational) {
+            frame.quotient_scale = input.byte()?;
+            let numerator = usize::from(input.byte()?);
+            frame.numerator_program = input.take(numerator)?;
+            let denominator = usize::from(input.byte()?);
+            frame.denominator_program = input.take(denominator)?;
         }
 
         if matches!(op, Op::Fraction) {
@@ -309,6 +325,29 @@ fn scalar_execute(
     };
 
     match op {
+        Op::FusedRational => {
+            let quotient_scale =
+                DecimalScale::new(frame.quotient_scale).map_err(|_| Eval::Numeric)?;
+            let mut numerator = [crate::FusedRationalStepV1::Add; MAX_FUSED_PROGRAM_STEPS_V1];
+            let mut denominator = [crate::FusedRationalStepV1::Add; MAX_FUSED_PROGRAM_STEPS_V1];
+            let numerator_len =
+                crate::decode_fused_program_v1(frame.numerator_program, &mut numerator)
+                    .map_err(|_| Eval::Numeric)?;
+            let denominator_len =
+                crate::decode_fused_program_v1(frame.denominator_program, &mut denominator)
+                    .map_err(|_| Eval::Numeric)?;
+
+            crate::evaluate_fused_rational_v1(
+                &numerator[..numerator_len],
+                &denominator[..denominator_len],
+                &[a, frame.values[1].value()?],
+                quotient_scale,
+                output_scale,
+                rounding,
+            )
+            .map(Output::scalar)
+            .map_err(|_| Eval::Numeric)
+        }
         Op::Add => {
             numeric(a.checked_add_to_scale(frame.values[1].value()?, output_scale, rounding))
         }

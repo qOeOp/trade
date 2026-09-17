@@ -473,6 +473,10 @@ fn source_file(path: &str, bytes: &[u8]) -> LoweredSourceFileV1 {
 
 fn lowered_symbol(operation: PrimitiveOperationV1) -> &'static str {
     match operation {
+        // The fused evaluator exists in the kernel, but lowering a declared expression into
+        // first-party source is its own contract and no published catalog version offers the
+        // primitive yet. An empty symbol refuses through the caller's unsupported-primitive path.
+        PrimitiveOperationV1::FusedRational => "",
         PrimitiveOperationV1::Add => "FixedI128::checked_add_to_scale",
         PrimitiveOperationV1::Sub => "FixedI128::checked_sub_to_scale",
         PrimitiveOperationV1::Mul => "FixedI128::checked_mul",
@@ -2084,6 +2088,8 @@ mod tests {
         use PrimitiveOperationV1 as Op;
 
         match operation {
+            // No published catalog version offers it, so this fixture cannot build a node for it.
+            Op::FusedRational => unimplemented!("fused rational has no declarable parameters yet"),
             Op::Add | Op::Sub | Op::Mul | Op::Div | Op::Rescale => {
                 BoundedFeatureParametersV1::OutputScale {
                     output_scale: 2,
@@ -2153,6 +2159,7 @@ mod tests {
             constant_id: constant_id.into(),
         };
         let ports: Vec<(&str, BoundedFeatureValueRefV1)> = match operation {
+            Op::FusedRational => unimplemented!("fused rational has no declarable ports yet"),
             Op::Add | Op::Sub | Op::Mul | Op::Div | Op::Compare => {
                 vec![("a", input()), ("b", input())]
             }

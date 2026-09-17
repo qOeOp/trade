@@ -23,7 +23,8 @@ wire_rules!(CatalogOutputRuleV1 {
 });
 wire_rules!(CatalogUnitRuleV1 {
     Policy = 0, PreserveEqualInputs = 1, Product = 2, Quotient = 3,
-    EqualInputsBooleanOutput = 4, EqualBranches = 5, DimensionlessOutput = 6, LifecycleOwned = 7
+    EqualInputsBooleanOutput = 4, EqualBranches = 5, DimensionlessOutput = 6, LifecycleOwned = 7,
+    DeclaredOutput = 8
 });
 wire_rules!(CatalogScaleRuleV1 {
     Policy = 0, EqualInputsDeclaredOutput = 1, DeclaredOutput = 2,
@@ -38,7 +39,7 @@ wire_rules!(CatalogStateRuleV1 { None = 0, Smoothing = 1, Window = 2, Bar = 3, R
 wire_rules!(CatalogParameterRuleV1 {
     None = 0, OutputScale = 1, ComparisonPredicate = 2, Period = 3, Window = 4,
     LagAndMaximum = 5, OutputScaleAndReducedFraction = 6, PeriodAndOutputScale = 7,
-    WindowAndOutputScale = 8, Policy = 9, LifecycleOwned = 10
+    WindowAndOutputScale = 8, Policy = 9, LifecycleOwned = 10, FusedRationalProgram = 11
 });
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -68,6 +69,7 @@ pub enum PrimitiveOperationV1 {
     Maximum,
     SwingHigh,
     SwingLow,
+    FusedRational,
 }
 
 impl PrimitiveOperationV1 {
@@ -230,7 +232,19 @@ impl CatalogRowV1 {
             value.clock = CatalogClockRuleV1::OneDeclaredTriggerOrSample;
         }
 
+        if matches!(op, Op::FusedRational) {
+            // The expression decides the unit and the quotient's scale, so neither can be derived
+            // from the inputs the way a fixed formula's can. Both are declared and checked.
+            value.input = I::TwoFixed;
+            value.unit = U::DeclaredOutput;
+            value.scale = S::DeclaredOutput;
+            value.parameters = P::FusedRationalProgram;
+        }
+
         value.formula = match op {
+            Op::FusedRational => {
+                "declared postfix numerator and denominator over the two inputs and integer constants with add/sub/mul only; both evaluated in exact signed I256; one final division by the denominator into the declared quotient scale, then one rescale/round into the declared output scale; no division inside either program, so exactly one rounding occurs; unbalanced program, operand-stack overflow, absent input, mixed input scales, I256 overflow, zero denominator or final I128 overflow => NUMERIC_FAILURE_NO_STATE_CHANGE"
+            }
             Op::Add => "a+b; equal input scales/units; full I256 sum then one final rescale/round",
             Op::Sub => {
                 "a-b; equal input scales/units; full I256 difference then one final rescale/round"
