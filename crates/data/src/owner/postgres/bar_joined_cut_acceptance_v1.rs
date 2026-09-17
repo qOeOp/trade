@@ -9,7 +9,7 @@ use std::{collections::BTreeSet, fmt::Debug};
 
 use super::{
     MarketDataOwnerPostgres, load_pit_for_update, load_pit_observation_batch_for_update,
-    load_source_for_update,
+    load_source_for_update, pit_role_resolution_v1::AuthenticatedDesignIdentityV1,
 };
 use crate::owner::{
     bar_schedule::{
@@ -54,7 +54,8 @@ use crate::owner::{
         UntrustedTrustPolicy,
         authority::{OwnerSourceBindingDecision, derive_binding_id, derive_time_evidence_identity},
     },
-    strategy_design_role_set::StrategyDesignRoleSetReceiptV1,
+    strategy_design_role_intent_v1::StrategyDesignRoleIntentV1,
+    strategy_design_role_set::{StrategyDesignRoleEntryV1, StrategyDesignRoleSetReceiptV1},
     strategy_input_binding::{
         MarketDataFieldSemantic, StrategyInputBindingReceipt, StrategyInputChannel,
         StrategyInputUnit, UntrustedStrategyInputBindingRequest, UntrustedStrategyInputScope,
@@ -429,6 +430,81 @@ pub async fn prepare_owner_bar_joined_cut_acceptance_basis_v1(
     })
 }
 
+/// Registers this basis's Strategy Input declarations from what R&D published about the Design.
+///
+/// The joined cut, schedules and V3 projections stay in the completion above, because they need the
+/// join a Composer attests. Declarations do not: a Design's roles are stated by R&D, and until a
+/// Composer has run the only statement that exists is the published role intent. This is therefore
+/// the only way a Design's first cycle can reach declarations at all, and it is also why the
+/// Composer that would attest them can exist at all: its program's identity folds in the very
+/// binding receipts registered here.
+///
+/// The requests are the ones this basis composed from its own verified batch, so nothing here
+/// resolves a coordinate. A Market Data store that holds two lineages answering one coordinate at
+/// one decision cut refuses to choose between them, which is correct and is not this fixture's
+/// question to answer.
+///
+/// # Errors
+///
+/// Returns a redacted unavailable value when the publication does not describe this basis's Design
+/// or its exact role set, or when any Owner write or re-read fails.
+pub async fn register_owner_bar_joined_cut_declarations_from_role_intent_v1(
+    basis: &OwnerBarJoinedCutAcceptanceBasisV1,
+    intent: &StrategyDesignRoleIntentV1,
+) -> Result<(), BarJoinedCutAcceptanceCompletionUnavailableV1> {
+    if intent.research_request_identity() != basis.claims.research_request_identity
+        || intent.design_identity() != basis.claims.strategy_design_identity
+    {
+        return Err(BarJoinedCutAcceptanceCompletionUnavailableV1::RoleSet);
+    }
+    let mut published = intent
+        .roles()
+        .iter()
+        .map(|role| role.role_identity)
+        .collect::<Vec<_>>();
+    let mut declared = basis.claims.input_role_identities.to_vec();
+    published.sort_unstable();
+    declared.sort_unstable();
+
+    if published != declared {
+        return Err(BarJoinedCutAcceptanceCompletionUnavailableV1::RoleSet);
+    }
+    let design = AuthenticatedDesignIdentityV1::from_role_intent(intent);
+
+    for request in &basis.binding_requests {
+        let mut transaction = basis
+            .owner
+            .pool
+            .begin()
+            .await
+            .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryStore)?;
+        let declaration = register_acceptance_binding(
+            &mut transaction,
+            request,
+            &basis.binding_requests,
+            design,
+            intent.roles(),
+        )
+        .await
+        .map_err(|e| map_registry_completion_error(&e))?;
+
+        if declaration.binding()
+            != &basis.input_bindings[basis
+                .binding_requests
+                .iter()
+                .position(|candidate| candidate == request)
+                .expect("the request came from this basis")]
+        {
+            return Err(BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryReadback);
+        }
+        transaction
+            .commit()
+            .await
+            .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryStore)?;
+    }
+    Ok(())
+}
+
 /// Completes registry and joined-cut issuance after the final R&D role set exists.
 ///
 /// The complete role set is validated before any phase-two write. This phase persists the six
@@ -464,10 +540,15 @@ pub async fn complete_owner_bar_joined_cut_acceptance_fixture_v1(
             .begin()
             .await
             .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryStore)?;
-        let declaration =
-            register_acceptance_binding(&mut transaction, request, &binding_requests, &role_set)
-                .await
-                .map_err(|e| map_registry_completion_error(&e))?;
+        let declaration = register_acceptance_binding(
+            &mut transaction,
+            request,
+            &binding_requests,
+            AuthenticatedDesignIdentityV1::from_role_set(&role_set),
+            &role_set.roles,
+        )
+        .await
+        .map_err(|e| map_registry_completion_error(&e))?;
         transaction
             .commit()
             .await
@@ -1431,7 +1512,8 @@ async fn register_acceptance_binding(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     request: &UntrustedStrategyInputBindingRequest,
     complete_requests: &[UntrustedStrategyInputBindingRequest],
-    role_set: &StrategyDesignRoleSetReceiptV1,
+    design: AuthenticatedDesignIdentityV1,
+    roles: &[StrategyDesignRoleEntryV1],
 ) -> Result<
     super::strategy_input_binding_registry::StrategyInputBindingDeclarationReadbackV1,
     super::strategy_input_binding_registry::StrategyInputBindingRegistryErrorV1,
@@ -1440,7 +1522,8 @@ async fn register_acceptance_binding(
         transaction,
         request,
         complete_requests,
-        role_set,
+        design,
+        roles,
     )
     .await
 }
@@ -1450,7 +1533,8 @@ async fn register_acceptance_binding(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     request: &UntrustedStrategyInputBindingRequest,
     _complete_requests: &[UntrustedStrategyInputBindingRequest],
-    _role_set: &StrategyDesignRoleSetReceiptV1,
+    _design: AuthenticatedDesignIdentityV1,
+    _roles: &[StrategyDesignRoleEntryV1],
 ) -> Result<
     super::strategy_input_binding_registry::StrategyInputBindingDeclarationReadbackV1,
     super::strategy_input_binding_registry::StrategyInputBindingRegistryErrorV1,

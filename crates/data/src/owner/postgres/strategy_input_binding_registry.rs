@@ -173,16 +173,17 @@ pub(super) async fn register_strategy_input_binding_declaration_v1(
     register_strategy_input_binding_declaration_unchecked_v1(transaction, request).await
 }
 
-/// Production positive registration requires the exact authenticated R&D role set and all role
-/// declarations. Recovery continues to use the unchanged V1 stored request bytes below.
+/// Production positive registration requires an authenticated R&D statement of the Design's roles
+/// and all role declarations. Recovery continues to use the unchanged V1 stored request bytes below.
 #[cfg(not(test))]
 pub(super) async fn register_strategy_input_binding_declaration_v1(
     transaction: &mut Transaction<'_, Postgres>,
     request: &UntrustedStrategyInputBindingRequest,
     complete_requests: &[UntrustedStrategyInputBindingRequest],
-    role_set: &StrategyDesignRoleSetReceiptV1,
+    design: AuthenticatedDesignIdentityV1,
+    roles: &[StrategyDesignRoleEntryV1],
 ) -> Result<StrategyInputBindingDeclarationReadbackV1, StrategyInputBindingRegistryErrorV1> {
-    validate_authenticated_role_set_coverage_v1(role_set, complete_requests)?;
+    validate_authenticated_role_coverage_v1(design, roles, complete_requests)?;
     if !complete_requests
         .iter()
         .any(|candidate| candidate == request)
