@@ -5225,7 +5225,7 @@ pub(crate) mod tests {
     async fn run_declared_bounded_feature_program_assembly(coverage: ComposerRunCoverageV1) {
         use vibe_data::owner::bar_joined_cut_acceptance_v1::{
             UntrustedBarJoinedCutAcceptanceDesignClaimsV1,
-            prepare_owner_bar_joined_cut_acceptance_basis_v1,
+            register_bar_joined_cut_declarations_for_published_design_v1,
         };
 
         use crate::{
@@ -5339,21 +5339,34 @@ pub(crate) mod tests {
                 .map(crate::strategy_plan_v2::strategy_input_role_identity_v2)
                 .expect("the six-role bounded Design carries every fixed BAR role")
         });
-        Box::pin(prepare_owner_bar_joined_cut_acceptance_basis_v1(
-            &market_data_database_url,
-            UntrustedBarJoinedCutAcceptanceDesignClaimsV1 {
-                research_request_identity: design.research_request_identity,
-                strategy_design_identity: design_identity,
-                input_role_identities,
-            },
-        ))
-        .await
-        .expect("the Market Data Owner issues the six BAR strategy input bindings");
-
+        let claims = UntrustedBarJoinedCutAcceptanceDesignClaimsV1 {
+            research_request_identity: design.research_request_identity,
+            strategy_design_identity: design_identity,
+            input_role_identities,
+        };
         let composition_root = PostgresResearchBoundedFeatureProgramOwnerV1::with_clock(
             owner.pool.clone(),
             std::sync::Arc::new(move || read_cut),
         );
+
+        // Nothing has attested this Design, and nothing can: the Composer operation that would
+        // attest it runs over a program whose identity folds in the binding receipts the
+        // registration below issues. So R&D publishes what it knows about the Design, and Market
+        // Data binds it to the acceptance corpus this store already carries.
+        let published = composition_root
+            .publish_design_role_intent(&request_identity, &design)
+            .await
+            .expect("R&D publishes what it knows about the Design it admitted");
+        assert_eq!(published.design_identity(), design_identity);
+        Box::pin(
+            register_bar_joined_cut_declarations_for_published_design_v1(
+                &market_data_database_url,
+                &claims,
+                &published,
+            ),
+        )
+        .await
+        .expect("the published Design reaches the Owner's Strategy Input declarations");
         let meaning = six_role_bar_bounded_feature_meaning_v1(&design);
         let declaration = ResearchBoundedFeatureProgramDeclarationV1 {
             research_request_locator: request_identity.clone(),

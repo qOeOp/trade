@@ -430,6 +430,108 @@ pub async fn prepare_owner_bar_joined_cut_acceptance_basis_v1(
     })
 }
 
+/// Binds a later Design to the acceptance corpus this store already carries.
+///
+/// The basis above provisions a corpus. Provisioning it twice in one store does not produce the same
+/// corpus: it reads the Owner's current clock head into its instrument and universe requests, so a
+/// store whose clock has advanced raises a second PIT snapshot while the Market Semantics fact stays
+/// bound to the first. That is correct Owner behaviour and not something to defeat, so a later Design
+/// binds to the corpus that is already complete rather than raising another.
+///
+/// Which corpus that is has one answer, and the Market Semantics fact gives it: a registration
+/// re-derives each binding and refuses unless the scope's fact names the very snapshot the batch came
+/// from. So the fact is what selects the corpus here, and the selection is right by construction
+/// rather than by picking among snapshots that happen to exist. Nothing resolves a coordinate, so a
+/// store holding several lineages is never asked to choose between them.
+///
+/// # Errors
+///
+/// Returns a redacted unavailable value when this store carries no complete acceptance corpus, when
+/// the publication does not describe this Design or its exact role set, or when any Owner write or
+/// re-read fails.
+pub async fn register_bar_joined_cut_declarations_for_published_design_v1(
+    owner_url: &str,
+    claims: &UntrustedBarJoinedCutAcceptanceDesignClaimsV1,
+    intent: &StrategyDesignRoleIntentV1,
+) -> Result<(), BarJoinedCutAcceptanceCompletionUnavailableV1> {
+    validate_published_role_coverage(claims, intent)?;
+    let owner = MarketDataOwnerPostgres::connect_existing(owner_url)
+        .await
+        .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryStore)?;
+    let mut transaction = owner
+        .pool
+        .begin()
+        .await
+        .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryStore)?;
+    // The same scope, instants and cut the basis seals its own fact under.
+    let readback = super::market_semantics::resolve_market_semantics_scope_in_transaction_v1(
+        &mut transaction,
+        digest(84),
+        50,
+        100,
+        100,
+    )
+    .await
+    .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::RegistrySemantics)?;
+    let [fact] = readback.facts() else {
+        return Err(BarJoinedCutAcceptanceCompletionUnavailableV1::RegistrySemantics);
+    };
+    let batch = super::strategy_input_binding_registry::load_owner_verified_pit_batch_v1(
+        &mut transaction,
+        fact.pit_snapshot_identity,
+    )
+    .await
+    .map_err(|e| map_registry_completion_error(&e))?;
+    transaction
+        .rollback()
+        .await
+        .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryStore)?;
+
+    let requests = acceptance_binding_requests(claims, &batch);
+    let design = AuthenticatedDesignIdentityV1::from_role_intent(intent);
+
+    for request in &requests {
+        let mut transaction = owner
+            .pool
+            .begin()
+            .await
+            .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryStore)?;
+        register_acceptance_binding(&mut transaction, request, &requests, design, intent.roles())
+            .await
+            .map_err(|e| map_registry_completion_error(&e))?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryStore)?;
+    }
+    Ok(())
+}
+
+/// The publication must describe this Design and exactly the roles the claims name.
+fn validate_published_role_coverage(
+    claims: &UntrustedBarJoinedCutAcceptanceDesignClaimsV1,
+    intent: &StrategyDesignRoleIntentV1,
+) -> Result<(), BarJoinedCutAcceptanceCompletionUnavailableV1> {
+    if intent.research_request_identity() != claims.research_request_identity
+        || intent.design_identity() != claims.strategy_design_identity
+    {
+        return Err(BarJoinedCutAcceptanceCompletionUnavailableV1::RoleSet);
+    }
+    let mut published = intent
+        .roles()
+        .iter()
+        .map(|role| role.role_identity)
+        .collect::<Vec<_>>();
+    let mut declared = claims.input_role_identities.to_vec();
+    published.sort_unstable();
+    declared.sort_unstable();
+
+    if published != declared {
+        return Err(BarJoinedCutAcceptanceCompletionUnavailableV1::RoleSet);
+    }
+    Ok(())
+}
+
 /// Registers this basis's Strategy Input declarations from what R&D published about the Design.
 ///
 /// The joined cut, schedules and V3 projections stay in the completion above, because they need the
