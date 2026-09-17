@@ -60,6 +60,11 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed'
   'vibe-strategy-factory|develop_composer_postgres_v2|postgres_migration_materializes_only_private_binary_authority'
   'vibe-strategy-factory|develop_composer_postgres_v2|sealed_read_port_is_restart_exact_fail_closed_and_query_only'
+  'vibe-strategy-factory|vibe_strategy_factory|iteration_result_admission_postgres::tests::a_committed_admission_is_read_back_by_its_locator_and_never_created_by_one'
+  'vibe-strategy-factory|vibe_strategy_factory|iteration_result_admission_postgres::tests::a_retry_reads_the_committed_admission_back_and_a_changed_request_conflicts'
+  'vibe-strategy-factory|vibe_strategy_factory|iteration_result_admission_postgres::tests::a_locator_from_another_experiment_never_reads_this_admission_back'
+  'vibe-strategy-factory|vibe_strategy_factory|iteration_result_admission_postgres::tests::row_scalar_storage_or_outbox_tamper_closes_the_readback'
+  'vibe-strategy-factory|vibe_strategy_factory|iteration_result_admission_postgres::tests::a_malformed_request_never_reaches_owner_custody'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -85,8 +90,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 43 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all forty-three ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 49 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all forty-nine ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -122,9 +127,15 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[37]}" != *'|postgres::postgres_tests::negative_protected_attempt_closure_is_atomic_retry_exact_and_eligibility_absent' ]] ||
     [[ "${rd_owner_postgres_tests[38]}" != *'|postgres::postgres_tests::diagnostic_protected_attempt_closure_is_atomic_and_creates_no_assessment_or_eligibility' ]] ||
     [[ "${rd_owner_postgres_tests[39]}" != *'|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed' ]] ||
-    [[ "${rd_owner_postgres_tests[40]}" != *'|postgres_migration_materializes_only_private_binary_authority' ]] ||
-    [[ "${rd_owner_postgres_tests[41]}" != *'|sealed_read_port_is_restart_exact_fail_closed_and_query_only' ]] ||
-    [[ "${rd_owner_postgres_tests[42]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[40]}" != *'|product_edge_postgres::tests::declared_bounded_feature_program_assembles_from_owner_custody_and_freezes' ]] ||
+    [[ "${rd_owner_postgres_tests[41]}" != *'|postgres_migration_materializes_only_private_binary_authority' ]] ||
+    [[ "${rd_owner_postgres_tests[42]}" != *'|sealed_read_port_is_restart_exact_fail_closed_and_query_only' ]] ||
+    [[ "${rd_owner_postgres_tests[43]}" != *'|iteration_result_admission_postgres::tests::a_committed_admission_is_read_back_by_its_locator_and_never_created_by_one' ]] ||
+    [[ "${rd_owner_postgres_tests[44]}" != *'|iteration_result_admission_postgres::tests::a_retry_reads_the_committed_admission_back_and_a_changed_request_conflicts' ]] ||
+    [[ "${rd_owner_postgres_tests[45]}" != *'|iteration_result_admission_postgres::tests::a_locator_from_another_experiment_never_reads_this_admission_back' ]] ||
+    [[ "${rd_owner_postgres_tests[46]}" != *'|iteration_result_admission_postgres::tests::row_scalar_storage_or_outbox_tamper_closes_the_readback' ]] ||
+    [[ "${rd_owner_postgres_tests[47]}" != *'|iteration_result_admission_postgres::tests::a_malformed_request_never_reaches_owner_custody' ]] ||
+    [[ "${rd_owner_postgres_tests[48]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -227,8 +238,8 @@ for line in array_body.splitlines():
     if len(fields) != 3 or any(not field for field in fields):
         raise SystemExit("ERROR: ordered PostgreSQL test literal must contain three fields.")
     entries.append(tuple(fields))
-if len(entries) != 43:
-    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain forty-three entries.")
+if len(entries) != 49:
+    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain forty-nine entries.")
 if sum(test_name == poison_test for _, _, test_name in entries) != 1:
     raise SystemExit(
         "ERROR: recovery-sidecar poison test must occur exactly once as a parsed test name."
