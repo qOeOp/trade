@@ -53,11 +53,15 @@ else
   echo "Host is $(uname -m): skipping the aarch64-only Composer build proof."
 fi
 
-echo "Running ${#selected_proofs[@]} wasm toolchain proof(s) under the pinned target..."
+echo "Running ${#selected_proofs[@]} toolchain proof(s) against the tools they name..."
+
+# Each proof reports, whatever its neighbours did. Stopping at the first failure would hide the rest
+# behind it, and a proof nobody hears from is the thing this script exists to prevent.
+refused=()
 
 for proof in "${selected_proofs[@]}"; do
   echo "--- $proof"
-  cargo nextest run \
+  if ! cargo nextest run \
     --locked \
     --package vibe-strategy-factory \
     --lib \
@@ -65,17 +69,27 @@ for proof in "${selected_proofs[@]}"; do
     --profile "$nextest_profile" \
     --run-ignored ignored-only \
     --fail-fast \
-    -E "test(=${proof})"
+    -E "test(=${proof})"; then
+    refused+=("$proof")
+  fi
 done
 
 echo "--- $docker_seal_proof"
-cargo nextest run \
+if ! cargo nextest run \
   --locked \
   --package vibe-strategy-factory \
   --test product_skeleton \
   --profile "$nextest_profile" \
   --run-ignored ignored-only \
   --fail-fast \
-  -E "test(=${docker_seal_proof})"
+  -E "test(=${docker_seal_proof})"; then
+  refused+=("$docker_seal_proof")
+fi
+
+if [ "${#refused[@]}" -gt 0 ]; then
+  echo "ERROR: ${#refused[@]} toolchain proof(s) refused:" >&2
+  printf '  %s\n' "${refused[@]}" >&2
+  exit 1
+fi
 
 echo "Every selected toolchain proof ran against the real tool it names"
