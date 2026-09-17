@@ -1140,7 +1140,7 @@ raw row、SQL、pool、credential 或 replacement store。
 封存请求窗口内恰好两个相邻且完整的双成员 frame。第一帧是准确重解的 V1 初始帧，第二帧来自另一份经
 Owner 验证的 PIT snapshot/batch，不得复制数值或使用测试 successor。Market Data 独立枚举窗口与决策 cut
 内的完整可用 frame，证明两帧身份不同、顺序严格递增、中间无漏帧；第三帧使该档不可用。两帧各自保存 PIT
-cut、batch、trigger、frame、source/correction lineage、BAR schedule 和 Quote/L2-MBP EVENT 流动性 receipt，
+cut、batch、trigger、frame、source/correction lineage、BAR schedule 和 Quote EVENT 流动性 receipt，
 后者绑定原始 Quote row digest、bid/ask 价量、事件和初始化时间及成员顺序。sequence digest 覆盖这些证据、
 请求身份、窗口与准确顺序。两帧必须共用 canonical universe、Design/role set、Instrument Master cut、
 timeframe、venue 与 account scope，并逐一校验半开有效期和相邻时间关系。

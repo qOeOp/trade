@@ -575,7 +575,7 @@ acceptance, a deployed or running service, production invocation, Paper/Live exe
 28-component observation package, execution bundle, request and Result identities remain
 byte-for-byte unchanged. A separate `NativeReplayExecutionInputBindingV2` may bind one already
 sealed Exploratory Replay request to exactly two complete, independently Owner-sealed universe
-frames and their native BAR plus Quote/L2-MBP EVENT liquidity schedules. This bounded profile
+frames and their native BAR plus Quote EVENT liquidity schedules. This bounded profile
 applies only when the request window contains exactly those two eligible frames. The first frame
 must equal the independently re-resolved V1 initial frame. Market Data alone derives the complete
 eligible two-frame sequence within the
@@ -601,7 +601,7 @@ re-verifying every constituent;
 changed meaning conflicts with zero append. Native preparation independently re-resolves both
 Owner cuts, proves byte-for-byte equality to the stored V2 binding, and then constructs a
 move-only V2 execution bundle. The bundle validates two complete BAR signals and their later
-Owner-verified Quote/L2-MBP EVENT liquidity for each frame. The first frame's final liquidity
+Owner-verified Quote EVENT liquidity for each frame. The first frame's final liquidity
 EVENT must precede the second frame's first BAR. Strict cross-frame temporal order and the request
 window are checked before ProgramHost or Backtest state changes. A V1 binding is never upgraded by interpretation,
 and an unavailable V2 constituent never falls back to V1 or a test-issued successor frame.

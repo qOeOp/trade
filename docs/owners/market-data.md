@@ -1181,7 +1181,7 @@ resolver, `StrategyInputUniverseFrameReceipt` V1, BAR schedule readbacks and
 `NativeReplaySchedulingReadbackV1` keep their exact bytes and single-frame meaning. The additive
 Owner-issued `NativeReplayFrameSequenceReadbackV2` is a move-only, request-bound capability. Its
 initial V2 profile contains exactly two complete two-member BAR frames with their own
-Owner-verified Quote/L2-MBP EVENT liquidity: the first is the exact independently re-resolved
+Owner-verified Quote EVENT liquidity: the first is the exact independently re-resolved
 initial V1 frame; the second is issued from a distinct Owner-verified PIT
 snapshot and observation batch, never from copied values or a test successor. Market Data alone
 resolves the complete eligible frame census for the sealed request window and decision cut. It

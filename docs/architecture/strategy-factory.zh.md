@@ -544,7 +544,7 @@ invocation、Paper/Live execution 或 trading。
 另一份真实 PIT snapshot 和 observation batch，不能取 PIT correction successor、测试帧或调用方输入。
 Market Data 必须按封存的窗口和决策 cut 枚举完整可用 frame；多出第三帧、两帧之间漏帧、重复、乱序或证据
 缺失时，这个有界 V2 档不可用。每帧都绑定自己的 PIT cut、batch、trigger、BAR schedule，以及独立经过
-Owner 验证的 Quote/L2-MBP EVENT 流动性 receipt，包括成员顺序、价量和事件时间；两帧使用同一 Plan/Design
+Owner 验证的 Quote EVENT 流动性 receipt，包括成员顺序、价量和事件时间；两帧使用同一 Plan/Design
 role schema、两个 canonical member、universe selection、Instrument Master cut、timeframe、venue 和账户。
 
 R&D 仅在准确读取 V1 binding 和两帧的 Owner 能力后，原子托管 V2 binding、确定性 receipt 与 outbox；
