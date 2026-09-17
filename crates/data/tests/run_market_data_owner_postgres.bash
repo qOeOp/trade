@@ -93,6 +93,16 @@ cargo test --manifest-path crates/data/Cargo.toml \
   owner::postgres::tests::postgres_owner_is_atomic_restart_safe_acl_sealed_and_fail_closed \
   --lib -- --ignored --exact
 test_status=$?
+
+# The V4 sample projection is the durable half of the same EVENT/BAR custody. It reads the two
+# Market Data URLs this script already exports, so it needs no further supply.
+
+if [ "$test_status" -eq 0 ]; then
+  cargo test --manifest-path crates/data/Cargo.toml \
+    owner::postgres::sample_projection_v4::tests::postgres_v4_is_atomic_idempotent_exact_and_tamper_closed \
+    --lib -- --ignored --exact
+  test_status=$?
+fi
 set -e
 
 exit "$test_status"
