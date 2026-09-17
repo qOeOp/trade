@@ -9,14 +9,19 @@ use std::fmt::Display;
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 
+use vibe_product_edge::{
+    DownstreamAdmissionModeV1, ProductEdgeError, resolve_admission_for_downstream_in_transaction,
+};
+
 use crate::{
     iteration_result_admission::{
         ITERATION_RESULT_ADMITTED_EVENT_V1, IterationResultAdmissionErrorV1,
         IterationResultAdmissionInputV1, IterationResultAdmissionLocatorV1,
-        IterationResultAdmissionOperationRequestV1, IterationResultAdmissionReadbackV1,
-        IterationResultBudgetBindingV1, IterationResultTrialFamilyBindingV1, canonical_digest,
-        ensure_same_admission_request_v1, identity, issue_iteration_result_admission_v1,
-        owner_storage_digest, project_locked_backtest_result_v1, validate_locator,
+        IterationResultAdmissionOperationRequestV1, IterationResultAdmissionProposalV1,
+        IterationResultAdmissionReadbackV1, IterationResultBudgetBindingV1,
+        IterationResultTrialFamilyBindingV1, canonical_digest, ensure_same_admission_request_v1,
+        identity, issue_iteration_result_admission_v1, owner_storage_digest,
+        project_locked_backtest_result_v1, validate_locator, verify_iteration_result_admission_v1,
     },
     rd_owner_postgres_custody::{
         ExploratoryReplayResultLocatorV2, resolve_exploratory_replay_outcome_for_rd_in_transaction,
@@ -104,8 +109,9 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), IterationResultAdmissio
 /// that closed the admission otherwise.
 pub(crate) async fn admit_iteration_result_v1(
     pool: &PgPool,
-    request: &IterationResultAdmissionOperationRequestV1,
+    proposal: &IterationResultAdmissionProposalV1,
 ) -> Result<IterationResultAdmissionReadbackV1, IterationResultAdmissionErrorV1> {
+    let request = &proposal.operation_request();
     request.validate()?;
     let mut transaction = pool.begin().await.map_err(storage)?;
     sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
@@ -114,17 +120,48 @@ pub(crate) async fn admit_iteration_result_v1(
         .map_err(storage)?;
     lock_admission_key(&mut transaction, &request.locator.result_identity).await?;
 
-    if let Some(existing) =
-        load_by_result_in_transaction(&mut transaction, &request.locator).await?
-    {
+    let existing = load_by_result_in_transaction(&mut transaction, &request.locator).await?;
+
+    // The admission is resolved inside the same serializable transaction that holds the Result
+    // lock, so a revocation between resolution and mutation cannot slip through. A replay resolves
+    // it historically: the committed fact is content-addressed on the request meaning, and
+    // re-proving a past authorization against the present cut would make replays expire.
+    let admission_cut = current_epoch_ms(&mut transaction).await?;
+    let admission = resolve_admission_for_downstream_in_transaction(
+        &mut transaction,
+        &proposal.admission,
+        if existing.is_some() {
+            DownstreamAdmissionModeV1::Historical
+        } else {
+            DownstreamAdmissionModeV1::FirstMutation {
+                read_cut_epoch_ms: admission_cut,
+            }
+        },
+    )
+    .await
+    .map_err(map_product_edge_error)?;
+    verify_iteration_result_admission_v1(&admission, proposal)?;
+
+    if let Some(existing) = existing {
         ensure_same_admission_request_v1(&existing, request)?;
         verify_outbox(&mut transaction, &existing).await?;
         transaction.commit().await.map_err(storage)?;
         return Ok(existing);
     }
 
+    if !admission.authorizes_first_mutation_at(admission_cut) {
+        return Err(IterationResultAdmissionErrorV1::Unavailable(
+            "Product Edge iteration-result admission is not current".to_string(),
+        ));
+    }
+
     let input = compose_locked_input(&mut transaction, request).await?;
     let committed_at_epoch_ms = current_epoch_ms(&mut transaction).await?;
+    if !admission.authorizes_first_mutation_at(committed_at_epoch_ms) {
+        return Err(IterationResultAdmissionErrorV1::Unavailable(
+            "Product Edge iteration-result admission expired before mutation".to_string(),
+        ));
+    }
     let issued = issue_iteration_result_admission_v1(request, input, committed_at_epoch_ms)?;
     persist(&mut transaction, &issued).await?;
 
@@ -602,9 +639,25 @@ fn storage(error: impl Display) -> IterationResultAdmissionErrorV1 {
     IterationResultAdmissionErrorV1::Storage(error.to_string())
 }
 
+fn map_product_edge_error(error: ProductEdgeError) -> IterationResultAdmissionErrorV1 {
+    match error {
+        ProductEdgeError::Storage(message) => IterationResultAdmissionErrorV1::Storage(message),
+        ProductEdgeError::InvalidProposal(message) => {
+            IterationResultAdmissionErrorV1::Unavailable(message.to_string())
+        }
+        ProductEdgeError::ConflictingReplay => IterationResultAdmissionErrorV1::Unavailable(
+            "Product Edge iteration-result admission conflicts with committed meaning".to_string(),
+        ),
+        ProductEdgeError::Unavailable => IterationResultAdmissionErrorV1::Unavailable(
+            "Product Edge iteration-result admission is unavailable".to_string(),
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vibe_product_edge::ProductEdgeAdmissionLocatorV1;
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
     use super::*;
@@ -746,6 +799,45 @@ mod tests {
         (database, pool)
     }
 
+    /// Bootstraps one Product Edge admission that authorizes exactly this request.
+    ///
+    /// Each distinct request needs its own admission: the Owner verifies that the resolved
+    /// admission's payload equals the request it is about to commit, so one admission cannot
+    /// authorize a changed meaning.
+    async fn admitted(
+        database: &CanonicalOwnerPostgresTestDatabaseV1,
+        request: IterationResultAdmissionOperationRequestV1,
+    ) -> IterationResultAdmissionProposalV1 {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let locator = crate::product_edge_postgres::tests::bootstrap_operation_admission(
+            crate::product_edge_postgres::tests::BootstrapAdmissionTopology::Existing {
+                operator_authorization_database_url: database
+                    .database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+                product_edge_database_url: database
+                    .database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+            },
+            &request.locator.result_identity,
+            suffix,
+            crate::product_edge_postgres::tests::BootstrapAdmittedOperationV1 {
+                operation: crate::iteration_result_admission::ITERATION_RESULT_ADMISSION_OPERATION_V1,
+                operation_schema:
+                    crate::iteration_result_admission::ITERATION_RESULT_ADMISSION_SCHEMA_V1,
+                effect:
+                    crate::iteration_result_admission::ITERATION_RESULT_ADMISSION_MUTATION_EFFECT_V1,
+                typed_payload: serde_json::to_value(&request).expect("typed admission payload"),
+            },
+        )
+        .await;
+        request
+            .with_admission(locator)
+            .expect("the bootstrapped admission authorizes this request")
+    }
+
     async fn commit_admission(pool: &PgPool, readback: &IterationResultAdmissionReadbackV1) {
         let mut transaction = pool.begin().await.expect("admission transaction");
         persist(&mut transaction, readback)
@@ -787,13 +879,13 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires the canonical disposable R&D Owner PostgreSQL topology"]
     async fn a_retry_reads_the_committed_admission_back_and_a_changed_request_conflicts() {
-        let (_database, pool) = prepare_admission_custody().await;
+        let (database, pool) = prepare_admission_custody().await;
         let readback = admission_fixture();
         commit_admission(&pool, &readback).await;
 
         let retried = Box::pin(admit_iteration_result_v1(
             &pool,
-            &admission_request_fixture(),
+            &admitted(&database, admission_request_fixture()).await,
         ))
         .await
         .expect("retry reads the committed admission back");
@@ -802,6 +894,8 @@ mod tests {
         let mut changed = admission_request_fixture();
         changed.proposals.proposals.truncate(1);
         changed.proposals.expected_cardinality = 1;
+        // A changed meaning needs its own admission; the committed fact still refuses it.
+        let changed = admitted(&database, changed).await;
         assert!(matches!(
             Box::pin(admit_iteration_result_v1(&pool, &changed)).await,
             Err(IterationResultAdmissionErrorV1::Conflict)
@@ -899,8 +993,14 @@ mod tests {
         let (_database, pool) = prepare_admission_custody().await;
         let mut malformed = admission_request_fixture();
         malformed.locator.result_identity = "backtest result 1".to_owned();
+        // A malformed request cannot even become a proposal, so it never reaches an admission,
+        // a transaction or the Owner.
         assert!(matches!(
-            Box::pin(admit_iteration_result_v1(&pool, &malformed)).await,
+            malformed.with_admission(ProductEdgeAdmissionLocatorV1 {
+                request_identity: "backtest result 1".to_owned(),
+                admission_identity: "iteration-result-admission-1".to_owned(),
+                admission_digest: format!("sha256:{}", "b".repeat(64)),
+            }),
             Err(IterationResultAdmissionErrorV1::InvalidLocator)
         ));
 

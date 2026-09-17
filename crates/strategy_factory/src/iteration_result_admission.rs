@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use vibe_backtest_owner_contracts::{ReplayNamespaceV2, ReplayResultDtoV2, ReplayTerminalV2};
+use vibe_product_edge::{ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionReadbackV1};
 
 use crate::{
     IterationExperimentModeV1, iteration_decision::is_valid_iteration_decision_locator_v1,
@@ -88,6 +89,37 @@ impl IterationResultAdmissionOperationRequestV1 {
     /// empty, oversized, misordered, duplicated, or inconsistent with its declared cardinality.
     pub fn validate(&self) -> Result<(), IterationResultAdmissionErrorV1> {
         validate_operation_request(self)
+    }
+
+    /// Binds this request to the Product Edge admission that authorized it.
+    ///
+    /// The Owner write path accepts only the returned value, so an unauthorized request cannot
+    /// reach it by construction rather than by remembering to check.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IterationResultAdmissionErrorV1::InvalidLocator`] when the admission names a
+    /// different Result or carries a malformed admission identity or digest, and whatever
+    /// [`Self::validate`] returns for a malformed request.
+    pub fn with_admission(
+        self,
+        admission: ProductEdgeAdmissionLocatorV1,
+    ) -> Result<IterationResultAdmissionProposalV1, IterationResultAdmissionErrorV1> {
+        self.validate()?;
+
+        if admission.request_identity != self.locator.result_identity
+            || !is_valid_iteration_decision_locator_v1(&admission.admission_identity)
+            || !is_sha256_digest(&admission.admission_digest)
+        {
+            return Err(IterationResultAdmissionErrorV1::InvalidLocator);
+        }
+        Ok(IterationResultAdmissionProposalV1 {
+            locator: self.locator,
+            result_digest: self.result_digest,
+            request_meaning_digest: self.request_meaning_digest,
+            proposals: self.proposals,
+            admission,
+        })
     }
 }
 
@@ -191,6 +223,75 @@ pub struct IterationResultAdmissionReceiptV1 {
 pub struct IterationResultAdmissionReadbackV1 {
     admission: IterationResultAdmissionV1,
     receipt: IterationResultAdmissionReceiptV1,
+}
+
+/// One admitted-and-authorized iteration result admission.
+///
+/// The operation request alone carries no authority. This value adds the Product Edge admission
+/// locator that authorized the mutation, and only this value reaches the Owner write path.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct IterationResultAdmissionProposalV1 {
+    /// Exact Result, TrialFamily, request and attempt this admission names.
+    pub locator: IterationResultAdmissionLocatorV1,
+    /// Canonical digest of the locked Backtest Result.
+    pub result_digest: String,
+    /// Canonical digest of the request meaning the Result answers.
+    pub request_meaning_digest: String,
+    /// Candidate strategy proposals for the next iteration.
+    pub proposals: IterationResultCandidateProposalSetV1,
+    /// Product Edge admission that authorized this mutation.
+    pub admission: ProductEdgeAdmissionLocatorV1,
+}
+
+impl IterationResultAdmissionProposalV1 {
+    /// Recovers the exact operation request the admission was taken over.
+    #[must_use]
+    pub fn operation_request(&self) -> IterationResultAdmissionOperationRequestV1 {
+        IterationResultAdmissionOperationRequestV1 {
+            locator: self.locator.clone(),
+            result_digest: self.result_digest.clone(),
+            request_meaning_digest: self.request_meaning_digest.clone(),
+            proposals: self.proposals.clone(),
+        }
+    }
+}
+
+/// Verifies that a resolved Product Edge admission authorizes exactly this proposal.
+///
+/// # Errors
+///
+/// Returns [`IterationResultAdmissionErrorV1::Unavailable`] when the resolved admission names a
+/// different locator, request identity, operation, schema, target Owner, payload, effect set or
+/// authorized scope.
+pub(crate) fn verify_iteration_result_admission_v1(
+    admission: &ProductEdgeAdmissionReadbackV1,
+    proposal: &IterationResultAdmissionProposalV1,
+) -> Result<(), IterationResultAdmissionErrorV1> {
+    let admitted = admission.request();
+    let typed_payload = serde_json::to_value(proposal.operation_request())
+        .map_err(|e| IterationResultAdmissionErrorV1::Storage(e.to_string()))?;
+
+    if admission.locator() != &proposal.admission
+        || admitted.request_identity != proposal.locator.result_identity
+        || admitted.operation != ITERATION_RESULT_ADMISSION_OPERATION_V1
+        || admitted.operation_schema != ITERATION_RESULT_ADMISSION_SCHEMA_V1
+        || admitted.target_owner != crate::product_edge::RESEARCH_OWNER_V1
+        || admitted.typed_payload != typed_payload
+        || !matches!(
+            admitted.requested_effects.as_slice(),
+            [effect] if effect == ITERATION_RESULT_ADMISSION_MUTATION_EFFECT_V1
+        )
+        || !admission
+            .authorized_scope()
+            .iter()
+            .any(|scope| scope == crate::product_edge::RESEARCH_SCOPE_V1)
+    {
+        return Err(IterationResultAdmissionErrorV1::Unavailable(
+            "canonical Product Edge iteration-result admission mismatch".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Debug, Error)]

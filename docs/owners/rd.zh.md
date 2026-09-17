@@ -42,7 +42,11 @@
 - 可以支持新 Research Intent 的探索发现，但不能改写已冻结前序事实。
 - 写一次的 Iteration Result Admission，把一个已加锁的 canonical Backtest Result 绑定到可以消费它的迭代。
   Owner 在单个可串行化 R&D 事务内，从加锁的 Result 字节、确切 TrialFamily 普查截面与已封存试验预算推导全部被接纳事实；
-  调用方只提供定位符、result 与 request meaning 摘要，以及按规范排序的候选提案集合。提案集合为空 超限 乱序 重复
+  调用方只提供定位符、result 与 request meaning 摘要、按规范排序的候选提案集合，以及授权该 mutation 的
+  Product Edge admission locator。Owner 在持有 Result 锁的同一笔可串行化事务内解析该 admission，核验它命名的
+  正是这一条 request、operation、schema、target Owner、payload 与单一 effect，并要求它在事务开启时与提交截面上
+  都授权该 mutation。重放按历史解析，因为已提交的事实是按 request 含义内容寻址的，而不是按谁授权的。
+  提案集合为空 超限 乱序 重复
   与声明基数不一致或超出剩余封存预算时，接纳关闭且不创建任何托管。同一请求的精确重放汇入已提交的接纳；
   同一 Result 上改变的含义返回 `Conflict`。接纳发出一条 `RD_ITERATION_RESULT_ADMITTED_V1` outbox 事件，
   不创建 Decision Selection Candidate 或 Qualification 转换。

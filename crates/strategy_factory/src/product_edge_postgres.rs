@@ -1703,12 +1703,12 @@ impl PostgresResearchGoalOwnerV1 {
     /// one.
     pub async fn admit_iteration_result_v1(
         &self,
-        request: &crate::iteration_result_admission::IterationResultAdmissionOperationRequestV1,
+        proposal: &crate::iteration_result_admission::IterationResultAdmissionProposalV1,
     ) -> Result<
         crate::iteration_result_admission::IterationResultAdmissionReadbackV1,
         crate::iteration_result_admission::IterationResultAdmissionErrorV1,
     > {
-        crate::iteration_result_admission_postgres::admit_iteration_result_v1(&self.pool, request)
+        crate::iteration_result_admission_postgres::admit_iteration_result_v1(&self.pool, proposal)
             .await
     }
 
@@ -3958,7 +3958,7 @@ fn trial_family_storage(error: &TrialFamilyError) -> ResearchGoalOwnerError {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::{
         collections::VecDeque,
         net::{IpAddr, Ipv4Addr},
@@ -5002,7 +5002,7 @@ mod tests {
     }
 
     #[derive(Clone, Copy)]
-    enum BootstrapAdmissionTopology<'a> {
+    pub(crate) enum BootstrapAdmissionTopology<'a> {
         Migrating {
             database_url: &'a str,
         },
@@ -5012,18 +5012,62 @@ mod tests {
         },
     }
 
+    /// The exact operation one bootstrapped admission authorizes.
+    ///
+    /// The manifest, the requested effect and the admitted payload must all name the same
+    /// operation, otherwise a downstream verifier rejects the admission it resolves.
+    pub(crate) struct BootstrapAdmittedOperationV1<'a> {
+        pub(crate) operation: &'a str,
+        pub(crate) operation_schema: &'a str,
+        pub(crate) effect: &'a str,
+        pub(crate) typed_payload: serde_json::Value,
+    }
+
     async fn bootstrap_admission(
         topology: BootstrapAdmissionTopology<'_>,
         request_identity: &str,
         suffix: u128,
     ) -> ProductEdgeAdmissionLocatorV1 {
+        let payload = request(
+            request_identity,
+            ProductEdgeAdmissionLocatorV1 {
+                request_identity: request_identity.to_string(),
+                admission_identity: String::new(),
+                admission_digest: String::new(),
+            },
+        );
+        bootstrap_operation_admission(
+            topology,
+            request_identity,
+            suffix,
+            BootstrapAdmittedOperationV1 {
+                operation: RESEARCH_GOAL_OPERATION_V2,
+                operation_schema: RESEARCH_GOAL_SCHEMA_V2,
+                effect: "R_AND_D_RESEARCH_MUTATION_V1",
+                typed_payload: serde_json::json!({
+                    "request_identity": payload.request_identity,
+                    "channel": payload.channel,
+                    "goal": payload.goal,
+                    "trial_family_proposal": payload.trial_family_proposal,
+                }),
+            },
+        )
+        .await
+    }
+
+    pub(crate) async fn bootstrap_operation_admission(
+        topology: BootstrapAdmissionTopology<'_>,
+        request_identity: &str,
+        suffix: u128,
+        admitted: BootstrapAdmittedOperationV1<'_>,
+    ) -> ProductEdgeAdmissionLocatorV1 {
         let now = current_epoch_ms().unwrap();
         let principal = format!("admin-{suffix}");
         let manifest = AgentOperationManifestProposalV1 {
-            operation: RESEARCH_GOAL_OPERATION_V2.to_string(),
-            operation_schema: RESEARCH_GOAL_SCHEMA_V2.to_string(),
+            operation: admitted.operation.to_string(),
+            operation_schema: admitted.operation_schema.to_string(),
             target_owner: RESEARCH_OWNER_V1.to_string(),
-            allowed_effects: vec!["R_AND_D_RESEARCH_MUTATION_V1".to_string()],
+            allowed_effects: vec![admitted.effect.to_string()],
             prohibited_effects: vec!["REAL_TRADING_V1".to_string()],
             capability_policy_digest: format!("sha256:{}", "c".repeat(64)),
             effective_from_epoch_ms: now.saturating_sub(1_000),
@@ -5112,27 +5156,13 @@ mod tests {
         })
         .await
         .unwrap();
-        let payload = request(
-            request_identity,
-            ProductEdgeAdmissionLocatorV1 {
-                request_identity: request_identity.to_string(),
-                admission_identity: String::new(),
-                admission_digest: String::new(),
-            },
-        );
-        let typed_payload = serde_json::json!({
-            "request_identity": payload.request_identity,
-            "channel": payload.channel,
-            "goal": payload.goal,
-            "trial_family_proposal": payload.trial_family_proposal,
-        });
         edge.admit_request(ProductEdgeAdmissionRequestV1 {
             request_identity: request_identity.to_string(),
-            typed_payload,
-            operation: RESEARCH_GOAL_OPERATION_V2.to_string(),
-            operation_schema: RESEARCH_GOAL_SCHEMA_V2.to_string(),
+            typed_payload: admitted.typed_payload,
+            operation: admitted.operation.to_string(),
+            operation_schema: admitted.operation_schema.to_string(),
             target_owner: RESEARCH_OWNER_V1.to_string(),
-            requested_effects: vec!["R_AND_D_RESEARCH_MUTATION_V1".to_string()],
+            requested_effects: vec![admitted.effect.to_string()],
             request_proof_digest: "sha256:test-proof".to_string(),
             audit_correlation: format!("test:{request_identity}"),
         })

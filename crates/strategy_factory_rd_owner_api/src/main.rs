@@ -591,8 +591,10 @@ async fn main() -> anyhow::Result<()> {
             request_proof_digest.clone(),
         ))
         .merge(iteration_result_admission::router(
+            product_edge.clone(),
             owner.clone(),
             token_digest,
+            request_proof_digest.clone(),
         ))
         .merge(source_intake_research::router(
             product_edge,
