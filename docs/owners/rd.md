@@ -47,7 +47,12 @@ Unify Research and Develop under one business-fact Owner. The Research capabilit
 - Write-once Iteration Result Admission binding one locked canonical Backtest Result to the iteration that may
   consume it. The Owner derives every admitted fact inside one serializable R&D transaction from the locked
   Result bytes, the exact TrialFamily census cut and the sealed trial budget; the caller supplies only the
-  locator, the result and request-meaning digests, and the canonically ordered candidate proposal set. A
+  locator, the result and request-meaning digests, the canonically ordered candidate proposal set, and the
+  Product Edge admission locator that authorized the mutation. The Owner resolves that admission inside the
+  same serializable transaction that holds the Result lock, verifies it names this exact request, operation,
+  schema, target Owner, payload and single effect, and requires it to authorize the mutation both when the
+  transaction opens and at the committing cut. A replay resolves it historically, because the committed fact
+  is content-addressed on the request meaning rather than on who authorized it. A
   proposal set that is empty, oversized, misordered, duplicated, inconsistent with its declared cardinality, or
   larger than the remaining sealed budget closes the admission and creates no custody. Exact request replay joins
   the committed admission; a changed meaning for the same Result is `Conflict`. The admission emits one

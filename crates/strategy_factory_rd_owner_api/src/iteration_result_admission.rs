@@ -15,21 +15,60 @@ use axum::{
     routing::post,
 };
 use serde_json::json;
+use vibe_product_edge::{
+    ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionRequestV1, ProductEdgeError,
+    ProductEdgePostgresOwnerV1,
+};
 use vibe_strategy_factory::{
     iteration_result_admission::{
-        IterationResultAdmissionErrorV1, IterationResultAdmissionLocatorV1,
-        IterationResultAdmissionOperationRequestV1, IterationResultAdmissionReadbackV1,
+        ITERATION_RESULT_ADMISSION_MUTATION_EFFECT_V1, ITERATION_RESULT_ADMISSION_OPERATION_V1,
+        ITERATION_RESULT_ADMISSION_SCHEMA_V1, IterationResultAdmissionErrorV1,
+        IterationResultAdmissionLocatorV1, IterationResultAdmissionOperationRequestV1,
+        IterationResultAdmissionProposalV1, IterationResultAdmissionReadbackV1,
     },
+    product_edge::RESEARCH_OWNER_V1,
     product_edge_postgres::PostgresResearchGoalOwnerV1,
 };
 
 use super::{authorized, insert_rejection_code};
 
 #[async_trait::async_trait]
+trait IterationResultAdmissionAdmissionPort: Send + Sync {
+    async fn admit_operation(
+        &self,
+        request: &IterationResultAdmissionOperationRequestV1,
+        request_proof_digest: &str,
+    ) -> Result<ProductEdgeAdmissionLocatorV1, ProductEdgeError>;
+}
+
+#[async_trait::async_trait]
+impl IterationResultAdmissionAdmissionPort for ProductEdgePostgresOwnerV1 {
+    async fn admit_operation(
+        &self,
+        request: &IterationResultAdmissionOperationRequestV1,
+        request_proof_digest: &str,
+    ) -> Result<ProductEdgeAdmissionLocatorV1, ProductEdgeError> {
+        self.admit_request(ProductEdgeAdmissionRequestV1 {
+            request_identity: request.locator.result_identity.clone(),
+            typed_payload: serde_json::to_value(request)
+                .map_err(|e| ProductEdgeError::Storage(e.to_string()))?,
+            operation: ITERATION_RESULT_ADMISSION_OPERATION_V1.to_string(),
+            operation_schema: ITERATION_RESULT_ADMISSION_SCHEMA_V1.to_string(),
+            target_owner: RESEARCH_OWNER_V1.to_string(),
+            requested_effects: vec![ITERATION_RESULT_ADMISSION_MUTATION_EFFECT_V1.to_string()],
+            request_proof_digest: request_proof_digest.to_string(),
+            audit_correlation: format!("rd-iteration-result:{}", request.locator.result_identity),
+        })
+        .await
+        .map(|readback| readback.locator().clone())
+    }
+}
+
+#[async_trait::async_trait]
 trait IterationResultAdmissionPort: Send + Sync {
     async fn admit(
         &self,
-        request: IterationResultAdmissionOperationRequestV1,
+        proposal: IterationResultAdmissionProposalV1,
     ) -> Result<IterationResultAdmissionReadbackV1, IterationResultAdmissionErrorV1>;
 
     async fn resolve(
@@ -42,9 +81,9 @@ trait IterationResultAdmissionPort: Send + Sync {
 impl IterationResultAdmissionPort for PostgresResearchGoalOwnerV1 {
     async fn admit(
         &self,
-        request: IterationResultAdmissionOperationRequestV1,
+        proposal: IterationResultAdmissionProposalV1,
     ) -> Result<IterationResultAdmissionReadbackV1, IterationResultAdmissionErrorV1> {
-        self.admit_iteration_result_v1(&request).await
+        self.admit_iteration_result_v1(&proposal).await
     }
 
     async fn resolve(
@@ -57,17 +96,26 @@ impl IterationResultAdmissionPort for PostgresResearchGoalOwnerV1 {
 
 #[derive(Clone)]
 struct IterationResultAdmissionApiState {
+    admission: Arc<dyn IterationResultAdmissionAdmissionPort>,
     owner: Arc<dyn IterationResultAdmissionPort>,
     token_digest: [u8; 32],
+    request_proof_digest: String,
 }
 
-pub(super) fn router(owner: Arc<PostgresResearchGoalOwnerV1>, token_digest: [u8; 32]) -> Router {
-    iteration_result_admission_router(owner, token_digest)
+pub(super) fn router(
+    product_edge: Arc<ProductEdgePostgresOwnerV1>,
+    owner: Arc<PostgresResearchGoalOwnerV1>,
+    token_digest: [u8; 32],
+    request_proof_digest: String,
+) -> Router {
+    iteration_result_admission_router(product_edge, owner, token_digest, request_proof_digest)
 }
 
 fn iteration_result_admission_router(
+    admission: Arc<dyn IterationResultAdmissionAdmissionPort>,
     owner: Arc<dyn IterationResultAdmissionPort>,
     token_digest: [u8; 32],
+    request_proof_digest: String,
 ) -> Router {
     Router::new()
         .route(
@@ -79,8 +127,10 @@ fn iteration_result_admission_router(
             post(resolve_iteration_result_admission),
         )
         .with_state(IterationResultAdmissionApiState {
+            admission,
             owner,
             token_digest,
+            request_proof_digest,
         })
 }
 
@@ -108,10 +158,41 @@ async fn admit_iteration_result(
     };
     let result_identity = request.locator.result_identity.clone();
 
-    match state.owner.admit(request).await {
+    let admission = match state
+        .admission
+        .admit_operation(&request, &state.request_proof_digest)
+        .await
+    {
+        Ok(admission) => admission,
+        Err(e) => return product_edge_error(&e, &result_identity),
+    };
+    let proposal = match request.with_admission(admission) {
+        Ok(proposal) => proposal,
+        Err(e) => return owner_error(&e, &result_identity),
+    };
+
+    match state.owner.admit(proposal).await {
         Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
         Err(e) => owner_error(&e, &result_identity),
     }
+}
+
+fn product_edge_error(error: &ProductEdgeError, result_identity: &str) -> Response {
+    let (status, code) = match error {
+        ProductEdgeError::InvalidProposal(_) => {
+            (StatusCode::BAD_REQUEST, "MALFORMED_TYPED_REQUEST")
+        }
+        ProductEdgeError::ConflictingReplay => {
+            (StatusCode::CONFLICT, "PRODUCT_EDGE_IDENTITY_CONFLICT")
+        }
+        ProductEdgeError::Unavailable => (StatusCode::FORBIDDEN, "UNAUTHORIZED_PRODUCT_EDGE"),
+        ProductEdgeError::Storage(_) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "PRODUCT_EDGE_STORAGE_UNAVAILABLE",
+        ),
+    };
+
+    rejection(status, code, result_identity)
 }
 
 async fn resolve_iteration_result_admission(
@@ -210,11 +291,61 @@ mod tests {
         resolve_calls: AtomicUsize,
     }
 
+    struct AdmissionStub {
+        calls: AtomicUsize,
+        outcome: Option<ProductEdgeError>,
+    }
+
+    impl AdmissionStub {
+        fn admitting() -> Self {
+            Self {
+                calls: AtomicUsize::new(0),
+                outcome: None,
+            }
+        }
+
+        fn refusing(outcome: ProductEdgeError) -> Self {
+            Self {
+                calls: AtomicUsize::new(0),
+                outcome: Some(outcome),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl IterationResultAdmissionAdmissionPort for AdmissionStub {
+        async fn admit_operation(
+            &self,
+            request: &IterationResultAdmissionOperationRequestV1,
+            _request_proof_digest: &str,
+        ) -> Result<ProductEdgeAdmissionLocatorV1, ProductEdgeError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+
+            match &self.outcome {
+                Some(ProductEdgeError::Storage(message)) => {
+                    Err(ProductEdgeError::Storage(message.clone()))
+                }
+                Some(ProductEdgeError::InvalidProposal(message)) => {
+                    Err(ProductEdgeError::InvalidProposal(message))
+                }
+                Some(ProductEdgeError::ConflictingReplay) => {
+                    Err(ProductEdgeError::ConflictingReplay)
+                }
+                Some(ProductEdgeError::Unavailable) => Err(ProductEdgeError::Unavailable),
+                None => Ok(ProductEdgeAdmissionLocatorV1 {
+                    request_identity: request.locator.result_identity.clone(),
+                    admission_identity: "iteration-result-admission-1".to_string(),
+                    admission_digest: format!("sha256:{}", "b".repeat(64)),
+                }),
+            }
+        }
+    }
+
     #[async_trait::async_trait]
     impl IterationResultAdmissionPort for OwnerStub {
         async fn admit(
             &self,
-            _request: IterationResultAdmissionOperationRequestV1,
+            _proposal: IterationResultAdmissionProposalV1,
         ) -> Result<IterationResultAdmissionReadbackV1, IterationResultAdmissionErrorV1> {
             self.admit_calls.fetch_add(1, Ordering::SeqCst);
             Err(IterationResultAdmissionErrorV1::NotApplicable)
@@ -265,7 +396,20 @@ mod tests {
     }
 
     fn test_router(owner: Arc<OwnerStub>, token_digest: [u8; 32]) -> Router {
-        iteration_result_admission_router(owner, token_digest)
+        router_with_admission(Arc::new(AdmissionStub::admitting()), owner, token_digest)
+    }
+
+    fn router_with_admission(
+        admission: Arc<dyn IterationResultAdmissionAdmissionPort>,
+        owner: Arc<OwnerStub>,
+        token_digest: [u8; 32],
+    ) -> Router {
+        iteration_result_admission_router(
+            admission,
+            owner,
+            token_digest,
+            format!("sha256:{}", "c".repeat(64)),
+        )
     }
 
     /// The Owner API digests the credential after the `Bearer ` prefix, never the whole header.
@@ -288,6 +432,62 @@ mod tests {
         request
             .body(axum::body::Body::from(body.to_string()))
             .expect("HTTP request")
+    }
+
+    #[rstest]
+    #[case(
+        ProductEdgeError::Unavailable,
+        StatusCode::FORBIDDEN,
+        "UNAUTHORIZED_PRODUCT_EDGE"
+    )]
+    #[case(
+        ProductEdgeError::ConflictingReplay,
+        StatusCode::CONFLICT,
+        "PRODUCT_EDGE_IDENTITY_CONFLICT"
+    )]
+    #[case(
+        ProductEdgeError::Storage("edge".to_string()),
+        StatusCode::SERVICE_UNAVAILABLE,
+        "PRODUCT_EDGE_STORAGE_UNAVAILABLE"
+    )]
+    fn a_refused_admission_never_reaches_the_owner(
+        #[case] outcome: ProductEdgeError,
+        #[case] status: StatusCode,
+        #[case] code: &str,
+    ) {
+        let token = "iteration-result-token";
+        let token_digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
+        let owner = Arc::new(OwnerStub {
+            admit_calls: AtomicUsize::new(0),
+            resolve_calls: AtomicUsize::new(0),
+        });
+        let admission = Arc::new(AdmissionStub::refusing(outcome));
+        let router = router_with_admission(admission.clone(), owner.clone(), token_digest);
+
+        let response = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime")
+            .block_on(async {
+                router
+                    .oneshot(send(
+                        "/v1/iteration-result-admissions",
+                        &admission_request(),
+                        Some(&bearer(token)),
+                    ))
+                    .await
+                    .expect("response")
+            });
+
+        assert_eq!(response.status(), status);
+        assert_eq!(
+            response.headers().get("x-rd-rejection-code"),
+            Some(&axum::http::HeaderValue::from_str(code).expect("rejection code"))
+        );
+        assert_eq!(admission.calls.load(Ordering::SeqCst), 1);
+        // The mutation is unreachable without an admission, by construction rather than by a
+        // remembered check: the Owner method takes a proposal that only `with_admission` can build.
+        assert_eq!(owner.admit_calls.load(Ordering::SeqCst), 0);
     }
 
     #[rstest]
