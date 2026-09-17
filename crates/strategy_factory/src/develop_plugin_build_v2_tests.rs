@@ -137,6 +137,33 @@ fn frozen_host_profiles_preserve_exact_pins_and_complete_authority() {
         hex_digest("533dffee7995258d3de4f995b0c926f18a5245a0aef09896901deee6ef144eb7")
     );
 
+    let linux_x86_64 = pinned_host_profile_for_test("linux", "x86_64")
+        .expect("the exact Linux x86_64 executable pins remain auditable");
+    assert_eq!(linux_x86_64.host, "x86_64-unknown-linux-gnu");
+    assert_eq!(linux_x86_64.target, TARGET);
+    // The wasm32v1-none sysroot is host-independent, so both Linux profiles share one digest.
+    assert_eq!(
+        linux_x86_64.target_sysroot_digest,
+        linux.target_sysroot_digest
+    );
+    assert_eq!(
+        linux_x86_64.cargo_digest,
+        hex_digest("828980723df339d62434390e9fb8ef8831036583343ae2316b7ab5646b5c1953")
+    );
+    assert_eq!(
+        linux_x86_64.rustc_digest,
+        hex_digest("d3a664c970a9fd8361b64194861bebc1ae37b9054e5ee3400dc1c9e691797eea")
+    );
+    assert_eq!(
+        linux_x86_64.linker_digest,
+        hex_digest("38a9f28404309892f9c9afe02fa4979a0d9e8bc866979cde09f5bb7ec17e5721")
+    );
+    // Every admitted host is a distinct pin. A copied profile would silently let one host's
+    // toolchain satisfy another host's frozen identity.
+    assert_ne!(linux_x86_64.cargo_digest, linux.cargo_digest);
+    assert_ne!(linux_x86_64.rustc_digest, linux.rustc_digest);
+    assert_ne!(linux_x86_64.linker_digest, linux.linker_digest);
+
     assert_eq!(
         host_profile_for_test("linux", "aarch64")
             .expect("the canonical sysroot verifier completes Linux authority"),
@@ -219,8 +246,9 @@ fn canonical_linux_sysroot_matches_the_frozen_generator_digest() {
 
 #[rstest]
 fn unknown_host_profile_fails_closed() {
-    let terminal = super::develop_plugin_build_v2_sandbox::host_profile_for_test("linux", "x86_64")
-        .expect_err("an unpinned host profile must remain unavailable");
+    let terminal =
+        super::develop_plugin_build_v2_sandbox::host_profile_for_test("windows", "x86_64")
+            .expect_err("an unpinned host profile must remain unavailable");
     assert_eq!(
         terminal.kind,
         DevelopPluginBuildTerminalKindV2::ToolchainUnavailable

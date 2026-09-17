@@ -50,8 +50,24 @@ const LINUX_ARM64_PROFILE: FrozenHostProfileV2 = FrozenHostProfileV2 {
     target_sysroot_digest: Some(LINUX_TARGET_SYSROOT_SHA256),
 };
 
-pub(super) fn frozen_execution_profiles() -> [FrozenHostProfileV2; 2] {
-    [MACOS_ARM64_PROFILE, LINUX_ARM64_PROFILE]
+// The wasm32v1-none sysroot is host-independent: extracting the same pinned `rust-std` under
+// linux/arm64 and linux/amd64 yields byte-identical paths, modes, sizes and contents, so both Linux
+// profiles share one frozen sysroot digest.
+const LINUX_X86_64_PROFILE: FrozenHostProfileV2 = FrozenHostProfileV2 {
+    host: "x86_64-unknown-linux-gnu",
+    cargo_digest: hex_bytes("828980723df339d62434390e9fb8ef8831036583343ae2316b7ab5646b5c1953"),
+    rustc_digest: hex_bytes("d3a664c970a9fd8361b64194861bebc1ae37b9054e5ee3400dc1c9e691797eea"),
+    linker_digest: hex_bytes("38a9f28404309892f9c9afe02fa4979a0d9e8bc866979cde09f5bb7ec17e5721"),
+    target: TARGET,
+    target_sysroot_digest: Some(LINUX_TARGET_SYSROOT_SHA256),
+};
+
+pub(super) fn frozen_execution_profiles() -> [FrozenHostProfileV2; 3] {
+    [
+        MACOS_ARM64_PROFILE,
+        LINUX_ARM64_PROFILE,
+        LINUX_X86_64_PROFILE,
+    ]
 }
 
 // Portable sealed test evidence remains bound to the original macOS profile.
@@ -387,10 +403,20 @@ fn select_host_profile(
     match (target_os, target_arch) {
         ("macos", "aarch64") => Ok(&MACOS_ARM64_PROFILE),
         ("linux", "aarch64") => Ok(&LINUX_ARM64_PROFILE),
+        ("linux", "x86_64") => Ok(&LINUX_X86_64_PROFILE),
+        // Naming the admitted hosts from the frozen list keeps this refusal from drifting out of
+        // step with the match arms above, which it already had done once.
         _ => Err(DevelopPluginBuildTerminalV2::new(
             DevelopPluginBuildTerminalKindV2::ToolchainUnavailable,
             "toolchain.host",
-            "the exact local build profile admits only aarch64-apple-darwin",
+            &format!(
+                "the exact local build profile admits only {}",
+                frozen_execution_profiles()
+                    .iter()
+                    .map(|profile| profile.host)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
         )),
     }
 }
@@ -404,15 +430,15 @@ pub(super) fn host_profile_for_test(
 }
 
 #[cfg(test)]
+/// Resolves the pin without the sysroot verification `host_profile_for_test` performs.
+///
+/// This delegates rather than repeating the host table. A second table is how the admitted set and
+/// the refusal message drifted apart before.
 pub(super) fn pinned_host_profile_for_test(
     target_os: &str,
     target_arch: &str,
 ) -> Option<&'static FrozenHostProfileV2> {
-    match (target_os, target_arch) {
-        ("macos", "aarch64") => Some(&MACOS_ARM64_PROFILE),
-        ("linux", "aarch64") => Some(&LINUX_ARM64_PROFILE),
-        _ => None,
-    }
+    select_host_profile(target_os, target_arch).ok()
 }
 
 pub(super) fn matches_frozen_execution_profile(
