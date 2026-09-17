@@ -1156,6 +1156,7 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
 
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
+    use crate::owner::resolve_pit_request_for_strategy_design_v1;
     use crate::owner::{
         correction_policy_projection::{CorrectionPolicyAuthenticatedInputsV1, project_first_v1},
         postgres::{
@@ -1187,6 +1188,7 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         strategy_input_binding::{
             StrategyInputCustodyUnavailableV1, UntrustedStrategyInputCustodyClaimV1,
         },
+        strategy_input_binding_admission_v1::StrategyInputBindingAdmissionErrorV1,
     };
 
     fn d(value: u8) -> BindingDigest {
@@ -1560,6 +1562,72 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     sqlx::query("INSERT INTO composer_private.rd_develop_strategy_design_native_joins_v1(request_identity,native_join_digest,projection_receipt_digest,joined_cut_digest,schedule_dependency_set_digest,canonical_bytes) VALUES($1,$2,$3,$4,$5,$6)")
         .bind(&composer_locator.request_identity).bind(native_join.receipt_digest().as_bytes().as_slice()).bind(native_join.projection_receipt_digest().as_bytes().as_slice()).bind(native_join.joined_cut_digest().as_bytes().as_slice()).bind(native_join.schedule_dependency_set_digest().as_bytes().as_slice()).bind(native_join.canonical_bytes()).execute(&mut *composer_tx).await.unwrap();
     composer_tx.commit().await.unwrap();
+
+    // W3: the Design's roles become binding declarations, and the Composer seam stops failing
+    // closed. The before-and-after around one call is the whole point of the section: a production
+    // Design reaches `UnknownDeclaration` today because nothing registers for it, so proving the
+    // coordinate appears is proving that the registry now has a production writer.
+    let w3_design = base.binding_requests[0].strategy_design_identity;
+    let mut before_tx = market_mutation_pool.begin().await.unwrap();
+    let before = resolve_pit_request_for_strategy_design_v1(&mut before_tx, w3_design).await;
+    before_tx.rollback().await.unwrap();
+    assert!(
+        before.is_err(),
+        "a Design with no declaration must not resolve to a coordinate: {before:?}"
+    );
+
+    let w3_binding = ReplayCompositionOwnerV1::connect(owner_url, reader_url)
+        .await
+        .expect("W3 admission binding");
+    let w3_terminal = w3_binding
+        .declare_strategy_input_bindings_v1(&composer_locator)
+        .await
+        .expect("W3 declares the authenticated role set");
+    assert_eq!(w3_terminal.design_identity(), w3_design);
+    assert_eq!(
+        w3_terminal.research_request_identity(),
+        base.binding_requests[0].research_request_identity
+    );
+    assert_eq!(w3_terminal.role_count() as usize, role_set.roles.len());
+    assert_eq!(
+        w3_terminal.pit_request_identity(),
+        base.binding_requests[0].pit_request_identity,
+        "the Owner resolved the roles to its own committed request, not to a caller's claim"
+    );
+    assert_eq!(
+        w3_terminal.decision_cut(),
+        base.binding_requests[0].decision_cut
+    );
+
+    let mut after_tx = market_mutation_pool.begin().await.unwrap();
+    let coordinate = resolve_pit_request_for_strategy_design_v1(&mut after_tx, w3_design)
+        .await
+        .expect("the declared Design now has a PIT coordinate");
+    after_tx.rollback().await.unwrap();
+    assert_eq!(
+        coordinate.pit_request_identity,
+        base.binding_requests[0].pit_request_identity
+    );
+
+    // Re-admitting the same locator rejoins rather than rewrites, which is what makes a lost commit
+    // acknowledgement safe to retry.
+    let w3_replay = w3_binding
+        .declare_strategy_input_bindings_v1(&composer_locator)
+        .await
+        .expect("re-admission rejoins the same declarations");
+    assert_eq!(w3_replay, w3_terminal);
+
+    // A locator the Composer never attested reaches no declaration. The Owner cannot be talked into
+    // registering against an attestation that does not exist.
+    let mut unattested = composer_locator.clone();
+    unattested.request_identity = format!("{}-unattested", composer_locator.request_identity);
+    assert_eq!(
+        w3_binding
+            .declare_strategy_input_bindings_v1(&unattested)
+            .await
+            .unwrap_err(),
+        StrategyInputBindingAdmissionErrorV1::UnknownAttestation
+    );
 
     let reader_pool = mutation.pool(CanonicalOwnerTestRoleV1::MarketDataReader);
     let mut reader_cut = reader_pool.begin().await.unwrap();

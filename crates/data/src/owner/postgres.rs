@@ -17,6 +17,7 @@ mod calendar;
 mod corporate_action;
 mod market_semantics;
 mod observation_census;
+mod pit_role_resolution_v1;
 mod rd_strategy_input_custody;
 mod reference_fact_catalog;
 mod reference_fact_coordinates;
@@ -194,6 +195,11 @@ use super::{
         SourceBindingAdmissionRequestV1, SourceBindingAdmissionTerminalV1,
         SourceBindingAdmissionV1, sealed::Sealed as SourceBindingAdmissionSealed,
     },
+    strategy_design_role_set::StrategyDesignRoleSetLocatorV1,
+    strategy_input_binding_admission_v1::{
+        StrategyInputBindingAdmissionErrorV1, StrategyInputBindingAdmissionTerminalV1,
+        StrategyInputBindingAdmissionV1, sealed::Sealed as StrategyInputBindingAdmissionSealed,
+    },
     universe_selection::{
         UntrustedUniverseSelectionRequestV1,
         authority::{
@@ -272,6 +278,13 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_observation_rows_v1 (snapshot_identity BYTEA NOT NULL REFERENCES market_data_private.pit_observation_batches_v1(snapshot_identity), ordinal BIGINT NOT NULL CHECK (ordinal > 0), symbolic_key TEXT NOT NULL CHECK (symbolic_key <> ''), member_key TEXT NOT NULL CHECK (member_key <> ''), row_bytes BYTEA NOT NULL CHECK (octet_length(row_bytes) > 0), PRIMARY KEY(snapshot_identity,ordinal), UNIQUE(snapshot_identity,symbolic_key,member_key))",
     "CREATE TABLE IF NOT EXISTS market_data_private.source_binding_lineage_census_v1 (lineage_root BYTEA PRIMARY KEY CHECK (octet_length(lineage_root) = 32))",
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_snapshot_lineage_census_v1 (lineage_root BYTEA PRIMARY KEY CHECK (octet_length(lineage_root) = 32))",
+    // One row per committed observation coordinate, so that a Design's authenticated input
+    // role can be resolved to the Owner's own snapshot without scanning or decoding rows. The
+    // coordinates are exactly what `request_matches_authenticated_role_v1` authenticates, and
+    // the lineage root is part of the key: a correction advances its own lineage and is not
+    // ambiguity, while two lineages answering one coordinate at one cut is, and resolution
+    // fails closed on it rather than choosing.
+    "CREATE TABLE IF NOT EXISTS market_data_private.pit_role_coordinate_index_v1 (instrument TEXT NOT NULL CHECK (instrument <> ''), channel TEXT NOT NULL CHECK (channel <> ''), data_kind TEXT NOT NULL CHECK (data_kind <> ''), field TEXT NOT NULL CHECK (field <> ''), timeframe TEXT NOT NULL CHECK (timeframe <> ''), value_scale SMALLINT NOT NULL CHECK (value_scale >= 0 AND value_scale <= 255), decision_cut BIGINT NOT NULL CHECK (decision_cut > 0), lineage_root BYTEA NOT NULL CHECK (octet_length(lineage_root) = 32), lineage_version BIGINT NOT NULL CHECK (lineage_version > 0), snapshot_identity BYTEA NOT NULL REFERENCES market_data_private.pit_snapshot_facts_v1(snapshot_identity), PRIMARY KEY(instrument,channel,data_kind,field,timeframe,value_scale,decision_cut,lineage_root))",
     "CREATE TABLE IF NOT EXISTS market_data_private.native_replay_frame_census_v2 (scope_digest BYTEA NOT NULL CHECK (octet_length(scope_digest) = 32), frame_ordinal BIGINT NOT NULL CHECK (frame_ordinal > 0), snapshot_identity BYTEA NOT NULL UNIQUE REFERENCES market_data_private.pit_snapshot_facts_v1(snapshot_identity) ON DELETE RESTRICT, snapshot_fact_digest BYTEA NOT NULL CHECK (octet_length(snapshot_fact_digest) = 32), event_effective_ns BIGINT NOT NULL CHECK (event_effective_ns >= 0), decision_cut_ns BIGINT NOT NULL CHECK (decision_cut_ns >= 0), correction_branch_digest BYTEA NOT NULL CHECK (octet_length(correction_branch_digest) = 32), PRIMARY KEY (scope_digest, frame_ordinal))",
     "CREATE TABLE IF NOT EXISTS market_data_private.native_replay_frame_sequences_v2 (sequence_identity BYTEA PRIMARY KEY CHECK (octet_length(sequence_identity) = 32), request_identity BYTEA NOT NULL UNIQUE CHECK (octet_length(request_identity) = 32), v1_binding_identity BYTEA NOT NULL CHECK (octet_length(v1_binding_identity) = 32), window_start_ns BIGINT NOT NULL CHECK (window_start_ns >= 0), window_end_ns_exclusive BIGINT NOT NULL CHECK (window_end_ns_exclusive > window_start_ns), first_snapshot_identity BYTEA NOT NULL CHECK (octet_length(first_snapshot_identity) = 32), second_snapshot_identity BYTEA NOT NULL CHECK (octet_length(second_snapshot_identity) = 32), sequence_bytes BYTEA NOT NULL CHECK (octet_length(sequence_bytes) > 0), receipt_identity BYTEA NOT NULL UNIQUE CHECK (octet_length(receipt_identity) = 32), receipt_bytes BYTEA NOT NULL CHECK (octet_length(receipt_bytes) > 0), CHECK (first_snapshot_identity <> second_snapshot_identity))",
     "CREATE TABLE IF NOT EXISTS market_data_private.native_replay_frame_sequence_outbox_v2 (outbox_identity BYTEA PRIMARY KEY CHECK (octet_length(outbox_identity) = 32), sequence_identity BYTEA NOT NULL UNIQUE REFERENCES market_data_private.native_replay_frame_sequences_v2(sequence_identity) ON DELETE RESTRICT, payload_digest BYTEA NOT NULL CHECK (octet_length(payload_digest) = 32), payload BYTEA NOT NULL CHECK (octet_length(payload) > 0))",
@@ -305,11 +318,13 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_bar_schedule_history_v1(p_canonical_instrument TEXT) RETURNS TABLE(head_fact_digest BYTEA,fact_digest BYTEA,predecessor_fact_digest BYTEA,fact_bytes BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT h.fact_digest,f.fact_digest,f.predecessor_fact_digest,f.fact_bytes FROM (SELECT fact_digest FROM market_data_private.bar_schedule_heads_v1 WHERE canonical_instrument=p_canonical_instrument) AS h FULL OUTER JOIN (SELECT fact_digest,predecessor_fact_digest,fact_bytes FROM market_data_private.bar_schedule_facts_v1 WHERE canonical_instrument=p_canonical_instrument) AS f ON TRUE $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_strategy_input_sample_projection_v3(p_receipt_digest BYTEA) RETURNS TABLE(receipt_digest BYTEA,kind SMALLINT,lifecycle SMALLINT,subject_identity BYTEA,component_count BIGINT,receipt_bytes BYTEA,custody_digest BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT p.receipt_digest,p.kind,p.lifecycle,p.subject_identity,p.component_count,p.receipt_bytes,p.custody_digest FROM market_data_private.strategy_input_sample_projection_receipts_v3 AS p WHERE p.receipt_digest=p_receipt_digest $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3(p_receipt_digest BYTEA) RETURNS TABLE(component_ordinal BIGINT,role_identity BYTEA,binding_receipt_digest BYTEA,schedule_readback_identity BYTEA,schedule_fact_digest BYTEA,schedule_cut_identity BYTEA,schedule_cut_digest BYTEA,schedule_receipt_identity BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT d.component_ordinal,d.role_identity,d.binding_receipt_digest,d.schedule_readback_identity,d.schedule_fact_digest,d.schedule_cut_identity,d.schedule_cut_digest,d.schedule_receipt_identity FROM market_data_private.strategy_input_sample_projection_schedule_dependencies_v3 AS d WHERE d.receipt_digest=p_receipt_digest ORDER BY d.component_ordinal $function$",
+    "CREATE OR REPLACE FUNCTION market_data_private.resolve_pit_role_coordinate_v1(p_instrument TEXT, p_channel TEXT, p_data_kind TEXT, p_field TEXT, p_timeframe TEXT, p_value_scale SMALLINT, p_decision_cut_at_or_before BIGINT) RETURNS TABLE(decision_cut BIGINT, lineage_root BYTEA, snapshot_identity BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ WITH matched AS (SELECT i.decision_cut, i.lineage_root, i.lineage_version FROM market_data_private.pit_role_coordinate_index_v1 AS i WHERE i.instrument = p_instrument AND i.channel = p_channel AND i.data_kind = p_data_kind AND i.field = p_field AND i.timeframe = p_timeframe AND i.value_scale = p_value_scale AND i.decision_cut <= p_decision_cut_at_or_before) SELECT m.decision_cut, m.lineage_root, h.snapshot_identity FROM matched AS m JOIN market_data_private.pit_snapshot_heads_v1 AS h ON h.lineage_root = m.lineage_root AND h.lineage_version = m.lineage_version WHERE m.decision_cut = (SELECT MAX(decision_cut) FROM matched) ORDER BY m.lineage_root $function$",
     "REVOKE ALL ON ALL TABLES IN SCHEMA market_data_private FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_source_binding_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_pit_snapshot_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_pit_observation_batch_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_pit_observation_rows_v1(BYTEA) FROM PUBLIC",
+    "REVOKE ALL ON FUNCTION market_data_private.resolve_pit_role_coordinate_v1(TEXT,TEXT,TEXT,TEXT,TEXT,SMALLINT,BIGINT) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_source_lineage_custody_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_pit_lineage_custody_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_source_lineage_members_v1(BYTEA) FROM PUBLIC",
@@ -6312,6 +6327,51 @@ async fn insert_pit_observation_batch(
         .await
         .map_err(|e| map_pit_insert_error(&e))?;
     }
+    index_pit_role_coordinates(transaction, aggregate, batch).await?;
+    Ok(())
+}
+
+/// Records the coordinates at which this snapshot answers, so that a Design's authenticated input
+/// role can later be resolved to it.
+///
+/// The coordinates written here are exactly the ones `resolve_strategy_input_row` selects a row by,
+/// which is what makes the index answer the same question the binder does. A correction re-answers
+/// its own lineage at the same cut, so it overwrites that lineage's row and never competes with
+/// itself; two rows of one batch sharing a coordinate write the same values, and the binder still
+/// rejects that batch as ambiguous when a role reaches it.
+async fn index_pit_role_coordinates(
+    transaction: &mut Transaction<'_, Postgres>,
+    aggregate: &PitSnapshotCommitAggregate,
+    batch: &PreparedPitObservationBatch,
+) -> Result<(), PitSnapshotError> {
+    let fact = aggregate.fact();
+    let decision_cut = i64::try_from(fact.request().time_evidence.decision_cut.value)
+        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    let lineage_version = i64::try_from(fact.lineage_version())
+        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+
+    if decision_cut <= 0 {
+        return Err(PitSnapshotError::InvalidObservationBatch);
+    }
+
+    for row in batch.rows() {
+        sqlx::query(
+            "INSERT INTO market_data_private.pit_role_coordinate_index_v1(instrument,channel,data_kind,field,timeframe,value_scale,decision_cut,lineage_root,lineage_version,snapshot_identity) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (instrument,channel,data_kind,field,timeframe,value_scale,decision_cut,lineage_root) DO UPDATE SET lineage_version=EXCLUDED.lineage_version,snapshot_identity=EXCLUDED.snapshot_identity WHERE market_data_private.pit_role_coordinate_index_v1.lineage_version<=EXCLUDED.lineage_version",
+        )
+        .bind(row.instrument())
+        .bind(row.channel())
+        .bind(row.data_kind())
+        .bind(row.field())
+        .bind(row.timeframe())
+        .bind(i16::from(row.value_scale()))
+        .bind(decision_cut)
+        .bind(fact.lineage_root().as_bytes().as_slice())
+        .bind(lineage_version)
+        .bind(fact.snapshot_identity().as_bytes().as_slice())
+        .execute(&mut **transaction)
+        .await
+        .map_err(|e| map_pit_insert_error(&e))?;
+    }
     Ok(())
 }
 
@@ -9848,4 +9908,63 @@ fn seal_universe_terminal_v1(
             .filter(|member| member.included())
             .count() as u64,
     )
+}
+
+/// The env var naming the principal that may read the Composer's role-set attestation.
+///
+/// It is a second principal on the same database rather than a second database: the Owner writes
+/// its custody as `market_data_owner`, which is denied that resolver, and reads the attestation as
+/// `market_data_reader`, which holds nothing in `market_data_private`.
+const MARKET_DATA_RD_ROLE_SET_DATABASE_URL_ENV: &str = "MARKET_DATA_RD_ROLE_SET_DATABASE_URL";
+
+pub(super) async fn strategy_input_binding_admission_from_environment_v1()
+-> Result<std::sync::Arc<dyn StrategyInputBindingAdmissionV1>, StrategyInputBindingAdmissionErrorV1>
+{
+    let owner_url =
+        std::env::var(super::instrument_master_v2_postgres::MARKET_DATA_OWNER_DATABASE_URL_ENV)
+            .map_err(|_| StrategyInputBindingAdmissionErrorV1::StoreUnavailable)?;
+    let reader_url = std::env::var(MARKET_DATA_RD_ROLE_SET_DATABASE_URL_ENV)
+        .map_err(|_| StrategyInputBindingAdmissionErrorV1::StoreUnavailable)?;
+
+    if owner_url.is_empty()
+        || owner_url.trim() != owner_url
+        || reader_url.is_empty()
+        || reader_url.trim() != reader_url
+    {
+        return Err(StrategyInputBindingAdmissionErrorV1::StoreUnavailable);
+    }
+    let binding =
+        super::replay_market_facts_v2::ReplayCompositionOwnerV1::connect(&owner_url, &reader_url)
+            .await
+            .map_err(|_| StrategyInputBindingAdmissionErrorV1::StoreUnavailable)?;
+    Ok(std::sync::Arc::new(
+        StrategyInputBindingAdmissionPostgresV1 { binding },
+    ))
+}
+
+/// The durable W3 admission. It exposes neither pool, attestation nor declaration row.
+struct StrategyInputBindingAdmissionPostgresV1 {
+    binding: super::replay_market_facts_v2::ReplayCompositionOwnerV1,
+}
+
+impl Debug for StrategyInputBindingAdmissionPostgresV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct(stringify!(StrategyInputBindingAdmissionPostgresV1))
+            .finish_non_exhaustive()
+    }
+}
+
+impl StrategyInputBindingAdmissionSealed for StrategyInputBindingAdmissionPostgresV1 {}
+
+#[async_trait::async_trait]
+impl StrategyInputBindingAdmissionV1 for StrategyInputBindingAdmissionPostgresV1 {
+    async fn admit(
+        &self,
+        locator: StrategyDesignRoleSetLocatorV1,
+    ) -> Result<StrategyInputBindingAdmissionTerminalV1, StrategyInputBindingAdmissionErrorV1> {
+        self.binding
+            .declare_strategy_input_bindings_v1(&locator)
+            .await
+    }
 }

@@ -83,7 +83,17 @@ pub enum StrategyInputChannel {
 }
 
 impl StrategyInputChannel {
-    const fn canonical(self) -> &'static str {
+    /// Recovers a channel from the canonical form a Design's authenticated role carries.
+    pub(crate) fn from_canonical(canonical: &str) -> Option<Self> {
+        match canonical {
+            "MARKET" => Some(Self::Market),
+            "REFERENCE" => Some(Self::Reference),
+            "ECONOMIC" => Some(Self::Economic),
+            _ => None,
+        }
+    }
+
+    pub(crate) const fn canonical(self) -> &'static str {
         match self {
             Self::Market => "MARKET",
             Self::Reference => "REFERENCE",
@@ -196,7 +206,7 @@ impl MarketDataFieldSemantic {
         }
     }
 
-    const fn unit(self) -> StrategyInputUnit {
+    pub(crate) const fn unit(self) -> StrategyInputUnit {
         match self {
             Self::BarOpenPrice
             | Self::BarHighPrice
@@ -227,7 +237,17 @@ pub enum StrategyInputUnit {
 }
 
 impl StrategyInputUnit {
-    const fn canonical(self) -> &'static str {
+    /// Recovers a unit from the canonical form a Design's authenticated role carries.
+    pub(crate) fn from_canonical(canonical: &str) -> Option<Self> {
+        match canonical {
+            "PRICE" => Some(Self::Price),
+            "QUANTITY" => Some(Self::Quantity),
+            "SCALAR" => Some(Self::Scalar),
+            _ => None,
+        }
+    }
+
+    pub(crate) const fn canonical(self) -> &'static str {
         match self {
             Self::Price => "PRICE",
             Self::Quantity => "QUANTITY",

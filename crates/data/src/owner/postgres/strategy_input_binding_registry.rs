@@ -1126,15 +1126,39 @@ async fn resolve_native_pit(
     request: &UntrustedStrategyInputBindingRequest,
     mode: DependencyReadModeV1,
 ) -> Result<VerifiedPitObservationBatch, StrategyInputBindingRegistryErrorV1> {
+    load_verified_pit_batch(transaction, request.snapshot_identity, mode).await
+}
+
+/// Re-reads and re-verifies one snapshot's complete observation batch.
+///
+/// The batch is the only thing a role's declaration can be composed from, so this is also the
+/// Owner-side entry a Design's role resolution uses once it knows which snapshot answers.
+pub(super) async fn load_owner_verified_pit_batch_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    snapshot_identity: BindingDigest,
+) -> Result<VerifiedPitObservationBatch, StrategyInputBindingRegistryErrorV1> {
+    load_verified_pit_batch(
+        transaction,
+        snapshot_identity,
+        DependencyReadModeV1::LockRows,
+    )
+    .await
+}
+
+async fn load_verified_pit_batch(
+    transaction: &mut Transaction<'_, Postgres>,
+    snapshot_identity: BindingDigest,
+    mode: DependencyReadModeV1,
+) -> Result<VerifiedPitObservationBatch, StrategyInputBindingRegistryErrorV1> {
     let aggregate = match mode {
         DependencyReadModeV1::LockRows => {
-            load_pit_for_update(transaction, request.snapshot_identity, false).await
+            load_pit_for_update(transaction, snapshot_identity, false).await
         }
         DependencyReadModeV1::ReadOnly => {
-            load_pit(transaction, request.snapshot_identity, false, false).await
+            load_pit(transaction, snapshot_identity, false, false).await
         }
         DependencyReadModeV1::RdOwner => {
-            load_pit_for_rd_strategy_input(transaction, request.snapshot_identity).await
+            load_pit_for_rd_strategy_input(transaction, snapshot_identity).await
         }
     }
     .map_err(map_pit_error)?
@@ -1383,6 +1407,26 @@ fn map_instrument_error(_: InstrumentMasterError) -> StrategyInputBindingRegistr
 
 fn map_market_semantics_error(_: MarketSemanticsErrorV1) -> StrategyInputBindingRegistryErrorV1 {
     StrategyInputBindingRegistryErrorV1::MarketSemanticsUnavailable
+}
+
+/// Registers every declaration of one authenticated role set inside the caller's transaction.
+///
+/// Coverage is validated once for the whole set rather than per request, which is what makes a
+/// role set arrive whole: a set that is missing a role, carries an extra one, or contains a request
+/// the attestation does not authenticate stores nothing at all. Each request is then registered
+/// through the unchanged V1 path, so every binding is still re-derived from live native
+/// dependencies and a replay rejoins the stored bytes instead of overwriting them.
+pub(super) async fn register_authenticated_role_declarations_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    role_set: &StrategyDesignRoleSetReceiptV1,
+    requests: &[UntrustedStrategyInputBindingRequest],
+) -> Result<(), StrategyInputBindingRegistryErrorV1> {
+    validate_authenticated_role_set_coverage_v1(role_set, requests)?;
+
+    for request in requests {
+        register_strategy_input_binding_declaration_unchecked_v1(transaction, request).await?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -30,6 +30,10 @@ use vibe_data::owner::{
     source_binding_admission_v1::{
         SourceBindingAdmissionErrorV1, SourceBindingAdmissionRequestV1, SourceBindingAdmissionV1,
     },
+    strategy_design_role_set::StrategyDesignRoleSetLocatorV1,
+    strategy_input_binding_admission_v1::{
+        StrategyInputBindingAdmissionErrorV1, StrategyInputBindingAdmissionV1,
+    },
     universe_selection::{
         UntrustedUniverseSelectionLocatorV1, UntrustedUniverseSelectionRequestV1,
     },
@@ -92,6 +96,7 @@ struct MarketDataPitApiState {
     intake: Option<Arc<dyn PitMarketSnapshotIntakeV1>>,
     admission: Option<Arc<dyn SourceBindingAdmissionV1>>,
     universe: Option<Arc<dyn UniverseSelectionAdmissionV1>>,
+    bindings: Option<Arc<dyn StrategyInputBindingAdmissionV1>>,
     token_digest: [u8; 32],
 }
 
@@ -99,6 +104,7 @@ pub(super) fn router(
     intake: Option<Arc<dyn PitMarketSnapshotIntakeV1>>,
     admission: Option<Arc<dyn SourceBindingAdmissionV1>>,
     universe: Option<Arc<dyn UniverseSelectionAdmissionV1>>,
+    bindings: Option<Arc<dyn StrategyInputBindingAdmissionV1>>,
     token_digest: [u8; 32],
 ) -> Router {
     Router::new()
@@ -122,10 +128,15 @@ pub(super) fn router(
             "/v1/market-data/pit-market-snapshot-requests/decision-cut",
             post(resolve_decision_cut),
         )
+        .route(
+            "/v1/market-data/strategy-input-bindings",
+            post(declare_strategy_input_bindings),
+        )
         .with_state(MarketDataPitApiState {
             intake,
             admission,
             universe,
+            bindings,
             token_digest,
         })
 }
@@ -297,6 +308,77 @@ fn intake_error(error: PitMarketSnapshotIntakeErrorV1) -> Response {
             "MARKET_DATA_CLOCK_UNAVAILABLE",
         ),
         PitMarketSnapshotIntakeErrorV1::StoreUnavailable => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "MARKET_DATA_OWNER_UNAVAILABLE",
+        ),
+    };
+    rejection(status, code)
+}
+
+/// Declares every input role of the Design one Composer attestation authenticates.
+///
+/// The body is the Composer locator and nothing else. A Design cannot name a snapshot here even if
+/// it wanted to, which is the whole point: the Owner reads R&D's own attestation and then resolves
+/// its own custody. An unavailable binding arrives with the reason that made it unavailable, because
+/// "no snapshot answers this role" and "two lineages answer it" are different facts about the
+/// Design and a caller that cannot tell them apart cannot act on either.
+async fn declare_strategy_input_bindings(
+    State(state): State<MarketDataPitApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection(StatusCode::FORBIDDEN, "UNAUTHORIZED_PRODUCT_EDGE");
+    }
+    let Some(bindings) = state.bindings else {
+        return rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "MARKET_DATA_STRATEGY_INPUT_BINDINGS_UNAVAILABLE",
+        );
+    };
+    let locator: StrategyDesignRoleSetLocatorV1 = match serde_json::from_slice(&body) {
+        Ok(locator) => locator,
+        Err(_) => return rejection(StatusCode::BAD_REQUEST, "MALFORMED_TYPED_REQUEST"),
+    };
+
+    match bindings.admit(locator).await {
+        Ok(terminal) => (StatusCode::OK, Json(terminal)).into_response(),
+        Err(e) => strategy_input_binding_error(e),
+    }
+}
+
+fn strategy_input_binding_error(error: StrategyInputBindingAdmissionErrorV1) -> Response {
+    let (status, code) = match error {
+        StrategyInputBindingAdmissionErrorV1::UnknownAttestation => {
+            (StatusCode::NOT_FOUND, "COMPOSER_ATTESTATION_UNKNOWN")
+        }
+        StrategyInputBindingAdmissionErrorV1::AttestationUntrusted => {
+            (StatusCode::CONFLICT, "COMPOSER_ATTESTATION_UNTRUSTED")
+        }
+        StrategyInputBindingAdmissionErrorV1::UnsupportedRole => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "STRATEGY_INPUT_ROLE_UNSUPPORTED",
+        ),
+        StrategyInputBindingAdmissionErrorV1::NoMatchingSnapshot => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "STRATEGY_INPUT_SNAPSHOT_UNAVAILABLE",
+        ),
+        StrategyInputBindingAdmissionErrorV1::AmbiguousSnapshot => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "STRATEGY_INPUT_SNAPSHOT_AMBIGUOUS",
+        ),
+        StrategyInputBindingAdmissionErrorV1::SplitCoordinate => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "STRATEGY_INPUT_COORDINATE_SPLIT",
+        ),
+        StrategyInputBindingAdmissionErrorV1::RequestConflict => {
+            (StatusCode::CONFLICT, "STRATEGY_INPUT_DECLARATION_CONFLICT")
+        }
+        StrategyInputBindingAdmissionErrorV1::BindingUnavailable => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "STRATEGY_INPUT_BINDING_UNAVAILABLE",
+        ),
+        StrategyInputBindingAdmissionErrorV1::StoreUnavailable => (
             StatusCode::SERVICE_UNAVAILABLE,
             "MARKET_DATA_OWNER_UNAVAILABLE",
         ),

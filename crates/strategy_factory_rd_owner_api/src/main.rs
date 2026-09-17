@@ -40,6 +40,9 @@ use vibe_data::owner::{
     source_binding_admission_v1::{
         SourceBindingAdmissionV1, source_binding_admission_from_environment_v1,
     },
+    strategy_input_binding_admission_v1::{
+        StrategyInputBindingAdmissionV1, strategy_input_binding_admission_from_environment_v1,
+    },
     universe_selection_admission_v1::{
         UniverseSelectionAdmissionV1, universe_selection_admission_from_environment_v1,
     },
@@ -323,6 +326,8 @@ async fn main() -> anyhow::Result<()> {
     let market_data_source_binding_admission =
         bootstrap_market_data_source_binding_admission().await?;
     let market_data_universe_selection = bootstrap_market_data_universe_selection().await?;
+    let market_data_strategy_input_bindings =
+        bootstrap_market_data_strategy_input_bindings().await?;
     #[cfg(feature = "sealed-develop-composer-acceptance")]
     let native_replay_scheduling =
         native_replay_scheduling_resolver_v1_from_store_admission_environment().await?;
@@ -637,6 +642,7 @@ async fn main() -> anyhow::Result<()> {
             market_data_pit_intake,
             market_data_source_binding_admission,
             market_data_universe_selection,
+            market_data_strategy_input_bindings,
             token_digest,
         ));
     #[cfg(feature = "sealed-develop-composer-acceptance")]
@@ -759,6 +765,23 @@ async fn bootstrap_market_data_universe_selection()
     }
     Ok(Some(
         universe_selection_admission_from_environment_v1().await?,
+    ))
+}
+
+/// Composes the W3 Strategy Input Binding admission when both its principals are configured.
+///
+/// It needs two: the Owner URL writes the declarations and the R&D role-set URL reads the Composer
+/// attestation. A deployment that names only one has not separated those duties, so the route stays
+/// absent rather than running both halves as whichever principal it was given.
+async fn bootstrap_market_data_strategy_input_bindings()
+-> anyhow::Result<Option<Arc<dyn StrategyInputBindingAdmissionV1>>> {
+    if env::var("MARKET_DATA_OWNER_DATABASE_URL").is_err()
+        || env::var("MARKET_DATA_RD_ROLE_SET_DATABASE_URL").is_err()
+    {
+        return Ok(None);
+    }
+    Ok(Some(
+        strategy_input_binding_admission_from_environment_v1().await?,
     ))
 }
 

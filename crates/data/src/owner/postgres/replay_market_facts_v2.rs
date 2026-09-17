@@ -61,6 +61,9 @@ use crate::owner::{
         MarketDataFieldSemantic, StrategyInputChannel, StrategyInputUnit,
         UntrustedStrategyInputScope, request_matches_authenticated_role_v1,
     },
+    strategy_input_binding_admission_v1::{
+        StrategyInputBindingAdmissionErrorV1, StrategyInputBindingAdmissionTerminalV1,
+    },
     strategy_input_joined_cut::{
         StrategyInputJoinedCutReceiptV1, UntrustedStrategyInputJoinClaimV1,
     },
@@ -1824,6 +1827,152 @@ impl ReplayCompositionOwnerV1 {
         }
     }
 
+    /// Declares every input role of the Design one Composer attestation authenticates.
+    ///
+    /// The two principals do exactly one thing each. The reader transaction holds the Composer cut
+    /// shared lock and produces the authenticated role set, and nothing else; it stays open only so
+    /// that the attestation cannot change underneath the write. The Owner transaction resolves each
+    /// role against this Owner's own custody and registers the declarations, and can neither read
+    /// nor name the attestation.
+    ///
+    /// Every role of one Design must resolve to the same PIT request. Roles that split across
+    /// requests would give the Design two coordinates, and `resolve_pit_request_for_strategy_design_v1`
+    /// answers with one; a split is therefore refused rather than reduced to whichever role is read
+    /// first.
+    ///
+    /// # Errors
+    ///
+    /// Returns a bounded category. A role set is declared whole or not at all, and nothing is
+    /// stored unless every role resolved to one PIT request of this Owner's own custody.
+    pub async fn declare_strategy_input_bindings_v1(
+        &self,
+        locator: &StrategyDesignRoleSetLocatorV1,
+    ) -> Result<StrategyInputBindingAdmissionTerminalV1, StrategyInputBindingAdmissionErrorV1> {
+        let mut reader_transaction = self
+            .rd_role_set_pool
+            .begin_with("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .await
+            .map_err(|_| StrategyInputBindingAdmissionErrorV1::StoreUnavailable)?;
+        let attested = async {
+            let (isolation, read_only): (String, String) = sqlx::query_as(
+                "SELECT pg_catalog.current_setting('transaction_isolation'),
+                        pg_catalog.current_setting('transaction_read_only')",
+            )
+            .fetch_one(&mut *reader_transaction)
+            .await
+            .map_err(|_| StrategyInputBindingAdmissionErrorV1::StoreUnavailable)?;
+
+            if isolation != "repeatable read" || read_only != "on" {
+                return Err(StrategyInputBindingAdmissionErrorV1::StoreUnavailable);
+            }
+            lock_composer_cut_v1(&mut reader_transaction, &locator.request_identity)
+                .await
+                .map_err(map_admission_reader_error)?;
+            Self::resolve_role_set_attestation(&mut reader_transaction, locator)
+                .await
+                .map_err(map_admission_reader_error)
+        }
+        .await;
+        let authenticated = match attested {
+            Ok(authenticated) => authenticated,
+            Err(reader_error) => {
+                reader_transaction
+                    .rollback()
+                    .await
+                    .map_err(|_| StrategyInputBindingAdmissionErrorV1::StoreUnavailable)?;
+                return Err(reader_error);
+            }
+        };
+        let outcome = self.register_declarations_v1(authenticated.receipt()).await;
+        reader_transaction
+            .rollback()
+            .await
+            .map_err(|_| StrategyInputBindingAdmissionErrorV1::StoreUnavailable)?;
+        outcome
+    }
+
+    /// Resolves and stores one authenticated role set inside a single Owner transaction.
+    async fn register_declarations_v1(
+        &self,
+        receipt: &StrategyDesignRoleSetReceiptV1,
+    ) -> Result<StrategyInputBindingAdmissionTerminalV1, StrategyInputBindingAdmissionErrorV1> {
+        if receipt.roles.is_empty() {
+            return Err(StrategyInputBindingAdmissionErrorV1::UnsupportedRole);
+        }
+        let mut transaction = self
+            .owner
+            .pool
+            .begin()
+            .await
+            .map_err(|_| StrategyInputBindingAdmissionErrorV1::StoreUnavailable)?;
+        let composed = async {
+            let mut requests = Vec::with_capacity(receipt.roles.len());
+
+            for role in &receipt.roles {
+                let resolved =
+                    super::pit_role_resolution_v1::resolve_role_snapshot_v1(&mut transaction, role)
+                        .await
+                        .map_err(map_admission_resolution_error)?;
+                let batch =
+                    super::strategy_input_binding_registry::load_owner_verified_pit_batch_v1(
+                        &mut transaction,
+                        resolved.snapshot_identity,
+                    )
+                    .await
+                    .map_err(|e| map_admission_registry_error(&e))?;
+                requests.push(
+                    super::pit_role_resolution_v1::compose_binding_request_v1(
+                        receipt, role, &batch,
+                    )
+                    .map_err(map_admission_resolution_error)?,
+                );
+            }
+            let [first, rest @ ..] = requests.as_slice() else {
+                return Err(StrategyInputBindingAdmissionErrorV1::UnsupportedRole);
+            };
+
+            if rest
+                .iter()
+                .any(|request| request.pit_request_identity != first.pit_request_identity)
+            {
+                return Err(StrategyInputBindingAdmissionErrorV1::SplitCoordinate);
+            }
+            let terminal = StrategyInputBindingAdmissionTerminalV1::seal(
+                receipt.design_identity,
+                receipt.research_request_identity,
+                first.pit_request_identity,
+                first.decision_cut,
+                requests.len() as u64,
+            );
+            super::strategy_input_binding_registry::register_authenticated_role_declarations_v1(
+                &mut transaction,
+                receipt,
+                &requests,
+            )
+            .await
+            .map_err(|e| map_admission_registry_error(&e))?;
+            Ok(terminal)
+        }
+        .await;
+
+        match composed {
+            Ok(terminal) => {
+                transaction
+                    .commit()
+                    .await
+                    .map_err(|_| StrategyInputBindingAdmissionErrorV1::StoreUnavailable)?;
+                Ok(terminal)
+            }
+            Err(operation_error) => {
+                transaction
+                    .rollback()
+                    .await
+                    .map_err(|_| StrategyInputBindingAdmissionErrorV1::StoreUnavailable)?;
+                Err(operation_error)
+            }
+        }
+    }
+
     async fn resolve_role_set_attestation(
         transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         locator: &StrategyDesignRoleSetLocatorV1,
@@ -3144,6 +3293,61 @@ impl<'a> ReplayMarketFactsDependencyPortsV2<'a> {
             joined_cut,
             sample_projection,
         }
+    }
+}
+
+/// Maps a reader-side failure onto the admission's own bounded categories.
+///
+/// The reader can only fail in three ways that matter to a caller: the locator names nothing, the
+/// bytes do not authenticate, or the Composer side is unreachable. Everything else is a store
+/// failure rather than a statement about the Design.
+fn map_admission_reader_error(
+    error: ReplayCompositionBindingErrorV1,
+) -> StrategyInputBindingAdmissionErrorV1 {
+    match error {
+        ReplayCompositionBindingErrorV1::IncompleteComposition
+        | ReplayCompositionBindingErrorV1::InvalidRequest => {
+            StrategyInputBindingAdmissionErrorV1::UnknownAttestation
+        }
+        ReplayCompositionBindingErrorV1::DigestMismatch => {
+            StrategyInputBindingAdmissionErrorV1::AttestationUntrusted
+        }
+        _ => StrategyInputBindingAdmissionErrorV1::StoreUnavailable,
+    }
+}
+
+fn map_admission_resolution_error(
+    error: super::pit_role_resolution_v1::PitRoleResolutionErrorV1,
+) -> StrategyInputBindingAdmissionErrorV1 {
+    use super::pit_role_resolution_v1::PitRoleResolutionErrorV1 as Resolution;
+
+    match error {
+        Resolution::UnsupportedRole
+        | Resolution::UnknownFieldSemantic
+        | Resolution::UnitMismatch => StrategyInputBindingAdmissionErrorV1::UnsupportedRole,
+        Resolution::NoMatchingSnapshot | Resolution::DecisionCutUnavailable => {
+            StrategyInputBindingAdmissionErrorV1::NoMatchingSnapshot
+        }
+        Resolution::AmbiguousSnapshot => StrategyInputBindingAdmissionErrorV1::AmbiguousSnapshot,
+        Resolution::StoreUnavailable => StrategyInputBindingAdmissionErrorV1::StoreUnavailable,
+    }
+}
+
+fn map_admission_registry_error(
+    error: &super::strategy_input_binding_registry::StrategyInputBindingRegistryErrorV1,
+) -> StrategyInputBindingAdmissionErrorV1 {
+    use super::strategy_input_binding_registry::StrategyInputBindingRegistryErrorV1 as Registry;
+
+    match error {
+        Registry::RequestConflict => StrategyInputBindingAdmissionErrorV1::RequestConflict,
+        Registry::StoreUnavailable | Registry::StoreUntrusted => {
+            StrategyInputBindingAdmissionErrorV1::StoreUnavailable
+        }
+        Registry::PitUnavailable => StrategyInputBindingAdmissionErrorV1::NoMatchingSnapshot,
+        Registry::StrategyDesignRoleSetUnavailable => {
+            StrategyInputBindingAdmissionErrorV1::UnsupportedRole
+        }
+        _ => StrategyInputBindingAdmissionErrorV1::BindingUnavailable,
     }
 }
 
