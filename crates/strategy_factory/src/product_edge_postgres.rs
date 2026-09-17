@@ -5092,8 +5092,10 @@ pub(crate) mod tests {
     /// which lowers the frozen program, builds it twice in the sandbox to byte-identical Wasm, and
     /// commits every positive Composer fact in one transaction.
     ///
-    /// It is separate from the assembly acceptance because it costs two real compiler invocations.
-    /// The chain that proves transactional custody should not pay for a toolchain proof.
+    /// It stays separate from the assembly acceptance because it costs two real compiler
+    /// invocations, and the chain runs it last before the destructive drain: it is the most
+    /// expensive entry and the one with the least history, so a failure here costs the fewest
+    /// verdicts behind it.
     #[cfg(feature = "sealed-strategy-input-acceptance")]
     #[rstest::rstest]
     #[ignore = "requires admitted database URLs and invokes the pinned local wasm compiler"]

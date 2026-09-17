@@ -57,7 +57,6 @@ readonly -A unselected_reason=(
   ["exact_complex_cache_executes_program_family_path_reproducibly"]="frozen external dataset; the chain provisions a database, not a corpus"
   ["exact_pilot_cache_executes_native_family_path"]="frozen external dataset; the chain provisions a database, not a corpus"
   ["forged_v3_admission_fails_without_replay_transition_or_outbox_write"]="needs sealed-source-intake-composer-acceptance, which the chain's archive does not enable"
-  ["frozen_program_runs_the_production_composer_to_a_durable_artifact"]="needs a database and the pinned wasm toolchain together; job placement is undecided"
   ["live_bounded_pit_probe_stops_on_cost_or_returns_authentic_evidence"]="live vendor probe; needs a real vendor request and its credential"
   ["live_probe_answers_the_owner_scope_or_refuses"]="live vendor probe; needs a real vendor request and its credential"
   ["market_data_answers_one_frozen_request_from_live_vendor_data"]="live vendor probe; needs a real vendor request and its credential"
