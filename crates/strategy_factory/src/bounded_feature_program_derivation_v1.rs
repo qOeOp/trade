@@ -359,9 +359,17 @@ mod tests {
     #[rstest]
     fn derivation_reproduces_a_known_good_proposal() {
         let (design, expected) = crate::bounded_feature_program_v1::tests::candidate();
+
+        // The catalog comes from the version this proposal names, not from whichever version is
+        // newest. `PrimitiveCatalogV1::verify` answers the newest one because minting a fresh
+        // proposal wants it, while reproducing a known-good proposal does not: that proposal
+        // already carries the catalog version and digest it was derived against. Reading the
+        // newest here would assert that the newest version happens to be the fixture's, which is
+        // an unrelated fact that every future catalog version would falsify.
         let derived = derive_bounded_feature_program_proposal_v1(
             &design,
-            PrimitiveCatalogV1::verify().expect("a published catalog verifies"),
+            PrimitiveCatalogV1::resolve(expected.catalog_semantic_version)
+                .expect("the catalog version the proposal names is published"),
             &meaning_of(&expected),
             &bindings_of(&design, &expected),
         )
