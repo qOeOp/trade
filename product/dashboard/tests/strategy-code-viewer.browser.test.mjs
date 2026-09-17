@@ -412,7 +412,6 @@ test(browserAcceptance
         folded: Boolean(host?.querySelector('.cm-foldPlaceholder')),
         selected: window.getSelection()?.toString() ?? '',
         scrollTop: scroller?.scrollTop ?? 0,
-        before: content?.innerText ?? '',
       };
     })()`);
     assert.equal(surface.ariaReadonly, "true");
@@ -429,10 +428,18 @@ test(browserAcceptance
     assert.ok(surface.scrollTop > 0, JSON.stringify(surface));
 
     await browser.send("Input.insertText", { text: "\nINVENTED_EDIT" });
+    // The document is checked through the line gutter rather than through the rendered text. The
+    // editor virtualizes lines, so `.cm-content` innerText is whatever happens to be rendered at
+    // that scroll position and changes on any re-render without an edit having occurred. The last
+    // gutter line number is the document's own length: an accepted insertion would grow it.
     assert.deepEqual(await readBrowserValue(browser, `(() => {
       const host = document.querySelector('[data-slot="strategy-read-only-code"]');
+      const lastLineNumber = [...(host?.querySelectorAll('.cm-lineNumbers .cm-gutterElement') ?? [])]
+        .map((lineNumber) => Number(lineNumber.textContent?.trim()))
+        .filter(Number.isInteger)
+        .at(-1);
       return {
-        sourceUnchanged: host?.querySelector('.cm-content')?.innerText === ${JSON.stringify(surface.before)},
+        documentLengthUnchanged: lastLineNumber === ${JSON.stringify(sourceLineCount)},
         inventedAbsent: !document.body.innerText.includes('INVENTED_EDIT'),
         noEffectControls: ![...document.querySelectorAll('button')].some((button) =>
           /^(Run|Save|Execute|Deploy)$/u.test(button.textContent?.trim() ?? '')),
@@ -440,7 +447,7 @@ test(browserAcceptance
         preview: document.querySelector('[aria-label="WASM preview result"]')?.getAttribute('data-status'),
       };
     })()`), {
-      sourceUnchanged: true,
+      documentLengthUnchanged: true,
       inventedAbsent: true,
       noEffectControls: true,
       copyEnabled: true,
