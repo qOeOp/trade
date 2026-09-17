@@ -27,10 +27,21 @@ on:
       - reopened
       - ready_for_review
 
+# One run per pull request, and one per branch tip on `main`. Keying a push group on the commit
+# gave every `main` push a group of its own, so `cancel-in-progress` could never fire there: the
+# 41 merges of 2026-09-17 left nine full builds queued behind one another, holding the runner
+# budget that the next pull request's gate waits for while publishing nothing, since every
+# release job here is gated on `nautechsystems/nautilus_trader`. `main` is squash-merged in
+# sequence, so only its tip is worth verifying and a superseded run should yield its runner.
+# The shared test branches keep the commit in their group on purpose: a force-push there is
+# another agent's experiment rather than a superseding tip, and cancelling it would destroy
+# verification someone is waiting for.
 concurrency:
   group: >-
     ${{ format('{0}-{1}', github.workflow,
-    github.event.pull_request.number || format('{0}-{1}', github.ref_name, github.sha)) }}
+    github.event.pull_request.number
+    || (github.ref_name == 'main' && github.ref_name
+    || format('{0}-{1}', github.ref_name, github.sha))) }}
   cancel-in-progress: true
 
 env:
