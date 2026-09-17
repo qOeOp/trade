@@ -66,6 +66,21 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|vibe_strategy_factory|iteration_result_admission_postgres::tests::a_locator_from_another_experiment_never_reads_this_admission_back'
   'vibe-strategy-factory|vibe_strategy_factory|iteration_result_admission_postgres::tests::row_scalar_storage_or_outbox_tamper_closes_the_readback'
   'vibe-strategy-factory|vibe_strategy_factory|iteration_result_admission_postgres::tests::a_malformed_request_never_reaches_owner_custody'
+  'vibe-strategy-factory|vibe_strategy_factory|trial_family_postgres::postgres_binding_tests::every_relational_scalar_is_bound_and_rollback_restores_exact_readback'
+  'vibe-strategy-factory|vibe_strategy_factory|trial_family_postgres::postgres_binding_tests::v2_census_append_restart_readback_and_fail_close_are_atomic'
+  'vibe-strategy-factory|trial_family_owner|postgres_owner_persists_one_family_and_replays_without_partial_conflict_writes'
+  'vibe-strategy-factory|trial_family_owner|every_v2_semantic_rejection_is_rejection_only_and_replays_exactly'
+  'vibe-strategy-factory|trial_family_owner|invalid_successor_cannot_poison_heads_and_verified_lineage_never_skips_corruption'
+  'vibe-strategy-factory|trial_family_owner|qualification_basis_cannot_terminalize_after_authority_revocation'
+  'vibe-strategy-factory|trial_family_owner|qualification_basis_recovers_under_immediate_policy_equivalent_successor'
+  'vibe-strategy-factory|trial_family_owner|committed_basis_cannot_terminalize_after_original_authority_expires'
+  'vibe-strategy-factory|trial_family_owner|concurrent_invalid_and_valid_same_scope_serialize_without_invalid_authority'
+  'vibe-strategy-factory|trial_family_owner|exhaustive_lineage_waits_for_row_mutation_and_recovers_after_restore'
+  'vibe-strategy-factory|trial_family_owner|stored_request_meaning_corruption_is_unavailable_until_exact_restoration'
+  'vibe-strategy-factory|trial_family_owner|missing_research_custody_prepares_no_attempt'
+  'vibe-strategy-factory|trial_family_owner|research_and_attempt_resolve_share_one_deadlock_free_lock_order'
+  'vibe-strategy-factory|trial_family_owner|no_artifact_receipt_mutation_fails_closed_and_exact_restore_replays'
+  'vibe-strategy-factory|trial_family_owner|expired_attempt_receipt_is_independently_outcome_unknown'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -91,8 +106,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 49 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all forty-nine ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 64 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all sixty-four ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -136,7 +151,22 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[45]}" != *'|iteration_result_admission_postgres::tests::a_locator_from_another_experiment_never_reads_this_admission_back' ]] ||
     [[ "${rd_owner_postgres_tests[46]}" != *'|iteration_result_admission_postgres::tests::row_scalar_storage_or_outbox_tamper_closes_the_readback' ]] ||
     [[ "${rd_owner_postgres_tests[47]}" != *'|iteration_result_admission_postgres::tests::a_malformed_request_never_reaches_owner_custody' ]] ||
-    [[ "${rd_owner_postgres_tests[48]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[48]}" != *'|trial_family_postgres::postgres_binding_tests::every_relational_scalar_is_bound_and_rollback_restores_exact_readback' ]] ||
+    [[ "${rd_owner_postgres_tests[49]}" != *'|trial_family_postgres::postgres_binding_tests::v2_census_append_restart_readback_and_fail_close_are_atomic' ]] ||
+    [[ "${rd_owner_postgres_tests[50]}" != *'|postgres_owner_persists_one_family_and_replays_without_partial_conflict_writes' ]] ||
+    [[ "${rd_owner_postgres_tests[51]}" != *'|every_v2_semantic_rejection_is_rejection_only_and_replays_exactly' ]] ||
+    [[ "${rd_owner_postgres_tests[52]}" != *'|invalid_successor_cannot_poison_heads_and_verified_lineage_never_skips_corruption' ]] ||
+    [[ "${rd_owner_postgres_tests[53]}" != *'|qualification_basis_cannot_terminalize_after_authority_revocation' ]] ||
+    [[ "${rd_owner_postgres_tests[54]}" != *'|qualification_basis_recovers_under_immediate_policy_equivalent_successor' ]] ||
+    [[ "${rd_owner_postgres_tests[55]}" != *'|committed_basis_cannot_terminalize_after_original_authority_expires' ]] ||
+    [[ "${rd_owner_postgres_tests[56]}" != *'|concurrent_invalid_and_valid_same_scope_serialize_without_invalid_authority' ]] ||
+    [[ "${rd_owner_postgres_tests[57]}" != *'|exhaustive_lineage_waits_for_row_mutation_and_recovers_after_restore' ]] ||
+    [[ "${rd_owner_postgres_tests[58]}" != *'|stored_request_meaning_corruption_is_unavailable_until_exact_restoration' ]] ||
+    [[ "${rd_owner_postgres_tests[59]}" != *'|missing_research_custody_prepares_no_attempt' ]] ||
+    [[ "${rd_owner_postgres_tests[60]}" != *'|research_and_attempt_resolve_share_one_deadlock_free_lock_order' ]] ||
+    [[ "${rd_owner_postgres_tests[61]}" != *'|no_artifact_receipt_mutation_fails_closed_and_exact_restore_replays' ]] ||
+    [[ "${rd_owner_postgres_tests[62]}" != *'|expired_attempt_receipt_is_independently_outcome_unknown' ]] ||
+    [[ "${rd_owner_postgres_tests[63]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -239,8 +269,8 @@ for line in array_body.splitlines():
     if len(fields) != 3 or any(not field for field in fields):
         raise SystemExit("ERROR: ordered PostgreSQL test literal must contain three fields.")
     entries.append(tuple(fields))
-if len(entries) != 49:
-    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain forty-nine entries.")
+if len(entries) != 64:
+    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain sixty-four entries.")
 if sum(test_name == poison_test for _, _, test_name in entries) != 1:
     raise SystemExit(
         "ERROR: recovery-sidecar poison test must occur exactly once as a parsed test name."
