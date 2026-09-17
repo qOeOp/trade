@@ -80,6 +80,8 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|trial_family_owner|research_and_attempt_resolve_share_one_deadlock_free_lock_order'
   'vibe-strategy-factory|trial_family_owner|no_artifact_receipt_mutation_fails_closed_and_exact_restore_replays'
   'vibe-strategy-factory|trial_family_owner|expired_attempt_receipt_is_independently_outcome_unknown'
+  'vibe-strategy-factory|vibe_strategy_factory|market_data_repair_resolution_postgres::tests::repaired_readback_is_reverified_inside_successor_transaction'
+  'vibe-strategy-factory|vibe_strategy_factory|market_data_repair_resolution_postgres::tests::commit_retry_resolve_conflict_and_tamper_are_atomic'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -105,8 +107,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 64 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all sixty-four ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 66 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all sixty-six ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -165,7 +167,9 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[60]}" != *'|research_and_attempt_resolve_share_one_deadlock_free_lock_order' ]] ||
     [[ "${rd_owner_postgres_tests[61]}" != *'|no_artifact_receipt_mutation_fails_closed_and_exact_restore_replays' ]] ||
     [[ "${rd_owner_postgres_tests[62]}" != *'|expired_attempt_receipt_is_independently_outcome_unknown' ]] ||
-    [[ "${rd_owner_postgres_tests[63]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[63]}" != *'|market_data_repair_resolution_postgres::tests::repaired_readback_is_reverified_inside_successor_transaction' ]] ||
+    [[ "${rd_owner_postgres_tests[64]}" != *'|market_data_repair_resolution_postgres::tests::commit_retry_resolve_conflict_and_tamper_are_atomic' ]] ||
+    [[ "${rd_owner_postgres_tests[65]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -268,8 +272,8 @@ for line in array_body.splitlines():
     if len(fields) != 3 or any(not field for field in fields):
         raise SystemExit("ERROR: ordered PostgreSQL test literal must contain three fields.")
     entries.append(tuple(fields))
-if len(entries) != 64:
-    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain sixty-four entries.")
+if len(entries) != 66:
+    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain sixty-six entries.")
 if sum(test_name == poison_test for _, _, test_name in entries) != 1:
     raise SystemExit(
         "ERROR: recovery-sidecar poison test must occur exactly once as a parsed test name."
