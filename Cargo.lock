@@ -9638,7 +9638,6 @@ dependencies = [
  "rust_decimal",
  "serde",
  "serde_json",
- "strategy-factory-program-sdk",
  "tempfile",
  "ustr",
  "vibe-analysis",
