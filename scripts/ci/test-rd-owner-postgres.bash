@@ -1177,6 +1177,14 @@ container_created=false
 impersonator_container_created=false
 nextest_archive_dir=''
 nextest_archive_file=''
+# Where the ordered chain is. The chain is fail-fast over one shared store, so a red run's useful
+# number is the entry it stopped at, not only the test nextest names: an Owner's acceptance is its
+# own entries passing, and this is what says how far the run got.
+chain_entry_count="${#rd_owner_postgres_tests[@]}"
+readonly chain_entry_count
+chain_position=0
+chain_entry_label=''
+chain_completed=false
 
 remove_docker_object_for_cleanup() {
   local object_type="$1"
@@ -1234,6 +1242,9 @@ cleanup() {
   fi
 
   if [[ "$primary_status" -ne 0 ]]; then
+    if [[ "$chain_position" -gt 0 && "$chain_completed" != true ]]; then
+      echo "ordered chain stopped at entry ${chain_position}/${chain_entry_count} (${chain_entry_label}); $((chain_position - 1)) passed before it." >&2
+    fi
     exit "$primary_status"
   fi
   if [[ "$cleanup_failed" == true ]]; then
@@ -2890,6 +2901,9 @@ SQL
 # positive Artifact Owner consumer.
 for test_selection in "${rd_owner_postgres_tests[@]}"; do
   IFS='|' read -r test_package test_binary test_name <<< "$test_selection"
+  chain_position=$((chain_position + 1))
+  chain_entry_label="${test_package} ${test_binary} ${test_name}"
+  echo "=== ordered chain entry ${chain_position}/${chain_entry_count}: ${chain_entry_label}"
   test_filter="package(${test_package}) & binary(${test_binary}) & test(=${test_name})"
   backtest_result_fault=''
   case "$test_name" in
@@ -3026,6 +3040,10 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
   fi
   if [[ -n "$backtest_result_fault" ]]; then
     restore_backtest_result_fault "$backtest_result_fault"
+  fi
+  if [[ "$chain_position" -eq "$chain_entry_count" ]]; then
+    chain_completed=true
+    echo "=== ordered chain: all ${chain_entry_count} entries passed"
   fi
 done
 

@@ -3,7 +3,10 @@
 Prioritize clean architecture and the smallest implementation that closes the requested outcome.
 Preserve unrelated work. Real trading or another production write requires explicit user authority.
 Use the repository's current Makefile, pre-commit configuration, and CI workflows as check authority;
-do not reconstruct a missing historical entrypoint.
+do not reconstruct a missing historical entrypoint. An Owner implementation is accepted when its
+entries in the ordered Owner PostgreSQL chains pass on Linux CI - the `owner-chains` workflow on a
+`test-chain/<lane>` push, or the chain jobs of `build` on `test-ci` or `main` - and a local pass is a
+working state, not acceptance.
 
 ## Architecture authority
 
