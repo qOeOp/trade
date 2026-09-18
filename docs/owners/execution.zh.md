@@ -68,7 +68,9 @@ testkit 或 acceptance feature 的生产路径；其余各行不授予任何东�
   **TARGET / NOT_ADMITTED**。
 - **CURRENT_PARTIAL - `PAPER` recovery-frontier 读契约：** `crates/execution_owner/src/recovery_frontier.rs` 暴露只读的
   `RecoveryFrontierReadPort` 及其 sealed `SealedRecoveryFrontier`，由 Runtime foundation 消费；其背后没有生产
-  custody，也没有 Runtime application。
+  custody，也没有 Runtime application。唯一能铸出那个 sealed 值的实现是 `#[cfg(test)]`，所以生产里根本没有任何
+  路径能产生一个。这份缺席是被声明的而不是被掩盖的：本行与该模块自己的成熟度常量都写明了，而且 recovery
+  闭环不是已准入切片；诚实声明的未实现，和伪装成已实现的未实现，不是同一件事。
 - **TARGET - Order Engine、Effect Journal 与绑定许可的 adapter 准入：** 继承的 `ExecutionEngine`、order manager、
   order emulator、execution client，以及 `crates/adapters` 下的场所 execution client 是 capability adoption 点名的
   迁移来源。不存在 `PREPARED` 或 `INVOCATION_STARTED` 记录、Reservation Claim Request 或 `ADAPTER_ADMISSION_REQUEST`，

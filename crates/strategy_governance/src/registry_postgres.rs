@@ -809,69 +809,94 @@ mod postgres_proof {
         }
     }
 
-    /// Everything this proof wrote into the two source Owners' custody.
+    /// Every relation in one Owner schema with its exact row count.
     ///
-    /// The ordered chain shares one database that never resets, so a proof that writes into another
-    /// Owner's schema must prove it removed exactly what it added. Emptiness proves nothing here;
-    /// only equality with the counts taken before the proof ran does.
+    /// The ordered chain shares one database that never resets, and each entry runs as its own
+    /// single-test `cargo nextest run`, so nothing else writes while this proof does. That makes a
+    /// whole-schema snapshot the honest residue check: a hand-picked list of relations can only
+    /// prove the ones somebody thought of, and a foreign key only speaks when a delete is missing,
+    /// never when a row is left over in a relation the cleanup forgot entirely.
+    async fn schema_snapshot(pool: &PgPool, schema: &str) -> Vec<String> {
+        sqlx::query_scalar(
+            "SELECT relation.relname || '=' ||
+                    (pg_catalog.xpath(
+                       '/row/c/text()',
+                       pg_catalog.query_to_xml(
+                         pg_catalog.format('SELECT count(*) AS c FROM %I.%I',
+                                           namespace.nspname, relation.relname),
+                         false, true, '')))[1]::text
+               FROM pg_catalog.pg_class relation
+               JOIN pg_catalog.pg_namespace namespace ON namespace.oid = relation.relnamespace
+              WHERE namespace.nspname = $1
+                AND relation.relkind = 'r'
+              ORDER BY relation.relname",
+        )
+        .bind(schema)
+        .fetch_all(pool)
+        .await
+        .unwrap()
+        .into_iter()
+        // An empty relation and a relation that does not exist yet are the same absence of
+        // residue, so dropping the zeros makes a fresh database and the shared chain database
+        // compare identically. A relation that went from rows to none still shows up, because its
+        // entry disappears from one side only.
+        .filter(|row: &String| !row.ends_with("=0"))
+        .collect()
+    }
+
+    /// Portfolio's registry head, which is a single global row keyed on a constant identity.
     ///
-    /// Of these, the PAPER namespace reservation and the Portfolio outbox are the ones that matter:
-    /// measuring foreign keys in both directions, they are the only relations here with neither an
-    /// inbound nor an outbound one, so a residue in them is silent and permanent on a database that
-    /// never resets. The other three make some later delete fail loudly on their own and are
-    /// counted only as corroboration.
-    async fn source_owner_counts(
+    /// Committing any registry cut moves that one row, so a proof that commits one displaces
+    /// whatever head was there. Deleting it afterwards would leave the shared chain database with
+    /// no head at all, which is destroying another entry's state rather than cleaning up after
+    /// this one. The proof captures it first and puts it back.
+    async fn registry_head(portfolio: &PgPool) -> Option<(String, String, i64)> {
+        let row = sqlx::query(
+            "SELECT head_identity, proof_frontier_identity, proof_frontier_sequence
+               FROM portfolio_private.portfolio_capacity_scope_registry_heads_v1",
+        )
+        .fetch_optional(portfolio)
+        .await
+        .unwrap()?;
+        Some((
+            row.try_get("head_identity").unwrap(),
+            row.try_get("proof_frontier_identity").unwrap(),
+            row.try_get("proof_frontier_sequence").unwrap(),
+        ))
+    }
+
+    async fn restore_registry_head(portfolio: &PgPool, head: Option<(String, String, i64)>) {
+        sqlx::query("DELETE FROM portfolio_private.portfolio_capacity_scope_registry_heads_v1")
+            .execute(portfolio)
+            .await
+            .unwrap();
+
+        if let Some((identity, frontier, sequence)) = head {
+            sqlx::query(
+                "INSERT INTO portfolio_private.portfolio_capacity_scope_registry_heads_v1
+                    (head_identity, proof_frontier_identity, proof_frontier_sequence)
+                 VALUES ($1, $2, $3)",
+            )
+            .bind(identity)
+            .bind(frontier)
+            .bind(sequence)
+            .execute(portfolio)
+            .await
+            .unwrap();
+        }
+    }
+
+    /// The three Owner schemas this proof can write to, in one comparable value.
+    async fn all_schema_snapshots(
+        governance: &PgPool,
         portfolio: &PgPool,
         execution: &PgPool,
-        marker: &str,
-    ) -> (i64, i64, i64, i64, i64) {
-        let like = format!("%{marker}%");
-        let cuts: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM portfolio_private.portfolio_capacity_scope_registry_cuts_v1
-              WHERE registry_json::text LIKE $1",
-        )
-        .bind(&like)
-        .fetch_one(portfolio)
-        .await
-        .unwrap();
-        let readbacks: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM portfolio_private.portfolio_capacity_scope_bound_readbacks_v1
-              WHERE request_identity LIKE $1",
-        )
-        .bind(&like)
-        .fetch_one(portfolio)
-        .await
-        .unwrap();
-        let bindings: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM execution_private.execution_paper_adapter_binding_facts_v1
-              WHERE execution_scope_identity LIKE $1",
-        )
-        .bind(&like)
-        .fetch_one(execution)
-        .await
-        .unwrap();
-        // Neither of these has a foreign key in either direction, so nothing but this assertion
-        // would ever notice a leak.
-        let reservations: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM execution_private.execution_paper_namespace_reservations_v1
-              WHERE execution_scope_identity LIKE $1",
-        )
-        .bind(&like)
-        .fetch_one(execution)
-        .await
-        .unwrap();
-        let portfolio_outbox: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM portfolio_private.portfolio_owner_outbox_v1 outbox
-              WHERE EXISTS (
-                SELECT 1 FROM portfolio_private.portfolio_capacity_scope_registry_cuts_v1 cut
-                 WHERE cut.proof_frontier_identity = outbox.event_identity
-                   AND cut.registry_json::text LIKE $1)",
-        )
-        .bind(&like)
-        .fetch_one(portfolio)
-        .await
-        .unwrap();
-        (cuts, readbacks, bindings, reservations, portfolio_outbox)
+    ) -> Vec<Vec<String>> {
+        vec![
+            schema_snapshot(governance, GOVERNANCE_PRIVATE_SCHEMA).await,
+            schema_snapshot(portfolio, "portfolio_private").await,
+            schema_snapshot(execution, "execution_private").await,
+        ]
     }
 
     async fn own_counts(pool: &PgPool, marker: &str) -> (i64, i64) {
@@ -909,12 +934,10 @@ mod postgres_proof {
         let suffix = suffix();
         let portfolio_pool = mutation.pool(CanonicalOwnerTestRoleV1::PortfolioWriter);
         let execution_pool = mutation.pool(CanonicalOwnerTestRoleV1::ExecutionWriter);
-        let source_baseline = source_owner_counts(portfolio_pool, execution_pool, &suffix).await;
-        assert_eq!(
-            source_baseline,
-            (0, 0, 0, 0, 0),
-            "this proof's identity must be unused in both source Owners before it runs"
-        );
+        let governance_pool = mutation.pool(CanonicalOwnerTestRoleV1::GovernanceWriter);
+        // Taken before any custody connects, so it holds nothing this proof is about to write.
+        let baseline = all_schema_snapshots(governance_pool, portfolio_pool, execution_pool).await;
+        let displaced_head = registry_head(portfolio_pool).await;
         let clock = FixtureClock::new(1_000_000);
         let scope_identity = format!("paper-scope-{suffix}");
         let pool_identity = format!("pool-{suffix}");
@@ -966,11 +989,6 @@ mod postgres_proof {
             capacity_scope_identity: bound.capacity_scope_identity().to_string(),
         };
 
-        assert_eq!(
-            source_owner_counts(portfolio_pool, execution_pool, &suffix).await,
-            (1, 1, 1, 2, 1),
-            "both source Owners committed exactly the facts this proof asked for"
-        );
         let governance = StrategyRegistryPostgresV1::connect(
             test_database.database_url(CanonicalOwnerTestRoleV1::GovernanceWriter),
             clock.clone(),
@@ -1202,11 +1220,12 @@ mod postgres_proof {
         );
 
         cleanup(&pool, portfolio_pool, execution_pool, &suffix).await;
+        restore_registry_head(portfolio_pool, displaced_head).await;
         assert_eq!(own_counts(&pool, &suffix).await, (0, 0));
         assert_eq!(
-            source_owner_counts(portfolio_pool, execution_pool, &suffix).await,
-            source_baseline,
-            "the shared chain database is left exactly as this proof found it"
+            all_schema_snapshots(governance_pool, portfolio_pool, execution_pool).await,
+            baseline,
+            "every relation in all three Owner schemas is left exactly as this proof found it"
         );
     }
 

@@ -970,6 +970,9 @@ mod tests {
             .await
             .unwrap();
         let pool = owner.pool().clone();
+        // Captured before this proof commits any cut, so it is the head this proof displaces and
+        // never the one it created.
+        let displaced_head = registry_head(&pool).await;
         assert_eq!(own_counts(&pool, &suffix).await, (0, 0, 0));
 
         // One complete census of two disjoint scopes commits once; an exact replay joins it.
@@ -1489,6 +1492,7 @@ mod tests {
             &format!("execution-node-{suffix}"),
         )
         .await;
+        restore_registry_head(&pool, displaced_head).await;
         assert_eq!(own_counts(&pool, &suffix).await, (0, 0, 0));
         assert_eq!(
             execution_reservation_residue(execution_pool_for_residue, &execution_scope_identity)
@@ -1524,6 +1528,47 @@ mod tests {
     }
 
     /// Removes exactly what this proof wrote, in both Owners' own custody.
+    /// This Owner's registry head, which is a single global row keyed on a constant identity.
+    ///
+    /// Committing any registry cut moves that one row, so this proof displaces whatever head was
+    /// there. Deleting it afterwards would leave the shared chain database with no head at all,
+    /// which destroys another entry's state rather than cleaning up after this one.
+    async fn registry_head(pool: &PgPool) -> Option<(String, String, i64)> {
+        let row = sqlx::query(
+            "SELECT head_identity, proof_frontier_identity, proof_frontier_sequence
+               FROM portfolio_private.portfolio_capacity_scope_registry_heads_v1",
+        )
+        .fetch_optional(pool)
+        .await
+        .unwrap()?;
+        Some((
+            row.try_get("head_identity").unwrap(),
+            row.try_get("proof_frontier_identity").unwrap(),
+            row.try_get("proof_frontier_sequence").unwrap(),
+        ))
+    }
+
+    async fn restore_registry_head(pool: &PgPool, head: Option<(String, String, i64)>) {
+        sqlx::query("DELETE FROM portfolio_private.portfolio_capacity_scope_registry_heads_v1")
+            .execute(pool)
+            .await
+            .unwrap();
+
+        if let Some((identity, frontier, sequence)) = head {
+            sqlx::query(
+                "INSERT INTO portfolio_private.portfolio_capacity_scope_registry_heads_v1
+                    (head_identity, proof_frontier_identity, proof_frontier_sequence)
+                 VALUES ($1, $2, $3)",
+            )
+            .bind(identity)
+            .bind(frontier)
+            .bind(sequence)
+            .execute(pool)
+            .await
+            .unwrap();
+        }
+    }
+
     /// The one Execution relation this proof writes that no foreign key protects.
     ///
     /// The ordered chain shares one database that never resets. Measuring foreign keys in both
