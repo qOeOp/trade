@@ -98,8 +98,11 @@ grants nothing, and widening the admitted set requires changing this document fi
   `crates/portfolio/src/portfolio.rs` and `crates/portfolio/src/manager.rs` computes positions, balances, margin,
   and PnL from engine cache events for the inherited kernel, Backtest, and live-node compositions; it is the
   adoption source and binds no Execution Scope, receipt, valuation version, or freshness.
-- **TARGET - Capacity View and Portfolio Risk Evidence Bundle:** no gross-ceiling projection or coherent source cut
-  exists, so Risk has no Capacity View or bundle to consume.
+- **TARGET / IMPLEMENTATION_ADMITTED - Capacity View and Portfolio Risk Evidence Bundle:** no gross-ceiling projection
+  or coherent source cut exists, so Risk has no Capacity View or bundle to consume. Admitted slice: one `PAPER`
+  Capacity View per `BOUND` Capacity Scope whose gross ceiling derives from the Execution-committed opening account
+  fact cut and one Market Data valuation cut under one declared pool methodology version; the Portfolio Risk
+  Evidence Bundle stays `TARGET`.
 - **TARGET - Portfolio Lifecycle Evidence Receipt, Portfolio Interaction Receipt, and degradation attribution:** no
   type or custody exists.
 - **TARGET - handoffs and persistence:** no port to Governance, Risk, Scanner, Execution, or Product Edge and no
