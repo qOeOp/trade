@@ -27,6 +27,24 @@
 - **Strategy Matcher** - 按各自绑定输入评估激活条件，一个策略缺数据或执行失败不得压制其他完整匹配。
 - **Proposal Builder** - 把匹配策略 证据 可选 Capacity View 身份和停止条件封装为可审计提案。
 
+## 实现状态台账
+
+本台账只记录仓库在本截面实际到达的状态。它沿用 [Market Data](./market-data/) 台账的状态词汇，并以
+`CURRENT_PARTIAL` 表示已合并但不可触达的形态；台账本身不授予任何许可：本文档没有任何切片是
+`IMPLEMENTATION_ADMITTED`，扩大准入集必须先修改本文档。
+
+- **CURRENT_PARTIAL - 确定性的 Scanner 核心：** `crates/scanner` 拥有带 fold、gap 与 misfire 处置的 `ScheduleDefinition`、
+  due-slot 派生与稳定的 `AttemptId`、逐策略 `StrategyDisposition`、带五种状态与互斥成员分支的终态 `ScannerReceipt`、
+  `BatchOperationalFailure` 类别、其 Time 与 Governance 成员来源 Owner 准入为 crate 私有的 `Scanner` 服务、
+  `TerminalReceiptStore` port，以及 `ProductEdgeTerminalReceiptReader` 读缝。`crates/scanner/src/tests.rs`、
+  `crates/scanner/tests/public_owner_admission.rs` 与编译失败测试证明了这一失败关闭形状。
+- **TARGET - 生产装配：** 不存在调度器触发、sealed 来源 Owner 准入的生产构造器、`TerminalReceiptStore` 背后的持久
+  回执 custody，以及 Product Edge 消费者；唯一的外部使用是 `crates/testkit/tests/f1_current_workspace.rs` 里的一个
+  类型导入。
+- **TARGET - Strategy Loader、Market Snapshot 与 Capacity View 输入：** `StrategyLoader` 与 `MarketSnapshot` port 没有
+  任何基于受治理注册表、Market Data PIT 事实或 Portfolio Capacity View 的实现。
+- **TARGET - 交接与持久化：** 没有任何终态回执到达 Governance 或 Product Edge，也没有任何 Scanner 事实被持久化。
+
 ## 输入交接
 
 - 调度器提供固定周期触发，但没有部署权威。

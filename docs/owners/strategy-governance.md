@@ -56,6 +56,38 @@ Own the deployable strategy registry, lifecycle decision, and permitted capital 
   exactly one generation, Execution Scope, parent pool root, Eligibility, gross limits, and effective interval but
   forbids sibling-parent, Portfolio usage, Risk headroom, or admission results.
 
+## Implementation status ledger
+
+This ledger records only what the repository has reached at this cut. It uses the status vocabulary of the
+[Market Data](./market-data/) ledger, with `CURRENT_PARTIAL` as the merged-but-unreachable form, and grants no
+permission by itself: no slice of this document is `IMPLEMENTATION_ADMITTED`, and widening the admitted set
+requires changing this document first.
+
+- **CURRENT_PARTIAL - static fail-closed Governance core:** `crates/strategy_governance` owns the in-memory
+  `GovernanceCore`, whose `resolve_frontier` resolves one complete conflict frontier under the canonical precedence,
+  writes the write-once `LifecycleRequestReceipt` as `ACCEPTED` or `REJECTED_NO_WRITE`, detects alias retry, replay
+  divergence, and semantic mutation, and serves a `GovernanceDecisionView` and current lifecycle receipt readback.
+  The model carries the seven lifecycle actions, `PAPER` and `LIVE`, both authorization modes, eligibility and
+  application status. The static slice validates only `INITIAL_ACTIVATION` for `PAPER` under
+  `UNATTENDED_REQUEST_WITH_POLICY` with a single-contender set; every other action, `LIVE`, `ATTENDED_REQUEST`, and
+  condition-dependent activation reject as `ActionNotAdmittedInStaticSlice`, `LiveNotAdmitted`,
+  `AttendedNotAdmitted`, or `ConditionalScannerNotAdmitted`. Public construction installs an unavailable Owner
+  admission, so every public request fails closed (`crates/strategy_governance/tests/public_fail_closed.rs`), and no
+  Runtime receipt resolver can be installed, so application projects `APPLICATION_UNKNOWN`.
+- **TARGET - Strategy Registry and Execution Scope creation:** no durable Governed Strategy Entry exists, and the
+  `BOUND` Capacity Scope and `ADMITTED` Execution Adapter Binding it must bind are themselves Discovery and static
+  contracts in `crates/portfolio` and `crates/execution`.
+- **TARGET - Lifecycle Manager:** no evidence-driven lifecycle state, `DE_RISK_PENDING` succession, retention
+  renewal, or adverse-evidence disposition policy exists.
+- **TARGET - Capital Policy and Capital Allocation Disposition:** no `POOL_ROOT` or `STRATEGY_GENERATION` Capital
+  Envelope, contender-membership frontier, or allocation exists.
+- **TARGET - Authorization Lineage and Autonomous Policy Authorization:** the Operator Authorization Issuer in
+  `crates/operator_authorization` is the only implemented lineage member, with PostgreSQL custody read by the
+  deployed R&D Owner API; no Product Edge lifecycle request intake reaches Governance, and no issuer exists for
+  Autonomous Policy Authorization.
+- **TARGET - handoffs and persistence:** no port to Qualification, Scanner, Portfolio, Runtime, Execution, or Risk
+  and no durable relation for any Governance fact.
+
 ## Input handoffs
 
 - [Qualification](./qualification/) supplies committed Eligibility State and Revocation facts with exact Candidate, fact, economic-condition, evaluated cost/capacity-model, and qualified-capacity versions.

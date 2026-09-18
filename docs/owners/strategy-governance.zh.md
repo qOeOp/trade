@@ -51,6 +51,33 @@
   Execution Scope parent pool root Eligibility gross limit 和有效区间，但禁止 sibling parent Portfolio
   usage Risk headroom 或 admission result。
 
+## 实现状态台账
+
+本台账只记录仓库在本截面实际到达的状态。它沿用 [Market Data](./market-data/) 台账的状态词汇，并以
+`CURRENT_PARTIAL` 表示已合并但不可触达的形态；台账本身不授予任何许可：本文档没有任何切片是
+`IMPLEMENTATION_ADMITTED`，扩大准入集必须先修改本文档。
+
+- **CURRENT_PARTIAL - 静态失败关闭的 Governance 核心：** `crates/strategy_governance` 拥有内存中的 `GovernanceCore`，
+  其 `resolve_frontier` 按规范优先级解析一个完整冲突前沿，把只写一次的 `LifecycleRequestReceipt` 写为 `ACCEPTED`
+  或 `REJECTED_NO_WRITE`，检测别名重试、重放分歧与语义变更，并提供 `GovernanceDecisionView` 与当前生命周期回执
+  回读。模型携带七个生命周期动作、`PAPER` 与 `LIVE`、两种授权模式、eligibility 与 application 状态。静态切片只校验
+  `UNATTENDED_REQUEST_WITH_POLICY` 下单一 contender 集合的 `PAPER` `INITIAL_ACTIVATION`；其他每个动作、`LIVE`、
+  `ATTENDED_REQUEST` 与条件激活分别以 `ActionNotAdmittedInStaticSlice`、`LiveNotAdmitted`、`AttendedNotAdmitted` 或
+  `ConditionalScannerNotAdmitted` 拒绝。公开构造安装的是不可用的 Owner 准入，所以每个公开请求都失败关闭
+  （`crates/strategy_governance/tests/public_fail_closed.rs`），且无法安装 Runtime 回执 resolver，因此 application
+  投影为 `APPLICATION_UNKNOWN`。
+- **TARGET - Strategy Registry 与 Execution Scope 创建：** 不存在持久的 Governed Strategy Entry，而它必须绑定的
+  `BOUND` Capacity Scope 与 `ADMITTED` Execution Adapter Binding 本身只是 `crates/portfolio` 与 `crates/execution`
+  里的 Discovery 与静态契约。
+- **TARGET - Lifecycle Manager：** 不存在证据驱动的生命周期状态、`DE_RISK_PENDING` 后继、保留续期或不利证据处置政策。
+- **TARGET - Capital Policy 与 Capital Allocation Disposition：** 不存在 `POOL_ROOT` 或 `STRATEGY_GENERATION` Capital
+  Envelope、contender-membership frontier 或分配。
+- **TARGET - Authorization Lineage 与 Autonomous Policy Authorization：** `crates/operator_authorization` 里的 Operator
+  Authorization Issuer 是唯一已实现的血缘成员，其 PostgreSQL custody 由已部署的 R&D Owner API 读取；没有任何
+  Product Edge 生命周期请求入口到达 Governance，也不存在 Autonomous Policy Authorization 的签发者。
+- **TARGET - 交接与持久化：** 没有通向 Qualification、Scanner、Portfolio、Runtime、Execution 或 Risk 的 port，也没有
+  任何 Governance 事实的持久关系。
+
 ## 输入交接
 
 - [Qualification](./qualification/) 提供绑定准确 Candidate 事实 经济条件 已评估成本容量模型和资格容量版本的已提交 Eligibility State 与 Revocation 事实。

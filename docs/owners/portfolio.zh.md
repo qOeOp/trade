@@ -67,6 +67,31 @@ source-frontier 与 Time Evidence common cut 上取得原生来源事实支持�
   Bundle 向 Risk 携带一个一致来源截面。Portfolio 不扣除 Risk Reservation liability，不计算剩余
   headroom，也不分配资金或批准部署。
 
+## 实现状态台账
+
+本台账只记录仓库在本截面实际到达的状态。它沿用 [Market Data](./market-data/) 台账的状态词汇，并以
+`CURRENT_PARTIAL` 表示已合并但不可触达的形态；台账本身不授予任何许可：本文档没有任何切片是
+`IMPLEMENTATION_ADMITTED`，扩大准入集必须先修改本文档。
+
+- **CURRENT_PARTIAL - Capacity Scope 契约：** `crates/portfolio/src/owner/capacity_scope.rs` 把自身成熟度声明为
+  `Discovery`。公开的 `resolve_capacity_scope` 接受不可信请求并返回结构化的不可用回读，而 sealed 的
+  `BoundCapacityScopeReadback` 只能由一条没有生产 resolver 的私有完整注册表路径铸造。
+  `crates/portfolio/tests/capacity_scope_contract.rs` 证明了这一失败关闭形状。
+- **CURRENT_PARTIAL - Portfolio View R0 契约：** `crates/portfolio/src/owner/portfolio_view.rs` 拥有请求指纹、重放
+  分类、按来源 Owner 划分的依赖种类，以及返回 `UnavailablePortfolioView` 的失败关闭 `resolve_portfolio_view`；
+  不存在正向来源 resolver。`crates/portfolio/tests/portfolio_view_contract.rs` 证明了它。
+  `crates/operator_authorization` 里的 `portfolio:view` 资源授权经 Operator Authorization Issuer 的 PostgreSQL
+  custody 解析，但没有任何 Product Edge 路由提供 Portfolio View。
+- **TARGET - Account State、Exposure、Performance Receipt 与 Exposure Receipt：** `crates/portfolio/src/portfolio.rs`
+  与 `crates/portfolio/src/manager.rs` 里继承的 `Portfolio` 为继承的 kernel、Backtest 与 live-node 装配从引擎 cache
+  事件计算持仓、余额、保证金与 PnL；它是迁移来源，不绑定 Execution Scope、receipt、估值版本或新鲜度。
+- **TARGET - Capacity View 与 Portfolio Risk Evidence Bundle：** 不存在 gross-ceiling 投影或一致来源截面，因此 Risk
+  没有可消费的 Capacity View 或 bundle。
+- **TARGET - Portfolio Lifecycle Evidence Receipt、Portfolio Interaction Receipt 与 degradation 归因：** 不存在类型或
+  custody。
+- **TARGET - 交接与持久化：** 没有通向 Governance、Risk、Scanner、Execution 或 Product Edge 的 port，也没有任何
+  Portfolio 事实的持久关系。
+
 ## 输入交接
 
 - [Execution](./execution/) 提供订单 成交 费用 账户和已对账场所回读事实。
