@@ -311,6 +311,15 @@ impl GovernedExecutionScope {
     pub const fn created_at_epoch_ms(&self) -> u64 {
         self.created_at_epoch_ms
     }
+
+    /// Portfolio proof frontier that backs this scope right now.
+    ///
+    /// Like the validity bound, this is read from Portfolio's current fact rather than stored, so a
+    /// scope created under an earlier registry cut reports the cut that backs it today.
+    #[must_use]
+    pub fn current_proof_frontier_identity(&self) -> &str {
+        &self.portfolio_proof_frontier_identity
+    }
 }
 
 /// What each source Owner's own fact says, after this Owner parsed its read API result.

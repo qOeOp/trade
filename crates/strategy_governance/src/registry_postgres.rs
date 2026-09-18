@@ -216,8 +216,8 @@ impl StrategyRegistryPostgresV1 {
                 reduce_only_policy TEXT NOT NULL CHECK (reduce_only_policy <> ''), \
                 endpoint_identity TEXT NOT NULL CHECK (endpoint_identity <> ''), \
                 capabilities TEXT[] NOT NULL CHECK (pg_catalog.cardinality(capabilities) > 0), \
-                portfolio_proof_frontier_identity TEXT NOT NULL \
-                  CHECK (portfolio_proof_frontier_identity <> ''), \
+                created_under_proof_frontier_identity TEXT NOT NULL \
+                  CHECK (created_under_proof_frontier_identity <> ''), \
                 created_by_request_identity TEXT NOT NULL CHECK (created_by_request_identity <> ''), \
                 created_at_epoch_ms BIGINT NOT NULL CHECK (created_at_epoch_ms > 0))",
             "CREATE TABLE IF NOT EXISTS governance_private.governance_owner_outbox_v1 ( \
@@ -453,7 +453,7 @@ async fn insert_scope(
              shared_constraint_identities, adapter_binding_fact_identity,
              adapter_binding_generation, adapter_implementation_digest,
              adapter_configuration_digest, trust_policy_identity, reduce_only_policy,
-             endpoint_identity, capabilities, portfolio_proof_frontier_identity,
+             endpoint_identity, capabilities, created_under_proof_frontier_identity,
              created_by_request_identity, created_at_epoch_ms)
          VALUES ($1, $2, 'PAPER', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
                  $17, $18, $19)",
@@ -1045,6 +1045,62 @@ mod postgres_proof {
             vec![Failure::AdapterBindingPrebindingConflict]
         );
         assert_eq!(own_counts(&pool, &suffix).await, (1, 1));
+
+        // Both source Owners may legitimately advance, but the scope identity is immutable: a
+        // second adapter binding generation is a different meaning, so it rebinds nothing.
+        clock.set(clock.get() + 1_000);
+        let regenerated = execution
+            .commit(binding_draft(&scope_identity, 2, clock.get()))
+            .await
+            .unwrap();
+        let regenerated_definition = CapacityScopeDefinitionProposal {
+            adapter_binding_identity: regenerated.locator.fact_identity.clone(),
+            ..definition.clone()
+        };
+        let regenerated_cut = portfolio
+            .commit_registry_cut(
+                vec![
+                    regenerated_definition.clone(),
+                    conflicting_definition.clone(),
+                ],
+                clock.get() + 200_000,
+            )
+            .await
+            .unwrap();
+        let regenerated_bound = bind_capacity_scope(
+            &portfolio,
+            &regenerated_definition,
+            &regenerated_cut,
+            clock.get(),
+            &format!("{suffix}-regenerated"),
+        )
+        .await;
+        let rebind = Prebinding {
+            scope_identity: scope_identity.clone(),
+            account_namespace: account_namespace.clone(),
+            pool_identity: pool_identity.clone(),
+            constraint_identity: constraint_identity.clone(),
+            capacity_request_identity: regenerated_bound
+                .fingerprint()
+                .request_identity()
+                .to_string(),
+            capacity_scope_identity: regenerated_bound.capacity_scope_identity().to_string(),
+        }
+        .scope_request(&suffix, "rebind");
+        assert_eq!(
+            failures(&governance.create_execution_scope(&rebind).await.unwrap()),
+            vec![Failure::ScopeAlreadyBoundToAnotherMeaning]
+        );
+        assert_eq!(own_counts(&pool, &suffix).await, (1, 1));
+        assert_eq!(
+            governance
+                .read_current_execution_scope(&scope_identity)
+                .await
+                .unwrap()
+                .expect("the original scope is still the one on record")["scope_digest"],
+            created.scope_digest(),
+            "an immutable scope keeps its first meaning"
+        );
 
         // Foreign Owner roles hold no privilege over Governance custody.
         for role in ["rd_owner", "product_edge_owner", "backtest_owner"] {
