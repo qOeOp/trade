@@ -3,6 +3,7 @@ set -eu
 
 : "${RD_FACT_WRITER_DB_PASSWORD:?set RD_FACT_WRITER_DB_PASSWORD}"
 : "${MARKET_DATA_OWNER_DB_PASSWORD:?set MARKET_DATA_OWNER_DB_PASSWORD}"
+: "${INSTRUMENT_OWNER_DB_PASSWORD:?set INSTRUMENT_OWNER_DB_PASSWORD}"
 : "${REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD:?set REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD}"
 case "${SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE:-0}" in
   0) composer_acceptance=false ;;
@@ -25,7 +26,8 @@ psql --set=ON_ERROR_STOP=1 --host "${POSTGRES_HOST:-postgres}" --username postgr
   --set=backtest_password="$BACKTEST_OWNER_DB_PASSWORD" \
   --set=execution_writer_password="$EXECUTION_WRITER_DB_PASSWORD" \
   --set=portfolio_writer_password="$PORTFOLIO_WRITER_DB_PASSWORD" \
-  --set=governance_writer_password="$GOVERNANCE_WRITER_DB_PASSWORD" << 'SQL'
+  --set=governance_writer_password="$GOVERNANCE_WRITER_DB_PASSWORD" \
+  --set=instrument_owner_password="$INSTRUMENT_OWNER_DB_PASSWORD" << 'SQL'
 BEGIN;
 SELECT pg_catalog.pg_advisory_xact_lock(
   pg_catalog.hashtextextended('vibe.backtest.result-topology.v2',0)
@@ -79,6 +81,7 @@ ALTER ROLE governance_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLIC
 ALTER ROLE execution_writer LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'execution_writer_password';
 ALTER ROLE portfolio_writer LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'portfolio_writer_password';
 ALTER ROLE governance_writer LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'governance_writer_password';
+ALTER ROLE instrument_owner LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'instrument_owner_password';
 GRANT execution_owner TO execution_writer;
 GRANT portfolio_owner TO portfolio_writer;
 GRANT governance_owner TO governance_writer;
@@ -130,7 +133,7 @@ BEGIN
     pg_catalog.current_database()
   );
   EXECUTE pg_catalog.format(
-    'GRANT CONNECT ON DATABASE %I TO rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, market_data_owner, operator_authorization_writer, qualification_writer, product_edge_owner, backtest_owner, execution_writer, portfolio_writer, governance_writer',
+    'GRANT CONNECT ON DATABASE %I TO rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, market_data_owner, operator_authorization_writer, qualification_writer, product_edge_owner, backtest_owner, execution_writer, portfolio_writer, governance_writer, instrument_owner',
     pg_catalog.current_database()
   );
 END
@@ -4024,12 +4027,19 @@ CREATE SCHEMA IF NOT EXISTS composer_private AUTHORIZATION composer_owner;
 CREATE SCHEMA IF NOT EXISTS composer_owner_api AUTHORIZATION composer_owner;
 CREATE SCHEMA IF NOT EXISTS market_data_private AUTHORIZATION market_data_owner;
 CREATE SCHEMA IF NOT EXISTS market_data_rd_api AUTHORIZATION market_data_owner;
+-- Instrument Master V2 stores under market_data_owner, and this migration's own readback
+-- asserts that role holds no database CREATE. So the schema is created here rather than by
+-- InstrumentMasterV2PostgresOwner::install, which cannot create it.
+-- The binding is not reversible: Instrument Owner's ACL check requires current_user to own
+-- its schema, so a second role pointed at an installed store fails closed at runtime.
+CREATE SCHEMA IF NOT EXISTS market_data_instrument_master_v2 AUTHORIZATION market_data_owner;
 ALTER SCHEMA replay_policy_catalog_private OWNER TO replay_policy_catalog_owner;
 ALTER SCHEMA replay_policy_catalog_api OWNER TO replay_policy_catalog_owner;
 ALTER SCHEMA composer_private OWNER TO composer_owner;
 ALTER SCHEMA composer_owner_api OWNER TO composer_owner;
 ALTER SCHEMA market_data_private OWNER TO market_data_owner;
 ALTER SCHEMA market_data_rd_api OWNER TO market_data_owner;
+ALTER SCHEMA market_data_instrument_master_v2 OWNER TO market_data_owner;
 REVOKE ALL ON SCHEMA replay_policy_catalog_private, replay_policy_catalog_api, composer_private, composer_owner_api, market_data_private FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
 REVOKE ALL ON SCHEMA market_data_rd_api FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
 GRANT USAGE ON SCHEMA market_data_rd_api TO rd_owner;
