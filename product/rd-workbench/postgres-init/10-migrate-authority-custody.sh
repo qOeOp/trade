@@ -22,7 +22,10 @@ psql --set=ON_ERROR_STOP=1 --host "${POSTGRES_HOST:-postgres}" --username postgr
   --set=issuer_password="$OPERATOR_AUTHORIZATION_DB_PASSWORD" \
   --set=qualification_password="$QUALIFICATION_OWNER_DB_PASSWORD" \
   --set=edge_password="$PRODUCT_EDGE_DB_PASSWORD" \
-  --set=backtest_password="$BACKTEST_OWNER_DB_PASSWORD" << 'SQL'
+  --set=backtest_password="$BACKTEST_OWNER_DB_PASSWORD" \
+  --set=execution_writer_password="$EXECUTION_WRITER_DB_PASSWORD" \
+  --set=portfolio_writer_password="$PORTFOLIO_WRITER_DB_PASSWORD" \
+  --set=governance_writer_password="$GOVERNANCE_WRITER_DB_PASSWORD" << 'SQL'
 BEGIN;
 SELECT pg_catalog.pg_advisory_xact_lock(
   pg_catalog.hashtextextended('vibe.backtest.result-topology.v2',0)
@@ -47,6 +50,11 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'product_edge_owner') THEN CREATE ROLE product_edge_owner LOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'backtest_owner') THEN CREATE ROLE backtest_owner LOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'portfolio_owner') THEN CREATE ROLE portfolio_owner NOLOGIN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'execution_owner') THEN CREATE ROLE execution_owner NOLOGIN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'execution_writer') THEN CREATE ROLE execution_writer LOGIN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'portfolio_writer') THEN CREATE ROLE portfolio_writer LOGIN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'governance_owner') THEN CREATE ROLE governance_owner NOLOGIN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'governance_writer') THEN CREATE ROLE governance_writer LOGIN; END IF;
 END
 $roles$;
 ALTER ROLE rd_database_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
@@ -66,6 +74,19 @@ ALTER ROLE qualification_writer LOGIN PASSWORD :'qualification_password';
 ALTER ROLE product_edge_owner PASSWORD :'edge_password';
 ALTER ROLE backtest_owner LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'backtest_password';
 ALTER ROLE portfolio_owner NOLOGIN;
+ALTER ROLE execution_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+ALTER ROLE governance_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+ALTER ROLE execution_writer LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'execution_writer_password';
+ALTER ROLE portfolio_writer LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'portfolio_writer_password';
+ALTER ROLE governance_writer LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'governance_writer_password';
+GRANT execution_owner TO execution_writer;
+GRANT portfolio_owner TO portfolio_writer;
+GRANT governance_owner TO governance_writer;
+REVOKE execution_owner, portfolio_owner, governance_owner FROM rd_owner, rd_fact_writer, product_edge_owner, backtest_owner, qualification_writer, operator_authorization_writer, market_data_owner, market_data_reader;
+REVOKE rd_owner, rd_fact_writer, product_edge_owner, backtest_owner, qualification_owner, operator_authorization_owner, market_data_owner FROM execution_writer, portfolio_writer, governance_writer;
+REVOKE execution_owner FROM portfolio_writer, governance_writer;
+REVOKE portfolio_owner FROM execution_writer, governance_writer;
+REVOKE governance_owner FROM execution_writer, portfolio_writer;
 GRANT operator_authorization_owner TO operator_authorization_writer;
 REVOKE portfolio_owner FROM product_edge_owner;
 REVOKE operator_authorization_owner FROM product_edge_owner, rd_owner;
@@ -109,7 +130,7 @@ BEGIN
     pg_catalog.current_database()
   );
   EXECUTE pg_catalog.format(
-    'GRANT CONNECT ON DATABASE %I TO rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, market_data_owner, operator_authorization_writer, qualification_writer, product_edge_owner, backtest_owner',
+    'GRANT CONNECT ON DATABASE %I TO rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, market_data_owner, operator_authorization_writer, qualification_writer, product_edge_owner, backtest_owner, execution_writer, portfolio_writer, governance_writer',
     pg_catalog.current_database()
   );
 END
@@ -121,6 +142,21 @@ ALTER SCHEMA operator_authorization_private OWNER TO operator_authorization_owne
 ALTER SCHEMA operator_authorization_api OWNER TO operator_authorization_owner;
 REVOKE ALL ON SCHEMA operator_authorization_private FROM PUBLIC, rd_owner, product_edge_owner, portfolio_owner;
 REVOKE ALL ON SCHEMA operator_authorization_api FROM PUBLIC, rd_owner, product_edge_owner, portfolio_owner;
+CREATE SCHEMA IF NOT EXISTS execution_private AUTHORIZATION execution_owner;
+CREATE SCHEMA IF NOT EXISTS execution_api AUTHORIZATION execution_owner;
+CREATE SCHEMA IF NOT EXISTS portfolio_private AUTHORIZATION portfolio_owner;
+CREATE SCHEMA IF NOT EXISTS portfolio_api AUTHORIZATION portfolio_owner;
+CREATE SCHEMA IF NOT EXISTS governance_private AUTHORIZATION governance_owner;
+CREATE SCHEMA IF NOT EXISTS governance_api AUTHORIZATION governance_owner;
+ALTER SCHEMA execution_private OWNER TO execution_owner;
+ALTER SCHEMA execution_api OWNER TO execution_owner;
+ALTER SCHEMA portfolio_private OWNER TO portfolio_owner;
+ALTER SCHEMA portfolio_api OWNER TO portfolio_owner;
+ALTER SCHEMA governance_private OWNER TO governance_owner;
+ALTER SCHEMA governance_api OWNER TO governance_owner;
+REVOKE ALL ON SCHEMA execution_private, execution_api, portfolio_private, portfolio_api, governance_private, governance_api FROM PUBLIC, rd_owner, rd_fact_writer, product_edge_owner, backtest_owner, qualification_writer, operator_authorization_writer, market_data_owner, market_data_reader;
+GRANT USAGE ON SCHEMA execution_api TO portfolio_writer, governance_writer;
+GRANT USAGE ON SCHEMA portfolio_api TO governance_writer;
 GRANT USAGE ON SCHEMA operator_authorization_api TO product_edge_owner;
 REVOKE CREATE ON SCHEMA public FROM rd_owner;
 GRANT USAGE ON SCHEMA public TO rd_owner;
