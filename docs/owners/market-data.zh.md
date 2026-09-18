@@ -20,8 +20,8 @@ Action、Replay Market Facts V2、Instrument Master，以及策略 input-role bi
 
 ## 实现准入台账
 
-本台账是下文契约实际走到哪一步的可 grep 索引。它本身不授予任何许可：本次切面上恰有三个生产写切片处于
-`IMPLEMENTATION_ADMITTED`，即下文 `B7` 点名的三者，扩大已准入集合必须先按 `AGENTS.md` 的架构权威规则修改本文档。已合并的 crate、被点名的
+本台账是下文契约实际走到哪一步的可 grep 索引。它本身不授予任何许可：本次切面上处于
+`IMPLEMENTATION_ADMITTED` 的恰是 `B7` 点名的三个生产写切片与 `B8` 点名的那一条实时事实通道，扩大已准入集合必须先按 `AGENTS.md` 的架构权威规则修改本文档。已合并的 crate、被点名的
 类型、绿色的 job 或本表中的一行都不是实现权威，永远不证明存在生产消费者，也永远不授权生产副作用、部署切换或真实
 交易。
 
@@ -78,6 +78,9 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   `AVAILABLE` 快照的部署接着对每个 Design 都回答 `MarketSemanticsUnavailable`，且 PIT 请求仍携带调用方声称的
   `instrument_master_digest`。三条写路径在下文各自章节里按 R0、Instrument Master V1、Market Semantics 的顺序作为
   有界切片准入；每条在其链路证明通过后转为 `CURRENT / PARTIAL`。
+- **`B8` 没有任何实时事实到达 Runtime。** 本 Owner 现有的每条取数缝都是 as-of：Data Client 只回答一个冻结 scope 在一个
+  决策切面上的结果，没有任何流。于是消费下文 Output handoffs 那条交接的 Strategy Instance 根本没有输入，Paper 与 Live
+  都无从开始。解除条件：下文作为有界切片准入的第一条实时通道。
 
 ### 逐片台账
 
@@ -99,6 +102,7 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
 | EVENT 与 BAR Owner custody                        | `CURRENT / PARTIAL`                                           | `owner/sample_fact.rs`、`owner/sample_projection*.rs`、`owner/bar_schedule.rs`                                                                                                                                  | `B4`       |
 | Shared Time clock‑head 交接                       | `TARGET`                                                      | `owner/shared_time_evidence.rs`                                                                                                                                                                                 | `B3`       |
 | 供应商 Data Clients                               | `CURRENT / PARTIAL`                                           | `crates/adapters/databento/src/pit_observation_source_v1.rs` 与 `crates/adapters/binance/src/pit_observation_source_v1.rs`，均已实盘验证                                                                        | `B6`       |
+| 面向 Runtime 的实时行情事实通道                   | `TARGET`，首条通道 `IMPLEMENTATION_ADMITTED`                  | 尚无；本行点名的是切片，不是文件                                                                                                                                                                                | `B8`       |
 
 ## 拥有的权威事实
 
@@ -1546,6 +1550,13 @@ rejection。
 - 向 [Scanner](./scanner/) 提供已发布激活条件请求的准确 PIT Market Snapshot。
 - 向 [Runtime](./runtime/) 提供携带同一 Market Semantics Compatibility 身份的实时行情流和标的更新；
   generation 的 Strategy Artifact 与历史证据必须消费该身份。
+  **IMPLEMENTATION_ADMITTED，一条实时事实通道：** Strategy Instance 消费的增量 `LiveMarketFactV1`、它的 Owner 封缄
+  intake，以及其后恰好一个 Data Client，即场所的公共 WebSocket。供应商侧只陈述场所能知道的事，与 PIT 观测缝既有的要求
+  一致；Owner 盖章已准入 Source Binding 的身份与谱系、该绑定的 Market Semantics Compatibility 身份，以及事实自身的时间
+  坐标与序号，拒绝 Owner 所签发订阅之外的标的，并保留持久头部，使重启后从停下处继续交接而不是重放。此处不准入其他任何
+  事：没有第二条通道、没有标的更新流、没有 Runtime 托管、没有下单路径。
+  **NOT_ADMITTED：** 一条实时通道不建立 Runtime readiness、Paper、Live、真实交易或任何其他生产写；流式事实永远不是 PIT
+  快照、replay 输入，也不是回答历史问题的证据。
 - 向 [Portfolio](./portfolio/) 提供价格 汇率 合约规格 估值事实，以及 Capacity View 使用的带身份流动性输入截面。
 - **TARGET，在 Shared Time producer 闭合后，向 [Portfolio](./portfolio/)：** 为 `PORTFOLIO_FRESHNESS` 提供
   sealed 规范 clock-head handoff。Portfolio 提交自己的准确 prior handoff 并独自授权自身 transition；不能

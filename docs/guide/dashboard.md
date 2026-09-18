@@ -2355,18 +2355,22 @@ Loading withdraws retained positive rows. The page has one outer vertical scroll
 retry, dismiss, clipboard locator action, Owner mutation, effect dispatch, or effect routing change.
 
 The admitted Recent `/dashboard/recent` workspace answers "what verified outcome was recorded most recently?"
-without introducing another outcome owner. `RecentOwnerOutcomes` reuses the historical-custody, research-question,
-research-outcome, and artifact-review projections already consumed by the R&D directories. It includes only
-`outcome_ready` Research records and `reviewable` Build records, merges them by their Owner-recorded time, and uses
-the shared `DataWorkspaceTable` with controlled same-page inline row expansion. Filters change only the visible
-Research/Build cut and never the URL. A Research row opens the canonical Research record; a Build row opens the
-canonical historical Build result. Request, attempt, observation-time, completeness, and identity details remain
-inside `PanelFrameInfo` or the expanded row, not as primary table columns. The four sources are independent Owner
-reads: a malformed or identity-mismatched Research source withdraws only Research rows/counts, and the equivalent
-Build failure withdraws only Build rows/counts. Missing values render unavailable rather than zero; the total exists
-only when both source families are bound. Loading withdraws every retained positive row until the current reads
-complete. There is one page scroll owner and no dialog, drawer, nested vertical table scroller, Owner mutation, or
-effect action.
+without introducing another outcome owner. `RecentOwnerOutcomes` consumes two bounded Owner reads, the verified
+Research outcome list and the verified Build outcome list, each already resolved to its outcome state. The reads a
+page makes do not grow with the rows it lists: the workspace asks each list for at most the rows it shows, the Owner
+clamps that to the bound it owns, and a list the Owner had to shorten declares its truncation rather than reporting
+a count of everything. Neither read names a custody cut; each Owner resolves the cut from its own custody and echoes
+it, so the workspace cannot state a coordinate the Owner did not resolve, and rows echoed against different cuts are
+never merged. It includes only `outcome_ready` Research records and `reviewable` Build records, merges them by their
+Owner-recorded time, and uses the shared `DataWorkspaceTable` with controlled same-page inline row expansion.
+Filters change only the visible Research/Build cut and never the URL. A Research row opens the canonical Research
+record; a Build row opens the canonical historical Build result. Request, attempt, observation-time, completeness,
+and identity details remain inside `PanelFrameInfo` or the expanded row, not as primary table columns. The two reads
+stay independent: a malformed, identity-mismatched, unavailable, or differently cut Research answer withdraws only
+Research rows/counts, and the equivalent Build failure withdraws only Build rows/counts. Missing values render
+unavailable rather than zero; the total exists only when both source families are bound. Loading withdraws every
+retained positive row until the current reads complete. There is one page scroll owner and no dialog, drawer,
+nested vertical table scroller, Owner mutation, or effect action.
 
 The admitted Evidence `/dashboard/evidence` workspace answers "which Dashboard areas have current readable data,
 and where is coverage still incomplete?" It reuses the same historical-custody, research-outcome,
