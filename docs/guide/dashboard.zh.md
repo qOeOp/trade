@@ -297,8 +297,9 @@ plan digest 与 design digest。非 success terminal 的 `Artifact` 改为在存
 reason，并且绝不保留之前 success 的字段。group title surface 比 body 略亮，label/value 左对齐，长 identity
 保持可选择，separator 克制且不形成连通网格。header/body 色差遵循标准 card system。
 
-经认证的 Owner GET `/v2/develop-composer/runs/{request_identity}/readback` 把现有 sealed same-identity
-resolution 暴露为 zero-effect read。它不接收 request body，返回既有 strict
+经认证的 Owner GET `/v2/develop-composer/runs/{request_identity}/readback` 以 zero-effect read 在 Owner 自己的
+Strategy Input custody 上解析同一身份：它经由该次运行自己绑定的 Market Data locked facade 复验已存储的正向 Composer
+记录，因此在生产中提交的一次运行就能在生产中读回。它不接收 request body，返回既有 strict
 `DevelopComposerOperationResponseV2`；Dashboard BFF 绑定 path identity，并只投影上述字段。`SUCCESS` 必须同时
 带 operation receipt 与完整四字段 Artifact projection；其他 disposition 必须不带 receipt 或 Artifact
 projection。未知 key、identity drift、互相矛盾的 disposition field、非法 digest、超限 response、缺失
