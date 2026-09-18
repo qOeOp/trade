@@ -39,6 +39,10 @@ jobs:
   test:
     name: Product package tests
     runs-on: ubuntu-latest
+    # The suites drive a browser and spawn previews. Node's test runner has no timeout of its own,
+    # so without a bound a single unanswered command runs the job until the platform kills it, with
+    # no log to read afterwards.
+    timeout-minutes: 30
     # The seven PostgreSQL suites and the HTTP session suite skip themselves without a runtime,
     # which is how a directory of 133 test files ran 129 of them here while the RunStore routes
     # that Operations serves (Runs, Workers, Schedules, Service Logs, Audit) and the three browser
@@ -145,7 +149,7 @@ jobs:
           DASHBOARD_CALENDAR_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_calendar
           DASHBOARD_SERVICE_LOGS_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_service_logs
         run: >-
-          node --test --test-concurrency=1
+          node --test --test-concurrency=1 --test-timeout=600000
           tests/run-store.postgres.test.mjs
           tests/run-list-view-gateway.postgres.test.mjs
           tests/shadow-runtime.postgres.test.mjs

@@ -138,9 +138,19 @@ async function openBrowser(executable) {
       if (message.error) waiter.reject(new Error(message.error.message));
       else waiter.resolve(message.result);
     });
-    const send = (method, params = {}) => new Promise((resolve, reject) => {
+    // Every command carries a deadline. A browser that accepts a command and never answers it -
+    // a renderer that stopped, a socket that died without an event - would otherwise leave this
+    // await pending forever, and the test runner has no timeout of its own to end it.
+    const send = (method, params = {}, timeoutMs = 60_000) => new Promise((resolve, reject) => {
       const requestId = ++id;
-      pending.set(requestId, { resolve, reject });
+      const timer = setTimeout(() => {
+        pending.delete(requestId);
+        reject(new Error(`browser command timed out: ${method}`));
+      }, timeoutMs);
+      pending.set(requestId, {
+        resolve: (value) => { clearTimeout(timer); resolve(value); },
+        reject: (error) => { clearTimeout(timer); reject(error); },
+      });
       socket.send(JSON.stringify({ id: requestId, method, params }));
     });
     return { child, profile, close: () => socket.close(), send };
