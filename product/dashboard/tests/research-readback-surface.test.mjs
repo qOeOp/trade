@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { bilingualSection, expectBonded, source, sources } from "./doc-contract.mjs";
 
 test("Research detail reuses shared atoms and exposes the admitted Artifact control", async () => {
   const [component, content, hook, drilldown, questionBrief, control, gate, route, page, shell, navigation, css] = await Promise.all([
@@ -69,22 +70,22 @@ test("Research detail reuses shared atoms and exposes the admitted Artifact cont
   assert.doesNotMatch(css, /#[0-9a-f]{3,8}|rgba?\(|hsla?\(/iu);
 });
 
-test("bilingual Research detail contract closes geometry and the Authorization B boundary", async () => {
-  for (const suffix of ["", ".zh"]) {
-    const doc = await readFile(new URL(`../../../docs/guide/dashboard${suffix}.md`, import.meta.url), "utf8");
-    const heading = suffix
-      ? "## 有界准入：已验证 Research 目录与精确回读"
-      : "## Bounded admission: verified Research directory and exact readback";
-    const start = doc.indexOf(heading);
-    assert.ok(start >= 0);
-    const specification = doc.slice(start, doc.indexOf("\n## ", start + heading.length));
-    for (const token of [
-      "/rd/research/{requestIdentity}", "PanelFrame", "FactGroup", "Result", "Strategy", "Timing",
-      "Back to requests", "Refresh", suffix ? "技术" : "technical", "unavailable", "SUBMITTED_OR_UNKNOWN",
-      "GET", "research_goal.shadow_resolve.v1", "ActionAdmissionGate", "PREFLIGHTING", "ADMITTING",
-      "Resolve", "Product Edge binding", "Owner", "write", "trading",
-      "Needs current review", "Raw outcome", "Raw reason",
-      "hypothesis", "falsification_question", "expected_observation", "semantic_digest", "committed_at_epoch_ms",
-    ]) assert.ok(specification.includes(token), `${suffix || "en"} missing ${token}`);
-  }
+test("Research detail contract is bonded to the readback components and the shadow read", async () => {
+  const section = await bilingualSection({
+    en: "## Bounded admission: verified Research directory and exact readback",
+    zh: "## 有界准入：已验证 Research 目录与精确回读",
+  });
+  await source("app/(dashboard)/rd/research/[requestIdentity]/page.tsx");
+  const code = await sources([
+    "components/research-readback-workspace.tsx", "components/research-readback-content.tsx",
+    "components/research-readback-drilldown.tsx",
+    "components/artifact-formation-control.tsx", "components/ui/action-admission-gate.tsx",
+    "lib/rd-shadow-client.ts", "../../crates/strategy_factory_rd_owner_api/src/main.rs",
+  ]);
+  expectBonded(section, code, [
+    "/rd/research/", "PanelFrame", "FactGroup", "Timing", "Back to requests", "Refresh", "SUBMITTED_OR_UNKNOWN",
+    "research_goal.shadow_resolve.v1", "ActionAdmissionGate", "PREFLIGHTING", "ADMITTING",
+    "Needs current review", "Raw outcome", "Raw reason",
+    "hypothesis", "falsification_question", "expected_observation", "semantic_digest", "committed_at_epoch_ms",
+  ], "Research detail");
 });

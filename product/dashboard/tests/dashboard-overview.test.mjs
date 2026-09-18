@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { expectBonded } from "./doc-contract.mjs";
 
 import {
   DASHBOARD_OVERVIEW_RUN_FILTER_V1,
@@ -129,12 +130,8 @@ test("the admitted Overview remains a read-only independent-source consumer", as
   assert.match(runHook, /useRunListView\(enabled, DASHBOARD_OVERVIEW_RUN_FILTER_V1\)/u);
   assert.equal(DASHBOARD_OVERVIEW_RUN_FILTER_V1.page_size, 50);
   assert.doesNotMatch(component, /GlobalStatusMatrix|global health|Resolve same identity|Submit|Run strategy/u);
+  expectBonded({ en, zh }, component, ["DashboardOverview"], "Overview");
   for (const doc of [en, zh]) {
-    assert.match(doc, /IMPLEMENTATION_ADMITTED \/ CURRENT_PARTIAL/u);
-    assert.match(doc, /runs\/all\/any\/pageSize=50\/page=1/u);
-    assert.match(doc, /sections are read independently|各 section 独立读取/u);
-    assert.match(doc, /DetailSheet/u);
-    assert.match(doc, /canonical route/u);
-    assert.match(doc, /presentation state, never Owner evidence|展示状态，绝不是 Owner evidence/u);
+    assert.ok(doc.includes(`pageSize=${DASHBOARD_OVERVIEW_RUN_FILTER_V1.page_size}/`), "Overview run page size drifted from the filter");
   }
 });

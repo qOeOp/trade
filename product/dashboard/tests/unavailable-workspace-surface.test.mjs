@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { bilingualDoc, expectBonded, source } from "./doc-contract.mjs";
 
 test("navigation-only routes use the shared quiet unavailable state", async () => {
   const [component, css] = await Promise.all([
@@ -25,12 +26,7 @@ test("navigation-only routes use the shared quiet unavailable state", async () =
   assert.match(css, /\.unavailable-state-info\[open\] > code \{[^}]*position: static;/u);
 });
 
-test("bilingual architecture keeps placeholder maturity technical and primary copy quiet", async () => {
-  for (const suffix of ["", ".zh"]) {
-    const doc = await readFile(new URL(`../../../docs/guide/dashboard${suffix}.md`, import.meta.url), "utf8");
-    const sentence = suffix
-      ? "navigation-only route 只使用共享 `UnavailableState`"
-      : "navigation-only route uses only the shared `UnavailableState`";
-    assert.ok(doc.includes(sentence), `${suffix || "en"} missing quiet placeholder contract`);
-  }
+test("the bilingual guide names the shared placeholder component the shell renders", async () => {
+  const shell = await source("components/dashboard-route-content.tsx");
+  expectBonded(await bilingualDoc(), shell, ["UnavailableState"], "navigation-only placeholder");
 });

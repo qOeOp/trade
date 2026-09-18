@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { bilingualSection, expectBonded, sources as codeSources } from "./doc-contract.mjs";
 
 const root = new URL("../", import.meta.url);
 
@@ -45,17 +46,18 @@ test("historical Artifact detail composes the shared panel and fact atoms", asyn
   assert.doesNotMatch(workspace, /IMPLEMENTATION_ADMITTED|OWNER_POINT_READ_ONLY/u);
 });
 
-test("bilingual historical Artifact detail keeps business copy primary", async () => {
-  for (const suffix of ["", ".zh"]) {
-    const doc = await source(`../../docs/guide/dashboard${suffix}.md`);
-    const heading = suffix ? "## 有界准入：已验证 Artifact 目录" : "## Bounded admission: verified Artifact directory";
-    const start = doc.indexOf(heading);
-    assert.ok(start >= 0);
-    const specification = doc.slice(start, doc.indexOf("\n## ", start + heading.length));
-    for (const token of ["Build result", "Result / Review / Timing", "Historical only", "Raw result", "Raw reason", "Review build result", "Back to build summary"]) {
-      assert.ok(specification.includes(token), `${suffix || "en"} missing ${token}`);
-    }
-  }
+test("historical Artifact detail copy is bonded to the components that render it", async () => {
+  const section = await bilingualSection({
+    en: "## Bounded admission: verified Artifact directory",
+    zh: "## 有界准入：已验证 Artifact 目录",
+  });
+  const code = await codeSources([
+    "components/artifact-historical-readback-content.tsx", "components/artifact-historical-readback-workspace.tsx",
+    "components/artifact-historical-readback-drilldown.tsx", "components/artifact-attempt-preview.tsx",
+  ]);
+  expectBonded(section, code, [
+    "Build result", "Historical only", "Raw result", "Raw reason", "Review build result", "Back to build summary",
+  ], "historical Artifact detail");
 });
 
 test("candidate identities link to historical point read while verified detail stays unchanged", async () => {

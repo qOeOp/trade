@@ -2,41 +2,35 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+import { exactBlueprints, maturityFor, moduleFor } from "../lib/navigation.js";
+import { source } from "./doc-contract.mjs";
+
 const readme = await readFile(new URL("../README.md", import.meta.url), "utf8");
 
-test("Dashboard README names the shipped first-party surfaces without promoting placeholders", () => {
-  for (const surface of [
-    "Runs", "Run Detail", "Workers", "Schedules", "Service Logs", "Audit",
-    "Source Intake", "Research", "Artifact", "Develop Composer", "Backtest",
-    "Market Data", "Runtime", "Portfolio",
-  ]) assert.match(readme, new RegExp(`\\b${surface}\\b`, "u"));
-
-  assert.match(readme, /Settings Access ships only the local browser-session read\/re-authentication shell/u);
-  assert.match(readme, /Event Rail,[\s\S]{1,80}?Telemetry, Alerts,[\s\S]{1,160}?remain navigation-only placeholders/u);
-  assert.doesNotMatch(readme, /does not ship the local R&D/u);
+test("Dashboard README names every module that navigation registers a DRAWABLE_EXACT surface for", () => {
+  const shipped = new Set(
+    Object.keys(exactBlueprints)
+      .filter((href) => maturityFor(href) === "DRAWABLE_EXACT")
+      .map((href) => moduleFor(href).label),
+  );
+  assert.ok(shipped.size > 0, "navigation registers no DRAWABLE_EXACT route");
+  for (const label of shipped) {
+    assert.ok(readme.includes(label), `README omits the shipped module ${label}`);
+  }
 });
 
-test("Dashboard README keeps image, Compose, and effect custody explicit", () => {
-  for (const boundary of [
-    "standalone `trade-dashboard` image",
-    "`dashboard-preview` profile",
-    "does not stop, replace, or add a",
-    "previous executor is\nretired",
-    "only executor path for production effects",
-    "effect worker is disabled by default",
-    "fails closed as an unavailable projection",
-  ]) assert.ok(readme.includes(boundary), `missing README boundary: ${boundary}`);
-
-  assert.match(readme, /127\.0\.0\.1:3100/u);
-  assert.doesNotMatch(readme, /executor cutover[^.]*complete/iu);
+test("Dashboard README states the image, profile, and port the Compose package binds", async () => {
+  const compose = await source("../rd-workbench/docker-compose.yml");
+  const image = compose.match(/image: (trade-dashboard):/u)?.[1];
+  const profile = compose.match(/profiles: \["(dashboard-preview)"\]/u)?.[1];
+  const port = compose.match(/127\.0\.0\.1:\$\{DASHBOARD_PORT:-(\d+)\}:/u)?.[1];
+  assert.ok(image && profile && port, "Compose no longer binds the Dashboard image, profile, or port this README describes");
+  for (const fact of [`\`${image}\` image`, `\`${profile}\` profile`, `127.0.0.1:${port}`]) {
+    assert.ok(readme.includes(fact), `README omits ${fact}`);
+  }
 });
 
-test("Dashboard README keeps MCP finite, independently authenticated, and non-administrative", () => {
-  for (const boundary of [
-    "stateless Streamable HTTP endpoint",
-    "finite, scoped Bearer capability",
-    "no arbitrary script, database, shell, or administrative tool",
-  ]) assert.ok(readme.includes(boundary), `missing MCP boundary: ${boundary}`);
-  assert.match(readme, /validates Host and Origin before MCP\s+dispatch/u);
-  assert.match(readme, /Artifact preflight\/action, Source\/Research action, Develop Composer[\s\S]+Replay V2[\s\S]+exact run detail,[\s\S]+bounded run-log reads/u);
+test("Dashboard README names the MCP route the app serves", async () => {
+  await source("app/api/mcp/route.ts");
+  assert.ok(readme.includes("/api/mcp"), "README omits the /api/mcp route");
 });

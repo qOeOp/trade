@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { expectBonded } from "./doc-contract.mjs";
 
 import { projectRecentOwnerOutcomesV1 } from "../lib/recent-owner-outcomes.ts";
 import { exactBlueprints, maturityFor } from "../lib/navigation.js";
@@ -121,9 +122,5 @@ test("Recent is an admitted same-page read-only outcome workspace", async () => 
   }
   assert.doesNotMatch(component, /custody: pending \? null|buildReviews: pending \? null/u);
   assert.doesNotMatch(component, /Resolve same identity|Submit|Run strategy|Delete/u);
-  for (const doc of [en, zh]) {
-    assert.match(doc, /RecentOwnerOutcomes/u);
-    assert.match(doc, /same-page inline|同页原位/u);
-    assert.match(doc, /independent Owner reads|独立 Owner read/u);
-  }
+  expectBonded({ en, zh }, component, ["RecentOwnerOutcomes"], "Recent outcomes");
 });

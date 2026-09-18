@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { bilingualSection, expectBonded, expectRoute, sources } from "./doc-contract.mjs";
 
 test("Artifact directory uses the shared compact read-only table surface", async () => {
   const [component, state, route, shell, css] = await Promise.all([
@@ -87,23 +88,24 @@ test("Artifact directory uses the shared compact read-only table surface", async
   assert.doesNotMatch(css, /#[0-9a-f]{3,8}|rgba?\(|hsla?\(/iu);
 });
 
-test("bilingual Artifact directory contract fixes layout, fields and no-effect boundary", async () => {
-  for (const suffix of ["", ".zh"]) {
-    const doc = await readFile(new URL(`../../../docs/guide/dashboard${suffix}.md`, import.meta.url), "utf8");
-    const heading = suffix ? "## 有界准入：已验证 Artifact 目录" : "## Bounded admission: verified Artifact directory";
-    const start = doc.indexOf(heading);
-    assert.ok(start >= 0);
-    const specification = doc.slice(start, doc.indexOf("\n## ", start + heading.length));
-    for (const token of [
-      "ArtifactDirectory", "/rd/artifacts", "PanelFrame", "Refresh", "Build history", "Current artifacts", "search",
-      "Artifact", "Strategy intent", "Verification", "Created", "Outcome", "Recorded", "20", "60",
-      "prepared_at_epoch_ms", "build_request_identity", "Load older", "partial",
-      "unavailable", "POINT_READ_REQUIRED", "/v1/historical-custodies", "WASM_PREVIEW_NOT_RUN", "effect worker",
-      "research", "build", "families", "requests", "reviewable", "attempts", "bindings",
-      "/api/rd/artifacts/review-inventory", "reviewable | unavailable", "All attempts",
-      "/rd/artifacts/?availability=reviewable", "/rd/artifacts/?kind=bindings",
-      "EntityReference", "opaque identity", "Review build result", "Back to build summary",
-      "Open full build workspace",
-    ]) assert.ok(specification.includes(token), `${suffix || "en"} missing ${token}`);
-  }
+test("verified Artifact directory contract is bonded to the code that implements it", async () => {
+  const section = await bilingualSection({
+    en: "## Bounded admission: verified Artifact directory",
+    zh: "## 有界准入：已验证 Artifact 目录",
+  });
+  const code = await sources([
+    "components/artifact-directory.tsx", "components/artifact-attempt-preview.tsx",
+    "components/artifact-historical-readback-drilldown.tsx", "components/rd-custody-review-summary.tsx",
+    "components/use-artifact-review-inventory.ts", "lib/artifact-directory-gateway.ts",
+    "lib/rd-historical-custody-client.ts", "lib/artifact-source-gateway.ts", "lib/operation-registry.ts",
+  ]);
+  expectRoute(section, "/rd/artifacts", "Artifact directory");
+  expectBonded(section, code, [
+    "ArtifactDirectory", "PanelFrame", "EntityReference", "Refresh", "Load older", "All attempts",
+    "Build history", "Current artifacts", "Strategy intent", "Verification", "Created", "Recorded",
+    "prepared_at_epoch_ms", "build_request_identity", "POINT_READ_REQUIRED", "WASM_PREVIEW_NOT_RUN",
+    "/v1/historical-custodies", "/api/rd/artifacts/review-inventory", "reviewable",
+    "/rd/artifacts/?availability=reviewable", "/rd/artifacts/?kind=bindings",
+    "Review build result", "Back to build summary", "Open full build workspace",
+  ], "Artifact directory");
 });

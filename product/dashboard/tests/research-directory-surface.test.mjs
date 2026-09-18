@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { bilingualSection, expectBonded, expectRoute, sources } from "./doc-contract.mjs";
 
 test("Research directory uses the shared compact read-only table surface", async () => {
   const [component, state, route, shell, page, css, statusAtom] = await Promise.all([
@@ -115,24 +116,24 @@ test("Research directory uses the shared compact read-only table surface", async
   assert.doesNotMatch(css, /#[0-9a-f]{3,8}|rgba?\(|hsla?\(/iu);
 });
 
-test("bilingual Research directory contract fixes layout, fields and no-effect boundary", async () => {
-  for (const suffix of ["", ".zh"]) {
-    const doc = await readFile(new URL(`../../../docs/guide/dashboard${suffix}.md`, import.meta.url), "utf8");
-    const heading = suffix ? "## 有界准入：已验证 Research 目录与精确回读" : "## Bounded admission: verified Research directory and exact readback";
-    const start = doc.indexOf(heading);
-    assert.ok(start >= 0);
-    const specification = doc.slice(start, doc.indexOf("\n## ", start + heading.length));
-    for (const token of [
-      "ResearchDirectory", "/rd/research", "PanelFrame", "Refresh", "Research history", "Current intents", "search",
-      "Research request", "State", "Intent", "Updated", "20", "60",
-      "committed_at_epoch_ms", "request_identity", "Load older", "partial",
-      "unavailable", "POINT_READ_REQUIRED", "/v1/historical-custodies", "Submit", "Resolve", "Product Edge binding",
-      "research", "build", "families", "results ready", "waiting", "requests", "attempts", "bindings",
-      "/rd/research/?outcome=ready", "/rd/research/?outcome=awaiting", "/rd/artifacts/",
-      "/rd/artifacts/?kind=bindings",
-      "/api/rd/research/outcome-inventory", "outcome_ready", "awaiting_outcome",
-      "All / Results ready / Waiting", "EntityReference", "opaque identity",
-      "/rd/research/?view=verified", "Open full research workspace", "Back to request summary", "row-detail",
-    ]) assert.ok(specification.includes(token), `${suffix || "en"} missing ${token}`);
-  }
+test("verified Research directory contract is bonded to the code that implements it", async () => {
+  const section = await bilingualSection({
+    en: "## Bounded admission: verified Research directory and exact readback",
+    zh: "## 有界准入：已验证 Research 目录与精确回读",
+  });
+  const code = await sources([
+    "components/research-directory.tsx", "components/research-readback-drilldown.tsx",
+    "components/research-request-preview.tsx", "components/rd-custody-review-summary.tsx",
+    "components/use-research-outcome-inventory.ts", "components/ui/data-workspace-table.tsx",
+    "lib/research-directory-gateway.ts", "lib/rd-historical-custody-client.ts", "lib/operation-registry.ts",
+  ]);
+  expectRoute(section, "/rd/research", "Research directory");
+  expectBonded(section, code, [
+    "ResearchDirectory", "PanelFrame", "EntityReference", "Refresh", "Load older",
+    "Research history", "Current intents", "Research request", "Intent", "Updated",
+    "committed_at_epoch_ms", "request_identity", "POINT_READ_REQUIRED", "/v1/historical-custodies",
+    "results ready", "outcome_ready", "awaiting_outcome", "/api/rd/research/outcome-inventory",
+    "/rd/research/?outcome=ready", "/rd/research/?outcome=awaiting", "/rd/research/?view=verified",
+    "/rd/artifacts/?kind=bindings", "Open full research workspace", "Back to request summary", "row-detail",
+  ], "Research directory");
 });
