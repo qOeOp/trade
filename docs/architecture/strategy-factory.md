@@ -1217,6 +1217,32 @@ is not admitted until implementation plus real disposable PostgreSQL Owner readb
 acceptance prove the complete composition and every zero-change rejection; it grants no production or trading
 authority.
 
+## Value-stream handoffs
+
+The stage relations between R&D, Backtest, and Qualification cross the value stream as exactly these objects. Each
+Owner page defines the object it emits, and the receiving page repeats what it accepts; this page only lists them
+so the stream can be read end to end.
+
+- R&D → Backtest: one R&D-owned frozen Exploratory Replay Request bound to the exact Artifact, PIT scope, replay
+  configuration, and cost, slippage, and capacity-model identities. The same request identity and canonical bytes
+  join one attempt; changed meaning is a conflict and performs no write.
+- Backtest → R&D: one Exploratory Run Result per request in exactly one of `RUN_REJECTED`,
+  `IN_PROGRESS_OR_UNKNOWN`, `TERMINAL_RESULT`, or `INVALID_REPLAY_EVIDENCE`, repeating every consumed
+  execution-defining identity and the complete finite `diagnosticCategorySet`. Only a request-equal
+  `TERMINAL_RESULT` may enter Research Selection; every other attempt remains a TrialFamily Census fact and can
+  produce only `REPAIR_INPUTS`.
+- R&D → Qualification: one frozen Candidate with a terminal `SELECTED_FOR_QUALIFICATION` Research Selection
+  Disposition, carried by a stable Qualification Review Request that cross-binds the frozen Intent falsifier and
+  stop rule, complete preregistration, immutable exhaustive TrialFamily Census Frontier, exploratory
+  request/result frontier, cross-family predecessor frontier, precommitted independence basis, protected-feedback
+  observation frontier, Protected Robustness Plan, and the preregistered protected decision-policy identity and
+  version.
+- Qualification → Product Edge and R&D: one write-once Candidate Intake Receipt, `ADMITTED` or `NOT_ADMITTED`,
+  that closes the exact review request. Receipt absence remains `SUBMITTED_OR_UNKNOWN`, and no status summary,
+  transport success, or event delivery replaces it. `NOT_ADMITTED` creates no protected attempt and consumes no
+  holdout. Qualification then requests and consumes protected replay from Backtest in isolation and returns no
+  protected measurement to Research.
+
 ## Protected path
 
 Research freezes TrialFamily, its exhaustive Census Frontier, cross-family predecessor frontier, precommitted independence basis, PIT rule, costs, capacity assumptions, budget, falsifier, and stop before submission. Qualification verifies those frontiers, preregistration, exact `READY_FOR_SELECTION` decision and selected-only disposition, owns cumulative holdout reservation and disposition across related TrialFamilies, and requests protected replay. A missing selected-only disposition, falsifier mismatch, missing sibling, renamed trial, budget mismatch, mutable frontier, unresolved ancestry, late independence basis, stale feedback frontier, or post-cut family member closes as `NOT_ADMITTED` before protected replay with no holdout consumption; a terminal Research stop never reaches intake, and a later trial requires a successor Candidate. Protected results may update Eligibility State but must never feed the same research loop.

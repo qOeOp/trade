@@ -606,9 +606,26 @@ Decision, Selection, and Candidate. Changing one creates a successor lineage rat
 ## Input handoffs
 
 - Product Edge supplies a sourced research request rather than an unsourced instruction to trade. The request commits the bounded protected-feedback frontier already projected to that principal. Research resolves the stable request identity with its own terminal receipt and preserves semantic predecessors without reading protected category or detail; absent receipt remains unknown.
-- [Market Data](./market-data/) supplies point-in-time facts, catalog versions, instrument semantics, and the
-  correlated `AVAILABLE` or `UNAVAILABLE` terminal for a committed Market Data Repair Request.
-- Exploratory [Backtest](./backtest/) results may inform a new intent and artifact generation.
+- [Market Data](./market-data/) supplies point-in-time facts, catalog versions, and instrument semantics. For each
+  initial PIT Market Snapshot Request it returns one move-only, Market Data-sealed `ResearchPitTerminal` correlated
+  to the exact request identity and content digest, carrying the canonical six-state disposition `AVAILABLE`,
+  `INSUFFICIENT`, `STALE`, `UNLICENSED`, `AMBIGUOUS`, or `UNAVAILABLE` and the exact Universe Selection Record
+  identity and digest. Only `AVAILABLE` may enter a frozen or successor Intent; every other state freezes only the
+  dependent Intent, and an absent response remains unknown. For a committed Market Data Repair Request it
+  separately returns the correlated `AVAILABLE` or `UNAVAILABLE` terminal.
+- [Backtest](./backtest/) returns, for each R&D-owned Exploratory Replay Request, one Exploratory Run Result in
+  exactly one of `RUN_REJECTED`, `IN_PROGRESS_OR_UNKNOWN`, `TERMINAL_RESULT`, or `INVALID_REPLAY_EVIDENCE`. The
+  result repeats the consumed Artifact, PIT scope and PIT Market Snapshot, Universe Selection Record and correction
+  rule, replay configuration, Runtime kernel, simulator, and cost, slippage, and capacity-model identities, plus the
+  complete finite `diagnosticCategorySet` with each member's decisive evidence cut. Research may use only a
+  request-equal `TERMINAL_RESULT`; a rejected, invalid, unknown, nonterminal, or unequal attempt stays a
+  TrialFamily Census fact and may produce only `REPAIR_INPUTS`, never a Selection or successor hypothesis. Reading
+  a result never creates a successor Intent by itself.
+- [Qualification](./qualification/) returns no protected feedback to the submitted Candidate's loop. Research
+  observes only the write-once `ADMITTED` or `NOT_ADMITTED` Candidate Intake Receipt that closes the exact
+  Qualification Review Request, and the bounded public Qualification Status Summary, both through Product Edge.
+  Receipt absence remains `SUBMITTED_OR_UNKNOWN`; `NOT_ADMITTED` creates no protected attempt and consumes no
+  holdout, and changed meaning cannot join the receipt or create a second intake.
 - Committed generation-scoped Performance, Runtime Incident, Execution account/order/fill/quality-observation,
   Effect Journal, readback, and Reconciliation Drift facts may be admitted only
   as a new Research Source Provenance Record for a successor lineage. They can never mutate the deployed or
@@ -621,6 +638,14 @@ Decision, Selection, and Candidate. Changing one creates a successor lineage rat
 
 ## Output handoffs
 
+- To [Market Data](./market-data/): before exploratory consumption, one R&D-owned frozen initial PIT Market Snapshot
+  Request bound to the Research Request, Intent, and TrialFamily identities, the requested instrument or universe
+  scope identity and version, the four-time decision cut and PIT semantics, the required provenance, Source Binding
+  and dataset version set, the license, rights, retention, and attribution policy cut, the correction and revision
+  frontier cut, a stable request correlation identity, and requested-at Time Evidence. R&D owns its identity and
+  content digest; the same identity and digest join one Market Data attempt, while a changed scope, cut,
+  provenance, license, correction, or meaning requires a successor request. Transport success leaves the request
+  `SUBMITTED_OR_UNKNOWN` and proves no snapshot availability.
 - To [Market Data](./market-data/): only a committed `REPAIR_INPUTS` Iteration Decision may produce a Market Data
   Repair Request. The request asks its native Owner to repair evidence; it does not prescribe an adapter, rewrite
   the old snapshot, or claim availability.
