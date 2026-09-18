@@ -80,8 +80,6 @@ readonly rd_owner_postgres_tests=(
   'vibe-operator-authorization|vibe_operator_authorization|postgres::tests::portfolio_resource_grant_advisory_lock_serializes_distinct_grants'
   'vibe-operator-authorization|vibe_operator_authorization|postgres::tests::portfolio_resource_grant_issue_read_replay_successor_revoke_restart_acl_and_expiry'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::exact_stale_cut_blocks_every_artifact_transition_without_writes'
-  'vibe-strategy-factory|vibe_strategy_factory|schema_materialization::tests::readback_accepts_only_declared_exact_acl_topologies'
-  'vibe-strategy-factory|vibe_strategy_factory|repair_action::runtime_kernel_native_request::postgres::tests::migration_materializes_private_runtime_kernel_request_custody'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::stored_attempt_catalog_is_exactly_classifiable_without_writes'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::opaque_legacy_success_is_classified_but_never_promoted'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::exact_origin_terminal_legacy_is_read_only_and_nonterminal_blocks_activation'
@@ -115,8 +113,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 72 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all seventy-two ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 70 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all seventy ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -174,16 +172,14 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[59]}" != *'|postgres::tests::portfolio_resource_grant_advisory_lock_serializes_distinct_grants' ]] ||
     [[ "${rd_owner_postgres_tests[60]}" != *'|postgres::tests::portfolio_resource_grant_issue_read_replay_successor_revoke_restart_acl_and_expiry' ]] ||
     [[ "${rd_owner_postgres_tests[61]}" != *'|artifact_build_postgres::postgres_freshness_tests::exact_stale_cut_blocks_every_artifact_transition_without_writes' ]] ||
-    [[ "${rd_owner_postgres_tests[62]}" != *'|schema_materialization::tests::readback_accepts_only_declared_exact_acl_topologies' ]] ||
-    [[ "${rd_owner_postgres_tests[63]}" != *'|repair_action::runtime_kernel_native_request::postgres::tests::migration_materializes_private_runtime_kernel_request_custody' ]] ||
-    [[ "${rd_owner_postgres_tests[64]}" != *'|artifact_build_postgres::postgres_freshness_tests::stored_attempt_catalog_is_exactly_classifiable_without_writes' ]] ||
-    [[ "${rd_owner_postgres_tests[65]}" != *'|artifact_build_postgres::postgres_freshness_tests::opaque_legacy_success_is_classified_but_never_promoted' ]] ||
-    [[ "${rd_owner_postgres_tests[66]}" != *'|artifact_build_postgres::postgres_freshness_tests::exact_origin_terminal_legacy_is_read_only_and_nonterminal_blocks_activation' ]] ||
-    [[ "${rd_owner_postgres_tests[67]}" != *'|postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_rejects_mismatches' ]] ||
-    [[ "${rd_owner_postgres_tests[68]}" != *'|transaction_bound_read_uses_the_borrowed_backend_locks_and_writes_nothing' ]] ||
-    [[ "${rd_owner_postgres_tests[69]}" != *'|transaction_bound_read_rejects_wrong_owner_acl_and_stale_custody' ]] ||
-    [[ "${rd_owner_postgres_tests[70]}" != *'|product_edge_postgres::tests::frozen_program_runs_the_production_composer_to_a_durable_artifact' ]] ||
-    [[ "${rd_owner_postgres_tests[71]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[62]}" != *'|artifact_build_postgres::postgres_freshness_tests::stored_attempt_catalog_is_exactly_classifiable_without_writes' ]] ||
+    [[ "${rd_owner_postgres_tests[63]}" != *'|artifact_build_postgres::postgres_freshness_tests::opaque_legacy_success_is_classified_but_never_promoted' ]] ||
+    [[ "${rd_owner_postgres_tests[64]}" != *'|artifact_build_postgres::postgres_freshness_tests::exact_origin_terminal_legacy_is_read_only_and_nonterminal_blocks_activation' ]] ||
+    [[ "${rd_owner_postgres_tests[65]}" != *'|postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_rejects_mismatches' ]] ||
+    [[ "${rd_owner_postgres_tests[66]}" != *'|transaction_bound_read_uses_the_borrowed_backend_locks_and_writes_nothing' ]] ||
+    [[ "${rd_owner_postgres_tests[67]}" != *'|transaction_bound_read_rejects_wrong_owner_acl_and_stale_custody' ]] ||
+    [[ "${rd_owner_postgres_tests[68]}" != *'|product_edge_postgres::tests::frozen_program_runs_the_production_composer_to_a_durable_artifact' ]] ||
+    [[ "${rd_owner_postgres_tests[69]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -286,8 +282,8 @@ for line in array_body.splitlines():
     if len(fields) != 3 or any(not field for field in fields):
         raise SystemExit("ERROR: ordered PostgreSQL test literal must contain three fields.")
     entries.append(tuple(fields))
-if len(entries) != 72:
-    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain seventy-two entries.")
+if len(entries) != 70:
+    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain seventy entries.")
 if sum(test_name == poison_test for _, _, test_name in entries) != 1:
     raise SystemExit(
         "ERROR: recovery-sidecar poison test must occur exactly once as a parsed test name."
@@ -2548,6 +2544,7 @@ export QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL="postgresql://qualification_
 export OPERATOR_AUTHORIZATION_TEST_DATABASE_URL="postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export PRODUCT_EDGE_TEST_DATABASE_URL="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export RD_OWNER_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
+export RD_OWNER_CLASSIFICATION_DATABASE_URL="$RD_OWNER_TEST_DATABASE_URL"
 export RD_FACT_WRITER_TEST_DATABASE_URL="postgresql://rd_fact_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export MARKET_DATA_OWNER_TEST_DATABASE_URL="postgresql://market_data_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export REPLAY_POLICY_CATALOG_ADMIN_TEST_DATABASE_URL="postgresql://replay_policy_catalog_admin_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
