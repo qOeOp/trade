@@ -67,6 +67,36 @@ source-frontier 与 Time Evidence common cut 上取得原生来源事实支持�
   Bundle 向 Risk 携带一个一致来源截面。Portfolio 不扣除 Risk Reservation liability，不计算剩余
   headroom，也不分配资金或批准部署。
 
+## 实现状态台账
+
+本台账只记录仓库在本截面实际到达的状态。它沿用 [Market Data](./market-data/) 台账的状态词汇，并以
+`CURRENT_PARTIAL` 表示已合并但不可触达的形态；台账本身不授予任何许可。下文标为 `IMPLEMENTATION_ADMITTED` 的行是仅有的已准入切片，均于
+2026-09-18 作为有界、可单独评审的工作准入，其验收是一次性 PostgreSQL 证明、有序链路条目在 Linux 上通过，以及不依赖
+testkit 或 acceptance feature 的生产路径；其余各行不授予任何东西，扩大准入集必须先修改本文档。
+
+- **CURRENT_PARTIAL / IMPLEMENTATION_ADMITTED - Capacity Scope 契约：** `crates/portfolio/src/owner/capacity_scope.rs` 把自身成熟度声明为
+  `Discovery`。公开的 `resolve_capacity_scope` 接受不可信请求并返回结构化的不可用回读，而 sealed 的
+  `BoundCapacityScopeReadback` 只能由一条没有生产 resolver 的私有完整注册表路径铸造。
+  `crates/portfolio/tests/capacity_scope_contract.rs` 证明了这一失败关闭形状。已准入切片：基于 PostgreSQL custody 的
+  私有完整注册表 resolver，它独自为一个账户、一个 `PAPER` 模式与一个经济池铸造 `BoundCapacityScopeReadback`，以及交给
+  Strategy Governance 的 `BOUND` 回读。
+- **CURRENT_PARTIAL - Portfolio View R0 契约：** `crates/portfolio/src/owner/portfolio_view.rs` 拥有请求指纹、重放
+  分类、按来源 Owner 划分的依赖种类，以及返回 `UnavailablePortfolioView` 的失败关闭 `resolve_portfolio_view`；
+  不存在正向来源 resolver。`crates/portfolio/tests/portfolio_view_contract.rs` 证明了它。
+  `crates/operator_authorization` 里的 `portfolio:view` 资源授权经 Operator Authorization Issuer 的 PostgreSQL
+  custody 解析，但没有任何 Product Edge 路由提供 Portfolio View。
+- **TARGET - Account State、Exposure、Performance Receipt 与 Exposure Receipt：** `crates/portfolio/src/portfolio.rs`
+  与 `crates/portfolio/src/manager.rs` 里继承的 `Portfolio` 为继承的 kernel、Backtest 与 live-node 装配从引擎 cache
+  事件计算持仓、余额、保证金与 PnL；它是迁移来源，不绑定 Execution Scope、receipt、估值版本或新鲜度。
+- **TARGET / IMPLEMENTATION_ADMITTED - Capacity View 与 Portfolio Risk Evidence Bundle：** 不存在 gross-ceiling 投影或
+  一致来源截面，因此 Risk 没有可消费的 Capacity View 或 bundle。已准入切片：每个 `BOUND` Capacity Scope 一个 `PAPER`
+  Capacity View，其 gross ceiling 由 Execution 已提交的开仓账户事实截面与一个 Market Data 估值截面在一个声明的资金池
+  方法版本下派生；Portfolio Risk Evidence Bundle 仍为 `TARGET`。
+- **TARGET - Portfolio Lifecycle Evidence Receipt、Portfolio Interaction Receipt 与 degradation 归因：** 不存在类型或
+  custody。
+- **TARGET - 交接与持久化：** 没有通向 Governance、Risk、Scanner、Execution 或 Product Edge 的 port，也没有任何
+  Portfolio 事实的持久关系。
+
 ## 输入交接
 
 - [Execution](./execution/) 提供订单 成交 费用 账户和已对账场所回读事实。

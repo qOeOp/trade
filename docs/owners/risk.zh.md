@@ -44,6 +44,29 @@
 - **Risk Engine** - 对每个正常意图返回决定与预留，或明确终态拒绝。
 - **Kill Switch** - 阻止新增风险并围栏受影响 generation，定义有界撤销 减仓 清仓恢复范围。
 
+## 实现状态台账
+
+本台账只记录仓库在本截面实际到达的状态。它沿用 [Market Data](./market-data/) 台账的状态词汇，并以
+`CURRENT_PARTIAL` 表示已合并但不可触达的形态；台账本身不授予任何许可：本文档没有任何切片是
+`IMPLEMENTATION_ADMITTED`，扩大准入集必须先修改本文档。
+
+- **TARGET - Risk Engine：** `crates/risk/src/engine/mod.rs` 里继承的 `RiskEngine` 执行交易前订单校验、`TradingState`
+  的 halt 与 reduce 切换、名义额与速率限制，以及 `crates/risk/src/sizing.rs` 的仓位规模计算；它是 capability adoption
+  点名的迁移来源。它不返回终态 Risk Decision，不绑定 policy 截面、Portfolio 截面或 Authorization Lineage，只被
+  `crates/system`、`crates/backtest` 与 `crates/live` 里继承的 kernel、Backtest 与 live-node 路径装配。
+- **TARGET - Risk Decision、类型化 `REJECT` 与 `PERMIT_DECREASE_ONLY`：** 决定、其 supported rejection-category set
+  与 decrease-only permit 都没有类型或 custody。
+- **TARGET - Risk Reservation、Reservation Claim Result 与 Adapter Admission Result：** 一次性 Reservation 生命周期、
+  claim 仲裁，以及与 fence activation 串行化的 `ADMITTED_ONCE` 都没有实现；仓库里没有任何东西发送或接收
+  Reservation Claim Request 或 `ADAPTER_ADMISSION_REQUEST`。
+- **TARGET - Aggregate Commitment Frontier：** 不存在同 scope 序列化，而它依赖的 Portfolio-owned Capacity Scope 本身
+  只是 `crates/portfolio` 里的 Discovery 契约。
+- **TARGET - Recovery Fence 与 Kill Switch：** 继承的 `TradingState` `Halted` 与 `Reducing` 状态只是进程本地开关；
+  没有任何 fence 绑定 `RUNTIME_NOT_READY`、`RUNTIME_INCIDENT`、`RECONCILIATION_DRIFT` 或 `RISK_HARD_STOP` 来源分支，
+  也不存在 active-fence-set identity 或动作交集。
+- **TARGET - 交接与持久化：** 没有通向 Runtime、Governance、Portfolio 或 Execution 的 port，也没有任何 Risk 事实的
+  持久关系。
+
 ## 输入交接
 
 - [Runtime](./runtime/) 提交 Trade Intent、不可变 Readiness Fact，并为 `RUNTIME_INCIDENT` 通过

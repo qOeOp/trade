@@ -35,7 +35,8 @@ POSTGRES_PASSWORD=check-only \
   PRODUCT_EDGE_TRUSTED_AUTHORIZATION_AUDIENCE=check-only \
   PRODUCT_EDGE_BOOTSTRAP_CONFIG=/tmp/check-only-product-edge-bootstrap.json \
   PRODUCT_EDGE_RECOVERY_CONFIG=/tmp/check-only-product-edge-recovery.json \
-  REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST=/tmp/check-only-replay-policy-catalog-bootstrap-request.json \
+  REPLAY_POLICY_CATALOG_BOOTSTRAP_CREATE_COMMAND=/tmp/check-only-replay-policy-catalog-bootstrap-create-command.json \
+  REPLAY_POLICY_CATALOG_BOOTSTRAP_ADVANCE_COMMAND=/tmp/check-only-replay-policy-catalog-bootstrap-advance-command.json \
   REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY=check-only \
   REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY=/tmp/check-only-replay-policy-catalog-verifier-public-key.hex \
   docker compose --project-directory "$package_dir" --file "$compose_file" config --quiet

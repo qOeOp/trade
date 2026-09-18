@@ -26,14 +26,20 @@ use anyhow::Context;
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use strategy_factory_program_sdk::lifecycle_v2::TARGET_SET_MEMBER_COUNT;
+use strategy_factory_program_sdk::{
+    lifecycle_v1::SemanticTraceV1, lifecycle_v2::TARGET_SET_MEMBER_COUNT,
+};
 use vibe_backtest::result::CanonicalBacktestResult;
+use vibe_backtest_owner_contracts::native_replay_trace::{
+    ActualFillViewV1, OrderedTraceCensusV1, OrderedTraceFaultV1, OrderedTransitionViewV1,
+    protection_semantic_ids, validate_ordered_semantic_trace_v1,
+};
 use vibe_model::instruments::Instrument;
 
 use crate::{
     program_host_backtest_target_set_v2::{
         BacktestTargetSetProgramHostStrategyV2, TargetSetActualFillConsumptionV1,
-        TargetSetBacktestTraceV2,
+        TargetSetBacktestTraceV2, TargetSetBacktestTransitionV2,
     },
     replay_target_set_execution_bundle_v1::{
         ReplayTargetSetExecutionBundleV1, ReplayTargetSetExecutionCensusV1,
@@ -140,6 +146,19 @@ impl ProgramHostSimEventFillReadbackV1 {
     pub const fn checkpoint_after(&self) -> [u8; 32] {
         self.checkpoint_after
     }
+
+    fn view(&self) -> ActualFillViewV1<'_> {
+        ActualFillViewV1 {
+            instrument: &self.instrument,
+            intent_identity: self.intent_identity,
+            disposition: &self.disposition,
+            cumulative_filled_grid_units: self.cumulative_filled_grid_units,
+            position_before_grid_units: self.position_before_grid_units,
+            position_after_grid_units: self.position_after_grid_units,
+            checkpoint_before: self.checkpoint_before,
+            checkpoint_after: self.checkpoint_after,
+        }
+    }
 }
 
 impl From<TargetSetActualFillConsumptionV1> for ProgramHostSimEventFillReadbackV1 {
@@ -156,6 +175,132 @@ impl From<TargetSetActualFillConsumptionV1> for ProgramHostSimEventFillReadbackV
             position_after_grid_units: value.position_after_grid_units,
             checkpoint_before: value.checkpoint_before,
             checkpoint_after: value.checkpoint_after,
+        }
+    }
+}
+
+/// One ordered shared-kernel transition the running Host committed during the real Sim EVENT run.
+///
+/// It has no public constructor or deserializer. `trace` is the exact canonical 320-byte kernel
+/// semantic trace the Host returned; the semantic IDs are decoded from those bytes, never
+/// supplied by a caller. `instrument` is `None` for the host-wide `START` and `STOP` events.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ProgramHostSimEventTransitionReadbackV1 {
+    instrument: Option<String>,
+    lifecycle: String,
+    position_intent: String,
+    position_intent_semantic_id: String,
+    target_semantic_id: Option<String>,
+    protection_semantic_ids: Vec<String>,
+    position_before_grid_units: i64,
+    position_after_grid_units: i64,
+    residual_grid_units: Option<i64>,
+    checkpoint_before: [u8; 32],
+    checkpoint_after: [u8; 32],
+    trace: Vec<u8>,
+}
+
+impl ProgramHostSimEventTransitionReadbackV1 {
+    fn from_observed(value: TargetSetBacktestTransitionV2) -> anyhow::Result<Self> {
+        let trace = SemanticTraceV1::decode(&value.trace)
+            .map_err(|e| anyhow::anyhow!("host transition carries a non-canonical trace: {e:?}"))?;
+        Ok(Self {
+            instrument: value.instrument,
+            lifecycle: value.lifecycle,
+            position_intent: value.position_intent,
+            position_intent_semantic_id: trace.position_intent.semantic_id().to_owned(),
+            target_semantic_id: trace.target_semantic.semantic_id().map(str::to_owned),
+            protection_semantic_ids: protection_semantic_ids(trace.protection_semantics)
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+            position_before_grid_units: value.position_before_grid_units,
+            position_after_grid_units: value.position_after_grid_units,
+            residual_grid_units: value.residual_grid_units,
+            checkpoint_before: value.checkpoint_before,
+            checkpoint_after: value.checkpoint_after,
+            trace: value.trace,
+        })
+    }
+
+    /// Returns the member this transition advanced, or `None` for a host-wide lifecycle event.
+    #[must_use]
+    pub fn instrument(&self) -> Option<&str> {
+        self.instrument.as_deref()
+    }
+
+    /// Returns the lifecycle kind: `START`, `BAR`, `FILL`, or `STOP`.
+    #[must_use]
+    pub fn lifecycle(&self) -> &str {
+        &self.lifecycle
+    }
+
+    /// Returns the kernel position intent: `HOLD`, `ENTER`, `ADD`, `REDUCE`, or `EXIT`.
+    #[must_use]
+    pub fn position_intent(&self) -> &str {
+        &self.position_intent
+    }
+
+    /// Returns the versioned kernel primitive semantic ID this transition applied.
+    #[must_use]
+    pub fn position_intent_semantic_id(&self) -> &str {
+        &self.position_intent_semantic_id
+    }
+
+    /// Returns the versioned kernel target primitive, when the transition set a target.
+    #[must_use]
+    pub fn target_semantic_id(&self) -> Option<&str> {
+        self.target_semantic_id.as_deref()
+    }
+
+    /// Returns the versioned kernel protection primitives this transition adjusted.
+    #[must_use]
+    pub fn protection_semantic_ids(&self) -> &[String] {
+        &self.protection_semantic_ids
+    }
+
+    #[must_use]
+    pub const fn position_before_grid_units(&self) -> i64 {
+        self.position_before_grid_units
+    }
+
+    #[must_use]
+    pub const fn position_after_grid_units(&self) -> i64 {
+        self.position_after_grid_units
+    }
+
+    /// Returns the converted target minus the reconciled position, for a member transition.
+    #[must_use]
+    pub const fn residual_grid_units(&self) -> Option<i64> {
+        self.residual_grid_units
+    }
+
+    #[must_use]
+    pub const fn checkpoint_before(&self) -> [u8; 32] {
+        self.checkpoint_before
+    }
+
+    #[must_use]
+    pub const fn checkpoint_after(&self) -> [u8; 32] {
+        self.checkpoint_after
+    }
+
+    /// Returns the exact canonical kernel semantic trace bytes.
+    #[must_use]
+    pub fn trace(&self) -> &[u8] {
+        &self.trace
+    }
+
+    fn view(&self) -> OrderedTransitionViewV1<'_> {
+        OrderedTransitionViewV1 {
+            instrument: self.instrument.as_deref(),
+            lifecycle: &self.lifecycle,
+            position_intent: &self.position_intent,
+            position_before_grid_units: self.position_before_grid_units,
+            position_after_grid_units: self.position_after_grid_units,
+            checkpoint_before: self.checkpoint_before,
+            checkpoint_after: self.checkpoint_after,
+            trace: &self.trace,
         }
     }
 }
@@ -278,6 +423,12 @@ pub struct ProgramHostSimEventReadbackV1 {
     target_set_count: usize,
     position_submit_count: usize,
     equity_snapshot_identities: Vec<[u8; 32]>,
+    /// Every committed target set, in commit order, as the exact canonical bytes the shared
+    /// kernel evaluated: the bounded plugin result each `BAR` transition applied.
+    canonical_target_sets: Vec<Vec<u8>>,
+    /// The complete ordered shared-kernel semantic trace: every `START`, `BAR`, `FILL`, and
+    /// `STOP` transition the running Host committed, in commit order.
+    host_transitions: Vec<ProgramHostSimEventTransitionReadbackV1>,
     actual_fills: Vec<ProgramHostSimEventFillReadbackV1>,
     /// Present only for a run which actually closed. Runs which only entered omit it entirely, so
     /// their semantic-trace serialization and Replay Result V2 identities remain unchanged.
@@ -352,6 +503,51 @@ impl ProgramHostSimEventReadbackV1 {
         &self.actual_fills
     }
 
+    /// Returns every committed canonical target set in commit order.
+    #[must_use]
+    pub fn canonical_target_sets(&self) -> &[Vec<u8>] {
+        &self.canonical_target_sets
+    }
+
+    /// Returns the complete ordered shared-kernel semantic trace of this run.
+    #[must_use]
+    pub fn host_transitions(&self) -> &[ProgramHostSimEventTransitionReadbackV1] {
+        &self.host_transitions
+    }
+
+    /// Proves the ordered semantic trace complete and exactly reconciled against the fills.
+    ///
+    /// The Native Replay consumer applies this census before returning a readback, and the
+    /// Backtest Owner applies it again before sealing the trace bytes, so no readback whose
+    /// trace is incomplete, unchained, or inconsistent with its fills can become a Result.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first ordered-trace invariant the readback violates.
+    pub fn ordered_trace_census(&self) -> Result<OrderedTraceCensusV1, OrderedTraceFaultV1> {
+        let transitions = self
+            .host_transitions
+            .iter()
+            .map(ProgramHostSimEventTransitionReadbackV1::view)
+            .collect::<Vec<_>>();
+        let fills = self
+            .actual_fills
+            .iter()
+            .map(ProgramHostSimEventFillReadbackV1::view)
+            .collect::<Vec<_>>();
+        let members = self
+            .consumption_census
+            .member_instruments()
+            .each_ref()
+            .map(String::as_str);
+        validate_ordered_semantic_trace_v1(
+            &transitions,
+            &fills,
+            &members,
+            self.canonical_target_sets.len(),
+        )
+    }
+
     /// Returns the complete round-trip closure, when this run entered, filled, exited, filled
     /// again, and ended flat. A run which only entered returns `None`; a run which reduced a real
     /// position without reaching closure never produced a readback at all.
@@ -424,7 +620,13 @@ pub fn run_program_host_sim_event_consumer_v1(
         canonical_result_digest,
     )?;
 
-    Ok(ProgramHostSimEventReadbackV1 {
+    let host_transitions = observed
+        .host_transitions
+        .iter()
+        .cloned()
+        .map(ProgramHostSimEventTransitionReadbackV1::from_observed)
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let readback = ProgramHostSimEventReadbackV1 {
         execution_route: "EVENT".to_owned(),
         consumption_census: census,
         canonical_result,
@@ -436,9 +638,15 @@ pub fn run_program_host_sim_event_consumer_v1(
             .iter()
             .map(|snapshot| snapshot.snapshot_identity)
             .collect(),
+        canonical_target_sets: observed.canonical_target_sets,
+        host_transitions,
         actual_fills,
         round_trip,
-    })
+    };
+    readback
+        .ordered_trace_census()
+        .context("Sim EVENT run did not produce a complete ordered semantic trace")?;
+    Ok(readback)
 }
 
 /// Position records the canonical Backtest result holds for one instrument.
@@ -1130,6 +1338,243 @@ mod tests {
             )
             .is_err(),
             "a canonical result without the member positions cannot pass as a closure"
+        );
+    }
+
+    fn kernel_trace(
+        kind: strategy_factory_program_sdk::lifecycle_v1::LifecycleKind,
+        sequence: u64,
+        intent: strategy_factory_program_sdk::lifecycle_v1::PositionIntentV1,
+        after: i64,
+        fill: Option<([u8; 16], u64)>,
+    ) -> Vec<u8> {
+        use strategy_factory_program_sdk::lifecycle_v1::{
+            EventOrderKeyV1, FillDispositionV1, FillFrontierV1, PositionIntentV1,
+            ProtectionSemanticSetV1, TargetSemanticV1, TargetStateV1,
+        };
+        SemanticTraceV1 {
+            order_key: Some(
+                EventOrderKeyV1::new(sequence, sequence, kind, sequence, [sequence as u8; 16])
+                    .unwrap(),
+            ),
+            envelope_digest: [9; 32],
+            position_intent: intent,
+            target_semantic: if intent == PositionIntentV1::Hold {
+                TargetSemanticV1::None
+            } else {
+                TargetSemanticV1::Position
+            },
+            protection_semantics: ProtectionSemanticSetV1::default(),
+            target: if intent == PositionIntentV1::Hold {
+                TargetStateV1::None
+            } else {
+                TargetStateV1::Position(after)
+            },
+            fill_disposition: fill.map(|_| FillDispositionV1::Filled),
+            position_before_units: if fill.is_some() { 0 } else { after },
+            position_after_units: after,
+            fill_frontier: fill.map_or_else(FillFrontierV1::default, |(identity, units)| {
+                FillFrontierV1 {
+                    intent_identity: identity,
+                    cumulative_filled_units: units,
+                    terminal_disposition: Some(FillDispositionV1::Filled),
+                }
+            }),
+            ..SemanticTraceV1::default()
+        }
+        .encode()
+        .to_vec()
+    }
+
+    fn observed_transition(
+        instrument: Option<&str>,
+        lifecycle: &str,
+        position_intent: &str,
+        before: i64,
+        after: i64,
+        checkpoint: (u8, u8),
+        trace: Vec<u8>,
+    ) -> TargetSetBacktestTransitionV2 {
+        TargetSetBacktestTransitionV2 {
+            instrument: instrument.map(str::to_owned),
+            lifecycle: lifecycle.to_owned(),
+            position_intent: position_intent.to_owned(),
+            position_before_grid_units: before,
+            position_after_grid_units: after,
+            residual_grid_units: instrument.map(|_| 0),
+            checkpoint_before: [checkpoint.0; 32],
+            checkpoint_after: [checkpoint.1; 32],
+            trace,
+        }
+    }
+
+    fn ordered_readback(
+        transitions: Vec<TargetSetBacktestTransitionV2>,
+    ) -> ProgramHostSimEventReadbackV1 {
+        ProgramHostSimEventReadbackV1 {
+            execution_route: "EVENT".to_owned(),
+            consumption_census: test_census(),
+            canonical_result: Vec::new(),
+            canonical_result_digest: [0; 32],
+            target_set_count: 1,
+            position_submit_count: 2,
+            equity_snapshot_identities: vec![[3; 32]],
+            canonical_target_sets: vec![vec![1]],
+            host_transitions: transitions
+                .into_iter()
+                .map(ProgramHostSimEventTransitionReadbackV1::from_observed)
+                .collect::<anyhow::Result<Vec<_>>>()
+                .expect("canonical kernel traces"),
+            actual_fills: vec![
+                {
+                    let mut fill = actual_fill();
+                    fill.checkpoint_before = [3; 32];
+                    fill.checkpoint_after = [4; 32];
+                    fill
+                },
+                {
+                    let mut fill = second_actual_fill();
+                    fill.checkpoint_before = [4; 32];
+                    fill.checkpoint_after = [5; 32];
+                    fill
+                },
+            ],
+            round_trip: None,
+        }
+    }
+
+    fn complete_ordered_transitions() -> Vec<TargetSetBacktestTransitionV2> {
+        use strategy_factory_program_sdk::lifecycle_v1::{LifecycleKind, PositionIntentV1};
+        vec![
+            observed_transition(
+                None,
+                "START",
+                "HOLD",
+                0,
+                0,
+                (1, 2),
+                kernel_trace(LifecycleKind::Start, 1, PositionIntentV1::Hold, 0, None),
+            ),
+            observed_transition(
+                Some("AAPL.XNAS"),
+                "BAR",
+                "ENTER",
+                0,
+                0,
+                (2, 3),
+                kernel_trace(LifecycleKind::Bar, 10, PositionIntentV1::Enter, 0, None),
+            ),
+            observed_transition(
+                Some("MSFT.XNAS"),
+                "BAR",
+                "ENTER",
+                0,
+                0,
+                (2, 3),
+                kernel_trace(LifecycleKind::Bar, 10, PositionIntentV1::Enter, 0, None),
+            ),
+            observed_transition(
+                Some("AAPL.XNAS"),
+                "FILL",
+                "ENTER",
+                0,
+                2,
+                (3, 4),
+                kernel_trace(
+                    LifecycleKind::Fill,
+                    11,
+                    PositionIntentV1::Enter,
+                    2,
+                    Some(([7; 16], 2)),
+                ),
+            ),
+            observed_transition(
+                Some("MSFT.XNAS"),
+                "FILL",
+                "ENTER",
+                0,
+                1,
+                (4, 5),
+                kernel_trace(
+                    LifecycleKind::Fill,
+                    12,
+                    PositionIntentV1::Enter,
+                    1,
+                    Some(([8; 16], 1)),
+                ),
+            ),
+            observed_transition(
+                None,
+                "STOP",
+                "HOLD",
+                0,
+                0,
+                (5, 6),
+                kernel_trace(LifecycleKind::Stop, 99, PositionIntentV1::Hold, 0, None),
+            ),
+        ]
+    }
+
+    #[rstest::rstest]
+    fn transition_readback_decodes_kernel_semantic_ids_from_the_trace_bytes() {
+        let readback = ordered_readback(complete_ordered_transitions());
+        let transitions = readback.host_transitions();
+        assert_eq!(transitions.len(), 6);
+        assert_eq!(transitions[0].lifecycle(), "START");
+        assert_eq!(transitions[0].instrument(), None);
+        assert_eq!(
+            transitions[0].position_intent_semantic_id(),
+            "kernel.position.hold.v1"
+        );
+        assert_eq!(transitions[1].instrument(), Some("AAPL.XNAS"));
+        assert_eq!(
+            transitions[1].position_intent_semantic_id(),
+            "kernel.position.enter.v1"
+        );
+        assert_eq!(
+            transitions[1].target_semantic_id(),
+            Some("kernel.target.position.v1")
+        );
+        assert!(transitions[1].protection_semantic_ids().is_empty());
+        assert_eq!(transitions[3].residual_grid_units(), Some(0));
+        assert_eq!(transitions[5].residual_grid_units(), None);
+        assert_eq!(transitions[5].checkpoint_after(), [6; 32]);
+        let census = readback.ordered_trace_census().unwrap();
+        assert_eq!(census.transition_count, 6);
+        assert_eq!(census.target_set_count, 1);
+        assert_eq!(census.reconciled_fill_count, 2);
+        assert_eq!(census.terminal_checkpoint, [6; 32]);
+    }
+
+    #[rstest::rstest]
+    fn readback_without_a_complete_ordered_trace_fails_the_census() {
+        assert_eq!(
+            ordered_readback(Vec::new()).ordered_trace_census(),
+            Err(OrderedTraceFaultV1::Empty)
+        );
+        let mut unstopped = complete_ordered_transitions();
+        unstopped.pop();
+        assert_eq!(
+            ordered_readback(unstopped).ordered_trace_census(),
+            Err(OrderedTraceFaultV1::MissingStop)
+        );
+        let mut unchained = complete_ordered_transitions();
+        unchained[4].checkpoint_before = [40; 32];
+        assert_eq!(
+            ordered_readback(unchained).ordered_trace_census(),
+            Err(OrderedTraceFaultV1::CheckpointChainBreak { index: 4 })
+        );
+        let mut relabelled = complete_ordered_transitions();
+        relabelled[3].position_intent = "ADD".to_owned();
+        assert_eq!(
+            ordered_readback(relabelled).ordered_trace_census(),
+            Err(OrderedTraceFaultV1::TraceMismatch { index: 3 })
+        );
+        let mut tampered = complete_ordered_transitions();
+        tampered[3].trace[2] = 1;
+        assert!(
+            ProgramHostSimEventTransitionReadbackV1::from_observed(tampered[3].clone()).is_err(),
+            "a non-canonical kernel trace never becomes a transition readback"
         );
     }
 

@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+
+# Run the Owner proofs that need a real tool and no database.
+#
+# These proofs lower a bounded program to first-party source, invoke the toolchain `rust-toolchain.toml`
+# pins, and assert the result is a real strict-ABI-3 module rather than a shape. They are `#[ignore]`
+# because they cost a compiler run, and until this script existed nothing anywhere selected them: the
+# custody chains were the only jobs that run ignored tests, and their exemption recorded - wrongly -
+# that no job had both a database and the toolchain. These proofs need no database at all, and
+# `targets = ["wasm32v1-none"]` in `rust-toolchain.toml` means every job `common-setup` provisions
+# already has the target.
+#
+# Each proof is selected on its own so a renamed or deleted test cannot be absorbed by the others.
+# `cargo nextest` exits 4 on an empty filter, so a name that stops matching fails here rather than
+# reporting a green run of nothing.
+
+set -euo pipefail
+
+script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repository_root="$(cd "${script_directory}/../.." && pwd)"
+cd "$repository_root"
+
+readonly nextest_profile="${NEXTEST_PROFILE:-default}"
+readonly wasm_proof_features='sealed-develop-composer-acceptance'
+
+# Proofs that hold on every host the workspace builds for. Both drive the toolchain directly, so
+# they need the pinned target and nothing else.
+#
+# `two_lowerings_two_builds_and_strict_replay_mint_one_v3_identity` is deliberately absent. It
+# builds through `develop_plugin_build_v2_sandbox`, which verifies the frozen Linux target sysroot,
+# and `docs/owners/rd.md` holds that freeze against the bytes every current host carries until a
+# fresh hosted A0 readback. Selecting it here would add a red check that reports that one fact a
+# second time.
+readonly portable_wasm_proofs=(
+  'bounded_feature_program_lowerer_v1::tests::every_executable_operation_builds_and_runs_as_strict_abi_three_wasm'
+)
+
+# Compiled only on the hosts the sandbox admits (macOS arm64, Linux arm64, Linux x86_64), which are
+# the hosts every job here runs on; a host outside that set would select a test that does not exist
+# there and fail on the empty filter rather than on the proof.
+readonly admitted_host_wasm_proofs=(
+  'develop_composer_v2_tests::real_v3_owner_build_reaches_composer_program_host_and_durable_abi3_artifact'
+)
+
+# Seals and reseals a caller-edited project through `docker buildx`. Its exemption named Docker as
+# the obstacle; every job that provisions Docker already has buildx, and the proof takes sixteen
+# seconds, so the obstacle was never real. The real one is the architecture: the sealed project's
+# image is an arm64 image, an image fact rather than a host-profile one, so the proof holds only on
+# arm64. On an x86_64 runner its toolchain stage cannot execute at all, measured as
+#   #9 [toolchain 2/2] RUN rustup target add wasm32v1-none
+#   #9 0.109 exec /bin/sh: exec format error
+#   #9 ERROR: process "/bin/sh -c rustup target add wasm32v1-none" did not complete successfully: exit code: 255
+# which is the host reporting that the image is for another machine, not the proof failing.
+readonly docker_seal_proof='materially_different_external_project_is_artifact_only_and_exactly_recoverable'
+
+selected_proofs=("${portable_wasm_proofs[@]}" "${admitted_host_wasm_proofs[@]}")
+
+echo "Running ${#selected_proofs[@]} toolchain proof(s) against the tools they name..."
+
+# Each proof reports, whatever its neighbours did. Stopping at the first failure would hide the rest
+# behind it, and a proof nobody hears from is the thing this script exists to prevent.
+refused=()
+
+for proof in "${selected_proofs[@]}"; do
+  echo "--- $proof"
+  if ! cargo nextest run \
+    --locked \
+    --package vibe-strategy-factory \
+    --lib \
+    --features "$wasm_proof_features" \
+    --profile "$nextest_profile" \
+    --run-ignored ignored-only \
+    --fail-fast \
+    -E "test(=${proof})"; then
+    refused+=("$proof")
+  fi
+done
+
+if [[ "$(uname -m)" == "arm64" || "$(uname -m)" == "aarch64" ]]; then
+  echo "--- $docker_seal_proof"
+  if ! cargo nextest run \
+    --locked \
+    --package vibe-strategy-factory \
+    --test product_skeleton \
+    --profile "$nextest_profile" \
+    --run-ignored ignored-only \
+    --fail-fast \
+    -E "test(=${docker_seal_proof})"; then
+    refused+=("$docker_seal_proof")
+  fi
+else
+  echo "Host is $(uname -m): skipping the Docker seal proof, whose sealed image is arm64 and"
+  echo "cannot execute its toolchain stage here."
+fi
+
+if [ "${#refused[@]}" -gt 0 ]; then
+  echo "ERROR: ${#refused[@]} toolchain proof(s) refused:" >&2
+  printf '  %s\n' "${refused[@]}" >&2
+  exit 1
+fi
+
+echo "Every selected toolchain proof ran against the real tool it names"

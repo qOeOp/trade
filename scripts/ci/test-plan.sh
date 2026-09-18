@@ -320,6 +320,13 @@ if [[ "$build_triggers" == *"- synchronize"* ]]; then
   echo "build.yml must not admit synchronize: ready-gate cannot answer it" >&2
   exit 1
 fi
+# A merge queue drops an entry whose required check never reports, so admitting `merge_group` is
+# what keeps a configured queue able to merge anything at all.
+if [[ "$build_triggers" != *"merge_group:"* ]] ||
+  [[ "$build_triggers" != *"- checks_requested"* ]]; then
+  echo "build.yml must answer merge_group: a queue drops entries it gets no verdict for" >&2
+  exit 1
+fi
 ready_gate_cases="$(sed -n '/ready-gate:/,/^  plan:/p' "$repo_root/.github/workflows/build.yml")"
 for pr_case in 'ready_for_review:' 'opened:false' 'reopened:false'; do
   if [[ "$ready_gate_cases" != *"$pr_case"* ]]; then

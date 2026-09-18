@@ -248,6 +248,13 @@ repos:
         language: system
         types_or: [rust, python]
         pass_filenames: false
+      - id: check-owner-custody-proof-selection
+        name: check Owner custody proof selection
+        description: Every Owner custody proof is chain-selected or carries its reason
+        entry: bash scripts/ci/check-owner-custody-proof-selection.bash .
+        language: system
+        files: "\\.(rs|bash)$"
+        pass_filenames: false
       - id: check-vibe-conventions
         name: check vibe conventions
         description: Enforces Vibe type usage conventions

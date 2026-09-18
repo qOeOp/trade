@@ -426,7 +426,7 @@ Portfolio `PORTFOLIO_FRESHNESS` is the first TARGET real consumer.
 pre/post revalidation inside the Market Data crate. The fixed `rd-owner-api` bootstrap requests that private seam;
 unavailable production resolver, signer, anti-rollback witness, credential resolver, or direct measurer fails closed
 before repository construction. Market Data then rereads current PIT, Source Binding, and clock heads and seals
-`ResearchPitTerminal`. Strategy Factory receives only the sealed terminal resolver: no raw receipt, capability, query,
+`ResearchPitTerminal`. R&D receives only the sealed terminal resolver: no raw receipt, capability, query,
 DTO, evidence accessor, or caller-authored positive authority crosses the Owner boundary. The generic S3 catalog
 remains mechanism, not authority.
 

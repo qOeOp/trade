@@ -73,6 +73,13 @@ identity。retry、worker restart、timeout recovery 与 manual resolution 复�
 不得提交裸 successor。并行或重叠 schedule delivery 只有在 due-slot 与 Owner idempotency contract 汇合到
 同一 receipt 时才无害。Flow error handling 可以通知并排队解析，但只有 Owner receipt 能闭合业务操作。
 
+due slot 只提供 identity，不提供权威。无人值守提交就是普通的变更提交，绑定同一条完整 Authorization
+Lineage，其中包括在该次运行自身截面上解析出的、当前有效且不能自我声明的 Operator Authorization。schedule、
+due slot、worker 角色、它的传输 credential 与它的环境都不提供这些成员，因此无法解析出当前 Operator
+Authorization 的无人值守运行在第一次调用 Owner 之前就 fail closed，不创建 admission、run 或 provider claim。
+**TARGET / NOT_ADMITTED：** 在该授权的签发路径被单独规定并准入之前，无人值守的非交易执行保持关闭；
+无人值守交易还额外需要下文定义的 Autonomous Policy Authorization。
+
 Artifact Formation 除冻结 Research Intent identity 外，还使用稳定 build-request identity 与稳定 attempt
 identity。相同语义 tuple 的重放汇合到同一 Owner attempt；任一 identity 被不同语义复用都形成 identity
 conflict。穷尽的 Owner disposition 是 `SUCCESS`、`FAILED_NO_ARTIFACT`、`REJECTED_NO_WRITE` 与
@@ -390,7 +397,9 @@ audit authority。
 subject/effective principal、audience、准确 scope、共享 Time Evidence 下的签发与到期时间、revocation
 frontier、request-proof 摘要和内容寻址 Agent Operation Manifest。manifest 声明准确 operation
 schema 目标 Owner 允许 object class 禁止写入和 capability-policy 摘要。Shell 只能选择 manifest 成员；
-自然语言 本地配置或持有 credential 都不能自行产生授权。secret 只存在于不透明最小权限 handle 后，
+自然语言 本地配置或持有 credential 都不能自行产生授权。MCP 工具表与那组经过挑选的 operation 都是传输面，
+不是权威：每个成员都必须解析到在该请求自身截面上已准入的 manifest 成员，注册表里没有当前 manifest 成员的
+条目在提交前 fail closed。注册表比 manifest 窄是合法的且不授予任何权限；比 manifest 宽的条目不准入任何请求。secret 只存在于不透明最小权限 handle 后，
 永不进入请求。
 
 稳定请求身份 有效 principal 与 scope 已准入的 `ACTIVE` Shell binding 及准确 deployment history head

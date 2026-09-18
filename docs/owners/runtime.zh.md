@@ -35,6 +35,29 @@
 checkpoint 与 readiness 持久化属于 Runtime 内部关注点，不是第二个可见能力或权威。实现可以变化，
 但重启必须加入相同身份并保留以上事实。
 
+## 实现状态台账
+
+本台账只记录仓库在本截面实际到达的状态。它沿用 [Market Data](./market-data/) 台账的状态词汇，并以
+`CURRENT_PARTIAL` 表示已合并但不可触达的形态；台账本身不授予任何许可：本文档没有任何切片是
+`IMPLEMENTATION_ADMITTED`，扩大准入集必须先修改本文档。
+
+- **CURRENT_PARTIAL - 失败关闭的 foundation：** `crates/runtime/src/lib.rs` 暴露 `RuntimeFoundation`，其唯一状态是
+  `NotReady`，并列出四个准确的重验依赖（Governance authorized-generation-decision read port、canonical Runtime
+  custody、Artifact compatibility recovery read port、Execution recovery-frontier read port），以及一次对 Execution
+  sealed `PAPER` recovery frontier 的只读观察，该观察不能改变状态。`crates/runtime/tests/readiness_consumer.rs`
+  证明了这一点；`crates/runtime` 之外没有任何 crate 消费它。
+- **TARGET - Strategy Instance：** 没有任何 Runtime custody 创建、恢复或应用实例。`crates/strategy_factory` 中的共享
+  内核 `ProgramHost` 只在 Backtest replay 下运行；`crates/trading` 里继承的策略与 actor 引擎，以及 `crates/system`
+  与 `crates/live` 里的 kernel 与 live-node 装配，是 capability adoption 点名的迁移来源，不持有任何 Runtime Owner 事实。
+- **TARGET - Generation Application Receipt、Trade Intent、Runtime Readiness Fact、Runtime Incident Fact 与 Runtime
+  Kernel Repair Result：** 不存在类型、custody 或 writer。foundation 的 `NOT_READY` 是静态状态投影，不是绑定
+  generation、checkpoint、scope 与 `valid-through` 的已提交 Readiness Fact。
+- **TARGET - Readiness Gate 与 checkpoint 持久化：** 没有任何东西持久化 checkpoint，或向 Risk 与 Execution 发布就绪状态。
+- **TARGET - 输入与输出交接：** 没有任何 port 触达 Governance 决定、实时 Market Data 事实、Risk 决定、Execution 命令或
+  回读、R&D repair request 或 Event Rail。
+- Paper 与 Live 等价性仍为下文共享策略生命周期契约所述的 **TARGET / NOT_ADMITTED**；没有任何 Paper 或 Live Execution
+  adapter 绑定到 Runtime。
+
 ## 共享策略生命周期契约
 
 Runtime 只能应用 governed generation 携带的准确 [StrategyDesignV2 共享内核路径](../architecture/strategy-factory#strategy-design-v2-shared-lifecycle-kernel)：

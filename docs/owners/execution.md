@@ -51,6 +51,38 @@ Runtime, Risk, Portfolio, and Governance.
 - **Reconciler** - own Recovery Case state and bounded Recovery Commands, compare effects with authoritative
   readback, join closure evidence, and alone write immutable `KNOWN_CLOSED` without resuming trading.
 
+## Implementation status ledger
+
+This ledger records only what the repository has reached at this cut. It uses the status vocabulary of the
+[Market Data](./market-data/) ledger, with `CURRENT_PARTIAL` as the merged-but-unreachable form, and grants no
+permission by itself. The rows marked `IMPLEMENTATION_ADMITTED` below are the only admitted slices, each admitted on
+2026-09-18 as bounded, separately reviewable work whose acceptance is an isolated PostgreSQL proof, its ordered-chain
+entries passing on Linux, and a production path that depends on no testkit or acceptance feature; every other row
+grants nothing, and widening the admitted set requires changing this document first.
+
+- **CURRENT_PARTIAL / IMPLEMENTATION_ADMITTED - `PAPER` Execution Adapter Binding contract:** `crates/execution/src/adapter_binding.rs` owns the
+  untrusted binding vocabulary, `PAPER` account and effect namespace derivation, the sealed
+  `AdmittedPaperAdapterBinding` readback, and the `PaperAdapterBindingReadPort` that alone can mint it. The positive
+  Owner store is `#[cfg(test)]` only, so production holds no composition root, durable custody, invocation surface,
+  or credential access. Admitted slice: the production Owner store over PostgreSQL custody, admission of one
+  `crates/adapters/sandbox` simulated-adapter binding under one `PAPER` Execution Scope, and the `ADMITTED` readback
+  handed to Strategy Governance. A `LIVE` binding stays **TARGET / NOT_ADMITTED**.
+- **CURRENT_PARTIAL - `PAPER` recovery-frontier read contract:** `crates/execution/src/recovery_frontier.rs` exposes
+  the query-only `RecoveryFrontierReadPort` and its sealed `SealedRecoveryFrontier`, consumed by the Runtime
+  foundation; no production custody or Runtime application exists behind it.
+- **TARGET - Order Engine, Effect Journal, and permit-bound adapter admission:** the inherited `ExecutionEngine`,
+  order manager, order emulator, execution clients, and the venue execution clients under `crates/adapters` are the
+  migration sources named by capability adoption. No `PREPARED` or `INVOCATION_STARTED` record, Reservation Claim
+  Request, or `ADAPTER_ADMISSION_REQUEST` exists, and no command is validated against a Risk permit or fence.
+- **TARGET - simulated Execution Adapter:** the inherited matching engine, Backtest `SimulatedExchange`, and
+  `crates/adapters/sandbox` simulate a venue but are not bound to an Execution Scope or a `PAPER` namespace.
+- **TARGET - Reconciler, Reconciliation Drift Fact, Recovery Admission Disposition, Recovery Case, Recovery Effect
+  Attempt, and `KNOWN_CLOSED`:** the inherited `crates/execution/src/reconciliation` functions align engine state
+  with venue reports and are the adoption source; no drift fact, disposition, case, command, or closure exists.
+- **TARGET - Execution Quality Observation and Effect Closure View:** no type or custody exists.
+- **TARGET - handoffs and persistence:** no port to Runtime, Risk, Portfolio, Governance, or R&D and no durable
+  relation for any Execution fact.
+
 ## Input handoffs
 
 - [Runtime](./runtime/) sends an Authorized Order Command. An add-risk command binds the same Risk Decision and

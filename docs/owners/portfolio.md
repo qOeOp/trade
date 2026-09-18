@@ -72,6 +72,42 @@ non-isolating evidence set; it cannot coexist with a named cause.
   Portfolio Risk Evidence Bundle carries one coherent source cut to Risk. Portfolio never subtracts Risk Reservation liability, computes remaining headroom, allocates
   capital, or authorizes deployment.
 
+## Implementation status ledger
+
+This ledger records only what the repository has reached at this cut. It uses the status vocabulary of the
+[Market Data](./market-data/) ledger, with `CURRENT_PARTIAL` as the merged-but-unreachable form, and grants no
+permission by itself. The rows marked `IMPLEMENTATION_ADMITTED` below are the only admitted slices, each admitted on
+2026-09-18 as bounded, separately reviewable work whose acceptance is an isolated PostgreSQL proof, its ordered-chain
+entries passing on Linux, and a production path that depends on no testkit or acceptance feature; every other row
+grants nothing, and widening the admitted set requires changing this document first.
+
+- **CURRENT_PARTIAL / IMPLEMENTATION_ADMITTED - Capacity Scope contract:** `crates/portfolio/src/owner/capacity_scope.rs` declares its maturity
+  as `Discovery`. The public `resolve_capacity_scope` accepts an untrusted request and returns a structured
+  unavailable readback, while the sealed `BoundCapacityScopeReadback` can be minted only by a private
+  complete-registry path that has no production resolver. `crates/portfolio/tests/capacity_scope_contract.rs`
+  proves the fail-closed shape. Admitted slice: the private complete-registry resolver over PostgreSQL custody that
+  alone seals `BoundCapacityScopeReadback` for one account, one `PAPER` mode, and one economic pool, plus the `BOUND`
+  readback handed to Strategy Governance.
+- **CURRENT_PARTIAL - Portfolio View R0 contract:** `crates/portfolio/src/owner/portfolio_view.rs` owns the request
+  fingerprint, replay classification, per-source-Owner dependency kinds, and the fail-closed `resolve_portfolio_view`
+  that returns an `UnavailablePortfolioView`; no positive source resolver exists.
+  `crates/portfolio/tests/portfolio_view_contract.rs` proves it. The `portfolio:view` resource grant in
+  `crates/operator_authorization` resolves through the Operator Authorization Issuer PostgreSQL custody, but no
+  Product Edge route serves a Portfolio View.
+- **TARGET - Account State, Exposure, Performance Receipt, and Exposure Receipt:** the inherited `Portfolio` in
+  `crates/portfolio/src/portfolio.rs` and `crates/portfolio/src/manager.rs` computes positions, balances, margin,
+  and PnL from engine cache events for the inherited kernel, Backtest, and live-node compositions; it is the
+  adoption source and binds no Execution Scope, receipt, valuation version, or freshness.
+- **TARGET / IMPLEMENTATION_ADMITTED - Capacity View and Portfolio Risk Evidence Bundle:** no gross-ceiling projection
+  or coherent source cut exists, so Risk has no Capacity View or bundle to consume. Admitted slice: one `PAPER`
+  Capacity View per `BOUND` Capacity Scope whose gross ceiling derives from the Execution-committed opening account
+  fact cut and one Market Data valuation cut under one declared pool methodology version; the Portfolio Risk
+  Evidence Bundle stays `TARGET`.
+- **TARGET - Portfolio Lifecycle Evidence Receipt, Portfolio Interaction Receipt, and degradation attribution:** no
+  type or custody exists.
+- **TARGET - handoffs and persistence:** no port to Governance, Risk, Scanner, Execution, or Product Edge and no
+  durable relation for any Portfolio fact.
+
 ## Input handoffs
 
 - [Execution](./execution/) supplies order, fill, fee, account, and reconciled venue readback facts.

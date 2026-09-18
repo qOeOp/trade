@@ -204,6 +204,7 @@ pub mod program_runtime_v2;
 mod program_session;
 pub mod rd_bounded_feature_program_postgres_v1;
 mod rd_bounded_feature_program_v1;
+pub mod rd_design_role_intent_v1;
 pub mod rd_historical_custody;
 pub mod rd_historical_custody_postgres;
 mod rd_owner_postgres_custody;
@@ -241,10 +242,14 @@ pub mod replay_policy_catalog_sealed_acceptance_v2;
 mod replay_policy_catalog_v2;
 pub mod replay_target_set_execution_bundle_v1;
 pub use replay_policy_catalog_postgres_v2::{
-    advance_authenticated_replay_policy_catalog_head_v3,
+    CatalogAdminCommandKindV3, ReplayPolicyCatalogAdminCommandAuthoringV3,
+    ReplayPolicyCatalogBootstrapReceiptV3, advance_authenticated_replay_policy_catalog_head_v3,
     create_authenticated_replay_policy_catalog_v3,
     ensure_authenticated_replay_policy_catalog_genesis_v1,
-    read_authenticated_replay_policy_catalog_genesis_v1, read_current_replay_policy_catalog_v3,
+    ensure_authenticated_replay_policy_catalog_v3,
+    read_authenticated_replay_policy_catalog_genesis_v1,
+    read_authenticated_replay_policy_catalog_v3, read_current_replay_policy_catalog_v3,
+    seal_replay_policy_catalog_admin_command_v3,
 };
 pub use replay_policy_catalog_v2::{
     ReplayExecutionProfileSealsV1, ReplayPolicyCatalogBindingV2, ReplayPolicyCatalogBindingV3,
@@ -257,9 +262,9 @@ mod robustness;
 mod schema_materialization;
 mod software_control;
 pub mod source_intake;
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 pub mod source_research_composer_postgres_v2;
 pub mod status;
+mod storage_diagnostic;
 pub mod strategy_design_v2;
 #[cfg(test)]
 mod strategy_design_v2_tests;

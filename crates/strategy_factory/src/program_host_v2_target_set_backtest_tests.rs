@@ -94,7 +94,7 @@ fn owner_bound_profile_drives_bar_signal_then_real_event_fills() {
         frame,
         StrategyId::from("TARGET-SET-PROFILE-EVENT-001"),
         "target-set-profile-event".into(),
-        instruments,
+        instruments.clone(),
         bar_types,
         data,
     )
@@ -104,6 +104,83 @@ fn owner_bound_profile_drives_bar_signal_then_real_event_fills() {
     CanonicalBacktestResult::from_slice(readback.canonical_result())
         .expect("EVENT readback must retain the exact canonical Backtest result");
     assert!(readback.canonical_result_is_exact());
+
+    // Deterministic replay: the exact bytes the Backtest Owner seals as the semantic trace are
+    // byte-identical across repeated runs of the same admitted execution bundle.
+    let (repeat_plan, repeat_artifact, repeat_frame) = fixture().unwrap();
+    let repeat_authority = owner_replay_execution_profile_binding_fixture_v1(
+        &repeat_plan,
+        &repeat_artifact,
+        &repeat_frame,
+        ReplayWindowV2 {
+            start_event_ns: time,
+            end_event_ns_exclusive: time + 3,
+        },
+    );
+    let (repeat_bar_types, repeat_data) = request_execution_schedule(&instruments, time);
+    let repeated = run_program_host_sim_event_consumer_v1(
+        ReplayTargetSetExecutionBundleV1::new_with_native_instruments_for_test(
+            repeat_authority,
+            repeat_plan,
+            repeat_artifact,
+            repeat_frame,
+            StrategyId::from("TARGET-SET-PROFILE-EVENT-001"),
+            "target-set-profile-event".into(),
+            instruments,
+            repeat_bar_types,
+            repeat_data,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::to_vec(&readback).unwrap(),
+        serde_json::to_vec(&repeated).unwrap(),
+        "repeated Sim EVENT runs must seal byte-identical semantic trace bytes"
+    );
+    assert_eq!(readback.canonical_result(), repeated.canonical_result());
+
+    // The ordered trace binds the complete lifecycle, every committed target set, the kernel
+    // primitives, and every native fill, and the census the Owner applies admits it.
+    let census = readback.ordered_trace_census().unwrap();
+    assert_eq!(
+        census.target_set_count,
+        readback.canonical_target_sets().len()
+    );
+    assert_eq!(census.reconciled_fill_count, readback.actual_fills().len());
+    assert_eq!(census.fill_transition_count, readback.actual_fills().len());
+    let transitions = readback.host_transitions();
+    assert_eq!(transitions.first().map(|t| t.lifecycle()), Some("START"));
+    assert_eq!(transitions.last().map(|t| t.lifecycle()), Some("STOP"));
+    assert!(
+        transitions
+            .iter()
+            .filter(|t| t.lifecycle() == "BAR")
+            .all(
+                |t| t.position_intent_semantic_id() == "kernel.position.enter.v1"
+                    && t.target_semantic_id().is_some()
+            ),
+        "every BAR transition applied a versioned kernel primitive and target"
+    );
+    assert!(
+        transitions
+            .iter()
+            .filter(|t| t.lifecycle() == "FILL")
+            .all(|t| t.instrument().is_some() && t.residual_grid_units().is_some())
+    );
+    assert_eq!(
+        readback.canonical_target_sets().len(),
+        1,
+        "one admitted frame commits exactly one canonical target set"
+    );
+    assert!(
+        serde_json::to_value(&readback)
+            .unwrap()
+            .get("host_transitions")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|value| value.len() == transitions.len()),
+        "the ordered trace is part of the sealed semantic trace bytes"
+    );
     assert!(
         serde_json::to_value(&readback)
             .expect("EVENT readback must serialize")
@@ -328,7 +405,7 @@ fn exact_two_member_target_set_drives_real_sim_with_bound_fills_and_restore_equa
         .filter(|transition| transition.lifecycle == "FILL")
         .map(|transition| {
             (
-                transition.instrument.as_str(),
+                transition.instrument.as_deref(),
                 transition.position_after_grid_units,
                 transition.residual_grid_units,
             )
@@ -337,11 +414,36 @@ fn exact_two_member_target_set_drives_real_sim_with_bound_fills_and_restore_equa
     assert_eq!(
         member_fills,
         [
-            ("AAPL.XNAS", 2, 3),
-            ("MSFT.XNAS", 1, 3),
-            ("AAPL.XNAS", 5, 0),
-            ("MSFT.XNAS", 4, 0),
+            (Some("AAPL.XNAS"), 2, Some(3)),
+            (Some("MSFT.XNAS"), 1, Some(3)),
+            (Some("AAPL.XNAS"), 5, Some(0)),
+            (Some("MSFT.XNAS"), 4, Some(0)),
         ]
+    );
+    let lifecycle = uninterrupted
+        .trace
+        .host_transitions
+        .iter()
+        .map(|transition| {
+            (
+                transition.lifecycle.as_str(),
+                transition.instrument.as_deref(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        lifecycle,
+        [
+            ("START", None),
+            ("BAR", Some("AAPL.XNAS")),
+            ("BAR", Some("MSFT.XNAS")),
+            ("FILL", Some("AAPL.XNAS")),
+            ("FILL", Some("MSFT.XNAS")),
+            ("FILL", Some("AAPL.XNAS")),
+            ("FILL", Some("MSFT.XNAS")),
+            ("STOP", None),
+        ],
+        "the ordered trace is one host-wide START..STOP lifecycle around member transitions"
     );
 }
 
