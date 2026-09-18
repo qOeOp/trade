@@ -1,0 +1,33 @@
+name: venue-ws-probe
+
+# One-off reachability measurement from a GitHub-hosted runner. The daily source
+# canary probes REST endpoints; this answers the streaming question, which a REST
+# refusal does not settle. It reads nothing and admits nothing.
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [probe/venue-ws-reachability]
+  workflow_dispatch:
+
+concurrency:
+  group: venue-ws-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    name: probe-public-venue-websockets
+    if: github.repository == 'qOeOp/trade'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository without credentials
+        # https://github.com/actions/checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Probe public venue WebSockets
+        run: python3 scripts/ci/venue_ws_probe.py
