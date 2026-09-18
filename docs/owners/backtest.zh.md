@@ -70,7 +70,8 @@ Backtest Owner 拥有私有规范 Result 表及其只追加 outbox，且只有 B
 `SECURITY DEFINER` `owner_api` 锁定读取函数 `resolve_exploratory_replay_result_v2/v3` 已经存在，有序 PostgreSQL
 链路已证明正向锁定 readback、function source 漂移、Owner API 兄弟例程、裸表 ACL 漂移、继承 owner 成员关系与
 owner 属性漂移的拒绝、拓扑围栏序列化、提交中途回滚、restart 逐字节一致 readback，以及 R&D 只读访问
-（`scripts/ci/test-rd-owner-postgres.bash` 中的链路条目 14 与 17-23）。Backtest 仍是 Result fact 的唯一权威，
+（`scripts/ci/test-rd-owner-postgres.bash` 中测试名以 `postgres_result_` 开头的那些 `vibe-backtest-owner`
+条目；`postgres_protected_result_` 那条有意不在其中）。Backtest 仍是 Result fact 的唯一权威，
 Protected Result custody 继续隔离，不能通过该 R&D seam 读取。
 
 Backtest Owner 暴露一个固定、使用安全 `search_path` 的 `SECURITY DEFINER` `owner_api` 锁定读取函数。

@@ -78,7 +78,9 @@ writer may perform DML. The fixed `SECURITY DEFINER` `owner_api` lock/read funct
 `resolve_exploratory_replay_result_v2/v3` exist, and the ordered PostgreSQL chain proves positive locked readback,
 function-source drift, Owner API sibling-routine, raw-table ACL drift, inherited-owner-membership and
 owner-attribute drift rejection, topology-fence serialization, mid-commit rollback, restart-exact readback, and R&D
-read-only access (chain entries 14 and 17-23 in `scripts/ci/test-rd-owner-postgres.bash`). Backtest remains the
+read-only access (the `vibe-backtest-owner` entries whose test names begin with `postgres_result_` in
+`scripts/ci/test-rd-owner-postgres.bash`; the `postgres_protected_result_` entry is deliberately not among
+them). Backtest remains the
 sole authority for the result fact, and Protected Result custody remains isolated and is not readable through this
 R&D seam.
 
@@ -98,8 +100,9 @@ not depend on `vibe-backtest-owner`, while `vibe-backtest-owner` retains Result 
 Missing, stale, cross-spliced, wrong-owner, wrong-function, ACL-mismatched, noncanonical, digest-mismatched,
 receipt-or-outbox-incomplete, or separately read custody is `UNAVAILABLE`. After response loss, exact `RESOLVE` may
 return only the same pre-existing byte-identical Backtest Result and receipt; it cannot create first custody,
-recompose a result, or append a second Result, receipt, or outbox event. Admitted on that disposable PostgreSQL proof; it still grants no Dashboard implementation,
-deployment, production write, provider effect, Paper, Live, or trading authority.
+recompose a result, or append a second Result, receipt, or outbox event. Admitted on that disposable PostgreSQL
+proof; it still grants no Dashboard implementation, deployment, production write, provider effect, Paper, Live,
+or trading authority.
 
 ## Input handoffs
 
