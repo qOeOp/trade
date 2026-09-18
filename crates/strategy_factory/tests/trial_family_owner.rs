@@ -32,7 +32,10 @@ use vibe_strategy_factory::{
     product_edge_postgres::PostgresResearchGoalOwnerV1,
     trial_family::TrialFamilyDirectResultV1,
 };
-use vibe_testkit::postgres::{DedicatedPostgresTestDatabase, DedicatedPostgresTestMutation};
+use vibe_testkit::postgres::{
+    CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerPostgresTestMutationV1,
+    CanonicalOwnerTestRoleV1,
+};
 
 #[rstest]
 fn direct_family_negative_results_preserve_the_transport_contract() {
@@ -51,17 +54,27 @@ fn direct_family_negative_results_preserve_the_transport_contract() {
 async fn postgres_owner_persists_one_family_and_replays_without_partial_conflict_writes() {
     let test_database = test_database().await;
     let _mutation = test_database.mutation();
-    let database_url = test_database.database_url().to_string();
-    let owner = PostgresResearchGoalOwnerV1::connect(&database_url, &database_url)
-        .await
-        .unwrap();
+    let database_url = test_database
+        .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+        .to_string();
+    let owner = PostgresResearchGoalOwnerV1::connect(
+        &database_url,
+        test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+    )
+    .await
+    .unwrap();
     let pool = PgPoolOptions::new()
         .max_connections(2)
         .connect(&database_url)
         .await
         .unwrap();
     let suffix = unique_suffix();
-    let edge = TestProductEdge::bootstrap(&database_url, &suffix).await;
+    let edge = TestProductEdge::bootstrap(
+        test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+        test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+        &suffix,
+    )
+    .await;
     let request_identity = format!("research-request-v2-family-{suffix}");
     let submitted_request = edge.admit_v2(request(&request_identity)).await;
     let mut downstream_cut = pool.begin().await.unwrap();
@@ -157,17 +170,32 @@ async fn postgres_owner_persists_one_family_and_replays_without_partial_conflict
 async fn every_v2_semantic_rejection_is_rejection_only_and_replays_exactly() {
     let test_database = test_database().await;
     let _mutation = test_database.mutation();
-    let database_url = test_database.database_url().to_string();
-    let owner = PostgresResearchGoalOwnerV1::connect(&database_url, &database_url)
-        .await
-        .unwrap();
+    let database_url = test_database
+        .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+        .to_string();
+    let owner = PostgresResearchGoalOwnerV1::connect(
+        &database_url,
+        test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+    )
+    .await
+    .unwrap();
     let pool = PgPoolOptions::new()
         .max_connections(2)
         .connect(&database_url)
         .await
         .unwrap();
+    let qualification_pool = PgPoolOptions::new()
+        .max_connections(2)
+        .connect(test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter))
+        .await
+        .unwrap();
     let suffix = unique_suffix();
-    let edge = TestProductEdge::bootstrap(&database_url, &suffix).await;
+    let edge = TestProductEdge::bootstrap(
+        test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+        test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+        &suffix,
+    )
+    .await;
 
     for (code, invalid) in invalid_v2_requests(&suffix) {
         let invalid = edge.admit_v2(invalid).await;
@@ -178,7 +206,7 @@ async fn every_v2_semantic_rejection_is_rejection_only_and_replays_exactly() {
         )
         .await;
         let qualification_heads_before = json_rows(
-            &pool,
+            &qualification_pool,
             "SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY principal_scope_key), '[]'::jsonb) FROM qualification_protected_feedback_heads_v1 t",
         )
         .await;
@@ -200,7 +228,7 @@ async fn every_v2_semantic_rejection_is_rejection_only_and_replays_exactly() {
             first
         );
         assert_eq!(
-            rejected_authority_counts(&pool, &request_identity).await,
+            rejected_authority_counts(&pool, &qualification_pool, &request_identity).await,
             [1, 0, 0, 0]
         );
         assert_eq!(
@@ -213,7 +241,7 @@ async fn every_v2_semantic_rejection_is_rejection_only_and_replays_exactly() {
         );
         assert_eq!(
             json_rows(
-                &pool,
+                &qualification_pool,
                 "SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY principal_scope_key), '[]'::jsonb) FROM qualification_protected_feedback_heads_v1 t",
             )
             .await,
@@ -226,7 +254,7 @@ async fn every_v2_semantic_rejection_is_rejection_only_and_replays_exactly() {
             Err(ResearchGoalOwnerError::ConflictingReplay)
         ));
         assert_eq!(
-            rejected_authority_counts(&pool, &request_identity).await,
+            rejected_authority_counts(&pool, &qualification_pool, &request_identity).await,
             [1, 0, 0, 0]
         );
         sqlx::query("DELETE FROM rd_research_request_receipts_v1 WHERE request_identity = $1")
@@ -242,17 +270,32 @@ async fn every_v2_semantic_rejection_is_rejection_only_and_replays_exactly() {
 async fn invalid_successor_cannot_poison_heads_and_verified_lineage_never_skips_corruption() {
     let test_database = test_database().await;
     let _mutation = test_database.mutation();
-    let database_url = test_database.database_url().to_string();
-    let owner = PostgresResearchGoalOwnerV1::connect(&database_url, &database_url)
-        .await
-        .unwrap();
+    let database_url = test_database
+        .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+        .to_string();
+    let owner = PostgresResearchGoalOwnerV1::connect(
+        &database_url,
+        test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+    )
+    .await
+    .unwrap();
     let pool = PgPoolOptions::new()
         .max_connections(2)
         .connect(&database_url)
         .await
         .unwrap();
+    let qualification_pool = PgPoolOptions::new()
+        .max_connections(2)
+        .connect(test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter))
+        .await
+        .unwrap();
     let suffix = unique_suffix();
-    let edge = TestProductEdge::bootstrap(&database_url, &suffix).await;
+    let edge = TestProductEdge::bootstrap(
+        test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+        test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+        &suffix,
+    )
+    .await;
     let a_request = format!("research-request-v2-lineage-a-{suffix}");
     let b_request = format!("research-request-v2-lineage-b-{suffix}");
     let c_request = format!("research-request-v2-lineage-c-{suffix}");
@@ -279,7 +322,7 @@ async fn invalid_successor_cannot_poison_heads_and_verified_lineage_never_skips_
     )
     .await;
     let qualification_head = json_rows(
-        &pool,
+        &qualification_pool,
         "SELECT to_jsonb(t) FROM qualification_protected_feedback_heads_v1 t WHERE principal = 'admin'",
     )
     .await;
@@ -300,7 +343,7 @@ async fn invalid_successor_cannot_poison_heads_and_verified_lineage_never_skips_
     );
     assert_eq!(
         json_rows(
-            &pool,
+            &qualification_pool,
             "SELECT to_jsonb(t) FROM qualification_protected_feedback_heads_v1 t WHERE principal = 'admin'",
         )
         .await,
@@ -392,7 +435,14 @@ async fn invalid_successor_cannot_poison_heads_and_verified_lineage_never_skips_
             .execute(&pool)
             .await
             .unwrap();
-        assert_lineage_unavailable_without_writes(&owner, &edge, &pool, &c_request).await;
+        assert_lineage_unavailable_without_writes(
+            &owner,
+            &edge,
+            &pool,
+            &qualification_pool,
+            &c_request,
+        )
+        .await;
         sqlx::query(restore)
             .bind(&a_request)
             .bind(original)
@@ -403,12 +453,26 @@ async fn invalid_successor_cannot_poison_heads_and_verified_lineage_never_skips_
 
     sqlx::query("UPDATE rd_research_request_receipts_v1 SET semantic_digest = semantic_digest || '-corrupt' WHERE request_identity = $1")
         .bind(&a_request).execute(&pool).await.unwrap();
-    assert_lineage_unavailable_without_writes(&owner, &edge, &pool, &c_request).await;
+    assert_lineage_unavailable_without_writes(
+        &owner,
+        &edge,
+        &pool,
+        &qualification_pool,
+        &c_request,
+    )
+    .await;
     sqlx::query("UPDATE rd_research_request_receipts_v1 SET semantic_digest = $2 WHERE request_identity = $1")
         .bind(&a_request).bind(&original_digest).execute(&pool).await.unwrap();
     sqlx::query("UPDATE rd_research_request_receipts_v1 SET committed_at_epoch_ms = committed_at_epoch_ms + 1 WHERE request_identity = $1")
         .bind(&a_request).execute(&pool).await.unwrap();
-    assert_lineage_unavailable_without_writes(&owner, &edge, &pool, &c_request).await;
+    assert_lineage_unavailable_without_writes(
+        &owner,
+        &edge,
+        &pool,
+        &qualification_pool,
+        &c_request,
+    )
+    .await;
     sqlx::query("UPDATE rd_research_request_receipts_v1 SET committed_at_epoch_ms = $2 WHERE request_identity = $1")
         .bind(&a_request).bind(original_time).execute(&pool).await.unwrap();
 
@@ -446,23 +510,38 @@ async fn invalid_successor_cannot_poison_heads_and_verified_lineage_never_skips_
 async fn qualification_basis_cannot_terminalize_after_authority_revocation() {
     let test_database = test_database().await;
     let _mutation = test_database.mutation();
-    let database_url = test_database.database_url().to_string();
-    let owner = PostgresResearchGoalOwnerV1::connect(&database_url, &database_url)
-        .await
-        .unwrap();
+    let database_url = test_database
+        .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+        .to_string();
+    let owner = PostgresResearchGoalOwnerV1::connect(
+        &database_url,
+        test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+    )
+    .await
+    .unwrap();
     let pool = PgPoolOptions::new()
         .max_connections(2)
         .connect(&database_url)
         .await
         .unwrap();
+    let qualification_pool = PgPoolOptions::new()
+        .max_connections(2)
+        .connect(test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter))
+        .await
+        .unwrap();
     let suffix = unique_suffix();
-    let mut edge = TestProductEdge::bootstrap(&database_url, &suffix).await;
+    let mut edge = TestProductEdge::bootstrap(
+        test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+        test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+        &suffix,
+    )
+    .await;
     let request_identity = format!("research-request-v2-qualification-recovery-{suffix}");
     let successor_identity = format!("research-request-v2-qualification-successor-{suffix}");
     let admitted_request = edge.admit_v2(request(&request_identity)).await;
     let admitted_successor = edge.admit_v2(request(&successor_identity)).await;
     sqlx::query("DROP TABLE qualification_owner_outbox_v1, qualification_protected_feedback_heads_v1, qualification_protected_feedback_projections_v1")
-        .execute(&pool)
+        .execute(&qualification_pool)
         .await
         .unwrap();
     assert_eq!(
@@ -586,9 +665,12 @@ async fn qualification_basis_cannot_terminalize_after_authority_revocation() {
     edge.activate_policy_equivalent_successor(&suffix).await;
     edge.revoke_authorization().await;
 
-    let recovered_owner = PostgresResearchGoalOwnerV1::connect(&database_url, &database_url)
-        .await
-        .unwrap();
+    let recovered_owner = PostgresResearchGoalOwnerV1::connect(
+        &database_url,
+        test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+    )
+    .await
+    .unwrap();
     let recovered = recovered_owner
         .resolve_v2(&request_identity, &admitted_request.admission)
         .await
@@ -650,21 +732,31 @@ async fn qualification_basis_cannot_terminalize_after_authority_revocation() {
 async fn qualification_basis_recovers_under_immediate_policy_equivalent_successor() {
     let test_database = test_database().await;
     let _mutation = test_database.mutation();
-    let database_url = test_database.database_url().to_string();
-    let owner = PostgresResearchGoalOwnerV1::connect(&database_url, &database_url)
-        .await
-        .unwrap();
-    let pool = PgPoolOptions::new()
+    let database_url = test_database
+        .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+        .to_string();
+    let owner = PostgresResearchGoalOwnerV1::connect(
+        &database_url,
+        test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+    )
+    .await
+    .unwrap();
+    let qualification_pool = PgPoolOptions::new()
         .max_connections(2)
-        .connect(&database_url)
+        .connect(test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter))
         .await
         .unwrap();
     let suffix = unique_suffix();
-    let mut edge = TestProductEdge::bootstrap(&database_url, &suffix).await;
+    let mut edge = TestProductEdge::bootstrap(
+        test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+        test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+        &suffix,
+    )
+    .await;
     let request_identity = format!("research-request-v2-immediate-recovery-{suffix}");
     let admitted_request = edge.admit_v2(request(&request_identity)).await;
     sqlx::query("DROP TABLE qualification_owner_outbox_v1, qualification_protected_feedback_heads_v1, qualification_protected_feedback_projections_v1")
-        .execute(&pool)
+        .execute(&qualification_pool)
         .await
         .unwrap();
     assert_eq!(
@@ -677,9 +769,12 @@ async fn qualification_basis_recovers_under_immediate_policy_equivalent_successo
     );
     edge.activate_policy_equivalent_successor(&suffix).await;
 
-    let recovered_owner = PostgresResearchGoalOwnerV1::connect(&database_url, &database_url)
-        .await
-        .unwrap();
+    let recovered_owner = PostgresResearchGoalOwnerV1::connect(
+        &database_url,
+        test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+    )
+    .await
+    .unwrap();
     let recovered = recovered_owner
         .resolve_v2(&request_identity, &admitted_request.admission)
         .await
@@ -699,21 +794,37 @@ async fn qualification_basis_recovers_under_immediate_policy_equivalent_successo
 async fn committed_basis_cannot_terminalize_after_original_authority_expires() {
     let test_database = test_database().await;
     let _mutation = test_database.mutation();
-    let database_url = test_database.database_url().to_string();
-    let owner = PostgresResearchGoalOwnerV1::connect(&database_url, &database_url)
-        .await
-        .unwrap();
+    let database_url = test_database
+        .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+        .to_string();
+    let owner = PostgresResearchGoalOwnerV1::connect(
+        &database_url,
+        test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+    )
+    .await
+    .unwrap();
     let pool = PgPoolOptions::new()
         .max_connections(2)
         .connect(&database_url)
         .await
         .unwrap();
+    let qualification_pool = PgPoolOptions::new()
+        .max_connections(2)
+        .connect(test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter))
+        .await
+        .unwrap();
     let suffix = unique_suffix();
-    let edge = TestProductEdge::bootstrap_with_validity(&database_url, &suffix, 10_000).await;
+    let edge = TestProductEdge::bootstrap_with_validity(
+        test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+        test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+        &suffix,
+        10_000,
+    )
+    .await;
     let request_identity = format!("research-request-v2-basis-expiry-{suffix}");
     let admitted_request = edge.admit_v2(request(&request_identity)).await;
     sqlx::query("DROP TABLE qualification_owner_outbox_v1, qualification_protected_feedback_heads_v1, qualification_protected_feedback_projections_v1")
-        .execute(&pool)
+        .execute(&qualification_pool)
         .await
         .unwrap();
     assert_eq!(
@@ -729,9 +840,12 @@ async fn committed_basis_cannot_terminalize_after_original_authority_expires() {
         .saturating_sub(current_epoch_ms())
         .saturating_add(1);
     tokio::time::sleep(Duration::from_millis(wait_ms)).await;
-    let recovered_owner = PostgresResearchGoalOwnerV1::connect(&database_url, &database_url)
-        .await
-        .unwrap();
+    let recovered_owner = PostgresResearchGoalOwnerV1::connect(
+        &database_url,
+        test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+    )
+    .await
+    .unwrap();
     let recovered = recovered_owner
         .resolve_v2(&request_identity, &admitted_request.admission)
         .await
@@ -760,19 +874,34 @@ async fn committed_basis_cannot_terminalize_after_original_authority_expires() {
 async fn concurrent_invalid_and_valid_same_scope_serialize_without_invalid_authority() {
     let test_database = test_database().await;
     let _mutation = test_database.mutation();
-    let database_url = test_database.database_url().to_string();
+    let database_url = test_database
+        .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+        .to_string();
     let owner = Arc::new(
-        PostgresResearchGoalOwnerV1::connect(&database_url, &database_url)
-            .await
-            .unwrap(),
+        PostgresResearchGoalOwnerV1::connect(
+            &database_url,
+            test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+        )
+        .await
+        .unwrap(),
     );
     let pool = PgPoolOptions::new()
         .max_connections(2)
         .connect(&database_url)
         .await
         .unwrap();
+    let qualification_pool = PgPoolOptions::new()
+        .max_connections(2)
+        .connect(test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter))
+        .await
+        .unwrap();
     let suffix = unique_suffix();
-    let edge = TestProductEdge::bootstrap(&database_url, &suffix).await;
+    let edge = TestProductEdge::bootstrap(
+        test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+        test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+        &suffix,
+    )
+    .await;
     let invalid_identity = format!("research-request-v2-concurrent-invalid-{suffix}");
     let valid_identity = format!("research-request-v2-concurrent-valid-{suffix}");
     let mut invalid = request(&invalid_identity);
@@ -805,7 +934,7 @@ async fn concurrent_invalid_and_valid_same_scope_serialize_without_invalid_autho
     );
     assert_eq!(valid_result.resolution(), ProductEdgeResolution::Accepted);
     assert_eq!(
-        rejected_authority_counts(&pool, &invalid_identity).await,
+        rejected_authority_counts(&pool, &qualification_pool, &invalid_identity).await,
         [1, 0, 0, 0]
     );
     let family = valid_result
@@ -827,19 +956,34 @@ async fn concurrent_invalid_and_valid_same_scope_serialize_without_invalid_autho
 async fn exhaustive_lineage_waits_for_row_mutation_and_recovers_after_restore() {
     let test_database = test_database().await;
     let _mutation = test_database.mutation();
-    let database_url = test_database.database_url().to_string();
+    let database_url = test_database
+        .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+        .to_string();
     let owner = Arc::new(
-        PostgresResearchGoalOwnerV1::connect(&database_url, &database_url)
-            .await
-            .unwrap(),
+        PostgresResearchGoalOwnerV1::connect(
+            &database_url,
+            test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+        )
+        .await
+        .unwrap(),
     );
     let pool = PgPoolOptions::new()
         .max_connections(4)
         .connect(&database_url)
         .await
         .unwrap();
+    let qualification_pool = PgPoolOptions::new()
+        .max_connections(2)
+        .connect(test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter))
+        .await
+        .unwrap();
     let suffix = unique_suffix();
-    let edge = TestProductEdge::bootstrap(&database_url, &suffix).await;
+    let edge = TestProductEdge::bootstrap(
+        test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+        test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+        &suffix,
+    )
+    .await;
     let a_request = format!("research-request-v2-row-lock-a-{suffix}");
     let c_request = format!("research-request-v2-row-lock-c-{suffix}");
     let accepted_a = owner
@@ -877,7 +1021,7 @@ async fn exhaustive_lineage_waits_for_row_mutation_and_recovers_after_restore() 
             .is_err()
     );
     assert_eq!(
-        rejected_authority_counts(&pool, &c_request).await,
+        rejected_authority_counts(&pool, &qualification_pool, &c_request).await,
         [0, 0, 0, 0]
     );
     mutation.commit().await.unwrap();
@@ -891,7 +1035,7 @@ async fn exhaustive_lineage_waits_for_row_mutation_and_recovers_after_restore() 
         ProductEdgeResolution::SubmittedOrUnknown
     );
     assert_eq!(
-        rejected_authority_counts(&pool, &c_request).await,
+        rejected_authority_counts(&pool, &qualification_pool, &c_request).await,
         [0, 0, 0, 0]
     );
     sqlx::query("UPDATE rd_research_request_receipts_v1 SET semantic_digest = $2 WHERE request_identity = $1")
@@ -917,17 +1061,32 @@ async fn exhaustive_lineage_waits_for_row_mutation_and_recovers_after_restore() 
 async fn stored_request_meaning_corruption_is_unavailable_until_exact_restoration() {
     let test_database = test_database().await;
     let _mutation = test_database.mutation();
-    let database_url = test_database.database_url().to_string();
-    let owner = PostgresResearchGoalOwnerV1::connect(&database_url, &database_url)
-        .await
-        .unwrap();
+    let database_url = test_database
+        .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+        .to_string();
+    let owner = PostgresResearchGoalOwnerV1::connect(
+        &database_url,
+        test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+    )
+    .await
+    .unwrap();
     let pool = PgPoolOptions::new()
         .max_connections(2)
         .connect(&database_url)
         .await
         .unwrap();
+    let qualification_pool = PgPoolOptions::new()
+        .max_connections(2)
+        .connect(test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter))
+        .await
+        .unwrap();
     let suffix = unique_suffix();
-    let edge = TestProductEdge::bootstrap(&database_url, &suffix).await;
+    let edge = TestProductEdge::bootstrap(
+        test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+        test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+        &suffix,
+    )
+    .await;
     let request_identity = format!("research-request-v2-meaning-{suffix}");
     let admitted_request = edge.admit_v2(request(&request_identity)).await;
     let accepted = owner.submit_v2(admitted_request.clone()).await.unwrap();
@@ -1058,11 +1217,11 @@ async fn stored_request_meaning_corruption_is_unavailable_until_exact_restoratio
         "SELECT payload_digest FROM qualification_owner_outbox_v1 WHERE aggregate_identity = $1",
     )
     .bind(&projection_identity)
-    .fetch_one(&pool)
+    .fetch_one(&qualification_pool)
     .await
     .unwrap();
     sqlx::query("UPDATE qualification_owner_outbox_v1 SET payload_digest = 'sha256:corrupt' WHERE aggregate_identity = $1")
-        .bind(&projection_identity).execute(&pool).await.unwrap();
+        .bind(&projection_identity).execute(&qualification_pool).await.unwrap();
     assert_eq!(
         owner
             .resolve_v2(&request_identity, &admitted_request.admission)
@@ -1089,7 +1248,7 @@ async fn stored_request_meaning_corruption_is_unavailable_until_exact_restoratio
         0
     );
     sqlx::query("UPDATE qualification_owner_outbox_v1 SET payload_digest = $2 WHERE aggregate_identity = $1")
-        .bind(&projection_identity).bind(original_qualification_outbox_digest).execute(&pool).await.unwrap();
+        .bind(&projection_identity).bind(original_qualification_outbox_digest).execute(&qualification_pool).await.unwrap();
     assert_eq!(
         owner
             .resolve_v2(&request_identity, &admitted_request.admission)
@@ -1105,7 +1264,9 @@ async fn stored_request_meaning_corruption_is_unavailable_until_exact_restoratio
 async fn missing_research_custody_prepares_no_attempt() {
     let test_database = test_database().await;
     let _mutation = test_database.mutation();
-    let database_url = test_database.database_url().to_string();
+    let database_url = test_database
+        .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+        .to_string();
     let artifact_owner = PostgresArtifactBuildOwnerV1::connect(
         &database_url,
         "/tmp/unused-rd-sandbox.sock",
@@ -1119,7 +1280,12 @@ async fn missing_research_custody_prepares_no_attempt() {
         .await
         .unwrap();
     let suffix = unique_suffix();
-    let edge = TestProductEdge::bootstrap(&database_url, &suffix).await;
+    let edge = TestProductEdge::bootstrap(
+        test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+        test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+        &suffix,
+    )
+    .await;
     let request = edge
         .admit_artifact(ArtifactBuildRequestV1 {
             build_request_identity: format!("artifact-build-request-missing-{suffix}"),
@@ -1150,11 +1316,16 @@ async fn missing_research_custody_prepares_no_attempt() {
 async fn research_and_attempt_resolve_share_one_deadlock_free_lock_order() {
     let test_database = test_database().await;
     let _mutation = test_database.mutation();
-    let database_url = test_database.database_url().to_string();
+    let database_url = test_database
+        .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+        .to_string();
     let research_owner = Arc::new(
-        PostgresResearchGoalOwnerV1::connect(&database_url, &database_url)
-            .await
-            .unwrap(),
+        PostgresResearchGoalOwnerV1::connect(
+            &database_url,
+            test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+        )
+        .await
+        .unwrap(),
     );
     let artifact_owner = Arc::new(
         PostgresArtifactBuildOwnerV1::connect(
@@ -1171,7 +1342,12 @@ async fn research_and_attempt_resolve_share_one_deadlock_free_lock_order() {
         .await
         .unwrap();
     let suffix = unique_suffix();
-    let edge = TestProductEdge::bootstrap(&database_url, &suffix).await;
+    let edge = TestProductEdge::bootstrap(
+        test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+        test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+        &suffix,
+    )
+    .await;
     let request_identity = format!("research-request-v2-lock-order-{suffix}");
     let admitted_research = edge.admit_v2(request(&request_identity)).await;
     let accepted = research_owner
@@ -1261,10 +1437,15 @@ async fn research_and_attempt_resolve_share_one_deadlock_free_lock_order() {
 async fn no_artifact_receipt_mutation_fails_closed_and_exact_restore_replays() {
     let test_database = test_database().await;
     let _mutation = test_database.mutation();
-    let database_url = test_database.database_url().to_string();
-    let research_owner = PostgresResearchGoalOwnerV1::connect(&database_url, &database_url)
-        .await
-        .unwrap();
+    let database_url = test_database
+        .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+        .to_string();
+    let research_owner = PostgresResearchGoalOwnerV1::connect(
+        &database_url,
+        test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+    )
+    .await
+    .unwrap();
     let artifact_owner = PostgresArtifactBuildOwnerV1::connect(
         &database_url,
         "/tmp/unused-rd-sandbox.sock",
@@ -1278,7 +1459,12 @@ async fn no_artifact_receipt_mutation_fails_closed_and_exact_restore_replays() {
         .await
         .unwrap();
     let suffix = unique_suffix();
-    let edge = TestProductEdge::bootstrap(&database_url, &suffix).await;
+    let edge = TestProductEdge::bootstrap(
+        test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+        test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+        &suffix,
+    )
+    .await;
     let request_identity = format!("research-request-v2-no-artifact-{suffix}");
     let accepted = research_owner
         .submit_v2(edge.admit_v2(request(&request_identity)).await)
@@ -1403,10 +1589,15 @@ async fn no_artifact_receipt_mutation_fails_closed_and_exact_restore_replays() {
 async fn expired_attempt_receipt_is_independently_outcome_unknown() {
     let test_database = test_database().await;
     let _mutation = test_database.mutation();
-    let database_url = test_database.database_url().to_string();
-    let research_owner = PostgresResearchGoalOwnerV1::connect(&database_url, &database_url)
-        .await
-        .unwrap();
+    let database_url = test_database
+        .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+        .to_string();
+    let research_owner = PostgresResearchGoalOwnerV1::connect(
+        &database_url,
+        test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+    )
+    .await
+    .unwrap();
     let artifact_owner =
         PostgresArtifactBuildOwnerV1::connect(&database_url, "/tmp/unused-rd-sandbox.sock", 0)
             .await
@@ -1417,7 +1608,12 @@ async fn expired_attempt_receipt_is_independently_outcome_unknown() {
         .await
         .unwrap();
     let suffix = unique_suffix();
-    let edge = TestProductEdge::bootstrap(&database_url, &suffix).await;
+    let edge = TestProductEdge::bootstrap(
+        test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+        test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+        &suffix,
+    )
+    .await;
     let request_identity = format!("research-request-v2-expiry-{suffix}");
     let accepted = research_owner
         .submit_v2(edge.admit_v2(request(&request_identity)).await)
@@ -1467,14 +1663,14 @@ async fn expired_attempt_receipt_is_independently_outcome_unknown() {
     cleanup_research(&_mutation, &request_identity, &family_identity).await;
 }
 
-async fn test_database() -> DedicatedPostgresTestDatabase {
-    DedicatedPostgresTestDatabase::admit_cross_owner(&[
-        "OPERATOR_AUTHORIZATION_TEST_DATABASE_URL",
-        "PRODUCT_EDGE_TEST_DATABASE_URL",
-        "RD_OWNER_TEST_DATABASE_URL",
-    ])
-    .await
-    .unwrap()
+/// The disposable topology these proofs run against.
+///
+/// They used to admit the dedicated per-Owner harness, whose marker validation requires every role
+/// to be named `vibe_test_role_*`. The ordered chain exports the canonical Owner role names, so that
+/// admission refused before any proof ran and these entries could not pass there at all. The
+/// canonical topology is the one the chain provides, and it names the same three Owners.
+async fn test_database() -> CanonicalOwnerPostgresTestDatabaseV1 {
+    CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap()
 }
 
 fn unique_suffix() -> String {
@@ -1577,11 +1773,11 @@ fn dummy_candidate(intent_identity: &str) -> ArtifactBuildCandidateV1 {
 }
 
 async fn cleanup_research(
-    mutation: &DedicatedPostgresTestMutation<'_>,
+    mutation: &CanonicalOwnerPostgresTestMutationV1<'_>,
     request: &str,
     family: &str,
 ) {
-    let pool = mutation.pool();
+    let pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
     sqlx::query("DELETE FROM rd_owner_outbox_v1 WHERE aggregate_identity = $1")
         .bind(family)
         .execute(pool)
@@ -1610,8 +1806,11 @@ async fn cleanup_research(
     cleanup_prerequisites(mutation, request).await;
 }
 
-async fn cleanup_prerequisites(mutation: &DedicatedPostgresTestMutation<'_>, request: &str) {
-    let pool = mutation.pool();
+async fn cleanup_prerequisites(mutation: &CanonicalOwnerPostgresTestMutationV1<'_>, request: &str) {
+    // Each relation is cleaned by the Owner that holds it: `rd_*` is R&D's and `qualification_*`
+    // is the Qualification writer's, and neither role may touch the other's tables.
+    let pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+    let qualification_pool = mutation.pool(CanonicalOwnerTestRoleV1::QualificationWriter);
     let basis_identity = sqlx::query_scalar::<_, String>(
         "SELECT basis_identity FROM rd_independence_bases_v1 WHERE request_identity = $1",
     )
@@ -1621,7 +1820,7 @@ async fn cleanup_prerequisites(mutation: &DedicatedPostgresTestMutation<'_>, req
     .unwrap();
     let projection_identity = if let Some(basis_identity) = basis_identity.as_deref() {
         sqlx::query_scalar::<_, String>("SELECT projection_identity FROM qualification_protected_feedback_projections_v1 WHERE basis_identity = $1")
-            .bind(basis_identity).fetch_optional(pool).await.unwrap()
+            .bind(basis_identity).fetch_optional(qualification_pool).await.unwrap()
     } else {
         None
     };
@@ -1631,15 +1830,16 @@ async fn cleanup_prerequisites(mutation: &DedicatedPostgresTestMutation<'_>, req
             "DELETE FROM qualification_protected_feedback_heads_v1 WHERE frontier_identity = $1",
         )
         .bind(&projection_identity)
-        .execute(pool)
+        .execute(qualification_pool)
         .await
         .unwrap();
         sqlx::query("DELETE FROM qualification_owner_outbox_v1 WHERE aggregate_identity = $1")
             .bind(&projection_identity)
-            .execute(pool)
+            .execute(qualification_pool)
             .await
             .unwrap();
-        sqlx::query("DELETE FROM qualification_protected_feedback_projections_v1 WHERE projection_identity = $1").bind(&projection_identity).execute(pool).await.unwrap();
+        sqlx::query("DELETE FROM qualification_protected_feedback_projections_v1 WHERE projection_identity = $1").bind(&projection_identity)
+        .execute(qualification_pool).await.unwrap();
     }
 
     if let Some(basis_identity) = basis_identity {
@@ -1663,7 +1863,7 @@ async fn cleanup_prerequisites(mutation: &DedicatedPostgresTestMutation<'_>, req
 
 struct TestProductEdge {
     owner: ProductEdgePostgresOwnerV1,
-    database_url: String,
+    operator_authorization_url: String,
     deployment_identity: String,
     binding_identity: String,
     binding_generation: u64,
@@ -1677,11 +1877,31 @@ struct TestProductEdge {
 }
 
 impl TestProductEdge {
-    async fn bootstrap(database_url: &str, suffix: &str) -> Self {
-        Self::bootstrap_with_validity(database_url, suffix, 3_600_000).await
+    async fn bootstrap(
+        operator_authorization_url: &str,
+        product_edge_url: &str,
+        suffix: &str,
+    ) -> Self {
+        Self::bootstrap_with_validity(
+            operator_authorization_url,
+            product_edge_url,
+            suffix,
+            3_600_000,
+        )
+        .await
     }
 
-    async fn bootstrap_with_validity(database_url: &str, suffix: &str, validity_ms: u64) -> Self {
+    /// Each principal connects with its own role.
+    ///
+    /// One URL served both while these proofs ran on the dedicated harness. The canonical topology
+    /// the chain provides gives every Owner its own role, and the issuer's schema is not one the
+    /// Product Edge role may touch, nor the other way round.
+    async fn bootstrap_with_validity(
+        operator_authorization_url: &str,
+        product_edge_url: &str,
+        suffix: &str,
+        validity_ms: u64,
+    ) -> Self {
         let now = current_epoch_ms();
         let valid_from_epoch_ms = now.saturating_sub(1_000);
         let valid_through_epoch_ms = now.saturating_add(validity_ms);
@@ -1706,7 +1926,7 @@ impl TestProductEdge {
             ),
         ];
         manifests.sort_by_key(|manifest| manifest.manifest_identity().unwrap());
-        let issuer = OperatorAuthorizationIssuerPostgresV1::connect(database_url)
+        let issuer = OperatorAuthorizationIssuerPostgresV1::connect(operator_authorization_url)
             .await
             .unwrap();
         let authorization = issuer
@@ -1744,7 +1964,7 @@ impl TestProductEdge {
         let binding_identity = format!("product-edge-binding-trial-family-{suffix}");
         let effective_principal = format!("admin-{suffix}");
         let owner = ProductEdgePostgresOwnerV1::connect(
-            database_url,
+            product_edge_url,
             &deployment_identity,
             ProductEdgeAuthorizationTrustV1 {
                 issuer_identity: "operator-authorization-issuer-test-v1".to_string(),
@@ -1773,7 +1993,7 @@ impl TestProductEdge {
             .unwrap();
         Self {
             owner,
-            database_url: database_url.to_string(),
+            operator_authorization_url: operator_authorization_url.to_string(),
             deployment_identity,
             binding_identity,
             binding_generation: 1,
@@ -1813,7 +2033,7 @@ impl TestProductEdge {
     }
 
     async fn revoke_authorization(&self) {
-        OperatorAuthorizationIssuerPostgresV1::connect(&self.database_url)
+        OperatorAuthorizationIssuerPostgresV1::connect(&self.operator_authorization_url)
             .await
             .unwrap()
             .revoke(OperatorAuthorizationRevocationProposalV1 {
@@ -2122,7 +2342,31 @@ fn invalid_v2_requests(suffix: &str) -> Vec<(&'static str, ProductEdgeResearchGo
     cases
 }
 
-async fn rejected_authority_counts(pool: &PgPool, request_identity: &str) -> [i64; 4] {
+/// Counts what a rejected request left behind, in each Owner's own store.
+///
+/// The projection count used to join `qualification_*` to `rd_*` in one statement. No role may read
+/// both: R&D and Qualification own their relations separately, which is the boundary under test, so
+/// the join is resolved here instead -- R&D's bases first, then Qualification's projections for them.
+async fn rejected_authority_counts(
+    pool: &PgPool,
+    qualification_pool: &PgPool,
+    request_identity: &str,
+) -> [i64; 4] {
+    let bases: Vec<String> = sqlx::query_scalar(
+        "SELECT basis_identity FROM rd_independence_bases_v1 WHERE request_identity = $1",
+    )
+    .bind(request_identity)
+    .fetch_all(pool)
+    .await
+    .unwrap();
+    let projections: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM qualification_protected_feedback_projections_v1
+          WHERE basis_identity = ANY($1)",
+    )
+    .bind(&bases)
+    .fetch_one(qualification_pool)
+    .await
+    .unwrap();
     [
         count(
             pool,
@@ -2136,12 +2380,7 @@ async fn rejected_authority_counts(pool: &PgPool, request_identity: &str) -> [i6
             request_identity,
         )
         .await,
-        count(
-            pool,
-            "SELECT COUNT(*) FROM qualification_protected_feedback_projections_v1 q JOIN rd_independence_bases_v1 b ON b.basis_identity = q.basis_identity WHERE b.request_identity = $1",
-            request_identity,
-        )
-        .await,
+        projections,
         count(
             pool,
             "SELECT COUNT(*) FROM rd_owner_outbox_v1 o JOIN rd_independence_bases_v1 b ON b.basis_identity = o.aggregate_identity WHERE b.request_identity = $1",
@@ -2159,9 +2398,10 @@ async fn assert_lineage_unavailable_without_writes(
     owner: &PostgresResearchGoalOwnerV1,
     edge: &TestProductEdge,
     pool: &PgPool,
+    qualification_pool: &PgPool,
     request_identity: &str,
 ) {
-    let before = rejected_authority_counts(pool, request_identity).await;
+    let before = rejected_authority_counts(pool, qualification_pool, request_identity).await;
     assert_eq!(before, [0, 0, 0, 0]);
     assert_eq!(
         owner
@@ -2172,7 +2412,7 @@ async fn assert_lineage_unavailable_without_writes(
         ProductEdgeResolution::SubmittedOrUnknown
     );
     assert_eq!(
-        rejected_authority_counts(pool, request_identity).await,
+        rejected_authority_counts(pool, qualification_pool, request_identity).await,
         before
     );
 }
