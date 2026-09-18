@@ -5633,33 +5633,43 @@ pub(crate) mod tests {
         let readback = Box::pin(composer.read_accepted(&read_locator))
             .await
             .expect("the production read port resolves the operation it just committed");
-        assert_eq!(
-            readback.locator().request_identity,
-            request_identity,
-            "the readback carries the locator it was asked for"
-        );
-        assert_eq!(
-            expected_digest_text(readback.locator().design_digest),
-            declared.design_digest,
-            "the readback binds the Design the freeze declared"
-        );
-        assert_eq!(
-            readback.locator().artifact_identity,
-            artifact.artifact_digest,
-            "the readback binds the Artifact the run committed"
-        );
+
+        // Only assert on what the store supplied. The readback echoes the locator it was given,
+        // so comparing against that would hold even if no record had been read at all.
         assert!(
             !readback.module_bytes_digests().is_empty(),
             "the readback carries the module digests the run committed"
         );
-
-        // A locator whose Artifact identity is not the committed one resolves nothing. Without
-        // this the readback above would pass for any record the store happens to hold.
-        let mut forged = read_locator.clone();
-        forged.artifact_identity = BindingDigest::from_untrusted_bytes([0_u8; 32]);
         assert!(
-            Box::pin(composer.read_accepted(&forged)).await.is_err(),
-            "a locator that does not match the committed record is unavailable"
+            !readback.build_receipt_identities().is_empty(),
+            "the readback carries the build receipts the run committed"
+        );
+        assert!(
+            !readback.artifact_package_bytes().is_empty(),
+            "the readback carries the Artifact package the run committed"
+        );
+        assert!(
+            !readback.design_bytes().is_empty(),
+            "the readback carries the Design the run compiled"
+        );
+
+        // Two negative controls, one per key the read locator is matched on. Without them the
+        // assertions above would pass for any record the store happens to hold.
+        let mut forged_artifact = read_locator.clone();
+        forged_artifact.artifact_identity = BindingDigest::from_untrusted_bytes([0_u8; 32]);
+        assert!(
+            Box::pin(composer.read_accepted(&forged_artifact))
+                .await
+                .is_err(),
+            "a locator naming a different Artifact resolves nothing"
+        );
+        let mut forged_plan = read_locator.clone();
+        forged_plan.canonical_plan_digest = BindingDigest::from_untrusted_bytes([0_u8; 32]);
+        assert!(
+            Box::pin(composer.read_accepted(&forged_plan))
+                .await
+                .is_err(),
+            "a locator naming a different canonical plan resolves nothing"
         );
     }
 
