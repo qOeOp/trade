@@ -162,6 +162,7 @@ pub mod native_replay_rd_sources_v2;
     reason = "prepared Native Replay awaits native Instrument Master and complete Owner readbacks"
 )]
 mod native_replay_v2;
+pub(crate) mod owner_diagnostic;
 pub use native_replay_v2::{
     OwnerBarJoinedCutPreparationV1, PreparedProgramHostBarCapabilityV1,
     PreparedProgramHostBarHandoffV1, PreparedProgramHostCapabilityV2,
