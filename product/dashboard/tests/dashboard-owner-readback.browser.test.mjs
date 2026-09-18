@@ -676,6 +676,12 @@ test(browserAcceptance
           missingFromOutcomes: research
             .filter((item) => !outcomeIdentities.has(item.requestIdentity))
             .map((item) => item.requestIdentity),
+          // This acceptance's own request: Recent lists a research row only once its outcome read
+          // succeeded, so a row that never arrives is this item's status, not the table's.
+          acceptanceOutcome: (outcomes.items ?? [])
+            .find((item) => item.requestIdentity === ${JSON.stringify(researchRequestIdentity)}) ?? null,
+          acceptanceInCustody: research
+            .some((item) => item.requestIdentity === ${JSON.stringify(researchRequestIdentity)}),
         };
       })()`);
       const sourceReport = JSON.stringify(sources);
@@ -691,6 +697,13 @@ test(browserAcceptance
       assert.equal(sources.outcomeCandidateTotal, sources.custodyResearchTotal, sourceReport);
       assert.equal(sources.outcomeScanned, sources.custodyResearchListed, sourceReport);
       assert.equal(sources.outcomeItems, sources.custodyResearchListed, sourceReport);
+      assert.equal(sources.acceptanceInCustody, true, sourceReport);
+      const acceptanceReadback = await ownerJson(
+        new URL(`v2/research-goals/${researchRequestIdentity}/readback`, readApiUrl), readApiToken,
+      );
+      assert.equal(sources.acceptanceOutcome?.status, "outcome_ready",
+        `${sourceReport}; owner readback: ${acceptanceReadback.status} ${JSON.stringify(acceptanceReadback.body)}`);
+      assert.equal(sources.acceptanceOutcome?.resolution, "accepted", sourceReport);
       await waitForBrowserExpressionWithRefresh(browser,
         `[...document.querySelectorAll('table[aria-label="Recent Owner outcomes"] strong')]
           .some((cell) => cell.textContent === ${JSON.stringify(researchHypothesis)})`,
