@@ -36,17 +36,18 @@ use vibe_data::owner::{
 use vibe_indicators_kernel::PrimitiveCatalogV1;
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use crate::develop_composer_operation_v2::{DevelopComposerA0BuildPortV2, request_digest};
 use crate::develop_composer_operation_v2::{
-    DevelopComposerA0BuildPortV2, DevelopComposerReadbackOwnerErrorV2,
-    DevelopComposerReadbackOwnerPortV2, request_digest,
+    DevelopComposerReadbackOwnerErrorV2, DevelopComposerReadbackOwnerPortV2,
 };
+use crate::develop_composer_postgres_v2::PostgresDevelopComposerReadStoreV2;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::develop_composer_postgres_v2::{
     DevelopComposerAcceptanceWriteBoundaryV2, DevelopComposerSealedReadErrorV2,
     DevelopComposerSealedReadLocatorV2, DevelopComposerSealedReadPortV2,
-    PostgresDevelopComposerReadStoreV2, PreparedPostgresDevelopComposerRunV2,
-    SealedDevelopComposerReadbackV2, read_accepted_for_replay_in_transaction,
-    read_accepted_in_transaction, read_accepted_in_transaction_with_v3_restart,
+    PreparedPostgresDevelopComposerRunV2, SealedDevelopComposerReadbackV2,
+    read_accepted_for_replay_in_transaction, read_accepted_in_transaction,
+    read_accepted_in_transaction_with_v3_restart,
 };
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::develop_plugin_build_v2::{
@@ -1482,23 +1483,20 @@ pub(crate) struct PostgresSourceResearchComposerV2<B> {
 
 /// Dashboard-facing Composer read adapter. It carries only the R&D read pool and the fixed
 /// fact-Owner resolver required to revalidate existing positive custody.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 pub struct PostgresDevelopComposerReadbackOwnerV2 {
     store: PostgresDevelopComposerReadStoreV2,
-    binding_owner: SealedSourceResearchComposerBindingOwnerV2,
+    binding_owner: PostgresSourceResearchComposerBindingOwnerV2,
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 impl PostgresDevelopComposerReadbackOwnerV2 {
     pub async fn connect(rd_owner_database_url: &str) -> Result<Self, sqlx::Error> {
         Ok(Self {
             store: PostgresDevelopComposerReadStoreV2::connect(rd_owner_database_url).await?,
-            binding_owner: SealedSourceResearchComposerBindingOwnerV2,
+            binding_owner: PostgresSourceResearchComposerBindingOwnerV2,
         })
     }
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 #[async_trait::async_trait]
 impl DevelopComposerReadbackOwnerPortV2 for PostgresDevelopComposerReadbackOwnerV2 {
     async fn read_develop_composer(

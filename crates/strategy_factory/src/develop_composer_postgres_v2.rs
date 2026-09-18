@@ -2652,13 +2652,11 @@ pub struct PostgresDevelopComposerStoreV2 {
 /// Query-only Composer store used by the Dashboard read composition.
 ///
 /// This type owns no fact-writer pool and exposes no mutation method.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 pub(crate) struct PostgresDevelopComposerReadStoreV2 {
     read_pool: PgPool,
     database_fingerprint: ComposerDatabaseFingerprintV2,
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 impl PostgresDevelopComposerReadStoreV2 {
     pub(crate) async fn connect(rd_owner_database_url: &str) -> Result<Self, sqlx::Error> {
         let read_pool = sqlx::postgres::PgPoolOptions::new()
