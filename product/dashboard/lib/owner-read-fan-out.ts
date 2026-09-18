@@ -16,7 +16,12 @@
 // number of rows it shows is missing a bounded Owner read; see the Dashboard guide's Recent
 // outcomes section.
 
-const OWNER_READ_FAN_OUT_LIMIT = 4;
+// Two, not the pool's size. The adapter behind these point reads is the same one that answers the
+// page's directory and question reads, so a fan-out allowed to fill the pool starves them: the
+// Owner then answers those single reads with a failure and the surface reports the source as
+// unavailable while every row it holds is fine. The fan-out may use part of the pool it shares,
+// never all of it.
+const OWNER_READ_FAN_OUT_LIMIT = 2;
 
 let active = 0;
 const waiting: (() => void)[] = [];
