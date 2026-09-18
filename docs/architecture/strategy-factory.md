@@ -58,9 +58,9 @@ The maturity boundary is explicit:
   acceptance corpus exercises the real Market Data Owner issuance path, exact Plan compilation, one guest call,
   member-causal targets, atomic malformed-output rejection, replay, and restore. This is bounded crate-local
   acceptance evidence only. The local bounded-plugin producer admits an exact, fail-closed macOS arm64 host profile.
-  Linux ARM64 is **REVALIDATION REQUIRED**: the implementation now freezes the currently observed canonical
-  `wasm32v1-none` sysroot digest, but it does not become CURRENT/PARTIAL again until the main-bound hosted native A0
-  gate succeeds for that digest. The previous evidence boundary was the exact
+  Linux ARM64 and x86_64 are **REVALIDATION REQUIRED**: the implementation now freezes the currently observed
+  canonical `wasm32v1-none` sysroot digest, but neither becomes CURRENT/PARTIAL until a main-bound hosted native
+  gate succeeds for that digest on that host. The previous evidence boundary was the exact
   workflow [`strategy-factory-linux-a0`](https://github.com/qOeOp/trade/blob/9e5149d4293a800be3a35e6b747a9f3dba304e1f/.github/workflows/strategy-factory-linux-a0.yml),
   `workflow_dispatch` [run 33250411708](https://github.com/qOeOp/trade/actions/runs/33250411708) at head
   `9e5149d4293a800be3a35e6b747a9f3dba304e1f`, and job

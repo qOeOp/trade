@@ -57,8 +57,8 @@ R&D 内的 Develop 能力返回内容寻址 Strategy Artifact 和 Build Receipt�
   non-default、零参数 sealed acceptance corpus 会执行真实 Market Data Owner issuance、准确 Plan 编译、单次
   guest 调用、member-causal target、malformed output 原子拒绝、replay 与 restore；这只属于有界 crate-local
   acceptance 证据。本地 bounded-plugin producer 接纳准确且 fail-closed 的 macOS arm64 host profile。
-  Linux ARM64 当前为 **REVALIDATION REQUIRED**：实现已冻结当前观测到的 canonical `wasm32v1-none` sysroot
-  digest，但只有该 digest 通过 main-bound hosted native A0 gate 后才能重新达到 CURRENT/PARTIAL。此前的证据
+  Linux ARM64 与 x86_64 当前为 **REVALIDATION REQUIRED**：实现已冻结当前观测到的 canonical `wasm32v1-none`
+  sysroot digest，但只有该 digest 在该主机上通过 main-bound hosted native gate 后才能达到 CURRENT/PARTIAL。此前的证据
   边界是准确 workflow
   [`strategy-factory-linux-a0`](https://github.com/qOeOp/trade/blob/9e5149d4293a800be3a35e6b747a9f3dba304e1f/.github/workflows/strategy-factory-linux-a0.yml)、
   head `9e5149d4293a800be3a35e6b747a9f3dba304e1f` 上的 `workflow_dispatch`
