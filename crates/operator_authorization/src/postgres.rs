@@ -2696,8 +2696,39 @@ mod tests {
         resolution
     }
 
+    /// Blocks until one of `role`'s backends is queued on a row lock whose
+    /// top-level statement matches `query_fragment`.
+    ///
+    /// Releasing a gate after `yield_now()` or a fixed sleep proves no order:
+    /// the scheduler decides whether the other party had reached its lock yet,
+    /// so the same tree passes on one machine and fails on another. This asks
+    /// the database whether the waiter is actually queued, which makes the
+    /// order a fact. A non-superuser sees `query` only for its own backends,
+    /// so `pool` must be connected as `role`.
+    async fn wait_for_row_lock(pool: &PgPool, role: &str, query_fragment: &str) {
+        tokio::time::timeout(Duration::from_secs(30), async {
+            loop {
+                let waiting: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM pg_stat_activity WHERE usename=$1 AND wait_event_type='Lock' AND query LIKE $2",
+                )
+                .bind(role)
+                .bind(query_fragment)
+                .fetch_one(pool)
+                .await
+                .unwrap();
+
+                if waiting > 0 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("no {role} backend queued on a lock matching {query_fragment}"));
+    }
+
     async fn wait_for_advisory_lock(pool: &PgPool, role: &str) {
-        tokio::time::timeout(Duration::from_secs(2), async {
+        tokio::time::timeout(Duration::from_secs(30), async {
             loop {
                 let waiting: i64 = sqlx::query_scalar(
                     "SELECT COUNT(*) FROM pg_stat_activity WHERE usename=$1 AND wait_event_type='Lock' AND wait_event='advisory'",
@@ -3318,15 +3349,12 @@ mod tests {
                 .revoke_portfolio_resource_grant(revoke_proposal)
                 .await
         });
-        tokio::time::timeout(Duration::from_secs(2), async {
-            loop {
-                let waiting: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pg_stat_activity WHERE usename='operator_authorization_writer' AND wait_event_type='Lock' AND query LIKE '%portfolio_resource_grant_issuances_v1%FOR UPDATE%'")
-                    .fetch_one(restarted.pool()).await.unwrap();
-
-                if waiting > 0 { break; }
-                tokio::task::yield_now().await;
-            }
-        }).await.unwrap();
+        wait_for_row_lock(
+            restarted.pool(),
+            "operator_authorization_writer",
+            "%portfolio_resource_grant_issuances_v1%FOR UPDATE%",
+        )
+        .await;
         let crossing_consumer = consumer.clone();
         let crossing_request = renewed_request.clone();
 
@@ -3340,7 +3368,12 @@ mod tests {
             transaction.rollback().await.unwrap();
             resolution
         });
-        tokio::task::yield_now().await;
+        wait_for_row_lock(
+            &consumer,
+            "product_edge_owner",
+            "%lock_current_portfolio_resource_grant_v1%",
+        )
+        .await;
         assert!(!revoke_task.is_finished());
         assert!(!crossing_reader.is_finished());
         revocation_gate.rollback().await.unwrap();
@@ -3457,15 +3490,12 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        tokio::time::timeout(Duration::from_secs(2), async {
-            loop {
-                let waiting: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pg_stat_activity WHERE usename='operator_authorization_writer' AND wait_event_type='Lock' AND query LIKE '%portfolio_resource_grant_issuances_v1%FOR UPDATE%'")
-                    .fetch_one(restarted.pool()).await.unwrap();
-
-                if waiting > 0 { break; }
-                tokio::task::yield_now().await;
-            }
-        }).await.unwrap();
+        wait_for_row_lock(
+            restarted.pool(),
+            "operator_authorization_writer",
+            "%portfolio_resource_grant_issuances_v1%FOR UPDATE%",
+        )
+        .await;
 
         let expiry_reader = tokio::spawn(async move {
             let mut transaction = expiry_consumer.begin().await.unwrap();
@@ -3488,7 +3518,12 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        wait_for_row_lock(
+            &consumer,
+            "product_edge_owner",
+            "%lock_current_portfolio_resource_grant_v1%",
+        )
+        .await;
         assert!(!expiry_reader.is_finished());
         assert!(!expiry_replay.is_finished());
         let database_now: i64 = sqlx::query_scalar(
@@ -4218,15 +4253,12 @@ mod tests {
                 .revoke_autonomous_policy_authorization(revoke_proposal)
                 .await
         });
-        tokio::time::timeout(Duration::from_secs(2), async {
-            loop {
-                let waiting: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pg_stat_activity WHERE usename='operator_authorization_writer' AND wait_event_type='Lock' AND query LIKE '%autonomous_policy_authorization_issuances_v1%FOR UPDATE%'")
-                    .fetch_one(restarted.pool()).await.unwrap();
-
-                if waiting > 0 { break; }
-                tokio::task::yield_now().await;
-            }
-        }).await.unwrap();
+        wait_for_row_lock(
+            restarted.pool(),
+            "operator_authorization_writer",
+            "%autonomous_policy_authorization_issuances_v1%FOR UPDATE%",
+        )
+        .await;
         let crossing_consumer = consumer.clone();
         let crossing_request = renewed_request.clone();
 
@@ -4240,7 +4272,12 @@ mod tests {
             transaction.rollback().await.unwrap();
             resolution
         });
-        tokio::task::yield_now().await;
+        wait_for_row_lock(
+            &consumer,
+            "product_edge_owner",
+            "%lock_current_autonomous_policy_authorization_v1%",
+        )
+        .await;
         assert!(!revoke_task.is_finished());
         assert!(!crossing_reader.is_finished());
         revocation_gate.rollback().await.unwrap();
@@ -4365,15 +4402,12 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        tokio::time::timeout(Duration::from_secs(2), async {
-            loop {
-                let waiting: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pg_stat_activity WHERE usename='operator_authorization_writer' AND wait_event_type='Lock' AND query LIKE '%autonomous_policy_authorization_issuances_v1%FOR UPDATE%'")
-                    .fetch_one(restarted.pool()).await.unwrap();
-
-                if waiting > 0 { break; }
-                tokio::task::yield_now().await;
-            }
-        }).await.unwrap();
+        wait_for_row_lock(
+            restarted.pool(),
+            "operator_authorization_writer",
+            "%autonomous_policy_authorization_issuances_v1%FOR UPDATE%",
+        )
+        .await;
 
         let expiry_reader = tokio::spawn(async move {
             let mut transaction = expiry_consumer.begin().await.unwrap();
@@ -4398,7 +4432,12 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        wait_for_row_lock(
+            &consumer,
+            "product_edge_owner",
+            "%lock_current_autonomous_policy_authorization_v1%",
+        )
+        .await;
         assert!(!expiry_reader.is_finished());
         assert!(!expiry_replay.is_finished());
         let database_now: i64 = sqlx::query_scalar(
@@ -5243,23 +5282,12 @@ mod tests {
             async move { revoke_first_owner.revoke(revoke_first_proposal).await };
 
         let revoke_first_task = tokio::spawn(revoke_first_future);
-        tokio::time::timeout(Duration::from_secs(2), async {
-            loop {
-                let waiting: i64 = sqlx::query_scalar(
-                    "SELECT COUNT(*) FROM pg_stat_activity WHERE usename=current_user AND wait_event_type='Lock' AND query LIKE '%operator_authorization_issuances_v1%FOR UPDATE%'",
-                )
-                .fetch_one(owner.pool())
-                .await
-                .unwrap();
-
-                if waiting > 0 {
-                    break;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .unwrap();
+        wait_for_row_lock(
+            owner.pool(),
+            "operator_authorization_writer",
+            "%operator_authorization_issuances_v1%FOR UPDATE%",
+        )
+        .await;
         let revoke_first_consumer = consumer.clone();
         let revoke_first_locator = revoke_first.locator();
 
@@ -5276,7 +5304,12 @@ mod tests {
             transaction.rollback().await.unwrap();
             result
         });
-        tokio::task::yield_now().await;
+        wait_for_row_lock(
+            &consumer,
+            "product_edge_owner",
+            "%lock_current_authorization_v1%",
+        )
+        .await;
         assert!(!revoke_first_task.is_finished());
         assert!(!waiting_resolver.is_finished());
         writer_gate.rollback().await.unwrap();
