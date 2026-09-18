@@ -12,8 +12,9 @@ Qualification 的 PostgreSQL custody 在物理上独立：`qualification_owner` 
 
 Replay Policy Catalog 与 durable Composer custody 采用相同的物理隔离。`rd_database_owner` 是仅负责
 database/public schema 的 NOLOGIN custodian；`replay_policy_catalog_owner` 与 `composer_owner` 是分别拥有
-private data/API schema 的 NOLOGIN object owner。`rd_owner` 没有 membership、ownership、schema `CREATE`、
-raw table 权限或 mutation `EXECUTE`，只保留固定 lock/read API。只有另行提供的
+private data/API schema 的 NOLOGIN object owner。`rd_owner` 没有 membership、ownership、schema `CREATE` 或
+raw table 权限；它保留固定 lock/read API 以及恰好一项不可转授的 mutation `EXECUTE`，即 Composer 提交 routine
+`commit_develop_composer_v2`/`v3`，使冻结的 Bounded Feature Program 能在一个 Owner 事务内被重读、锁定、绑定并提交。只有另行提供的
 `replay_policy_catalog_admin_writer` LOGIN 获得 Catalog 管理 routine 的不可转授 `EXECUTE`；
 `rd_fact_writer` 只保留 Composer commit 权限。所有 routine 都使用全限定关系、
 `search_path=pg_catalog,pg_temp` 并运行在调用方既有事务中。fresh deployment 必须先在 `rd_owner` 仍拥有
@@ -1111,6 +1112,26 @@ custody，以及 response-loss recovery：准确 `RESOLVE` 只能恢复同一份
 replacement、改变 policy，或创建第二份 request、receipt、outbox 或 head。只有实现完成，并由真实 disposable
 PostgreSQL Owner readback 与 end-to-end 第一方验收证明完整 composition 和每种零变化拒绝后，该
 TARGET 才能获准；它不授予 production 或 trading authority。
+
+## 价值流交接
+
+R&D、Backtest 与 Qualification 之间的阶段关系恰以下列对象跨越价值流。每个 Owner 页定义自己发出的对象，接收页
+重复自己接受的内容；本页只把它们列在一起，让价值流可以从头读到尾。
+
+- R&D → Backtest：一个 R&D 拥有的冻结 Exploratory Replay Request，绑定准确的 Artifact、PIT 范围、重放配置以及成本
+  滑点与容量模型身份。相同请求身份与规范字节加入同一个 attempt；含义变化即冲突，不执行任何写入。
+- Backtest → R&D：每个请求对应一个 Exploratory Run Result，状态恰为 `RUN_REJECTED` `IN_PROGRESS_OR_UNKNOWN`
+  `TERMINAL_RESULT` 或 `INVALID_REPLAY_EVIDENCE` 之一，重复每个实际消费的执行定义身份与完整有限的
+  `diagnosticCategorySet`。只有请求相等的 `TERMINAL_RESULT` 能进入 Research Selection；其他 attempt 只保留为
+  TrialFamily Census 事实，最多只能产生 `REPAIR_INPUTS`。
+- R&D → Qualification：一个带终态 `SELECTED_FOR_QUALIFICATION` Research Selection Disposition 的冻结 Candidate，
+  由稳定的 Qualification Review Request 承载，交叉绑定冻结的 Intent 证伪条件与停止规则、完整预注册、不可变且穷尽的
+  TrialFamily Census Frontier、探索请求/结果前沿、跨 family 前驱前沿、预提交的独立性依据、保护反馈观察前沿、
+  Protected Robustness Plan，以及预注册的保护决策策略身份与版本。
+- Qualification → Product Edge 与 R&D：一个只写一次的 Candidate Intake Receipt，`ADMITTED` 或 `NOT_ADMITTED`，
+  关闭该准确的评审请求。回执缺席保持 `SUBMITTED_OR_UNKNOWN`，任何状态摘要、传输成功或事件投递都不能替代它。
+  `NOT_ADMITTED` 不创建保护 attempt 也不消耗 holdout。随后 Qualification 在隔离中向 Backtest 请求并消费保护重放，
+  且不向 Research 返回任何保护测量。
 
 ## 保护路径
 

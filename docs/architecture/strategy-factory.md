@@ -13,7 +13,9 @@ Qualification's PostgreSQL custody is physically distinct: `qualification_owner`
 Replay Policy Catalog and durable Composer custody use the same physical separation. `rd_database_owner`
 is the NOLOGIN database/public-schema custodian; `replay_policy_catalog_owner` and `composer_owner` are
 distinct NOLOGIN object owners of private data and fixed API schemas. `rd_owner` has neither membership,
-ownership, schema `CREATE`, raw table access, nor mutation `EXECUTE`; it retains only fixed lock/read APIs.
+ownership, schema `CREATE` nor raw table access; it retains the fixed lock/read APIs and exactly one non-grantable
+mutation `EXECUTE`, on the Composer commit routines `commit_develop_composer_v2`/`v3`, so a frozen Bounded Feature
+Program is reread, locked, bound and committed inside one Owner transaction.
 The separately supplied `replay_policy_catalog_admin_writer` LOGIN alone receives non-grantable `EXECUTE` on the
 Catalog administration routine, while `rd_fact_writer` retains only Composer commit authority. All routines use `search_path=pg_catalog,pg_temp` inside the
 caller's existing transaction. A fresh deployment first runs the same bounded Rust schema materializers while
@@ -1216,6 +1218,32 @@ and may not compose a replacement, alter policy, or create a second request, rec
 is not admitted until implementation plus real disposable PostgreSQL Owner readback and end-to-end first-party
 acceptance prove the complete composition and every zero-change rejection; it grants no production or trading
 authority.
+
+## Value-stream handoffs
+
+The stage relations between R&D, Backtest, and Qualification cross the value stream as exactly these objects. Each
+Owner page defines the object it emits, and the receiving page repeats what it accepts; this page only lists them
+so the stream can be read end to end.
+
+- R&D → Backtest: one R&D-owned frozen Exploratory Replay Request bound to the exact Artifact, PIT scope, replay
+  configuration, and cost, slippage, and capacity-model identities. The same request identity and canonical bytes
+  join one attempt; changed meaning is a conflict and performs no write.
+- Backtest → R&D: one Exploratory Run Result per request in exactly one of `RUN_REJECTED`,
+  `IN_PROGRESS_OR_UNKNOWN`, `TERMINAL_RESULT`, or `INVALID_REPLAY_EVIDENCE`, repeating every consumed
+  execution-defining identity and the complete finite `diagnosticCategorySet`. Only a request-equal
+  `TERMINAL_RESULT` may enter Research Selection; every other attempt remains a TrialFamily Census fact and can
+  produce only `REPAIR_INPUTS`.
+- R&D → Qualification: one frozen Candidate with a terminal `SELECTED_FOR_QUALIFICATION` Research Selection
+  Disposition, carried by a stable Qualification Review Request that cross-binds the frozen Intent falsifier and
+  stop rule, complete preregistration, immutable exhaustive TrialFamily Census Frontier, exploratory
+  request/result frontier, cross-family predecessor frontier, precommitted independence basis, protected-feedback
+  observation frontier, Protected Robustness Plan, and the preregistered protected decision-policy identity and
+  version.
+- Qualification → Product Edge and R&D: one write-once Candidate Intake Receipt, `ADMITTED` or `NOT_ADMITTED`,
+  that closes the exact review request. Receipt absence remains `SUBMITTED_OR_UNKNOWN`, and no status summary,
+  transport success, or event delivery replaces it. `NOT_ADMITTED` creates no protected attempt and consumes no
+  holdout. Qualification then requests and consumes protected replay from Backtest in isolation and returns no
+  protected measurement to Research.
 
 ## Protected path
 

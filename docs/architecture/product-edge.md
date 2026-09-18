@@ -5,8 +5,8 @@
 Product Edge is the application and conversation boundary. It turns attended UI or natural-language intent into
 bounded requests and returns read-only product views. The product surface is the Trade-owned Dashboard in
 `product/dashboard`; its `/api/mcp` endpoint exposes the same admitted operations to optional external
-conversation clients. The deployment package in `product/rd-workbench` is still the current executor for
-production effects; the Dashboard has not cut over.
+conversation clients. The deployment package in `product/rd-workbench` deploys PostgreSQL, the Owner APIs, and the Dashboard;
+the Dashboard effect worker is the only executor path, and there is no production deployment.
 
 ## Product surface and package
 
@@ -30,7 +30,7 @@ not call arbitrary Owner SQL, mint business facts, or keep a shadow workflow tru
 Trade-owned operational RunStore data; typed R&D and Backtest reads use their exact Owner contracts. They never
 copy operational run rows or raw Owner payloads, and operational completion is never reinterpreted as business
 success. A live strategy loop, market session, order state machine, and recovery effect remain owned by Trade
-Runtime, Risk, Execution, and Recovery; the product surface may supervise and display them but is never the trading
+Runtime, Risk, and Execution, which also owns Recovery; the product surface may supervise and display them but is never the trading
 runtime.
 
 **Current deployment state:** every Dashboard service starts only under the opt-in `dashboard-preview` profile, the
@@ -69,7 +69,7 @@ Dashboard's effect custody.
 | Workers and workload isolation    | Queue‑backed execution and workload isolation by admitted role                              | Worker loss leaves the business result unresolved until the receiving Owner is queried.                                                                                                                                              |
 | Bounded reasoning step            | Optional bounded internal R&D reasoning step with explicitly admitted tools                 | Agent memory, model output, and tool‑call success are non‑authoritative. The step gets no arbitrary shell, Owner SQL, lifecycle, Risk, Execution, secret‑management, or workspace‑management capability.                             |
 | Connection config and secrets     | Typed connection configuration and opaque credential custody                                | Executor secret access is not Operator Authorization. Least‑privilege paths are mandatory; secret values never enter prompts, Owner requests, logs, artifacts, or receipts.                                                          |
-| Operational state                 | UI preferences and explicitly rebuildable non‑authoritative caches only                     | Research lineage, receipts, Qualification, Governance, Runtime, Risk, Execution, Portfolio, and Recovery truth are forbidden. Long‑lived artifacts use Owner storage or admitted object storage.                                     |
+| Operational state                 | UI preferences and explicitly rebuildable non‑authoritative caches only                     | Research lineage, receipts, Qualification, Governance, Runtime, Risk, Execution, and Portfolio truth, including Execution‑owned Recovery truth, are forbidden. Long‑lived artifacts use Owner storage or admitted object storage.    |
 | Deployment versions               | Repository‑first source for the application, its operations, schedules, and resource schema | Deployed state is a projection of the repository. Promotion records the Git revision, image digest, schema versions, and rollback target as one compatibility cut.                                                                   |
 
 Operator UI visibility is not an authorization boundary. The distributable MCP profile is deny by default: its
