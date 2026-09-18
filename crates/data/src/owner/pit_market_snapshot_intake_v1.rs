@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     pit_observation_source_v1::PitObservationSourceV1,
-    pit_snapshot::{PitSnapshotError, UntrustedPitSnapshotRequest},
+    pit_snapshot::{PitSnapshotError, UntrustedPitSnapshotLocator, UntrustedPitSnapshotRequest},
     source_binding::BindingDigest,
     universe_selection::UntrustedUniverseSelectionLocatorV1,
 };
@@ -49,6 +49,11 @@ pub enum PitMarketSnapshotDispositionV1 {
 }
 
 /// The move-only terminal Market Data seals for one request.
+///
+/// It carries the Owner's own locator for the committed snapshot. Without it a submitter that has
+/// just minted a snapshot could not name it to any later Owner intake, because the locator binds
+/// fields the Owner derives and the submitter never sees. The locator is Owner-derived evidence
+/// handed back for exact resolution, not something a caller may author.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct PitMarketSnapshotTerminalV1 {
     request_identity: BindingDigest,
@@ -57,6 +62,7 @@ pub struct PitMarketSnapshotTerminalV1 {
     snapshot_identity: BindingDigest,
     fact_digest: BindingDigest,
     disposition: PitMarketSnapshotDispositionV1,
+    locator: Option<UntrustedPitSnapshotLocator>,
 }
 
 impl PitMarketSnapshotTerminalV1 {
@@ -67,6 +73,7 @@ impl PitMarketSnapshotTerminalV1 {
         snapshot_identity: BindingDigest,
         fact_digest: BindingDigest,
         disposition: PitMarketSnapshotDispositionV1,
+        locator: Option<UntrustedPitSnapshotLocator>,
     ) -> Self {
         Self {
             request_identity,
@@ -75,7 +82,16 @@ impl PitMarketSnapshotTerminalV1 {
             snapshot_identity,
             fact_digest,
             disposition,
+            locator,
         }
+    }
+
+    /// The Owner's locator for the committed snapshot, when the disposition committed one.
+    ///
+    /// A terminal negative has no snapshot to locate, so this is absent rather than zeroed.
+    #[must_use]
+    pub const fn locator(&self) -> Option<&UntrustedPitSnapshotLocator> {
+        self.locator.as_ref()
     }
 
     /// The exact request identity this terminal answers.
