@@ -354,7 +354,9 @@ than a connected grid. The header/body color relationship follows the standard c
 The authenticated Owner GET `/v2/develop-composer/runs/{request_identity}/readback` resolves the same identity
 against the Owner's own Strategy Input custody as a zero-effect read: it revalidates the stored positive Composer
 record through the locked Market Data facade the run itself bound, so a run committed in production reads back in
-production. It accepts no request body and returns the existing strict
+production. This resolution is `IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`: the adapter behind the route still
+resolves the bindings from the sealed acceptance frame and carries the acceptance feature until that change lands,
+so today a deployment without the feature serves no readback at all. It accepts no request body and returns the existing strict
 `DevelopComposerOperationResponseV2`; the Dashboard BFF path-binds the identity and filters it to the fields above.
 `SUCCESS` requires an operation receipt plus the complete four-field Artifact projection. Every other disposition
 must carry no receipt or Artifact projection. Unknown keys, identity drift, contradictory disposition fields,
