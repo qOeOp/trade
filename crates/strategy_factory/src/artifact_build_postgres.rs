@@ -3479,6 +3479,13 @@ mod postgres_freshness_tests {
                 .unwrap(),
             result
         );
+
+        // The ordered chain shares one store; remove the legacy row this proof wrote.
+        sqlx::query("DELETE FROM rd_artifact_build_attempts_v1 WHERE build_request_identity=$1")
+            .bind(&build_request_identity)
+            .execute(&owner.pool)
+            .await
+            .unwrap();
     }
 
     #[rstest::rstest]
@@ -4079,6 +4086,14 @@ mod postgres_freshness_tests {
             Err(ArtifactBuildError::Storage(message))
                 if message.contains("unclassified legacy attempt custody")
         ));
+
+        // The ordered chain shares one store, and unclassified legacy custody blocks every later
+        // Owner activation. Remove the row this proof wrote.
+        sqlx::query("DELETE FROM rd_artifact_build_attempts_v1 WHERE build_request_identity=$1")
+            .bind(&build_request_identity)
+            .execute(&owner.pool)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
