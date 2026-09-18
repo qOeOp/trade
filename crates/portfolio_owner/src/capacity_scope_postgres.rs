@@ -826,6 +826,15 @@ mod tests {
     };
 
     use rstest::rstest;
+    use vibe_execution_owner::{
+        adapter_binding::{
+            AdapterBindingError, AdapterBindingState, CredentialHandleIdentity,
+            PaperAdapterBindingDraft, PaperAdapterCapability, PaperMode, ReduceOnlyPolicy,
+            TrustedClock, derive_paper_account_namespace, derive_paper_effect_namespace,
+        },
+        adapter_binding_postgres::{ExecutionOwnerClock, PaperAdapterBindingPostgresV1},
+        paper_account_opening::{PAPER_ACCOUNT_OPENING_SCHEMA_VERSION, PaperAccountOpeningDraft},
+    };
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
     use super::*;
@@ -854,6 +863,12 @@ mod tests {
         }
     }
 
+    impl ExecutionOwnerClock for FixtureClock {
+        fn now(&self) -> Result<TrustedClock, AdapterBindingError> {
+            TrustedClock::new(*self.0.lock().unwrap(), 7)
+        }
+    }
+
     fn suffix() -> String {
         format!(
             "{}-{}",
@@ -867,7 +882,13 @@ mod tests {
 
     fn definition(suffix: &str, pool: &str) -> CapacityScopeDefinitionProposal {
         CapacityScopeDefinitionProposal {
-            account_namespace: format!("paper.accounts.v1.{suffix}"),
+            // Execution derives this namespace from the Execution Scope identity, so a Capacity
+            // Scope that does not use Execution's own string covers an account nobody can trade.
+            account_namespace: derive_paper_account_namespace(
+                PaperMode::Paper,
+                &format!("paper-scope-{suffix}"),
+            )
+            .unwrap(),
             mode: CapacityScopeMode::Paper,
             economic_pool_identity: format!("{pool}-{suffix}"),
             economic_pool_currency: "USDT".to_string(),
@@ -1219,25 +1240,54 @@ mod tests {
                 )
             }
         };
-        // Stand in for Execution's custody: its own schema and sealed read function.
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS execution_private.execution_paper_account_opening_facts_v1 (                 fact_identity TEXT PRIMARY KEY, account_namespace TEXT NOT NULL UNIQUE,                 execution_scope_identity TEXT NOT NULL, sequence BIGINT NOT NULL,                 meaning_json JSONB NOT NULL)",
+        // Execution's own custody publishes the account, through its own production path.
+        let execution = PaperAdapterBindingPostgresV1::connect(
+            test_database.database_url(CanonicalOwnerTestRoleV1::ExecutionWriter),
+            format!("execution-node-{suffix}"),
+            clock.clone(),
         )
-        .execute(mutation.pool(CanonicalOwnerTestRoleV1::ExecutionWriter))
         .await
         .unwrap();
-        sqlx::query(
-            "CREATE OR REPLACE FUNCTION execution_api.read_paper_account_opening_fact_v1(namespace text)              RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER              SET search_path = pg_catalog, execution_private AS $$                 SELECT jsonb_build_object('fact_identity', fact.fact_identity,                                           'sequence', fact.sequence,                                           'opening', fact.meaning_json)                   FROM execution_private.execution_paper_account_opening_facts_v1 fact                  WHERE fact.account_namespace = namespace $$",
-        )
-        .execute(mutation.pool(CanonicalOwnerTestRoleV1::ExecutionWriter))
-        .await
-        .unwrap();
-        sqlx::query(
-            "GRANT EXECUTE ON FUNCTION execution_api.read_paper_account_opening_fact_v1(text) TO portfolio_writer",
-        )
-        .execute(mutation.pool(CanonicalOwnerTestRoleV1::ExecutionWriter))
-        .await
-        .unwrap();
+        let execution_scope_identity = format!("paper-scope-{suffix}");
+        let mode = PaperMode::Paper;
+        let binding = execution
+            .commit(PaperAdapterBindingDraft {
+                schema_version: 1,
+                binding_version: 1,
+                generation: 1,
+                mode,
+                account_namespace: derive_paper_account_namespace(mode, &execution_scope_identity)
+                    .unwrap(),
+                effect_namespace: derive_paper_effect_namespace(mode, &execution_scope_identity)
+                    .unwrap(),
+                execution_scope_identity: execution_scope_identity.clone(),
+                source_account_identity: format!("strategy-account-{suffix}"),
+                simulator_account_identity: format!("sim-account-{suffix}"),
+                simulator_endpoint_identity: format!("simulator:endpoint:{suffix}"),
+                implementation_digest: "11".repeat(32),
+                configuration_digest: "22".repeat(32),
+                required_capabilities: vec![
+                    PaperAdapterCapability::SubmitOrder,
+                    PaperAdapterCapability::CancelOrder,
+                    PaperAdapterCapability::OrderReadback,
+                    PaperAdapterCapability::AccountReadback,
+                    PaperAdapterCapability::EnforceableReduceOnly,
+                ],
+                reduce_only_policy: ReduceOnlyPolicy::SimulatorRejectIncreaseOrCrossZero,
+                credential_handle_identity: CredentialHandleIdentity::parse(format!(
+                    "credential-handle-{suffix}"
+                ))
+                .unwrap(),
+                trust_policy_identity: "execution-paper-trust-v1".to_string(),
+                state: AdapterBindingState::Admitted,
+                effective_at_epoch_ms: 1_000,
+                observed_at_epoch_ms: 1_900,
+                exclusive_valid_through_epoch_ms: 900_000,
+                clock_epoch: 7,
+            })
+            .await
+            .unwrap();
+
         // With Execution's read API present but no fact, there is nothing to project from.
         assert_eq!(
             owner
@@ -1246,30 +1296,17 @@ mod tests {
                 .unwrap(),
             Err(CapacityViewFailure::AccountFactUnavailable)
         );
-        let opening_fact = |currency: &str, amount: &str| {
-            serde_json::json!({
-                "schema_version": 1,
-                "account_namespace": alpha.account_namespace,
-                "execution_scope_identity": format!("paper-scope-{suffix}"),
-                "binding_fact_identity": format!("sha256:binding-{suffix}"),
-                "collateral_currency": currency,
-                "collateral_amount": amount,
-                "observed_at_epoch_ms": 900,
-                "clock_epoch": 7,
+        let opening = execution
+            .commit_account_opening_fact(PaperAccountOpeningDraft {
+                schema_version: PAPER_ACCOUNT_OPENING_SCHEMA_VERSION,
+                binding_locator: binding.locator.clone(),
+                collateral_currency: "USDT".to_string(),
+                collateral_amount: "100000.5".to_string(),
+                observed_at_epoch_ms: 1_950,
+                clock_epoch: 7,
             })
-        };
-        sqlx::query(
-            "INSERT INTO execution_private.execution_paper_account_opening_facts_v1
-                (fact_identity, account_namespace, execution_scope_identity, sequence, meaning_json)
-             VALUES ($1, $2, $3, 1, $4)",
-        )
-        .bind(format!("sha256:opening-{suffix}"))
-        .bind(&alpha.account_namespace)
-        .bind(format!("paper-scope-{suffix}"))
-        .bind(opening_fact("USDT", "100000.5"))
-        .execute(mutation.pool(CanonicalOwnerTestRoleV1::ExecutionWriter))
-        .await
-        .unwrap();
+            .await
+            .unwrap();
 
         let view = owner
             .commit_capacity_view(&bound_alpha, 5_000)
@@ -1289,7 +1326,15 @@ mod tests {
             PAPER_COLLATERAL_GROSS_CEILING_V1
         );
         assert_eq!(view.liquidity_input_cut_identity(), NO_LIQUIDITY_INPUT_V1);
-        assert_eq!(view.account_fact_cut().sequence, 1);
+        assert_eq!(
+            view.account_fact_cut().sequence,
+            opening.sequence(),
+            "the view cites Execution's own stream sequence"
+        );
+        assert_eq!(
+            view.account_fact_cut().fact_identity,
+            opening.fact_identity()
+        );
         assert_eq!(
             view.proof_frontier_identity(),
             second.proof_frontier_identity()
@@ -1321,16 +1366,15 @@ mod tests {
                 .unwrap();
         assert!(expired.is_none(), "a view past its deadline is not current");
 
+        let untampered = owner
+            .commit_capacity_view(&bound_alpha, 5_000)
+            .await
+            .unwrap();
+        let execution_pool = mutation.pool(CanonicalOwnerTestRoleV1::ExecutionWriter);
+
         // A pool denominated in another currency needs a Market Data valuation fact.
-        sqlx::query(
-            "UPDATE execution_private.execution_paper_account_opening_facts_v1
-                SET meaning_json = $2 WHERE account_namespace = $1",
-        )
-        .bind(&alpha.account_namespace)
-        .bind(opening_fact("USDC", "100000.5"))
-        .execute(mutation.pool(CanonicalOwnerTestRoleV1::ExecutionWriter))
-        .await
-        .unwrap();
+        tamper_opening_collateral(execution_pool, &alpha.account_namespace, "USDC", "100000.5")
+            .await;
         assert_eq!(
             owner
                 .commit_capacity_view(&bound_alpha, 5_000)
@@ -1342,15 +1386,13 @@ mod tests {
             })
         );
         // Collateral finer than the fixed ceiling scale is not representable.
-        sqlx::query(
-            "UPDATE execution_private.execution_paper_account_opening_facts_v1
-                SET meaning_json = $2 WHERE account_namespace = $1",
+        tamper_opening_collateral(
+            execution_pool,
+            &alpha.account_namespace,
+            "USDT",
+            "1.0000005",
         )
-        .bind(&alpha.account_namespace)
-        .bind(opening_fact("USDT", "1.0000005"))
-        .execute(mutation.pool(CanonicalOwnerTestRoleV1::ExecutionWriter))
-        .await
-        .unwrap();
+        .await;
         assert_eq!(
             owner
                 .commit_capacity_view(&bound_alpha, 5_000)
@@ -1359,6 +1401,16 @@ mod tests {
             Err(CapacityViewFailure::CollateralNotRepresentable {
                 amount: "1.0000005".to_string()
             })
+        );
+        // Restoring Execution's own values reads back the same view.
+        tamper_opening_collateral(execution_pool, &alpha.account_namespace, "USDT", "100000.5")
+            .await;
+        assert_eq!(
+            owner
+                .commit_capacity_view(&bound_alpha, 5_000)
+                .await
+                .unwrap(),
+            untampered
         );
 
         // Native tampering fails closed, and exact restoration reads back identically.
@@ -1422,11 +1474,50 @@ mod tests {
             "rd_owner must be denied on Portfolio custody"
         );
 
-        cleanup(&pool, &suffix).await;
+        cleanup(
+            &pool,
+            execution_pool,
+            &suffix,
+            &execution_scope_identity,
+            &format!("execution-node-{suffix}"),
+        )
+        .await;
         assert_eq!(own_counts(&pool, &suffix).await, (0, 0, 0));
     }
 
-    async fn cleanup(pool: &PgPool, marker: &str) {
+    /// Rewrites two fields of Execution's committed opening fact in place.
+    ///
+    /// Portfolio's own refusals need collateral Execution's validation would never commit, so the
+    /// proof tampers here and restores the Owner's own values afterwards.
+    async fn tamper_opening_collateral(
+        pool: &PgPool,
+        namespace: &str,
+        currency: &str,
+        amount: &str,
+    ) {
+        sqlx::query(
+            "UPDATE execution_private.execution_paper_account_opening_facts_v1
+                SET meaning_json = pg_catalog.jsonb_set(
+                      pg_catalog.jsonb_set(meaning_json, '{collateral_currency}', $2),
+                      '{collateral_amount}', $3)
+              WHERE account_namespace = $1",
+        )
+        .bind(namespace)
+        .bind(serde_json::Value::String(currency.to_string()))
+        .bind(serde_json::Value::String(amount.to_string()))
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    /// Removes exactly what this proof wrote, in both Owners' own custody.
+    async fn cleanup(
+        pool: &PgPool,
+        execution: &PgPool,
+        marker: &str,
+        scope_identity: &str,
+        node_identity: &str,
+    ) {
         let like = format!("%{marker}%");
 
         for statement in [
@@ -1434,7 +1525,10 @@ mod tests {
               WHERE EXISTS (SELECT 1 FROM portfolio_private.portfolio_capacity_scope_registry_cuts_v1 cut
                              WHERE cut.proof_frontier_identity = outbox.event_identity
                                AND cut.registry_json::text LIKE $1)",
-            "DELETE FROM portfolio_private.portfolio_capacity_views_v1 WHERE account_namespace LIKE $1",
+            "DELETE FROM portfolio_private.portfolio_capacity_views_v1 view_record
+              WHERE EXISTS (SELECT 1 FROM portfolio_private.portfolio_capacity_scope_bound_readbacks_v1 readback
+                             WHERE readback.capacity_scope_identity = view_record.capacity_scope_identity
+                               AND readback.request_identity LIKE $1)",
             "DELETE FROM portfolio_private.portfolio_capacity_scope_bound_readbacks_v1 WHERE request_identity LIKE $1",
             "DELETE FROM portfolio_private.portfolio_capacity_scope_registry_heads_v1 head
               WHERE EXISTS (SELECT 1 FROM portfolio_private.portfolio_capacity_scope_registry_cuts_v1 cut
@@ -1448,6 +1542,46 @@ mod tests {
                 .await
                 .unwrap();
         }
+        cleanup_execution_scope(execution, scope_identity, node_identity).await;
+    }
+
+    /// Removes the Execution facts this proof asked Execution's own custody to commit.
+    ///
+    /// The stream row is shared by every scope one Execution node writes, so it is removed last
+    /// and only by this proof's own node identity.
+    async fn cleanup_execution_scope(
+        execution: &PgPool,
+        scope_identity: &str,
+        node_identity: &str,
+    ) {
+        for statement in [
+            "DELETE FROM execution_private.execution_paper_adapter_binding_outbox_v1 outbox
+              WHERE EXISTS (SELECT 1 FROM execution_private.execution_paper_adapter_binding_facts_v1 fact
+                             WHERE fact.fact_identity = outbox.fact_identity
+                               AND fact.execution_scope_identity LIKE $1)",
+            "DELETE FROM execution_private.execution_paper_account_opening_facts_v1
+              WHERE execution_scope_identity LIKE $1",
+            "DELETE FROM execution_private.execution_paper_adapter_binding_heads_v1
+              WHERE execution_scope_identity LIKE $1",
+            "DELETE FROM execution_private.execution_paper_namespace_reservations_v1
+              WHERE execution_scope_identity LIKE $1",
+            "DELETE FROM execution_private.execution_paper_adapter_binding_facts_v1
+              WHERE execution_scope_identity LIKE $1",
+        ] {
+            sqlx::query(statement)
+                .bind(scope_identity)
+                .execute(execution)
+                .await
+                .unwrap();
+        }
+        sqlx::query(
+            "DELETE FROM execution_private.execution_paper_adapter_binding_streams_v1
+              WHERE owner_node_identity = $1",
+        )
+        .bind(node_identity)
+        .execute(execution)
+        .await
+        .unwrap();
     }
 
     #[rstest]
