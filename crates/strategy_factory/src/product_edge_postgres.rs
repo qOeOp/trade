@@ -5064,6 +5064,23 @@ pub(crate) mod tests {
     /// strategy input bindings through its own acceptance basis, and the R&D composition root
     /// resolves them, derives the proposal, freezes it and lowers it inside one transaction. A
     /// program frozen this way is bound to receipts that were proven at the moment it was sealed.
+    ///
+    /// It is deliberately absent from the ordered chain in
+    /// `scripts/ci/test-rd-owner-postgres.bash`, which is the only thing that selects it, so it
+    /// currently runs nowhere. Two of its requirements conflict there, and neither the chain's
+    /// routing nor this test alone can settle it:
+    ///
+    /// - it needs its own database, because `bar_joined_cut_acceptance_v1` and the replay
+    ///   composition fixture behind chain step 6 both state the fixed
+    ///   `market_semantics_identity: digest(84)`, and `resolve_and_bind` refuses unless the market
+    ///   semantics scope resolves to exactly one fact;
+    /// - it needs the shared database's accumulated state, because the chain's dedicated clones are
+    ///   taken from the template before step 4 migrates the shared database, and on a clone this
+    ///   test cannot even open the Product Edge.
+    ///
+    /// Readmitting it means resolving one of the two: making it self-sufficient on a clone, as
+    /// `program_host_bar_joined_cut_postgres_acceptance_tests` is, or giving the acceptance
+    /// fixture a semantics identity derived from the Design rather than a constant.
     #[cfg(feature = "sealed-strategy-input-acceptance")]
     #[rstest::rstest]
     #[ignore = "requires admitted OA/PE/R&D test database URLs"]
@@ -5087,6 +5104,7 @@ pub(crate) mod tests {
     async fn run_declared_bounded_feature_program_assembly() {
         use vibe_data::owner::bar_joined_cut_acceptance_v1::{
             UntrustedBarJoinedCutAcceptanceDesignClaimsV1,
+            complete_owner_bar_joined_cut_acceptance_fixture_v1,
             prepare_owner_bar_joined_cut_acceptance_basis_v1,
         };
 
@@ -5094,9 +5112,13 @@ pub(crate) mod tests {
             bounded_feature_program_six_role_bar_fixture_v1::{
                 six_role_bar_bounded_feature_design_v1, six_role_bar_bounded_feature_meaning_v1,
             },
+            develop_composer_postgres_v2::{
+                issue_sealed_develop_composer_readback_for_acceptance_v2,
+                issue_strategy_design_role_set_for_acceptance_v1,
+            },
             program_host_v2::{
                 BAR_HOUR_CLOSE, BAR_MINUTE_CLOSE, BAR_MINUTE_HIGH, BAR_MINUTE_LOW, BAR_MINUTE_OPEN,
-                BAR_SESSION_DAY_CLOSE,
+                BAR_SESSION_DAY_CLOSE, joined_plan_and_artifact,
             },
             rd_bounded_feature_program_postgres_v1::{
                 PostgresResearchBoundedFeatureProgramOwnerV1,
@@ -5197,13 +5219,32 @@ pub(crate) mod tests {
                 .map(crate::strategy_plan_v2::strategy_input_role_identity_v2)
                 .expect("the six-role bounded Design carries every fixed BAR role")
         });
-        Box::pin(prepare_owner_bar_joined_cut_acceptance_basis_v1(
+        let basis = Box::pin(prepare_owner_bar_joined_cut_acceptance_basis_v1(
             &market_data_database_url,
             UntrustedBarJoinedCutAcceptanceDesignClaimsV1 {
                 research_request_identity: design.research_request_identity,
                 strategy_design_identity: design_identity,
                 input_role_identities,
             },
+        ))
+        .await
+        .expect("the Market Data Owner prepares the six BAR strategy input bindings");
+
+        // Preparing the basis computes the bindings and writes no registry declaration. Persisting
+        // them is phase two, and without it this Design resolves to no PIT coordinate, so the
+        // assembly below refuses with `MarketDataUnavailable` before reaching any Owner custody.
+        //
+        // Phase two takes the authenticated R&D role set, because the Owner will not register
+        // against an attestation that does not exist. The role set is projected from a sealed
+        // Composer readback of this Design rather than assembled here, so the role semantics it
+        // carries are exactly the ones the basis issued custody for.
+        let (plan, artifact) = joined_plan_and_artifact(design.clone(), basis.input_bindings());
+        let composer = issue_sealed_develop_composer_readback_for_acceptance_v2(&plan, &artifact)
+            .expect("the sealed Composer readback issues for the six-role BAR plan");
+        let role_set = issue_strategy_design_role_set_for_acceptance_v1(&composer)
+            .expect("the Composer readback projects the six-role BAR role set");
+        Box::pin(complete_owner_bar_joined_cut_acceptance_fixture_v1(
+            basis, role_set,
         ))
         .await
         .expect("the Market Data Owner issues the six BAR strategy input bindings");
