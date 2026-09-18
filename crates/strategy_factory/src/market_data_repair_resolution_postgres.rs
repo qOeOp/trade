@@ -892,6 +892,53 @@ mod tests {
         );
     }
 
+    /// Seeds the parent custody these proofs resolve against, creating no relation.
+    ///
+    /// The canonical topology materializes the R&D Owner's relations while `rd_owner` still owns
+    /// `public`, then revokes CREATE on that schema. These proofs therefore cannot stand up a
+    /// synthetic parent table there, and do not need to: the relations already exist, and what
+    /// the resolution's foreign key wants is a row chain down to the repair request. The
+    /// identities are the fixture's own, so both proofs seed and clear the same chain.
+    async fn seed_repair_request_custody(pool: &PgPool) {
+        for statement in [
+            "INSERT INTO rd_trial_families_v1 (trial_family_identity,intent_identity,root_digest,root_json,root_receipt_json,committed_at_epoch_ms) VALUES ('family','intent','sha256:root','{}'::jsonb,'{}'::jsonb,1) ON CONFLICT DO NOTHING",
+            "INSERT INTO rd_iteration_decisions_v1 (decision_identity,trial_family_identity,request_identity,result_identity,attempt_identity,decision_digest,decision_json,receipt_json,decision_storage_bytes,decision_storage_digest,receipt_storage_bytes,receipt_storage_digest,committed_at_epoch_ms) VALUES ('decision','family','replay-request','result','attempt','sha256:decision','{}'::jsonb,'{}'::jsonb,''::bytea,'sha256:decision-storage',''::bytea,'sha256:decision-receipt',1) ON CONFLICT DO NOTHING",
+            "INSERT INTO rd_repair_action_requests_v1 (action_request_identity,decision_identity,result_identity,action_request_digest,request_json,receipt_json,request_storage_bytes,request_storage_digest,receipt_storage_bytes,receipt_storage_digest,committed_at_epoch_ms) VALUES ('action','decision','action-result','sha256:action','{}'::jsonb,'{}'::jsonb,''::bytea,'sha256:action-storage',''::bytea,'sha256:action-receipt',1) ON CONFLICT DO NOTHING",
+            "INSERT INTO rd_market_data_repair_requests_v1 (request_identity,action_request_identity,decision_identity,result_identity,request_digest,request_json,receipt_json,request_storage_bytes,request_storage_digest,receipt_storage_bytes,receipt_storage_digest,committed_at_epoch_ms) VALUES ('request','action','repair-decision','repair-result','sha256:request','{}'::jsonb,'{}'::jsonb,''::bytea,'sha256:request-storage',''::bytea,'sha256:request-receipt',1) ON CONFLICT DO NOTHING",
+        ] {
+            sqlx::query(statement)
+                .execute(pool)
+                .await
+                .expect("parent repair custody");
+        }
+    }
+
+    /// Removes exactly what these proofs wrote, in foreign-key order.
+    ///
+    /// The ordered chain shares one database and both proofs use the fixture's fixed identities,
+    /// so the second would otherwise resolve the first's row and its exact custody counts would
+    /// read the first's writes.
+    async fn clear_repair_resolution_custody(pool: &PgPool) {
+        sqlx::query("DELETE FROM rd_owner_outbox_v1 WHERE event_kind=$1")
+            .bind(RESOLVED_EVENT_V1)
+            .execute(pool)
+            .await
+            .expect("repair resolution outbox cleanup");
+
+        for statement in [
+            "DELETE FROM rd_market_data_repair_resolutions_v1 WHERE repair_request_identity='request'",
+            "DELETE FROM rd_market_data_repair_requests_v1 WHERE request_identity='request'",
+            "DELETE FROM rd_repair_action_requests_v1 WHERE action_request_identity='action'",
+            "DELETE FROM rd_iteration_decisions_v1 WHERE decision_identity='decision'",
+            "DELETE FROM rd_trial_families_v1 WHERE trial_family_identity='family'",
+        ] {
+            sqlx::query(statement)
+                .execute(pool)
+                .await
+                .expect("repair custody cleanup");
+        }
+    }
+
     async fn prepare_resolution_custody() -> (CanonicalOwnerPostgresTestDatabaseV1, PgPool) {
         let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
             .await
@@ -900,23 +947,8 @@ mod tests {
             .mutation()
             .pool(CanonicalOwnerTestRoleV1::RdOwner)
             .clone();
-        sqlx::query(
-            "CREATE TABLE rd_market_data_repair_requests_v1 (request_identity TEXT PRIMARY KEY)",
-        )
-        .execute(&pool)
-        .await
-        .expect("parent request table");
-        sqlx::query("CREATE TABLE rd_owner_outbox_v1 (event_identity TEXT PRIMARY KEY, aggregate_identity TEXT NOT NULL, event_kind TEXT NOT NULL, payload_digest TEXT NOT NULL, payload_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE (aggregate_identity,event_kind))")
-            .execute(&pool)
-            .await
-            .expect("R&D outbox");
-        migrate(&pool).await.expect("resolution schema");
-        sqlx::query(
-            "INSERT INTO rd_market_data_repair_requests_v1(request_identity) VALUES ('request')",
-        )
-        .execute(&pool)
-        .await
-        .expect("parent request");
+        clear_repair_resolution_custody(&pool).await;
+        seed_repair_request_custody(&pool).await;
         (database, pool)
     }
 
@@ -966,36 +998,18 @@ mod tests {
                 .is_err()
         );
         transaction.rollback().await.expect("tampered rollback");
+        clear_repair_resolution_custody(&pool).await;
     }
 
     #[tokio::test]
     #[ignore = "requires the canonical disposable R&D Owner PostgreSQL topology"]
     async fn commit_retry_resolve_conflict_and_tamper_are_atomic() {
-        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
-            .await
-            .expect("canonical disposable topology");
-        let mutation = database.mutation();
-        let pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
-        sqlx::query(
-            "CREATE TABLE rd_market_data_repair_requests_v1 (request_identity TEXT PRIMARY KEY)",
-        )
-        .execute(pool)
-        .await
-        .expect("parent request table");
-        sqlx::query("CREATE TABLE rd_owner_outbox_v1 (event_identity TEXT PRIMARY KEY, aggregate_identity TEXT NOT NULL, event_kind TEXT NOT NULL, payload_digest TEXT NOT NULL, payload_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE (aggregate_identity,event_kind))")
-            .execute(pool)
-            .await
-            .expect("R&D outbox");
-        migrate(pool).await.expect("resolution schema");
-        crate::schema_materialization::verify_materialized_public_tables(pool, TABLES)
-            .await
-            .expect("exact resolution schema");
-        sqlx::query(
-            "INSERT INTO rd_market_data_repair_requests_v1(request_identity) VALUES ('request')",
-        )
-        .execute(pool)
-        .await
-        .expect("parent request");
+        // The declared shape of `TABLES` is verified where it is produced: materialization and
+        // its readback are a pre-cutover phase, and `verify_materialized_public_tables` refuses
+        // to run outside it. This proof is about commit, retry, conflict and tamper atomicity
+        // against custody that already exists.
+        let (_database, pool) = prepare_resolution_custody().await;
+        let pool = &pool;
 
         let first = commit_at(
             pool,
@@ -1072,5 +1086,6 @@ mod tests {
             tampered,
             Err(MarketDataRepairResolutionPostgresErrorV1::Unavailable(_))
         ));
+        clear_repair_resolution_custody(pool).await;
     }
 }
