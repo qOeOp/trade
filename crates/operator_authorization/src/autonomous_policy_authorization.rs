@@ -55,12 +55,19 @@ pub struct CapitalPolicyBindingV1 {
 /// The resource one Autonomous Policy Authorization history belongs to.
 ///
 /// Successor authorizations renew this exact resource; a different principal,
-/// account, mode, generation, Execution Scope, or policy is a different
-/// history with its own genesis and revocation frontier.
+/// request scope, account, mode, generation, Execution Scope, or policy is a
+/// different history with its own genesis and revocation frontier.
+///
+/// The request scope is the second half of the "principal and scope" the
+/// architecture requires this authorization to bind. Strategy Governance
+/// compares it against the lifecycle request's own scope, so it has to be a
+/// coordinate the Issuer signed: a value a reader could supply would make that
+/// comparison compare the request with itself.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AutonomousPolicyResourceV1 {
     pub principal: String,
+    pub request_scope_identity: String,
     pub audience: String,
     pub account_identity: String,
     pub execution_mode: ExecutionModeV1,
@@ -72,6 +79,7 @@ pub struct AutonomousPolicyResourceV1 {
 impl AutonomousPolicyResourceV1 {
     pub fn validate(&self) -> Result<(), OperatorAuthorizationError> {
         if self.principal.trim().is_empty()
+            || self.request_scope_identity.trim().is_empty()
             || self.audience != STRATEGY_GOVERNANCE_AUDIENCE_V1
             || self.account_identity.trim().is_empty()
             || self.strategy_generation_identity.trim().is_empty()
@@ -98,6 +106,7 @@ pub struct AutonomousPolicyAuthorizationContentV1 {
     pub issuer_key_version: String,
     pub policy: AutonomousPolicyV1,
     pub scope: OperatorAuthorizationScopeV1,
+    pub request_scope_identity: String,
     pub account_identity: String,
     pub execution_mode: ExecutionModeV1,
     pub strategy_generation_identity: String,
@@ -114,6 +123,7 @@ impl AutonomousPolicyAuthorizationContentV1 {
     pub fn resource(&self) -> AutonomousPolicyResourceV1 {
         AutonomousPolicyResourceV1 {
             principal: self.scope.principal.clone(),
+            request_scope_identity: self.request_scope_identity.clone(),
             audience: self.scope.audience.clone(),
             account_identity: self.account_identity.clone(),
             execution_mode: self.execution_mode,
@@ -189,9 +199,16 @@ impl GrantContentV1 for AutonomousPolicyAuthorizationContentV1 {
     const KIND_STEM: &'static str = "autonomous-policy-authorization";
     const TABLE_STEM: &'static str = "autonomous_policy_authorization";
     const SCHEMA_VERSION: u32 = AUTONOMOUS_POLICY_AUTHORIZATION_SCHEMA_V1;
+    // Strategy Governance is the intended reader of this kind, but the
+    // deployment topology does not define a Governance database role yet, so
+    // there is nothing to grant EXECUTE to. When
+    // `product/rd-workbench/postgres-init/10-migrate-authority-custody.sh`
+    // defines that role, it belongs in this list. Adding it is a shared-surface
+    // change; leaving it out keeps the lock function closed rather than open.
     const CONSUMER_ROLES: &'static str = "product_edge_owner, operator_authorization_writer";
     const MIRROR_COLUMNS: &'static [&'static str] = &[
         "principal",
+        "request_scope_identity",
         "audience",
         "account_identity",
         "execution_mode",
@@ -236,6 +253,7 @@ impl GrantContentV1 for AutonomousPolicyAuthorizationContentV1 {
     fn mirror_values(&self) -> Result<Vec<String>, OperatorAuthorizationError> {
         Ok(vec![
             self.scope.principal.clone(),
+            self.request_scope_identity.clone(),
             self.scope.audience.clone(),
             self.account_identity.clone(),
             self.execution_mode.as_str().to_string(),
@@ -325,6 +343,7 @@ pub(crate) mod tests {
                 audience: STRATEGY_GOVERNANCE_AUDIENCE_V1.into(),
                 permissions: vec!["governance:unattended".into()],
             },
+            request_scope_identity: "request-scope-v1".into(),
             account_identity: "account-v1".into(),
             execution_mode: ExecutionModeV1::Paper,
             strategy_generation_identity: "generation-v1".into(),
@@ -377,6 +396,11 @@ pub(crate) mod tests {
             (
                 "principal",
                 Box::new(|c| c.scope.principal.push_str("-x")),
+                true,
+            ),
+            (
+                "request scope",
+                Box::new(|c| c.request_scope_identity.push_str("-x")),
                 true,
             ),
             (

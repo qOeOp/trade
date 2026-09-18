@@ -60,6 +60,22 @@ pub const SOURCE_INTAKE_REQUIRED_EFFECTS_V1: [&str; 2] = [
     "R_AND_D_SOURCE_ACQUISITION_MUTATION_V1",
     "R_AND_D_SOURCE_PROVIDER_INVOCATION_V1",
 ];
+pub const LIFECYCLE_REQUEST_OPERATION_V1: &str =
+    "strategy_governance.lifecycle_request.submit_or_resolve.v1";
+pub const LIFECYCLE_REQUEST_OPERATION_SCHEMA_V1: &str = "lifecycle-request-v1";
+pub const LIFECYCLE_REQUEST_TARGET_OWNER_V1: &str = "STRATEGY_GOVERNANCE";
+
+/// The seven canonical Strategy Governance lifecycle actions, in the order the
+/// Operator Authorization Issuer spells them.
+pub const LIFECYCLE_ACTIONS_V1: [&str; 7] = [
+    "DE_RISK",
+    "INITIAL_ACTIVATION",
+    "PAUSE",
+    "PROMOTION",
+    "RECOVERY",
+    "REDUCTION",
+    "RETIREMENT",
+];
 
 /// Canonical identity of the one Product Edge admission gateway.
 ///
@@ -424,6 +440,8 @@ pub enum ProductEdgeAdmissionRouteV1 {
     ArtifactBuild,
     /// `ProductEdgePostgresOwnerV1::admit_source_intake_request`.
     SourceIntake,
+    /// `ProductEdgePostgresOwnerV1::admit_lifecycle_request`.
+    LifecycleRequest,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -464,6 +482,8 @@ impl ProductEdgeAdmissionRequestV1 {
             ProductEdgeAdmissionRouteV1::ArtifactBuild
         } else if self.operation == SOURCE_INTAKE_OPERATION_V1 {
             ProductEdgeAdmissionRouteV1::SourceIntake
+        } else if self.operation == LIFECYCLE_REQUEST_OPERATION_V1 {
+            ProductEdgeAdmissionRouteV1::LifecycleRequest
         } else {
             ProductEdgeAdmissionRouteV1::Generic
         }
@@ -1565,6 +1585,20 @@ mod portfolio_read_policy_tests {
                 .require_admission_route(ProductEdgeAdmissionRouteV1::SourceIntake)
                 .is_ok()
         );
+        request.operation = LIFECYCLE_REQUEST_OPERATION_V1.into();
+        assert_eq!(
+            request.admission_route(),
+            ProductEdgeAdmissionRouteV1::LifecycleRequest
+        );
+        assert!(
+            request
+                .require_admission_route(ProductEdgeAdmissionRouteV1::LifecycleRequest)
+                .is_ok()
+        );
+        assert!(matches!(
+            request.require_admission_route(ProductEdgeAdmissionRouteV1::Generic),
+            Err(ProductEdgeError::InvalidProposal("admission entry"))
+        ));
     }
 
     #[rstest]

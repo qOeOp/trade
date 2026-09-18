@@ -160,6 +160,7 @@ mod parser_tests {
             "policy/policy_version",
             "scope/principal",
             "scope/audience",
+            "request_scope_identity",
             "scope/permissions/0",
             "account_identity",
             "execution_mode",

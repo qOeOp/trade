@@ -33,11 +33,13 @@ use vibe_rd_source_intake_invocation_custody::{
 use crate::{
     ARTIFACT_BUILD_OPERATION_SCHEMA_V1, ARTIFACT_BUILD_OPERATION_V1,
     ARTIFACT_BUILD_REQUIRED_EFFECTS_V1, AgentOperationManifestProposalV1,
-    AgentOperationManifestSetV1, DownstreamAdmissionModeV1, PORTFOLIO_READ_ONLY_EFFECT_POLICY_V1,
-    PORTFOLIO_READ_POLICY_OPERATION_SCHEMA_V1, PORTFOLIO_READ_POLICY_OPERATION_V1,
-    PORTFOLIO_READ_POLICY_SCHEMA_V1, PORTFOLIO_READ_POLICY_TARGET_OWNER_V1,
-    PRODUCT_EDGE_ADMISSION_EVENT_STREAM_V1, PRODUCT_EDGE_SCHEMA_V1, PortfolioReadPolicyCustodyV1,
-    PortfolioReadPolicyPayloadV1, PortfolioReadPolicyRequestV1, PortfolioReadPolicyResolutionV1,
+    AgentOperationManifestSetV1, DownstreamAdmissionModeV1, LIFECYCLE_ACTIONS_V1,
+    LIFECYCLE_REQUEST_OPERATION_SCHEMA_V1, LIFECYCLE_REQUEST_TARGET_OWNER_V1,
+    PORTFOLIO_READ_ONLY_EFFECT_POLICY_V1, PORTFOLIO_READ_POLICY_OPERATION_SCHEMA_V1,
+    PORTFOLIO_READ_POLICY_OPERATION_V1, PORTFOLIO_READ_POLICY_SCHEMA_V1,
+    PORTFOLIO_READ_POLICY_TARGET_OWNER_V1, PRODUCT_EDGE_ADMISSION_EVENT_STREAM_V1,
+    PRODUCT_EDGE_SCHEMA_V1, PortfolioReadPolicyCustodyV1, PortfolioReadPolicyPayloadV1,
+    PortfolioReadPolicyRequestV1, PortfolioReadPolicyResolutionV1,
     PortfolioReadPolicyUnavailableReasonV1, PortfolioSourceOwnerResolveResultV1,
     ProductEdgeAdmissionEventCursorV1, ProductEdgeAdmissionEventLocatorV1,
     ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionObservationV1,
@@ -2486,6 +2488,64 @@ impl ProductEdgePostgresOwnerV1 {
             || !crate::is_product_edge_gateway_v1(&payload.gateway)
             || !valid_source_doi(&payload.normalized_doi)
             || !valid_source_interpretation(&payload.interpretation)
+        {
+            return Err(unavailable_for(
+                Reason::RequestMismatch,
+                Subject::Request,
+                &request.request_identity,
+            ));
+        }
+        Box::pin(self.admit_request_inner(request, None)).await
+    }
+
+    /// Admits one Strategy Governance lifecycle request.
+    ///
+    /// The admission seals the Autonomous Policy Authorization an unattended
+    /// decision will be verified against, together with the coordinates
+    /// Strategy Governance compares that authorization to. It carries no
+    /// effect: a lifecycle request that asks for one is refused here, so
+    /// "this entry grants nothing" is a property the admission proves rather
+    /// than a promise the prose makes. Nothing downstream consumes the
+    /// admission until Strategy Governance owns its request custody.
+    pub async fn admit_lifecycle_request(
+        &self,
+        request: ProductEdgeAdmissionRequestV1,
+    ) -> Result<ProductEdgeAdmissionReadbackV1, ProductEdgeError> {
+        request.require_admission_route(ProductEdgeAdmissionRouteV1::LifecycleRequest)?;
+
+        if request.operation_schema != LIFECYCLE_REQUEST_OPERATION_SCHEMA_V1
+            || request.target_owner != LIFECYCLE_REQUEST_TARGET_OWNER_V1
+            || !request.requested_effects.is_empty()
+        {
+            return Err(unavailable_for(
+                Reason::RequestMismatch,
+                Subject::Request,
+                &request.request_identity,
+            ));
+        }
+        let payload: LifecycleRequestAdmissionPayloadV1 =
+            serde_json::from_value(request.typed_payload.clone()).map_err(|_| {
+                unavailable_for(
+                    Reason::Malformed,
+                    Subject::Request,
+                    &request.request_identity,
+                )
+            })?;
+
+        if payload.request_identity != request.request_identity
+            || !crate::is_product_edge_gateway_v1(&payload.gateway)
+            || payload.request_scope_identity.trim().is_empty()
+            || payload.autonomous_policy.grant_identity.trim().is_empty()
+            || payload
+                .autonomous_policy
+                .issuance_receipt_identity
+                .trim()
+                .is_empty()
+            || !LIFECYCLE_ACTIONS_V1.contains(&payload.lifecycle_action.as_str())
+            || payload.account_identity.trim().is_empty()
+            || !matches!(payload.execution_mode.as_str(), "PAPER" | "LIVE")
+            || payload.strategy_generation_identity.trim().is_empty()
+            || payload.execution_scope_identity.trim().is_empty()
         {
             return Err(unavailable_for(
                 Reason::RequestMismatch,
@@ -6689,9 +6749,12 @@ mod tests {
     };
 
     use super::*;
+    use crate::{LIFECYCLE_REQUEST_OPERATION_V1, PRODUCT_EDGE_GATEWAY_V1};
     use rstest::rstest;
     use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
     use vibe_operator_authorization::{
+        AutonomousPolicyAuthorizationContentV1, AutonomousPolicyAuthorizationIssuanceProposalV1,
+        AutonomousPolicyV1, CapitalPolicyBindingV1, ExecutionModeV1,
         ExpiredManifestRecoveryEpochV1, ExpiredManifestRecoveryTransitionV1,
         OperationManifestBindingV1, OperatorAuthorizationExpiredManifestRecoveryProposalV1,
         OperatorAuthorizationIssuanceProposalV1, OperatorAuthorizationIssuerPostgresV1,
@@ -6700,7 +6763,7 @@ mod tests {
         PORTFOLIO_VIEW_PERMISSION_V1, PortfolioResourceGrantContentV1,
         PortfolioResourceGrantIssuanceProposalV1, PortfolioResourceGrantRevocationProposalV1,
         PortfolioResourceGrantSuccessorProposalV1, PortfolioResourceModeV1, PortfolioResourceV1,
-        ProductEdgeManifestBindingV1,
+        ProductEdgeManifestBindingV1, STRATEGY_GOVERNANCE_AUDIENCE_V1,
     };
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
@@ -7277,6 +7340,30 @@ mod tests {
         .await
         .unwrap();
         canonical_digest("product-edge.test-authority-table-fingerprint.v1", &value).unwrap()
+    }
+
+    /// A refusal is only useful if it says what was wrong and about what.
+    fn refused_as(
+        result: Result<ProductEdgeAdmissionReadbackV1, ProductEdgeError>,
+        reason: &Reason,
+        identity: &str,
+        label: &str,
+    ) {
+        match result {
+            Err(ProductEdgeError::Unavailable(refusal)) => {
+                assert_eq!(refusal.reason(), reason, "wrong reason for {label}");
+                let subject = refusal
+                    .subject()
+                    .unwrap_or_else(|| panic!("{label} refused without naming an identity"));
+                assert_eq!(
+                    subject.kind(),
+                    Subject::Request,
+                    "wrong subject for {label}"
+                );
+                assert_eq!(subject.identity(), identity, "wrong identity for {label}");
+            }
+            other => panic!("{label} was not refused as unavailable: {other:?}"),
+        }
     }
 
     async fn product_edge_table_fingerprint(pool: &PgPool) -> String {
@@ -8236,6 +8323,333 @@ mod tests {
             valid_through_epoch_ms: expiry,
             expected_revocation_head: "EMPTY".into(),
         }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the disposable canonical OA/PE PostgreSQL topology"]
+    async fn lifecycle_request_admission_is_typed_effect_free_and_replay_exact() {
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let mutation = test_database.mutation();
+        let now = now_ms().unwrap();
+        let suffix = unique_suffix();
+        let governance_effect = "STRATEGY_GOVERNANCE_LIFECYCLE_DECISION_V1".to_string();
+        let manifest = AgentOperationManifestProposalV1 {
+            operation: LIFECYCLE_REQUEST_OPERATION_V1.to_string(),
+            operation_schema: LIFECYCLE_REQUEST_OPERATION_SCHEMA_V1.to_string(),
+            target_owner: LIFECYCLE_REQUEST_TARGET_OWNER_V1.to_string(),
+            allowed_effects: vec![governance_effect.clone()],
+            prohibited_effects: vec!["REAL_TRADING_V1".to_string()],
+            capability_policy_digest: format!("sha256:{}", "a".repeat(64)),
+            effective_from_epoch_ms: now.saturating_sub(1_000),
+            valid_through_epoch_ms: now.saturating_add(3_600_000),
+        };
+        let issuer = OperatorAuthorizationIssuerPostgresV1::connect(
+            test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+        )
+        .await
+        .unwrap();
+        let authorization = issuer
+            .issue_genesis(OperatorAuthorizationIssuanceProposalV1 {
+                authorization_identity: format!("lifecycle-authorization-{suffix}"),
+                issuer_identity: "operator-authorization-issuer-test-v1".to_string(),
+                issuer_key_version: "test-key-v1".to_string(),
+                scope: OperatorAuthorizationScopeV1 {
+                    principal: format!("governance-admin-{suffix}"),
+                    audience: LIFECYCLE_REQUEST_TARGET_OWNER_V1.to_string(),
+                    permissions: vec!["governance:lifecycle-request".to_string()],
+                },
+                request_proof_digest: "sha256:test-proof".to_string(),
+                operation_manifests: vec![manifest.binding().unwrap()],
+                not_before_epoch_ms: now.saturating_sub(1_000),
+                valid_through_epoch_ms: now.saturating_add(3_600_000),
+                expected_revocation_head: "EMPTY".to_string(),
+            })
+            .await
+            .unwrap();
+
+        // The authorization the unattended decision will be verified against.
+        // Product Edge only seals its locator; it never resolves or mints it.
+        let policy_content = AutonomousPolicyAuthorizationContentV1 {
+            issuer_identity: "operator-authorization-issuer-test-v1".to_string(),
+            issuer_key_version: "test-key-v1".to_string(),
+            policy: AutonomousPolicyV1 {
+                policy_identity: format!("policy-{suffix}"),
+                policy_version: "1".to_string(),
+            },
+            scope: OperatorAuthorizationScopeV1 {
+                principal: format!("governance-admin-{suffix}"),
+                audience: STRATEGY_GOVERNANCE_AUDIENCE_V1.to_string(),
+                permissions: vec!["governance:unattended".to_string()],
+            },
+            request_scope_identity: format!("request-scope-{suffix}"),
+            account_identity: format!("account-{suffix}"),
+            execution_mode: ExecutionModeV1::Paper,
+            strategy_generation_identity: format!("generation-{suffix}"),
+            execution_scope_identity: format!("sha256:{}", "e".repeat(64)),
+            permitted_actions: vec!["INITIAL_ACTIVATION".to_string()],
+            permitted_intent_classes: vec!["ADD_RISK".to_string()],
+            capital_policy: CapitalPolicyBindingV1 {
+                envelope_identity: format!("envelope-{suffix}"),
+                envelope_version: "1".to_string(),
+                envelope_digest: format!("sha256:{}", "c".repeat(64)),
+            },
+            operation_manifest: manifest.binding().unwrap(),
+            effective_at_epoch_ms: now.saturating_sub(1_000),
+            valid_through_epoch_ms: now.saturating_add(3_600_000),
+        };
+        let policy = issuer
+            .issue_autonomous_policy_authorization_genesis(
+                AutonomousPolicyAuthorizationIssuanceProposalV1 {
+                    grant_identity: policy_content.grant_identity().unwrap(),
+                    content: policy_content.clone(),
+                    expected_revocation_frontier_identity: "EMPTY".to_string(),
+                },
+            )
+            .await
+            .unwrap();
+        let policy_locator = policy.locator();
+
+        let deployment = format!("product-edge-lifecycle-deployment-{suffix}");
+        let binding_identity = format!("product-edge-lifecycle-binding-{suffix}");
+        let owner = ProductEdgePostgresOwnerV1::connect(
+            test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+            &deployment,
+            ProductEdgeAuthorizationTrustV1 {
+                issuer_identity: "operator-authorization-issuer-test-v1".to_string(),
+                issuer_key_version: "test-key-v1".to_string(),
+                audience: LIFECYCLE_REQUEST_TARGET_OWNER_V1.to_string(),
+            },
+        )
+        .await
+        .unwrap();
+        let pe_pool = mutation.pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner);
+        owner
+            .bootstrap_genesis(ProductEdgeBootstrapProposalV1 {
+                deployment_identity: deployment.clone(),
+                binding_identity: binding_identity.clone(),
+                expected_history_head: "EMPTY".to_string(),
+                generation: 1,
+                effective_principal: format!("governance-admin-{suffix}"),
+                scope_policy_version: "scope-v1".to_string(),
+                capability_policy_version: "capability-v1".to_string(),
+                audit_policy_version: "audit-v1".to_string(),
+                valid_from_epoch_ms: now.saturating_sub(1_000),
+                valid_through_epoch_ms: now.saturating_add(3_600_000),
+                authorization: authorization.locator(),
+                manifests: AgentOperationManifestSetV1::new(vec![manifest.clone()]).unwrap(),
+            })
+            .await
+            .unwrap();
+
+        let request_identity = format!("lifecycle-request-{suffix}");
+        let payload = serde_json::json!({
+            "request_identity": request_identity,
+            "gateway": PRODUCT_EDGE_GATEWAY_V1,
+            "request_scope_identity": policy_content.request_scope_identity,
+            "autonomous_policy": {
+                "grant_identity": policy_locator.grant_identity,
+                "issuance_receipt_identity": policy_locator.issuance_receipt_identity,
+            },
+            "lifecycle_action": "INITIAL_ACTIVATION",
+            "account_identity": policy_content.account_identity,
+            "execution_mode": "PAPER",
+            "strategy_generation_identity": policy_content.strategy_generation_identity,
+            "execution_scope_identity": policy_content.execution_scope_identity,
+        });
+        let request = ProductEdgeAdmissionRequestV1 {
+            request_identity: request_identity.clone(),
+            typed_payload: payload.clone(),
+            operation: LIFECYCLE_REQUEST_OPERATION_V1.to_string(),
+            operation_schema: LIFECYCLE_REQUEST_OPERATION_SCHEMA_V1.to_string(),
+            target_owner: LIFECYCLE_REQUEST_TARGET_OWNER_V1.to_string(),
+            requested_effects: vec![],
+            request_proof_digest: "sha256:test-proof".to_string(),
+            audit_correlation: format!("test:{suffix}"),
+        };
+
+        // Every refusal below must leave the Owner's tables exactly as it
+        // found them, so the whole block is fenced by one fingerprint.
+        let before_refusals = product_edge_table_fingerprint(pe_pool).await;
+
+        // The manifest allows this effect. The entry refuses it anyway: a
+        // lifecycle request admits authority, never an effect.
+        let mut with_effect = request.clone();
+        with_effect.requested_effects = vec![governance_effect.clone()];
+        refused_as(
+            owner.admit_lifecycle_request(with_effect).await,
+            &Reason::RequestMismatch,
+            &request_identity,
+            "a lifecycle request that asks for an effect the manifest allows",
+        );
+
+        let mut wrong_schema = request.clone();
+        wrong_schema.operation_schema.push_str("-v2");
+        refused_as(
+            owner.admit_lifecycle_request(wrong_schema).await,
+            &Reason::RequestMismatch,
+            &request_identity,
+            "a foreign operation schema",
+        );
+
+        let mut wrong_owner = request.clone();
+        wrong_owner.target_owner = "R_AND_D".to_string();
+        refused_as(
+            owner.admit_lifecycle_request(wrong_owner).await,
+            &Reason::RequestMismatch,
+            &request_identity,
+            "a foreign target Owner",
+        );
+
+        // A lifecycle request may not enter through any other typed entry,
+        // and no other operation may enter through this one.
+        assert!(matches!(
+            owner.admit_request(request.clone()).await,
+            Err(ProductEdgeError::InvalidProposal("admission entry"))
+        ));
+        assert!(matches!(
+            owner.admit_artifact_build_request(request.clone()).await,
+            Err(ProductEdgeError::InvalidProposal("admission entry"))
+        ));
+        let mut foreign_operation = request.clone();
+        foreign_operation.operation = "research.generic.submit.v1".to_string();
+        assert!(matches!(
+            owner.admit_lifecycle_request(foreign_operation).await,
+            Err(ProductEdgeError::InvalidProposal("admission entry"))
+        ));
+
+        for (label, reason, mutate) in [
+            (
+                "request identity",
+                Reason::RequestMismatch,
+                serde_json::json!({"request_identity": format!("{request_identity}-other")}),
+            ),
+            (
+                "gateway",
+                Reason::RequestMismatch,
+                serde_json::json!({"gateway": "FORGED_SHELL"}),
+            ),
+            (
+                "request scope",
+                Reason::RequestMismatch,
+                serde_json::json!({"request_scope_identity": ""}),
+            ),
+            (
+                "lifecycle action",
+                Reason::RequestMismatch,
+                serde_json::json!({"lifecycle_action": "SELF_GRANTED"}),
+            ),
+            (
+                "execution mode",
+                Reason::RequestMismatch,
+                serde_json::json!({"execution_mode": "REAL"}),
+            ),
+            (
+                "grant identity",
+                Reason::RequestMismatch,
+                serde_json::json!({"autonomous_policy": {"grant_identity": "", "issuance_receipt_identity": policy_locator.issuance_receipt_identity}}),
+            ),
+            (
+                "receipt identity",
+                Reason::RequestMismatch,
+                serde_json::json!({"autonomous_policy": {"grant_identity": policy_locator.grant_identity, "issuance_receipt_identity": ""}}),
+            ),
+            (
+                "unknown field",
+                Reason::Malformed,
+                serde_json::json!({"unattended_override": true}),
+            ),
+        ] {
+            let mut changed = request.clone();
+            for (key, value) in mutate.as_object().unwrap() {
+                changed.typed_payload[key] = value.clone();
+            }
+            refused_as(
+                owner.admit_lifecycle_request(changed).await,
+                &reason,
+                &request_identity,
+                label,
+            );
+        }
+        assert_eq!(
+            product_edge_table_fingerprint(pe_pool).await,
+            before_refusals,
+            "a refused lifecycle request must write nothing"
+        );
+
+        let admission = owner
+            .admit_lifecycle_request(request.clone())
+            .await
+            .unwrap();
+        assert_eq!(
+            owner
+                .admit_lifecycle_request(request.clone())
+                .await
+                .unwrap(),
+            admission,
+            "replaying the same meaning must join the original admission"
+        );
+        assert!(admission.request().requested_effects.is_empty());
+        let after_replay = product_edge_table_fingerprint(pe_pool).await;
+        assert_eq!(
+            owner
+                .admit_lifecycle_request(request.clone())
+                .await
+                .unwrap(),
+            admission
+        );
+        assert_eq!(product_edge_table_fingerprint(pe_pool).await, after_replay);
+
+        let admitted_events: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM product_edge_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2",
+        )
+        .bind(admission.locator().admission_identity.as_str())
+        .bind(ADMISSION_EVENT)
+        .fetch_one(pe_pool)
+        .await
+        .unwrap();
+        assert_eq!(admitted_events, 1, "semantic replay joins one event");
+
+        // The sealed bytes, not the caller's copy, carry the authorization
+        // the decision will be verified against.
+        let sealed: serde_json::Value =
+            serde_json::from_slice(admission.canonical_storage_bytes()).unwrap();
+        assert_eq!(
+            sealed["request"]["typed_payload"]["autonomous_policy"]["grant_identity"],
+            serde_json::json!(policy_locator.grant_identity)
+        );
+        assert_eq!(
+            sealed["request"]["typed_payload"]["autonomous_policy"]["issuance_receipt_identity"],
+            serde_json::json!(policy_locator.issuance_receipt_identity)
+        );
+        assert_eq!(
+            sealed["request"]["requested_effects"],
+            serde_json::json!([]),
+            "the sealed admission must carry no effect"
+        );
+        let resolved = owner
+            .resolve_admission(&request_identity, &request.request_proof_digest)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(resolved.locator(), admission.locator());
+        assert_eq!(
+            resolved.canonical_storage_digest(),
+            admission.canonical_storage_digest()
+        );
+
+        // Same identity, changed meaning: conflict, and nothing is rewritten.
+        let before_conflict = product_edge_table_fingerprint(pe_pool).await;
+        let mut changed_meaning = request.clone();
+        changed_meaning.typed_payload["lifecycle_action"] = serde_json::json!("RETIREMENT");
+        assert!(matches!(
+            owner.admit_lifecycle_request(changed_meaning).await,
+            Err(ProductEdgeError::ConflictingReplay)
+        ));
+        assert_eq!(
+            product_edge_table_fingerprint(pe_pool).await,
+            before_conflict,
+            "a conflicting lifecycle request must not rewrite the admission"
+        );
     }
 
     #[tokio::test]

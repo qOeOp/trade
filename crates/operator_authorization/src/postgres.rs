@@ -3548,6 +3548,7 @@ mod tests {
                 audience: STRATEGY_GOVERNANCE_AUDIENCE_V1.into(),
                 permissions: vec!["governance:unattended".into()],
             },
+            request_scope_identity: format!("request-scope-{suffix}"),
             account_identity: format!("account-{suffix}"),
             execution_mode: ExecutionModeV1::Paper,
             strategy_generation_identity: format!("generation-{generation_suffix}-{suffix}"),
@@ -4081,30 +4082,34 @@ mod tests {
 
         let before_negative_reads = oa_table_fingerprint(owner.pool()).await;
 
-        for index in 0..9 {
+        for index in 0..10 {
             let mut changed = request.clone();
             match index {
                 0 => changed.expected_resource.principal.push_str("-other"),
-                1 => changed.expected_resource.audience.push_str("-other"),
-                2 => changed
+                1 => changed
+                    .expected_resource
+                    .request_scope_identity
+                    .push_str("-other"),
+                2 => changed.expected_resource.audience.push_str("-other"),
+                3 => changed
                     .expected_resource
                     .account_identity
                     .push_str("-other"),
-                3 => changed.expected_resource.execution_mode = ExecutionModeV1::Live,
-                4 => changed
+                4 => changed.expected_resource.execution_mode = ExecutionModeV1::Live,
+                5 => changed
                     .expected_resource
                     .strategy_generation_identity
                     .push_str("-other"),
-                5 => changed
+                6 => changed
                     .expected_resource
                     .execution_scope_identity
                     .push_str("-other"),
-                6 => changed.expected_resource.policy_identity.push_str("-other"),
-                7 => changed
+                7 => changed.expected_resource.policy_identity.push_str("-other"),
+                8 => changed
                     .expected_manifest
                     .manifest_identity
                     .push_str("-other"),
-                8 => changed
+                9 => changed
                     .expected_manifest
                     .manifest_digest
                     .replace_range(7..8, "b"),
