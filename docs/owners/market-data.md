@@ -23,8 +23,8 @@ means. Skip them unless you are implementing or verifying an encoding.
 ## Implementation admission ledger
 
 This ledger is the greppable index of what the contract below has actually reached. It grants no permission by
-itself: exactly three production-write slices are `IMPLEMENTATION_ADMITTED` at this cut, the ones `B7` below
-names, and widening the admitted set requires changing this document first under the Architecture authority rule in `AGENTS.md`. A merged crate, a named type, a
+itself: what is `IMPLEMENTATION_ADMITTED` at this cut is exactly the three production-write slices `B7` names
+and the one live fact channel `B8` names, and widening the admitted set requires changing this document first under the Architecture authority rule in `AGENTS.md`. A merged crate, a named type, a
 green job, or a row here is not implementation authority, never proves a production consumer, and never authorizes
 a production effect, a deployment cutover, or real trading.
 
@@ -117,7 +117,7 @@ never runs in CI.
 | EVENT and BAR Owner custody                               | `CURRENT / PARTIAL`                                           | `owner/sample_fact.rs`, `owner/sample_projection*.rs`, `owner/bar_schedule.rs`                                                                                                                                                           | `B4`       |
 | Shared Time clock‑head handoff                            | `TARGET`                                                      | `owner/shared_time_evidence.rs`                                                                                                                                                                                                          | `B3`       |
 | Vendor Data Clients                                       | `CURRENT / PARTIAL`                                           | `crates/adapters/databento/src/pit_observation_source_v1.rs` and `crates/adapters/binance/src/pit_observation_source_v1.rs`, both live‑verified                                                                                          | `B6`       |
-| Live market fact channel to Runtime                       | `TARGET`, first channel `IMPLEMENTATION_ADMITTED`             | `owner/live_market_fact_v1.rs`, `owner/live_market_stream_v1.rs`, `crates/adapters/bybit/src/live_market_fact_source_v1.rs`                                                                                                              | `B8`       |
+| Live market fact channel to Runtime                       | `TARGET`, first channel `IMPLEMENTATION_ADMITTED`             | none yet; this row names the slice, not a file                                                                                                                                                                                           | `B8`       |
 
 ## Authoritative facts owned
 

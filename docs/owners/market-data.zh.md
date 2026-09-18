@@ -20,8 +20,8 @@ Action、Replay Market Facts V2、Instrument Master，以及策略 input-role bi
 
 ## 实现准入台账
 
-本台账是下文契约实际走到哪一步的可 grep 索引。它本身不授予任何许可：本次切面上恰有三个生产写切片处于
-`IMPLEMENTATION_ADMITTED`，即下文 `B7` 点名的三者，扩大已准入集合必须先按 `AGENTS.md` 的架构权威规则修改本文档。已合并的 crate、被点名的
+本台账是下文契约实际走到哪一步的可 grep 索引。它本身不授予任何许可：本次切面上处于
+`IMPLEMENTATION_ADMITTED` 的恰是 `B7` 点名的三个生产写切片与 `B8` 点名的那一条实时事实通道，扩大已准入集合必须先按 `AGENTS.md` 的架构权威规则修改本文档。已合并的 crate、被点名的
 类型、绿色的 job 或本表中的一行都不是实现权威，永远不证明存在生产消费者，也永远不授权生产副作用、部署切换或真实
 交易。
 
@@ -102,7 +102,7 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
 | EVENT 与 BAR Owner custody                        | `CURRENT / PARTIAL`                                           | `owner/sample_fact.rs`、`owner/sample_projection*.rs`、`owner/bar_schedule.rs`                                                                                                                                  | `B4`       |
 | Shared Time clock‑head 交接                       | `TARGET`                                                      | `owner/shared_time_evidence.rs`                                                                                                                                                                                 | `B3`       |
 | 供应商 Data Clients                               | `CURRENT / PARTIAL`                                           | `crates/adapters/databento/src/pit_observation_source_v1.rs` 与 `crates/adapters/binance/src/pit_observation_source_v1.rs`，均已实盘验证                                                                        | `B6`       |
-| 面向 Runtime 的实时行情事实通道                   | `TARGET`，首条通道 `IMPLEMENTATION_ADMITTED`                  | `owner/live_market_fact_v1.rs`、`owner/live_market_stream_v1.rs`、`crates/adapters/bybit/src/live_market_fact_source_v1.rs`                                                                                     | `B8`       |
+| 面向 Runtime 的实时行情事实通道                   | `TARGET`，首条通道 `IMPLEMENTATION_ADMITTED`                  | 尚无；本行点名的是切片，不是文件                                                                                                                                                                                | `B8`       |
 
 ## 拥有的权威事实
 
