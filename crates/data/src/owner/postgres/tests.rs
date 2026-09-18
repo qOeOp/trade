@@ -4382,6 +4382,39 @@ impl PitObservationSourceV1 for UnavailableObservationSourceV1 {
     }
 }
 
+/// The Owner's own R0 record for one persisted snapshot, or `None` when it appended none.
+async fn owner_r0_readback_v1(
+    owner: &MarketDataOwnerPostgres,
+    aggregate: &PitSnapshotCommitAggregate,
+) -> Option<crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1> {
+    let request =
+        super::reference_fact_coordinates::owner_r0_request_for_available_pit_v1(aggregate).ok()?;
+    let mut transaction = owner.pool().begin().await.unwrap();
+    let readback = super::reference_fact_coordinates::recover_reference_fact_r0_in_transaction_v1(
+        &mut transaction,
+        request.locator(),
+    )
+    .await;
+    transaction.rollback().await.unwrap();
+
+    match readback {
+        Ok(readback) => Some(readback),
+        Err(
+            crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ErrorV1::UnknownIdentity,
+        ) => None,
+        Err(e) => panic!("the Owner R0 record must resolve or be absent: {e}"),
+    }
+}
+
+async fn r0_append_sequence_v1(owner: &MarketDataOwnerPostgres) -> i64 {
+    sqlx::query_scalar(
+        "SELECT append_sequence FROM market_data_private.reference_fact_r0_state_v1 WHERE singleton",
+    )
+    .fetch_one(owner.pool())
+    .await
+    .unwrap()
+}
+
 /// Proves the production mint resolves its own canonical basis instead of trusting the requester.
 ///
 /// The fixture admits one Source Binding, evaluates one Universe Selection Record over a single
@@ -4534,11 +4567,47 @@ async fn production_pit_mint_postgres_oracle_v1(
         "the persisted fact records the Owner's determinations"
     );
 
+    // The production mint appended the snapshot's own R0 record in the same transaction, under
+    // the identity a later Market Semantics intake derives from the snapshot alone.
+    let owner_r0 = owner_r0_readback_v1(owner, &admitted)
+        .await
+        .expect("an AVAILABLE production mint carries its R0 record");
+    assert_eq!(
+        owner_r0.record().evidence.pit_snapshot_identity,
+        admitted.fact().snapshot_identity()
+    );
+    assert_eq!(
+        owner_r0.record().evidence.pit_fact_digest,
+        admitted.fact().digest()
+    );
+    assert_eq!(
+        owner_r0.record().stable_correlation,
+        admitted.fact().request().correlation_identity
+    );
+    assert_eq!(
+        owner_r0.record().decision_cut,
+        admitted.fact().request().time_evidence.decision_cut.value
+    );
+    let r0_appends_before_replay = r0_append_sequence_v1(owner).await;
+
     let replay = owner
         .commit_pit_initial_from_owner_custody_v1(proposal, observation, &universe_locator, clock)
         .await
         .unwrap();
     assert_eq!(replay, admitted, "byte-identical retry joins the same fact");
+    assert_eq!(
+        owner_r0_readback_v1(owner, &replay)
+            .await
+            .expect("the replayed mint still resolves its R0 record")
+            .canonical_bytes(),
+        owner_r0.canonical_bytes(),
+        "a replayed mint rejoins the R0 record it wrote the first time"
+    );
+    assert_eq!(
+        r0_append_sequence_v1(owner).await,
+        r0_appends_before_replay,
+        "a replayed mint appends no second R0 record"
+    );
 
     // The requester still claims `semantics_compatible: true`; Market Data derives otherwise.
     let (proposal, observation) = build(208, d(209), universe.record().identity(), "AAPL");
@@ -4554,6 +4623,10 @@ async fn production_pit_mint_postgres_oracle_v1(
     assert!(
         !ambiguous.fact().evidence().semantics_compatible,
         "the claimed compatibility never reaches the fact"
+    );
+    assert!(
+        owner_r0_readback_v1(owner, &ambiguous).await.is_none(),
+        "a snapshot that is not AVAILABLE carries no R0 record"
     );
 
     // The batch covers a member the evaluated Universe Selection Record does not contain.
@@ -4571,6 +4644,10 @@ async fn production_pit_mint_postgres_oracle_v1(
         insufficient.fact().disposition(),
         PitSnapshotDisposition::Insufficient,
         "observations that miss the evaluated universe are INSUFFICIENT"
+    );
+    assert!(
+        owner_r0_readback_v1(owner, &insufficient).await.is_none(),
+        "an INSUFFICIENT snapshot carries no R0 record"
     );
 
     // A universe digest the Owner's record does not carry cannot buy coverage either.
@@ -4625,6 +4702,15 @@ async fn production_pit_mint_postgres_oracle_v1(
         retrieved.fact().evidence().normalized_records_digest,
         admitted.fact().evidence().normalized_records_digest,
         "the Owner-stamped batch is byte-identical to the one the acceptance mint canonicalized"
+    );
+    assert_eq!(
+        owner_r0_readback_v1(owner, &retrieved)
+            .await
+            .expect("the request-only production mint carries its R0 record too")
+            .record()
+            .evidence
+            .pit_snapshot_identity,
+        retrieved.fact().snapshot_identity()
     );
 
     // A client that answers for a member the Owner never scoped cannot widen the universe.

@@ -1015,7 +1015,15 @@ impl MarketDataOwnerPostgres {
         }
         let aggregate =
             prepare_initial_aggregate(proposal, canonical_basis, source.commit().fact(), clock)?;
-        Box::pin(persist_pit(transaction, aggregate, None, clock, fault)).await
+        Box::pin(persist_pit(
+            transaction,
+            aggregate,
+            None,
+            clock,
+            fault,
+            PitPersistCompanionV1::None,
+        ))
+        .await
     }
 
     pub(crate) async fn commit_pit_initial_with_observation_batch(
@@ -1077,6 +1085,7 @@ impl MarketDataOwnerPostgres {
             Some(prepared),
             clock,
             fault,
+            PitPersistCompanionV1::None,
         ))
         .await
     }
@@ -1323,6 +1332,7 @@ impl MarketDataOwnerPostgres {
             Some(prepared),
             clock,
             PostgresCommitFault::None,
+            PitPersistCompanionV1::OwnerR0Record,
         ))
         .await
     }
@@ -1413,6 +1423,7 @@ impl MarketDataOwnerPostgres {
             Some(prepared),
             clock,
             PostgresCommitFault::None,
+            PitPersistCompanionV1::OwnerR0Record,
         ))
         .await
     }
@@ -1470,6 +1481,7 @@ impl MarketDataOwnerPostgres {
             None,
             clock,
             PostgresCommitFault::None,
+            PitPersistCompanionV1::None,
         ))
         .await
     }
@@ -1527,6 +1539,7 @@ impl MarketDataOwnerPostgres {
             Some(prepared),
             clock,
             PostgresCommitFault::None,
+            PitPersistCompanionV1::None,
         ))
         .await
     }
@@ -1890,6 +1903,18 @@ enum PostgresCommitFault {
     AfterPitOutboxBeforeBatch,
     AfterPitBatchBeforeRows,
     ResponseLoss,
+}
+
+/// What the Owner appends beside a PIT snapshot in the same transaction.
+///
+/// Production intake paths append the snapshot's R0 observation-evidence record, so every
+/// `AVAILABLE` snapshot a deployment mints carries the coordinate a Market Semantics fact later
+/// cross-binds. Test and correction paths append nothing: their custody is assembled by the proof
+/// that owns it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PitPersistCompanionV1 {
+    None,
+    OwnerR0Record,
 }
 
 /// Owner-internal, contract-neutral input to the durable sample custody adapter.
@@ -5643,6 +5668,7 @@ async fn persist_pit(
     batch: Option<PreparedPitObservationBatch>,
     clock: &MarketDataClockAdmission,
     fault: PostgresCommitFault,
+    companion: PitPersistCompanionV1,
 ) -> Result<PitSnapshotCommitAggregate, PitSnapshotError> {
     let fact = aggregate.fact();
     lock_digests(
@@ -5723,6 +5749,24 @@ async fn persist_pit(
 
     if let Some(batch) = batch.as_ref() {
         insert_pit_observation_batch(&mut transaction, &aggregate, batch, fault).await?;
+    }
+
+    // The R0 record is derived from rows this transaction just wrote and resolves them back
+    // through the same locked reads a later caller would use, so a snapshot that cannot carry its
+    // own observation evidence never commits at all.
+    if companion == PitPersistCompanionV1::OwnerR0Record
+        && batch.is_some()
+        && aggregate.fact().disposition() == PitSnapshotDisposition::Available
+    {
+        reference_fact_coordinates::append_owner_r0_for_available_pit_v1(
+            &mut transaction,
+            &aggregate,
+        )
+        .await
+        .map_err(|e| {
+            super::storage_diagnostic::refused_by_store("pit.persist.owner_r0_record", &e);
+            PitSnapshotError::PersistenceUnavailable
+        })?;
     }
     transaction
         .commit()

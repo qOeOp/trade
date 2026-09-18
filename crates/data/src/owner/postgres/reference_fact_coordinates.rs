@@ -6,15 +6,16 @@ use sqlx::{Postgres, Row, Transaction};
 
 use crate::owner::{
     pit_snapshot::{
-        PitSnapshotOwnerReadback, UntrustedPitSnapshotLocator, authority::verify_observation_batch,
+        PitSnapshotCommitAggregate, PitSnapshotOwnerReadback, UntrustedPitSnapshotLocator,
+        authority::verify_observation_batch,
     },
     reference_fact_coordinates::r0::{
         AuthenticatedReferenceFactR0EvidenceV1, R0IdentityV1, ReferenceFactR0ErrorV1,
         ReferenceFactR0ReadbackV1, UntrustedReferenceFactR0LocatorV1,
         UntrustedReferenceFactR0RequestV1, decode_and_verify_readback_v1, issue_readback_v1,
-        issue_record_and_cut_v1,
+        issue_record_and_cut_v1, request_meaning_digest_v1,
     },
-    source_binding::{SourceBindingOwnerReadback, UntrustedSourceBindingLocator},
+    source_binding::{BindingDigest, SourceBindingOwnerReadback, UntrustedSourceBindingLocator},
 };
 
 use super::{
@@ -41,6 +42,86 @@ pub(super) async fn install_reference_fact_r0_schema_v1(
             .map_err(store_error)?;
     }
     Ok(())
+}
+
+const OWNER_R0_REQUEST_DOMAIN: &[u8] = b"vibe.market-data.reference-fact-r0-owner-request.v1\0";
+
+/// The request identity under which this Owner appends the R0 record of one `AVAILABLE` snapshot.
+///
+/// It is a function of the snapshot alone, so a Market Semantics intake that holds the snapshot
+/// can name the record without a lookup by anything but its exact locator, and a replayed
+/// snapshot commit rejoins the record it wrote the first time.
+pub(crate) fn owner_r0_request_identity_v1(
+    snapshot_identity: BindingDigest,
+    fact_digest: BindingDigest,
+) -> R0IdentityV1 {
+    let mut bytes = Vec::with_capacity(64);
+    bytes.extend_from_slice(snapshot_identity.as_bytes());
+    bytes.extend_from_slice(fact_digest.as_bytes());
+    digest(OWNER_R0_REQUEST_DOMAIN, &bytes)
+}
+
+/// The R0 request the Owner registers for one `AVAILABLE` snapshot it has just persisted.
+///
+/// Every coordinate is copied from the snapshot's own frozen request: the record covers exactly
+/// the one event instant the snapshot answers, and the resolver below re-verifies each value
+/// against the persisted PIT, batch, Source Binding and clock custody before anything is written.
+///
+/// # Errors
+///
+/// `InvalidRequest` when the snapshot is not `AVAILABLE`, carries no correction publication, or
+/// its locators cannot be encoded; nothing about the store is consulted here.
+pub(super) fn owner_r0_request_for_available_pit_v1(
+    aggregate: &PitSnapshotCommitAggregate,
+) -> Result<UntrustedReferenceFactR0RequestV1, ReferenceFactR0ErrorV1> {
+    let fact = aggregate.fact();
+    let request = fact.request();
+    let time = &request.time_evidence;
+    let Some(correction_publication) = time.correction_publication.as_ref() else {
+        return Err(ReferenceFactR0ErrorV1::InvalidRequest);
+    };
+    let event_effective = i128::from(time.event_effective.value);
+    let event_end = event_effective
+        .checked_add(1)
+        .ok_or(ReferenceFactR0ErrorV1::InvalidRequest)?;
+    let mut r0 = UntrustedReferenceFactR0RequestV1 {
+        request_identity: owner_r0_request_identity_v1(fact.snapshot_identity(), fact.digest()),
+        request_meaning_digest: BindingDigest::from_untrusted_bytes([0; 32]),
+        pit_locator_bytes: serde_json::to_vec(aggregate.receipt().locator())
+            .map_err(|_| ReferenceFactR0ErrorV1::InvalidRequest)?
+            .into_boxed_slice(),
+        source_binding_locator_bytes: serde_json::to_vec(&request.source_binding)
+            .map_err(|_| ReferenceFactR0ErrorV1::InvalidRequest)?
+            .into_boxed_slice(),
+        replay_start_event_ns: event_effective,
+        replay_end_event_ns_exclusive: event_end,
+        effective_from_ns: event_effective,
+        effective_until_ns: Some(event_end),
+        provider_available_ns: i128::from(time.provider_available.value),
+        retrieval_ns: i128::from(time.retrieval.value),
+        correction_publication_ns: i128::from(correction_publication.value),
+        owner_observation_ns: i128::from(time.observed_at),
+        decision_cut: time.decision_cut.value,
+        predecessor_identity: None,
+        stable_correlation: request.correlation_identity,
+    };
+    r0.request_meaning_digest = request_meaning_digest_v1(&r0)?;
+    Ok(r0)
+}
+
+/// Appends the Owner's R0 record for one `AVAILABLE` snapshot inside the caller's transaction.
+///
+/// # Errors
+///
+/// Whatever the R0 resolver refuses: the persisted custody the record is derived from must
+/// resolve and byte-match, and a record already stored under this identity must carry the same
+/// meaning.
+pub(super) async fn append_owner_r0_for_available_pit_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    aggregate: &PitSnapshotCommitAggregate,
+) -> Result<ReferenceFactR0ReadbackV1, ReferenceFactR0ErrorV1> {
+    let request = owner_r0_request_for_available_pit_v1(aggregate)?;
+    resolve_reference_fact_r0_in_transaction_v1(transaction, &request).await
 }
 
 pub(super) async fn resolve_reference_fact_r0_in_transaction_v1(
