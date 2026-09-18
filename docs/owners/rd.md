@@ -144,7 +144,7 @@ manifest, receipt, frame, and generic failure meaning remains byte-identical. Th
 CURRENT Market Data, Host, plugin, Composer, or Backtest support, and they require no second runtime or raw-order
 authority.
 
-Strategy Factory alone validates the canonical DAG and capability/resource/state bounds and deterministically
+R&D's Develop capability alone validates the canonical DAG and capability/resource/state bounds and deterministically
 lowers it with content-addressed first-party SDK/kernel sources. It references versioned primitive semantic IDs and
 source digests instead of copying formulas. The result is exactly one existing bounded plugin whose outputs are
 limited to typed post-state, `PositionIntentV1`, target and protection fields; `ProgramHostV2` seals the proposal

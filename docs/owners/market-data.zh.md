@@ -325,7 +325,7 @@ Session join 或权威。**TARGET：** Session 是准确 positive 且相互独�
 Source Binding、准确 Instrument Master
 reference tuple 与已验证 Shared Time observation。其唯一 raw resolver consumer 是
 `MARKET_DATA_OWNER_V1`；内部 PIT、Replay 与 additive BAR composition 可以消费它，而 Backtest 与
-Strategy Factory 只能接收 sealed projection。Caller 字符串、UTC endpoint、nearest transition 或 private
+R&D 只能接收 sealed projection。Caller 字符串、UTC endpoint、nearest transition 或 private
 proposal 都不能铸造 session fact。Gap local time 没有 positive fact，且绝不 shift。
 **NOT_ADMITTED：** 本契约不声称 Session implementation、native store、已注册 composition、product
 reachability、production write、deployment、runtime 或 trading。
@@ -645,7 +645,7 @@ owner-drift rejection 与 zero writes。
 W3 issuance 只接受该不受信 R&D attestation locator 与准确 Market dependency locator。Market Data 在内部校验
 恢复的 attestation，随后独立重新解析每条持久 registry declaration、完整 observation census、未改变的 V1
 joined cut、V4 BAR JOINED_CUT sample projection、R0 与独立 Market Semantics record，并要求 Market Semantics cut 指向准确恢复
-的 R0 cut。它不消费 `StrategyPlanV2`，也不依赖 Strategy Factory。Binding record、receipt 与 receipt-payload
+的 R0 cut。它不消费 `StrategyPlanV2`，也不依赖 R&D。Binding record、receipt 与 receipt-payload
 outbox 与未改变的 Replay V2 fact、receipt、outbox row 原子持久化；按准确 binding locator 的 recovery 会
 decode、rehash、cross-check 两套 custody aggregate，并返回逐字节相同的 payload。response loss 后按准确
 attestation locator recovery 会 join 既有 R&D attestation 而不 append。公共边界不接受 resolver、authoritative
@@ -656,10 +656,10 @@ disposable PostgreSQL Owner readback、deployment、production write、runtime �
 
 **TARGET：** admitted deployment 与隔离 disposable PostgreSQL acceptance 必须证明准确 replay、
 response-loss recovery、successor-only
-correction，以及 move-only Strategy Factory 与 Backtest consumer 路径。
+correction，以及 move-only R&D 与 Backtest consumer 路径。
 
 **NOT_ADMITTED：** 已实现 storage、custody 与固定 API composition 不是 admitted store、隔离 PostgreSQL
-acceptance、provider ingestion/authenticity proof、default product composition、Strategy Factory
+acceptance、provider ingestion/authenticity proof、default product composition、R&D
 或 Backtest consumer、runtime execution、production write、deployment 或 trading authority。它们不会把
 既有准确二成员 Universe receipt 当作通用 Universe Selection Record，不会以 V2 codec 替换 V1 joined-cut
 codec，也不允许 Source Binding rule string 或通用 `version = "v2"` 标签冒充规范 fact cut。
@@ -711,7 +711,7 @@ contract multiplier、lot size 与每个 optional limit disposition 必须全部
 precision 必须等于其准确 increment scale。Token 不含 maker/taker fee、initial/maintenance margin、
 commission、leverage bracket 或 execution-profile authority，也不调用或构造 `InstrumentAny`。
 
-Strategy Factory 仍是唯一 `ReplayExecutionProfileV1` 的 sole owner。逻辑 Instrument Owner 现在另行拥有
+R&D 仍是唯一 `ReplayExecutionProfileV1` 的 sole owner。逻辑 Instrument Owner 现在另行拥有
 private `InstrumentEconomicTermsFactV1` PostgreSQL 路径。该 fact 绑定准确 public instrument
 identity/digest、venue、margin-account scope、半开 validity、source 与 provenance、正 revision、quote/fee
 currency、正且准确的 maker/taker rate、正且准确的 initial/maintenance rate，以及封闭的
@@ -731,9 +731,9 @@ member identity 与 public fact digest，并从自身匹配 fact 派生 account 
 或多个完整 pair 全部 unavailable。调用方不提供 account scope、economic-terms locator、latest selector、
 pool 或 replacement store。
 
-Strategy Factory 只能从该 verified Owner readback 铸造其 move-only economic provenance，并且还必须匹配
+R&D 只能从该 verified Owner readback 铸造其 move-only economic provenance，并且还必须匹配
 venue、account scope、event time、currency 与全部可见 economic profile value。Market Data public-fact
-module 仍不 import Strategy Factory，也不 validate、copy、select 或 issue replay economic value。
+module 仍不 import R&D，也不 validate、copy、select 或 issue replay economic value。
 
 **CURRENT/PARTIAL，持久 public V2 custody 与固定 Native Replay resolution：** Market Data 拥有
 additive `InstrumentMasterFactV2` store、不可变 content-addressed cut、原子 receipt/outbox，以及 move-only
@@ -770,12 +770,10 @@ runtime execution、production effect 或 trading。private economic 路径不�
 **CURRENT/PARTIAL：** Market Data 已实现下文描述的原生 `InstrumentMasterFactV1`、
 `InstrumentMasterCutV1`、write-once receipt/outbox、move-only `InstrumentMasterReadbackV1`，以及面向准确
 `BACKTEST_OWNER_V1` role 的 sealed PostgreSQL resolver/recovery 路径。PIT 与 Strategy Input 产品路径仍携带
-request 提供的 `instrument_master_digest` 并与 Owner-verified batch 比对，下文准入的切片将其退役；代表性 Strategy
-Factory 路径仍冻结 data-Owner role 字符串与 AAPL/MSFT fixture。这些旧 provenance、role 与 mapping 路径不能替代原生权威，也
+request 提供的 `instrument_master_digest` 并与 Owner-verified batch 比对，下文准入的切片将其退役；代表性 R&D 路径仍冻结 data-Owner role 字符串与 AAPL/MSFT fixture。这些旧 provenance、role 与 mapping 路径不能替代原生权威，也
 不证明产品已消费该权威。
 
-**TARGET：** Backtest 产品直接消费既有 Owner-sealed resolution，并以它替换旧 digest 与硬编码 Strategy
-Factory role/mapping 路径。R&D 声明研究 scope，Strategy compiler 消费该 resolution，但两者均不得直接
+**TARGET：** Backtest 产品直接消费既有 Owner-sealed resolution，并以它替换旧 digest 与硬编码 R&D role/mapping 路径。R&D 声明研究 scope，Strategy compiler 消费该 resolution，但两者均不得直接
 查询 Instrument Master storage、维护 symbol-to-instrument 或 venue mapping，也不得合成 resolution。
 
 **IMPLEMENTATION_ADMITTED，生产 Instrument Master V1 intake：** 一个 Owner-sealed admission port 与一条路由
@@ -1018,14 +1016,13 @@ selection/master/semantics/lineage 任一拼接，
 binding contract，不声称 compiler、shared kernel、ProgramHost、Backtest、Paper、Live 或生产成熟度。
 
 **TARGET，durable Strategy Input Binding Registry：** Market Data 拥有 write-once、validated binding
-declaration；每份 declaration 以准确 PIT request、`StrategyDesignV2` 与 typed input role 为 key。R&D 与
-Strategy Factory 只能提供 Owner-authenticated Design/role intent，绝不提供或选择 member、frame 或 binding
+declaration；每份 declaration 以准确 PIT request、`StrategyDesignV2` 与 typed input role 为 key。R&D 只能提供 Owner-authenticated Design/role intent，绝不提供或选择 member、frame 或 binding
 digest。在一个 Market Data Owner transaction 中，registration 通过原生 authority 解析 PIT Snapshot、
 Universe Selection、Source Binding、Instrument Master 与 Market Semantics，派生并存储 declaration/digest，
 重新生成既有 V1 binding 与 frame，再原样运行既有 V1 complete-census 与 joined-cut authority。registry
 registration 缺失，或 request/Design/role、membership、frame、lineage、semantics、digest 任一不匹配时，都不
 生成 declaration、census、joined cut 或 replay input。该 registry 是 Replay V2 positive composition 与真实
-Owner-driven Strategy Factory/Backtest consumption 的前置条件；它不是 provider registry、deployment registry
+Owner-driven R&D/Backtest consumption 的前置条件；它不是 provider registry、deployment registry
 或 caller-authored data path。
 
 **CURRENT/PARTIAL，authenticated role-set foundation：** dependency-neutral 的准确 Composer locator 与
@@ -1038,7 +1035,7 @@ durable attestation 的准确 locator DB-ACL read function 接纳该 attestation
 positive path；Market Data 随后独立解析自身 registry、census、join、V4 sample、R0 与 Market Semantics authority，
 再原子签发 binding。**NOT_ADMITTED：** caller-proposed Design/role/join 字段、receipt/readback/token、receipt
 hash、latest/history/full scan、raw R&D table parsing 或 Market Data storage 都不能认证 Design meaning；Market
-Data 不依赖 Strategy Factory，不拥有也不重新解释 Strategy Design role/join，且该 foundation 不声称 registered
+Data 不依赖 R&D，不拥有也不重新解释 Strategy Design role/join，且该 foundation 不声称 registered
 W3 resolver 或 production write。
 
 Market Data 只消费、但不定义也不重新解释 R&D Owner contract 中明确规定的 big-endian canonical binary
@@ -1090,7 +1087,7 @@ receipt digest 与 native trigger identity/digest；corpus 还绑定完整 sourc
 及 domain-separated corpus digest。空集、缺失、重复、乱序、BAR 替换、跨 census、跨 request、跨 projection 或跨 native
 trigger 证据都不会产生正向 corpus。现有 V1 cut/V2 projection bytes、digest、`SealedReplayInput` V1 语义、resolver 语义与历史
 single-event consumer 保持不变。来自另一 snapshot 或 observation batch 的等值证据会按准确 Owner provenance 拒绝，而不是按值放行。
-越过边界交给 Strategy Factory 或 Backtest composition 的唯一值
+越过边界交给 R&D 或 Backtest composition 的唯一值
 是针对该 request-selected event 的密封、只读 `StrategyInputSampleEventResolverV1` capability；insert、update、
 delete、head advance、generic query、raw DSN、credential、admission receipt 或 evidence accessor 均不得越过
 Owner 边界。
@@ -1391,7 +1388,7 @@ isolated dynamic PostgreSQL acceptance。其 sealed public locator/readback cont
 fixed PostgreSQL snapshot 中完整验证 projection custody、timeframe/sample fact、schedule dependency、准确
 schedule readback 与 append-only schedule history，且在读取前、读取后及 promote 前立即重新验证 admission。
 resolver 不能选择 kind/lifecycle、执行 latest lookup、解析 V2 BAR 或 JOINED_CUT，也不暴露 storage authority。
-Strategy Factory production startup、产品 composition、ProgramHost、Backtest、composite、Dashboard 与其他
+R&D production startup、产品 composition、ProgramHost、Backtest、composite、Dashboard 与其他
 所有产品消费保持 `TARGET / UNAVAILABLE`；当 external admission adapter 不可用时，required production startup
 不得返回 resolver。stored V3 row 或结构 V3 bytes 本身不产生 consumer 权威或 mutation。
 
@@ -1440,8 +1437,7 @@ per-slot correction-head、sample-receipt、outbox table 与 exact native resolv
 correction head 推进到首个 fact。逐字节相同的 replay 执行零次
 write，并返回准确历史 receipt bytes。identity/content mismatch、time/version regression、predecessor 或
 sequence gap、competing branch、cycle、cross-lineage splice、head mismatch、缺失/冲突 timeframe projection
-或非规范 bytes 都必须 fail closed，且两个 head 均不前进。successor 与 correction 之后仍可读取历史 exact receipt。caller、Strategy
-Factory、ProgramHost、Backtest、fixture、migration 与 reconciliation process 都不获得 insert/update/delete、
+或非规范 bytes 都必须 fail closed，且两个 head 均不前进。successor 与 correction 之后仍可读取历史 exact receipt。caller、R&D、ProgramHost、Backtest、fixture、migration 与 reconciliation process 都不获得 insert/update/delete、
 head-advance、synthesis、backfill 或 garbage-collection 权威。
 
 上述 BAR schedule fact/cut/receipt/readback PostgreSQL 路径、BAR sample custody 与 V3 projection PostgreSQL
@@ -1490,7 +1486,7 @@ rejection。
   关联准确初始请求身份 内容摘要 scope cut provenance license correction 和稳定 correlation，并附准确 Universe Selection Record 身份与
   摘要用于假设检验。修复请求另以同一关联请求身份返回携带已修复 snapshot 的 `AVAILABLE`，或携带
   有界决定性来源类别的终态 `UNAVAILABLE`。
-  Strategy Factory 不能 import、construct、deserialize 或 implement terminal authority，也得不到 raw store
+  R&D 不能 import、construct、deserialize 或 implement terminal authority，也得不到 raw store
   receipt、PIT lineage row、Source Binding lineage row 或 clock row。
 - 向 [Backtest](./backtest/) 提供绑定请求 PIT 范围和 snapshot/correction rule 的准确 PIT Market Snapshot
   与 Universe Selection Record。**TARGET：** 直接 `BACKTEST_OWNER_V1` Instrument Master resolution 提供
