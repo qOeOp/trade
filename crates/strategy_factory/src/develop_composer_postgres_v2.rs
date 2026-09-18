@@ -2221,7 +2221,7 @@ async fn verify_composer_commit_cut_authority_in_transaction(
 async fn verify_composer_writer_authority_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<(), sqlx::Error> {
-    let exact: bool = sqlx::query_scalar(
+    let row = sqlx::query(
         "WITH writer AS (
            SELECT role.oid,
                   role.rolcanlogin,
@@ -2250,23 +2250,23 @@ async fn verify_composer_writer_authority_in_transaction(
               AND NOT attribute.attisdropped
          )
          SELECT SESSION_USER='rd_fact_writer'
-            AND CURRENT_USER='rd_fact_writer'
-            AND (SELECT rolcanlogin AND rolinherit
+              , CURRENT_USER='rd_fact_writer'
+              , (SELECT rolcanlogin AND rolinherit
                         AND NOT rolsuper
                         AND NOT rolcreatedb
                         AND NOT rolcreaterole
                         AND NOT rolreplication
                         AND NOT rolbypassrls
                    FROM writer)
-            AND NOT EXISTS (
+              , NOT EXISTS (
               SELECT 1
                 FROM writer
                 JOIN pg_catalog.pg_auth_members membership
                   ON membership.member=writer.oid
                   OR membership.roleid=writer.oid
             )
-            AND (SELECT count(*)=cardinality($1) FROM private_relations)
-            AND NOT EXISTS (
+              , (SELECT count(*)=cardinality($1) FROM private_relations)
+              , NOT EXISTS (
               SELECT 1
                 FROM writer
                 CROSS JOIN private_relations relation
@@ -2276,7 +2276,7 @@ async fn verify_composer_writer_authority_in_transaction(
                  'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
                )
             )
-            AND NOT EXISTS (
+              , NOT EXISTS (
               SELECT 1
                 FROM writer
                 CROSS JOIN private_columns column_fact
@@ -2287,7 +2287,7 @@ async fn verify_composer_writer_authority_in_transaction(
                  'SELECT,INSERT,UPDATE,REFERENCES'
                )
             )
-            AND (SELECT pg_catalog.has_schema_privilege(
+              , (SELECT pg_catalog.has_schema_privilege(
                           writer.oid,
                           private_namespace.oid,
                           'USAGE'
@@ -2300,7 +2300,7 @@ async fn verify_composer_writer_authority_in_transaction(
                    FROM writer
                    JOIN pg_catalog.pg_namespace private_namespace
                      ON private_namespace.nspname='composer_private')
-            AND (SELECT pg_catalog.has_schema_privilege(
+              , (SELECT pg_catalog.has_schema_privilege(
                           writer.oid,
                           api_namespace.oid,
                           'USAGE'
@@ -2313,7 +2313,7 @@ async fn verify_composer_writer_authority_in_transaction(
                    FROM writer
                    JOIN pg_catalog.pg_namespace api_namespace
                      ON api_namespace.nspname='composer_owner_api')
-            AND (SELECT pg_catalog.has_database_privilege(
+              , (SELECT pg_catalog.has_database_privilege(
                           writer.oid,
                           database.oid,
                           'CONNECT'
@@ -2331,7 +2331,7 @@ async fn verify_composer_writer_authority_in_transaction(
                    FROM writer
                    JOIN pg_catalog.pg_database database
                      ON database.datname=pg_catalog.current_database())
-            AND (SELECT count(*)=2
+              , (SELECT count(*)=2
                         AND bool_and(procedure.oid IN (
                           pg_catalog.to_regprocedure($2),
                           pg_catalog.to_regprocedure($3)
@@ -2349,15 +2349,61 @@ async fn verify_composer_writer_authority_in_transaction(
     .fetch_one(&mut **transaction)
     .await?;
 
-    if exact {
+    refuse_unmet_authority_clauses(
+        "Composer writer authority is unavailable",
+        &[
+            "session user",
+            "current user",
+            "role attributes",
+            "role memberships",
+            "private relations",
+            "private table privilege",
+            "private column privilege",
+            "private schema privilege",
+            "api schema privilege",
+            "database privilege",
+            "executable functions",
+        ],
+        &row,
+    )
+}
+
+/// Refuses with every named clause the row does not hold as exactly `true`. A clause that
+/// evaluated to NULL is unmet, not undecided, and a row whose width differs from the clause list is
+/// refused before any clause is read.
+fn refuse_unmet_authority_clauses(
+    refusal: &str,
+    clauses: &[&str],
+    row: &sqlx::postgres::PgRow,
+) -> Result<(), sqlx::Error> {
+    if row.len() != clauses.len() {
+        return Err(sqlx::Error::Protocol(format!(
+            "{refusal}: expected {} authority clauses, found {}",
+            clauses.len(),
+            row.len()
+        )));
+    }
+    let mut unmet = Vec::new();
+
+    for (index, clause) in clauses.iter().enumerate() {
+        let held: Option<bool> = row.try_get(index)?;
+
+        if held != Some(true) {
+            unmet.push(*clause);
+        }
+    }
+
+    if unmet.is_empty() {
         Ok(())
     } else {
-        Err(sqlx::Error::Protocol(
-            "Composer writer authority is unavailable".to_owned(),
-        ))
+        Err(sqlx::Error::Protocol(format!(
+            "{refusal}: {}",
+            unmet.join(", ")
+        )))
     }
 }
 
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 async fn verify_rd_owner_composer_writer_authority_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
