@@ -550,11 +550,6 @@ fn validate_published_role_coverage(
 ///
 /// Returns a redacted unavailable value when the publication does not describe this basis's Design
 /// or its exact role set, or when any Owner write or re-read fails.
-///
-/// # Panics
-///
-/// Panics if a request this basis composed is absent from its own binding-request list, which the
-/// basis's construction makes unreachable.
 pub async fn register_owner_bar_joined_cut_declarations_from_role_intent_v1(
     basis: &OwnerBarJoinedCutAcceptanceBasisV1,
     intent: &StrategyDesignRoleIntentV1,
