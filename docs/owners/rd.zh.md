@@ -9,6 +9,10 @@
 - 不可变 Research Source Provenance Record，绑定来源身份 内容摘要 位置 检索截面 共享时间证据
   许可依据，以及形成假设时采用的有界解释身份与摘要。
 - 冻结的机制 数据范围 准确成本 滑点与容量模型身份 容量假设 永久 TrialFamily 身份 预算 证伪条件和停止规则。
+- 冻结的信息价值策略：声明的序数不确定性削减排序规则及其版本、确定性 tie-break key，以及每个候选据以比较的停止
+  阈值。由 Research 提案声明，并在观察到任何结果之前由 Intent 冻结。R&D 从不计算信息价值分数：它接纳被声明的
+  排名，然后证明 census 完整、每个成员可准入且被可比地评分、理由齐备、胜出者唯一。策略缺失 事后补写 被改动或
+  无版本时，不准入任何后继实验，也不准入 `STOP_LOW_INFORMATION_VALUE`。
 - 只写一次的 Independence Basis Receipt，必须在保护反馈之前提交，并绑定有效 principal Research request scope
   不受信用户理由摘要 R&D 拥有的独立性 disposition，以及不可变 basis identity 与 digest。
 - 只能从锁定 R&D 历史解析为 `GENESIS_EMPTY` `COMPLETE_FRONTIER` 或 `UNAVAILABLE` 的自适应研究血缘，
@@ -501,7 +505,8 @@ dimension，并从以下九个 typed dimension 中选择：
    证据修复优先于解释，机制优先于参数细化，再检查经济与稳健性。只有冻结生成规则 candidate-set
    frontier expected cardinality observed membership 与每个候选的类型化 admissibility reason 共同证明没有
    候选缺失或未解析时，候选 census 才完整。完整有限集合按 admissibility、序数
-   uncertainty-reduction rank、确定 tie-break key、无碰撞候选身份加内容摘要作字典序比较。身份 摘要或
+   uncertainty-reduction rank、确定 tie-break key、无碰撞候选身份加内容摘要作字典序比较；这些都取自 Intent
+   冻结的信息价值策略，而不是在决策时重新计算。身份 摘要或
    完整比较 key 重复都会使集合无效，不创建后继 选择 修复效果或低信息停止。只有完整 census 中每个
    成员均可接纳、都已按预注册阈值可比打分且全部低于阈值时，才能提交
    `STOP_LOW_INFORMATION_VALUE`。集合不完整 未知 因其他理由不可接纳或不可比较时不产生 Iteration

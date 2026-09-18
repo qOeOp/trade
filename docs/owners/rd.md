@@ -10,6 +10,12 @@ Unify Research and Develop under one business-fact Owner. The Research capabilit
   shared time evidence, license basis, and the bounded interpretation identity and digest used to form a hypothesis.
 - Frozen mechanism, data scope, exact cost, slippage, and capacity-model identities, capacity assumptions,
   permanent TrialFamily identity, budget, falsifier, and stop rule.
+- Frozen information-value policy: the declared ordinal uncertainty-reduction ranking rule and its version, the
+  deterministic tie-break key, and the stop threshold every candidate is compared against. The Research proposal
+  declares them and the Intent freezes them before any result is observed. R&D never computes an information-value
+  score: it admits the declared rank, then proves the census complete, every member admissible and comparably
+  scored, the rationale present, and the winner unique. A missing, post-result, mutated, or unversioned policy
+  admits no successor experiment and no `STOP_LOW_INFORMATION_VALUE`.
 - Write-once Independence Basis Receipt, committed before protected feedback and bound to the effective principal,
   Research request scope, untrusted user rationale digest, R&D-owned independence disposition, and immutable basis identity and digest.
 - Adaptive research lineage resolved only from locked R&D history as `GENESIS_EMPTY`, `COMPLETE_FRONTIER`, or
@@ -550,7 +556,7 @@ The exact development flow is **Run Result → Diagnosis → Iteration Decision 
    candidate-set frontier, expected cardinality, observed membership, and per-candidate typed admissibility reason
    prove that no candidate is absent or unresolved. The complete finite set is ordered lexicographically by admissibility, ordinal
    uncertainty-reduction rank, deterministic tie-break key, and collision-free candidate identity plus content
-   digest. Duplicate identities, content digests, or complete comparison keys invalidate the set and create no
+   digest, all taken from the Intent's frozen information-value policy rather than recomputed at decision time. Duplicate identities, content digests, or complete comparison keys invalidate the set and create no
    successor, selection, repair effect, or low-information stop. `STOP_LOW_INFORMATION_VALUE` is valid only when
    every member of that complete census is admissible, comparably scored against the preregistered threshold, and
    proven below it. An incomplete, unknown, inadmissible-for-another-reason, or non-comparable census creates no
