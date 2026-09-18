@@ -770,8 +770,20 @@ pub(crate) fn prepare_develop_composer_bfp_v3(
         ));
     };
 
+    // The freeze stores the Design as the canonical bytes its identity digests; the request
+    // binds exactly when its own canonical bytes are those bytes. The durable codec is a
+    // different encoding of the same value and can never equal them.
+    let Ok(canonical_design) =
+        crate::strategy_plan_v2::prepare_canonical_strategy_design_v2(&request.design)
+    else {
+        return Err(unavailable(
+            "bounded_feature_program",
+            "current frozen BFP does not exactly bind the Composer request and ABI3 Design",
+        ));
+    };
+
     if manifest.abi_version != BUILD_RECEIPT_TAG_V3
-        || durable_encode(&request.design) != frozen.design_bytes()
+        || canonical_design.canonical_bytes() != frozen.design_bytes()
         || preflight.design_identity != frozen.design_identity()
         || preflight.research_request_identity != frozen.research_request_identity()
         || preflight.intent_identity != frozen.intent_identity()
