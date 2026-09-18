@@ -55,14 +55,18 @@ Runtime, Risk, Portfolio, and Governance.
 
 This ledger records only what the repository has reached at this cut. It uses the status vocabulary of the
 [Market Data](./market-data/) ledger, with `CURRENT_PARTIAL` as the merged-but-unreachable form, and grants no
-permission by itself: no slice of this document is `IMPLEMENTATION_ADMITTED`, and widening the admitted set
-requires changing this document first.
+permission by itself. The rows marked `IMPLEMENTATION_ADMITTED` below are the only admitted slices, each admitted on
+2026-09-18 as bounded, separately reviewable work whose acceptance is an isolated PostgreSQL proof, its ordered-chain
+entries passing on Linux, and a production path that depends on no testkit or acceptance feature; every other row
+grants nothing, and widening the admitted set requires changing this document first.
 
-- **CURRENT_PARTIAL - `PAPER` Execution Adapter Binding contract:** `crates/execution/src/adapter_binding.rs` owns the
+- **CURRENT_PARTIAL / IMPLEMENTATION_ADMITTED - `PAPER` Execution Adapter Binding contract:** `crates/execution/src/adapter_binding.rs` owns the
   untrusted binding vocabulary, `PAPER` account and effect namespace derivation, the sealed
   `AdmittedPaperAdapterBinding` readback, and the `PaperAdapterBindingReadPort` that alone can mint it. The positive
   Owner store is `#[cfg(test)]` only, so production holds no composition root, durable custody, invocation surface,
-  or credential access. A `LIVE` binding stays **TARGET / NOT_ADMITTED**.
+  or credential access. Admitted slice: the production Owner store over PostgreSQL custody, admission of one
+  `crates/adapters/sandbox` simulated-adapter binding under one `PAPER` Execution Scope, and the `ADMITTED` readback
+  handed to Strategy Governance. A `LIVE` binding stays **TARGET / NOT_ADMITTED**.
 - **CURRENT_PARTIAL - `PAPER` recovery-frontier read contract:** `crates/execution/src/recovery_frontier.rs` exposes
   the query-only `RecoveryFrontierReadPort` and its sealed `SealedRecoveryFrontier`, consumed by the Runtime
   foundation; no production custody or Runtime application exists behind it.

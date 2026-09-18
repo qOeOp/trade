@@ -60,8 +60,10 @@ Own the deployable strategy registry, lifecycle decision, and permitted capital 
 
 This ledger records only what the repository has reached at this cut. It uses the status vocabulary of the
 [Market Data](./market-data/) ledger, with `CURRENT_PARTIAL` as the merged-but-unreachable form, and grants no
-permission by itself: no slice of this document is `IMPLEMENTATION_ADMITTED`, and widening the admitted set
-requires changing this document first.
+permission by itself. The rows marked `IMPLEMENTATION_ADMITTED` below are the only admitted slices, each admitted on
+2026-09-18 as bounded, separately reviewable work whose acceptance is an isolated PostgreSQL proof, its ordered-chain
+entries passing on Linux, and a production path that depends on no testkit or acceptance feature; every other row
+grants nothing, and widening the admitted set requires changing this document first.
 
 - **CURRENT_PARTIAL - static fail-closed Governance core:** `crates/strategy_governance` owns the in-memory
   `GovernanceCore`, whose `resolve_frontier` resolves one complete conflict frontier under the canonical precedence,
@@ -74,17 +76,24 @@ requires changing this document first.
   `AttendedNotAdmitted`, or `ConditionalScannerNotAdmitted`. Public construction installs an unavailable Owner
   admission, so every public request fails closed (`crates/strategy_governance/tests/public_fail_closed.rs`), and no
   Runtime receipt resolver can be installed, so application projects `APPLICATION_UNKNOWN`.
-- **TARGET - Strategy Registry and Execution Scope creation:** no durable Governed Strategy Entry exists, and the
+- **TARGET / IMPLEMENTATION_ADMITTED - Strategy Registry and Execution Scope creation:** no durable Governed Strategy Entry exists, and the
   `BOUND` Capacity Scope and `ADMITTED` Execution Adapter Binding it must bind are themselves Discovery and static
-  contracts in `crates/portfolio` and `crates/execution`.
+  contracts in `crates/portfolio` and `crates/execution`. Admitted slice: PostgreSQL custody for the Governed Strategy
+  Entry, Execution Scope, lifecycle requests, and receipts, with the crate-private Owner admission rereading
+  Qualification Eligibility, the Portfolio `BOUND` Capacity Scope, the Execution `ADMITTED` binding, and the R&D build
+  receipt before one `PAPER` `INITIAL_ACTIVATION`.
 - **TARGET - Lifecycle Manager:** no evidence-driven lifecycle state, `DE_RISK_PENDING` succession, retention
   renewal, or adverse-evidence disposition policy exists.
-- **TARGET - Capital Policy and Capital Allocation Disposition:** no `POOL_ROOT` or `STRATEGY_GENERATION` Capital
-  Envelope, contender-membership frontier, or allocation exists.
-- **TARGET - Authorization Lineage and Autonomous Policy Authorization:** the Operator Authorization Issuer in
+- **TARGET / IMPLEMENTATION_ADMITTED - Capital Policy and Capital Allocation Disposition:** no `POOL_ROOT` or
+  `STRATEGY_GENERATION` Capital Envelope, contender-membership frontier, or allocation exists. Admitted slice: one
+  `POOL_ROOT` and one `STRATEGY_GENERATION` envelope for the single admitted generation; the contender-membership
+  frontier and the allocation stay `TARGET` until a second contender exists.
+- **TARGET / IMPLEMENTATION_ADMITTED - Authorization Lineage and Autonomous Policy Authorization:** the Operator Authorization Issuer in
   `crates/operator_authorization` is the only implemented lineage member, with PostgreSQL custody read by the
   deployed R&D Owner API; no Product Edge lifecycle request intake reaches Governance, and no issuer exists for
-  Autonomous Policy Authorization.
+  Autonomous Policy Authorization. Admitted slice: the Autonomous Policy Authorization as one more grant kind of that
+  Issuer under a `STRATEGY_GOVERNANCE` audience, carrying the fields named by Product Edge, and the Product Edge
+  lifecycle request intake that binds it.
 - **TARGET - handoffs and persistence:** no port to Qualification, Scanner, Portfolio, Runtime, Execution, or Risk
   and no durable relation for any Governance fact.
 

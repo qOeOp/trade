@@ -76,14 +76,18 @@ non-isolating evidence set; it cannot coexist with a named cause.
 
 This ledger records only what the repository has reached at this cut. It uses the status vocabulary of the
 [Market Data](./market-data/) ledger, with `CURRENT_PARTIAL` as the merged-but-unreachable form, and grants no
-permission by itself: no slice of this document is `IMPLEMENTATION_ADMITTED`, and widening the admitted set
-requires changing this document first.
+permission by itself. The rows marked `IMPLEMENTATION_ADMITTED` below are the only admitted slices, each admitted on
+2026-09-18 as bounded, separately reviewable work whose acceptance is an isolated PostgreSQL proof, its ordered-chain
+entries passing on Linux, and a production path that depends on no testkit or acceptance feature; every other row
+grants nothing, and widening the admitted set requires changing this document first.
 
-- **CURRENT_PARTIAL - Capacity Scope contract:** `crates/portfolio/src/owner/capacity_scope.rs` declares its maturity
+- **CURRENT_PARTIAL / IMPLEMENTATION_ADMITTED - Capacity Scope contract:** `crates/portfolio/src/owner/capacity_scope.rs` declares its maturity
   as `Discovery`. The public `resolve_capacity_scope` accepts an untrusted request and returns a structured
   unavailable readback, while the sealed `BoundCapacityScopeReadback` can be minted only by a private
   complete-registry path that has no production resolver. `crates/portfolio/tests/capacity_scope_contract.rs`
-  proves the fail-closed shape.
+  proves the fail-closed shape. Admitted slice: the private complete-registry resolver over PostgreSQL custody that
+  alone seals `BoundCapacityScopeReadback` for one account, one `PAPER` mode, and one economic pool, plus the `BOUND`
+  readback handed to Strategy Governance.
 - **CURRENT_PARTIAL - Portfolio View R0 contract:** `crates/portfolio/src/owner/portfolio_view.rs` owns the request
   fingerprint, replay classification, per-source-Owner dependency kinds, and the fail-closed `resolve_portfolio_view`
   that returns an `UnavailablePortfolioView`; no positive source resolver exists.

@@ -52,13 +52,16 @@
 ## 实现状态台账
 
 本台账只记录仓库在本截面实际到达的状态。它沿用 [Market Data](./market-data/) 台账的状态词汇，并以
-`CURRENT_PARTIAL` 表示已合并但不可触达的形态；台账本身不授予任何许可：本文档没有任何切片是
-`IMPLEMENTATION_ADMITTED`，扩大准入集必须先修改本文档。
+`CURRENT_PARTIAL` 表示已合并但不可触达的形态；台账本身不授予任何许可。下文标为 `IMPLEMENTATION_ADMITTED` 的行是仅有的已准入切片，均于
+2026-09-18 作为有界、可单独评审的工作准入，其验收是一次性 PostgreSQL 证明、有序链路条目在 Linux 上通过，以及不依赖
+testkit 或 acceptance feature 的生产路径；其余各行不授予任何东西，扩大准入集必须先修改本文档。
 
-- **CURRENT_PARTIAL - `PAPER` Execution Adapter Binding 契约：** `crates/execution/src/adapter_binding.rs` 拥有不可信的
+- **CURRENT_PARTIAL / IMPLEMENTATION_ADMITTED - `PAPER` Execution Adapter Binding 契约：** `crates/execution/src/adapter_binding.rs` 拥有不可信的
   binding 词汇、`PAPER` 账户与效果命名空间派生、sealed 的 `AdmittedPaperAdapterBinding` 回读，以及唯一能铸造它的
   `PaperAdapterBindingReadPort`。正向 Owner store 只在 `#[cfg(test)]` 下存在，所以生产侧没有装配根、持久 custody、
-  调用面或 credential 访问。`LIVE` binding 仍为 **TARGET / NOT_ADMITTED**。
+  调用面或 credential 访问。已准入切片：基于 PostgreSQL custody 的生产 Owner store、在一个 `PAPER` Execution Scope 下
+  准入一个 `crates/adapters/sandbox` 模拟适配器 binding，以及交给 Strategy Governance 的 `ADMITTED` 回读。`LIVE`
+  binding 仍为 **TARGET / NOT_ADMITTED**。
 - **CURRENT_PARTIAL - `PAPER` recovery-frontier 读契约：** `crates/execution/src/recovery_frontier.rs` 暴露只读的
   `RecoveryFrontierReadPort` 及其 sealed `SealedRecoveryFrontier`，由 Runtime foundation 消费；其背后没有生产
   custody，也没有 Runtime application。
