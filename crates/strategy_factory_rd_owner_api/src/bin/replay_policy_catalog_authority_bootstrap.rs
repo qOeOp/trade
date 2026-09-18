@@ -6,14 +6,18 @@ use std::{
 
 use anyhow::Context;
 use sqlx::postgres::PgPoolOptions;
-use vibe_strategy_factory::ensure_authenticated_replay_policy_catalog_genesis_v1;
+use vibe_strategy_factory::{
+    ReplayPolicyCatalogBootstrapReceiptV3, ensure_authenticated_replay_policy_catalog_v3,
+};
 
 const DATABASE_URL_ENV: &str = "REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL";
-const SEALED_REQUEST_PATH_ENV: &str = "REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST_PATH";
+const SEALED_CREATE_COMMAND_PATH_ENV: &str = "REPLAY_POLICY_CATALOG_BOOTSTRAP_CREATE_COMMAND_PATH";
+const SEALED_ADVANCE_COMMAND_PATH_ENV: &str =
+    "REPLAY_POLICY_CATALOG_BOOTSTRAP_ADVANCE_COMMAND_PATH";
 const TRUSTED_VERIFIER_IDENTITY_ENV: &str = "REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY";
 const TRUSTED_VERIFIER_PUBLIC_KEY_PATH_ENV: &str =
     "REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY_PATH";
-const MAX_SEALED_REQUEST_BYTES: usize = 64 * 1024;
+const MAX_SEALED_COMMAND_BYTES: usize = 64 * 1024;
 const MAX_PUBLIC_KEY_FILE_BYTES: usize = 128;
 const MAX_RECEIPT_BYTES: usize = 16 * 1024;
 
@@ -22,7 +26,8 @@ async fn main() -> anyhow::Result<()> {
     require_no_arguments(std::env::args().skip(1))?;
 
     let database_url = require_environment(DATABASE_URL_ENV)?;
-    let sealed_request_path = require_environment(SEALED_REQUEST_PATH_ENV)?;
+    let sealed_create_command_path = require_environment(SEALED_CREATE_COMMAND_PATH_ENV)?;
+    let sealed_advance_command_path = require_environment(SEALED_ADVANCE_COMMAND_PATH_ENV)?;
     let trusted_verifier_identity = require_environment(TRUSTED_VERIFIER_IDENTITY_ENV)?;
     require_trusted_verifier_identity(&trusted_verifier_identity)?;
     let trusted_verifier_public_key_bytes = read_bounded_file(
@@ -32,28 +37,36 @@ async fn main() -> anyhow::Result<()> {
     )?;
     let trusted_verifier_public_key_hex =
         canonical_public_key_hex(&trusted_verifier_public_key_bytes)?;
-    let sealed_request_json = read_bounded_file(
-        Path::new(&sealed_request_path),
-        MAX_SEALED_REQUEST_BYTES,
-        "sealed Catalog bootstrap request",
+    let sealed_create_command_json = read_bounded_file(
+        Path::new(&sealed_create_command_path),
+        MAX_SEALED_COMMAND_BYTES,
+        "sealed Catalog create command",
+    )?;
+    let sealed_advance_command_json = read_bounded_file(
+        Path::new(&sealed_advance_command_path),
+        MAX_SEALED_COMMAND_BYTES,
+        "sealed Catalog advance command",
     )?;
 
-    if sealed_request_json.is_empty() {
-        anyhow::bail!("sealed Catalog bootstrap request must not be empty");
+    if sealed_create_command_json.is_empty() || sealed_advance_command_json.is_empty() {
+        anyhow::bail!("sealed Catalog bootstrap commands must not be empty");
     }
 
     let pool = PgPoolOptions::new()
         .max_connections(1)
         .connect_lazy(&database_url)
         .context("Replay Policy Catalog admin database URL is invalid")?;
-    let receipt = ensure_authenticated_replay_policy_catalog_genesis_v1(
+    let binding = ensure_authenticated_replay_policy_catalog_v3(
         &pool,
-        &sealed_request_json,
+        &sealed_create_command_json,
+        &sealed_advance_command_json,
         &trusted_verifier_identity,
         trusted_verifier_public_key_hex,
     )
     .await
     .map_err(|_| anyhow::anyhow!("Replay Policy Catalog bootstrap was not accepted"))?;
+    let receipt =
+        ReplayPolicyCatalogBootstrapReceiptV3::from_binding(&trusted_verifier_identity, &binding);
     let canonical_receipt = serde_json::to_vec(&receipt)
         .context("Replay Policy Catalog bootstrap receipt serialization failed")?;
 

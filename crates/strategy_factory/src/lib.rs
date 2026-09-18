@@ -242,10 +242,14 @@ pub mod replay_policy_catalog_sealed_acceptance_v2;
 mod replay_policy_catalog_v2;
 pub mod replay_target_set_execution_bundle_v1;
 pub use replay_policy_catalog_postgres_v2::{
-    advance_authenticated_replay_policy_catalog_head_v3,
+    CatalogAdminCommandKindV3, ReplayPolicyCatalogAdminCommandAuthoringV3,
+    ReplayPolicyCatalogBootstrapReceiptV3, advance_authenticated_replay_policy_catalog_head_v3,
     create_authenticated_replay_policy_catalog_v3,
     ensure_authenticated_replay_policy_catalog_genesis_v1,
-    read_authenticated_replay_policy_catalog_genesis_v1, read_current_replay_policy_catalog_v3,
+    ensure_authenticated_replay_policy_catalog_v3,
+    read_authenticated_replay_policy_catalog_genesis_v1,
+    read_authenticated_replay_policy_catalog_v3, read_current_replay_policy_catalog_v3,
+    seal_replay_policy_catalog_admin_command_v3,
 };
 pub use replay_policy_catalog_v2::{
     ReplayExecutionProfileSealsV1, ReplayPolicyCatalogBindingV2, ReplayPolicyCatalogBindingV3,

@@ -87,6 +87,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|develop_composer_postgres_v2|transaction_bound_read_uses_the_borrowed_backend_locks_and_writes_nothing'
   'vibe-strategy-factory|develop_composer_postgres_v2|transaction_bound_read_rejects_wrong_owner_acl_and_stale_custody'
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::frozen_program_runs_the_production_composer_to_a_durable_artifact'
+  'vibe-strategy-factory|vibe_strategy_factory|replay_policy_catalog_postgres_v2::postgres_tests::catalog_v3_bootstrap_publishes_the_head_the_owner_reads_and_formation_binds'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -113,8 +114,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 70 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all seventy ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 71 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all seventy-one ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -179,7 +180,8 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[66]}" != *'|transaction_bound_read_uses_the_borrowed_backend_locks_and_writes_nothing' ]] ||
     [[ "${rd_owner_postgres_tests[67]}" != *'|transaction_bound_read_rejects_wrong_owner_acl_and_stale_custody' ]] ||
     [[ "${rd_owner_postgres_tests[68]}" != *'|product_edge_postgres::tests::frozen_program_runs_the_production_composer_to_a_durable_artifact' ]] ||
-    [[ "${rd_owner_postgres_tests[69]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[69]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_v3_bootstrap_publishes_the_head_the_owner_reads_and_formation_binds' ]] ||
+    [[ "${rd_owner_postgres_tests[70]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -258,6 +260,7 @@ import sys
 
 source = Path(sys.argv[1]).read_text(encoding="utf-8")
 catalog_test = "catalog_admin_and_family_formation_are_atomic_and_fail_closed"
+bootstrap_test = "replay_policy_catalog_postgres_v2::postgres_tests::catalog_v3_bootstrap_publishes_the_head_the_owner_reads_and_formation_binds"
 poison_test = "postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation"
 array_open = "readonly rd_owner_postgres_tests=(\n"
 array_close = "\n)\nreadonly nextest_graph_args=("
@@ -282,8 +285,8 @@ for line in array_body.splitlines():
     if len(fields) != 3 or any(not field for field in fields):
         raise SystemExit("ERROR: ordered PostgreSQL test literal must contain three fields.")
     entries.append(tuple(fields))
-if len(entries) != 70:
-    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain seventy entries.")
+if len(entries) != 71:
+    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain seventy-one entries.")
 if sum(test_name == poison_test for _, _, test_name in entries) != 1:
     raise SystemExit(
         "ERROR: recovery-sidecar poison test must occur exactly once as a parsed test name."
@@ -305,6 +308,7 @@ if filter_definitions != [exact_filter]:
     raise SystemExit("ERROR: ordered PostgreSQL loop must define one exact test filter.")
 route = (
     f'''if [[ "$test_name" == '{catalog_test}' ]] ||\n'''
+    f'''    [[ "$test_name" == '{bootstrap_test}' ]] ||\n'''
     f'''    [[ "$test_name" == '{poison_test}' ]]; then'''
 )
 if loop_body.count(route) != 1:
@@ -2904,6 +2908,7 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
     inject_backtest_result_fault "$backtest_result_fault"
   fi
   if [[ "$test_name" == 'catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
+    [[ "$test_name" == 'replay_policy_catalog_postgres_v2::postgres_tests::catalog_v3_bootstrap_publishes_the_head_the_owner_reads_and_formation_binds' ]] ||
     [[ "$test_name" == 'postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
     env \
       VIBE_POSTGRES_TEST_DATABASE_NAME="$catalog_admin_database" \

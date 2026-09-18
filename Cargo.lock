@@ -11350,6 +11350,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "axum",
+ "ed25519-dalek",
  "rstest",
  "serde",
  "serde_json",
