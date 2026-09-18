@@ -4330,7 +4330,10 @@ mod tests {
             .fetch_one(restarted.pool())
             .await
             .unwrap();
-            assert_eq!(executable, expected, "unexpected autonomous policy authorization ACL for {role}");
+            assert_eq!(
+                executable, expected,
+                "unexpected autonomous policy authorization ACL for {role}"
+            );
         }
         assert!(!private_usage);
 
