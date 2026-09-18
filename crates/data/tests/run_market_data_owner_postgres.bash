@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Ordered Market Data Owner custody proofs. Each one runs in its own freshly provisioned database
+# on the one disposable server, so no proof inherits another's custody and none has to clean up
+# after itself; the list fails fast at the first red proof.
+readonly market_data_owner_postgres_tests=(
+  owner::postgres::tests::postgres_owner_is_atomic_restart_safe_acl_sealed_and_fail_closed
+  owner::postgres::sample_projection_v4::tests::postgres_v4_is_atomic_idempotent_exact_and_tamper_closed
+)
+
 container="vibe-md-d1-${PPID}-$$"
-database="vibe_test_market_data_${PPID}_$$"
-marker="md-d1-${PPID}-$$"
+database_prefix="vibe_test_market_data_${PPID}_$$"
+marker_prefix="md-d1-${PPID}-$$"
 admin_password="md_d1_admin_test_only"
 owner_password="md_d1_owner_test_only"
 reader_password="md_d1_reader_test_only"
@@ -73,26 +81,47 @@ docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d postgres \
   -c "CREATE ROLE vibe_test_role_market_data_owner LOGIN PASSWORD '$owner_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS"
 docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d postgres \
   -c "CREATE ROLE vibe_test_role_market_data_reader LOGIN PASSWORD '$reader_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS"
-docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d postgres \
-  -c "CREATE DATABASE \"$database\" OWNER vibe_test_role_market_data_owner"
-docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d "$database" \
-  -c "CREATE SCHEMA market_data_private AUTHORIZATION vibe_test_role_market_data_owner; ALTER SCHEMA market_data_private OWNER TO vibe_test_role_market_data_owner; REVOKE ALL ON SCHEMA market_data_private FROM PUBLIC, vibe_test_role_market_data_reader"
-schema_admitted="$(docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d "$database" -Atqc "SELECT pg_catalog.pg_get_userbyid(namespace.nspowner)='vibe_test_role_market_data_owner' AND pg_catalog.has_schema_privilege('vibe_test_role_market_data_owner',namespace.oid,'USAGE') AND pg_catalog.has_schema_privilege('vibe_test_role_market_data_owner',namespace.oid,'CREATE') AND NOT pg_catalog.has_schema_privilege('vibe_test_role_market_data_reader',namespace.oid,'USAGE') AND NOT pg_catalog.has_schema_privilege('vibe_test_role_market_data_reader',namespace.oid,'CREATE') AND NOT EXISTS (SELECT 1 FROM pg_catalog.aclexplode(COALESCE(namespace.nspacl,pg_catalog.acldefault('n',namespace.nspowner))) privilege WHERE privilege.grantee=0 AND privilege.privilege_type IN ('USAGE','CREATE')) FROM pg_catalog.pg_namespace namespace WHERE namespace.nspname='market_data_private'")"
-[[ "$schema_admitted" == "t" ]]
-docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d "$database" \
-  -c "CREATE TABLE public.vibe_test_instance_marker(marker_identity TEXT PRIMARY KEY); INSERT INTO public.vibe_test_instance_marker VALUES ('$marker'); REVOKE ALL ON public.vibe_test_instance_marker FROM PUBLIC; GRANT SELECT ON public.vibe_test_instance_marker TO vibe_test_role_market_data_owner, vibe_test_role_market_data_reader"
 
-export MARKET_DATA_ADMIN_TEST_DATABASE_URL="postgres://postgres:$admin_password@127.0.0.1:$port/$database"
-export MARKET_DATA_OWNER_TEST_DATABASE_URL="postgres://vibe_test_role_market_data_owner:$owner_password@127.0.0.1:$port/$database"
-export MARKET_DATA_READER_TEST_DATABASE_URL="postgres://vibe_test_role_market_data_reader:$reader_password@127.0.0.1:$port/$database"
-export VIBE_POSTGRES_TEST_DATABASE_NAME="$database"
-export VIBE_POSTGRES_TEST_INSTANCE_MARKER="$marker"
+# Provisions one database the way the deployment's Market Data store is admitted: owned by the
+# Owner role, with a private schema the reader cannot even see and an immutable admin marker the
+# test harness verifies before it will treat the database as disposable.
+provision_database() {
+  local database="$1"
+  local marker="$2"
+  local schema_admitted
 
-set +e
-cargo test --manifest-path crates/data/Cargo.toml \
-  owner::postgres::tests::postgres_owner_is_atomic_restart_safe_acl_sealed_and_fail_closed \
-  --lib -- --ignored --exact
-test_status=$?
-set -e
+  docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d postgres \
+    -c "CREATE DATABASE \"$database\" OWNER vibe_test_role_market_data_owner"
+  docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d "$database" \
+    -c "CREATE SCHEMA market_data_private AUTHORIZATION vibe_test_role_market_data_owner; ALTER SCHEMA market_data_private OWNER TO vibe_test_role_market_data_owner; REVOKE ALL ON SCHEMA market_data_private FROM PUBLIC, vibe_test_role_market_data_reader"
+  schema_admitted="$(docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d "$database" -Atqc "SELECT pg_catalog.pg_get_userbyid(namespace.nspowner)='vibe_test_role_market_data_owner' AND pg_catalog.has_schema_privilege('vibe_test_role_market_data_owner',namespace.oid,'USAGE') AND pg_catalog.has_schema_privilege('vibe_test_role_market_data_owner',namespace.oid,'CREATE') AND NOT pg_catalog.has_schema_privilege('vibe_test_role_market_data_reader',namespace.oid,'USAGE') AND NOT pg_catalog.has_schema_privilege('vibe_test_role_market_data_reader',namespace.oid,'CREATE') AND NOT EXISTS (SELECT 1 FROM pg_catalog.aclexplode(COALESCE(namespace.nspacl,pg_catalog.acldefault('n',namespace.nspowner))) privilege WHERE privilege.grantee=0 AND privilege.privilege_type IN ('USAGE','CREATE')) FROM pg_catalog.pg_namespace namespace WHERE namespace.nspname='market_data_private'")"
+  [[ "$schema_admitted" == "t" ]]
+  docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d "$database" \
+    -c "CREATE TABLE public.vibe_test_instance_marker(marker_identity TEXT PRIMARY KEY); INSERT INTO public.vibe_test_instance_marker VALUES ('$marker'); REVOKE ALL ON public.vibe_test_instance_marker FROM PUBLIC; GRANT SELECT ON public.vibe_test_instance_marker TO vibe_test_role_market_data_owner, vibe_test_role_market_data_reader"
 
-exit "$test_status"
+  export MARKET_DATA_ADMIN_TEST_DATABASE_URL="postgres://postgres:$admin_password@127.0.0.1:$port/$database"
+  export MARKET_DATA_OWNER_TEST_DATABASE_URL="postgres://vibe_test_role_market_data_owner:$owner_password@127.0.0.1:$port/$database"
+  export MARKET_DATA_READER_TEST_DATABASE_URL="postgres://vibe_test_role_market_data_reader:$reader_password@127.0.0.1:$port/$database"
+  export VIBE_POSTGRES_TEST_DATABASE_NAME="$database"
+  export VIBE_POSTGRES_TEST_INSTANCE_MARKER="$marker"
+}
+
+ordinal=0
+for test_selection in "${market_data_owner_postgres_tests[@]}"; do
+  ordinal=$((ordinal + 1))
+  provision_database "${database_prefix}_${ordinal}" "${marker_prefix}-${ordinal}"
+
+  set +e
+  cargo test --manifest-path crates/data/Cargo.toml \
+    "$test_selection" \
+    --lib -- --ignored --exact
+  test_status=$?
+  set -e
+
+  if [[ "$test_status" -ne 0 ]]; then
+    echo "market-data proof ${ordinal}/${#market_data_owner_postgres_tests[@]} failed: ${test_selection}" >&2
+    exit "$test_status"
+  fi
+done
+
+exit 0
