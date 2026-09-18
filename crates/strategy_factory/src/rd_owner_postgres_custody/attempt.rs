@@ -755,9 +755,12 @@ fn verify_invocation_custody_binding(attempt: &StoredAttemptV1) -> Result<(), Ar
                 || snapshot.reserved_at_epoch_ms != binding.reserved_at_epoch_ms
                 || snapshot.custody_digest != binding.execution_custody_digest
             {
-                return Err(ArtifactBuildError::Storage(
-                    "invocation custody binding mismatch".to_string(),
-                ));
+                return Err(ArtifactBuildError::Storage(format!(
+                    "invocation custody binding mismatch for attempt {} of build request {} in state {:?}",
+                    attempt.request.attempt_identity,
+                    attempt.request.build_request_identity,
+                    attempt.state
+                )));
             }
             Ok(())
         }

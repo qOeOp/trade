@@ -3901,6 +3901,26 @@ mod tests {
             product_edge_outbox_before_tampered_retry
         );
         assert_eq!(rd_attempt_after_tampered_retry, tampered_attempt);
+
+        // The ordered chain shares one store: a later entry's directory read verifies every
+        // recent attempt and would rightly refuse this tampered seal. Restore the exact custody
+        // the proof found after its own legitimate retry, and prove the restoration reads back.
+        sqlx::query(
+            "UPDATE rd_artifact_build_attempts_v1 SET attempt_json=$1 WHERE build_request_identity=$2",
+        )
+        .bind(&rd_attempt_after_retry)
+        .bind(&build_request_identity)
+        .execute(rd_owner_pool)
+        .await
+        .unwrap();
+        let rd_attempt_after_restore: serde_json::Value = sqlx::query_scalar(
+            "SELECT attempt_json FROM rd_artifact_build_attempts_v1 WHERE build_request_identity=$1",
+        )
+        .bind(&build_request_identity)
+        .fetch_one(rd_owner_pool)
+        .await
+        .unwrap();
+        assert_eq!(rd_attempt_after_restore, rd_attempt_after_retry);
     }
 
     async fn rd_owned_relation_snapshot(pool: &sqlx::PgPool) -> Vec<(String, serde_json::Value)> {
