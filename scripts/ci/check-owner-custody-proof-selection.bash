@@ -43,6 +43,7 @@ readonly owner_crates=(
 # Proofs no chain selects, each with the reason it stays out. Adding a name here is a decision that
 # the next reader can audit; leaving one out fails this check.
 readonly -A unselected_reason=(
+  ["a_retry_reads_the_committed_admission_back_and_a_changed_request_conflicts"]="the only durable admission proof that needs a Product Edge admission, and its bootstrap raises a genesis under a fresh deployment identity. That is right for a private store and wrong for the chain's shared one, where a genesis already exists: the admission is written under one deployment and resolved under another, and the Owner reports it unavailable. The gap is the missing iteration-result Product Edge seam, whose operation, effect and schema constants still have no production consumer"
   ["actual_dataset_recovers_into_fresh_derived_catalogs"]="requires the separately downloaded frozen 2023 USD-M and PAXG Spot datasets; no workflow, Makefile or script provides it"
   ["actual_dual_tsmom_family_recovers_exact_terminal_receipt"]="requires frozen Binance, five-series ALFRED, and scheduled-event evidence; no workflow, Makefile or script provides it"
   ["actual_pairs_family_recovers_exact_terminal_receipt"]="requires frozen Binance, five-series ALFRED, and scheduled-event evidence; no workflow, Makefile or script provides it"
