@@ -99,11 +99,70 @@ jobs:
       # than the 2 `build`'s chain job states: the chain runs its tests one at a time, so the build
       # is the whole job.
 
+      # The R&D chain's entry 28, `strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody`,
+      # drives the Dashboard strategy viewer in a real browser only when these three inputs are
+      # present; without them it passes in a few milliseconds and proves nothing about the browser.
+      # `build`'s chain job runs it that way, so the only Linux evidence for the browser acceptance
+      # has been `rd-owner-postgres.yml`. This leg carries the same sealed inputs, byte for byte, so
+      # a lane's push exercises the whole entry. The Market Data leg has no browser to drive.
+      - name: Set up Node.js for Dashboard browser acceptance
+        if: matrix.chain.key == 'rd-owner'
+        # https://github.com/actions/setup-node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: product/dashboard/package-lock.json
+
+      - name: Install sealed Dashboard browser acceptance inputs
+        if: matrix.chain.key == 'rd-owner'
+        env:
+          CHROME_FOR_TESTING_SHA256: ecae8b71d4890cf5f32577ab5ea1b3840c2b5e05f51490b1666674cf1f5b0c37
+          CHROME_FOR_TESTING_URL: >-
+            https://storage.googleapis.com/chrome-for-testing-public/152.0.7977.83/linux64/chrome-linux64.zip
+        run: |
+          set -euo pipefail
+          npm ci --prefix product/dashboard
+          browser_root="${RUNNER_TEMP}/dashboard-strategy-viewer-chrome"
+          mkdir -p "$browser_root"
+          curl --fail --location --retry 3 \
+            --output "$browser_root/chrome-linux64.zip" \
+            "$CHROME_FOR_TESTING_URL"
+          printf '%s  %s\n' \
+            "$CHROME_FOR_TESTING_SHA256" \
+            "$browser_root/chrome-linux64.zip" | sha256sum --check --strict
+          python3 -m zipfile -e \
+            "$browser_root/chrome-linux64.zip" \
+            "$browser_root"
+          chmod 0755 \
+            "$browser_root/chrome-linux64/chrome" \
+            "$browser_root/chrome-linux64/chrome_crashpad_handler"
+
+      - name: Enable the sealed Dashboard browser acceptance
+        if: matrix.chain.key == 'rd-owner'
+        env:
+          ACCEPTANCE_CANDIDATE: ${{ github.sha }}
+          BROWSER_EXECUTABLE: ${{ runner.temp }}/dashboard-strategy-viewer-chrome/chrome-linux64/chrome
+        run: |
+          set -euo pipefail
+          {
+            echo "DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE=1"
+            echo "DASHBOARD_STRATEGY_VIEWER_ACCEPTANCE_CANDIDATE=${ACCEPTANCE_CANDIDATE}"
+            echo "DASHBOARD_STRATEGY_VIEWER_BROWSER_EXECUTABLE=${BROWSER_EXECUTABLE}"
+          } >> "$GITHUB_ENV"
+
       - name: Report disk space before the chain
         run: bash scripts/ci/report-disk-space.bash "before ${{ matrix.chain.key }}"
 
       - name: Run the isolated PostgreSQL Owner chain
         run: make ${{ matrix.chain.make }}
+
+      - name: Clean Dashboard browser acceptance inputs
+        if: always() && matrix.chain.key == 'rd-owner'
+        run: |
+          find product/dashboard/.next -depth -delete 2>/dev/null || true
+          find product/dashboard/node_modules -depth -delete 2>/dev/null || true
+          find "${RUNNER_TEMP}/dashboard-strategy-viewer-chrome" -depth -delete 2>/dev/null || true
 
       - name: Report disk space after the chain
         if: always()
