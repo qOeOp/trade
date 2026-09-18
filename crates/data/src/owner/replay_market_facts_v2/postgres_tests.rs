@@ -1180,6 +1180,7 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         },
         sample_projection_v4::UntrustedStrategyInputSampleProjectionLocatorV4,
         source_binding::BindingDigest,
+        strategy_design_role_intent_v1::StrategyDesignRoleIntentV1,
         strategy_design_role_set::{
             StrategyDesignJoinEntryV1, StrategyDesignJoinRoleV1, StrategyDesignNativeJoinReceiptV1,
             StrategyDesignRoleEntryV1, StrategyDesignRoleSetLocatorV1,
@@ -1188,11 +1189,191 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         strategy_input_binding::{
             StrategyInputCustodyUnavailableV1, UntrustedStrategyInputCustodyClaimV1,
         },
-        strategy_input_binding_admission_v1::StrategyInputBindingAdmissionErrorV1,
+        strategy_input_binding_admission_v1::{
+            StrategyInputBindingAdmissionErrorV1, StrategyInputBindingAdmissionTerminalV1,
+        },
     };
 
     fn d(value: u8) -> BindingDigest {
         BindingDigest::from_untrusted_bytes([value; 32])
+    }
+
+    /// Declares one Design's bindings from what R&D published about it, with no Composer anywhere.
+    ///
+    /// It runs against the same fixture the attested path just used and carries that attestation's
+    /// own role entries, so the only thing that differs between the two admissions is which shape
+    /// states the roles. It names a Design of its own, so nothing here disturbs the W3 Design above.
+    async fn first_cycle_from_a_published_design_role_intent_v1(
+        rd_pool: &sqlx::PgPool,
+        reader_pool: &sqlx::PgPool,
+        market_mutation_pool: &sqlx::PgPool,
+        binding: &ReplayCompositionOwnerV1,
+        role_set: &StrategyDesignRoleSetReceiptV1,
+        w3_terminal: &StrategyInputBindingAdmissionTerminalV1,
+        w3_design: BindingDigest,
+    ) {
+        let first_cycle_design = d(151);
+        assert_ne!(first_cycle_design, w3_design);
+        let first_cycle_intent = StrategyDesignRoleIntentV1::from_rd_owner_projection(
+            role_set.research_request_identity,
+            d(152),
+            d(153),
+            first_cycle_design,
+            d(154),
+            role_set.roles.clone(),
+        )
+        .expect("R&D publishes what it knows about the Design");
+        let publish_intent = |intent: StrategyDesignRoleIntentV1| {
+            let statement = sqlx::query(
+                "INSERT INTO public.rd_design_role_intents_v1(
+                 design_identity, research_request_identity, intent_identity,
+                 research_custody_digest, design_digest, intent_digest, canonical_bytes,
+                 published_at_epoch_ms
+             ) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+            )
+            .bind(intent.design_identity().as_bytes().to_vec())
+            .bind(intent.research_request_identity().as_bytes().to_vec())
+            .bind(intent.intent_identity().as_bytes().to_vec())
+            .bind(intent.research_custody_digest().as_bytes().to_vec())
+            .bind(intent.design_digest().as_bytes().to_vec())
+            .bind(intent.intent_digest().as_bytes().to_vec())
+            .bind(intent.canonical_bytes().to_vec())
+            .bind(1_i64);
+            let pool = rd_pool;
+            async move { statement.execute(pool).await }
+        };
+        publish_intent(first_cycle_intent)
+            .await
+            .expect("R&D stores the publication");
+
+        let mut first_cycle_before = market_mutation_pool.begin().await.unwrap();
+        let before_publication =
+            resolve_pit_request_for_strategy_design_v1(&mut first_cycle_before, first_cycle_design)
+                .await;
+        first_cycle_before.rollback().await.unwrap();
+        assert!(
+            before_publication.is_err(),
+            "a Design with no declaration must not resolve to a coordinate: {before_publication:?}"
+        );
+
+        let first_cycle_terminal = binding
+            .declare_strategy_input_bindings_from_design_intent_v1(first_cycle_design)
+            .await
+            .expect("the published Design declares its bindings");
+        assert_eq!(first_cycle_terminal.design_identity(), first_cycle_design);
+        assert_eq!(
+            first_cycle_terminal.research_request_identity(),
+            role_set.research_request_identity
+        );
+        assert_eq!(
+            first_cycle_terminal.role_count() as usize,
+            role_set.roles.len()
+        );
+        assert_eq!(
+            first_cycle_terminal.pit_request_identity(),
+            w3_terminal.pit_request_identity(),
+            "the Owner resolved the roles to its own committed request, not to anything R&D published"
+        );
+        assert_eq!(
+            first_cycle_terminal.decision_cut(),
+            w3_terminal.decision_cut()
+        );
+
+        let mut first_cycle_after = market_mutation_pool.begin().await.unwrap();
+        let first_cycle_coordinate =
+            resolve_pit_request_for_strategy_design_v1(&mut first_cycle_after, first_cycle_design)
+                .await
+                .expect("the declared Design now has a PIT coordinate");
+        first_cycle_after.rollback().await.unwrap();
+        assert_eq!(
+            first_cycle_coordinate.pit_request_identity,
+            w3_terminal.pit_request_identity()
+        );
+
+        // Write-once: a second admission rejoins, so a lost acknowledgement is safe to retry and a
+        // Composer attestation arriving later cannot mint this Design a second set of declarations.
+        assert_eq!(
+            binding
+                .declare_strategy_input_bindings_from_design_intent_v1(first_cycle_design)
+                .await
+                .expect("re-admission rejoins the same declarations"),
+            first_cycle_terminal
+        );
+
+        // A Design R&D never published reaches no declaration.
+        assert_eq!(
+            binding
+                .declare_strategy_input_bindings_from_design_intent_v1(d(199))
+                .await
+                .unwrap_err(),
+            StrategyInputBindingAdmissionErrorV1::UnknownAuthenticatedDesign
+        );
+
+        // Stored bytes are evidence, not authority. A row edited in place still parses and still
+        // carries the digest it was published under, and is refused because it no longer reproduces it.
+        let edited_design = d(155);
+        let edited_intent = StrategyDesignRoleIntentV1::from_rd_owner_projection(
+            role_set.research_request_identity,
+            d(152),
+            d(153),
+            edited_design,
+            d(154),
+            role_set.roles.clone(),
+        )
+        .expect("a second Design publishes");
+        let edited_bytes = String::from_utf8(edited_intent.canonical_bytes().to_vec())
+            .expect("canonical bytes are text")
+            .replace(&role_set.roles[0].timeframe, "PT9M");
+        assert_ne!(edited_bytes.as_bytes(), edited_intent.canonical_bytes());
+        publish_intent(edited_intent)
+            .await
+            .expect("R&D stores the second publication");
+        sqlx::query(
+        "UPDATE public.rd_design_role_intents_v1 SET canonical_bytes=$2 WHERE design_identity=$1",
+    )
+    .bind(edited_design.as_bytes().to_vec())
+    .bind(edited_bytes.into_bytes())
+    .execute(rd_pool)
+    .await
+    .expect("the row is edited in place");
+        assert_eq!(
+            binding
+                .declare_strategy_input_bindings_from_design_intent_v1(edited_design)
+                .await
+                .unwrap_err(),
+            StrategyInputBindingAdmissionErrorV1::AuthenticatedDesignUntrusted
+        );
+
+        // The two principals stay disjoint: the Owner that writes the declarations cannot read what
+        // R&D published, and the reader that can read it holds nothing on the table behind it.
+        let owner_can_resolve_intent: bool = sqlx::query_scalar(
+            "SELECT pg_catalog.has_function_privilege(
+             current_user,
+             'rd_owner_api.resolve_design_role_intent_for_market_data_v1(bytea)',
+             'EXECUTE'
+         )",
+        )
+        .fetch_one(market_mutation_pool)
+        .await
+        .expect("the Owner principal reports its own privilege");
+        assert!(
+            !owner_can_resolve_intent,
+            "the principal that registers declarations must not be able to state a Design's roles"
+        );
+        let reader_holds_intent_table: bool = sqlx::query_scalar(
+            "SELECT pg_catalog.has_table_privilege(
+             current_user,
+             'public.rd_design_role_intents_v1',
+             'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
+         )",
+        )
+        .fetch_one(reader_pool)
+        .await
+        .expect("the reader principal reports its own privilege");
+        assert!(
+            !reader_holds_intent_table,
+            "the reader authenticates a Design through the function, never by reading the table"
+        );
     }
 
     let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
@@ -1625,8 +1806,22 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
             .declare_strategy_input_bindings_v1(&unattested)
             .await
             .unwrap_err(),
-        StrategyInputBindingAdmissionErrorV1::UnknownAttestation
+        StrategyInputBindingAdmissionErrorV1::UnknownAuthenticatedDesign
     );
+
+    // The other shape that can authenticate a Design, for the cycle in which no Composer operation
+    // can exist yet: a program's identity folds in the binding receipts this registration issues,
+    // so the first cycle of any Design has to be opened by something that carries no program.
+    Box::pin(first_cycle_from_a_published_design_role_intent_v1(
+        mutation.pool(CanonicalOwnerTestRoleV1::RdOwner),
+        mutation.pool(CanonicalOwnerTestRoleV1::MarketDataReader),
+        market_mutation_pool,
+        &w3_binding,
+        &role_set,
+        &w3_terminal,
+        w3_design,
+    ))
+    .await;
 
     let reader_pool = mutation.pool(CanonicalOwnerTestRoleV1::MarketDataReader);
     let mut reader_cut = reader_pool.begin().await.unwrap();

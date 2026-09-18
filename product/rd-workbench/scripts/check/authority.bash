@@ -70,7 +70,8 @@ printf '%s\n' "$catalog_bootstrap_compose" | grep -Fq 'authority-custody-migrate
 printf '%s\n' "$catalog_bootstrap_compose" | grep -Fq 'restart: "no"'
 printf '%s\n' "$catalog_bootstrap_compose" | grep -Fq 'profiles: ["authority-admin"]'
 printf '%s\n' "$catalog_bootstrap_compose" | grep -Fq 'REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL:'
-printf '%s\n' "$catalog_bootstrap_compose" | grep -Fq 'replay-policy-catalog-bootstrap-request.json:ro'
+printf '%s\n' "$catalog_bootstrap_compose" | grep -Fq 'replay-policy-catalog-bootstrap-create-command.json:ro'
+printf '%s\n' "$catalog_bootstrap_compose" | grep -Fq 'replay-policy-catalog-bootstrap-advance-command.json:ro'
 printf '%s\n' "$catalog_bootstrap_compose" | grep -Fq 'replay-policy-catalog-trusted-verifier-public-key.hex:ro'
 printf '%s\n' "$catalog_bootstrap_compose" | grep -Fq 'condition: service_completed_successfully'
 printf '%s\n' "$catalog_bootstrap_compose" | grep -Fq 'read_only: true'
@@ -95,10 +96,15 @@ if printf '%s\n' "$rd_owner_api_compose" | grep -Eq 'RD_FACT_WRITER|REPLAY_POLIC
   exit 1
 fi
 catalog_bootstrap_source="$package_dir/../../crates/strategy_factory_rd_owner_api/src/bin/replay_policy_catalog_authority_bootstrap.rs"
-grep -Fq 'ensure_authenticated_replay_policy_catalog_genesis_v1(' "$catalog_bootstrap_source"
+grep -Fq 'ensure_authenticated_replay_policy_catalog_v3(' "$catalog_bootstrap_source"
 catalog_readback_source="$package_dir/../../crates/strategy_factory_rd_owner_api/src/bin/replay_policy_catalog_owner_readback.rs"
-grep -Fq 'read_authenticated_replay_policy_catalog_genesis_v1(' "$catalog_readback_source"
-grep -Fq 'const MAX_SEALED_REQUEST_BYTES: usize = 64 * 1024;' "$catalog_bootstrap_source"
+grep -Fq 'read_authenticated_replay_policy_catalog_v3(' "$catalog_readback_source"
+printf '%s\n' "$catalog_readback_compose" | grep -Fq 'replay-policy-catalog-bootstrap-create-command.json:ro'
+if printf '%s\n' "$catalog_readback_compose" | grep -Fq 'advance-command'; then
+  echo "Catalog Owner readback must not receive the advance command" >&2
+  exit 1
+fi
+grep -Fq 'const MAX_SEALED_COMMAND_BYTES: usize = 64 * 1024;' "$catalog_bootstrap_source"
 grep -Fq 'const MAX_RECEIPT_BYTES: usize = 16 * 1024;' "$catalog_bootstrap_source"
 if grep -Eq '(policy_canonical_bytes|ReplayExecutionPolicyV2|generate.*policy|default.*policy)' "$catalog_bootstrap_source"; then
   echo "Catalog bootstrap composition must not synthesize policy" >&2

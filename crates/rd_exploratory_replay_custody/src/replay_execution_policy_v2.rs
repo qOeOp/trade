@@ -3,6 +3,7 @@
 //! This module owns only the policy value and its binary grammar. It deliberately does not select a
 //! policy, resolve an Owner fact, compose a Replay request, or provide a default.
 
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use vibe_backtest_owner_contracts::{
@@ -662,5 +663,242 @@ impl<'a> ParserV2<'a> {
             });
         }
         Ok(())
+    }
+}
+
+/// One identity and its immutable version, as the two strings an administrator writes.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct VersionedIdentityAuthoringV2 {
+    pub identity: String,
+    pub version: String,
+}
+
+/// One content identity and the canonical digest of that content, as the two strings an
+/// administrator writes.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContentIdentityAuthoringV2 {
+    pub identity: String,
+    pub digest: String,
+}
+
+/// The human-authored form of one Replay execution policy: every identity, version and digest
+/// as the string it is validated from, in the policy's own field order.
+///
+/// It exists so that an administrator can write a policy in JSON. It carries no meaning of its
+/// own: `TryFrom` builds the typed policy through the same constructors every other producer
+/// uses, and the canonical bytes, digest and grammar are those of the typed policy. A field that
+/// does not validate names itself in the error.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReplayExecutionPolicyAuthoringV2 {
+    pub runtime_kernel: VersionedIdentityAuthoringV2,
+    pub simulator: VersionedIdentityAuthoringV2,
+    pub cost: VersionedIdentityAuthoringV2,
+    pub slippage: VersionedIdentityAuthoringV2,
+    pub capacity: VersionedIdentityAuthoringV2,
+    pub runner_operational_profile: VersionedIdentityAuthoringV2,
+    pub diagnostic_policy: VersionedIdentityAuthoringV2,
+    pub deterministic_seed: u64,
+    pub window: ReplayWindowV2,
+    pub calendar: VersionedIdentityAuthoringV2,
+    pub session: VersionedIdentityAuthoringV2,
+    pub time_zone: VersionedIdentityAuthoringV2,
+    pub correction_rule: VersionedIdentityAuthoringV2,
+    pub market_semantics: VersionedIdentityAuthoringV2,
+    pub replay_configuration: ContentIdentityAuthoringV2,
+    pub corporate_action_cut: ContentIdentityAuthoringV2,
+    pub historical_membership_cut: ContentIdentityAuthoringV2,
+}
+
+impl ReplayExecutionPolicyAuthoringV2 {
+    /// The authoring form of an existing typed policy, field for field.
+    pub fn from_policy(policy: &ReplayExecutionPolicyV2) -> Self {
+        fn versioned(value: &VersionedIdentityV2) -> VersionedIdentityAuthoringV2 {
+            VersionedIdentityAuthoringV2 {
+                identity: value.identity.as_str().to_owned(),
+                version: value.version.as_str().to_owned(),
+            }
+        }
+
+        fn content(value: &ContentIdentityV2) -> ContentIdentityAuthoringV2 {
+            ContentIdentityAuthoringV2 {
+                identity: value.identity.as_str().to_owned(),
+                digest: value.digest.as_str().to_owned(),
+            }
+        }
+
+        Self {
+            runtime_kernel: versioned(&policy.runtime_kernel),
+            simulator: versioned(&policy.simulator),
+            cost: versioned(&policy.cost),
+            slippage: versioned(&policy.slippage),
+            capacity: versioned(&policy.capacity),
+            runner_operational_profile: versioned(&policy.runner_operational_profile),
+            diagnostic_policy: versioned(&policy.diagnostic_policy),
+            deterministic_seed: policy.deterministic_seed,
+            window: policy.window.clone(),
+            calendar: versioned(&policy.calendar),
+            session: versioned(&policy.session),
+            time_zone: versioned(&policy.time_zone),
+            correction_rule: versioned(&policy.correction_rule),
+            market_semantics: versioned(&policy.market_semantics),
+            replay_configuration: content(&policy.replay_configuration),
+            corporate_action_cut: content(&policy.corporate_action_cut),
+            historical_membership_cut: content(&policy.historical_membership_cut),
+        }
+    }
+}
+
+impl TryFrom<ReplayExecutionPolicyAuthoringV2> for ReplayExecutionPolicyV2 {
+    type Error = ReplayExecutionPolicyErrorV2;
+
+    fn try_from(authoring: ReplayExecutionPolicyAuthoringV2) -> Result<Self, Self::Error> {
+        fn opaque(
+            value: String,
+            field: &'static str,
+        ) -> Result<OpaqueIdentityV2, ReplayExecutionPolicyErrorV2> {
+            OpaqueIdentityV2::try_from(value)
+                .map_err(|_| ReplayExecutionPolicyErrorV2::InvalidComponent { field })
+        }
+
+        fn versioned(
+            value: VersionedIdentityAuthoringV2,
+            field: &'static str,
+        ) -> Result<VersionedIdentityV2, ReplayExecutionPolicyErrorV2> {
+            Ok(VersionedIdentityV2 {
+                identity: opaque(value.identity, field)?,
+                version: opaque(value.version, field)?,
+            })
+        }
+
+        fn content(
+            value: ContentIdentityAuthoringV2,
+            field: &'static str,
+        ) -> Result<ContentIdentityV2, ReplayExecutionPolicyErrorV2> {
+            Ok(ContentIdentityV2 {
+                identity: opaque(value.identity, field)?,
+                digest: CanonicalDigestV2::try_from(value.digest)
+                    .map_err(|_| ReplayExecutionPolicyErrorV2::InvalidComponent { field })?,
+            })
+        }
+
+        if authoring.window.start_event_ns >= authoring.window.end_event_ns_exclusive {
+            return Err(ReplayExecutionPolicyErrorV2::InvalidReplayWindow);
+        }
+        Ok(Self {
+            runtime_kernel: versioned(authoring.runtime_kernel, "runtime_kernel")?,
+            simulator: versioned(authoring.simulator, "simulator")?,
+            cost: versioned(authoring.cost, "cost")?,
+            slippage: versioned(authoring.slippage, "slippage")?,
+            capacity: versioned(authoring.capacity, "capacity")?,
+            runner_operational_profile: versioned(
+                authoring.runner_operational_profile,
+                "runner_operational_profile",
+            )?,
+            diagnostic_policy: versioned(authoring.diagnostic_policy, "diagnostic_policy")?,
+            deterministic_seed: authoring.deterministic_seed,
+            window: authoring.window,
+            calendar: versioned(authoring.calendar, "calendar")?,
+            session: versioned(authoring.session, "session")?,
+            time_zone: versioned(authoring.time_zone, "time_zone")?,
+            correction_rule: versioned(authoring.correction_rule, "correction_rule")?,
+            market_semantics: versioned(authoring.market_semantics, "market_semantics")?,
+            replay_configuration: content(authoring.replay_configuration, "replay_configuration")?,
+            corporate_action_cut: content(authoring.corporate_action_cut, "corporate_action_cut")?,
+            historical_membership_cut: content(
+                authoring.historical_membership_cut,
+                "historical_membership_cut",
+            )?,
+        })
+    }
+}
+
+#[cfg(test)]
+mod authoring_tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    fn versioned(identity: &str) -> VersionedIdentityAuthoringV2 {
+        VersionedIdentityAuthoringV2 {
+            identity: identity.to_owned(),
+            version: "v1".to_owned(),
+        }
+    }
+
+    fn content(identity: &str) -> ContentIdentityAuthoringV2 {
+        ContentIdentityAuthoringV2 {
+            identity: identity.to_owned(),
+            digest: format!("sha256:{}", "c".repeat(64)),
+        }
+    }
+
+    fn authoring() -> ReplayExecutionPolicyAuthoringV2 {
+        ReplayExecutionPolicyAuthoringV2 {
+            runtime_kernel: versioned("runtime-kernel-v2"),
+            simulator: versioned("simulator-v2"),
+            cost: versioned("cost-model-v1"),
+            slippage: versioned("slippage-model-v1"),
+            capacity: versioned("capacity-model-v1"),
+            runner_operational_profile: versioned("runner-profile-v2"),
+            diagnostic_policy: versioned("diagnostic-policy-v2"),
+            deterministic_seed: 7,
+            window: ReplayWindowV2 {
+                start_event_ns: 10,
+                end_event_ns_exclusive: 20,
+            },
+            calendar: versioned("calendar-v2"),
+            session: versioned("session-v2"),
+            time_zone: versioned("time-zone-v2"),
+            correction_rule: versioned("correction-rule-v2"),
+            market_semantics: versioned("market-semantics-v2"),
+            replay_configuration: content("replay-configuration-v2"),
+            corporate_action_cut: content("corporate-action-cut-v2"),
+            historical_membership_cut: content("historical-membership-cut-v2"),
+        }
+    }
+
+    #[rstest]
+    fn authoring_round_trips_through_the_typed_policy_and_its_canonical_bytes() {
+        let policy = ReplayExecutionPolicyV2::try_from(authoring()).unwrap();
+        let reparsed =
+            ReplayExecutionPolicyV2::parse_canonical(&policy.canonical_bytes().unwrap()).unwrap();
+
+        assert_eq!(reparsed, policy);
+        assert_eq!(
+            ReplayExecutionPolicyAuthoringV2::from_policy(&policy),
+            authoring()
+        );
+        let json = serde_json::to_vec(&authoring()).unwrap();
+        let decoded: ReplayExecutionPolicyAuthoringV2 = serde_json::from_slice(&json).unwrap();
+        assert_eq!(decoded, authoring());
+    }
+
+    #[rstest]
+    fn an_invalid_component_names_its_field_and_an_empty_window_is_refused() {
+        let mut invalid = authoring();
+        invalid.slippage.version = String::new();
+        assert_eq!(
+            ReplayExecutionPolicyV2::try_from(invalid).unwrap_err(),
+            ReplayExecutionPolicyErrorV2::InvalidComponent { field: "slippage" }
+        );
+        let mut invalid = authoring();
+        invalid.replay_configuration.digest = "sha256:short".to_owned();
+        assert_eq!(
+            ReplayExecutionPolicyV2::try_from(invalid).unwrap_err(),
+            ReplayExecutionPolicyErrorV2::InvalidComponent {
+                field: "replay_configuration"
+            }
+        );
+        let mut invalid = authoring();
+        invalid.window.end_event_ns_exclusive = invalid.window.start_event_ns;
+        assert_eq!(
+            ReplayExecutionPolicyV2::try_from(invalid).unwrap_err(),
+            ReplayExecutionPolicyErrorV2::InvalidReplayWindow
+        );
+        let unknown = r#"{"unknown":1}"#;
+        assert!(serde_json::from_str::<ReplayExecutionPolicyAuthoringV2>(unknown).is_err());
     }
 }

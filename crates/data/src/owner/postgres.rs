@@ -11,6 +11,7 @@
 
 use std::fmt::Debug;
 
+mod authenticated_design_registration_v1;
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 pub mod bar_joined_cut_acceptance_v1;
 mod calendar;
@@ -9658,9 +9659,16 @@ pub(super) async fn source_binding_admission_from_environment_v1()
     if url.is_empty() || url.trim() != url {
         return Err(SourceBindingAdmissionErrorV1::StoreUnavailable);
     }
-    let owner = MarketDataOwnerPostgres::connect(&url)
-        .await
-        .map_err(|_| SourceBindingAdmissionErrorV1::StoreUnavailable)?;
+    let owner = MarketDataOwnerPostgres::connect(&url).await.map_err(|e| {
+        // Opening the store runs its migration, and every statement in there reports the same
+        // unavailable value. Without this the caller cannot tell a missing URL from a refused
+        // grant, which is the difference between a configuration mistake and a real defect.
+        super::storage_diagnostic::refused_by_store(
+            "source_binding_admission.environment.connect",
+            &e,
+        );
+        SourceBindingAdmissionErrorV1::StoreUnavailable
+    })?;
     Ok(std::sync::Arc::new(SourceBindingAdmissionPostgresV1 {
         owner,
     }))
@@ -9965,6 +9973,15 @@ impl StrategyInputBindingAdmissionV1 for StrategyInputBindingAdmissionPostgresV1
     ) -> Result<StrategyInputBindingAdmissionTerminalV1, StrategyInputBindingAdmissionErrorV1> {
         self.binding
             .declare_strategy_input_bindings_v1(&locator)
+            .await
+    }
+
+    async fn admit_published_design(
+        &self,
+        design_identity: BindingDigest,
+    ) -> Result<StrategyInputBindingAdmissionTerminalV1, StrategyInputBindingAdmissionErrorV1> {
+        self.binding
+            .declare_strategy_input_bindings_from_design_intent_v1(design_identity)
             .await
     }
 }

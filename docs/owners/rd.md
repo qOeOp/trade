@@ -127,7 +127,8 @@ canonical first-party ABI3 source through a production path rather than only ins
 **CURRENT_PARTIAL - lowered source is not an executable:** the lowering carries no build receipt, no Wasm,
 no Artifact and no qualification meaning. It proves only that the frozen program, the pinned
 `vibe-indicators-kernel` catalog and the first-party SDK produce exactly those bytes, and that tampered
-stored bytes close the path. The V3 build, the durable Composer RUN and everything downstream stay TARGET.
+stored bytes close the path. The V3 build and the durable Composer RUN now have the production
+entry described below; everything downstream of the Artifact stays TARGET.
 
 The TARGET V1 catalog is atomic rather than a menu of names: fixed I128 scale is at most 38, rescale is explicit,
 the only rounding modes are `TowardZero` and `NearestTiesToEven`, and each operation uses one exact I256 expression
@@ -204,6 +205,34 @@ route end to end on the hosted Linux runner
 invent the Design: the contract below states who authors it. Everything downstream of it exists: the
 production commit function, the store, the writer, the two build-receipt relations, and the production
 binding seam.
+
+**CURRENT/PARTIAL - the first cycle now has something to stand on.** Sealing the corpus run leaves
+`run_bounded_feature_program` as the only production entry, and it requires a frozen joint program.
+Freezing one requires Strategy Input declarations, and Market Data used to register those only from
+a Composer attestation, which a Composer commit is what mints. Every later cycle closes on itself -
+a commit's own response carries exactly the locator the registration takes - but the first had no
+origin, and no artifact-bound shape could supply one: a program's identity folds in the very binding
+receipts the registration issues. This Owner therefore publishes a Design-level role intent, which
+names a Design, the Research request and custody it was admitted against, and the roles it declares,
+and nothing else. `POST /v1/strategy-designs/publish-role-intent` derives it from currently accepted
+custody and stores it write-once per Design;
+`rd_owner_api.resolve_design_role_intent_for_market_data_v1` exposes it to the Market Data reader
+principal alone. The ordered PostgreSQL chain witnesses a Design that nothing in
+`composer_private` names moving from no PIT coordinate to the one Market Data resolved, beside the attested admission it
+must agree with.
+
+**TARGET:** who authors that Design. Publication states what R&D knows about a Design it was given;
+it does not derive one, which is the open question the contract below still defers.
+
+The binding half of that entry is `dynamic`. The isolated R&D Owner PostgreSQL chain declares and
+freezes a six-role BAR program against bindings the Market Data Owner issued through its own
+acceptance basis, then resolves that frozen pair through the same production binding Owner a RUN
+uses and requires exactly one receipt per declared role.
+
+**CURRENT/PARTIAL:** the RUN acceptance itself - two byte-identical builds of the lowered source, the
+tagged V3 receipt, and the single-transaction commit of every positive Composer fact - is carried by
+the ordered chain's end-to-end entry on the hosted Linux runner. **TARGET:** deployed Owner readiness
+and restart recovery across processes, which no chain entry observes.
 
 ### CURRENT_PARTIAL - who authors a Strategy Design
 
@@ -285,7 +314,7 @@ bytes; neither the canonical bytes nor the digest are themselves encoded into th
 recovery reprojects existing Composer custody and must return byte-identical canonical bytes and digest. A
 self-consistent caller-created byte sequence or hash remains untrusted and cannot enter the fixed resolver path.
 
-**CURRENT/PARTIAL on macOS; REVALIDATION REQUIRED on hosted Linux ARM64 - local bounded-plugin build
+**CURRENT/PARTIAL on macOS; REVALIDATION REQUIRED on hosted Linux ARM64 and x86_64 - local bounded-plugin build
 producer:** for exactly one current `PluginManifestV2`, R&D admits
 only one content-bounded `src/lib.rs` in the fixed `rust.no_std.fixed-abi-source.v2` language and rejects every
 other path, symlink, file, dependency, build script, toolchain, target, or command. It materializes two separate
@@ -295,7 +324,10 @@ profile binds canonical Cargo 1.97.1 (`c980f486…bf5`, SHA-256 `7672ead3…bbf5
 (`8bab26f…452`, SHA-256 `210df679…a4da`), rust-lld (SHA-256 `8f5fe507…548d`), and
 `aarch64-apple-darwin`. The hosted Linux ARM64 A0 candidate profile records the same exact releases and
 commits for `aarch64-unknown-linux-gnu` with Cargo SHA-256 `c5dcff70…1808`, rustc SHA-256 `a3d4dfcd…e78`, and rust-lld
-SHA-256 `533dffee…eb7`. Each admitted build rejects ambient ancestor Cargo configuration and requires each tool's
+SHA-256 `533dffee…eb7`. The hosted Linux x86_64 candidate profile records the same exact releases and commits for
+`x86_64-unknown-linux-gnu` with Cargo SHA-256 `82898072…1953`, rustc SHA-256 `d3a664c9…7eea`, and rust-lld SHA-256
+`38a9f284…5721`, and binds the same frozen `wasm32v1-none` sysroot digest, which the hosted x86_64 test host
+measured. Each admitted build rejects ambient ancestor Cargo configuration and requires each tool's
 `-Vv` host to match the selected profile. `RUSTUP_HOME` or `HOME/.rustup` only locates that profile's candidate
 exact-release toolchain; path bytes are non-authoritative and absent from semantic identity.
 It then runs the fixed `wasm32v1-none --offline --locked` command and requires two
@@ -311,11 +343,12 @@ The superseded Linux pins were generated by one isolated Linux/arm64 BuildKit re
 `sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8`, platform manifest
 `sha256:5a8cd84cb3fcfd082789a08f92bd36f8e745c6231edd78e24a3bf34fd471a823`, and normalized exact
 `lib/rustlib/wasm32v1-none` sysroot tar SHA-256
-`92fcee2e35330d22e879b640064e2e4b4e47157af1a7e05fc942dc6cc12b8faf`. On 2026-09-14, both the existing exact
-Rust 1.97.1 installation and a fresh isolated installation with the same rustc/cargo commits produced canonical
-digest `830cb504e83fd5cc9a5ba451b555cd3c9fb177b39647f3a775ce0d5f1d63300f`; the replacement freeze therefore rejects
-the superseded bytes and requires a fresh hosted A0 readback before Linux returns to CURRENT/PARTIAL. The old
-BuildKit observation remains historical pin-generation evidence only; the base Rust image remains pinned in its
+`92fcee2e35330d22e879b640064e2e4b4e47157af1a7e05fc942dc6cc12b8faf`. On 2026-09-14 a measurement reported
+`830cb504e83fd5cc9a5ba451b555cd3c9fb177b39647f3a775ce0d5f1d63300f` instead, and the freeze was replaced with it
+pending a fresh hosted A0 readback. That readback has since run on `refs/heads/main` and reports the original
+value, as do the hosted x86_64 test host and the pinned base image on both `linux/arm64` and `linux/amd64`: five
+independent hosts, one digest, and the 2026-09-14 value reproduced on none of them. The freeze is therefore back to
+the value every reachable host carries. The base Rust image remains pinned in its
 Dockerfile, and the timestamp-bearing local OCI
 manifest is not a registry, deployment, or reproducible-image pin. Runtime authority now comes from the pure-Rust
 canonical sysroot verifier: it reproduces the frozen GNU tar normalization, binds the digest into each Linux build

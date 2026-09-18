@@ -132,6 +132,10 @@ pub(super) fn router(
             "/v1/market-data/strategy-input-bindings",
             post(declare_strategy_input_bindings),
         )
+        .route(
+            "/v1/market-data/strategy-input-bindings/from-design-intent",
+            post(declare_strategy_input_bindings_from_design_intent),
+        )
         .with_state(MarketDataPitApiState {
             intake,
             admission,
@@ -343,17 +347,78 @@ async fn declare_strategy_input_bindings(
 
     match bindings.admit(locator).await {
         Ok(terminal) => (StatusCode::OK, Json(terminal)).into_response(),
-        Err(e) => strategy_input_binding_error(e),
+        Err(e) => strategy_input_binding_error(
+            e,
+            "COMPOSER_ATTESTATION_UNKNOWN",
+            "COMPOSER_ATTESTATION_UNTRUSTED",
+        ),
     }
 }
 
-fn strategy_input_binding_error(error: StrategyInputBindingAdmissionErrorV1) -> Response {
+/// Declares every input role of the Design one published R&D role intent authenticates.
+///
+/// The body is the Design identity and nothing else. This is the route that opens a Design's first
+/// cycle: until a Composer has run there is no attestation to name, because the program whose
+/// operation would be attested cannot exist before the receipts this call issues. Everything the
+/// Owner does afterwards is the same as on the attestation route, including the write-once custody,
+/// so the two routes cannot disagree about one Design.
+async fn declare_strategy_input_bindings_from_design_intent(
+    State(state): State<MarketDataPitApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection(StatusCode::FORBIDDEN, "UNAUTHORIZED_PRODUCT_EDGE");
+    }
+    let Some(bindings) = state.bindings else {
+        return rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "MARKET_DATA_STRATEGY_INPUT_BINDINGS_UNAVAILABLE",
+        );
+    };
+    let request: PublishedDesignLocatorV1 = match serde_json::from_slice(&body) {
+        Ok(request) => request,
+        Err(_) => return rejection(StatusCode::BAD_REQUEST, "MALFORMED_TYPED_REQUEST"),
+    };
+
+    match bindings
+        .admit_published_design(request.design_identity)
+        .await
+    {
+        Ok(terminal) => (StatusCode::OK, Json(terminal)).into_response(),
+        Err(e) => strategy_input_binding_error(
+            e,
+            "DESIGN_ROLE_INTENT_UNKNOWN",
+            "DESIGN_ROLE_INTENT_UNTRUSTED",
+        ),
+    }
+}
+
+/// The whole body of a Design-intent admission: which Design R&D published.
+///
+/// Nothing else is accepted, because nothing else would be believed. The roles, the Research
+/// custody and the digest all come from what R&D published under this identity.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PublishedDesignLocatorV1 {
+    design_identity: BindingDigest,
+}
+
+/// Projects one admission refusal onto the wire.
+///
+/// The two shapes that can authenticate a Design fail in the same categories but are not the same
+/// thing to a caller, so each route names its own shape in the two codes that mention one.
+fn strategy_input_binding_error(
+    error: StrategyInputBindingAdmissionErrorV1,
+    unknown_code: &'static str,
+    untrusted_code: &'static str,
+) -> Response {
     let (status, code) = match error {
-        StrategyInputBindingAdmissionErrorV1::UnknownAttestation => {
-            (StatusCode::NOT_FOUND, "COMPOSER_ATTESTATION_UNKNOWN")
+        StrategyInputBindingAdmissionErrorV1::UnknownAuthenticatedDesign => {
+            (StatusCode::NOT_FOUND, unknown_code)
         }
-        StrategyInputBindingAdmissionErrorV1::AttestationUntrusted => {
-            (StatusCode::CONFLICT, "COMPOSER_ATTESTATION_UNTRUSTED")
+        StrategyInputBindingAdmissionErrorV1::AuthenticatedDesignUntrusted => {
+            (StatusCode::CONFLICT, untrusted_code)
         }
         StrategyInputBindingAdmissionErrorV1::UnsupportedRole => (
             StatusCode::UNPROCESSABLE_ENTITY,

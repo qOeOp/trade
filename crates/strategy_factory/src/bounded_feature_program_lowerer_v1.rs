@@ -99,6 +99,7 @@ mod fixed_i128;
 mod fixed_rsi_state;
 mod fixed_state;
 mod fixed_window;
+mod fused_rational_v1;
 mod i256;
 mod program;
 mod sdk;
@@ -109,9 +110,10 @@ pub use fixed_i128::{CanonicalDecodeError, ComparisonPredicateV1, DecimalScale, 
 pub use fixed_rsi_state::FixedRsiState;
 pub use fixed_state::{FixedSampleUpdate, FixedSmoothingKind, FixedSmoothingState, FixedStateFailure, SampleClockInputV1};
 pub use fixed_window::{FixedWindowFunction, FixedWindowOutput, FixedWindowState, FixedWindowUpdate};
+pub use fused_rational_v1::{FusedRationalStepV1, MAX_FUSED_PROGRAM_STEPS_V1, decode_fused_program_v1, evaluate_fused_rational_v1};
 ";
 
-const GUEST_KERNEL_SOURCES: [(&str, &[u8]); 7] = [
+const GUEST_KERNEL_SOURCES: [(&str, &[u8]); 8] = [
     (
         "src/fixed_bar_state.rs",
         include_bytes!("../../indicators/kernel/src/fixed_bar_state.rs"),
@@ -137,6 +139,10 @@ const GUEST_KERNEL_SOURCES: [(&str, &[u8]); 7] = [
         include_bytes!("../../indicators/kernel/src/fixed_window.rs"),
     ),
     (
+        "src/fused_rational_v1.rs",
+        include_bytes!("../../indicators/kernel/src/fused_rational_v1.rs"),
+    ),
+    (
         "src/i256.rs",
         include_bytes!("../../indicators/kernel/src/i256.rs"),
     ),
@@ -144,7 +150,7 @@ const GUEST_KERNEL_SOURCES: [(&str, &[u8]); 7] = [
 
 // This is the exact source list committed by `PrimitiveCatalogV1`. It is hashed for the complete
 // catalog/source binding only. The legacy `lib.rs` is never copied into the guest source set.
-const COMPLETE_KERNEL_SOURCES: [(&str, &[u8]); 16] = [
+const COMPLETE_KERNEL_SOURCES: [(&str, &[u8]); 21] = [
     (
         "Cargo.toml",
         include_bytes!("../../indicators/kernel/Cargo.toml"),
@@ -156,6 +162,14 @@ const COMPLETE_KERNEL_SOURCES: [(&str, &[u8]); 16] = [
     (
         "catalog_rows.rs",
         include_bytes!("../../indicators/kernel/src/catalog_rows.rs"),
+    ),
+    (
+        "catalog_rows_v2.rs",
+        include_bytes!("../../indicators/kernel/src/catalog_rows_v2.rs"),
+    ),
+    (
+        "catalog_version.rs",
+        include_bytes!("../../indicators/kernel/src/catalog_version.rs"),
     ),
     (
         "fixed_bar_state.rs",
@@ -182,8 +196,16 @@ const COMPLETE_KERNEL_SOURCES: [(&str, &[u8]); 16] = [
         include_bytes!("../../indicators/kernel/src/fixed_window.rs"),
     ),
     (
+        "fused_rational_v1.rs",
+        include_bytes!("../../indicators/kernel/src/fused_rational_v1.rs"),
+    ),
+    (
         "golden_corpus.rs",
         include_bytes!("../../indicators/kernel/src/golden_corpus.rs"),
+    ),
+    (
+        "golden_corpus_v2.rs",
+        include_bytes!("../../indicators/kernel/src/golden_corpus_v2.rs"),
     ),
     (
         "golden_execution.rs",
@@ -208,6 +230,10 @@ const COMPLETE_KERNEL_SOURCES: [(&str, &[u8]); 16] = [
     (
         "required_golden_ids.rs",
         include_bytes!("../../indicators/kernel/src/required_golden_ids.rs"),
+    ),
+    (
+        "required_golden_ids_v2.rs",
+        include_bytes!("../../indicators/kernel/src/required_golden_ids_v2.rs"),
     ),
 ];
 
@@ -528,12 +554,18 @@ fn emit_program_source(
     source.push_str(EXECUTABLE_RUNTIME_SOURCE);
 
     let names = ValueNames::new(program)?;
-    emit_input_decode(&mut source, program, manifest, &names)?;
-    emit_constants(&mut source, program, &names)?;
-    emit_state_initialization(&mut source, canonical, program, &names)?;
-    emit_nodes(&mut source, program, &names)?;
-    emit_state_bundle(&mut source, canonical, program, &names)?;
-    emit_output_frame(&mut source, program, manifest, &names)?;
+    // The body is generated first so the decode above it can tell which decoded values this
+    // program actually reads. A frame carries a port for every declared input whether or not the
+    // program's nodes read it, and a lowering that bound every one of them would emit a name
+    // nothing uses, which the guest's own warning gate refuses to compile.
+    let mut body = String::new();
+    emit_constants(&mut body, program, &names)?;
+    emit_state_initialization(&mut body, canonical, program, &names)?;
+    emit_nodes(&mut body, program, &names)?;
+    emit_state_bundle(&mut body, canonical, program, &names)?;
+    emit_output_frame(&mut body, program, manifest, &names)?;
+    emit_input_decode(&mut source, program, manifest, &names, &body)?;
+    source.push_str(&body);
     source.push_str("}\n\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]\npub extern \"C\" fn strategy_factory_plugin_input_ptr_v2() -> i32 { INPUT.as_ptr().cast::<u8>() as usize as i32 }\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]\npub extern \"C\" fn strategy_factory_plugin_input_capacity_v2() -> i32 { INPUT_CAPACITY as i32 }\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]\npub extern \"C\" fn strategy_factory_plugin_output_ptr_v2() -> i32 { OUTPUT.as_ptr().cast::<u8>() as usize as i32 }\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]\npub extern \"C\" fn strategy_factory_plugin_output_capacity_v2() -> i32 { OUTPUT_CAPACITY as i32 }\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]\npub extern \"C\" fn strategy_factory_plugin_invoke_v2(input_len: i32) -> i32 {\n    if input_len < 0 { return -2; }\n    match run(input_len as usize) { Ok(len) => i32::try_from(len).unwrap_or(-2), Err(Failure::Numeric) => -1, Err(Failure::Unsupported) => -2 }\n}\n");
     Ok(source.into_bytes())
 }
@@ -892,11 +924,17 @@ fn push_array_literal(source: &mut String, bytes: &[u8]) {
     source.push(']');
 }
 
+/// Decodes every port the frame carries, and binds only the values the program goes on to read.
+///
+/// Every port is still read and still validated in declaration order, because the frame is one
+/// canonical layout and skipping a port would misread the next one. What varies is whether the
+/// decoded datum is given a name: an input a program declares but never reads has no use for one.
 fn emit_input_decode(
     source: &mut String,
     program: &BoundedFeatureProgramProposalV1,
     manifest: &PluginManifestV2,
     names: &ValueNames,
+    body: &str,
 ) -> Result<(), BoundedFeatureLoweringErrorV1> {
     source.push_str("    let mut reader = Reader::new(input_len)?;\n    reader.header(");
     push_bytes_literal(source, program.plugin_manifest_digest.as_bytes());
@@ -925,7 +963,8 @@ fn emit_input_decode(
                     "    let {name}_bytes = reader.entry::<16>({ordinal}u16, 4)?;"
                 )
                 .unwrap();
-                writeln!(source, "    let {name} = Datum::fixed(numeric(FixedI128::new(i128::from_le_bytes({name}_bytes), {}u8))?);", input.scale).unwrap();
+                let binding = read_binding_name(name, body);
+                writeln!(source, "    let {binding} = Datum::fixed(numeric(FixedI128::new(i128::from_le_bytes({name}_bytes), {}u8))?);", input.scale).unwrap();
             }
             (None, Some(input), ValueTypeV2::Bytes, 308) => {
                 let name = names.name(&BoundedFeatureValueRefV1::InputCoordinate {
@@ -936,13 +975,22 @@ fn emit_input_decode(
                     "    let {name}_bytes = reader.entry::<308>({ordinal}u16, 5)?;"
                 )
                 .unwrap();
-                writeln!(source, "    let {name} = Datum::raw(&{name}_bytes)?;").unwrap();
+                let binding = read_binding_name(name, body);
+                writeln!(source, "    let {binding} = Datum::raw(&{name}_bytes)?;").unwrap();
             }
             _ => return Err(BoundedFeatureLoweringErrorV1::Program),
         }
     }
     source.push_str("    let mut pre_state = [0u8; STATE_BYTES];\n    let pre_empty = reader.state(&mut pre_state)?;\n    reader.finish()?;\n");
     Ok(())
+}
+
+/// The name a decoded value is bound to, or `_` when the program's body never reads it.
+///
+/// Binding to `_` keeps the decode and its refusal exactly where they were; it only declines to
+/// name a value nothing asks for.
+fn read_binding_name<'a>(name: &'a str, body: &str) -> &'a str {
+    if body.contains(name) { name } else { "_" }
 }
 
 fn emit_constants(
@@ -1905,7 +1953,86 @@ mod tests {
         rd_bounded_feature_program_v1::freeze_research_bounded_feature_program_v1,
         strategy_plan_v2::plugin_manifest_digest,
     };
-    use std::{fs, process::Command};
+    use std::{ffi::OsStr, fs, path::Path, process::Command};
+
+    /// Every Cargo key that outranks, or replaces, the `[build] rustflags` the lowering freezes
+    /// into a guest project's own `.cargo/config.toml`.
+    ///
+    /// Cargo does not merge rustflags across levels. The first of `RUSTFLAGS`,
+    /// `CARGO_ENCODED_RUSTFLAGS`, `target.<triple>.rustflags` and `build.rustflags` that is
+    /// present wins outright, and an environment variable beats the configuration file that
+    /// carries the same key. So any one of these silently discards the whole frozen list,
+    /// including the `--initial-memory`/`--max-memory` pair `frozen_config` sizes from the
+    /// manifest.
+    const AMBIENT_RUST_FLAG_VARS: [&str; 4] = [
+        "RUSTFLAGS",
+        "CARGO_ENCODED_RUSTFLAGS",
+        "CARGO_BUILD_RUSTFLAGS",
+        "CARGO_TARGET_WASM32V1_NONE_RUSTFLAGS",
+    ];
+
+    /// Build a lowered guest project the way a production build of one is run.
+    ///
+    /// `develop_plugin_build_v2_sandbox` invokes Cargo under `env_clear`, so the only rustflags a
+    /// guest compiles under in production are the ones the lowering froze into the project's
+    /// `.cargo/config.toml`. A proof that inherited its own environment did not stand for that
+    /// build: `actions-rust-lang/setup-rust-toolchain` exports `RUSTFLAGS=-D warnings` for the
+    /// whole job, which its own input documents as overwriting `build.rustflags`, so on CI the
+    /// frozen list was discarded and the linker emitted a growable memory with no maximum at all.
+    /// The strict ABI 3 envelope then refused the module for the linear-memory budget it does in
+    /// fact fit inside - on the first operation, on Linux only, while the same proof passed on a
+    /// developer machine that exports no such variable.
+    ///
+    /// Warning discipline is stated here rather than inherited. `build.warnings` is a separate key
+    /// from rustflags, so denying warnings this way cannot displace the frozen list, and the guest
+    /// is held to the same bar on every host - including one whose `make` target exports
+    /// `CARGO_BUILD_WARNINGS=warn` for the workspace around it.
+    fn lowered_guest_build_command(project: &Path, target_dir: &Path) -> Command {
+        let mut command = Command::new("cargo");
+        for name in AMBIENT_RUST_FLAG_VARS {
+            command.env_remove(name);
+        }
+        command
+            .args([
+                "build",
+                "--release",
+                "--target",
+                "wasm32v1-none",
+                "--offline",
+            ])
+            .env("CARGO_BUILD_WARNINGS", "deny")
+            .env("CARGO_TARGET_DIR", target_dir)
+            .current_dir(project);
+        command
+    }
+
+    /// The frozen project, not the surrounding job, decides what a guest compiles under.
+    #[test]
+    fn a_lowered_guest_build_ignores_ambient_rust_flags() {
+        let command = lowered_guest_build_command(Path::new("project"), Path::new("target-out"));
+
+        for name in AMBIENT_RUST_FLAG_VARS {
+            assert!(
+                matches!(
+                    command.get_envs().find(|(key, _)| *key == OsStr::new(name)),
+                    Some((_, None))
+                ),
+                "a guest build must not inherit {name}"
+            );
+        }
+        assert_eq!(
+            command
+                .get_envs()
+                .find(|(key, _)| *key == OsStr::new("CARGO_BUILD_WARNINGS"))
+                .and_then(|(_, value)| value),
+            Some(OsStr::new("deny"))
+        );
+        // The frozen configuration is then the only thing that can size the guest's memory, and it
+        // asks for exactly the linear memory the strict envelope admits.
+        assert!(frozen_config(1_048_576).contains(
+            "\"link-arg=--max-memory=1048576\", \"-C\", \"link-arg=--initial-memory=1048576\""
+        ));
+    }
 
     #[test]
     fn fixed_source_identities_are_repeatable_and_guest_is_float_free() {
@@ -1927,6 +2054,63 @@ mod tests {
             assert!(!source.contains("f32"));
             assert!(!source.contains("f64"));
             assert!(!source.contains("Action::Submit"));
+        }
+    }
+
+    /// The complete binding claims to commit the catalog's whole source. A primitive whose
+    /// implementation is outside it would let the catalog's meaning change under a frozen program
+    /// without changing the digest that program is sealed against, so the list is compared to the
+    /// kernel directory rather than maintained by hand.
+    #[rstest::rstest]
+    fn the_complete_kernel_binding_commits_every_kernel_source() {
+        let kernel = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../indicators/kernel/src")
+            .canonicalize()
+            .expect("the pinned kernel source directory");
+        let mut present = std::collections::BTreeSet::new();
+
+        for entry in std::fs::read_dir(&kernel).expect("the kernel source directory reads") {
+            let name = entry.expect("a kernel source entry").file_name();
+            let name = name
+                .to_str()
+                .expect("kernel file names are UTF-8")
+                .to_owned();
+
+            // Test modules carry no catalog meaning and are excluded from every committed list.
+            if name.ends_with(".rs") && !name.ends_with("_tests.rs") {
+                present.insert(name);
+            }
+        }
+        let committed = COMPLETE_KERNEL_SOURCES
+            .iter()
+            .map(|(path, _)| (*path).to_owned())
+            .filter(|path| path.ends_with(".rs"))
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            present, committed,
+            "every non-test kernel source must be committed by the complete catalog binding"
+        );
+    }
+
+    /// A lowered symbol the guest crate does not re-export emits source that cannot compile, and
+    /// nothing else in this crate would notice until a real build ran.
+    #[rstest::rstest]
+    fn every_lowered_symbol_is_re_exported_by_the_guest_crate() {
+        let lib = std::str::from_utf8(LIB_SOURCE).expect("the guest crate root is UTF-8");
+        let catalog = PrimitiveCatalogV1::verify().expect("fixed catalog verifies");
+
+        for row in catalog.rows() {
+            if let Some(operation) = row.operation {
+                let symbol = lowered_symbol(operation);
+                let owner = symbol
+                    .split("::")
+                    .next()
+                    .expect("a lowered symbol is non-empty");
+                assert!(
+                    lib.contains(owner),
+                    "the guest crate root must re-export {owner} for {symbol}"
+                );
+            }
         }
     }
 
@@ -2143,7 +2327,7 @@ mod tests {
         assert_eq!(one.program_digest(), frozen.program_digest());
         assert_eq!(one.program_bytes(), frozen.program_bytes());
         assert_eq!(one.manifest_digest(), frozen.plugin_manifest_digest());
-        assert_eq!(one.source_files().len(), 13);
+        assert_eq!(one.source_files().len(), 14);
     }
 
     fn operation_parameters(operation: PrimitiveOperationV1) -> BoundedFeatureParametersV1 {
@@ -2436,16 +2620,7 @@ mod tests {
             fs::write(destination, bytes).unwrap();
         }
         let target_dir = root.path().join("target-out");
-        let output = Command::new("cargo")
-            .args([
-                "build",
-                "--release",
-                "--target",
-                "wasm32v1-none",
-                "--offline",
-            ])
-            .env("CARGO_TARGET_DIR", &target_dir)
-            .current_dir(root.path())
+        let output = lowered_guest_build_command(root.path(), &target_dir)
             .output()
             .expect("run cargo");
         assert!(
@@ -2544,6 +2719,78 @@ mod tests {
         assert_eq!(output.values[0].bytes(), b"kernel.position.enter.v1");
     }
 
+    /// No lowered program names a decoded value it never reads.
+    ///
+    /// `lowered_guest_build_command` denies warnings, so a binding nothing reads is not untidy in
+    /// a built guest, it is a build failure. That failure only appears once a real toolchain runs,
+    /// which is what the ignored proof below costs a compiler run to do. This one asserts the same
+    /// property from the lowered text alone, on every host, in milliseconds.
+    #[rstest::rstest]
+    fn no_lowered_program_names_a_value_it_never_reads() {
+        use PrimitiveOperationV1 as Op;
+
+        for operation in [
+            Op::Add,
+            Op::Sub,
+            Op::Mul,
+            Op::Div,
+            Op::Rescale,
+            Op::Compare,
+            Op::Select,
+            Op::Body,
+            Op::Range,
+            Op::UpperWick,
+            Op::LowerWick,
+            Op::Fraction,
+            Op::Ema,
+            Op::Wilder,
+            Op::TrueRange,
+            Op::Atr,
+            Op::Gap,
+            Op::Rsi,
+            Op::Lag,
+            Op::Sum,
+            Op::Mean,
+            Op::Minimum,
+            Op::Maximum,
+            Op::SwingHigh,
+            Op::SwingLow,
+        ] {
+            let (design, proposal) = dynamic_operation_candidate(operation);
+            let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
+            let frozen = freeze_research_bounded_feature_program_v1(&custody, &design, proposal)
+                .unwrap_or_else(|error| panic!("{operation:?} joint Owner freeze: {error}"));
+            let lowered = prepare_frozen_bounded_feature_source_inputs_v1(&frozen)
+                .unwrap_or_else(|error| panic!("{operation:?} source lowering: {error}"));
+            let Some((_, program_bytes)) = lowered
+                .source_files()
+                .find(|(path, _)| path.ends_with("program.rs"))
+            else {
+                panic!("{operation:?} lowering emits a program source");
+            };
+            let program = std::str::from_utf8(program_bytes).expect("lowered source is UTF-8");
+
+            for line in program.lines() {
+                let Some(rest) = line.trim_start().strip_prefix("let ") else {
+                    continue;
+                };
+                let name = rest.split(' ').next().unwrap_or_default();
+
+                if !name.starts_with("input_") || name.ends_with("_bytes") {
+                    continue;
+                }
+                // `{name}_bytes` merely carries the same prefix, so those occurrences are not reads
+                // of this binding. One occurrence remains for the binding itself.
+                let reads = program.matches(name).count()
+                    - program.matches(&format!("{name}_bytes")).count();
+                assert!(
+                    reads >= 2,
+                    "{operation:?} lowering binds {name}, which nothing reads"
+                );
+            }
+        }
+    }
+
     #[test]
     #[ignore = "builds and dynamically invokes all 25 executable primitive operations"]
     fn every_executable_operation_builds_and_runs_as_strict_abi_three_wasm() {
@@ -2594,16 +2841,7 @@ mod tests {
                 fs::create_dir_all(destination.parent().expect("source parent")).unwrap();
                 fs::write(destination, bytes).unwrap();
             }
-            let output = Command::new("cargo")
-                .args([
-                    "build",
-                    "--release",
-                    "--target",
-                    "wasm32v1-none",
-                    "--offline",
-                ])
-                .env("CARGO_TARGET_DIR", &target_dir)
-                .current_dir(root.path())
+            let output = lowered_guest_build_command(root.path(), &target_dir)
                 .output()
                 .expect("run cargo");
             assert!(

@@ -135,10 +135,12 @@ pub(super) async fn resolve_composer_v3_by_locator_in_transaction(
     if frozen.source.proposal.request_identity != locator.request_identity {
         return Err(corrupt("COMPOSER_V3 locator and stored source differ"));
     }
-    let readback =
-        resolve_existing_composer_v3_in_transaction(transaction, &frozen.source.proposal)
-            .await?
-            .ok_or_else(|| corrupt("COMPOSER_V3 Replay row disappeared"))?;
+    let readback = Box::pin(resolve_existing_composer_v3_in_transaction(
+        transaction,
+        &frozen.source.proposal,
+    ))
+    .await?
+    .ok_or_else(|| corrupt("COMPOSER_V3 Replay row disappeared"))?;
 
     if readback.meaning_digest() != locator.meaning_digest
         || readback.receipt.receipt_identity != locator.receipt_identity
@@ -199,12 +201,12 @@ pub(super) async fn resolve_existing_composer_v3_in_transaction(
             "COMPOSER_V3 Product Edge historical admission mismatch",
         ));
     }
-    let census = load_trial_family_census_v2_at_frontier_in_transaction(
+    let census = Box::pin(load_trial_family_census_v2_at_frontier_in_transaction(
         transaction,
         &proposal.trial_family_identity,
         &source.census_frontier_identity,
         &source.census_frontier_digest,
-    )
+    ))
     .await
     .map_err(unavailable)?;
     let root = census.legacy_family.root();
@@ -613,7 +615,7 @@ async fn load_research_transition(
 
     if view.request_identity != initial.request_identity
         || view.intent_identity != initial.intent_identity
-        || !composer_exploration_research_view_is_valid_v3(&view, initial)
+        || !composer_exploration_research_view_is_valid_v3(view, initial)
         || exploration.trial_family_identity != source.proposal.trial_family_identity
         || exploration.census_frontier_identity != source.census_frontier_identity
         || exploration.census_frontier_digest != source.census_frontier_digest

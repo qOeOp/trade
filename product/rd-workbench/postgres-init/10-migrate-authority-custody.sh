@@ -135,8 +135,8 @@ ALTER SCHEMA rd_owner_api OWNER TO rd_owner;
 REVOKE ALL ON SCHEMA rd_owner_api FROM PUBLIC, operator_authorization_writer, qualification_writer, rd_exploratory_replay_api_owner;
 GRANT USAGE ON SCHEMA rd_owner_api TO product_edge_owner, qualification_writer, backtest_owner;
 GRANT USAGE ON SCHEMA public, rd_owner_api TO rd_exploratory_replay_api_owner;
-GRANT USAGE ON SCHEMA rd_owner_api TO market_data_owner;
-REVOKE ALL ON SCHEMA rd_owner_api FROM market_data_reader;
+REVOKE ALL ON SCHEMA rd_owner_api FROM market_data_owner, market_data_reader;
+GRANT USAGE ON SCHEMA rd_owner_api TO market_data_owner, market_data_reader;
 
 ALTER TABLE IF EXISTS public.rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS request_storage_bytes BYTEA;
 ALTER TABLE IF EXISTS public.rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS request_storage_digest TEXT;

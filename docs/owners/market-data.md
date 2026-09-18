@@ -1101,13 +1101,56 @@ authenticated complete role set before it accepts the unchanged V1 request. It v
 Research request, derived role identity and every semantic coordinate, plus exact complete role coverage. The
 observation-census seam likewise verifies that the unchanged V1 join claim exactly repeats one authenticated join
 before complete-census/latest-not-after selection. Existing V1 request, binding and receipt bytes and exact legacy
-recovery stay unchanged. **TARGET:** W3 admits only the R&D-owned, same-Composer-transaction durable attestation through
-its exact-locator DB-ACL read function and makes that seam the only reachable positive path; Market Data then
-independently resolves its registry, census, join, V4 sample, R0 and Market Semantics authorities before atomic binding
-issuance. **NOT_ADMITTED:** caller-proposed Design/role/join fields, receipt/readback/token, receipt hash,
+recovery stay unchanged. **CURRENT/PARTIAL:** W3 admits only the R&D-owned, same-Composer-transaction durable
+attestation through its exact-locator DB-ACL read function and makes that seam the only reachable positive path; Market
+Data then independently resolves its registry, census, join, V4 sample, R0 and Market Semantics authorities before
+atomic binding issuance. The resolver is registered rather than planned: `/v1/market-data/strategy-input-bindings` ships
+unconditionally in the deployed binary, and its admission is composed whenever both principals are configured, which the
+deployment file requires of every run. The write path is exercised by
+`postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_market_transaction_overlap`, which binds the
+terminal to the Owner's own committed PIT request rather than a caller's claim, rejoins on re-admission and refuses an
+unattested locator. **TARGET:** an observed end-to-end sequence. Every link exists ungated - the production Composer's
+commit function writes the role-set attestation in the same transaction as its operation, receipts and outbox, and the
+default build selects that function - but no run has been seen carrying a Composer commit through W3 registration into a
+Bounded Feature Program freeze. The proof above supplies the attestation by writing the Composer rows directly, which a
+test may do and a deployment may not, so the sequence itself stays unwitnessed rather than unbuilt.
+
+**TARGET, and the schema says which shapes are possible:**
+`rd_develop_strategy_design_role_set_attestations_v1` takes `request_identity` as a primary key that references
+`rd_develop_operations_v2`, and requires a unique `operation_receipt_identity`, `artifact_identity` and
+`canonical_plan_digest`. An attestation therefore cannot exist without a Composer operation that produced an artifact.
+Minting one on its own, however it is authorized, would mean inserting an operation row for an artifact nobody built,
+which is the fabrication this seam exists to refuse. Freezing is not the obstacle: `freeze` takes an assembled pair and
+never consults this registry, which the chain's joint-freeze proof shows by passing without touching Market Data at all.
+The obstacle is the run. Binding resolution calls `resolve_pit_request_for_strategy_design_v1` before it examines the
+declared role set, so a frozen program is refused for want of declarations even when it declares no input roles at all -
+and an attestation is scoped to one Design, so a first program cannot vouch for a second. There is no input-free escape
+either: `validate_declarations` refuses a Design with no inputs, because at least one typed Owner-bound input is
+required. The circle is thus a consequence of that requirement rather than an oversight - every admissible Design binds
+to Owner-verified custody, which is what makes the artifact trustworthy and what leaves the first one with nothing to
+bind to. Each Design therefore closes its own circle: running it needs declarations, declarations need an attestation naming it, and that attestation needs
+the operation only a run produces.
+
+**ADMITTED, first registration from an authenticated Design:** nothing that carries a program can open the circle.
+`BoundedFeatureInputV1` holds a `static_binding_receipt_digest` per input, an all-zero digest is refused, and the value
+enters the program's canonical digest, so a program's own identity depends on receipts this registry has not issued yet.
+Freezing does not escape that: it takes an assembled proposal, and assembling one requires a receipt for every role.
+The only thing that can precede a program is the Design, which is what the paragraph above already contemplates when it
+says R&D may supply Owner-authenticated Design/role intent. R&D therefore publishes that intent - the Design identity
+and digest, the Research request it belongs to, the custody digest it was admitted against, and the role set R&D derives
+from it - through an exact-locator DB-ACL read function beside the one that exposes an attestation, and Market Data
+consumes it exactly as it consumes an attestation: it verifies coverage, then resolves its own registry, census, join
+and issuance authorities before issuing anything. No program, artifact or unbound input exists anywhere in this path.
+Registration stays write-once, so it reaches a Design once and a Composer commit governs every cycle after it, and W3 is
+untouched: an attestation remains the only thing W3 admits.
+`POST /v1/market-data/strategy-input-bindings/from-design-intent` is that consumer, and the ordered PostgreSQL chain
+witnesses it beside the attested admission, against the same custody and the same role entries: a Design nothing in
+`composer_private` names moves from no PIT coordinate to the one this Owner resolved, and to the same PIT request and
+decision cut the attested Design resolved to. An unpublished Design reaches no declaration, and a published row edited in
+place stops authenticating the Design it was published for.
+**NOT_ADMITTED:** caller-proposed Design/role/join fields, receipt/readback/token, receipt hash,
 latest/history/full scans, raw R&D table parsing or Market Data storage do not authenticate Design meaning; Market Data
-does not depend on R&D, own or reinterpret Strategy Design roles or joins, and this foundation claims no
-registered W3 resolver or production write.
+does not depend on R&D, own or reinterpret Strategy Design roles or joins.
 
 Market Data consumes, but does not define or reinterpret, the explicit big-endian R&D canonical binary codec
 specified in the R&D Owner contract. Its JSON representation is not canonical receipt material. Registration

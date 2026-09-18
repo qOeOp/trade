@@ -1044,13 +1044,50 @@ Owner-driven R&D/Backtest consumption 的前置条件；它不是 provider regis
 前必须取得 authenticated complete role set。它校验请求的 Design、Research request、派生 role identity、每项
 semantic coordinate 及准确完整的 role coverage。observation-census seam 同样要求未改变的 V1 join claim 在
 complete-census/latest-not-after selection 前准确重复一个 authenticated join。既有 V1 request、binding、
-receipt bytes 与准确 legacy recovery 均保持不变。**TARGET：** W3 只通过 R&D-owned、same-Composer-transaction
+receipt bytes 与准确 legacy recovery 均保持不变。**CURRENT/PARTIAL：** W3 只通过 R&D-owned、same-Composer-transaction
 durable attestation 的准确 locator DB-ACL read function 接纳该 attestation，并让这条 seam 成为唯一可达的
 positive path；Market Data 随后独立解析自身 registry、census、join、V4 sample、R0 与 Market Semantics authority，
-再原子签发 binding。**NOT_ADMITTED：** caller-proposed Design/role/join 字段、receipt/readback/token、receipt
+再原子签发 binding。该 resolver 已注册而非仅在计划中：`/v1/market-data/strategy-input-bindings` 无条件随部署二进制
+发布，其 admission 在两个 principal 均已配置时组合，而部署文件要求每次运行都提供它们。写入路径由
+`postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_market_transaction_overlap` 驱动：
+它把 terminal 绑定到 Owner 自己已提交的 PIT request 而非 caller 的 claim，在重新 admission 时重新汇合，
+并拒绝未经 attest 的 locator。**TARGET：** 一次被观察到的端到端序列。每一环都已存在且无门控：生产 Composer 的
+commit function 在与 operation、receipts、outbox 同一个事务里写入 role-set attestation，默认构建选中的正是该
+function；但尚未见到任何一次运行把 Composer commit 经 W3 registration 带到 Bounded Feature Program freeze。
+上述证明是直接写入 Composer 行来提供 attestation 的，测试可以这样做，部署不可以，所以缺的是这个序列未被见证，
+而不是它未被建造。
+
+**TARGET，而且 schema 已经限定了可能的形状：**
+`rd_develop_strategy_design_role_set_attestations_v1` 以 `request_identity` 为主键并引用
+`rd_develop_operations_v2`，同时要求 `operation_receipt_identity`、`artifact_identity` 与
+`canonical_plan_digest` 各自唯一。因此一份 attestation 不可能脱离"产出了 artifact 的 Composer 操作"而存在。
+无论用什么授权去单独铸造它，都意味着为一件无人构建的 artifact 插入一行 operation，而那正是这条 seam 存在
+所要拒绝的伪造。冻结不是障碍：`freeze` 收的是已装配好的 pair，完全不查询本注册表，链路中的 joint-freeze
+证明正是在完全不接触 Market Data 的情况下通过的。障碍在 run。绑定解析在检查已声明角色集之前就调用
+`resolve_pit_request_for_strategy_design_v1`，因此一个冻结程序即便一个输入角色都没有声明，也会因缺少
+declaration 而被拒；而 attestation 的作用域限于单个 Design，所以第一个程序无法为第二个背书。也没有"零输入"这条退路：
+`validate_declarations` 拒绝不含输入的 Design，因为至少需要一个 typed Owner-bound input。
+因此这个环是那条要求的推论，而不是疏忽：每个可准入的 Design 都绑定到 Owner 验证过的 custody，
+这既是 artifact 可信的来源，也正是第一个 Design 无物可绑的原因。于是每个 Design 各自成环：运行它需要 declaration，declaration 需要一份指名它的 attestation，
+而这份 attestation 需要只有运行才能产出的那次 operation。
+
+**ADMITTED，从已认证的 Design 完成首次注册：** 任何携带 program 的东西都打不开这个环。
+`BoundedFeatureInputV1` 为每个输入持有 `static_binding_receipt_digest`，全零会被拒，且该值进入 program 的
+规范摘要：所以 program 自身的身份就依赖这个注册表尚未签发的 receipt。冻结也逃不掉：它收的是已装配的 proposal，
+而装配它需要每个角色各有一份 receipt。唯一能先于 program 存在的是 Design，这正是上一段所说的
+"R&D 只可提供 Owner-authenticated Design/role intent"。因此 R&D 通过一个精确 locator 的 DB-ACL 读函数
+发布这份 intent（Design 的身份与摘要、它所属的 Research request、它据以准入的 custody 摘要，
+以及 R&D 从中派生的角色集），与今天暴露 attestation 的那个并列；Market Data 消费它的方式与消费 attestation
+完全相同：校验覆盖，再在签发任何东西之前解析自身的 registry、census、join 与 issuance authority。
+这条路径上不存在任何 program、artifact 或未绑定输入。注册仍是 write-once，因此它对一个 Design 只到达一次，
+此后每一圈都由 Composer 提交治理；W3 不受影响：它接纳的仍然只有 attestation。
+`POST /v1/market-data/strategy-input-bindings/from-design-intent` 就是这个消费者，有序 PostgreSQL 链路
+在同一份托管、同一组角色条目上，把它与走 attestation 的准入并排见证：一个在 `composer_private` 中无人指名的 Design，
+从没有任何 PIT 坐标走到本 Owner 自行解析出的那一个，且与刚刚走 attestation 的那个 Design 解析到同一个 PIT request
+与同一个 decision cut；未发布的 Design 到不了任何 declaration；被就地改写的已发布行，不再能认证它当初所发布的那个 Design。
+**NOT_ADMITTED：** caller-proposed Design/role/join 字段、receipt/readback/token、receipt
 hash、latest/history/full scan、raw R&D table parsing 或 Market Data storage 都不能认证 Design meaning；Market
-Data 不依赖 R&D，不拥有也不重新解释 Strategy Design role/join，且该 foundation 不声称 registered
-W3 resolver 或 production write。
+Data 不依赖 R&D，不拥有也不重新解释 Strategy Design role/join。
 
 Market Data 只消费、但不定义也不重新解释 R&D Owner contract 中明确规定的 big-endian canonical binary
 codec；其 JSON 表示不是 canonical receipt material。registration 必须通过固定 R&D adapter 取得
