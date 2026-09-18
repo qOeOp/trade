@@ -6225,6 +6225,27 @@ mod postgres_tests {
     const PROTECTED_TERMINAL_LINEAGES_V1: [&str; 3] =
         ["economic-pass", "economic-failure", "all-not-applicable"];
 
+    /// Exact row counts of every Qualification relation, one `name=count` per non-empty table.
+    ///
+    /// Zero counts are dropped so a table that does not exist and a table that is empty read the
+    /// same, which keeps this comparable across stores. Scoped counts answer whether this entry
+    /// wrote what it meant to; this answers whether it touched anything else, including rows
+    /// another gate entry owns, which no identity-scoped count can see.
+    async fn qualification_schema_row_counts(pool: &PgPool) -> Vec<String> {
+        sqlx::query_scalar::<_, String>(
+            "SELECT c.relname||'='||(xpath('/row/c/text()', query_to_xml(format('SELECT count(*) AS c FROM public.%I', c.relname), false, true, '')))[1]::text::bigint \
+             FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace \
+             WHERE n.nspname='public' AND c.relkind='r' AND c.relname LIKE 'qualification\\_%' \
+             ORDER BY c.relname",
+        )
+        .fetch_all(pool)
+        .await
+        .expect("Qualification schema row counts")
+        .into_iter()
+        .filter(|row| !row.ends_with("=0"))
+        .collect()
+    }
+
     /// The `ADMITTED` intake of one exact gate lineage. Its public status has not reached a
     /// terminal phase, so this entry owns the lineage's protected attempt.
     async fn admitted_intake_for_lineage(
@@ -7866,6 +7887,9 @@ mod postgres_tests {
         };
         let scope_key =
             principal_scope_key(&locator.principal, &locator.request_scope).expect("scope key");
+        // Taken before this entry writes anything, so a row it disturbs cannot already be inside
+        // the baseline.
+        let schema_before = qualification_schema_row_counts(&owner.pool).await;
         let own_counts = |pool: PgPool, basis_identity: String, scope_key: String| async move {
             // This entry writes into custody the gate shares, so "nothing was written" is proved
             // by this basis's own counts before and after, never by a global emptiness.
@@ -8040,7 +8064,12 @@ mod postgres_tests {
         );
 
         // Every tamper above was restored exactly and read back, so this entry leaves the shared
-        // protected-feedback custody exactly as it found it.
+        // custody exactly as it found it: its own rows by identity, and every other Qualification
+        // relation by row count.
+        assert_eq!(
+            qualification_schema_row_counts(&owner.pool).await,
+            schema_before
+        );
         assert_eq!(
             own_counts(owner.pool.clone(), locator.basis_identity, scope_key).await,
             before
