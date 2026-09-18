@@ -3269,8 +3269,8 @@ mod postgres_freshness_tests {
         ProductEdgeInvocationClaimRequestV1, ProductEdgePostgresOwnerV1,
     };
     use vibe_testkit::postgres::{
-        CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1,
-        DedicatedPostgresTestDatabase, DedicatedPostgresTestMutation,
+        CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerPostgresTestMutationV1,
+        CanonicalOwnerTestRoleV1,
     };
 
     async fn legacy_drain_family_snapshot(pool: &PgPool) -> serde_json::Value {
@@ -3357,7 +3357,9 @@ mod postgres_freshness_tests {
     async fn exact_origin_terminal_legacy_is_read_only_and_nonterminal_blocks_activation() {
         let test_database = test_database().await;
         let _mutation = test_database.mutation();
-        let database_url = test_database.database_url().to_string();
+        let database_url = test_database
+            .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+            .to_string();
         let owner = PostgresArtifactBuildOwnerV1::connect(
             &database_url,
             "/tmp/unused-rd-sandbox.sock",
@@ -3964,7 +3966,9 @@ mod postgres_freshness_tests {
     async fn opaque_legacy_success_is_classified_but_never_promoted() {
         let test_database = test_database().await;
         let _mutation = test_database.mutation();
-        let database_url = test_database.database_url().to_string();
+        let database_url = test_database
+            .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+            .to_string();
         let owner = PostgresArtifactBuildOwnerV1::connect(
             &database_url,
             "/tmp/unused-rd-sandbox.sock",
@@ -4082,7 +4086,9 @@ mod postgres_freshness_tests {
     async fn exact_stale_cut_blocks_every_artifact_transition_without_writes() {
         let test_database = test_database().await;
         let mutation = test_database.mutation();
-        let database_url = test_database.database_url().to_string();
+        let database_url = test_database
+            .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+            .to_string();
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(2)
             .connect(&database_url)
@@ -4091,15 +4097,18 @@ mod postgres_freshness_tests {
         let suffix = unique_suffix();
         let research_request_identity = format!("research-request-v2-stale-writes-{suffix}");
         let (product_edge, research_admission) = bootstrap_authority(
-            &database_url,
-            &database_url,
+            test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+            test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
             &research_request_identity,
             &suffix,
         )
         .await;
-        let research_owner = PostgresResearchGoalOwnerV1::connect(&database_url, &database_url)
-            .await
-            .unwrap();
+        let research_owner = PostgresResearchGoalOwnerV1::connect(
+            &database_url,
+            test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+        )
+        .await
+        .unwrap();
         let accepted = research_owner
             .submit_v2(research_request(
                 &research_request_identity,
@@ -4200,7 +4209,43 @@ mod postgres_freshness_tests {
             .claim_provider_invocation(invocation_claim_request.clone())
             .await
             .unwrap();
+        // Reservation is itself a research-fresh transition: at the exact cut it is refused and
+        // writes nothing, and the claim stays recoverable for the fresh reservation below.
         owner.clock = Arc::new(move || Ok(valid_through));
+        let before_stale_reservation = state_snapshot(
+            &pool,
+            &research_request_identity,
+            &prepared_request,
+            &intent_identity,
+            &family_identity,
+        )
+        .await;
+        assert!(matches!(
+            owner
+                .reserve_provider_invocation_custody(
+                    &prepared_request.build_request_identity,
+                    &prepared_request.attempt_identity,
+                    invocation_claim,
+                )
+                .await,
+            Err(ArtifactBuildError::Unauthorized(_))
+        ));
+        assert_eq!(
+            state_snapshot(
+                &pool,
+                &research_request_identity,
+                &prepared_request,
+                &intent_identity,
+                &family_identity,
+            )
+            .await,
+            before_stale_reservation
+        );
+        owner.clock = Arc::new(move || Ok(fresh_cut));
+        let invocation_claim = product_edge
+            .claim_provider_invocation(invocation_claim_request.clone())
+            .await
+            .unwrap();
         let reserved_invocation = owner
             .reserve_provider_invocation_custody(
                 &prepared_request.build_request_identity,
@@ -4247,16 +4292,22 @@ mod postgres_freshness_tests {
             reserved,
             "same sealed claim must join the existing reservation without a write"
         );
+        // A mismatch reaches the Owner only through what the reservation reads: its two identity
+        // arguments, and the bindings the sealed claim carries. A request that differs in any
+        // other field names the same reservation and would simply join it.
+        let before_mismatch = state_snapshot(
+            &pool,
+            &research_request_identity,
+            &prepared_request,
+            &intent_identity,
+            &family_identity,
+        )
+        .await;
         let mut wrong_attempt = prepared_request.clone();
         wrong_attempt.attempt_identity.push_str("-wrong");
-        let mut wrong_intent = prepared_request.clone();
-        wrong_intent.intent_identity.push_str("-wrong");
-        let mut wrong_admission = prepared_request.clone();
-        wrong_admission
-            .admission
-            .admission_identity
-            .push_str("-wrong");
-        for wrong in [wrong_attempt, wrong_intent, wrong_admission] {
+        let mut wrong_build = prepared_request.clone();
+        wrong_build.build_request_identity.push_str("-wrong");
+        for wrong in [wrong_attempt, wrong_build] {
             let recovered_invocation_claim = product_edge
                 .claim_provider_invocation(invocation_claim_request.clone())
                 .await
@@ -4269,11 +4320,49 @@ mod postgres_freshness_tests {
                         recovered_invocation_claim,
                     )
                     .await,
-                Err(ArtifactBuildError::ConflictingReplay
-                    | ArtifactBuildError::Storage(_)
-                    | ArtifactBuildError::Unauthorized(_))
+                Err(ArtifactBuildError::ConflictingReplay | ArtifactBuildError::Storage(_))
             ));
         }
+        let foreign_request =
+            artifact_request(&product_edge, &suffix, &intent_identity, "foreign-claim").await;
+        assert_eq!(
+            owner
+                .prepare(foreign_request.clone())
+                .await
+                .unwrap()
+                .resolution(),
+            ArtifactBuildResolution::Prepared
+        );
+        let foreign_claim = product_edge
+            .claim_provider_invocation(ProductEdgeInvocationClaimRequestV1 {
+                admission: foreign_request.admission.clone(),
+                attempt_identity: foreign_request.attempt_identity.clone(),
+            })
+            .await
+            .unwrap();
+        assert!(matches!(
+            owner
+                .reserve_provider_invocation_custody(
+                    &prepared_request.build_request_identity,
+                    &prepared_request.attempt_identity,
+                    foreign_claim,
+                )
+                .await,
+            Err(ArtifactBuildError::Unauthorized(_))
+        ));
+        assert_eq!(
+            state_snapshot(
+                &pool,
+                &research_request_identity,
+                &prepared_request,
+                &intent_identity,
+                &family_identity,
+            )
+            .await,
+            before_mismatch,
+            "no identity mismatch may write"
+        );
+        owner.clock = Arc::new(move || Ok(valid_through));
         let before = state_snapshot(
             &pool,
             &research_request_identity,
@@ -4347,7 +4436,6 @@ mod postgres_freshness_tests {
             .claim_provider_invocation(claim_request.clone())
             .await
             .unwrap();
-        owner.clock = Arc::new(move || Ok(valid_through));
         let recovered_claim = product_edge
             .claim_provider_invocation(claim_request)
             .await
@@ -4423,7 +4511,6 @@ mod postgres_freshness_tests {
             })
             .await
             .unwrap();
-        owner.clock = Arc::new(move || Ok(valid_through));
         let reserved_invocation = owner
             .reserve_provider_invocation_custody(
                 &sealed_success_request.build_request_identity,
@@ -4433,6 +4520,7 @@ mod postgres_freshness_tests {
             .await
             .unwrap();
         let (start_reservation, _invocation_custody) = reserved_invocation.into_parts();
+        owner.clock = Arc::new(move || Ok(valid_through));
         product_edge
             .start_provider_invocation(start_reservation)
             .await
@@ -4557,10 +4645,68 @@ mod postgres_freshness_tests {
             terminal.owner_receipt()
         );
 
+        // A sealed success re-projects the research view without re-sealing the artifact
+        // evidence the Product Edge admits against, so this intent admits no further build. The
+        // clock-faulted fresh admission below needs research whose evidence is still current.
+        let final_research_request_identity = format!("research-request-v2-stale-final-{suffix}");
+        // Under the first research's principal and scope a second research is formed as its
+        // successor and checked against the successor view. This section was written against an
+        // Initial intent, so its research is admitted under its own authority.
+        let final_suffix = format!("{suffix}-final");
+        let (final_edge, final_research_admission) = bootstrap_authority(
+            test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+            test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+            &final_research_request_identity,
+            &final_suffix,
+        )
+        .await;
+        let final_accepted = research_owner
+            .submit_v2(research_request(
+                &final_research_request_identity,
+                final_research_admission,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(
+            final_accepted.resolution(),
+            crate::product_edge::ProductEdgeResolution::Accepted,
+            "fresh research for the final section must be admitted: {final_accepted:#?}"
+        );
+        let final_intent_identity = final_accepted
+            .owner_receipt()
+            .unwrap()
+            .resulting_research_intent_identity
+            .as_deref()
+            .unwrap()
+            .to_string();
+        let final_family_identity = final_accepted
+            .trial_family()
+            .unwrap()
+            .root
+            .trial_family_identity()
+            .to_string();
+        // The exact cut is this research's own validity; the first research's is earlier.
+        let final_valid_through = final_accepted
+            .research_view()
+            .unwrap()
+            .valid_through_epoch_ms;
+        let final_intent_json: serde_json::Value = sqlx::query_scalar(
+            "SELECT intent_json FROM rd_research_request_receipts_v1 WHERE request_identity = $1",
+        )
+        .bind(&final_research_request_identity)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let final_intent_digest = serde_json::from_value::<
+            crate::product_edge::FrozenResearchGoalIntentV2,
+        >(final_intent_json)
+        .unwrap()
+        .semantic_digest;
+        let final_candidate = self::candidate(&final_intent_identity, &final_intent_digest);
         let final_request = artifact_request(
-            &product_edge,
+            &final_edge,
             &suffix,
-            &intent_identity,
+            &final_intent_identity,
             "stale-final-write",
         )
         .await;
@@ -4575,30 +4721,54 @@ mod postgres_freshness_tests {
         );
         let before_final = state_snapshot(
             &pool,
-            &research_request_identity,
+            &final_research_request_identity,
             &final_request,
-            &intent_identity,
-            &family_identity,
+            &final_intent_identity,
+            &final_family_identity,
         )
         .await;
         owner.sandbox = Arc::new(ValidSandbox);
+        // Without a started provider invocation the Owner records BUILDING and stops, and the
+        // stale cut is never consulted. The providerless sealed acceptance is the path this
+        // section was written against: it carries the fresh admission to the terminal write,
+        // where the exact cut must refuse it.
+        //
+        // On that path the Owner reads its clock five times before it can refuse: once
+        // re-preparing the already prepared attempt, once admitting custody under providerless
+        // acceptance, once for the BUILDING transition, once admitting custody again, and then
+        // for the research view it must find stale. The first four are fresh; the fifth is
+        // this research's own validity.
+        owner.allow_providerless_sealed_acceptance = true;
         let cuts = Arc::new(Mutex::new(VecDeque::from([
             fresh_cut,
             fresh_cut,
             fresh_cut,
-            valid_through,
+            fresh_cut,
+            final_valid_through,
         ])));
         let clock_cuts = Arc::clone(&cuts);
+        let handed_out = Arc::new(Mutex::new(Vec::<u64>::new()));
+        let clock_handed_out = Arc::clone(&handed_out);
         owner.clock = Arc::new(move || {
-            clock_cuts
+            let cut = clock_cuts
                 .lock()
                 .map_err(json_storage)?
                 .pop_front()
-                .ok_or_else(|| ArtifactBuildError::Storage("test clock exhausted".to_string()))
+                .ok_or_else(|| {
+                    ArtifactBuildError::Storage(format!(
+                        "test clock exhausted after handing out {:?}",
+                        clock_handed_out
+                            .lock()
+                            .map(|c| c.clone())
+                            .unwrap_or_default()
+                    ))
+                })?;
+            clock_handed_out.lock().map_err(json_storage)?.push(cut);
+            Ok(cut)
         });
         assert_eq!(
             owner
-                .submit_candidate(final_request.clone(), candidate.clone(), None)
+                .submit_candidate(final_request.clone(), final_candidate.clone(), None)
                 .await
                 .unwrap()
                 .resolution(),
@@ -4607,10 +4777,10 @@ mod postgres_freshness_tests {
         assert!(cuts.lock().unwrap().is_empty());
         let after_final = state_snapshot(
             &pool,
-            &research_request_identity,
+            &final_research_request_identity,
             &final_request,
-            &intent_identity,
-            &family_identity,
+            &final_intent_identity,
+            &final_family_identity,
         )
         .await;
         assert_eq!(after_final.view_json, before_final.view_json);
@@ -4631,7 +4801,7 @@ mod postgres_freshness_tests {
         assert_eq!(final_attempt["receipt"], serde_json::Value::Null);
         assert_eq!(
             final_attempt["candidate_digest"],
-            candidate_digest(&candidate).unwrap()
+            candidate_digest(&final_candidate).unwrap()
         );
 
         sqlx::query(
@@ -4645,6 +4815,12 @@ mod postgres_freshness_tests {
         .await
         .unwrap();
         cleanup_research(&mutation, &research_request_identity, &family_identity).await;
+        cleanup_research(
+            &mutation,
+            &final_research_request_identity,
+            &final_family_identity,
+        )
+        .await;
     }
 
     #[rstest::rstest]
@@ -6037,6 +6213,15 @@ mod postgres_freshness_tests {
         })
         .await
         .unwrap();
+        let admission = admit_research(&edge, research_request_identity).await;
+        (edge, admission)
+    }
+
+    /// Admits one research request on an already bootstrapped edge.
+    async fn admit_research(
+        edge: &ProductEdgePostgresOwnerV1,
+        research_request_identity: &str,
+    ) -> ProductEdgeAdmissionLocatorV1 {
         let empty_locator = ProductEdgeAdmissionLocatorV1 {
             request_identity: research_request_identity.to_string(),
             admission_identity: String::new(),
@@ -6049,32 +6234,41 @@ mod postgres_freshness_tests {
             "goal": request.goal,
             "trial_family_proposal": request.trial_family_proposal,
         });
-        let admission = edge
-            .admit_request(ProductEdgeAdmissionRequestV1 {
-                request_identity: research_request_identity.to_string(),
-                typed_payload,
-                operation: RESEARCH_GOAL_OPERATION_V2.to_string(),
-                operation_schema: RESEARCH_GOAL_SCHEMA_V2.to_string(),
-                target_owner: RESEARCH_OWNER_V1.to_string(),
-                requested_effects: vec!["R_AND_D_RESEARCH_MUTATION_V1".to_string()],
-                request_proof_digest: "sha256:test-proof".to_string(),
-                audit_correlation: format!("test:{research_request_identity}"),
-            })
-            .await
-            .unwrap()
-            .locator()
-            .clone();
-        (edge, admission)
-    }
-
-    async fn test_database() -> DedicatedPostgresTestDatabase {
-        DedicatedPostgresTestDatabase::admit_cross_owner(&[
-            "OPERATOR_AUTHORIZATION_TEST_DATABASE_URL",
-            "PRODUCT_EDGE_TEST_DATABASE_URL",
-            "RD_OWNER_TEST_DATABASE_URL",
-        ])
+        edge.admit_request(ProductEdgeAdmissionRequestV1 {
+            request_identity: research_request_identity.to_string(),
+            typed_payload,
+            operation: RESEARCH_GOAL_OPERATION_V2.to_string(),
+            operation_schema: RESEARCH_GOAL_SCHEMA_V2.to_string(),
+            target_owner: RESEARCH_OWNER_V1.to_string(),
+            requested_effects: vec!["R_AND_D_RESEARCH_MUTATION_V1".to_string()],
+            request_proof_digest: "sha256:test-proof".to_string(),
+            audit_correlation: format!("test:{research_request_identity}"),
+        })
         .await
         .unwrap()
+        .locator()
+        .clone()
+    }
+
+    /// The disposable topology these proofs run against.
+    ///
+    /// They used to admit the dedicated per-Owner harness, whose marker validation requires every
+    /// role to be named `vibe_test_role_*`. The ordered chain exports the canonical Owner role
+    /// names, so that admission refused with `ExpectedIdentityMismatch` before any proof ran. It
+    /// also publishes the Replay Policy Catalog V3 head a research submission forms its
+    /// TrialFamily against; without it the Owner rolls the submission back unresolved.
+    async fn test_database() -> CanonicalOwnerPostgresTestDatabaseV1 {
+        let database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        {
+            let mutation = database.mutation();
+            crate::replay_policy_catalog_postgres_v2::ensure_authenticated_sealed_acceptance_fixture_v3(
+                mutation.pool(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter),
+            )
+            .await
+            .unwrap();
+        }
+        database
     }
 
     fn unique_suffix() -> String {
@@ -6088,12 +6282,17 @@ mod postgres_freshness_tests {
         )
     }
 
+    /// Each relation is cleaned by the Owner that holds it.
+    ///
+    /// `rd_*` is R&D's and `qualification_*` is the Qualification writer's; in the canonical
+    /// topology neither role may touch the other's tables.
     async fn cleanup_research(
-        mutation: &DedicatedPostgresTestMutation<'_>,
+        mutation: &CanonicalOwnerPostgresTestMutationV1<'_>,
         request_identity: &str,
         family_identity: &str,
     ) {
-        let pool = mutation.pool();
+        let pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+        let qualification_pool = mutation.pool(CanonicalOwnerTestRoleV1::QualificationWriter);
         let basis_identity = sqlx::query_scalar::<_, String>(
             "SELECT basis_identity FROM rd_independence_bases_v1 WHERE request_identity = $1",
         )
@@ -6103,7 +6302,7 @@ mod postgres_freshness_tests {
         .unwrap();
         let projection_identity = if let Some(basis_identity) = basis_identity.as_deref() {
             sqlx::query_scalar::<_, String>("SELECT projection_identity FROM qualification_protected_feedback_projections_v1 WHERE basis_identity = $1")
-                .bind(basis_identity).fetch_optional(pool).await.unwrap()
+                .bind(basis_identity).fetch_optional(qualification_pool).await.unwrap()
         } else {
             None
         };
@@ -6122,6 +6321,20 @@ mod postgres_freshness_tests {
             .execute(pool)
             .await
             .unwrap();
+        // A sealed success binds its artifact to the family; the binding and its outbox event go
+        // before the family they reference.
+        sqlx::query("DELETE FROM rd_owner_outbox_v1 WHERE aggregate_identity IN (SELECT artifact_identity FROM rd_artifact_trial_family_bindings_v1 WHERE trial_family_identity = $1)")
+            .bind(family_identity)
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "DELETE FROM rd_artifact_trial_family_bindings_v1 WHERE trial_family_identity = $1",
+        )
+        .bind(family_identity)
+        .execute(pool)
+        .await
+        .unwrap();
         sqlx::query("DELETE FROM rd_trial_families_v1 WHERE trial_family_identity = $1")
             .bind(family_identity)
             .execute(pool)
@@ -6133,13 +6346,13 @@ mod postgres_freshness_tests {
             .await
             .unwrap();
         if let Some(projection_identity) = projection_identity {
-            sqlx::query("DELETE FROM qualification_protected_feedback_heads_v1 WHERE frontier_identity = $1").bind(&projection_identity).execute(pool).await.unwrap();
+            sqlx::query("DELETE FROM qualification_protected_feedback_heads_v1 WHERE frontier_identity = $1").bind(&projection_identity).execute(qualification_pool).await.unwrap();
             sqlx::query("DELETE FROM qualification_owner_outbox_v1 WHERE aggregate_identity = $1")
                 .bind(&projection_identity)
-                .execute(pool)
+                .execute(qualification_pool)
                 .await
                 .unwrap();
-            sqlx::query("DELETE FROM qualification_protected_feedback_projections_v1 WHERE projection_identity = $1").bind(&projection_identity).execute(pool).await.unwrap();
+            sqlx::query("DELETE FROM qualification_protected_feedback_projections_v1 WHERE projection_identity = $1").bind(&projection_identity).execute(qualification_pool).await.unwrap();
         }
 
         if let Some(basis_identity) = basis_identity {
