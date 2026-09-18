@@ -4639,7 +4639,34 @@ mod postgres_acceptance_tests {
         Box::pin(assert_ready_tamper_closure(&harness)).await;
     }
 
+    /// Which candidate lineage the ready-decision harness prepares.
+    ///
+    /// Both lineages are admissible to R&D: its own stored-decision validation checks the
+    /// protected robustness plan's typed coverage and never compares the plan's protected
+    /// decision policy with the one a Qualification review request states, because R&D cannot
+    /// know that request. The difference is what Qualification's candidate intake makes of the
+    /// candidate afterwards.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub(crate) enum ReadyDecisionLineageV1 {
+        /// The plan whose protected decision policy a review request for this candidate states,
+        /// which Qualification finds adequate and admits.
+        Adequate,
+        /// A plan frozen against a superseded protected decision policy. R&D admits the decision;
+        /// a review request naming the current policy closes the candidate `NOT_ADMITTED` at
+        /// intake, with no holdout reserved.
+        SupersededProtectedDecisionPolicy,
+    }
+
     async fn prepare_ready_decision_postgres_harness() -> Box<ReadyDecisionPostgresHarnessV1> {
+        Box::pin(prepare_ready_decision_postgres_harness_with_lineage(
+            ReadyDecisionLineageV1::Adequate,
+        ))
+        .await
+    }
+
+    async fn prepare_ready_decision_postgres_harness_with_lineage(
+        lineage: ReadyDecisionLineageV1,
+    ) -> Box<ReadyDecisionPostgresHarnessV1> {
         let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
             .await
             .expect("canonical disposable topology");
@@ -4730,7 +4757,7 @@ mod postgres_acceptance_tests {
         persist_backtest_result(backtest_pool, &result, &result_bytes, committed_at + 2).await;
 
         let positive_evidence = positive_evidence(&suffix);
-        let protected_plan = protected_plan(&suffix);
+        let protected_plan = protected_plan_for_lineage(&suffix, lineage);
         let composition = ReadyForSelectionCompositionRequestV1 {
             trial_family_identity: family_identity,
             result_identity: result_identity.clone(),
@@ -5241,6 +5268,17 @@ mod postgres_acceptance_tests {
     }
 
     fn protected_plan(suffix: &str) -> ProtectedRobustnessPlanProposalV1 {
+        protected_plan_for_lineage(suffix, ReadyDecisionLineageV1::Adequate)
+    }
+
+    /// The protected robustness plan the harness freezes into the candidate.
+    ///
+    /// Only the protected decision policy differs between lineages. Every typed coverage field
+    /// stays identical, so a `NOT_ADMITTED` intake cannot be explained by a malformed plan.
+    fn protected_plan_for_lineage(
+        suffix: &str,
+        lineage: ReadyDecisionLineageV1,
+    ) -> ProtectedRobustnessPlanProposalV1 {
         let reference = |name: &str, byte: char| PositiveAssessmentEvidenceReferenceV1 {
             identity: format!("{name}-{suffix}"),
             digest: digest(byte),
@@ -5298,7 +5336,14 @@ mod postgres_acceptance_tests {
             multiplicity_policy: reference("ready-protected-multiplicity", '3'),
             protected_decision_policy:
                 crate::iteration_decision::ProtectedDecisionPolicyProposalV1 {
-                    identity: format!("ready-protected-decision-policy-{suffix}"),
+                    identity: match lineage {
+                        ReadyDecisionLineageV1::Adequate => {
+                            format!("ready-protected-decision-policy-{suffix}")
+                        }
+                        ReadyDecisionLineageV1::SupersededProtectedDecisionPolicy => {
+                            format!("ready-protected-decision-policy-superseded-{suffix}")
+                        }
+                    },
                     version: 1,
                     digest: digest('4'),
                 },
