@@ -4367,10 +4367,7 @@ mod tests {
         UntrustedCanonicalPortfolioResourceGrantEvidenceV1,
     };
     use rstest::rstest;
-    use vibe_testkit::postgres::{
-        CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1,
-        DedicatedPostgresTestDatabase,
-    };
+    use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
     #[rstest]
     fn expired_manifest_recovery_schema_preparation_is_exactly_bounded() {
@@ -5329,16 +5326,14 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires an admitted OPERATOR_AUTHORIZATION_TEST_DATABASE_URL"]
+    #[ignore = "requires the disposable canonical OA/PE PostgreSQL topology"]
     async fn postgres_successor_is_append_only_replay_safe_and_preserves_history() {
-        let test_database =
-            DedicatedPostgresTestDatabase::admit("OPERATOR_AUTHORIZATION_TEST_DATABASE_URL")
-                .await
-                .unwrap();
-        let _mutation = test_database.mutation();
-        let owner = OperatorAuthorizationIssuerPostgresV1::connect(test_database.database_url())
-            .await
-            .unwrap();
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let owner = OperatorAuthorizationIssuerPostgresV1::connect(
+            test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+        )
+        .await
+        .unwrap();
         let suffix = format!("{}-{}", std::process::id(), now_ms().unwrap());
         let now = now_ms().unwrap();
         let genesis_proposal = OperatorAuthorizationIssuanceProposalV1 {
@@ -5417,14 +5412,11 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires an admitted OPERATOR_AUTHORIZATION_TEST_DATABASE_URL"]
+    #[ignore = "requires the disposable canonical OA/PE PostgreSQL topology"]
     async fn postgres_history_mutations_fail_closed_and_restore_exactly() {
-        let test_database =
-            DedicatedPostgresTestDatabase::admit("OPERATOR_AUTHORIZATION_TEST_DATABASE_URL")
-                .await
-                .unwrap();
-        let _mutation = test_database.mutation();
-        let database_url = test_database.database_url();
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let database_url =
+            test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter);
         let suffix = format!(
             "{}-{}",
             std::process::id(),
@@ -5632,14 +5624,11 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires an admitted OPERATOR_AUTHORIZATION_TEST_DATABASE_URL"]
+    #[ignore = "requires the disposable canonical OA/PE PostgreSQL topology"]
     async fn shared_resolver_blocks_revoke_update_lock() {
-        let test_database =
-            DedicatedPostgresTestDatabase::admit("OPERATOR_AUTHORIZATION_TEST_DATABASE_URL")
-                .await
-                .unwrap();
-        let _mutation = test_database.mutation();
-        let database_url = test_database.database_url();
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let database_url =
+            test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter);
         let suffix = format!("{}-{}", std::process::id(), now_ms().unwrap());
         let now = now_ms().unwrap();
         let owner = Arc::new(
@@ -5716,17 +5705,13 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires OPERATOR_AUTHORIZATION_TEST_DATABASE_URL and PRODUCT_EDGE_TEST_DATABASE_URL"]
+    #[ignore = "requires the disposable canonical OA/PE PostgreSQL topology"]
     async fn select_only_consumer_resolve_serializes_with_revoke() {
-        let test_database = DedicatedPostgresTestDatabase::admit_cross_owner(&[
-            "OPERATOR_AUTHORIZATION_TEST_DATABASE_URL",
-            "PRODUCT_EDGE_TEST_DATABASE_URL",
-        ])
-        .await
-        .unwrap();
-        let _mutation = test_database.mutation();
-        let issuer_database_url = test_database.database_url();
-        let consumer_database_url = test_database.database_url();
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let issuer_database_url =
+            test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter);
+        let consumer_database_url =
+            test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner);
         let suffix = format!("{}-{}", std::process::id(), now_ms().unwrap());
         let now = now_ms().unwrap();
         let owner = Arc::new(
