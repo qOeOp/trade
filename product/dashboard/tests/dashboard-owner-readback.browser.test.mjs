@@ -336,11 +336,36 @@ test(browserAcceptance
     });
 
     await t.test("artifact directory lists the verified Artifact and its build history", async () => {
+      // The Owner's own directory answer first: the verified view is a single bounded read, so a
+      // page that shows nothing is either an Owner that refused or a client that rejected the
+      // Owner's shape, and only the Owner's bytes tell those apart.
+      const directory = await ownerJson(new URL("v1/artifact-builds/directory", readApiUrl), readApiToken);
+      assert.equal(directory.status, 200, JSON.stringify(directory.body));
+      assert.ok(
+        directory.body.items.some((item) => item.build_request_identity === buildRequestIdentity
+          && item.attempt_identity === attemptIdentity),
+        `the Owner must list this acceptance's attempt: ${JSON.stringify(directory.body)}`,
+      );
+      // The consumer withdraws the whole directory when an item is not admitted or when any of the
+      // three identities repeats anywhere in the answer, so check both here: that way an Owner that
+      // answered something the consumer must refuse is named as the Owner's answer, not as an empty
+      // page.
+      const notAdmitted = directory.body.items
+        .filter((item) => item.build_security_state !== "ADMITTED")
+        .map((item) => item.attempt_identity);
+      assert.deepEqual(notAdmitted, [], JSON.stringify(directory.body));
+      const directoryIdentities = directory.body.items.flatMap((item) => [
+        item.build_request_identity, item.attempt_identity, item.artifact_identity,
+      ]);
+      const repeated = directoryIdentities
+        .filter((identity, index) => directoryIdentities.indexOf(identity) !== index);
+      assert.deepEqual([...new Set(repeated)], [], JSON.stringify(directory.body));
+
       await navigate(browser, `${origin}/rd/artifacts/?view=verified`);
-      await waitForBrowserExpression(browser,
+      await waitForBrowserExpressionWithRefresh(browser,
         `[...document.querySelectorAll('table[aria-label="Verified strategy artifacts"] a[href]')]
           .some((link) => link.getAttribute('href').replace(/\\/$/u, '') === ${JSON.stringify(`/rd/artifacts/${encodeURIComponent(buildRequestIdentity)}/attempts/${encodeURIComponent(attemptIdentity)}`)})`,
-        { label: "verified artifact row" });
+        { label: "verified artifact row", endpoints: ["/api/rd/artifacts/"] });
       assert.deepEqual(await readBrowserValue(browser, `(() => {
         const link = [...document.querySelectorAll('table[aria-label="Verified strategy artifacts"] a[href]')]
           .find((candidate) => candidate.getAttribute('href').replace(/\\/$/u, '') === ${JSON.stringify(`/rd/artifacts/${encodeURIComponent(buildRequestIdentity)}/attempts/${encodeURIComponent(attemptIdentity)}`)});
@@ -682,12 +707,31 @@ test(browserAcceptance
           .filter((row) => row.querySelector('strong'))
           .map((row) => [row.querySelector('strong')?.textContent, row.querySelector('.status-badge')?.textContent]),
       ))()`);
+      // `Connected` and `Limited` are the same read in different states: a source that is readable
+      // but carries unreadable point results is documented as `Limited` (doc 2378-2380), and the
+      // ordered chain leaves research requests this consumer cannot verify. The expectation is
+      // therefore the Owner's own completeness, not a constant.
+      const coverageSources = await readBrowserValue(browser, `(async () => {
+        const read = async (path) => (await fetch(path, { cache: 'no-store' })).json();
+        const [outcomes, reviews] = await Promise.all([
+          read('/api/rd/research/outcome-inventory/'),
+          read('/api/rd/artifacts/review-inventory/'),
+        ]);
+        const state = (answer) => answer.availability !== 'available' ? 'Unavailable'
+          : answer.completeness === 'complete' && answer.unavailableTotal === 0 ? 'Connected' : 'Limited';
+        return {
+          research: state(outcomes),
+          build: state(reviews),
+          researchUnavailable: outcomes.unavailableTotal,
+          buildUnavailable: reviews.unavailableTotal,
+        };
+      })()`);
       assert.deepEqual(coverage, {
         "R&D history": "Connected",
-        "Research results": "Connected",
-        "Build results": "Connected",
+        "Research results": coverageSources.research,
+        "Build results": coverageSources.build,
         "Operations history": "Unavailable",
-      });
+      }, JSON.stringify(coverageSources));
 
       await navigate(browser, `${origin}/dashboard/attention/`);
       await waitForBrowserExpression(browser,
