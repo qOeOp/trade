@@ -375,7 +375,7 @@ if invocation != expected_invocation:
     )
 PY
   if ! rg -Uq \
-    "strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody'.*\n[[:space:]]+\[\[.*successor_artifact_enters_exploratory_replay_with_exact_owner_custody'.*\n[[:space:]]+\[\[.*analysis_request_completion_resolve_restart_and_tamper_are_atomic'.*\n[[:space:]]+\[\[.*positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic'.*\n[[:space:]]+\[\[.*test_binary.*trial_family_owner'.*\n[[:space:]]+\[\[.*test_name.*artifact_build_postgres::postgres_freshness_tests::\*.*\n[[:space:]]+RUST_MIN_STACK=16777216.*\n[[:space:]]+cargo nextest run" \
+    "strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody'.*\n[[:space:]]+\[\[.*successor_artifact_enters_exploratory_replay_with_exact_owner_custody'.*\n[[:space:]]+\[\[.*analysis_request_completion_resolve_restart_and_tamper_are_atomic'.*\n[[:space:]]+\[\[.*positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic'.*\n[[:space:]]+\[\[.*test_binary.*trial_family_owner'.*\n[[:space:]]+\[\[.*test_name.*artifact_build_postgres::postgres_freshness_tests::\*.*\n[[:space:]]+\[\[.*test_binary.*source_intake'.*\n[[:space:]]+RUST_MIN_STACK=16777216.*\n[[:space:]]+cargo nextest run" \
     "${BASH_SOURCE[0]}"; then
     echo "ERROR: large composed acceptances must use their admitted test-thread stack." >&2
     return 1
@@ -2968,7 +2968,8 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
     [[ "$test_name" == 'iteration_decision_postgres::postgres_acceptance_tests::iteration_analysis_postgres_acceptance_tests::analysis_request_completion_resolve_restart_and_tamper_are_atomic' ]] ||
     [[ "$test_name" == 'iteration_decision_postgres::postgres_acceptance_tests::positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic' ]] ||
     [[ "$test_binary" == 'trial_family_owner' ]] ||
-    [[ "$test_name" == artifact_build_postgres::postgres_freshness_tests::* ]]; then
+    [[ "$test_name" == artifact_build_postgres::postgres_freshness_tests::* ]] ||
+    [[ "$test_binary" == 'source_intake' ]]; then
     RUST_MIN_STACK=16777216 \
       cargo nextest run \
       --archive-file "$nextest_archive_file" \
