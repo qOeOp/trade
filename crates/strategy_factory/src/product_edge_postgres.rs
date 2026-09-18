@@ -5347,6 +5347,9 @@ pub(crate) mod tests {
             bounded_feature_program_six_role_bar_fixture_v1::{
                 six_role_bar_bounded_feature_design_v1, six_role_bar_bounded_feature_meaning_v1,
             },
+            develop_composer_postgres_v2::{
+                DevelopComposerSealedReadLocatorV2, DevelopComposerSealedReadPortV2,
+            },
             program_host_v2::{
                 BAR_HOUR_CLOSE, BAR_MINUTE_CLOSE, BAR_MINUTE_HIGH, BAR_MINUTE_LOW, BAR_MINUTE_OPEN,
                 BAR_SESSION_DAY_CLOSE,
@@ -5618,6 +5621,46 @@ pub(crate) mod tests {
             .await
             .expect("the replay transaction completes");
         assert_eq!(replay, response);
+
+        // The same production composition now serves the sealed read port, so a consumer reads
+        // the committed operation back against the Owner's own current custody rather than
+        // against an acceptance fixture. Nothing here enables a feature: this is the default
+        // build of the production Composer. A readback that resolves at all is the custody
+        // proof, because the port resolves the current Research and binding custody inside its
+        // own read transaction and refuses the record when either no longer matches.
+        let read_locator = DevelopComposerSealedReadLocatorV2::from_accepted_response(&response)
+            .expect("a successful production Composer operation projects its read locator");
+        let readback = Box::pin(composer.read_accepted(&read_locator))
+            .await
+            .expect("the production read port resolves the operation it just committed");
+        assert_eq!(
+            readback.locator().request_identity,
+            request_identity,
+            "the readback carries the locator it was asked for"
+        );
+        assert_eq!(
+            expected_digest_text(readback.locator().design_digest),
+            declared.design_digest,
+            "the readback binds the Design the freeze declared"
+        );
+        assert_eq!(
+            readback.locator().artifact_identity,
+            artifact.artifact_digest,
+            "the readback binds the Artifact the run committed"
+        );
+        assert!(
+            !readback.module_bytes_digests().is_empty(),
+            "the readback carries the module digests the run committed"
+        );
+
+        // A locator whose Artifact identity is not the committed one resolves nothing. Without
+        // this the readback above would pass for any record the store happens to hold.
+        let mut forged = read_locator.clone();
+        forged.artifact_identity = BindingDigest::from_untrusted_bytes([0_u8; 32]);
+        assert!(
+            Box::pin(composer.read_accepted(&forged)).await.is_err(),
+            "a locator that does not match the committed record is unavailable"
+        );
     }
 
     fn expected_digest_text(digest: BindingDigest) -> String {
