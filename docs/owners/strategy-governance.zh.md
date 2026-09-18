@@ -9,7 +9,10 @@
 - Governed Strategy Entry 绑定 ArtifactRef 准确 Eligibility Fact 与 generation 特定经济条件版本 资格容量
   上限 ActivationConditionVersion CapitalEnvelopeVersion 生效区间和唯一不可变 Execution Scope。该 scope
   绑定预先准入的候选无关 Capacity Scope、准确 adapter 实现配置与 trust-policy 摘要、场所或 simulator
-  endpoint、账户 binding、capability 与 reduce-only policy，以及不透明 credential handle。
+  endpoint、账户 binding、capability 与 reduce-only policy，以及持有该 binding 不透明 credential handle 的
+  Execution-owned Adapter Binding 事实身份。Governance 绑定身份而非 handle：Execution 从 Governance 据以准入的
+  回读里扣掉 `credential_handle_identity`，并在效果时刻自己解析 handle。绑定身份同样把 scope 钉到唯一确切的
+  credential，却不让第二个 Owner 够得着它。
 - 生命周期状态 Authorized Generation Decision 生效时间 活跃 generation 精确已提交事实身份和有界理由类别。每个 generation 决定交叉绑定来源请求的完整 Authorization Lineage；无人值守交易还绑定独立 Autonomous Policy Authorization。Governance 绝不复制保护 Qualification 内容。
 - 版本化 Capital Envelope applicability chain：Portfolio-owned Capacity Scope 对应一个 `POOL_ROOT` envelope，
   每个受治理 generation 对应一个 `STRATEGY_GENERATION` envelope。两种 kind 都绑定各自
