@@ -88,6 +88,13 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|develop_composer_postgres_v2|transaction_bound_read_rejects_wrong_owner_acl_and_stale_custody'
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::frozen_program_runs_the_production_composer_to_a_durable_artifact'
   'vibe-strategy-factory|vibe_strategy_factory|replay_policy_catalog_postgres_v2::postgres_tests::catalog_v3_bootstrap_publishes_the_head_the_owner_reads_and_formation_binds'
+  'vibe-operator-authorization|vibe_operator_authorization|postgres::tests::autonomous_policy_authorization_advisory_lock_serializes_distinct_authorizations'
+  'vibe-operator-authorization|vibe_operator_authorization|postgres::tests::autonomous_policy_authorization_issue_read_replay_successor_revoke_restart_acl_and_expiry'
+  'vibe-operator-authorization|vibe_operator_authorization|postgres::tests::postgres_successor_is_append_only_replay_safe_and_preserves_history'
+  'vibe-operator-authorization|vibe_operator_authorization|postgres::tests::postgres_history_mutations_fail_closed_and_restore_exactly'
+  'vibe-operator-authorization|vibe_operator_authorization|postgres::tests::shared_resolver_blocks_revoke_update_lock'
+  'vibe-operator-authorization|vibe_operator_authorization|postgres::tests::select_only_consumer_resolve_serializes_with_revoke'
+  'vibe-product-edge|vibe_product_edge|postgres::tests::lifecycle_request_admission_is_typed_effect_free_and_replay_exact'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -114,8 +121,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 71 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all seventy-one ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 78 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all seventy-eight ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -181,7 +188,14 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[67]}" != *'|transaction_bound_read_rejects_wrong_owner_acl_and_stale_custody' ]] ||
     [[ "${rd_owner_postgres_tests[68]}" != *'|product_edge_postgres::tests::frozen_program_runs_the_production_composer_to_a_durable_artifact' ]] ||
     [[ "${rd_owner_postgres_tests[69]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_v3_bootstrap_publishes_the_head_the_owner_reads_and_formation_binds' ]] ||
-    [[ "${rd_owner_postgres_tests[70]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[70]}" != *'|postgres::tests::autonomous_policy_authorization_advisory_lock_serializes_distinct_authorizations' ]] ||
+    [[ "${rd_owner_postgres_tests[71]}" != *'|postgres::tests::autonomous_policy_authorization_issue_read_replay_successor_revoke_restart_acl_and_expiry' ]] ||
+    [[ "${rd_owner_postgres_tests[72]}" != *'|postgres::tests::postgres_successor_is_append_only_replay_safe_and_preserves_history' ]] ||
+    [[ "${rd_owner_postgres_tests[73]}" != *'|postgres::tests::postgres_history_mutations_fail_closed_and_restore_exactly' ]] ||
+    [[ "${rd_owner_postgres_tests[74]}" != *'|postgres::tests::shared_resolver_blocks_revoke_update_lock' ]] ||
+    [[ "${rd_owner_postgres_tests[75]}" != *'|postgres::tests::select_only_consumer_resolve_serializes_with_revoke' ]] ||
+    [[ "${rd_owner_postgres_tests[76]}" != *'|postgres::tests::lifecycle_request_admission_is_typed_effect_free_and_replay_exact' ]] ||
+    [[ "${rd_owner_postgres_tests[77]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -285,8 +299,8 @@ for line in array_body.splitlines():
     if len(fields) != 3 or any(not field for field in fields):
         raise SystemExit("ERROR: ordered PostgreSQL test literal must contain three fields.")
     entries.append(tuple(fields))
-if len(entries) != 71:
-    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain seventy-one entries.")
+if len(entries) != 78:
+    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain seventy-eight entries.")
 if sum(test_name == poison_test for _, _, test_name in entries) != 1:
     raise SystemExit(
         "ERROR: recovery-sidecar poison test must occur exactly once as a parsed test name."
