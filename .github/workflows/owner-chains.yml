@@ -34,30 +34,23 @@ env:
 jobs:
   owner-chain:
     name: ${{ matrix.chain.name }}
-    runs-on: ${{ matrix.chain.runner }}
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
-        # The same two legs as `build`, on the same runners: the R&D chain on aarch64, the only
-        # hosted Linux the Composer build admits since #612, and the Market Data chain on x86_64.
-        # `build.yml` says why beside its own matrix.
         chain:
           - key: rd-owner
-            name: rd owner postgres (ubuntu-22.04-arm)
-            runner: ubuntu-22.04-arm
-            target: rust-tests-linux-arm64
+            name: rd owner postgres (ubuntu-22.04)
             make: >-
               cargo-test-rd-owner-postgres-isolated NEXTEST_PROFILE=ci
               EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
           - key: market-data
             name: market data owner postgres (ubuntu-22.04)
-            runner: ubuntu-22.04
-            target: rust-tests-linux-x86
             make: cargo-test-market-data-owner-postgres-isolated
     env:
       # What `build` gives these chains on a push to any branch other than `main` or `test-ci`.
       CARGO_CI_PROFILE: nextest
-      CARGO_TARGET_DIR: /home/runner/.cache/cargo-target/${{ matrix.chain.target }}
+      CARGO_TARGET_DIR: /home/runner/.cache/cargo-target/rust-tests-linux-x86
       # yamllint disable-line rule:line-length
       RUST_TEST_EXTRA_FEATURES: capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,vibe-strategy-factory/sealed-develop-composer-acceptance
       RUST_BACKTRACE: 1
@@ -95,8 +88,8 @@ jobs:
           # this workflow never spends the 10 GB quota; a hit is a bonus, a miss is what `build`'s
           # chain jobs get today for the reason their `rust-cache-key` comment gives.
           rust-cache-enabled: "true"
-          rust-cache-key: ${{ matrix.chain.target }}
-          rust-cache-workspaces: . -> target/${{ matrix.chain.target }}
+          rust-cache-key: rust-tests-linux-x86
+          rust-cache-workspaces: . -> target/rust-tests-linux-x86
           rust-cache-on-failure: "false"
           rust-cache-save-if: "false"
           rust-cache-workspace-crates: "true"
