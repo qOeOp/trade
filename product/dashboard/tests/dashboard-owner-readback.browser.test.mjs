@@ -632,18 +632,23 @@ test(browserAcceptance
           return { status: response.status, body: await response.json() };
         };
         // Each source is bounded by its own operation budget, and this page asks for all four at
-        // once on top of one point read per candidate. A source that could not answer in time is
-        // asked again; a source that answers and disagrees is the finding.
+        // once on top of one point read per candidate, against Owner adapters that hold a small
+        // connection pool. A point read that lost that race is asked again, the way an operator's
+        // refresh would; a source that answers and disagrees is the finding.
         let answers;
-        for (let attempt = 1; attempt <= 4; attempt += 1) {
-          answers = await Promise.all([
-            read('/api/rd/historical-custodies/'),
-            read('/api/rd/research/outcome-inventory/'),
-            read('/api/rd/research/questions/'),
-            read('/api/rd/artifacts/review-inventory/'),
-          ]);
-          if (answers.every((answer) => answer.status === 200)) break;
-          await new Promise((resolve) => setTimeout(resolve, 1_000));
+        for (let attempt = 1; attempt <= 6; attempt += 1) {
+          // Sequentially: each of these fans out to one Owner point read per candidate, and asking
+          // for all four at once would add exactly the contention this is here to observe.
+          answers = [];
+          for (const path of ['/api/rd/historical-custodies/', '/api/rd/research/outcome-inventory/',
+            '/api/rd/research/questions/', '/api/rd/artifacts/review-inventory/']) {
+            answers.push(await read(path));
+          }
+          const ready = answers.every((answer) => answer.status === 200)
+            && ((answers[1].body.items ?? []).find((item) =>
+              item.requestIdentity === ${JSON.stringify(researchRequestIdentity)})?.status === 'outcome_ready');
+          if (ready) break;
+          await new Promise((resolve) => setTimeout(resolve, 3_000));
         }
         const statuses = answers.map((answer) => answer.status);
         const [custody, outcomes, questions, reviews] = answers.map((answer) => answer.body);
