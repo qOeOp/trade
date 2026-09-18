@@ -2403,12 +2403,10 @@ fn refuse_unmet_authority_clauses(
     }
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 async fn verify_rd_owner_composer_writer_authority_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<(), sqlx::Error> {
-    let exact: bool = sqlx::query_scalar(
+    let row = sqlx::query(
         "WITH caller AS (
            SELECT role.oid,role.rolcanlogin,role.rolinherit,role.rolsuper,role.rolcreatedb,
                   role.rolcreaterole,role.rolreplication,role.rolbypassrls
@@ -2422,29 +2420,36 @@ async fn verify_rd_owner_composer_writer_authority_in_transaction(
               AND relation.relname=ANY($1)
               AND relation.relkind IN ('r','p')
          )
-         SELECT SESSION_USER='rd_owner' AND CURRENT_USER='rd_owner'
-            AND (SELECT rolcanlogin AND rolinherit AND NOT rolsuper AND NOT rolcreatedb
+         SELECT SESSION_USER='rd_owner'
+              , CURRENT_USER='rd_owner'
+              , (SELECT rolcanlogin AND rolinherit AND NOT rolsuper AND NOT rolcreatedb
                         AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls FROM caller)
-            AND NOT EXISTS (SELECT 1 FROM caller JOIN pg_catalog.pg_auth_members membership ON membership.member=caller.oid OR membership.roleid=caller.oid)
-            AND (SELECT count(*)=cardinality($1) FROM private_relations)
-            AND NOT EXISTS (
+              , NOT EXISTS (SELECT 1 FROM caller JOIN pg_catalog.pg_auth_members membership ON membership.member=caller.oid OR membership.roleid=caller.oid)
+              , (SELECT count(*)=cardinality($1) FROM private_relations)
+              , NOT EXISTS (
               SELECT 1 FROM caller CROSS JOIN private_relations relation
                WHERE pg_catalog.has_table_privilege(caller.oid,relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
             )
-            AND pg_catalog.has_function_privilege('rd_owner',$2,'EXECUTE')",
+              , pg_catalog.has_function_privilege('rd_owner',$2,'EXECUTE')",
     )
     .bind(COMPOSER_TABLES_V2.as_slice())
     .bind(COMMIT_FUNCTION_V2)
     .fetch_one(&mut **transaction)
     .await?;
 
-    if exact {
-        Ok(())
-    } else {
-        Err(sqlx::Error::Protocol(
-            "R&D Owner Composer write authority is unavailable".to_owned(),
-        ))
-    }
+    refuse_unmet_authority_clauses(
+        "R&D Owner Composer write authority is unavailable",
+        &[
+            "session user",
+            "current user",
+            "role attributes",
+            "role memberships",
+            "private relations",
+            "private table privilege",
+            "commit function",
+        ],
+        &row,
+    )
 }
 
 fn exact_ordinal_array(
@@ -3764,20 +3769,15 @@ async fn persist_record(
     >,
 ) -> Result<(), sqlx::Error> {
     verify_transaction_database(transaction, database_fingerprint).await?;
-    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
-    {
-        let session_user: String = sqlx::query_scalar("SELECT SESSION_USER")
-            .fetch_one(&mut **transaction)
-            .await?;
+    let session_user: String = sqlx::query_scalar("SELECT SESSION_USER")
+        .fetch_one(&mut **transaction)
+        .await?;
 
-        if session_user == "rd_owner" {
-            verify_rd_owner_composer_writer_authority_in_transaction(transaction).await?;
-        } else {
-            verify_composer_writer_authority_in_transaction(transaction).await?;
-        }
+    if session_user == "rd_owner" {
+        verify_rd_owner_composer_writer_authority_in_transaction(transaction).await?;
+    } else {
+        verify_composer_writer_authority_in_transaction(transaction).await?;
     }
-    #[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
-    verify_composer_writer_authority_in_transaction(transaction).await?;
     verify_composer_commit_authority_in_transaction(transaction).await?;
     let plan = crate::strategy_plan_v2::StrategyPlanV2::parse_and_revalidate_durable(
         &record.plan_bytes,
