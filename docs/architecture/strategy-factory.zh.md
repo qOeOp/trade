@@ -2,7 +2,16 @@
 
 ## 职责
 
-Strategy Factory 是包围 R&D、探索性 Backtest 和独立 Qualification 的价值流边界。R&D 内含 Research 与 Develop 能力；该边界让 R D Q 分离清晰可见，但不成为新的 Owner。
+Strategy Factory 是包围 R&D、探索性 Backtest 和独立 Qualification 的价值流边界。R&D 内含 Research 与 Develop 能力；该边界让 R D Q 分离清晰可见，但不成为新的 Owner。本页凡提到规范化、绑定、验证或 lowering 一个 Design 的执行者，指的都是 R&D 的 Develop 能力；边界本身不执行任何动作。
+
+### 如何阅读本页
+
+边界契约很短：职责、正向路径、价值流交接、保护路径、权威边界、实现验收。这几节说明 R&D、Backtest 与
+Qualification 之间哪个 Owner 拥有哪项事实，以及哪些对象在它们之间跨越。
+
+共享生命周期内核一节，以及其下的 Bounded Feature Program 一节，是编译器规格：类型化 Design 形状、fail-closed
+流水线、已 pin 的 primitive catalog、图上界、ABI 与 build capsule。它们对实现编译器的人是规范性的，但理解价值流
+并不需要它们。这些节里的执行者始终是 R&D 的 Develop 能力。
 
 ## 正向路径
 
@@ -58,8 +67,8 @@ R&D 内的 Develop 能力返回内容寻址 Strategy Artifact 和 Build Receipt�
   non-default、零参数 sealed acceptance corpus 会执行真实 Market Data Owner issuance、准确 Plan 编译、单次
   guest 调用、member-causal target、malformed output 原子拒绝、replay 与 restore；这只属于有界 crate-local
   acceptance 证据。本地 bounded-plugin producer 接纳准确且 fail-closed 的 macOS arm64 host profile。
-  Linux ARM64 当前为 **REVALIDATION REQUIRED**：实现已冻结当前观测到的 canonical `wasm32v1-none` sysroot
-  digest，但只有该 digest 通过 main-bound hosted native A0 gate 后才能重新达到 CURRENT/PARTIAL。此前的证据
+  Linux ARM64 与 x86_64 当前为 **REVALIDATION REQUIRED**：实现已冻结当前观测到的 canonical `wasm32v1-none`
+  sysroot digest，但只有该 digest 在该主机上通过 main-bound hosted native gate 后才能达到 CURRENT/PARTIAL。此前的证据
   边界是准确 workflow
   [`strategy-factory-linux-a0`](https://github.com/qOeOp/trade/blob/9e5149d4293a800be3a35e6b747a9f3dba304e1f/.github/workflows/strategy-factory-linux-a0.yml)、
   head `9e5149d4293a800be3a35e6b747a9f3dba304e1f` 上的 `workflow_dispatch`
@@ -129,7 +138,7 @@ R&D 内的 Develop 能力返回内容寻址 Strategy Artifact 和 Build Receipt�
   相同 plan、Artifact、事件排序、checkpoint schema、内核和语义 trace 契约。本文不声称当前已有
   Paper 或 Live 等价性、应用、外部写入或交易能力。
 - **TARGET / NOT_ADMITTED - ARC Complex D Bounded Feature Program V1：** frozen Research 可提供下文定义的
-  有界类型化 feature/state program。Strategy Factory 使用 first-party source 对该规范 program 做确定性
+  有界类型化 feature/state program。R&D 的 Develop 能力使用 first-party source 对该规范 program 做确定性
   lowering，生成一个现有 bounded plugin，随后只经过 `PluginManifestV2`、`StrategyPlanV2`、
   `StrategyArtifactV2`、`ProgramHostV2` 与共享生命周期内核。仓库当前没有 executable
   `BoundedFeatureProgramV1`、V3 producer 或持久 V3 readback。本契约不声称 executable D-loop、Native Replay、
@@ -178,7 +187,7 @@ Market Data 的 positive Replay composition 只接受该不受信 attestation lo
 Market Data 在内部校验 R&D attestation，但在原子签发 `ReplayCompositionBindingV1` 前，仍必须独立重新解析自身的
 持久 binding registry、完整 observation census、joined cut、sample projection、R0 与 Market Semantics fact。
 caller 提供的 receipt、readback、role set、count、authoritative token 或 `StrategyPlanV2` 永远不是 positive
-evidence。Market Data 不解析 R&D raw table，也不依赖 Strategy Factory；R&D 不能选择或重新解释任何 Market
+evidence。Market Data 不解析 R&D raw table，也不依赖 R&D；R&D 不能选择或重新解释任何 Market
 fact。证据缺失、partial、stale、reordered、digest mismatch 或 cross-splice 时，binding、Replay V2 fact、receipt
 与 outbox 均保持零写入。该设计保留上述唯一前向形态，既不增加新 Owner，也不增加第二个 canonicalization authority。
 
@@ -189,7 +198,7 @@ trading authority。
 ### TARGET - ARC Complex D Bounded Feature Program V1
 
 `BoundedFeatureProgramV1`（BFP V1）是唯一接纳的通用 Complex D 表示。R&D/Develop 将其规范含义与 Research
-Intent、`StrategyDesignV2` 一同冻结；Strategy Factory 负责验证与 lowering，但不能发明 Research 含义。
+Intent、`StrategyDesignV2` 一同冻结；R&D 的 Develop 能力负责验证与 lowering，但不能发明 Research 含义。
 它唯一的前向路径是：
 
 `Frozen Research -> canonical BoundedFeatureProgramV1 typed DAG -> deterministic first-party source lowering ->`
@@ -228,7 +237,7 @@ iteration、locale、platform、enum ordinal 或 caller-provided digest。对规
 `WARMING` 时两个 projection 都不可读。coordinate 不得被独立引用，也不得进入 primitive input、strategy
 state、lifecycle terminal 或 manifest output。
 
-首个 primitive catalog 必须版本化并由 `vibe-indicators-kernel` 拥有。Strategy Factory 只引用每个 primitive
+首个 primitive catalog 必须版本化并由 `vibe-indicators-kernel` 拥有。R&D 的 Develop 能力只引用每个 primitive
 的 semantic ID 与已 pin catalog/source digest，不得复制、重新解释或独立实现公式。首个 catalog 至少包括：
 
 - checked fixed-I128 add、subtract、multiply、divide、显式 rescale、compare 与 select，全部绑定 frozen
@@ -360,7 +369,7 @@ primitive catalog 原子发布整个 family。下列清单是封闭的 V1 namesp
 其他 primitive、alias、optional subset 或 extension 都不属于 catalog V1。每一行都在规范 catalog bytes 中
 绑定其准确 formula、type/unit/scale contract、适用的 rounding ID、availability/update-clock rule、state
 encoding 与 required golden-vector identity。缺失或增加任一行、formula、semantic ID、golden vector 或
-failure oracle 都使整个 V1 catalog digest unavailable；Strategy Factory 必须拒绝 BFP，不能发布或替换为
+failure oracle 都使整个 V1 catalog digest unavailable；R&D 的 Develop 能力必须拒绝 BFP，不能发布或替换为
 partial toy catalog。
 
 <a id="catalog-versioning-and-frozen-program-readback"></a>
@@ -534,8 +543,7 @@ readback shape；Native Replay preparation 仅在同时持有准确 V1 joined-cu
 composition 或 Backtest 闭合。
 
 **CURRENT/PARTIAL，请求绑定的 Native Replay execution input：** R&D Owner 为一份准确、已密封的
-Exploratory Replay request 签发并持久化唯一、不可变的 `NativeReplayExecutionInputBindingV1`。Strategy
-Factory 拥有纯结构 validator 与 preparation boundary；它没有独立 storage authority，也不能铸造、替换或
+Exploratory Replay request 签发并持久化唯一、不可变的 `NativeReplayExecutionInputBindingV1`。R&D 的 Develop 能力拥有纯结构 validator 与 preparation boundary；它没有独立 storage authority，也不能铸造、替换或
 重新解释任何 constituent Owner fact。该 binding 是跨 Owner composition locator，不是 market、instrument、
 schedule、universe 或 economic truth 的新来源。
 
@@ -549,7 +557,7 @@ identity，以及证明相等所需的每个 constituent locator/digest。Bindin
 typed readback 保留其原 Owner authority；它不会把 private economic term 复制进 Market Data，也不会把
 universe/schedule receipt 变成 Instrument Master truth。
 
-R&D 提交 binding 前，Strategy Factory 必须消费全部 exact-locator Owner readback，并证明：准确两个不同
+R&D 提交 binding 前，R&D 的 Develop 能力必须消费全部 exact-locator Owner readback，并证明：准确两个不同
 member 且没有 extra；universe member 顺序与 identity 等于 Plan；每份 public fact 等于对应 Instrument
 Economic Terms 的 public-fact reference；venue、account scope、currency、半开 validity 与 event time 均符合
 Replay profile；每个 member 的 BAR timeframe 等于其准确 schedule readback。随后 R&D 在已经密封的 request
@@ -573,7 +581,7 @@ locator：签发操作先解析 sealed preparation、Composer Plan 与 Artifact�
 唯一同账户 economic pair、universe frame 和两份 BAR schedule，再通过一笔 R&D transaction 提交 binding；
 读取操作只返回已签发 binding 的 projection。独立 consumer composition 会先读取该 durable binding，再重新
 解析准确 Composer、Instrument Master V2、economic、universe 与 schedule input，逐字节复现持久 binding 后才
-materialize 现有 native execution bundle。现有 sealed production Strategy Factory resolver 会在一笔
+materialize 现有 native execution bundle。现有 sealed production R&D resolver 会在一笔
 repeatable-read R&D transaction 内完成该重建，派生绑定 attempt 的 runtime identity，并向 Backtest 交付
 move-only bundle 与按固定顺序排列的完整 28-component observation package。Research、TrialFamily 与 Replay
 authority bytes 来自 R&D source record；Design、Plan 与 Artifact bytes 来自已接受的 Composer custody；其余
@@ -627,7 +635,7 @@ Artifact、Host、Backtest 或 lifecycle mutation 前拒绝。该 target 不授�
 trading authority。
 
 Market Data 为 sealed static binding 解析准确 historical timeframe-projection receipt，并从 verified census
-中选择、封存 coordinate。R&D、Strategy Factory、Host caller、Backtest 与 plugin 都不能 mint、narrow、
+中选择、封存 coordinate。R&D、Host caller、Backtest 与 plugin 都不能 mint、narrow、
 hash-substitute 或 advance 它。对于一个 role，replay 只有在 308 bytes 全部相同时才能 join。同一
 role/timeframe/sample identity 若对应不同 bytes 即为 conflict。新 sample 必须保持 static binding、timeframe、
 lineage root 与 Market Semantics identity 不变，lineage version 不递减，sample identity 不同，并且
@@ -786,7 +794,7 @@ binding 或 raw-order 路径。
 
 连续 EVENT replay 只接受新增、move-only 的 `StrategyInputEventCorpusV1`。其完整集合权威是新增、move-only 的 Market Data
 `StrategyInputEventSourceV1`，且只能由针对 verified PIT batch 解析的 Owner frame 签发；不得把 `SealedReplayInput` V1
-重新解释为多事件权威。Strategy Factory preparation 会针对
+重新解释为多事件权威。Develop preparation 会针对
 准确 Plan binding 集合重新校验 corpus 中每份 joined cut 与 V2 projection，并在构造 Host 前校验完整 corpus digest。
 随后一份 `PreparedProgramHostHandoffV2` 把完整 corpus 一次性转交给单个持久 Host consumer；不存在 lazy resolve、
 caller-selected event vector 或每个 event 重建一个 Host 的路径。缺失、重复、非规范 native 顺序、BAR 替换、等值跨
@@ -883,7 +891,7 @@ projection 做 BLAKE3 后的前 16 bytes。
 frame 必须消费既有静态 receipt 并在当前 verified batch 中重新解析 row，且不再复制静态 receipt。
 每份按 role 排序的 value receipt 均保留原 `StrategyInputBindingReceipt` digest 与 role identity，封存带
 明确 fixed-value semantic 的准确 signed i128 little-endian bytes、scale 和 canonical-row digest，并交叉
-绑定 trigger 与 observation-batch digest。Strategy Factory 私有 adapter 只校验一次 trigger，只对当前
+绑定 trigger 与 observation-batch digest。R&D 私有 adapter 只校验一次 trigger，只对当前
 reaction 实际引用的 Owner facts 按 Plan role/type 和 frame/as-of 进行校验，并直接从 sealed trigger 派生
 SDK envelope 与 order key。聚合 admitted-event digest 只补充而不替代任何原始 Owner identity；不存在
 public caller envelope/value constructor。compiler 必须拒绝没有已准入 trigger 与 fact contract 可执行的

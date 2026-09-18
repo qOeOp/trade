@@ -1351,11 +1351,13 @@ pub(crate) async fn load_trial_family_census_v2_at_frontier_in_transaction(
     frontier_identity: &str,
     frontier_digest: &str,
 ) -> Result<TrialFamilyCensusReadbackV2, TrialFamilyError> {
-    load_trial_family_census_v2_by_family_with_lock_mode_in_transaction(
-        transaction,
-        trial_family_identity,
-        PostgresReadLockMode::ForShare,
-        Some((frontier_identity, frontier_digest)),
+    Box::pin(
+        load_trial_family_census_v2_by_family_with_lock_mode_in_transaction(
+            transaction,
+            trial_family_identity,
+            PostgresReadLockMode::ForShare,
+            Some((frontier_identity, frontier_digest)),
+        ),
     )
     .await
 }

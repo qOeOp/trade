@@ -25,6 +25,7 @@ pub mod sealed_replay_input;
 pub mod shared_time_evidence;
 pub mod source_binding;
 pub mod source_binding_admission_v1;
+pub mod strategy_design_role_intent_v1;
 pub mod strategy_design_role_set;
 pub mod strategy_input_binding;
 pub mod strategy_input_binding_admission_v1;

@@ -4,11 +4,27 @@
 
 Provide canonical, time-correct market, reference, and instrument facts to every analytical and trading consumer. Market Data owns data meaning and observability, not the strategy-specific selection of what a run should consume.
 
+### How to read this page
+
+The Owner contract is the standard Owner skeleton: Responsibility, Authoritative facts owned, Modules, Input
+handoffs, Output handoffs, Rejections and prohibitions, Failure and recovery, Decision contract, and Subsequent
+implementation acceptance. Read those to learn what Market Data owns, what crosses its boundary, and what it
+refuses. They are the part another Owner, or an agent planning work, has to reason from.
+
+Between Modules and Input handoffs sit the native sub-authority contracts: Calendar and Time Zone, Market
+Semantics, Correction Policy, Corporate Action, Replay Market Facts V2, Instrument Master, and Strategy input-role
+binding. Each carries its own status marker and states one sub-authority.
+
+Inside those, every subsection whose heading names a canonical codec, canonical identity, or canonical census
+fixes byte layouts, field order, integer widths, and digest domains. They are normative, because a differing
+encoding is a different fact, but they answer only how a value is spelled, never who may write it or what it
+means. Skip them unless you are implementing or verifying an encoding.
+
 ## Implementation admission ledger
 
 This ledger is the greppable index of what the contract below has actually reached. It grants no permission by
-itself: exactly three production-write slices are `IMPLEMENTATION_ADMITTED` at this cut, the ones `B7` below
-names, and widening the admitted set requires changing this document first under the Architecture authority rule in `AGENTS.md`. A merged crate, a named type, a
+itself: what is `IMPLEMENTATION_ADMITTED` at this cut is exactly the three production-write slices `B7` names
+and the one live fact channel `B8` names, and widening the admitted set requires changing this document first under the Architecture authority rule in `AGENTS.md`. A merged crate, a named type, a
 green job, or a row here is not implementation authority, never proves a production consumer, and never authorizes
 a production effect, a deployment cutover, or real trading.
 
@@ -76,6 +92,10 @@ never runs in CI.
   `MarketSemanticsUnavailable` for every Design, and the PIT request still carries a caller-claimed
   `instrument_master_digest`. The three write paths are admitted as bounded slices in their own sections below, in
   the order R0, Instrument Master V1, Market Semantics; each turns `CURRENT / PARTIAL` once its chain proof passes.
+- **`B8` no live fact reaches Runtime.** Every retrieval seam this Owner has is as-of: a Data Client answers one
+  frozen scope at one decision cut, and nothing streams. A Strategy Instance consuming the handoff named under
+  Output handoffs therefore has no input at all, and neither Paper nor Live can begin. Cleared by the first live
+  channel, admitted as a bounded slice below.
 
 ### Per-slice ledger
 
@@ -97,6 +117,7 @@ never runs in CI.
 | EVENT and BAR Owner custody                               | `CURRENT / PARTIAL`                                           | `owner/sample_fact.rs`, `owner/sample_projection*.rs`, `owner/bar_schedule.rs`                                                                                                                                                           | `B4`       |
 | Shared Time clock‑head handoff                            | `TARGET`                                                      | `owner/shared_time_evidence.rs`                                                                                                                                                                                                          | `B3`       |
 | Vendor Data Clients                                       | `CURRENT / PARTIAL`                                           | `crates/adapters/databento/src/pit_observation_source_v1.rs` and `crates/adapters/binance/src/pit_observation_source_v1.rs`, both live‑verified                                                                                          | `B6`       |
+| Live market fact channel to Runtime                       | `TARGET`, first channel `IMPLEMENTATION_ADMITTED`             | none yet; this row names the slice, not a file                                                                                                                                                                                           | `B8`       |
 
 ## Authoritative facts owned
 
@@ -347,7 +368,7 @@ native Session join or authority. **TARGET:** Session is the sole native join of
 `CalendarCutV1` and `TimeZoneCutV1` in one Market Data transaction, together with admitted Source Binding, exact
 Instrument Master reference tuple and
 verified Shared Time observation. Its only raw resolver consumer is `MARKET_DATA_OWNER_V1`; internal PIT, Replay
-and additive BAR composition may consume it, while Backtest and Strategy Factory receive sealed projections only.
+and additive BAR composition may consume it, while Backtest and R&D receive sealed projections only.
 Caller strings, UTC endpoints, a nearest transition or a private proposal never mint a session fact. Gap local
 time has no positive fact and is never shifted. **NOT_ADMITTED:** no Session implementation, native store,
 registered composition, product reachability, production write, deployment, runtime or trading is claimed.
@@ -671,7 +692,7 @@ W3 issuance accepts only that untrusted R&D attestation locator plus exact Marke
 validates the recovered attestation internally, then independently re-resolves every durable registry declaration, the
 complete observation census, unchanged V1 joined cut, V4 BAR JOINED_CUT sample projection, R0 and standalone Market Semantics record,
 and requires the Market Semantics cut to name the exact recovered R0 cut. It never consumes `StrategyPlanV2` and has no
-dependency on Strategy Factory. Binding record, receipt and receipt-payload outbox are persisted atomically with the
+dependency on R&D. Binding record, receipt and receipt-payload outbox are persisted atomically with the
 unchanged Replay V2 fact, receipt and outbox rows. Exact binding-locator recovery decodes, rehashes and cross-checks both
 custody aggregates and returns their byte-identical payloads. Exact attestation-locator recovery after response loss
 rejoins the pre-existing R&D attestation without append. No public boundary accepts a resolver, authoritative receipt or
@@ -682,11 +703,11 @@ composition, disposable PostgreSQL Owner readback, deployment, production write,
 
 **TARGET:** admitted deployment and the isolated
 disposable PostgreSQL acceptance must then prove exact replay, response-loss recovery, successor-only correction,
-and the move-only Strategy Factory and Backtest consumer path.
+and the move-only R&D and Backtest consumer path.
 
 **NOT_ADMITTED:** the implemented storage, custody and fixed API composition are not an admitted store,
 isolated PostgreSQL acceptance, provider ingestion or authenticity proof, default product composition,
-Strategy Factory or Backtest consumer, runtime execution, production write, deployment or trading authority. They
+R&D or Backtest consumer, runtime execution, production write, deployment or trading authority. They
 do not make the existing exactly-two-member Universe receipt a general Universe Selection Record, do not replace
 the V1 joined-cut codec with a V2 codec, and do not permit Source Binding rule strings or a generic
 `version = "v2"` label to stand in for a canonical fact cut.
@@ -742,7 +763,7 @@ explicit absent optional limit; `UNAVAILABLE` may not. Filter precision must equ
 scale. The token contains no maker/taker fee, initial/maintenance margin, commission, leverage bracket,
 or execution-profile authority and never calls or constructs `InstrumentAny`.
 
-Strategy Factory remains the sole owner of the one `ReplayExecutionProfileV1`. The logical Instrument
+R&D remains the sole owner of the one `ReplayExecutionProfileV1`. The logical Instrument
 Owner now separately owns a private `InstrumentEconomicTermsFactV1` PostgreSQL path. Its fact binds the
 exact public instrument identity/digest, venue, margin-account scope, half-open validity, source and
 provenance, positive revision, quote/fee currency, positive exact maker/taker rates, positive exact
@@ -765,9 +786,9 @@ readback per member only when exactly one complete pair is valid under one share
 overlapping, corrupt, or multiple complete pairs are unavailable. The caller supplies no account scope,
 economic-terms locator, latest selector, pool, or replacement store.
 
-Strategy Factory may mint its move-only economic provenance only from that verified Owner readback and
+R&D may mint its move-only economic provenance only from that verified Owner readback and
 must additionally match venue, account scope, event time, currencies and all visible economic profile
-values. Market Data's public-fact module still neither imports Strategy Factory nor validates, copies,
+values. Market Data's public-fact module still neither imports R&D nor validates, copies,
 selects, or issues replay economic values.
 
 **CURRENT/PARTIAL, durable public V2 custody and fixed Native Replay resolution:** Market Data owns
@@ -809,11 +830,11 @@ public-fact claims or construct a native instrument.
 write-once receipt/outbox, move-only `InstrumentMasterReadbackV1`, and sealed PostgreSQL resolver/recovery path
 described below for the exact `BACKTEST_OWNER_V1` role. The PIT and Strategy Input product paths still carry a
 request-supplied `instrument_master_digest` and compare it with an Owner-verified batch, which the admitted slice
-below retires; the representative Strategy Factory path still freezes a data-Owner role string and an AAPL/MSFT
+below retires; the representative R&D path still freezes a data-Owner role string and an AAPL/MSFT
 fixture. Those legacy provenance, role, and mapping paths do not replace the native authority and do not establish
 product consumption of it.
 
-**TARGET:** direct Backtest product consumption replaces the legacy digest and hard-coded Strategy Factory
+**TARGET:** direct Backtest product consumption replaces the legacy digest and hard-coded R&D
 role/mapping paths with the existing Owner-sealed resolution. R&D declares research scope and the Strategy
 compiler consumes that resolution, but neither may query Instrument Master storage directly, maintain a
 symbol-to-instrument or venue mapping, or synthesize a resolution.
@@ -1069,14 +1090,14 @@ selection or frame. This is a current Owner-local binding contract only; it does
 shared-kernel, ProgramHost, Backtest, Paper, Live, or production maturity.
 
 **TARGET, durable Strategy Input Binding Registry:** Market Data owns write-once, validated binding declarations
-keyed by the exact PIT request, `StrategyDesignV2` and typed input role. R&D and Strategy Factory may supply only
+keyed by the exact PIT request, `StrategyDesignV2` and typed input role. R&D may supply only
 Owner-authenticated Design/role intent; they never supply or select members, frames or a binding digest. In one
 Market Data Owner transaction, registration resolves the native PIT Snapshot, Universe Selection, Source Binding,
 Instrument Master and Market Semantics authorities, derives and stores the declaration and digest, regenerates the
 existing V1 bindings and frames, and then runs the existing V1 complete-census and joined-cut authorities unchanged.
 Missing registry registration or any request/Design/role, membership, frame, lineage, semantics or digest mismatch
 produces no declaration, census, joined cut or replay input. This registry is the prerequisite for positive Replay
-V2 composition and for real Owner-driven Strategy Factory and Backtest consumption; it is not a provider registry,
+V2 composition and for real Owner-driven R&D and Backtest consumption; it is not a provider registry,
 deployment registry or caller-authored data path.
 
 **CURRENT/PARTIAL, authenticated role-set foundation:** the dependency-neutral exact Composer locator and
@@ -1085,13 +1106,56 @@ authenticated complete role set before it accepts the unchanged V1 request. It v
 Research request, derived role identity and every semantic coordinate, plus exact complete role coverage. The
 observation-census seam likewise verifies that the unchanged V1 join claim exactly repeats one authenticated join
 before complete-census/latest-not-after selection. Existing V1 request, binding and receipt bytes and exact legacy
-recovery stay unchanged. **TARGET:** W3 admits only the R&D-owned, same-Composer-transaction durable attestation through
-its exact-locator DB-ACL read function and makes that seam the only reachable positive path; Market Data then
-independently resolves its registry, census, join, V4 sample, R0 and Market Semantics authorities before atomic binding
-issuance. **NOT_ADMITTED:** caller-proposed Design/role/join fields, receipt/readback/token, receipt hash,
+recovery stay unchanged. **CURRENT/PARTIAL:** W3 admits only the R&D-owned, same-Composer-transaction durable
+attestation through its exact-locator DB-ACL read function and makes that seam the only reachable positive path; Market
+Data then independently resolves its registry, census, join, V4 sample, R0 and Market Semantics authorities before
+atomic binding issuance. The resolver is registered rather than planned: `/v1/market-data/strategy-input-bindings` ships
+unconditionally in the deployed binary, and its admission is composed whenever both principals are configured, which the
+deployment file requires of every run. The write path is exercised by
+`postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_market_transaction_overlap`, which binds the
+terminal to the Owner's own committed PIT request rather than a caller's claim, rejoins on re-admission and refuses an
+unattested locator. **TARGET:** an observed end-to-end sequence. Every link exists ungated - the production Composer's
+commit function writes the role-set attestation in the same transaction as its operation, receipts and outbox, and the
+default build selects that function - but no run has been seen carrying a Composer commit through W3 registration into a
+Bounded Feature Program freeze. The proof above supplies the attestation by writing the Composer rows directly, which a
+test may do and a deployment may not, so the sequence itself stays unwitnessed rather than unbuilt.
+
+**TARGET, and the schema says which shapes are possible:**
+`rd_develop_strategy_design_role_set_attestations_v1` takes `request_identity` as a primary key that references
+`rd_develop_operations_v2`, and requires a unique `operation_receipt_identity`, `artifact_identity` and
+`canonical_plan_digest`. An attestation therefore cannot exist without a Composer operation that produced an artifact.
+Minting one on its own, however it is authorized, would mean inserting an operation row for an artifact nobody built,
+which is the fabrication this seam exists to refuse. Freezing is not the obstacle: `freeze` takes an assembled pair and
+never consults this registry, which the chain's joint-freeze proof shows by passing without touching Market Data at all.
+The obstacle is the run. Binding resolution calls `resolve_pit_request_for_strategy_design_v1` before it examines the
+declared role set, so a frozen program is refused for want of declarations even when it declares no input roles at all -
+and an attestation is scoped to one Design, so a first program cannot vouch for a second. There is no input-free escape
+either: `validate_declarations` refuses a Design with no inputs, because at least one typed Owner-bound input is
+required. The circle is thus a consequence of that requirement rather than an oversight - every admissible Design binds
+to Owner-verified custody, which is what makes the artifact trustworthy and what leaves the first one with nothing to
+bind to. Each Design therefore closes its own circle: running it needs declarations, declarations need an attestation naming it, and that attestation needs
+the operation only a run produces.
+
+**ADMITTED, first registration from an authenticated Design:** nothing that carries a program can open the circle.
+`BoundedFeatureInputV1` holds a `static_binding_receipt_digest` per input, an all-zero digest is refused, and the value
+enters the program's canonical digest, so a program's own identity depends on receipts this registry has not issued yet.
+Freezing does not escape that: it takes an assembled proposal, and assembling one requires a receipt for every role.
+The only thing that can precede a program is the Design, which is what the paragraph above already contemplates when it
+says R&D may supply Owner-authenticated Design/role intent. R&D therefore publishes that intent - the Design identity
+and digest, the Research request it belongs to, the custody digest it was admitted against, and the role set R&D derives
+from it - through an exact-locator DB-ACL read function beside the one that exposes an attestation, and Market Data
+consumes it exactly as it consumes an attestation: it verifies coverage, then resolves its own registry, census, join
+and issuance authorities before issuing anything. No program, artifact or unbound input exists anywhere in this path.
+Registration stays write-once, so it reaches a Design once and a Composer commit governs every cycle after it, and W3 is
+untouched: an attestation remains the only thing W3 admits.
+`POST /v1/market-data/strategy-input-bindings/from-design-intent` is that consumer, and the ordered PostgreSQL chain
+witnesses it beside the attested admission, against the same custody and the same role entries: a Design nothing in
+`composer_private` names moves from no PIT coordinate to the one this Owner resolved, and to the same PIT request and
+decision cut the attested Design resolved to. An unpublished Design reaches no declaration, and a published row edited in
+place stops authenticating the Design it was published for.
+**NOT_ADMITTED:** caller-proposed Design/role/join fields, receipt/readback/token, receipt hash,
 latest/history/full scans, raw R&D table parsing or Market Data storage do not authenticate Design meaning; Market Data
-does not depend on Strategy Factory, own or reinterpret Strategy Design roles or joins, and this foundation claims no
-registered W3 resolver or production write.
+does not depend on R&D, own or reinterpret Strategy Design roles or joins.
 
 Market Data consumes, but does not define or reinterpret, the explicit big-endian R&D canonical binary codec
 specified in the R&D Owner contract. Its JSON representation is not canonical receipt material. Registration
@@ -1147,7 +1211,7 @@ and V2 projection bytes, digests, `SealedReplayInput` V1 meaning, resolver meani
 consumers remain unchanged. Equal-valued evidence from another snapshot or observation batch is rejected by exact
 Owner provenance rather than value comparison.
 After restart, resolution of that locator must return the same canonical request, projection, and event identities and
-bytes. The only value crossing to Strategy Factory or Backtest composition is the sealed, read-only
+bytes. The only value crossing to R&D or Backtest composition is the sealed, read-only
 `StrategyInputSampleEventResolverV1` capability for that exact request-selected event; no insert, update, delete, head
 advance, generic query, raw DSN, credential, admission receipt, or evidence accessor crosses the Owner boundary.
 
@@ -1476,8 +1540,7 @@ locator/readback contract and resolver core are `CURRENT / PARTIAL`: one exact r
 historical FRAME/BAR projection only after a complete fixed PostgreSQL snapshot verifies projection custody,
 timeframe/sample facts, schedule dependencies, exact schedule readbacks, and append-only schedule history, with
 admission revalidated before the read, after the read, and immediately before promotion. The resolver cannot select
-kind or lifecycle, perform a latest lookup, resolve V2 BAR or JOINED_CUT, or expose storage authority. Strategy
-Factory production startup, product composition, ProgramHost, Backtest, composite, Dashboard, and every other product
+kind or lifecycle, perform a latest lookup, resolve V2 BAR or JOINED_CUT, or expose storage authority. R&D production startup, product composition, ProgramHost, Backtest, composite, Dashboard, and every other product
 consumption remain `TARGET / UNAVAILABLE`; required production startup returns no resolver while its external
 admission adapters are unavailable. A stored V3 row or structural V3 bytes alone produces no consumer authority or
 mutation.
@@ -1531,7 +1594,7 @@ byte-identical replay performs zero writes and returns the exact historical rece
 mismatch, time or version regression, predecessor or sequence gap, competing branch, cycle, cross-lineage splice,
 head mismatch, missing/conflicting timeframe projection, or noncanonical bytes fails closed and advances neither
 head. Historical exact receipts remain
-readable after successors and corrections. No caller, Strategy Factory, ProgramHost, Backtest, fixture, migration,
+readable after successors and corrections. No caller, R&D, ProgramHost, Backtest, fixture, migration,
 or reconciliation process receives insert/update/delete, head-advance, synthesis, backfill, or garbage-collection
 authority.
 
@@ -1584,7 +1647,7 @@ instrument-class rejection.
   request identity, content digest, scope, cut, provenance, license, correction, and stable correlation, plus the
   exact Universe Selection Record identity and digest for hypothesis testing. A repair request resolves separately to the same correlated request identity
   as `AVAILABLE` with the repaired snapshot, or terminal `UNAVAILABLE` with a bounded decisive source category.
-  Strategy Factory cannot import, construct, deserialize, or implement the terminal authority and receives no raw
+  R&D cannot import, construct, deserialize, or implement the terminal authority and receives no raw
   store receipt, PIT lineage rows, Source Binding lineage rows, or clock rows.
 - To [Backtest](./backtest/): the exact PIT Market Snapshot and Universe Selection Record for the request-bound PIT
   scope and snapshot/correction rule. **TARGET:** direct `BACKTEST_OWNER_V1` Instrument Master resolution supplies
@@ -1593,6 +1656,15 @@ instrument-class rejection.
 - To [Scanner](./scanner/): the exact PIT Market Snapshot requested by published activation conditions.
 - To [Runtime](./runtime/): live market streams and instrument updates carrying the same Market Semantics
   Compatibility identity consumed by the generation's Strategy Artifact and historical evidence.
+  **IMPLEMENTATION_ADMITTED, one live fact channel:** the additive `LiveMarketFactV1` a Strategy Instance consumes,
+  its Owner-sealed intake, and exactly one Data Client behind it, the venue's public WebSocket. The vendor side
+  states only what a venue can know, as the PIT observation seam already requires; the Owner stamps the admitted
+  Source Binding identity and lineage, the binding's Market Semantics Compatibility identity, and the fact's own
+  time coordinates and sequence, refuses an instrument outside the subscription the Owner issued, and keeps a
+  durable head so a restart hands over from where it stopped rather than replaying. Nothing else is admitted here:
+  no second channel, no instrument-update stream, no Runtime custody, no order path.
+  **NOT_ADMITTED:** a live channel establishes no Runtime readiness, Paper, Live, real trading or other production
+  write, and a streamed fact is never a PIT snapshot, a replay input or evidence for a historical question.
 - To [Portfolio](./portfolio/): prices, FX rates, contract specifications, valuation facts, and an identified liquidity input cut for Capacity View.
 - **TARGET, after Shared Time producer closure, to [Portfolio](./portfolio/):** the sealed canonical clock-head handoff
   for `PORTFOLIO_FRESHNESS`. Portfolio supplies its exact prior handoff and alone authorizes its transition; it cannot

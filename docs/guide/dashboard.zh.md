@@ -2169,15 +2169,19 @@ scroll owner，并且没有 dialog、drawer、Resolve、retry、dismiss、clipbo
 dispatch 或 effect routing change。
 
 当前准入的 Recent `/dashboard/recent` 回答"最近记录了什么已验证 outcome"，而不引入新的 outcome
-Owner。`RecentOwnerOutcomes` 复用 R&D directory 已消费的 historical-custody、research-question、
-research-outcome 与 artifact-review projection，只接纳 `outcome_ready` Research 和 `reviewable` Build，
-再按 Owner recorded time 合并。正文复用共享 `DataWorkspaceTable` 与 controlled 同页原位展开；筛选只改变
-Research/Build 可见 cut，不改变 URL。Research 行打开 canonical Research record，Build 行打开 canonical
-historical Build result。request、attempt、observation time、completeness 与 identity 只进入
-`PanelFrameInfo` 或展开行，不成为主表列。这四个 source 是独立 Owner read：malformed 或 identity mismatch
-的 Research source 只撤回 Research row/count，Build source 同理；缺失显示 unavailable 而不是零，只有两类
-source 都绑定时才显示 total。Loading 在本轮 read 完成前撤回旧的正向 row。页面只有一个 page scroll owner，
-没有 dialog、drawer、嵌套纵向 table scroller、Owner mutation 或 effect action。
+Owner。`RecentOwnerOutcomes` 消费两个有界 Owner read：verified Research outcome 清单与 verified Build
+outcome 清单，每一行的 outcome state 都已由 Owner 解析完成。页面发出的 read 次数不随它列出的行数增长：
+workspace 至多请求它要显示的行数，Owner 把它夹到自己拥有的上限，被 Owner 截短的清单必须自己声明截断，
+而不是报成全部的计数。两个 read 都不指名 custody cut：由各自 Owner 从自己的托管解析出 cut 并回显，因此
+workspace 无法声称一个 Owner 没有解析过的坐标，回显 cut 不同的行也绝不合并。只接纳 `outcome_ready`
+Research 和 `reviewable` Build，再按 Owner recorded time 合并。正文复用共享 `DataWorkspaceTable` 与
+controlled 同页原位展开；筛选只改变 Research/Build 可见 cut，不改变 URL。Research 行打开 canonical
+Research record，Build 行打开 canonical historical Build result。request、attempt、observation time、
+completeness 与 identity 只进入 `PanelFrameInfo` 或展开行，不成为主表列。这两个 read 保持独立：malformed、
+identity mismatch、unavailable 或 cut 不同的 Research 回答只撤回 Research row/count，Build 同理；缺失显示
+unavailable 而不是零，只有两类 source 都绑定时才显示 total。Loading 在本轮 read 完成前撤回旧的正向 row。
+页面只有一个 page scroll owner，没有 dialog、drawer、嵌套纵向 table scroller、Owner mutation 或 effect
+action。
 
 当前准入的 Evidence `/dashboard/evidence` 回答"Dashboard 哪些区域现在有可读数据，哪些覆盖仍不完整"。
 它复用 Status 已读取的 historical-custody、research-outcome、artifact-review 与精确未筛选 RunStore，

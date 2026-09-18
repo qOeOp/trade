@@ -653,8 +653,11 @@ impl DatabentoHistoricalClient {
     /// Runs the bounded probe under an explicit provider-cost ceiling in USD.
     ///
     /// [`Self::attempt_bounded_pit_probe`] passes zero, which is what every caller gets unless it
-    /// states an allowance. A ceiling is an authorization to spend up to that amount on one
-    /// attempt, not a budget that accumulates: the preflight is quoted and compared per schema.
+    /// states an allowance. The ceiling is a rough budget rather than a per-attempt allowance:
+    /// every attempt through this client draws from one running total, so a loop cannot spend the
+    /// ceiling once per iteration. The total is coarse on purpose - it counts an admitted quote
+    /// whether or not the download that followed succeeded, and a new client starts at zero -
+    /// because it exists to bound a runaway rather than to account for spend.
     ///
     /// # Errors
     ///
@@ -692,7 +695,10 @@ impl DatabentoHistoricalClient {
             start.as_u64(),
             end.as_u64(),
             request_correlation,
-            max_cost_usd,
+            ProviderCostAllowance {
+                max_usd: max_cost_usd,
+                spent_nano_usd: &self.pit_probe_spent_nano_usd,
+            },
             || self.clock.get_time_ns().as_u64(),
         )
         .await
@@ -705,18 +711,18 @@ async fn attempt_with_port<P: TypedReadOnlyPitProbePort + Send>(
     start: u64,
     end: u64,
     request_correlation: [u8; 32],
-    max_cost_usd: f64,
+    allowance: ProviderCostAllowance<'_>,
     mut observe_ns: impl FnMut() -> u64 + Send,
 ) -> anyhow::Result<DatabentoPitProbeEvidence> {
     let plan = BoundedPitProbePlan::new(endpoint_locator, start, end, request_correlation)?;
-    let attempt = perform_attempt(port, &plan, max_cost_usd, &mut observe_ns).await?;
+    let attempt = perform_attempt(port, &plan, allowance, &mut observe_ns).await?;
     capture(&plan, &attempt)
 }
 
 async fn perform_attempt<P: TypedReadOnlyPitProbePort + Send>(
     port: &mut P,
     plan: &BoundedPitProbePlan,
-    max_cost_usd: f64,
+    allowance: ProviderCostAllowance<'_>,
     observe_ns: &mut (impl FnMut() -> u64 + Send),
 ) -> anyhow::Result<TypedPitProbeAttempt> {
     let started_observation_ns = observe_ns();
@@ -736,8 +742,7 @@ async fn perform_attempt<P: TypedReadOnlyPitProbePort + Send>(
 
     let dataset_range = port.get_dataset_range(plan.dataset).await?;
     validate_entitlement_range(plan, &dataset_range)?;
-    let bbo_cost_usd =
-        admitted_cost_preflight(port, plan, dbn::Schema::Bbo1S, max_cost_usd).await?;
+    let bbo_cost_usd = admitted_cost_preflight(port, plan, dbn::Schema::Bbo1S, allowance).await?;
 
     let bbo_dbn = port
         .get_range_dbn(
@@ -751,7 +756,7 @@ async fn perform_attempt<P: TypedReadOnlyPitProbePort + Send>(
         .checked_sub(bbo_dbn.len())
         .ok_or_else(|| anyhow::anyhow!("Databento BBO artifact exceeded the byte budget"))?;
     let definition_cost_usd =
-        admitted_cost_preflight(port, plan, dbn::Schema::Definition, max_cost_usd).await?;
+        admitted_cost_preflight(port, plan, dbn::Schema::Definition, allowance).await?;
     let definition_dbn = port
         .get_range_dbn(
             &plan.range_params(dbn::Schema::Definition)?,
@@ -810,31 +815,70 @@ async fn perform_attempt<P: TypedReadOnlyPitProbePort + Send>(
     Ok(attempt)
 }
 
-/// Refuses any download whose provider cost exceeds the ceiling this attempt was admitted under.
+/// What one client is allowed to spend, and what it has spent so far.
+///
+/// The ceiling and the running total travel together because neither means anything alone: a
+/// ceiling without a total is a per-attempt allowance a loop can spend repeatedly, and a total
+/// without a ceiling bounds nothing.
+#[derive(Clone, Copy)]
+struct ProviderCostAllowance<'a> {
+    max_usd: f64,
+    spent_nano_usd: &'a AtomicU64,
+}
+
+/// Converts USD to the nano-USD the running total counts in, refusing what it cannot represent.
+fn nano_usd(usd: f64) -> Option<u64> {
+    let nano = (usd * 1e9).round();
+
+    (nano.is_finite() && nano >= 0.0 && nano <= u64::MAX as f64).then_some(nano as u64)
+}
+
+/// Refuses any download whose provider cost would carry this client past its admitted ceiling.
 ///
 /// The ceiling defaults to zero everywhere, so nothing spends by accident: a caller has to state a
 /// bounded allowance before a paid range can be fetched at all. A malformed, negative or
 /// non-finite quote is refused whatever the ceiling, because an unreadable price is not a small
 /// one.
+///
+/// The quote is charged against a running total rather than compared on its own, so the ceiling
+/// bounds everything one caller spends instead of what it spends per attempt. The total moves only
+/// when a quote is admitted, and it moves before the download, so a failed download still counts -
+/// the coarse direction, and the safe one.
 async fn admitted_cost_preflight<P: TypedReadOnlyPitProbePort + Send>(
     port: &mut P,
     plan: &BoundedPitProbePlan,
     schema: dbn::Schema,
-    max_cost_usd: f64,
+    allowance: ProviderCostAllowance<'_>,
 ) -> anyhow::Result<f64> {
+    let ProviderCostAllowance {
+        max_usd: max_cost_usd,
+        spent_nano_usd,
+    } = allowance;
     let cost_usd = port.get_cost(&plan.cost_params(schema)?).await?;
     anyhow::ensure!(
         cost_usd.is_finite() && cost_usd >= 0.0,
         "Databento {schema} cost preflight returned a malformed value"
     );
-    anyhow::ensure!(
-        max_cost_usd.is_finite() && max_cost_usd >= 0.0,
-        "Databento {schema} cost ceiling is malformed"
-    );
-    anyhow::ensure!(
-        cost_usd <= max_cost_usd,
-        "Databento {schema} cost preflight is {cost_usd} USD, above the admitted {max_cost_usd} USD ceiling; timeseries download prohibited"
-    );
+    let Some(budget_nano_usd) = nano_usd(max_cost_usd) else {
+        anyhow::bail!("Databento {schema} cost ceiling is malformed");
+    };
+    let Some(cost_nano_usd) = nano_usd(cost_usd) else {
+        anyhow::bail!("Databento {schema} cost preflight returned a malformed value");
+    };
+
+    let admitted = spent_nano_usd.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |spent| {
+        spent
+            .checked_add(cost_nano_usd)
+            .filter(|total| *total <= budget_nano_usd)
+    });
+
+    if admitted.is_err() {
+        let spent_usd = spent_nano_usd.load(Ordering::SeqCst) as f64 / 1e9;
+        anyhow::bail!(
+            "Databento {schema} cost preflight is {cost_usd} USD on top of {spent_usd} USD already spent, above the admitted {max_cost_usd} USD ceiling; timeseries download prohibited"
+        );
+    }
+
     Ok(cost_usd)
 }
 
@@ -1408,6 +1452,15 @@ mod tests {
         }
     }
 
+    /// The allowance a path that never reaches a paid range runs under: nothing admitted, and a
+    /// total no other test shares.
+    fn unpaid_allowance() -> ProviderCostAllowance<'static> {
+        ProviderCostAllowance {
+            max_usd: 0.0,
+            spent_nano_usd: Box::leak(Box::new(AtomicU64::new(0))),
+        }
+    }
+
     fn observations() -> impl FnMut() -> u64 {
         let mut next = 10_u64;
         move || {
@@ -1426,7 +1479,10 @@ mod tests {
             START,
             END,
             CORRELATION,
-            0.0,
+            ProviderCostAllowance {
+                max_usd: 0.0,
+                spent_nano_usd: &AtomicU64::new(0),
+            },
             observations(),
         )
         .await
@@ -1533,7 +1589,10 @@ mod tests {
             START,
             END,
             CORRELATION,
-            0.0,
+            ProviderCostAllowance {
+                max_usd: 0.0,
+                spent_nano_usd: &AtomicU64::new(0),
+            },
             observations(),
         )
         .await
@@ -1576,7 +1635,10 @@ mod tests {
             START,
             END,
             CORRELATION,
-            0.0,
+            ProviderCostAllowance {
+                max_usd: 0.0,
+                spent_nano_usd: &AtomicU64::new(0),
+            },
             observations(),
         )
         .await
@@ -1602,7 +1664,10 @@ mod tests {
             START,
             END,
             CORRELATION,
-            0.0,
+            ProviderCostAllowance {
+                max_usd: 0.0,
+                spent_nano_usd: &AtomicU64::new(0),
+            },
             observations(),
         )
         .await
@@ -1638,7 +1703,10 @@ mod tests {
             START,
             END,
             CORRELATION,
-            0.0,
+            ProviderCostAllowance {
+                max_usd: 0.0,
+                spent_nano_usd: &AtomicU64::new(0),
+            },
             observations(),
         )
         .await
@@ -1676,7 +1744,10 @@ mod tests {
             START,
             END,
             CORRELATION,
-            0.0,
+            ProviderCostAllowance {
+                max_usd: 0.0,
+                spent_nano_usd: &AtomicU64::new(0),
+            },
             observations(),
         )
         .await
@@ -1699,7 +1770,10 @@ mod tests {
             START,
             END,
             CORRELATION,
-            0.0,
+            ProviderCostAllowance {
+                max_usd: 0.0,
+                spent_nano_usd: &AtomicU64::new(0),
+            },
             observations(),
         )
         .await
@@ -1726,7 +1800,10 @@ mod tests {
                 START,
                 END,
                 CORRELATION,
-                ceiling,
+                ProviderCostAllowance {
+                    max_usd: ceiling,
+                    spent_nano_usd: &AtomicU64::new(0),
+                },
                 observations(),
             )
             .await
@@ -1749,7 +1826,10 @@ mod tests {
             START,
             END,
             CORRELATION,
-            0.50,
+            ProviderCostAllowance {
+                max_usd: 0.50,
+                spent_nano_usd: &AtomicU64::new(0),
+            },
             observations(),
         )
         .await
@@ -1758,6 +1838,50 @@ mod tests {
             port.calls.contains(&ProbeStep::Bbo),
             "the download runs once the cost is admitted"
         );
+    }
+
+    #[tokio::test]
+    async fn the_ceiling_bounds_the_running_total_and_not_each_attempt() {
+        // Two attempts that are each admissible alone. If the ceiling were per-attempt, a loop
+        // would spend it once per iteration; the running total is what stops the second one.
+        let spent = AtomicU64::new(0);
+
+        for expected in [true, false] {
+            let mut port = fixture_port();
+            port.bbo_cost_usd = 0.30;
+
+            let outcome = attempt_with_port(
+                &mut port,
+                "https://hist.databento.com",
+                START,
+                END,
+                CORRELATION,
+                ProviderCostAllowance {
+                    max_usd: 0.50,
+                    spent_nano_usd: &spent,
+                },
+                observations(),
+            )
+            .await;
+
+            assert_eq!(
+                outcome.is_ok(),
+                expected,
+                "attempt outcome did not follow the running total"
+            );
+
+            if !expected {
+                let error = outcome.unwrap_err().to_string();
+                assert!(
+                    error.contains("already spent") && error.contains("ceiling"),
+                    "the refusal must name the total it exceeded: {error}"
+                );
+                assert!(
+                    !port.calls.contains(&ProbeStep::Bbo),
+                    "nothing downloads once the total is exhausted"
+                );
+            }
+        }
     }
 
     #[tokio::test]
@@ -1771,7 +1895,10 @@ mod tests {
             START,
             END,
             CORRELATION,
-            f64::NAN,
+            ProviderCostAllowance {
+                max_usd: f64::NAN,
+                spent_nano_usd: &AtomicU64::new(0),
+            },
             observations(),
         )
         .await
@@ -1795,7 +1922,10 @@ mod tests {
             START,
             END,
             CORRELATION,
-            0.0,
+            ProviderCostAllowance {
+                max_usd: 0.0,
+                spent_nano_usd: &AtomicU64::new(0),
+            },
             observations(),
         )
         .await
@@ -1823,7 +1953,10 @@ mod tests {
             START,
             END,
             CORRELATION,
-            0.0,
+            ProviderCostAllowance {
+                max_usd: 0.0,
+                spent_nano_usd: &AtomicU64::new(0),
+            },
             observations(),
         )
         .await
@@ -1851,7 +1984,10 @@ mod tests {
             START,
             START + PIT_PROBE_MAX_WINDOW_NS + 1,
             CORRELATION,
-            0.0,
+            ProviderCostAllowance {
+                max_usd: 0.0,
+                spent_nano_usd: &AtomicU64::new(0),
+            },
             observations(),
         )
         .await
@@ -1870,7 +2006,10 @@ mod tests {
             START,
             END,
             [0; 32],
-            0.0,
+            ProviderCostAllowance {
+                max_usd: 0.0,
+                spent_nano_usd: &AtomicU64::new(0),
+            },
             observations(),
         )
         .await
@@ -1890,7 +2029,10 @@ mod tests {
             START,
             END,
             CORRELATION,
-            0.0,
+            ProviderCostAllowance {
+                max_usd: 0.0,
+                spent_nano_usd: &AtomicU64::new(0),
+            },
             observations(),
         )
         .await
@@ -1917,7 +2059,10 @@ mod tests {
             START,
             END,
             CORRELATION,
-            0.0,
+            ProviderCostAllowance {
+                max_usd: 0.0,
+                spent_nano_usd: &AtomicU64::new(0),
+            },
             observations(),
         )
         .await
@@ -1937,7 +2082,10 @@ mod tests {
             START,
             END,
             CORRELATION,
-            0.0,
+            ProviderCostAllowance {
+                max_usd: 0.0,
+                spent_nano_usd: &AtomicU64::new(0),
+            },
             observations(),
         )
         .await
@@ -1966,7 +2114,10 @@ mod tests {
             START,
             END,
             CORRELATION,
-            0.0,
+            ProviderCostAllowance {
+                max_usd: 0.0,
+                spent_nano_usd: &AtomicU64::new(0),
+            },
             observations(),
         )
         .await
@@ -1985,7 +2136,10 @@ mod tests {
             START,
             END,
             CORRELATION,
-            0.0,
+            ProviderCostAllowance {
+                max_usd: 0.0,
+                spent_nano_usd: &AtomicU64::new(0),
+            },
             observations(),
         )
         .await
@@ -2014,7 +2168,10 @@ mod tests {
             START,
             END,
             CORRELATION,
-            0.0,
+            ProviderCostAllowance {
+                max_usd: 0.0,
+                spent_nano_usd: &AtomicU64::new(0),
+            },
             observations(),
         )
         .await
@@ -2045,7 +2202,10 @@ mod tests {
             START,
             END,
             CORRELATION,
-            0.0,
+            ProviderCostAllowance {
+                max_usd: 0.0,
+                spent_nano_usd: &AtomicU64::new(0),
+            },
             observations(),
         )
         .await
@@ -2074,7 +2234,10 @@ mod tests {
             START,
             END,
             CORRELATION,
-            0.0,
+            ProviderCostAllowance {
+                max_usd: 0.0,
+                spent_nano_usd: &AtomicU64::new(0),
+            },
             observations(),
         )
         .await
@@ -2100,7 +2263,10 @@ mod tests {
             START,
             END,
             CORRELATION,
-            0.0,
+            ProviderCostAllowance {
+                max_usd: 0.0,
+                spent_nano_usd: &AtomicU64::new(0),
+            },
             observations(),
         )
         .await
@@ -2115,7 +2281,7 @@ mod tests {
             .unwrap();
         let mut port = fixture_port();
         let mut observe = observations();
-        let mut attempt = perform_attempt(&mut port, &plan, 0.0, &mut observe)
+        let mut attempt = perform_attempt(&mut port, &plan, unpaid_allowance(), &mut observe)
             .await
             .unwrap();
         attempt.bbo_dbn.push(0);
@@ -2129,7 +2295,7 @@ mod tests {
             .unwrap();
         let mut port = fixture_port();
         let mut observe = observations();
-        let mut attempt = perform_attempt(&mut port, &plan, 0.0, &mut observe)
+        let mut attempt = perform_attempt(&mut port, &plan, unpaid_allowance(), &mut observe)
             .await
             .unwrap();
         attempt.receipt.request_correlation = [8; 32];
@@ -2143,7 +2309,7 @@ mod tests {
             .unwrap();
         let mut port = fixture_port();
         let mut observe = observations();
-        let mut attempt = perform_attempt(&mut port, &plan, 0.0, &mut observe)
+        let mut attempt = perform_attempt(&mut port, &plan, unpaid_allowance(), &mut observe)
             .await
             .unwrap();
         attempt.receipt.dbn_upgrade_policy_locator = "dbn-version-upgrade:upgrade-to-v3".into();
@@ -2157,7 +2323,7 @@ mod tests {
             .unwrap();
         let mut port = fixture_port();
         let mut observe = observations();
-        let attempt = perform_attempt(&mut port, &plan, 0.0, &mut observe)
+        let attempt = perform_attempt(&mut port, &plan, unpaid_allowance(), &mut observe)
             .await
             .unwrap();
         let mut other =

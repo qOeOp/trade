@@ -555,8 +555,8 @@ fn issue_exact_instrument_bar_frame_for_compile_time_corpus(
 ///
 /// # Errors
 ///
-/// Returns the Source Binding, PIT, or strategy-input failure of the fixed corpus when the real
-/// Owner admission path rejects it.
+/// Fails closed if the fixed fixture claim fails Source Binding admission, PIT preparation, or
+/// Shared Time head advance.
 pub fn issue_market_data_repair_evidence_v1()
 -> Result<SealedAcceptanceMarketDataRepairEvidenceV1, SealedAcceptanceError> {
     let source_clock = clock();

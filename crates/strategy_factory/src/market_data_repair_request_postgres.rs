@@ -500,7 +500,7 @@ pub(crate) async fn compose_with_sealed_owner_evidence_for_test_v1(
     source: vibe_data::owner::native_replay_scheduling_v1::MarketDataRepairSourceV1,
     shared_time: ClockHeadHandoff,
 ) -> Result<MarketDataRepairRequestReadbackV1, MarketDataRepairPostgresErrorV1> {
-    store_with_sealed_owner_evidence_for_test_v1(
+    Box::pin(store_with_sealed_owner_evidence_for_test_v1(
         pool,
         action_request_identity,
         decision_identity,
@@ -508,7 +508,7 @@ pub(crate) async fn compose_with_sealed_owner_evidence_for_test_v1(
         source,
         shared_time,
         false,
-    )
+    ))
     .await?
     .ok_or_else(|| unavailable("Market Data repair request commit is missing"))
 }
@@ -522,7 +522,7 @@ pub(crate) async fn resolve_with_sealed_owner_evidence_for_test_v1(
     source: vibe_data::owner::native_replay_scheduling_v1::MarketDataRepairSourceV1,
     shared_time: ClockHeadHandoff,
 ) -> Result<Option<MarketDataRepairRequestReadbackV1>, MarketDataRepairPostgresErrorV1> {
-    store_with_sealed_owner_evidence_for_test_v1(
+    Box::pin(store_with_sealed_owner_evidence_for_test_v1(
         pool,
         action_request_identity,
         decision_identity,
@@ -530,7 +530,7 @@ pub(crate) async fn resolve_with_sealed_owner_evidence_for_test_v1(
         source,
         shared_time,
         true,
-    )
+    ))
     .await
 }
 

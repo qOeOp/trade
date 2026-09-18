@@ -11,6 +11,7 @@
 
 use sqlx::{Postgres, Row, Transaction};
 
+use super::pit_role_resolution_v1::AuthenticatedDesignIdentityV1;
 use crate::owner::{
     instrument_master::InstrumentMasterError,
     market_semantics::{MarketSemanticsErrorV1, MarketSemanticsReadbackV1},
@@ -18,7 +19,7 @@ use crate::owner::{
         PitSnapshotError, VerifiedPitObservationBatch, authority::verify_observation_batch,
     },
     source_binding::{BindingDigest, SourceBindingOwnerReadback},
-    strategy_design_role_set::StrategyDesignRoleSetReceiptV1,
+    strategy_design_role_set::{StrategyDesignRoleEntryV1, StrategyDesignRoleSetReceiptV1},
     strategy_input_binding::{
         StrategyInputBindingReceipt, StrategyInputBindingUnavailable,
         StrategyInputCustodyDeclarationV1, StrategyInputCustodyReadbackV1,
@@ -80,14 +81,35 @@ pub(super) fn validate_authenticated_role_set_coverage_v1(
     role_set: &StrategyDesignRoleSetReceiptV1,
     requests: &[UntrustedStrategyInputBindingRequest],
 ) -> Result<(), StrategyInputBindingRegistryErrorV1> {
-    if !role_set.has_valid_integrity()
-        || requests.len() != role_set.roles.len()
+    if !role_set.has_valid_integrity() {
+        return Err(StrategyInputBindingRegistryErrorV1::StrategyDesignRoleSetUnavailable);
+    }
+    validate_authenticated_role_coverage_v1(
+        AuthenticatedDesignIdentityV1::from_role_set(role_set),
+        &role_set.roles,
+        requests,
+    )
+}
+
+/// Authenticates a complete request set against the roles an authenticated shape declares.
+///
+/// The shape is either a Composer attestation or the Design role intent R&D publishes before any
+/// program exists. Both state the same thing about a Design's roles, and neither is trusted here
+/// for anything else: the requests still carry only facts Market Data resolved itself, and this
+/// decides whether they cover exactly the declared set.
+pub(super) fn validate_authenticated_role_coverage_v1(
+    design: AuthenticatedDesignIdentityV1,
+    roles: &[StrategyDesignRoleEntryV1],
+    requests: &[UntrustedStrategyInputBindingRequest],
+) -> Result<(), StrategyInputBindingRegistryErrorV1> {
+    if requests.len() != roles.len()
         || requests.is_empty()
         || requests.iter().any(|request| {
-            request.research_request_identity != role_set.research_request_identity
-                || request.strategy_design_identity != role_set.design_identity
-                || role_set
-                    .role(request.input_role_identity)
+            request.research_request_identity != design.research_request_identity()
+                || request.strategy_design_identity != design.design_identity()
+                || roles
+                    .iter()
+                    .find(|role| role.role_identity == request.input_role_identity)
                     .is_none_or(|role| !request_matches_authenticated_role_v1(request, role))
         })
     {
@@ -99,10 +121,11 @@ pub(super) fn validate_authenticated_role_set_coverage_v1(
         .collect::<Vec<_>>();
     identities.sort_unstable();
     identities.dedup();
-    if identities.len() != role_set.roles.len()
+
+    if identities.len() != roles.len()
         || !identities
             .iter()
-            .zip(&role_set.roles)
+            .zip(roles)
             .all(|(identity, role)| *identity == role.role_identity)
     {
         return Err(StrategyInputBindingRegistryErrorV1::StrategyDesignRoleSetUnavailable);
@@ -150,16 +173,17 @@ pub(super) async fn register_strategy_input_binding_declaration_v1(
     register_strategy_input_binding_declaration_unchecked_v1(transaction, request).await
 }
 
-/// Production positive registration requires the exact authenticated R&D role set and all role
-/// declarations. Recovery continues to use the unchanged V1 stored request bytes below.
+/// Production positive registration requires an authenticated R&D statement of the Design's roles
+/// and all role declarations. Recovery continues to use the unchanged V1 stored request bytes below.
 #[cfg(not(test))]
 pub(super) async fn register_strategy_input_binding_declaration_v1(
     transaction: &mut Transaction<'_, Postgres>,
     request: &UntrustedStrategyInputBindingRequest,
     complete_requests: &[UntrustedStrategyInputBindingRequest],
-    role_set: &StrategyDesignRoleSetReceiptV1,
+    design: AuthenticatedDesignIdentityV1,
+    roles: &[StrategyDesignRoleEntryV1],
 ) -> Result<StrategyInputBindingDeclarationReadbackV1, StrategyInputBindingRegistryErrorV1> {
-    validate_authenticated_role_set_coverage_v1(role_set, complete_requests)?;
+    validate_authenticated_role_coverage_v1(design, roles, complete_requests)?;
     if !complete_requests
         .iter()
         .any(|candidate| candidate == request)
@@ -685,6 +709,7 @@ async fn resolve_and_bind_with_mode(
     validate_universe_dependency(request, &batch, &universe)?;
     validate_native_source(transaction, request, &batch, mode).await?;
     let semantics = resolve_native_market_semantics(transaction, request, &batch, mode).await?;
+
     let [semantics_fact] = semantics.facts() else {
         return Err(StrategyInputBindingRegistryErrorV1::MarketSemanticsUnavailable);
     };
@@ -1405,7 +1430,16 @@ fn map_instrument_error(_: InstrumentMasterError) -> StrategyInputBindingRegistr
     StrategyInputBindingRegistryErrorV1::InstrumentMasterReadbackUnavailable
 }
 
-fn map_market_semantics_error(_: MarketSemanticsErrorV1) -> StrategyInputBindingRegistryErrorV1 {
+fn map_market_semantics_error(
+    error: MarketSemanticsErrorV1,
+) -> StrategyInputBindingRegistryErrorV1 {
+    // The caller learns only that Market Semantics is unavailable, which is deliberate. Without
+    // this the Owner could not say why either, and a refusal here is two reads deep inside a
+    // registration: the scope the request names, at the batch's own instants and cut.
+    crate::owner::storage_diagnostic::refused_by_store(
+        "strategy_input_binding_registry.market_semantics.scope",
+        &error,
+    );
     StrategyInputBindingRegistryErrorV1::MarketSemanticsUnavailable
 }
 
@@ -1413,15 +1447,16 @@ fn map_market_semantics_error(_: MarketSemanticsErrorV1) -> StrategyInputBinding
 ///
 /// Coverage is validated once for the whole set rather than per request, which is what makes a
 /// role set arrive whole: a set that is missing a role, carries an extra one, or contains a request
-/// the attestation does not authenticate stores nothing at all. Each request is then registered
+/// the authenticated shape does not declare stores nothing at all. Each request is then registered
 /// through the unchanged V1 path, so every binding is still re-derived from live native
 /// dependencies and a replay rejoins the stored bytes instead of overwriting them.
 pub(super) async fn register_authenticated_role_declarations_v1(
     transaction: &mut Transaction<'_, Postgres>,
-    role_set: &StrategyDesignRoleSetReceiptV1,
+    design: AuthenticatedDesignIdentityV1,
+    roles: &[StrategyDesignRoleEntryV1],
     requests: &[UntrustedStrategyInputBindingRequest],
 ) -> Result<(), StrategyInputBindingRegistryErrorV1> {
-    validate_authenticated_role_set_coverage_v1(role_set, requests)?;
+    validate_authenticated_role_coverage_v1(design, roles, requests)?;
 
     for request in requests {
         register_strategy_input_binding_declaration_unchecked_v1(transaction, request).await?;
@@ -1433,7 +1468,7 @@ pub(super) async fn register_authenticated_role_declarations_v1(
 mod tests {
     use super::*;
     use crate::owner::strategy_design_role_set::{
-        StrategyDesignRoleEntryV1, StrategyDesignRoleSetLocatorV1, StrategyDesignRoleSetReceiptV1,
+        StrategyDesignRoleSetLocatorV1, StrategyDesignRoleSetReceiptV1,
     };
     use crate::owner::strategy_input_binding::{
         MarketDataFieldSemantic, StrategyInputChannel, StrategyInputUnit,

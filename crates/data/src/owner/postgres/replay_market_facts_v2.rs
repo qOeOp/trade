@@ -52,6 +52,7 @@ use crate::owner::{
     },
     session::UntrustedSessionLocatorV1,
     source_binding::BindingDigest,
+    strategy_design_role_intent_v1::StrategyDesignRoleIntentV1,
     strategy_design_role_set::{
         AuthenticatedStrategyDesignRoleSetV1, StrategyDesignNativeJoinReceiptV1,
         StrategyDesignRoleSetLocatorV1, StrategyDesignRoleSetReceiptV1,
@@ -86,6 +87,10 @@ const REPLAY_COMPOSITION_ISSUANCE_SCHEMA_V1: &[&str] = &[
 const COMPOSER_ROLE_SET_RESOLVER_V1: &str = "composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea)";
 const COMPOSER_NATIVE_JOIN_RESOLVER_V1: &str = "composer_owner_api.resolve_strategy_design_native_join_v1(text,integer,bytea,text,bytea,bytea,bytea)";
 const COMPOSER_CUT_LOCK_V1: &str = "composer_owner_api.lock_replay_composition_cut_v1(text)";
+/// The one R&D function this reader may execute: what R&D published about a Design, before any
+/// Composer operation exists to attest it.
+const RD_DESIGN_ROLE_INTENT_RESOLVER_V1: &str =
+    "rd_owner_api.resolve_design_role_intent_for_market_data_v1(bytea)";
 const COMPOSER_READER_ACL_QUERY_V1: &str = "WITH role_set_relation AS (
                 SELECT relation.oid
                   FROM pg_catalog.pg_class relation
@@ -98,6 +103,12 @@ const COMPOSER_READER_ACL_QUERY_V1: &str = "WITH role_set_relation AS (
                   JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
                  WHERE namespace.nspname='composer_private'
                    AND relation.relname='rd_develop_strategy_design_native_joins_v1'
+             ), design_role_intent_relation AS (
+                SELECT relation.oid
+                  FROM pg_catalog.pg_class relation
+                  JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+                 WHERE namespace.nspname='public'
+                   AND relation.relname='rd_design_role_intents_v1'
              ) SELECT
                 pg_catalog.has_schema_privilege(current_user,'composer_owner_api','USAGE') AS schema_usage,
                 pg_catalog.has_schema_privilege(current_user,'composer_owner_api','CREATE') AS schema_create,
@@ -110,9 +121,16 @@ const COMPOSER_READER_ACL_QUERY_V1: &str = "WITH role_set_relation AS (
                 pg_catalog.has_table_privilege(current_user,role_set_relation.oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') AS raw_write,
                 pg_catalog.has_table_privilege(current_user,native_join_relation.oid,'SELECT') AS native_raw_select,
                 pg_catalog.has_table_privilege(current_user,native_join_relation.oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') AS native_raw_write,
-                pg_catalog.pg_has_role(current_user,'composer_owner','MEMBER') AS composer_owner_member
+                pg_catalog.pg_has_role(current_user,'composer_owner','MEMBER') AS composer_owner_member,
+                pg_catalog.has_schema_privilege(current_user,'rd_owner_api','USAGE') AS rd_schema_usage,
+                pg_catalog.has_schema_privilege(current_user,'rd_owner_api','CREATE') AS rd_schema_create,
+                pg_catalog.has_function_privilege(current_user,'rd_owner_api.resolve_design_role_intent_for_market_data_v1(bytea)','EXECUTE') AS design_role_intent_execute,
+                pg_catalog.has_table_privilege(current_user,design_role_intent_relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') AS design_role_intent_raw
            FROM role_set_relation
-           CROSS JOIN native_join_relation";
+           CROSS JOIN native_join_relation
+           CROSS JOIN design_role_intent_relation";
+const RD_DESIGN_ROLE_INTENT_RESOLVE_QUERY_V1: &str = "SELECT intent_digest, canonical_bytes
+       FROM rd_owner_api.resolve_design_role_intent_for_market_data_v1($1)";
 const COMPOSER_ROLE_SET_RESOLVE_QUERY_V1: &str =
     "SELECT attestation_identity, attestation_digest, canonical_bytes
        FROM composer_owner_api.resolve_strategy_design_role_set_attestation_v1($1,$2,$3,$4,$5,$6,$7)";
@@ -152,7 +170,8 @@ const MARKET_OWNER_COMPOSER_ACL_QUERY_V1: &str = "WITH raw_relation AS (
                 NOT pg_catalog.has_function_privilege(current_user,'composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea)','EXECUTE') AS no_role_resolve,
                 NOT pg_catalog.has_function_privilege(current_user,'composer_owner_api.resolve_strategy_design_native_join_v1(text,integer,bytea,text,bytea,bytea,bytea)','EXECUTE') AS no_native_resolve,
                 NOT pg_catalog.has_schema_privilege(current_user,'composer_private','USAGE,CREATE') AS no_private_schema,
-                NOT pg_catalog.has_table_privilege(current_user,raw_relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') AS no_raw
+                NOT pg_catalog.has_table_privilege(current_user,raw_relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') AS no_raw,
+                NOT pg_catalog.has_function_privilege(current_user,'rd_owner_api.resolve_design_role_intent_for_market_data_v1(bytea)','EXECUTE') AS no_design_role_intent_resolve
            FROM raw_relation";
 const V4_CUSTODY_DOMAIN: &[u8] = b"market-data.sample-projection-postgres-custody.v4\0";
 
@@ -169,6 +188,10 @@ struct ComposerReaderAclV1 {
     native_raw_select: bool,
     native_raw_write: bool,
     composer_owner_member: bool,
+    rd_schema_usage: bool,
+    rd_schema_create: bool,
+    design_role_intent_execute: bool,
+    design_role_intent_raw: bool,
 }
 
 fn composer_reader_acl_values_are_exact(
@@ -187,6 +210,10 @@ fn composer_reader_acl_values_are_exact(
         && !acl.native_raw_select
         && !acl.native_raw_write
         && !acl.composer_owner_member
+        && acl.rd_schema_usage
+        && !acl.rd_schema_create
+        && acl.design_role_intent_execute
+        && !acl.design_role_intent_raw
 }
 
 fn composer_reader_acl_is_exact(
@@ -207,6 +234,10 @@ fn composer_reader_acl_is_exact(
             native_raw_select: row.try_get("native_raw_select")?,
             native_raw_write: row.try_get("native_raw_write")?,
             composer_owner_member: row.try_get("composer_owner_member")?,
+            rd_schema_usage: row.try_get("rd_schema_usage")?,
+            rd_schema_create: row.try_get("rd_schema_create")?,
+            design_role_intent_execute: row.try_get("design_role_intent_execute")?,
+            design_role_intent_raw: row.try_get("design_role_intent_raw")?,
         },
         expected_cut_lock_execute,
     ))
@@ -832,7 +863,10 @@ impl ReplayCompositionOwnerV1 {
             && market_acl
                 .try_get::<bool, _>("no_private_schema")
                 .unwrap_or(false)
-            && market_acl.try_get::<bool, _>("no_raw").unwrap_or(false))
+            && market_acl.try_get::<bool, _>("no_raw").unwrap_or(false)
+            && market_acl
+                .try_get::<bool, _>("no_design_role_intent_resolve")
+                .unwrap_or(false))
         {
             return Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable);
         }
@@ -1827,6 +1861,138 @@ impl ReplayCompositionOwnerV1 {
         }
     }
 
+    /// Declares every input role of the Design one published R&D role intent authenticates.
+    ///
+    /// This is the same work as declaring against an attestation, and the same separation of
+    /// principals: the reader resolves what R&D published and can write nothing, the Owner resolves
+    /// its own custody and can read nothing of R&D's. Only the authenticated shape differs, because
+    /// the first cycle of a Design has no Composer operation to attest it yet - a program's identity
+    /// folds in the very binding receipts this call issues.
+    ///
+    /// No cut lock is taken. A published intent is write-once by design identity, so there is no
+    /// Composer commit for the read to be serialised against.
+    ///
+    /// # Errors
+    ///
+    /// Returns a bounded category. A role set is declared whole or not at all, and a second
+    /// admission of one Design rejoins its stored declarations or fails closed on a conflict.
+    pub async fn declare_strategy_input_bindings_from_design_intent_v1(
+        &self,
+        design_identity: BindingDigest,
+    ) -> Result<StrategyInputBindingAdmissionTerminalV1, StrategyInputBindingAdmissionErrorV1> {
+        let mut reader_transaction = self
+            .rd_role_set_pool
+            .begin_with("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .await
+            .map_err(|_| StrategyInputBindingAdmissionErrorV1::StoreUnavailable)?;
+        let published = async {
+            let (isolation, read_only): (String, String) = sqlx::query_as(
+                "SELECT pg_catalog.current_setting('transaction_isolation'),
+                        pg_catalog.current_setting('transaction_read_only')",
+            )
+            .fetch_one(&mut *reader_transaction)
+            .await
+            .map_err(|_| StrategyInputBindingAdmissionErrorV1::StoreUnavailable)?;
+
+            if isolation != "repeatable read" || read_only != "on" {
+                return Err(StrategyInputBindingAdmissionErrorV1::StoreUnavailable);
+            }
+            Self::resolve_design_role_intent(&mut reader_transaction, design_identity).await
+        }
+        .await;
+        let intent = match published {
+            Ok(intent) => intent,
+            Err(reader_error) => {
+                reader_transaction
+                    .rollback()
+                    .await
+                    .map_err(|_| StrategyInputBindingAdmissionErrorV1::StoreUnavailable)?;
+                return Err(reader_error);
+            }
+        };
+        let outcome = self.register_design_intent_declarations_v1(&intent).await;
+        reader_transaction
+            .rollback()
+            .await
+            .map_err(|_| StrategyInputBindingAdmissionErrorV1::StoreUnavailable)?;
+        outcome
+    }
+
+    /// Reads one published intent through R&D's exact-locator function and re-derives its digest.
+    ///
+    /// The stored bytes are evidence and never authority: `from_durable_publication` rebuilds the
+    /// projection and refuses it unless the rebuilt bytes reproduce the digest they were stored
+    /// under, so a row edited in place authenticates nothing.
+    async fn resolve_design_role_intent(
+        transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        design_identity: BindingDigest,
+    ) -> Result<StrategyDesignRoleIntentV1, StrategyInputBindingAdmissionErrorV1> {
+        let row = sqlx::query(RD_DESIGN_ROLE_INTENT_RESOLVE_QUERY_V1)
+            .bind(design_identity.as_bytes().as_slice())
+            .fetch_optional(&mut **transaction)
+            .await
+            .map_err(|_| StrategyInputBindingAdmissionErrorV1::StoreUnavailable)?
+            .ok_or(StrategyInputBindingAdmissionErrorV1::UnknownAuthenticatedDesign)?;
+        let stored_digest: Vec<u8> = row
+            .try_get("intent_digest")
+            .map_err(|_| StrategyInputBindingAdmissionErrorV1::StoreUnavailable)?;
+        let canonical_bytes: Vec<u8> = row
+            .try_get("canonical_bytes")
+            .map_err(|_| StrategyInputBindingAdmissionErrorV1::StoreUnavailable)?;
+        let stored_digest: [u8; 32] = stored_digest
+            .try_into()
+            .map_err(|_| StrategyInputBindingAdmissionErrorV1::AuthenticatedDesignUntrusted)?;
+        let intent = StrategyDesignRoleIntentV1::from_durable_publication(
+            &canonical_bytes,
+            BindingDigest::from_untrusted_bytes(stored_digest),
+        )
+        .map_err(|_| StrategyInputBindingAdmissionErrorV1::AuthenticatedDesignUntrusted)?;
+
+        if intent.design_identity() != design_identity {
+            return Err(StrategyInputBindingAdmissionErrorV1::AuthenticatedDesignUntrusted);
+        }
+        Ok(intent)
+    }
+
+    /// Resolves and stores one published Design's roles inside a single Owner transaction.
+    async fn register_design_intent_declarations_v1(
+        &self,
+        intent: &StrategyDesignRoleIntentV1,
+    ) -> Result<StrategyInputBindingAdmissionTerminalV1, StrategyInputBindingAdmissionErrorV1> {
+        let mut transaction = self
+            .owner
+            .pool
+            .begin()
+            .await
+            .map_err(|_| StrategyInputBindingAdmissionErrorV1::StoreUnavailable)?;
+        let composed =
+            super::authenticated_design_registration_v1::register_authenticated_design_roles_v1(
+                &mut transaction,
+                super::pit_role_resolution_v1::AuthenticatedDesignIdentityV1::from_role_intent(
+                    intent,
+                ),
+                intent.roles(),
+            )
+            .await;
+
+        match composed {
+            Ok(terminal) => {
+                transaction
+                    .commit()
+                    .await
+                    .map_err(|_| StrategyInputBindingAdmissionErrorV1::StoreUnavailable)?;
+                Ok(terminal)
+            }
+            Err(operation_error) => {
+                transaction
+                    .rollback()
+                    .await
+                    .map_err(|_| StrategyInputBindingAdmissionErrorV1::StoreUnavailable)?;
+                Err(operation_error)
+            }
+        }
+    }
+
     /// Declares every input role of the Design one Composer attestation authenticates.
     ///
     /// The two principals do exactly one thing each. The reader transaction holds the Composer cut
@@ -1896,64 +2062,21 @@ impl ReplayCompositionOwnerV1 {
         &self,
         receipt: &StrategyDesignRoleSetReceiptV1,
     ) -> Result<StrategyInputBindingAdmissionTerminalV1, StrategyInputBindingAdmissionErrorV1> {
-        if receipt.roles.is_empty() {
-            return Err(StrategyInputBindingAdmissionErrorV1::UnsupportedRole);
-        }
         let mut transaction = self
             .owner
             .pool
             .begin()
             .await
             .map_err(|_| StrategyInputBindingAdmissionErrorV1::StoreUnavailable)?;
-        let composed = async {
-            let mut requests = Vec::with_capacity(receipt.roles.len());
-
-            for role in &receipt.roles {
-                let resolved =
-                    super::pit_role_resolution_v1::resolve_role_snapshot_v1(&mut transaction, role)
-                        .await
-                        .map_err(map_admission_resolution_error)?;
-                let batch =
-                    super::strategy_input_binding_registry::load_owner_verified_pit_batch_v1(
-                        &mut transaction,
-                        resolved.snapshot_identity,
-                    )
-                    .await
-                    .map_err(|e| map_admission_registry_error(&e))?;
-                requests.push(
-                    super::pit_role_resolution_v1::compose_binding_request_v1(
-                        receipt, role, &batch,
-                    )
-                    .map_err(map_admission_resolution_error)?,
-                );
-            }
-            let [first, rest @ ..] = requests.as_slice() else {
-                return Err(StrategyInputBindingAdmissionErrorV1::UnsupportedRole);
-            };
-
-            if rest
-                .iter()
-                .any(|request| request.pit_request_identity != first.pit_request_identity)
-            {
-                return Err(StrategyInputBindingAdmissionErrorV1::SplitCoordinate);
-            }
-            let terminal = StrategyInputBindingAdmissionTerminalV1::seal(
-                receipt.design_identity,
-                receipt.research_request_identity,
-                first.pit_request_identity,
-                first.decision_cut,
-                requests.len() as u64,
-            );
-            super::strategy_input_binding_registry::register_authenticated_role_declarations_v1(
+        let composed =
+            super::authenticated_design_registration_v1::register_authenticated_design_roles_v1(
                 &mut transaction,
-                receipt,
-                &requests,
+                super::pit_role_resolution_v1::AuthenticatedDesignIdentityV1::from_role_set(
+                    receipt,
+                ),
+                &receipt.roles,
             )
-            .await
-            .map_err(|e| map_admission_registry_error(&e))?;
-            Ok(terminal)
-        }
-        .await;
+            .await;
 
         match composed {
             Ok(terminal) => {
@@ -3307,47 +3430,12 @@ fn map_admission_reader_error(
     match error {
         ReplayCompositionBindingErrorV1::IncompleteComposition
         | ReplayCompositionBindingErrorV1::InvalidRequest => {
-            StrategyInputBindingAdmissionErrorV1::UnknownAttestation
+            StrategyInputBindingAdmissionErrorV1::UnknownAuthenticatedDesign
         }
         ReplayCompositionBindingErrorV1::DigestMismatch => {
-            StrategyInputBindingAdmissionErrorV1::AttestationUntrusted
+            StrategyInputBindingAdmissionErrorV1::AuthenticatedDesignUntrusted
         }
         _ => StrategyInputBindingAdmissionErrorV1::StoreUnavailable,
-    }
-}
-
-fn map_admission_resolution_error(
-    error: super::pit_role_resolution_v1::PitRoleResolutionErrorV1,
-) -> StrategyInputBindingAdmissionErrorV1 {
-    use super::pit_role_resolution_v1::PitRoleResolutionErrorV1 as Resolution;
-
-    match error {
-        Resolution::UnsupportedRole
-        | Resolution::UnknownFieldSemantic
-        | Resolution::UnitMismatch => StrategyInputBindingAdmissionErrorV1::UnsupportedRole,
-        Resolution::NoMatchingSnapshot | Resolution::DecisionCutUnavailable => {
-            StrategyInputBindingAdmissionErrorV1::NoMatchingSnapshot
-        }
-        Resolution::AmbiguousSnapshot => StrategyInputBindingAdmissionErrorV1::AmbiguousSnapshot,
-        Resolution::StoreUnavailable => StrategyInputBindingAdmissionErrorV1::StoreUnavailable,
-    }
-}
-
-fn map_admission_registry_error(
-    error: &super::strategy_input_binding_registry::StrategyInputBindingRegistryErrorV1,
-) -> StrategyInputBindingAdmissionErrorV1 {
-    use super::strategy_input_binding_registry::StrategyInputBindingRegistryErrorV1 as Registry;
-
-    match error {
-        Registry::RequestConflict => StrategyInputBindingAdmissionErrorV1::RequestConflict,
-        Registry::StoreUnavailable | Registry::StoreUntrusted => {
-            StrategyInputBindingAdmissionErrorV1::StoreUnavailable
-        }
-        Registry::PitUnavailable => StrategyInputBindingAdmissionErrorV1::NoMatchingSnapshot,
-        Registry::StrategyDesignRoleSetUnavailable => {
-            StrategyInputBindingAdmissionErrorV1::UnsupportedRole
-        }
-        _ => StrategyInputBindingAdmissionErrorV1::BindingUnavailable,
     }
 }
 
@@ -3397,16 +3485,23 @@ mod composer_facade_tests {
             native_raw_select: false,
             native_raw_write: false,
             composer_owner_member: false,
+            rd_schema_usage: true,
+            rd_schema_create: false,
+            design_role_intent_execute: true,
+            design_role_intent_raw: false,
         };
         assert!(composer_reader_acl_values_are_exact(&exact(), false));
         let mut owner = exact();
         owner.cut_lock_execute = true;
         assert!(composer_reader_acl_values_are_exact(&owner, true));
 
-        for denied in 0..12 {
-            let mut values = [
-                true, false, false, false, true, true, false, false, false, false, false, false,
-            ];
+        let admitted = [
+            true, false, false, false, true, true, false, false, false, false, false, false, true,
+            false, true, false,
+        ];
+
+        for denied in 0..admitted.len() {
+            let mut values = admitted;
             values[denied] = !values[denied];
             assert!(!composer_reader_acl_values_are_exact(
                 &ComposerReaderAclV1 {
@@ -3422,6 +3517,10 @@ mod composer_facade_tests {
                     native_raw_select: values[9],
                     native_raw_write: values[10],
                     composer_owner_member: values[11],
+                    rd_schema_usage: values[12],
+                    rd_schema_create: values[13],
+                    design_role_intent_execute: values[14],
+                    design_role_intent_raw: values[15],
                 },
                 false,
             ));
@@ -3436,7 +3535,15 @@ mod composer_facade_tests {
         );
         assert!(COMPOSER_READER_ACL_QUERY_V1.contains("'composer_owner','MEMBER'"));
         assert!(!COMPOSER_READER_ACL_QUERY_V1.contains("public."));
-        assert!(!COMPOSER_READER_ACL_QUERY_V1.contains("rd_owner_api"));
+        // The reader reaches exactly one R&D function and no other, so the ACL names that schema
+        // once. A second name here would be a second R&D capability nobody proved bounded.
+        assert!(COMPOSER_READER_ACL_QUERY_V1.contains(RD_DESIGN_ROLE_INTENT_RESOLVER_V1));
+        assert_eq!(
+            COMPOSER_READER_ACL_QUERY_V1
+                .matches("rd_owner_api.")
+                .count(),
+            1
+        );
     }
 
     #[rstest]
@@ -3445,7 +3552,7 @@ mod composer_facade_tests {
             COMPOSER_READER_ACL_QUERY_V1
                 .matches("JOIN pg_catalog.pg_namespace")
                 .count(),
-            2
+            3
         );
         assert_eq!(
             COMPOSER_READER_ACL_QUERY_V1
