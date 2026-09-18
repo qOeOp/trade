@@ -39,7 +39,7 @@ markers there rather than inferring progress from crate size.
 ## Repository layout
 
 - [`crates/`](crates/) - Rust workspace and adapters.
-- [`product/`](product/) - the Windmill R&D Workbench and the first-party Dashboard.
+- [`product/`](product/) - the R&D deployment package and the first-party Dashboard.
 - [`python/vibe_trader/`](python/vibe_trader/) - Python package and type stubs.
 - [`python/tests/`](python/tests/) - Python unit, integration, acceptance, and performance tests.
 - [`docs/`](docs/) - concepts, integration guides, tutorials, and API sources.

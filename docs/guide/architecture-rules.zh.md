@@ -44,7 +44,7 @@ head。`SUPERSEDED` 单调且不可逆。Shell 或传输成功只表示 `SUBMITT
 
 Product Edge 是内容寻址 Agent Operation Manifest、Agent Shell Deployment Binding 及其 history head、
 不可变 request admission 与对应 outbox 的唯一 writer。独立命名的 **Operator Authorization Issuer**
-是授权签发与 revocation frontier 的唯一 writer。Product Edge 只能直接解析 Issuer 的规范事实；Windmill、
+是授权签发与 revocation frontier 的唯一 writer。Product Edge 只能直接解析 Issuer 的规范事实；Dashboard、
 API、R&D、token、配置或 Product Edge admission 代码都不能签发或自我声明这些事实。两个 writer 在同一
 authority database 使用不同 PostgreSQL role。Admission 提交时对准确 issuance 与 revocation frontier 持有
 共享锁，revocation 使用冲突的更新锁。决定授权是否当前的是这一共同截面，而不是复制 DTO、cache 或由
@@ -92,7 +92,7 @@ state、artifact、provider-start custody 和非 drain attempt/build outbox 全�
 `PROVIDER_NEVER_STARTED`，并且只允许同 identity 读取与 `Resolve`；它绝不创建当前 custody、freshness、
 authorization、artifact、family、successor、provider retry 或 effect authority。只有 canonical receipt 与
 outbox 均验证通过后，startup 才可忽略该准确行；任何未 drain、malformed、不匹配或未知行仍阻断
-activation。隔离的本地 recovery 证据不是 production authority，也不建立默认数据库、Windmill 或产品
+activation。隔离的本地 recovery 证据不是 production authority，也不建立默认数据库、Dashboard 或产品
 成熟度 acceptance。
 
 请求 Authorization Lineage 是不可拆分元组，包含稳定 request identity 有效 principal 与 scope 已准入

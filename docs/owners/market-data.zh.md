@@ -1033,7 +1033,7 @@ OPEN/CLOSE。adapter 先经过 crate-private Source Binding admission 和 PIT
 prepare/aggregate/verify 权威路径，再调用正常 universe-frame binder；它不接受 caller 选择的 row、
 request、locator、digest、clock、provider、persistence 或 runtime selector。默认与生产 manifest 均不
 启用该 feature；即使 release build 显式启用它，该 build 也仍是隔离 acceptance artifact，绝不是生产
-build。此 fixture 只证明编译期验收拓扑，不证明 PostgreSQL custody、provider 连通性、已部署 Windmill
+build。此 fixture 只证明编译期验收拓扑，不证明 PostgreSQL custody、provider 连通性、已部署 Dashboard
 readiness、生产 composition 或任何交易权威。
 
 ### `ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1`
@@ -1197,7 +1197,7 @@ digest 是 `market-data.bar-schedule-receipt.v1\0 || canonical receipt bytes` �
 BAR schedule fact、cut、receipt、outbox 与 head table；一个 atomic append/recovery 路径；固定的
 `SECURITY DEFINER` 准确及历史 read；reader ACL；admitted capability issuance/revalidation；以及 public
 startup resolver。逐字节相同 recovery 返回准确 stored readback，mismatch 或 tamper fail closed。这是
-CURRENT/PARTIAL schedule custody 与 admitted read 权威，不是 Windmill、Backtest、composite 或其他产品
+CURRENT/PARTIAL schedule custody 与 admitted read 权威，不是 Dashboard、Backtest、composite 或其他产品
 reachability。caller locator、结构 decode 或重建 bytes 都不产生 schedule 权威。
 
 对于 Native Replay execution-input 初始组合，已准入的 Market Data read capability 还公开一个固定的
@@ -1372,7 +1372,7 @@ isolated dynamic PostgreSQL acceptance。其 sealed public locator/readback cont
 fixed PostgreSQL snapshot 中完整验证 projection custody、timeframe/sample fact、schedule dependency、准确
 schedule readback 与 append-only schedule history，且在读取前、读取后及 promote 前立即重新验证 admission。
 resolver 不能选择 kind/lifecycle、执行 latest lookup、解析 V2 BAR 或 JOINED_CUT，也不暴露 storage authority。
-Strategy Factory production startup、产品 composition、ProgramHost、Backtest、composite、Windmill 与其他
+Strategy Factory production startup、产品 composition、ProgramHost、Backtest、composite、Dashboard 与其他
 所有产品消费保持 `TARGET / UNAVAILABLE`；当 external admission adapter 不可用时，required production startup
 不得返回 resolver。stored V3 row 或结构 V3 bytes 本身不产生 consumer 权威或 mutation。
 
@@ -1450,7 +1450,7 @@ oracle 在 1-minute trigger 间重复同一 1-hour 与 exchange-session `1d` sam
 sample 与已接纳 correction 各推进一次；restart 后返回相同 native receipt bytes。在具备该 dynamic evidence
 前，本合同不声称 provider authenticity、production migration/deployment、Dashboard、Paper、Live、BFP
 executable maturity、Backtest 产品闭合（包括 inverse/quanto target-consumption 语义）、
-Windmill/default-database 准入或 trading authority。这些 Backtest 限制不创建 Market Data instrument-class
+Dashboard/default-database 准入或 trading authority。这些 Backtest 限制不创建 Market Data instrument-class
 rejection。
 
 ## 输入交接

@@ -25,7 +25,7 @@ Dashboard work is admitted only for a route or reusable atom that document marks
 Everything below that gate stays blueprint-only and must not be developed, scaffolded, deployed, or
 packaged; a route name, a navigation entry, or retained upstream source is not implementation
 authority. `IMPLEMENTATION_ADMITTED` is permission to build and verify. It never proves that a backend,
-Owner consumer, or effect path exists, and it never authorizes a production effect, a Windmill cutover,
+Owner consumer, or effect path exists, and it never authorizes a production effect, an executor cutover,
 or real trading. Widening the admitted set requires changing that document first under the Architecture
 authority rule above.
 

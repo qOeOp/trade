@@ -105,7 +105,7 @@ One Source Intake Owner orchestrator owns the complete lifecycle:
 
 `admission → sealed/live policy → binding commit → durable claim/start → move-only permit → provider execution → retrieval time → atomic terminal`
 
-The Product Edge API remains authentication, typed DTO, and projection only. Windmill remains transport only. No
+The Product Edge API remains authentication, typed DTO, and projection only. The Dashboard effect worker remains transport only. No
 API handler, script, flow, fixture adapter, or caller may split or reproduce Owner custody. Only the Owner may
 commit the R&D PostgreSQL claim, raw payload, terminal receipt, provenance, Source Candidate, and outbox; positive
 records commit atomically only for `ADMITTED` plus `RETRIEVED`.
@@ -186,7 +186,7 @@ reuse with changed meaning conflicts with zero positive writes, and response los
 
 This operation and its durable PostgreSQL custody are `TARGET`, not current. Crate-local Source Intake contract and
 regression evidence and the crate-local Composer proof remain separate `CURRENT/PARTIAL` evidence. No current
-evidence establishes the isolated PostgreSQL/Windmill Source Intake runner; the composed dynamic gates in the
+evidence establishes an isolated first-party PostgreSQL Source Intake runner; the composed dynamic gates in the
 Product Edge D0 contract remain unpassed.
 
 ## Triage and admission
@@ -235,12 +235,12 @@ Source Intake never repairs or stores those market facts itself.
   submission, transport success, mismatched response, or an earlier snapshot cannot stand in for that terminal.
 - End-to-end proof shows one admitted source becomes a traceable Source Candidate and only Research can freeze its successor Intent.
 - The required `SEALED_ACCEPTANCE` topology must exercise the same Product Edge admission, Source Intake Owner
-  claim/start and lifecycle, R&D PostgreSQL transaction, terminal receipt, and default Windmill `RUN`/`RESOLVE`
+  claim/start and lifecycle, R&D PostgreSQL transaction, terminal receipt, and the default Dashboard effect-worker `RUN`/`RESOLVE`
   transport intended for production. If obtained, this evidence is acceptance-only and never proves `CURRENT`
   production, network, credential, rights, DNS, policy, Time Evidence, or live-provider readiness.
 - The target A2 composition deploys the fixed chain `Source Intake RUN/RESOLVE -> typed Research RUN/RESOLVE ->
   Composer RUN/RESOLVE` with compile-time sealed adapters, a fixed Source Intake corpus, one shared fixed A0 build
-  corpus, and unique internal PostgreSQL, Windmill, network, ingress, and volume state. It has no runtime provider
+  corpus, and unique internal PostgreSQL, effect-worker, network, ingress, and volume state. It has no runtime provider
   selector. Composer accepts only the canonical Research request locator; its Owner derives request/Design/digests/
   provider in the same lock/write transaction while retaining the Operator Authorization frontier and final cut.
 - The A1 positive transaction atomically persists an intrinsic private canonical A0 Build Receipt fact and a separate
@@ -257,6 +257,6 @@ Source Intake never repairs or stores those market facts itself.
   every required single-field mutation negative, including a separate single-field mutation of the canonical A0
   Build Receipt, deployed golden-path replay, and cleanup to exact baseline equality with zero residue or
   shared-target change.
-- Until that runner passes, typed Research handoff, durable Composer/API custody, and the isolated Windmill chain
+- Until that runner passes, typed Research handoff, durable Composer/API custody, and the isolated first-party acceptance chain
   remain `TARGET`. Production Market Data binding resolution, live OpenAlex authority, `PRODUCT_CURRENT`, Dashboard,
   Paper, Live, deployment, and trading remain unavailable.

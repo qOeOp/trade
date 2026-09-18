@@ -16,14 +16,13 @@ receipts, logs, or terminal output.
   Hypothesis, frozen Intent, Artifact and Build Receipt, exploratory Run Detail and Compare, Diagnosis, Iteration
   Decision, and the exact stop, repair, successor, or Qualification handoff action. The Dashboard and its
   `/api/mcp` invoke the same versioned operations. Its admitted first-party read surfaces ship, but every service
-  still starts only under the opt-in `dashboard-preview` profile; production deployment and the Windmill cutover
-  remain `TARGET`.
+  still starts only under the opt-in `dashboard-preview` profile; production deployment remains `TARGET`.
 - `NOT_ADMITTED` - an architecture page, a Dashboard reachable under the preview profile, an MCP handshake, a
   target read model, or a reachable low-level API does not make the product surface `CURRENT`.
 
 The target ships as one Docker Compose product package with one default Dashboard web entry and one Dashboard MCP
-conversation outlet. Optional external conversation clients are not bundled or individually adapted. Windmill
-schedules long-running research and scanner jobs; Trade Runtime remains the authority and process boundary for
+conversation outlet. Optional external conversation clients are not bundled or individually adapted. The Dashboard
+shadow scheduler and effect worker schedule long-running research and scanner jobs; Trade Runtime remains the authority and process boundary for
 live strategy loops, market sessions, risk, orders, and recovery effects.
 
 [Observability](../architecture/observability/) may explain progress and failure, but it cannot close the journey,
@@ -38,7 +37,7 @@ iterations → immutable Strategy Artifact and Build Receipt → exploratory Run
 Decision → exact successor, stop, repair, or Qualification handoff.
 
 The Conversation Agent ends at typed request submission and bounded status queries. A server-side R&D Execution
-Agent owns the long-running execution session and remains supervised by Windmill when the conversation client is
+Agent owns the long-running execution session and remains supervised by the Dashboard effect worker when the conversation client is
 closed. MCP does not lend the client model or credentials to that job. The two roles may share an explicitly
 configured model provider or billing gateway, but not session authority, capability scope, budget, or audit
 identity.
@@ -46,7 +45,7 @@ identity.
 A user starts research, asks for an explanation, requests a revision, stops work, or submits the exact selected
 Candidate through a visible action. Each mutating action creates a new typed request. A revision produces a new
 immutable Artifact or an explicit native terminal disposition; it never edits or overwrites an existing Artifact.
-Windmill Job progress explains execution only. The receiving Owner receipt and projection determine the business
+Operational run progress explains execution only. The receiving Owner receipt and projection determine the business
 phase and allowed next actions.
 
 The Dashboard closes the journey through these application areas:
@@ -60,9 +59,9 @@ The Dashboard closes the journey through these application areas:
 | Artifacts        | Identity, intent and iteration lineage, structured logic, parameters, dependencies, build state, semantic change explanation, and allowed actions | Artifact and Build Receipt remain authoritative; explanation is not a substitute                                                |
 | Backtests        | Exploratory charts, risk metrics, Run Detail, and version comparison                                                                              | Backtest owns Run Results; comparison does not create Selection                                                                 |
 | Qualification    | Bounded public status and exact admitted handoff action                                                                                           | Protected details remain opaque; Qualification owns intake and eligibility                                                      |
-| Scanner          | Schedule, terminal Scanner Receipt, heartbeat, and unresolved state                                                                               | Windmill schedules work; Scanner owns proposal truth and never starts Runtime                                                   |
+| Scanner          | Schedule, terminal Scanner Receipt, heartbeat, and unresolved state                                                                               | The Dashboard shadow scheduler schedules work; Scanner owns proposal truth and never starts Runtime                             |
 | Runtime          | Applied generations, strategy‑loop status, checkpoints, incidents, and permitted lifecycle actions                                                | Runtime, Governance, Risk, and Execution facts remain separate authorities                                                      |
-| Operations       | Windmill jobs, workers, progress, logs, retries, and incidents                                                                                    | Operational success never means research, Qualification, deployment, or trading success                                         |
+| Operations       | Operational runs, workers, progress, logs, retries, and incidents                                                                                 | Operational success never means research, Qualification, deployment, or trading success                                         |
 
 The first Artifact Review surface intentionally omits raw source. Full read-only source inspection, source diff,
 controlled download, and source-linked diagnostics are deferred advanced audit capabilities. Notebook-first

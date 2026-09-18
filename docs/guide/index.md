@@ -16,7 +16,7 @@ shown in the global architecture Flow.
 8. [Source Intake Playbook](./source-intake/) gives Research a high-ROI, provider-neutral external-source admission baseline.
 9. [Market Data Intake Playbook](./market-data-intake/) turns credentials and provider endpoints into rights-bound, point-in-time facts.
 10. [Observability Playbook](./observability/) defines trace, telemetry, outbox, persistence, and Dashboard projections without creating another business authority.
-11. [Trade Dashboard](./dashboard/) defines the future first-party visual shell, navigation, component system, and minimal Windmill replacement boundary.
+11. [Trade Dashboard](./dashboard/) defines the first-party visual shell, navigation, component system, and the bounded capability set it inherited from the retired shell.
 12. [Architecture boundaries](../architecture/) separates authority Owners from shells stages and channels.
 13. [Owners](../owners/) defines the ten writers of business truth.
 14. [Scenarios](../scenarios/) describes the seven observable end-to-end stories.

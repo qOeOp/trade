@@ -137,7 +137,7 @@ profile、完整 source set、两次字节一致 build、Wasm、ABI 和 resource
 必须区分 tagged V2 与 V3，并逐字节保留所有既有 V2 row/digest。架构契约与可证伪首个 corpus 见
 [Strategy Factory](../architecture/strategy-factory#target---arc-complex-d-bounded-feature-program-v1)。在对应
 code、Owner custody 与真实 `ProgramHostV2`/Backtest check 存在前，这不是 executable D-loop、Native Replay、
-Windmill acceptance、稳定盈利声明或 Paper/Live/production/trading authority。
+第一方验收、稳定盈利声明或 Paper/Live/production/trading authority。
 
 CURRENT ComplexStrategy V1 pre-Artifact Develop Evaluation 只有在 current accepted Research custody、完整
 TrialFamily frontier、规范有界 IR、准确 predecessor 与 Owner-sealed PIT readback 全部绑定且在提交时重新
@@ -158,7 +158,7 @@ Research 含义。
 join 对准确重放返回字节一致的 Design/Plan/Artifact receipt，并拒绝同一 Intent 的不同 proposal。任何
 custody、覆盖、build、compiler 或 Artifact 失败只返回一个不携带部分 Plan/Artifact 的结构化终态。产生的
 Artifact 已由 `ProgramHostV2` 动态接纳；这只证明 crate-local 合约与隔离 consumer 路径。持久 PostgreSQL
-custody、跨进程重启恢复、provider/API/Windmill composition 和已部署 Owner readiness 仍不可用，不能从内存
+custody、跨进程重启恢复、provider/API/Dashboard composition 和已部署 Owner readiness 仍不可用，不能从内存
 join 推断。
 
 **Composer 无法在生产运行，原因在它的托管之上游。**
@@ -216,7 +216,7 @@ Composer fact，要么零写入。sealed A0 Build Receipt 是一项 intrinsic co
 `rd_develop_build_receipts_v2(receipt_identity, build_attempt_identity, capsule_identity, canonical_bytes)`；
 `rd_develop_artifact_build_receipt_uses_v2(artifact_identity, ordinal, receipt_identity)` 拥有 ordered reference。
 只有准确 legacy embedded-receipt schema 允许一次 byte-preserving normalization；partial、mismatched、
-ambiguous 或其他 shape 均 fail closed。在隔离 Windmill golden chain、
+ambiguous 或其他 shape 均 fail closed。在隔离第一方验收链、
 locator/full-DTO negative、dual-custody sharing、concurrency/conflict、fault atomicity、response loss、restart
 readback 与准确 cleanup baseline 全部通过前，该能力保持 `TARGET`。
 
@@ -266,7 +266,7 @@ move-bound verified build/read 结果可供应 crate-local Develop Composer evid
 receipt 且不重新构建，同一 plugin identity 的冲突 capsule fail closed。每个终态路径都显式关闭两个临时
 root，cleanup failure 优先于原始终态。这只证明本地隔离确定性 producer 与 consumer contract；Cargo
 offline mode 与固定的无依赖 source 不证明 kernel-level network confinement，也不证明持久 PostgreSQL
-custody、provider/API/Windmill 执行、部署或生产 readiness。
+custody、provider/API/Dashboard 执行、部署或生产 readiness。
 已被替换的 Linux pins 来自一次隔离的 Linux/arm64 BuildKit readback：index
 `sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8`、platform manifest
 `sha256:5a8cd84cb3fcfd082789a08f92bd36f8e745c6231edd78e24a3bf34fd471a823`，以及 normalized exact
@@ -293,7 +293,7 @@ main-bound hosted run。三项准确 consumer 是
 canonical sysroot 匹配 frozen generator digest、真实 bounded plugin 完成双构建并由准确 replay join，以及
 真实 build 供应唯一 crate-local Composer 与 `ProgramHostV2` 路径。这只是 main-bound hosted native
 builder/Composer/ProgramHost 证据，不是 R&D Owner 业务回执、持久
-custody、已部署/Windmill 或产品 readiness、kernel network confinement、Backtest 或完整 RDQ 证明、Paper、
+custody、已部署 Dashboard 或产品 readiness、kernel network confinement、Backtest 或完整 RDQ 证明、Paper、
 Live、production/runtime deployment、provider integration、trading authority，或任意复杂策略证据。未 pin
 host 仍 fail closed，绝不替换为 generic toolchain。
 
@@ -379,18 +379,18 @@ Catalog 唯一 writer 是私有且受审计的 R&D Catalog Administration Port�
 version append、显式 current-head advance 与 revocation。每个已接纳 administration command 都原子记录其
 已认证 administrative identity、准确 predecessor/head、结果 content identity 与 immutable audit fact。该 audit
 fact 就是持久 command receipt。Catalog authority 只包含 immutable record、singleton head、revocation 与 audit
-table；不存在单独的 administration receipt 或 outbox table。普通 caller、Product Edge、Windmill、provider
+table；不存在单独的 administration receipt 或 outbox table。普通 caller、Product Edge、Dashboard、provider
 与其他 Owner 不能调用该 port、选择 policy version、推进 head、撤销 version 或写入 Catalog storage。
 environment value、default、migration、deployment configuration 与 runtime selector 都不能 seed 或合成
 policy 或 current head。
 
 唯一可以 bootstrap 空 Catalog 的产品 composition 是一个独立、显式启用、单次运行的
-`authority-admin` composition。它不提供 API route，Product Edge、Windmill、R&D API、default service、
+`authority-admin` composition。它不提供 API route，Product Edge、Dashboard、R&D API、default service、
 migration 与 runtime selector 均不能调用它。只有该 composition 使用另行提供且 broker-only 的
 `REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` 访问固定 Catalog Administration Port。Rust composition 在 database
 access 前验证 sealed Ed25519 request；PostgreSQL 不独立验证 Ed25519，而是信任独占的
 `replay_policy_catalog_admin_writer` principal 作为该 broker 的 mutation boundary。该 credential 绝不能分发给
-operator、ordinary service、Windmill 或 generic SQL client；在 broker 外持有或使用即为 trust-boundary breach。
+operator、ordinary service、Dashboard 或 generic SQL client；在 broker 外持有或使用即为 trust-boundary breach。
 `rd_fact_writer` 只保留 Composer 写入，不能调用 Catalog mutation。
 
 其私有 V1 request 是由 Ed25519 签名、拒绝未知字段的密封文档，它绑定 request schema
@@ -423,7 +423,7 @@ fail closed。
 
 在 merged implementation 与具名 acceptance evidence 证明 authentication rejection、empty-store creation、
 exact replay、changed-identity 与 changed-meaning conflict、response-loss/restart resolution、tamper
-rejection、每种零变化失败，以及 fresh disposable PostgreSQL 与 isolated Windmill topology 中随后的
+rejection、每种零变化失败，以及 fresh disposable PostgreSQL 与隔离第一方验收拓扑中随后的
 accepted TrialFamily formation 之前，该有界 composition 仍是 **TARGET / NOT_ADMITTED**。只有这些条件
 全部成立后，才能把有界 bootstrap composition 称为 **CURRENT**。该状态不证明 production
 deployment、Workbench product readiness、provider readiness 或任何真实交易权威。
@@ -452,7 +452,7 @@ Data Owner transaction 内原子提交；Composer evidence 在 guarded window �
 disposable Catalog fixture 仅用于测试。隔离的 `SEALED_ACCEPTANCE` harness 可以通过私有 administration
 port 在其 fresh PostgreSQL instance 中创建并显式推进一个固定的内容寻址 policy head。fixture、
 administrative hook 与 policy bytes 都不是 runtime default、migration seed data、production configuration，
-也不是 deployed Owner/Windmill readiness 证据。
+也不是 deployed Owner/Dashboard readiness 证据。
 
 ### TARGET / NOT_ADMITTED - 同一截面的 Decision 与 Selection composition
 

@@ -15,12 +15,12 @@
   冻结 Intent、Artifact 与 Build Receipt、探索 Run Detail 与 Compare、Diagnosis、Iteration Decision，
   以及准确的停止、修复、后继或 Qualification 交接动作。Dashboard 与它的 `/api/mcp` 调用同一组带版本
   operation。它的已准入第一方读面已经发货，但仍只在 opt-in 的 `dashboard-preview` profile 下启动；
-  生产部署与 Windmill 切换保持 `TARGET`。
+  生产部署保持 `TARGET`。
 - `NOT_ADMITTED` - 架构页面、preview profile 下可达的 Dashboard、MCP 握手、目标 read model 或可访问
   底层 API 都不能让产品表面成为 `CURRENT`。
 
 目标以一套 Docker Compose 产品包交付，只提供一个默认 Dashboard Web 入口与一个 Dashboard MCP 对话
-出口。外部对话客户端可选接入，但不随产品打包，也不逐一维护 adapter。Windmill 调度长时间运行的
+出口。外部对话客户端可选接入，但不随产品打包，也不逐一维护 adapter。Dashboard 的 shadow scheduler 与 effect worker 调度长时间运行的
 研究与 scanner job；真实策略循环、行情会话、Risk、订单与恢复效果的权威和进程边界仍属于 Trade Runtime。
 
 [Observability](../architecture/observability/) 可以解释进度与失败，但不能闭合旅程、选择下一动作，
@@ -35,13 +35,13 @@
 后继、停止、修复或 Qualification 交接。
 
 Conversation Agent 的职责止于提交类型化请求和查询有界状态。服务端 R&D Execution Agent 拥有长时间
-运行的执行 session，并在对话客户端关闭后继续受 Windmill 监督。MCP 不会把客户端模型或 credential
+运行的执行 session，并在对话客户端关闭后继续受 Dashboard effect worker 监督。MCP 不会把客户端模型或 credential
 借给该 job。两个角色可以共用显式配置的模型 provider 或计费 gateway，但不能共用 session 权威、
 能力 scope、预算或审计 identity。
 
 用户通过可见动作发起研究、请求解释、要求修改、停止工作，或提交准确的已选 Candidate。每个会改变
 状态的动作都创建新的类型化请求。修改要么产生新的不可变 Artifact，要么产生明确的原生终态
-disposition；绝不编辑或覆盖既有 Artifact。Windmill Job 进度只能解释执行过程；业务阶段和允许的
+disposition；绝不编辑或覆盖既有 Artifact。运维 run 进度只能解释执行过程；业务阶段和允许的
 下一步动作由接收 Owner 的回执与投影决定。
 
 Dashboard 通过以下应用区域闭合旅程：
@@ -55,9 +55,9 @@ Dashboard 通过以下应用区域闭合旅程：
 | Artifacts        | Identity、Intent 与迭代血缘、结构化逻辑、参数、依赖、构建状态、语义变更解释和允许动作  | Artifact 与 Build Receipt 保持权威；解释不能替代它们                                         |
 | Backtests        | 探索图表、风险指标、Run Detail 与版本比较                                              | Backtest 拥有 Run Result；比较不能创建 Selection                                             |
 | Qualification    | 有界公共状态与准确的已接纳交接动作                                                     | 保护细节保持不透明；Qualification 拥有 intake 与 eligibility                                 |
-| Scanner          | 调度、终态 Scanner Receipt、心跳和未解析状态                                           | Windmill 调度工作；Scanner 拥有提案事实且永不启动 Runtime                                    |
+| Scanner          | 调度、终态 Scanner Receipt、心跳和未解析状态                                           | Dashboard shadow scheduler 调度工作；Scanner 拥有提案事实且永不启动 Runtime                  |
 | Runtime          | 已应用 generation、策略循环状态、checkpoint、incident 与允许的生命周期动作             | Runtime、Governance、Risk 与 Execution 事实保持独立权威                                      |
-| Operations       | Windmill job、worker、进度、日志、重试与 incident                                      | 运维成功不等于研究、Qualification、部署或交易成功                                            |
+| Operations       | 运维 run、worker、进度、日志、重试与 incident                                          | 运维成功不等于研究、Qualification、部署或交易成功                                            |
 
 首个 Artifact Review 表面有意不展示原始源码。完整源码只读查看、源码 diff、受控下载和源码关联诊断
 属于延后的高级审计能力。Notebook-first 创作、内嵌代码 IDE、原地编辑 Artifact 和覆盖版本都不是

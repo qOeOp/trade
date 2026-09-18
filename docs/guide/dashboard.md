@@ -6,7 +6,7 @@ The user admits one first-party local operator session shell and the read‑only
 `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED`. This narrow slice replaces the inert login presentation only. It does
 not admit OAuth, account creation, password import, transport-token issuance, Operator Authorization or Product
 Edge binding mutation, authorization successor selection, a role-administration product, or any Owner/provider
-effect. Windmill routing and `DASHBOARD_OPERATOR_API_TOKEN` remain unchanged.
+effect. Product Edge routing and `DASHBOARD_OPERATOR_API_TOKEN` remain unchanged.
 
 `DASHBOARD_LOCAL_OPERATOR_LOGIN_TOKEN` is proof for creating or renewing the browser session only.
 `DASHBOARD_SESSION_HMAC_KEY` signs a versioned cookie containing the fixed `local_operator` principal, a random
@@ -37,7 +37,7 @@ registrations through `/api/operations/schedules/history/`; it is historical evi
 never be presented as current configuration or activity. `Current schedules` uses the existing
 configuration-bound `/api/operations/schedules/` contract. This narrow exception supersedes the
 generic blueprint-only classification for this route; it does not admit Scanner due-slot resolution
-or Windmill generic schedules. No scheduler, registration, tick or enqueue occurs on reading.
+or generic shell schedules. No scheduler, registration, tick or enqueue occurs on reading.
 
 History reads at most the latest 100 rows ordered by the millisecond projection of
 `COALESCE(last_due_at, created_at)` descending and immutable schedule identity ascending. A 101-row probe distinguishes `complete` from
@@ -139,7 +139,7 @@ available data are distinct states.
 This atom performs no Backtest dispatch, selection commit, comparison judgment, economic claim,
 Owner resolve, provider call, or business write. No Dashboard route or admitted Backtest Owner resolver
 currently supplies its positive projection, so component tests and static rendering do not establish
-live data, deployed-browser acceptance, S3 availability, or Windmill replacement.
+live data, deployed-browser acceptance, S3 availability, or executor cutover.
 
 ## Bounded admission: Exploratory Replay request and result readback
 
@@ -212,7 +212,7 @@ custody uses the same compact body geometry and a precise reason. The result rea
 so the page renders no `BacktestReturnBand`, invented strategy line, benchmark, return, drawdown or run count.
 `Run`, `Resolve`, `Create successor`, edit, compare,
 download and provider actions have no slot. This slice does not establish S3 deployment availability,
-Backtest execution, Windmill replacement or real-trading authority.
+Backtest execution, executor cutover or real-trading authority.
 
 ## Bounded admission: read‑only strategy code viewer
 
@@ -239,7 +239,7 @@ Artifact fact.
 The only local UI action is Copy source. Folding, selecting and scrolling are presentation state and
 cannot change the projection. The Wasm pane displays an already projected sandbox result; it has no
 Run control and performs no module instantiation, network call, Owner resolve, provider effect,
-business write, Windmill mutation, or trading action.
+business write, effect-worker mutation, or trading action.
 
 An `ACTIVE_OBSERVATION / IMPLEMENTATION_ADMITTED` detail slice may bind
 `/rd/artifacts/{build_request_identity}/attempts/{attempt_identity}` to the exact authenticated Owner
@@ -255,7 +255,7 @@ The dedicated read port owns no mutation method. Its canonical read-committed tr
 existing full custody verifier, including the historical Product Edge admission read and row-lock consistency,
 but creates no new admission and performs no timeout terminalization, sandbox invocation or database
 write. This detail slice does not create an Artifact list, prove deployed availability or establish
-Windmill replacement.
+executor cutover.
 
 ## Bounded admission: Source Intake exact-readback workbench
 
@@ -291,9 +291,9 @@ The Dashboard BFF binds the path identity to authenticated Owner GET
 `/v1/source-intakes/{request_identity}/readback`, accepts only the existing strict Source Intake projection, and
 returns a bounded browser envelope with the filtered fields above. `Open readback` and `Refresh` are the only
 network actions and both perform the same zero-effect point read. Input editing is local presentation state.
-There is no Source Intake directory and no inference from Runs, Windmill jobs, historical custody candidates,
+There is no Source Intake directory and no inference from Runs, operational jobs, historical custody candidates,
 or client fixtures. This slice cannot Submit or Resolve an Intake, create a successor, fetch source content,
-invoke a provider, mutate Windmill, write business state, or authorize trading. The broader composer,
+invoke a provider, mutate the effect worker, write business state, or authorize trading. The broader composer,
 TrialFamily policy, authority-resolution, draft-source, and positive-action panels in the route registry remain
 future blueprint content and are not inferred into this workbench.
 
@@ -319,7 +319,7 @@ React state and is never persisted, placed in a URL, logged, or rendered after d
 This route is `IMPLEMENTATION_ADMITTED / NOT_CUT_OVER` under Authorization B. It calls only the existing exact
 `POST /api/rd/source-research` BFF, and availability still requires the disposable enablement, content-addressed
 compatibility, RunStore, and two unique `ACTIVE / TRADE_DASHBOARD` Product Edge bindings. The route does not
-change either binding, call a production Owner or provider, modify Windmill, authorize trading, or establish
+change either binding, call a production Owner or provider, modify the effect worker, authorize trading, or establish
 publication or production cutover.
 
 The frozen effect operation and Product Edge routing identities remain unchanged during migration. For the Source
@@ -327,7 +327,7 @@ stage, the Dashboard effect worker calls authenticated `POST /v2/source-intakes`
 `request_identity`, `normalized_doi`, and `interpretation`; transport channel and policy internals are rejected at
 the Owner API boundary. The Owner then adapts this neutral V2 proposal to the existing V1 custody model so its
 canonical admission, receipt, and recovery identities remain compatible. `POST /v1/source-intakes` remains only
-as the legacy Windmill adapter until V2 parity, recovery, an atomic routing cut, and rollback observation are all
+as the legacy V1 adapter until V2 parity, recovery, an atomic routing cut, and rollback observation are all
 proven; this admission does not authorize that cut or removal.
 The composite Source-to-Research manifest derives its Owner operation list from those two child manifests, so its
 content-addressed digest records Source V2 without changing the frozen effect operation or Product Edge routing identities.
@@ -365,7 +365,7 @@ payload, binding request, plugin capsule, principal, policy, outbox, or storage 
 workbench has no `Run`, `Resolve`, `Edit`, `Save`, `Compile`, `Preview`, or provider action and does not render the
 read‑only code viewer because this contract carries no source text. Artifact source remains available only through
 its separately admitted exact Artifact source route and identities; an Artifact locator alone is not converted
-into those identities. This slice cannot mutate Windmill, write business state, invoke a provider, or authorize
+into those identities. This slice cannot mutate the effect worker, write business state, invoke a provider, or authorize
 trading. The broader Intake composer and authority-resolution panels remain future blueprint content.
 
 Separately from the browser surface, the authenticated `POST /api/rd/develop-composer` and fixed MCP tool
@@ -377,7 +377,7 @@ that projection and its digest with the queue row. The effect worker re-projects
 resolves the derived request identity first, and submits `{research_request_locator}` only when the Owner returns
 the exact absence sentinel. It records submission-start before transport and submits only on claim one; response
 loss, restart, and later claims are resolve-only. A second resolve supplies the terminal Owner outcome. This does
-not add a browser Run control, change the Product Edge binding, modify Windmill, call a shared or production Owner,
+not add a browser Run control, change the Product Edge binding, modify the effect worker, call a shared or production Owner,
 authorize trading, or establish cutover.
 
 ## Bounded admission: verified Research directory and exact readback
@@ -585,8 +585,8 @@ the verified outcome, optional current Research view, committed/observed/valid-t
 technical identities named above. It accepts no request body and does not enqueue a RunStore read. Apart from the
 disposable Artifact-formation control separately admitted above by Authorization B, `Refresh`, directory
 view/search/sort/pagination, `Load older`, `Open detail`, and local back navigation are the only actions. That
-exception does not change the Windmill binding and does not authorize a production Owner/provider write,
-production cutover, Windmill removal, trading, generic Submit, or create-successor. The broader Research admission, outcome-action, receipt timeline,
+exception does not change the Product Edge binding and does not authorize a production Owner/provider write,
+production cutover, trading, generic Submit, or create-successor. The broader Research admission, outcome-action, receipt timeline,
 and S1 custody panels in the route registry remain future blueprint content.
 
 ## Bounded admission: verified hypothesis directory
@@ -610,7 +610,7 @@ future timestamp, unavailable Owner route, or transport failure renders one comp
 An item whose verified question is unavailable remains a visible, explicitly unavailable record with no fabricated
 question text. `Verified` means only that the saved question text passed the existing Owner custody contract; it is
 not a claim that the hypothesis is true. The route exposes no submit, resolve, successor, formation, decision, edit,
-or execution control and cannot affect Windmill or effect routing.
+or execution control and cannot affect effect routing.
 
 ## Bounded admission: verified Iteration Decision directory
 
@@ -633,7 +633,7 @@ Activating a row expands one detail beneath it without changing URL or creating 
 scroll owner. The detail reports the committed outcome, round, consumed/frozen trial budget, time, and the precise
 outcome-specific reason or target. Its only navigation is `Open research record` to the Formation row's canonical
 Research workspace. Refresh clears the prior positive Decision cut before reading again. The route exposes no repair,
-successor, stop, qualification, replay, submit, resolve, mutation, or execution control and cannot change Windmill or
+successor, stop, qualification, replay, submit, resolve, mutation, or execution control and cannot change the effect worker or
 effect routing.
 
 ## Bounded admission: verified Artifact directory
@@ -658,7 +658,7 @@ preview, and Copy capability. A new identity or unmount aborts and invalidates t
 request, a successful HTTP response, and the strict existing projection normalizer may restore positive source;
 late, aborted, non-2xx, malformed, or transport-failed responses retain the fixed unavailable viewer geometry and
 cannot refill an older source. The workspace remains GET-only and exposes no edit, save, run, build, deploy, or
-Owner/Windmill effect control.
+Owner/effect-worker control.
 
 Research and Artifact directories share the domain-neutral `EntityReference` atom. The primary line names the
 business entity (`Research request`, `Build request`, `Build attempt`, `Strategy artifact`, `Strategy intent`, or
@@ -755,7 +755,7 @@ same `PanelFrame`, `FactGroup`, `FactItem`, `StatusBadge`, and compact filter-bu
 shows only business-facing outcome, quarantine, reason, and timing facts; exact identities and the Owner receipt stay
 behind the existing info affordance. This
 directory does not submit or resolve an attempt, build source, run a sandbox/Wasm module, invoke a provider, mutate
-Windmill, write business state, or authorize trading. `WASM_PREVIEW_NOT_RUN` in the linked source viewer remains
+the effect worker, write business state, or authorize trading. `WASM_PREVIEW_NOT_RUN` in the linked source viewer remains
 unchanged until a separate real Owner-backed preview contract is admitted.
 
 The authenticated GET
@@ -767,10 +767,10 @@ actions, review, binding, replay, security panels, or any mutation.
 
 This chapter is the living implementation and phased-admission contract for the Trade-owned Dashboard. It defines
 the product shell, information architecture, reusable UI system, and the current evidence-backed hypothesis for the
-narrow Windmill capability set that the Dashboard may replace. The user has explicitly admitted bounded Dashboard
+narrow capability set that the Dashboard inherited from the retired shell. The user has explicitly admitted bounded Dashboard
 implementation and packaging under the exact contracts in this chapter. That admission
 does not claim that a Dashboard service is merged or available, that the capability inventory is final, or that any
-Windmill cutover, business acceptance, production write, provider effect, or trading action is authorized.
+executor cutover, business acceptance, production write, provider effect, or trading action is authorized.
 
 ## Status vocabulary and evidence cut
 
@@ -1091,7 +1091,7 @@ User -> Dashboard typed request -> Product Edge admission -> native Owner
 User <- Dashboard projection <- Owner receipt/view or explicit unavailable state
 
 Telemetry/Event Rail -> rebuildable Dashboard projection
-Windmill/Dashboard job success -X-> business success or trading authority
+Dashboard job success -X-> business success or trading authority
 ```
 
 Mutating controls stay disabled until the current Owner projection admits exactly that action. Submitting creates
@@ -1188,14 +1188,14 @@ returns `unavailable` with zero invocation‑admission, claim, state, or provide
 The invocation‑admission receipt, claim receipt, and invocation state are three separate Product Edge facts. The
 claim consumes and references the sealed invocation admission; it cannot substitute the original request admission
 or transient resolver output. The versioned public claim readback includes
-`invocation_admission_receipt_identity` and `invocation_admission_receipt_digest`; the Windmill operation adapter and
+`invocation_admission_receipt_identity` and `invocation_admission_receipt_digest`; the `rd-owner-client` operation adapter and
 shared consumer projector must consume one generated/exact parser and bind both values before projecting a claim.
 That parser is discriminated by Owner resolution and follows Rust serialization exactly: `SUCCESS` carries present,
 non-null `trial_family_resolution` and `artifact_trial_family`; `CLAIMED`, `INVOCATION_STARTED`,
 `FAILED_NO_ARTIFACT`, `OUTCOME_UNKNOWN`, and `REJECTED_NO_WRITE` omit both optional family keys; verified legacy
 terminal carries `trial_family_resolution=TRIAL_FAMILY_UNAVAILABLE_LEGACY` and omits
 `artifact_trial_family`. Explicit `null` is not interchangeable with omission. Rust fixture bytes must feed both
-Windmill verifiers in one cross-language contract test; hand-authored `null` fixtures are not acceptance.
+`rd-owner-client` verifiers in one cross-language contract test; hand-authored `null` fixtures are not acceptance.
 Missing, extra, schema-mismatched, or tampered wire fields preserve the A0/A1 geometry as `Unavailable`, expose only
 same‑attempt Resolve and operational evidence, and never enable Run. Claim disposition is
 `CLAIMED_NEW | ALREADY_CLAIMED`; state is `CLAIMED | INVOCATION_STARTED`; start disposition is
@@ -1255,8 +1255,9 @@ Resolve; it must not silently collapse into an untyped generic unknown.
 
 ## Windmill capability evidence ledger
 
-Windmill is the borrowed application and job shell. Its replacement retains only capabilities proved necessary by
-a Trade consumer or required by an existing architecture contract.
+Windmill was the borrowed application and job shell. It is retired, and `Capability Adoption` records where each
+capability went; this ledger is kept as the evidence behind that disposition. The Dashboard retains only
+capabilities proved necessary by a Trade consumer or required by an existing architecture contract.
 
 | Windmill capability                                  | Observed use or need                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Current design hypothesis                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1310,7 +1311,7 @@ isolation. A live heartbeat with no compatible executor is `online / incompatibl
 
 This 2026-08-20 snapshot combines the authenticated Windmill UI, the pinned `1.791.0` Compose deployment, App and
 script source, and read‑only Windmill database counts. Counts are observation evidence, not stable product limits.
-The future service implements the contract in the last two columns, not Windmill's tables or generic low-code
+The Dashboard implements the contract in the last two columns, not Windmill's tables or generic low-code
 models.
 
 The layout and exclusion decisions are also checked against the exact official Windmill source embedded in that
@@ -1353,11 +1354,11 @@ sources, App/script hashes and Owner compatibility. The Dashboard therefore trea
 `unavailable`, not runtime success. TARGET uses one content-addressed compatibility envelope; it may intentionally
 bind multiple service artifacts, but a mixed runtime with no such envelope cannot become available.
 
-The `TARGET_DRAFT` local entry topology keeps every Owner, Windmill and PostgreSQL container exclusively on one
+The `TARGET_DRAFT` local entry topology keeps every Owner, Dashboard and PostgreSQL container exclusively on one
 sealed internal network, with no published port or external route. The sole ingress is a credential-free,
 read‑only-filesystem TCP sidecar attached to that network and a separate bridge with IP masquerading disabled. It
-drops all Linux capabilities, runs a fixed command, and forwards only the host-bound `127.0.0.1:<port>` to internal
-Windmill. Acceptance requires dynamic proof that the host can reach Windmill through that loopback port while each
+drops all Linux capabilities, runs a fixed command, and forwards only the host-bound `127.0.0.1:<port>` to the internal
+Dashboard web role. Acceptance requires dynamic proof that the host can reach the Dashboard through that loopback port while each
 business container still has no external route; any additional published address, forwarding target, credential,
 capability or business-container bridge attachment fails closed. The isolated topology experiment passed this
 boundary, but it remains design evidence only: it does not establish a default deployment, Dashboard
@@ -1379,7 +1380,7 @@ implementation, provider/network execution, production write or trading authorit
 | Variables, Resources, global Assets, generic Schedules | `trade‑rd` counts are 0/0/0/0. Compose injects an allowlisted environment into the worker; Data Tables and frontend SDK access are forbidden                         | No product tabs for these Windmill stores. Settings accepts opaque runtime references; the separately admitted first‑party bounded shadow schedules live at Operations / Schedules                                                                         | Exclude Windmill generic stores. `/operations/schedules` uses only the typed zero‑effect `configuredShadowScheduleSetV1` + RunStore contract defined above                                                                                                                                                            |
 
 The native `bun` runtime is an implementation detail of the three pinned scripts, not a user-selectable runtime
-catalog. PostgreSQL persists Windmill operational state; separate R&D and Backtest Owner databases/APIs persist
+catalog. PostgreSQL persists Dashboard RunStore operational state; separate R&D and Backtest Owner databases/APIs persist
 business facts. The replacement keeps that ownership split even if all services ship in one image set.
 
 ### Operations API and backend state contract
@@ -1550,7 +1551,7 @@ Event identity, digest, and checkpoint equality bind the complete canonical enve
 observed/valid‑through time, payload reference, and telemetry fields. The same identity/frontier with a changed
 fingerprint conflicts or quarantines; rebuild never silently rewrites freshness or an Owner fact.
 
-R&D preserves the journey exercised in Windmill:
+R&D preserves the journey first exercised in the retired shell:
 
 Source and falsifiable goal -> R&D request receipt -> Frozen Intent -> bounded Agent/build -> immutable Artifact
 and Build Receipt -> Artifact Review -> Exploratory Replay Request -> Backtest Result -> R&D handoff -> exact next
@@ -1566,7 +1567,7 @@ next action `RESOLVE_SAME_REQUEST_IDENTITY`. Submit and successor controls are a
 to create the basis stage; after it commits, the same request may only resolve or complete from sealed historical
 custody across later cutover, revocation, or expiry. It never creates a second basis/head/outbox, while changed
 request or admission identity is a conflict. The consumer review found no static consumer defect in the separate H1
-claim/start/terminal fixes (31/31), but dynamic PostgreSQL, Windmill, provider, and browser acceptance remains
+claim/start/terminal fixes (31/31), but dynamic PostgreSQL, effect-worker, provider, and browser acceptance remains
 unavailable; none of this candidate is current product capability.
 
 Fresh v5 review of `e5893fd5503c65be2afaae0da4a8b234b211c80f` proves that this geometry is still a target,
@@ -1630,7 +1631,7 @@ renders `APPLICATION_UNKNOWN`. The Dashboard does not expose an Apply-success st
 sealed‑receipt dependency restructuring exists and passes real Owner-store reread.
 
 The earliest independently acceptable Governance-to-Runtime product slice is negative, not positive: the default
-Windmill journey may prove `REJECTED_NO_WRITE` and then prove that Runtime produced no application receipt for the
+Dashboard journey may prove `REJECTED_NO_WRITE` and then prove that Runtime produced no application receipt for the
 same generation/request identity. The Lifecycle detail shows the rejection receipt, no-write assertion, source
 frontier, and exact identity; the Runtime Generations detail shows `NOT_APPLIED / NO_APPLICATION_RECEIPT` and links
 back to that Governance receipt. It exposes no Apply or retry button. Positive `APPLIED` remains unavailable until
@@ -1901,8 +1902,8 @@ remain distinct as specified above.
 
 `/operations/workers` and `/operations/workers/:workerId` are `DRAWABLE_EXACT` and
 `IMPLEMENTATION_ADMITTED` for first-party RunStore GET readback only. This Workers-specific closure supersedes
-the earlier Windmill worker-table sketch, not any other route's maturity. It neither reads the Windmill
-`rd-product-edge` administration surface nor authorizes cutover, Owner effects, or production writes.
+the earlier Windmill worker-table sketch, not any other route's maturity. It neither reads a retired-shell
+administration surface nor authorizes cutover, Owner effects, or production writes.
 
 ```text
 H  Service capacity / Workers                                         [info] [Refresh]
@@ -1979,7 +1980,7 @@ D  Service + availability -> Availability -> Work handled -> Recent activity -> 
 
 `/operations/service-logs` is `DRAWABLE_EXACT` and `IMPLEMENTATION_ADMITTED` only as a first-party
 RunStore GET projection of bounded operational evidence. This closure supersedes the earlier Windmill
-service-log sketch. It does not read Windmill administration or log storage, and it does not admit a
+service-log sketch. It does not read retired-shell administration or log storage, and it does not admit a
 worker command, Owner call, effect retry, deployment, cutover, production write, or trading action.
 
 ```text
@@ -2064,18 +2065,18 @@ B  Showing newest n of retention limit | completeness/redaction/truncation discl
   or health-promotion action exists.
 
 The positive producer is Trade-owned RunStore data observed in one repeatable-read PostgreSQL transaction. A
-browser fixture, copied Windmill row, hand-authored JSON, HTTP success alone, or stale prior envelope cannot prove
+browser fixture, copied retired-shell row, hand-authored JSON, HTTP success alone, or stale prior envelope cannot prove
 availability. Dynamic acceptance must produce logs through the real disposable `PostgresRunStoreV1`, read them
 through the production gateway and GET route, and exercise the browser filters/selection/download parity while
-proving zero Windmill, Owner, provider, scheduler, dispatcher, production, and trading effects. Logs cannot promote
+proving zero Owner, provider, scheduler, dispatcher, production, and trading effects. Logs cannot promote
 Owner health, business success, worker readiness for an unbound run, Telemetry availability, or replacement
 readiness.
 
 #### Exact Operations Audit read‑only skeleton
 
 `/operations/audit` is `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED` only for the first-party, append-only
-control-plane evidence defined here. It never reads Windmill's partitioned table as a positive first-party source:
-the currently observed Windmill rows expose only principal, time and action kind while operation and resource are
+control-plane evidence defined here. It never reads the retired shell's partitioned audit table as a positive first-party source:
+the rows observed there exposed only principal, time and action kind while operation and resource are
 `redacted`. They may remain external migration evidence, but cannot fabricate a target, outcome or Dashboard audit
 identity. The admitted producers are exactly successful `dashboard.dependency.cancel.queued.v1` and
 `dashboard.operational_cache.delete.v1` transitions plus authenticated control-plane admissions for
@@ -2090,7 +2091,7 @@ receipt binds the authenticated principal and authorization digest, original req
 mode, operation, and exact run identity. Repeating the same admission reads the same immutable receipt; a distinct
 action or execution mode gets a distinct receipt. The audit outcome `succeeded` means only that control-plane
 admission committed; it never claims Owner acceptance, provider success, or a business terminal outcome. Historical
-runs are not backfilled with invented principals or authorization digests. No deployment, scheduler, Windmill,
+runs are not backfilled with invented principals or authorization digests. No deployment, scheduler,
 effect-routing, production, trading, Owner-outcome, or provider-outcome event is inferred or changed by this slice.
 
 ```text
@@ -2136,7 +2137,7 @@ the `S/F/P/Q/B` geometry, use `-` summaries and expose the machine reason only b
 returns the same `Q` footprint with `AUDIT_EVENT_NOT_FOUND`; malformed/cursor-expired inputs fail closed with no
 rows. `B` shows displayed count, `complete|partial_unavailable`, the fixed 512-event retention bound, and only when
 one verified event is selected the secondary Copy audit locator action. There is no edit, delete, dismiss, replay,
-retry, Owner resolution, provider claim, download or generic Windmill action.
+retry, Owner resolution, provider claim, download or generic shell action.
 
 The list API is `GET /api/operations/audit`; detail is
 `GET /api/operations/audit/{audit_id}`. Both are `no-store`, consume `OperationAuditStore`, echo an immutable
@@ -2286,7 +2287,7 @@ then be added to the inventory. Dashboard implementation is `IMPLEMENTATION_ADMI
 and shared atoms, delivered as bounded reviewable slices with fail-closed data/effect boundaries. A
 `DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` or `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE` surface remains prohibited until the
 same bilingual completeness closure promotes it; implementation admission never promotes backend availability,
-Owner acceptance, replacement readiness, Windmill cutover, or production effects.
+Owner acceptance, replacement readiness, executor cutover, or production effects.
 
 ### Routed page blueprint registry
 
@@ -2351,7 +2352,7 @@ record. The table is ordered by the recorded Owner/RunStore time and uses the sh
 Every source fails closed independently: an identity mismatch or unavailable read withdraws only its dependent rows
 and count, never converts them to zero, and marks the overall list partial when another source remains readable.
 Loading withdraws retained positive rows. The page has one outer vertical scroll owner and no dialog, drawer, Resolve,
-retry, dismiss, clipboard locator action, Owner mutation, effect dispatch, or Windmill routing change.
+retry, dismiss, clipboard locator action, Owner mutation, effect dispatch, or effect routing change.
 
 The admitted Recent `/dashboard/recent` workspace answers "what verified outcome was recorded most recently?"
 without introducing another outcome owner. `RecentOwnerOutcomes` reuses the historical-custody, research-question,
@@ -2904,10 +2905,10 @@ references at runtime; keep credentials out of images, HTML, bundles, URLs, logs
 separate Owner stores/credentials; and include asset manifest, provenance, compatibility declaration, and route
 smoke test.
 
-Windmill and Dashboard may coexist during migration without dual business writers. Cutover is consumer based:
-every admitted Windmill Web/MCP journey passes through the new Dashboard/registry with the same Owner receipts and
-fail-close behavior. Windmill removal is a separate reversible cleanup after parity, cache-loss recovery, and
-artifact custody are proven.
+The previous executor retired without a cutover: no deployment ran it, so the Dashboard and its RunStore are the
+only executor path (see Product Edge). No dual business writer exists. Every admitted Web/MCP journey passes
+through the Dashboard/registry with the same Owner receipts and fail-close behavior; parity, cache-loss recovery,
+and artifact custody are still proven per journey before any production cutover.
 
 ### First-party effect custody admission (authorization B)
 
@@ -2915,14 +2916,14 @@ artifact custody are proven.
 Product Edge journeys behind `DASHBOARD_DISPOSABLE_EXECUTION`: the ordered Source Intake -> Research Goal V2
 journey, Artifact Build V1 formation, Develop Composer V2 request submission-or-resolution, and Exploratory Replay
 V2 request submission-or-resolution. This admission permits source, tests, packaging, and disposable dynamic
-verification. It does not activate a route, change an existing Windmill binding, call a live provider, write a
+verification. It does not activate a route, change an existing Product Edge binding, call a live provider, write a
 shared or production Owner database, or authorize trading. Those runtime effects remain separately gated.
 
 Product Edge remains the sole routing authority. A fresh Dashboard `RUN` is reachable only when the exact
 content-addressed compatibility envelope is current and every operation-specific routing key resolves to the one
 `ACTIVE` history head with dispatcher `TRADE_DASHBOARD`. `WINDMILL`, zero-active, dual/ambiguous, stale, malformed,
 unavailable, or mismatched observations fail closed before an Owner call. Deployment flags and credentials are
-necessary transport configuration, never routing authority. Consequently Windmill and Dashboard cannot both be
+necessary transport configuration, never routing authority. Consequently a legacy `WINDMILL` dispatcher head and the Dashboard cannot both be
 fresh business writers for the same operation identity.
 
 The Dashboard RunStore records the canonical recovery identity, operation manifest, compatibility envelope, and
@@ -2931,7 +2932,7 @@ same ancestry is handed to Research Goal V2. Artifact formation preserves the ex
 claim-before-provider and start-before-provider ordering, at-most-once provider custody, and manual reconciliation
 after an ambiguous started invocation. A response-loss or restart path uses only the retained operation and exact
 request/attempt identities: it first resolves Owner custody, may continue only the one Owner-declared unstarted
-claim, never re-evaluates a fresh Windmill/Dashboard choice, and never creates a replacement identity or naked
+claim, never re-evaluates a fresh dispatcher choice, and never creates a replacement identity or naked
 retry. Exact-identity `RESOLVE` remains effect-free and does not require a current Dashboard routing binding.
 
 Exploratory Replay custody is narrower than native replay execution. The public HTTP/MCP request represents every
@@ -2952,7 +2953,7 @@ The canonical Source Intake-to-Research Owner operation is transport-neutral: it
 Research proposal and exact Source ancestry; the public proposal has no transport `channel`. The Owner resolves current
 Source policy locators from sealed Source custody inside its boundary; Dashboard, browser, and MCP never construct or
 receive `policy_query`. During migration
-the legacy V1 Windmill adapter remains available only to avoid interrupting current jobs. After parity, recovery,
+the legacy V1 adapter remains available only to avoid interrupting current jobs. After parity, recovery,
 the atomic Product Edge routing cut, and the rollback observation window are proven, that adapter and its V1 request
 surface are removed; they are not part of the Dashboard-only target architecture.
 
@@ -2963,7 +2964,7 @@ The admitted HTTP surface is limited to `POST /api/rd/source-research`,
 exact allowlisted body, rejects unknown fields, and returns the same bounded Owner projection plus an operational
 run reference or an explicit unavailable state. No mutating control is enabled in the browser until disposable
 runtime verification proves these gates. Moving either Product Edge binding to `TRADE_DASHBOARD`, exercising a
-real Owner/provider effect, production cutover, Windmill removal, and publication remain separate explicit
+real Owner/provider effect, production cutover, and publication remain separate explicit
 effects.
 
 ## Unattended implementation sequence
@@ -2971,7 +2972,7 @@ effects.
 The backend dependency wave is a `TARGET_DRAFT` development-custody constraint and does not authorize Dashboard
 implementation. PR #327 has already merged the F1 read‑only Observability source projection as `CURRENT/PARTIAL`
 after independent exact-head review and repository gates. Its real Owner canonical-outbox adapter, telemetry
-backend, runtime/default-Windmill consumer, and every Dashboard implementation remain unavailable or
+backend, runtime/default-Dashboard consumer, and every Dashboard implementation remain unavailable or
 `NOT_ADMITTED`. PR #332 separately supersedes the planned Portfolio static Scope skeleton with the
 `CURRENT/PARTIAL` fail-closed public request/unavailable-envelope contract; it still exposes no direct-source
 composition, positive readback, `PORT_BOUND`, Dashboard consumer, or effect. The first logical W1 wave after Hub
@@ -3013,7 +3014,7 @@ the affected Dashboard projection `unavailable` and prevents an unattended agent
 9. **Remaining domain views** - add in side-menu order under current Owner disclosure contracts; no mutation until
    separately admitted.
 10. **Image integration and cutover** - provenance, packaging, migration parity, rollback, then separately authorized
-    Windmill retirement.
+    production cutover.
 
 Each slice runs component/accessibility, route/responsive, typed-contract, negative/unknown tests, the real Owner
 journey, App/MCP parity where applicable, cache-loss/restart recovery, repository docs/root gates, and full diff
@@ -3023,7 +3024,7 @@ inspection. Screenshots and mocks never replace the real consumer.
 
 The Dashboard is not a notebook, code IDE, general automation builder, observability backend, data warehouse,
 secret manager, business database, broker, exchange terminal, or autonomous trading authority. It does not
-recreate all of Windmill.
+recreate every capability of the retired shell.
 
 Implementation stops when it needs a second business writer, direct Owner-table write, hidden protected detail,
 fabricated freshness, success without a receipt, broad management tool, unresolved effect, unavailable current

@@ -19,7 +19,7 @@ UI atoms together with the currently admitted first-party read surfaces.
   remain navigation-only placeholders. A route name or retained source is not implementation authority.
 
 The Operations APIs read only Trade-owned operational RunStore data. Typed R&D and Backtest reads use their exact
-Owner contracts. They never copy Windmill job rows or raw Owner payloads, and operational completion is never
+Owner contracts. They never copy another executor's job rows or raw Owner payloads, and operational completion is never
 reinterpreted as business success. The same-identity Owner resolution endpoint may repeat only the registered typed
 Owner read; it does not dispatch or retry an effect. Operational cache deletion is capability-gated,
 terminal-run-only, and preserves the run tombstone and Owner locator.
@@ -60,10 +60,10 @@ requests. Their public bodies contain only domain proposals and exact ancestry; 
 internals remain confined to the legacy Owner adapter. The effect operation and Product Edge routing identities
 remain frozen until a separately authorized atomic cut.
 
-The Dashboard image is not bundled into a Windmill image, and enabling its profile does not stop, replace, or add a
-dependency to Windmill server or workers. There is no production deployment or Windmill cutover. Windmill remains
-the current executor for production effects; the Dashboard effect worker is disabled by default and has only
-explicit disposable-local authority. The Dashboard roles have no production trading authority.
+The Dashboard image is standalone, and enabling its profile does not stop, replace, or add a
+dependency to any other executor. There is no production deployment or executor cutover. The previous executor is
+retired, so the Dashboard effect worker is the only executor path for production effects. That effect worker is disabled by default
+and has only explicit disposable-local authority. The Dashboard roles have no production trading authority.
 Missing PostgreSQL or Owner configuration fails closed as an unavailable projection or an unhealthy runtime role.
 
 Browser access uses an HttpOnly, SameSite=Strict local session cookie signed by `DASHBOARD_SESSION_HMAC_KEY` after

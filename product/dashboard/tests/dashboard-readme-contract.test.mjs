@@ -21,14 +21,14 @@ test("Dashboard README keeps image, Compose, and effect custody explicit", () =>
     "standalone `trade-dashboard` image",
     "`dashboard-preview` profile",
     "does not stop, replace, or add a",
-    "Windmill remains",
-    "current executor for production effects",
+    "previous executor is\nretired",
+    "only executor path for production effects",
     "effect worker is disabled by default",
     "fails closed as an unavailable projection",
   ]) assert.ok(readme.includes(boundary), `missing README boundary: ${boundary}`);
 
   assert.match(readme, /127\.0\.0\.1:3100/u);
-  assert.doesNotMatch(readme, /Windmill cutover[^.]*complete/iu);
+  assert.doesNotMatch(readme, /executor cutover[^.]*complete/iu);
 });
 
 test("Dashboard README keeps MCP finite, independently authenticated, and non-administrative", () => {
