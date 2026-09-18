@@ -25,7 +25,7 @@ test("Backtest route renders one compact exact Replay request and result workben
     readFile(new URL("../components/exploratory-replay-readback-workbench.module.css", import.meta.url), "utf8"),
     readFile(new URL("../../../crates/strategy_factory_rd_owner_api/src/exploratory_replay.rs", import.meta.url), "utf8"),
     readFile(new URL("../../../crates/strategy_factory_rd_owner_api/src/main.rs", import.meta.url), "utf8"),
-    readFile(new URL("../../../crates/strategy_factory_rd_owner_api/src/bin/dashboard_read_api.rs", import.meta.url), "utf8"),
+    readFile(new URL("../../../crates/strategy_factory_rd_owner_api/src/dashboard_read_api.rs", import.meta.url), "utf8"),
   ]);
   assert.equal(maturityFor("/backtest"), "DRAWABLE_EXACT");
   assert.equal(exactBlueprints["/backtest"].primary, "ExploratoryReplayReadbackWorkbench");
