@@ -651,7 +651,7 @@ jobs:
         if: always()
         run: bash scripts/ci/report-disk-space.bash "after Rust tests"
 
-  postgres-owner-chains-linux-x86:
+  postgres-owner-chains-linux:
     if: >
       github.ref != 'refs/heads/test-pre-commit' &&
       needs.plan.outputs.run-tests == 'true' &&
@@ -659,20 +659,33 @@ jobs:
        needs.plan.outputs.publish_r2 == 'true' ||
        github.ref == 'refs/heads/master')
     name: ${{ matrix.chain.name }}
-    runs-on: ubuntu-22.04
+    runs-on: ${{ matrix.chain.runner }}
     needs:
       - plan
     strategy:
       fail-fast: false
       matrix:
         chain:
+          # The R&D chain runs on aarch64 because that is a host the Composer build admits. #612
+          # withdrew the x86_64 Linux build host, and the chain's production Composer RUN entry
+          # (`frozen_program_runs_the_production_composer_to_a_durable_artifact`) refuses on an
+          # x86_64 runner at `toolchain.host` with `the exact local build profile admits only
+          # aarch64-apple-darwin, aarch64-unknown-linux-gnu`: run 35322107871 passed the 68
+          # entries before it and stopped there. The chain is the proof of that RUN, so it runs
+          # where the RUN is admitted. The Market Data chain has no host clause and stays on the
+          # runner class the rest of the gate uses. Neither leg saves a Rust cache entry, so the
+          # architecture split costs nothing against the 10 GB quota.
           - key: rd-owner
-            name: rd owner postgres (ubuntu-22.04)
+            name: rd owner postgres (ubuntu-22.04-arm)
+            runner: ubuntu-22.04-arm
+            target: rust-tests-linux-arm64
             make: >-
               cargo-test-rd-owner-postgres-isolated NEXTEST_PROFILE=ci
               EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
           - key: market-data
             name: market data owner postgres (ubuntu-22.04)
+            runner: ubuntu-22.04
+            target: rust-tests-linux-x86
             make: cargo-test-market-data-owner-postgres-isolated
     env:
       CARGO_CI_PROFILE: >-
@@ -686,11 +699,11 @@ jobs:
       CARGO_TARGET_DIR: >-
         ${{ github.event_name == 'pull_request'
         && needs.plan.outputs.untrusted_pr != 'false'
-        && 'target/rust-tests-linux-x86'
+        && format('target/{0}', matrix.chain.target)
         || github.event_name == 'push'
         && (github.ref_name == 'main' || github.ref_name == 'test-ci')
-        && 'target/rust-tests-linux-x86'
-        || '/home/runner/.cache/cargo-target/rust-tests-linux-x86' }}
+        && format('target/{0}', matrix.chain.target)
+        || format('/home/runner/.cache/cargo-target/{0}', matrix.chain.target) }}
       # yamllint disable-line rule:line-length
       RUST_TEST_EXTRA_FEATURES: capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,vibe-strategy-factory/sealed-develop-composer-acceptance
       RUST_BACKTRACE: 1
@@ -737,8 +750,8 @@ jobs:
           # directory's name, and the job keeps `save-if: "false"` so it does not spend the 10 GB
           # quota on a third copy of one directory. Sharing needs rust-cache's `shared-key`, which
           # is not wired through `common-setup` yet.
-          rust-cache-key: rust-tests-linux-x86
-          rust-cache-workspaces: . -> target/rust-tests-linux-x86
+          rust-cache-key: ${{ matrix.chain.target }}
+          rust-cache-workspaces: . -> target/${{ matrix.chain.target }}
           rust-cache-on-failure: "false"
           rust-cache-save-if: "false"
           rust-cache-workspace-crates: "true"
@@ -767,7 +780,7 @@ jobs:
       - build
       - rust-doctests-linux-x86
       - rust-tests-linux-x86
-      - postgres-owner-chains-linux-x86
+      - postgres-owner-chains-linux
     runs-on: ubuntu-22.04
     steps:
       - name: Verify required build graph
@@ -779,7 +792,7 @@ jobs:
           BUILD_RESULT: ${{ needs.build.result }}
           RUST_DOCTESTS_RESULT: ${{ needs.rust-doctests-linux-x86.result }}
           RUST_TESTS_RESULT: ${{ needs.rust-tests-linux-x86.result }}
-          POSTGRES_CHAINS_RESULT: ${{ needs.postgres-owner-chains-linux-x86.result }}
+          POSTGRES_CHAINS_RESULT: ${{ needs.postgres-owner-chains-linux.result }}
           RUN_TESTS: ${{ needs.plan.outputs.run-tests }}
           RUN_RUST_TESTS: ${{ needs.plan.outputs.run-rust-tests }}
           RUN_GENERATED_DRIFT: ${{ needs.plan.outputs.run-generated-drift }}
@@ -1100,7 +1113,7 @@ jobs:
       - build-windows
       - rust-doctests-linux-x86
       - rust-tests-linux-x86
-      - postgres-owner-chains-linux-x86
+      - postgres-owner-chains-linux
       - security-gate-nightly
     runs-on: ubuntu-latest
     # Publish dev/nightly wheels to the R2 index. The platform jobs are skipped on develop
@@ -1116,7 +1129,7 @@ jobs:
       needs.build-windows.result != 'failure' &&
       needs.rust-doctests-linux-x86.result == 'success' &&
       needs.rust-tests-linux-x86.result == 'success' &&
-      needs.postgres-owner-chains-linux-x86.result == 'success' &&
+      needs.postgres-owner-chains-linux.result == 'success' &&
       github.event_name == 'push' &&
       needs.plan.outputs.publish_r2 == 'true' &&
       (needs.plan.outputs.wheel_matrix != 'nightly' ||
