@@ -9925,6 +9925,7 @@ dependencies = [
  "ustr",
  "vibe-common",
  "vibe-core",
+ "vibe-data",
  "vibe-live",
  "vibe-model",
  "vibe-network",

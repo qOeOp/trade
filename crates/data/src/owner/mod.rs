@@ -11,6 +11,8 @@ pub mod instrument_master;
 pub mod instrument_master_admission_v1;
 pub mod instrument_master_v2;
 pub mod instrument_master_v2_postgres;
+pub mod live_market_fact_v1;
+pub mod live_market_stream_v1;
 pub mod market_semantics_admission_v1;
 pub mod native_replay_scheduling_v1;
 pub mod native_replay_scheduling_v2;
