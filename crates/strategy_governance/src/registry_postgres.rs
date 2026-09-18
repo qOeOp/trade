@@ -809,6 +809,68 @@ mod postgres_proof {
         }
     }
 
+    /// Everything this proof wrote into the two source Owners' custody.
+    ///
+    /// The ordered chain shares one database that never resets, so a proof that writes into another
+    /// Owner's schema must prove it removed exactly what it added. Emptiness proves nothing here;
+    /// only equality with the counts taken before the proof ran does.
+    ///
+    /// The counted relations are deliberately the ones no foreign key protects. A residue in a
+    /// table something else references makes the next cleanup fail loudly on its own; a residue in
+    /// a leaf table is silent and accumulates forever on a database that never resets.
+    async fn source_owner_counts(
+        portfolio: &PgPool,
+        execution: &PgPool,
+        marker: &str,
+    ) -> (i64, i64, i64, i64, i64) {
+        let like = format!("%{marker}%");
+        let cuts: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM portfolio_private.portfolio_capacity_scope_registry_cuts_v1
+              WHERE registry_json::text LIKE $1",
+        )
+        .bind(&like)
+        .fetch_one(portfolio)
+        .await
+        .unwrap();
+        let readbacks: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM portfolio_private.portfolio_capacity_scope_bound_readbacks_v1
+              WHERE request_identity LIKE $1",
+        )
+        .bind(&like)
+        .fetch_one(portfolio)
+        .await
+        .unwrap();
+        let bindings: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM execution_private.execution_paper_adapter_binding_facts_v1
+              WHERE execution_scope_identity LIKE $1",
+        )
+        .bind(&like)
+        .fetch_one(execution)
+        .await
+        .unwrap();
+        // Nothing references these two, so nothing but this assertion would ever notice a leak.
+        let reservations: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM execution_private.execution_paper_namespace_reservations_v1
+              WHERE execution_scope_identity LIKE $1",
+        )
+        .bind(&like)
+        .fetch_one(execution)
+        .await
+        .unwrap();
+        let portfolio_outbox: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM portfolio_private.portfolio_owner_outbox_v1 outbox
+              WHERE EXISTS (
+                SELECT 1 FROM portfolio_private.portfolio_capacity_scope_registry_cuts_v1 cut
+                 WHERE cut.proof_frontier_identity = outbox.event_identity
+                   AND cut.registry_json::text LIKE $1)",
+        )
+        .bind(&like)
+        .fetch_one(portfolio)
+        .await
+        .unwrap();
+        (cuts, readbacks, bindings, reservations, portfolio_outbox)
+    }
+
     async fn own_counts(pool: &PgPool, marker: &str) -> (i64, i64) {
         let scopes: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM governance_private.governance_execution_scopes_v1
@@ -842,6 +904,14 @@ mod postgres_proof {
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
         let mutation = test_database.mutation();
         let suffix = suffix();
+        let portfolio_pool = mutation.pool(CanonicalOwnerTestRoleV1::PortfolioWriter);
+        let execution_pool = mutation.pool(CanonicalOwnerTestRoleV1::ExecutionWriter);
+        let source_baseline = source_owner_counts(portfolio_pool, execution_pool, &suffix).await;
+        assert_eq!(
+            source_baseline,
+            (0, 0, 0, 0, 0),
+            "this proof's identity must be unused in both source Owners before it runs"
+        );
         let clock = FixtureClock::new(1_000_000);
         let scope_identity = format!("paper-scope-{suffix}");
         let pool_identity = format!("pool-{suffix}");
@@ -893,6 +963,11 @@ mod postgres_proof {
             capacity_scope_identity: bound.capacity_scope_identity().to_string(),
         };
 
+        assert_eq!(
+            source_owner_counts(portfolio_pool, execution_pool, &suffix).await,
+            (1, 1, 1, 2, 1),
+            "both source Owners committed exactly the facts this proof asked for"
+        );
         let governance = StrategyRegistryPostgresV1::connect(
             test_database.database_url(CanonicalOwnerTestRoleV1::GovernanceWriter),
             clock.clone(),
@@ -1123,14 +1198,13 @@ mod postgres_proof {
             Err(GovernanceCustodyError::StoreUnavailable)
         );
 
-        cleanup(
-            &pool,
-            mutation.pool(CanonicalOwnerTestRoleV1::PortfolioWriter),
-            mutation.pool(CanonicalOwnerTestRoleV1::ExecutionWriter),
-            &suffix,
-        )
-        .await;
+        cleanup(&pool, portfolio_pool, execution_pool, &suffix).await;
         assert_eq!(own_counts(&pool, &suffix).await, (0, 0));
+        assert_eq!(
+            source_owner_counts(portfolio_pool, execution_pool, &suffix).await,
+            source_baseline,
+            "the shared chain database is left exactly as this proof found it"
+        );
     }
 
     async fn bind_capacity_scope(
