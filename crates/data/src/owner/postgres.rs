@@ -1252,9 +1252,10 @@ impl MarketDataOwnerPostgres {
         // the digest of its own resolution cut for the scoped instrument at this decision cut,
         // then re-seals the request identity over what it will actually commit.
         let mut request = request;
-        request.instrument_master_digest = self
-            .resolve_instrument_master_digest_for_pit_request_v1(&request, &members, clock)
-            .await?;
+        request.instrument_master_digest = Box::pin(
+            self.resolve_instrument_master_digest_for_pit_request_v1(&request, &members, clock),
+        )
+        .await?;
         seal_request_claims_v1(&mut request);
 
         let time = &request.time_evidence;
@@ -5777,9 +5778,11 @@ async fn persist_pit(
         && batch.is_some()
         && aggregate.fact().disposition() == PitSnapshotDisposition::Available
     {
-        reference_fact_coordinates::append_owner_r0_for_available_pit_v1(
-            &mut transaction,
-            &aggregate,
+        Box::pin(
+            reference_fact_coordinates::append_owner_r0_for_available_pit_v1(
+                &mut transaction,
+                &aggregate,
+            ),
         )
         .await
         .map_err(|e| {
@@ -9749,8 +9752,7 @@ impl MarketDataOwnerPostgres {
             correction_frontier: fact.proposal.correction_frontier,
             stable_correlation: request.correlation_identity,
         };
-        let readback = self
-            .resolve_instrument_master(&resolution, None)
+        let readback = Box::pin(self.resolve_instrument_master(&resolution, None))
             .await
             .map_err(|e| {
                 super::storage_diagnostic::refused_by_store(
@@ -9944,9 +9946,11 @@ impl MarketDataOwnerPostgres {
         };
         proposal.request_meaning_digest =
             super::market_semantics::authority::request_meaning_digest_v1(&proposal)?;
-        let readback = market_semantics::resolve_market_semantics_in_transaction_v1(
-            &mut transaction,
-            &proposal,
+        let readback = Box::pin(
+            market_semantics::resolve_market_semantics_in_transaction_v1(
+                &mut transaction,
+                &proposal,
+            ),
         )
         .await?;
         let [fact] = readback.facts() else {

@@ -121,7 +121,13 @@ pub(super) async fn append_owner_r0_for_available_pit_v1(
     aggregate: &PitSnapshotCommitAggregate,
 ) -> Result<ReferenceFactR0ReadbackV1, ReferenceFactR0ErrorV1> {
     let request = owner_r0_request_for_available_pit_v1(aggregate)?;
-    resolve_reference_fact_r0_in_transaction_v1(transaction, &request).await
+    // Boxed here rather than at each caller: resolving R0 re-reads the PIT, batch, Source Binding
+    // and clock custody, so inlining it would grow every commit future that appends a record.
+    Box::pin(resolve_reference_fact_r0_in_transaction_v1(
+        transaction,
+        &request,
+    ))
+    .await
 }
 
 pub(super) async fn resolve_reference_fact_r0_in_transaction_v1(
