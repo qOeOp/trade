@@ -149,7 +149,7 @@ jobs:
           DASHBOARD_CALENDAR_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_calendar
           DASHBOARD_SERVICE_LOGS_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_service_logs
         run: >-
-          node --test --test-concurrency=1 --test-timeout=600000
+          node --test --test-concurrency=1 --test-timeout=600000 --test-force-exit
           tests/run-store.postgres.test.mjs
           tests/run-list-view-gateway.postgres.test.mjs
           tests/shadow-runtime.postgres.test.mjs

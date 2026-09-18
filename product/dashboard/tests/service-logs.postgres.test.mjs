@@ -120,13 +120,21 @@ async function openBrowser(executable) {
       }
     }
     if (!devTools?.[0]) throw new Error("service-log browser debugging endpoint unavailable");
-    const target = await fetch(`http://127.0.0.1:${devTools[0]}/json/new?about:blank`, { method: "PUT" });
+    // Bounded: a browser that opened its debugging port but never answers would otherwise leave
+    // this await pending for as long as the runner allows.
+    const target = await fetch(`http://127.0.0.1:${devTools[0]}/json/new?about:blank`, {
+      method: "PUT", signal: AbortSignal.timeout(30_000),
+    });
     assert.equal(target.ok, true);
     const { webSocketDebuggerUrl } = await target.json();
     const socket = new WebSocket(webSocketDebuggerUrl);
     await new Promise((resolve, reject) => {
-      socket.addEventListener("open", resolve, { once: true });
-      socket.addEventListener("error", reject, { once: true });
+      const timer = setTimeout(() => {
+        socket.close();
+        reject(new Error("browser websocket did not open"));
+      }, 30_000);
+      socket.addEventListener("open", () => { clearTimeout(timer); resolve(); }, { once: true });
+      socket.addEventListener("error", (error) => { clearTimeout(timer); reject(error); }, { once: true });
     });
     let id = 0;
     const pending = new Map();
