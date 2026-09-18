@@ -24,6 +24,14 @@ use axum::{
 use serde::Deserialize;
 use serde_json::json;
 use vibe_data::owner::{
+    instrument_master_admission_v1::{
+        InstrumentMasterAdmissionErrorV1, InstrumentMasterAdmissionV1,
+        InstrumentMasterFactSubmissionV1,
+    },
+    market_semantics_admission_v1::{
+        MarketSemanticsAdmissionErrorV1, MarketSemanticsAdmissionV1,
+        MarketSemanticsFactSubmissionV1,
+    },
     pit_market_snapshot_intake_v1::{PitMarketSnapshotIntakeErrorV1, PitMarketSnapshotIntakeV1},
     pit_snapshot::UntrustedPitSnapshotRequest,
     source_binding::BindingDigest,
@@ -97,6 +105,8 @@ struct MarketDataPitApiState {
     admission: Option<Arc<dyn SourceBindingAdmissionV1>>,
     universe: Option<Arc<dyn UniverseSelectionAdmissionV1>>,
     bindings: Option<Arc<dyn StrategyInputBindingAdmissionV1>>,
+    instruments: Option<Arc<dyn InstrumentMasterAdmissionV1>>,
+    semantics: Option<Arc<dyn MarketSemanticsAdmissionV1>>,
     token_digest: [u8; 32],
 }
 
@@ -105,9 +115,19 @@ pub(super) fn router(
     admission: Option<Arc<dyn SourceBindingAdmissionV1>>,
     universe: Option<Arc<dyn UniverseSelectionAdmissionV1>>,
     bindings: Option<Arc<dyn StrategyInputBindingAdmissionV1>>,
+    instruments: Option<Arc<dyn InstrumentMasterAdmissionV1>>,
+    semantics: Option<Arc<dyn MarketSemanticsAdmissionV1>>,
     token_digest: [u8; 32],
 ) -> Router {
     Router::new()
+        .route(
+            "/v1/market-data/instrument-master-facts",
+            post(admit_instrument_master_fact),
+        )
+        .route(
+            "/v1/market-data/market-semantics",
+            post(admit_market_semantics_fact),
+        )
         .route(
             "/v1/market-data/source-bindings",
             post(admit_source_binding),
@@ -141,6 +161,8 @@ pub(super) fn router(
             admission,
             universe,
             bindings,
+            instruments,
+            semantics,
             token_digest,
         })
 }
@@ -167,6 +189,66 @@ async fn admit_source_binding(
     match admission.admit(request).await {
         Ok(terminal) => (StatusCode::OK, Json(terminal)).into_response(),
         Err(e) => admission_error(e),
+    }
+}
+
+/// Admits one Instrument Master V1 fact Operations describes.
+///
+/// The body is the fact's meaning and nothing about its custody. The Owner binds it to its own
+/// current clock head and refuses a predecessor it does not hold; a replayed body rejoins the
+/// fact it admitted before.
+async fn admit_instrument_master_fact(
+    State(state): State<MarketDataPitApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection(StatusCode::FORBIDDEN, "UNAUTHORIZED_PRODUCT_EDGE");
+    }
+    let Some(instruments) = state.instruments else {
+        return rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "MARKET_DATA_INSTRUMENT_MASTER_UNAVAILABLE",
+        );
+    };
+    let submission: InstrumentMasterFactSubmissionV1 = match serde_json::from_slice(&body) {
+        Ok(submission) => submission,
+        Err(_) => return rejection(StatusCode::BAD_REQUEST, "MALFORMED_TYPED_REQUEST"),
+    };
+
+    match instruments.admit_fact(submission).await {
+        Ok(terminal) => (StatusCode::OK, Json(terminal)).into_response(),
+        Err(e) => instrument_master_error(e),
+    }
+}
+
+/// Admits one Market Semantics fact Operations states about an admitted binding.
+///
+/// The body names the binding and the `AVAILABLE` snapshot the statement is made against, plus the
+/// typed value and its effective regime. The Owner derives the compatibility scope from the
+/// binding's own semantics and resolves every other coordinate from its own custody.
+async fn admit_market_semantics_fact(
+    State(state): State<MarketDataPitApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection(StatusCode::FORBIDDEN, "UNAUTHORIZED_PRODUCT_EDGE");
+    }
+    let Some(semantics) = state.semantics else {
+        return rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "MARKET_DATA_MARKET_SEMANTICS_UNAVAILABLE",
+        );
+    };
+    let submission: MarketSemanticsFactSubmissionV1 = match serde_json::from_slice(&body) {
+        Ok(submission) => submission,
+        Err(_) => return rejection(StatusCode::BAD_REQUEST, "MALFORMED_TYPED_REQUEST"),
+    };
+
+    match semantics.admit_fact(submission).await {
+        Ok(terminal) => (StatusCode::OK, Json(terminal)).into_response(),
+        Err(e) => market_semantics_error(e),
     }
 }
 
@@ -307,6 +389,9 @@ fn intake_error(error: PitMarketSnapshotIntakeErrorV1) -> Response {
         PitMarketSnapshotIntakeErrorV1::RequestConflict => {
             (StatusCode::CONFLICT, "PIT_MARKET_SNAPSHOT_REQUEST_CONFLICT")
         }
+        PitMarketSnapshotIntakeErrorV1::InstrumentMasterUnavailable => {
+            (StatusCode::CONFLICT, "PIT_INSTRUMENT_MASTER_UNAVAILABLE")
+        }
         PitMarketSnapshotIntakeErrorV1::ClockUnavailable => (
             StatusCode::SERVICE_UNAVAILABLE,
             "MARKET_DATA_CLOCK_UNAVAILABLE",
@@ -444,6 +529,52 @@ fn strategy_input_binding_error(
             "STRATEGY_INPUT_BINDING_UNAVAILABLE",
         ),
         StrategyInputBindingAdmissionErrorV1::StoreUnavailable => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "MARKET_DATA_OWNER_UNAVAILABLE",
+        ),
+    };
+    rejection(status, code)
+}
+
+fn market_semantics_error(error: MarketSemanticsAdmissionErrorV1) -> Response {
+    let (status, code) = match error {
+        MarketSemanticsAdmissionErrorV1::InvalidSubmission => (
+            StatusCode::BAD_REQUEST,
+            "INVALID_MARKET_SEMANTICS_SUBMISSION",
+        ),
+        MarketSemanticsAdmissionErrorV1::DependencyUnavailable => (
+            StatusCode::CONFLICT,
+            "MARKET_SEMANTICS_DEPENDENCY_UNAVAILABLE",
+        ),
+        MarketSemanticsAdmissionErrorV1::AdmissionConflict => {
+            (StatusCode::CONFLICT, "MARKET_SEMANTICS_ADMISSION_CONFLICT")
+        }
+        MarketSemanticsAdmissionErrorV1::StoreUnavailable => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "MARKET_DATA_OWNER_UNAVAILABLE",
+        ),
+    };
+    rejection(status, code)
+}
+
+fn instrument_master_error(error: InstrumentMasterAdmissionErrorV1) -> Response {
+    let (status, code) = match error {
+        InstrumentMasterAdmissionErrorV1::InvalidSubmission => (
+            StatusCode::BAD_REQUEST,
+            "INVALID_INSTRUMENT_MASTER_SUBMISSION",
+        ),
+        InstrumentMasterAdmissionErrorV1::PredecessorUnavailable => (
+            StatusCode::CONFLICT,
+            "INSTRUMENT_MASTER_PREDECESSOR_UNAVAILABLE",
+        ),
+        InstrumentMasterAdmissionErrorV1::AdmissionConflict => {
+            (StatusCode::CONFLICT, "INSTRUMENT_MASTER_ADMISSION_CONFLICT")
+        }
+        InstrumentMasterAdmissionErrorV1::ClockUnavailable => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "MARKET_DATA_CLOCK_UNAVAILABLE",
+        ),
+        InstrumentMasterAdmissionErrorV1::StoreUnavailable => (
             StatusCode::SERVICE_UNAVAILABLE,
             "MARKET_DATA_OWNER_UNAVAILABLE",
         ),

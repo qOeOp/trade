@@ -138,6 +138,8 @@ pub enum PitMarketSnapshotIntakeErrorV1 {
     StoreUnavailable,
     /// The same request identity is already bound to different content.
     RequestConflict,
+    /// No Instrument Master V1 fact of this Owner answers the request's instrument at its cut.
+    InstrumentMasterUnavailable,
 }
 
 impl Display for PitMarketSnapshotIntakeErrorV1 {
@@ -150,6 +152,9 @@ impl Display for PitMarketSnapshotIntakeErrorV1 {
             Self::ClockUnavailable => "Market Data holds no canonical clock head",
             Self::StoreUnavailable => "the Market Data store is unavailable",
             Self::RequestConflict => "the request identity is bound to different content",
+            Self::InstrumentMasterUnavailable => {
+                "no Instrument Master fact answers the request's instrument at its cut"
+            }
         };
         formatter.write_str(text)
     }
@@ -169,6 +174,7 @@ impl From<PitSnapshotError> for PitMarketSnapshotIntakeErrorV1 {
             PitSnapshotError::PersistenceUnavailable | PitSnapshotError::CommitInterrupted => {
                 Self::StoreUnavailable
             }
+            PitSnapshotError::InstrumentMasterUnavailable => Self::InstrumentMasterUnavailable,
             _ => Self::InvalidRequest,
         }
     }
