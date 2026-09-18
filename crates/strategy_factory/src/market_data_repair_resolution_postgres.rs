@@ -919,7 +919,7 @@ mod tests {
     /// so the second would otherwise resolve the first's row and its exact custody counts would
     /// read the first's writes.
     async fn clear_repair_resolution_custody(pool: &PgPool) {
-        sqlx::query("DELETE FROM rd_owner_outbox_v1 WHERE event_kind=$1")
+        sqlx::query("DELETE FROM rd_owner_outbox_v1 WHERE event_kind=$1 AND aggregate_identity IN (SELECT resolution_identity FROM rd_market_data_repair_resolutions_v1 WHERE repair_request_identity='request')")
             .bind(RESOLVED_EVENT_V1)
             .execute(pool)
             .await
@@ -1061,8 +1061,12 @@ mod tests {
             changed,
             Err(MarketDataRepairResolutionPostgresErrorV1::Conflict)
         );
-        let counts: (i64, i64) = sqlx::query_as("SELECT (SELECT COUNT(*) FROM rd_market_data_repair_resolutions_v1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind=$1)")
+        // Scoped to this repair request: the ordered chain shares one database, and an earlier
+        // entry commits a repair resolution of its own through `iteration_decision_postgres`.
+        let counts: (i64, i64) = sqlx::query_as("SELECT (SELECT COUNT(*) FROM rd_market_data_repair_resolutions_v1 WHERE repair_request_identity=$2), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind=$1 AND aggregate_identity=$3)")
             .bind(RESOLVED_EVENT_V1)
+            .bind(first.resolution().repair_request_identity())
+            .bind(first.resolution().resolution_identity())
             .fetch_one(pool)
             .await
             .expect("custody counts");
