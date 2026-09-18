@@ -4,8 +4,21 @@
 //! revocation authority. Positive readbacks are serialize-only and are emitted
 //! only after the PostgreSQL owner verifies canonical rows and outbox custody.
 
+mod autonomous_policy_authorization;
 mod grant;
 mod postgres;
+
+pub use autonomous_policy_authorization::{
+    AUTONOMOUS_POLICY_AUTHORIZATION_SCHEMA_V1, AutonomousPolicyAuthorizationContentV1,
+    AutonomousPolicyAuthorizationIssuanceProposalV1, AutonomousPolicyAuthorizationLocatorV1,
+    AutonomousPolicyAuthorizationReadRequestV1, AutonomousPolicyAuthorizationReadbackV1,
+    AutonomousPolicyAuthorizationResolutionV1, AutonomousPolicyAuthorizationRevocationFrontierV1,
+    AutonomousPolicyAuthorizationRevocationProposalV1,
+    AutonomousPolicyAuthorizationSuccessorProposalV1,
+    AutonomousPolicyAuthorizationUnavailableReasonV1, AutonomousPolicyResourceV1,
+    AutonomousPolicyV1, CapitalPolicyBindingV1, LIFECYCLE_ACTIONS_V1,
+    STRATEGY_GOVERNANCE_AUDIENCE_V1, UntrustedCanonicalAutonomousPolicyAuthorizationEvidenceV1,
+};
 
 pub use grant::{
     GrantContentV1, GrantIssuanceProposalV1, GrantIssuanceReceiptV1, GrantLocatorV1,
@@ -21,7 +34,9 @@ use thiserror::Error;
 
 pub use postgres::{
     OperatorAuthorizationIssuerPostgresV1, parse_untrusted_authorization_envelope_v1,
+    parse_untrusted_autonomous_policy_authorization_envelope_v1,
     parse_untrusted_portfolio_resource_grant_envelope_v1, resolve_authorization_in_transaction,
+    resolve_autonomous_policy_authorization_in_transaction,
     resolve_portfolio_resource_grant_in_transaction,
 };
 

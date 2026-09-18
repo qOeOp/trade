@@ -78,19 +78,6 @@ pub(super) fn grant_advisory_lock_identity(resource_digest: &str) -> String {
 }
 
 #[cfg(test)]
-pub(super) async fn lock_grant_resource_for_write(
-    transaction: &mut Transaction<'_, Postgres>,
-    resource_digest: &str,
-) -> Result<(), OperatorAuthorizationError> {
-    grant::lock_grant_resource_for_write(
-        transaction,
-        &grant::GrantSchemaV1::of::<PortfolioResourceGrantContentV1>(),
-        resource_digest,
-    )
-    .await
-}
-
-#[cfg(test)]
 mod parser_tests {
     use rstest::rstest;
 

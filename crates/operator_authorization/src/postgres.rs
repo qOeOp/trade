@@ -19,6 +19,10 @@ use crate::{
     canonical_digest, identity,
 };
 
+pub use autonomous_policy_authorization::{
+    parse_untrusted_autonomous_policy_authorization_envelope_v1,
+    resolve_autonomous_policy_authorization_in_transaction,
+};
 pub use portfolio_resource_grant::{
     parse_untrusted_portfolio_resource_grant_envelope_v1,
     resolve_portfolio_resource_grant_in_transaction,
@@ -428,6 +432,7 @@ impl OperatorAuthorizationIssuerPostgresV1 {
         }
         self.prepare_expired_manifest_recovery_schema().await?;
         portfolio_resource_grant::migrate(&self.pool).await?;
+        autonomous_policy_authorization::migrate(&self.pool).await?;
         Ok(())
     }
 
@@ -2524,6 +2529,7 @@ fn storage(error: impl Display) -> OperatorAuthorizationError {
     OperatorAuthorizationError::Storage(error.to_string())
 }
 
+mod autonomous_policy_authorization;
 mod grant;
 mod portfolio_resource_grant;
 
@@ -2534,10 +2540,19 @@ mod tests {
         time::{Duration, SystemTime, UNIX_EPOCH},
     };
 
-    use super::portfolio_resource_grant::{
-        grant_advisory_lock_identity, lock_grant_resource_for_write,
-    };
+    use super::grant::{GrantSchemaV1, lock_grant_resource_for_write};
+    use super::portfolio_resource_grant::grant_advisory_lock_identity;
     use super::*;
+    use crate::{
+        AutonomousPolicyAuthorizationContentV1, AutonomousPolicyAuthorizationIssuanceProposalV1,
+        AutonomousPolicyAuthorizationLocatorV1, AutonomousPolicyAuthorizationReadRequestV1,
+        AutonomousPolicyAuthorizationReadbackV1, AutonomousPolicyAuthorizationResolutionV1,
+        AutonomousPolicyAuthorizationRevocationProposalV1,
+        AutonomousPolicyAuthorizationSuccessorProposalV1,
+        AutonomousPolicyAuthorizationUnavailableReasonV1, AutonomousPolicyV1,
+        CapitalPolicyBindingV1, ExecutionModeV1, GrantReadbackV1, STRATEGY_GOVERNANCE_AUDIENCE_V1,
+        UntrustedCanonicalAutonomousPolicyAuthorizationEvidenceV1,
+    };
     use crate::{
         OperationManifestBindingV1, OperatorAuthorizationScopeV1, PORTFOLIO_OWNER_AUDIENCE_V1,
         PORTFOLIO_VIEW_PERMISSION_V1, PortfolioResourceGrantContentV1,
@@ -2648,7 +2663,11 @@ mod tests {
               'resource_frontiers', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.frontier_identity) FROM operator_authorization_private.portfolio_resource_grant_revocation_frontiers_v1 row), '[]'::jsonb),
               'resource_heads', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.resource_digest) FROM operator_authorization_private.portfolio_resource_grant_revocation_heads_v1 row), '[]'::jsonb),
               'authorization_outbox', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.event_identity) FROM operator_authorization_private.operator_authorization_owner_outbox_v1 row), '[]'::jsonb),
-              'resource_outbox', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.event_identity) FROM operator_authorization_private.portfolio_resource_grant_owner_outbox_v1 row), '[]'::jsonb)
+              'resource_outbox', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.event_identity) FROM operator_authorization_private.portfolio_resource_grant_owner_outbox_v1 row), '[]'::jsonb),
+              'policy_issuances', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.grant_identity) FROM operator_authorization_private.autonomous_policy_authorization_issuances_v1 row), '[]'::jsonb),
+              'policy_frontiers', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.frontier_identity) FROM operator_authorization_private.autonomous_policy_authorization_revocation_frontiers_v1 row), '[]'::jsonb),
+              'policy_heads', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.resource_digest) FROM operator_authorization_private.autonomous_policy_authorization_revocation_heads_v1 row), '[]'::jsonb),
+              'policy_outbox', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.event_identity) FROM operator_authorization_private.autonomous_policy_authorization_owner_outbox_v1 row), '[]'::jsonb)
             )",
         )
         .fetch_one(pool)
@@ -2657,9 +2676,9 @@ mod tests {
         canonical_digest("operator-authorization.test-table-fingerprint.v1", &value).unwrap()
     }
 
-    fn assert_same_grant_authority(
-        left: &PortfolioResourceGrantReadbackV1,
-        right: &PortfolioResourceGrantReadbackV1,
+    fn assert_same_grant_authority<C: PartialEq + std::fmt::Debug>(
+        left: &GrantReadbackV1<C>,
+        right: &GrantReadbackV1<C>,
     ) {
         assert_eq!(left.locator(), right.locator());
         assert_eq!(left.content(), right.content());
@@ -2878,9 +2897,13 @@ mod tests {
         let reverse_request = request_for(&reverse, &reverse_proposal.content);
         let reverse_digest = reverse_proposal.content.resource.digest().unwrap();
         let mut writer_first = owner.pool().begin().await.unwrap();
-        lock_grant_resource_for_write(&mut writer_first, &reverse_digest)
-            .await
-            .unwrap();
+        lock_grant_resource_for_write(
+            &mut writer_first,
+            &GrantSchemaV1::of::<PortfolioResourceGrantContentV1>(),
+            &reverse_digest,
+        )
+        .await
+        .unwrap();
         let reverse_consumer = consumer.clone();
         let reverse_reader = tokio::spawn(async move {
             let mut transaction = reverse_consumer.begin().await.unwrap();
@@ -3500,6 +3523,915 @@ mod tests {
         let expired_evidence = parse_locked_grant_evidence(&consumer, &expiring.locator())
             .await
             .unwrap();
+        assert!(!expired_evidence.is_current_at(now_ms().unwrap()));
+        assert_eq!(
+            oa_table_fingerprint(restarted.pool()).await,
+            before_expired_read
+        );
+    }
+
+    fn autonomous_policy_proposal(
+        suffix: &str,
+        now: u64,
+        generation_suffix: &str,
+        valid_for_ms: u64,
+    ) -> AutonomousPolicyAuthorizationIssuanceProposalV1 {
+        let content = AutonomousPolicyAuthorizationContentV1 {
+            issuer_identity: "operator-authorization-owner-test-v1".into(),
+            issuer_key_version: "test-key-v1".into(),
+            policy: AutonomousPolicyV1 {
+                policy_identity: format!("policy-paper-{suffix}"),
+                policy_version: "1".into(),
+            },
+            scope: OperatorAuthorizationScopeV1 {
+                principal: format!("principal-{suffix}"),
+                audience: STRATEGY_GOVERNANCE_AUDIENCE_V1.into(),
+                permissions: vec!["governance:unattended".into()],
+            },
+            account_identity: format!("account-{suffix}"),
+            execution_mode: ExecutionModeV1::Paper,
+            strategy_generation_identity: format!("generation-{generation_suffix}-{suffix}"),
+            execution_scope_identity: format!("sha256:{}", "e".repeat(64)),
+            permitted_actions: vec!["INITIAL_ACTIVATION".into(), "PROMOTION".into()],
+            permitted_intent_classes: vec!["ADD_RISK".into()],
+            capital_policy: CapitalPolicyBindingV1 {
+                envelope_identity: format!("envelope-{suffix}"),
+                envelope_version: "1".into(),
+                envelope_digest: format!("sha256:{}", "c".repeat(64)),
+            },
+            operation_manifest: OperationManifestBindingV1 {
+                manifest_identity: format!("governance-manifest-{suffix}"),
+                manifest_digest: format!("sha256:{}", "a".repeat(64)),
+            },
+            effective_at_epoch_ms: now.saturating_sub(1_000),
+            valid_through_epoch_ms: now.saturating_add(valid_for_ms),
+        };
+        AutonomousPolicyAuthorizationIssuanceProposalV1 {
+            grant_identity: content.grant_identity().unwrap(),
+            content,
+            expected_revocation_frontier_identity: "EMPTY".into(),
+        }
+    }
+
+    fn autonomous_policy_lock_identity(resource_digest: &str) -> String {
+        GrantSchemaV1::of::<AutonomousPolicyAuthorizationContentV1>()
+            .advisory_lock_identity(resource_digest)
+    }
+
+    async fn lock_autonomous_policy_resource_for_write(
+        transaction: &mut Transaction<'_, Postgres>,
+        resource_digest: &str,
+    ) -> Result<(), OperatorAuthorizationError> {
+        lock_grant_resource_for_write(
+            transaction,
+            &GrantSchemaV1::of::<AutonomousPolicyAuthorizationContentV1>(),
+            resource_digest,
+        )
+        .await
+    }
+
+    async fn resolve_autonomous_policy(
+        pool: &PgPool,
+        request: &AutonomousPolicyAuthorizationReadRequestV1,
+    ) -> AutonomousPolicyAuthorizationResolutionV1 {
+        let mut transaction = pool.begin().await.unwrap();
+        let resolution =
+            resolve_autonomous_policy_authorization_in_transaction(&mut transaction, request).await;
+        transaction.rollback().await.unwrap();
+        resolution
+    }
+
+    async fn parse_locked_autonomous_policy_evidence(
+        pool: &PgPool,
+        locator: &AutonomousPolicyAuthorizationLocatorV1,
+    ) -> Result<UntrustedCanonicalAutonomousPolicyAuthorizationEvidenceV1, OperatorAuthorizationError>
+    {
+        let mut transaction = pool.begin().await.unwrap();
+        let envelope: Option<serde_json::Value> = sqlx::query_scalar(
+            "SELECT operator_authorization_api.lock_current_autonomous_policy_authorization_v1($1,$2)",
+        )
+        .bind(&locator.grant_identity)
+        .bind(&locator.issuance_receipt_identity)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(storage)?;
+        let result = parse_untrusted_autonomous_policy_authorization_envelope_v1(
+            &serde_json::to_vec(&envelope.ok_or_else(|| unavailable(Reason::Missing))?)
+                .map_err(storage)?,
+            locator,
+        );
+        transaction.rollback().await.unwrap();
+        result
+    }
+
+    #[tokio::test]
+    #[ignore = "requires admitted OA and Product Edge PostgreSQL test URLs"]
+    async fn autonomous_policy_authorization_advisory_lock_serializes_distinct_authorizations() {
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let mutation = test_database.mutation();
+        let owner = Arc::new(
+            OperatorAuthorizationIssuerPostgresV1::connect(
+                test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+            )
+            .await
+            .unwrap(),
+        );
+        let consumer = mutation
+            .pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner)
+            .clone();
+        let suffix = format!("advisory-{}-{}", std::process::id(), now_ms().unwrap());
+        let now = now_ms().unwrap();
+        let proposal = autonomous_policy_proposal(&suffix, now, "serialization", 600_000);
+        let resource_digest = proposal.content.resource().digest().unwrap();
+        let rust_lock_identity = autonomous_policy_lock_identity(&resource_digest);
+        let mut genesis_gate = consumer.begin().await.unwrap();
+        sqlx::query("SELECT pg_advisory_xact_lock_shared(hashtextextended($1, 0))")
+            .bind(&rust_lock_identity)
+            .execute(&mut *genesis_gate)
+            .await
+            .unwrap();
+        let genesis_owner = Arc::clone(&owner);
+        let genesis_proposal = proposal.clone();
+
+        let genesis_task = tokio::spawn(async move {
+            genesis_owner
+                .issue_autonomous_policy_authorization_genesis(genesis_proposal)
+                .await
+        });
+        wait_for_advisory_lock(owner.pool(), "operator_authorization_writer").await;
+        assert!(!genesis_task.is_finished());
+        genesis_gate.rollback().await.unwrap();
+        let genesis = genesis_task.await.unwrap().unwrap();
+        let mut successor_content = proposal.content.clone();
+        successor_content.valid_through_epoch_ms += 600_000;
+        successor_content
+            .operation_manifest
+            .manifest_identity
+            .push_str("-successor");
+        successor_content.operation_manifest.manifest_digest = format!("sha256:{}", "b".repeat(64));
+        let successor_proposal = AutonomousPolicyAuthorizationSuccessorProposalV1 {
+            predecessor: genesis.locator(),
+            expected_current_frontier_identity: genesis.frontier().frontier_identity().into(),
+            successor: AutonomousPolicyAuthorizationIssuanceProposalV1 {
+                grant_identity: successor_content.grant_identity().unwrap(),
+                content: successor_content.clone(),
+                expected_revocation_frontier_identity: genesis
+                    .frontier()
+                    .frontier_identity()
+                    .into(),
+            },
+        };
+        let mut successor_gate = consumer.begin().await.unwrap();
+        sqlx::query("SELECT pg_advisory_xact_lock_shared(hashtextextended($1, 0))")
+            .bind(&rust_lock_identity)
+            .execute(&mut *successor_gate)
+            .await
+            .unwrap();
+        let successor_owner = Arc::clone(&owner);
+        let successor_task = tokio::spawn(async move {
+            successor_owner
+                .issue_autonomous_policy_authorization_successor(successor_proposal)
+                .await
+        });
+        wait_for_advisory_lock(owner.pool(), "operator_authorization_writer").await;
+        assert!(!successor_task.is_finished());
+        successor_gate.rollback().await.unwrap();
+        let successor = successor_task.await.unwrap().unwrap();
+        let matching_key: bool = sqlx::query_scalar(
+            "SELECT hashtextextended($1, 0) = hashtextextended('operator-authorization.autonomous-policy-authorization.resource.v1:' || $2, 0)",
+        )
+        .bind(&rust_lock_identity)
+        .bind(&resource_digest)
+        .fetch_one(owner.pool())
+        .await
+        .unwrap();
+        assert!(matching_key, "Rust and PL/pgSQL advisory keys diverged");
+
+        let function_definition: String = sqlx::query_scalar(
+            "SELECT pg_get_functiondef('operator_authorization_api.lock_current_autonomous_policy_authorization_v1(text,text)'::regprocedure)",
+        )
+        .fetch_one(owner.pool())
+        .await
+        .unwrap();
+        let advisory_position = function_definition
+            .find("pg_advisory_xact_lock_shared")
+            .unwrap();
+        let first_row_lock_position = function_definition
+            .find("ORDER BY grant_identity FOR SHARE")
+            .unwrap();
+        assert!(advisory_position < first_row_lock_position);
+
+        let request_for =
+            |grant: &AutonomousPolicyAuthorizationReadbackV1,
+             content: &AutonomousPolicyAuthorizationContentV1| {
+                AutonomousPolicyAuthorizationReadRequestV1 {
+                    locator: grant.locator(),
+                    expected_resource: content.resource(),
+                    expected_manifest: content.operation_manifest.clone(),
+                }
+            };
+        let (earlier, later_request) =
+            if genesis.locator().grant_identity < successor.locator().grant_identity {
+                (
+                    genesis.locator(),
+                    request_for(&successor, &successor_content),
+                )
+            } else {
+                (
+                    successor.locator(),
+                    request_for(&genesis, &proposal.content),
+                )
+            };
+
+        let before_schedule = oa_table_fingerprint(owner.pool()).await;
+        let mut reader_first = consumer.begin().await.unwrap();
+        assert!(matches!(
+            resolve_autonomous_policy_authorization_in_transaction(
+                &mut reader_first,
+                &later_request
+            )
+            .await,
+            AutonomousPolicyAuthorizationResolutionV1::Available { .. }
+        ));
+        let revoke_owner = Arc::clone(&owner);
+        let expected_frontier_identity = successor.frontier().frontier_identity().to_string();
+
+        let revoke_task = tokio::spawn(async move {
+            revoke_owner
+                .revoke_autonomous_policy_authorization(
+                    AutonomousPolicyAuthorizationRevocationProposalV1 {
+                        grant: earlier,
+                        expected_frontier_identity,
+                        reason_code: "SERIALIZATION_TEST".into(),
+                    },
+                )
+                .await
+        });
+        wait_for_advisory_lock(owner.pool(), "operator_authorization_writer").await;
+        assert!(!revoke_task.is_finished());
+        reader_first.rollback().await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), revoke_task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_ne!(oa_table_fingerprint(owner.pool()).await, before_schedule);
+
+        let reverse_proposal =
+            autonomous_policy_proposal(&suffix, now_ms().unwrap(), "reverse", 600_000);
+        let reverse = owner
+            .issue_autonomous_policy_authorization_genesis(reverse_proposal.clone())
+            .await
+            .unwrap();
+        let reverse_request = request_for(&reverse, &reverse_proposal.content);
+        let reverse_digest = reverse_proposal.content.resource().digest().unwrap();
+        let mut writer_first = owner.pool().begin().await.unwrap();
+        lock_autonomous_policy_resource_for_write(&mut writer_first, &reverse_digest)
+            .await
+            .unwrap();
+        let reverse_consumer = consumer.clone();
+        let reverse_reader = tokio::spawn(async move {
+            let mut transaction = reverse_consumer.begin().await.unwrap();
+            let resolution = resolve_autonomous_policy_authorization_in_transaction(
+                &mut transaction,
+                &reverse_request,
+            )
+            .await;
+            transaction.rollback().await.unwrap();
+            resolution
+        });
+        wait_for_advisory_lock(&consumer, "product_edge_owner").await;
+        assert!(!reverse_reader.is_finished());
+        writer_first.rollback().await.unwrap();
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_secs(5), reverse_reader)
+                .await
+                .unwrap()
+                .unwrap(),
+            AutonomousPolicyAuthorizationResolutionV1::Available { .. }
+        ));
+
+        let before_invalid_locator = oa_table_fingerprint(owner.pool()).await;
+        let mut invalid_request = request_for(&reverse, &reverse_proposal.content);
+        invalid_request.locator.grant_identity.push_str("-missing");
+        assert!(matches!(
+            resolve_autonomous_policy(&consumer, &invalid_request).await,
+            AutonomousPolicyAuthorizationResolutionV1::Unavailable { .. }
+        ));
+        assert_eq!(
+            oa_table_fingerprint(owner.pool()).await,
+            before_invalid_locator
+        );
+
+        sqlx::query("UPDATE operator_authorization_private.autonomous_policy_authorization_issuances_v1 SET resource_digest='sha256:invalid-hint' WHERE grant_identity=$1")
+            .bind(&reverse.locator().grant_identity)
+            .execute(owner.pool())
+            .await
+            .unwrap();
+        let invalid_hint_fingerprint = oa_table_fingerprint(owner.pool()).await;
+        assert!(matches!(
+            resolve_autonomous_policy(&consumer, &request_for(&reverse, &reverse_proposal.content))
+                .await,
+            AutonomousPolicyAuthorizationResolutionV1::Unavailable { .. }
+        ));
+        assert_eq!(
+            oa_table_fingerprint(owner.pool()).await,
+            invalid_hint_fingerprint
+        );
+        sqlx::query("UPDATE operator_authorization_private.autonomous_policy_authorization_issuances_v1 SET resource_digest=$1 WHERE grant_identity=$2")
+            .bind(&reverse_digest)
+            .bind(&reverse.locator().grant_identity)
+            .execute(owner.pool())
+            .await
+            .unwrap();
+        assert_eq!(
+            oa_table_fingerprint(owner.pool()).await,
+            before_invalid_locator
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires admitted OA and Product Edge PostgreSQL test URLs"]
+    async fn autonomous_policy_authorization_issue_read_replay_successor_revoke_restart_acl_and_expiry()
+     {
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let mutation = test_database.mutation();
+        let owner = OperatorAuthorizationIssuerPostgresV1::connect(
+            test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+        )
+        .await
+        .unwrap();
+        let consumer = mutation
+            .pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner)
+            .clone();
+        let suffix = format!("{}-{}", std::process::id(), now_ms().unwrap());
+        let now = now_ms().unwrap();
+        let proposal = autonomous_policy_proposal(&suffix, now, "primary", 600_000);
+        let issued = owner
+            .issue_autonomous_policy_authorization_genesis(proposal.clone())
+            .await
+            .unwrap();
+        let genesis_replay = owner
+            .issue_autonomous_policy_authorization_genesis(proposal.clone())
+            .await
+            .unwrap();
+        assert_same_grant_authority(&genesis_replay, &issued);
+        assert!(genesis_replay.observed_at_epoch_ms() >= issued.observed_at_epoch_ms());
+        let issued_evidence = parse_locked_autonomous_policy_evidence(&consumer, &issued.locator())
+            .await
+            .unwrap();
+        assert_eq!(issued_evidence.locator(), issued.locator());
+        assert_eq!(
+            issued_evidence.frontier_identity(),
+            issued.frontier().frontier_identity()
+        );
+        assert!(issued_evidence.matches_resource(&proposal.content.resource()));
+        assert!(issued_evidence.matches_operation_manifest(&proposal.content.operation_manifest));
+        assert!(issued_evidence.is_current_at(now));
+        let parser_fingerprint = oa_table_fingerprint(owner.pool()).await;
+        let mut parser_transaction = consumer.begin().await.unwrap();
+        let locked_envelope: serde_json::Value = sqlx::query_scalar(
+            "SELECT operator_authorization_api.lock_current_autonomous_policy_authorization_v1($1,$2)",
+        )
+        .bind(&issued.locator().grant_identity)
+        .bind(&issued.locator().issuance_receipt_identity)
+        .fetch_one(&mut *parser_transaction)
+        .await
+        .unwrap();
+
+        for path in [
+            "/issuances/0/principal",
+            "/issuances/0/account_identity",
+            "/issuances/0/execution_scope_identity",
+            "/issuances/0/semantic_digest",
+            "/frontiers/0/frontier_digest",
+            "/head/frontier_identity",
+            "/outboxes/0/payload_digest",
+        ] {
+            let mut tampered = locked_envelope.clone();
+            *tampered.pointer_mut(path).unwrap() = serde_json::json!("caller-authored");
+            assert!(
+                parse_untrusted_autonomous_policy_authorization_envelope_v1(
+                    &serde_json::to_vec(&tampered).unwrap(),
+                    &issued.locator(),
+                )
+                .is_err(),
+                "accepted tampered database envelope at {path}"
+            );
+        }
+        parser_transaction.rollback().await.unwrap();
+        assert_eq!(oa_table_fingerprint(owner.pool()).await, parser_fingerprint);
+
+        let request = AutonomousPolicyAuthorizationReadRequestV1 {
+            locator: issued.locator(),
+            expected_resource: proposal.content.resource(),
+            expected_manifest: proposal.content.operation_manifest.clone(),
+        };
+
+        let legacy_proposal = OperatorAuthorizationIssuanceProposalV1 {
+            authorization_identity: issued.locator().grant_identity,
+            issuer_identity: "operator-authorization-issuer-test-v1".into(),
+            issuer_key_version: "test-key-v1".into(),
+            scope: OperatorAuthorizationScopeV1 {
+                principal: format!("legacy-principal-{suffix}"),
+                audience: "PRODUCT_EDGE".into(),
+                permissions: vec!["provider:invoke".into()],
+            },
+            request_proof_digest: "sha256:test-proof".into(),
+            operation_manifests: vec![OperationManifestBindingV1 {
+                manifest_identity: format!("legacy-manifest-{suffix}"),
+                manifest_digest: format!("sha256:{}", "c".repeat(64)),
+            }],
+            not_before_epoch_ms: now.saturating_sub(1_000),
+            valid_through_epoch_ms: now.saturating_add(600_000),
+            expected_revocation_head: "EMPTY".into(),
+        };
+        let legacy = owner.issue_genesis(legacy_proposal.clone()).await.unwrap();
+        assert_eq!(owner.issue_genesis(legacy_proposal).await.unwrap(), legacy);
+        let collision_grant_replay = owner
+            .issue_autonomous_policy_authorization_genesis(proposal.clone())
+            .await
+            .unwrap();
+        assert_same_grant_authority(&collision_grant_replay, &issued);
+        let mut historical_transaction = owner.pool().begin().await.unwrap();
+        assert_eq!(
+            resolve_authorization_in_transaction(
+                &mut historical_transaction,
+                &legacy.locator(),
+                AuthorizationReadModeV1::Historical {
+                    frontier_identity: legacy.frontier().frontier_identity().into(),
+                },
+            )
+            .await
+            .unwrap(),
+            legacy
+        );
+        historical_transaction.rollback().await.unwrap();
+        assert!(matches!(
+            resolve_autonomous_policy(&consumer, &request).await,
+            AutonomousPolicyAuthorizationResolutionV1::Available { .. }
+        ));
+
+        let collision_baseline = oa_table_fingerprint(owner.pool()).await;
+
+        for (select_sql, corrupt_sql, restore_sql, insert_sql, delete_sql, legacy_must_fail) in [
+            (
+                "SELECT payload_digest FROM operator_authorization_private.operator_authorization_owner_outbox_v1 WHERE aggregate_identity=$1",
+                "UPDATE operator_authorization_private.operator_authorization_owner_outbox_v1 SET payload_digest='sha256:corrupt' WHERE aggregate_identity=$1",
+                "UPDATE operator_authorization_private.operator_authorization_owner_outbox_v1 SET payload_digest=$1 WHERE aggregate_identity=$2",
+                "INSERT INTO operator_authorization_private.operator_authorization_owner_outbox_v1 (event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms) VALUES ($1,$2,'UNEXPECTED_V1','sha256:corrupt','{}'::jsonb,$3)",
+                "DELETE FROM operator_authorization_private.operator_authorization_owner_outbox_v1 WHERE event_identity=$1",
+                true,
+            ),
+            (
+                "SELECT payload_digest FROM operator_authorization_private.autonomous_policy_authorization_owner_outbox_v1 WHERE aggregate_identity=$1",
+                "UPDATE operator_authorization_private.autonomous_policy_authorization_owner_outbox_v1 SET payload_digest='sha256:corrupt' WHERE aggregate_identity=$1",
+                "UPDATE operator_authorization_private.autonomous_policy_authorization_owner_outbox_v1 SET payload_digest=$1 WHERE aggregate_identity=$2",
+                "INSERT INTO operator_authorization_private.autonomous_policy_authorization_owner_outbox_v1 (event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms) VALUES ($1,$2,'UNEXPECTED_V1','sha256:corrupt','{}'::jsonb,$3)",
+                "DELETE FROM operator_authorization_private.autonomous_policy_authorization_owner_outbox_v1 WHERE event_identity=$1",
+                false,
+            ),
+        ] {
+            let original_digest: String = sqlx::query_scalar(select_sql)
+                .bind(&legacy.locator().authorization_identity)
+                .fetch_one(owner.pool())
+                .await
+                .unwrap();
+            sqlx::query(corrupt_sql)
+                .bind(&legacy.locator().authorization_identity)
+                .execute(owner.pool())
+                .await
+                .unwrap();
+            let corrupted = oa_table_fingerprint(owner.pool()).await;
+            assert_eq!(
+                resolve_current(&owner, &legacy, now_ms().unwrap())
+                    .await
+                    .is_err(),
+                legacy_must_fail
+            );
+            assert_eq!(
+                matches!(
+                    resolve_autonomous_policy(&consumer, &request).await,
+                    AutonomousPolicyAuthorizationResolutionV1::Unavailable { .. }
+                ),
+                !legacy_must_fail
+            );
+            assert_eq!(oa_table_fingerprint(owner.pool()).await, corrupted);
+            sqlx::query(restore_sql)
+                .bind(&original_digest)
+                .bind(&legacy.locator().authorization_identity)
+                .execute(owner.pool())
+                .await
+                .unwrap();
+            assert_eq!(oa_table_fingerprint(owner.pool()).await, collision_baseline);
+
+            let duplicate_identity = format!("duplicate-{legacy_must_fail}-{suffix}");
+            sqlx::query(insert_sql)
+                .bind(&duplicate_identity)
+                .bind(&legacy.locator().authorization_identity)
+                .bind(to_i64(now).unwrap())
+                .execute(owner.pool())
+                .await
+                .unwrap();
+            let duplicated = oa_table_fingerprint(owner.pool()).await;
+            assert_eq!(
+                resolve_current(&owner, &legacy, now_ms().unwrap())
+                    .await
+                    .is_err(),
+                legacy_must_fail
+            );
+            assert_eq!(
+                matches!(
+                    resolve_autonomous_policy(&consumer, &request).await,
+                    AutonomousPolicyAuthorizationResolutionV1::Unavailable { .. }
+                ),
+                !legacy_must_fail
+            );
+            assert_eq!(oa_table_fingerprint(owner.pool()).await, duplicated);
+            sqlx::query(delete_sql)
+                .bind(&duplicate_identity)
+                .execute(owner.pool())
+                .await
+                .unwrap();
+            assert_eq!(oa_table_fingerprint(owner.pool()).await, collision_baseline);
+        }
+        let before_read_cut: i64 = sqlx::query_scalar(
+            "SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint",
+        )
+        .fetch_one(&consumer)
+        .await
+        .unwrap();
+        let mut transaction = consumer.begin().await.unwrap();
+        let AutonomousPolicyAuthorizationResolutionV1::Available { grant } =
+            resolve_autonomous_policy_authorization_in_transaction(&mut transaction, &request)
+                .await
+        else {
+            panic!("expected sealed Autonomous Policy Authorization");
+        };
+        assert_eq!(grant.locator(), issued.locator());
+        let after_read_cut: i64 = sqlx::query_scalar(
+            "SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint",
+        )
+        .fetch_one(&consumer)
+        .await
+        .unwrap();
+        assert!(grant.observed_at_epoch_ms() >= u64::try_from(before_read_cut).unwrap());
+        assert!(grant.observed_at_epoch_ms() <= u64::try_from(after_read_cut).unwrap());
+        transaction.rollback().await.unwrap();
+
+        let before_negative_reads = oa_table_fingerprint(owner.pool()).await;
+
+        for index in 0..9 {
+            let mut changed = request.clone();
+            match index {
+                0 => changed.expected_resource.principal.push_str("-other"),
+                1 => changed.expected_resource.audience.push_str("-other"),
+                2 => changed
+                    .expected_resource
+                    .account_identity
+                    .push_str("-other"),
+                3 => changed.expected_resource.execution_mode = ExecutionModeV1::Live,
+                4 => changed
+                    .expected_resource
+                    .strategy_generation_identity
+                    .push_str("-other"),
+                5 => changed
+                    .expected_resource
+                    .execution_scope_identity
+                    .push_str("-other"),
+                6 => changed.expected_resource.policy_identity.push_str("-other"),
+                7 => changed
+                    .expected_manifest
+                    .manifest_identity
+                    .push_str("-other"),
+                8 => changed
+                    .expected_manifest
+                    .manifest_digest
+                    .replace_range(7..8, "b"),
+                _ => unreachable!(),
+            }
+            let mut transaction = consumer.begin().await.unwrap();
+            assert!(matches!(
+                resolve_autonomous_policy_authorization_in_transaction(&mut transaction, &changed)
+                    .await,
+                AutonomousPolicyAuthorizationResolutionV1::Unavailable { .. }
+            ));
+            transaction.rollback().await.unwrap();
+        }
+        assert_eq!(
+            oa_table_fingerprint(owner.pool()).await,
+            before_negative_reads
+        );
+
+        let mut changed_validity = proposal.clone();
+        changed_validity.content.valid_through_epoch_ms += 1;
+        changed_validity.grant_identity = changed_validity.content.grant_identity().unwrap();
+        assert!(matches!(
+            owner
+                .issue_autonomous_policy_authorization_genesis(changed_validity)
+                .await,
+            Err(OperatorAuthorizationError::ConflictingReplay)
+        ));
+        assert_eq!(
+            oa_table_fingerprint(owner.pool()).await,
+            before_negative_reads
+        );
+
+        let mut successor_content = proposal.content.clone();
+        successor_content.valid_through_epoch_ms += 600_000;
+        successor_content
+            .operation_manifest
+            .manifest_identity
+            .push_str("-successor");
+        successor_content.operation_manifest.manifest_digest = format!("sha256:{}", "b".repeat(64));
+        let successor_issuance = AutonomousPolicyAuthorizationIssuanceProposalV1 {
+            grant_identity: successor_content.grant_identity().unwrap(),
+            content: successor_content.clone(),
+            expected_revocation_frontier_identity: issued.frontier().frontier_identity().into(),
+        };
+        let successor = AutonomousPolicyAuthorizationSuccessorProposalV1 {
+            predecessor: issued.locator(),
+            expected_current_frontier_identity: issued.frontier().frontier_identity().into(),
+            successor: successor_issuance,
+        };
+        let renewed = owner
+            .issue_autonomous_policy_authorization_successor(successor.clone())
+            .await
+            .unwrap();
+        let successor_replay = owner
+            .issue_autonomous_policy_authorization_successor(successor.clone())
+            .await
+            .unwrap();
+        assert_same_grant_authority(&successor_replay, &renewed);
+        assert!(successor_replay.observed_at_epoch_ms() >= renewed.observed_at_epoch_ms());
+
+        drop(owner);
+        let restarted = Arc::new(
+            OperatorAuthorizationIssuerPostgresV1::connect(
+                test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+            )
+            .await
+            .unwrap(),
+        );
+        let renewed_request = AutonomousPolicyAuthorizationReadRequestV1 {
+            locator: renewed.locator(),
+            expected_resource: successor_content.resource(),
+            expected_manifest: successor_content.operation_manifest.clone(),
+        };
+        let mut transaction = consumer.begin().await.unwrap();
+        assert!(matches!(
+            resolve_autonomous_policy_authorization_in_transaction(
+                &mut transaction,
+                &renewed_request
+            )
+            .await,
+            AutonomousPolicyAuthorizationResolutionV1::Available { .. }
+        ));
+        transaction.rollback().await.unwrap();
+        let restarted_evidence =
+            parse_locked_autonomous_policy_evidence(&consumer, &renewed.locator())
+                .await
+                .unwrap();
+        assert_eq!(restarted_evidence.locator(), renewed.locator());
+        assert!(restarted_evidence.matches_resource(&successor_content.resource()));
+        assert!(
+            restarted_evidence.matches_operation_manifest(&successor_content.operation_manifest)
+        );
+
+        let mut revocation_gate = restarted.pool().begin().await.unwrap();
+        sqlx::query("SELECT grant_identity FROM operator_authorization_private.autonomous_policy_authorization_issuances_v1 WHERE grant_identity=$1 FOR UPDATE")
+            .bind(&renewed.locator().grant_identity).fetch_one(&mut *revocation_gate).await.unwrap();
+        let revoke_owner = Arc::clone(&restarted);
+        let revoke_proposal = AutonomousPolicyAuthorizationRevocationProposalV1 {
+            grant: renewed.locator(),
+            expected_frontier_identity: renewed.frontier().frontier_identity().into(),
+            reason_code: "ADMIN_REVOKED".into(),
+        };
+
+        let revoke_task = tokio::spawn(async move {
+            revoke_owner
+                .revoke_autonomous_policy_authorization(revoke_proposal)
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let waiting: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pg_stat_activity WHERE usename='operator_authorization_writer' AND wait_event_type='Lock' AND query LIKE '%autonomous_policy_authorization_issuances_v1%FOR UPDATE%'")
+                    .fetch_one(restarted.pool()).await.unwrap();
+
+                if waiting > 0 { break; }
+                tokio::task::yield_now().await;
+            }
+        }).await.unwrap();
+        let crossing_consumer = consumer.clone();
+        let crossing_request = renewed_request.clone();
+
+        let crossing_reader = tokio::spawn(async move {
+            let mut transaction = crossing_consumer.begin().await.unwrap();
+            let resolution = resolve_autonomous_policy_authorization_in_transaction(
+                &mut transaction,
+                &crossing_request,
+            )
+            .await;
+            transaction.rollback().await.unwrap();
+            resolution
+        });
+        tokio::task::yield_now().await;
+        assert!(!revoke_task.is_finished());
+        assert!(!crossing_reader.is_finished());
+        revocation_gate.rollback().await.unwrap();
+        let revoked = tokio::time::timeout(Duration::from_secs(5), revoke_task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let after_authorized_revoke = oa_table_fingerprint(restarted.pool()).await;
+        let AutonomousPolicyAuthorizationResolutionV1::Unavailable { reason } =
+            tokio::time::timeout(Duration::from_secs(5), crossing_reader)
+                .await
+                .unwrap()
+                .unwrap()
+        else {
+            panic!("reader queued behind revocation must fail closed");
+        };
+        assert_eq!(
+            reason,
+            AutonomousPolicyAuthorizationUnavailableReasonV1::Revoked
+        );
+        assert_eq!(
+            oa_table_fingerprint(restarted.pool()).await,
+            after_authorized_revoke
+        );
+        assert!(
+            revoked
+                .revoked_grant_identities()
+                .contains(&renewed.locator().grant_identity)
+        );
+        let before_revoked_replay = oa_table_fingerprint(restarted.pool()).await;
+        assert!(matches!(
+            restarted
+                .issue_autonomous_policy_authorization_successor(successor.clone())
+                .await,
+            Err(OperatorAuthorizationError::Unavailable(_))
+        ));
+        let AutonomousPolicyAuthorizationResolutionV1::Unavailable { reason } =
+            resolve_autonomous_policy(&consumer, &renewed_request).await
+        else {
+            panic!("revoked successor replay and canonical resolve must fail closed");
+        };
+        assert_eq!(
+            reason,
+            AutonomousPolicyAuthorizationUnavailableReasonV1::Revoked
+        );
+        let revoked_evidence =
+            parse_locked_autonomous_policy_evidence(&consumer, &renewed.locator())
+                .await
+                .unwrap();
+        assert_eq!(
+            revoked_evidence.frontier_identity(),
+            revoked.frontier_identity()
+        );
+        assert!(!revoked_evidence.is_current_at(now_ms().unwrap()));
+        assert_eq!(
+            oa_table_fingerprint(restarted.pool()).await,
+            before_revoked_replay
+        );
+
+        let executable: bool = sqlx::query_scalar("SELECT has_function_privilege(current_user, 'operator_authorization_api.lock_current_autonomous_policy_authorization_v1(text,text)', 'EXECUTE')")
+            .fetch_one(&consumer).await.unwrap();
+        let private_usage: bool = sqlx::query_scalar(
+            "SELECT has_schema_privilege(current_user, 'operator_authorization_private', 'USAGE')",
+        )
+        .fetch_one(&consumer)
+        .await
+        .unwrap();
+        assert!(executable);
+        assert!(!private_usage);
+
+        for table in [
+            "operator_authorization_private.autonomous_policy_authorization_issuances_v1",
+            "operator_authorization_private.autonomous_policy_authorization_revocation_frontiers_v1",
+            "operator_authorization_private.autonomous_policy_authorization_revocation_heads_v1",
+            "operator_authorization_private.autonomous_policy_authorization_owner_outbox_v1",
+        ] {
+            let relation_oid: i64 = sqlx::query_scalar("SELECT to_regclass($1)::oid::bigint")
+                .bind(table)
+                .fetch_one(restarted.pool())
+                .await
+                .unwrap();
+
+            for privilege in ["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE"] {
+                let granted: bool =
+                    sqlx::query_scalar("SELECT has_table_privilege(current_user, $1::oid, $2)")
+                        .bind(relation_oid)
+                        .bind(privilege)
+                        .fetch_one(&consumer)
+                        .await
+                        .unwrap();
+                assert!(!granted, "Product Edge has {privilege} on {table}");
+            }
+        }
+
+        let expiry_proposal =
+            autonomous_policy_proposal(&suffix, now_ms().unwrap(), "expiry", 2_000);
+        let expiring = restarted
+            .issue_autonomous_policy_authorization_genesis(expiry_proposal.clone())
+            .await
+            .unwrap();
+        let expiry_request = AutonomousPolicyAuthorizationReadRequestV1 {
+            locator: expiring.locator(),
+            expected_resource: expiry_proposal.content.resource(),
+            expected_manifest: expiry_proposal.content.operation_manifest.clone(),
+        };
+        let mut expiry_gate = restarted.pool().begin().await.unwrap();
+        sqlx::query("SELECT grant_identity FROM operator_authorization_private.autonomous_policy_authorization_issuances_v1 WHERE grant_identity=$1 FOR UPDATE")
+            .bind(&expiring.locator().grant_identity).fetch_one(&mut *expiry_gate).await.unwrap();
+        let expiry_consumer = consumer.clone();
+        let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
+        let expiry_replay_owner = Arc::clone(&restarted);
+        let expiry_replay_proposal = expiry_proposal.clone();
+        let (replay_started_sender, replay_started_receiver) = tokio::sync::oneshot::channel();
+        let expiry_replay = tokio::spawn(async move {
+            replay_started_sender.send(()).unwrap();
+            expiry_replay_owner
+                .issue_autonomous_policy_authorization_genesis(expiry_replay_proposal)
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(2), replay_started_receiver)
+            .await
+            .unwrap()
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let waiting: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pg_stat_activity WHERE usename='operator_authorization_writer' AND wait_event_type='Lock' AND query LIKE '%autonomous_policy_authorization_issuances_v1%FOR UPDATE%'")
+                    .fetch_one(restarted.pool()).await.unwrap();
+
+                if waiting > 0 { break; }
+                tokio::task::yield_now().await;
+            }
+        }).await.unwrap();
+
+        let expiry_reader = tokio::spawn(async move {
+            let mut transaction = expiry_consumer.begin().await.unwrap();
+            let started_at: i64 = sqlx::query_scalar(
+                "SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint",
+            )
+            .fetch_one(&mut *transaction)
+            .await
+            .unwrap();
+            started_sender
+                .send(u64::try_from(started_at).unwrap())
+                .unwrap();
+            let resolution = resolve_autonomous_policy_authorization_in_transaction(
+                &mut transaction,
+                &expiry_request,
+            )
+            .await;
+            transaction.rollback().await.unwrap();
+            resolution
+        });
+        let started_at = tokio::time::timeout(Duration::from_secs(2), started_receiver)
+            .await
+            .unwrap()
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(!expiry_reader.is_finished());
+        assert!(!expiry_replay.is_finished());
+        let database_now: i64 = sqlx::query_scalar(
+            "SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint",
+        )
+        .fetch_one(restarted.pool())
+        .await
+        .unwrap();
+        let remaining = expiry_proposal
+            .content
+            .valid_through_epoch_ms
+            .saturating_sub(u64::try_from(database_now).unwrap());
+        tokio::time::sleep(Duration::from_millis(remaining.saturating_add(50))).await;
+        let before_expired_read = oa_table_fingerprint(restarted.pool()).await;
+        expiry_gate.rollback().await.unwrap();
+        let resolution = tokio::time::timeout(Duration::from_secs(5), expiry_reader)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(started_at < expiry_proposal.content.valid_through_epoch_ms);
+        let AutonomousPolicyAuthorizationResolutionV1::Unavailable { reason } = resolution else {
+            panic!("reader begun before expiry but released after expiry must fail closed");
+        };
+        assert_eq!(
+            reason,
+            AutonomousPolicyAuthorizationUnavailableReasonV1::Expired
+        );
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_secs(5), expiry_replay)
+                .await
+                .unwrap()
+                .unwrap(),
+            Err(OperatorAuthorizationError::Unavailable(_))
+        ));
+        let expired_evidence =
+            parse_locked_autonomous_policy_evidence(&consumer, &expiring.locator())
+                .await
+                .unwrap();
         assert!(!expired_evidence.is_current_at(now_ms().unwrap()));
         assert_eq!(
             oa_table_fingerprint(restarted.pool()).await,
