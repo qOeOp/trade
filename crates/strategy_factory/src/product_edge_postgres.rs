@@ -60,6 +60,7 @@ use crate::rd_owner_postgres_custody::{
 };
 use crate::{
     replay_policy_catalog_postgres_v2::resolve_current_v3_for_trial_family_formation,
+    storage_diagnostic,
     trial_family::{
         TrialFamilyDirectResultV1, TrialFamilyError, TrialFamilyIndependenceDispositionV1,
         TrialFamilyPolicyV1,
@@ -3301,7 +3302,13 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             transaction.rollback().await.map_err(|e| storage(&e))?;
             return match e {
                 ResearchGoalOwnerError::ConflictingReplay => Err(e),
-                _ => Ok(unresolved_result_v2(&request_identity)),
+                _ => {
+                    storage_diagnostic::refused_by_store(
+                        "research_goal_owner.submit_v2.source_submission.lock",
+                        &e,
+                    );
+                    Ok(unresolved_result_v2(&request_identity))
+                }
             };
         }
         let existing_row = sqlx::query(
@@ -3327,6 +3334,10 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
                 || i64::try_from(receipt.committed_at_epoch_ms).map_err(json_storage)?
                     != row_committed_at
             {
+                storage_diagnostic::refused_by_store(
+                    "research_goal_owner.submit_v2.receipt_row.readback",
+                    &"stored receipt row disagrees with its receipt JSON, request identity, digest or commit time",
+                );
                 transaction.rollback().await.map_err(|e| storage(&e))?;
                 return Ok(unresolved_result_v2(&request_identity));
             }
@@ -3346,7 +3357,11 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             .await
             {
                 Ok(custody) => custody,
-                Err(_) => {
+                Err(e) => {
+                    storage_diagnostic::refused_by_store(
+                        "research_goal_owner.submit_v2.basis_stage.load",
+                        &e,
+                    );
                     transaction.rollback().await.map_err(|e| storage(&e))?;
                     return Ok(unresolved_result_v2(&request_identity));
                 }
@@ -3387,6 +3402,10 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             )
             .map_or(true, |digest| digest != custody.admission_lineage_digest)
         }) {
+            storage_diagnostic::refused_by_store(
+                "research_goal_owner.submit_v2.basis_stage.admission_lineage",
+                &"admitted basis stage binds a different Product Edge admission lineage than the one resolved now",
+            );
             transaction.rollback().await.map_err(|e| storage(&e))?;
             return Ok(unresolved_result_v2(&request_identity));
         }
@@ -3405,7 +3424,11 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
         .await
         {
             Ok(existing) => existing,
-            Err(_) => {
+            Err(e) => {
+                storage_diagnostic::refused_by_store(
+                    "research_goal_owner.submit_v2.research_custody.admit",
+                    &e,
+                );
                 transaction.rollback().await.map_err(|e| storage(&e))?;
                 return Ok(unresolved_result_v2(&request_identity));
             }
@@ -3444,6 +3467,10 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
                 let (request, rejection_code) = rejected.into_parts();
                 let write_cut = current_epoch_ms()?;
                 if !product_edge_admission.authorizes_first_mutation_at(write_cut) {
+                    storage_diagnostic::refused_by_store(
+                        "research_goal_owner.submit_v2.rejected_commit.first_mutation_authority",
+                        &"Product Edge admission no longer authorizes a first mutation at the rejected-commit write cut",
+                    );
                     transaction.rollback().await.map_err(|e| storage(&e))?;
                     return Ok(unresolved_result_v2(&request_identity));
                 }
@@ -3497,6 +3524,10 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
         } else {
             let basis_cut = current_epoch_ms()?;
             if !product_edge_admission.authorizes_first_mutation_at(basis_cut) {
+                storage_diagnostic::refused_by_store(
+                    "research_goal_owner.submit_v2.basis.first_mutation_authority",
+                    &"Product Edge admission no longer authorizes a first mutation at the basis cut",
+                );
                 transaction.rollback().await.map_err(|e| storage(&e))?;
                 return Ok(unresolved_result_v2(&request_identity));
             }
@@ -3517,7 +3548,11 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
                     transaction.rollback().await.map_err(|e| storage(&e))?;
                     return Err(ResearchGoalOwnerError::ConflictingReplay);
                 }
-                Err(_) => {
+                Err(e) => {
+                    storage_diagnostic::refused_by_store(
+                        "research_goal_owner.submit_v2.basis.load_or_create",
+                        &e,
+                    );
                     transaction.rollback().await.map_err(|e| storage(&e))?;
                     return Ok(unresolved_result_v2(&request_identity));
                 }
@@ -3531,7 +3566,11 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             .await
         {
             Ok(readback) => readback,
-            Err(_) => {
+            Err(e) => {
+                storage_diagnostic::refused_by_store(
+                    "research_goal_owner.submit_v2.protected_feedback.resolve_or_create",
+                    &e,
+                );
                 return Ok(unresolved_result_v2(&request_identity));
             }
         };
@@ -3547,7 +3586,11 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
         .await
         {
             Ok(admission) => admission,
-            Err(_) => {
+            Err(e) => {
+                storage_diagnostic::refused_by_store(
+                    "research_goal_owner.submit_v2.final_admission.resolve",
+                    &e,
+                );
                 transaction.rollback().await.map_err(|e| storage(&e))?;
                 return Ok(unresolved_result_v2(&request_identity));
             }
@@ -3573,7 +3616,11 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
         .await
         {
             Ok(existing) => existing,
-            Err(_) => {
+            Err(e) => {
+                storage_diagnostic::refused_by_store(
+                    "research_goal_owner.submit_v2.research_custody.readmit",
+                    &e,
+                );
                 transaction.rollback().await.map_err(|e| storage(&e))?;
                 return Ok(unresolved_result_v2(&request_identity));
             }
@@ -3596,7 +3643,13 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
                 transaction.rollback().await.map_err(|e| storage(&e))?;
                 return match e {
                     ResearchGoalOwnerError::ConflictingReplay => Err(e),
-                    _ => Ok(unresolved_result_v2(&request_identity)),
+                    _ => {
+                        storage_diagnostic::refused_by_store(
+                            "research_goal_owner.submit_v2.source_submission.relock",
+                            &e,
+                        );
+                        Ok(unresolved_result_v2(&request_identity))
+                    }
                 };
             }
             let return_cut = current_epoch_ms()?;
@@ -3617,7 +3670,19 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
         .await
         {
             Ok(Some(custody)) => custody,
-            _ => {
+            Ok(None) => {
+                storage_diagnostic::refused_by_store(
+                    "research_goal_owner.submit_v2.basis_stage.reload",
+                    &"no basis stage custody for the request after its basis committed",
+                );
+                transaction.rollback().await.map_err(|e| storage(&e))?;
+                return Ok(unresolved_result_v2(&request_identity));
+            }
+            Err(e) => {
+                storage_diagnostic::refused_by_store(
+                    "research_goal_owner.submit_v2.basis_stage.reload",
+                    &e,
+                );
                 transaction.rollback().await.map_err(|e| storage(&e))?;
                 return Ok(unresolved_result_v2(&request_identity));
             }
@@ -3648,19 +3713,31 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
                 &final_admission.immutable_lineage(),
             )?
         {
+            storage_diagnostic::refused_by_store(
+                "research_goal_owner.submit_v2.basis_stage.final_admission_lineage",
+                &"admitted basis stage binds a different Product Edge admission lineage than the final one",
+            );
             transaction.rollback().await.map_err(|e| storage(&e))?;
             return Ok(unresolved_result_v2(&request_identity));
         }
         let admitted_basis = admitted_basis_stage.basis;
 
         if admitted_basis != basis {
+            storage_diagnostic::refused_by_store(
+                "research_goal_owner.submit_v2.basis.readback_mismatch",
+                &"the basis read back under the final lock differs from the basis committed for the request",
+            );
             transaction.rollback().await.map_err(|e| storage(&e))?;
             return Ok(unresolved_result_v2(&request_identity));
         }
         let (lineage_resolution, predecessor_frontier, lineage_digest) =
             match resolve_lineage_in_transaction(&mut transaction, &principal, &scope).await {
                 Ok(lineage) => lineage,
-                Err(_) => {
+                Err(e) => {
+                    storage_diagnostic::refused_by_store(
+                        "research_goal_owner.submit_v2.lineage.resolve",
+                        &e,
+                    );
                     transaction.rollback().await.map_err(|e| storage(&e))?;
                     return Ok(unresolved_result_v2(&request_identity));
                 }
@@ -3670,6 +3747,10 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             || admitted_stored.semantic_predecessor_frontier != predecessor_frontier
             || admitted_stored.lineage_digest != lineage_digest
         {
+            storage_diagnostic::refused_by_store(
+                "research_goal_owner.submit_v2.lineage.stored_mismatch",
+                &"the stored basis lineage disagrees with the lineage resolved under the final lock",
+            );
             transaction.rollback().await.map_err(|e| storage(&e))?;
             return Ok(unresolved_result_v2(&request_identity));
         }
@@ -3681,6 +3762,10 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             .as_deref()
             != Some(basis.basis_identity())
         {
+            storage_diagnostic::refused_by_store(
+                "research_goal_owner.submit_v2.independence_basis_head.mismatch",
+                &"the principal scope head does not name the basis committed for the request",
+            );
             transaction.rollback().await.map_err(|e| storage(&e))?;
             return Ok(unresolved_result_v2(&request_identity));
         }
@@ -3690,17 +3775,29 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             .await
         {
             Ok(feedback) => feedback,
-            Err(_) => {
+            Err(e) => {
+                storage_diagnostic::refused_by_store(
+                    "research_goal_owner.submit_v2.protected_feedback.admit",
+                    &e,
+                );
                 transaction.rollback().await.map_err(|e| storage(&e))?;
                 return Ok(unresolved_result_v2(&request_identity));
             }
         };
         let Some(admitted_feedback) = admitted_feedback else {
+            storage_diagnostic::refused_by_store(
+                "research_goal_owner.submit_v2.protected_feedback.absent",
+                &"Qualification admitted no protected feedback frontier for the basis",
+            );
             transaction.rollback().await.map_err(|e| storage(&e))?;
             return Ok(unresolved_result_v2(&request_identity));
         };
 
         if admitted_feedback != protected_feedback {
+            storage_diagnostic::refused_by_store(
+                "research_goal_owner.submit_v2.protected_feedback.mismatch",
+                &"the protected feedback frontier admitted under the final lock differs from the one resolved before it",
+            );
             transaction.rollback().await.map_err(|e| storage(&e))?;
             return Ok(unresolved_result_v2(&request_identity));
         }
@@ -3710,6 +3807,10 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             .await
             .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
         if refreshed_feedback.as_ref() != Some(&admitted_feedback) {
+            storage_diagnostic::refused_by_store(
+                "research_goal_owner.submit_v2.protected_feedback.refresh_mismatch",
+                &"the protected feedback frontier changed between its admission and the final readback",
+            );
             transaction.rollback().await.map_err(|e| storage(&e))?;
             return Ok(unresolved_result_v2(&request_identity));
         }
@@ -3722,7 +3823,13 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             transaction.rollback().await.map_err(|e| storage(&e))?;
             return match e {
                 ResearchGoalOwnerError::ConflictingReplay => Err(e),
-                _ => Ok(unresolved_result_v2(&request_identity)),
+                _ => {
+                    storage_diagnostic::refused_by_store(
+                        "research_goal_owner.submit_v2.source_submission.final_lock",
+                        &e,
+                    );
+                    Ok(unresolved_result_v2(&request_identity))
+                }
             };
         }
 
@@ -3734,6 +3841,10 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
         if !admitted_feedback.is_current_at(write_cut)
             || !final_admission.authorizes_first_mutation_at(write_cut)
         {
+            storage_diagnostic::refused_by_store(
+                "research_goal_owner.submit_v2.terminal_commit.first_mutation_authority",
+                &"the protected feedback frontier is not current or the Product Edge admission no longer authorizes a first mutation at the terminal write cut",
+            );
             transaction.rollback().await.map_err(|e| storage(&e))?;
             return Ok(unresolved_result_v2(&request_identity));
         }
@@ -3766,7 +3877,11 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
         .await
         {
             Ok(policy) => policy,
-            Err(_) => {
+            Err(e) => {
+                storage_diagnostic::refused_by_store(
+                    "research_goal_owner.submit_v2.replay_policy_catalog_v3.resolve_current",
+                    &e,
+                );
                 transaction.rollback().await.map_err(|e| storage(&e))?;
                 return Ok(unresolved_result_v2(&request_identity));
             }

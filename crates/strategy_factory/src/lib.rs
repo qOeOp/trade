@@ -260,6 +260,7 @@ mod software_control;
 pub mod source_intake;
 pub mod source_research_composer_postgres_v2;
 pub mod status;
+mod storage_diagnostic;
 pub mod strategy_design_v2;
 #[cfg(test)]
 mod strategy_design_v2_tests;
