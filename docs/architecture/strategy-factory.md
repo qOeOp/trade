@@ -13,7 +13,9 @@ Qualification's PostgreSQL custody is physically distinct: `qualification_owner`
 Replay Policy Catalog and durable Composer custody use the same physical separation. `rd_database_owner`
 is the NOLOGIN database/public-schema custodian; `replay_policy_catalog_owner` and `composer_owner` are
 distinct NOLOGIN object owners of private data and fixed API schemas. `rd_owner` has neither membership,
-ownership, schema `CREATE`, raw table access, nor mutation `EXECUTE`; it retains only fixed lock/read APIs.
+ownership, schema `CREATE` nor raw table access; it retains the fixed lock/read APIs and exactly one non-grantable
+mutation `EXECUTE`, on the Composer commit routines `commit_develop_composer_v2`/`v3`, so a frozen Bounded Feature
+Program is reread, locked, bound and committed inside one Owner transaction.
 The separately supplied `replay_policy_catalog_admin_writer` LOGIN alone receives non-grantable `EXECUTE` on the
 Catalog administration routine, while `rd_fact_writer` retains only Composer commit authority. All routines use `search_path=pg_catalog,pg_temp` inside the
 caller's existing transaction. A fresh deployment first runs the same bounded Rust schema materializers while
