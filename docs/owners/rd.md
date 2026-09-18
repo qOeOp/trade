@@ -723,6 +723,17 @@ Decision, Selection, and Candidate. Changing one creates a successor lineage rat
   intent, artifact, exploratory, and decision facts but never protected Qualification detail. A terminal stop is
   shown only from the Iteration Decision. Selection appears only when the selected-only disposition exists.
 
+**CURRENT_PARTIAL - bounded verified-outcome reads.** The R&D Owner answers two authenticated zero-effect reads
+over one historical custody cut it resolves itself: the verified Research outcome list and the verified Build
+outcome list. Each answers newest first, carries at most the rows the caller asked for and never more than the
+bound this Owner owns, and echoes both the custody cut it resolved against and whether it truncated. A Research row
+carries the request identity, the committed time, the resolution and the question binding; a Build row carries the
+build request identity, the attempt identity, the committed time and the disposition. The caller names neither the
+cut nor a row beyond its bound, so a consumer cannot state a coordinate this Owner did not resolve. The two lists
+are independent: one answering unavailable or at a different cut withdraws only its own rows and counts. Neither
+read admits a Plan, Artifact, receipt bytes, source text, or any mutation, and neither is a Selection, Candidate or
+Qualification fact.
+
 ## Rejections and prohibitions
 
 - Never tune a submitted candidate from its protected evaluation or holdout result.

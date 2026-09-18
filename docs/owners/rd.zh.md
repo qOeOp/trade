@@ -645,6 +645,15 @@ purge 与 embargo 派生规则、TrialFamily-aware multiplicity policy、attempt
   决定事实，但不包含保护 Qualification 细节。终态停止只能来自 Iteration Decision，只有存在仅选择
   disposition 时视图才显示 Selection。
 
+**CURRENT_PARTIAL - 有界的已验证 outcome 读面。** R&D Owner 回答两个经认证的 zero-effect read，它们都基于
+这个 Owner 自己解析出的同一个 historical custody cut：verified Research outcome 清单与 verified Build
+outcome 清单。两者都按最新在前回答，至多返回调用方请求的行数、且绝不超过这个 Owner 自己拥有的上限，并同时
+回显它解析所依据的 custody cut 与是否发生截断。Research 行携带 request 身份 提交时间 resolution 与
+question 绑定；Build 行携带 build request 身份 attempt 身份 提交时间与 disposition。调用方既不指名 cut
+也不指名超出上限的行，因此消费方无法声称一个这个 Owner 没有解析过的坐标。两个清单相互独立：其中一个回答
+unavailable 或位于不同 cut 时，只撤回它自己的行与计数。两个读都不接纳 Plan Artifact 收据字节 源码文本或
+任何 mutation，也都不是 Selection Candidate 或 Qualification 事实。
+
 ## 拒绝和禁止事项
 
 - 不使用已提交候选的保护评估或 holdout 结果继续调优同一候选。
