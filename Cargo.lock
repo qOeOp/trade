@@ -9638,7 +9638,6 @@ dependencies = [
  "rust_decimal",
  "serde",
  "serde_json",
- "strategy-factory-program-sdk",
  "tempfile",
  "ustr",
  "vibe-analysis",
@@ -9686,6 +9685,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "strategy-factory-program-sdk",
  "thiserror 2.0.19",
 ]
 

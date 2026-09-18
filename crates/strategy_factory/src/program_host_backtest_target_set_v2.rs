@@ -23,6 +23,9 @@ use strategy_factory_program_sdk::{
     },
     lifecycle_v2::{InstrumentTargetSetV2, TARGET_SET_MEMBER_COUNT},
 };
+use vibe_backtest_owner_contracts::native_replay_trace::{
+    fill_disposition_name, lifecycle_name, position_intent_name,
+};
 use vibe_common::actor::DataActor;
 use vibe_data::owner::{
     source_binding::BindingDigest,
@@ -43,12 +46,10 @@ use vibe_trading::{
     vibe_strategy,
 };
 
-#[cfg(test)]
-use crate::program_host_v2::AdmittedProgramEventV2;
 use crate::{
     artifact_v2::StrategyArtifactV2,
     program_host_v2::{
-        PreparedBacktestTargetSetV2, ProgramHostV2, ProgramHostV2Error,
+        AdmittedProgramEventV2, PreparedBacktestTargetSetV2, ProgramHostV2, ProgramHostV2Error,
         admit_market_data_universe_program_event_v2,
     },
     strategy_plan_v2::StrategyPlanV2,
@@ -62,12 +63,14 @@ const WEIGHT_FORMULA_V2: &[u8] =
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub(crate) struct TargetSetBacktestTransitionV2 {
-    pub(crate) instrument: String,
+    /// `None` for a host-wide lifecycle event (`START`, `STOP`); the exact member otherwise.
+    pub(crate) instrument: Option<String>,
     pub(crate) lifecycle: String,
     pub(crate) position_intent: String,
     pub(crate) position_before_grid_units: i64,
     pub(crate) position_after_grid_units: i64,
-    pub(crate) residual_grid_units: i64,
+    /// `None` for a host-wide lifecycle event, which converts no target.
+    pub(crate) residual_grid_units: Option<i64>,
     pub(crate) checkpoint_before: [u8; 32],
     pub(crate) checkpoint_after: [u8; 32],
     pub(crate) trace: Vec<u8>,
@@ -352,11 +355,37 @@ impl BacktestTargetSetProgramHostStrategyV2 {
             EnvelopePayloadV1::Start,
         )?;
         let event = self.host.admit_backtest_lifecycle_event(envelope)?;
-        self.host.apply_event(&event)?;
+        self.apply_host_wide_event(&event)?;
 
         for bar_type in self.bar_types {
             self.subscribe_bars(bar_type, None, None);
         }
+        Ok(())
+    }
+
+    /// Applies one host-wide `START` or `STOP` lifecycle event and records its transition.
+    fn apply_host_wide_event(&mut self, event: &AdmittedProgramEventV2) -> anyhow::Result<()> {
+        let checkpoint_before = self.host.checkpoint().digest();
+        let trace = self.host.apply_event(event)?;
+        let checkpoint_after = self.host.checkpoint().digest();
+        let kind = trace
+            .order_key
+            .context("host-wide lifecycle trace omitted its order key")?
+            .kind;
+        self.trace
+            .borrow_mut()
+            .host_transitions
+            .push(TargetSetBacktestTransitionV2 {
+                instrument: None,
+                lifecycle: lifecycle_name(kind).to_owned(),
+                position_intent: position_intent_name(trace.position_intent).to_owned(),
+                position_before_grid_units: trace.position_before_units,
+                position_after_grid_units: trace.position_after_units,
+                residual_grid_units: None,
+                checkpoint_before: *checkpoint_before.as_bytes(),
+                checkpoint_after: *checkpoint_after.as_bytes(),
+                trace: trace.encode().to_vec(),
+            });
         Ok(())
     }
 
@@ -462,12 +491,12 @@ impl BacktestTargetSetProgramHostStrategyV2 {
                 .borrow_mut()
                 .host_transitions
                 .push(TargetSetBacktestTransitionV2 {
-                    instrument: self.instrument_ids[ordinal].to_string(),
-                    lifecycle: "BAR".to_owned(),
+                    instrument: Some(self.instrument_ids[ordinal].to_string()),
+                    lifecycle: lifecycle_name(LifecycleKind::Bar).to_owned(),
                     position_intent: position_intent_name(trace.position_intent).to_owned(),
                     position_before_grid_units: trace.position_before_units,
                     position_after_grid_units: trace.position_after_units,
-                    residual_grid_units: residuals[ordinal],
+                    residual_grid_units: Some(residuals[ordinal]),
                     checkpoint_before: *checkpoint_before.as_bytes(),
                     checkpoint_after: *checkpoint_after.as_bytes(),
                     trace: trace.encode().to_vec(),
@@ -864,12 +893,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
                         .context("actual fill lost its native order binding")?,
                     instrument: binding.instrument_id.to_string(),
                     intent_identity: binding.intent_identity,
-                    disposition: match disposition {
-                        FillDispositionV1::PartiallyFilled => "PARTIALLY_FILLED",
-                        FillDispositionV1::Filled => "FILLED",
-                        _ => unreachable!("fill-only branch checked above"),
-                    }
-                    .to_owned(),
+                    disposition: fill_disposition_name(disposition).to_owned(),
                     position_intent: position_intent_name(
                         self.members[binding.member_ordinal]
                             .desired_position_intent
@@ -892,14 +916,16 @@ impl BacktestTargetSetProgramHostStrategyV2 {
             .borrow_mut()
             .host_transitions
             .push(TargetSetBacktestTransitionV2 {
-                instrument: binding.instrument_id.to_string(),
-                lifecycle: "FILL".to_owned(),
+                instrument: Some(binding.instrument_id.to_string()),
+                lifecycle: lifecycle_name(LifecycleKind::Fill).to_owned(),
                 position_intent: position_intent_name(trace.position_intent).to_owned(),
                 position_before_grid_units: trace.position_before_units,
                 position_after_grid_units: trace.position_after_units,
-                residual_grid_units: target
-                    .checked_sub(trace.position_after_units)
-                    .context("member fill residual overflow")?,
+                residual_grid_units: Some(
+                    target
+                        .checked_sub(trace.position_after_units)
+                        .context("member fill residual overflow")?,
+                ),
                 checkpoint_before: *checkpoint_before.as_bytes(),
                 checkpoint_after: *checkpoint_after.as_bytes(),
                 trace: trace.encode().to_vec(),
@@ -1130,6 +1156,20 @@ impl DataActor for BacktestTargetSetProgramHostStrategyV2 {
                 self.universe_frames.is_empty() && self.pending_bars.is_empty(),
                 "Backtest target-set frames were not exhausted"
             );
+            let now = self.clock().timestamp_ns().as_u64();
+            let envelope = lifecycle_envelope(
+                now,
+                now,
+                LifecycleKind::Stop,
+                u64::MAX,
+                stable_identity(
+                    b"strategy.backtest-target-set-v2.stop\0",
+                    &[self.host.host_identity().as_bytes()],
+                ),
+                EnvelopePayloadV1::Stop,
+            )?;
+            let event = self.host.admit_backtest_lifecycle_event(envelope)?;
+            self.apply_host_wide_event(&event)?;
             Ok(())
         })();
         self.finish_callback(result)
@@ -1332,16 +1372,6 @@ fn stable_identity(domain: &[u8], parts: &[&[u8]]) -> [u8; 16] {
     hasher.finalize()[..16]
         .try_into()
         .expect("SHA-256 prefix has fixed length")
-}
-
-const fn position_intent_name(intent: PositionIntentV1) -> &'static str {
-    match intent {
-        PositionIntentV1::Hold => "HOLD",
-        PositionIntentV1::Enter => "ENTER",
-        PositionIntentV1::Add => "ADD",
-        PositionIntentV1::Reduce => "REDUCE",
-        PositionIntentV1::Exit => "EXIT",
-    }
 }
 
 const fn order_event_name(event: &OrderEventAny) -> &'static str {
