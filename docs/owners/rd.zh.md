@@ -274,7 +274,7 @@ trigger string、maximum staleness `u64BE`。不得有 trailing bytes。`receipt
 既有 Composer custody 重新 projection，并且必须返回 byte-identical canonical bytes 与 digest。caller 自建
 的 bytes 或 hash 即使 self-consistent 仍不可信，不能进入固定 resolver path。
 
-**macOS 为 CURRENT/PARTIAL；hosted Linux ARM64 为 REVALIDATION REQUIRED - 本地 bounded-plugin build
+**macOS 为 CURRENT/PARTIAL；hosted Linux ARM64 与 x86_64 为 REVALIDATION REQUIRED - 本地 bounded-plugin build
 producer：** 对准确一个当前 `PluginManifestV2`，R&D 只接纳
 固定 `rust.no_std.fixed-abi-source.v2` 语言中一份有内容上限的 `src/lib.rs`，拒绝其他路径、symlink、文件、
 dependency、build script、toolchain、target 或 command。它物化两个相互独立的私有临时 Cargo project；
@@ -283,7 +283,10 @@ dependency、build script、toolchain、target 或 command。它物化两个相�
 （`c980f486…bf5`，SHA-256 `7672ead3…bbf5`）、rustc 1.97.1（`8bab26f…452`，SHA-256
 `210df679…a4da`）、rust-lld（SHA-256 `8f5fe507…548d`）及 `aarch64-apple-darwin`。hosted Linux ARM64 A0
 候选 profile 记录了 `aarch64-unknown-linux-gnu` 的相同准确 release/commit，Cargo SHA-256 为
-`c5dcff70…1808`、rustc SHA-256 为 `a3d4dfcd…e78`、rust-lld SHA-256 为 `533dffee…eb7`。每次已接纳构建
+`c5dcff70…1808`、rustc SHA-256 为 `a3d4dfcd…e78`、rust-lld SHA-256 为 `533dffee…eb7`。hosted Linux x86_64
+候选 profile 记录了 `x86_64-unknown-linux-gnu` 的相同准确 release/commit，Cargo SHA-256 为 `82898072…1953`、
+rustc SHA-256 为 `d3a664c9…7eea`、rust-lld SHA-256 为 `38a9f284…5721`，并绑定同一个 frozen `wasm32v1-none`
+sysroot digest，该值由 hosted x86_64 测试主机实测。每次已接纳构建
 都拒绝 ambient ancestor Cargo 配置，并要求每个 tool 的 `-Vv` host 与所选 profile 一致。`RUSTUP_HOME` 或
 `HOME/.rustup` 只定位该 profile 的准确 release 候选 toolchain；路径字节不具 authority 且不进入
 semantic identity。随后执行固定的

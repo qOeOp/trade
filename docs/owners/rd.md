@@ -313,7 +313,7 @@ bytes; neither the canonical bytes nor the digest are themselves encoded into th
 recovery reprojects existing Composer custody and must return byte-identical canonical bytes and digest. A
 self-consistent caller-created byte sequence or hash remains untrusted and cannot enter the fixed resolver path.
 
-**CURRENT/PARTIAL on macOS; REVALIDATION REQUIRED on hosted Linux ARM64 - local bounded-plugin build
+**CURRENT/PARTIAL on macOS; REVALIDATION REQUIRED on hosted Linux ARM64 and x86_64 - local bounded-plugin build
 producer:** for exactly one current `PluginManifestV2`, R&D admits
 only one content-bounded `src/lib.rs` in the fixed `rust.no_std.fixed-abi-source.v2` language and rejects every
 other path, symlink, file, dependency, build script, toolchain, target, or command. It materializes two separate
@@ -323,7 +323,10 @@ profile binds canonical Cargo 1.97.1 (`c980f486…bf5`, SHA-256 `7672ead3…bbf5
 (`8bab26f…452`, SHA-256 `210df679…a4da`), rust-lld (SHA-256 `8f5fe507…548d`), and
 `aarch64-apple-darwin`. The hosted Linux ARM64 A0 candidate profile records the same exact releases and
 commits for `aarch64-unknown-linux-gnu` with Cargo SHA-256 `c5dcff70…1808`, rustc SHA-256 `a3d4dfcd…e78`, and rust-lld
-SHA-256 `533dffee…eb7`. Each admitted build rejects ambient ancestor Cargo configuration and requires each tool's
+SHA-256 `533dffee…eb7`. The hosted Linux x86_64 candidate profile records the same exact releases and commits for
+`x86_64-unknown-linux-gnu` with Cargo SHA-256 `82898072…1953`, rustc SHA-256 `d3a664c9…7eea`, and rust-lld SHA-256
+`38a9f284…5721`, and binds the same frozen `wasm32v1-none` sysroot digest, which the hosted x86_64 test host
+measured. Each admitted build rejects ambient ancestor Cargo configuration and requires each tool's
 `-Vv` host to match the selected profile. `RUSTUP_HOME` or `HOME/.rustup` only locates that profile's candidate
 exact-release toolchain; path bytes are non-authoritative and absent from semantic identity.
 It then runs the fixed `wasm32v1-none --offline --locked` command and requires two
