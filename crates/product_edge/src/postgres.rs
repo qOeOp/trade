@@ -1488,9 +1488,23 @@ pub struct ProductEdgePostgresAdmissionReadPortV1 {
 impl ProductEdgePostgresAdmissionReadPortV1 {
     pub async fn connect(database_url: &str) -> Result<Self, ProductEdgeError> {
         let pool = PgPool::connect(database_url).await.map_err(storage)?;
-        let mut transaction = begin_repeatable_read(&pool).await?;
-        verify_admission_event_stream(&mut transaction).await?;
-        transaction.commit().await.map_err(storage)?;
+        // A role the topology does not admit fails here with a privilege error;
+        // the read port reports that as the same fail-closed refusal it always
+        // did, only now named, and keeps the stream verifier's own reason.
+        let topology_not_admitted = |error: ProductEdgeError| match error {
+            ProductEdgeError::Unavailable(_) => error,
+            _ => unavailable(Reason::TopologyNotAdmitted),
+        };
+        let mut transaction = begin_repeatable_read(&pool)
+            .await
+            .map_err(topology_not_admitted)?;
+        verify_admission_event_stream(&mut transaction)
+            .await
+            .map_err(topology_not_admitted)?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| unavailable(Reason::TopologyNotAdmitted))?;
         Ok(Self { pool })
     }
 
