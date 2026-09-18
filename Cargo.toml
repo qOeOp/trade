@@ -36,6 +36,7 @@ members = [
   "crates/deployment_attestation",
   "crates/event_store",
   "crates/execution",
+  "crates/execution_owner",
   "crates/indicators",
   "crates/indicators/kernel",
   "crates/infrastructure",
@@ -96,6 +97,7 @@ vibe-cryptography = { path = "crates/cryptography", version = "0.62.0" }
 vibe-data = { path = "crates/data", version = "0.62.0" }
 vibe-deployment-attestation = { path = "crates/deployment_attestation", version = "0.62.0" }
 vibe-execution = { path = "crates/execution", version = "0.62.0" }
+vibe-execution-owner = { path = "crates/execution_owner", version = "0.62.0" }
 vibe-indicators = { path = "crates/indicators", version = "0.62.0" }
 vibe-indicators-kernel = { path = "crates/indicators/kernel", version = "0.62.0" }
 vibe-infrastructure = { path = "crates/infrastructure", version = "0.62.0" }
