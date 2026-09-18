@@ -92,6 +92,10 @@ never runs in CI.
   `MarketSemanticsUnavailable` for every Design, and the PIT request still carries a caller-claimed
   `instrument_master_digest`. The three write paths are admitted as bounded slices in their own sections below, in
   the order R0, Instrument Master V1, Market Semantics; each turns `CURRENT / PARTIAL` once its chain proof passes.
+- **`B8` no live fact reaches Runtime.** Every retrieval seam this Owner has is as-of: a Data Client answers one
+  frozen scope at one decision cut, and nothing streams. A Strategy Instance consuming the handoff named under
+  Output handoffs therefore has no input at all, and neither Paper nor Live can begin. Cleared by the first live
+  channel, admitted as a bounded slice below.
 
 ### Per-slice ledger
 
@@ -113,6 +117,7 @@ never runs in CI.
 | EVENT and BAR Owner custody                               | `CURRENT / PARTIAL`                                           | `owner/sample_fact.rs`, `owner/sample_projection*.rs`, `owner/bar_schedule.rs`                                                                                                                                                           | `B4`       |
 | Shared Time clock‑head handoff                            | `TARGET`                                                      | `owner/shared_time_evidence.rs`                                                                                                                                                                                                          | `B3`       |
 | Vendor Data Clients                                       | `CURRENT / PARTIAL`                                           | `crates/adapters/databento/src/pit_observation_source_v1.rs` and `crates/adapters/binance/src/pit_observation_source_v1.rs`, both live‑verified                                                                                          | `B6`       |
+| Live market fact channel to Runtime                       | `TARGET`, first channel `IMPLEMENTATION_ADMITTED`             | `owner/live_market_fact_v1.rs`, `owner/live_market_stream_v1.rs`, `crates/adapters/bybit/src/live_market_fact_source_v1.rs`                                                                                                              | `B8`       |
 
 ## Authoritative facts owned
 
@@ -1608,6 +1613,15 @@ instrument-class rejection.
 - To [Scanner](./scanner/): the exact PIT Market Snapshot requested by published activation conditions.
 - To [Runtime](./runtime/): live market streams and instrument updates carrying the same Market Semantics
   Compatibility identity consumed by the generation's Strategy Artifact and historical evidence.
+  **IMPLEMENTATION_ADMITTED, one live fact channel:** the additive `LiveMarketFactV1` a Strategy Instance consumes,
+  its Owner-sealed intake, and exactly one Data Client behind it, the venue's public WebSocket. The vendor side
+  states only what a venue can know, as the PIT observation seam already requires; the Owner stamps the admitted
+  Source Binding identity and lineage, the binding's Market Semantics Compatibility identity, and the fact's own
+  time coordinates and sequence, refuses an instrument outside the subscription the Owner issued, and keeps a
+  durable head so a restart hands over from where it stopped rather than replaying. Nothing else is admitted here:
+  no second channel, no instrument-update stream, no Runtime custody, no order path.
+  **NOT_ADMITTED:** a live channel establishes no Runtime readiness, Paper, Live, real trading or other production
+  write, and a streamed fact is never a PIT snapshot, a replay input or evidence for a historical question.
 - To [Portfolio](./portfolio/): prices, FX rates, contract specifications, valuation facts, and an identified liquidity input cut for Capacity View.
 - **TARGET, after Shared Time producer closure, to [Portfolio](./portfolio/):** the sealed canonical clock-head handoff
   for `PORTFOLIO_FRESHNESS`. Portfolio supplies its exact prior handoff and alone authorizes its transition; it cannot
