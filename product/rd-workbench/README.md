@@ -1,10 +1,21 @@
-# R&D Workbench S1 V2 + S2 + Exploratory Replay V2 candidate
+# R&D deployment package
 
-This package is the non-live Product Edge candidate through Strategy Artifact Formation. The default Web path uses S1 V2: Windmill submits policy but no family identity, while R&D atomically derives and persists the frozen Intent, TrialFamily root, initial INTENT Census member/head, receipts, and outbox. S2 atomically binds its immutable Artifact and Build Receipt to that Owner family. Exploratory Replay V2 then identifies, submits once, resolves, and renders the Owner-sealed replay request and readback; it does not execute Backtest. Windmill submits, resolves, and renders; only the Owner commits or directly resolves those facts.
+This package is the Docker Compose deployment manifest for the local R&D stack: PostgreSQL, the
+R&D Owner API, the build sandbox, the administrative one-shot compositions, and the opt-in
+first-party Dashboard. It is not a product surface. The product surface is `product/dashboard`;
+its contract lives in `docs/architecture/product-edge.md` and `docs/guide/dashboard.md`.
+
+The previous product shell that once executed Product Edge effects from this package is retired.
+Its scripts, workspace manifest, and services are gone; `docs/architecture/capability-adoption.md`
+records where each capability it supplied now lives. The Dashboard effect worker is the only
+executor path, and it starts only under the `dashboard-preview` profile.
+
+`make rd-workbench-check` validates the pinned manifests, image digests, authority wiring, and
+`docker compose config` for this package.
 
 ## Deployment Store Admission boundary
 
-The Workbench defaults `DEPLOYMENT_STORE_ADMISSION_MODE` to `disabled`. In that
+The package defaults `DEPLOYMENT_STORE_ADMISSION_MODE` to `disabled`. In that
 mode the three store identities may remain empty and no governed Market Data
 repository is constructed.
 
@@ -27,7 +38,13 @@ adapters and their deployment authority are separately available.
 
 ## Start
 
-Create a private environment file outside the repository or copy `.env.example` and replace every placeholder with a local value. `WINDMILL_DATABASE_URL`, `RD_OWNER_DATABASE_URL`, `RD_FACT_WRITER_DATABASE_URL`, and `REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` must be private PostgreSQL connection URLs for the Compose `postgres` service, with credentials matching `POSTGRES_PASSWORD`, `RD_OWNER_DB_PASSWORD`, `RD_FACT_WRITER_DB_PASSWORD`, and `REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD` respectively. Do not commit it.
+Create a private environment file outside the repository or copy `.env.example` and replace every
+placeholder with a local value. `RD_OWNER_DATABASE_URL`, `RD_FACT_WRITER_DATABASE_URL`,
+`MARKET_DATA_OWNER_DATABASE_URL`, `MARKET_DATA_RD_ROLE_SET_DATABASE_URL`,
+`QUALIFICATION_OWNER_DATABASE_URL`, `OPERATOR_AUTHORIZATION_DATABASE_URL`,
+`PRODUCT_EDGE_DATABASE_URL`, and `REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` must be private
+PostgreSQL connection URLs for the Compose `postgres` service, with credentials matching the
+`*_DB_PASSWORD` values. Do not commit it.
 
 Operator Authorization and Product Edge genesis remain explicit administrative
 operations and never run as part of service startup. Replay Policy Catalog
@@ -55,7 +72,7 @@ The database/public schema custodian and both object owners are NOLOGIN roles.
 `REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD`. The Rust one-shot composition verifies the sealed Ed25519 request
 before database access. PostgreSQL does not independently verify Ed25519; it trusts the exclusive
 `replay_policy_catalog_admin_writer` principal as the broker mutation boundary. Never distribute this credential
-to operators, ordinary services, Windmill, or generic SQL clients; possession or use outside the broker is a
+to operators, ordinary services, the Dashboard, or generic SQL clients; possession or use outside the broker is a
 trust-boundary breach. No default or fallback credential exists.
 Existing relations are moved with `SET SCHEMA` without row rewrites. The
 migration does not insert, update, delete, backfill, or reinterpret an Owner fact:
@@ -76,7 +93,7 @@ request, set `REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY`, and set
 `REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY` to the absolute path of its
 lowercase-hex public-key file. Keep both files private and outside the repository.
 The verifier key is mounted separately from the request; no Product Edge,
-Windmill, deployment, or environment setting can supply or generate policy
+Dashboard, deployment, or environment setting can supply or generate policy
 meaning.
 
 `replay-policy-catalog-bootstrap` is an opt-in `authority-admin` one-shot service. It runs only
@@ -108,7 +125,7 @@ docker compose \
 ```
 
 The bootstrap binary is a dedicated administrative composition unit. Strategy
-Factory, the R&D API, Windmill server, and Windmill worker cannot issue
+Factory, the R&D API, and every Dashboard role cannot issue
 Operator Authorization or create a deployment genesis.
 
 After an existing manifest interval has expired, an administrator may instead
@@ -152,101 +169,53 @@ docker compose \
   up -d --build
 ```
 
-The sole default browser entry is `http://127.0.0.1:18000`. On a fresh volume, complete Windmill's authenticated first-user setup in that browser and create the local `trade-rd` workspace. Create a workspace token for deployment, keep it outside the repository, and deploy the repository projection:
+The default services expose no host port and no browser entry. `rd-owner-api` is reachable only
+on the internal Compose network; `rd-build-sandbox` shares only its socket volume with it.
 
-The opt-in `dashboard-preview` profile additionally starts the consolidated
-`rd-dashboard-owner-read-api` reader. It exposes only the authenticated Artifact
-directory/source, Research directory/exact-readback, Source Intake exact-readback,
-and Develop Composer exact-readback GETs plus its health check. Its state keeps
-separate typed domain ports and owns no sandbox, fact-writer pool, or mutation
-port. Configure `RD_DASHBOARD_OWNER_READ_API_TOKEN`; Dashboard consumes the
-matching internal URL/token pair and fails closed when either half is missing.
-Starting the default Workbench without the profile does not start this reader or
-change any Windmill route. Source Intake and Composer are typed-port additions to
-this same process, not additional containers.
+## Dashboard preview profile
+
+The opt-in `dashboard-preview` profile starts the first-party Dashboard and its runtime roles from
+the standalone `trade-dashboard` image built by `product/dashboard/Dockerfile`:
+
+- `rd-dashboard-owner-read-api` exposes only the authenticated Artifact directory/source, Research
+  directory/exact-readback, Source Intake exact-readback, and Develop Composer exact-readback GETs
+  plus its health check. Its state keeps separate typed domain ports and owns no sandbox,
+  fact-writer pool, or mutation port. Configure `RD_DASHBOARD_OWNER_READ_API_TOKEN`; the Dashboard
+  consumes the matching internal URL/token pair and fails closed when either half is missing.
+- `dashboard-run-store-migrate` materializes the Trade-owned operational RunStore, then exits.
+- `dashboard-web` serves the browser shell and `/api/mcp` on `127.0.0.1:${DASHBOARD_PORT:-3100}`,
+  the sole host-published port in this package. Browser access requires
+  `DASHBOARD_LOCAL_OPERATOR_LOGIN_TOKEN` and `DASHBOARD_SESSION_HMAC_KEY`; the MCP endpoint is
+  separately authenticated by `DASHBOARD_MCP_API_TOKEN`.
+- `dashboard-effect-worker`, `dashboard-shadow-worker`, and `dashboard-shadow-scheduler` are
+  separate least-privilege process roles over the RunStore. The effect worker is disabled by
+  default and holds only the explicit disposable-local authority granted by the
+  `DASHBOARD_DISPOSABLE_*_EXECUTION` flags; none of the roles carries production trading authority.
 
 ```bash
-WINDMILL_TOKEN_FILE=/absolute/path/to/private-deployment-token \
-WINDMILL_WORKSPACE_ID=trade-rd \
-WINDMILL_BASE_URL=http://127.0.0.1:18000 \
-product/rd-workbench/scripts/deploy.sh
+docker compose \
+  --project-name trade-rd-workbench \
+  --env-file /absolute/path/to/private.env \
+  -f product/rd-workbench/docker-compose.yml \
+  --profile dashboard-preview up -d --build
 ```
 
-`deploy.sh` reads the token only from that regular, non-symlink file. It gives
-the CLI an ephemeral private profile and gives `curl` a private header file, so
-the credential is not placed in process arguments or repository state.
-
-Open the deployed `Trade R&D Workbench` Raw App in Windmill. Its policy is authenticated `viewer`, and Windmill isolates the authored bundle in its opaque-origin Raw App sandbox. It declares no frontend SDK scopes and has no Data Table access.
-
-## Native MCP profile
-
-Mint a separate local token by submitting `mcp-profile.json` to Windmill's
-authenticated `POST /api/users/tokens/create` endpoint. The file is a directly
-mintable, workspace-bound token request with exactly these scopes:
-
-- `mcp:scripts:f/trade/product_edge/research_goal_v2`
-- `mcp:scripts:f/trade/product_edge/artifact_build_v1`
-- `mcp:scripts:f/trade/product_edge/exploratory_replay_v2`
-- `mcp:scripts:f/trade/product_edge/develop_composer_v2`
-- `mcp:scripts:f/trade/product_edge/research_iteration_action_v1`
-- `mcp:endpoints:getJob,getJobLogs`
-
-The profile intentionally omits `mcp:all`, favorites, folder wildcards, flows, previews, deployment, workspace listing, and every create/update/delete tool. Folder filtering is not the security boundary.
-
-The versioned profile declares the same `research_goal_v2` operation used by the default Web backend. This repository change modifies only the profile declaration; it does not mint, use, rotate, revoke, or otherwise broaden any actual credential.
-
-The `source_intake.openalex_work_by_doi.submit_or_resolve.v1` script is a bounded
-Windmill transport in this slice. `RUN` accepts only a canonical DOI and bounded
-interpretation, while `RESOLVE` queries the same request identity without a new
-provider instruction. The script calls only the fixed internal R&D Owner endpoint;
-it never calls OpenAlex or another provider directly. Only a complete terminal
-Owner receipt can project `RETRIEVED`, and every transport ambiguity exposes only
-same-request resolution.
+Starting the default services without the profile starts none of these roles. The Dashboard
+contract, its admitted read surfaces, and its MCP tool set are defined in
+`product/dashboard/README.md` and `docs/guide/dashboard.md`; this package only deploys them.
 
 ## Status boundary
 
-An HTTP or Windmill job success is not business acceptance. S1 V2 `ACCEPTED` additionally requires direct Owner readback of the root receipt, INTENT membership receipt, and Census frontier. S2 `SUCCESS` additionally requires the durable ArtifactTrialFamilyBinding receipt. Missing or corrupt root/member/head/digest/outbox/binding state stays `SUBMITTED_OR_UNKNOWN`; the only legal recovery is `RESOLVE` with the same request and attempt identities. Commit-before-response-loss resolves to the exact Owner bytes. A pre-commit timeout closes without an Artifact.
+An HTTP or operational run success is not business acceptance. S1 V2 `ACCEPTED` additionally requires direct Owner readback of the root receipt, INTENT membership receipt, and Census frontier. S2 `SUCCESS` additionally requires the durable ArtifactTrialFamilyBinding receipt. Missing or corrupt root/member/head/digest/outbox/binding state stays `SUBMITTED_OR_UNKNOWN`; the only legal recovery is `RESOLVE` with the same request and attempt identities. Commit-before-response-loss resolves to the exact Owner bytes. A pre-commit timeout closes without an Artifact.
 
 Reusing an identity with different semantics is `IDENTITY_CONFLICT`, not a new
 business disposition and not proof that the original Research Intent is absent.
 Its only legal action is to resolve the original Owner receipt under that same
 identity.
 
-The `artifact_build.submit_or_resolve.v1` script is the one App/MCP operation. `RUN` reads canonical frozen Intent bytes from the Owner, invokes a bounded server-side provider, and submits only a typed untrusted candidate. Missing provider configuration and provider/parse failures fail closed through the Owner without a template fallback. The sandbox has no network, secret, Docker socket, host effect port, or ambient input mount; its schema-v2 receipt binds the pinned image, Dockerfile, toolchain, target, offline policy, and byte-identical double build before runtime admission.
+The build sandbox has no network, secret, Docker socket, host effect port, or ambient input mount;
+its schema-v2 receipt binds the pinned image, Dockerfile, toolchain, target, offline policy, and
+byte-identical double build before runtime admission. Missing provider configuration and
+provider/parse failures fail closed through the Owner without a template fallback.
 
-The Develop Composer V2 Agent entry is one typed App/MCP transport operation at
-`f/trade/product_edge/develop_composer_v2`. `RUN` accepts only a canonical
-Research request locator. It first uses the authenticated read-only Owner
-projection to learn the derived request identity, then POSTs exactly
-`{"research_request_locator":"..."}`. The Owner independently rereads canonical
-Research custody and derives the request, Design, digests, bindings, provider,
-Operator Authorization frontier, and final cut in its single lock/write
-transaction; the POST never trusts projection fields. `RESOLVE` projects the
-same identity and sends a bodyless request for that identity. The script never
-calls a database, creates an Owner fact or receipt, handles a verified-build
-token, or turns transport ambiguity into success. After a lost RUN response it
-returns only `SUBMITTED_OR_UNKNOWN` with that prefetched identity. The default
-Owner composition remains truthfully `UNAVAILABLE`; only the compile-time
-sealed acceptance composition can expose its bounded positive proof.
-
-This entry is CURRENT only as a typed, fail-closed transport. Durable Composer
-custody and the composed Source Intake-to-Research-to-Composer path remain the
-documented TARGET/SEALED_ACCEPTANCE work. Complex-strategy production readiness,
-ATR/RSI behavior, joined or multi-timeframe data, Backtest, Paper, Live,
-deployment, and trading effects are NOT_ADMITTED by this script or MCP scope.
-
-The optional Dashboard preview packages the admitted Replay V2 exact point-read in the
-existing `strategy-factory-rd-dashboard-read-api`. It delegates only to the sealed
-Replay read port through an `rd_owner` read pool; it does not add a service, identify
-or submit a request, resolve custody, execute a replay, expose results, or alter the
-Windmill transport.
-
-The `research_iteration_action_v1` Product Edge entry exposes the post-result repair
-path without becoming another Owner. `RUN` or `RESOLVE` selects exactly one existing
-R&D Owner action for the repair-input Decision, Repair Action Request, Market Data
-Repair Request, or repaired Replay successor. The script accepts only the stage's
-deny-unknown typed payload, cross-binds a successful response to those locators, and
-returns `SUBMITTED_OR_UNKNOWN` on malformed, unavailable, or ambiguous transport.
-It never repairs Market Data, executes Backtest, qualifies, deploys, or trades.
-
-Legacy V1 receipts, Intents, and Artifacts are not backfilled; direct family resolution returns `TRIAL_FAMILY_UNAVAILABLE_LEGACY`. This slice creates and resolves Owner-sealed Exploratory Replay V2 requests; it does not implement Backtest, Selection, Candidate, Qualification, Scanner, Runtime, Portfolio, Recovery, capital, Risk, Execution, orders, or real trading. The candidate is not `PRODUCT_CURRENT` until its exact-head dynamic default-Web evidence and repository gates pass and the PR is merged and accepted.
+Legacy V1 receipts, Intents, and Artifacts are not backfilled; direct family resolution returns `TRIAL_FAMILY_UNAVAILABLE_LEGACY`. This package creates and resolves Owner-sealed Exploratory Replay V2 requests; it does not implement Backtest, Selection, Candidate, Qualification, Scanner, Runtime, Portfolio, Recovery, capital, Risk, Execution, orders, or real trading. There is no production deployment; every service here is a local, opt-in composition.

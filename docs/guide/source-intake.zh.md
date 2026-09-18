@@ -96,7 +96,7 @@ receipt 和 readback。类别不匹配是 identity conflict，不是准确重放
 
 `admission → sealed/live policy → binding commit → durable claim/start → move-only permit → provider execution → retrieval time → atomic terminal`
 
-Product Edge API 仍只负责认证、类型化 DTO 与 projection；Windmill 仍只负责传输。API handler、script、
+Product Edge API 仍只负责认证、类型化 DTO 与 projection；Dashboard effect worker 仍只负责传输。API handler、script、
 flow、fixture adapter 或 caller 都不得拆分或复制 Owner custody。只有 Owner 可以提交 R&D PostgreSQL 中的
 claim、raw payload、终态 receipt、provenance、Source Candidate 与 outbox；只有 `ADMITTED` 加
 `RETRIEVED` 才能原子提交 positive record。
@@ -176,7 +176,7 @@ Artifact 或 successor authority。相同 request 与 meaning 加入字节一致
 
 该 operation 及其持久 PostgreSQL custody 是 `TARGET`，不是当前能力。crate-local Source Intake 合同与
 回归证据和 crate-local Composer 证明继续作为相互分离的 `CURRENT/PARTIAL` evidence。当前没有证据建立
-隔离 PostgreSQL/Windmill Source Intake runner；Product Edge D0 合同的组合动态 gate 仍未通过。
+隔离的第一方 PostgreSQL Source Intake runner；Product Edge D0 合同的组合动态 gate 仍未通过。
 
 ## Triage 与准入
 
@@ -221,12 +221,12 @@ correlation binding。含义改变必须创建后继请求；传输成功 静默
   旧 snapshot 都不能替代该终态。
 - 端到端证明一个已接纳来源成为可追溯 Source Candidate，并且只有 Research 能冻结其后继 Intent。
 - 必须构建的 `SEALED_ACCEPTANCE` 拓扑应使用与生产预期相同的 Product Edge admission、Source Intake
-  Owner claim/start 与生命周期、R&D PostgreSQL transaction、终态 receipt，以及默认 Windmill
+  Owner claim/start 与生命周期、R&D PostgreSQL transaction、终态 receipt，以及默认 Dashboard effect worker
   `RUN`/`RESOLVE` 传输。即使取得，该证据也仅适用于验收，绝不证明 `CURRENT` 生产、网络、credential、
   权利、DNS、政策、Time Evidence 或 live-provider readiness。
 - 目标 A2 composition 部署固定链 `Source Intake RUN/RESOLVE -> typed Research RUN/RESOLVE ->
   Composer RUN/RESOLVE`，使用编译期 sealed adapter、固定 Source Intake corpus、共享的固定 A0 build corpus，
-  以及唯一内部 PostgreSQL、Windmill、network、ingress 与 volume state。它没有 runtime provider selector。
+  以及唯一内部 PostgreSQL、effect worker、network、ingress 与 volume state。它没有 runtime provider selector。
   Composer 只接收规范 Research request locator；Owner 在同一 lock/write transaction 中派生 request、Design、
   digests 与 provider，同时保留 Operator Authorization frontier 与 final cut。
 - A1 正向 transaction 把 intrinsic 私有规范 A0 Build Receipt fact、独立 ordered Artifact-use relation、Artifact、
@@ -240,6 +240,6 @@ correlation binding。含义改变必须创建后继请求；传输成功 静默
   byte parse/hash 与 `ProgramHostV2` readmission 后得到字节一致 `RESOLVE`。它还证明每个必需 single-field
   mutation negative，包括另对规范 A0 Build Receipt 做一次单字段 mutation、已部署 golden-path replay，
   以及 cleanup 到准确 baseline equality，且零 residue、零 shared-target change。
-- 在 runner 通过前，类型化 Research handoff、持久 Composer/API custody 与隔离 Windmill chain 都保持
+- 在 runner 通过前，类型化 Research handoff、持久 Composer/API custody 与隔离第一方验收链都保持
   `TARGET`。生产 Market Data binding resolution、live OpenAlex authority、`PRODUCT_CURRENT`、Dashboard、
   Paper、Live、deployment 与 trading 都保持不可用。

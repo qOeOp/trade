@@ -30,8 +30,8 @@ Design、digest、binding、provider、Operator Authorization frontier 与 final
 可以暴露发送前 request identity 以供 response-loss recovery，但 POST 不接收这些字段回灌。sealed A0 Build
 Receipt 被规范化为一项 intrinsic content-addressed build fact；独立 ordered use relation 把每个 Artifact 绑定
 到该 fact，因此两个 Research-derived Artifact 可以共享一个 build corpus，但不共享 Research 或 Artifact
-custody。准确 legacy bytes 只允许一次 normalization；其他 schema shape 全部 fail closed。在隔离 Windmill
-golden chain 及其 dual-custody、locator-negative、transaction-fault、concurrency、restart 与 cleanup gate 全部
+custody。准确 legacy bytes 只允许一次 normalization；其他 schema shape 全部 fail closed。在隔离第一方
+验收链及其 dual-custody、locator-negative、transaction-fault、concurrency、restart 与 cleanup gate 全部
 通过前，该能力保持 `TARGET`，不构成 deployed 或 production maturity。
 
 Qualification 投影构成一条按 principal/scope 绑定、只追加且无环的单链。某个准确且已验证的 Independence Basis 的最新投影若在 Qualification 提交或响应丢失后过期，只有 Qualification Owner 能在同一 principal/scope 锁下追加后继；该后继绑定准确 basis ref/digest、前驱投影 ref/digest、不变的规范 source sequence/cut/frontier、Owner clock epoch、新半开有效期、回执与 outbox，并原子推进 head。仍为 current 的投影必须按字节等价 join；调用方与 R&D 均不得自行续期。历史 R&D 终态 custody 继续绑定并暴露其实际消费的准确历史投影，而新的 S1 写入必须在最终锁定 cut 使用规范最新且仍 current 的投影。
@@ -69,7 +69,7 @@ R&D 内的 Develop 能力返回内容寻址 Strategy Artifact 和 Build Receipt�
   immutable CI input、Rust 1.97.1 Cargo/rustc 的准确 commit 与 host、唯一 `wasm32v1-none` target、pure-Rust
   canonical sysroot digest、确定性双构建/准确 replay，以及真实 build 进入唯一 Composer 与 `ProgramHostV2`
   consumer 路径；builder 在每次 build 前后重读准确 tool 与 canonical target sysroot。hosted job 成功不是
-  R&D Owner 业务回执。当前不具备 kernel network confinement、持久化/已部署/Windmill readiness、Paper、
+  R&D Owner 业务回执。当前不具备 kernel network confinement、持久化/已部署/Dashboard readiness、Paper、
   Live、deployed runtime 或生产成熟度；下述有界 Backtest
   target-set 切片是当前唯一的成员级 fill routing、account/equity 与 price conversion 证据。
   ComplexStrategy V1 只提供迁移/等价性 baseline。R&D 还可以冻结
@@ -98,7 +98,7 @@ R&D 内的 Develop 能力返回内容寻址 Strategy Artifact 和 Build Receipt�
   component count，以及 projection role/binding set 与已编译 Plan 的严格相等。handoff 保留准确 projection
   digest/count，并在 promote 前重新校验绑定。这只是 fail-closed preparation 与 public consumer-shape
   evidence；它不执行 Native Replay，不启动 production resolver，不证明 dynamic PostgreSQL product
-  composition 或 end-to-end Windmill acceptance，也不准入 trading。
+  composition 或 end-to-end 第一方验收，也不准入 trading。
 - **CURRENT/DYNAMIC，有界准确双成员 Backtest target-set 纵向切片：** 一份完整 Owner-sealed universe
   frame 先在克隆的 `ProgramHostV2` 上 prepare，只产生一份规范 target set 与一次 plugin 调用；只有单份
   account-scoped `Portfolio::equity` 快照、两个准确 instrument fact、Decimal target conversion、成员
@@ -132,7 +132,7 @@ R&D 内的 Develop 能力返回内容寻址 Strategy Artifact 和 Build Receipt�
   lowering，生成一个现有 bounded plugin，随后只经过 `PluginManifestV2`、`StrategyPlanV2`、
   `StrategyArtifactV2`、`ProgramHostV2` 与共享生命周期内核。仓库当前没有 executable
   `BoundedFeatureProgramV1`、V3 producer 或持久 V3 readback。本契约不声称 executable D-loop、Native Replay、
-  Windmill acceptance、稳定盈利、Paper、Live、production 或 trading authority。
+  第一方验收、稳定盈利、Paper、Live、production 或 trading authority。
 
 `StrategyDesignV2` 是类型化、版本化、内容寻址的描述，覆盖 input role、join、parameter、feature、
 state、生命周期反应、portfolio target、保护政策和可选 custom-plugin 调用。它只能使用稳定 primitive
@@ -973,9 +973,9 @@ heuristic binding、把 unsupported feature 提升为 opcode、plugin raw-order 
 ## TARGET / NOT_ADMITTED - TrialFamily 拥有的 Replay execution policy V2
 
 R&D 必须在 TrialFamily formation 时冻结准确一份规范嵌套 `replay_execution_policy_v2`。永久 family root、
-policy 与初始 Census Frontier 必须交叉绑定各自身份和规范摘要，使后续 family member、Composer、Windmill
-flow、Backtest adapter 或其他 caller 都不能替换或重新解释该 policy。该内容仍是目标架构契约；当前
-caller-authored `ReplayRequestDtoV2` 路径不满足此契约，本文不声称已有 PostgreSQL 或 Windmill acceptance。
+policy 与初始 Census Frontier 必须交叉绑定各自身份和规范摘要，使后续 family member、Composer、Dashboard
+operation、Backtest adapter 或其他 caller 都不能替换或重新解释该 policy。该内容仍是目标架构契约；当前
+caller-authored `ReplayRequestDtoV2` 路径不满足此契约，本文不声称已有 PostgreSQL 或第一方验收。
 
 这些值在 formation 前的唯一来源是 R&D Owner 内部密封、版本化的 Replay Policy Catalog fact；该 catalog
 既不是新 Owner，也不是第二个 TrialFamily aggregate。每条 immutable record 包含唯一、永不复用的非空 ASCII
@@ -989,11 +989,11 @@ grammar/parser ID 的 `u32 length || bytes`、32-byte grammar/parser digest、po
 `SHA-256("rd.replay-policy-catalog-record.v2\0" || canonical_record_bytes)`。
 
 Catalog bootstrap 是独立、显式启用、单次运行的 `authority-admin` composition，绝不是 R&D API
-route、Product Edge/Windmill operation、default service、migration 或 runtime selector。它只使用
+route、Product Edge/Dashboard operation、default service、migration 或 runtime selector。它只使用
 `REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` 调用固定私有 write port。Rust one-shot composition 必须在
 database access 前验证拒绝未知字段的密封 V1 request。PostgreSQL 不独立验证 Ed25519；它信任独占的
 `replay_policy_catalog_admin_writer` principal 作为已认证 broker 的 mutation boundary。该 credential 绝不能
-分发给 operator、ordinary service、Windmill 或 generic SQL client；在 broker 外持有或使用即为 trust-boundary
+分发给 operator、ordinary service、Dashboard 或 generic SQL client；在 broker 外持有或使用即为 trust-boundary
 breach。该 request 由
 Ed25519 签名，并绑定 schema version、bootstrap identity、administrator identity、单独信任的
 verifier identity、Catalog record identity、完整 canonical policy bytes、确定性 create 与 head-advance
@@ -1027,7 +1027,7 @@ noncanonical encoding 或 map order、invalid enum value 或 version、length ov
 digest、grammar/parser identity/digest、record digest、currentness 与 unrevoked status，且不得从任何其他位置
 解析 policy field。永久 family root 与初始 Census Frontier 都嵌入完整 policy bytes 与 policy digest，并交叉绑定
 `policy_grammar_parser_id`、`policy_grammar_parser_digest`、catalog record identity、version 与 digest。caller、
-Windmill flow、environment variable、deployment configuration、default 或后续 catalog record 都不能
+Dashboard operation、environment variable、deployment configuration、default 或后续 catalog record 都不能
 select、override、synthesize、backfill 或 infer 任何 field。
 
 该嵌套 policy 拥有组合完整 `ReplayRequestDtoV2` 含义所需的每项执行选择：
@@ -1078,7 +1078,7 @@ TrialFamily 既有顶层 cost-model、slippage-model 与 capacity-model 身份�
 读取，但对 Replay V2 composition 不合格且不可用：不得提供 default、backfill、caller substitution，也不得从
 更新的 family 推断。
 
-Windmill 与其他任何 Exploratory Replay caller 只能提交 Artifact 与 TrialFamily 身份，以及 Owner-sealed
+Dashboard effect worker 与其他任何 Exploratory Replay caller 只能提交 Artifact 与 TrialFamily 身份，以及 Owner-sealed
 Composer 和 Market Data locator/digest。这些值只是证据定位器，不是选择权威；replay-policy locator 或 value
 不是 caller input。只有 R&D Owner 能够解析 family-sealed policy 并组合完整规范 Replay request；caller 不能
 提供或覆盖 runtime/model profile、replay window、calendar/session/time zone、deterministic seed、diagnostic
@@ -1109,7 +1109,7 @@ grammar/parser 或 cross-binding mismatch 会让 Replay V2 unavailable，并对 
 `StrategyDesignV2 -> StrategyPlanV2 -> StrategyArtifactV2 -> ProgramHostV2`、既有 R&D request identity 与
 custody，以及 response-loss recovery：准确 `RESOLVE` 只能恢复同一份既存密封 request meaning，不能组合
 replacement、改变 policy，或创建第二份 request、receipt、outbox 或 head。只有实现完成，并由真实 disposable
-PostgreSQL Owner readback 与 end-to-end Windmill acceptance 证明完整 composition 和每种零变化拒绝后，该
+PostgreSQL Owner readback 与 end-to-end 第一方验收证明完整 composition 和每种零变化拒绝后，该
 TARGET 才能获准；它不授予 production 或 trading authority。
 
 ## 保护路径

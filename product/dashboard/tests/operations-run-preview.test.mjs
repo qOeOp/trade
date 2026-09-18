@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { bilingualDoc, expectBonded, sources } from "./doc-contract.mjs";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
@@ -50,16 +51,10 @@ test("schedule views reuse one contextual preview for table and detail origins",
   assert.equal((current.match(/<DetailSheet/g) ?? []).length, 1);
 });
 
-test("the bilingual schedule contract fixes single-overlay contextual run inspection", async () => {
-  const [en, zh] = await Promise.all([
-    read("../../docs/guide/dashboard.md"),
-    read("../../docs/guide/dashboard.zh.md"),
+test("the bilingual schedule contract is bonded to the run preview and schedule surfaces", async () => {
+  const code = await sources([
+    "components/operations-run-preview.tsx", "components/operations-schedules-preview.tsx",
+    "components/operations-schedule-history.tsx", "lib/run-detail-gateway.ts",
   ]);
-  for (const doc of [en, zh]) {
-    assert.match(doc, /RunDetailEnvelopeV1/u);
-    assert.match(doc, /Open full run details/u);
-    assert.match(doc, /Back to schedule/u);
-  }
-  assert.match(en, /never stacks a second overlay/u);
-  assert.match(zh, /不得叠第二层/u);
+  expectBonded(await bilingualDoc(), code, ["RunDetailEnvelopeV1", "Open full run details", "Back to schedule"], "schedule run preview");
 });

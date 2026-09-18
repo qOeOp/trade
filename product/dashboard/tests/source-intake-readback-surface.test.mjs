@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { bilingualSection, expectBonded, expectRoute, sources } from "./doc-contract.mjs";
 
 import { exactBlueprints, maturityFor } from "../lib/navigation.js";
 
@@ -36,19 +37,18 @@ test("Source Intake route renders one compact exact-readback workbench", async (
   assert.doesNotMatch(css, /min-height:\s*(?:[5-9]\d\d|\d{4,})px/u);
 });
 
-test("bilingual Source Intake contract fixes compact geometry and no-effect boundary", async () => {
-  for (const suffix of ["", ".zh"]) {
-    const doc = await readFile(new URL(`../../../docs/guide/dashboard${suffix}.md`, import.meta.url), "utf8");
-    const heading = suffix
-      ? "## 有界准入：Source Intake 精确回读工作台"
-      : "## Bounded admission: Source Intake exact-readback workbench";
-    const start = doc.indexOf(heading);
-    assert.ok(start >= 0);
-    const specification = doc.slice(start, doc.indexOf("\n## ", start + heading.length));
-    for (const token of [
-      "SourceIntakeReadbackWorkbench", "/rd", "PanelFrame", "Request identity", "Open readback", "Refresh",
-      "Intake", "Custody", "Evidence", "SUBMITTED_OR_UNKNOWN", "unavailable", "Lucide",
-      "/v1/source-intakes/{request_identity}/readback", "Submit", "Resolve", "provider", "Windmill",
-    ]) assert.ok(specification.includes(token), `${suffix || "en"} missing ${token}`);
-  }
+test("Source Intake readback contract is bonded to the workbench and the Owner route it reads", async () => {
+  const section = await bilingualSection({
+    en: "## Bounded admission: Source Intake exact-readback workbench",
+    zh: "## 有界准入：Source Intake 精确回读工作台",
+  });
+  const code = await sources([
+    "components/source-intake-readback-workbench.tsx", "components/ui/iconography.ts", "lib/operation-registry.ts",
+    "lib/rd-owner-http.ts",
+  ]);
+  expectRoute(section, "/rd", "Source Intake readback");
+  expectBonded(section, code, [
+    "SourceIntakeReadbackWorkbench", "PanelFrame", "Request identity", "Open readback", "Refresh",
+    "SUBMITTED_OR_UNKNOWN", "Lucide", "/v1/source-intakes/{request_identity}/readback",
+  ], "Source Intake readback");
 });

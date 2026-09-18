@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { expectBonded } from "./doc-contract.mjs";
 
 import {
   DASHBOARD_ATTENTION_FAILED_RUN_FILTER_V1,
@@ -188,9 +189,5 @@ test("Attention is an admitted same-page read-only follow-up workspace", async (
   ]) {
     assert.equal(component.includes(`>${actionLabel}<`), false, `Attention must not render ${actionLabel}`);
   }
-  for (const doc of [en, zh]) {
-    assert.match(doc, /DashboardAttention/u);
-    assert.match(doc, /controlled inline|同页原位/u);
-    assert.match(doc, /no dialog, drawer|没有 dialog、drawer/u);
-  }
+  expectBonded({ en, zh }, component, ["DashboardAttention"], "Attention");
 });

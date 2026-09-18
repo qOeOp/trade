@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import test from "node:test";
+import { bilingualSection, expectBonded, expectRoute, sources } from "./doc-contract.mjs";
 import ts from "typescript";
 
 import { exactBlueprints, maturityFor } from "../lib/navigation.js";
@@ -269,33 +270,29 @@ test("historical Replay rejection uses shared status-card atoms and keeps techni
   assert.match(route, /getAll\(key\)\.length === 1/u);
   assert.match(shell, /initialHistoricalRequestIdentity/u);
   assert.match(page, /query\.custody === "historical"/u);
-  for (const doc of [docs, docsZh]) {
-    for (const token of [
-      "/v1/exploratory-replay-rejections/readback",
-      "REJECTED_NO_WRITE",
-      "INVALID_REPLAY_EVIDENCE",
-      "Open historical",
-      "custody=historical",
-    ]) assert.ok(doc.includes(token), `historical contract missing ${token}`);
-  }
+  const gateway = await sources([
+    "lib/exploratory-replay-historical-rejection-gateway.ts", "components/artifact-historical-readback-drilldown.tsx",
+  ]);
+  expectBonded({ en: docs, zh: docsZh }, [component, route, gateway].join("\n"), [
+    "/v1/exploratory-replay-rejections/readback", "REJECTED_NO_WRITE", "INVALID_REPLAY_EVIDENCE",
+    "Open historical", "custody=historical",
+  ], "historical Replay rejection");
 });
 
-test("bilingual Replay request contract fixes filtered zero-effect geometry", async () => {
-  for (const suffix of ["", ".zh"]) {
-    const doc = await readFile(new URL(`../../../docs/guide/dashboard${suffix}.md`, import.meta.url), "utf8");
-    const heading = suffix
-      ? "## 有界准入：Exploratory Replay 请求与结果回读"
-      : "## Bounded admission: Exploratory Replay request and result readback";
-    const start = doc.indexOf(heading);
-    assert.ok(start >= 0);
-    const specification = doc.slice(start, doc.indexOf("\n## ", start + heading.length));
-    for (const token of [
-      "ExploratoryReplayReadbackWorkbench", "/backtest", "PanelFrame", "Request identity",
-      "Meaning digest", "Open readback", "Refresh", "Request", "Custody", "Replay basis",
-      "Result identity", "Attempt identity", "Open result", "Lucide",
-      "/v2/exploratory-replay-requests/readback?request_identity={request_identity}&meaning_digest={meaning_digest}",
-      "/v2/exploratory-replay-results/{result_identity}?request_identity={request_identity}&attempt_identity={attempt_identity}",
-      "Run", "Resolve", "provider", "Windmill",
-    ]) assert.ok(specification.includes(token), `${suffix || "en"} missing ${token}`);
-  }
+test("Replay request contract is bonded to the workbench and the Owner routes it reads", async () => {
+  const section = await bilingualSection({
+    en: "## Bounded admission: Exploratory Replay request and result readback",
+    zh: "## 有界准入：Exploratory Replay 请求与结果回读",
+  });
+  const code = await sources([
+    "components/exploratory-replay-readback-workbench.tsx", "components/ui/iconography.ts",
+    "lib/exploratory-replay-readback-client.ts", "../../crates/strategy_factory_rd_owner_api/src/main.rs",
+  ]);
+  expectRoute(section, "/backtest", "Replay readback");
+  expectBonded(section, code, [
+    "ExploratoryReplayReadbackWorkbench", "PanelFrame", "Request identity", "Meaning digest", "Open readback",
+    "Refresh", "Replay basis", "Result identity", "Attempt identity", "Open result", "Lucide",
+    "/v2/exploratory-replay-requests/readback", "meaning_digest",
+    "/v2/exploratory-replay-results/{result_identity}?request_identity={request_identity}&attempt_identity={attempt_identity}",
+  ], "Replay readback");
 });

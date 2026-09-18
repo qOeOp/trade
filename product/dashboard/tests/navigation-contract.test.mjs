@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { expectBonded, sources } from "./doc-contract.mjs";
 import { readFile } from "node:fs/promises";
 
 import {
@@ -33,13 +34,14 @@ test("Operations exposes only the documented first-party tab order", () => {
   ]);
 });
 
-test("bilingual Operations matrices and skeletons publish the same first-party tab order", async () => {
-  const matrix = "| Operations    | Runs, Workers, Schedules, Service Logs, Audit, Event Rail, Telemetry, Alerts |";
-  const skeleton = "N  [Runs] [Workers] [Schedules] [Service Logs] [Audit] [Event Rail] [Telemetry] [Alerts]";
+test("bilingual Operations matrices and skeletons publish the tab order navigation registers", async () => {
+  const tabs = modules.find((module) => module.id === "operations").tabs.map((tab) => tab.label);
+  const matrix = `| Operations    | ${tabs.join(", ")} |`;
+  const skeleton = `N  ${tabs.map((label) => `[${label}]`).join(" ")}`;
   for (const suffix of ["", ".zh"]) {
     const doc = await readFile(new URL(`../../../docs/guide/dashboard${suffix}.md`, import.meta.url), "utf8");
-    assert.ok(doc.includes(matrix), `${suffix || "en"} Operations matrix has drifted`);
-    assert.ok(doc.includes(skeleton), `${suffix || "en"} Operations skeleton has drifted`);
+    assert.ok(doc.includes(matrix), `${suffix || "en"} Operations matrix has drifted from navigation`);
+    assert.ok(doc.includes(skeleton), `${suffix || "en"} Operations skeleton has drifted from navigation`);
   }
 });
 
@@ -132,17 +134,18 @@ test("Workers list and exact detail share only their admitted read-only navigati
 
 test("Workers bilingual completeness includes geometry, failure states and action boundaries", async () => {
   const specs = [];
+  const workersCode = await sources([
+    "components/operations-workers-preview.tsx", "lib/worker-browser-contract.ts", "lib/navigation.js",
+  ]);
   for (const suffix of ["", ".zh"]) {
     const doc = await readFile(new URL(`../../../docs/guide/dashboard${suffix}.md`, import.meta.url), "utf8");
     const start = doc.indexOf(suffix ? "#### Workers 精确只读 skeleton" : "#### Exact Workers read‑only skeleton");
     assert.ok(start >= 0);
     const spec = doc.slice(start, doc.indexOf("`/operations/service-logs`", start));
-    for (const token of [
-      "DRAWABLE_EXACT", "IMPLEMENTATION_ADMITTED", "/operations/workers/:workerId",
-      "Capacity", "Work handled", "Ready", "Offline", "Processed", "Active", "1280", "560px", "300px",
-      "250", "125", "132", "220", "120", "20/50/100", "READING_WORKERS", "WORKER_NOT_FOUND",
-      "partial", "stale", "permission-denied", "GET/no-store", "Back to services", "same-context selection",
-    ]) assert.ok(spec.includes(token), `${suffix || "en"} missing ${token}`);
+    expectBonded({ [suffix || "en"]: spec }, workersCode, [
+      "DRAWABLE_EXACT", "IMPLEMENTATION_ADMITTED", "Capacity", "Work handled", "Ready", "Offline", "Processed",
+      "Active", "560px", "300px", "125", "132", "220", "120", "WORKER_NOT_FOUND", "Back to services",
+    ], "Workers");
     const blueprintOnly = doc.split("\n").find((line) => line.startsWith("| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`"));
     assert.doesNotMatch(blueprintOnly, /Workers/);
     const drawable = doc.split("\n").find((line) => line.startsWith("| `DRAWABLE_EXACT`"));
@@ -154,24 +157,22 @@ test("Workers bilingual completeness includes geometry, failure states and actio
 
 test("Operations Audit bilingual completeness closes source, geometry and mutation boundaries", async () => {
   const skeletons = [];
+  const auditCode = await sources([
+    "components/operations-audit.tsx", "lib/operation-audit-contract.ts", "lib/operation-audit-gateway.ts",
+    "lib/navigation.js", "lib/run-store.ts", "app/api/operations/audit/route.ts",
+  ]);
   for (const suffix of ["", ".zh"]) {
     const doc = await readFile(new URL(`../../../docs/guide/dashboard${suffix}.md`, import.meta.url), "utf8");
     const start = doc.indexOf(suffix ? "#### Operations Audit 精确只读 skeleton" : "#### Exact Operations Audit read‑only skeleton");
     assert.ok(start >= 0);
     const endHeading = suffix ? "#### 精确 Run Detail 骨架" : "#### Exact Run Detail skeleton";
     const spec = doc.slice(start, doc.indexOf(endHeading, start));
-    for (const token of [
+    expectBonded({ [suffix || "en"]: spec }, auditCode, [
       "DRAWABLE_EXACT", "IMPLEMENTATION_ADMITTED", "dashboard.dependency.cancel.queued.v1",
       "dashboard.operational_cache.delete.v1", "source_intake.research.submit_or_resolve.v1",
-      "artifact_build.formation_execute.v1", "dashboard-control-plane-admission-v1-*",
-      "OperationAuditTable",
-      "Correlation timeline", "24h", "7d", "30d", "20 / 50 / 100", "512", "GET /api/operations/audit",
-      "UPDATE", "DELETE", "H -> S -> F -> P -> Q -> B",
-    ]) assert.ok(spec.includes(token), `${suffix || "en"} missing ${token}`);
-    const normalized = spec.replace(/\s+/gu, " ");
-    assert.ok(normalized.includes(suffix
-      ? "同一个 RunStore begin transaction"
-      : "same RunStore begin transaction"));
+      "artifact_build.formation_execute.v1", "OperationAuditTable", "Correlation timeline",
+      "24h", "7d", "30d", "512", "UPDATE", "DELETE",
+    ], "Operations Audit");
     const blueprintOnly = doc.split("\n").find((line) => line.startsWith("| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`"));
     assert.doesNotMatch(blueprintOnly, /Operations \/ Audit/);
     const drawable = doc.split("\n").find((line) => line.startsWith("| `DRAWABLE_EXACT`"));

@@ -25,7 +25,7 @@ units, not authorities.
 - In-tree venue and data-provider adapters.
 - Local persistence, message-bus, observability, and recovery support.
 - The documented Owner contracts and their custody stores.
-- Bounded, local-first product surfaces: the Windmill Product Edge under `product/rd-workbench/` and
+- Bounded, local-first product surfaces: the R&D deployment package under `product/rd-workbench/` and
   the first-party Dashboard under `product/dashboard/`, each admitted only per documented slice.
 
 ## Out of scope

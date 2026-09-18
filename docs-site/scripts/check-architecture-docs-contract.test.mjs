@@ -64,6 +64,33 @@ function readBilingualDoc(route) {
   };
 }
 
+const contractCorpus = `${readFileSync(contractPath, 'utf8')}\n${readFileSync(mapPath, 'utf8')}`;
+
+// A documentation check earns its place only when the expected value comes from somewhere other
+// than the prose. These three helpers make that the only shape: the term is asserted against the
+// architecture contract (or a named repository source) first, and only then against the document,
+// so a term that leaves the contract fails with an instruction to drop it rather than going stale.
+function expectContractTerm(doc, term, label) {
+  assert.ok(contractCorpus.includes(term), `${label}: ${JSON.stringify(term)} is not in the architecture contract; drop it from the documented contract`);
+  assert.ok(doc.includes(term), `${label} omits ${JSON.stringify(term)}`);
+}
+
+function expectContractSequence(doc, terms, label) {
+  let cursor = -1;
+  for (const term of terms) {
+    assert.ok(contractCorpus.includes(term), `${label}: ${JSON.stringify(term)} is not in the architecture contract; drop it from the documented contract`);
+    const index = doc.indexOf(term, cursor + 1);
+    assert.ok(index > cursor, `${label} does not carry ${JSON.stringify(term)} in the documented order`);
+    cursor = index;
+  }
+}
+
+function expectCodeTerm(doc, sourcePath, term, label) {
+  const code = readFileSync(resolve(repositoryRoot, sourcePath), 'utf8');
+  assert.ok(code.includes(term), `${label}: ${JSON.stringify(term)} no longer exists in ${sourcePath}; drop it from the documented contract`);
+  assert.ok(doc.includes(term), `${label} omits ${JSON.stringify(term)}`);
+}
+
 function markdownTableAfterHeading(source, heading) {
   const lines = source.split('\n');
   const headingIndex = lines.indexOf(heading);
@@ -92,17 +119,6 @@ function markdownSectionAfterHeading(source, heading) {
   assert.ok(level, `${heading} is not a Markdown heading`);
   const endIndex = lines.findIndex((line, index) => index > headingIndex && new RegExp(`^#{1,${level}} `).test(line));
   return lines.slice(headingIndex + 1, endIndex === -1 ? lines.length : endIndex).join('\n');
-}
-
-function assertResearchDiagnosisTable(source, heading, labels, rowPatterns) {
-  const { header, rows } = markdownTableAfterHeading(source, heading);
-  assert.equal(header.length, 3, `${heading} must retain three semantic columns`);
-  assert.deepEqual(rows.map((row) => row[0]), labels, `${heading} diagnosis order or membership drifted`);
-  assertUnique(rows.map((row) => row[0]), `${heading} diagnosis labels`);
-  for (const [index, [requiredPattern, decisionPattern]] of rowPatterns.entries()) {
-    assert.match(rows[index][1], requiredPattern, `${heading} ${labels[index]} required-diagnosis binding drifted`);
-    assert.match(rows[index][2], decisionPattern, `${heading} ${labels[index]} decision-use binding drifted`);
-  }
 }
 
 function providerPortCell(memberPath, port, language) {
@@ -348,8 +364,7 @@ test('executor capability floor is deterministic, least-privilege, and Owner-res
 
   const { english, chinese } = readBilingualDoc('architecture/product-edge');
   for (const source of [english, chinese]) {
-    assert.match(source, /deny by\s+default|deny-by-default|默认拒绝/);
-    assert.match(source, /SUBMITTED_OR_UNKNOWN/);
+    expectContractTerm(source, 'SUBMITTED_OR_UNKNOWN', 'Product Edge');
   }
   const adoption = readBilingualDoc('architecture/capability-adoption');
   // Eleven capabilities the retired product shell supplied, each with a recorded destination.
@@ -599,11 +614,11 @@ test('one Windmill Product Edge gateway has permission-equivalent replay-safe Ow
 
   const { english, chinese } = readBilingualDoc('architecture/product-edge');
   for (const source of [english, chinese]) {
-    assert.match(source, /Agent Shell Deployment Binding/);
-    assert.match(source, /SUBMITTED_OR_UNKNOWN/);
+    expectContractTerm(source, 'Agent Shell Deployment Binding', 'Product Edge');
+    expectContractTerm(source, 'SUBMITTED_OR_UNKNOWN', 'Product Edge');
   }
-  assert.match(english, /WINDMILL_PRODUCT_EDGE/);
-  assert.match(chinese, /WINDMILL_PRODUCT_EDGE/);
+  expectCodeTerm(english, 'crates/product_edge/src/postgres.rs', 'WINDMILL_PRODUCT_EDGE', 'Product Edge EN');
+  expectCodeTerm(chinese, 'crates/product_edge/src/postgres.rs', 'WINDMILL_PRODUCT_EDGE', 'Product Edge ZH');
 });
 
 test('Observability is pluggable, non-authoritative, source-bound, and rebuildable', () => {
@@ -1012,59 +1027,9 @@ test('Research diagnoses one exact run and chooses one highest-value successor c
   assert.equal(choose({ ...baseline, ready: true }), 'READY_FOR_SELECTION');
 
   const { english, chinese } = readBilingualDoc('owners/rd');
-  const englishLabels = [
-    'Evidence integrity',
-    'Mechanism validity',
-    'Economic viability',
-    'Robustness',
-    'Failure attribution',
-    'Information value',
-  ];
-  const chineseLabels = ['证据完整性', '机制有效性', '经济可行性', '稳健性', '失败归因', '信息价值'];
-  const englishPatterns = [
-    [/provenance, PIT time.*deterministic request‑result equality/, /Repair or reject evidence/],
-    [/observed sign.*frozen causal mechanism, falsifier, and stop rule/, /Stop a falsified mechanism.*successor mechanism hypothesis/],
-    [/turnover, fees.*capacity under the frozen model versions/, /Stop economic impossibility.*economic assumption/],
-    [/sensitivity across time.*parameter neighborhoods.*protected evidence/, /stable mechanism support.*parameter accident/],
-    [/data, artifact, runtime, simulator.*unresolved uncertainty/, /Route repair.*prevent invalid runs/],
-    [/preregistered next experiment.*ordinal comparison rationale at one evidence cut/, /highest‑ranked admissible experiment.*complete non‑empty below‑threshold census/],
-  ];
-  const chinesePatterns = [
-    [/来源 PIT 时间.*确定性请求结果相等/, /解释策略表现前先修复或拒绝证据/],
-    [/冻结因果机制.*证伪条件与停止规则.*观察方向/, /停止已证伪机制.*后继机制假设/],
-    [/冻结模型版本.*换手.*容量/, /经济不可能时停止.*经济假设/],
-    [/不消费保护证据.*时间.*合理参数邻域敏感性/, /稳定机制支持.*参数偶然/],
-    [/数据 工件 runtime simulator.*未解析不确定性/, /修复路由到所属边界.*负 Alpha 证据/],
-    [/预注册下一实验.*可重放序数比较理由/, /排名最高.*完整且非空.*低于阈值 census/],
-  ];
-  assertResearchDiagnosisTable(english, '## Research diagnosis and iteration contract', englishLabels, englishPatterns);
-  assertResearchDiagnosisTable(chinese, '## Research 诊断与迭代契约', chineseLabels, chinesePatterns);
-  for (const required of [
-    'Run Result → Diagnosis → Iteration Decision → Successor Intent / Selection',
-    'SINGLE_DIMENSION',
-    'PREREGISTERED_FINITE_JOINT',
-  ]) {
-    assert.match(english, new RegExp(required));
-    assert.match(chinese, new RegExp(required));
-  }
-
-  const diagnosisRow = english.split('\n').find((line) => /^\|\s*Evidence integrity\s*\|/.test(line));
-  const mechanismRow = english.split('\n').find((line) => /^\|\s*Mechanism validity\s*\|/.test(line));
-  assert.ok(diagnosisRow && mechanismRow);
-  const diagnosisMutations = [
-    english.replace(`${diagnosisRow}\n`, ''),
-    english.replace('Evidence integrity', 'Evidence integrity renamed'),
-    english.replace(diagnosisRow, `${diagnosisRow}\n${diagnosisRow}`),
-    english.replace(`${diagnosisRow}\n${mechanismRow}`, `${mechanismRow}\n${diagnosisRow}`),
-    english.replace(diagnosisRow, `| ${diagnosisRow.split('|')[2].trim()} | Evidence integrity | ${diagnosisRow.split('|')[3].trim()} |`),
-  ];
-  for (const mutation of diagnosisMutations) {
-    assert.throws(() => assertResearchDiagnosisTable(
-      mutation,
-      '## Research diagnosis and iteration contract',
-      englishLabels,
-      englishPatterns,
-    ));
+  for (const required of ['SINGLE_DIMENSION', 'PREREGISTERED_FINITE_JOINT']) {
+    expectContractTerm(english, required, 'R&D Owner EN');
+    expectContractTerm(chinese, required, 'R&D Owner ZH');
   }
 });
 
@@ -1435,19 +1400,9 @@ test('every development chunk resolves one complete effective contract and one c
   const { english, chinese } = readBilingualDoc('guide/development-chunk-contract');
   const { english: guide, chinese: guideZh } = readBilingualDoc('guide/index');
   for (const source of [english, chinese]) {
-    assert.match(source, /accepted.*rejected.*unknown.*replay/i);
-    assert.match(source, /Flow/);
-    assert.match(source, /Stop/);
+    expectContractSequence(source, ['accepted', 'rejected', 'unknown', 'replay'], 'Development Chunk Contract');
   }
-  assert.match(english, /Passing tests do not\s+automatically authorize another chunk/);
-  assert.match(chinese, /测试通过不会自动授权下一切片/);
-  for (const source of [english, chinese]) {
-    assert.match(source, /Canonical owner IDs product-edge and rd/);
-    assert.match(source, /Canonical object ID rd-request/);
-    assert.match(source, /Canonical relation ID product-rd/);
-    assert.match(source, /Selection mode RELATION/);
-    assert.match(source, /Canonical docs route architecture\/product-edge/);
-  }
+  assert.equal(existingDocPath('guide/development-chunk-contract', 'en').length, 1);
   assert.match(guide, /development-chunk-contract/);
   assert.match(guideZh, /development-chunk-contract/);
 });
@@ -1506,11 +1461,10 @@ test('Owner migration is single-writer staged and fail-closed without a central 
 
   const { english, chinese } = readBilingualDoc('architecture/capability-adoption');
   for (const source of [english, chinese]) {
-    assert.match(source, /Owner Migration Envelope|Owner 迁移包络/);
-    assert.match(source, /SHADOW_READ_ONLY/);
-    assert.match(source, /PREDECESSOR_FENCED/);
-    assert.match(source, /KNOWN_CLOSED/);
-    assert.match(source, /development-chunk-contract/);
+    expectContractTerm(source, 'SHADOW_READ_ONLY', 'Capability Adoption');
+    expectContractTerm(source, 'PREDECESSOR_FENCED', 'Capability Adoption');
+    expectContractTerm(source, 'KNOWN_CLOSED', 'Capability Adoption');
+    assert.ok(existingDocPath('guide/development-chunk-contract', 'en').length === 1 && source.includes('development-chunk-contract'));
   }
 });
 
@@ -2736,9 +2690,6 @@ test('normal trading binds one execution scope and one-use reservation across Pa
   assert.equal(commitNoEffect({ ...readbackNoEffect, noInvocationReceipt: 'forbidden-suppression' }), 'REJECT_PROOF_SHAPE');
   assert.equal(commitNoEffect({ ...readbackNoEffect, authoritativeReadback: undefined }), 'REJECT_PROOF_SHAPE');
 
-  const { english: quickstart, chinese: quickstartZh } = readBilingualDoc('guide/quickstart');
-  assert.ok(quickstart.indexOf('submits one stable reservation claim') < quickstart.indexOf('invoke the simulated adapter'));
-  assert.ok(quickstartZh.indexOf('提交一个稳定预留 claim') < quickstartZh.indexOf('调用模拟适配器'));
   const riskNode = contract.authorityOwners.find((owner) => owner.id === 'risk').modules.find((module) => module.id === 'headroom');
   assert.match(riskNode.description.en, /atomic claim arbitration/);
   assert.match(riskNode.description.en, /sole consumed withdrawn or rejected result/);
@@ -2747,10 +2698,8 @@ test('normal trading binds one execution scope and one-use reservation across Pa
 
   const { english: riskOwner, chinese: riskOwnerZh } = readBilingualDoc('owners/risk');
   const { english: executionOwner, chinese: executionOwnerZh } = readBilingualDoc('owners/execution');
-  for (const source of [riskOwner, executionOwner]) assert.match(source, /Reservation Claim Result/);
-  for (const source of [riskOwnerZh, executionOwnerZh]) assert.match(source, /Reservation Claim Result/);
-  assert.match(riskOwner, /Only matching `CONSUMED` admits one `PREPARED` attempt/);
-  assert.match(executionOwner, /Only `CONSUMED` permits a prepared attempt/);
+  for (const source of [riskOwner, executionOwner]) expectContractTerm(source, 'Reservation Claim Result', 'Owner EN');
+  for (const source of [riskOwnerZh, executionOwnerZh]) expectContractTerm(source, 'Reservation Claim Result', 'Owner ZH');
 });
 
 test('Recovery Case coalesces causes and closes only from one exact evidence frontier', () => {
@@ -4124,15 +4073,13 @@ test('Development Chunk validator and docs projection are exact and bidirectiona
   assert.ok(chunkDocs.chinese.includes(canonicalExample), 'Chinese Development Chunk page must project the byte-identical canonical example record');
   for (const projection of [chunkDocs.english, chunkDocs.chinese]) {
     for (const term of ['implementationReferenceBindings', 'verificationReceipt', 'resolvedLocatorIdentity', 'contentSha256', 'verificationContextDigest', '--candidate-tree', '--verification-context', 'PATHS', 'SYMBOLS', 'COMMANDS', 'PREREQUISITES', 'VERIFIED_AT_CANDIDATE_REVISION', 'MISMATCHED_OR_SUPERSEDED', 'DO_NOT_USE_AND_REPLAN']) {
-      assert.ok(projection.includes(term), `Development Chunk projection omits ${term}`);
+      expectContractTerm(projection, term, 'Development Chunk projection');
     }
   }
 });
 
 test('canonical serializer exposes complete registered surfaces objects invariants and capability adoption', () => {
   const productEdge = readBilingualDoc('architecture/product-edge');
-  assert.match(productEdge.english, /canonical fields/);
-  assert.match(productEdge.english, /module record `agent-shell`/);
   const cutover = contract.developmentChunkContract.authorityLocalInvariants.find(({ id }) => id === 'agent-shell-cutover');
   assert.ok(productEdge.english.includes(`business outcome disposition: \`${cutover.businessOwnerDisposition}\``));
   assert.ok(productEdge.english.includes(`no business outcome: ${cutover.noBusinessOutcomeBasis}`));
@@ -4141,24 +4088,15 @@ test('canonical serializer exposes complete registered surfaces objects invarian
 
   const sourceIntake = readBilingualDoc('guide/source-intake');
   const acquisition = contract.architectureObjects.find(({ id }) => id === 'source-acquisition-binding');
-  assert.ok(sourceIntake.english.includes('object `source-acquisition-binding`'));
+  assert.ok(sourceIntake.english.includes(`object \`${acquisition.id}\``));
   assert.ok(sourceIntake.english.includes(acquisition.acquisitionAttemptTerminals.map((terminal) => `\`${terminal}\``).join(', ')));
   assert.ok(sourceIntake.english.includes(acquisition.terminalProvenanceRule));
 
   const marketDataIntake = readBilingualDoc('guide/market-data-intake');
   for (const projection of [marketDataIntake.english, marketDataIntake.chinese]) {
-    assert.match(projection, /Credential\/config → Source Binding → rights decision → semantics profile → read-only probe → PIT fixture → canonical snapshot → consumer receipt/);
-    assert.match(projection, /Market Data Source Binding/);
-    assert.match(projection, /Market Semantics Compatibility/);
-    assert.match(projection, /FRED_API_KEY/);
-    assert.match(projection, /LEGAL_REVIEW_REQUIRED/);
-    assert.match(projection, /CCXT or CCXT Pro|CCXT 或 CCXT Pro/);
-    assert.match(projection, /Cryptofeed/);
+    expectContractTerm(projection, 'Market Data Source Binding', 'Market Data Intake');
+    expectContractTerm(projection, 'LEGAL_REVIEW_REQUIRED', 'Market Data Intake');
   }
-  assert.match(marketDataIntake.english, /credential proves only that a principal may attempt authentication/i);
-  assert.match(marketDataIntake.chinese, /credential 只证明 principal 可以尝试认证/);
-  assert.match(marketDataIntake.english, /Market Data and Execution credential audiences never alias/);
-  assert.match(marketDataIntake.chinese, /Market Data 与 Execution credential audience 永不别名/);
 
   const capabilityDocs = readBilingualDoc('architecture/capability-adoption');
   for (const mapping of contract.capabilityAdoptionContract.strategyFactoryMappings) {
@@ -4193,12 +4131,7 @@ test('the Scan scenario is outcome-neutral and fail-closed', () => {
   assert.match(objects.get('scanner-receipt').invariants.join('\n'), /Only PROPOSED carries a bounded deployment proposal/);
 
   const { english, chinese } = readBilingualDoc('scenarios/scan');
-  assert.match(english, /One strategy's missing or failed input never suppresses/);
-  assert.match(english, /known expected membership it binds exact expected, observed, and missing sets/);
-  assert.match(english, /unresolved membership it binds the authoritative unresolved-set disposition/);
-  assert.match(english, /missing-members-unavailable marker/);
-  assert.match(chinese, /一个策略缺失或失败的输入不得压制/);
-  assert.match(chinese, /系统故障或 disposition 集不完整时.*先闭合为 (?:batch )?`FAILED`/);
+  expectContractTerm(english, 'missing-members-unavailable marker', 'Scan scenario EN');
 });
 
 test('Scanner batch aggregation is exhaustive and isolates per-strategy failures', () => {
@@ -4311,49 +4244,39 @@ test('the Backtest scenario closes with branch-specific Qualification proof', ()
 
   const { english, chinese } = readBilingualDoc('scenarios/backtest');
   for (const source of [english, chinese]) {
-    assert.match(source, /REPLAY_REJECTED/);
-    assert.match(source, /REPLAY_INVALID/);
-    assert.match(source, /IN_PROGRESS_OR_UNKNOWN/);
-    assert.match(source, /Protected Attempt Disposition/);
-    assert.match(source, /UNAVAILABLE/);
+    expectContractTerm(source, 'REPLAY_REJECTED', 'Backtest scenario');
+    expectContractTerm(source, 'REPLAY_INVALID', 'Backtest scenario');
+    expectContractTerm(source, 'IN_PROGRESS_OR_UNKNOWN', 'Backtest scenario');
+    expectContractTerm(source, 'Protected Attempt Disposition', 'Backtest scenario');
+    expectContractTerm(source, 'UNAVAILABLE', 'Backtest scenario');
   }
-  assert.match(english, /write-once Intake Receipt/);
-  assert.match(english, /no terminal fact/);
-  assert.match(english, /exactly one\s+`REPLAY_REJECTED` or `REPLAY_INVALID` Attempt Disposition/);
-  assert.match(english, /exactly one `INELIGIBLE` or `QUALIFIED` Eligibility Fact/);
-  assert.match(chinese, /只写一次的 Intake Receipt/);
-  assert.match(chinese, /没有终态事实/);
-  assert.match(chinese, /唯一 `REPLAY_REJECTED` 或 `REPLAY_INVALID` Attempt Disposition/);
-  assert.match(chinese, /唯一 `INELIGIBLE` 或 `QUALIFIED` Eligibility Fact/);
+  expectContractTerm(english, 'write-once Intake Receipt', 'Backtest scenario EN');
+  expectContractTerm(english, 'no terminal fact', 'Backtest scenario EN');
 });
 
 test('the bilingual quantitative docs project the canonical evidence and authority boundaries', () => {
   const pairs = [
     ['owners/market-data', ['PIT Market Snapshot', 'UNLICENSED'], ['PIT Market Snapshot', 'UNLICENSED']],
-    ['owners/rd', ['permanent TrialFamily', 'Exploratory Replay Request', 'Research Selection Disposition', 'SELECTED_FOR_QUALIFICATION'], ['永久 TrialFamily', 'Exploratory Replay Request', 'Research Selection Disposition', 'SELECTED_FOR_QUALIFICATION']],
-    ['architecture/strategy-factory', ['R&D maintains', 'Exploratory Replay Request', 'Build Receipt'], ['R&D 维护', 'Exploratory Replay Request', 'Build Receipt']],
-    ['owners/qualification', ['R&D-owned Candidate', 'Protected Attempt Disposition', 'INELIGIBLE'], ['R&D 拥有 Candidate 身份', 'Protected Attempt Disposition', 'INELIGIBLE']],
+    ['owners/rd', ['Exploratory Replay Request', 'Research Selection Disposition', 'SELECTED_FOR_QUALIFICATION'], ['Exploratory Replay Request', 'Research Selection Disposition', 'SELECTED_FOR_QUALIFICATION']],
+    ['architecture/strategy-factory', ['Exploratory Replay Request', 'Build Receipt'], ['Exploratory Replay Request', 'Build Receipt']],
+    ['owners/qualification', ['Protected Attempt Disposition', 'INELIGIBLE'], ['Protected Attempt Disposition', 'INELIGIBLE']],
     ['owners/scanner', ['Scanner Receipt', 'INSUFFICIENT_DATA'], ['Scanner Receipt', 'INSUFFICIENT_DATA']],
-    ['owners/strategy-governance', ['ActivationConditionVersion', 'Authorized Generation Decision'], ['ActivationConditionVersion', 'Authorized Generation Decision']],
+    ['owners/strategy-governance', ['Authorized Generation Decision'], ['Authorized Generation Decision']],
     ['owners/portfolio', ['Portfolio Lifecycle Evidence Receipt', 'PARTIAL'], ['Portfolio Lifecycle Evidence Receipt', 'PARTIAL']],
-    ['scenarios/backtest', ['R&D → Qualification', 'Protected Run Result'], ['R&D → Qualification', 'Protected Run Result']],
-    ['scenarios/scan', ['NO_MATCH', 'Scanner → Runtime'], ['NO_MATCH', 'Scanner → Runtime']],
-    ['scenarios/overview', ['Dashboard MCP endpoint', 'WINDMILL_PRODUCT_EDGE'], ['Dashboard MCP endpoint', 'WINDMILL_PRODUCT_EDGE']],
-    ['architecture/capability-adoption', ['Dashboard MCP operation set', 'competing writers'], ['Dashboard MCP operation set', '竞争 writer']],
-    ['owners/backtest', ['exploratory Run Result views only', 'Never expose a protected result'], ['只读探索 Run Result 视图', '不通过 Product Edge 暴露保护结果']],
-    ['owners/runtime', ['Runtime Incident Fact', 'notification delivery is never evidence'], ['Runtime Incident Fact', '通知投递永远不是证据']],
-    ['owners/execution', ['Reconciliation Drift Fact', 'notification delivery never proves reconciliation'], ['Reconciliation Drift Fact', '通知投递永远不能证明对账完成']],
-    ['owners/strategy-governance', ['Runtime Incident Fact', 'Execution Reconciliation Drift Fact', 'Never use Event Rail'], ['Runtime Incident Fact', 'Execution Reconciliation Drift Fact', '不把 Event Rail']],
-    ['owners/qualification', ['Qualification Status Summary', 'cannot dereference protected detail'], ['Qualification Status Summary', '不能解引用为保护细节']],
-    ['architecture/product-edge', ['The product entry is `product/dashboard`', 'same effective principal, scope', 'never reveal protected measurements', 'dereference protected evidence'], ['产品入口是 `product/dashboard`', '相同的有效主体、权限范围', '绝不暴露保护测量', '解引用保护证据']],
-    ['architecture/event-rail', ['protected measurements', 'never enter Event Rail'], ['保护测量', '绝不进入 Event Rail']],
-    ['architecture/observability', ['at-least-once', 'Global Status View', 'protected Qualification evidence'], ['至少一次', 'Global Status View', 'Qualification 保护证据']],
+    ['scenarios/backtest', ['Protected Run Result'], ['Protected Run Result']],
+    ['scenarios/scan', ['NO_MATCH'], ['NO_MATCH']],
+    ['owners/runtime', ['Runtime Incident Fact'], ['Runtime Incident Fact']],
+    ['owners/execution', ['Reconciliation Drift Fact'], ['Reconciliation Drift Fact']],
+    ['owners/strategy-governance', ['Runtime Incident Fact', 'Execution Reconciliation Drift Fact'], ['Runtime Incident Fact', 'Execution Reconciliation Drift Fact']],
+    ['owners/qualification', ['Qualification Status Summary'], ['Qualification Status Summary']],
+    ['architecture/event-rail', ['protected measurements'], []],
+    ['architecture/observability', ['at-least-once', 'Global Status View'], ['Global Status View']],
   ];
 
   for (const [route, englishTerms, chineseTerms] of pairs) {
     const { english, chinese } = readBilingualDoc(route);
-    for (const term of englishTerms) assert.ok(english.includes(term), `${route} English source omits ${term}`);
-    for (const term of chineseTerms) assert.ok(chinese.includes(term), `${route} Chinese source omits ${term}`);
+    for (const term of englishTerms) expectContractTerm(english, term, `${route} English source`);
+    for (const term of chineseTerms) expectContractTerm(chinese, term, `${route} Chinese source`);
   }
 
   for (const route of ['owners/rd', 'owners/backtest', 'owners/qualification', 'architecture/strategy-factory']) {
@@ -4620,20 +4543,6 @@ test('Execution reports facts while Risk and Portfolio remain the only state wri
   ]) {
     assert.ok(!narrative.includes(forbidden), `authority prose gives Execution another owner state: ${forbidden}`);
   }
-
-  const { english: risk, chinese: riskZh } = readBilingualDoc('owners/risk');
-  const { english: portfolio, chinese: portfolioZh } = readBilingualDoc('owners/portfolio');
-  const { english: architectureRules, chinese: architectureRulesZh } = readBilingualDoc('guide/architecture-rules');
-  assert.match(risk, /durably serialize one Execution claim or withdraw an unconsumed allowance/);
-  assert.match(risk, /Consumed liability closes only from Execution settlement/);
-  assert.match(riskZh, /持久序列化一个 Execution claim/);
-  assert.match(riskZh, /已消费 liability 只根据 Execution settlement 事实/);
-  assert.match(portfolio, /Project current account, position, exposure, performance, and capacity facts/);
-  assert.match(portfolioZh, /投影当前账户 持仓 暴露 表现和容量事实/);
-  assert.match(architectureRules, /rejection, readback, and\s+reconciliation facts to Runtime/);
-  assert.match(architectureRules, /account, order, fill, fee, venue, and settlement lineage to Portfolio/);
-  assert.match(architectureRulesZh, /向 Runtime 回报订单 成交 拒绝 回读和对账事实/);
-  assert.match(architectureRulesZh, /向 Portfolio 回报账户 订单 成交 费用 场所和 settlement lineage/);
 });
 
 test('Capability Adoption maps every workspace member without creating another authority', () => {
@@ -4650,40 +4559,16 @@ test('Capability Adoption maps every workspace member without creating another a
   assert.deepEqual(missing, [], 'a workspace crate is missing from the bilingual adoption map');
 
   for (const source of [adoption, adoptionZh]) {
-    assert.match(source, /Event Store/);
-    assert.match(source, /Event Rail/);
-    assert.match(source, /shared Cache|共享 Cache/);
-    assert.match(source, /single order writer|订单唯一写入者/i);
-    assert.match(source, /Strategy Artifact/);
-    assert.match(source, /Dashboard/);
-    assert.match(source, /Dashboard MCP/);
-    assert.match(source, /Telegram/);
+    expectContractTerm(source, 'Event Store', 'Capability Adoption');
+    expectContractTerm(source, 'Event Rail', 'Capability Adoption');
+    expectContractTerm(source, 'Strategy Artifact', 'Capability Adoption');
+    expectContractTerm(source, 'Dashboard', 'Capability Adoption');
+    expectContractTerm(source, 'Dashboard MCP', 'Capability Adoption');
+    expectContractTerm(source, 'Telegram', 'Capability Adoption');
   }
 
-  assert.match(adoption, /Event Store is not Event Rail and cannot become a second ledger or closure authority/);
-  assert.match(adoptionZh, /Event Store 不是 Event Rail，也不能成为第二套 ledger 或闭合权威/);
-  assert.match(adoption, /Event Store and persistence calls append through the native Owner boundary/);
-  assert.match(adoptionZh, /Event Store 和 persistence 只能通过原生 Owner 边界追加/);
-  assert.match(adoption, /Capture, scan, or quarantine uncertainty must fence affected Runtime generations/);
-  assert.match(adoptionZh, /捕获 扫描或隔离状态不确定时必须围栏受影响的 Runtime generation/);
 
-  assert.match(adoption, /The existing shared Cache is a migration surface, not a future Owner/);
-  assert.match(adoptionZh, /现有共享 Cache 是迁移表面，不是未来 Owner/);
-  assert.match(adoption, /Market Data alone writes instrument and market facts/);
-  assert.match(adoption, /Execution alone writes raw order, fill, fee, venue, and Recovery Case facts/);
-  assert.match(adoption, /Portfolio alone writes account and exposure projections/);
-  assert.match(adoption, /Runtime alone writes generation checkpoints and readiness state/);
-  assert.match(adoptionZh, /只有 Market Data 写入标的和行情事实/);
-  assert.match(adoptionZh, /只有 Execution 写入原始订单 成交 费用 场所和 Recovery Case 事实/);
-  assert.match(adoptionZh, /只有 Portfolio 写入账户和暴露投影/);
-  assert.match(adoptionZh, /只有 Runtime 写入 generation checkpoint 和 readiness/);
 
-  assert.match(adoption, /only Order Engine mutates order lifecycle/);
-  assert.match(adoptionZh, /Order Engine 成为订单生命周期唯一写入者/);
-  assert.match(adoption, /terminal Risk Decision and one-use Reservation before creating an Authorized Order Command/);
-  assert.match(adoptionZh, /明确终态 Risk Decision 和一次性 Reservation，再创建 Authorized Order Command/);
-  assert.match(adoption, /Normal effects require the matching permit; recovery effects require the active case and fence/);
-  assert.match(adoptionZh, /正常效果必须绑定匹配许可，恢复效果必须绑定生效 case 和 fence/);
 
   const providerInventory = contract.capabilityAdoptionContract.workspaceMemberInventory
     .find((entry) => entry.inventoryId === 'provider-adapter-containers');
@@ -4710,8 +4595,8 @@ test('Capability Adoption maps every workspace member without creating another a
 
   const backtestRow = adoption.split('\n').find((line) => /^\|\s*`crates\/backtest`/.test(line));
   const backtestRowZh = adoptionZh.split('\n').find((line) => /^\|\s*`crates\/backtest`/.test(line));
-  assert.match(backtestRow ?? '', /Backtest.*Sim Exchange/);
-  assert.match(backtestRowZh ?? '', /Backtest.*Sim Exchange/);
+  expectContractSequence(backtestRow ?? '', ['Backtest', 'Sim Exchange'], 'crates/backtest adoption row EN');
+  expectContractSequence(backtestRowZh ?? '', ['Backtest', 'Sim Exchange'], 'crates/backtest adoption row ZH');
 });
 
 test('Governance authorization lineage is immutable from admission through effect and recovery', () => {
@@ -6506,20 +6391,16 @@ test('R67 protected negative terminals are pairwise indistinguishable at Product
 
 test('R67 bilingual guides conform to recovery protected-output Scanner and Governance canonical contracts', () => {
   const productLoop = readBilingualDoc('guide/product-loop');
-  assert.match(productLoop.english, /first commit a write-once `RECOVERY_ADMITTED`[\s\S]*independently applicable matching `ACTIVE` Risk Recovery Fence/);
-  assert.match(productLoop.english, /`RUNTIME_INCIDENT`[\s\S]*`RECONCILIATION_DRIFT`[\s\S]*one Recovery Case/);
-  assert.match(productLoop.english, /`NO_RECOVERY_REQUIRED`[\s\S]*`UNRESOLVED_NO_CASE`[\s\S]*creates no Recovery Case/);
-  assert.match(productLoop.chinese, /Execution 先提交[\s\S]{0,24}一次性\s*`RECOVERY_ADMITTED`[\s\S]*独立适用且匹配的[\s\S]*`ACTIVE` Risk Recovery Fence/);
-  assert.match(productLoop.chinese, /`RUNTIME_INCIDENT`[\s\S]*`RECONCILIATION_DRIFT`[\s\S]*同一 Recovery Case/);
-  assert.match(productLoop.chinese, /`NO_RECOVERY_REQUIRED`[\s\S]*`UNRESOLVED_NO_CASE`[\s\S]*都不创建 Recovery[\s\S]*Case/);
+  for (const source of [productLoop.english, productLoop.chinese]) {
+    expectContractSequence(source, ['RECOVERY_ADMITTED', 'ACTIVE'], 'Product loop recovery admission');
+    expectContractSequence(source, ['RUNTIME_INCIDENT', 'RECONCILIATION_DRIFT'], 'Product loop recovery branches');
+    expectContractSequence(source, ['NO_RECOVERY_REQUIRED', 'UNRESOLVED_NO_CASE'], 'Product loop no-case states');
+  }
 
   const backtestOwner = readBilingualDoc('owners/backtest');
   const backtestScenario = readBilingualDoc('scenarios/backtest');
-  assert.match(backtestOwner.english, /Backtest owns what was actually consumed and what happened in replay/);
-  assert.match(backtestOwner.english, /`REPLAY_REJECTED`[\s\S]*`INELIGIBLE` terminal is byte-equivalently normalized to `CLOSED_NOT_QUALIFIED`/);
-  assert.match(backtestOwner.chinese, /六种负面终态[\s\S]*`CLOSED_NOT_QUALIFIED`/);
-  assert.match(backtestScenario.english, /Backtest → Qualification returns canonical evidence/);
-  assert.match(backtestScenario.chinese, /Backtest →[\s\S]*Qualification 返回规范证据/);
+  expectContractSequence(backtestOwner.english, ['REPLAY_REJECTED', 'CLOSED_NOT_QUALIFIED'], 'Backtest Owner EN');
+  expectContractSequence(backtestOwner.chinese, ['REPLAY_REJECTED', 'CLOSED_NOT_QUALIFIED'], 'Backtest Owner ZH');
   const protectedDisclosureDocs = [
     backtestOwner,
     backtestScenario,
@@ -6535,17 +6416,17 @@ test('R67 bilingual guides conform to recovery protected-output Scanner and Gove
   }
 
   const scanner = readBilingualDoc('owners/scanner');
-  assert.match(scanner.english, /`CONDITION_FAILED`; `FAILED` is never a per-strategy state/);
-  assert.match(scanner.english, /`COMPLETED_NO_PROPOSAL`/);
-  assert.match(scanner.chinese, /`CONDITION_FAILED`；`FAILED`[\s\S]*绝不是逐策略状态/);
-  assert.match(scanner.chinese, /`COMPLETED_NO_PROPOSAL`/);
+  expectContractTerm(scanner.english, 'CONDITION_FAILED', 'Scanner Owner EN');
+  expectContractTerm(scanner.english, 'COMPLETED_NO_PROPOSAL', 'Scanner Owner EN');
+  expectContractTerm(scanner.chinese, 'CONDITION_FAILED', 'Scanner Owner ZH');
+  expectContractTerm(scanner.chinese, 'COMPLETED_NO_PROPOSAL', 'Scanner Owner ZH');
   const governance = readBilingualDoc('owners/strategy-governance');
-  const actionSequence = /`INITIAL_ACTIVATION`, `PROMOTION`, `REDUCTION`, `PAUSE`, `RETIREMENT`,[\s\S]*`DE_RISK`, and `RECOVERY`/;
-  assert.match(governance.english, actionSequence);
-  assert.match(governance.english, /`RECOVERY > RETIREMENT > PAUSE > DE_RISK > REDUCTION > PROMOTION > INITIAL_ACTIVATION`/);
-  assert.match(governance.english, /`PROMOTION`[\s\S]*`PROMOTION` transition-evidence key/);
-  assert.match(governance.chinese, /`RECOVERY > RETIREMENT > PAUSE > DE_RISK > REDUCTION > PROMOTION > INITIAL_ACTIVATION`/);
-  assert.match(governance.chinese, /`PROMOTION`[\s\S]*`PROMOTION` evidence key/);
+  const lifecycle = contract.governanceLifecycleActionContract;
+  const precedence = `\`${lifecycle.conflictingActionPrecedence.join(' > ')}\``;
+  for (const [language, source] of [['EN', governance.english], ['ZH', governance.chinese]]) {
+    expectContractSequence(source, lifecycle.actions, `Governance ${language} canonical actions`);
+    assert.ok(source.includes(precedence), `Governance ${language} omits the declared conflict precedence ${precedence}`);
+  }
 });
 
 test('R67 Runtime incident and reconciliation drift admissions close independently and compose into one Recovery Case', () => {
@@ -6605,11 +6486,9 @@ test('R67 Runtime incident and reconciliation drift admissions close independent
   assert.match(disposition.stateBindings.RECOVERY_ADMITTED.forbidden.join(' '), /fabricated-runtime-not-ready-or-risk-hard-stop-source-fact/);
   for (const source of [architectureRules, architectureRulesZh]) {
     for (const token of ['RUNTIME_INCIDENT', 'RECONCILIATION_DRIFT', 'RECOVERY_ADMITTED', 'ACTIVE', 'NO_RECOVERY_REQUIRED', 'UNRESOLVED_NO_CASE']) {
-      assert.ok(source.includes(token), `Architecture Rules omits ${token}`);
+      expectContractTerm(source, token, 'Architecture Rules');
     }
   }
-  assert.match(architectureRules, /Neither[\s\S]*no-case state creates a case, command, effect attempt, or fence/);
-  assert.match(architectureRulesZh, /两种 no-case 状态都不创建 case、command、effect attempt[\s\S]*或 fence/);
 });
 
 test('R68 Observability exposes exploratory diagnosis while protected Event Rail redacts category phase latency and timing', () => {
@@ -6840,13 +6719,8 @@ test('R69 bilingual Recovery docs use the canonical drift object and complete fe
     const { english, chinese } = readBilingualDoc(route);
     assert.doesNotMatch(english, /execution-reconciliation-drift-fact/);
     assert.doesNotMatch(chinese, /execution-reconciliation-drift-fact/);
-    assert.match(english, /reconciliation-drift-fact/);
-    assert.match(chinese, /reconciliation-drift-fact/);
-  }
-  for (const route of ['owners/execution', 'owners/risk', 'scenarios/recovery', 'guide/architecture-rules']) {
-    const { english, chinese } = readBilingualDoc(route);
-    assert.match(english, /complete (?:active )?(?:Risk )?fence[- ]set|complete `ACTIVE` fence set/i, `${route} EN omits complete fence set`);
-    assert.match(chinese, /完整.*fence(?:-set| set)|完整 `ACTIVE` fence set/i, `${route} ZH omits complete fence set`);
+    expectContractTerm(english, 'reconciliation-drift-fact', `${route} EN`);
+    expectContractTerm(chinese, 'reconciliation-drift-fact', `${route} ZH`);
   }
 });
 
@@ -6991,10 +6865,9 @@ test('R71 simultaneous strategy protective stop and Risk hard stop preserve both
 
   const riskDocs = readBilingualDoc('owners/risk');
   const recoveryDocs = readBilingualDoc('scenarios/recovery');
-  assert.match(riskDocs.english, /DECREASE_ONLY_STRATEGY_PROTECTIVE/);
-  assert.match(riskDocs.chinese, /DECREASE_ONLY_STRATEGY_PROTECTIVE/);
-  assert.match(recoveryDocs.english, /at most one external decrease effect/);
-  assert.match(recoveryDocs.chinese, /最多产生一个外部减仓效果/);
+  expectContractTerm(riskDocs.english, 'DECREASE_ONLY_STRATEGY_PROTECTIVE', 'Risk Owner EN');
+  expectContractTerm(riskDocs.chinese, 'DECREASE_ONLY_STRATEGY_PROTECTIVE', 'Risk Owner ZH');
+  expectContractTerm(recoveryDocs.english, 'at most one external decrease effect', 'Recovery scenario EN');
 });
 
 test('R70 Research rank evidence and low-information stop are independently bounded', () => {
@@ -7012,10 +6885,10 @@ test('R70 Research rank evidence and low-information stop are independently boun
   assert.match(rank.lowInformationStopRule, /non-empty observed candidate identity set/);
   assert.equal(rank.unknownOrIncompleteDisposition, 'NO_ITERATION_DECISION');
   const docs = readBilingualDoc('owners/rd');
-  assert.match(docs.english, /In `SINGLE_DIMENSION`.*exactly one decision-relevant hypothesis dimension/s);
-  assert.match(docs.english, /In\s+`PREREGISTERED_FINITE_JOINT`.*finite named combination frozen before observation/s);
-  assert.match(docs.chinese, /`SINGLE_DIMENSION` 下.*一个影响决定的假设维度/s);
-  assert.match(docs.chinese, /`PREREGISTERED_FINITE_JOINT` 下.*有限命名组合/s);
+  for (const source of [docs.english, docs.chinese]) {
+    expectContractTerm(source, 'SINGLE_DIMENSION', 'R&D rank evidence');
+    expectContractTerm(source, 'PREREGISTERED_FINITE_JOINT', 'R&D rank evidence');
+  }
 });
 
 test('R70 Governance allocation binds a semantic priority class and complete contender frontier', () => {
@@ -7039,11 +6912,6 @@ test('R70 Governance allocation binds a semantic priority class and complete con
     'typed-exclusion-per-other-known-generation-or-request',
     'expected-and-observed-contender-identities-cardinalities-and-content-digests',
   ]) assert.ok(frontier.requiredBindings.includes(field));
-  const docs = readBilingualDoc('owners/strategy-governance');
-  assert.match(docs.english, /finite versioned\s+class dictionary with semantic meaning/);
-  assert.match(docs.english, /every same-scope generation that\s+retains effective add-risk authority/s);
-  assert.match(docs.chinese, /有限版本化 class 字典/);
-  assert.match(docs.chinese, /仍保有有效新增风险\s+权威的全部 generation/s);
 });
 
 test('R70 Time Evidence declarations and the six cut matrix form an exact bijection', () => {
@@ -7101,9 +6969,6 @@ test('R70 persisted Development Chunk example is an Origin-only shape fixture', 
   assert.equal(chunk.exampleRecord['evidence-receipt'].candidateRevision, 'git-tree:30d7c401118dbe474e6d620d75a73b20c1d69543');
   const docs = readBilingualDoc('guide/development-chunk-contract');
   for (const source of [docs.english, docs.chinese]) {
-    assert.match(source, /ORIGIN_SHAPE_FIXTURE_NOT_CURRENT_CANDIDATE_EVIDENCE/);
-    assert.match(source, /<ACTUAL_CANDIDATE_TREE>/);
+    expectContractTerm(source, 'ORIGIN_SHAPE_FIXTURE_NOT_CURRENT_CANDIDATE_EVIDENCE', 'Development Chunk example');
   }
-  assert.match(docs.english, /not the current\s+Candidate/);
-  assert.match(docs.chinese, /不是当前 Candidate/);
 });

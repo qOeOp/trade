@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { expectBonded } from "./doc-contract.mjs";
 
 import { projectDashboardEvidenceV1 } from "../lib/dashboard-evidence.ts";
 import { DASHBOARD_OVERVIEW_RUN_FILTER_V1 } from "../lib/dashboard-overview.ts";
@@ -136,9 +137,5 @@ test("Evidence is an admitted same-page read-only coverage workspace", async () 
   }
   assert.doesNotMatch(component, /custody: pending \? null|runs: pending \? null/u);
   assert.doesNotMatch(component, /Resolve same identity|Rebuild evidence|Submit|Run strategy|Delete evidence/u);
-  for (const doc of [en, zh]) {
-    assert.match(doc, /DashboardEvidence/u);
-    assert.match(doc, /same-page inline|同页原位/u);
-    assert.match(doc, /read coverage|read-coverage/u);
-  }
+  expectBonded({ en, zh }, component, ["DashboardEvidence"], "Evidence");
 });

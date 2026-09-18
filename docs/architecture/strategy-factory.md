@@ -31,7 +31,7 @@ projection may expose the pre-send request identity for response-loss recovery, 
 back. The sealed A0 Build Receipt is normalized as one intrinsic content-addressed build fact; a separate ordered
 use relation binds each Artifact to it, so two Research-derived Artifacts may share one build corpus without sharing
 their Research or Artifact custody. Exact legacy bytes admit one one-time normalization; every other schema shape
-fails closed. This remains `TARGET`, not deployed or production maturity, until the isolated Windmill golden chain
+fails closed. This remains `TARGET`, not deployed or production maturity, until the isolated first-party acceptance chain
 and its dual-custody, locator-negative, transaction-fault, concurrency, restart, and cleanup gates pass.
 
 Qualification projections form one append-only, acyclic principal/scope chain. If the latest projection for an exact verified Independence Basis becomes stale after Qualification commit or response loss, only Qualification Owner under the same principal/scope lock may append a successor that binds the exact basis ref/digest, predecessor projection ref/digest, unchanged canonical source sequence/cut/frontier, Owner clock epoch, new half-open validity, receipt and outbox, then atomically advance the head. A current projection joins byte-identically; callers and R&D cannot renew it. Historical R&D terminal custody continues to bind and expose its exact consumed projection, while a new S1 write requires the canonical latest projection to be current at the final locked cut.
@@ -71,7 +71,7 @@ The maturity boundary is explicit:
   canonical sysroot digest, deterministic double build/exact replay, and delivery of the real build into the sole
   Composer and `ProgramHostV2` consumer path. The builder rereads its exact tools and canonical target sysroot before
   and after each build. This hosted job success is not an R&D Owner business receipt. There is no kernel network
-  confinement, durable/deployed/Windmill readiness, Paper, Live, deployed-runtime, or production maturity. The
+  confinement, durable/deployed/Dashboard readiness, Paper, Live, deployed-runtime, or production maturity. The
   bounded Backtest target-set slice below is the only current member fill-routing,
   account/equity, and price-conversion evidence.
   ComplexStrategy V1 supplies the migration/equivalence baseline. R&D can also freeze a fully bound,
@@ -101,7 +101,7 @@ The maturity boundary is explicit:
   positive complete component count, and strict equality between the projection's role/binding set and the compiled
   Plan. The handoff retains the exact projection digest and count and rechecks their binding before promotion. This
   is fail-closed preparation and public consumer-shape evidence; it does not execute Native Replay, start a production
-  resolver, prove dynamic PostgreSQL product composition or end-to-end Windmill acceptance, or admit trading.
+  resolver, prove dynamic PostgreSQL product composition or end-to-end first-party acceptance, or admit trading.
 - **CURRENT/DYNAMIC, bounded exactly-two-member Backtest target-set vertical:** one complete Owner-sealed
   universe frame is prepared on a cloned `ProgramHostV2`, produces one canonical target set and one plugin
   invocation, and is committed only after one account-scoped `Portfolio::equity` snapshot, both exact instrument
@@ -139,7 +139,7 @@ The maturity boundary is explicit:
   first-party sources into one existing bounded plugin, then continues only through `PluginManifestV2`,
   `StrategyPlanV2`, `StrategyArtifactV2`, `ProgramHostV2`, and the shared lifecycle kernel. This repository has no
   executable `BoundedFeatureProgramV1`, V3 producer or durable V3 readback today. This contract does not claim an
-  executable D-loop, Native Replay, Windmill acceptance, stable profitability, Paper, Live, production, or trading
+  executable D-loop, Native Replay, first-party acceptance, stable profitability, Paper, Live, production, or trading
   authority.
 
 `StrategyDesignV2` is a typed, versioned, content-addressed description of input roles, joins, parameters,
@@ -1066,9 +1066,9 @@ attempt, or retained duplicate interpreter fails acceptance.
 
 At TrialFamily formation, R&D must freeze exactly one canonical nested `replay_execution_policy_v2`. The permanent
 family root, the policy, and the initial Census Frontier must cross-bind their identities and canonical digests so
-that no later family member, Composer, Windmill flow, Backtest adapter, or other caller can replace or reinterpret
+that no later family member, Composer, Dashboard operation, Backtest adapter, or other caller can replace or reinterpret
 the policy. This remains a target architecture contract; the current caller-authored `ReplayRequestDtoV2` path does
-not satisfy it, and no current PostgreSQL or Windmill acceptance is claimed.
+not satisfy it, and no current PostgreSQL or first-party acceptance is claimed.
 
 The sole pre-formation source of those values is an R&D Owner-internal, sealed, versioned Replay Policy Catalog
 fact; the catalog is neither a new Owner nor a second TrialFamily aggregate. Each immutable record contains a
@@ -1083,11 +1083,11 @@ ASCII grammar/parser ID as `u32 length || bytes`, the 32 grammar/parser-digest b
 `SHA-256("rd.replay-policy-catalog-record.v2\0" || canonical_record_bytes)`.
 
 The Catalog bootstrap is a dedicated opt-in, one-shot `authority-admin` composition, never an R&D API route,
-Product Edge/Windmill operation, default service, migration, or runtime selector. It uses only
+Product Edge/Dashboard operation, default service, migration, or runtime selector. It uses only
 `REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` to invoke the fixed private write port. The Rust one-shot composition
 verifies the deny-unknown-fields sealed V1 request before database access. PostgreSQL does not independently verify
 Ed25519; it trusts the exclusive `replay_policy_catalog_admin_writer` principal as the authenticated broker mutation
-boundary. That credential must never be distributed to operators, ordinary services, Windmill, or generic SQL
+boundary. That credential must never be distributed to operators, ordinary services, the Dashboard, or generic SQL
 clients; possession or use outside the broker is a trust-boundary breach. The request is
 Ed25519-signed and binds the schema version, bootstrap identity, administrator identity, separately trusted
 verifier identity, Catalog record identity, complete canonical policy bytes, deterministic create and head-advance
@@ -1124,7 +1124,7 @@ digest, grammar/parser identity and digest, record digest, currentness, and unre
 field from anywhere else. The
 permanent family root and initial Census Frontier both embed the complete policy bytes and policy digest and
 cross-bind the `policy_grammar_parser_id`, `policy_grammar_parser_digest`, catalog record identity, version, and
-digest. A caller, Windmill flow, environment variable, deployment configuration, default, or later catalog record
+digest. A caller, Dashboard operation, environment variable, deployment configuration, default, or later catalog record
 cannot select, override, synthesize, backfill, or infer any field.
 
 The nested policy owns every execution choice needed to compose the complete `ReplayRequestDtoV2` meaning:
@@ -1178,7 +1178,7 @@ corresponding nested model profiles exactly. A mismatch is unavailable, not an a
 TrialFamily without the sealed policy remains historically readable, but is ineligible and unavailable for Replay
 V2 composition: there is no default, backfill, caller substitution, or inference from a newer family.
 
-Windmill and every other Exploratory Replay caller may submit only the Artifact and TrialFamily identities plus
+The Dashboard effect worker and every other Exploratory Replay caller may submit only the Artifact and TrialFamily identities plus
 Owner-sealed Composer and Market Data locators and digests. Those values are evidence locators, not selection
 authority; a replay-policy locator or value is not a caller input. The R&D Owner alone resolves the family-sealed
 policy and composes the complete canonical Replay request; callers cannot supply or override runtime/model profiles,
@@ -1213,7 +1213,7 @@ This adds neither a second request aggregate nor a new Owner. It preserves
 `StrategyDesignV2 -> StrategyPlanV2 -> StrategyArtifactV2 -> ProgramHostV2`, the existing R&D request identity and
 custody, and response-loss recovery: exact `RESOLVE` may recover only the same pre-existing sealed request meaning
 and may not compose a replacement, alter policy, or create a second request, receipt, outbox, or head. This target
-is not admitted until implementation plus real disposable PostgreSQL Owner readback and end-to-end Windmill
+is not admitted until implementation plus real disposable PostgreSQL Owner readback and end-to-end first-party
 acceptance prove the complete composition and every zero-change rejection; it grants no production or trading
 authority.
 

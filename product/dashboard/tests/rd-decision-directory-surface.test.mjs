@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { bilingualSection, expectBonded, expectRoute, sources } from "./doc-contract.mjs";
 
 import { exactBlueprints, maturityFor } from "../lib/navigation.js";
 
@@ -35,19 +36,14 @@ test("Decisions composes one shared read-only inline directory", async () => {
   }
 });
 
-test("bilingual Decisions contract fixes the zero-family and no-effect boundaries", async () => {
-  for (const suffix of ["", ".zh"]) {
-    const document = await readFile(new URL(`../../../docs/guide/dashboard${suffix}.md`, import.meta.url), "utf8");
-    const heading = suffix
-      ? "## 有界准入：已验证 Iteration Decision 目录"
-      : "## Bounded admission: verified Iteration Decision directory";
-    const start = document.indexOf(heading);
-    const end = document.indexOf("\n## ", start + heading.length);
-    assert.ok(start >= 0 && end > start, `${suffix || "en"} Decision contract missing`);
-    const contract = document.slice(start, end);
-    for (const token of [
-      "RdDecisionDirectory", "DataWorkspaceTable", "ResearchQuestionBrief", suffix ? "零 family" : "zero-family",
-      "Open research record", "Windmill", "effect routing",
-    ]) assert.ok(contract.includes(token), `${suffix || "en"} missing ${token}`);
-  }
+test("Decisions contract is bonded to the directory component", async () => {
+  const section = await bilingualSection({
+    en: "## Bounded admission: verified Iteration Decision directory",
+    zh: "## 有界准入：已验证 Iteration Decision 目录",
+  });
+  const code = await sources(["components/rd-decision-directory.tsx"]);
+  expectRoute(section, "/rd/decisions", "Decisions");
+  expectBonded(section, code, [
+    "RdDecisionDirectory", "DataWorkspaceTable", "ResearchQuestionBrief", "Open research record",
+  ], "Decisions");
 });

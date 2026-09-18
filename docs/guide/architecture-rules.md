@@ -50,7 +50,7 @@ in-flight request continues to resolve under its original binding even after a n
 Product Edge is the unique writer of content-addressed Agent Operation Manifests, Agent Shell Deployment
 Bindings and their history head, immutable request admissions, and the matching outbox. A separately named
 **Operator Authorization Issuer** is the unique writer of authorization issuance and its revocation frontier.
-Product Edge may only direct-resolve the Issuer's canonical facts; Windmill, an API, R&D, a token, configuration,
+Product Edge may only direct-resolve the Issuer's canonical facts; the Dashboard, an API, R&D, a token, configuration,
 or Product Edge admission code cannot issue or self-assert them. Both writers use distinct PostgreSQL roles in
 one authority database. Admission holds a shared lock on the exact issuance and revocation frontier while it
 commits, and revocation takes the conflicting update lock. This common cut, rather than a copied DTO, cache, or
@@ -104,7 +104,7 @@ or fault writes nothing. A verified receipt projects only legacy-quarantined `OU
 freshness, authorization, artifact, family, successor, provider retry, or effect authority. Startup may ignore
 that exact row only after the canonical receipt and outbox both verify; every undrained, malformed, mismatched,
 or unknown row still blocks activation. Isolated local recovery evidence is not production authority and does
-not establish default-database, Windmill, or product maturity acceptance.
+not establish default-database, Dashboard, or product maturity acceptance.
 
 The request's Authorization Lineage is the indivisible tuple of stable request identity, effective principal and
 scope, admitted `ACTIVE` shell binding and exact deployment-history head, Operator Authorization, and Agent

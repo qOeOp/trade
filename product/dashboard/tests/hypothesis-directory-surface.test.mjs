@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { bilingualSection, expectBonded, expectRoute, sources } from "./doc-contract.mjs";
 
 import { exactBlueprints, maturityFor } from "../lib/navigation.js";
 
@@ -39,16 +40,14 @@ test("Hypotheses composes the shared read-only question directory atoms", async 
   }
 });
 
-test("bilingual Hypotheses contract preserves question custody without inventing a decision", async () => {
-  for (const suffix of ["", ".zh"]) {
-    const document = await readFile(new URL(`../../../docs/guide/dashboard${suffix}.md`, import.meta.url), "utf8");
-    const heading = suffix ? "## 有界准入：已验证 hypothesis 目录" : "## Bounded admission: verified hypothesis directory";
-    const start = document.indexOf(heading);
-    const end = document.indexOf("\n## ", start + heading.length);
-    assert.ok(start >= 0 && end > start, `${suffix || "en"} hypothesis contract missing`);
-    const contract = document.slice(start, end);
-    for (const token of ["rd.research_question_directory.read.v1", "HypothesisDirectory", "ResearchQuestionBrief", "Iteration Decision", "Windmill", "effect routing"]) {
-      assert.ok(contract.includes(token), `${suffix || "en"} missing ${token}`);
-    }
-  }
+test("Hypotheses contract is bonded to the directory component and its Owner read", async () => {
+  const section = await bilingualSection({
+    en: "## Bounded admission: verified hypothesis directory",
+    zh: "## 有界准入：已验证 hypothesis 目录",
+  });
+  const code = await sources(["components/hypothesis-directory.tsx", "lib/research-question-directory.ts"]);
+  expectRoute(section, "/rd/hypotheses", "Hypotheses");
+  expectBonded(section, code, [
+    "HypothesisDirectory", "ResearchQuestionBrief", "rd.research_question_directory.read.v1",
+  ], "Hypotheses");
 });

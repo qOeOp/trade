@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { expectBonded } from "./doc-contract.mjs";
 
 test("the shared detail sheet owns focus, responsive geometry, and canonical fallbacks", async () => {
   const [sheet, styles, runs, workers, schedules, scheduleHistory, research, artifacts, artifactPreview, serviceLogs, serviceLogPreview, mediaQuery, en, zh] = await Promise.all([
@@ -68,11 +69,7 @@ test("the shared detail sheet owns focus, responsive geometry, and canonical fal
   assert.doesNotMatch(serviceLogPreview, /fetch\(|useRouter|OperationsRunDetail/u);
   assert.match(mediaQuery, /useSyncExternalStore/u);
   assert.match(mediaQuery, /matchMedia/u);
-  for (const doc of [en, zh]) {
-    assert.match(doc, /D  (?:shared|共享) DetailSheet/u);
-    assert.match(doc, /\[Open full details\] -> \/operations\/runs\/:runId/u);
-    assert.match(doc, /schedules URL/iu);
-    assert.match(doc, /Build history[\s\S]*DetailSheet[\s\S]*Review build result/u);
-    assert.match(doc, /Service Logs URL[\s\S]*Open related run/u);
-  }
+  expectBonded({ en, zh }, [sheet, runs, artifacts, artifactPreview, serviceLogs].join("\n"), [
+    "DetailSheet", "/operations/runs/", "Build history", "Review build result", "Open related run",
+  ], "DetailSheet");
 });

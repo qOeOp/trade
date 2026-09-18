@@ -1080,7 +1080,7 @@ prepare/aggregate/verify authorities, then calls the normal universe-frame binde
 rows, requests, locators, digests, clocks, providers, persistence, or runtime selector. Default and production
 manifests omit the feature. A release build that explicitly enables it remains an isolated acceptance artifact,
 never a production build. This fixture proves only the compile-time acceptance topology: it provides no PostgreSQL
-custody, provider connectivity, deployed Windmill readiness, production composition, or trading authority.
+custody, provider connectivity, deployed Dashboard readiness, production composition, or trading authority.
 
 ### `ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1`
 
@@ -1250,7 +1250,7 @@ receipt identity. The readback has no public constructor, `Clone`, or deserializ
 BAR schedule fact, cut, receipt, outbox, and head tables; one atomic append/recovery path; fixed `SECURITY DEFINER`
 exact and historical reads; reader ACLs; admitted capability issuance and revalidation; and a public startup
 resolver. Byte-identical recovery returns the exact stored readback, while mismatch or tamper fails closed. This is
-CURRENT/PARTIAL schedule custody and admitted read authority, not Windmill, Backtest, composite, or other product
+CURRENT/PARTIAL schedule custody and admitted read authority, not Dashboard, Backtest, composite, or other product
 reachability. A caller locator, structural decode, or reconstructed bytes confers no schedule authority.
 
 For initial Native Replay execution-input composition, the admitted Market Data read capability also exposes one
@@ -1452,7 +1452,7 @@ historical FRAME/BAR projection only after a complete fixed PostgreSQL snapshot 
 timeframe/sample facts, schedule dependencies, exact schedule readbacks, and append-only schedule history, with
 admission revalidated before the read, after the read, and immediately before promotion. The resolver cannot select
 kind or lifecycle, perform a latest lookup, resolve V2 BAR or JOINED_CUT, or expose storage authority. Strategy
-Factory production startup, product composition, ProgramHost, Backtest, composite, Windmill, and every other product
+Factory production startup, product composition, ProgramHost, Backtest, composite, Dashboard, and every other product
 consumption remain `TARGET / UNAVAILABLE`; required production startup returns no resolver while its external
 admission adapters are unavailable. A stored V3 row or structural V3 bytes alone produces no consumer authority or
 mutation.
@@ -1537,7 +1537,7 @@ samples across 1-minute triggers without a double advance, advances once for an 
 for an accepted correction, and returns identical native receipt bytes after restart. Until that dynamic evidence
 exists, this contract claims no provider authenticity, production migration or deployment, Dashboard, Paper, Live,
 BFP executable maturity, Backtest product closure including inverse or quanto target-consumption semantics,
-Windmill/default-database admission, or trading authority. These Backtest limitations do not create a Market Data
+Dashboard/default-database admission, or trading authority. These Backtest limitations do not create a Market Data
 instrument-class rejection.
 
 ## Input handoffs
