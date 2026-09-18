@@ -6,6 +6,8 @@
 
 mod postgres;
 
+use std::fmt::Display;
+
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -1009,10 +1011,256 @@ pub enum OperatorAuthorizationError {
     InvalidProposal(&'static str),
     #[error("operator authorization identity conflicts with committed meaning")]
     ConflictingReplay,
-    #[error("operator authorization unavailable")]
-    Unavailable,
+    #[error("operator authorization unavailable: {0}")]
+    Unavailable(OperatorAuthorizationUnavailableV1),
     #[error("operator authorization storage unavailable: {0}")]
     Storage(String),
+}
+
+impl OperatorAuthorizationError {
+    /// An `Unavailable` refusal that names its reason but no particular identity.
+    #[must_use]
+    pub fn unavailable(reason: OperatorAuthorizationUnavailableReasonV1) -> Self {
+        Self::Unavailable(OperatorAuthorizationUnavailableV1::new(reason))
+    }
+
+    /// An `Unavailable` refusal about one exact identity.
+    #[must_use]
+    pub fn unavailable_for(
+        reason: OperatorAuthorizationUnavailableReasonV1,
+        kind: OperatorAuthorizationSubjectKindV1,
+        identity: impl Into<String>,
+    ) -> Self {
+        Self::Unavailable(OperatorAuthorizationUnavailableV1::about(
+            reason, kind, identity,
+        ))
+    }
+}
+
+/// Diagnostic detail behind [`OperatorAuthorizationError::Unavailable`].
+///
+/// It records why the issuer would not treat a row, a chain, or an
+/// authorization as current, and which identity the refusal is about. It is
+/// evidence for the operator and the log, not a disposition: every
+/// `Unavailable` still fails closed exactly as before, and no reason grants a
+/// caller a successor or a retry it did not already have.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OperatorAuthorizationUnavailableV1 {
+    reason: OperatorAuthorizationUnavailableReasonV1,
+    subject: Option<OperatorAuthorizationSubjectV1>,
+}
+
+impl OperatorAuthorizationUnavailableV1 {
+    #[must_use]
+    pub fn new(reason: OperatorAuthorizationUnavailableReasonV1) -> Self {
+        Self {
+            reason,
+            subject: None,
+        }
+    }
+
+    #[must_use]
+    pub fn about(
+        reason: OperatorAuthorizationUnavailableReasonV1,
+        kind: OperatorAuthorizationSubjectKindV1,
+        identity: impl Into<String>,
+    ) -> Self {
+        Self {
+            reason,
+            subject: Some(OperatorAuthorizationSubjectV1 {
+                kind,
+                identity: identity.into(),
+            }),
+        }
+    }
+
+    pub fn reason(&self) -> OperatorAuthorizationUnavailableReasonV1 {
+        self.reason
+    }
+
+    pub fn subject(&self) -> Option<&OperatorAuthorizationSubjectV1> {
+        self.subject.as_ref()
+    }
+}
+
+impl Display for OperatorAuthorizationUnavailableV1 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.subject {
+            Some(subject) => write!(f, "{} for {subject}", self.reason),
+            None => write!(f, "{}", self.reason),
+        }
+    }
+}
+
+/// The exact identity an `Unavailable` refusal is about.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OperatorAuthorizationSubjectV1 {
+    kind: OperatorAuthorizationSubjectKindV1,
+    identity: String,
+}
+
+impl OperatorAuthorizationSubjectV1 {
+    pub fn kind(&self) -> OperatorAuthorizationSubjectKindV1 {
+        self.kind
+    }
+
+    pub fn identity(&self) -> &str {
+        &self.identity
+    }
+}
+
+impl Display for OperatorAuthorizationSubjectV1 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {}", self.kind, self.identity)
+    }
+}
+
+/// Which Operator Authorization identity a refusal names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OperatorAuthorizationSubjectKindV1 {
+    /// An issuance, by `authorization_identity`.
+    Authorization,
+    /// A revocation frontier, by `frontier_identity`.
+    Frontier,
+    /// A scope history, by `scope_digest`.
+    Scope,
+    /// A Portfolio resource grant, by `grant_identity`.
+    Grant,
+    /// A Portfolio resource history, by `resource_digest`.
+    Resource,
+    /// An expired-manifest recovery epoch, by `recovery_epoch_identity`.
+    RecoveryEpoch,
+    /// An outbox aggregate, by `aggregate_identity`.
+    Outbox,
+}
+
+impl OperatorAuthorizationSubjectKindV1 {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Authorization => "authorization",
+            Self::Frontier => "frontier",
+            Self::Scope => "scope",
+            Self::Grant => "grant",
+            Self::Resource => "resource",
+            Self::RecoveryEpoch => "recovery epoch",
+            Self::Outbox => "outbox aggregate",
+        }
+    }
+}
+
+impl Display for OperatorAuthorizationSubjectKindV1 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Why the issuer refused to treat custody or an authorization as current.
+///
+/// The vocabulary is closed and coarse on purpose: it distinguishes the
+/// operator-visible failure classes (absent, duplicated, corrupt, chain
+/// broken, expired, revoked, lost a race) without projecting protected detail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OperatorAuthorizationUnavailableReasonV1 {
+    /// A required row, envelope, or chain member is absent.
+    Missing,
+    /// More than one row exists where exactly one is canonical.
+    Ambiguous,
+    /// Stored bytes do not decode as the canonical shape.
+    Malformed,
+    /// Stored custody disagrees with its own canonical recomputation: a
+    /// digest, receipt, column mirror, or schema version does not match.
+    CustodyDrift,
+    /// The caller's locator names an identity whose committed receipt differs.
+    LocatorMismatch,
+    /// The issuance or frontier chain is not one well-formed lineage.
+    LineageBroken,
+    /// The head row disagrees with the current frontier.
+    HeadMismatch,
+    /// The cut precedes the authorization's `not_before`.
+    NotYetEffective,
+    /// The cut is at or beyond the authorization's `valid_through`.
+    Expired,
+    /// The frontier at the cut revokes the authorization.
+    Revoked,
+    /// A historical read names a frontier older than the issuance admitted.
+    FrontierMismatch,
+    /// A row belongs to a different scope or resource history than requested.
+    ScopeMismatch,
+    /// A compare-and-swap on the head affected no row.
+    CompareAndSwapLost,
+    /// The connected role or schema topology is not the admitted one.
+    TopologyNotAdmitted,
+    /// The caller transaction is not READ COMMITTED.
+    IsolationNotReadCommitted,
+    /// A Portfolio resource grant resolved as unavailable for this reason.
+    PortfolioGrant(PortfolioResourceGrantUnavailableReasonV1),
+}
+
+impl OperatorAuthorizationUnavailableReasonV1 {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Missing => "MISSING",
+            Self::Ambiguous => "AMBIGUOUS",
+            Self::Malformed => "MALFORMED",
+            Self::CustodyDrift => "CUSTODY_DRIFT",
+            Self::LocatorMismatch => "LOCATOR_MISMATCH",
+            Self::LineageBroken => "LINEAGE_BROKEN",
+            Self::HeadMismatch => "HEAD_MISMATCH",
+            Self::NotYetEffective => "NOT_YET_EFFECTIVE",
+            Self::Expired => "EXPIRED",
+            Self::Revoked => "REVOKED",
+            Self::FrontierMismatch => "FRONTIER_MISMATCH",
+            Self::ScopeMismatch => "SCOPE_MISMATCH",
+            Self::CompareAndSwapLost => "COMPARE_AND_SWAP_LOST",
+            Self::TopologyNotAdmitted => "TOPOLOGY_NOT_ADMITTED",
+            Self::IsolationNotReadCommitted => "ISOLATION_NOT_READ_COMMITTED",
+            Self::PortfolioGrant(PortfolioResourceGrantUnavailableReasonV1::InvalidRequest) => {
+                "PORTFOLIO_GRANT_INVALID_REQUEST"
+            }
+            Self::PortfolioGrant(PortfolioResourceGrantUnavailableReasonV1::OwnerUnavailable) => {
+                "PORTFOLIO_GRANT_OWNER_UNAVAILABLE"
+            }
+            Self::PortfolioGrant(PortfolioResourceGrantUnavailableReasonV1::ResourceMismatch) => {
+                "PORTFOLIO_GRANT_RESOURCE_MISMATCH"
+            }
+            Self::PortfolioGrant(PortfolioResourceGrantUnavailableReasonV1::ManifestMismatch) => {
+                "PORTFOLIO_GRANT_MANIFEST_MISMATCH"
+            }
+            Self::PortfolioGrant(PortfolioResourceGrantUnavailableReasonV1::NotEffective) => {
+                "PORTFOLIO_GRANT_NOT_EFFECTIVE"
+            }
+            Self::PortfolioGrant(PortfolioResourceGrantUnavailableReasonV1::Expired) => {
+                "PORTFOLIO_GRANT_EXPIRED"
+            }
+            Self::PortfolioGrant(PortfolioResourceGrantUnavailableReasonV1::Revoked) => {
+                "PORTFOLIO_GRANT_REVOKED"
+            }
+        }
+    }
+
+    /// The reason an authorization with these bounds is not current at `cut`.
+    ///
+    /// Returns `None` when the window admits the cut and the caller has not
+    /// observed a revocation; the caller decides revocation separately.
+    pub fn for_window(
+        cut_epoch_ms: u64,
+        not_before_epoch_ms: u64,
+        valid_through_epoch_ms: u64,
+    ) -> Option<Self> {
+        if cut_epoch_ms < not_before_epoch_ms {
+            Some(Self::NotYetEffective)
+        } else if cut_epoch_ms >= valid_through_epoch_ms {
+            Some(Self::Expired)
+        } else {
+            None
+        }
+    }
+}
+
+impl Display for OperatorAuthorizationUnavailableReasonV1 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
 }
 
 pub(crate) fn canonical_bytes<T: Serialize>(

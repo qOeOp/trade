@@ -13,7 +13,9 @@ use crate::{
     OperatorAuthorizationIssuanceProposalV1, OperatorAuthorizationIssuanceReceiptV1,
     OperatorAuthorizationLocatorV1, OperatorAuthorizationReadbackV1,
     OperatorAuthorizationRevocationFrontierV1, OperatorAuthorizationRevocationProposalV1,
-    OperatorAuthorizationSuccessorIssuanceProposalV1, UntrustedCanonicalAuthorizationEvidenceV1,
+    OperatorAuthorizationSubjectKindV1 as Subject,
+    OperatorAuthorizationSuccessorIssuanceProposalV1,
+    OperatorAuthorizationUnavailableReasonV1 as Reason, UntrustedCanonicalAuthorizationEvidenceV1,
     UntrustedCanonicalPortfolioResourceGrantEvidenceV1, canonical_digest, identity,
 };
 
@@ -78,6 +80,48 @@ const VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA: &str = "SELECT relation.relowner 
    AND relation.relname = 'operator_authorization_expired_manifest_recoveries_v1'
    AND relation.relkind = 'r'
 ";
+
+fn unavailable(reason: Reason) -> OperatorAuthorizationError {
+    OperatorAuthorizationError::unavailable(reason)
+}
+
+fn unavailable_for(reason: Reason, kind: Subject, identity: &str) -> OperatorAuthorizationError {
+    OperatorAuthorizationError::unavailable_for(reason, kind, identity)
+}
+
+/// Why an issuance the current frontier does not admit is not current at `cut`.
+///
+/// The window is checked first; an issuance inside its window that still failed
+/// the currency check can only have been revoked.
+fn currency_refusal(
+    proposal: &OperatorAuthorizationIssuanceProposalV1,
+    cut_epoch_ms: u64,
+) -> OperatorAuthorizationError {
+    let reason = Reason::for_window(
+        cut_epoch_ms,
+        proposal.not_before_epoch_ms,
+        proposal.valid_through_epoch_ms,
+    )
+    .unwrap_or(Reason::Revoked);
+    unavailable_for(
+        reason,
+        Subject::Authorization,
+        &proposal.authorization_identity,
+    )
+}
+
+/// Why a historical frontier does not admit the issuance that names it.
+fn historical_refusal(
+    frontier: &StoredRevocationFrontierV1,
+    admitted_sequence: u64,
+) -> OperatorAuthorizationError {
+    let reason = if frontier.sequence < admitted_sequence {
+        Reason::FrontierMismatch
+    } else {
+        Reason::Revoked
+    };
+    unavailable_for(reason, Subject::Frontier, &frontier.frontier_identity)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -236,6 +280,7 @@ struct LockedAuthorizationEnvelopeV1 {
 
 #[derive(Debug)]
 struct VerifiedScopeHistoryV1 {
+    scope_digest: String,
     issuances: Vec<StoredIssuanceV1>,
     frontiers: Vec<StoredRevocationFrontierV1>,
 }
@@ -244,7 +289,7 @@ impl VerifiedScopeHistoryV1 {
     fn current(&self) -> Result<&StoredRevocationFrontierV1, OperatorAuthorizationError> {
         self.frontiers
             .last()
-            .ok_or(OperatorAuthorizationError::Unavailable)
+            .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Scope, &self.scope_digest))
     }
 
     fn issuance(
@@ -254,13 +299,19 @@ impl VerifiedScopeHistoryV1 {
         self.issuances
             .iter()
             .find(|issuance| issuance.proposal.authorization_identity == authorization_identity)
-            .ok_or(OperatorAuthorizationError::Unavailable)
+            .ok_or_else(|| {
+                unavailable_for(
+                    Reason::Missing,
+                    Subject::Authorization,
+                    authorization_identity,
+                )
+            })
     }
 
     fn issuance_head(&self) -> Result<&StoredIssuanceV1, OperatorAuthorizationError> {
         self.issuances
             .last()
-            .ok_or(OperatorAuthorizationError::Unavailable)
+            .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Scope, &self.scope_digest))
     }
 }
 
@@ -340,7 +391,7 @@ impl OperatorAuthorizationIssuerPostgresV1 {
         .map_err(storage)?;
 
         if !admitted {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable(Reason::TopologyNotAdmitted));
         }
         Ok(Self { pool })
     }
@@ -398,7 +449,7 @@ impl OperatorAuthorizationIssuerPostgresV1 {
             .unwrap_or(false);
 
         if !verified {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable(Reason::TopologyNotAdmitted));
         }
         transaction.commit().await.map_err(storage)?;
         Ok(())
@@ -425,9 +476,13 @@ impl OperatorAuthorizationIssuerPostgresV1 {
             lock_current_rows_for_update(&mut transaction, &existing).await?;
             let verified = verify_scope_history(&mut transaction, &scope_digest, false, false)
                 .await?
-                .ok_or(OperatorAuthorizationError::Unavailable)?;
+                .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Scope, &scope_digest))?;
             if verified.issuance(&existing.proposal.authorization_identity)? != &existing {
-                return Err(OperatorAuthorizationError::Unavailable);
+                return Err(unavailable_for(
+                    Reason::CustodyDrift,
+                    Subject::Authorization,
+                    &existing.proposal.authorization_identity,
+                ));
             }
             let result = load_verified(
                 &mut transaction,
@@ -520,12 +575,16 @@ impl OperatorAuthorizationIssuerPostgresV1 {
 
         let verified = verify_scope_history(&mut transaction, &scope_digest, false, false)
             .await?
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+            .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Scope, &scope_digest))?;
 
         if verified.issuance(&stored.proposal.authorization_identity)? != &stored
             || verified.current()? != &frontier
         {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CustodyDrift,
+                Subject::Authorization,
+                &stored.proposal.authorization_identity,
+            ));
         }
 
         let result = load_verified(
@@ -559,18 +618,32 @@ impl OperatorAuthorizationIssuerPostgresV1 {
             CanonicalRowLockV1::Update,
         )
         .await?
-        .ok_or(OperatorAuthorizationError::Unavailable)?;
+        .ok_or_else(|| {
+            unavailable_for(
+                Reason::Missing,
+                Subject::Authorization,
+                &proposal.authorization.authorization_identity,
+            )
+        })?;
         let receipt = issuance_receipt(&issuance);
         if receipt.receipt_identity != proposal.authorization.issuance_receipt_identity {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::LocatorMismatch,
+                Subject::Authorization,
+                &proposal.authorization.authorization_identity,
+            ));
         }
         let scope_digest = issuance.proposal.scope.digest()?;
         lock_current_rows_for_update(&mut transaction, &issuance).await?;
         let history = verify_scope_history(&mut transaction, &scope_digest, false, false)
             .await?
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+            .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Scope, &scope_digest))?;
         if history.issuance(&issuance.proposal.authorization_identity)? != &issuance {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CustodyDrift,
+                Subject::Authorization,
+                &issuance.proposal.authorization_identity,
+            ));
         }
         let current = history.current()?.clone();
 
@@ -597,10 +670,13 @@ impl OperatorAuthorizationIssuerPostgresV1 {
             (&left.authorization_identity, &left.reason_code)
                 .cmp(&(&right.authorization_identity, &right.reason_code))
         });
-        let sequence = current
-            .sequence
-            .checked_add(1)
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+        let sequence = current.sequence.checked_add(1).ok_or_else(|| {
+            unavailable_for(
+                Reason::LineageBroken,
+                Subject::Frontier,
+                &current.frontier_identity,
+            )
+        })?;
         let frontier_identity = identity(
             "operator-authorization-revocation-frontier-v1",
             &[
@@ -634,7 +710,11 @@ impl OperatorAuthorizationIssuerPostgresV1 {
             .bind(to_i64(current.sequence)?).execute(&mut *transaction).await.map_err(storage)?;
 
         if updated.rows_affected() != 1 {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CompareAndSwapLost,
+                Subject::Scope,
+                &scope_digest,
+            ));
         }
         insert_outbox(
             &mut transaction,
@@ -647,12 +727,16 @@ impl OperatorAuthorizationIssuerPostgresV1 {
         .await?;
         let verified = verify_scope_history(&mut transaction, &scope_digest, false, false)
             .await?
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+            .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Scope, &scope_digest))?;
 
         if verified.issuance(&issuance.proposal.authorization_identity)? != &issuance
             || verified.current()? != &next
         {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CustodyDrift,
+                Subject::Scope,
+                &scope_digest,
+            ));
         }
         transaction.commit().await.map_err(storage)?;
         Ok(next.public())
@@ -701,9 +785,13 @@ impl OperatorAuthorizationIssuerPostgresV1 {
             lock_current_rows_for_update(&mut transaction, &existing).await?;
             let history = verify_scope_history(&mut transaction, &scope_digest, false, false)
                 .await?
-                .ok_or(OperatorAuthorizationError::Unavailable)?;
+                .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Scope, &scope_digest))?;
             if history.issuance(&existing.proposal.authorization_identity)? != &existing {
-                return Err(OperatorAuthorizationError::Unavailable);
+                return Err(unavailable_for(
+                    Reason::CustodyDrift,
+                    Subject::Authorization,
+                    &existing.proposal.authorization_identity,
+                ));
             }
             let result = load_verified(
                 &mut transaction,
@@ -725,12 +813,22 @@ impl OperatorAuthorizationIssuerPostgresV1 {
             CanonicalRowLockV1::Update,
         )
         .await?
-        .ok_or(OperatorAuthorizationError::Unavailable)?;
+        .ok_or_else(|| {
+            unavailable_for(
+                Reason::Missing,
+                Subject::Authorization,
+                &proposal.predecessor_authorization.authorization_identity,
+            )
+        })?;
 
         if issuance_receipt(&predecessor).receipt_identity
             != proposal.predecessor_authorization.issuance_receipt_identity
         {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::LocatorMismatch,
+                Subject::Authorization,
+                &proposal.predecessor_authorization.authorization_identity,
+            ));
         }
 
         if predecessor.proposal.scope.digest()? != scope_digest {
@@ -739,7 +837,7 @@ impl OperatorAuthorizationIssuerPostgresV1 {
         lock_current_rows_for_update(&mut transaction, &predecessor).await?;
         let history = verify_scope_history(&mut transaction, &scope_digest, false, false)
             .await?
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+            .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Scope, &scope_digest))?;
         let current = history.current()?.clone();
         let committed_at = now_ms()?;
 
@@ -806,9 +904,13 @@ impl OperatorAuthorizationIssuerPostgresV1 {
         .await?;
         let verified = verify_scope_history(&mut transaction, &scope_digest, false, false)
             .await?
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+            .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Scope, &scope_digest))?;
         if verified.issuance_head()? != &stored || verified.current()? != &current {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CustodyDrift,
+                Subject::Scope,
+                &scope_digest,
+            ));
         }
         let result = load_verified(
             &mut transaction,
@@ -872,16 +974,27 @@ impl OperatorAuthorizationIssuerPostgresV1 {
                 &proposal.recovery_epoch.recovery_epoch_identity,
             )
             .await?
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+            .ok_or_else(|| {
+                unavailable_for(
+                    Reason::Missing,
+                    Subject::RecoveryEpoch,
+                    &proposal.recovery_epoch.recovery_epoch_identity,
+                )
+            })?;
+
             if recovery.proposal != proposal || recovery.proposal_digest != semantic_digest {
                 return Err(OperatorAuthorizationError::ConflictingReplay);
             }
             lock_current_rows_for_update(&mut transaction, &existing).await?;
             let history = verify_scope_history(&mut transaction, &scope_digest, false, false)
                 .await?
-                .ok_or(OperatorAuthorizationError::Unavailable)?;
+                .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Scope, &scope_digest))?;
             if history.issuance(&existing.proposal.authorization_identity)? != &existing {
-                return Err(OperatorAuthorizationError::Unavailable);
+                return Err(unavailable_for(
+                    Reason::CustodyDrift,
+                    Subject::Authorization,
+                    &existing.proposal.authorization_identity,
+                ));
             }
             let result = load_verified(
                 &mut transaction,
@@ -903,12 +1016,22 @@ impl OperatorAuthorizationIssuerPostgresV1 {
             CanonicalRowLockV1::Update,
         )
         .await?
-        .ok_or(OperatorAuthorizationError::Unavailable)?;
+        .ok_or_else(|| {
+            unavailable_for(
+                Reason::Missing,
+                Subject::Authorization,
+                &proposal.predecessor_authorization.authorization_identity,
+            )
+        })?;
 
         if issuance_receipt(&predecessor).receipt_identity
             != proposal.predecessor_authorization.issuance_receipt_identity
         {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::LocatorMismatch,
+                Subject::Authorization,
+                &proposal.predecessor_authorization.authorization_identity,
+            ));
         }
 
         if predecessor.proposal.scope.digest()? != scope_digest {
@@ -917,7 +1040,7 @@ impl OperatorAuthorizationIssuerPostgresV1 {
         lock_current_rows_for_update(&mut transaction, &predecessor).await?;
         let history = verify_scope_history(&mut transaction, &scope_digest, false, false)
             .await?
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+            .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Scope, &scope_digest))?;
         let current = history.current()?.clone();
         let committed_at = now_ms()?;
 
@@ -995,9 +1118,13 @@ impl OperatorAuthorizationIssuerPostgresV1 {
         .await?;
         let verified = verify_scope_history(&mut transaction, &scope_digest, false, false)
             .await?
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+            .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Scope, &scope_digest))?;
         if verified.issuance_head()? != &stored || verified.current()? != &current {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CustodyDrift,
+                Subject::Scope,
+                &scope_digest,
+            ));
         }
         let result = load_verified(
             &mut transaction,
@@ -1026,7 +1153,7 @@ async fn lock_current_rows_for_update(
         .fetch_optional(&mut **transaction)
         .await
         .map_err(storage)?
-        .ok_or(OperatorAuthorizationError::Unavailable)?;
+        .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Scope, &scope_digest))?;
     let frontier_identity: String = head.try_get("frontier_identity").map_err(storage)?;
     let frontier =
         load_frontier_row(transaction, &frontier_identity, CanonicalRowLockV1::Update).await?;
@@ -1042,7 +1169,11 @@ async fn lock_current_rows_for_update(
         || from_i64(head.try_get("committed_at_epoch_ms").map_err(storage)?)?
             != frontier.committed_at_epoch_ms
     {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::HeadMismatch,
+            Subject::Scope,
+            &scope_digest,
+        ));
     }
     Ok(frontier)
 }
@@ -1056,7 +1187,7 @@ async fn ensure_read_committed(
         .map_err(storage)?;
 
     if isolation != "read committed" {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable(Reason::IsolationNotReadCommitted));
     }
     Ok(())
 }
@@ -1076,7 +1207,13 @@ pub async fn resolve_authorization_in_transaction(
     .await
     .map_err(storage)?;
     let evidence = parse_untrusted_authorization_envelope_v1(
-        envelope.ok_or(OperatorAuthorizationError::Unavailable)?,
+        envelope.ok_or_else(|| {
+            unavailable_for(
+                Reason::Missing,
+                Subject::Authorization,
+                &locator.authorization_identity,
+            )
+        })?,
         locator,
         mode,
     )?;
@@ -1112,7 +1249,7 @@ pub fn parse_untrusted_authorization_envelope_v1(
                     entry.authorization_identity == issuance.proposal.authorization_identity
                 })
             {
-                return Err(OperatorAuthorizationError::Unavailable);
+                return Err(currency_refusal(&issuance.proposal, read_cut_epoch_ms));
             }
             frontier
         }
@@ -1122,14 +1259,16 @@ pub fn parse_untrusted_authorization_envelope_v1(
                 .iter()
                 .find(|frontier| frontier.frontier_identity == frontier_identity)
                 .cloned()
-                .ok_or(OperatorAuthorizationError::Unavailable)?;
+                .ok_or_else(|| {
+                    unavailable_for(Reason::Missing, Subject::Frontier, &frontier_identity)
+                })?;
             let admitted_sequence = match issuance.admitted_frontier_identity.as_deref() {
                 Some(identity) => history
                     .frontiers
                     .iter()
                     .find(|candidate| candidate.frontier_identity == identity)
                     .map(|candidate| candidate.sequence)
-                    .ok_or(OperatorAuthorizationError::Unavailable)?,
+                    .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Frontier, identity))?,
                 None => 0,
             };
 
@@ -1138,7 +1277,7 @@ pub fn parse_untrusted_authorization_envelope_v1(
                     entry.authorization_identity == issuance.proposal.authorization_identity
                 })
             {
-                return Err(OperatorAuthorizationError::Unavailable);
+                return Err(historical_refusal(&frontier, admitted_sequence));
             }
             frontier
         }
@@ -1168,7 +1307,11 @@ async fn load_expired_manifest_recovery(
         .map_err(storage)?;
 
     if rows.len() > 1 {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::Ambiguous,
+            Subject::RecoveryEpoch,
+            recovery_epoch_identity,
+        ));
     }
     let Some(row) = rows.first() else {
         return Ok(None);
@@ -1201,7 +1344,11 @@ async fn load_expired_manifest_recovery(
         || from_i64(row.try_get("committed_at_epoch_ms").map_err(storage)?)?
             != stored.committed_at_epoch_ms
     {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::RecoveryEpoch,
+            recovery_epoch_identity,
+        ));
     }
     Ok(Some(stored))
 }
@@ -1221,19 +1368,29 @@ fn verify_locked_envelope(
     let issuance = issuances
         .iter()
         .find(|candidate| candidate.proposal.authorization_identity == selected_identity)
-        .ok_or(OperatorAuthorizationError::Unavailable)?;
+        .ok_or_else(|| {
+            unavailable_for(Reason::Missing, Subject::Authorization, &selected_identity)
+        })?;
     let selected = verify_locked_issuance_row(envelope.issuance)?;
     let receipt = issuance_receipt(issuance);
     if &selected != issuance
         || issuance.proposal.authorization_identity != locator.authorization_identity
         || receipt.receipt_identity != locator.issuance_receipt_identity
     {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::LocatorMismatch,
+            Subject::Authorization,
+            &locator.authorization_identity,
+        ));
     }
 
-    let genesis = issuances
-        .first()
-        .ok_or(OperatorAuthorizationError::Unavailable)?;
+    let genesis = issuances.first().ok_or_else(|| {
+        unavailable_for(
+            Reason::LineageBroken,
+            Subject::Authorization,
+            &selected_identity,
+        )
+    })?;
 
     let mut frontiers = Vec::with_capacity(envelope.frontiers.len());
     for (index, row) in envelope.frontiers.into_iter().enumerate() {
@@ -1250,15 +1407,23 @@ fn verify_locked_envelope(
                 != canonical_digest("operator-authorization.revocation-frontier.v1", &frontier)?
             || from_i64(row.committed_at_epoch_ms)? != frontier.committed_at_epoch_ms
         {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CustodyDrift,
+                Subject::Frontier,
+                &row.frontier_identity,
+            ));
         }
         frontiers.push(frontier);
     }
     verify_frontier_chain(genesis, &frontiers)?;
     verify_successor_frontiers(&issuances, &frontiers)?;
-    let current = frontiers
-        .last()
-        .ok_or(OperatorAuthorizationError::Unavailable)?;
+    let current = frontiers.last().ok_or_else(|| {
+        unavailable_for(
+            Reason::LineageBroken,
+            Subject::Scope,
+            &envelope.head.scope_digest,
+        )
+    })?;
     let current_digest =
         canonical_digest("operator-authorization.revocation-frontier.v1", current)?;
     if envelope.head.scope_digest != current.scope_digest
@@ -1270,10 +1435,15 @@ fn verify_locked_envelope(
         || envelope.current_frontier.frontier_json
             != serde_json::to_value(current).map_err(storage)?
     {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::HeadMismatch,
+            Subject::Scope,
+            &current.scope_digest,
+        ));
     }
     verify_locked_outboxes(&issuances, &frontiers, &envelope.outboxes)?;
     Ok(VerifiedScopeHistoryV1 {
+        scope_digest: envelope.head.scope_digest,
         issuances,
         frontiers,
     })
@@ -1283,10 +1453,13 @@ fn verify_locked_issuance_row(
     row: LockedIssuanceRowV1,
 ) -> Result<StoredIssuanceV1, OperatorAuthorizationError> {
     let issuance: StoredIssuanceV1 = from_json(row.issuance_json)?;
-    issuance
-        .proposal
-        .validate()
-        .map_err(|_| OperatorAuthorizationError::Unavailable)?;
+    issuance.proposal.validate().map_err(|_| {
+        unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Authorization,
+            &row.authorization_identity,
+        )
+    })?;
     let receipt: StoredIssuanceReceiptV1 = from_json(row.receipt_json)?;
     let expected_digest = stored_issuance_digest(&issuance)?;
     if row.authorization_identity != issuance.proposal.authorization_identity
@@ -1299,7 +1472,11 @@ fn verify_locked_issuance_row(
         || from_i64(row.committed_at_epoch_ms)? != issuance.committed_at_epoch_ms
         || receipt != issuance_receipt(&issuance)
     {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Authorization,
+            &row.authorization_identity,
+        ));
     }
     Ok(issuance)
 }
@@ -1309,7 +1486,11 @@ fn verify_frontier_chain(
     frontiers: &[StoredRevocationFrontierV1],
 ) -> Result<(), OperatorAuthorizationError> {
     if frontiers.first() != Some(&genesis_frontier(issuance)?) {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::LineageBroken,
+            Subject::Authorization,
+            &issuance.proposal.authorization_identity,
+        ));
     }
 
     for pair in frontiers.windows(2) {
@@ -1332,7 +1513,11 @@ fn verify_frontier_chain(
                 .any(|entry| !successor.revocations.contains(entry))
             || added != 1
         {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::LineageBroken,
+                Subject::Frontier,
+                &successor.frontier_identity,
+            ));
         }
     }
     Ok(())
@@ -1346,15 +1531,33 @@ fn verify_successor_frontiers(
         let admitted_frontier_identity = issuance
             .admitted_frontier_identity
             .as_deref()
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+            .ok_or_else(|| {
+                unavailable_for(
+                    Reason::LineageBroken,
+                    Subject::Authorization,
+                    &issuance.proposal.authorization_identity,
+                )
+            })?;
         let admitted_frontier = frontiers
             .iter()
             .find(|frontier| frontier.frontier_identity == admitted_frontier_identity)
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+            .ok_or_else(|| {
+                unavailable_for(
+                    Reason::Missing,
+                    Subject::Frontier,
+                    admitted_frontier_identity,
+                )
+            })?;
         let predecessor_identity = &issuance
             .predecessor_authorization
             .as_ref()
-            .ok_or(OperatorAuthorizationError::Unavailable)?
+            .ok_or_else(|| {
+                unavailable_for(
+                    Reason::LineageBroken,
+                    Subject::Authorization,
+                    &issuance.proposal.authorization_identity,
+                )
+            })?
             .authorization_identity;
 
         if admitted_frontier.committed_at_epoch_ms > issuance.committed_at_epoch_ms
@@ -1363,7 +1566,11 @@ fn verify_successor_frontiers(
                 .iter()
                 .any(|entry| &entry.authorization_identity == predecessor_identity)
         {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::LineageBroken,
+                Subject::Authorization,
+                &issuance.proposal.authorization_identity,
+            ));
         }
     }
     Ok(())
@@ -1375,7 +1582,7 @@ fn verify_locked_outboxes(
     rows: &[LockedOutboxRowV1],
 ) -> Result<(), OperatorAuthorizationError> {
     if rows.len() != frontiers.len().saturating_add(issuances.len()) {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable(Reason::CustodyDrift));
     }
 
     for issuance in issuances {
@@ -1428,7 +1635,15 @@ fn verify_locked_outbox_row<T: Serialize>(
         .collect();
 
     if matches.len() != 1 {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            if matches.is_empty() {
+                Reason::Missing
+            } else {
+                Reason::Ambiguous
+            },
+            Subject::Outbox,
+            aggregate,
+        ));
     }
     let row = matches[0];
     let record: StoredOutboxV1 = from_json(row.payload_json.clone())?;
@@ -1446,7 +1661,11 @@ fn verify_locked_outbox_row<T: Serialize>(
                 committed_at_epoch_ms: committed_at,
             })
     {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Outbox,
+            aggregate,
+        ));
     }
     Ok(())
 }
@@ -1467,17 +1686,31 @@ async fn load_verified(
         },
     )
     .await?
-    .ok_or(OperatorAuthorizationError::Unavailable)?;
+    .ok_or_else(|| {
+        unavailable_for(
+            Reason::Missing,
+            Subject::Authorization,
+            &locator.authorization_identity,
+        )
+    })?;
     let receipt = issuance_receipt(&issuance);
     if receipt.receipt_identity != locator.issuance_receipt_identity {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::LocatorMismatch,
+            Subject::Authorization,
+            &locator.authorization_identity,
+        ));
     }
     let scope_digest = issuance.proposal.scope.digest()?;
     let history = verify_scope_history(transaction, &scope_digest, false, lock_rows)
         .await?
-        .ok_or(OperatorAuthorizationError::Unavailable)?;
+        .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Scope, &scope_digest))?;
     if history.issuance(&locator.authorization_identity)? != &issuance {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Authorization,
+            &locator.authorization_identity,
+        ));
     }
     let frontier = match mode {
         AuthorizationReadModeV1::CurrentAtLock => history.current()?.clone(),
@@ -1490,7 +1723,7 @@ async fn load_verified(
                     entry.authorization_identity == issuance.proposal.authorization_identity
                 })
             {
-                return Err(OperatorAuthorizationError::Unavailable);
+                return Err(currency_refusal(&issuance.proposal, read_cut_epoch_ms));
             }
             frontier
         }
@@ -1500,14 +1733,16 @@ async fn load_verified(
                 .iter()
                 .find(|frontier| frontier.frontier_identity == frontier_identity)
                 .cloned()
-                .ok_or(OperatorAuthorizationError::Unavailable)?;
+                .ok_or_else(|| {
+                    unavailable_for(Reason::Missing, Subject::Frontier, &frontier_identity)
+                })?;
             let admitted_sequence = match issuance.admitted_frontier_identity.as_deref() {
                 Some(identity) => history
                     .frontiers
                     .iter()
                     .find(|candidate| candidate.frontier_identity == identity)
                     .map(|candidate| candidate.sequence)
-                    .ok_or(OperatorAuthorizationError::Unavailable)?,
+                    .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Frontier, identity))?,
                 None => 0,
             };
 
@@ -1516,14 +1751,18 @@ async fn load_verified(
                     entry.authorization_identity == issuance.proposal.authorization_identity
                 })
             {
-                return Err(OperatorAuthorizationError::Unavailable);
+                return Err(historical_refusal(&frontier, admitted_sequence));
             }
             frontier
         }
     };
 
     if frontier.scope_digest != scope_digest {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::ScopeMismatch,
+            Subject::Frontier,
+            &frontier.frontier_identity,
+        ));
     }
     Ok(OperatorAuthorizationReadbackV1 {
         issuance_receipt: receipt.into(),
@@ -1569,16 +1808,23 @@ async fn load_issuance_row(
         .map_err(storage)?;
 
     if rows.len() > 1 {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::Ambiguous,
+            Subject::Authorization,
+            identity_value,
+        ));
     }
     let Some(row) = rows.first() else {
         return Ok(None);
     };
     let stored: StoredIssuanceV1 = from_json(row.try_get("issuance_json").map_err(storage)?)?;
-    stored
-        .proposal
-        .validate()
-        .map_err(|_| OperatorAuthorizationError::Unavailable)?;
+    stored.proposal.validate().map_err(|_| {
+        unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Authorization,
+            &stored.proposal.authorization_identity,
+        )
+    })?;
     let expected_digest = stored_issuance_digest(&stored)?;
     let receipt: StoredIssuanceReceiptV1 =
         from_json(row.try_get("receipt_json").map_err(storage)?)?;
@@ -1604,7 +1850,11 @@ async fn load_issuance_row(
             != stored.committed_at_epoch_ms
         || receipt != issuance_receipt(&stored)
     {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Authorization,
+            &stored.proposal.authorization_identity,
+        ));
     }
     Ok(Some(stored))
 }
@@ -1656,11 +1906,19 @@ async fn verify_scope_history(
         if frontier_rows.is_empty() && head_rows.is_empty() {
             return Ok(None);
         }
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::LineageBroken,
+            Subject::Scope,
+            scope_digest,
+        ));
     }
 
     if frontier_rows.is_empty() || head_rows.len() != 1 {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::LineageBroken,
+            Subject::Scope,
+            scope_digest,
+        ));
     }
     let mut issuances = Vec::with_capacity(issuance_rows.len());
     for row in &issuance_rows {
@@ -1676,9 +1934,20 @@ async fn verify_scope_history(
             },
         )
         .await?
-        .ok_or(OperatorAuthorizationError::Unavailable)?;
+        .ok_or_else(|| {
+            unavailable_for(
+                Reason::Missing,
+                Subject::Authorization,
+                &authorization_identity,
+            )
+        })?;
+
         if issuance.proposal.scope.digest()? != scope_digest {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::ScopeMismatch,
+                Subject::Authorization,
+                &issuance.proposal.authorization_identity,
+            ));
         }
         let receipt = issuance_receipt(&issuance);
         verify_outbox(
@@ -1696,7 +1965,7 @@ async fn verify_scope_history(
     let issuances = order_and_verify_issuances(issuances)?;
     let genesis = issuances
         .first()
-        .ok_or(OperatorAuthorizationError::Unavailable)?;
+        .ok_or_else(|| unavailable_for(Reason::LineageBroken, Subject::Scope, scope_digest))?;
 
     let mut frontiers = Vec::with_capacity(frontier_rows.len());
     for (index, row) in frontier_rows.iter().enumerate() {
@@ -1724,7 +1993,11 @@ async fn verify_scope_history(
                 != i64::try_from(index).map_err(storage)?
             || frontier.sequence != u64::try_from(index).map_err(storage)?
         {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CustodyDrift,
+                Subject::Frontier,
+                &frontier.frontier_identity,
+            ));
         }
         verify_outbox(
             transaction,
@@ -1740,22 +2013,44 @@ async fn verify_scope_history(
     }
 
     if frontiers.first() != Some(&genesis_frontier(genesis)?) {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::LineageBroken,
+            Subject::Scope,
+            scope_digest,
+        ));
     }
 
     for issuance in issuances.iter().skip(1) {
         let admitted_frontier_identity = issuance
             .admitted_frontier_identity
             .as_deref()
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+            .ok_or_else(|| {
+                unavailable_for(
+                    Reason::LineageBroken,
+                    Subject::Authorization,
+                    &issuance.proposal.authorization_identity,
+                )
+            })?;
         let admitted_frontier = frontiers
             .iter()
             .find(|frontier| frontier.frontier_identity == admitted_frontier_identity)
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+            .ok_or_else(|| {
+                unavailable_for(
+                    Reason::Missing,
+                    Subject::Frontier,
+                    admitted_frontier_identity,
+                )
+            })?;
         let predecessor_identity = issuance
             .predecessor_authorization
             .as_ref()
-            .ok_or(OperatorAuthorizationError::Unavailable)?
+            .ok_or_else(|| {
+                unavailable_for(
+                    Reason::LineageBroken,
+                    Subject::Authorization,
+                    &issuance.proposal.authorization_identity,
+                )
+            })?
             .authorization_identity
             .as_str();
 
@@ -1765,7 +2060,11 @@ async fn verify_scope_history(
                 .iter()
                 .any(|entry| entry.authorization_identity == predecessor_identity)
         {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::LineageBroken,
+                Subject::Authorization,
+                &issuance.proposal.authorization_identity,
+            ));
         }
     }
 
@@ -1789,13 +2088,17 @@ async fn verify_scope_history(
                 .any(|entry| !successor.revocations.contains(entry))
             || added != 1
         {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::LineageBroken,
+                Subject::Frontier,
+                &successor.frontier_identity,
+            ));
         }
     }
 
     let current = frontiers
         .last()
-        .ok_or(OperatorAuthorizationError::Unavailable)?;
+        .ok_or_else(|| unavailable_for(Reason::LineageBroken, Subject::Scope, scope_digest))?;
     let head = &head_rows[0];
     let current_digest =
         canonical_digest("operator-authorization.revocation-frontier.v1", current)?;
@@ -1812,10 +2115,15 @@ async fn verify_scope_history(
         || from_i64(head.try_get("committed_at_epoch_ms").map_err(storage)?)?
             != current.committed_at_epoch_ms
     {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::HeadMismatch,
+            Subject::Scope,
+            scope_digest,
+        ));
     }
 
     Ok(Some(VerifiedScopeHistoryV1 {
+        scope_digest: scope_digest.to_string(),
         issuances,
         frontiers,
     }))
@@ -1864,7 +2172,15 @@ async fn load_frontier_row(
         .map_err(storage)?;
 
     if rows.len() != 1 {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            if rows.is_empty() {
+                Reason::Missing
+            } else {
+                Reason::Ambiguous
+            },
+            Subject::Frontier,
+            frontier_identity,
+        ));
     }
     let row = &rows[0];
     let frontier: StoredRevocationFrontierV1 =
@@ -1892,7 +2208,11 @@ async fn load_frontier_row(
             .windows(2)
             .any(|pair| pair[0].authorization_identity >= pair[1].authorization_identity)
     {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Frontier,
+            &frontier.frontier_identity,
+        ));
     }
     Ok(frontier)
 }
@@ -1939,7 +2259,11 @@ fn stored_issuance_digest(stored: &StoredIssuanceV1) -> Result<String, OperatorA
                 .semantic_digest()
             }
         }
-        _ => Err(OperatorAuthorizationError::Unavailable),
+        _ => Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Authorization,
+            &stored.proposal.authorization_identity,
+        )),
     }
 }
 
@@ -1947,7 +2271,7 @@ fn order_and_verify_issuances(
     issuances: Vec<StoredIssuanceV1>,
 ) -> Result<Vec<StoredIssuanceV1>, OperatorAuthorizationError> {
     if issuances.is_empty() {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable(Reason::LineageBroken));
     }
     let genesis_matches = issuances
         .iter()
@@ -1955,26 +2279,30 @@ fn order_and_verify_issuances(
         .count();
 
     if genesis_matches != 1 {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable(Reason::LineageBroken));
     }
     let mut remaining = issuances;
     let genesis_index = remaining
         .iter()
         .position(|issuance| issuance.predecessor_authorization.is_none())
-        .ok_or(OperatorAuthorizationError::Unavailable)?;
+        .ok_or_else(|| unavailable(Reason::LineageBroken))?;
     let genesis = remaining.remove(genesis_index);
     if genesis.admitted_frontier_identity.is_some()
         || genesis.recovery_epoch.is_some()
         || stored_issuance_digest(&genesis)? != genesis.issuance_digest
     {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Authorization,
+            &genesis.proposal.authorization_identity,
+        ));
     }
     let mut ordered = vec![genesis];
 
     while !remaining.is_empty() {
         let predecessor = ordered
             .last()
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+            .ok_or_else(|| unavailable(Reason::LineageBroken))?;
         let predecessor_locator = OperatorAuthorizationLocatorV1 {
             authorization_identity: predecessor.proposal.authorization_identity.clone(),
             issuance_receipt_identity: issuance_receipt(predecessor).receipt_identity,
@@ -1989,7 +2317,11 @@ fn order_and_verify_issuances(
             .collect::<Vec<_>>();
 
         if matches.len() != 1 {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::LineageBroken,
+                Subject::Authorization,
+                &predecessor.proposal.authorization_identity,
+            ));
         }
         let successor = remaining.remove(matches[0]);
         let valid_manifest_transition = if let Some(epoch) = &successor.recovery_epoch {
@@ -2019,7 +2351,11 @@ fn order_and_verify_issuances(
             || successor.committed_at_epoch_ms < predecessor.committed_at_epoch_ms
             || stored_issuance_digest(&successor)? != successor.issuance_digest
         {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::LineageBroken,
+                Subject::Authorization,
+                &successor.proposal.authorization_identity,
+            ));
         }
         ordered.push(successor);
     }
@@ -2113,7 +2449,15 @@ async fn verify_outbox<T: Serialize>(
         .map_err(storage)?;
 
     if rows.len() != 1 {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            if rows.is_empty() {
+                Reason::Missing
+            } else {
+                Reason::Ambiguous
+            },
+            Subject::Outbox,
+            aggregate,
+        ));
     }
     let row = &rows[0];
     let record: StoredOutboxV1 = from_json(row.try_get("payload_json").map_err(storage)?)?;
@@ -2141,7 +2485,11 @@ async fn verify_outbox<T: Serialize>(
             != payload_digest
         || from_i64(row.try_get("committed_at_epoch_ms").map_err(storage)?)? != committed_at
     {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Outbox,
+            aggregate,
+        ));
     }
     Ok(())
 }
@@ -2161,7 +2509,7 @@ fn json<T: Serialize>(value: &T) -> Result<serde_json::Value, OperatorAuthorizat
 fn from_json<T: for<'de> Deserialize<'de>>(
     value: serde_json::Value,
 ) -> Result<T, OperatorAuthorizationError> {
-    serde_json::from_value(value).map_err(|_| OperatorAuthorizationError::Unavailable)
+    serde_json::from_value(value).map_err(|_| unavailable(Reason::Malformed))
 }
 
 fn to_i64(value: u64) -> Result<i64, OperatorAuthorizationError> {
@@ -2169,7 +2517,7 @@ fn to_i64(value: u64) -> Result<i64, OperatorAuthorizationError> {
 }
 
 fn from_i64(value: i64) -> Result<u64, OperatorAuthorizationError> {
-    u64::try_from(value).map_err(|_| OperatorAuthorizationError::Unavailable)
+    u64::try_from(value).map_err(|_| unavailable(Reason::Malformed))
 }
 
 fn storage(error: impl Display) -> OperatorAuthorizationError {
@@ -2339,15 +2687,16 @@ mod portfolio_resource_grant {
     }
 
     struct VerifiedGrantHistoryV1 {
+        resource_digest: String,
         issuances: Vec<StoredGrantIssuanceV1>,
         frontiers: Vec<StoredGrantFrontierV1>,
     }
 
     impl VerifiedGrantHistoryV1 {
         fn current(&self) -> Result<&StoredGrantFrontierV1, OperatorAuthorizationError> {
-            self.frontiers
-                .last()
-                .ok_or(OperatorAuthorizationError::Unavailable)
+            self.frontiers.last().ok_or_else(|| {
+                unavailable_for(Reason::Missing, Subject::Resource, &self.resource_digest)
+            })
         }
 
         fn issuance(
@@ -2357,13 +2706,13 @@ mod portfolio_resource_grant {
             self.issuances
                 .iter()
                 .find(|item| item.proposal.grant_identity == grant_identity)
-                .ok_or(OperatorAuthorizationError::Unavailable)
+                .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Grant, grant_identity))
         }
 
         fn issuance_head(&self) -> Result<&StoredGrantIssuanceV1, OperatorAuthorizationError> {
-            self.issuances
-                .last()
-                .ok_or(OperatorAuthorizationError::Unavailable)
+            self.issuances.last().ok_or_else(|| {
+                unavailable_for(Reason::Missing, Subject::Resource, &self.resource_digest)
+            })
         }
     }
 
@@ -2529,7 +2878,9 @@ $function$",
             .await?;
             let history = verify_grant_history(&mut transaction, &resource_digest, true)
                 .await?
-                .ok_or(OperatorAuthorizationError::Unavailable)?;
+                .ok_or_else(|| {
+                    unavailable_for(Reason::Missing, Subject::Resource, &resource_digest)
+                })?;
             let result = resolve_locked_grant_readback(
                 &mut transaction,
                 &history,
@@ -2551,11 +2902,19 @@ $function$",
                 &proposal.predecessor.grant_identity,
             )
             .await?
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+            .ok_or_else(|| {
+                unavailable_for(
+                    Reason::Missing,
+                    Subject::Grant,
+                    &proposal.predecessor.grant_identity,
+                )
+            })?;
             lock_grant_resource_for_write(&mut transaction, &resource_digest).await?;
             let history = verify_grant_history(&mut transaction, &resource_digest, true)
                 .await?
-                .ok_or(OperatorAuthorizationError::Unavailable)?;
+                .ok_or_else(|| {
+                    unavailable_for(Reason::Missing, Subject::Resource, &resource_digest)
+                })?;
             let predecessor = history
                 .issuance(&proposal.predecessor.grant_identity)?
                 .clone();
@@ -2563,7 +2922,11 @@ $function$",
             if grant_receipt(&predecessor).receipt_identity
                 != proposal.predecessor.issuance_receipt_identity
             {
-                return Err(OperatorAuthorizationError::Unavailable);
+                return Err(unavailable_for(
+                    Reason::LocatorMismatch,
+                    Subject::Grant,
+                    &proposal.predecessor.grant_identity,
+                ));
             }
             let current = history.current()?;
             let digest = proposal.semantic_digest()?;
@@ -2628,7 +2991,9 @@ $function$",
             .await?;
             let verified = verify_grant_history(&mut transaction, &resource_digest, true)
                 .await?
-                .ok_or(OperatorAuthorizationError::Unavailable)?;
+                .ok_or_else(|| {
+                    unavailable_for(Reason::Missing, Subject::Resource, &resource_digest)
+                })?;
             let result = resolve_locked_grant_readback(
                 &mut transaction,
                 &verified,
@@ -2649,16 +3014,28 @@ $function$",
             let resource_digest =
                 load_grant_resource_digest_hint(&mut transaction, &proposal.grant.grant_identity)
                     .await?
-                    .ok_or(OperatorAuthorizationError::Unavailable)?;
+                    .ok_or_else(|| {
+                        unavailable_for(
+                            Reason::Missing,
+                            Subject::Grant,
+                            &proposal.grant.grant_identity,
+                        )
+                    })?;
             lock_grant_resource_for_write(&mut transaction, &resource_digest).await?;
             let history = verify_grant_history(&mut transaction, &resource_digest, true)
                 .await?
-                .ok_or(OperatorAuthorizationError::Unavailable)?;
+                .ok_or_else(|| {
+                    unavailable_for(Reason::Missing, Subject::Resource, &resource_digest)
+                })?;
             let issuance = history.issuance(&proposal.grant.grant_identity)?.clone();
 
             if grant_receipt(&issuance).receipt_identity != proposal.grant.issuance_receipt_identity
             {
-                return Err(OperatorAuthorizationError::Unavailable);
+                return Err(unavailable_for(
+                    Reason::LocatorMismatch,
+                    Subject::Grant,
+                    &proposal.grant.grant_identity,
+                ));
             }
             let current = history.current()?;
             if let Some(existing) = current
@@ -2727,9 +3104,16 @@ $function$",
             .await?;
             let verified = verify_grant_history(&mut transaction, &resource_digest, true)
                 .await?
-                .ok_or(OperatorAuthorizationError::Unavailable)?;
+                .ok_or_else(|| {
+                    unavailable_for(Reason::Missing, Subject::Resource, &resource_digest)
+                })?;
+
             if verified.current()? != &next {
-                return Err(OperatorAuthorizationError::Unavailable);
+                return Err(unavailable_for(
+                    Reason::CustodyDrift,
+                    Subject::Resource,
+                    &resource_digest,
+                ));
             }
             transaction.commit().await.map_err(storage)?;
             Ok(next.public())
@@ -2740,14 +3124,14 @@ $function$",
         transaction: &mut Transaction<'_, Postgres>,
         request: &PortfolioResourceGrantReadRequestV1,
     ) -> PortfolioResourceGrantResolutionV1 {
-        let unavailable = |reason| PortfolioResourceGrantResolutionV1::Unavailable { reason };
+        let refuse = |reason| PortfolioResourceGrantResolutionV1::Unavailable { reason };
 
         if request.validate().is_err() {
-            return unavailable(PortfolioResourceGrantUnavailableReasonV1::InvalidRequest);
+            return refuse(PortfolioResourceGrantUnavailableReasonV1::InvalidRequest);
         }
 
         if ensure_read_committed(transaction).await.is_err() {
-            return unavailable(PortfolioResourceGrantUnavailableReasonV1::OwnerUnavailable);
+            return refuse(PortfolioResourceGrantUnavailableReasonV1::OwnerUnavailable);
         }
         let envelope = sqlx::query_scalar::<_, Option<serde_json::Value>>(
             "SELECT operator_authorization_api.lock_current_portfolio_resource_grant_v1($1,$2)",
@@ -2757,12 +3141,12 @@ $function$",
         .fetch_one(&mut **transaction)
         .await;
         let Ok(Some(value)) = envelope else {
-            return unavailable(PortfolioResourceGrantUnavailableReasonV1::OwnerUnavailable);
+            return refuse(PortfolioResourceGrantUnavailableReasonV1::OwnerUnavailable);
         };
         let observed_at = value
             .get("observed_at_epoch_ms")
             .and_then(serde_json::Value::as_i64)
-            .ok_or(OperatorAuthorizationError::Unavailable)
+            .ok_or_else(|| unavailable(Reason::Malformed))
             .and_then(from_i64);
         let evidence = serde_json::to_vec(&value)
             .map_err(storage)
@@ -2770,7 +3154,7 @@ $function$",
                 parse_untrusted_portfolio_resource_grant_envelope_v1(&bytes, &request.locator)
             });
         let (Ok(observed_at), Ok(evidence)) = (observed_at, evidence) else {
-            return unavailable(PortfolioResourceGrantUnavailableReasonV1::OwnerUnavailable);
+            return refuse(PortfolioResourceGrantUnavailableReasonV1::OwnerUnavailable);
         };
 
         resolve_verified_grant_evidence(
@@ -2880,28 +3264,28 @@ $function$",
         observed_at: u64,
         expected: Option<(&PortfolioResourceV1, &ProductEdgeManifestBindingV1)>,
     ) -> PortfolioResourceGrantResolutionV1 {
-        let unavailable = |reason| PortfolioResourceGrantResolutionV1::Unavailable { reason };
+        let refuse = |reason| PortfolioResourceGrantResolutionV1::Unavailable { reason };
 
         if let Some((resource, manifest)) = expected {
             if !evidence.matches_resource(resource) {
-                return unavailable(PortfolioResourceGrantUnavailableReasonV1::ResourceMismatch);
+                return refuse(PortfolioResourceGrantUnavailableReasonV1::ResourceMismatch);
             }
 
             if !evidence.matches_product_edge_manifest(manifest) {
-                return unavailable(PortfolioResourceGrantUnavailableReasonV1::ManifestMismatch);
+                return refuse(PortfolioResourceGrantUnavailableReasonV1::ManifestMismatch);
             }
         }
 
         if observed_at < evidence.content.effective_at_epoch_ms {
-            return unavailable(PortfolioResourceGrantUnavailableReasonV1::NotEffective);
+            return refuse(PortfolioResourceGrantUnavailableReasonV1::NotEffective);
         }
 
         if observed_at >= evidence.content.valid_through_epoch_ms {
-            return unavailable(PortfolioResourceGrantUnavailableReasonV1::Expired);
+            return refuse(PortfolioResourceGrantUnavailableReasonV1::Expired);
         }
 
         if !evidence.is_current_at(observed_at) {
-            return unavailable(PortfolioResourceGrantUnavailableReasonV1::Revoked);
+            return refuse(PortfolioResourceGrantUnavailableReasonV1::Revoked);
         }
         PortfolioResourceGrantResolutionV1::Available {
             grant: Box::new(PortfolioResourceGrantReadbackV1 {
@@ -2939,8 +3323,8 @@ $function$",
             None,
         ) {
             PortfolioResourceGrantResolutionV1::Available { grant } => Ok(*grant),
-            PortfolioResourceGrantResolutionV1::Unavailable { .. } => {
-                Err(OperatorAuthorizationError::Unavailable)
+            PortfolioResourceGrantResolutionV1::Unavailable { reason } => {
+                Err(unavailable(Reason::PortfolioGrant(reason)))
             }
         }
     }
@@ -3084,9 +3468,9 @@ $function$",
             .fetch_one(&mut **transaction)
             .await
             .map_err(storage)?;
-        let current = frontiers
-            .last()
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+        let current = frontiers.last().ok_or_else(|| {
+            unavailable_for(Reason::LineageBroken, Subject::Resource, resource_digest)
+        })?;
 
         if head
             .try_get::<String, _>("resource_digest")
@@ -3104,10 +3488,15 @@ $function$",
             || from_i64(head.try_get("committed_at_epoch_ms").map_err(storage)?)?
                 != current.committed_at_epoch_ms
         {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::HeadMismatch,
+                Subject::Resource,
+                resource_digest,
+            ));
         }
         verify_grant_outboxes(transaction, &issuances, &frontiers, lock).await?;
         Ok(Some(VerifiedGrantHistoryV1 {
+            resource_digest: resource_digest.to_string(),
             issuances,
             frontiers,
         }))
@@ -3119,7 +3508,7 @@ $function$",
     ) -> Result<UntrustedCanonicalPortfolioResourceGrantEvidenceV1, OperatorAuthorizationError>
     {
         let envelope: LockedGrantEnvelopeV1 =
-            serde_json::from_slice(bytes).map_err(|_| OperatorAuthorizationError::Unavailable)?;
+            serde_json::from_slice(bytes).map_err(|_| unavailable(Reason::Malformed))?;
         from_i64(envelope.observed_at_epoch_ms)?;
         if envelope
             .issuances
@@ -3134,7 +3523,11 @@ $function$",
                 .windows(2)
                 .any(|pair| pair[0].event_identity >= pair[1].event_identity)
         {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CustodyDrift,
+                Subject::Grant,
+                &locator.grant_identity,
+            ));
         }
         let issuances = order_grant_issuances(
             envelope
@@ -3146,9 +3539,16 @@ $function$",
         let issuance = issuances
             .iter()
             .find(|item| item.proposal.grant_identity == locator.grant_identity)
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+            .ok_or_else(|| {
+                unavailable_for(Reason::Missing, Subject::Grant, &locator.grant_identity)
+            })?;
+
         if grant_receipt(issuance).receipt_identity != locator.issuance_receipt_identity {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::LocatorMismatch,
+                Subject::Grant,
+                &locator.grant_identity,
+            ));
         }
         let frontiers = envelope
             .frontiers
@@ -3156,9 +3556,13 @@ $function$",
             .map(verify_locked_grant_frontier_row)
             .collect::<Result<Vec<_>, _>>()?;
         verify_grant_frontier_chain(&issuances[0], &frontiers)?;
-        let current = frontiers
-            .last()
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+        let current = frontiers.last().ok_or_else(|| {
+            unavailable_for(
+                Reason::LineageBroken,
+                Subject::Grant,
+                &locator.grant_identity,
+            )
+        })?;
 
         if envelope.head.resource_digest != current.resource_digest
             || envelope.head.frontier_identity != current.frontier_identity
@@ -3166,7 +3570,11 @@ $function$",
             || envelope.head.frontier_digest != grant_frontier_digest(current)?
             || from_i64(envelope.head.committed_at_epoch_ms)? != current.committed_at_epoch_ms
         {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::HeadMismatch,
+                Subject::Resource,
+                &current.resource_digest,
+            ));
         }
         verify_locked_grant_outboxes(&issuances, &frontiers, &envelope.outboxes)?;
         Ok(UntrustedCanonicalPortfolioResourceGrantEvidenceV1 {
@@ -3181,10 +3589,9 @@ $function$",
         row: LockedGrantIssuanceRowV1,
     ) -> Result<StoredGrantIssuanceV1, OperatorAuthorizationError> {
         let stored: StoredGrantIssuanceV1 = from_json(row.issuance_json)?;
-        stored
-            .proposal
-            .validate()
-            .map_err(|_| OperatorAuthorizationError::Unavailable)?;
+        stored.proposal.validate().map_err(|_| {
+            unavailable_for(Reason::CustodyDrift, Subject::Grant, &row.grant_identity)
+        })?;
         let receipt: StoredGrantReceiptV1 = from_json(row.receipt_json)?;
         let resource = &stored.proposal.content.resource;
         let expected_digest = stored_grant_digest(&stored)?;
@@ -3203,7 +3610,11 @@ $function$",
             || receipt != grant_receipt(&stored)
             || from_i64(row.committed_at_epoch_ms)? != stored.committed_at_epoch_ms
         {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CustodyDrift,
+                Subject::Grant,
+                &row.grant_identity,
+            ));
         }
         Ok(stored)
     }
@@ -3220,7 +3631,11 @@ $function$",
             || row.frontier_digest != grant_frontier_digest(&frontier)?
             || from_i64(row.committed_at_epoch_ms)? != frontier.committed_at_epoch_ms
         {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CustodyDrift,
+                Subject::Frontier,
+                &row.frontier_identity,
+            ));
         }
         Ok(frontier)
     }
@@ -3234,17 +3649,21 @@ $function$",
             .count()
             != 1
         {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable(Reason::LineageBroken));
         }
         let genesis_index = remaining
             .iter()
             .position(|item| item.predecessor.is_none())
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+            .ok_or_else(|| unavailable(Reason::LineageBroken))?;
         let genesis = remaining.remove(genesis_index);
         if genesis.proposal.expected_revocation_frontier_identity != "EMPTY"
             || stored_grant_digest(&genesis)? != genesis.issuance_digest
         {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CustodyDrift,
+                Subject::Grant,
+                &genesis.proposal.grant_identity,
+            ));
         }
         let resource = genesis.proposal.content.resource.clone();
         let issuer = genesis.proposal.content.issuer_identity.clone();
@@ -3253,7 +3672,7 @@ $function$",
         while !remaining.is_empty() {
             let predecessor = ordered
                 .last()
-                .ok_or(OperatorAuthorizationError::Unavailable)?;
+                .ok_or_else(|| unavailable(Reason::LineageBroken))?;
             let locator = PortfolioResourceGrantLocatorV1 {
                 grant_identity: predecessor.proposal.grant_identity.clone(),
                 issuance_receipt_identity: grant_receipt(predecessor).receipt_identity,
@@ -3266,7 +3685,11 @@ $function$",
                 .collect::<Vec<_>>();
 
             if matches.len() != 1 {
-                return Err(OperatorAuthorizationError::Unavailable);
+                return Err(unavailable_for(
+                    Reason::LineageBroken,
+                    Subject::Grant,
+                    &predecessor.proposal.grant_identity,
+                ));
             }
             let successor = remaining.remove(matches[0]);
             if successor.proposal.content.resource != resource
@@ -3279,7 +3702,11 @@ $function$",
                 || successor.committed_at_epoch_ms < predecessor.committed_at_epoch_ms
                 || stored_grant_digest(&successor)? != successor.issuance_digest
             {
-                return Err(OperatorAuthorizationError::Unavailable);
+                return Err(unavailable_for(
+                    Reason::LineageBroken,
+                    Subject::Grant,
+                    &successor.proposal.grant_identity,
+                ));
             }
             ordered.push(successor);
         }
@@ -3291,7 +3718,11 @@ $function$",
         frontiers: &[StoredGrantFrontierV1],
     ) -> Result<(), OperatorAuthorizationError> {
         if frontiers.first() != Some(&grant_genesis_frontier(genesis)?) {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::LineageBroken,
+                Subject::Grant,
+                &genesis.proposal.grant_identity,
+            ));
         }
 
         for (index, frontier) in frontiers.iter().enumerate() {
@@ -3301,7 +3732,11 @@ $function$",
                     .windows(2)
                     .any(|pair| pair[0].grant_identity >= pair[1].grant_identity)
             {
-                return Err(OperatorAuthorizationError::Unavailable);
+                return Err(unavailable_for(
+                    Reason::CustodyDrift,
+                    Subject::Frontier,
+                    &frontier.frontier_identity,
+                ));
             }
         }
 
@@ -3324,7 +3759,11 @@ $function$",
                     .any(|entry| !next.revocations.contains(entry))
                 || added != 1
             {
-                return Err(OperatorAuthorizationError::Unavailable);
+                return Err(unavailable_for(
+                    Reason::LineageBroken,
+                    Subject::Frontier,
+                    &next.frontier_identity,
+                ));
             }
         }
         Ok(())
@@ -3393,7 +3832,11 @@ $function$",
             || row.payload_digest != expected.payload_digest
             || from_i64(row.committed_at_epoch_ms)? != expected.committed_at_epoch_ms
         {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CustodyDrift,
+                Subject::Outbox,
+                &row.aggregate_identity,
+            ));
         }
         Ok(())
     }
@@ -3410,7 +3853,15 @@ $function$",
                 .await?;
 
             if rows.len() != 1 {
-                return Err(OperatorAuthorizationError::Unavailable);
+                return Err(unavailable_for(
+                    if rows.is_empty() {
+                        Reason::Missing
+                    } else {
+                        Reason::Ambiguous
+                    },
+                    Subject::Outbox,
+                    &issuance.proposal.grant_identity,
+                ));
             }
             verify_grant_outbox_row(
                 &rows[0],
@@ -3427,7 +3878,15 @@ $function$",
                 load_grant_outbox_rows(transaction, &frontier.frontier_identity, lock).await?;
 
             if rows.len() != 1 {
-                return Err(OperatorAuthorizationError::Unavailable);
+                return Err(unavailable_for(
+                    if rows.is_empty() {
+                        Reason::Missing
+                    } else {
+                        Reason::Ambiguous
+                    },
+                    Subject::Outbox,
+                    &frontier.frontier_identity,
+                ));
             }
             verify_grant_outbox_row(
                 &rows[0],
@@ -3447,7 +3906,7 @@ $function$",
         rows: &[LockedGrantOutboxRowV1],
     ) -> Result<(), OperatorAuthorizationError> {
         if rows.len() != issuances.len().saturating_add(frontiers.len()) {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable(Reason::CustodyDrift));
         }
 
         for issuance in issuances {
@@ -3458,7 +3917,15 @@ $function$",
                 .collect::<Vec<_>>();
 
             if matches.len() != 1 {
-                return Err(OperatorAuthorizationError::Unavailable);
+                return Err(unavailable_for(
+                    if matches.is_empty() {
+                        Reason::Missing
+                    } else {
+                        Reason::Ambiguous
+                    },
+                    Subject::Outbox,
+                    &issuance.proposal.grant_identity,
+                ));
             }
             verify_grant_outbox_row(
                 matches[0],
@@ -3477,7 +3944,15 @@ $function$",
                 .collect::<Vec<_>>();
 
             if matches.len() != 1 {
-                return Err(OperatorAuthorizationError::Unavailable);
+                return Err(unavailable_for(
+                    if matches.is_empty() {
+                        Reason::Missing
+                    } else {
+                        Reason::Ambiguous
+                    },
+                    Subject::Outbox,
+                    &frontier.frontier_identity,
+                ));
             }
             verify_grant_outbox_row(
                 matches[0],
@@ -4059,7 +4534,7 @@ mod tests {
         .await
         .map_err(storage)?;
         let result = parse_untrusted_portfolio_resource_grant_envelope_v1(
-            &serde_json::to_vec(&envelope.ok_or(OperatorAuthorizationError::Unavailable)?)
+            &serde_json::to_vec(&envelope.ok_or_else(|| unavailable(Reason::Missing))?)
                 .map_err(storage)?,
             locator,
         );
@@ -4696,7 +5171,7 @@ mod tests {
             restarted
                 .issue_portfolio_resource_grant_successor(successor.clone())
                 .await,
-            Err(OperatorAuthorizationError::Unavailable)
+            Err(OperatorAuthorizationError::Unavailable(_))
         ));
         let PortfolioResourceGrantResolutionV1::Unavailable { reason } =
             resolve_grant(&consumer, &renewed_request).await
@@ -4841,7 +5316,7 @@ mod tests {
                 .await
                 .unwrap()
                 .unwrap(),
-            Err(OperatorAuthorizationError::Unavailable)
+            Err(OperatorAuthorizationError::Unavailable(_))
         ));
         let expired_evidence = parse_locked_grant_evidence(&consumer, &expiring.locator())
             .await
@@ -5004,7 +5479,7 @@ mod tests {
                     reason_code: "ADMIN_REVOKED".to_string(),
                 })
                 .await,
-            Err(OperatorAuthorizationError::Unavailable)
+            Err(OperatorAuthorizationError::Unavailable(_))
         ));
         let after_forged: (i64, i64) = (
             sqlx::query_scalar("SELECT COUNT(*) FROM operator_authorization_private.operator_authorization_revocation_frontiers_v1 WHERE scope_digest=$1")
@@ -5026,7 +5501,7 @@ mod tests {
             .bind(&scope_digest).execute(owner.pool()).await.unwrap();
         assert!(matches!(
             resolve_current(&owner, &admitted, now).await,
-            Err(OperatorAuthorizationError::Unavailable)
+            Err(OperatorAuthorizationError::Unavailable(_))
         ));
         sqlx::query("UPDATE operator_authorization_private.operator_authorization_revocation_heads_v1 SET frontier_digest=$1 WHERE scope_digest=$2")
             .bind(&original_head_digest).bind(&scope_digest).execute(owner.pool()).await.unwrap();
@@ -5044,7 +5519,7 @@ mod tests {
             .bind(&frontier_identity).execute(owner.pool()).await.unwrap();
         assert!(matches!(
             resolve_current(&owner, &admitted, now).await,
-            Err(OperatorAuthorizationError::Unavailable)
+            Err(OperatorAuthorizationError::Unavailable(_))
         ));
         sqlx::query("UPDATE operator_authorization_private.operator_authorization_revocation_frontiers_v1 SET frontier_json=$1 WHERE frontier_identity=$2")
             .bind(&original_frontier_json).bind(&frontier_identity).execute(owner.pool()).await.unwrap();
@@ -5062,7 +5537,7 @@ mod tests {
             .bind(&authorization_identity).execute(owner.pool()).await.unwrap();
         assert!(matches!(
             resolve_current(&owner, &admitted, now).await,
-            Err(OperatorAuthorizationError::Unavailable)
+            Err(OperatorAuthorizationError::Unavailable(_))
         ));
         sqlx::query("UPDATE operator_authorization_private.operator_authorization_issuances_v1 SET semantic_digest=$1 WHERE authorization_identity=$2")
             .bind(&original_issuance_digest).bind(&authorization_identity).execute(owner.pool()).await.unwrap();
@@ -5108,7 +5583,7 @@ mod tests {
                 .unwrap();
             assert!(matches!(
                 resolve_current(&owner, &admitted, now).await,
-                Err(OperatorAuthorizationError::Unavailable)
+                Err(OperatorAuthorizationError::Unavailable(_))
             ));
             sqlx::query("UPDATE operator_authorization_private.operator_authorization_issuances_v1 SET issuer_identity=$2, principal=$3, audience=$4, scope_digest=$5, issuance_json=$6, receipt_json=$7, semantic_digest=$8, committed_at_epoch_ms=$9 WHERE authorization_identity=$1")
                 .bind(&authorization_identity)
@@ -5135,7 +5610,7 @@ mod tests {
             .execute(owner.pool()).await.unwrap();
         assert!(matches!(
             resolve_current(&owner, &admitted, now).await,
-            Err(OperatorAuthorizationError::Unavailable)
+            Err(OperatorAuthorizationError::Unavailable(_))
         ));
         sqlx::query("DELETE FROM operator_authorization_private.operator_authorization_owner_outbox_v1 WHERE event_identity=$1")
             .bind(&extra_event)
@@ -5419,7 +5894,7 @@ mod tests {
                 },
             )
             .await,
-            Err(OperatorAuthorizationError::Unavailable)
+            Err(OperatorAuthorizationError::Unavailable(_))
         ));
         forged_transaction.rollback().await.unwrap();
 
@@ -5433,7 +5908,7 @@ mod tests {
                 },
             )
             .await,
-            Err(OperatorAuthorizationError::Unavailable)
+            Err(OperatorAuthorizationError::Unavailable(_))
         ));
         expired_transaction.rollback().await.unwrap();
 
@@ -5451,7 +5926,7 @@ mod tests {
                 },
             )
             .await,
-            Err(OperatorAuthorizationError::Unavailable)
+            Err(OperatorAuthorizationError::Unavailable(_))
         ));
         wrong_isolation.rollback().await.unwrap();
 
@@ -5565,7 +6040,7 @@ mod tests {
                 },
             )
             .await,
-            Err(OperatorAuthorizationError::Unavailable)
+            Err(OperatorAuthorizationError::Unavailable(_))
         ));
         after_revoke.rollback().await.unwrap();
 
@@ -5711,7 +6186,7 @@ mod tests {
                 .await
                 .unwrap()
                 .unwrap(),
-            Err(OperatorAuthorizationError::Unavailable)
+            Err(OperatorAuthorizationError::Unavailable(_))
         ));
 
         // Repeated concurrent reader/writer starts exercise the single fixed
@@ -5769,7 +6244,7 @@ mod tests {
                 .unwrap();
             assert!(matches!(
                 resolved,
-                Ok(_) | Err(OperatorAuthorizationError::Unavailable)
+                Ok(_) | Err(OperatorAuthorizationError::Unavailable(_))
             ));
             revoked.unwrap();
         }

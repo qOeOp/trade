@@ -5361,12 +5361,14 @@ mod postgres_freshness_tests {
             refuting.requested_effects = requested_effects;
             assert!(matches!(
                 product_edge.admit_artifact_build_request(refuting).await,
-                Err(vibe_product_edge::ProductEdgeError::Unavailable)
+                Err(vibe_product_edge::ProductEdgeError::Unavailable(_))
             ));
         }
         assert!(matches!(
             product_edge.admit_request(exact_request.clone()).await,
-            Err(vibe_product_edge::ProductEdgeError::Unavailable)
+            Err(vibe_product_edge::ProductEdgeError::InvalidProposal(
+                "admission entry"
+            ))
         ));
 
         let mut rd_row_gate = rd_pool.begin().await.unwrap();
@@ -5410,7 +5412,7 @@ mod postgres_freshness_tests {
             tokio::time::timeout(std::time::Duration::from_secs(5), &mut waiting)
                 .await
                 .unwrap(),
-            Err(vibe_product_edge::ProductEdgeError::Unavailable)
+            Err(vibe_product_edge::ProductEdgeError::Unavailable(_))
         ));
         let after_failure: (i64, i64, i64, i64, i64) = sqlx::query_as(
             "SELECT (SELECT COUNT(*) FROM product_edge_request_admissions_v1), (SELECT COUNT(*) FROM product_edge_owner_outbox_v1), (SELECT COUNT(*) FROM product_edge_effect_invocation_admissions_v1), (SELECT COUNT(*) FROM product_edge_effect_invocation_claims_v1), (SELECT COUNT(*) FROM product_edge_effect_invocation_states_v1)",
@@ -5495,7 +5497,7 @@ mod postgres_freshness_tests {
             product_edge
                 .claim_provider_invocation(claim_request.clone())
                 .await,
-            Err(vibe_product_edge::ProductEdgeError::Unavailable)
+            Err(vibe_product_edge::ProductEdgeError::Unavailable(_))
         ));
         sqlx::query("UPDATE product_edge_effect_invocation_admissions_v1 SET receipt_digest=$1, receipt_json=$2 WHERE claim_identity=$3")
             .bind(&receipt_row.0).bind(&receipt_row.1).bind(claim.claim_identity())
@@ -5510,7 +5512,7 @@ mod postgres_freshness_tests {
             product_edge
                 .claim_provider_invocation(claim_request.clone())
                 .await,
-            Err(vibe_product_edge::ProductEdgeError::Unavailable)
+            Err(vibe_product_edge::ProductEdgeError::Unavailable(_))
         ));
         sqlx::query("UPDATE product_edge_effect_invocation_claims_v1 SET claim_digest=$1 WHERE claim_identity=$2")
             .bind(&original_claim_digest).bind(claim.claim_identity()).execute(pe_pool).await.unwrap();
@@ -5558,7 +5560,7 @@ mod postgres_freshness_tests {
             product_edge
                 .start_provider_invocation(tampered_start_reservation)
                 .await,
-            Err(vibe_product_edge::ProductEdgeError::Unavailable)
+            Err(vibe_product_edge::ProductEdgeError::Unavailable(_))
         ));
         let after_rejected_start: (serde_json::Value, i64) = sqlx::query_as(
             "SELECT state_json, (SELECT COUNT(*) FROM product_edge_owner_outbox_v1) FROM product_edge_effect_invocation_states_v1 WHERE claim_identity=$1",
@@ -5696,7 +5698,7 @@ mod postgres_freshness_tests {
             product_edge
                 .claim_provider_invocation(claim_request.clone())
                 .await,
-            Err(vibe_product_edge::ProductEdgeError::Unavailable)
+            Err(vibe_product_edge::ProductEdgeError::Unavailable(_))
         ));
         sqlx::query("UPDATE product_edge_effect_invocation_states_v1 SET state_digest=$1, state_json=$2 WHERE claim_identity=$3")
             .bind(&state_row.0).bind(&state_row.1).bind(claim.claim_identity())
@@ -6033,7 +6035,7 @@ mod postgres_freshness_tests {
             valid_from_epoch_ms: now.saturating_sub(1_000),
             valid_through_epoch_ms: now.saturating_add(3_600_000),
             authorization: authorization.locator(),
-            manifests,
+            manifests: vibe_product_edge::AgentOperationManifestSetV1::new(manifests).unwrap(),
         })
         .await
         .unwrap();

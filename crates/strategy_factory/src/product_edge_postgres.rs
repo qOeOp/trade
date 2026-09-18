@@ -5513,7 +5513,7 @@ pub(crate) mod tests {
             valid_from_epoch_ms: now.saturating_sub(1_000),
             valid_through_epoch_ms: now.saturating_add(3_600_000),
             authorization: authorization.locator(),
-            manifests: vec![manifest],
+            manifests: vibe_product_edge::AgentOperationManifestSetV1::new(vec![manifest]).unwrap(),
         })
         .await
         .unwrap();

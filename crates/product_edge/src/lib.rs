@@ -3,15 +3,19 @@
 mod invocation;
 mod postgres;
 
+use std::fmt::Display;
+
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use vibe_operator_authorization::{
     ExpiredManifestRecoveryEpochV1, ManifestSemanticKeyV1, OperationManifestBindingV1,
     OperatorAuthorizationLocatorV1, OperatorAuthorizationReadbackV1,
-    PortfolioResourceGrantLocatorV1, PortfolioResourceV1, ProductEdgeManifestBindingV1,
-    UntrustedCanonicalAuthorizationEvidenceV1, UntrustedCanonicalPortfolioResourceGrantEvidenceV1,
+    OperatorAuthorizationUnavailableV1, PortfolioResourceGrantLocatorV1, PortfolioResourceV1,
+    ProductEdgeManifestBindingV1, UntrustedCanonicalAuthorizationEvidenceV1,
+    UntrustedCanonicalPortfolioResourceGrantEvidenceV1,
 };
+use vibe_product_edge_claim_custody::ProductEdgeClaimCustodyUnavailableV1;
 
 pub use invocation::{
     ProductEdgeInvocationClaimDispositionV1, ProductEdgeInvocationClaimReadbackV1,
@@ -45,6 +49,8 @@ pub const ARTIFACT_BUILD_REQUIRED_EFFECTS_V1: [&str; 2] = [
     "R_AND_D_ARTIFACT_BUILD_MUTATION_V1",
     "R_AND_D_PROVIDER_INVOCATION_V1",
 ];
+pub const ARTIFACT_BUILD_OPERATION_V1: &str = "artifact_build.submit_or_resolve.v1";
+pub const ARTIFACT_BUILD_OPERATION_SCHEMA_V1: &str = "rd-artifact-build-request-v1";
 pub const SOURCE_INTAKE_OPERATION_V1: &str =
     "source_intake.openalex_work_by_doi.submit_or_resolve.v1";
 pub const SOURCE_INTAKE_OPERATION_SCHEMA_V1: &str =
@@ -145,6 +151,113 @@ impl AgentOperationManifestProposalV1 {
             target_owner: self.target_owner.clone(),
         }
     }
+
+    pub fn binding(&self) -> Result<OperationManifestBindingV1, ProductEdgeError> {
+        Ok(OperationManifestBindingV1 {
+            manifest_identity: self.manifest_identity()?,
+            manifest_digest: self.manifest_digest()?,
+        })
+    }
+}
+
+/// The manifests one deployment binding admits, in their canonical order.
+///
+/// A binding is content addressed over this set, and every stored copy and
+/// Operator Authorization issuance orders it by `manifest_identity`. That
+/// identity is a digest over the manifest, including its validity window, so
+/// nobody can produce the order by hand. The constructor therefore owns it:
+/// it validates every manifest, sorts by identity, and refuses an empty set,
+/// a duplicate identity, or two manifests that name the same operation
+/// semantic key (which no admission could ever select unambiguously). A set
+/// deserialized from JSON goes through the same constructor, so operators
+/// list manifests in any order and stored bytes stay canonical.
+///
+/// Serialization is transparent: the wire and storage shape is the plain
+/// array it always was.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
+pub struct AgentOperationManifestSetV1(Vec<AgentOperationManifestProposalV1>);
+
+impl AgentOperationManifestSetV1 {
+    pub fn new(manifests: Vec<AgentOperationManifestProposalV1>) -> Result<Self, ProductEdgeError> {
+        if manifests.is_empty() {
+            return Err(ProductEdgeError::InvalidProposal("manifest set"));
+        }
+        let mut keyed = manifests
+            .into_iter()
+            .map(|manifest| {
+                manifest.validate()?;
+                Ok((manifest.manifest_identity()?, manifest))
+            })
+            .collect::<Result<Vec<_>, ProductEdgeError>>()?;
+        keyed.sort_by(|left, right| left.0.cmp(&right.0));
+
+        if keyed.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+            return Err(ProductEdgeError::InvalidProposal("manifest ordering"));
+        }
+        let mut semantic_keys = keyed
+            .iter()
+            .map(|(_, manifest)| manifest.semantic_key())
+            .collect::<Vec<_>>();
+        semantic_keys.sort();
+        if semantic_keys.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(ProductEdgeError::InvalidProposal(
+                "manifest operation ambiguity",
+            ));
+        }
+        Ok(Self(
+            keyed.into_iter().map(|(_, manifest)| manifest).collect(),
+        ))
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, AgentOperationManifestProposalV1> {
+        self.0.iter()
+    }
+
+    pub fn as_slice(&self) -> &[AgentOperationManifestProposalV1] {
+        &self.0
+    }
+
+    /// Canonically ordered identities, the shape a stored binding records.
+    pub fn identities(&self) -> Result<Vec<String>, ProductEdgeError> {
+        self.0
+            .iter()
+            .map(AgentOperationManifestProposalV1::manifest_identity)
+            .collect()
+    }
+
+    /// Canonically ordered bindings, the shape an Operator Authorization
+    /// issuance and a recovery epoch carry.
+    pub fn bindings(&self) -> Result<Vec<OperationManifestBindingV1>, ProductEdgeError> {
+        self.0
+            .iter()
+            .map(AgentOperationManifestProposalV1::binding)
+            .collect()
+    }
+}
+
+impl std::ops::Deref for AgentOperationManifestSetV1 {
+    type Target = [AgentOperationManifestProposalV1];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<'a> IntoIterator for &'a AgentOperationManifestSetV1 {
+    type Item = &'a AgentOperationManifestProposalV1;
+    type IntoIter = std::slice::Iter<'a, AgentOperationManifestProposalV1>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
+impl<'de> Deserialize<'de> for AgentOperationManifestSetV1 {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let manifests = Vec::<AgentOperationManifestProposalV1>::deserialize(deserializer)?;
+        Self::new(manifests).map_err(serde::de::Error::custom)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -161,7 +274,7 @@ pub struct ProductEdgeBootstrapProposalV1 {
     pub valid_from_epoch_ms: u64,
     pub valid_through_epoch_ms: u64,
     pub authorization: OperatorAuthorizationLocatorV1,
-    pub manifests: Vec<AgentOperationManifestProposalV1>,
+    pub manifests: AgentOperationManifestSetV1,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -211,22 +324,8 @@ impl ProductEdgeBootstrapProposalV1 {
             || self.capability_policy_version.trim().is_empty()
             || self.audit_policy_version.trim().is_empty()
             || self.valid_from_epoch_ms >= self.valid_through_epoch_ms
-            || self.manifests.is_empty()
         {
             return Err(ProductEdgeError::InvalidProposal("deployment bootstrap"));
-        }
-
-        for manifest in &self.manifests {
-            manifest.validate()?;
-        }
-        let identities = self
-            .manifests
-            .iter()
-            .map(AgentOperationManifestProposalV1::manifest_identity)
-            .collect::<Result<Vec<_>, _>>()?;
-
-        if !sorted_unique(&identities) {
-            return Err(ProductEdgeError::InvalidProposal("manifest ordering"));
         }
         Ok(())
     }
@@ -251,7 +350,7 @@ pub struct ProductEdgeSuccessorProposalV1 {
     pub valid_from_epoch_ms: u64,
     pub valid_through_epoch_ms: u64,
     pub authorization: OperatorAuthorizationLocatorV1,
-    pub manifests: Vec<AgentOperationManifestProposalV1>,
+    pub manifests: AgentOperationManifestSetV1,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -267,18 +366,9 @@ impl ProductEdgeExpiredManifestRecoveryProposalV1 {
             .validate()
             .map_err(|_| ProductEdgeError::InvalidProposal("expired manifest recovery epoch"))?;
         self.successor.validate()?;
-        let successor_bindings = self
-            .successor
-            .manifests
-            .iter()
-            .map(|manifest| {
-                Ok(OperationManifestBindingV1 {
-                    manifest_identity: manifest.manifest_identity()?,
-                    manifest_digest: manifest.manifest_digest()?,
-                })
-            })
-            .collect::<Result<Vec<_>, ProductEdgeError>>()?;
-        if successor_bindings != self.recovery_epoch.successor_operation_manifests() {
+        if self.successor.manifests.bindings()?
+            != self.recovery_epoch.successor_operation_manifests()
+        {
             return Err(ProductEdgeError::InvalidProposal(
                 "expired manifest recovery delta",
             ));
@@ -304,22 +394,8 @@ impl ProductEdgeSuccessorProposalV1 {
             || self.capability_policy_version.trim().is_empty()
             || self.audit_policy_version.trim().is_empty()
             || self.valid_from_epoch_ms >= self.valid_through_epoch_ms
-            || self.manifests.is_empty()
         {
             return Err(ProductEdgeError::InvalidProposal("deployment successor"));
-        }
-
-        for manifest in &self.manifests {
-            manifest.validate()?;
-        }
-        let identities = self
-            .manifests
-            .iter()
-            .map(AgentOperationManifestProposalV1::manifest_identity)
-            .collect::<Result<Vec<_>, _>>()?;
-
-        if !sorted_unique(&identities) {
-            return Err(ProductEdgeError::InvalidProposal("manifest ordering"));
         }
         Ok(())
     }
@@ -327,6 +403,27 @@ impl ProductEdgeSuccessorProposalV1 {
     pub fn semantic_digest(&self) -> Result<String, ProductEdgeError> {
         canonical_digest("product-edge.successor-proposal.v1", self)
     }
+}
+
+/// Which admission entry a request must use.
+///
+/// Product Edge exposes one generic admission and two typed ones. The typed
+/// entries exist because their operations carry a payload Product Edge must
+/// read before it admits anything: an artifact build names the Research
+/// Intent whose current custody the admission binds, and a Source Intake
+/// request names the DOI and interpretation the sealed provider claim later
+/// consumes. The generic entry never reads a payload, so letting it admit one
+/// of those operations would seal an admission the typed contract never
+/// checked. The route is derived from the operation name alone and every
+/// entry refuses a request whose route is not its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProductEdgeAdmissionRouteV1 {
+    /// `ProductEdgePostgresOwnerV1::admit_request`.
+    Generic,
+    /// `ProductEdgePostgresOwnerV1::admit_artifact_build_request`.
+    ArtifactBuild,
+    /// `ProductEdgePostgresOwnerV1::admit_source_intake_request`.
+    SourceIntake,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -359,6 +456,28 @@ impl ProductEdgeAdmissionRequestV1 {
 
     pub fn semantic_digest(&self) -> Result<String, ProductEdgeError> {
         canonical_digest("product-edge.admission-request.v1", self)
+    }
+
+    /// The admission entry this request's operation belongs to.
+    pub fn admission_route(&self) -> ProductEdgeAdmissionRouteV1 {
+        if self.operation == ARTIFACT_BUILD_OPERATION_V1 {
+            ProductEdgeAdmissionRouteV1::ArtifactBuild
+        } else if self.operation == SOURCE_INTAKE_OPERATION_V1 {
+            ProductEdgeAdmissionRouteV1::SourceIntake
+        } else {
+            ProductEdgeAdmissionRouteV1::Generic
+        }
+    }
+
+    /// Fails closed unless this request belongs to `route`.
+    pub fn require_admission_route(
+        &self,
+        route: ProductEdgeAdmissionRouteV1,
+    ) -> Result<(), ProductEdgeError> {
+        if self.admission_route() != route {
+            return Err(ProductEdgeError::InvalidProposal("admission entry"));
+        }
+        Ok(())
     }
 }
 
@@ -859,10 +978,292 @@ pub enum ProductEdgeError {
     InvalidProposal(&'static str),
     #[error("Product Edge identity conflicts with committed meaning")]
     ConflictingReplay,
-    #[error("Product Edge authority unavailable")]
-    Unavailable,
+    #[error("Product Edge authority unavailable: {0}")]
+    Unavailable(ProductEdgeUnavailableV1),
     #[error("Product Edge storage unavailable: {0}")]
     Storage(String),
+}
+
+impl ProductEdgeError {
+    /// An `Unavailable` refusal that names its reason but no particular identity.
+    #[must_use]
+    pub fn unavailable(reason: ProductEdgeUnavailableReasonV1) -> Self {
+        Self::Unavailable(ProductEdgeUnavailableV1::new(reason))
+    }
+
+    /// An `Unavailable` refusal about one exact identity.
+    #[must_use]
+    pub fn unavailable_for(
+        reason: ProductEdgeUnavailableReasonV1,
+        kind: ProductEdgeSubjectKindV1,
+        identity: impl Into<String>,
+    ) -> Self {
+        Self::Unavailable(ProductEdgeUnavailableV1::about(reason, kind, identity))
+    }
+}
+
+/// Diagnostic detail behind [`ProductEdgeError::Unavailable`].
+///
+/// It records why Product Edge would not treat custody, authority, or a
+/// request as current, and which identity the refusal is about. It is
+/// evidence for the operator and the log, not a disposition: every
+/// `Unavailable` still reports outward as `SUBMITTED_OR_UNKNOWN` with only
+/// same-attempt resolution, exactly as before, and no reason grants a caller
+/// a successor, a retry, or a rejection receipt it did not already have.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProductEdgeUnavailableV1 {
+    reason: ProductEdgeUnavailableReasonV1,
+    subject: Option<ProductEdgeSubjectV1>,
+}
+
+impl ProductEdgeUnavailableV1 {
+    #[must_use]
+    pub fn new(reason: ProductEdgeUnavailableReasonV1) -> Self {
+        Self {
+            reason,
+            subject: None,
+        }
+    }
+
+    #[must_use]
+    pub fn about(
+        reason: ProductEdgeUnavailableReasonV1,
+        kind: ProductEdgeSubjectKindV1,
+        identity: impl Into<String>,
+    ) -> Self {
+        Self {
+            reason,
+            subject: Some(ProductEdgeSubjectV1 {
+                kind,
+                identity: identity.into(),
+            }),
+        }
+    }
+
+    pub fn reason(&self) -> &ProductEdgeUnavailableReasonV1 {
+        &self.reason
+    }
+
+    pub fn subject(&self) -> Option<&ProductEdgeSubjectV1> {
+        self.subject.as_ref()
+    }
+}
+
+impl Display for ProductEdgeUnavailableV1 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.subject {
+            Some(subject) => write!(f, "{} for {subject}", self.reason),
+            None => write!(f, "{}", self.reason),
+        }
+    }
+}
+
+/// The exact identity an `Unavailable` refusal is about.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProductEdgeSubjectV1 {
+    kind: ProductEdgeSubjectKindV1,
+    identity: String,
+}
+
+impl ProductEdgeSubjectV1 {
+    pub fn kind(&self) -> ProductEdgeSubjectKindV1 {
+        self.kind
+    }
+
+    pub fn identity(&self) -> &str {
+        &self.identity
+    }
+}
+
+impl Display for ProductEdgeSubjectV1 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {}", self.kind, self.identity)
+    }
+}
+
+/// Which Product Edge identity a refusal names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProductEdgeSubjectKindV1 {
+    /// A deployment history, by `deployment_identity`.
+    Deployment,
+    /// A deployment binding, by `binding_identity`.
+    Binding,
+    /// A stored operation manifest, by `manifest_identity`.
+    Manifest,
+    /// An operation, by its `operation` name.
+    Operation,
+    /// A request admission, by `admission_identity`.
+    Admission,
+    /// A request, by `request_identity`.
+    Request,
+    /// An Operator Authorization issuance, by `authorization_identity`.
+    Authorization,
+    /// An Operator Authorization revocation frontier, by `frontier_identity`.
+    Frontier,
+    /// A provider-invocation claim, by `claim_identity`.
+    Claim,
+    /// A deployment supersession fence, by the superseded `binding_identity`.
+    Supersession,
+    /// An expired-manifest recovery epoch, by `recovery_epoch_identity`.
+    RecoveryEpoch,
+    /// An outbox aggregate, by `aggregate_identity`.
+    Outbox,
+    /// The admission event stream, by `stream_identity`.
+    EventStream,
+    /// An admission event, by `event_identity`.
+    Event,
+    /// An admission event position, by `owner_sequence`.
+    OwnerSequence,
+    /// R&D current-research custody, by `intent_identity`.
+    ResearchIntent,
+}
+
+impl ProductEdgeSubjectKindV1 {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Deployment => "deployment",
+            Self::Binding => "binding",
+            Self::Manifest => "manifest",
+            Self::Operation => "operation",
+            Self::Admission => "admission",
+            Self::Request => "request",
+            Self::Authorization => "authorization",
+            Self::Frontier => "frontier",
+            Self::Claim => "claim",
+            Self::Supersession => "supersession of binding",
+            Self::RecoveryEpoch => "recovery epoch",
+            Self::Outbox => "outbox aggregate",
+            Self::EventStream => "event stream",
+            Self::Event => "event",
+            Self::OwnerSequence => "owner sequence",
+            Self::ResearchIntent => "research intent",
+        }
+    }
+}
+
+impl Display for ProductEdgeSubjectKindV1 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Why Product Edge refused to treat custody, authority, or a request as
+/// current.
+///
+/// The vocabulary is closed and coarse on purpose: it distinguishes the
+/// operator-visible failure classes without projecting protected detail, and
+/// it never distinguishes causes the contract says Product Edge may not
+/// distinguish.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProductEdgeUnavailableReasonV1 {
+    /// A required row, envelope, hint, or chain member is absent.
+    Missing,
+    /// More than one row exists where exactly one is canonical.
+    Ambiguous,
+    /// Stored bytes do not decode as the canonical shape.
+    Malformed,
+    /// Stored custody disagrees with its own canonical recomputation: a
+    /// digest, receipt, column mirror, outbox record, or schema version does
+    /// not match, or a post-write readback differs from what was written.
+    CustodyDrift,
+    /// The pre-lock hint differs from the row read under lock: a concurrent
+    /// writer changed the custody between the two reads.
+    HintMismatch,
+    /// The binding, supersession, or admission chain is not one well-formed
+    /// lineage: generation, predecessor, head, or admitted-binding links are
+    /// broken.
+    LineageBroken,
+    /// The current binding is fenced by a pending supersession; the
+    /// zero-`ACTIVE` cutover interval admits no mutation.
+    SupersessionPending,
+    /// The deployment head disagrees with the current binding.
+    HeadMismatch,
+    /// The cut falls outside a binding, manifest, or evidence half-open
+    /// validity window.
+    WindowNotCurrent,
+    /// The Operator Authorization is not current at the cut.
+    AuthorizationNotCurrent,
+    /// The Operator Authorization's principal, scope, request proof, or
+    /// manifest set disagrees with the binding or admission that cites it.
+    AuthorizationMismatch,
+    /// The Operator Authorization's issuer, key version, or audience is not
+    /// the one this Product Edge trusts.
+    TrustMismatch,
+    /// No unique admitted manifest matches the operation, or the manifest's
+    /// digest, operation triple, or effects disagree with the request.
+    ManifestMismatch,
+    /// A successor or recovery proposal is not policy-equivalent to, or not
+    /// bounded by, its predecessor.
+    PolicyMismatch,
+    /// The admission's current policy evidence does not authorize a first
+    /// mutation at the cut.
+    PolicyNotCurrent,
+    /// The request's proof, operation, payload, effects, or locator disagree
+    /// with the admission it names.
+    RequestMismatch,
+    /// Custody held by a downstream Owner (R&D research evidence, a source
+    /// acquisition binding, or a start reservation) disagrees with Product
+    /// Edge's admission.
+    DownstreamCustodyMismatch,
+    /// An event-stream cursor or locator does not match the stream.
+    CursorMismatch,
+    /// A compare-and-swap on a head or state row affected no row.
+    CompareAndSwapLost,
+    /// The connected role or schema topology is not the admitted one.
+    TopologyNotAdmitted,
+    /// The Operator Authorization Issuer refused for this reason.
+    OperatorAuthorization(OperatorAuthorizationUnavailableV1),
+    /// Operator Authorization custody failed its own proposal validation.
+    OperatorAuthorizationProposal(&'static str),
+    /// Provider-invocation claim custody refused for this reason.
+    ClaimCustody(ProductEdgeClaimCustodyUnavailableV1),
+    /// R&D Source Intake invocation custody refused.
+    SourceInvocationCustody,
+    /// R&D artifact invocation reservation custody refused.
+    ArtifactInvocationCustody,
+}
+
+impl ProductEdgeUnavailableReasonV1 {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Missing => "MISSING",
+            Self::Ambiguous => "AMBIGUOUS",
+            Self::Malformed => "MALFORMED",
+            Self::CustodyDrift => "CUSTODY_DRIFT",
+            Self::HintMismatch => "HINT_MISMATCH",
+            Self::LineageBroken => "LINEAGE_BROKEN",
+            Self::SupersessionPending => "SUPERSESSION_PENDING",
+            Self::HeadMismatch => "HEAD_MISMATCH",
+            Self::WindowNotCurrent => "WINDOW_NOT_CURRENT",
+            Self::AuthorizationNotCurrent => "AUTHORIZATION_NOT_CURRENT",
+            Self::AuthorizationMismatch => "AUTHORIZATION_MISMATCH",
+            Self::TrustMismatch => "TRUST_MISMATCH",
+            Self::ManifestMismatch => "MANIFEST_MISMATCH",
+            Self::PolicyMismatch => "POLICY_MISMATCH",
+            Self::PolicyNotCurrent => "POLICY_NOT_CURRENT",
+            Self::RequestMismatch => "REQUEST_MISMATCH",
+            Self::DownstreamCustodyMismatch => "DOWNSTREAM_CUSTODY_MISMATCH",
+            Self::CursorMismatch => "CURSOR_MISMATCH",
+            Self::CompareAndSwapLost => "COMPARE_AND_SWAP_LOST",
+            Self::TopologyNotAdmitted => "TOPOLOGY_NOT_ADMITTED",
+            Self::OperatorAuthorization(_) => "OPERATOR_AUTHORIZATION",
+            Self::OperatorAuthorizationProposal(_) => "OPERATOR_AUTHORIZATION_PROPOSAL",
+            Self::ClaimCustody(_) => "CLAIM_CUSTODY",
+            Self::SourceInvocationCustody => "SOURCE_INVOCATION_CUSTODY",
+            Self::ArtifactInvocationCustody => "ARTIFACT_INVOCATION_CUSTODY",
+        }
+    }
+}
+
+impl Display for ProductEdgeUnavailableReasonV1 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::OperatorAuthorization(inner) => write!(f, "{}: {inner}", self.as_str()),
+            Self::OperatorAuthorizationProposal(what) => write!(f, "{}: {what}", self.as_str()),
+            Self::ClaimCustody(inner) => write!(f, "{}: {inner}", self.as_str()),
+            _ => f.write_str(self.as_str()),
+        }
+    }
 }
 
 pub(crate) fn canonical_digest<T: Serialize>(
@@ -1068,12 +1469,129 @@ mod portfolio_read_policy_tests {
                     authorization_identity: "authorization-2".into(),
                     issuance_receipt_identity: "receipt-2".into(),
                 },
-                manifests: vec![new_manifest],
+                manifests: AgentOperationManifestSetV1::new(vec![new_manifest.clone()]).unwrap(),
             },
         };
         assert!(proposal.validate().is_ok());
         let mut changed = proposal;
-        changed.successor.manifests[0].valid_through_epoch_ms = 31;
+        let mut drifted = new_manifest;
+        drifted.valid_through_epoch_ms = 31;
+        changed.successor.manifests = AgentOperationManifestSetV1::new(vec![drifted]).unwrap();
         assert!(changed.validate().is_err());
+    }
+
+    fn manifest(operation: &str, from: u64, through: u64) -> AgentOperationManifestProposalV1 {
+        AgentOperationManifestProposalV1 {
+            operation: operation.into(),
+            operation_schema: format!("{operation}.schema.v1"),
+            target_owner: "R_AND_D".into(),
+            allowed_effects: vec!["R_AND_D_MUTATION_V1".into()],
+            prohibited_effects: vec!["REAL_TRADING".into()],
+            capability_policy_digest: "sha256:policy".into(),
+            effective_from_epoch_ms: from,
+            valid_through_epoch_ms: through,
+        }
+    }
+
+    #[rstest]
+    fn manifest_set_owns_its_canonical_order() {
+        let first = manifest("research.submit.v1", 10, 20);
+        let second = manifest("artifact_build.submit_or_resolve.v1", 10, 20);
+        let forward =
+            AgentOperationManifestSetV1::new(vec![first.clone(), second.clone()]).unwrap();
+        let reversed =
+            AgentOperationManifestSetV1::new(vec![second.clone(), first.clone()]).unwrap();
+        assert_eq!(forward, reversed);
+        let identities = forward.identities().unwrap();
+        assert!(identities.windows(2).all(|pair| pair[0] < pair[1]));
+        assert_eq!(
+            forward.bindings().unwrap(),
+            forward
+                .iter()
+                .map(|manifest| manifest.binding().unwrap())
+                .collect::<Vec<_>>()
+        );
+
+        let json = serde_json::to_string(&reversed).unwrap();
+        assert_eq!(json, serde_json::to_string(forward.as_slice()).unwrap());
+        let parsed: AgentOperationManifestSetV1 =
+            serde_json::from_str(&serde_json::to_string(&[second, first.clone()]).unwrap())
+                .unwrap();
+        assert_eq!(parsed, forward);
+
+        assert!(AgentOperationManifestSetV1::new(Vec::new()).is_err());
+        assert!(AgentOperationManifestSetV1::new(vec![first.clone(), first.clone()]).is_err());
+        let mut same_operation = first.clone();
+        same_operation.valid_through_epoch_ms = 30;
+        assert!(AgentOperationManifestSetV1::new(vec![first.clone(), same_operation]).is_err());
+        let mut invalid = first;
+        invalid.allowed_effects.clear();
+        assert!(AgentOperationManifestSetV1::new(vec![invalid]).is_err());
+        assert!(serde_json::from_str::<AgentOperationManifestSetV1>("[]").is_err());
+    }
+
+    #[rstest]
+    fn admission_route_follows_the_operation_alone() {
+        let mut request = ProductEdgeAdmissionRequestV1 {
+            request_identity: "request-1".into(),
+            typed_payload: serde_json::json!({}),
+            operation: "research_goal.submit_or_resolve.v2".into(),
+            operation_schema: "sourced-research-goal-v2".into(),
+            target_owner: "R_AND_D".into(),
+            requested_effects: vec![],
+            request_proof_digest: "sha256:proof".into(),
+            audit_correlation: "test".into(),
+        };
+        assert_eq!(
+            request.admission_route(),
+            ProductEdgeAdmissionRouteV1::Generic
+        );
+        request.operation = ARTIFACT_BUILD_OPERATION_V1.into();
+        assert_eq!(
+            request.admission_route(),
+            ProductEdgeAdmissionRouteV1::ArtifactBuild
+        );
+        assert!(matches!(
+            request.require_admission_route(ProductEdgeAdmissionRouteV1::Generic),
+            Err(ProductEdgeError::InvalidProposal("admission entry"))
+        ));
+        request.operation = SOURCE_INTAKE_OPERATION_V1.into();
+        assert_eq!(
+            request.admission_route(),
+            ProductEdgeAdmissionRouteV1::SourceIntake
+        );
+        assert!(
+            request
+                .require_admission_route(ProductEdgeAdmissionRouteV1::SourceIntake)
+                .is_ok()
+        );
+    }
+
+    #[rstest]
+    fn unavailable_names_its_reason_and_identity() {
+        let error = ProductEdgeError::unavailable_for(
+            ProductEdgeUnavailableReasonV1::HintMismatch,
+            ProductEdgeSubjectKindV1::Binding,
+            "binding-1",
+        );
+        assert_eq!(
+            error.to_string(),
+            "Product Edge authority unavailable: HINT_MISMATCH for binding binding-1"
+        );
+        let ProductEdgeError::Unavailable(detail) = error else {
+            panic!("expected Unavailable");
+        };
+        assert_eq!(
+            detail.reason(),
+            &ProductEdgeUnavailableReasonV1::HintMismatch
+        );
+        assert_eq!(
+            detail.subject().map(ProductEdgeSubjectV1::identity),
+            Some("binding-1")
+        );
+        assert_eq!(
+            ProductEdgeError::unavailable(ProductEdgeUnavailableReasonV1::Missing).to_string(),
+            "Product Edge authority unavailable: MISSING"
+        );
     }
 }

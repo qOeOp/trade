@@ -3,11 +3,11 @@ use std::{env, fs};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use vibe_operator_authorization::{
-    OperationManifestBindingV1, OperatorAuthorizationIssuanceProposalV1,
-    OperatorAuthorizationIssuerPostgresV1, OperatorAuthorizationScopeV1,
+    OperatorAuthorizationIssuanceProposalV1, OperatorAuthorizationIssuerPostgresV1,
+    OperatorAuthorizationScopeV1,
 };
 use vibe_product_edge::{
-    AgentOperationManifestProposalV1, ProductEdgeAuthorizationTrustV1,
+    AgentOperationManifestProposalV1, AgentOperationManifestSetV1, ProductEdgeAuthorizationTrustV1,
     ProductEdgeBootstrapProposalV1, ProductEdgePostgresOwnerV1, SOURCE_INTAKE_OPERATION_SCHEMA_V1,
     SOURCE_INTAKE_OPERATION_V1, SOURCE_INTAKE_REQUIRED_EFFECTS_V1, SOURCE_INTAKE_TARGET_OWNER_V1,
 };
@@ -52,7 +52,7 @@ async fn main() -> anyhow::Result<()> {
         anyhow::bail!("bootstrap issuance does not match configured Product Edge trust");
     }
 
-    let mut manifests = vec![
+    let manifests = AgentOperationManifestSetV1::new(vec![
         manifest(
             "research_goal.submit_or_resolve.v2",
             "sourced-research-goal-v2",
@@ -94,17 +94,8 @@ async fn main() -> anyhow::Result<()> {
                 .collect(),
             &config,
         ),
-    ];
-    manifests.sort_by_key(|manifest| manifest.manifest_identity().expect("validated manifest"));
-    let manifest_bindings = manifests
-        .iter()
-        .map(|manifest| {
-            Ok(OperationManifestBindingV1 {
-                manifest_identity: manifest.manifest_identity()?,
-                manifest_digest: manifest.manifest_digest()?,
-            })
-        })
-        .collect::<Result<Vec<_>, vibe_product_edge::ProductEdgeError>>()?;
+    ])?;
+    let manifest_bindings = manifests.bindings()?;
 
     let issuer = OperatorAuthorizationIssuerPostgresV1::connect(&issuer_url).await?;
     let authorization = issuer

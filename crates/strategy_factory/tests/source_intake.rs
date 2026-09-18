@@ -789,7 +789,8 @@ async fn postgres_source_invocation_lifecycle_is_canonical_once_only_and_acl_sea
             valid_from_epoch_ms: now.saturating_sub(1_000),
             valid_through_epoch_ms: now.saturating_add(600_000),
             authorization: authorization.locator(),
-            manifests: vec![manifest.clone()],
+            manifests: vibe_product_edge::AgentOperationManifestSetV1::new(vec![manifest.clone()])
+                .unwrap(),
         })
         .await
         .unwrap();
@@ -1792,7 +1793,11 @@ async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_r
             valid_from_epoch_ms: now.saturating_sub(1_000),
             valid_through_epoch_ms: now.saturating_add(600_000),
             authorization: authorization.locator(),
-            manifests: vec![manifest, research_manifest.clone()],
+            manifests: vibe_product_edge::AgentOperationManifestSetV1::new(vec![
+                manifest,
+                research_manifest.clone(),
+            ])
+            .unwrap(),
         })
         .await
         .unwrap();
@@ -2234,7 +2239,7 @@ async fn postgres_readback_rejects_tampered_raw_payload() {
             valid_from_epoch_ms: now.saturating_sub(1_000),
             valid_through_epoch_ms: now.saturating_add(600_000),
             authorization: authorization.locator(),
-            manifests: vec![manifest],
+            manifests: vibe_product_edge::AgentOperationManifestSetV1::new(vec![manifest]).unwrap(),
         })
         .await
         .unwrap();
