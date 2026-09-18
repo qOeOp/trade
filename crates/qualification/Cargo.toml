@@ -33,6 +33,11 @@ vibe-data = { workspace = true }
 [dev-dependencies]
 rstest = { workspace = true }
 tokio = { workspace = true }
+# The ordered PostgreSQL gate drives the protected-evaluation terminal with the Market Data
+# sealed-acceptance Shared Time chain; production code never enables this feature.
+vibe-data = { workspace = true, features = [
+  "sealed-strategy-input-acceptance",
+] }
 vibe-testkit = { workspace = true, features = ["postgres"] }
 
 [[bin]]

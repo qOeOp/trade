@@ -1168,6 +1168,352 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires the ordered canonical Owner PostgreSQL gate after the sealed Qualification request set"]
+    async fn postgres_protected_v3_results_and_attempt_frontier_are_request_set_bound_and_qualification_sealed()
+     {
+        use crate::protected_replay::{
+            ProtectedConsumedBindingObservationProposalV3, ProtectedReplayResultProposalV3,
+            result_time_evidence,
+        };
+        use crate::protected_replay_postgres::{
+            ProtectedReplayAttemptFrontierCommitDispositionV1,
+            ProtectedReplayResultCommitDispositionV3,
+        };
+        use vibe_backtest_owner_contracts::{
+            ProtectedCellApplicabilityEvidenceV3, ProtectedCellApplicabilityObservationV3,
+            ProtectedEconomicMeasurementV1, ProtectedReplayRequestDtoV2,
+            ProtectedReplayRequestSetLocatorV1, protected_evaluation_time_evidence_digest_v1,
+        };
+        use vibe_backtest_result_custody::resolve_protected_replay_attempt_frontier_for_qualification_in_transaction;
+        use vibe_data::owner::sealed_acceptance::issue_protected_evaluation_shared_time_v1;
+
+        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+            .await
+            .expect("canonical disposable topology");
+        let mutation = database.mutation();
+        let backtest_pool = mutation
+            .pool(CanonicalOwnerTestRoleV1::BacktestOwner)
+            .clone();
+        let qualification_pool = mutation
+            .pool(CanonicalOwnerTestRoleV1::QualificationWriter)
+            .clone();
+        let owner = PostgresReplayResultOwnerV2::from_admitted_pool(backtest_pool.clone())
+            .await
+            .expect("Backtest writer topology");
+
+        let (request_set_identity, request_set_digest, review_request_identity): (
+            String,
+            String,
+            String,
+        ) = sqlx::query_as(
+            "SELECT request_set_identity,request_set_digest,review_request_identity \
+               FROM public.qualification_protected_replay_request_sets_v1 \
+              ORDER BY committed_at_epoch_ms DESC,request_set_identity DESC LIMIT 1",
+        )
+        .fetch_one(&qualification_pool)
+        .await
+        .expect("prior sealed Qualification request set");
+        let set_locator = ProtectedReplayRequestSetLocatorV1 {
+            request_set_identity: request_set_identity.clone(),
+            request_set_digest: request_set_digest.clone(),
+        };
+        let request_set = owner
+            .resolve_protected_replay_request_set_v1(&qualification_pool, &set_locator)
+            .await
+            .expect("sealed request set readback");
+        let members = request_set.request_set().members.clone();
+        assert!(members.len() > 1);
+
+        // Backtest measures the metric the admitted plan froze. The gate discovers that reference
+        // through the intake and R&D custody the Qualification role can read; production Backtest
+        // has no admitted read of the plan or of Qualification's economic policy bundle.
+        let (decision_identity, result_identity): (String, String) = sqlx::query_as(
+            "SELECT receipt_json->>'decision_identity',receipt_json->>'result_identity' \
+               FROM public.qualification_candidate_intake_receipts_v1 \
+              WHERE review_request_identity=$1",
+        )
+        .bind(&review_request_identity)
+        .fetch_one(&qualification_pool)
+        .await
+        .expect("sealed request set intake");
+        let mut selection_read = qualification_pool
+            .begin()
+            .await
+            .expect("R&D selection read transaction");
+        let candidate_json: serde_json::Value = sqlx::query_scalar(
+            "SELECT candidate_json FROM rd_owner_api.lock_ready_for_selection_for_qualification_v1($1,$2)",
+        )
+        .bind(&decision_identity)
+        .bind(&result_identity)
+        .fetch_one(&mut *selection_read)
+        .await
+        .expect("sealed R&D Candidate custody");
+        selection_read
+            .rollback()
+            .await
+            .expect("R&D selection read rollback");
+        let metric = &candidate_json["protected_robustness_plan"]["proposal"]["metric"];
+        let metric_identity = metric["identity"]
+            .as_str()
+            .expect("frozen plan metric identity")
+            .to_string();
+        let metric_digest = metric["digest"]
+            .as_str()
+            .expect("frozen plan metric digest")
+            .to_string();
+
+        let shared_time =
+            issue_protected_evaluation_shared_time_v1().expect("sealed acceptance Shared Time");
+        let result_successor = shared_time.result_successor();
+        let result_time_evidence_digest =
+            protected_evaluation_time_evidence_digest_v1(&result_time_evidence(&result_successor))
+                .expect("result-stage time evidence digest");
+        let locator_for = |name: &str, byte: char| ProtectedConsumedInputLocatorV1 {
+            owner: identity("backtest-owner"),
+            reference: identity(name),
+            digest: digest(byte),
+        };
+        let proposal_for = |request: &ProtectedReplayRequestDtoV2,
+                            ordinal: usize,
+                            observed_raw: i64| {
+            let attempt_identity = format!("protected-backtest-attempt-v3-{ordinal}");
+            let basis = &request.frozen_basis;
+            let mut measurement = ProtectedEconomicMeasurementV1 {
+                schema_version: 1,
+                measurement_identity: "pending-measurement".to_string(),
+                measurement_digest: format!("blake3:{}", "0".repeat(64)),
+                request_identity: request.request_identity.clone(),
+                request_digest: request.request_digest.clone(),
+                attempt_identity: attempt_identity.clone(),
+                protected_plan_identity: basis.protected_plan_identity.clone(),
+                protected_plan_digest: basis.protected_plan_digest.clone(),
+                plan_cell_set_identity: basis.plan_cell_set_identity.clone(),
+                plan_cell_set_digest: basis.plan_cell_set_digest.clone(),
+                plan_cell_identity: basis.plan_cell_identity.clone(),
+                plan_cell_digest: basis.plan_cell_digest.clone(),
+                metric_identity: metric_identity.clone(),
+                metric_digest: metric_digest.clone(),
+                // The unit and scale repeat the gate's frozen economic policy bundle
+                // (`crates/qualification/src/postgres.rs`, `chain_economic_policy`).
+                unit: "basis-points".to_string(),
+                decimal_scale: 4,
+                observed_raw,
+                observed_coverage_bps: 10_000,
+                decisive_evidence: locator_for(&format!("protected-v3-measurement-{ordinal}"), 'e'),
+                result_time_evidence_digest: result_time_evidence_digest.clone(),
+            };
+            measurement.measurement_digest = measurement
+                .compute_digest()
+                .expect("economic measurement digest");
+            measurement.measurement_identity = format!(
+                "backtest-protected-economic-measurement-v1-{}",
+                measurement
+                    .measurement_digest
+                    .strip_prefix("blake3:")
+                    .expect("blake3 measurement digest")
+            );
+            ProtectedReplayResultProposalV3 {
+                attempt_identity: attempt_identity.clone(),
+                observations: basis
+                    .bindings
+                    .iter()
+                    .map(|binding| ProtectedConsumedBindingObservationProposalV3 {
+                        field: binding.field,
+                        consumed_identity: binding.identity.clone(),
+                        consumed_digest: binding.digest.clone(),
+                        evidence: locator_for(
+                            &format!("protected-v3-consumed-{ordinal}-{:?}", binding.field),
+                            'c',
+                        ),
+                    })
+                    .collect(),
+                diagnostic_evidence: vec![ProtectedDiagnosticEvidenceV2 {
+                    request_identity: request.request_identity.clone(),
+                    request_digest: request.request_digest.clone(),
+                    attempt_identity: attempt_identity.clone(),
+                    category: DiagnosticCategoryV2::NoExecutionDefect,
+                    decisive_evidence: locator_for(
+                        &format!("protected-v3-no-defect-{ordinal}"),
+                        'd',
+                    ),
+                }],
+                applicability_evidence: ProtectedCellApplicabilityEvidenceV3 {
+                    request_identity: request.request_identity.clone(),
+                    request_digest: request.request_digest.clone(),
+                    attempt_identity,
+                    plan_cell_identity: basis.plan_cell_identity.clone(),
+                    observation: ProtectedCellApplicabilityObservationV3::ApplicableInputsObserved,
+                    decisive_evidence: locator_for(
+                        &format!("protected-v3-applicable-{ordinal}"),
+                        'a',
+                    ),
+                },
+                protected_outcome: ProtectedResultOutcomeLocatorV1 {
+                    reference: identity(&measurement.measurement_identity),
+                    digest: CanonicalDigestV2::try_from(measurement.measurement_digest.clone())
+                        .expect("measurement digest locator"),
+                },
+                protected_economic_measurement: Some(measurement),
+                time_successor: result_successor.clone(),
+            }
+        };
+        let committed = |disposition: ProtectedReplayResultCommitDispositionV3| match disposition {
+            ProtectedReplayResultCommitDispositionV3::Committed(readback) => *readback,
+            ProtectedReplayResultCommitDispositionV3::SubmittedOrUnknown(_) => {
+                panic!("test PostgreSQL must acknowledge protected V3 Result commit")
+            }
+        };
+
+        assert!(matches!(
+            owner
+                .close_protected_replay_attempt_frontier_v1(&qualification_pool, &set_locator)
+                .await,
+            Err(PostgresReplayResultOwnerErrorV2::ResultNotAdmitted)
+        ));
+        let mut request_locators = Vec::with_capacity(members.len());
+        let mut requests = Vec::with_capacity(members.len());
+        for (ordinal, member) in members.iter().enumerate() {
+            let request_bytes: Vec<u8> = sqlx::query_scalar(
+                "SELECT canonical_request_bytes FROM public.qualification_protected_replay_requests_v1 WHERE request_identity=$1",
+            )
+            .bind(&member.request_identity)
+            .fetch_one(&qualification_pool)
+            .await
+            .expect("sealed member request bytes");
+            let request = ProtectedReplayRequestDtoV2::from_canonical_bytes(&request_bytes)
+                .expect("canonical V2 protected request");
+            let request_locator = ProtectedReplayRequestLocatorV1 {
+                request_identity: member.request_identity.clone(),
+                request_digest: member.request_digest.clone(),
+                receipt_identity: member.request_receipt_identity.clone(),
+                seal_digest: member.request_seal_digest.clone(),
+            };
+            let first = committed(
+                owner
+                    .produce_and_commit_protected_replay_result_v3(
+                        &qualification_pool,
+                        &request_locator,
+                        proposal_for(&request, ordinal, 300),
+                    )
+                    .await
+                    .expect("request-bound protected V3 Result commit"),
+            );
+            let retry = committed(
+                owner
+                    .produce_and_commit_protected_replay_result_v3(
+                        &qualification_pool,
+                        &request_locator,
+                        proposal_for(&request, ordinal, 300),
+                    )
+                    .await
+                    .expect("byte-identical protected V3 Result retry"),
+            );
+            assert_eq!(retry, first);
+            assert_eq!(first.result().schema_version, 3);
+            assert_eq!(first.result().plan_cell_identity, member.plan_cell_identity);
+            assert_eq!(
+                first.result().request_time_evidence_digest,
+                member.request_time_evidence_digest
+            );
+            assert!(matches!(
+                owner
+                    .produce_and_commit_protected_replay_result_v3(
+                        &qualification_pool,
+                        &request_locator,
+                        proposal_for(&request, ordinal, 301),
+                    )
+                    .await,
+                Err(PostgresReplayResultOwnerErrorV2::ConflictingResult)
+            ));
+            let counts: (i64, i64, i64) = sqlx::query_as(
+                "SELECT (SELECT count(*) FROM public.backtest_protected_replay_results_v1 WHERE result_identity=$1),(SELECT count(*) FROM public.backtest_protected_replay_result_receipts_v1 WHERE result_identity=$1),(SELECT count(*) FROM public.backtest_protected_replay_result_outbox_v1 WHERE result_identity=$1)",
+            )
+            .bind(&first.result().result_identity)
+            .fetch_one(&backtest_pool)
+            .await
+            .expect("protected V3 aggregate counts");
+            assert_eq!(counts, (1, 1, 1));
+            request_locators.push(request_locator);
+            requests.push(request);
+        }
+
+        let frontier = match owner
+            .close_protected_replay_attempt_frontier_v1(&qualification_pool, &set_locator)
+            .await
+            .expect("complete attempt frontier close")
+        {
+            ProtectedReplayAttemptFrontierCommitDispositionV1::Committed(readback) => *readback,
+            ProtectedReplayAttemptFrontierCommitDispositionV1::SubmittedOrUnknown(_) => {
+                panic!("test PostgreSQL must acknowledge attempt frontier commit")
+            }
+        };
+        assert_eq!(frontier.frontier().members.len(), members.len());
+        assert_eq!(
+            frontier.frontier().request_set_identity,
+            request_set_identity
+        );
+        assert_eq!(frontier.frontier().request_set_digest, request_set_digest);
+        let retry = match owner
+            .close_protected_replay_attempt_frontier_v1(&qualification_pool, &set_locator)
+            .await
+            .expect("attempt frontier close response-loss retry")
+        {
+            ProtectedReplayAttemptFrontierCommitDispositionV1::Committed(readback) => *readback,
+            ProtectedReplayAttemptFrontierCommitDispositionV1::SubmittedOrUnknown(_) => {
+                panic!("test PostgreSQL must acknowledge attempt frontier retry")
+            }
+        };
+        assert_eq!(retry, frontier);
+        let mut late = proposal_for(&requests[0], 0, 300);
+        late.attempt_identity = "protected-backtest-late-attempt-v3".to_string();
+        assert!(matches!(
+            owner
+                .produce_and_commit_protected_replay_result_v3(
+                    &qualification_pool,
+                    &request_locators[0],
+                    late,
+                )
+                .await,
+            Err(PostgresReplayResultOwnerErrorV2::ConflictingResult
+                | PostgresReplayResultOwnerErrorV2::ResultNotAdmitted)
+        ));
+        let frontier_counts: (i64, i64, i64, i64) = sqlx::query_as(
+            "SELECT \
+             (SELECT count(*) FROM public.backtest_protected_replay_attempt_frontiers_v1 WHERE frontier_identity=$1), \
+             (SELECT count(*) FROM public.backtest_protected_replay_attempt_frontier_receipts_v1 WHERE frontier_identity=$1), \
+             (SELECT count(*) FROM public.backtest_protected_replay_attempt_frontier_outbox_v1 WHERE frontier_identity=$1), \
+             (SELECT count(*) FROM public.backtest_protected_replay_attempt_frontiers_v1 WHERE request_set_identity=$2)",
+        )
+        .bind(&frontier.frontier().frontier_identity)
+        .bind(&request_set_identity)
+        .fetch_one(&backtest_pool)
+        .await
+        .expect("attempt frontier aggregate counts");
+        assert_eq!(frontier_counts, (1, 1, 1, 1));
+
+        let mut qualification_read = qualification_pool
+            .begin()
+            .await
+            .expect("Qualification frontier read transaction");
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *qualification_read)
+            .await
+            .expect("serializable frontier read");
+        let locked = resolve_protected_replay_attempt_frontier_for_qualification_in_transaction(
+            &mut qualification_read,
+            &frontier.locator(),
+        )
+        .await
+        .expect("sealed Qualification frontier read")
+        .expect("sealed attempt frontier");
+        assert_eq!(locked.frontier(), frontier.frontier());
+        qualification_read
+            .rollback()
+            .await
+            .expect("Qualification frontier read rollback");
+    }
+
+    #[tokio::test]
     #[ignore = "requires the ordered canonical Owner PostgreSQL gate after protected request custody"]
     async fn postgres_protected_result_is_atomic_request_bound_and_qualification_sealed() {
         let database = CanonicalOwnerPostgresTestDatabaseV1::admit()

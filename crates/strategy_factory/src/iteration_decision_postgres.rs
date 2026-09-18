@@ -4637,6 +4637,15 @@ mod postgres_acceptance_tests {
         let harness = Box::pin(prepare_ready_decision_postgres_harness()).await;
         Box::pin(assert_ready_retry_resolve_and_qualification(&harness)).await;
         Box::pin(assert_ready_tamper_closure(&harness)).await;
+        // A second, independent Candidate lineage leaves one ADMITTED intake that no earlier gate
+        // entry consumes; the Qualification terminal entries later freeze its protected request
+        // set and drive it to an Eligibility Fact. One Candidate reserves holdout at most once, so
+        // the terminal cannot reuse the first Candidate once its Origin attempts are closed.
+        let terminal_harness = Box::pin(prepare_ready_decision_postgres_harness()).await;
+        Box::pin(assert_ready_retry_resolve_and_qualification(
+            &terminal_harness,
+        ))
+        .await;
     }
 
     async fn prepare_ready_decision_postgres_harness() -> Box<ReadyDecisionPostgresHarnessV1> {
@@ -4903,6 +4912,35 @@ mod postgres_acceptance_tests {
                 .await,
             Err(vibe_qualification::QualificationOwnerError::ConflictingIdentity)
         ));
+
+        // One Candidate resolves to exactly one intake receipt: a different review request for the
+        // same Candidate is changed meaning and creates neither a second receipt nor a second
+        // holdout attempt.
+        let second_review_request = vibe_qualification::CandidateIntakeRequestV1::new(
+            format!("qualification-review-second-{suffix}"),
+            issued.decision().decision_identity().to_string(),
+            result_identity.clone(),
+            issued.candidate().candidate_identity().to_string(),
+            issued.selection().selection_identity().to_string(),
+            policy.identity.clone(),
+            policy.version,
+        )
+        .expect("canonical second Qualification Candidate Intake request");
+        assert!(matches!(
+            qualification
+                .submit_candidate_intake_v1(&second_review_request)
+                .await,
+            Err(vibe_qualification::QualificationOwnerError::ConflictingIdentity)
+        ));
+        let candidate_intake_counts: (i64, i64, i64) = sqlx::query_as(
+            "SELECT (SELECT COUNT(*) FROM qualification_candidate_intake_receipts_v1 WHERE candidate_identity=$1), (SELECT COUNT(*) FROM qualification_holdout_reservations_v1 WHERE candidate_identity=$1), (SELECT COUNT(*) FROM qualification_public_status_facts_v1 WHERE review_request_identity=$2)",
+        )
+        .bind(issued.candidate().candidate_identity())
+        .bind(second_review_request.review_request_identity())
+        .fetch_one(qualification_pool)
+        .await
+        .expect("one intake and one reservation per Candidate");
+        assert_eq!(candidate_intake_counts, (1, 1, 0));
     }
 
     async fn assert_ready_tamper_closure(harness: &ReadyDecisionPostgresHarnessV1) {

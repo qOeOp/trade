@@ -27,4 +27,9 @@ vibe-strategy-factory = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true }
 trybuild = { workspace = true }
+# The ordered PostgreSQL gate binds protected V3 Results to the Market Data sealed-acceptance
+# Shared Time chain; production code never enables this feature.
+vibe-data = { workspace = true, features = [
+  "sealed-strategy-input-acceptance",
+] }
 vibe-testkit = { workspace = true, features = ["postgres"] }
