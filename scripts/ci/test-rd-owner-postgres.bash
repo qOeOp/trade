@@ -60,9 +60,9 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed'
   'vibe-strategy-factory|develop_composer_postgres_v2|postgres_migration_materializes_only_private_binary_authority'
   'vibe-strategy-factory|develop_composer_postgres_v2|sealed_read_port_is_restart_exact_fail_closed_and_query_only'
-  'vibe-qualification|vibe_qualification|postgres::postgres_tests::protected_replay_request_set_seals_current_members_and_closes_registration'
-  'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_protected_v3_results_and_attempt_frontier_are_request_set_bound_and_qualification_sealed'
-  'vibe-qualification|vibe_qualification|postgres::postgres_tests::economic_pass_assessment_commits_qualified_eligibility_once_and_projects_public_status'
+  'vibe-qualification|vibe_qualification|postgres::postgres_tests::protected_replay_request_sets_seal_every_terminal_lineage_and_close_registration'
+  'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_protected_v3_results_and_attempt_frontiers_close_every_terminal_lineage'
+  'vibe-qualification|vibe_qualification|postgres::postgres_tests::protected_assessments_close_every_terminal_once_and_project_public_status'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -127,9 +127,9 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[39]}" != *'|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed' ]] ||
     [[ "${rd_owner_postgres_tests[40]}" != *'|postgres_migration_materializes_only_private_binary_authority' ]] ||
     [[ "${rd_owner_postgres_tests[41]}" != *'|sealed_read_port_is_restart_exact_fail_closed_and_query_only' ]] ||
-    [[ "${rd_owner_postgres_tests[42]}" != *'|postgres::postgres_tests::protected_replay_request_set_seals_current_members_and_closes_registration' ]] ||
-    [[ "${rd_owner_postgres_tests[43]}" != *'|tests::postgres_protected_v3_results_and_attempt_frontier_are_request_set_bound_and_qualification_sealed' ]] ||
-    [[ "${rd_owner_postgres_tests[44]}" != *'|postgres::postgres_tests::economic_pass_assessment_commits_qualified_eligibility_once_and_projects_public_status' ]] ||
+    [[ "${rd_owner_postgres_tests[42]}" != *'|postgres::postgres_tests::protected_replay_request_sets_seal_every_terminal_lineage_and_close_registration' ]] ||
+    [[ "${rd_owner_postgres_tests[43]}" != *'|tests::postgres_protected_v3_results_and_attempt_frontiers_close_every_terminal_lineage' ]] ||
+    [[ "${rd_owner_postgres_tests[44]}" != *'|postgres::postgres_tests::protected_assessments_close_every_terminal_once_and_project_public_status' ]] ||
     [[ "${rd_owner_postgres_tests[45]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
@@ -327,7 +327,7 @@ if invocation != expected_invocation:
     )
 PY
   if ! rg -Uq \
-    "strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody'.*\n[[:space:]]+\[\[.*successor_artifact_enters_exploratory_replay_with_exact_owner_custody'.*\n[[:space:]]+\[\[.*analysis_request_completion_resolve_restart_and_tamper_are_atomic'.*\n[[:space:]]+\[\[.*positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic'.*\n[[:space:]]+\[\[.*test_binary.*vibe_qualification'.*\n[[:space:]]+\[\[.*postgres_protected_v3_results_and_attempt_frontier_are_request_set_bound_and_qualification_sealed'.*\n[[:space:]]+RUST_MIN_STACK=16777216.*\n[[:space:]]+cargo nextest run" \
+    "strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody'.*\n[[:space:]]+\[\[.*successor_artifact_enters_exploratory_replay_with_exact_owner_custody'.*\n[[:space:]]+\[\[.*analysis_request_completion_resolve_restart_and_tamper_are_atomic'.*\n[[:space:]]+\[\[.*positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic'.*\n[[:space:]]+\[\[.*test_binary.*vibe_qualification'.*\n[[:space:]]+\[\[.*postgres_protected_v3_results_and_attempt_frontiers_close_every_terminal_lineage'.*\n[[:space:]]+RUST_MIN_STACK=16777216.*\n[[:space:]]+cargo nextest run" \
     "${BASH_SOURCE[0]}"; then
     echo "ERROR: large composed acceptances must use their admitted test-thread stack." >&2
     return 1
@@ -2933,7 +2933,7 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
     [[ "$test_name" == 'iteration_decision_postgres::postgres_acceptance_tests::iteration_analysis_postgres_acceptance_tests::analysis_request_completion_resolve_restart_and_tamper_are_atomic' ]] ||
     [[ "$test_name" == 'iteration_decision_postgres::postgres_acceptance_tests::positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic' ]] ||
     [[ "$test_binary" == 'vibe_qualification' ]] ||
-    [[ "$test_name" == 'tests::postgres_protected_v3_results_and_attempt_frontier_are_request_set_bound_and_qualification_sealed' ]]; then
+    [[ "$test_name" == 'tests::postgres_protected_v3_results_and_attempt_frontiers_close_every_terminal_lineage' ]]; then
     RUST_MIN_STACK=16777216 \
       cargo nextest run \
       --archive-file "$nextest_archive_file" \

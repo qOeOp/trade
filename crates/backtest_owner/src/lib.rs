@@ -1169,8 +1169,56 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires the ordered canonical Owner PostgreSQL gate after the sealed Qualification request set"]
-    async fn postgres_protected_v3_results_and_attempt_frontier_are_request_set_bound_and_qualification_sealed()
-     {
+    async fn postgres_protected_v3_results_and_attempt_frontiers_close_every_terminal_lineage() {
+        for lineage in PROTECTED_TERMINAL_LINEAGES_V1 {
+            Box::pin(commit_protected_v3_results_and_frontier_for_lineage(
+                lineage,
+            ))
+            .await;
+        }
+    }
+
+    /// The Candidate lineages the ordered gate mints for the protected-evaluation terminals and
+    /// the exact sealed evidence shape each one carries. Backtest records observations only; which
+    /// Qualification terminal a shape leads to is Qualification's own adjudication.
+    const PROTECTED_TERMINAL_LINEAGES_V1: [ProtectedTerminalLineageV1; 3] = [
+        ProtectedTerminalLineageV1 {
+            review_slug: "economic-pass",
+            diagnostic: DiagnosticCategoryV2::NoExecutionDefect,
+            applicable: true,
+        },
+        ProtectedTerminalLineageV1 {
+            review_slug: "economic-failure",
+            diagnostic: DiagnosticCategoryV2::ValidEconomicFailure,
+            applicable: true,
+        },
+        ProtectedTerminalLineageV1 {
+            review_slug: "all-not-applicable",
+            diagnostic: DiagnosticCategoryV2::NoExecutionDefect,
+            applicable: false,
+        },
+    ];
+
+    #[derive(Clone, Copy)]
+    struct ProtectedTerminalLineageV1 {
+        review_slug: &'static str,
+        diagnostic: DiagnosticCategoryV2,
+        /// Whether the sealed Result observes applicable inputs. Only an applicable cell with no
+        /// execution defect carries an economic measurement.
+        applicable: bool,
+    }
+
+    impl ProtectedTerminalLineageV1 {
+        const fn carries_measurement(self) -> bool {
+            self.applicable && matches!(self.diagnostic, DiagnosticCategoryV2::NoExecutionDefect)
+        }
+    }
+
+    /// Commits one request-bound V3 Result per sealed request-set member of one gate lineage and
+    /// closes that lineage's attempt frontier.
+    async fn commit_protected_v3_results_and_frontier_for_lineage(
+        lineage: ProtectedTerminalLineageV1,
+    ) {
         use crate::protected_replay::{
             ProtectedConsumedBindingObservationProposalV3, ProtectedReplayResultProposalV3,
             result_time_evidence,
@@ -1208,11 +1256,13 @@ mod tests {
         ) = sqlx::query_as(
             "SELECT request_set_identity,request_set_digest,review_request_identity \
                FROM public.qualification_protected_replay_request_sets_v1 \
+              WHERE review_request_identity LIKE 'qualification-review-' || $1 || '-%' \
               ORDER BY committed_at_epoch_ms DESC,request_set_identity DESC LIMIT 1",
         )
+        .bind(lineage.review_slug)
         .fetch_one(&qualification_pool)
         .await
-        .expect("prior sealed Qualification request set");
+        .expect("sealed Qualification request set of this gate lineage");
         let set_locator = ProtectedReplayRequestSetLocatorV1 {
             request_set_identity: request_set_identity.clone(),
             request_set_digest: request_set_digest.clone(),
@@ -1276,7 +1326,10 @@ mod tests {
         let proposal_for = |request: &ProtectedReplayRequestDtoV2,
                             ordinal: usize,
                             observed_raw: i64| {
-            let attempt_identity = format!("protected-backtest-attempt-v3-{ordinal}");
+            let attempt_identity = format!(
+                "protected-backtest-attempt-v3-{}-{ordinal}",
+                lineage.review_slug
+            );
             let basis = &request.frozen_basis;
             let mut measurement = ProtectedEconomicMeasurementV1 {
                 schema_version: 1,
@@ -1299,7 +1352,10 @@ mod tests {
                 decimal_scale: 4,
                 observed_raw,
                 observed_coverage_bps: 10_000,
-                decisive_evidence: locator_for(&format!("protected-v3-measurement-{ordinal}"), 'e'),
+                decisive_evidence: locator_for(
+                    &format!("protected-v3-measurement-{}-{ordinal}", lineage.review_slug),
+                    'e',
+                ),
                 result_time_evidence_digest: result_time_evidence_digest.clone(),
             };
             measurement.measurement_digest = measurement
@@ -1322,7 +1378,10 @@ mod tests {
                         consumed_identity: binding.identity.clone(),
                         consumed_digest: binding.digest.clone(),
                         evidence: locator_for(
-                            &format!("protected-v3-consumed-{ordinal}-{:?}", binding.field),
+                            &format!(
+                                "protected-v3-consumed-{}-{ordinal}-{:?}",
+                                lineage.review_slug, binding.field
+                            ),
                             'c',
                         ),
                     })
@@ -1331,9 +1390,9 @@ mod tests {
                     request_identity: request.request_identity.clone(),
                     request_digest: request.request_digest.clone(),
                     attempt_identity: attempt_identity.clone(),
-                    category: DiagnosticCategoryV2::NoExecutionDefect,
+                    category: lineage.diagnostic,
                     decisive_evidence: locator_for(
-                        &format!("protected-v3-no-defect-{ordinal}"),
+                        &format!("protected-v3-diagnostic-{}-{ordinal}", lineage.review_slug),
                         'd',
                     ),
                 }],
@@ -1342,18 +1401,37 @@ mod tests {
                     request_digest: request.request_digest.clone(),
                     attempt_identity,
                     plan_cell_identity: basis.plan_cell_identity.clone(),
-                    observation: ProtectedCellApplicabilityObservationV3::ApplicableInputsObserved,
+                    observation: if lineage.applicable {
+                        ProtectedCellApplicabilityObservationV3::ApplicableInputsObserved
+                    } else {
+                        ProtectedCellApplicabilityObservationV3::PreResultNonApplicabilityBasisObserved
+                    },
                     decisive_evidence: locator_for(
-                        &format!("protected-v3-applicable-{ordinal}"),
+                        &format!(
+                            "protected-v3-applicability-{}-{ordinal}",
+                            lineage.review_slug
+                        ),
                         'a',
                     ),
                 },
-                protected_outcome: ProtectedResultOutcomeLocatorV1 {
-                    reference: identity(&measurement.measurement_identity),
-                    digest: CanonicalDigestV2::try_from(measurement.measurement_digest.clone())
-                        .expect("measurement digest locator"),
+                protected_outcome: if lineage.carries_measurement() {
+                    ProtectedResultOutcomeLocatorV1 {
+                        reference: identity(&measurement.measurement_identity),
+                        digest: CanonicalDigestV2::try_from(measurement.measurement_digest.clone())
+                            .expect("measurement digest locator"),
+                    }
+                } else {
+                    ProtectedResultOutcomeLocatorV1 {
+                        reference: identity(&format!(
+                            "protected-v3-outcome-{}-{ordinal}",
+                            lineage.review_slug
+                        )),
+                        digest: digest('b'),
+                    }
                 },
-                protected_economic_measurement: Some(measurement),
+                protected_economic_measurement: lineage
+                    .carries_measurement()
+                    .then_some(measurement),
                 time_successor: result_successor.clone(),
             }
         };
@@ -1410,6 +1488,14 @@ mod tests {
             );
             assert_eq!(retry, first);
             assert_eq!(first.result().schema_version, 3);
+            assert_eq!(
+                first.result().diagnostic_category_set,
+                vec![lineage.diagnostic]
+            );
+            assert_eq!(
+                first.result().protected_economic_measurement.is_some(),
+                lineage.carries_measurement()
+            );
             assert_eq!(first.result().plan_cell_identity, member.plan_cell_identity);
             assert_eq!(
                 first.result().request_time_evidence_digest,
@@ -1465,7 +1551,8 @@ mod tests {
         };
         assert_eq!(retry, frontier);
         let mut late = proposal_for(&requests[0], 0, 300);
-        late.attempt_identity = "protected-backtest-late-attempt-v3".to_string();
+        late.attempt_identity =
+            format!("protected-backtest-late-attempt-v3-{}", lineage.review_slug);
         assert!(matches!(
             owner
                 .produce_and_commit_protected_replay_result_v3(

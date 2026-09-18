@@ -6258,21 +6258,32 @@ mod postgres_tests {
         policy
     }
 
-    /// The most recent `ADMITTED` intake whose public status has not reached a terminal phase: no
-    /// protected attempt has closed under it, so the gate's terminal entries can own it.
-    async fn latest_unconsumed_admitted_intake(pool: &PgPool) -> crate::CandidateIntakeReceiptV1 {
+    /// The Candidate lineages the ordered gate's READY entry mints for the protected-evaluation
+    /// terminals, one per terminal because a Candidate reserves holdout and seals one request set
+    /// exactly once.
+    const PROTECTED_TERMINAL_LINEAGES_V1: [&str; 3] =
+        ["economic-pass", "economic-failure", "all-not-applicable"];
+
+    /// The `ADMITTED` intake of one exact gate lineage. Its public status has not reached a
+    /// terminal phase, so this entry owns the lineage's protected attempt.
+    async fn admitted_intake_for_lineage(
+        pool: &PgPool,
+        lineage: &str,
+    ) -> crate::CandidateIntakeReceiptV1 {
         let intake_json: serde_json::Value = sqlx::query_scalar(
             "SELECT receipt.receipt_json \
              FROM public.qualification_candidate_intake_receipts_v1 receipt \
              JOIN public.qualification_public_status_heads_v1 head \
                ON head.review_request_identity=receipt.review_request_identity \
              WHERE receipt.status='ADMITTED' AND head.phase_sequence<3 \
+               AND receipt.review_request_identity LIKE 'qualification-review-' || $1 || '-%' \
              ORDER BY receipt.committed_at_epoch_ms DESC, receipt.review_request_identity DESC \
              LIMIT 1",
         )
+        .bind(lineage)
         .fetch_one(pool)
         .await
-        .expect("prior unconsumed ADMITTED intake");
+        .expect("gate lineage ADMITTED intake");
         decode_intake_receipt_v1(&intake_json).expect("canonical intake")
     }
 
@@ -7195,13 +7206,8 @@ mod postgres_tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires the ordered canonical Owner PostgreSQL gate after an unconsumed ADMITTED successor intake"]
-    async fn protected_replay_request_set_seals_current_members_and_closes_registration() {
-        use crate::protected_replay_request::{
-            ProtectedReplayRequestProposalV1, ProtectedReplayRequestProposalV2,
-        };
-        use vibe_data::owner::sealed_acceptance::issue_protected_evaluation_shared_time_v1;
-
+    #[ignore = "requires the ordered canonical Owner PostgreSQL gate after the READY terminal lineages"]
+    async fn protected_replay_request_sets_seal_every_terminal_lineage_and_close_registration() {
         let qualification_url = std::env::var("QUALIFICATION_TEST_DATABASE_URL")
             .expect("explicit disposable Qualification URL");
         let backtest_url =
@@ -7209,8 +7215,30 @@ mod postgres_tests {
         let owner = PostgresQualificationOwnerV1::connect(&qualification_url)
             .await
             .expect("Qualification topology");
-        let intake = latest_unconsumed_admitted_intake(&owner.pool).await;
-        let source = authority_source_for_intake(&owner, &intake).await;
+        let backtest = PgPool::connect(&backtest_url).await.expect("Backtest pool");
+
+        for lineage in PROTECTED_TERMINAL_LINEAGES_V1 {
+            Box::pin(seal_protected_request_set_for_lineage(
+                &owner, &backtest, lineage,
+            ))
+            .await;
+        }
+    }
+
+    /// Freezes one current request per plan cell of a lineage, seals the complete set with its
+    /// frozen economic policy, and proves the registration fence the seal closes.
+    async fn seal_protected_request_set_for_lineage(
+        owner: &PostgresQualificationOwnerV1,
+        backtest: &PgPool,
+        lineage: &str,
+    ) {
+        use crate::protected_replay_request::{
+            ProtectedReplayRequestProposalV1, ProtectedReplayRequestProposalV2,
+        };
+        use vibe_data::owner::sealed_acceptance::issue_protected_evaluation_shared_time_v1;
+
+        let intake = admitted_intake_for_lineage(&owner.pool, lineage).await;
+        let source = authority_source_for_intake(owner, &intake).await;
         let bindings = chain_protected_bindings(&source);
         let shared_time =
             issue_protected_evaluation_shared_time_v1().expect("sealed acceptance Shared Time");
@@ -7290,7 +7318,7 @@ mod postgres_tests {
         .bind(intake.review_request_identity())
         .fetch_one(&owner.pool)
         .await
-        .expect("successor review public status");
+        .expect("gate lineage review public status");
         assert_eq!(evaluating, (2, "EVALUATING".to_string()));
 
         let policy = chain_economic_policy(&source);
@@ -7421,7 +7449,6 @@ mod postgres_tests {
             Some(std::borrow::Cow::Borrowed("42501"))
         );
 
-        let backtest = PgPool::connect(&backtest_url).await.expect("Backtest pool");
         let mut backtest_transaction = backtest.begin().await.expect("Backtest transaction");
         sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
             .execute(&mut *backtest_transaction)
@@ -7443,12 +7470,8 @@ mod postgres_tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires the ordered canonical Owner PostgreSQL gate after the sealed Backtest attempt frontier"]
-    async fn economic_pass_assessment_commits_qualified_eligibility_once_and_projects_public_status()
-     {
-        use crate::{ProtectedAssessmentStatusV1, ProtectedEligibilityStatusV1};
-        use vibe_data::owner::sealed_acceptance::issue_protected_evaluation_shared_time_v1;
-
+    #[ignore = "requires the ordered canonical Owner PostgreSQL gate after the sealed Backtest attempt frontiers"]
+    async fn protected_assessments_close_every_terminal_once_and_project_public_status() {
         let qualification_url = std::env::var("QUALIFICATION_TEST_DATABASE_URL")
             .expect("explicit disposable Qualification URL");
         let backtest_url =
@@ -7457,34 +7480,79 @@ mod postgres_tests {
             .await
             .expect("Qualification topology");
         let backtest = PgPool::connect(&backtest_url).await.expect("Backtest pool");
-        let (frontier_identity, frontier_digest, receipt_identity, receipt_digest, request_set_identity): (
-            String,
-            String,
-            String,
-            String,
-            String,
-        ) = sqlx::query_as(
-            "SELECT frontier.frontier_identity,frontier.frontier_digest,receipt.receipt_identity,receipt.receipt_digest,frontier.request_set_identity \
+
+        for (lineage, terminal) in [
+            ("economic-pass", ProtectedTerminalV1::Qualified),
+            ("economic-failure", ProtectedTerminalV1::Ineligible),
+            ("all-not-applicable", ProtectedTerminalV1::AssessmentInvalid),
+        ] {
+            Box::pin(close_protected_terminal_for_lineage(
+                &owner, &backtest, lineage, terminal,
+            ))
+            .await;
+        }
+    }
+
+    /// The three protected terminals a complete sealed attempt frontier can close into. Each one
+    /// is the categorical outcome of one frozen census; the caller never chooses it, the sealed
+    /// per-cell evidence does.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum ProtectedTerminalV1 {
+        Qualified,
+        Ineligible,
+        AssessmentInvalid,
+    }
+
+    /// One closed protected terminal, projected onto the fields every terminal shares.
+    struct ClosedProtectedTerminalV1 {
+        assessment_identity: String,
+        assessment_status: &'static str,
+        /// The native fact the public terminal cites: an Eligibility Fact, or the attempt
+        /// disposition when no Eligibility Fact exists.
+        native_source_identity: String,
+        eligibility_identity: Option<String>,
+        public_status: &'static str,
+        outbox_event_kind: &'static str,
+    }
+
+    /// Closes one lineage's complete sealed frontier into its exact terminal, proving the other
+    /// closures are rejected before and after, the commit is retry-exact, and the public terminal
+    /// carries no protected detail.
+    async fn close_protected_terminal_for_lineage(
+        owner: &PostgresQualificationOwnerV1,
+        backtest: &PgPool,
+        lineage: &str,
+        terminal: ProtectedTerminalV1,
+    ) {
+        use crate::{ProtectedAssessmentStatusV1, ProtectedEligibilityStatusV1};
+        use vibe_data::owner::sealed_acceptance::issue_protected_evaluation_shared_time_v1;
+
+        let (
+            frontier_identity,
+            frontier_digest,
+            receipt_identity,
+            receipt_digest,
+            review_request_identity,
+        ): (String, String, String, String, String) = sqlx::query_as(
+            "SELECT frontier.frontier_identity,frontier.frontier_digest,receipt.receipt_identity,receipt.receipt_digest,request_set.review_request_identity \
              FROM public.backtest_protected_replay_attempt_frontiers_v1 frontier \
              JOIN public.backtest_protected_replay_attempt_frontier_receipts_v1 receipt USING(frontier_identity) \
+             JOIN public.qualification_protected_replay_request_sets_v1 request_set \
+               ON request_set.request_set_identity=frontier.request_set_identity \
+              AND request_set.request_set_digest=frontier.request_set_digest \
+             WHERE request_set.review_request_identity LIKE 'qualification-review-' || $1 || '-%' \
              ORDER BY frontier.committed_at_epoch_ms DESC,frontier.frontier_identity DESC LIMIT 1",
         )
-        .fetch_one(&backtest)
+        .bind(lineage)
+        .fetch_one(backtest)
         .await
-        .expect("prior sealed Backtest attempt frontier");
+        .expect("sealed Backtest attempt frontier of this gate lineage");
         let frontier_locator = ProtectedReplayAttemptFrontierLocatorV1 {
             frontier_identity: frontier_identity.clone(),
             frontier_digest: frontier_digest.clone(),
             receipt_identity,
             receipt_digest,
         };
-        let review_request_identity: String = sqlx::query_scalar(
-            "SELECT review_request_identity FROM public.qualification_protected_replay_request_sets_v1 WHERE request_set_identity=$1",
-        )
-        .bind(&request_set_identity)
-        .fetch_one(&owner.pool)
-        .await
-        .expect("sealed request set review request");
         let intake_json: serde_json::Value = sqlx::query_scalar(
             "SELECT receipt_json FROM public.qualification_candidate_intake_receipts_v1 WHERE review_request_identity=$1",
         )
@@ -7493,33 +7561,40 @@ mod postgres_tests {
         .await
         .expect("sealed request set intake");
         let intake = decode_intake_receipt_v1(&intake_json).expect("canonical intake");
-        let source = authority_source_for_intake(&owner, &intake).await;
+        let source = authority_source_for_intake(owner, &intake).await;
         let shared_time =
             issue_protected_evaluation_shared_time_v1().expect("sealed acceptance Shared Time");
-        let assessment_successor = shared_time.assessment_successor();
+        let successor = shared_time.assessment_successor();
 
-        // Every sealed Result carries `NO_EXECUTION_DEFECT` on applicable inputs, so neither the
-        // economic-failure nor the all-not-applicable closure is ready, and neither leaves a row.
-        assert!(
-            owner
-                .close_economic_failure_assessment_v1(&frontier_locator, &assessment_successor)
-                .await
-                .is_err()
-        );
-        assert!(
-            owner
-                .close_all_not_applicable_assessment_v1(&frontier_locator, &assessment_successor)
-                .await
-                .is_err()
-        );
-        let mut stale_locator = frontier_locator.clone();
-        stale_locator.frontier_digest = format!("blake3:{}", "f".repeat(64));
-        assert!(
-            owner
-                .close_economic_pass_assessment_v1(&stale_locator, &assessment_successor)
-                .await
-                .is_err()
-        );
+        // The sealed per-cell evidence admits exactly one terminal: the other two closures reject
+        // this frontier and leave no assessment behind, and no closure accepts a changed frontier
+        // digest.
+        for rejected in [
+            ProtectedTerminalV1::Qualified,
+            ProtectedTerminalV1::Ineligible,
+            ProtectedTerminalV1::AssessmentInvalid,
+        ] {
+            let mut locator = frontier_locator.clone();
+
+            if rejected == terminal {
+                locator.frontier_digest = format!("blake3:{}", "f".repeat(64));
+            }
+            let closed = match rejected {
+                ProtectedTerminalV1::Qualified => owner
+                    .close_economic_pass_assessment_v1(&locator, &successor)
+                    .await
+                    .map(|_| ()),
+                ProtectedTerminalV1::Ineligible => owner
+                    .close_economic_failure_assessment_v1(&locator, &successor)
+                    .await
+                    .map(|_| ()),
+                ProtectedTerminalV1::AssessmentInvalid => owner
+                    .close_all_not_applicable_assessment_v1(&locator, &successor)
+                    .await
+                    .map(|_| ()),
+            };
+            assert!(closed.is_err());
+        }
         let premature: (i64, i64) = sqlx::query_as(
             "SELECT \
              (SELECT count(*) FROM public.qualification_protected_robustness_assessments_v1 WHERE attempt_frontier_identity=$1), \
@@ -7529,50 +7604,153 @@ mod postgres_tests {
         .bind(intake.candidate_identity())
         .fetch_one(&owner.pool)
         .await
-        .expect("no assessment before the passing closure");
+        .expect("no assessment before the admitted closure");
         assert_eq!(premature, (0, 0));
 
-        let first = owner
-            .close_economic_pass_assessment_v1(&frontier_locator, &assessment_successor)
-            .await
-            .expect("economic pass assessment commit");
-        assert_eq!(first.status(), ProtectedEligibilityStatusV1::Qualified);
-        assert_eq!(
-            first.assessment_status(),
-            ProtectedAssessmentStatusV1::CompletePass
-        );
-        assert_eq!(
-            first.qualified_capacity_ceiling(),
-            Some(source.preregistered_capacity_ceiling)
-        );
-        let retry = owner
-            .close_economic_pass_assessment_v1(&frontier_locator, &assessment_successor)
-            .await
-            .expect("economic pass assessment response-loss retry");
-        assert_eq!(retry, first);
-        assert!(
-            owner
-                .close_economic_failure_assessment_v1(&frontier_locator, &assessment_successor)
-                .await
-                .is_err()
-        );
+        let closed = match terminal {
+            ProtectedTerminalV1::Qualified => {
+                let first = owner
+                    .close_economic_pass_assessment_v1(&frontier_locator, &successor)
+                    .await
+                    .expect("economic pass assessment commit");
+                assert_eq!(first.status(), ProtectedEligibilityStatusV1::Qualified);
+                assert_eq!(
+                    first.assessment_status(),
+                    ProtectedAssessmentStatusV1::CompletePass
+                );
+                assert_eq!(
+                    first.qualified_capacity_ceiling(),
+                    Some(source.preregistered_capacity_ceiling)
+                );
+                assert_eq!(
+                    owner
+                        .close_economic_pass_assessment_v1(&frontier_locator, &successor)
+                        .await
+                        .expect("economic pass assessment response-loss retry"),
+                    first
+                );
+                ClosedProtectedTerminalV1 {
+                    assessment_identity: first.assessment_identity().to_string(),
+                    assessment_status: "COMPLETE_PASS",
+                    native_source_identity: first.eligibility_identity().to_string(),
+                    eligibility_identity: Some(first.eligibility_identity().to_string()),
+                    public_status: "QUALIFIED",
+                    outbox_event_kind: "QUALIFICATION_PROTECTED_QUALIFIED_COMMITTED_V1",
+                }
+            }
+            ProtectedTerminalV1::Ineligible => {
+                let first = owner
+                    .close_economic_failure_assessment_v1(&frontier_locator, &successor)
+                    .await
+                    .expect("economic failure assessment commit");
+                assert_eq!(first.status(), ProtectedEligibilityStatusV1::Ineligible);
+                assert_eq!(
+                    first.assessment_status(),
+                    ProtectedAssessmentStatusV1::CompleteFail
+                );
+                assert_eq!(
+                    owner
+                        .close_economic_failure_assessment_v1(&frontier_locator, &successor)
+                        .await
+                        .expect("economic failure assessment response-loss retry"),
+                    first
+                );
+                ClosedProtectedTerminalV1 {
+                    assessment_identity: first.assessment_identity().to_string(),
+                    assessment_status: "COMPLETE_FAIL",
+                    native_source_identity: first.eligibility_identity().to_string(),
+                    eligibility_identity: Some(first.eligibility_identity().to_string()),
+                    public_status: "CLOSED_NOT_QUALIFIED",
+                    outbox_event_kind: "QUALIFICATION_PROTECTED_INELIGIBLE_COMMITTED_V1",
+                }
+            }
+            ProtectedTerminalV1::AssessmentInvalid => {
+                let first = owner
+                    .close_all_not_applicable_assessment_v1(&frontier_locator, &successor)
+                    .await
+                    .expect("all-not-applicable assessment commit");
+                assert_eq!(
+                    first.status(),
+                    ProtectedAssessmentStatusV1::IncompleteInvalid
+                );
+                assert_eq!(
+                    first.holdout_closure_disposition(),
+                    HoldoutClosureDispositionV1::Consumed
+                );
+                assert_eq!(
+                    owner
+                        .close_all_not_applicable_assessment_v1(&frontier_locator, &successor)
+                        .await
+                        .expect("all-not-applicable assessment response-loss retry"),
+                    first
+                );
+                ClosedProtectedTerminalV1 {
+                    assessment_identity: first.assessment_identity().to_string(),
+                    assessment_status: "INCOMPLETE_INVALID",
+                    native_source_identity: first.disposition_identity().to_string(),
+                    eligibility_identity: None,
+                    public_status: "CLOSED_NOT_QUALIFIED",
+                    outbox_event_kind: "QUALIFICATION_PROTECTED_ASSESSMENT_INVALID_COMMITTED_V1",
+                }
+            }
+        };
+
+        // The committed terminal is final for this frontier: a later closure of any kind, this one
+        // included under a different name, cannot reinterpret the frozen census.
+        for rejected in [
+            ProtectedTerminalV1::Qualified,
+            ProtectedTerminalV1::Ineligible,
+            ProtectedTerminalV1::AssessmentInvalid,
+        ] {
+            if rejected == terminal {
+                continue;
+            }
+            let closed = match rejected {
+                ProtectedTerminalV1::Qualified => owner
+                    .close_economic_pass_assessment_v1(&frontier_locator, &successor)
+                    .await
+                    .map(|_| ()),
+                ProtectedTerminalV1::Ineligible => owner
+                    .close_economic_failure_assessment_v1(&frontier_locator, &successor)
+                    .await
+                    .map(|_| ()),
+                ProtectedTerminalV1::AssessmentInvalid => owner
+                    .close_all_not_applicable_assessment_v1(&frontier_locator, &successor)
+                    .await
+                    .map(|_| ()),
+            };
+            assert!(closed.is_err());
+        }
+        let eligibility_rows = i64::from(closed.eligibility_identity.is_some());
         let counts: (i64, i64, i64, i64, i64, i64) = sqlx::query_as(
             "SELECT \
              (SELECT count(*) FROM public.qualification_protected_robustness_assessments_v1 WHERE attempt_frontier_identity=$1), \
-             (SELECT count(*) FROM public.qualification_protected_robustness_assessments_v1 WHERE assessment_identity=$2 AND status='COMPLETE_PASS'), \
-             (SELECT count(*) FROM public.qualification_eligibility_facts_v1 WHERE candidate_identity=$3), \
-             (SELECT count(*) FROM public.qualification_eligibility_facts_v1 WHERE eligibility_identity=$4 AND assessment_identity=$2 AND status='QUALIFIED'), \
-             (SELECT count(*) FROM public.qualification_eligibility_fact_receipts_v1 WHERE eligibility_identity=$4), \
-             (SELECT count(*) FROM public.qualification_owner_outbox_v1 WHERE aggregate_identity=$4 AND event_kind='QUALIFICATION_PROTECTED_QUALIFIED_COMMITTED_V1')",
+             (SELECT count(*) FROM public.qualification_protected_robustness_assessments_v1 WHERE assessment_identity=$2 AND status=$3), \
+             (SELECT count(*) FROM public.qualification_eligibility_facts_v1 WHERE candidate_identity=$4), \
+             (SELECT count(*) FROM public.qualification_eligibility_fact_receipts_v1 eligibility_receipt JOIN public.qualification_eligibility_facts_v1 eligibility USING(eligibility_identity) WHERE eligibility.assessment_identity=$2), \
+             (SELECT count(*) FROM public.qualification_holdout_closures_v2 closure JOIN public.qualification_protected_attempt_dispositions_v2 disposition USING(disposition_identity) WHERE disposition.assessment_identity=$2), \
+             (SELECT count(*) FROM public.qualification_owner_outbox_v1 WHERE aggregate_identity=$5 AND event_kind=$6)",
         )
         .bind(&frontier_identity)
-        .bind(first.assessment_identity())
+        .bind(&closed.assessment_identity)
+        .bind(closed.assessment_status)
         .bind(intake.candidate_identity())
-        .bind(first.eligibility_identity())
+        .bind(&closed.native_source_identity)
+        .bind(closed.outbox_event_kind)
         .fetch_one(&owner.pool)
         .await
-        .expect("QUALIFIED aggregate counts");
-        assert_eq!(counts, (1, 1, 1, 1, 1, 1));
+        .expect("closed terminal aggregate counts");
+        assert_eq!(
+            counts,
+            (
+                1,
+                1,
+                eligibility_rows,
+                eligibility_rows,
+                1 - eligibility_rows,
+                1
+            )
+        );
 
         let public_terminal: serde_json::Value = sqlx::query_scalar(
             "SELECT pg_catalog.jsonb_build_object( \
@@ -7593,14 +7771,14 @@ mod postgres_tests {
         .bind(&review_request_identity)
         .fetch_one(&owner.pool)
         .await
-        .expect("QUALIFIED public terminal custody");
+        .expect("closed public terminal custody");
         assert_eq!(
             public_terminal["fact"]["status"],
-            serde_json::json!("QUALIFIED")
+            serde_json::json!(closed.public_status)
         );
         assert_eq!(
             public_terminal["fact"]["native_source_identity"],
-            serde_json::json!(first.eligibility_identity())
+            serde_json::json!(closed.native_source_identity)
         );
         assert_eq!(
             public_terminal["fact"]["candidate_identity"],
@@ -7609,11 +7787,13 @@ mod postgres_tests {
         let public_bytes = serde_json::to_vec(&public_terminal).expect("public terminal bytes");
 
         for forbidden in [
-            "COMPLETE_PASS",
+            closed.assessment_status,
             "observed_raw",
             "plan_cell",
             "measurement",
             "census",
+            "INELIGIBLE",
+            "ASSESSMENT_INVALID",
         ] {
             assert!(
                 !String::from_utf8_lossy(&public_bytes).contains(forbidden),
@@ -7621,27 +7801,40 @@ mod postgres_tests {
             );
         }
 
-        for statement in [
-            "UPDATE public.qualification_eligibility_facts_v1 SET eligibility_json=eligibility_json WHERE eligibility_identity=$1",
-            "UPDATE public.qualification_eligibility_fact_receipts_v1 SET receipt_json=receipt_json WHERE eligibility_identity=$1",
-            "DELETE FROM public.qualification_eligibility_facts_v1 WHERE eligibility_identity=$1",
-        ] {
-            let error = sqlx::query(statement)
-                .bind(first.eligibility_identity())
-                .execute(&owner.pool)
-                .await
-                .expect_err("runtime writer cannot tamper append-only Eligibility custody");
-            assert_eq!(
-                error.as_database_error().and_then(|value| value.code()),
-                Some(std::borrow::Cow::Borrowed("42501"))
-            );
+        if let Some(eligibility_identity) = &closed.eligibility_identity {
+            for statement in [
+                "UPDATE public.qualification_eligibility_facts_v1 SET eligibility_json=eligibility_json WHERE eligibility_identity=$1",
+                "UPDATE public.qualification_eligibility_fact_receipts_v1 SET receipt_json=receipt_json WHERE eligibility_identity=$1",
+                "DELETE FROM public.qualification_eligibility_facts_v1 WHERE eligibility_identity=$1",
+            ] {
+                let error = sqlx::query(statement)
+                    .bind(eligibility_identity)
+                    .execute(&owner.pool)
+                    .await
+                    .expect_err("runtime writer cannot tamper append-only Eligibility custody");
+                assert_eq!(
+                    error.as_database_error().and_then(|value| value.code()),
+                    Some(std::borrow::Cow::Borrowed("42501"))
+                );
+            }
         }
         let error = sqlx::query(
-            "SELECT eligibility_identity FROM public.qualification_eligibility_facts_v1 LIMIT 1",
+            "UPDATE public.qualification_protected_robustness_assessments_v1 SET assessment_json=assessment_json WHERE assessment_identity=$1",
         )
-        .execute(&backtest)
+        .bind(&closed.assessment_identity)
+        .execute(&owner.pool)
         .await
-        .expect_err("Backtest cannot read Qualification Eligibility custody");
+        .expect_err("runtime writer cannot tamper append-only assessment custody");
+        assert_eq!(
+            error.as_database_error().and_then(|value| value.code()),
+            Some(std::borrow::Cow::Borrowed("42501"))
+        );
+        let error = sqlx::query(
+            "SELECT assessment_identity FROM public.qualification_protected_robustness_assessments_v1 LIMIT 1",
+        )
+        .execute(backtest)
+        .await
+        .expect_err("Backtest cannot read Qualification assessment custody");
         assert_eq!(
             error.as_database_error().and_then(|value| value.code()),
             Some(std::borrow::Cow::Borrowed("42501"))
