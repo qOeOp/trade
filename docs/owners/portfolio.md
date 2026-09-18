@@ -81,17 +81,20 @@ permission by itself. The rows marked `IMPLEMENTATION_ADMITTED` below are the on
 entries passing on Linux, and a production path that depends on no testkit or acceptance feature; every other row
 grants nothing, and widening the admitted set requires changing this document first.
 
-- **CURRENT_PARTIAL / IMPLEMENTATION_ADMITTED - Capacity Scope contract:** `crates/portfolio/src/owner/capacity_scope.rs` declares its maturity
-  as `Discovery`. The public `resolve_capacity_scope` accepts an untrusted request and returns a structured
-  unavailable readback, while the sealed `BoundCapacityScopeReadback` can be minted only by a private
-  complete-registry path that has no production resolver. `crates/portfolio/tests/capacity_scope_contract.rs`
-  proves the fail-closed shape. Admitted slice: the private complete-registry resolver over PostgreSQL custody that
-  alone seals `BoundCapacityScopeReadback` for one account, one `PAPER` mode, and one economic pool, plus the `BOUND`
-  readback handed to Strategy Governance.
-- **CURRENT_PARTIAL - Portfolio View R0 contract:** `crates/portfolio/src/owner/portfolio_view.rs` owns the request
+- **CURRENT_PARTIAL / IMPLEMENTATION_ADMITTED - Capacity Scope contract:**
+  `crates/portfolio_owner/src/capacity_scope.rs` owns the untrusted request vocabulary, the complete-registry
+  resolution rule, and the sealed `BoundCapacityScopeReadback` that only that rule can mint; the public
+  `resolve_capacity_scope` stays the fail-closed `Discovery` boundary.
+  `crates/portfolio_owner/src/capacity_scope_postgres.rs` is the production Owner store: PostgreSQL custody under
+  `portfolio_private` holding the append-only registry of complete membership censuses, its head, the sealed
+  readbacks, and the read-only `portfolio_api` function Strategy Governance resolves a `BOUND` scope through. A cut
+  is immutable once committed and recommitting the same census joins the current head. Its `#[ignore]` proof runs
+  against the canonical Owner PostgreSQL topology. No deployed binary composes it yet, so it holds no production
+  composition root or reachable consumer.
+- **CURRENT_PARTIAL - Portfolio View R0 contract:** `crates/portfolio_owner/src/portfolio_view.rs` owns the request
   fingerprint, replay classification, per-source-Owner dependency kinds, and the fail-closed `resolve_portfolio_view`
   that returns an `UnavailablePortfolioView`; no positive source resolver exists.
-  `crates/portfolio/tests/portfolio_view_contract.rs` proves it. The `portfolio:view` resource grant in
+  `crates/portfolio_owner/tests/portfolio_view_contract.rs` proves it. The `portfolio:view` resource grant in
   `crates/operator_authorization` resolves through the Operator Authorization Issuer PostgreSQL custody, but no
   Product Edge route serves a Portfolio View.
 - **TARGET - Account State, Exposure, Performance Receipt, and Exposure Receipt:** the inherited `Portfolio` in

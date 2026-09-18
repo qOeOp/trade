@@ -1,5 +1,5 @@
 use rstest::rstest;
-use vibe_portfolio::owner::capacity_scope::{
+use vibe_portfolio_owner::capacity_scope::{
     CAPACITY_SCOPE_SCHEMA_VERSION, CapacityScopeFailure, CapacityScopeMaturity, CapacityScopeMode,
     CapacityScopeResolution, UntrustedCapacityScopeRequest, resolve_capacity_scope,
 };

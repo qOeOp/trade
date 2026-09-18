@@ -9,12 +9,13 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use super::portfolio_view::sha256_hex;
+use crate::sha256_hex;
 
 const REQUEST_DIGEST_DOMAIN: &[u8] = b"vibe.portfolio.capacity-scope.request.v1\0";
 const SCOPE_IDENTITY_DOMAIN: &[u8] = b"vibe.portfolio.capacity-scope.identity.v1\0";
 const REGISTRY_CUT_DOMAIN: &[u8] = b"vibe.portfolio.capacity-scope.registry-cut.v1\0";
 const MEMBERSHIP_PROOF_DOMAIN: &[u8] = b"vibe.portfolio.capacity-scope.membership-proof.v1\0";
+const CENSUS_IDENTITY_DOMAIN: &[u8] = b"vibe.portfolio.capacity-scope.census.v1\0";
 
 /// Schema version for the Portfolio Capacity Scope contract.
 pub const CAPACITY_SCOPE_SCHEMA_VERSION: u32 = 1;
@@ -43,6 +44,8 @@ pub enum CapacityScopeState {
 pub enum CapacityScopeMaturity {
     /// Static owner contract without production composition or consumer acceptance.
     Discovery,
+    /// Owner-local PostgreSQL custody is composed; no deployed consumer reads it yet.
+    OwnerCustody,
 }
 
 /// Exact identity coordinate checked against Portfolio's private registry cut.
@@ -196,21 +199,21 @@ impl UnavailableCapacityScopeReadback {
 /// A caller cannot mint it from a grant, DTO, fixture, or self-report.
 ///
 /// ```compile_fail
-/// use vibe_portfolio::owner::capacity_scope::BoundCapacityScopeReadback;
+/// use vibe_portfolio_owner::capacity_scope::BoundCapacityScopeReadback;
 ///
 /// let forged = BoundCapacityScopeReadback {};
 /// ```
 ///
 /// ```compile_fail
 /// use serde::Deserialize;
-/// use vibe_portfolio::owner::capacity_scope::BoundCapacityScopeReadback;
+/// use vibe_portfolio_owner::capacity_scope::BoundCapacityScopeReadback;
 ///
 /// fn require_deserialize<T: for<'de> Deserialize<'de>>() {}
 /// require_deserialize::<BoundCapacityScopeReadback>();
 /// ```
 ///
 /// ```compile_fail
-/// use vibe_portfolio::owner::capacity_scope::BoundCapacityScopeReadback;
+/// use vibe_portfolio_owner::capacity_scope::BoundCapacityScopeReadback;
 ///
 /// let forged = BoundCapacityScopeReadback::default();
 /// ```
@@ -350,47 +353,54 @@ pub enum CapacityScopeResolution {
 pub fn resolve_capacity_scope(request: &UntrustedCapacityScopeRequest) -> CapacityScopeResolution {
     let mut failures = validate_request(request);
     failures.push(CapacityScopeFailure::OwnerResolveUnavailable);
-    CapacityScopeResolution::Unavailable(UnavailableCapacityScopeReadback {
+    CapacityScopeResolution::Unavailable(unavailable_readback(request, failures))
+}
+
+/// Builds the structured fail-closed response the Owner returns when it withholds a `BOUND` scope.
+pub(crate) fn unavailable_readback(
+    request: &UntrustedCapacityScopeRequest,
+    failures: Vec<CapacityScopeFailure>,
+) -> UnavailableCapacityScopeReadback {
+    UnavailableCapacityScopeReadback {
         schema_version: CAPACITY_SCOPE_SCHEMA_VERSION,
         fingerprint: request.fingerprint(),
         maturity: CapacityScopeMaturity::Discovery,
         failures,
-    })
+    }
 }
 
-#[allow(
-    dead_code,
-    reason = "Unknown is a required fail-closed Owner state before production composition exists"
-)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum OwnerMembershipCompleteness {
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum OwnerMembershipCompleteness {
     Complete,
     Unknown,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct OwnerCapacityScopeDefinition {
-    account_namespace: String,
-    mode: CapacityScopeMode,
-    economic_pool_identity: String,
-    source_binding_identity: String,
-    adapter_binding_identity: String,
-    shared_constraint_identities: Vec<String>,
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct OwnerCapacityScopeDefinition {
+    pub(crate) account_namespace: String,
+    pub(crate) mode: CapacityScopeMode,
+    pub(crate) economic_pool_identity: String,
+    pub(crate) source_binding_identity: String,
+    pub(crate) adapter_binding_identity: String,
+    pub(crate) shared_constraint_identities: Vec<String>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct OwnerCapacityScopeRegistryCut {
-    completeness: OwnerMembershipCompleteness,
-    proof_frontier_identity: String,
-    proof_frontier_sequence: u64,
-    observed_at_epoch_ms: u64,
-    valid_through_epoch_ms: u64,
-    definitions: Vec<OwnerCapacityScopeDefinition>,
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct OwnerCapacityScopeRegistryCut {
+    pub(crate) completeness: OwnerMembershipCompleteness,
+    pub(crate) proof_frontier_identity: String,
+    pub(crate) proof_frontier_sequence: u64,
+    pub(crate) observed_at_epoch_ms: u64,
+    pub(crate) valid_through_epoch_ms: u64,
+    pub(crate) definitions: Vec<OwnerCapacityScopeDefinition>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct OwnerCapacityScopeDecisionTime {
-    projection_at_epoch_ms: u64,
+pub(crate) struct OwnerCapacityScopeDecisionTime {
+    pub(crate) projection_at_epoch_ms: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -401,11 +411,7 @@ struct CanonicalOwnerBinding<'a> {
     membership_proof_identity: String,
 }
 
-#[allow(
-    dead_code,
-    reason = "Discovery defines the crate-private owner path before production composition exists"
-)]
-fn issue_bound_capacity_scope(
+pub(crate) fn issue_bound_capacity_scope(
     request: &UntrustedCapacityScopeRequest,
     registry: &OwnerCapacityScopeRegistryCut,
     decision_time: OwnerCapacityScopeDecisionTime,
@@ -460,7 +466,7 @@ fn issue_bound_capacity_scope(
         schema_version: CAPACITY_SCOPE_SCHEMA_VERSION,
         fingerprint: request.fingerprint(),
         state: CapacityScopeState::Bound,
-        maturity: CapacityScopeMaturity::Discovery,
+        maturity: CapacityScopeMaturity::OwnerCustody,
         capacity_scope_identity: binding.capacity_scope_identity,
         account_namespace: binding.definition.account_namespace.clone(),
         mode: binding.definition.mode,
@@ -504,7 +510,7 @@ fn canonical_owner_binding<'a>(
     })
 }
 
-fn validate_registry(
+pub(crate) fn validate_registry(
     registry: &OwnerCapacityScopeRegistryCut,
     projection_at_epoch_ms: u64,
 ) -> Result<(), CapacityScopeFailure> {
@@ -642,7 +648,7 @@ fn validate_request(request: &UntrustedCapacityScopeRequest) -> Vec<CapacityScop
     failures
 }
 
-fn derive_scope_identity(definition: &OwnerCapacityScopeDefinition) -> String {
+pub(crate) fn derive_scope_identity(definition: &OwnerCapacityScopeDefinition) -> String {
     let mut encoder = CanonicalEncoder::default();
     encoder.bytes(SCOPE_IDENTITY_DOMAIN);
     encoder.string(&definition.account_namespace);
@@ -651,7 +657,7 @@ fn derive_scope_identity(definition: &OwnerCapacityScopeDefinition) -> String {
     format!("sha256:{}", sha256_hex(&encoder.finish()))
 }
 
-fn derive_registry_cut_identity(registry: &OwnerCapacityScopeRegistryCut) -> String {
+pub(crate) fn derive_registry_cut_identity(registry: &OwnerCapacityScopeRegistryCut) -> String {
     let mut encoder = CanonicalEncoder::default();
     encoder.bytes(REGISTRY_CUT_DOMAIN);
     encode_registry_header(&mut encoder, registry);
@@ -661,7 +667,28 @@ fn derive_registry_cut_identity(registry: &OwnerCapacityScopeRegistryCut) -> Str
     format!("sha256:{}", sha256_hex(&encoder.finish()))
 }
 
-fn derive_membership_proof_identity(registry: &OwnerCapacityScopeRegistryCut) -> String {
+/// Identity of the census a cut declares: its complete definition set and validity bound only.
+///
+/// Unlike the cut and membership-proof identities, this deliberately excludes the Owner's own
+/// frontier coordinates and observation time, so recommitting the exact same deployment census
+/// joins the current head instead of appending a second cut that means the same thing.
+pub(crate) fn derive_census_identity(registry: &OwnerCapacityScopeRegistryCut) -> String {
+    let mut encoder = CanonicalEncoder::default();
+    encoder.bytes(CENSUS_IDENTITY_DOMAIN);
+    encoder.u8(match registry.completeness {
+        OwnerMembershipCompleteness::Complete => 1,
+        OwnerMembershipCompleteness::Unknown => 2,
+    });
+    encoder.u64(registry.valid_through_epoch_ms);
+    encoder.u64(registry.definitions.len() as u64);
+
+    for definition in canonical_definitions(registry) {
+        encode_definition(&mut encoder, definition);
+    }
+    format!("sha256:{}", sha256_hex(&encoder.finish()))
+}
+
+pub(crate) fn derive_membership_proof_identity(registry: &OwnerCapacityScopeRegistryCut) -> String {
     let mut encoder = CanonicalEncoder::default();
     encoder.bytes(MEMBERSHIP_PROOF_DOMAIN);
     encode_registry_header(&mut encoder, registry);
@@ -872,7 +899,7 @@ mod tests {
             panic!("complete current Owner registry should bind the exact scope");
         };
         assert_eq!(readback.state(), CapacityScopeState::Bound);
-        assert_eq!(readback.maturity(), CapacityScopeMaturity::Discovery);
+        assert_eq!(readback.maturity(), CapacityScopeMaturity::OwnerCustody);
         assert_eq!(readback.account_namespace(), "account-alpha");
         assert_eq!(readback.mode(), CapacityScopeMode::Paper);
         assert_eq!(readback.economic_pool_identity(), "economic-pool-alpha");

@@ -74,15 +74,16 @@ source-frontier 与 Time Evidence common cut 上取得原生来源事实支持�
 2026-09-18 作为有界、可单独评审的工作准入，其验收是一次性 PostgreSQL 证明、有序链路条目在 Linux 上通过，以及不依赖
 testkit 或 acceptance feature 的生产路径；其余各行不授予任何东西，扩大准入集必须先修改本文档。
 
-- **CURRENT_PARTIAL / IMPLEMENTATION_ADMITTED - Capacity Scope 契约：** `crates/portfolio/src/owner/capacity_scope.rs` 把自身成熟度声明为
-  `Discovery`。公开的 `resolve_capacity_scope` 接受不可信请求并返回结构化的不可用回读，而 sealed 的
-  `BoundCapacityScopeReadback` 只能由一条没有生产 resolver 的私有完整注册表路径铸造。
-  `crates/portfolio/tests/capacity_scope_contract.rs` 证明了这一失败关闭形状。已准入切片：基于 PostgreSQL custody 的
-  私有完整注册表 resolver，它独自为一个账户、一个 `PAPER` 模式与一个经济池铸造 `BoundCapacityScopeReadback`，以及交给
-  Strategy Governance 的 `BOUND` 回读。
-- **CURRENT_PARTIAL - Portfolio View R0 契约：** `crates/portfolio/src/owner/portfolio_view.rs` 拥有请求指纹、重放
+- **CURRENT_PARTIAL / IMPLEMENTATION_ADMITTED - Capacity Scope 契约：**
+  `crates/portfolio_owner/src/capacity_scope.rs` 拥有不可信请求词汇、完整注册表解析规则，以及只有该规则能铸造的 sealed
+  `BoundCapacityScopeReadback`；公开的 `resolve_capacity_scope` 仍是失败关闭的 `Discovery` 边界。
+  `crates/portfolio_owner/src/capacity_scope_postgres.rs` 是生产 Owner store：`portfolio_private` 下的 PostgreSQL
+  custody，保存只追加的完整成员普查注册表、其 head、密封回读，以及 Strategy Governance 解析 `BOUND` scope 所经的只读
+  `portfolio_api` 函数。一个 cut 一经提交即不可变，重复提交同一普查只加入当前 head。它的 `#[ignore]` 证明对着 canonical
+  Owner PostgreSQL 拓扑运行。尚无已部署二进制装配它，所以它没有生产装配根或可触达的消费者。
+- **CURRENT_PARTIAL - Portfolio View R0 契约：** `crates/portfolio_owner/src/portfolio_view.rs` 拥有请求指纹、重放
   分类、按来源 Owner 划分的依赖种类，以及返回 `UnavailablePortfolioView` 的失败关闭 `resolve_portfolio_view`；
-  不存在正向来源 resolver。`crates/portfolio/tests/portfolio_view_contract.rs` 证明了它。
+  不存在正向来源 resolver。`crates/portfolio_owner/tests/portfolio_view_contract.rs` 证明了它。
   `crates/operator_authorization` 里的 `portfolio:view` 资源授权经 Operator Authorization Issuer 的 PostgreSQL
   custody 解析，但没有任何 Product Edge 路由提供 Portfolio View。
 - **TARGET - Account State、Exposure、Performance Receipt 与 Exposure Receipt：** `crates/portfolio/src/portfolio.rs`
