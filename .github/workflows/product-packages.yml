@@ -52,7 +52,7 @@ jobs:
         env:
           POSTGRES_PASSWORD: dashboard
         ports:
-          - 127.0.0.1:5432:5432
+          - 5432:5432
         options: >-
           --health-cmd "pg_isready -U postgres"
           --health-interval 2s
@@ -60,8 +60,11 @@ jobs:
           --health-retries 30
     env:
       DASHBOARD_SUITE_POSTGRES: postgresql://postgres:dashboard@127.0.0.1:5432
-      DASHBOARD_BROWSER_ROOT: ${{ runner.temp }}/dashboard-browser-acceptance-chrome
-      DASHBOARD_BROWSER_EXECUTABLE: ${{ runner.temp }}/dashboard-browser-acceptance-chrome/chrome-linux64/chrome
+      # A literal path outside the workspace: `runner.temp` is a step context and naming it in a
+      # job's env makes the workflow invalid, while unpacking a browser into the checkout would
+      # leave the tree dirty, which the browser acceptances refuse to run against.
+      DASHBOARD_BROWSER_ROOT: /tmp/dashboard-browser-acceptance-chrome
+      DASHBOARD_BROWSER_EXECUTABLE: /tmp/dashboard-browser-acceptance-chrome/chrome-linux64/chrome
     steps:
       - name: Harden runner
         # https://github.com/step-security/harden-runner
