@@ -10,6 +10,59 @@ readonly market_data_owner_postgres_tests=(
   owner::postgres::live_market_stream_v1::tests::postgres_live_channel_head_resumes_and_is_acl_sealed_and_tamper_closed
 )
 
+# The ordered chain refuses a guarded crate whose test SQL is destructive without dedicated-database
+# admission, and it refuses it statically, before a single test runs. This runner provisions its own
+# database per proof, so it never needed that admission and never looked for it either: a proof can
+# be green here and stop the chain leg an hour later in the queue. Ask the same question first.
+#
+# The rule is mirrored rather than imported because `scripts/ci/test-rd-owner-postgres.bash` belongs
+# to the platform lane and pins its own source by line number. If the two ever disagree, the chain
+# is authority and this copy is the stale one.
+check_destructive_sql_admission() {
+  python3 - "$repository_root" << 'PRECHECK'
+from pathlib import Path
+import re
+import sys
+
+destructive = re.compile(
+    r'["\']\s*(?:DROP\s+(?:TABLE|SCHEMA|DATABASE)|TRUNCATE\s+TABLE|DELETE\s+FROM)\b',
+    re.I,
+)
+guards = ("DedicatedPostgresTestDatabase", "CanonicalOwnerPostgresTestDatabaseV1")
+legacy = {
+    "crates/data/src/owner/postgres/sample_projection_v4.rs",
+    "crates/data/src/owner/postgres/tests.rs",
+}
+root = Path(sys.argv[1])
+failures = []
+
+for path in (root / "crates" / "data").rglob("*.rs"):
+    relative = path.relative_to(root).as_posix()
+    text = path.read_text(encoding="utf-8")
+    if not destructive.search(text) or relative in legacy:
+        continue
+    if not any(guard in text for guard in guards) or ".mutation()" not in text:
+        failures.append(relative)
+
+if failures:
+    print(
+        "ERROR: destructive PostgreSQL test SQL lacks dedicated-database admission:",
+        file=sys.stderr,
+    )
+    for failure in failures:
+        print(f"  {failure}", file=sys.stderr)
+    print(
+        "  the ordered chain refuses this before it runs anything; "
+        "assert privileges with has_table_privilege instead of issuing the statement",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+PRECHECK
+}
+
+repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+check_destructive_sql_admission
+
 container="vibe-md-d1-${PPID}-$$"
 database_prefix="vibe_test_market_data_${PPID}_$$"
 marker_prefix="md-d1-${PPID}-$$"
