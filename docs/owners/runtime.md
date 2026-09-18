@@ -39,6 +39,32 @@ Checkpoint and readiness persistence are internal Runtime concerns rather than a
 authority. Their implementation may change as long as restart joins the same identities and preserves the facts
 above.
 
+## Implementation status ledger
+
+This ledger records only what the repository has reached at this cut. It uses the status vocabulary of the
+[Market Data](./market-data/) ledger, with `CURRENT_PARTIAL` as the merged-but-unreachable form, and grants no
+permission by itself: no slice of this document is `IMPLEMENTATION_ADMITTED`, and widening the admitted set
+requires changing this document first.
+
+- **CURRENT_PARTIAL - fail-closed foundation:** `crates/runtime/src/lib.rs` exposes `RuntimeFoundation`, whose only
+  status is `NotReady`, the four exact revalidation dependencies (a Governance authorized-generation-decision read
+  port, canonical Runtime custody, an Artifact compatibility recovery read port, and the Execution recovery-frontier
+  read port), and one query-only observation of Execution's sealed `PAPER` recovery frontier that cannot change the
+  status. `crates/runtime/tests/readiness_consumer.rs` proves it; no crate outside `crates/runtime` consumes it.
+- **TARGET - Strategy Instance:** no Runtime custody creates, restores, or applies an instance. The shared kernel
+  `ProgramHost` in `crates/strategy_factory` runs only under Backtest replay; the inherited strategy and actor engine
+  in `crates/trading` and the kernel and live-node composition in `crates/system` and `crates/live` are the
+  migration sources named by capability adoption and hold no Runtime Owner fact.
+- **TARGET - Generation Application Receipt, Trade Intent, Runtime Readiness Fact, Runtime Incident Fact, and
+  Runtime Kernel Repair Result:** no type, custody, or writer exists. The foundation's `NOT_READY` is a static
+  status projection, not a committed Readiness Fact bound to a generation, checkpoint, scope, and `valid-through`.
+- **TARGET - Readiness Gate and checkpoint persistence:** nothing persists a checkpoint or publishes readiness to
+  Risk and Execution.
+- **TARGET - input and output handoffs:** no port reaches a Governance decision, live Market Data facts, a Risk
+  decision, an Execution command or readback, an R&D repair request, or Event Rail.
+- Paper and Live equivalence stays **TARGET / NOT_ADMITTED** as stated under the shared strategy lifecycle
+  contract below; no Paper or Live Execution adapter is bound to Runtime.
+
 ## Shared strategy lifecycle contract
 
 Runtime may apply only the exact [StrategyDesignV2 shared-kernel path](../architecture/strategy-factory#strategy-design-v2-shared-lifecycle-kernel)

@@ -49,6 +49,35 @@
 - **Reconciler** - 拥有 Recovery Case 状态与有界 Recovery Command，比较效果与权威回读，联结闭合
   证据，并独占不可变 `KNOWN_CLOSED` 且不恢复交易。
 
+## 实现状态台账
+
+本台账只记录仓库在本截面实际到达的状态。它沿用 [Market Data](./market-data/) 台账的状态词汇，并以
+`CURRENT_PARTIAL` 表示已合并但不可触达的形态；台账本身不授予任何许可。下文标为 `IMPLEMENTATION_ADMITTED` 的行是仅有的已准入切片，均于
+2026-09-18 作为有界、可单独评审的工作准入，其验收是一次性 PostgreSQL 证明、有序链路条目在 Linux 上通过，以及不依赖
+testkit 或 acceptance feature 的生产路径；其余各行不授予任何东西，扩大准入集必须先修改本文档。
+
+- **CURRENT_PARTIAL / IMPLEMENTATION_ADMITTED - `PAPER` Execution Adapter Binding 契约：** `crates/execution/src/adapter_binding.rs` 拥有不可信的
+  binding 词汇、`PAPER` 账户与效果命名空间派生、sealed 的 `AdmittedPaperAdapterBinding` 回读，以及唯一能铸造它的
+  `PaperAdapterBindingReadPort`。正向 Owner store 只在 `#[cfg(test)]` 下存在，所以生产侧没有装配根、持久 custody、
+  调用面或 credential 访问。已准入切片：基于 PostgreSQL custody 的生产 Owner store、在一个 `PAPER` Execution Scope 下
+  准入一个 `crates/adapters/sandbox` 模拟适配器 binding，以及交给 Strategy Governance 的 `ADMITTED` 回读。`LIVE`
+  binding 仍为 **TARGET / NOT_ADMITTED**。
+- **CURRENT_PARTIAL - `PAPER` recovery-frontier 读契约：** `crates/execution/src/recovery_frontier.rs` 暴露只读的
+  `RecoveryFrontierReadPort` 及其 sealed `SealedRecoveryFrontier`，由 Runtime foundation 消费；其背后没有生产
+  custody，也没有 Runtime application。
+- **TARGET - Order Engine、Effect Journal 与绑定许可的 adapter 准入：** 继承的 `ExecutionEngine`、order manager、
+  order emulator、execution client，以及 `crates/adapters` 下的场所 execution client 是 capability adoption 点名的
+  迁移来源。不存在 `PREPARED` 或 `INVOCATION_STARTED` 记录、Reservation Claim Request 或 `ADAPTER_ADMISSION_REQUEST`，
+  也没有任何命令对照 Risk 许可或 fence 校验。
+- **TARGET - 模拟 Execution Adapter：** 继承的 matching engine、Backtest `SimulatedExchange` 与 `crates/adapters/sandbox`
+  能模拟场所，但没有绑定到 Execution Scope 或 `PAPER` 命名空间。
+- **TARGET - Reconciler、Reconciliation Drift Fact、Recovery Admission Disposition、Recovery Case、Recovery Effect
+  Attempt 与 `KNOWN_CLOSED`：** 继承的 `crates/execution/src/reconciliation` 函数把引擎状态与场所报告对齐，是迁移
+  来源；不存在 drift fact、disposition、case、command 或闭合。
+- **TARGET - Execution Quality Observation 与 Effect Closure View：** 不存在类型或 custody。
+- **TARGET - 交接与持久化：** 没有通向 Runtime、Risk、Portfolio、Governance 或 R&D 的 port，也没有任何 Execution
+  事实的持久关系。
+
 ## 输入交接
 
 - [Runtime](./runtime/) 发送 Authorized Order Command。新增风险命令绑定同一 Risk Decision 与
