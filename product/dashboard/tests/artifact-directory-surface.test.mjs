@@ -98,7 +98,7 @@ test("bilingual Artifact directory contract fixes layout, fields and no-effect b
       "ArtifactDirectory", "/rd/artifacts", "PanelFrame", "Refresh", "Build history", "Current artifacts", "search",
       "Artifact", "Strategy intent", "Verification", "Created", "Outcome", "Recorded", "20", "60",
       "prepared_at_epoch_ms", "build_request_identity", "Load older", "partial",
-      "unavailable", "POINT_READ_REQUIRED", "/v1/historical-custodies", "WASM_PREVIEW_NOT_RUN", "Windmill",
+      "unavailable", "POINT_READ_REQUIRED", "/v1/historical-custodies", "WASM_PREVIEW_NOT_RUN", "effect worker",
       "research", "build", "families", "requests", "reviewable", "attempts", "bindings",
       "/api/rd/artifacts/review-inventory", "reviewable | unavailable", "All attempts",
       "/rd/artifacts/?availability=reviewable", "/rd/artifacts/?kind=bindings",

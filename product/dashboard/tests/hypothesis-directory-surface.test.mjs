@@ -47,7 +47,7 @@ test("bilingual Hypotheses contract preserves question custody without inventing
     const end = document.indexOf("\n## ", start + heading.length);
     assert.ok(start >= 0 && end > start, `${suffix || "en"} hypothesis contract missing`);
     const contract = document.slice(start, end);
-    for (const token of ["rd.research_question_directory.read.v1", "HypothesisDirectory", "ResearchQuestionBrief", "Iteration Decision", "Windmill", "effect routing"]) {
+    for (const token of ["rd.research_question_directory.read.v1", "HypothesisDirectory", "ResearchQuestionBrief", "Iteration Decision", "effect routing"]) {
       assert.ok(contract.includes(token), `${suffix || "en"} missing ${token}`);
     }
   }

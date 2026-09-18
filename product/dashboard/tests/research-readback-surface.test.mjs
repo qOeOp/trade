@@ -82,7 +82,7 @@ test("bilingual Research detail contract closes geometry and the Authorization B
       "/rd/research/{requestIdentity}", "PanelFrame", "FactGroup", "Result", "Strategy", "Timing",
       "Back to requests", "Refresh", suffix ? "技术" : "technical", "unavailable", "SUBMITTED_OR_UNKNOWN",
       "GET", "research_goal.shadow_resolve.v1", "ActionAdmissionGate", "PREFLIGHTING", "ADMITTING",
-      "Resolve", "Windmill", "Owner", "write", "trading",
+      "Resolve", "Product Edge binding", "Owner", "write", "trading",
       "Needs current review", "Raw outcome", "Raw reason",
       "hypothesis", "falsification_question", "expected_observation", "semantic_digest", "committed_at_epoch_ms",
     ]) assert.ok(specification.includes(token), `${suffix || "en"} missing ${token}`);

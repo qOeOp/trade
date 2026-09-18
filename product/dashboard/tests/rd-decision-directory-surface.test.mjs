@@ -47,7 +47,7 @@ test("bilingual Decisions contract fixes the zero-family and no-effect boundarie
     const contract = document.slice(start, end);
     for (const token of [
       "RdDecisionDirectory", "DataWorkspaceTable", "ResearchQuestionBrief", suffix ? "零 family" : "zero-family",
-      "Open research record", "Windmill", "effect routing",
+      "Open research record", "effect worker", "effect routing",
     ]) assert.ok(contract.includes(token), `${suffix || "en"} missing ${token}`);
   }
 });

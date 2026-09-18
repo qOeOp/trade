@@ -295,7 +295,7 @@ test("bilingual Replay request contract fixes filtered zero-effect geometry", as
       "Result identity", "Attempt identity", "Open result", "Lucide",
       "/v2/exploratory-replay-requests/readback?request_identity={request_identity}&meaning_digest={meaning_digest}",
       "/v2/exploratory-replay-results/{result_identity}?request_identity={request_identity}&attempt_identity={attempt_identity}",
-      "Run", "Resolve", "provider", "Windmill",
+      "Run", "Resolve", "provider", "executor cutover",
     ]) assert.ok(specification.includes(token), `${suffix || "en"} missing ${token}`);
   }
 });

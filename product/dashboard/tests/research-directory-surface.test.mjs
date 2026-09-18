@@ -126,7 +126,7 @@ test("bilingual Research directory contract fixes layout, fields and no-effect b
       "ResearchDirectory", "/rd/research", "PanelFrame", "Refresh", "Research history", "Current intents", "search",
       "Research request", "State", "Intent", "Updated", "20", "60",
       "committed_at_epoch_ms", "request_identity", "Load older", "partial",
-      "unavailable", "POINT_READ_REQUIRED", "/v1/historical-custodies", "Submit", "Resolve", "Windmill",
+      "unavailable", "POINT_READ_REQUIRED", "/v1/historical-custodies", "Submit", "Resolve", "Product Edge binding",
       "research", "build", "families", "results ready", "waiting", "requests", "attempts", "bindings",
       "/rd/research/?outcome=ready", "/rd/research/?outcome=awaiting", "/rd/artifacts/",
       "/rd/artifacts/?kind=bindings",

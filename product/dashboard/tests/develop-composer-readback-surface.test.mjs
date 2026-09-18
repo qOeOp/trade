@@ -47,7 +47,7 @@ test("bilingual Composer contract fixes compact geometry and the zero-effect bou
       "DevelopComposerReadbackWorkbench", "/rd/composer", "PanelFrame", "Request identity",
       "Open readback", "Refresh", "Request", "Custody", "Artifact", "SUCCESS", "unavailable",
       "Lucide", "/v2/develop-composer/runs/{request_identity}/readback", "Run", "Resolve", "Edit",
-      "Wasm", "provider", "Windmill",
+      "Wasm", "provider", "effect worker",
     ]) assert.ok(specification.includes(token), `${suffix || "en"} missing ${token}`);
   }
 });

@@ -48,7 +48,7 @@ test("bilingual Source Intake contract fixes compact geometry and no-effect boun
     for (const token of [
       "SourceIntakeReadbackWorkbench", "/rd", "PanelFrame", "Request identity", "Open readback", "Refresh",
       "Intake", "Custody", "Evidence", "SUBMITTED_OR_UNKNOWN", "unavailable", "Lucide",
-      "/v1/source-intakes/{request_identity}/readback", "Submit", "Resolve", "provider", "Windmill",
+      "/v1/source-intakes/{request_identity}/readback", "Submit", "Resolve", "provider", "effect worker",
     ]) assert.ok(specification.includes(token), `${suffix || "en"} missing ${token}`);
   }
 });
