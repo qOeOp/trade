@@ -512,20 +512,23 @@ jobs:
     needs:
       - plan
     env:
+      # `rust-cache` folds every CARGO_* and RUST_* variable into its key, so a job stating a
+      # different profile or target directory than the run that saved the cache can never restore
+      # it. Same-repository pull requests used to state `nextest` and an out-of-workspace target
+      # directory, and paid a cold workspace build for it every time: run 35305461586 logged
+      # `No cache found.` and spent 40 of its 51 minutes compiling, while the 3.8 GB entry `main`
+      # saved sat unread under the profile `main` states. Say what `main` says and the entry is
+      # readable. This adds no entry of its own: pull requests still never save, because a cache a
+      # pull request writes is scoped to its own ref and would cost 3.8 GB per open pull request
+      # against a 10 GB quota.
       CARGO_CI_PROFILE: >-
-        ${{ github.event_name == 'pull_request'
-        && needs.plan.outputs.untrusted_pr != 'false'
-        && 'ci-pr'
-        || github.event_name == 'push'
-        && (github.ref_name == 'main' || github.ref_name == 'test-ci')
+        ${{ (github.event_name == 'pull_request'
+        || github.ref_name == 'main' || github.ref_name == 'test-ci')
         && 'ci-pr'
         || 'nextest' }}
       CARGO_TARGET_DIR: >-
-        ${{ github.event_name == 'pull_request'
-        && needs.plan.outputs.untrusted_pr != 'false'
-        && 'target/rust-tests-linux-x86'
-        || github.event_name == 'push'
-        && (github.ref_name == 'main' || github.ref_name == 'test-ci')
+        ${{ (github.event_name == 'pull_request'
+        || github.ref_name == 'main' || github.ref_name == 'test-ci')
         && 'target/rust-tests-linux-x86'
         || '/home/runner/.cache/cargo-target/rust-tests-linux-x86' }}
       # yamllint disable-line rule:line-length
