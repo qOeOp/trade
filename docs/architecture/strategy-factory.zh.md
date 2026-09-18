@@ -12,8 +12,9 @@ Qualification 的 PostgreSQL custody 在物理上独立：`qualification_owner` 
 
 Replay Policy Catalog 与 durable Composer custody 采用相同的物理隔离。`rd_database_owner` 是仅负责
 database/public schema 的 NOLOGIN custodian；`replay_policy_catalog_owner` 与 `composer_owner` 是分别拥有
-private data/API schema 的 NOLOGIN object owner。`rd_owner` 没有 membership、ownership、schema `CREATE`、
-raw table 权限或 mutation `EXECUTE`，只保留固定 lock/read API。只有另行提供的
+private data/API schema 的 NOLOGIN object owner。`rd_owner` 没有 membership、ownership、schema `CREATE` 或
+raw table 权限；它保留固定 lock/read API 以及恰好一项不可转授的 mutation `EXECUTE`，即 Composer 提交 routine
+`commit_develop_composer_v2`/`v3`，使冻结的 Bounded Feature Program 能在一个 Owner 事务内被重读、锁定、绑定并提交。只有另行提供的
 `replay_policy_catalog_admin_writer` LOGIN 获得 Catalog 管理 routine 的不可转授 `EXECUTE`；
 `rd_fact_writer` 只保留 Composer commit 权限。所有 routine 都使用全限定关系、
 `search_path=pg_catalog,pg_temp` 并运行在调用方既有事务中。fresh deployment 必须先在 `rd_owner` 仍拥有

@@ -150,7 +150,8 @@ bounds、frozen-Intent 校验和 Owner binding 只是 V2 迁移输入；只有�
 上限受支持时，Develop 才返回内容寻址 Plan 与 Artifact。否则它返回指出准确失败坐标的结构化
 `UNSUPPORTED` 或 `NEEDS_RESEARCH_REFINEMENT`，且不创建 Plan、Artifact、Replay Request、Candidate 或
 下游 effect。`NEEDS_RESEARCH_REFINEMENT` 只能为后继 Research decision 提供信息；Develop 不能静默补全
-Research 含义。
+Research 含义。一个 Research intent 至多封存一个正向 Artifact：同一 intent 之后的 build request 不被接纳，
+后续开发经由 successor Research intent 进行，绝不重新封存 Product Edge 窥视的证据。
 
 **CURRENT/PARTIAL - crate-local Develop Composer V2：** R&D 可以重读一份当前已接纳 V2 Research custody
 投影，重新推导 Design 中由 Research 控制的 request/Intent 身份与 falsifier，解析准确密封 input-binding
@@ -161,18 +162,16 @@ Artifact 已由 `ProgramHostV2` 动态接纳；这只证明 crate-local 合约�
 custody、跨进程重启恢复、provider/API/Dashboard composition 和已部署 Owner readiness 仍不可用，不能从内存
 join 推断。
 
-**Composer 无法在生产运行，原因在它的托管之上游。**
-`derive_source_research_composer_request_v2` 并没有从重读的 Research 托管导出 Design。
-它取固定语料里的那个 Design，用该托管覆写四个身份字段
-（`research_request_identity`、`intent_identity`、`intent_digest`、`falsifier`），
-绑定则从一个硬编码的 selection identity 派生。插件源码、输入角色与宇宙都是语料的，
-不是这个研究请求的。所以默认 feature 下 `POST /v2/develop-composer/runs` 返回
-`SERVICE_UNAVAILABLE` 是**诚实**而非未完成：根本没有可编译的 Design。
-真正缺的是把冻结的 hypothesis、mechanism 与 falsification question 变成可执行
-`StrategyDesignV2` - 输入角色、reaction graph、插件源码 - 的能力，
-下面的契约写明这份 Design 由谁撰写。它下游的一切都已存在：
-生产提交函数、store、写入器、两张 build-receipt 关系，
-以及 Market Data resolver 落地后的生产 binding 接缝。
+**Composer 在生产中只从冻结的 Bounded Feature Program 运行。**
+默认 feature 下 `POST /v2/develop-composer/runs` 接收规范的 Research request locator，重读
+`POST /v1/bounded-feature-programs/{declare,freeze}` 针对该 Research 托管封存的程序，在 Owner 自己的事务里
+锁定 Research 并解析其 Market Data 绑定，把程序降级并构建两次得到逐字节相同的 Wasm，然后在同一事务中提交
+每一条正向 Composer 事实。没有冻结程序的 Research request 在其精确坐标处被拒绝；不会从语料编译任何东西。
+覆写固定语料 Design 四个身份字段的 `derive_source_research_composer_request_v2` 只存活于 sealed acceptance
+之内。有序链路在托管 Linux runner 上端到端证明了这条生产路径
+（`frozen_program_runs_the_production_composer_to_a_durable_artifact`）。该路由做不到的是发明 Design：
+下面的契约写明这份 Design 由谁撰写。它下游的一切都已存在：生产提交函数、store、写入器、两张 build-receipt
+关系，以及生产 binding 接缝。
 
 ### CURRENT_PARTIAL - Strategy Design 由谁撰写
 
@@ -421,11 +420,11 @@ deployment 顺序严格固定为：有界 schema materialization，然后 custod
 隐式 policy 或 current head。bootstrap readback 缺失、无法验证、不匹配或尚未解析时，startup 必须
 fail closed。
 
-在 merged implementation 与具名 acceptance evidence 证明 authentication rejection、empty-store creation、
-exact replay、changed-identity 与 changed-meaning conflict、response-loss/restart resolution、tamper
-rejection、每种零变化失败，以及 fresh disposable PostgreSQL 与隔离第一方验收拓扑中随后的
-accepted TrialFamily formation 之前，该有界 composition 仍是 **TARGET / NOT_ADMITTED**。只有这些条件
-全部成立后，才能把有界 bootstrap composition 称为 **CURRENT**。该状态不证明 production
+该有界 composition 按上面的契约、且仅按该契约 **IMPLEMENTATION_ADMITTED**；只有在 merged implementation 与
+具名 acceptance evidence 证明 authentication rejection、empty-store creation、exact replay、changed-identity 与
+changed-meaning conflict、response-loss/restart resolution、tamper rejection、每种零变化失败，以及 fresh
+disposable PostgreSQL 与隔离第一方验收拓扑中随后的 accepted TrialFamily formation 之后，才能把它称为
+**CURRENT**。该状态不证明 production
 deployment、Workbench product readiness、provider readiness 或任何真实交易权威。
 
 TrialFamily formation 成功后，完整 policy 及其 Catalog identity、version、digest、grammar/parser identity
