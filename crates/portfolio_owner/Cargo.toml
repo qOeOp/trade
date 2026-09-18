@@ -1,9 +1,9 @@
 [package]
-name = "vibe-strategy-governance"
+name = "vibe-portfolio-owner"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Strategy Governance Owner core and Execution Scope PostgreSQL custody"
+description = "Portfolio Owner Capacity Scope and Portfolio View contracts with PostgreSQL custody"
 repository.workspace = true
 publish = false
 
@@ -19,7 +19,5 @@ sqlx = { workspace = true }
 [dev-dependencies]
 rstest = { workspace = true }
 tokio = { workspace = true }
-trybuild = { workspace = true }
 vibe-execution-owner = { workspace = true }
-vibe-portfolio-owner = { workspace = true }
 vibe-testkit = { workspace = true, features = ["postgres"] }

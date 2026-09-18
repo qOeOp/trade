@@ -10385,13 +10385,26 @@ dependencies = [
  "rust_decimal_macros",
  "serde",
  "serde_json",
- "sha2 0.10.9",
  "smallvec",
  "ustr",
  "uuid",
  "vibe-common",
  "vibe-core",
  "vibe-model",
+]
+
+[[package]]
+name = "vibe-execution-owner"
+version = "0.62.0"
+dependencies = [
+ "async-trait",
+ "rstest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "tokio",
+ "vibe-testkit",
 ]
 
 [[package]]
@@ -10999,6 +11012,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "vibe-portfolio-owner"
+version = "0.62.0"
+dependencies = [
+ "rstest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "tokio",
+ "vibe-execution-owner",
+ "vibe-testkit",
+]
+
+[[package]]
 name = "vibe-product-edge"
 version = "0.62.0"
 dependencies = [
@@ -11202,7 +11229,7 @@ name = "vibe-runtime"
 version = "0.62.0"
 dependencies = [
  "rstest",
- "vibe-execution",
+ "vibe-execution-owner",
 ]
 
 [[package]]
@@ -11378,9 +11405,15 @@ name = "vibe-strategy-governance"
 version = "0.62.0"
 dependencies = [
  "rstest",
+ "serde",
  "serde_json",
  "sha2 0.10.9",
+ "sqlx",
+ "tokio",
  "trybuild",
+ "vibe-execution-owner",
+ "vibe-portfolio-owner",
+ "vibe-testkit",
 ]
 
 [[package]]

@@ -76,12 +76,17 @@ grants nothing, and widening the admitted set requires changing this document fi
   `AttendedNotAdmitted`, or `ConditionalScannerNotAdmitted`. Public construction installs an unavailable Owner
   admission, so every public request fails closed (`crates/strategy_governance/tests/public_fail_closed.rs`), and no
   Runtime receipt resolver can be installed, so application projects `APPLICATION_UNKNOWN`.
-- **TARGET / IMPLEMENTATION_ADMITTED - Strategy Registry and Execution Scope creation:** no durable Governed Strategy Entry exists, and the
-  `BOUND` Capacity Scope and `ADMITTED` Execution Adapter Binding it must bind are themselves Discovery and static
-  contracts in `crates/portfolio` and `crates/execution`. Admitted slice: PostgreSQL custody for the Governed Strategy
-  Entry, Execution Scope, lifecycle requests, and receipts, with the crate-private Owner admission rereading
-  Qualification Eligibility, the Portfolio `BOUND` Capacity Scope, the Execution `ADMITTED` binding, and the R&D build
-  receipt before one `PAPER` `INITIAL_ACTIVATION`.
+- **CURRENT_PARTIAL / IMPLEMENTATION_ADMITTED - Strategy Registry and Execution Scope creation:** the immutable
+  Execution Scope now has production PostgreSQL custody in `crates/strategy_governance`, under `governance_owner` and
+  `governance_writer`. Before it writes, the custody rereads Portfolio's own `BOUND` Capacity Scope and Execution's
+  own current `ADMITTED` PAPER adapter binding through those Owners' read-only APIs inside the writing transaction,
+  and it refuses unless the two agree on account and prebinding and the caller's expectations match what each Owner
+  said. Its `governance_api` readback exposes the bound meaning, the scope carries no validity window of its own, and
+  a replay keeps the creation time while refreshing freshness from the two current source facts. No production caller
+  reaches it: Product Edge has no lifecycle request intake. Still admitted and still absent: the Governed Strategy
+  Entry, lifecycle requests, and receipts, because the architecture binds an entry to an exact Eligibility Fact,
+  generation-specific economic-condition versions, and a qualified capacity ceiling, and Qualification and R&D have
+  no production writer for those or for the build receipt.
 - **TARGET - Lifecycle Manager:** no evidence-driven lifecycle state, `DE_RISK_PENDING` succession, retention
   renewal, or adverse-evidence disposition policy exists.
 - **TARGET / IMPLEMENTATION_ADMITTED - Capital Policy and Capital Allocation Disposition:** no `POOL_ROOT` or
