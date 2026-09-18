@@ -316,14 +316,16 @@ async fn invalid_successor_cannot_poison_heads_and_verified_lineage_never_skips_
         .root()
         .trial_family_identity()
         .to_string();
-    let rd_head = json_rows(
+    let rd_head = json_rows_for_principal(
         &pool,
-        "SELECT to_jsonb(t) FROM rd_independence_basis_heads_v1 t WHERE principal = 'admin'",
+        "SELECT to_jsonb(t) FROM rd_independence_basis_heads_v1 t WHERE principal = $1",
+        &edge.effective_principal,
     )
     .await;
-    let qualification_head = json_rows(
+    let qualification_head = json_rows_for_principal(
         &qualification_pool,
-        "SELECT to_jsonb(t) FROM qualification_protected_feedback_heads_v1 t WHERE principal = 'admin'",
+        "SELECT to_jsonb(t) FROM qualification_protected_feedback_heads_v1 t WHERE principal = $1",
+        &edge.effective_principal,
     )
     .await;
     let mut invalid_b = request(&b_request);
@@ -334,17 +336,19 @@ async fn invalid_successor_cannot_poison_heads_and_verified_lineage_never_skips_
         ProductEdgeResolution::RejectedNoWrite
     );
     assert_eq!(
-        json_rows(
+        json_rows_for_principal(
             &pool,
-            "SELECT to_jsonb(t) FROM rd_independence_basis_heads_v1 t WHERE principal = 'admin'",
+            "SELECT to_jsonb(t) FROM rd_independence_basis_heads_v1 t WHERE principal = $1",
+            &edge.effective_principal,
         )
         .await,
         rd_head
     );
     assert_eq!(
-        json_rows(
+        json_rows_for_principal(
             &qualification_pool,
-            "SELECT to_jsonb(t) FROM qualification_protected_feedback_heads_v1 t WHERE principal = 'admin'",
+            "SELECT to_jsonb(t) FROM qualification_protected_feedback_heads_v1 t WHERE principal = $1",
+            &edge.effective_principal,
         )
         .await,
         qualification_head
@@ -2392,6 +2396,23 @@ async fn rejected_authority_counts(
 
 async fn json_rows(pool: &PgPool, statement: &'static str) -> serde_json::Value {
     sqlx::query_scalar(statement).fetch_one(pool).await.unwrap()
+}
+
+/// Reads the head one principal holds.
+///
+/// The principal is the one this test's Product Edge admitted under, which carries the run's own
+/// suffix. A literal `'admin'` matched nothing: every head in either store is written under the
+/// suffixed principal, so both reads returned no row rather than the head they were comparing.
+async fn json_rows_for_principal(
+    pool: &PgPool,
+    statement: &'static str,
+    principal: &str,
+) -> serde_json::Value {
+    sqlx::query_scalar(statement)
+        .bind(principal)
+        .fetch_one(pool)
+        .await
+        .unwrap()
 }
 
 async fn assert_lineage_unavailable_without_writes(
