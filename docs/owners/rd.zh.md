@@ -124,7 +124,7 @@ Data 能封存 308-byte coordinate 及其 receipt cross-binding。唯一通用 `
 逐字节不变。这些都是 TARGET seam，不声称 CURRENT Market Data、Host、plugin、Composer 或 Backtest 已支持，
 也不要求第二 runtime 或 raw-order authority。
 
-只有 Strategy Factory 能验证规范 DAG 与 capability/resource/state bound，并使用内容寻址的 first-party
+只有 R&D 的 Develop 能力能验证规范 DAG 与 capability/resource/state bound，并使用内容寻址的 first-party
 SDK/kernel source 做确定性 lowering。它引用版本化 primitive semantic ID 与 source digest，而不复制公式。
 结果是准确一个现有 bounded plugin，其 output 仅限 typed post-state、`PositionIntentV1`、target 与
 protection field；`ProgramHostV2` 封存 proposal，只有共享生命周期内核能应用它。caller/LLM-authored
