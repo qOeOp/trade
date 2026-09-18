@@ -2478,6 +2478,9 @@ mod postgres_acceptance_tests {
         io::{AsyncReadExt, AsyncWriteExt},
         net::UnixListener,
     };
+    use vibe_backtest_owner_contracts::protected_economic_metric::{
+        ProtectedEconomicCoverageRuleV1, ProtectedEconomicMetricV1,
+    };
     use vibe_backtest_owner_contracts::{
         CanonicalDigestV2, ComponentObservationLocatorV2, ConsumedComponentObservationDtoV2,
         ContentIdentityV2, DiagnosticCategoryV2, DiagnosticEvidenceDtoV2, ObservationComponentV2,
@@ -5286,8 +5289,26 @@ mod postgres_acceptance_tests {
             ],
             no_tunable_parameters_basis: None,
             preregistered_capacity_ceiling: 1_000,
-            metric: reference("ready-protected-metric", 'a'),
-            coverage_policy: reference("ready-protected-coverage", 'b'),
+            // The metric and the coverage rule are the only two plan references Backtest has to
+            // execute rather than merely repeat, so they name members of the Backtest catalog
+            // exactly. A synthetic identity here would freeze a computation no Owner publishes,
+            // and the protected run would produce no economic measurement at all.
+            metric: PositiveAssessmentEvidenceReferenceV1 {
+                identity: ProtectedEconomicMetricV1::NetReturnBasisPoints
+                    .semantic_id()
+                    .to_string(),
+                digest: ProtectedEconomicMetricV1::NetReturnBasisPoints
+                    .definition_digest()
+                    .expect("published protected economic metric definition"),
+            },
+            coverage_policy: PositiveAssessmentEvidenceReferenceV1 {
+                identity: ProtectedEconomicCoverageRuleV1::ObservedWindowSpan
+                    .semantic_id()
+                    .to_string(),
+                digest: ProtectedEconomicCoverageRuleV1::ObservedWindowSpan
+                    .definition_digest()
+                    .expect("published protected coverage rule definition"),
+            },
             tolerance_policy: reference("ready-protected-tolerance", 'c'),
             threshold_policy: reference("ready-protected-threshold", 'd'),
             aggregation_policy: reference("ready-protected-aggregation", 'e'),
