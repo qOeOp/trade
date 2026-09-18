@@ -171,7 +171,9 @@ Develop returns a content-addressed Plan and Artifact only after every input rol
 capability closure is complete and the lifecycle/checkpoint/plugin bounds are supported. Otherwise it returns
 structured `UNSUPPORTED` or `NEEDS_RESEARCH_REFINEMENT` with the exact failing coordinate and creates no Plan,
 Artifact, Replay Request, Candidate or downstream effect. `NEEDS_RESEARCH_REFINEMENT` may inform only a successor
-Research decision; Develop cannot silently complete research meaning.
+Research decision; Develop cannot silently complete research meaning. One Research intent seals at most one
+positive Artifact: a later build request for the same intent is not admitted, and further development goes
+through a successor Research intent, never by re-sealing the evidence the Product Edge peeks.
 
 **CURRENT/PARTIAL - crate-local Develop Composer V2:** R&D can reread one current accepted V2 Research custody
 projection, rederive the Design's Research-controlled request/Intent identities and falsifier, resolve exact sealed
@@ -183,18 +185,19 @@ Artifact is dynamically accepted by `ProgramHostV2`; this proves only the crate-
 consumer path. Durable PostgreSQL custody, restart recovery across processes, provider/API/Dashboard composition,
 and deployed Owner readiness remain unavailable and are not inferred from the in-memory join.
 
-**The Composer cannot run in production, and the reason is upstream of its custody.**
-`derive_source_research_composer_request_v2` does not derive a Design from the reread Research
-custody. It takes the fixed corpus Design, overwrites four identity fields
-(`research_request_identity`, `intent_identity`, `intent_digest`, `falsifier`) from that custody, and
-derives its bindings from a hardcoded selection identity. The plugin source, input roles and universe
-are the corpus's, not the research request's. So `POST /v2/develop-composer/runs` returning
-`SERVICE_UNAVAILABLE` under default features is **honest** rather than unfinished: there is no Design to
-compile. What is missing is the capability of turning a frozen hypothesis, mechanism and
-falsification question into an executable `StrategyDesignV2` - input roles, reaction graph and plugin
-source. The contract below states who authors it. Everything downstream
-of it exists: the production commit function, the store, the writer, the two build-receipt relations,
-and, since the Market Data resolver landed, the production binding seam.
+**The Composer runs in production only from a frozen Bounded Feature Program.** Under default
+features `POST /v2/develop-composer/runs` takes a canonical Research request locator, rereads the program
+that `POST /v1/bounded-feature-programs/{declare,freeze}` sealed against that Research custody, locks the
+Research and resolves its Market Data bindings on the Owner's own transaction, lowers and builds the
+program twice to byte-identical Wasm, and commits every positive Composer fact in that same transaction.
+A Research request that carries no frozen program is refused at its exact coordinate; nothing is compiled
+from a corpus. `derive_source_research_composer_request_v2`, which overwrote four identity fields of the
+fixed corpus Design, survives only inside sealed acceptance. The ordered chain proves the production
+route end to end on the hosted Linux runner
+(`frozen_program_runs_the_production_composer_to_a_durable_artifact`). What the route cannot do is
+invent the Design: the contract below states who authors it. Everything downstream of it exists: the
+production commit function, the store, the writer, the two build-receipt relations, and the production
+binding seam.
 
 ### CURRENT_PARTIAL - who authors a Strategy Design
 
@@ -459,11 +462,11 @@ Deployment ordering is strict: bounded schema materialization, then custody cuto
 listen. No implicit policy or current head exists. Missing, unverifiable, mismatched, or unresolved bootstrap
 readback fails startup closed.
 
-This bounded composition remains **TARGET / NOT_ADMITTED** until its merged implementation and named acceptance
-evidence prove authentication rejection, empty-store creation, exact replay, changed-identity and changed-meaning
-conflict, response-loss/restart resolution, tamper rejection, every zero-change failure, and a subsequent accepted
-TrialFamily formation against fresh disposable PostgreSQL and the isolated first-party acceptance topology. Only then may the
-bounded bootstrap composition be described as **CURRENT**. That status does not establish production deployment,
+This bounded composition is **IMPLEMENTATION_ADMITTED** on exactly the contract above and nothing wider; it may be
+described as **CURRENT** only once its merged implementation and named acceptance evidence prove authentication
+rejection, empty-store creation, exact replay, changed-identity and changed-meaning conflict, response-loss/restart
+resolution, tamper rejection, every zero-change failure, and a subsequent accepted TrialFamily formation against
+fresh disposable PostgreSQL and the isolated first-party acceptance topology. That status does not establish production deployment,
 Workbench product readiness, provider readiness, or any real-trading authority.
 
 Successful TrialFamily formation permanently seals the complete policy and its Catalog identity, version, digest,
