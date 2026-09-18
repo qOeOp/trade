@@ -1323,9 +1323,10 @@ mod tests {
             reference: identity(name),
             digest: digest(byte),
         };
-        let proposal_for = |request: &ProtectedReplayRequestDtoV2,
-                            ordinal: usize,
-                            observed_raw: i64| {
+        // `variant` perturbs sealed evidence every shape carries, so a second proposal for the same
+        // attempt is a different meaning for every lineage. Perturbing only the measurement would
+        // leave the shapes that carry none byte-identical to the committed Result.
+        let proposal_for = |request: &ProtectedReplayRequestDtoV2, ordinal: usize, variant: u32| {
             let attempt_identity = format!(
                 "protected-backtest-attempt-v3-{}-{ordinal}",
                 lineage.review_slug
@@ -1350,7 +1351,7 @@ mod tests {
                 // (`crates/qualification/src/postgres.rs`, `chain_economic_policy`).
                 unit: "basis-points".to_string(),
                 decimal_scale: 4,
-                observed_raw,
+                observed_raw: 300 + i64::from(variant),
                 observed_coverage_bps: 10_000,
                 decisive_evidence: locator_for(
                     &format!("protected-v3-measurement-{}-{ordinal}", lineage.review_slug),
@@ -1408,7 +1409,7 @@ mod tests {
                     },
                     decisive_evidence: locator_for(
                         &format!(
-                            "protected-v3-applicability-{}-{ordinal}",
+                            "protected-v3-applicability-{}-{ordinal}-{variant}",
                             lineage.review_slug
                         ),
                         'a',
@@ -1423,7 +1424,7 @@ mod tests {
                 } else {
                     ProtectedResultOutcomeLocatorV1 {
                         reference: identity(&format!(
-                            "protected-v3-outcome-{}-{ordinal}",
+                            "protected-v3-outcome-{}-{ordinal}-{variant}",
                             lineage.review_slug
                         )),
                         digest: digest('b'),
@@ -1471,7 +1472,7 @@ mod tests {
                     .produce_and_commit_protected_replay_result_v3(
                         &qualification_pool,
                         &request_locator,
-                        proposal_for(&request, ordinal, 300),
+                        proposal_for(&request, ordinal, 0),
                     )
                     .await
                     .expect("request-bound protected V3 Result commit"),
@@ -1481,7 +1482,7 @@ mod tests {
                     .produce_and_commit_protected_replay_result_v3(
                         &qualification_pool,
                         &request_locator,
-                        proposal_for(&request, ordinal, 300),
+                        proposal_for(&request, ordinal, 0),
                     )
                     .await
                     .expect("byte-identical protected V3 Result retry"),
@@ -1506,7 +1507,7 @@ mod tests {
                     .produce_and_commit_protected_replay_result_v3(
                         &qualification_pool,
                         &request_locator,
-                        proposal_for(&request, ordinal, 301),
+                        proposal_for(&request, ordinal, 1),
                     )
                     .await,
                 Err(PostgresReplayResultOwnerErrorV2::ConflictingResult)
@@ -1550,7 +1551,7 @@ mod tests {
             }
         };
         assert_eq!(retry, frontier);
-        let mut late = proposal_for(&requests[0], 0, 300);
+        let mut late = proposal_for(&requests[0], 0, 0);
         late.attempt_identity =
             format!("protected-backtest-late-attempt-v3-{}", lineage.review_slug);
         assert!(matches!(

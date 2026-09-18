@@ -4729,6 +4729,9 @@ mod postgres_acceptance_tests {
         )
         .await
         .expect("Qualification Owner projection custody");
+        // R&D obtains this frontier through Qualification's sealed admission API while forming the
+        // TrialFamily policy, so this resolve is an exact replay of a projection that already
+        // exists, not a first create.
         let protected_feedback = qualification
             .resolve_or_create_for_basis(&independence_basis_locator)
             .await
