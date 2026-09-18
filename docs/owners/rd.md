@@ -11,11 +11,15 @@ Unify Research and Develop under one business-fact Owner. The Research capabilit
 - Frozen mechanism, data scope, exact cost, slippage, and capacity-model identities, capacity assumptions,
   permanent TrialFamily identity, budget, falsifier, and stop rule.
 - Frozen information-value policy: the declared ordinal uncertainty-reduction ranking rule and its version, the
-  deterministic tie-break key, and the stop threshold every candidate is compared against. The Research proposal
-  declares them and the Intent freezes them before any result is observed. R&D never computes an information-value
-  score: it admits the declared rank, then proves the census complete, every member admissible and comparably
-  scored, the rationale present, and the winner unique. A missing, post-result, mutated, or unversioned policy
-  admits no successor experiment and no `STOP_LOW_INFORMATION_VALUE`.
+  deterministic tie-break key, and the stop threshold every candidate is compared against. This Owner fixes and
+  versions them; no proposer, caller or configuration selects them. A TrialFamily seals them into its
+  decision-policy binding when it forms, which is before any attempt of that family runs, and every decision reads
+  them from the frozen binding of the family its candidate belongs to. A decision can therefore prove which rule it
+  was compared under, and seeing a result cannot change that rule: a different rule is a different family, whose
+  decisions cite only its own. R&D never computes an information-value score: it admits the declared rank, then
+  proves the census complete, every member admissible and comparably scored, the rationale present, and the winner
+  unique. A missing, post-result, mutated, or unversioned policy admits no successor experiment and no
+  `STOP_LOW_INFORMATION_VALUE`.
 - Write-once Independence Basis Receipt, committed before protected feedback and bound to the effective principal,
   Research request scope, untrusted user rationale digest, R&D-owned independence disposition, and immutable basis identity and digest.
 - Adaptive research lineage resolved only from locked R&D history as `GENESIS_EMPTY`, `COMPLETE_FRONTIER`, or
