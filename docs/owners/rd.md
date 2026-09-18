@@ -145,7 +145,7 @@ manifest, receipt, frame, and generic failure meaning remains byte-identical. Th
 CURRENT Market Data, Host, plugin, Composer, or Backtest support, and they require no second runtime or raw-order
 authority.
 
-Strategy Factory alone validates the canonical DAG and capability/resource/state bounds and deterministically
+R&D's Develop capability alone validates the canonical DAG and capability/resource/state bounds and deterministically
 lowers it with content-addressed first-party SDK/kernel sources. It references versioned primitive semantic IDs and
 source digests instead of copying formulas. The result is exactly one existing bounded plugin whose outputs are
 limited to typed post-state, `PositionIntentV1`, target and protection fields; `ProgramHostV2` seals the proposal
@@ -172,7 +172,9 @@ Develop returns a content-addressed Plan and Artifact only after every input rol
 capability closure is complete and the lifecycle/checkpoint/plugin bounds are supported. Otherwise it returns
 structured `UNSUPPORTED` or `NEEDS_RESEARCH_REFINEMENT` with the exact failing coordinate and creates no Plan,
 Artifact, Replay Request, Candidate or downstream effect. `NEEDS_RESEARCH_REFINEMENT` may inform only a successor
-Research decision; Develop cannot silently complete research meaning.
+Research decision; Develop cannot silently complete research meaning. One Research intent seals at most one
+positive Artifact: a later build request for the same intent is not admitted, and further development goes
+through a successor Research intent, never by re-sealing the evidence the Product Edge peeks.
 
 **CURRENT/PARTIAL - crate-local Develop Composer V2:** R&D can reread one current accepted V2 Research custody
 projection, rederive the Design's Research-controlled request/Intent identities and falsifier, resolve exact sealed
@@ -184,26 +186,19 @@ Artifact is dynamically accepted by `ProgramHostV2`; this proves only the crate-
 consumer path. Durable PostgreSQL custody, restart recovery across processes, provider/API/Dashboard composition,
 and deployed Owner readiness remain unavailable and are not inferred from the in-memory join.
 
-**CURRENT_PARTIAL - the Composer runs in production from declared meaning.** The whole public input
-to `POST /v2/develop-composer/runs` is one canonical Research request locator. On one R&D transaction
-the Owner rereads currently accepted Research custody, reads that request's frozen joint Bounded
-Feature Program, derives the Composer request from the frozen pair, resolves each declared input role
-against the Strategy Input custody Market Data owns at the PIT cut Market Data chose, lowers the
-frozen program to canonical first-party source, and builds it through the tagged V3 producer. A
-Research request with no verifiable joint freeze returns a terminal disposition and writes nothing;
-no caller can supply a Design, a binding, a capsule or a PIT cut.
-
-**The corpus-backed run stays sealed, and that is the point.**
-`derive_source_research_composer_request_v2` does not derive a Design from the reread Research
-custody. It takes the fixed corpus Design, overwrites four identity fields
-(`research_request_identity`, `intent_identity`, `intent_digest`, `falsifier`) from that custody, and
-derives its bindings from a hardcoded selection identity. The plugin source, input roles and universe
-are the corpus's, not the research request's - there is no Design to compile. That path, its run
-entry and its tamper controls therefore live only under
-`sealed-source-intake-composer-acceptance`; it is acceptance apparatus, never a production entry.
-What turns a frozen hypothesis, mechanism and falsification question into an executable
-`StrategyDesignV2` is not a rule this Owner applies but a declaration it admits. The contract below
-states who authors it.
+**The Composer runs in production only from a frozen Bounded Feature Program.** Under default
+features `POST /v2/develop-composer/runs` takes a canonical Research request locator, rereads the program
+that `POST /v1/bounded-feature-programs/{declare,freeze}` sealed against that Research custody, locks the
+Research and resolves its Market Data bindings on the Owner's own transaction, lowers and builds the
+program twice to byte-identical Wasm, and commits every positive Composer fact in that same transaction.
+A Research request that carries no frozen program is refused at its exact coordinate; nothing is compiled
+from a corpus. `derive_source_research_composer_request_v2`, which overwrote four identity fields of the
+fixed corpus Design, survives only inside sealed acceptance. The ordered chain proves the production
+route end to end on the hosted Linux runner
+(`frozen_program_runs_the_production_composer_to_a_durable_artifact`). What the route cannot do is
+invent the Design: the contract below states who authors it. Everything downstream of it exists: the
+production commit function, the store, the writer, the two build-receipt relations, and the production
+binding seam.
 
 **CURRENT/PARTIAL - the first cycle now has something to stand on.** Sealing the corpus run leaves
 `run_bounded_feature_program` as the only production entry, and it requires a frozen joint program.
@@ -228,10 +223,10 @@ freezes a six-role BAR program against bindings the Market Data Owner issued thr
 acceptance basis, then resolves that frozen pair through the same production binding Owner a RUN
 uses and requires exactly one receipt per declared role.
 
-**TARGET:** the RUN acceptance itself - two byte-identical builds of the lowered source, the tagged
-V3 receipt, and the single-transaction commit of every positive Composer fact - plus deployed Owner
-readiness and restart recovery across processes. No disposable-PostgreSQL run has yet carried this
-entry past its bindings, so the RUN stays `declared`.
+**CURRENT/PARTIAL:** the RUN acceptance itself - two byte-identical builds of the lowered source, the
+tagged V3 receipt, and the single-transaction commit of every positive Composer fact - is carried by
+the ordered chain's end-to-end entry on the hosted Linux runner. **TARGET:** deployed Owner readiness
+and restart recovery across processes, which no chain entry observes.
 
 ### CURRENT_PARTIAL - who authors a Strategy Design
 
@@ -500,11 +495,11 @@ Deployment ordering is strict: bounded schema materialization, then custody cuto
 listen. No implicit policy or current head exists. Missing, unverifiable, mismatched, or unresolved bootstrap
 readback fails startup closed.
 
-This bounded composition remains **TARGET / NOT_ADMITTED** until its merged implementation and named acceptance
-evidence prove authentication rejection, empty-store creation, exact replay, changed-identity and changed-meaning
-conflict, response-loss/restart resolution, tamper rejection, every zero-change failure, and a subsequent accepted
-TrialFamily formation against fresh disposable PostgreSQL and the isolated first-party acceptance topology. Only then may the
-bounded bootstrap composition be described as **CURRENT**. That status does not establish production deployment,
+This bounded composition is **IMPLEMENTATION_ADMITTED** on exactly the contract above and nothing wider; it may be
+described as **CURRENT** only once its merged implementation and named acceptance evidence prove authentication
+rejection, empty-store creation, exact replay, changed-identity and changed-meaning conflict, response-loss/restart
+resolution, tamper rejection, every zero-change failure, and a subsequent accepted TrialFamily formation against
+fresh disposable PostgreSQL and the isolated first-party acceptance topology. That status does not establish production deployment,
 Workbench product readiness, provider readiness, or any real-trading authority.
 
 Successful TrialFamily formation permanently seals the complete policy and its Catalog identity, version, digest,
@@ -647,9 +642,26 @@ Decision, Selection, and Candidate. Changing one creates a successor lineage rat
 ## Input handoffs
 
 - Product Edge supplies a sourced research request rather than an unsourced instruction to trade. The request commits the bounded protected-feedback frontier already projected to that principal. Research resolves the stable request identity with its own terminal receipt and preserves semantic predecessors without reading protected category or detail; absent receipt remains unknown.
-- [Market Data](./market-data/) supplies point-in-time facts, catalog versions, instrument semantics, and the
-  correlated `AVAILABLE` or `UNAVAILABLE` terminal for a committed Market Data Repair Request.
-- Exploratory [Backtest](./backtest/) results may inform a new intent and artifact generation.
+- [Market Data](./market-data/) supplies point-in-time facts, catalog versions, and instrument semantics. For each
+  initial PIT Market Snapshot Request it returns one move-only, Market Data-sealed `ResearchPitTerminal` correlated
+  to the exact request identity and content digest, carrying the canonical six-state disposition `AVAILABLE`,
+  `INSUFFICIENT`, `STALE`, `UNLICENSED`, `AMBIGUOUS`, or `UNAVAILABLE` and the exact Universe Selection Record
+  identity and digest. Only `AVAILABLE` may enter a frozen or successor Intent; every other state freezes only the
+  dependent Intent, and an absent response remains unknown. For a committed Market Data Repair Request it
+  separately returns the correlated `AVAILABLE` or `UNAVAILABLE` terminal.
+- [Backtest](./backtest/) returns, for each R&D-owned Exploratory Replay Request, one Exploratory Run Result in
+  exactly one of `RUN_REJECTED`, `IN_PROGRESS_OR_UNKNOWN`, `TERMINAL_RESULT`, or `INVALID_REPLAY_EVIDENCE`. The
+  result repeats the consumed Artifact, PIT scope and PIT Market Snapshot, Universe Selection Record and correction
+  rule, replay configuration, Runtime kernel, simulator, and cost, slippage, and capacity-model identities, plus the
+  complete finite `diagnosticCategorySet` with each member's decisive evidence cut. Research may use only a
+  request-equal `TERMINAL_RESULT`; a rejected, invalid, unknown, nonterminal, or unequal attempt stays a
+  TrialFamily Census fact and may produce only `REPAIR_INPUTS`, never a Selection or successor hypothesis. Reading
+  a result never creates a successor Intent by itself.
+- [Qualification](./qualification/) returns no protected feedback to the submitted Candidate's loop. Research
+  observes only the write-once `ADMITTED` or `NOT_ADMITTED` Candidate Intake Receipt that closes the exact
+  Qualification Review Request, and the bounded public Qualification Status Summary, both through Product Edge.
+  Receipt absence remains `SUBMITTED_OR_UNKNOWN`; `NOT_ADMITTED` creates no protected attempt and consumes no
+  holdout, and changed meaning cannot join the receipt or create a second intake.
 - Committed generation-scoped Performance, Runtime Incident, Execution account/order/fill/quality-observation,
   Effect Journal, readback, and Reconciliation Drift facts may be admitted only
   as a new Research Source Provenance Record for a successor lineage. They can never mutate the deployed or
@@ -662,6 +674,14 @@ Decision, Selection, and Candidate. Changing one creates a successor lineage rat
 
 ## Output handoffs
 
+- To [Market Data](./market-data/): before exploratory consumption, one R&D-owned frozen initial PIT Market Snapshot
+  Request bound to the Research Request, Intent, and TrialFamily identities, the requested instrument or universe
+  scope identity and version, the four-time decision cut and PIT semantics, the required provenance, Source Binding
+  and dataset version set, the license, rights, retention, and attribution policy cut, the correction and revision
+  frontier cut, a stable request correlation identity, and requested-at Time Evidence. R&D owns its identity and
+  content digest; the same identity and digest join one Market Data attempt, while a changed scope, cut,
+  provenance, license, correction, or meaning requires a successor request. Transport success leaves the request
+  `SUBMITTED_OR_UNKNOWN` and proves no snapshot availability.
 - To [Market Data](./market-data/): only a committed `REPAIR_INPUTS` Iteration Decision may produce a Market Data
   Repair Request. The request asks its native Owner to repair evidence; it does not prescribe an adapter, rewrite
   the old snapshot, or claim availability.

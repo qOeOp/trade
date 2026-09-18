@@ -4,8 +4,8 @@
 
 Product Edge 是应用与对话边界，把有人值守 UI 或自然语言意图转成受限请求，并返回只读产品视图。
 产品表面是 `product/dashboard` 里由 Trade 自有的 Dashboard；它的 `/api/mcp` endpoint 把同一组已准入
-操作暴露给可选外部对话客户端。`product/rd-workbench` 是部署包，
-Dashboard 尚未完成切换。
+操作暴露给可选外部对话客户端。`product/rd-workbench` 是部署包，部署 PostgreSQL、Owner API 与 Dashboard；
+Dashboard effect worker 是唯一的执行器路径，且不存在生产部署。
 
 ## 产品表面与安装包
 
@@ -25,7 +25,7 @@ Dashboard 与 MCP 调用同一组经过挑选、带版本的操作，并且只�
 任意 Owner SQL、产生业务事实或保存影子 workflow truth。Operations API 只读 Trade 自有的 RunStore 运维
 数据；有类型的 R&D 与 Backtest 读走各自准确的 Owner 合同。它们绝不复制运维 run 行或原始 Owner
 payload，运维完成也绝不被重新解释成业务成功。真实策略循环、行情会话、订单状态机与恢复效果仍由
-Trade Runtime、Risk、Execution 与 Recovery 拥有；产品表面只能监督和展示，永远不是交易运行内核。
+Trade Runtime、Risk 与 Execution 拥有，Recovery 归 Execution；产品表面只能监督和展示，永远不是交易运行内核。
 
 **当前部署状态：** Dashboard 的全部服务只在 opt-in 的 `dashboard-preview` profile 下启动，镜像 tag 默认
 `preview`，web 主机端口默认 `127.0.0.1:3100`，运行时角色不暴露主机端口。**尚无生产部署。** Dashboard 的
@@ -50,18 +50,18 @@ workspace 清单与服务都已移除，`product/rd-workbench` 现在只是 Post
 `Capability Adoption` 记录了它每项能力的去向。下面这些边界比它活得久，因为它们约束的是任何执行器，
 现在它们约束 Dashboard 的效应托管。
 
-| 执行器原语          | Product Edge 角色                                                      | 强制边界                                                                                                                                                      |
-| ------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 产品应用            | Dashboard 是产品入口                                                   | 只允许已认证 operator 执行。禁止 public、anonymous 与 publisher 执行，因为它们抹掉调用者的有效权限边界。                                                      |
-| MCP endpoint        | 通往同一组带版本 operation 的可选对话通道                              | scoped token 暴露准确 allowlist，默认拒绝。不得暴露对应用、script、resource、variable、schedule 或 worker 的 preview 或增删改工具。仅靠 folder 过滤不充分。   |
-| 有类型适配器与编排  | Owner port 之上的有类型适配器与有界编排                                | 可以路由、等待、重试与组合；绝不写 Owner 存储、不发明业务状态、不把编排成功变成 Owner 结果。                                                                  |
-| run、进度、日志与流 | 运维 run 身份、实时进度、诊断与 UI 流                                  | 运维 run id、百分比、结果或日志都不是 Owner receipt。运维保留期有界，所以持久研究 artifact 与结果事实留在 Trade Owner。                                       |
-| Schedule            | 触发有界的研究、扫描、回放、报告与维护工作                             | schedule 不是部署注册表、生命周期权威或实时策略运行时。正确性依靠执行器层的错误路径与同请求解析。                                                             |
-| worker 与负载隔离   | 队列支撑的执行与按准入角色的负载隔离                                   | worker 丢失会让业务结果保持未解析，直到查询接收方 Owner。                                                                                                     |
-| 有界推理步骤        | 使用明确准入工具的可选内部 R&D 推理步骤                                | Agent 记忆、模型输出与工具调用成功都不具权威。该步骤不获得任意 shell、Owner SQL、生命周期、Risk、Execution、secret 管理或 workspace 管理能力。                |
-| 连接配置与 secret   | 有类型连接配置与不透明凭据托管                                         | 执行器的 secret 访问不是 Operator Authorization。最小权限路径是强制的；secret 值绝不进入 prompt、Owner 请求、日志、artifact 或 receipt。                      |
-| 运维状态            | 只保存 UI 偏好与可明确重建的非权威缓存                                 | 禁止存放研究血缘、receipt、Qualification、Governance、Runtime、Risk、Execution、Portfolio 与 Recovery 真相。长寿命 artifact 使用 Owner 存储或已准入对象存储。 |
-| 部署版本            | 应用及其 operation、schedule 与 resource schema 的 repository‑first 源 | 已部署状态是仓库的投影。晋级要把 Git revision、镜像摘要、schema 版本与回滚目标记录为一个兼容截面。                                                            |
+| 执行器原语          | Product Edge 角色                                                      | 强制边界                                                                                                                                                                               |
+| ------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 产品应用            | Dashboard 是产品入口                                                   | 只允许已认证 operator 执行。禁止 public、anonymous 与 publisher 执行，因为它们抹掉调用者的有效权限边界。                                                                               |
+| MCP endpoint        | 通往同一组带版本 operation 的可选对话通道                              | scoped token 暴露准确 allowlist，默认拒绝。不得暴露对应用、script、resource、variable、schedule 或 worker 的 preview 或增删改工具。仅靠 folder 过滤不充分。                            |
+| 有类型适配器与编排  | Owner port 之上的有类型适配器与有界编排                                | 可以路由、等待、重试与组合；绝不写 Owner 存储、不发明业务状态、不把编排成功变成 Owner 结果。                                                                                           |
+| run、进度、日志与流 | 运维 run 身份、实时进度、诊断与 UI 流                                  | 运维 run id、百分比、结果或日志都不是 Owner receipt。运维保留期有界，所以持久研究 artifact 与结果事实留在 Trade Owner。                                                                |
+| Schedule            | 触发有界的研究、扫描、回放、报告与维护工作                             | schedule 不是部署注册表、生命周期权威或实时策略运行时。正确性依靠执行器层的错误路径与同请求解析。                                                                                      |
+| worker 与负载隔离   | 队列支撑的执行与按准入角色的负载隔离                                   | worker 丢失会让业务结果保持未解析，直到查询接收方 Owner。                                                                                                                              |
+| 有界推理步骤        | 使用明确准入工具的可选内部 R&D 推理步骤                                | Agent 记忆、模型输出与工具调用成功都不具权威。该步骤不获得任意 shell、Owner SQL、生命周期、Risk、Execution、secret 管理或 workspace 管理能力。                                         |
+| 连接配置与 secret   | 有类型连接配置与不透明凭据托管                                         | 执行器的 secret 访问不是 Operator Authorization。最小权限路径是强制的；secret 值绝不进入 prompt、Owner 请求、日志、artifact 或 receipt。                                               |
+| 运维状态            | 只保存 UI 偏好与可明确重建的非权威缓存                                 | 禁止存放研究血缘、receipt、Qualification、Governance、Runtime、Risk、Execution 与 Portfolio 真相，含 Execution 拥有的 Recovery 真相。长寿命 artifact 使用 Owner 存储或已准入对象存储。 |
+| 部署版本            | 应用及其 operation、schedule 与 resource schema 的 repository‑first 源 | 已部署状态是仓库的投影。晋级要把 Git revision、镜像摘要、schema 版本与回滚目标记录为一个兼容截面。                                                                                     |
 
 Operator UI 可见性不是授权边界。可分发的 MCP profile 默认拒绝：允许的工具只有精选的 Product Edge
 operation 加上只读的运维 run 读取。应用与 MCP 调用绑定同一 operation 版本与语义请求；任一通道都不得

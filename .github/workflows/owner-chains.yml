@@ -1,0 +1,110 @@
+name: owner-chains
+
+# The two isolated PostgreSQL Owner chains, and nothing else, for a push to a `test-chain/` branch.
+#
+# An Owner lane's acceptance is its entries in the ordered chain passing on Linux, and until now the
+# only place to see that was the whole `build` gate - a push to `test-ci` or a Ready pull request -
+# which is about thirty jobs and two hundred runner-minutes, most of them unrelated to the chain, on
+# a repository whose budget is twenty concurrent jobs shared by every lane. This workflow runs the
+# two chain jobs `build` runs, with the same matrix, environment and make targets, and no other
+# job: a lane pays two runner slots for its evidence and leaves the other eighteen alone.
+#
+# One branch per lane, `test-chain/<lane>`, and the branch is that lane's own, so a newer push
+# supersedes the run before it. `test-ci` and `test-rd-owner-postgres` keep their commit-keyed
+# groups because more than one agent pushes there.
+#
+# This is evidence for a lane, not admission to `main`. It admits no `pull_request` event, and a
+# pull request still takes the whole `build` gate.
+
+on:
+  push:
+    branches:
+      - "test-chain/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: owner-chains-${{ github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  AUDIT_PR: ${{ github.repository == 'qOeOp/trade' }}
+
+jobs:
+  owner-chain:
+    name: ${{ matrix.chain.name }}
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        chain:
+          - key: rd-owner
+            name: rd owner postgres (ubuntu-22.04)
+            make: >-
+              cargo-test-rd-owner-postgres-isolated NEXTEST_PROFILE=ci
+              EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
+          - key: market-data
+            name: market data owner postgres (ubuntu-22.04)
+            make: cargo-test-market-data-owner-postgres-isolated
+    env:
+      # What `build` gives these chains on a push to any branch other than `main` or `test-ci`.
+      CARGO_CI_PROFILE: nextest
+      CARGO_TARGET_DIR: /home/runner/.cache/cargo-target/rust-tests-linux-x86
+      # yamllint disable-line rule:line-length
+      RUST_TEST_EXTRA_FEATURES: capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,vibe-strategy-factory/sealed-develop-composer-acceptance
+      RUST_BACKTRACE: 1
+      VIBE_TEST_DATA_BASE_URL: ${{ vars.VIBE_TEST_DATA_BASE_URL }}
+    steps:
+      # https://github.com/step-security/harden-runner
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: >-
+            ${{ env.AUDIT_PR == 'true' && 'audit'
+            || vars.STEP_SECURITY_EGRESS_POLICY
+            || 'block' }}
+          allowed-endpoints: >-
+            ${{ vars.COMMON_ALLOWED_ENDPOINTS }}
+            ${{ vars.CI_ALLOWED_ENDPOINTS }}
+
+      - name: Checkout repository
+        # https://github.com/actions/checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Verify immutable CI inputs (post-checkout)
+        run: bash scripts/ci/verify-ci-inputs.sh post-checkout
+
+      - name: Common setup
+        uses: ./.github/actions/common-setup
+        with:
+          python-version: "3.13"
+          build-type: "test"
+          free-disk-space: "true"
+          free-disk-space-max-build: "true"
+          minimum-free-space-gb: "110"
+          # Read-only, and the same key `build`'s chain jobs state. Nothing is saved under it, so
+          # this workflow never spends the 10 GB quota; a hit is a bonus, a miss is what `build`'s
+          # chain jobs get today for the reason their `rust-cache-key` comment gives.
+          rust-cache-enabled: "true"
+          rust-cache-key: rust-tests-linux-x86
+          rust-cache-workspaces: . -> target/rust-tests-linux-x86
+          rust-cache-on-failure: "false"
+          rust-cache-save-if: "false"
+          rust-cache-workspace-crates: "true"
+
+      # A GitHub-hosted `ubuntu-22.04` runner on a public repository has 4 vCPUs, and this job is
+      # alone on its runner. `CARGO_BUILD_JOBS` is left at Cargo's default, the vCPU count, rather
+      # than the 2 `build`'s chain job states: the chain runs its tests one at a time, so the build
+      # is the whole job.
+
+      - name: Report disk space before the chain
+        run: bash scripts/ci/report-disk-space.bash "before ${{ matrix.chain.key }}"
+
+      - name: Run the isolated PostgreSQL Owner chain
+        run: make ${{ matrix.chain.make }}
+
+      - name: Report disk space after the chain
+        if: always()
+        run: bash scripts/ci/report-disk-space.bash "after ${{ matrix.chain.key }}"

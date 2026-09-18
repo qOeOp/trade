@@ -124,7 +124,7 @@ Data 能封存 308-byte coordinate 及其 receipt cross-binding。唯一通用 `
 逐字节不变。这些都是 TARGET seam，不声称 CURRENT Market Data、Host、plugin、Composer 或 Backtest 已支持，
 也不要求第二 runtime 或 raw-order authority。
 
-只有 Strategy Factory 能验证规范 DAG 与 capability/resource/state bound，并使用内容寻址的 first-party
+只有 R&D 的 Develop 能力能验证规范 DAG 与 capability/resource/state bound，并使用内容寻址的 first-party
 SDK/kernel source 做确定性 lowering。它引用版本化 primitive semantic ID 与 source digest，而不复制公式。
 结果是准确一个现有 bounded plugin，其 output 仅限 typed post-state、`PositionIntentV1`、target 与
 protection field；`ProgramHostV2` 封存 proposal，只有共享生命周期内核能应用它。caller/LLM-authored
@@ -150,7 +150,8 @@ bounds、frozen-Intent 校验和 Owner binding 只是 V2 迁移输入；只有�
 上限受支持时，Develop 才返回内容寻址 Plan 与 Artifact。否则它返回指出准确失败坐标的结构化
 `UNSUPPORTED` 或 `NEEDS_RESEARCH_REFINEMENT`，且不创建 Plan、Artifact、Replay Request、Candidate 或
 下游 effect。`NEEDS_RESEARCH_REFINEMENT` 只能为后继 Research decision 提供信息；Develop 不能静默补全
-Research 含义。
+Research 含义。一个 Research intent 至多封存一个正向 Artifact：同一 intent 之后的 build request 不被接纳，
+后续开发经由 successor Research intent 进行，绝不重新封存 Product Edge 窥视的证据。
 
 **CURRENT/PARTIAL - crate-local Develop Composer V2：** R&D 可以重读一份当前已接纳 V2 Research custody
 投影，重新推导 Design 中由 Research 控制的 request/Intent 身份与 falsifier，解析准确密封 input-binding
@@ -161,23 +162,16 @@ Artifact 已由 `ProgramHostV2` 动态接纳；这只证明 crate-local 合约�
 custody、跨进程重启恢复、provider/API/Dashboard composition 和已部署 Owner readiness 仍不可用，不能从内存
 join 推断。
 
-**CURRENT_PARTIAL - Composer 在生产中从被声明的含义运行。**
-`POST /v2/develop-composer/runs` 的全部公开输入只有一个规范 Research request locator。
-在同一个 R&D 事务内，Owner 重读当前已接纳的 Research 托管，读出该请求冻结的联合
-Bounded Feature Program，从这对冻结值导出 Composer 请求，按 Market Data 自己选定的 PIT cut
-对每个已声明输入角色解析 Market Data 自有的 Strategy Input 托管，把冻结 program 降级为规范的
-第一方源码，再经带标签的 V3 producer 构建。没有可验证联合冻结的 Research 请求返回终态处置
-且不写入任何内容；调用方无法提供 Design、绑定、capsule 或 PIT cut。
-
-**语料那条路径仍然封闭，而这正是要点。**
-`derive_source_research_composer_request_v2` 并没有从重读的 Research 托管导出 Design。
-它取固定语料里的那个 Design，用该托管覆写四个身份字段
-（`research_request_identity`、`intent_identity`、`intent_digest`、`falsifier`），
-绑定则从一个硬编码的 selection identity 派生。插件源码、输入角色与宇宙都是语料的，
-不是这个研究请求的 - 根本没有可编译的 Design。因此该路径、它的 run 入口与篡改控制
-只存在于 `sealed-source-intake-composer-acceptance` 之下；它是验收器具，永远不是生产入口。
-把冻结的 hypothesis、mechanism 与 falsification question 变成可执行 `StrategyDesignV2`
-不是这个 Owner 施加的规则，而是它接纳的一份声明，下面的契约写明这份 Design 由谁撰写。
+**Composer 在生产中只从冻结的 Bounded Feature Program 运行。**
+默认 feature 下 `POST /v2/develop-composer/runs` 接收规范的 Research request locator，重读
+`POST /v1/bounded-feature-programs/{declare,freeze}` 针对该 Research 托管封存的程序，在 Owner 自己的事务里
+锁定 Research 并解析其 Market Data 绑定，把程序降级并构建两次得到逐字节相同的 Wasm，然后在同一事务中提交
+每一条正向 Composer 事实。没有冻结程序的 Research request 在其精确坐标处被拒绝；不会从语料编译任何东西。
+覆写固定语料 Design 四个身份字段的 `derive_source_research_composer_request_v2` 只存活于 sealed acceptance
+之内。有序链路在托管 Linux runner 上端到端证明了这条生产路径
+（`frozen_program_runs_the_production_composer_to_a_durable_artifact`）。该路由做不到的是发明 Design：
+下面的契约写明这份 Design 由谁撰写。它下游的一切都已存在：生产提交函数、store、写入器、两张 build-receipt
+关系，以及生产 binding 接缝。
 
 **CURRENT/PARTIAL：第一圈已有立足之处。** 封存语料 run 之后，`run_bounded_feature_program` 成为唯一的生产入口，
 而它需要一份已冻结的 joint program。冻结需要 Strategy Input declaration；Market Data 过去只从一份
@@ -197,9 +191,9 @@ Composer attestation 注册它们，而铸造该 attestation 的正是一次 Com
 经自身验收 basis 签发的绑定，声明并冻结一个六角色 BAR program，再用 RUN 所用的同一个生产
 绑定 Owner 解析该冻结对，并要求每个已声明角色恰好对应一份回执。
 
-**TARGET：** RUN 验收本身 - 对降级源码的两次字节一致构建、带标签的 V3 回执，
-以及在单个事务内提交全部正向 Composer 事实 - 外加已部署 Owner 就绪度与跨进程重启恢复。
-尚无一次性 PostgreSQL 运行把这条入口带过绑定之后，因此 RUN 仍为 `declared`。
+**CURRENT/PARTIAL：** RUN 验收本身 - 对降级源码的两次字节一致构建、带标签的 V3 回执，
+以及在单个事务内提交全部正向 Composer 事实 - 已由有序链路在托管 Linux runner 上的端到端条目承载。
+**TARGET：** 已部署 Owner 就绪度与跨进程重启恢复，尚无任何链路条目观测到它们。
 
 ### CURRENT_PARTIAL - Strategy Design 由谁撰写
 
@@ -452,11 +446,11 @@ deployment 顺序严格固定为：有界 schema materialization，然后 custod
 隐式 policy 或 current head。bootstrap readback 缺失、无法验证、不匹配或尚未解析时，startup 必须
 fail closed。
 
-在 merged implementation 与具名 acceptance evidence 证明 authentication rejection、empty-store creation、
-exact replay、changed-identity 与 changed-meaning conflict、response-loss/restart resolution、tamper
-rejection、每种零变化失败，以及 fresh disposable PostgreSQL 与隔离第一方验收拓扑中随后的
-accepted TrialFamily formation 之前，该有界 composition 仍是 **TARGET / NOT_ADMITTED**。只有这些条件
-全部成立后，才能把有界 bootstrap composition 称为 **CURRENT**。该状态不证明 production
+该有界 composition 按上面的契约、且仅按该契约 **IMPLEMENTATION_ADMITTED**；只有在 merged implementation 与
+具名 acceptance evidence 证明 authentication rejection、empty-store creation、exact replay、changed-identity 与
+changed-meaning conflict、response-loss/restart resolution、tamper rejection、每种零变化失败，以及 fresh
+disposable PostgreSQL 与隔离第一方验收拓扑中随后的 accepted TrialFamily formation 之后，才能把它称为
+**CURRENT**。该状态不证明 production
 deployment、Workbench product readiness、provider readiness 或任何真实交易权威。
 
 TrialFamily formation 成功后，完整 policy 及其 Catalog identity、version、digest、grammar/parser identity
@@ -585,9 +579,21 @@ purge 与 embargo 派生规则、TrialFamily-aware multiplicity policy、attempt
 ## 输入交接
 
 - Product Edge 提供带来源研究请求而不是无来源交易指令，请求提交已经投影给该 principal 的有界保护反馈前沿。Research 用自己的终态回执解析稳定请求身份，并保留语义前驱而不读取保护类别或细节；回执缺失时保持未知。
-- [Market Data](./market-data/) 提供 PIT 事实 数据版本 标的语义，以及对已提交 Market Data Repair
-  Request 的关联 `AVAILABLE` 或 `UNAVAILABLE` 终态。
-- 探索性 [Backtest](./backtest/) 结果可以支持创建新的意图和工件版本。
+- [Market Data](./market-data/) 提供 PIT 事实 数据版本与标的语义。对每个初始 PIT Market Snapshot Request，它返回一个
+  move-only、由 Market Data 密封的 `ResearchPitTerminal`，关联准确的请求身份与内容摘要，携带规范六态处置
+  `AVAILABLE` `INSUFFICIENT` `STALE` `UNLICENSED` `AMBIGUOUS` 或 `UNAVAILABLE`，以及准确的 Universe Selection
+  Record 身份与摘要。只有 `AVAILABLE` 能进入冻结或后继 Intent；其他状态只冻结依赖它的 Intent，没有响应则保持
+  未知。对已提交的 Market Data Repair Request，它另行返回关联的 `AVAILABLE` 或 `UNAVAILABLE` 终态。
+- [Backtest](./backtest/) 对每个 R&D 拥有的 Exploratory Replay Request 返回一个 Exploratory Run Result，状态恰为
+  `RUN_REJECTED` `IN_PROGRESS_OR_UNKNOWN` `TERMINAL_RESULT` 或 `INVALID_REPLAY_EVIDENCE` 之一。结果重复实际消费的
+  Artifact、PIT 范围与 PIT Market Snapshot、Universe Selection Record 与修正规则、重放配置、Runtime kernel、simulator
+  以及成本 滑点与容量模型身份，并附带完整有限的 `diagnosticCategorySet` 与每个成员的决定性证据截面。Research 只能使用
+  请求相等的 `TERMINAL_RESULT`；被拒绝 无效 未知 非终态或不相等的 attempt 只保留为 TrialFamily Census 事实，最多只能
+  产生 `REPAIR_INPUTS`，绝不产生 Selection 或后继假设。读取结果本身绝不自动创建后继 Intent。
+- [Qualification](./qualification/) 不向已提交 Candidate 的研究循环返回任何保护反馈。Research 只能通过 Product Edge
+  观察到关闭该准确 Qualification Review Request 的只写一次 `ADMITTED` 或 `NOT_ADMITTED` Candidate Intake Receipt，
+  以及有界的公开 Qualification Status Summary。回执缺席保持 `SUBMITTED_OR_UNKNOWN`；`NOT_ADMITTED` 不创建保护
+  attempt 也不消耗 holdout，含义变化不能加入该回执或创建第二次 intake。
 - 已提交且绑定 generation 的 Performance Runtime Incident Execution 账户 订单 成交 quality observation
   Effect Journal 回读与 Reconciliation Drift 事实，只能作为新
   Research Source Provenance Record 进入后继血缘。它们不能改写已部署或已选择的 Intent Artifact
@@ -600,6 +606,11 @@ purge 与 embargo 派生规则、TrialFamily-aware multiplicity policy、attempt
 
 ## 输出交接
 
+- 向 [Market Data](./market-data/) 在探索性消费之前交付一个 R&D 拥有的冻结初始 PIT Market Snapshot Request，绑定
+  Research Request、Intent 与 TrialFamily 身份、请求的标的或宇宙范围身份与版本、四时间决策截面与 PIT 语义、所需的
+  provenance、Source Binding 与数据集版本集、许可 权利 保留与署名策略截面、修正与修订前沿截面、稳定的请求关联身份，
+  以及请求时刻的 Time Evidence。R&D 拥有其身份与内容摘要；相同身份与摘要加入同一个 Market Data attempt，范围 截面
+  provenance 许可 修正或含义变化则需要后继请求。传输成功只让请求保持 `SUBMITTED_OR_UNKNOWN`，不证明任何快照可用。
 - 向 [Market Data](./market-data/) 只在已提交 `REPAIR_INPUTS` Iteration Decision 后发出 Market Data
   Repair Request。请求要求原生 Owner 修复证据，不指定 adapter 不改写旧 snapshot 也不宣称数据可用。
 - 向 [Backtest](./backtest/) 交付一个由 R&D 拥有的冻结 Exploratory Replay Request，绑定准确意图

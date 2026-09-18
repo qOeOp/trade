@@ -2,7 +2,7 @@
 
 ## Responsibility
 
-Strategy Factory is a value-stream boundary around R&D, exploratory Backtest, and independent Qualification. R&D contains both Research and Develop capabilities; the boundary makes the R D Q separation visible without becoming another Owner.
+Strategy Factory is a value-stream boundary around R&D, exploratory Backtest, and independent Qualification. R&D contains both Research and Develop capabilities; the boundary makes the R D Q separation visible without becoming another Owner. Where this page names the actor that canonicalizes, binds, validates, or lowers a Design, that actor is R&D's Develop capability; the boundary itself performs nothing.
 
 ## Forward path
 
@@ -13,7 +13,9 @@ Qualification's PostgreSQL custody is physically distinct: `qualification_owner`
 Replay Policy Catalog and durable Composer custody use the same physical separation. `rd_database_owner`
 is the NOLOGIN database/public-schema custodian; `replay_policy_catalog_owner` and `composer_owner` are
 distinct NOLOGIN object owners of private data and fixed API schemas. `rd_owner` has neither membership,
-ownership, schema `CREATE`, raw table access, nor mutation `EXECUTE`; it retains only fixed lock/read APIs.
+ownership, schema `CREATE` nor raw table access; it retains the fixed lock/read APIs and exactly one non-grantable
+mutation `EXECUTE`, on the Composer commit routines `commit_develop_composer_v2`/`v3`, so a frozen Bounded Feature
+Program is reread, locked, bound and committed inside one Owner transaction.
 The separately supplied `replay_policy_catalog_admin_writer` LOGIN alone receives non-grantable `EXECUTE` on the
 Catalog administration routine, while `rd_fact_writer` retains only Composer commit authority. All routines use `search_path=pg_catalog,pg_temp` inside the
 caller's existing transaction. A fresh deployment first runs the same bounded Rust schema materializers while
@@ -135,7 +137,7 @@ The maturity boundary is explicit:
   kernel and semantic-trace contract only after their Owner adapters exist and are separately admitted. No current
   Paper or Live equivalence, application, external write, or trading capability is claimed here.
 - **TARGET / NOT_ADMITTED - ARC Complex D Bounded Feature Program V1:** frozen Research may supply the bounded,
-  typed feature/state program defined below. Strategy Factory deterministically lowers that canonical program with
+  typed feature/state program defined below. R&D's Develop capability deterministically lowers that canonical program with
   first-party sources into one existing bounded plugin, then continues only through `PluginManifestV2`,
   `StrategyPlanV2`, `StrategyArtifactV2`, `ProgramHostV2`, and the shared lifecycle kernel. This repository has no
   executable `BoundedFeatureProgramV1`, V3 producer or durable V3 readback today. This contract does not claim an
@@ -187,7 +189,7 @@ Market Data positive Replay composition accepts only that untrusted attestation 
 locators. Market Data validates the R&D attestation internally, but independently re-resolves its own durable binding
 registry, complete observation census, joined cut, sample projection, R0 and Market Semantics facts before atomically
 issuing `ReplayCompositionBindingV1`. A caller-supplied receipt, readback, role set, count, authoritative token or
-`StrategyPlanV2` is never positive evidence. Market Data neither parses R&D raw tables nor depends on Strategy Factory,
+`StrategyPlanV2` is never positive evidence. Market Data neither parses R&D raw tables nor depends on R&D,
 and R&D cannot select or reinterpret any Market fact. Missing, partial, stale, reordered, digest-mismatched or
 cross-spliced evidence yields zero binding, Replay V2 fact, receipt or outbox writes. This preserves the sole forward
 shape above and creates neither a new Owner nor a second canonicalization authority.
@@ -199,7 +201,7 @@ response-loss cases.
 ### TARGET - ARC Complex D Bounded Feature Program V1
 
 `BoundedFeatureProgramV1` (BFP V1) is the only admitted general Complex D representation. R&D/Develop freezes its
-canonical meaning together with the Research Intent and `StrategyDesignV2`; Strategy Factory verifies and lowers
+canonical meaning together with the Research Intent and `StrategyDesignV2`; R&D's Develop capability verifies and lowers
 it but cannot invent Research meaning. Its sole forward path is:
 
 `Frozen Research -> canonical BoundedFeatureProgramV1 typed DAG -> deterministic first-party source lowering ->`
@@ -242,7 +244,7 @@ consumer must declare `require_ready = true`, and neither projection is readable
 The coordinate cannot be referenced independently or routed into a primitive input, strategy state, lifecycle
 terminal, or manifest output.
 
-The first primitive catalog is versioned and owned by `vibe-indicators-kernel`. Strategy Factory references each
+The first primitive catalog is versioned and owned by `vibe-indicators-kernel`. R&D's Develop capability references each
 primitive's semantic ID and the pinned catalog/source digest; it must not copy, reinterpret, or independently
 implement a formula. The first catalog must include:
 
@@ -380,7 +382,7 @@ exactly 57 rows:
 No other primitive, alias, optional subset, or extension belongs to catalog V1. Every row binds its exact formula,
 type/unit/scale contract, rounding ID where applicable, availability/update-clock rule, state encoding, and required
 golden-vector identities in canonical catalog bytes. Missing or adding one row, formula, semantic ID, golden vector,
-or failure oracle makes the entire V1 catalog digest unavailable; Strategy Factory must reject the BFP and cannot
+or failure oracle makes the entire V1 catalog digest unavailable; R&D's Develop capability must reject the BFP and cannot
 publish or substitute a partial toy catalog.
 
 <a id="catalog-versioning-and-frozen-program-readback"></a>
@@ -569,7 +571,7 @@ joined-cut receipt and the complete Plan binding set. This does not make the fut
 and does not establish a Native Replay run, production startup, durable product composition, or Backtest closure.
 
 **CURRENT/PARTIAL, request-bound Native Replay execution inputs:** the R&D Owner issues and persists one
-immutable `NativeReplayExecutionInputBindingV1` for one exact sealed Exploratory Replay request. Strategy Factory
+immutable `NativeReplayExecutionInputBindingV1` for one exact sealed Exploratory Replay request. R&D's Develop capability
 owns the pure structural validator and preparation boundary; it has no independent storage authority and cannot
 mint, replace, or reinterpret any constituent Owner fact. The binding is a cross-Owner composition locator rather
 than a new source of market, instrument, schedule, universe, or economic truth.
@@ -584,7 +586,7 @@ identity, and every constituent locator/digest needed to prove equality. The bin
 while the move-only typed readbacks retain their original Owner authority; it never copies private economic terms
 into Market Data or turns a universe/schedule receipt into Instrument Master truth.
 
-Before R&D commits the binding, Strategy Factory must consume all exact-locator Owner readbacks and prove: exactly
+Before R&D commits the binding, R&D's Develop capability must consume all exact-locator Owner readbacks and prove: exactly
 two distinct members and no extras; universe-member order and identities equal the Plan; each public fact equals
 the Instrument Economic Terms public-fact reference; venue, account scope, currencies, half-open validity and event
 time agree with the Replay profile; and each member's BAR timeframe equals its exact schedule readback. R&D then
@@ -613,7 +615,7 @@ economic pair, universe frame, and two BAR schedules before committing the bindi
 its read operation returns only an already issued binding projection. A separate consumer composition first reads
 that durable binding, independently re-resolves the exact Composer, Instrument Master V2, economic, universe, and
 schedule inputs, reproduces the stored binding byte-for-byte, and only then materializes the existing native
-execution bundle. A sealed production Strategy Factory resolver now performs that reconstruction inside one
+execution bundle. A sealed production R&D resolver now performs that reconstruction inside one
 repeatable-read R&D transaction, derives attempt-bound runtime identities, and hands Backtest the move-only bundle
 with the complete ordered 28-component observation package. R&D source records provide Research, TrialFamily and
 Replay-authority bytes; accepted Composer custody provides Design, Plan and Artifact bytes; the independently
@@ -695,7 +697,7 @@ component-equality failure rejects before Composer, Plan, Artifact, Host, Backte
 target grants no production, deployment, runtime or trading authority.
 
 Market Data resolves the exact historical timeframe-projection receipt for the sealed static binding and selects
-and seals the coordinate from its verified census. R&D, Strategy Factory, the Host caller, Backtest, and the plugin cannot
+and seals the coordinate from its verified census. R&D, the Host caller, Backtest, and the plugin cannot
 mint, narrow, hash-substitute, or advance it. For one role, a replay joins only when all 308 bytes match. The same
 role/timeframe/sample identity with different bytes is a conflict. A new sample requires unchanged static binding,
 timeframe, lineage root and Market Semantics identity, a nondecreasing lineage version, a different sample identity,
@@ -863,7 +865,7 @@ same-root conflicting versions, or conflicting component/event identity fails be
 guest, state, target or checkpoint mutation. The join is canonical Plan data consumed by the one generic Host and
 shared lifecycle kernel; it introduces no feature opcode, second interpreter, heuristic binding or raw-order path.
 
-For continuous EVENT replay, Strategy Factory accepts only the additive move-only
+For continuous EVENT replay, R&D's Develop capability accepts only the additive move-only
 `StrategyInputEventCorpusV1`. Its complete-set authority is the additive move-only Market Data
 `StrategyInputEventSourceV1`, issued from Owner frames resolved against verified PIT batches; `SealedReplayInput`
 V1 is not reinterpreted as multi-event authority. Preparation revalidates every retained joined cut and V2 projection against the exact
@@ -970,7 +972,7 @@ correction sequence. `event_identity` is the first 16 bytes of BLAKE3 over the c
 The frame consumes the already sealed static receipts and re-resolves their rows against the current verified
 batch; it does not clone static receipts into the frame. Each ordered per-role value receipt preserves the original `StrategyInputBindingReceipt` digest and role identity,
 seals exact signed i128 little-endian bytes with an explicit fixed-value semantic, scale and canonical-row digest,
-and cross-binds the trigger and observation-batch digest. A Strategy Factory-private adapter validates the trigger
+and cross-binds the trigger and observation-batch digest. An R&D-private adapter validates the trigger
 once, validates only the Owner facts referenced by the current reaction against the Plan role/type and frame/as-of,
 and derives the SDK envelope and order key directly from the sealed trigger. Its aggregate admitted-event digest
 supplements rather than replaces every original Owner identity. There is no public caller envelope/value
@@ -1216,6 +1218,32 @@ and may not compose a replacement, alter policy, or create a second request, rec
 is not admitted until implementation plus real disposable PostgreSQL Owner readback and end-to-end first-party
 acceptance prove the complete composition and every zero-change rejection; it grants no production or trading
 authority.
+
+## Value-stream handoffs
+
+The stage relations between R&D, Backtest, and Qualification cross the value stream as exactly these objects. Each
+Owner page defines the object it emits, and the receiving page repeats what it accepts; this page only lists them
+so the stream can be read end to end.
+
+- R&D → Backtest: one R&D-owned frozen Exploratory Replay Request bound to the exact Artifact, PIT scope, replay
+  configuration, and cost, slippage, and capacity-model identities. The same request identity and canonical bytes
+  join one attempt; changed meaning is a conflict and performs no write.
+- Backtest → R&D: one Exploratory Run Result per request in exactly one of `RUN_REJECTED`,
+  `IN_PROGRESS_OR_UNKNOWN`, `TERMINAL_RESULT`, or `INVALID_REPLAY_EVIDENCE`, repeating every consumed
+  execution-defining identity and the complete finite `diagnosticCategorySet`. Only a request-equal
+  `TERMINAL_RESULT` may enter Research Selection; every other attempt remains a TrialFamily Census fact and can
+  produce only `REPAIR_INPUTS`.
+- R&D → Qualification: one frozen Candidate with a terminal `SELECTED_FOR_QUALIFICATION` Research Selection
+  Disposition, carried by a stable Qualification Review Request that cross-binds the frozen Intent falsifier and
+  stop rule, complete preregistration, immutable exhaustive TrialFamily Census Frontier, exploratory
+  request/result frontier, cross-family predecessor frontier, precommitted independence basis, protected-feedback
+  observation frontier, Protected Robustness Plan, and the preregistered protected decision-policy identity and
+  version.
+- Qualification → Product Edge and R&D: one write-once Candidate Intake Receipt, `ADMITTED` or `NOT_ADMITTED`,
+  that closes the exact review request. Receipt absence remains `SUBMITTED_OR_UNKNOWN`, and no status summary,
+  transport success, or event delivery replaces it. `NOT_ADMITTED` creates no protected attempt and consumes no
+  holdout. Qualification then requests and consumes protected replay from Backtest in isolation and returns no
+  protected measurement to Research.
 
 ## Protected path
 

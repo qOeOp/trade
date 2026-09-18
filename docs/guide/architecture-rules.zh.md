@@ -378,8 +378,7 @@ commit cut 与 comparison rule。消费者不能遍历 proof chain、跳过前�
 **CURRENT：** `crates/data/src/owner/store_admission` 将非业务 PostgreSQL admission 机制及其前后
 revalidation 保留在 Market Data crate 内。固定 `rd-owner-api` bootstrap 请求该私有 seam；production resolver、
 signer、anti-rollback witness、credential resolver 或 direct measurer 不可用时，在构造 repository 前 fail
-closed。随后 Market Data 回读当前 PIT、Source Binding 与 clock head 并密封 `ResearchPitTerminal`。Strategy
-Factory 只能获得 sealed terminal resolver：raw receipt、capability、query、DTO、evidence accessor 或
+closed。随后 Market Data 回读当前 PIT、Source Binding 与 clock head 并密封 `ResearchPitTerminal`。R&D 只能获得 sealed terminal resolver：raw receipt、capability、query、DTO、evidence accessor 或
 caller-authored positive authority 均不能越过 Owner 边界。通用 S3 catalog 仍只是机制，不是权威。
 
 **TARGET：** 一个属于 Market Data 私有边界且不属于业务的 Deployment Store Admission Custodian，只拥有 signed append-only store manifest

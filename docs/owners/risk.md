@@ -46,6 +46,31 @@ Independently gate every normal Trade Intent against current policy, account exp
 - **Risk Engine** - return allow with decision and reservation, or a terminal rejection, for every normal intent.
 - **Kill Switch** - block new risk and fence affected generations while defining the bounded cancel/reduce/flatten recovery scope.
 
+## Implementation status ledger
+
+This ledger records only what the repository has reached at this cut. It uses the status vocabulary of the
+[Market Data](./market-data/) ledger, with `CURRENT_PARTIAL` as the merged-but-unreachable form, and grants no
+permission by itself: no slice of this document is `IMPLEMENTATION_ADMITTED`, and widening the admitted set
+requires changing this document first.
+
+- **TARGET - Risk Engine:** the inherited `RiskEngine` in `crates/risk/src/engine/mod.rs` performs pre-trade order
+  validation, `TradingState` halt and reduce switching, notional and rate limits, and the sizing in
+  `crates/risk/src/sizing.rs`; it is the adoption source named by capability adoption. It returns no terminal Risk
+  Decision, binds no policy cut, Portfolio cut, or Authorization Lineage, and is composed only by the inherited
+  kernel, Backtest, and live-node paths in `crates/system`, `crates/backtest`, and `crates/live`.
+- **TARGET - Risk Decision, categorized `REJECT`, and `PERMIT_DECREASE_ONLY`:** no type or custody exists for the
+  decision, its supported rejection-category set, or the decrease-only permit.
+- **TARGET - Risk Reservation, Reservation Claim Result, and Adapter Admission Result:** the one-use Reservation
+  lifecycle, claim arbitration, and `ADMITTED_ONCE` serialization against fence activation have no implementation;
+  nothing in the repository sends or receives a Reservation Claim Request or `ADAPTER_ADMISSION_REQUEST`.
+- **TARGET - Aggregate Commitment Frontier:** no same-scope serialization exists, and its Portfolio-owned Capacity
+  Scope is itself only a Discovery contract in `crates/portfolio`.
+- **TARGET - Recovery Fence and Kill Switch:** the inherited `TradingState` `Halted` and `Reducing` states are a
+  process-local switch; no fence binds a `RUNTIME_NOT_READY`, `RUNTIME_INCIDENT`, `RECONCILIATION_DRIFT`, or
+  `RISK_HARD_STOP` source branch, and no active-fence-set identity or action intersection exists.
+- **TARGET - handoffs and persistence:** no port to Runtime, Governance, Portfolio, or Execution and no durable
+  relation for any Risk fact.
+
 ## Input handoffs
 
 - [Runtime](./runtime/) submits Trade Intent, immutable Readiness Facts, and for `RUNTIME_INCIDENT` the committed

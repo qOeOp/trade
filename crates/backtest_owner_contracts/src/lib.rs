@@ -3,6 +3,7 @@
 //! This crate contains caller-authored requests and finite value vocabularies only. It does not
 //! define a positive result constructor, an observation provider trait, or Backtest execution.
 
+pub mod native_replay_trace;
 pub mod outcome_evidence;
 pub mod protected_replay;
 

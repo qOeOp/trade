@@ -11,6 +11,7 @@ use std::{collections::BTreeSet, future::Future, pin::Pin, sync::Arc};
 use serde::Serialize;
 use sqlx::PgPool;
 use thiserror::Error;
+use vibe_backtest_owner_contracts::native_replay_trace::OrderedTraceFaultV1;
 use vibe_strategy_factory::{
     exploratory_replay::{ExploratoryReplayRequestLocatorV2, SealedExploratoryReplayReadbackV2},
     native_replay_preparation_owner_v2::NativeReplayExecutionPreparationResolverV2,
@@ -39,6 +40,9 @@ use crate::{
 
 const OWNER_OBSERVATION_BYTES_DOMAIN_V2: &[u8] = b"vibe.backtest.owner-observation-bytes.v2\0";
 const SEMANTIC_TRACE_BYTES_DOMAIN_V2: &[u8] = b"vibe.backtest.native-semantic-trace.v2\0";
+/// Schema 3 adds the complete ordered host transition trace and every committed target set to
+/// the sealed execution readback. Schema 2 sealed fills, census, and result digest only.
+const SEMANTIC_TRACE_OBSERVATION_SCHEMA_VERSION: u16 = 3;
 
 pub(crate) mod admitted_preparation_owner {
     pub trait Sealed {}
@@ -186,8 +190,15 @@ impl NativeReplaySemanticTraceEvidenceV2 {
         {
             return Err(NativeReplayRunErrorV2::IncompleteReconciliation);
         }
+        // The Owner seals only a complete ordered trace: one START..STOP lifecycle, an unbroken
+        // checkpoint chain, every committed target set covering every member, and every native
+        // fill bound to exactly one reconciling FILL transition. The consumer proved the same
+        // census before handing the readback over; the Owner does not trust that proof.
+        execution
+            .ordered_trace_census()
+            .map_err(NativeReplayRunErrorV2::IncompleteSemanticTrace)?;
         let bytes = serde_json::to_vec(&SemanticTraceObservationV2 {
-            schema_version: 2,
+            schema_version: SEMANTIC_TRACE_OBSERVATION_SCHEMA_VERSION,
             request_identity,
             request_meaning_digest,
             attempt_identity,
@@ -462,6 +473,8 @@ pub enum NativeReplayRunErrorV2 {
     ExecutionBundleOwnerUnavailable,
     #[error("native Replay V2 evidence is incomplete, duplicated, mismatched, or unresolvable")]
     IncompleteReconciliation,
+    #[error("native Replay V2 ordered semantic trace is incomplete: {0}")]
+    IncompleteSemanticTrace(OrderedTraceFaultV1),
     #[error("ProgramHostV2 to Sim EVENT native execution failed: {0}")]
     NativeExecution(String),
     #[error("Backtest Owner rejected the actual-consumption Result: {0}")]

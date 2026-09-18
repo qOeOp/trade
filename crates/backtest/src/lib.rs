@@ -57,7 +57,6 @@ pub mod exchange;
 pub mod execution_client;
 pub mod modules;
 pub mod result;
-pub mod strategy_replay;
 
 #[cfg(feature = "streaming")]
 pub mod node;

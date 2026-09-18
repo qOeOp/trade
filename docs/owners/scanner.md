@@ -30,6 +30,28 @@ Run a scheduled slow-track match between governed strategies and current market 
 - **Strategy Matcher** - evaluate each activation condition against its bound inputs; one strategy's missing data or condition failure cannot suppress complete matches for others.
 - **Proposal Builder** - package matched strategies, evidence, optional Capacity View identity, and stop conditions into an auditable proposal.
 
+## Implementation status ledger
+
+This ledger records only what the repository has reached at this cut. It uses the status vocabulary of the
+[Market Data](./market-data/) ledger, with `CURRENT_PARTIAL` as the merged-but-unreachable form, and grants no
+permission by itself: no slice of this document is `IMPLEMENTATION_ADMITTED`, and widening the admitted set
+requires changing this document first.
+
+- **CURRENT_PARTIAL - deterministic Scanner core:** `crates/scanner` owns `ScheduleDefinition` with fold, gap, and
+  misfire dispositions, due-slot derivation and the stable `AttemptId`, per-strategy `StrategyDisposition`, the
+  terminal `ScannerReceipt` with its five statuses and mutually exclusive membership branches,
+  `BatchOperationalFailure` categories, the `Scanner` service whose source-Owner admission of Time and Governance
+  membership is crate-private, the `TerminalReceiptStore` port, and the `ProductEdgeTerminalReceiptReader` read seam.
+  `crates/scanner/src/tests.rs`, `crates/scanner/tests/public_owner_admission.rs`, and the compile-fail tests prove
+  the fail-closed shape.
+- **TARGET - production composition:** no scheduler trigger, no production constructor for the sealed source-Owner
+  admission, no durable receipt custody behind `TerminalReceiptStore`, and no Product Edge consumer exist; the only
+  external use is a type import in `crates/testkit/tests/f1_current_workspace.rs`.
+- **TARGET - Strategy Loader, Market Snapshot, and Capacity View input:** the `StrategyLoader` and `MarketSnapshot`
+  ports have no implementation over the governed registry, Market Data PIT facts, or a Portfolio Capacity View.
+- **TARGET - handoffs and persistence:** no terminal receipt reaches Governance or Product Edge, and no Scanner fact
+  is persisted.
+
 ## Input handoffs
 
 - Scheduler supplies the fixed periodic trigger; it has no deployment authority.
