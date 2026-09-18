@@ -68,8 +68,9 @@ const CLOCK_IDENTITY: &str = "SEALED_ACCEPTANCE.MARKET_DATA.CLOCK";
 const CLOCK_EPOCH: &str = "SEALED_ACCEPTANCE.EPOCH.1";
 const DECISION_CUT: u64 = 40;
 const PROTECTED_EVALUATION_CLOCK_EPOCH: &str = "SEALED_ACCEPTANCE.PROTECTED_EVALUATION.EPOCH.1";
-/// 2100-01-01T00:00:00Z in epoch milliseconds: the protected-evaluation heads must outlive every
-/// Owner commit cut sampled from PostgreSQL during an acceptance run.
+/// 2100-01-01T00:00:00Z in epoch milliseconds. It puts every head's validity beyond any cut
+/// PostgreSQL will sample during an acceptance run, which takes validity out of the chain's reach
+/// rather than exercising it.
 const PROTECTED_EVALUATION_BASE_MS: u64 = 4_102_444_800_000;
 const PROTECTED_EVALUATION_STEP_MS: u64 = 1_000;
 const PROTECTED_EVALUATION_VALIDITY_MS: u64 = 86_400_000;
@@ -215,9 +216,15 @@ impl SealedAcceptanceMarketDataRepairEvidenceV1 {
 /// One Qualification Protected Replay Request seals the request-stage root head, every Backtest
 /// protected Result binds the direct result-stage successor, and the Robustness Assessment binds
 /// the direct assessment-stage successor. The three heads share one epoch, so no epoch successor
-/// proof exists, and every cut lies far enough in the future that an Owner commit sampled from
-/// PostgreSQL `clock_timestamp()` stays inside each half-open validity. The fixture accepts no
-/// caller clock and cannot be constructed or advanced by a caller.
+/// proof exists.
+///
+/// What this chain is for is the linkage: each stage names its direct predecessor, one epoch means
+/// no successor proof may appear, and every ordered cut strictly advances. Validity is deliberately
+/// not a tested variable here. Its consumers make exactly one comparison against real time, that an
+/// Owner commit cut lies below `valid_through`, and these cuts are placed beyond any cut PostgreSQL
+/// will sample, so that comparison is out of reach rather than satisfied. A head's remaining
+/// validity fields are only checked against each other. The fixture accepts no caller clock and
+/// cannot be constructed or advanced by a caller.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SealedAcceptanceProtectedEvaluationSharedTimeV1 {
     request_head: ClockHeadHandoff,
