@@ -509,7 +509,10 @@ mod tests {
             Err(LiveMarketChannelErrorV1::StoreUntrusted)
         );
 
-        // The relation is the Owner's alone. A reader reaches none of it, in either direction.
+        // The relation is the Owner's alone. The reader cannot see it, and holds no privilege that
+        // would let it write. The write half is asked of the catalog rather than attempted: this
+        // Owner's heads are custody, and a proof does not need to issue destructive statements to
+        // show that a role may not issue them.
         let reader = PgPoolOptions::new()
             .max_connections(1)
             .connect(&reader_url)
@@ -521,23 +524,42 @@ mod tests {
                 .await
                 .is_err()
         );
-        assert!(
-            sqlx::query("DELETE FROM market_data_private.live_market_channel_heads_v1")
-                .execute(&reader)
-                .await
-                .is_err()
-        );
-        let public_select: bool = sqlx::query_scalar("SELECT has_table_privilege('public','market_data_private.live_market_channel_heads_v1','SELECT')")
-            .fetch_one(&owner.pool)
+        let reader_role: String = sqlx::query_scalar("SELECT current_user::text")
+            .fetch_one(&reader)
             .await
             .unwrap();
-        assert!(!public_select);
 
-        sqlx::query("DELETE FROM market_data_private.live_market_channel_heads_v1 WHERE channel_identity=$1")
-            .bind(channel.as_bytes().as_slice())
-            .execute(&owner.pool)
-            .await
-            .unwrap();
-        assert_eq!(rows_here().await, 0, "this proof leaves no head behind");
+        for role in [reader_role.as_str(), "public"] {
+            for privilege in ["SELECT", "INSERT", "UPDATE", "DELETE"] {
+                let admitted: bool = sqlx::query_scalar(
+                    "SELECT has_table_privilege($1,'market_data_private.live_market_channel_heads_v1',$2)",
+                )
+                .bind(role)
+                .bind(privilege)
+                .fetch_one(&owner.pool)
+                .await
+                .unwrap();
+                assert!(
+                    !admitted,
+                    "{role} unexpectedly has {privilege} on the head relation"
+                );
+            }
+        }
+
+        // The head stays. It is durable custody, and this proof runs on a database provisioned for
+        // it alone, so erasing the row at the end would remove the evidence rather than tidy it.
+        assert_eq!(
+            rows_here().await,
+            1,
+            "this proof leaves exactly its own head, and no other"
+        );
+        assert_eq!(
+            owner
+                .live_market_channel_head_v1(channel, binding)
+                .await
+                .unwrap(),
+            advanced,
+            "the head still verifies after every tamper was restored"
+        );
     }
 }
