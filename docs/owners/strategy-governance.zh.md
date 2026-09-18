@@ -67,11 +67,14 @@ testkit 或 acceptance feature 的生产路径；其余各行不授予任何东�
   `ConditionalScannerNotAdmitted` 拒绝。公开构造安装的是不可用的 Owner 准入，所以每个公开请求都失败关闭
   （`crates/strategy_governance/tests/public_fail_closed.rs`），且无法安装 Runtime 回执 resolver，因此 application
   投影为 `APPLICATION_UNKNOWN`。
-- **TARGET / IMPLEMENTATION_ADMITTED - Strategy Registry 与 Execution Scope 创建：** 不存在持久的 Governed Strategy Entry，而它必须绑定的
-  `BOUND` Capacity Scope 与 `ADMITTED` Execution Adapter Binding 本身只是 `crates/portfolio` 与 `crates/execution`
-  里的 Discovery 与静态契约。已准入切片：Governed Strategy Entry、Execution Scope、生命周期请求与回执的 PostgreSQL
-  custody，以及 crate 私有的 Owner 准入，它在一次 `PAPER` `INITIAL_ACTIVATION` 之前重读 Qualification Eligibility、
-  Portfolio 的 `BOUND` Capacity Scope、Execution 的 `ADMITTED` binding 与 R&D 构建回执。
+- **CURRENT_PARTIAL / IMPLEMENTATION_ADMITTED - Strategy Registry 与 Execution Scope 创建：** 不可变的 Execution Scope
+  现在在 `crates/strategy_governance` 里有生产 PostgreSQL custody，角色为 `governance_owner` 与 `governance_writer`。
+  写入之前，该 custody 在同一个写事务里通过两个源 Owner 各自的只读 API 重读 Portfolio 自己的 `BOUND` Capacity Scope
+  与 Execution 自己当前的 `ADMITTED` PAPER adapter binding，并且只有在两者对账户与预绑定一致、且调用方的每项预期与
+  各 Owner 所述相符时才写入。它的 `governance_api` 回读暴露已绑定的语义，scope 自身不携带有效期窗口，重放保留创建
+  时间并按两个当前源事实刷新新鲜度。没有生产调用方到达它：Product Edge 没有生命周期请求入口。仍然已准入且仍然缺席的
+  是 Governed Strategy Entry、生命周期请求与回执，因为架构要求 entry 绑定一份确切的 Eligibility Fact、按 generation
+  的经济条件版本与合格容量上限，而 Qualification 与 R&D 对这些以及构建回执都没有生产写入者。
 - **TARGET - Lifecycle Manager：** 不存在证据驱动的生命周期状态、`DE_RISK_PENDING` 后继、保留续期或不利证据处置政策。
 - **TARGET / IMPLEMENTATION_ADMITTED - Capital Policy 与 Capital Allocation Disposition：** 不存在 `POOL_ROOT` 或
   `STRATEGY_GENERATION` Capital Envelope、contender-membership frontier 或分配。已准入切片：为唯一已准入 generation

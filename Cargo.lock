@@ -11021,6 +11021,7 @@ dependencies = [
  "sha2 0.10.9",
  "sqlx",
  "tokio",
+ "vibe-execution-owner",
  "vibe-testkit",
 ]
 
@@ -11401,9 +11402,15 @@ name = "vibe-strategy-governance"
 version = "0.62.0"
 dependencies = [
  "rstest",
+ "serde",
  "serde_json",
  "sha2 0.10.9",
+ "sqlx",
+ "tokio",
  "trybuild",
+ "vibe-execution-owner",
+ "vibe-portfolio-owner",
+ "vibe-testkit",
 ]
 
 [[package]]
