@@ -1249,6 +1249,13 @@ mod tests {
         .await
         .unwrap();
         let execution_scope_identity = format!("paper-scope-{suffix}");
+        let execution_pool_for_residue = mutation.pool(CanonicalOwnerTestRoleV1::ExecutionWriter);
+        assert_eq!(
+            execution_reservation_residue(execution_pool_for_residue, &execution_scope_identity)
+                .await,
+            0,
+            "this proof's Execution Scope identity must hold no namespace reservation yet"
+        );
         let mode = PaperMode::Paper;
         let binding = execution
             .commit(PaperAdapterBindingDraft {
@@ -1483,6 +1490,12 @@ mod tests {
         )
         .await;
         assert_eq!(own_counts(&pool, &suffix).await, (0, 0, 0));
+        assert_eq!(
+            execution_reservation_residue(execution_pool_for_residue, &execution_scope_identity)
+                .await,
+            0,
+            "the namespace reservations no foreign key protects are released again"
+        );
     }
 
     /// Rewrites two fields of Execution's committed opening fact in place.
@@ -1511,6 +1524,23 @@ mod tests {
     }
 
     /// Removes exactly what this proof wrote, in both Owners' own custody.
+    /// The one Execution relation this proof writes that no foreign key protects.
+    ///
+    /// The ordered chain shares one database that never resets. Measuring foreign keys in both
+    /// directions across the two Owner schemas, the namespace reservation is the only relation here
+    /// with neither an inbound nor an outbound one: every other residue makes some later delete
+    /// fail loudly on its own, and a reservation left behind is silent and permanent.
+    async fn execution_reservation_residue(execution: &PgPool, scope_identity: &str) -> i64 {
+        sqlx::query_scalar(
+            "SELECT COUNT(*) FROM execution_private.execution_paper_namespace_reservations_v1
+              WHERE execution_scope_identity = $1",
+        )
+        .bind(scope_identity)
+        .fetch_one(execution)
+        .await
+        .unwrap()
+    }
+
     async fn cleanup(
         pool: &PgPool,
         execution: &PgPool,

@@ -815,9 +815,11 @@ mod postgres_proof {
     /// Owner's schema must prove it removed exactly what it added. Emptiness proves nothing here;
     /// only equality with the counts taken before the proof ran does.
     ///
-    /// The counted relations are deliberately the ones no foreign key protects. A residue in a
-    /// table something else references makes the next cleanup fail loudly on its own; a residue in
-    /// a leaf table is silent and accumulates forever on a database that never resets.
+    /// Of these, the PAPER namespace reservation and the Portfolio outbox are the ones that matter:
+    /// measuring foreign keys in both directions, they are the only relations here with neither an
+    /// inbound nor an outbound one, so a residue in them is silent and permanent on a database that
+    /// never resets. The other three make some later delete fail loudly on their own and are
+    /// counted only as corroboration.
     async fn source_owner_counts(
         portfolio: &PgPool,
         execution: &PgPool,
@@ -848,7 +850,8 @@ mod postgres_proof {
         .fetch_one(execution)
         .await
         .unwrap();
-        // Nothing references these two, so nothing but this assertion would ever notice a leak.
+        // Neither of these has a foreign key in either direction, so nothing but this assertion
+        // would ever notice a leak.
         let reservations: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM execution_private.execution_paper_namespace_reservations_v1
               WHERE execution_scope_identity LIKE $1",
