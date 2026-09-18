@@ -4,6 +4,17 @@
 
 Strategy Factory is a value-stream boundary around R&D, exploratory Backtest, and independent Qualification. R&D contains both Research and Develop capabilities; the boundary makes the R D Q separation visible without becoming another Owner. Where this page names the actor that canonicalizes, binds, validates, or lowers a Design, that actor is R&D's Develop capability; the boundary itself performs nothing.
 
+### How to read this page
+
+The boundary contract is short: Responsibility, Forward path, Value-stream handoffs, Protected path, Authority
+boundary, and Implementation acceptance. Those state which Owner holds which fact across R&D, Backtest, and
+Qualification, and which objects cross between them.
+
+The shared lifecycle kernel section and the Bounded Feature Program section below it are the compiler
+specification: the typed Design shape, the fail-closed pipeline, the pinned primitive catalog, the graph bounds,
+the ABI, and the build capsule. They are normative for anyone implementing the compiler and are not required to
+understand the value stream. The actor throughout is R&D's Develop capability.
+
 ## Forward path
 
 A sourced hypothesis is only a proposal. Before protected feedback, R&D atomically precommits one principal- and request-scope-bound Independence Basis Receipt. Qualification directly resolves that exact R&D receipt and, after inspecting its complete durable principal/scope history, returns either `GENESIS_EMPTY`, a current opaque `FRONTIER(ref, cut)`, or `UNAVAILABLE`; genesis is valid only for proven empty Qualification history. Product Edge carries that principal/scope-bound opaque projection without protected detail. Inside the locked R&D admission transaction, R&D resolves its own complete local semantic-predecessor lineage as `GENESIS_EMPTY`, `COMPLETE_FRONTIER`, or `UNAVAILABLE`. Only exact current canonical reads from both Owners may atomically create the frozen Research Intent, permanent TrialFamily root, initial census member and head, receipts, and outbox. The caller cannot supply or override either frontier, the independence disposition, or the basis identity.

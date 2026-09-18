@@ -4,6 +4,22 @@
 
 Provide canonical, time-correct market, reference, and instrument facts to every analytical and trading consumer. Market Data owns data meaning and observability, not the strategy-specific selection of what a run should consume.
 
+### How to read this page
+
+The Owner contract is the standard Owner skeleton: Responsibility, Authoritative facts owned, Modules, Input
+handoffs, Output handoffs, Rejections and prohibitions, Failure and recovery, Decision contract, and Subsequent
+implementation acceptance. Read those to learn what Market Data owns, what crosses its boundary, and what it
+refuses. They are the part another Owner, or an agent planning work, has to reason from.
+
+Between Modules and Input handoffs sit the native sub-authority contracts: Calendar and Time Zone, Market
+Semantics, Correction Policy, Corporate Action, Replay Market Facts V2, Instrument Master, and Strategy input-role
+binding. Each carries its own status marker and states one sub-authority.
+
+Inside those, every subsection whose heading names a canonical codec, canonical identity, or canonical census
+fixes byte layouts, field order, integer widths, and digest domains. They are normative, because a differing
+encoding is a different fact, but they answer only how a value is spelled, never who may write it or what it
+means. Skip them unless you are implementing or verifying an encoding.
+
 ## Implementation admission ledger
 
 This ledger is the greppable index of what the contract below has actually reached. It grants no permission by
