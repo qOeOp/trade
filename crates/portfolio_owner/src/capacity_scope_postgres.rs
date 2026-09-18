@@ -28,11 +28,15 @@ use std::{
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions};
 
 use crate::capacity_scope::{
-    CapacityScopeFailure, CapacityScopeResolution, OwnerCapacityScopeDecisionTime,
-    OwnerCapacityScopeDefinition, OwnerCapacityScopeRegistryCut, OwnerMembershipCompleteness,
-    UntrustedCapacityScopeRequest, derive_census_identity, derive_membership_proof_identity,
-    derive_registry_cut_identity, derive_scope_identity, issue_bound_capacity_scope,
-    unavailable_readback, validate_registry,
+    BoundCapacityScopeReadback, CapacityScopeFailure, CapacityScopeResolution,
+    OwnerCapacityScopeDecisionTime, OwnerCapacityScopeDefinition, OwnerCapacityScopeRegistryCut,
+    OwnerMembershipCompleteness, UntrustedCapacityScopeRequest, derive_census_identity,
+    derive_membership_proof_identity, derive_registry_cut_identity, derive_scope_identity,
+    issue_bound_capacity_scope, unavailable_readback, validate_registry,
+};
+use crate::capacity_view::{
+    CapacityViewFailure, CapacityViewReadback, ExecutionAccountFactCut, derive_view_identity,
+    seal_view,
 };
 
 /// Canonical PostgreSQL role that owns every Portfolio relation.
@@ -46,10 +50,11 @@ pub const PORTFOLIO_API_SCHEMA: &str = "portfolio_api";
 /// Canonical outbox kind emitted with each committed registry cut.
 pub const CAPACITY_SCOPE_REGISTRY_OUTBOX_KIND: &str = "portfolio-capacity-scope-registry-cut-v1";
 
-const OWNED_TABLES: [&str; 4] = [
+const OWNED_TABLES: [&str; 5] = [
     "portfolio_capacity_scope_registry_cuts_v1",
     "portfolio_capacity_scope_registry_heads_v1",
     "portfolio_capacity_scope_bound_readbacks_v1",
+    "portfolio_capacity_views_v1",
     "portfolio_owner_outbox_v1",
 ];
 const REGISTRY_HEAD_IDENTITY: &str = "portfolio.capacity-scope.registry.v1";
@@ -118,6 +123,8 @@ pub struct CapacityScopeDefinitionProposal {
     pub mode: crate::capacity_scope::CapacityScopeMode,
     /// Candidate-neutral economic pool identity.
     pub economic_pool_identity: String,
+    /// Currency the pool is denominated in, upper-case ASCII.
+    pub economic_pool_currency: String,
     /// Deployment source binding identity.
     pub source_binding_identity: String,
     /// Deployment adapter binding identity, admitted by Execution before this registry cut.
@@ -132,6 +139,7 @@ impl CapacityScopeDefinitionProposal {
             account_namespace: self.account_namespace,
             mode: self.mode,
             economic_pool_identity: self.economic_pool_identity,
+            economic_pool_currency: self.economic_pool_currency,
             source_binding_identity: self.source_binding_identity,
             adapter_binding_identity: self.adapter_binding_identity,
             shared_constraint_identities: self.shared_constraint_identities,
@@ -307,6 +315,21 @@ impl CapacityScopePostgresV1 {
                   REFERENCES portfolio_private.portfolio_capacity_scope_registry_cuts_v1(proof_frontier_identity), \
                 readback_json JSONB NOT NULL, \
                 committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms > 0))",
+            "CREATE TABLE IF NOT EXISTS portfolio_private.portfolio_capacity_views_v1 ( \
+                view_identity TEXT PRIMARY KEY CHECK (view_identity <> ''), \
+                capacity_scope_identity TEXT NOT NULL CHECK (capacity_scope_identity <> ''), \
+                account_namespace TEXT NOT NULL CHECK (account_namespace <> ''), \
+                pool_methodology_version TEXT NOT NULL CHECK (pool_methodology_version <> ''), \
+                account_fact_identity TEXT NOT NULL CHECK (account_fact_identity <> ''), \
+                account_fact_sequence BIGINT NOT NULL CHECK (account_fact_sequence > 0), \
+                proof_frontier_identity TEXT NOT NULL \
+                  REFERENCES portfolio_private.portfolio_capacity_scope_registry_cuts_v1(proof_frontier_identity), \
+                measured_at_epoch_ms BIGINT NOT NULL CHECK (measured_at_epoch_ms > 0), \
+                valid_through_epoch_ms BIGINT NOT NULL CHECK (valid_through_epoch_ms > 0), \
+                view_json JSONB NOT NULL, \
+                CHECK (valid_through_epoch_ms > measured_at_epoch_ms))",
+            "CREATE INDEX IF NOT EXISTS portfolio_capacity_views_scope_v1 \
+               ON portfolio_private.portfolio_capacity_views_v1(capacity_scope_identity, measured_at_epoch_ms DESC)",
             "CREATE TABLE IF NOT EXISTS portfolio_private.portfolio_owner_outbox_v1 ( \
                 event_identity TEXT PRIMARY KEY CHECK (event_identity <> ''), \
                 event_kind TEXT NOT NULL CHECK (event_kind <> ''), \
@@ -322,7 +345,22 @@ impl CapacityScopePostgresV1 {
                     ON head.proof_frontier_identity = readback.proof_frontier_identity \
                  WHERE readback.request_identity = read_bound_capacity_scope_v1.request_identity \
              $$",
+            "CREATE OR REPLACE FUNCTION portfolio_api.read_current_capacity_view_v1(scope_identity text, at_epoch_ms bigint) \
+             RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER \
+             SET search_path = pg_catalog, portfolio_private AS $$ \
+                SELECT view_record.view_json \
+                  FROM portfolio_private.portfolio_capacity_views_v1 view_record \
+                 WHERE view_record.capacity_scope_identity = read_current_capacity_view_v1.scope_identity \
+                   AND view_record.measured_at_epoch_ms <= read_current_capacity_view_v1.at_epoch_ms \
+                   AND view_record.valid_through_epoch_ms > read_current_capacity_view_v1.at_epoch_ms \
+                 ORDER BY view_record.measured_at_epoch_ms DESC \
+                 LIMIT 1 \
+             $$",
             "REVOKE ALL ON FUNCTION portfolio_api.read_bound_capacity_scope_v1(text) FROM PUBLIC",
+            "REVOKE ALL ON FUNCTION portfolio_api.read_current_capacity_view_v1(text, bigint) FROM PUBLIC",
+            // Strategy Governance rereads the ceiling before it admits an INITIAL_ACTIVATION.
+            "GRANT EXECUTE ON FUNCTION portfolio_api.read_bound_capacity_scope_v1(text) TO governance_writer",
+            "GRANT EXECUTE ON FUNCTION portfolio_api.read_current_capacity_view_v1(text, bigint) TO governance_writer",
         ] {
             sqlx::query(statement)
                 .execute(&mut *transaction)
@@ -403,10 +441,26 @@ impl CapacityScopePostgresV1 {
     ) -> Result<CapacityScopeRegistryCutReceipt, CapacityScopeCustodyError> {
         let observed_at_epoch_ms = self.clock.now_epoch_ms()?;
         let mut transaction = self.pool.begin().await.map_err(storage)?;
-        let head = load_head(&mut transaction, true).await?;
-        let sequence = head
-            .as_ref()
-            .map_or(1, |cut| cut.proof_frontier_sequence.saturating_add(1));
+        // The registry is append-only and its head is global, so the next sequence must exceed
+        // every sequence ever committed, not merely the current head's. One advisory lock on the
+        // registry identity serializes concurrent commits.
+        sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended($1, 0))")
+            .bind(REGISTRY_HEAD_IDENTITY)
+            .execute(&mut *transaction)
+            .await
+            .map_err(storage)?;
+        let head = load_head(&mut transaction, false).await?;
+        let highest: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(pg_catalog.max(proof_frontier_sequence), 0::bigint)
+               FROM portfolio_private.portfolio_capacity_scope_registry_cuts_v1",
+        )
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(storage)?;
+        let sequence = u64::try_from(highest)
+            .map_err(|_| CapacityScopeCustodyError::StoreUnavailable)?
+            .checked_add(1)
+            .ok_or(CapacityScopeCustodyError::StoreUnavailable)?;
         let registry = OwnerCapacityScopeRegistryCut {
             completeness: OwnerMembershipCompleteness::Complete,
             proof_frontier_identity: format!("{REGISTRY_HEAD_IDENTITY}:{sequence}"),
@@ -561,6 +615,105 @@ impl CapacityScopePostgresV1 {
         Ok(CapacityScopeResolution::Bound(Box::new(readback)))
     }
 
+    /// Projects one candidate-neutral gross Capacity View for a `BOUND` Capacity Scope.
+    ///
+    /// The ceiling comes from Execution's own committed opening account fact, read through the
+    /// Execution Owner's read-only API inside this transaction, never from a caller assertion and
+    /// never from Portfolio's own arithmetic on some other source. Recommitting the same view joins
+    /// the stored one.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapacityScopeCustodyError`] for an unavailable clock or custody; every business
+    /// refusal is a [`CapacityViewFailure`] in the `Ok` value.
+    pub async fn commit_capacity_view(
+        &self,
+        scope: &BoundCapacityScopeReadback,
+        valid_through_epoch_ms: u64,
+    ) -> Result<Result<CapacityViewReadback, CapacityViewFailure>, CapacityScopeCustodyError> {
+        let measured_at_epoch_ms = self.clock.now_epoch_ms()?;
+        let mut transaction = self.pool.begin().await.map_err(storage)?;
+        let Some(registry) = load_head(&mut transaction, true).await? else {
+            transaction.rollback().await.map_err(storage)?;
+            return Ok(Err(CapacityViewFailure::CapacityScopeUnavailable));
+        };
+
+        if registry.proof_frontier_identity != scope.proof_frontier_identity()
+            || measured_at_epoch_ms < registry.observed_at_epoch_ms
+            || measured_at_epoch_ms >= registry.valid_through_epoch_ms
+        {
+            transaction.rollback().await.map_err(storage)?;
+            return Ok(Err(CapacityViewFailure::MeasurementOutsideProof));
+        }
+        let opening: Option<serde_json::Value> =
+            sqlx::query_scalar("SELECT execution_api.read_paper_account_opening_fact_v1($1)")
+                .bind(scope.account_namespace())
+                .fetch_optional(&mut *transaction)
+                .await
+                .map_err(storage)?
+                .flatten();
+        let Some(opening) = opening else {
+            transaction.rollback().await.map_err(storage)?;
+            return Ok(Err(CapacityViewFailure::AccountFactUnavailable));
+        };
+        let Some(account_fact_cut) = read_account_fact_cut(&opening) else {
+            transaction.rollback().await.map_err(storage)?;
+            return Ok(Err(CapacityViewFailure::AccountFactUnavailable));
+        };
+        let view = match seal_view(
+            scope,
+            &registry.proof_frontier_identity,
+            account_fact_cut,
+            measured_at_epoch_ms,
+            valid_through_epoch_ms,
+        ) {
+            Ok(view) => view,
+            Err(failure) => {
+                transaction.rollback().await.map_err(storage)?;
+                return Ok(Err(failure));
+            }
+        };
+        let view_json =
+            serde_json::to_value(&view).map_err(|_| CapacityScopeCustodyError::StoreUnavailable)?;
+        sqlx::query(
+            "INSERT INTO portfolio_private.portfolio_capacity_views_v1
+                (view_identity, capacity_scope_identity, account_namespace, pool_methodology_version,
+                 account_fact_identity, account_fact_sequence, proof_frontier_identity,
+                 measured_at_epoch_ms, valid_through_epoch_ms, view_json)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+             ON CONFLICT (view_identity) DO NOTHING",
+        )
+        .bind(view.view_identity())
+        .bind(view.capacity_scope_identity())
+        .bind(view.account_namespace())
+        .bind(view.pool_methodology_version())
+        .bind(&view.account_fact_cut().fact_identity)
+        .bind(to_i64(view.account_fact_cut().sequence)?)
+        .bind(&registry.proof_frontier_identity)
+        .bind(to_i64(view.measured_at_epoch_ms())?)
+        .bind(to_i64(view.valid_through_epoch_ms())?)
+        .bind(view_json)
+        .execute(&mut *transaction)
+        .await
+        .map_err(storage)?;
+        let stored: serde_json::Value = sqlx::query_scalar(
+            "SELECT view_json FROM portfolio_private.portfolio_capacity_views_v1
+              WHERE view_identity = $1",
+        )
+        .bind(view.view_identity())
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(storage)?;
+        transaction.commit().await.map_err(storage)?;
+
+        if stored["view_identity"].as_str() != Some(view.view_identity())
+            || derive_view_identity(&view) != view.view_identity()
+        {
+            return Err(CapacityScopeCustodyError::StoreUnavailable);
+        }
+        Ok(Ok(view))
+    }
+
     /// Reads back the current registry head cut.
     ///
     /// # Errors
@@ -575,6 +728,18 @@ impl CapacityScopePostgresV1 {
         transaction.rollback().await.map_err(storage)?;
         Ok(head.as_ref().map(receipt_from))
     }
+}
+
+fn read_account_fact_cut(opening: &serde_json::Value) -> Option<ExecutionAccountFactCut> {
+    let fact = opening.get("opening")?;
+    Some(ExecutionAccountFactCut {
+        fact_identity: opening.get("fact_identity")?.as_str()?.to_string(),
+        account_namespace: fact.get("account_namespace")?.as_str()?.to_string(),
+        execution_scope_identity: fact.get("execution_scope_identity")?.as_str()?.to_string(),
+        collateral_currency: fact.get("collateral_currency")?.as_str()?.to_string(),
+        collateral_amount: fact.get("collateral_amount")?.as_str()?.to_string(),
+        sequence: u64::try_from(opening.get("sequence")?.as_i64()?).ok()?,
+    })
 }
 
 fn receipt_from(registry: &OwnerCapacityScopeRegistryCut) -> CapacityScopeRegistryCutReceipt {
@@ -668,6 +833,7 @@ mod tests {
         CAPACITY_SCOPE_SCHEMA_VERSION, CapacityScopeIdentityField, CapacityScopeMaturity,
         CapacityScopeState,
     };
+    use crate::capacity_view::{NO_LIQUIDITY_INPUT_V1, PAPER_COLLATERAL_GROSS_CEILING_V1};
 
     #[derive(Debug)]
     struct FixtureClock(Mutex<u64>);
@@ -704,6 +870,7 @@ mod tests {
             account_namespace: format!("paper.accounts.v1.{suffix}"),
             mode: CapacityScopeMode::Paper,
             economic_pool_identity: format!("{pool}-{suffix}"),
+            economic_pool_currency: "USDT".to_string(),
             source_binding_identity: format!("source-binding-{suffix}"),
             adapter_binding_identity: format!("adapter-binding-{suffix}"),
             shared_constraint_identities: vec![format!("{pool}-constraint-{suffix}")],
@@ -792,7 +959,7 @@ mod tests {
             .commit_registry_cut(census.clone(), 9_000)
             .await
             .unwrap();
-        assert_eq!(first.proof_frontier_sequence(), 1);
+        assert!(first.proof_frontier_sequence() > 0);
         assert_eq!(first.published_scopes().len(), 2);
         assert_eq!(
             owner
@@ -876,7 +1043,10 @@ mod tests {
             bound.proof_frontier_identity(),
             first.proof_frontier_identity()
         );
-        assert_eq!(bound.proof_frontier_sequence(), 1);
+        assert_eq!(
+            bound.proof_frontier_sequence(),
+            first.proof_frontier_sequence()
+        );
         assert_eq!(own_counts(&pool, &suffix).await, (1, 1, 1));
         // Exact replay of the same request joins the same sealed readback.
         let CapacityScopeResolution::Bound(replayed) =
@@ -933,7 +1103,7 @@ mod tests {
                 CapacityScopeIdentityField::ProofFrontier,
             ),
             (
-                Box::new(|request| request.expected_proof_frontier_sequence = 99),
+                Box::new(|request| request.expected_proof_frontier_sequence = u64::MAX),
                 CapacityScopeIdentityField::ProofFrontierSequence,
             ),
         ] {
@@ -976,7 +1146,10 @@ mod tests {
             .commit_registry_cut(vec![alpha.clone(), beta.clone(), gamma], 9_000)
             .await
             .unwrap();
-        assert_eq!(second.proof_frontier_sequence(), 2);
+        assert_eq!(
+            second.proof_frontier_sequence(),
+            first.proof_frontier_sequence() + 1
+        );
         assert_ne!(
             second.registry_cut_identity(),
             first.registry_cut_identity()
@@ -1015,6 +1188,177 @@ mod tests {
             [CapacityScopeFailure::IdentityMismatch {
                 field: CapacityScopeIdentityField::RegistryCut
             }]
+        );
+
+        // A Capacity View projects the ceiling from Execution's own committed opening fact, and
+        // binds the frontier that is current when it is measured.
+        clock.set(2_000);
+        let current_published = second
+            .published_scopes()
+            .iter()
+            .find(|scope| scope.account_namespace == alpha.account_namespace)
+            .unwrap()
+            .clone();
+        let current_request = request(
+            &format!("{suffix}-view"),
+            &alpha,
+            &second,
+            &current_published.capacity_scope_identity,
+            2_000,
+        );
+        let bound_alpha = match owner
+            .resolve_bound_capacity_scope(&current_request)
+            .await
+            .unwrap()
+        {
+            CapacityScopeResolution::Bound(readback) => *readback,
+            CapacityScopeResolution::Unavailable(refused) => {
+                unreachable!(
+                    "alpha is bound at the current head: {:?}",
+                    refused.failures()
+                )
+            }
+        };
+        // Stand in for Execution's custody: its own schema and sealed read function.
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS execution_private.execution_paper_account_opening_facts_v1 (                 fact_identity TEXT PRIMARY KEY, account_namespace TEXT NOT NULL UNIQUE,                 execution_scope_identity TEXT NOT NULL, sequence BIGINT NOT NULL,                 meaning_json JSONB NOT NULL)",
+        )
+        .execute(mutation.pool(CanonicalOwnerTestRoleV1::ExecutionWriter))
+        .await
+        .unwrap();
+        sqlx::query(
+            "CREATE OR REPLACE FUNCTION execution_api.read_paper_account_opening_fact_v1(namespace text)              RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER              SET search_path = pg_catalog, execution_private AS $$                 SELECT jsonb_build_object('fact_identity', fact.fact_identity,                                           'sequence', fact.sequence,                                           'opening', fact.meaning_json)                   FROM execution_private.execution_paper_account_opening_facts_v1 fact                  WHERE fact.account_namespace = namespace $$",
+        )
+        .execute(mutation.pool(CanonicalOwnerTestRoleV1::ExecutionWriter))
+        .await
+        .unwrap();
+        sqlx::query(
+            "GRANT EXECUTE ON FUNCTION execution_api.read_paper_account_opening_fact_v1(text) TO portfolio_writer",
+        )
+        .execute(mutation.pool(CanonicalOwnerTestRoleV1::ExecutionWriter))
+        .await
+        .unwrap();
+        // With Execution's read API present but no fact, there is nothing to project from.
+        assert_eq!(
+            owner
+                .commit_capacity_view(&bound_alpha, 5_000)
+                .await
+                .unwrap(),
+            Err(CapacityViewFailure::AccountFactUnavailable)
+        );
+        let opening_fact = |currency: &str, amount: &str| {
+            serde_json::json!({
+                "schema_version": 1,
+                "account_namespace": alpha.account_namespace,
+                "execution_scope_identity": format!("paper-scope-{suffix}"),
+                "binding_fact_identity": format!("sha256:binding-{suffix}"),
+                "collateral_currency": currency,
+                "collateral_amount": amount,
+                "observed_at_epoch_ms": 900,
+                "clock_epoch": 7,
+            })
+        };
+        sqlx::query(
+            "INSERT INTO execution_private.execution_paper_account_opening_facts_v1
+                (fact_identity, account_namespace, execution_scope_identity, sequence, meaning_json)
+             VALUES ($1, $2, $3, 1, $4)",
+        )
+        .bind(format!("sha256:opening-{suffix}"))
+        .bind(&alpha.account_namespace)
+        .bind(format!("paper-scope-{suffix}"))
+        .bind(opening_fact("USDT", "100000.5"))
+        .execute(mutation.pool(CanonicalOwnerTestRoleV1::ExecutionWriter))
+        .await
+        .unwrap();
+
+        let view = owner
+            .commit_capacity_view(&bound_alpha, 5_000)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            view.capacity_scope_identity(),
+            bound_alpha.capacity_scope_identity()
+        );
+        assert!(view.candidate_neutral());
+        assert_eq!(view.notional_gross_ceiling(), 100_000_500_000);
+        assert_eq!(view.gross_ceilings().len(), 1);
+        assert_eq!(view.gross_ceilings()[0].unit, "USDT");
+        assert_eq!(
+            view.pool_methodology_version(),
+            PAPER_COLLATERAL_GROSS_CEILING_V1
+        );
+        assert_eq!(view.liquidity_input_cut_identity(), NO_LIQUIDITY_INPUT_V1);
+        assert_eq!(view.account_fact_cut().sequence, 1);
+        assert_eq!(
+            view.proof_frontier_identity(),
+            second.proof_frontier_identity()
+        );
+        // Recommitting the same view joins the stored one.
+        assert_eq!(
+            owner
+                .commit_capacity_view(&bound_alpha, 5_000)
+                .await
+                .unwrap()
+                .unwrap(),
+            view
+        );
+        // Governance reads the current ceiling through the Owner's read-only API.
+        let api_view: serde_json::Value =
+            sqlx::query_scalar("SELECT portfolio_api.read_current_capacity_view_v1($1, $2)")
+                .bind(bound_alpha.capacity_scope_identity())
+                .bind(2_500_i64)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(api_view["view_identity"], view.view_identity());
+        let expired: Option<serde_json::Value> =
+            sqlx::query_scalar("SELECT portfolio_api.read_current_capacity_view_v1($1, $2)")
+                .bind(bound_alpha.capacity_scope_identity())
+                .bind(5_000_i64)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(expired.is_none(), "a view past its deadline is not current");
+
+        // A pool denominated in another currency needs a Market Data valuation fact.
+        sqlx::query(
+            "UPDATE execution_private.execution_paper_account_opening_facts_v1
+                SET meaning_json = $2 WHERE account_namespace = $1",
+        )
+        .bind(&alpha.account_namespace)
+        .bind(opening_fact("USDC", "100000.5"))
+        .execute(mutation.pool(CanonicalOwnerTestRoleV1::ExecutionWriter))
+        .await
+        .unwrap();
+        assert_eq!(
+            owner
+                .commit_capacity_view(&bound_alpha, 5_000)
+                .await
+                .unwrap(),
+            Err(CapacityViewFailure::ValuationUnavailable {
+                pool_currency: "USDT".to_string(),
+                collateral_currency: "USDC".to_string(),
+            })
+        );
+        // Collateral finer than the fixed ceiling scale is not representable.
+        sqlx::query(
+            "UPDATE execution_private.execution_paper_account_opening_facts_v1
+                SET meaning_json = $2 WHERE account_namespace = $1",
+        )
+        .bind(&alpha.account_namespace)
+        .bind(opening_fact("USDT", "1.0000005"))
+        .execute(mutation.pool(CanonicalOwnerTestRoleV1::ExecutionWriter))
+        .await
+        .unwrap();
+        assert_eq!(
+            owner
+                .commit_capacity_view(&bound_alpha, 5_000)
+                .await
+                .unwrap(),
+            Err(CapacityViewFailure::CollateralNotRepresentable {
+                amount: "1.0000005".to_string()
+            })
         );
 
         // Native tampering fails closed, and exact restoration reads back identically.
@@ -1090,6 +1434,7 @@ mod tests {
               WHERE EXISTS (SELECT 1 FROM portfolio_private.portfolio_capacity_scope_registry_cuts_v1 cut
                              WHERE cut.proof_frontier_identity = outbox.event_identity
                                AND cut.registry_json::text LIKE $1)",
+            "DELETE FROM portfolio_private.portfolio_capacity_views_v1 WHERE account_namespace LIKE $1",
             "DELETE FROM portfolio_private.portfolio_capacity_scope_bound_readbacks_v1 WHERE request_identity LIKE $1",
             "DELETE FROM portfolio_private.portfolio_capacity_scope_registry_heads_v1 head
               WHERE EXISTS (SELECT 1 FROM portfolio_private.portfolio_capacity_scope_registry_cuts_v1 cut

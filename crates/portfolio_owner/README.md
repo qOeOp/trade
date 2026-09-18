@@ -8,6 +8,8 @@ Portfolio Owner contracts and custody:
 - `capacity_scope_postgres`: the production PostgreSQL custody (`portfolio_private`) holding the
   append-only registry of complete membership censuses, its head, the sealed readbacks, and the
   read-only `portfolio_api` function Strategy Governance resolves a `BOUND` scope through.
+- `capacity_view`: the candidate-neutral gross Capacity View and the one methodology this slice
+  admits, whose ceiling comes from Execution's committed opening account fact.
 - `portfolio_view`: the bounded Portfolio View R0 contract, fail-closed with no positive source
   resolver.
 

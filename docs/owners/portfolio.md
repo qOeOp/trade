@@ -101,11 +101,18 @@ grants nothing, and widening the admitted set requires changing this document fi
   `crates/portfolio/src/portfolio.rs` and `crates/portfolio/src/manager.rs` computes positions, balances, margin,
   and PnL from engine cache events for the inherited kernel, Backtest, and live-node compositions; it is the
   adoption source and binds no Execution Scope, receipt, valuation version, or freshness.
-- **TARGET / IMPLEMENTATION_ADMITTED - Capacity View and Portfolio Risk Evidence Bundle:** no gross-ceiling projection
-  or coherent source cut exists, so Risk has no Capacity View or bundle to consume. Admitted slice: one `PAPER`
-  Capacity View per `BOUND` Capacity Scope whose gross ceiling derives from the Execution-committed opening account
-  fact cut and one Market Data valuation cut under one declared pool methodology version; the Portfolio Risk
-  Evidence Bundle stays `TARGET`.
+- **CURRENT_PARTIAL / IMPLEMENTATION_ADMITTED - Capacity View:** `crates/portfolio_owner/src/capacity_view.rs` owns
+  the sealed view and the one methodology this slice admits, `paper-collateral-gross-ceiling.v1`: for a simulated
+  `PAPER` pool denominated in the same currency as the account's collateral, the gross ceiling is that collateral
+  and no liquidity constraint compresses it. Valuation is the identity map because the two currencies are the same,
+  and the view binds an explicit identity for that declared absence of a liquidity input rather than an empty field.
+  A pool in any other currency fails closed until a Market Data valuation fact exists. The ceiling comes from
+  Execution's own committed opening account fact, read inside the commit transaction through the Execution Owner's
+  read-only API, never from a caller assertion. `crates/portfolio_owner/src/capacity_scope_postgres.rs` stores the
+  views and exposes the `portfolio_api` function Strategy Governance rereads the current ceiling through. Portfolio
+  subtracts no Reservation liability and computes no remaining headroom here.
+- **TARGET - Portfolio Risk Evidence Bundle:** no coherent source cut of projected exposure, open orders, account
+  state, and incorporated settlement lineages exists, so Risk has no bundle to combine with its liabilities.
 - **TARGET - Portfolio Lifecycle Evidence Receipt, Portfolio Interaction Receipt, and degradation attribution:** no
   type or custody exists.
 - **TARGET - handoffs and persistence:** no port to Governance, Risk, Scanner, Execution, or Product Edge and no

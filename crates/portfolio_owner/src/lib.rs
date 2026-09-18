@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 
 pub mod capacity_scope;
 pub mod capacity_scope_postgres;
+pub mod capacity_view;
 pub mod portfolio_view;
 
 /// Lowercase hexadecimal SHA-256 of `input`, the canonical digest of every Owner identity here.

@@ -227,6 +227,7 @@ pub struct BoundCapacityScopeReadback {
     account_namespace: String,
     mode: CapacityScopeMode,
     economic_pool_identity: String,
+    economic_pool_currency: String,
     registry_cut_identity: String,
     source_binding_identity: String,
     adapter_binding_identity: String,
@@ -284,6 +285,12 @@ impl BoundCapacityScopeReadback {
     #[must_use]
     pub fn economic_pool_identity(&self) -> &str {
         &self.economic_pool_identity
+    }
+
+    /// Currency the bound economic pool is denominated in.
+    #[must_use]
+    pub fn economic_pool_currency(&self) -> &str {
+        &self.economic_pool_currency
     }
 
     /// Exact complete Portfolio registry cut.
@@ -382,6 +389,7 @@ pub(crate) struct OwnerCapacityScopeDefinition {
     pub(crate) account_namespace: String,
     pub(crate) mode: CapacityScopeMode,
     pub(crate) economic_pool_identity: String,
+    pub(crate) economic_pool_currency: String,
     pub(crate) source_binding_identity: String,
     pub(crate) adapter_binding_identity: String,
     pub(crate) shared_constraint_identities: Vec<String>,
@@ -471,6 +479,7 @@ pub(crate) fn issue_bound_capacity_scope(
         account_namespace: binding.definition.account_namespace.clone(),
         mode: binding.definition.mode,
         economic_pool_identity: binding.definition.economic_pool_identity.clone(),
+        economic_pool_currency: binding.definition.economic_pool_currency.clone(),
         registry_cut_identity: binding.registry_cut_identity,
         source_binding_identity: binding.definition.source_binding_identity.clone(),
         adapter_binding_identity: binding.definition.adapter_binding_identity.clone(),
@@ -566,6 +575,17 @@ pub(crate) fn validate_registry(
 fn validate_definition(
     definition: &OwnerCapacityScopeDefinition,
 ) -> Result<(), CapacityScopeFailure> {
+    if !(3..=12).contains(&definition.economic_pool_currency.len())
+        || !definition
+            .economic_pool_currency
+            .bytes()
+            .all(|byte| byte.is_ascii_uppercase())
+    {
+        return Err(CapacityScopeFailure::InvalidField {
+            field: "owner.economic_pool_currency".to_string(),
+        });
+    }
+
     for (field, value) in [
         ("owner.account_namespace", &definition.account_namespace),
         (
@@ -742,6 +762,7 @@ fn encode_definition(encoder: &mut CanonicalEncoder, definition: &OwnerCapacityS
     encoder.string(&definition.account_namespace);
     encoder.u8(mode_tag(definition.mode));
     encoder.string(&definition.economic_pool_identity);
+    encoder.string(&definition.economic_pool_currency);
     encoder.string(&definition.source_binding_identity);
     encoder.string(&definition.adapter_binding_identity);
     let mut constraints = definition.shared_constraint_identities.clone();
@@ -836,6 +857,7 @@ mod tests {
             account_namespace: account_namespace.to_string(),
             mode,
             economic_pool_identity: economic_pool_identity.to_string(),
+            economic_pool_currency: "USDT".to_string(),
             source_binding_identity: format!("source-binding-{account_namespace}"),
             adapter_binding_identity: format!("adapter-binding-{account_namespace}"),
             shared_constraint_identities: vec![constraint_identity.to_string()],

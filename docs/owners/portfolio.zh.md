@@ -89,10 +89,15 @@ testkit 或 acceptance feature 的生产路径；其余各行不授予任何东�
 - **TARGET - Account State、Exposure、Performance Receipt 与 Exposure Receipt：** `crates/portfolio/src/portfolio.rs`
   与 `crates/portfolio/src/manager.rs` 里继承的 `Portfolio` 为继承的 kernel、Backtest 与 live-node 装配从引擎 cache
   事件计算持仓、余额、保证金与 PnL；它是迁移来源，不绑定 Execution Scope、receipt、估值版本或新鲜度。
-- **TARGET / IMPLEMENTATION_ADMITTED - Capacity View 与 Portfolio Risk Evidence Bundle：** 不存在 gross-ceiling 投影或
-  一致来源截面，因此 Risk 没有可消费的 Capacity View 或 bundle。已准入切片：每个 `BOUND` Capacity Scope 一个 `PAPER`
-  Capacity View，其 gross ceiling 由 Execution 已提交的开仓账户事实截面与一个 Market Data 估值截面在一个声明的资金池
-  方法版本下派生；Portfolio Risk Evidence Bundle 仍为 `TARGET`。
+- **CURRENT_PARTIAL / IMPLEMENTATION_ADMITTED - Capacity View：** `crates/portfolio_owner/src/capacity_view.rs` 拥有
+  密封视图与本切片唯一准入的方法 `paper-collateral-gross-ceiling.v1`：对于与账户抵押品同币种计价的模拟 `PAPER` 资金池，
+  gross ceiling 就是该抵押品，且没有流动性约束压缩它。估值是恒等映射，因为两个币种相同；视图为这一声明的流动性输入
+  缺席绑定一个显式身份，而不是留空字段。任何其他币种的资金池在 Market Data 估值事实出现前失败关闭。上限来自
+  Execution 自己已提交的开仓账户事实，在提交事务内经 Execution Owner 的只读 API 读取，绝不取自调用方声明。
+  `crates/portfolio_owner/src/capacity_scope_postgres.rs` 存放这些视图，并暴露 Strategy Governance 重读当前上限所经的
+  `portfolio_api` 函数。Portfolio 在此不扣除 Reservation liability，也不计算剩余 headroom。
+- **TARGET - Portfolio Risk Evidence Bundle：** 不存在 projected exposure、open order、账户状态与已纳入 settlement
+  lineage 的一致来源截面，因此 Risk 没有可与自身 liability 合并的 bundle。
 - **TARGET - Portfolio Lifecycle Evidence Receipt、Portfolio Interaction Receipt 与 degradation 归因：** 不存在类型或
   custody。
 - **TARGET - 交接与持久化：** 没有通向 Governance、Risk、Scanner、Execution 或 Product Edge 的 port，也没有任何
