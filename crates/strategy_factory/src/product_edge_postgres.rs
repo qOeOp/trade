@@ -5171,23 +5171,6 @@ pub(crate) mod tests {
     /// strategy input bindings through its own acceptance basis, and the R&D composition root
     /// resolves them, derives the proposal, freezes it and lowers it inside one transaction. A
     /// program frozen this way is bound to receipts that were proven at the moment it was sealed.
-    ///
-    /// It is deliberately absent from the ordered chain in
-    /// `scripts/ci/test-rd-owner-postgres.bash`, which is the only thing that selects it, so it
-    /// currently runs nowhere. Two of its requirements conflict there, and neither the chain's
-    /// routing nor this test alone can settle it:
-    ///
-    /// - it needs its own database, because `bar_joined_cut_acceptance_v1` and the replay
-    ///   composition fixture behind chain step 6 both state the fixed
-    ///   `market_semantics_identity: digest(84)`, and `resolve_and_bind` refuses unless the market
-    ///   semantics scope resolves to exactly one fact;
-    /// - it needs the shared database's accumulated state, because the chain's dedicated clones are
-    ///   taken from the template before step 4 migrates the shared database, and on a clone this
-    ///   test cannot even open the Product Edge.
-    ///
-    /// Readmitting it means resolving one of the two: making it self-sufficient on a clone, as
-    /// `program_host_bar_joined_cut_postgres_acceptance_tests` is, or giving the acceptance
-    /// fixture a semantics identity derived from the Design rather than a constant.
     #[cfg(feature = "sealed-strategy-input-acceptance")]
     #[rstest::rstest]
     #[ignore = "requires admitted OA/PE/R&D test database URLs"]
@@ -5249,13 +5232,9 @@ pub(crate) mod tests {
             bounded_feature_program_six_role_bar_fixture_v1::{
                 six_role_bar_bounded_feature_design_v1, six_role_bar_bounded_feature_meaning_v1,
             },
-            develop_composer_postgres_v2::{
-                issue_sealed_develop_composer_readback_for_acceptance_v2,
-                issue_strategy_design_role_set_for_acceptance_v1,
-            },
             program_host_v2::{
                 BAR_HOUR_CLOSE, BAR_MINUTE_CLOSE, BAR_MINUTE_HIGH, BAR_MINUTE_LOW, BAR_MINUTE_OPEN,
-                BAR_SESSION_DAY_CLOSE, joined_plan_and_artifact,
+                BAR_SESSION_DAY_CLOSE,
             },
             rd_bounded_feature_program_postgres_v1::{
                 PostgresResearchBoundedFeatureProgramOwnerV1,
