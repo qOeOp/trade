@@ -431,7 +431,7 @@ fn product_edge_error(error: &ProductEdgeError, request_identity: &str) -> Respo
     let status = match error {
         ProductEdgeError::ConflictingReplay => StatusCode::CONFLICT,
         ProductEdgeError::InvalidProposal(_) => StatusCode::BAD_REQUEST,
-        ProductEdgeError::Unavailable | ProductEdgeError::Storage(_) => {
+        ProductEdgeError::Unavailable(_) | ProductEdgeError::Storage(_) => {
             StatusCode::SERVICE_UNAVAILABLE
         }
     };

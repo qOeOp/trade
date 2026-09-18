@@ -224,7 +224,7 @@ async fn complete_iteration_analysis(
                 &result_identity,
             );
         }
-        Err(ProductEdgeError::Unavailable | ProductEdgeError::Storage(_)) => {
+        Err(ProductEdgeError::Unavailable(_) | ProductEdgeError::Storage(_)) => {
             return rejection(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "PRODUCT_EDGE_ITERATION_ANALYSIS_ADMISSION_UNAVAILABLE",

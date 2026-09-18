@@ -648,8 +648,8 @@ fn map_product_edge_error(error: ProductEdgeError) -> IterationResultAdmissionEr
         ProductEdgeError::ConflictingReplay => IterationResultAdmissionErrorV1::Unavailable(
             "Product Edge iteration-result admission conflicts with committed meaning".to_string(),
         ),
-        ProductEdgeError::Unavailable => IterationResultAdmissionErrorV1::Unavailable(
-            "Product Edge iteration-result admission is unavailable".to_string(),
+        ProductEdgeError::Unavailable(detail) => IterationResultAdmissionErrorV1::Unavailable(
+            format!("Product Edge iteration-result admission is unavailable: {detail}"),
         ),
     }
 }

@@ -789,7 +789,8 @@ async fn postgres_source_invocation_lifecycle_is_canonical_once_only_and_acl_sea
             valid_from_epoch_ms: now.saturating_sub(1_000),
             valid_through_epoch_ms: now.saturating_add(600_000),
             authorization: authorization.locator(),
-            manifests: vec![manifest.clone()],
+            manifests: vibe_product_edge::AgentOperationManifestSetV1::new(vec![manifest.clone()])
+                .unwrap(),
         })
         .await
         .unwrap();
@@ -1736,9 +1737,13 @@ async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_r
     .await
     .unwrap();
     // The issuer binds manifests strictly ascending by identity, and identities are content
-    // digests that carry this run's cuts; source order is a coin flip.
-    let mut bound_manifests = vec![manifest.clone(), research_manifest.clone()];
-    bound_manifests.sort_by_key(|manifest| manifest.manifest_identity().unwrap());
+    // digests that carry this run's cuts; source order is a coin flip. The set owns that order,
+    // so nobody sorts a digest order by hand.
+    let bound_manifests = vibe_product_edge::AgentOperationManifestSetV1::new(vec![
+        manifest.clone(),
+        research_manifest.clone(),
+    ])
+    .unwrap();
     let authorization = issuer
         .issue_genesis(OperatorAuthorizationIssuanceProposalV1 {
             authorization_identity: format!("sealed-source-authorization-{suffix}"),
@@ -1754,13 +1759,7 @@ async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_r
                 ],
             },
             request_proof_digest: proof_digest.clone(),
-            operation_manifests: bound_manifests
-                .iter()
-                .map(|manifest| OperationManifestBindingV1 {
-                    manifest_identity: manifest.manifest_identity().unwrap(),
-                    manifest_digest: manifest.manifest_digest().unwrap(),
-                })
-                .collect(),
+            operation_manifests: bound_manifests.bindings().unwrap(),
             not_before_epoch_ms: now.saturating_sub(1_000),
             valid_through_epoch_ms: now.saturating_add(600_000),
             expected_revocation_head: "EMPTY".into(),
@@ -2229,7 +2228,7 @@ async fn postgres_readback_rejects_tampered_raw_payload() {
             valid_from_epoch_ms: now.saturating_sub(1_000),
             valid_through_epoch_ms: now.saturating_add(600_000),
             authorization: authorization.locator(),
-            manifests: vec![manifest],
+            manifests: vibe_product_edge::AgentOperationManifestSetV1::new(vec![manifest]).unwrap(),
         })
         .await
         .unwrap();
