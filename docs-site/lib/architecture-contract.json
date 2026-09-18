@@ -3176,6 +3176,20 @@
         "noAuthorityBasis": "Execution never writes Trade Intent Risk Decision Runtime readiness or Portfolio projections"
       },
       {
+        "inventoryId": "execution-owner",
+        "memberPaths": [
+          "crates/execution_owner"
+        ],
+        "disposition": "OWNER_NATIVE_IMPLEMENTATION",
+        "destinationIds": [
+          "execution"
+        ],
+        "capabilityPortIds": [],
+        "providerMemberPortEvidence": [],
+        "adoptionRule": "Adopt the Execution-owned PAPER adapter-binding vocabulary rule sealed readback PostgreSQL custody and simulated account opening fact as the native Execution Owner implementation while keeping the engine behind that Owner",
+        "noAuthorityBasis": "The custody carries no adapter invocation order lifecycle Effect Journal credential material or LIVE binding and cannot mint a positive readback outside its own rule"
+      },
+      {
         "inventoryId": "portfolio-engine",
         "memberPaths": [
           "crates/portfolio"

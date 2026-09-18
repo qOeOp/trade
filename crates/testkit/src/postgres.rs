@@ -34,7 +34,7 @@ const DEFAULT_DATABASE_NAMES: [&str; 8] = [
     "product_edge",
 ];
 const INSTRUMENT_OWNER_RUNTIME_URL_ENV: &str = "INSTRUMENT_OWNER_DATABASE_URL";
-const CANONICAL_OWNER_TEST_URLS: [(&str, &str); 10] = [
+const CANONICAL_OWNER_TEST_URLS: [(&str, &str); 13] = [
     (
         "OPERATOR_AUTHORIZATION_TEST_DATABASE_URL",
         "operator_authorization_writer",
@@ -54,6 +54,9 @@ const CANONICAL_OWNER_TEST_URLS: [(&str, &str); 10] = [
     ("QUALIFICATION_TEST_DATABASE_URL", "qualification_writer"),
     ("BACKTEST_TEST_DATABASE_URL", "backtest_owner"),
     ("INSTRUMENT_OWNER_TEST_DATABASE_URL", "instrument_owner"),
+    ("EXECUTION_OWNER_TEST_DATABASE_URL", "execution_writer"),
+    ("PORTFOLIO_OWNER_TEST_DATABASE_URL", "portfolio_writer"),
+    ("GOVERNANCE_OWNER_TEST_DATABASE_URL", "governance_writer"),
 ];
 
 /// A stable, credential-redacting failure from dedicated test-database admission.
@@ -158,7 +161,8 @@ pub struct DedicatedPostgresTestDatabase {
     pool: PgPool,
 }
 
-/// Canonical non-privileged roles in the disposable OA/PE/R&D/Qualification/Backtest topology.
+/// Canonical non-privileged roles in the disposable OA/PE/R&D/Qualification/Backtest and
+/// trading-side (Execution/Portfolio/Governance) Owner topology.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CanonicalOwnerTestRoleV1 {
     OperatorAuthorizationWriter,
@@ -171,6 +175,9 @@ pub enum CanonicalOwnerTestRoleV1 {
     QualificationWriter,
     BacktestOwner,
     InstrumentOwner,
+    ExecutionWriter,
+    PortfolioWriter,
+    GovernanceWriter,
 }
 
 impl CanonicalOwnerTestRoleV1 {
@@ -186,14 +193,17 @@ impl CanonicalOwnerTestRoleV1 {
             Self::QualificationWriter => 7,
             Self::BacktestOwner => 8,
             Self::InstrumentOwner => 9,
+            Self::ExecutionWriter => 10,
+            Self::PortfolioWriter => 11,
+            Self::GovernanceWriter => 12,
         }
     }
 }
 
 /// Proof that all canonical Owner roles resolve to one immutable, disposable database.
 pub struct CanonicalOwnerPostgresTestDatabaseV1 {
-    database_urls: [String; 10],
-    pools: [PgPool; 10],
+    database_urls: [String; 13],
+    pools: [PgPool; 13],
     marker_identity: String,
     owner_topology_admin_pool: PgPool,
 }
@@ -759,6 +769,23 @@ mod tests {
             )
         );
         assert!(PRODUCTION_DATABASE_URL_ENVS.contains(&"REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL"));
+    }
+
+    #[rstest]
+    fn canonical_trading_side_writer_bindings_are_fixed() {
+        assert_eq!(
+            CANONICAL_OWNER_TEST_URLS[CanonicalOwnerTestRoleV1::ExecutionWriter.index()],
+            ("EXECUTION_OWNER_TEST_DATABASE_URL", "execution_writer")
+        );
+        assert_eq!(
+            CANONICAL_OWNER_TEST_URLS[CanonicalOwnerTestRoleV1::PortfolioWriter.index()],
+            ("PORTFOLIO_OWNER_TEST_DATABASE_URL", "portfolio_writer")
+        );
+        assert_eq!(
+            CANONICAL_OWNER_TEST_URLS[CanonicalOwnerTestRoleV1::GovernanceWriter.index()],
+            ("GOVERNANCE_OWNER_TEST_DATABASE_URL", "governance_writer")
+        );
+        assert_eq!(CANONICAL_OWNER_TEST_URLS.len(), 13);
     }
 
     #[rstest]
