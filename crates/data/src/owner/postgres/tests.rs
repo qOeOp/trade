@@ -99,8 +99,21 @@ fn d(byte: u8) -> BindingDigest {
     BindingDigest::from_untrusted_bytes([byte; 32])
 }
 
+/// The test clock names itself in the 32-byte width the Instrument Master codec binds, exactly as
+/// the production Owner clock does; a shorter name could never admit an instrument fact.
+const TEST_CLOCK_IDENTITY_V1: &str = "market-clock.identity.v1-0000001";
+const TEST_CLOCK_EPOCH_V1: &str = "market-clock.epoch.v1-0000000001";
+
 fn clock(cut: u64, sequence: u64) -> MarketDataClockAdmission {
-    shared_clock("market-clock", "epoch-1", sequence, cut, d(7), 1, 2)
+    shared_clock(
+        TEST_CLOCK_IDENTITY_V1,
+        TEST_CLOCK_EPOCH_V1,
+        sequence,
+        cut,
+        d(7),
+        1,
+        2,
+    )
 }
 
 fn shared_clock(
@@ -189,17 +202,25 @@ fn raw_membership(
 #[rstest::rstest]
 fn shared_time_raw_history_rejects_tampered_historical_epoch_proof() {
     let root = build_head_fact(
-        &shared_clock("market-clock", "epoch-1", 1, 100, d(7), 1, 2),
+        &shared_clock(
+            TEST_CLOCK_IDENTITY_V1,
+            TEST_CLOCK_EPOCH_V1,
+            1,
+            100,
+            d(7),
+            1,
+            2,
+        ),
         None,
     )
     .unwrap();
     let epoch_two = build_head_fact(
-        &shared_clock("market-clock", "epoch-2", 1, 110, d(8), 1, 2),
+        &shared_clock(TEST_CLOCK_IDENTITY_V1, "epoch-2", 1, 110, d(8), 1, 2),
         Some(root.handoff.head_digest()),
     )
     .unwrap();
     let latest = build_head_fact(
-        &shared_clock("market-clock", "epoch-2", 2, 120, d(8), 1, 2),
+        &shared_clock(TEST_CLOCK_IDENTITY_V1, "epoch-2", 2, 120, d(8), 1, 2),
         Some(epoch_two.handoff.head_digest()),
     )
     .unwrap();
@@ -315,8 +336,8 @@ fn source_proposal(sequence: u64, cut: u64) -> UntrustedSourceBindingProposal {
         },
         time_evidence: UntrustedMarketDataAsOf {
             claimed_evidence_identity: d(0),
-            clock_identity: "market-clock".into(),
-            clock_epoch: "epoch-1".into(),
+            clock_identity: TEST_CLOCK_IDENTITY_V1.into(),
+            clock_epoch: TEST_CLOCK_EPOCH_V1.into(),
             monotonic_sequence: if successor { 2 } else { 1 },
             restart_continuity_digest: d(7),
             skew_bound: 2,
@@ -338,19 +359,31 @@ fn source_proposal(sequence: u64, cut: u64) -> UntrustedSourceBindingProposal {
 
 fn pit_time(cut: u64, sequence: u64) -> UntrustedPitSnapshotTimeEvidence {
     UntrustedPitSnapshotTimeEvidence {
-        event_effective: UntrustedEventEffectiveTime::from_untrusted(10, "market-clock", "epoch-1"),
+        event_effective: UntrustedEventEffectiveTime::from_untrusted(
+            10,
+            TEST_CLOCK_IDENTITY_V1,
+            TEST_CLOCK_EPOCH_V1,
+        ),
         provider_available: UntrustedProviderAvailableTime::from_untrusted(
             20,
-            "market-clock",
-            "epoch-1",
+            TEST_CLOCK_IDENTITY_V1,
+            TEST_CLOCK_EPOCH_V1,
         ),
-        retrieval: UntrustedRetrievalTime::from_untrusted(30, "market-clock", "epoch-1"),
+        retrieval: UntrustedRetrievalTime::from_untrusted(
+            30,
+            TEST_CLOCK_IDENTITY_V1,
+            TEST_CLOCK_EPOCH_V1,
+        ),
         correction_publication: Some(UntrustedCorrectionPublicationTime::from_untrusted(
             25,
-            "market-clock",
-            "epoch-1",
+            TEST_CLOCK_IDENTITY_V1,
+            TEST_CLOCK_EPOCH_V1,
         )),
-        decision_cut: UntrustedSnapshotDecisionCut::from_untrusted(cut, "market-clock", "epoch-1"),
+        decision_cut: UntrustedSnapshotDecisionCut::from_untrusted(
+            cut,
+            TEST_CLOCK_IDENTITY_V1,
+            TEST_CLOCK_EPOCH_V1,
+        ),
         monotonic_sequence: sequence,
         restart_continuity_digest: d(7),
         skew_bound: 2,
@@ -411,8 +444,11 @@ fn same_scope_successor_pit_proposal(
 ) -> UntrustedPitSnapshotProposal {
     let mut value = pit_proposal(source);
     value.request.correlation_identity = d(correlation_byte);
-    value.request.time_evidence.event_effective =
-        UntrustedEventEffectiveTime::from_untrusted(event_effective, "market-clock", "epoch-1");
+    value.request.time_evidence.event_effective = UntrustedEventEffectiveTime::from_untrusted(
+        event_effective,
+        TEST_CLOCK_IDENTITY_V1,
+        TEST_CLOCK_EPOCH_V1,
+    );
     refresh_request_claims(&mut value.request);
     value
 }
@@ -439,19 +475,31 @@ fn pit_correction(
     let mut value = initial.clone();
     value.request.source_binding = source.receipt().locator().clone();
     value.request.time_evidence = UntrustedPitSnapshotTimeEvidence {
-        event_effective: UntrustedEventEffectiveTime::from_untrusted(10, "market-clock", "epoch-1"),
+        event_effective: UntrustedEventEffectiveTime::from_untrusted(
+            10,
+            TEST_CLOCK_IDENTITY_V1,
+            TEST_CLOCK_EPOCH_V1,
+        ),
         provider_available: UntrustedProviderAvailableTime::from_untrusted(
             45,
-            "market-clock",
-            "epoch-1",
+            TEST_CLOCK_IDENTITY_V1,
+            TEST_CLOCK_EPOCH_V1,
         ),
-        retrieval: UntrustedRetrievalTime::from_untrusted(49, "market-clock", "epoch-1"),
+        retrieval: UntrustedRetrievalTime::from_untrusted(
+            49,
+            TEST_CLOCK_IDENTITY_V1,
+            TEST_CLOCK_EPOCH_V1,
+        ),
         correction_publication: Some(UntrustedCorrectionPublicationTime::from_untrusted(
             49,
-            "market-clock",
-            "epoch-1",
+            TEST_CLOCK_IDENTITY_V1,
+            TEST_CLOCK_EPOCH_V1,
         )),
-        decision_cut: UntrustedSnapshotDecisionCut::from_untrusted(50, "market-clock", "epoch-1"),
+        decision_cut: UntrustedSnapshotDecisionCut::from_untrusted(
+            50,
+            TEST_CLOCK_IDENTITY_V1,
+            TEST_CLOCK_EPOCH_V1,
+        ),
         monotonic_sequence: 2,
         restart_continuity_digest: d(7),
         skew_bound: 2,
@@ -493,15 +541,24 @@ fn pit_third_correction(
 ) -> UntrustedPitSnapshotProposal {
     let mut value = second.clone();
     value.request.source_binding = source.receipt().locator().clone();
-    value.request.time_evidence.provider_available =
-        UntrustedProviderAvailableTime::from_untrusted(55, "market-clock", "epoch-1");
-    value.request.time_evidence.retrieval =
-        UntrustedRetrievalTime::from_untrusted(59, "market-clock", "epoch-1");
-    value.request.time_evidence.correction_publication = Some(
-        UntrustedCorrectionPublicationTime::from_untrusted(59, "market-clock", "epoch-1"),
+    value.request.time_evidence.provider_available = UntrustedProviderAvailableTime::from_untrusted(
+        55,
+        TEST_CLOCK_IDENTITY_V1,
+        TEST_CLOCK_EPOCH_V1,
     );
-    value.request.time_evidence.decision_cut =
-        UntrustedSnapshotDecisionCut::from_untrusted(60, "market-clock", "epoch-1");
+    value.request.time_evidence.retrieval =
+        UntrustedRetrievalTime::from_untrusted(59, TEST_CLOCK_IDENTITY_V1, TEST_CLOCK_EPOCH_V1);
+    value.request.time_evidence.correction_publication =
+        Some(UntrustedCorrectionPublicationTime::from_untrusted(
+            59,
+            TEST_CLOCK_IDENTITY_V1,
+            TEST_CLOCK_EPOCH_V1,
+        ));
+    value.request.time_evidence.decision_cut = UntrustedSnapshotDecisionCut::from_untrusted(
+        60,
+        TEST_CLOCK_IDENTITY_V1,
+        TEST_CLOCK_EPOCH_V1,
+    );
     value.request.time_evidence.monotonic_sequence = 3;
     value.request.time_evidence.observed_at = 60;
     value.request.time_evidence.valid_through = 120;
@@ -4382,6 +4439,107 @@ impl PitObservationSourceV1 for UnavailableObservationSourceV1 {
     }
 }
 
+/// The Owner's own R0 record for one persisted snapshot, or `None` when it appended none.
+async fn owner_r0_readback_v1(
+    owner: &MarketDataOwnerPostgres,
+    aggregate: &PitSnapshotCommitAggregate,
+) -> Option<crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1> {
+    let request =
+        super::reference_fact_coordinates::owner_r0_request_for_available_pit_v1(aggregate).ok()?;
+    let mut transaction = owner.pool().begin().await.unwrap();
+    let readback = super::reference_fact_coordinates::recover_reference_fact_r0_in_transaction_v1(
+        &mut transaction,
+        request.locator(),
+    )
+    .await;
+    transaction.rollback().await.unwrap();
+
+    match readback {
+        Ok(readback) => Some(readback),
+        Err(
+            crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ErrorV1::UnknownIdentity,
+        ) => None,
+        Err(e) => panic!("the Owner R0 record must resolve or be absent: {e}"),
+    }
+}
+
+/// The Instrument Master fact Operations would admit for the oracle's one member.
+///
+/// Its coordinates sit at or before the oracle's decision cut and its interval is open, so the
+/// production PIT intake can select it for the request's event instant and observation. It states
+/// the binding's own Market Semantics Compatibility identity and frontiers, which is what later
+/// lets a Market Semantics fact derive one registry key over the instrument, the snapshot and the
+/// binding together.
+fn oracle_instrument_submission_v1(
+    identity: &str,
+    market_semantics_identity: BindingDigest,
+    source_frontier: BindingDigest,
+    correction_frontier: BindingDigest,
+) -> crate::owner::instrument_master_admission_v1::InstrumentMasterFactSubmissionV1 {
+    use crate::owner::instrument_master_admission_v1::{
+        InstrumentDecimalSubmissionV1, InstrumentMasterFactSubmissionV1,
+        InstrumentVenueSourceMappingSubmissionV1,
+    };
+
+    InstrumentMasterFactSubmissionV1 {
+        canonical_identity: identity.into(),
+        predecessor_fact_digest: None,
+        mappings: vec![InstrumentVenueSourceMappingSubmissionV1 {
+            venue_identity: "XNAS".into(),
+            source_identity: "SIP".into(),
+            source_instrument: identity.as_bytes().to_vec(),
+        }],
+        instrument_class: "EQUITY".into(),
+        base_currency: Some("USD".into()),
+        quote_currency: None,
+        settlement_currency: Some("USD".into()),
+        margin_currency: None,
+        price_increment: InstrumentDecimalSubmissionV1 {
+            mantissa: 1,
+            scale: 2,
+        },
+        quantity_increment: InstrumentDecimalSubmissionV1 {
+            mantissa: 1,
+            scale: 0,
+        },
+        contract_multiplier: InstrumentDecimalSubmissionV1 {
+            mantissa: 1,
+            scale: 0,
+        },
+        calendar_identity: "XNYS-CALENDAR-V1".into(),
+        session_identity: "XNYS-REGULAR-V1".into(),
+        time_zone_identity: "Etc/UTC".into(),
+        lifecycle_frontier: d(81),
+        corporate_action_frontier: d(82),
+        historical_membership_frontier: d(83),
+        market_semantics_identity,
+        source_frontier,
+        correction_frontier,
+        effective_from: 1,
+        effective_until: None,
+        provider_available: 5,
+        retrieval: 6,
+        correction_publication: 7,
+        owner_observation: 8,
+    }
+}
+
+async fn instrument_master_receipt_count_v1(owner: &MarketDataOwnerPostgres) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM market_data_private.instrument_master_receipts_v1")
+        .fetch_one(owner.pool())
+        .await
+        .unwrap()
+}
+
+async fn r0_append_sequence_v1(owner: &MarketDataOwnerPostgres) -> i64 {
+    sqlx::query_scalar(
+        "SELECT append_sequence FROM market_data_private.reference_fact_r0_state_v1 WHERE singleton",
+    )
+    .fetch_one(owner.pool())
+    .await
+    .unwrap()
+}
+
 /// Proves the production mint resolves its own canonical basis instead of trusting the requester.
 ///
 /// The fixture admits one Source Binding, evaluates one Universe Selection Record over a single
@@ -4534,11 +4692,47 @@ async fn production_pit_mint_postgres_oracle_v1(
         "the persisted fact records the Owner's determinations"
     );
 
+    // The production mint appended the snapshot's own R0 record in the same transaction, under
+    // the identity a later Market Semantics intake derives from the snapshot alone.
+    let owner_r0 = owner_r0_readback_v1(owner, &admitted)
+        .await
+        .expect("an AVAILABLE production mint carries its R0 record");
+    assert_eq!(
+        owner_r0.record().evidence.pit_snapshot_identity,
+        admitted.fact().snapshot_identity()
+    );
+    assert_eq!(
+        owner_r0.record().evidence.pit_fact_digest,
+        admitted.fact().digest()
+    );
+    assert_eq!(
+        owner_r0.record().stable_correlation,
+        admitted.fact().request().correlation_identity
+    );
+    assert_eq!(
+        owner_r0.record().decision_cut,
+        admitted.fact().request().time_evidence.decision_cut.value
+    );
+    let r0_appends_before_replay = r0_append_sequence_v1(owner).await;
+
     let replay = owner
         .commit_pit_initial_from_owner_custody_v1(proposal, observation, &universe_locator, clock)
         .await
         .unwrap();
     assert_eq!(replay, admitted, "byte-identical retry joins the same fact");
+    assert_eq!(
+        owner_r0_readback_v1(owner, &replay)
+            .await
+            .expect("the replayed mint still resolves its R0 record")
+            .canonical_bytes(),
+        owner_r0.canonical_bytes(),
+        "a replayed mint rejoins the R0 record it wrote the first time"
+    );
+    assert_eq!(
+        r0_append_sequence_v1(owner).await,
+        r0_appends_before_replay,
+        "a replayed mint appends no second R0 record"
+    );
 
     // The requester still claims `semantics_compatible: true`; Market Data derives otherwise.
     let (proposal, observation) = build(208, d(209), universe.record().identity(), "AAPL");
@@ -4554,6 +4748,10 @@ async fn production_pit_mint_postgres_oracle_v1(
     assert!(
         !ambiguous.fact().evidence().semantics_compatible,
         "the claimed compatibility never reaches the fact"
+    );
+    assert!(
+        owner_r0_readback_v1(owner, &ambiguous).await.is_none(),
+        "a snapshot that is not AVAILABLE carries no R0 record"
     );
 
     // The batch covers a member the evaluated Universe Selection Record does not contain.
@@ -4571,6 +4769,10 @@ async fn production_pit_mint_postgres_oracle_v1(
         insufficient.fact().disposition(),
         PitSnapshotDisposition::Insufficient,
         "observations that miss the evaluated universe are INSUFFICIENT"
+    );
+    assert!(
+        owner_r0_readback_v1(owner, &insufficient).await.is_none(),
+        "an INSUFFICIENT snapshot carries no R0 record"
     );
 
     // A universe digest the Owner's record does not carry cannot buy coverage either.
@@ -4605,6 +4807,46 @@ async fn production_pit_mint_postgres_oracle_v1(
         request
     };
 
+    // The Owner stamps the instrument master digest from its own resolution. With no Instrument
+    // Master fact for the member there is nothing to resolve, and the caller's claim buys nothing.
+    assert_eq!(
+        owner
+            .commit_pit_initial_from_request_v1(
+                request_only(213),
+                &ScopeFaithfulObservationSourceV1 {
+                    member_key: "AAPL".into(),
+                },
+                &universe_locator,
+                clock,
+            )
+            .await
+            .unwrap_err(),
+        PitSnapshotError::InstrumentMasterUnavailable,
+        "a request whose instrument has no admitted fact mints nothing"
+    );
+    let admitted_instrument = owner
+        .admit_instrument_master_fact_v1(oracle_instrument_submission_v1(
+            "AAPL",
+            owner_semantics_identity,
+            source.fact().source_frontier().digest,
+            correction_digest,
+        ))
+        .await
+        .expect("Operations admits the member's fact under the current head");
+    assert_eq!(
+        owner
+            .admit_instrument_master_fact_v1(oracle_instrument_submission_v1(
+                "AAPL",
+                owner_semantics_identity,
+                source.fact().source_frontier().digest,
+                correction_digest,
+            ))
+            .await
+            .expect("a replayed submission rejoins"),
+        admitted_instrument
+    );
+    let receipts_before_mint = instrument_master_receipt_count_v1(owner).await;
+
     let retrieved = owner
         .commit_pit_initial_from_request_v1(
             request_only(213),
@@ -4621,10 +4863,85 @@ async fn production_pit_mint_postgres_oracle_v1(
         PitSnapshotDisposition::Available,
         "a frozen request alone mints AVAILABLE once the Owner retrieves its own observations"
     );
+    // Market Semantics: Operations states one fact about the binding, and the Owner derives the
+    // scope, the registry key and every coordinate from the snapshot it just committed.
+    let semantics_submission = |adjustment: &str| {
+        crate::owner::market_semantics_admission_v1::MarketSemanticsFactSubmissionV1 {
+            source_binding: source.receipt().locator().clone(),
+            pit_snapshot: retrieved.receipt().locator().clone(),
+            value: crate::owner::market_semantics_admission_v1::MarketSemanticsValueSubmissionV1 {
+                normalization_identity: d(180),
+                price_adjustment: adjustment.into(),
+                timestamp_basis: "EVENT_EFFECTIVE".into(),
+                price_unit_identity: d(181),
+                size_unit_identity: d(182),
+            },
+        }
+    };
+    let semantics = owner
+        .admit_market_semantics_fact_v1(semantics_submission("RAW"))
+        .await
+        .expect("Operations states the binding's semantics against its own snapshot");
     assert_eq!(
-        retrieved.fact().evidence().normalized_records_digest,
-        admitted.fact().evidence().normalized_records_digest,
-        "the Owner-stamped batch is byte-identical to the one the acceptance mint canonicalized"
+        semantics.compatibility_scope_identity(),
+        owner_semantics_identity,
+        "the scope is the binding's own compatibility identity, never a submitted one"
+    );
+    assert_eq!(
+        owner
+            .admit_market_semantics_fact_v1(semantics_submission("RAW"))
+            .await
+            .expect("a replayed statement rejoins"),
+        semantics
+    );
+    assert_eq!(
+        owner
+            .admit_market_semantics_fact_v1(semantics_submission("SPLIT_ADJUSTED"))
+            .await
+            .unwrap_err(),
+        crate::owner::market_semantics_admission_v1::MarketSemanticsAdmissionErrorV1::AdmissionConflict,
+        "a second value for the same registry key is a conflict, never an overwrite"
+    );
+
+    let stamped = retrieved.fact().request().instrument_master_digest;
+    assert_ne!(
+        stamped,
+        d(206),
+        "the persisted request carries the Owner's readback digest, not the caller's claim"
+    );
+    assert_eq!(
+        instrument_master_receipt_count_v1(owner).await,
+        receipts_before_mint + 1,
+        "the mint resolved exactly one Instrument Master cut for its instrument"
+    );
+    let replayed = owner
+        .commit_pit_initial_from_request_v1(
+            request_only(213),
+            &ScopeFaithfulObservationSourceV1 {
+                member_key: "AAPL".into(),
+            },
+            &universe_locator,
+            clock,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        replayed, retrieved,
+        "the same frozen request replays to the same snapshot"
+    );
+    assert_eq!(
+        instrument_master_receipt_count_v1(owner).await,
+        receipts_before_mint + 1,
+        "a replayed mint rejoins its Instrument Master cut instead of resolving a second"
+    );
+    assert_eq!(
+        owner_r0_readback_v1(owner, &retrieved)
+            .await
+            .expect("the request-only production mint carries its R0 record too")
+            .record()
+            .evidence
+            .pit_snapshot_identity,
+        retrieved.fact().snapshot_identity()
     );
 
     // A client that answers for a member the Owner never scoped cannot widen the universe.
@@ -5167,8 +5484,9 @@ async fn run_postgres_owner_scenario() {
 
     let before_pit_tamper = owner_counts(restarted_again.pool()).await;
     sqlx::query(
-        "UPDATE market_data_private.clock_handoffs_v1 SET valid_through=111 WHERE clock_epoch='epoch-1' AND monotonic_sequence=2",
+        "UPDATE market_data_private.clock_handoffs_v1 SET valid_through=111 WHERE clock_epoch=$1 AND monotonic_sequence=2",
     )
+        .bind(TEST_CLOCK_EPOCH_V1)
         .execute(restarted_again.pool())
         .await
         .unwrap();
@@ -5188,8 +5506,9 @@ async fn run_postgres_owner_scenario() {
         Err(PitSnapshotError::PersistenceUnavailable),
     );
     sqlx::query(
-        "UPDATE market_data_private.clock_handoffs_v1 SET valid_through=110 WHERE clock_epoch='epoch-1' AND monotonic_sequence=2",
+        "UPDATE market_data_private.clock_handoffs_v1 SET valid_through=110 WHERE clock_epoch=$1 AND monotonic_sequence=2",
     )
+        .bind(TEST_CLOCK_EPOCH_V1)
         .execute(restarted_again.pool())
         .await
         .unwrap();
@@ -5679,7 +5998,7 @@ async fn run_postgres_owner_scenario() {
         .resolve_clock_head(epoch_one_head.locator())
         .await
         .unwrap();
-    assert_eq!(epoch_one_head.clock_epoch(), "epoch-1");
+    assert_eq!(epoch_one_head.clock_epoch(), TEST_CLOCK_EPOCH_V1);
     assert_eq!(shared_time_counts(final_owner.pool()).await, (3, 0));
 
     let same_epoch_clock = clock(70, 4);
@@ -5944,7 +6263,7 @@ async fn run_postgres_owner_scenario() {
     .await
     .unwrap();
 
-    let epoch_two_clock = shared_clock("market-clock", "epoch-2", 1, 90, d(17), 2, 3);
+    let epoch_two_clock = shared_clock(TEST_CLOCK_IDENTITY_V1, "epoch-2", 1, 90, d(17), 2, 3);
     let before_interrupted_epoch = shared_time_counts(epoch_owner.pool()).await;
     assert_eq!(
         epoch_owner
@@ -5983,7 +6302,7 @@ async fn run_postgres_owner_scenario() {
         epoch_proof.successor_head_digest(),
         epoch_two.handoff().head_digest()
     );
-    assert_eq!(epoch_proof.prior_clock_epoch(), "epoch-1");
+    assert_eq!(epoch_proof.prior_clock_epoch(), TEST_CLOCK_EPOCH_V1);
     assert_eq!(epoch_proof.successor_clock_epoch(), "epoch-2");
     assert_eq!(epoch_proof.commit_cut(), 90);
     assert_eq!(epoch_two.handoff().monotonic_sequence(), 1);
@@ -6002,14 +6321,23 @@ async fn run_postgres_owner_scenario() {
         Err(SharedTimeEvidenceError::PriorHandoffMismatch),
     );
     let before_epoch_reuse = shared_time_counts(epoch_owner.pool()).await;
-    let reused_epoch = shared_clock("market-clock", "epoch-1", 1, 100, d(18), 1, 2);
+    let reused_epoch = shared_clock(
+        TEST_CLOCK_IDENTITY_V1,
+        TEST_CLOCK_EPOCH_V1,
+        1,
+        100,
+        d(18),
+        1,
+        2,
+    );
     assert_eq!(
         epoch_owner
             .commit_clock_successor(epoch_two.handoff(), &reused_epoch)
             .await,
         Err(SharedTimeEvidenceError::EpochSuccessorProofMismatch),
     );
-    let reused_epoch_other_clock = shared_clock("other-clock", "epoch-1", 1, 100, d(18), 1, 2);
+    let reused_epoch_other_clock =
+        shared_clock("other-clock", TEST_CLOCK_EPOCH_V1, 1, 100, d(18), 1, 2);
     assert_eq!(
         epoch_owner
             .commit_clock_successor(epoch_two.handoff(), &reused_epoch_other_clock)
@@ -6165,8 +6493,8 @@ async fn run_postgres_owner_scenario() {
     );
 
     let concurrent_owner = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
-    let concurrent_a = shared_clock("market-clock", "epoch-2", 2, 100, d(17), 2, 3);
-    let concurrent_b = shared_clock("market-clock", "epoch-2", 2, 101, d(17), 2, 3);
+    let concurrent_a = shared_clock(TEST_CLOCK_IDENTITY_V1, "epoch-2", 2, 100, d(17), 2, 3);
+    let concurrent_b = shared_clock(TEST_CLOCK_IDENTITY_V1, "epoch-2", 2, 101, d(17), 2, 3);
     let (result_a, result_b) = tokio::join!(
         epoch_owner.commit_clock_successor(epoch_two.handoff(), &concurrent_a),
         concurrent_owner.commit_clock_successor(epoch_two.handoff(), &concurrent_b),
@@ -6230,7 +6558,7 @@ async fn run_postgres_owner_scenario() {
         .await
         .unwrap();
     let custody_blocked_clock = shared_clock(
-        "market-clock",
+        TEST_CLOCK_IDENTITY_V1,
         "epoch-2",
         winner_clock.monotonic_sequence + 1,
         winner_clock.wall_observed + 10,
@@ -6453,7 +6781,7 @@ async fn run_postgres_owner_scenario() {
     .await
     .unwrap();
     let unavailable_same_epoch = shared_clock(
-        "market-clock",
+        TEST_CLOCK_IDENTITY_V1,
         "epoch-2",
         winner_clock.monotonic_sequence + 1,
         winner_clock.wall_observed + 10,
@@ -6467,7 +6795,8 @@ async fn run_postgres_owner_scenario() {
             .await,
         Err(SharedTimeEvidenceError::StoreUnavailable),
     );
-    let unavailable_proof_store = shared_clock("market-clock", "epoch-3", 1, 120, d(19), 1, 2);
+    let unavailable_proof_store =
+        shared_clock(TEST_CLOCK_IDENTITY_V1, "epoch-3", 1, 120, d(19), 1, 2);
     assert_eq!(
         epoch_owner
             .commit_clock_successor(winner.handoff(), &unavailable_proof_store)
@@ -6534,7 +6863,7 @@ async fn run_postgres_owner_scenario() {
     ))
     .await;
 
-    let snapshot_only_clock = shared_clock("market-clock", "epoch-3", 2, 140, d(19), 1, 2);
+    let snapshot_only_clock = shared_clock(TEST_CLOCK_IDENTITY_V1, "epoch-3", 2, 140, d(19), 1, 2);
     let snapshot_only_fact = build_head_fact(
         &snapshot_only_clock,
         Some(recovered_proof_store.handoff().head_digest()),
@@ -6592,7 +6921,7 @@ async fn run_postgres_owner_scenario() {
     .fetch_one(epoch_owner.pool())
     .await
     .unwrap();
-    let next_epoch_three = shared_clock("market-clock", "epoch-3", 2, 130, d(19), 1, 2);
+    let next_epoch_three = shared_clock(TEST_CLOCK_IDENTITY_V1, "epoch-3", 2, 130, d(19), 1, 2);
     sqlx::query("DELETE FROM market_data_private.clock_handoff_state_v1")
         .execute(epoch_owner.pool())
         .await
@@ -6754,7 +7083,7 @@ async fn run_postgres_owner_scenario() {
     );
     assert_exact_owner_replays_unavailable(&epoch_owner, &source, &pit).await;
     let unavailable_without_singleton = shared_clock(
-        "market-clock",
+        TEST_CLOCK_IDENTITY_V1,
         "epoch-2",
         winner_clock.monotonic_sequence + 1,
         winner_clock.wall_observed + 10,
@@ -6779,7 +7108,7 @@ async fn run_postgres_owner_scenario() {
     orphan_source.time_evidence.claimed_evidence_identity =
         derive_time_evidence_identity(&orphan_source.time_evidence);
     orphan_source.claimed_binding_id = derive_binding_id(&orphan_source);
-    let orphan_clock = shared_clock("market-clock", "orphan-epoch", 1, 130, d(30), 1, 2);
+    let orphan_clock = shared_clock(TEST_CLOCK_IDENTITY_V1, "orphan-epoch", 1, 130, d(30), 1, 2);
     assert_eq!(
         epoch_owner
             .commit_source_initial(
