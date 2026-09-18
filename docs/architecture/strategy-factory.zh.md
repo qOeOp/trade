@@ -4,6 +4,15 @@
 
 Strategy Factory 是包围 R&D、探索性 Backtest 和独立 Qualification 的价值流边界。R&D 内含 Research 与 Develop 能力；该边界让 R D Q 分离清晰可见，但不成为新的 Owner。本页凡提到规范化、绑定、验证或 lowering 一个 Design 的执行者，指的都是 R&D 的 Develop 能力；边界本身不执行任何动作。
 
+### 如何阅读本页
+
+边界契约很短：职责、正向路径、价值流交接、保护路径、权威边界、实现验收。这几节说明 R&D、Backtest 与
+Qualification 之间哪个 Owner 拥有哪项事实，以及哪些对象在它们之间跨越。
+
+共享生命周期内核一节，以及其下的 Bounded Feature Program 一节，是编译器规格：类型化 Design 形状、fail-closed
+流水线、已 pin 的 primitive catalog、图上界、ABI 与 build capsule。它们对实现编译器的人是规范性的，但理解价值流
+并不需要它们。这些节里的执行者始终是 R&D 的 Develop 能力。
+
 ## 正向路径
 
 带来源假设只是一项提案。在任何保护反馈之前，R&D 先原子预提交一个绑定 principal 与 request scope 的 Independence Basis Receipt。Qualification 直接解析该准确 R&D 回执，并在检查其完整持久 principal/scope 历史后只返回 `GENESIS_EMPTY` 当前不透明 `FRONTIER(ref, cut)` 或 `UNAVAILABLE`；只有经证明 Qualification 历史为空时 genesis 才有效。Product Edge 仅搬运绑定同 principal/scope 的不透明投影，不接收保护细节。R&D 在锁定的准入事务内把自身完整本地语义前驱血缘解析为 `GENESIS_EMPTY` `COMPLETE_FRONTIER` 或 `UNAVAILABLE`。只有两个 Owner 的准确当前规范回读都成立时，才能原子创建冻结 Research Intent 永久 TrialFamily root 初始 census member 与 head 回执和 outbox。调用方不能提供或覆盖任一 frontier 独立性 disposition 或 basis identity。
