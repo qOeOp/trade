@@ -18,6 +18,7 @@ serde_json = { workspace = true }
 sha2 = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
+vibe-backtest = { workspace = true }
 vibe-backtest-owner-contracts = { workspace = true }
 vibe-backtest-result-custody = { workspace = true }
 vibe-data = { workspace = true }
