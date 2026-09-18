@@ -4,7 +4,14 @@
 //! revocation authority. Positive readbacks are serialize-only and are emitted
 //! only after the PostgreSQL owner verifies canonical rows and outbox custody.
 
+mod grant;
 mod postgres;
+
+pub use grant::{
+    GrantContentV1, GrantIssuanceProposalV1, GrantIssuanceReceiptV1, GrantLocatorV1,
+    GrantReadbackV1, GrantResolutionV1, GrantRevocationFrontierV1, GrantRevocationProposalV1,
+    GrantSuccessorProposalV1, GrantUnavailableReasonV1, UntrustedCanonicalGrantEvidenceV1,
+};
 
 use std::fmt::Display;
 
@@ -274,7 +281,7 @@ pub struct PortfolioResourceV1 {
     pub permission: String,
     pub account_identity: String,
     pub execution_scope_identity: String,
-    pub mode: PortfolioResourceModeV1,
+    pub mode: ExecutionModeV1,
 }
 
 impl PortfolioResourceV1 {
@@ -298,12 +305,25 @@ impl PortfolioResourceV1 {
     }
 }
 
+/// The trading mode a grant is bound to. `PAPER` and `LIVE` never alias.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum PortfolioResourceModeV1 {
+pub enum ExecutionModeV1 {
     Paper,
     Live,
 }
+
+impl ExecutionModeV1 {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Paper => "PAPER",
+            Self::Live => "LIVE",
+        }
+    }
+}
+
+/// The Portfolio grant's original name for [`ExecutionModeV1`].
+pub type PortfolioResourceModeV1 = ExecutionModeV1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -352,112 +372,103 @@ impl PortfolioResourceGrantContentV1 {
 
     pub fn content_digest(&self) -> Result<String, OperatorAuthorizationError> {
         self.validate()?;
-        canonical_digest(
-            "operator-authorization.portfolio-resource-grant-content.v1",
-            self,
-        )
+        canonical_digest(&Self::content_digest_domain(), self)
     }
 
     pub fn grant_identity(&self) -> Result<String, OperatorAuthorizationError> {
-        Ok(identity(
-            "operator-authorization-portfolio-resource-grant-v1",
-            &[&self.content_digest()?],
-        ))
+        Ok(grant::grant_identity_for::<Self>(&self.content_digest()?))
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PortfolioResourceGrantIssuanceProposalV1 {
-    pub grant_identity: String,
-    pub content: PortfolioResourceGrantContentV1,
-    pub expected_revocation_frontier_identity: String,
-}
+impl GrantContentV1 for PortfolioResourceGrantContentV1 {
+    type Expected<'a> = (&'a PortfolioResourceV1, &'a ProductEdgeManifestBindingV1);
 
-impl PortfolioResourceGrantIssuanceProposalV1 {
-    pub fn validate(&self) -> Result<(), OperatorAuthorizationError> {
-        self.content.validate()?;
-        if self.grant_identity != self.content.grant_identity()?
-            || self.expected_revocation_frontier_identity.trim().is_empty()
-        {
-            return Err(OperatorAuthorizationError::InvalidProposal(
-                "portfolio resource grant issuance",
-            ));
-        }
-        Ok(())
+    const KIND_STEM: &'static str = "portfolio-resource-grant";
+    const TABLE_STEM: &'static str = "portfolio_resource_grant";
+    const SCHEMA_VERSION: u32 = PORTFOLIO_RESOURCE_GRANT_SCHEMA_V1;
+    const CONSUMER_ROLES: &'static str = "product_edge_owner, operator_authorization_writer";
+    const MIRROR_COLUMNS: &'static [&'static str] = &[
+        "principal",
+        "audience",
+        "permission",
+        "account_identity",
+        "execution_scope_identity",
+        "mode",
+    ];
+
+    fn validate(&self) -> Result<(), OperatorAuthorizationError> {
+        Self::validate(self)
     }
 
-    pub fn semantic_digest(&self) -> Result<String, OperatorAuthorizationError> {
-        self.validate()?;
-        canonical_digest(
-            "operator-authorization.portfolio-resource-grant-issuance.v1",
-            self,
-        )
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PortfolioResourceGrantLocatorV1 {
-    pub grant_identity: String,
-    pub issuance_receipt_identity: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PortfolioResourceGrantSuccessorProposalV1 {
-    pub predecessor: PortfolioResourceGrantLocatorV1,
-    pub expected_current_frontier_identity: String,
-    pub successor: PortfolioResourceGrantIssuanceProposalV1,
-}
-
-impl PortfolioResourceGrantSuccessorProposalV1 {
-    pub fn validate(&self) -> Result<(), OperatorAuthorizationError> {
-        self.successor.validate()?;
-
-        if self.predecessor.grant_identity.trim().is_empty()
-            || self.predecessor.issuance_receipt_identity.trim().is_empty()
-            || self.expected_current_frontier_identity.trim().is_empty()
-            || self.successor.grant_identity == self.predecessor.grant_identity
-            || self.successor.expected_revocation_frontier_identity
-                != self.expected_current_frontier_identity
-        {
-            return Err(OperatorAuthorizationError::InvalidProposal(
-                "portfolio resource grant successor",
-            ));
-        }
-        Ok(())
+    fn grant_identity(&self) -> Result<String, OperatorAuthorizationError> {
+        Self::grant_identity(self)
     }
 
-    pub fn semantic_digest(&self) -> Result<String, OperatorAuthorizationError> {
-        self.validate()?;
-        canonical_digest(
-            "operator-authorization.portfolio-resource-grant-successor.v1",
-            self,
-        )
+    fn resource_digest(&self) -> Result<String, OperatorAuthorizationError> {
+        self.resource.digest()
+    }
+
+    fn issuer_identity(&self) -> &str {
+        &self.issuer_identity
+    }
+
+    fn issuer_key_version(&self) -> &str {
+        &self.issuer_key_version
+    }
+
+    fn effective_at_epoch_ms(&self) -> u64 {
+        self.effective_at_epoch_ms
+    }
+
+    fn valid_through_epoch_ms(&self) -> u64 {
+        self.valid_through_epoch_ms
+    }
+
+    fn same_resource(&self, other: &Self) -> bool {
+        self.resource == other.resource
+    }
+
+    fn mirror_values(&self) -> Result<Vec<String>, OperatorAuthorizationError> {
+        Ok(vec![
+            self.resource.principal.clone(),
+            self.resource.audience.clone(),
+            self.resource.permission.clone(),
+            self.resource.account_identity.clone(),
+            self.resource.execution_scope_identity.clone(),
+            self.resource.mode.as_str().to_string(),
+        ])
+    }
+
+    fn resource_matches(&self, expected: &Self::Expected<'_>) -> bool {
+        &self.resource == expected.0
+    }
+
+    fn manifest_matches(&self, expected: &Self::Expected<'_>) -> bool {
+        &self.product_edge_manifest == expected.1
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PortfolioResourceGrantRevocationProposalV1 {
-    pub grant: PortfolioResourceGrantLocatorV1,
-    pub expected_frontier_identity: String,
-    pub reason_code: String,
-}
+pub type PortfolioResourceGrantIssuanceProposalV1 =
+    GrantIssuanceProposalV1<PortfolioResourceGrantContentV1>;
+pub type PortfolioResourceGrantLocatorV1 = GrantLocatorV1;
+pub type PortfolioResourceGrantSuccessorProposalV1 =
+    GrantSuccessorProposalV1<PortfolioResourceGrantContentV1>;
+pub type PortfolioResourceGrantRevocationProposalV1 = GrantRevocationProposalV1;
+pub type PortfolioResourceGrantIssuanceReceiptV1 = GrantIssuanceReceiptV1;
+pub type PortfolioResourceGrantRevocationFrontierV1 = GrantRevocationFrontierV1;
+pub type PortfolioResourceGrantReadbackV1 = GrantReadbackV1<PortfolioResourceGrantContentV1>;
+pub type UntrustedCanonicalPortfolioResourceGrantEvidenceV1 =
+    UntrustedCanonicalGrantEvidenceV1<PortfolioResourceGrantContentV1>;
+pub type PortfolioResourceGrantUnavailableReasonV1 = GrantUnavailableReasonV1;
+pub type PortfolioResourceGrantResolutionV1 = GrantResolutionV1<PortfolioResourceGrantContentV1>;
 
-impl PortfolioResourceGrantRevocationProposalV1 {
-    pub fn validate(&self) -> Result<(), OperatorAuthorizationError> {
-        if self.grant.grant_identity.trim().is_empty()
-            || self.grant.issuance_receipt_identity.trim().is_empty()
-            || self.expected_frontier_identity.trim().is_empty()
-            || self.reason_code.trim().is_empty()
-        {
-            return Err(OperatorAuthorizationError::InvalidProposal(
-                "portfolio resource grant revocation",
-            ));
-        }
-        Ok(())
+impl UntrustedCanonicalPortfolioResourceGrantEvidenceV1 {
+    pub fn matches_resource(&self, expected: &PortfolioResourceV1) -> bool {
+        &self.content.resource == expected
+    }
+
+    pub fn matches_product_edge_manifest(&self, expected: &ProductEdgeManifestBindingV1) -> bool {
+        &self.content.product_edge_manifest == expected
     }
 }
 
@@ -474,171 +485,13 @@ impl PortfolioResourceGrantReadRequestV1 {
         self.expected_resource.validate()?;
         self.expected_manifest.validate()?;
 
-        if self.locator.grant_identity.trim().is_empty()
-            || self.locator.issuance_receipt_identity.trim().is_empty()
-        {
+        if self.locator.validate().is_err() {
             return Err(OperatorAuthorizationError::InvalidProposal(
                 "portfolio resource grant read",
             ));
         }
         Ok(())
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct PortfolioResourceGrantIssuanceReceiptV1 {
-    schema_version: u32,
-    receipt_identity: String,
-    grant_identity: String,
-    issuance_digest: String,
-    committed_at_epoch_ms: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct PortfolioResourceGrantRevocationFrontierV1 {
-    schema_version: u32,
-    frontier_identity: String,
-    resource_digest: String,
-    sequence: u64,
-    predecessor_frontier_identity: Option<String>,
-    revoked_grant_identities: Vec<String>,
-    committed_at_epoch_ms: u64,
-}
-
-impl PortfolioResourceGrantRevocationFrontierV1 {
-    pub fn frontier_identity(&self) -> &str {
-        &self.frontier_identity
-    }
-    pub fn revoked_grant_identities(&self) -> &[String] {
-        &self.revoked_grant_identities
-    }
-}
-
-/// OA-sealed positive Portfolio resource grant. It is serialize-only and has
-/// no public constructor or deserializer.
-///
-/// ```compile_fail
-/// use vibe_operator_authorization::PortfolioResourceGrantReadbackV1;
-/// let _: PortfolioResourceGrantReadbackV1 = serde_json::from_str("{}").unwrap();
-/// ```
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct PortfolioResourceGrantReadbackV1 {
-    issuance_receipt: PortfolioResourceGrantIssuanceReceiptV1,
-    frontier: PortfolioResourceGrantRevocationFrontierV1,
-    content: PortfolioResourceGrantContentV1,
-    observed_at_epoch_ms: u64,
-}
-
-impl PortfolioResourceGrantReadbackV1 {
-    pub fn locator(&self) -> PortfolioResourceGrantLocatorV1 {
-        PortfolioResourceGrantLocatorV1 {
-            grant_identity: self.issuance_receipt.grant_identity.clone(),
-            issuance_receipt_identity: self.issuance_receipt.receipt_identity.clone(),
-        }
-    }
-    pub fn frontier(&self) -> &PortfolioResourceGrantRevocationFrontierV1 {
-        &self.frontier
-    }
-    pub fn content(&self) -> &PortfolioResourceGrantContentV1 {
-        &self.content
-    }
-    pub fn observed_at_epoch_ms(&self) -> u64 {
-        self.observed_at_epoch_ms
-    }
-}
-
-/// Canonically consistent locked Portfolio grant bytes without Owner provenance.
-///
-/// Parsing untrusted bytes can produce this evidence, so it is explicitly not
-/// an authorization, a Portfolio availability decision, or permission for any
-/// read, write, or effect. A consuming Owner must retain the source database
-/// locks, compare its own custody, sample its later cut, and call
-/// [`Self::is_current_at`] before making its own fail-closed decision.
-///
-/// The type has private fields, no public constructor, no deserializer, and no
-/// conversion into [`PortfolioResourceGrantReadbackV1`].
-///
-/// ```compile_fail
-/// use vibe_operator_authorization::UntrustedCanonicalPortfolioResourceGrantEvidenceV1;
-/// let _: UntrustedCanonicalPortfolioResourceGrantEvidenceV1 =
-///     serde_json::from_str("{}").unwrap();
-/// ```
-///
-/// ```compile_fail
-/// use vibe_operator_authorization::UntrustedCanonicalPortfolioResourceGrantEvidenceV1;
-/// let _ = UntrustedCanonicalPortfolioResourceGrantEvidenceV1 {};
-/// ```
-///
-/// ```compile_fail
-/// use vibe_operator_authorization::{
-///     PortfolioResourceGrantReadbackV1,
-///     UntrustedCanonicalPortfolioResourceGrantEvidenceV1,
-/// };
-/// fn promote(
-///     evidence: UntrustedCanonicalPortfolioResourceGrantEvidenceV1,
-/// ) -> PortfolioResourceGrantReadbackV1 {
-///     evidence.into()
-/// }
-/// ```
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct UntrustedCanonicalPortfolioResourceGrantEvidenceV1 {
-    schema_version: u32,
-    issuance_receipt: PortfolioResourceGrantIssuanceReceiptV1,
-    frontier: PortfolioResourceGrantRevocationFrontierV1,
-    content: PortfolioResourceGrantContentV1,
-}
-
-impl UntrustedCanonicalPortfolioResourceGrantEvidenceV1 {
-    pub fn locator(&self) -> PortfolioResourceGrantLocatorV1 {
-        PortfolioResourceGrantLocatorV1 {
-            grant_identity: self.issuance_receipt.grant_identity.clone(),
-            issuance_receipt_identity: self.issuance_receipt.receipt_identity.clone(),
-        }
-    }
-
-    pub fn frontier_identity(&self) -> &str {
-        &self.frontier.frontier_identity
-    }
-
-    pub fn matches_resource(&self, expected: &PortfolioResourceV1) -> bool {
-        &self.content.resource == expected
-    }
-
-    pub fn matches_product_edge_manifest(&self, expected: &ProductEdgeManifestBindingV1) -> bool {
-        &self.content.product_edge_manifest == expected
-    }
-
-    pub fn is_current_at(&self, cut_epoch_ms: u64) -> bool {
-        cut_epoch_ms >= self.content.effective_at_epoch_ms
-            && cut_epoch_ms < self.content.valid_through_epoch_ms
-            && !self
-                .frontier
-                .revoked_grant_identities
-                .contains(&self.issuance_receipt.grant_identity)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum PortfolioResourceGrantUnavailableReasonV1 {
-    InvalidRequest,
-    OwnerUnavailable,
-    ResourceMismatch,
-    ManifestMismatch,
-    NotEffective,
-    Expired,
-    Revoked,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "availability", rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum PortfolioResourceGrantResolutionV1 {
-    Available {
-        grant: Box<PortfolioResourceGrantReadbackV1>,
-    },
-    Unavailable {
-        reason: PortfolioResourceGrantUnavailableReasonV1,
-    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1192,8 +1045,8 @@ pub enum OperatorAuthorizationUnavailableReasonV1 {
     TopologyNotAdmitted,
     /// The caller transaction is not READ COMMITTED.
     IsolationNotReadCommitted,
-    /// A Portfolio resource grant resolved as unavailable for this reason.
-    PortfolioGrant(PortfolioResourceGrantUnavailableReasonV1),
+    /// A resource grant resolved as unavailable for this reason.
+    Grant(GrantUnavailableReasonV1),
 }
 
 impl OperatorAuthorizationUnavailableReasonV1 {
@@ -1214,27 +1067,13 @@ impl OperatorAuthorizationUnavailableReasonV1 {
             Self::CompareAndSwapLost => "COMPARE_AND_SWAP_LOST",
             Self::TopologyNotAdmitted => "TOPOLOGY_NOT_ADMITTED",
             Self::IsolationNotReadCommitted => "ISOLATION_NOT_READ_COMMITTED",
-            Self::PortfolioGrant(PortfolioResourceGrantUnavailableReasonV1::InvalidRequest) => {
-                "PORTFOLIO_GRANT_INVALID_REQUEST"
-            }
-            Self::PortfolioGrant(PortfolioResourceGrantUnavailableReasonV1::OwnerUnavailable) => {
-                "PORTFOLIO_GRANT_OWNER_UNAVAILABLE"
-            }
-            Self::PortfolioGrant(PortfolioResourceGrantUnavailableReasonV1::ResourceMismatch) => {
-                "PORTFOLIO_GRANT_RESOURCE_MISMATCH"
-            }
-            Self::PortfolioGrant(PortfolioResourceGrantUnavailableReasonV1::ManifestMismatch) => {
-                "PORTFOLIO_GRANT_MANIFEST_MISMATCH"
-            }
-            Self::PortfolioGrant(PortfolioResourceGrantUnavailableReasonV1::NotEffective) => {
-                "PORTFOLIO_GRANT_NOT_EFFECTIVE"
-            }
-            Self::PortfolioGrant(PortfolioResourceGrantUnavailableReasonV1::Expired) => {
-                "PORTFOLIO_GRANT_EXPIRED"
-            }
-            Self::PortfolioGrant(PortfolioResourceGrantUnavailableReasonV1::Revoked) => {
-                "PORTFOLIO_GRANT_REVOKED"
-            }
+            Self::Grant(GrantUnavailableReasonV1::InvalidRequest) => "GRANT_INVALID_REQUEST",
+            Self::Grant(GrantUnavailableReasonV1::OwnerUnavailable) => "GRANT_OWNER_UNAVAILABLE",
+            Self::Grant(GrantUnavailableReasonV1::ResourceMismatch) => "GRANT_RESOURCE_MISMATCH",
+            Self::Grant(GrantUnavailableReasonV1::ManifestMismatch) => "GRANT_MANIFEST_MISMATCH",
+            Self::Grant(GrantUnavailableReasonV1::NotEffective) => "GRANT_NOT_EFFECTIVE",
+            Self::Grant(GrantUnavailableReasonV1::Expired) => "GRANT_EXPIRED",
+            Self::Grant(GrantUnavailableReasonV1::Revoked) => "GRANT_REVOKED",
         }
     }
 
