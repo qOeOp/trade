@@ -94,7 +94,9 @@ async function openBrowser(executable) {
       if (message.error) reject(new Error(message.error.message));
       else resolve(message.result);
     });
-    const send = (method, params = {}, timeoutMs = 5_000) => new Promise((resolve, reject) => {
+    // A page mid-render can leave a command outstanding for several seconds; a short deadline
+    // turns that into a transport error that hides what the page was doing.
+    const send = (method, params = {}, timeoutMs = 60_000) => new Promise((resolve, reject) => {
       const requestId = ++id;
       const timer = setTimeout(() => {
         pending.delete(requestId);

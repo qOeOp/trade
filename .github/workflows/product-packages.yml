@@ -39,6 +39,29 @@ jobs:
   test:
     name: Product package tests
     runs-on: ubuntu-latest
+    # The seven PostgreSQL suites and the HTTP session suite skip themselves without a runtime,
+    # which is how a directory of 133 test files ran 129 of them here while the RunStore routes
+    # that Operations serves (Runs, Workers, Schedules, Service Logs, Audit) and the three browser
+    # acceptances written for them never executed anywhere. The service container below is the
+    # same PostgreSQL pin the R&D Owner chain uses; each suite creates and drops its own database
+    # next to the control database named for it and never touches the caller's.
+    services:
+      postgres:
+        # yamllint disable-line rule:line-length
+        image: public.ecr.aws/docker/library/postgres:16.4-alpine@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c
+        env:
+          POSTGRES_PASSWORD: dashboard
+        ports:
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      DASHBOARD_SUITE_POSTGRES: postgresql://postgres:dashboard@127.0.0.1:5432
+      DASHBOARD_BROWSER_ROOT: ${{ runner.temp }}/dashboard-browser-acceptance-chrome
+      DASHBOARD_BROWSER_EXECUTABLE: ${{ runner.temp }}/dashboard-browser-acceptance-chrome/chrome-linux64/chrome
     steps:
       - name: Harden runner
         # https://github.com/step-security/harden-runner
@@ -71,6 +94,74 @@ jobs:
 
       - name: Check Dashboard types
         run: npm run typecheck --prefix product/dashboard
+
+      # The same Chrome for Testing pin the R&D Owner chain drives its browser acceptance with.
+      - name: Install the pinned browser for the Dashboard browser acceptances
+        env:
+          CHROME_FOR_TESTING_SHA256: ecae8b71d4890cf5f32577ab5ea1b3840c2b5e05f51490b1666674cf1f5b0c37
+          CHROME_FOR_TESTING_URL: >-
+            https://storage.googleapis.com/chrome-for-testing-public/152.0.7977.83/linux64/chrome-linux64.zip
+        run: |
+          set -euo pipefail
+          mkdir -p "$DASHBOARD_BROWSER_ROOT"
+          archive="$DASHBOARD_BROWSER_ROOT/chrome-linux64.zip"
+          browser="$DASHBOARD_BROWSER_ROOT/chrome-linux64"
+          curl --fail --location --retry 3 --output "$archive" "$CHROME_FOR_TESTING_URL"
+          printf '%s  %s\n' "$CHROME_FOR_TESTING_SHA256" "$archive" | sha256sum --check --strict
+          python3 -m zipfile -e "$archive" "$DASHBOARD_BROWSER_ROOT"
+          chmod 0755 "$browser/chrome" "$browser/chrome_crashpad_handler"
+
+      - name: Create the Dashboard suite control databases
+        working-directory: product/dashboard
+        run: node scripts/create-suite-databases.mjs
+
+      # The README's local checks end with a production build, and the HTTP session suite starts
+      # that build; the gate never built the bundle before.
+      - name: Build the Dashboard
+        run: npm run build --prefix product/dashboard
+
+      - name: Run the Dashboard PostgreSQL and browser suites
+        working-directory: product/dashboard
+        env:
+          DASHBOARD_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_run_store
+          DASHBOARD_TEST_CURSOR_HMAC_KEY: run-store-disposable-cursor-key-at-least-32-bytes
+          DASHBOARD_RUN_LIST_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_runs
+          DASHBOARD_SHADOW_RUNTIME_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_shadow_runtime
+          DASHBOARD_SHADOW_RUNTIME_TEST_CURSOR_HMAC_KEY: shadow-runtime-disposable-cursor-key-at-least-32-bytes
+          DASHBOARD_WORKERS_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_workers
+          DASHBOARD_WORKERS_BROWSER_ACCEPTANCE: "1"
+          DASHBOARD_WORKERS_ACCEPTANCE_CANDIDATE: ${{ github.sha }}
+          DASHBOARD_WORKERS_BROWSER_EXECUTABLE: ${{ env.DASHBOARD_BROWSER_EXECUTABLE }}
+          # The Schedule calendar and Service logs suites also carry a browser acceptance. Both were
+          # written against an older surface and neither has ever run: the calendar's browser half
+          # leaves an evaluation outstanding past a 60 s command budget, and the service-log half
+          # meets SERVICE_LOG_CURSOR_CONTINUITY_UNAVAILABLE on its first page step with auto-refresh
+          # off, which is a paging question for the surface's owner rather than a test detail.
+          # Their PostgreSQL bodies - the RunStore gateway coverage - run here; enabling the browser
+          # halves waits on that work rather than on a green that was never observed.
+          DASHBOARD_CALENDAR_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_calendar
+          DASHBOARD_SERVICE_LOGS_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_service_logs
+        run: >-
+          node --test --test-concurrency=1
+          tests/run-store.postgres.test.mjs
+          tests/run-list-view-gateway.postgres.test.mjs
+          tests/shadow-runtime.postgres.test.mjs
+          tests/operations-workers.postgres.test.mjs
+          tests/schedule-calendar.postgres.test.mjs
+          tests/service-logs.postgres.test.mjs
+
+      # The Audit suite reads the same two variable names as the RunStore suite and migrates the
+      # database they name in place, so it gets a control database of its own.
+      - name: Run the Dashboard Audit PostgreSQL suite
+        working-directory: product/dashboard
+        env:
+          DASHBOARD_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_audit
+          DASHBOARD_TEST_CURSOR_HMAC_KEY: audit-disposable-cursor-key-at-least-32-bytes
+        run: node --test tests/operation-audit.postgres.test.mjs
+
+      - name: Run the Dashboard local operator session HTTP suite
+        working-directory: product/dashboard
+        run: node --test tests/local-operator-session.http.mjs
 
       # The R&D Owner client has no package manifest and no dependencies; it runs on the standard
       # library alone, which is why nothing had to install it and why nothing ran it either. The

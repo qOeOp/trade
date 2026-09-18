@@ -27,6 +27,8 @@ const browserExecutable = process.env.DASHBOARD_SERVICE_LOGS_BROWSER_EXECUTABLE 
 const dashboardRoot = new URL("../", import.meta.url);
 const cursorKey = "service-logs-disposable-cursor-key-that-is-long-enough-v1";
 const serverIdentity = "dashboard-service-log-server-v1";
+const serviceLogsLogin = "service-logs-browser-acceptance-login-token-at-least-32-bytes";
+const serviceLogsSessionHmac = "service-logs-browser-acceptance-session-hmac-key-at-least-32-bytes";
 const workerIdentity = "dashboard-service-log-worker-v1";
 const workerCapability = "service-log-worker-capability-that-is-at-least-thirty-two-bytes";
 const browserVersion = browserAcceptance
@@ -71,12 +73,12 @@ async function freePort() {
   return port;
 }
 
-async function waitForHttp(target, child, timeoutMs = 60_000) {
+async function waitForHttp(target, child, headers = {}, timeoutMs = 60_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) throw new Error(`service-log preview exited with ${child.exitCode}`);
     try {
-      const response = await fetch(target);
+      const response = await fetch(target, { headers });
       if (response.ok) return response;
     } catch {
       // The bounded local server is still starting.
@@ -369,12 +371,32 @@ test(testName, { skip: !url }, async () => {
     const port = await freePort();
     preview = spawn(process.execPath, [
       "node_modules/next/dist/bin/next", "dev", "-H", "127.0.0.1", "-p", String(port),
-    ], { cwd: dashboardRoot, env: { ...process.env, ...environment }, stdio: "inherit" });
+    ], {
+      cwd: dashboardRoot,
+      env: {
+        ...process.env,
+        ...environment,
+        DASHBOARD_LOCAL_OPERATOR_LOGIN_TOKEN: serviceLogsLogin,
+        DASHBOARD_SESSION_HMAC_KEY: serviceLogsSessionHmac,
+      },
+      stdio: "inherit",
+    });
     const origin = `http://127.0.0.1:${port}`;
-    const pageResponse = await waitForHttp(`${origin}/operations/service-logs/`, preview);
+    // Every Operations surface is behind the local operator session, so the acceptance signs in
+    // the way an operator does and carries the session it was issued.
+    await waitForHttp(`${origin}/api/health/`, preview);
+    const login = await fetch(`${origin}/api/auth/session/`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin },
+      body: JSON.stringify({ credential: serviceLogsLogin }),
+    });
+    assert.equal(login.status, 200);
+    const cookie = (login.headers.get("set-cookie") ?? "").split(";", 1)[0];
+    assert.match(cookie, /^trade_dashboard_session_v1=/u);
+    const pageResponse = await waitForHttp(`${origin}/operations/service-logs/`, preview, { cookie });
     assert.match(await pageResponse.text(), /Service logs/);
 
-    const listResponse = await fetch(`${origin}/api/operations/service-logs/?range=24h&pageSize=20`);
+    const listResponse = await fetch(`${origin}/api/operations/service-logs/?range=24h&pageSize=20`, { headers: { cookie } });
     assert.equal(listResponse.status, 200);
     assert.equal(listResponse.headers.get("cache-control"), "no-store");
     const apiEnvelope = await parseServiceLogBrowserEnvelopeV1(await listResponse.json());
@@ -387,7 +409,7 @@ test(testName, { skip: !url }, async () => {
       instance: apiEnvelope.filter_cut.instance_identity,
       severity: apiEnvelope.filter_cut.severity,
       search: apiEnvelope.filter_cut.search,
-    })}`);
+    })}`, { headers: { cookie } });
     assert.equal(downloadResponse.status, 200);
     assert.equal(downloadResponse.headers.get("x-content-type-options"), "nosniff");
     assert.equal(downloadResponse.headers.get("x-service-log-cut-digest"), apiEnvelope.filter_cut_digest);
@@ -395,6 +417,11 @@ test(testName, { skip: !url }, async () => {
     assert.ok((await downloadResponse.arrayBuffer()).byteLength <= 256 * 1_024);
 
     browser = await openBrowser(browserExecutable);
+    await browser.send("Network.enable");
+    const [cookieName, cookieValue] = cookie.split("=", 2);
+    assert.equal((await browser.send("Network.setCookie", {
+      name: cookieName, value: cookieValue, url: origin, httpOnly: true, sameSite: "Strict",
+    })).success, true);
     await browser.send("Page.enable");
     await browser.send("Emulation.setDeviceMetricsOverride", {
       width: 800,
@@ -404,9 +431,19 @@ test(testName, { skip: !url }, async () => {
     });
     await browser.send("Page.navigate", { url: `${origin}/operations/service-logs/` });
     await waitForBrowserExpression(browser,
-      `document.body?.innerText.includes(${JSON.stringify(workerIdentity)})
-        && document.body?.innerText.includes(${JSON.stringify(serverIdentity)})
-        && document.querySelectorAll('table[aria-label="Service log events"] tbody tr').length > 0`);
+      `document.querySelectorAll('table[aria-label="Service log events"] tbody tr').length > 0`);
+    // Identities appear as compact labels with the exact identity as title evidence, so the
+    // acceptance accepts either and reports what the surface actually named on failure.
+    const namedInstances = await readBrowserValue(browser, `(() => ({
+      text: document.body?.innerText ?? '',
+      titles: [...document.querySelectorAll('[title]')].map((node) => node.getAttribute('title')),
+    }))()`);
+    for (const identity of [workerIdentity, serverIdentity]) {
+      assert.ok(
+        namedInstances.text.includes(identity) || namedInstances.titles.includes(identity),
+        `${identity} is missing: ${JSON.stringify(namedInstances)}`,
+      );
+    }
     const surface = await readBrowserValue(browser, `(() => {
       const frame = document.querySelector('.operations-service-logs-panel');
       const header = frame?.querySelector(':scope > .panel-frame-header');
@@ -475,10 +512,21 @@ test(testName, { skip: !url }, async () => {
         return true;
       })()`);
       assert.equal(changedPage, true, label);
-      await waitForBrowserExpression(browser,
-        `!document.body?.innerText.includes('SERVICE_LOG_CURSOR_CONTINUITY_UNAVAILABLE')
-          && document.querySelectorAll('table[aria-label="Service log events"] tbody tr').length > 0
-          && (${settledExpression})`);
+      try {
+        await waitForBrowserExpression(browser,
+          `!document.body?.innerText.includes('SERVICE_LOG_CURSOR_CONTINUITY_UNAVAILABLE')
+            && document.querySelectorAll('table[aria-label="Service log events"] tbody tr').length > 0
+            && (${settledExpression})`);
+      } catch (error) {
+        const state = await readBrowserValue(browser, `(() => ({
+          autoRefresh: [...document.querySelectorAll('button')]
+            .map((button) => button.textContent?.trim())
+            .find((text) => text?.startsWith('Auto-refresh')),
+          rows: document.querySelectorAll('table[aria-label="Service log events"] tbody tr').length,
+          body: document.body?.innerText.slice(0, 600) ?? '',
+        }))()`);
+        throw new Error(`${label}: ${error.message}; state: ${JSON.stringify(state)}`, { cause: error });
+      }
     };
     await navigatePage("Next service-log page",
       `document.querySelector('button[aria-label="Previous service-log page"]')?.disabled === false`);
@@ -648,7 +696,7 @@ test(testName, { skip: !url }, async () => {
     assert.deepEqual(await readModelFingerprint(pool), browserReadFingerprint);
     await pool.query("ALTER TABLE dashboard_operation_run_logs_v1 RENAME TO dashboard_operation_run_logs_unavailable_v1");
     logTableRenamed = true;
-    assert.equal((await fetch(`${origin}/api/operations/service-logs/?range=24h&pageSize=20`)).status, 503);
+    assert.equal((await fetch(`${origin}/api/operations/service-logs/?range=24h&pageSize=20`, { headers: { cookie } })).status, 503);
     await clickButton(browser, "Refresh");
     await waitForBrowserExpression(browser,
       `document.body?.innerText.includes('Service logs unavailable')
