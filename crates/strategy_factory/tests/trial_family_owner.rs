@@ -37,6 +37,9 @@ use vibe_testkit::postgres::{
     CanonicalOwnerTestRoleV1,
 };
 
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+use vibe_strategy_factory::replay_policy_catalog_sealed_acceptance_v2::ensure_replay_policy_catalog_fixture_v3;
+
 #[rstest]
 fn direct_family_negative_results_preserve_the_transport_contract() {
     assert_eq!(
@@ -1263,6 +1266,12 @@ async fn stored_request_meaning_corruption_is_unavailable_until_exact_restoratio
     cleanup_research(&_mutation, &request_identity, &family_identity).await;
 }
 
+/// Research custody that disappears after admission still prepares no attempt.
+///
+/// The Product Edge will not admit an artifact build against an intent it cannot peek, so an
+/// admission carrying an intent that never existed is unconstructible and would prove nothing
+/// about the Owner. The reachable shape is the one production can reach: admit against real
+/// custody, lose that custody, then prepare.
 #[tokio::test]
 #[ignore = "requires admitted OA/PE/R&D test database URLs"]
 async fn missing_research_custody_prepares_no_attempt() {
@@ -1271,6 +1280,12 @@ async fn missing_research_custody_prepares_no_attempt() {
     let database_url = test_database
         .database_url(CanonicalOwnerTestRoleV1::RdOwner)
         .to_string();
+    let research_owner = PostgresResearchGoalOwnerV1::connect(
+        &database_url,
+        test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+    )
+    .await
+    .unwrap();
     let artifact_owner = PostgresArtifactBuildOwnerV1::connect(
         &database_url,
         "/tmp/unused-rd-sandbox.sock",
@@ -1290,16 +1305,30 @@ async fn missing_research_custody_prepares_no_attempt() {
         &suffix,
     )
     .await;
-    let request = edge
-        .admit_artifact(ArtifactBuildRequestV1 {
-            build_request_identity: format!("artifact-build-request-missing-{suffix}"),
-            attempt_identity: format!("artifact-attempt-missing-{suffix}"),
-            intent_identity: format!("research-intent-missing-{suffix}"),
-            channel: ProductEdgeChannel::WindmillProductEdge,
-            admission: admission_locator(&format!("artifact-build-request-missing-{suffix}")),
-        })
+    let request_identity = format!("research-request-v2-missing-{suffix}");
+    let accepted = research_owner
+        .submit_v2(edge.admit_v2(request(&request_identity)).await)
+        .await
+        .unwrap();
+    let intent_identity = accepted
+        .owner_receipt()
+        .unwrap()
+        .resulting_research_intent_identity
+        .as_deref()
+        .unwrap()
+        .to_string();
+    let family_identity = accepted
+        .trial_family()
+        .unwrap()
+        .root()
+        .trial_family_identity()
+        .to_string();
+    let build_request = edge
+        .admit_artifact(artifact_request(&suffix, &intent_identity, "missing"))
         .await;
-    let result = artifact_owner.prepare(request.clone()).await.unwrap();
+    cleanup_research(&_mutation, &request_identity, &family_identity).await;
+
+    let result = artifact_owner.prepare(build_request.clone()).await.unwrap();
     assert_eq!(
         result.resolution(),
         ArtifactBuildResolution::SubmittedOrUnknown
@@ -1308,7 +1337,7 @@ async fn missing_research_custody_prepares_no_attempt() {
         count(
             &pool,
             "SELECT COUNT(*) FROM rd_artifact_build_attempts_v1 WHERE build_request_identity = $1",
-            &request.build_request_identity,
+            &build_request.build_request_identity,
         )
         .await,
         0
@@ -1673,8 +1702,35 @@ async fn expired_attempt_receipt_is_independently_outcome_unknown() {
 /// to be named `vibe_test_role_*`. The ordered chain exports the canonical Owner role names, so that
 /// admission refused before any proof ran and these entries could not pass there at all. The
 /// canonical topology is the one the chain provides, and it names the same three Owners.
+///
+/// It also publishes the current Replay Policy Catalog V3 every submission needs: `submit_v2`
+/// forms a TrialFamily only against the Catalog V3 head whose cost, slippage and capacity model
+/// identities equal the proposal's. Without that head the Owner rolls the whole
+/// submission back and answers `SubmittedOrUnknown`, so these proofs would assert against an
+/// absent receipt instead of against the behaviour they name.
 async fn test_database() -> CanonicalOwnerPostgresTestDatabaseV1 {
-    CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap()
+    #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
+    {
+        panic!(
+            "TrialFamily Owner proofs need a current Replay Policy Catalog V3, which only the \
+             sealed-develop-composer-acceptance fixture publishes"
+        )
+    }
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    {
+        let database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let catalog_admin_pool = PgPoolOptions::new()
+            .max_connections(1)
+            .connect(
+                database.database_url(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter),
+            )
+            .await
+            .unwrap();
+        ensure_replay_policy_catalog_fixture_v3(&catalog_admin_pool)
+            .await
+            .unwrap();
+        database
+    }
 }
 
 fn unique_suffix() -> String {
@@ -2093,6 +2149,11 @@ impl TestProductEdge {
         request
     }
 
+    /// Routes each operation to the entrypoint the Owner admits it through.
+    ///
+    /// `admit_request` refuses the artifact-build operation outright: that operation carries a
+    /// typed payload the Owner reads, so it has its own entrypoint. Sending everything through
+    /// the generic one answers `Unavailable` for every artifact build.
     async fn admit(
         &self,
         request_identity: &str,
@@ -2101,21 +2162,22 @@ impl TestProductEdge {
         operation_schema: &str,
         requested_effects: Vec<String>,
     ) -> ProductEdgeAdmissionLocatorV1 {
-        self.owner
-            .admit_request(ProductEdgeAdmissionRequestV1 {
-                request_identity: request_identity.to_string(),
-                typed_payload,
-                operation: operation.to_string(),
-                operation_schema: operation_schema.to_string(),
-                target_owner: RESEARCH_OWNER_V1.to_string(),
-                requested_effects,
-                request_proof_digest: self.request_proof_digest.clone(),
-                audit_correlation: format!("test:{request_identity}"),
-            })
-            .await
-            .unwrap()
-            .locator()
-            .clone()
+        let request = ProductEdgeAdmissionRequestV1 {
+            request_identity: request_identity.to_string(),
+            typed_payload,
+            operation: operation.to_string(),
+            operation_schema: operation_schema.to_string(),
+            target_owner: RESEARCH_OWNER_V1.to_string(),
+            requested_effects,
+            request_proof_digest: self.request_proof_digest.clone(),
+            audit_correlation: format!("test:{request_identity}"),
+        };
+        let readback = if operation == ARTIFACT_BUILD_OPERATION_V1 {
+            self.owner.admit_artifact_build_request(request).await
+        } else {
+            self.owner.admit_request(request).await
+        };
+        readback.unwrap().locator().clone()
     }
 }
 
