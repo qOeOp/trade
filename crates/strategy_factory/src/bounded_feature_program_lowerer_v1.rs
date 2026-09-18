@@ -1953,7 +1953,86 @@ mod tests {
         rd_bounded_feature_program_v1::freeze_research_bounded_feature_program_v1,
         strategy_plan_v2::plugin_manifest_digest,
     };
-    use std::{fs, process::Command};
+    use std::{ffi::OsStr, fs, path::Path, process::Command};
+
+    /// Every Cargo key that outranks, or replaces, the `[build] rustflags` the lowering freezes
+    /// into a guest project's own `.cargo/config.toml`.
+    ///
+    /// Cargo does not merge rustflags across levels. The first of `RUSTFLAGS`,
+    /// `CARGO_ENCODED_RUSTFLAGS`, `target.<triple>.rustflags` and `build.rustflags` that is
+    /// present wins outright, and an environment variable beats the configuration file that
+    /// carries the same key. So any one of these silently discards the whole frozen list,
+    /// including the `--initial-memory`/`--max-memory` pair `frozen_config` sizes from the
+    /// manifest.
+    const AMBIENT_RUST_FLAG_VARS: [&str; 4] = [
+        "RUSTFLAGS",
+        "CARGO_ENCODED_RUSTFLAGS",
+        "CARGO_BUILD_RUSTFLAGS",
+        "CARGO_TARGET_WASM32V1_NONE_RUSTFLAGS",
+    ];
+
+    /// Build a lowered guest project the way a production build of one is run.
+    ///
+    /// `develop_plugin_build_v2_sandbox` invokes Cargo under `env_clear`, so the only rustflags a
+    /// guest compiles under in production are the ones the lowering froze into the project's
+    /// `.cargo/config.toml`. A proof that inherited its own environment did not stand for that
+    /// build: `actions-rust-lang/setup-rust-toolchain` exports `RUSTFLAGS=-D warnings` for the
+    /// whole job, which its own input documents as overwriting `build.rustflags`, so on CI the
+    /// frozen list was discarded and the linker emitted a growable memory with no maximum at all.
+    /// The strict ABI 3 envelope then refused the module for the linear-memory budget it does in
+    /// fact fit inside - on the first operation, on Linux only, while the same proof passed on a
+    /// developer machine that exports no such variable.
+    ///
+    /// Warning discipline is stated here rather than inherited. `build.warnings` is a separate key
+    /// from rustflags, so denying warnings this way cannot displace the frozen list, and the guest
+    /// is held to the same bar on every host - including one whose `make` target exports
+    /// `CARGO_BUILD_WARNINGS=warn` for the workspace around it.
+    fn lowered_guest_build_command(project: &Path, target_dir: &Path) -> Command {
+        let mut command = Command::new("cargo");
+        for name in AMBIENT_RUST_FLAG_VARS {
+            command.env_remove(name);
+        }
+        command
+            .args([
+                "build",
+                "--release",
+                "--target",
+                "wasm32v1-none",
+                "--offline",
+            ])
+            .env("CARGO_BUILD_WARNINGS", "deny")
+            .env("CARGO_TARGET_DIR", target_dir)
+            .current_dir(project);
+        command
+    }
+
+    /// The frozen project, not the surrounding job, decides what a guest compiles under.
+    #[test]
+    fn a_lowered_guest_build_ignores_ambient_rust_flags() {
+        let command = lowered_guest_build_command(Path::new("project"), Path::new("target-out"));
+
+        for name in AMBIENT_RUST_FLAG_VARS {
+            assert!(
+                matches!(
+                    command.get_envs().find(|(key, _)| *key == OsStr::new(name)),
+                    Some((_, None))
+                ),
+                "a guest build must not inherit {name}"
+            );
+        }
+        assert_eq!(
+            command
+                .get_envs()
+                .find(|(key, _)| *key == OsStr::new("CARGO_BUILD_WARNINGS"))
+                .and_then(|(_, value)| value),
+            Some(OsStr::new("deny"))
+        );
+        // The frozen configuration is then the only thing that can size the guest's memory, and it
+        // asks for exactly the linear memory the strict envelope admits.
+        assert!(frozen_config(1_048_576).contains(
+            "\"link-arg=--max-memory=1048576\", \"-C\", \"link-arg=--initial-memory=1048576\""
+        ));
+    }
 
     #[test]
     fn fixed_source_identities_are_repeatable_and_guest_is_float_free() {
@@ -2541,16 +2620,7 @@ mod tests {
             fs::write(destination, bytes).unwrap();
         }
         let target_dir = root.path().join("target-out");
-        let output = Command::new("cargo")
-            .args([
-                "build",
-                "--release",
-                "--target",
-                "wasm32v1-none",
-                "--offline",
-            ])
-            .env("CARGO_TARGET_DIR", &target_dir)
-            .current_dir(root.path())
+        let output = lowered_guest_build_command(root.path(), &target_dir)
             .output()
             .expect("run cargo");
         assert!(
@@ -2651,10 +2721,10 @@ mod tests {
 
     /// No lowered program names a decoded value it never reads.
     ///
-    /// The guest crate compiles with warnings denied, so a binding nothing reads is not untidy
-    /// there, it is a build failure. That failure only appears once a real toolchain runs, which is
-    /// what the ignored proof below costs a compiler run to do. This one asserts the same property
-    /// from the lowered text alone, on every host, in milliseconds.
+    /// `lowered_guest_build_command` denies warnings, so a binding nothing reads is not untidy in
+    /// a built guest, it is a build failure. That failure only appears once a real toolchain runs,
+    /// which is what the ignored proof below costs a compiler run to do. This one asserts the same
+    /// property from the lowered text alone, on every host, in milliseconds.
     #[rstest::rstest]
     fn no_lowered_program_names_a_value_it_never_reads() {
         use PrimitiveOperationV1 as Op;
@@ -2771,16 +2841,7 @@ mod tests {
                 fs::create_dir_all(destination.parent().expect("source parent")).unwrap();
                 fs::write(destination, bytes).unwrap();
             }
-            let output = Command::new("cargo")
-                .args([
-                    "build",
-                    "--release",
-                    "--target",
-                    "wasm32v1-none",
-                    "--offline",
-                ])
-                .env("CARGO_TARGET_DIR", &target_dir)
-                .current_dir(root.path())
+            let output = lowered_guest_build_command(root.path(), &target_dir)
                 .output()
                 .expect("run cargo");
             assert!(
