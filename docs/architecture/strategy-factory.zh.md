@@ -1112,6 +1112,26 @@ replacement、改变 policy，或创建第二份 request、receipt、outbox 或 
 PostgreSQL Owner readback 与 end-to-end 第一方验收证明完整 composition 和每种零变化拒绝后，该
 TARGET 才能获准；它不授予 production 或 trading authority。
 
+## 价值流交接
+
+R&D、Backtest 与 Qualification 之间的阶段关系恰以下列对象跨越价值流。每个 Owner 页定义自己发出的对象，接收页
+重复自己接受的内容；本页只把它们列在一起，让价值流可以从头读到尾。
+
+- R&D → Backtest：一个 R&D 拥有的冻结 Exploratory Replay Request，绑定准确的 Artifact、PIT 范围、重放配置以及成本
+  滑点与容量模型身份。相同请求身份与规范字节加入同一个 attempt；含义变化即冲突，不执行任何写入。
+- Backtest → R&D：每个请求对应一个 Exploratory Run Result，状态恰为 `RUN_REJECTED` `IN_PROGRESS_OR_UNKNOWN`
+  `TERMINAL_RESULT` 或 `INVALID_REPLAY_EVIDENCE` 之一，重复每个实际消费的执行定义身份与完整有限的
+  `diagnosticCategorySet`。只有请求相等的 `TERMINAL_RESULT` 能进入 Research Selection；其他 attempt 只保留为
+  TrialFamily Census 事实，最多只能产生 `REPAIR_INPUTS`。
+- R&D → Qualification：一个带终态 `SELECTED_FOR_QUALIFICATION` Research Selection Disposition 的冻结 Candidate，
+  由稳定的 Qualification Review Request 承载，交叉绑定冻结的 Intent 证伪条件与停止规则、完整预注册、不可变且穷尽的
+  TrialFamily Census Frontier、探索请求/结果前沿、跨 family 前驱前沿、预提交的独立性依据、保护反馈观察前沿、
+  Protected Robustness Plan，以及预注册的保护决策策略身份与版本。
+- Qualification → Product Edge 与 R&D：一个只写一次的 Candidate Intake Receipt，`ADMITTED` 或 `NOT_ADMITTED`，
+  关闭该准确的评审请求。回执缺席保持 `SUBMITTED_OR_UNKNOWN`，任何状态摘要、传输成功或事件投递都不能替代它。
+  `NOT_ADMITTED` 不创建保护 attempt 也不消耗 holdout。随后 Qualification 在隔离中向 Backtest 请求并消费保护重放，
+  且不向 Research 返回任何保护测量。
+
 ## 保护路径
 
 Research 在提交前冻结 TrialFamily 穷尽 Census Frontier 跨 TrialFamily 前驱前沿 预提交独立性依据 PIT 规则 成本 容量假设 预算 证伪条件和停止规则。Qualification 校验这些 frontier 预注册内容 准确 `READY_FOR_SELECTION` 决定和仅选择 disposition，并拥有相关 TrialFamily 的累计 holdout 预留与处理，再请求保护重放。仅选择 disposition 缺失 证伪条件不匹配 遗漏同族试验 试验改名 预算不符 frontier 可变 祖先未解析 独立性依据过晚 反馈前沿过期或截面后新增族成员时都在保护回放前闭合为 `NOT_ADMITTED` 且不消耗 holdout；Research 终态停止永不进入 intake，后续试验需要后继 Candidate。保护结果可以更新 Eligibility State，但绝不能反馈同一研发循环。

@@ -554,9 +554,21 @@ purge 与 embargo 派生规则、TrialFamily-aware multiplicity policy、attempt
 ## 输入交接
 
 - Product Edge 提供带来源研究请求而不是无来源交易指令，请求提交已经投影给该 principal 的有界保护反馈前沿。Research 用自己的终态回执解析稳定请求身份，并保留语义前驱而不读取保护类别或细节；回执缺失时保持未知。
-- [Market Data](./market-data/) 提供 PIT 事实 数据版本 标的语义，以及对已提交 Market Data Repair
-  Request 的关联 `AVAILABLE` 或 `UNAVAILABLE` 终态。
-- 探索性 [Backtest](./backtest/) 结果可以支持创建新的意图和工件版本。
+- [Market Data](./market-data/) 提供 PIT 事实 数据版本与标的语义。对每个初始 PIT Market Snapshot Request，它返回一个
+  move-only、由 Market Data 密封的 `ResearchPitTerminal`，关联准确的请求身份与内容摘要，携带规范六态处置
+  `AVAILABLE` `INSUFFICIENT` `STALE` `UNLICENSED` `AMBIGUOUS` 或 `UNAVAILABLE`，以及准确的 Universe Selection
+  Record 身份与摘要。只有 `AVAILABLE` 能进入冻结或后继 Intent；其他状态只冻结依赖它的 Intent，没有响应则保持
+  未知。对已提交的 Market Data Repair Request，它另行返回关联的 `AVAILABLE` 或 `UNAVAILABLE` 终态。
+- [Backtest](./backtest/) 对每个 R&D 拥有的 Exploratory Replay Request 返回一个 Exploratory Run Result，状态恰为
+  `RUN_REJECTED` `IN_PROGRESS_OR_UNKNOWN` `TERMINAL_RESULT` 或 `INVALID_REPLAY_EVIDENCE` 之一。结果重复实际消费的
+  Artifact、PIT 范围与 PIT Market Snapshot、Universe Selection Record 与修正规则、重放配置、Runtime kernel、simulator
+  以及成本 滑点与容量模型身份，并附带完整有限的 `diagnosticCategorySet` 与每个成员的决定性证据截面。Research 只能使用
+  请求相等的 `TERMINAL_RESULT`；被拒绝 无效 未知 非终态或不相等的 attempt 只保留为 TrialFamily Census 事实，最多只能
+  产生 `REPAIR_INPUTS`，绝不产生 Selection 或后继假设。读取结果本身绝不自动创建后继 Intent。
+- [Qualification](./qualification/) 不向已提交 Candidate 的研究循环返回任何保护反馈。Research 只能通过 Product Edge
+  观察到关闭该准确 Qualification Review Request 的只写一次 `ADMITTED` 或 `NOT_ADMITTED` Candidate Intake Receipt，
+  以及有界的公开 Qualification Status Summary。回执缺席保持 `SUBMITTED_OR_UNKNOWN`；`NOT_ADMITTED` 不创建保护
+  attempt 也不消耗 holdout，含义变化不能加入该回执或创建第二次 intake。
 - 已提交且绑定 generation 的 Performance Runtime Incident Execution 账户 订单 成交 quality observation
   Effect Journal 回读与 Reconciliation Drift 事实，只能作为新
   Research Source Provenance Record 进入后继血缘。它们不能改写已部署或已选择的 Intent Artifact
@@ -569,6 +581,11 @@ purge 与 embargo 派生规则、TrialFamily-aware multiplicity policy、attempt
 
 ## 输出交接
 
+- 向 [Market Data](./market-data/) 在探索性消费之前交付一个 R&D 拥有的冻结初始 PIT Market Snapshot Request，绑定
+  Research Request、Intent 与 TrialFamily 身份、请求的标的或宇宙范围身份与版本、四时间决策截面与 PIT 语义、所需的
+  provenance、Source Binding 与数据集版本集、许可 权利 保留与署名策略截面、修正与修订前沿截面、稳定的请求关联身份，
+  以及请求时刻的 Time Evidence。R&D 拥有其身份与内容摘要；相同身份与摘要加入同一个 Market Data attempt，范围 截面
+  provenance 许可 修正或含义变化则需要后继请求。传输成功只让请求保持 `SUBMITTED_OR_UNKNOWN`，不证明任何快照可用。
 - 向 [Market Data](./market-data/) 只在已提交 `REPAIR_INPUTS` Iteration Decision 后发出 Market Data
   Repair Request。请求要求原生 Owner 修复证据，不指定 adapter 不改写旧 snapshot 也不宣称数据可用。
 - 向 [Backtest](./backtest/) 交付一个由 R&D 拥有的冻结 Exploratory Replay Request，绑定准确意图
