@@ -652,6 +652,16 @@ async fn transaction_bound_read_rejects_wrong_owner_acl_and_stale_custody() {
         .await
         .expect("restore public ACL");
 
+    let mut transaction = rd_pool.begin().await.expect("begin restored-ACL read");
+    owner
+        .read_accepted_in_transaction(&mut transaction, &locator)
+        .await
+        .expect("positive read after the public ACL is restored");
+    transaction
+        .rollback()
+        .await
+        .expect("rollback restored-ACL read");
+
     sqlx::query(
         "GRANT EXECUTE ON FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(text) TO PUBLIC",
     )
