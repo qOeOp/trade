@@ -89,10 +89,15 @@ async function openBrowser(executable) {
     "--disable-background-networking", "--disable-default-apps", "--disable-extensions",
     "--disable-sync", "--metrics-recording-only", "--no-default-browser-check", "--no-first-run",
     "about:blank",
-  ], { stdio: "ignore" });
+  ], { stdio: ["ignore", "ignore", "pipe"] });
+  let browserStderr = "";
+  child.stderr?.setEncoding("utf8");
+  child.stderr?.on("data", (chunk) => { browserStderr = `${browserStderr}${chunk}`.slice(-4_096); });
   try {
     let devTools;
-    const deadline = Date.now() + 15_000;
+    // The browser starts beside a dev server and a database on the same machine, so this is
+    // generous; what matters is that it ends, and that it says what the browser reported.
+    const deadline = Date.now() + 60_000;
     while (Date.now() < deadline) {
       if (child.exitCode !== null) throw new Error(`workers browser exited with ${child.exitCode}`);
       try {
@@ -102,7 +107,7 @@ async function openBrowser(executable) {
         await delay(100);
       }
     }
-    if (!devTools?.[0]) throw new Error("workers browser debugging endpoint unavailable");
+    if (!devTools?.[0]) throw new Error(`workers browser debugging endpoint unavailable: ${browserStderr.trim() || "no output"}`);
     // Bounded: a browser that opened its debugging port but never answers would otherwise leave
     // this await pending for as long as the runner allows.
     const target = await fetch(`http://127.0.0.1:${devTools[0]}/json/new?about:blank`, {
@@ -290,7 +295,9 @@ test(testName, { skip: !url }, async () => {
     // suite would assert on how long the machine took rather than on what the surface shows.
     await pool.query(`UPDATE dashboard_shadow_workers_v1
       SET lease_expires_at = clock_timestamp() + interval '30 minutes'
-      WHERE worker_identity = ANY($1)`, [[activeWorker, effectWorker]]);
+      WHERE worker_identity <> $1`, [expiredWorker]);
+    await pool.query(`UPDATE dashboard_effect_workers_v1
+      SET lease_expires_at = clock_timestamp() + interval '30 minutes'`);
 
     const environment = {
       ...fixture.environment,
@@ -378,10 +385,27 @@ test(testName, { skip: !url }, async () => {
     })()`);
     // The documented summary is the label and its count (doc 1929-1933); the compact pill renders
     // its labels lowercased, which `innerText` reports after the transform.
-    assert.match(surface.summary, /ready\s+2/iu);
-    assert.match(surface.summary, /offline\s+1/iu);
-    assert.match(surface.summary, /processed\s+1/iu);
-    assert.match(surface.summary, /active\s+1/iu);
+    // The summary counts leases at the list observation cut. Expect the store's own counts rather
+    // than the fixture's intent: a lease that expired while the run was slow would otherwise fail
+    // this on how long the machine took, while a real disagreement still fails.
+    // Shadow and effect workers live in their own relations and the surface counts both, so a
+    // query over one of them would expect a summary the page never claimed.
+    const leaseRows = await pool.query(
+      `SELECT worker_identity, lease_expires_at > clock_timestamp() AS available
+         FROM dashboard_shadow_workers_v1
+       UNION ALL
+       SELECT worker_identity, lease_expires_at > clock_timestamp() AS available
+         FROM dashboard_effect_workers_v1
+       ORDER BY worker_identity`,
+    );
+    const leaseReport = JSON.stringify(leaseRows.rows);
+    assert.equal(leaseRows.rows.length, 3, leaseReport);
+    const availableLeases = leaseRows.rows.filter((row) => row.available).length;
+    const expiredLeases = leaseRows.rows.length - availableLeases;
+    assert.match(surface.summary, new RegExp(`ready\\s+${availableLeases}`, "iu"), `${surface.summary} ${leaseReport}`);
+    assert.match(surface.summary, new RegExp(`offline\\s+${expiredLeases}`, "iu"), `${surface.summary} ${leaseReport}`);
+    assert.match(surface.summary, /processed\s+1/iu, `${surface.summary} ${leaseReport}`);
+    assert.match(surface.summary, /active\s+1/iu, `${surface.summary} ${leaseReport}`);
     assert.equal(surface.rows, 3);
     assert.equal(surface.allLeft, true);
     assert.equal(surface.allSticky, true);

@@ -106,10 +106,15 @@ async function openBrowser(executable) {
     "--disable-background-networking", "--disable-default-apps", "--disable-extensions",
     "--disable-sync", "--metrics-recording-only", "--no-default-browser-check", "--no-first-run",
     "about:blank",
-  ], { stdio: "ignore" });
+  ], { stdio: ["ignore", "ignore", "pipe"] });
+  let browserStderr = "";
+  child.stderr?.setEncoding("utf8");
+  child.stderr?.on("data", (chunk) => { browserStderr = `${browserStderr}${chunk}`.slice(-4_096); });
   try {
     let devTools;
-    const deadline = Date.now() + 15_000;
+    // The browser starts beside a dev server and a database on the same machine, so this is
+    // generous; what matters is that it ends, and that it says what the browser reported.
+    const deadline = Date.now() + 60_000;
     while (Date.now() < deadline) {
       if (child.exitCode !== null) throw new Error(`service-log browser exited with ${child.exitCode}`);
       try {
@@ -119,7 +124,7 @@ async function openBrowser(executable) {
         await delay(100);
       }
     }
-    if (!devTools?.[0]) throw new Error("service-log browser debugging endpoint unavailable");
+    if (!devTools?.[0]) throw new Error(`service-log browser debugging endpoint unavailable: ${browserStderr.trim() || "no output"}`);
     // Bounded: a browser that opened its debugging port but never answers would otherwise leave
     // this await pending for as long as the runner allows.
     const target = await fetch(`http://127.0.0.1:${devTools[0]}/json/new?about:blank`, {
