@@ -20,6 +20,16 @@ slow-timeout = { period = "120s", terminate-after = 5 }
 filter = 'binary(websocket) | binary(data_client)'
 retries = 0
 
+# The trybuild compile-fail binaries compile a probe crate against the workspace inside the test
+# process. On a cold cache that build alone took 5m45s (run 35340365433), so the 600s budget above,
+# sized for tests averaging 88ms, killed one while the other 26425 passed. They get a budget of
+# their own and run one at a time, so four such builds do not contend for the runner's four
+# cores; the terminate stays so a hung build still fails with a name.
+[[profile.ci.overrides]]
+filter = 'binary(compile_fail)'
+slow-timeout = { period = "300s", terminate-after = 4 }
+test-group = 'serial-tests'
+
 [[profile.default.overrides]]
 filter = 'test(serial_tests)'
 test-group = 'serial-tests'
