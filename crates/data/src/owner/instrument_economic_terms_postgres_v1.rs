@@ -30,9 +30,13 @@ pub(super) const INSTRUMENT_OWNER_DATABASE_URL_ENV: &str = "INSTRUMENT_OWNER_DAT
 const SCHEMA: [&str; 11] = [
     // `CREATE SCHEMA IF NOT EXISTS` checks database `CREATE` before it checks existence, so it
     // fails for an Owner that holds no database-level `CREATE` even when the schema is already
-    // provisioned. Under the deployed custody topology the authority migration owns this schema
-    // and the Owner has no such grant, so ask about existence first and create only what is
-    // genuinely missing.
+    // provisioned and that same Owner owns it. This Owner's role does hold that grant today and
+    // provisions this schema itself, unlike the Market Data roles, so asking about existence first
+    // is not what makes it work now. It is what stops the statement from deciding whether this
+    // Owner may ever run under a role that is granted its schema instead of the database.
+    //
+    // The choice of role is not reversible: the ACL assertion below requires `current_user` to own
+    // this schema, so a second role reading a schema the first created is refused at open.
     "DO $instrument_owner_private_schema$ BEGIN IF pg_catalog.to_regnamespace('instrument_owner_private') IS NULL THEN EXECUTE 'CREATE SCHEMA instrument_owner_private'; END IF; END $instrument_owner_private_schema$",
     "REVOKE ALL ON SCHEMA instrument_owner_private FROM PUBLIC",
     "CREATE TABLE IF NOT EXISTS instrument_owner_private.economic_terms_facts_v1 (fact_identity BYTEA PRIMARY KEY CHECK(octet_length(fact_identity)=32), meaning_identity BYTEA UNIQUE NOT NULL CHECK(octet_length(meaning_identity)=32), fact_bytes BYTEA NOT NULL CHECK(octet_length(fact_bytes)>0 AND octet_length(fact_bytes)<=32768), custody_digest BYTEA NOT NULL CHECK(octet_length(custody_digest)=32))",
