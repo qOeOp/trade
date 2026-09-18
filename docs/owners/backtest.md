@@ -71,44 +71,16 @@ cost/slippage/capacity models, seed, range, calendar/time-zone meaning and seman
 unmatched consumption evidence produces no positive receipt; equality between two caller-authored DTOs is never
 request-result correlation.
 
-### `ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` terminal-result route
+### CURRENT_PARTIAL - durable Result custody and R&D locked read
 
-**TARGET / ISOLATED_ACCEPTANCE_ONLY:** this explicitly selected, request-driven route is the only admitted dynamic
-acceptance consumer for the matching Market Data isolated profile. Backtest accepts only the exact R&D Owner-issued
-sealed request locator and receipt after resolving its canonical bytes and digest through the fixed read-only R&D Owner
-port, plus the Market Data-sealed, read-only `StrategyInputSampleEventResolverV1` capability for that request.
-It also requires the additive versioned Owner binding receipt that cross-binds that sealed request, the exact Market
-Data projection receipt digest, and the Owner-native event identity; Replay V2 `resolved_owner_inputs` alone is generic
-content addressing and cannot authorize or reconstruct this binding.
-It resolves the exact request-selected Owner `EVENT` input through `ProgramHost`, executes it with the real
-BacktestEngine and Sim Exchange, and derives the actual-consumption record, complete diagnosis, semantic trace, and
-terminal result from what those components consumed. A caller-supplied request, digest, DSN, fixture, fixed corpus, or
-reconstructed input cannot substitute either Owner handoff or mint a result.
-The accepted Store Admission receipt must bind the immutable external acceptance trust bundle and the distinct signer,
-witness, credential-resolver, and direct-measurer identities; no authority derived by the candidate, caller, consumer,
-or tested process may satisfy that prerequisite.
-
-One Backtest Owner transaction commits the exact request identity and canonical bytes, one attempt, the sealed actual-
-consumption and diagnosis records, and the terminal result together. A byte-identical retry joins the same attempt and
-returns the same canonical result receipt bytes; the same identity with different request, consumption, diagnosis, or
-result bytes is a conflict and performs no write. After process and repository restart, the Owner must resolve the
-request locator and return byte-identical attempt, result receipt, and actual-consumption readback. No separate pool,
-in-memory or temporary-file writer, caller persistence, or response-loss retry may split or reconstruct that atomic
-custody.
-
-Any missing, stale, superseded, wrong-role, or mismatched Store Admission head/rotation/ACL/credential/measurement,
-Owner request, projection/event locator, sealed resolver, event, or readback fails before `ProgramHost` invocation or
-Backtest mutation and produces no positive receipt or result. The isolated proof covers only this disposable
-PostgreSQL topology. It never establishes production readiness, default-product reachability, deployment authority,
-protected replay acceptance, Paper, Live, real trading, or another production write; all distinct production adapters
-remain `UNAVAILABLE`.
-
-### TARGET / NOT_ADMITTED - durable Result custody and R&D locked read
-
-This target promotes the formal exploratory Result handoff beyond the isolated acceptance route without promoting
-any runtime or PostgreSQL implementation to CURRENT. Backtest remains the sole authority for the result fact. It
-owns the private canonical Result table and its append-only outbox, and only the Backtest writer may perform DML.
-Protected Result custody remains isolated and is not readable through this R&D seam.
+The Backtest Owner owns the private canonical Result table and its append-only outbox, and only the Backtest
+writer may perform DML. The fixed `SECURITY DEFINER` `owner_api` lock/read functions
+`resolve_exploratory_replay_result_v2/v3` exist, and the ordered PostgreSQL chain proves positive locked readback,
+function-source drift, Owner API sibling-routine, raw-table ACL drift, inherited-owner-membership and
+owner-attribute drift rejection, topology-fence serialization, mid-commit rollback, restart-exact readback, and R&D
+read-only access (chain entries 14 and 17-23 in `scripts/ci/test-rd-owner-postgres.bash`). Backtest remains the
+sole authority for the result fact, and Protected Result custody remains isolated and is not readable through this
+R&D seam.
 
 The Backtest Owner exposes one fixed, safe-`search_path`, `SECURITY DEFINER` `owner_api` lock/read function. Its fully
 qualified reads lock the exact Result, receipt, and outbox rows and return an untrusted envelope inside the
@@ -126,10 +98,8 @@ not depend on `vibe-backtest-owner`, while `vibe-backtest-owner` retains Result 
 Missing, stale, cross-spliced, wrong-owner, wrong-function, ACL-mismatched, noncanonical, digest-mismatched,
 receipt-or-outbox-incomplete, or separately read custody is `UNAVAILABLE`. After response loss, exact `RESOLVE` may
 return only the same pre-existing byte-identical Backtest Result and receipt; it cannot create first custody,
-recompose a result, or append a second Result, receipt, or outbox event. Admission requires implementation and real
-disposable PostgreSQL proof of positive readback, every zero-readback rejection, same-transaction locking, restart,
-and response-loss recovery. It grants no Dashboard implementation, deployment, production write, provider effect,
-Paper, Live, or trading authority.
+recompose a result, or append a second Result, receipt, or outbox event. Admitted on that disposable PostgreSQL proof; it still grants no Dashboard implementation,
+deployment, production write, provider effect, Paper, Live, or trading authority.
 
 ## Input handoffs
 

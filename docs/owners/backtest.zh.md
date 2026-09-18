@@ -64,41 +64,14 @@ input receipt 与 cut、replay configuration、runtime/kernel/simulator identity
 seed、range、calendar/time-zone 含义和 semantic-trace digest。消费证据缺失或不匹配时不得生成正向
 receipt；两个 caller-authored DTO 相等绝不构成 request-result correlation。
 
-### `ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` 终态结果路径
+### CURRENT_PARTIAL - 持久 Result custody 与 R&D 锁定读取
 
-**TARGET / ISOLATED_ACCEPTANCE_ONLY：** 这个被显式选择、由 request 驱动的路径，是对应 Market Data 隔离
-profile 唯一获准的动态验收 consumer。Backtest 只接收准确的 R&D Owner-issued 密封 request locator 与 receipt，
-并先通过固定只读 R&D Owner port resolve 其 canonical bytes 与 digest；同时还必须取得 Market Data 为该 request
-密封的只读 `StrategyInputSampleEventResolverV1` capability。它通过 `ProgramHost` 解析准确的
-request-selected Owner `EVENT` input 前，还必须取得新增的版本化 Owner binding receipt；该 receipt 交叉绑定
-sealed request、准确 Market Data projection receipt digest 与 Owner-native event identity。Replay V2 的
-`resolved_owner_inputs` 单独只是通用 content addressing，不能授权或重建这项 binding。
-它使用真实 BacktestEngine 与 Sim Exchange 执行，并只从这些组件的实际
-消费派生 actual-consumption record、完整 diagnosis、semantic trace 与 terminal result。caller 提供的 request、
-digest、DSN、fixture、fixed corpus 或重建 input 均不能替代任何 Owner handoff 或铸造 result。
-获准的 Store Admission receipt 还必须绑定 immutable external acceptance trust bundle，以及彼此独立的 signer、
-witness、credential-resolver 与 direct-measurer identity；由 candidate、caller、consumer 或被测进程派生的
-任何 authority 均不能满足该 prerequisite。
-
-一个 Backtest Owner transaction 必须一起提交准确 request identity/canonical bytes、唯一 attempt、密封 actual-
-consumption/diagnosis record 与 terminal result。逐字节相同 retry 加入同一个 attempt 并返回相同 canonical
-result receipt bytes；同一 identity 下 request、consumption、diagnosis 或 result bytes 任一不同即为 conflict，
-且零写入。process 与 repository restart 后，Owner 必须解析 request locator，并返回逐字节相同的 attempt、
-result receipt 与 actual-consumption readback。不得用 separate pool、in-memory/temp-file writer、caller
-persistence 或 response-loss retry 拆分或重建该原子 custody。
-
-Store Admission head/rotation/ACL/credential/measurement、Owner request、projection/event locator、sealed
-resolver、event 或 readback 任一缺失、过期、已取代、role 错误或不匹配，都必须在 `ProgramHost` invocation 或
-Backtest mutation 前失败，且不产生正向 receipt/result。隔离证明只覆盖该 disposable PostgreSQL topology；
-绝不建立 production readiness、default-product reachability、deployment authority、protected replay
-acceptance、Paper、Live、real trading 或另一项 production write，所有独立 production adapter 均保持
-`UNAVAILABLE`。
-
-### TARGET / NOT_ADMITTED - 持久 Result custody 与 R&D 锁定读取
-
-该 TARGET 把正式探索 Result 交接推进到隔离验收路径之外，但不把任何 runtime 或 PostgreSQL 实现提升为
-CURRENT。Backtest 仍是 Result fact 的唯一权威，拥有私有规范 Result 表及其只追加 outbox，且只有 Backtest
-writer 可以执行 DML。Protected Result custody 继续隔离，不能通过该 R&D seam 读取。
+Backtest Owner 拥有私有规范 Result 表及其只追加 outbox，且只有 Backtest writer 可以执行 DML。固定的
+`SECURITY DEFINER` `owner_api` 锁定读取函数 `resolve_exploratory_replay_result_v2/v3` 已经存在，有序 PostgreSQL
+链路已证明正向锁定 readback、function source 漂移、Owner API 兄弟例程、裸表 ACL 漂移、继承 owner 成员关系与
+owner 属性漂移的拒绝、拓扑围栏序列化、提交中途回滚、restart 逐字节一致 readback，以及 R&D 只读访问
+（`scripts/ci/test-rd-owner-postgres.bash` 中的链路条目 14 与 17-23）。Backtest 仍是 Result fact 的唯一权威，
+Protected Result custody 继续隔离，不能通过该 R&D seam 读取。
 
 Backtest Owner 暴露一个固定、使用安全 `search_path` 的 `SECURITY DEFINER` `owner_api` 锁定读取函数。
 其全限定读取在 caller 已开启的 PostgreSQL transaction 内锁定准确 Result、receipt 与 outbox row，并返回
@@ -115,9 +88,8 @@ pool 或 transaction 所得 readback 不能用于 R&D decision。
 owner 错误、function 错误、ACL 不匹配、非规范、digest 不匹配、receipt/outbox 不完整或由独立 transaction
 读取时都为 `UNAVAILABLE`。response loss 后，准确 `RESOLVE` 只能返回同一份既存且逐字节相同的 Backtest
 Result 与 receipt；不能创建首次 custody、重新组合 result，或追加第二份 Result、receipt 或 outbox event。
-只有实现完成，并由真实 disposable PostgreSQL 证明正向 readback、全部零 readback 拒绝、同事务锁定、
-restart 与 response-loss recovery 后才能准入。它不授予 Dashboard 实现、deployment、production write、
-provider effect、Paper、Live 或交易权威。
+已在该 disposable PostgreSQL 证明上准入；它仍不授予 Dashboard 实现、deployment、
+production write、provider effect、Paper、Live 或交易权威。
 
 ## 输入交接
 
