@@ -236,16 +236,74 @@ function validReplayPolicyBindingV2(value: unknown): value is Json {
     && bytes(value.catalog_record_digest, 32)
 }
 
+// The Catalog V3 seal fixes the same V2 policy record plus the two execution profiles that
+// replay that policy; the Owner copies one seal onto the family root, its receipt and its census
+// frontier at formation, so the three copies must be byte-identical.
+function validReplayExecutionProfileSealsV1(value: unknown): value is Json {
+  return object(value) && exactKeys(value, [
+    "economic_configuration_canonical_bytes", "economic_configuration_digest",
+    "runner_operational_profile_canonical_bytes", "runner_operational_profile_digest",
+    "catalog_record_digest", "binding_digest",
+  ]) && bytes(value.economic_configuration_canonical_bytes)
+    && value.economic_configuration_canonical_bytes.length > 0
+    && value.economic_configuration_canonical_bytes.length <= 65536
+    && bytes(value.runner_operational_profile_canonical_bytes)
+    && value.runner_operational_profile_canonical_bytes.length > 0
+    && value.runner_operational_profile_canonical_bytes.length <= 65536
+    && bytes(value.economic_configuration_digest, 32) && bytes(value.runner_operational_profile_digest, 32)
+    && bytes(value.catalog_record_digest, 32) && bytes(value.binding_digest, 32)
+}
+
+function validReplayPolicyCatalogBindingV3(value: unknown, replayPolicy: unknown): value is Json {
+  return object(value) && exactKeys(value, [
+    "schema_version", "replay_policy_v2", "execution_profiles_v1", "binding_digest",
+  ]) && value.schema_version === 3 && sameReplayPolicyBindingV2(value.replay_policy_v2, replayPolicy)
+    && validReplayExecutionProfileSealsV1(value.execution_profiles_v1)
+    && JSON.stringify(value.execution_profiles_v1.catalog_record_digest)
+      === JSON.stringify((replayPolicy as Json).catalog_record_digest)
+    && bytes(value.binding_digest, 32)
+}
+
+// R&D decision semantics are sealed from the Catalog V3 record, so the decision binding must
+// name exactly the policy record the family replays with.
+function validDecisionPolicyBindingV1(value: unknown, replayPolicy: Json): value is Json {
+  return object(value) && exactKeys(value, [
+    "schema_version", "policy_identity", "policy_version", "policy_digest",
+    "diagnostic_policy_identity", "diagnostic_policy_version", "replay_catalog_record_id",
+    "replay_catalog_version", "replay_catalog_record_digest", "information_value_threshold_identity",
+    "information_value_threshold_digest", "tie_break_policy_identity", "tie_break_policy_digest",
+    "binding_digest",
+  ]) && value.schema_version === 1 && value.policy_identity === "rd.iteration-decision-policy.v1"
+    && integer(value.policy_version) && Number(value.policy_version) > 0 && bytes(value.policy_digest, 32)
+    && text(value.diagnostic_policy_identity) && text(value.diagnostic_policy_version)
+    && value.replay_catalog_record_id === replayPolicy.catalog_record_id
+    && value.replay_catalog_version === replayPolicy.catalog_version
+    && JSON.stringify(value.replay_catalog_record_digest) === JSON.stringify(replayPolicy.catalog_record_digest)
+    && text(value.information_value_threshold_identity) && bytes(value.information_value_threshold_digest, 32)
+    && text(value.tie_break_policy_identity) && bytes(value.tie_break_policy_digest, 32)
+    && bytes(value.binding_digest, 32)
+}
+
+const FAMILY_POLICY_SEALS = ["replay_execution_policy_v2", "replay_policy_catalog_v3", "decision_policy_v1"]
+
+function presentSeals(value: Json, seals: string[]): string[] {
+  return seals.filter((key) => key in value)
+}
+
 function validPolicy(value: unknown, basis?: Json, feedback?: Json): value is Json {
   const keys = [
     "trial_budget", "stop_rule", "pit_rule_identity", "cost_model_identity", "slippage_model_identity",
     "capacity_model_identity", "semantic_predecessor_frontier", "protected_feedback_frontier",
     "independence_disposition", "independence_basis_identity", "frozen_falsifier_binding",
   ]
-  if (!object(value) || !exactKeys(value,
-    "replay_execution_policy_v2" in value ? [...keys, "replay_execution_policy_v2"] : keys)
-    || ("replay_execution_policy_v2" in value
-      && !validReplayPolicyBindingV2(value.replay_execution_policy_v2))
+  if (!object(value) || !exactKeys(value, [...keys, ...presentSeals(value, FAMILY_POLICY_SEALS)])) return false
+  const replayPolicy = value.replay_execution_policy_v2
+  if (("replay_execution_policy_v2" in value && !validReplayPolicyBindingV2(replayPolicy))
+    || ("replay_policy_catalog_v3" in value
+      && (!object(replayPolicy) || !validReplayPolicyCatalogBindingV3(value.replay_policy_catalog_v3, replayPolicy)))
+    || ("decision_policy_v1" in value
+      && (!object(replayPolicy) || !("replay_policy_catalog_v3" in value)
+        || !validDecisionPolicyBindingV1(value.decision_policy_v1, replayPolicy)))
     || !integer(value.trial_budget) || Number(value.trial_budget) === 0
     || ![value.stop_rule, value.pit_rule_identity, value.cost_model_identity, value.slippage_model_identity,
       value.capacity_model_identity, value.protected_feedback_frontier, value.independence_basis_identity,
@@ -285,8 +343,7 @@ function validTrialFamily(
   if (!version(root) || !exactKeys(root, [
     "schema_version", "trial_family_identity", "policy", "policy_digest", "root_digest", "created_at_epoch_ms",
   ]) || !version(rootReceipt) || !exactKeys(rootReceipt,
-    "replay_execution_policy_v2" in rootReceipt
-      ? [...rootReceiptKeys, "replay_execution_policy_v2"] : rootReceiptKeys)
+    [...rootReceiptKeys, ...presentSeals(rootReceipt, FAMILY_POLICY_SEALS.slice(0, 2))])
   || !version(member) || !exactKeys(member, [
     "schema_version", "member_identity", "trial_family_identity", "member_kind", "fact_identity",
     "fact_digest", "ordinal", "member_digest",
@@ -294,8 +351,7 @@ function validTrialFamily(
     "schema_version", "receipt_identity", "trial_family_identity", "member_identity", "member_digest",
     "committed_at_epoch_ms",
   ]) || !version(census) || !exactKeys(census,
-    "replay_execution_policy_v2" in census
-      ? [...censusKeys, "replay_execution_policy_v2"] : censusKeys)) return false
+    [...censusKeys, ...presentSeals(census, FAMILY_POLICY_SEALS.slice(0, 2))])) return false
   const policyValid = validPolicy(root.policy, basis, feedback)
   const replayPolicy = root.policy.replay_execution_policy_v2
   const replayBindingsValid = replayPolicy === undefined
@@ -304,7 +360,12 @@ function validTrialFamily(
     : validReplayPolicyBindingV2(replayPolicy)
       && sameReplayPolicyBindingV2(rootReceipt.replay_execution_policy_v2, replayPolicy)
       && sameReplayPolicyBindingV2(census.replay_execution_policy_v2, replayPolicy)
-  return policyValid && replayBindingsValid
+  const catalog = root.policy.replay_policy_catalog_v3
+  const catalogBindingsValid = catalog === undefined
+    ? rootReceipt.replay_policy_catalog_v3 === undefined && census.replay_policy_catalog_v3 === undefined
+    : JSON.stringify(rootReceipt.replay_policy_catalog_v3) === JSON.stringify(catalog)
+      && JSON.stringify(census.replay_policy_catalog_v3) === JSON.stringify(catalog)
+  return policyValid && replayBindingsValid && catalogBindingsValid
     && text(root.trial_family_identity) && text(root.policy_digest) && text(root.root_digest)
     && epoch(root.created_at_epoch_ms) && text(rootReceipt.receipt_identity)
     && rootReceipt.trial_family_identity === root.trial_family_identity
@@ -922,6 +983,15 @@ function orderedReplayPolicyBindingV2(value: Json): Json {
   }
 }
 
+function sameReplayPolicyCatalogBindingV3(left: unknown, right: unknown): boolean {
+  if (left === undefined || right === undefined) {
+    return left === undefined && right === undefined
+  }
+  return object(left) && object(right)
+    && JSON.stringify(orderedReplayPolicyCatalogBindingV3(left))
+      === JSON.stringify(orderedReplayPolicyCatalogBindingV3(right))
+}
+
 function sameReplayPolicyBindingV2(left: unknown, right: unknown): boolean {
   if (left === undefined || right === undefined) {
     return left === undefined && right === undefined
@@ -945,10 +1015,147 @@ function canonicalTrialFamilyPolicyV1(policy: Json): Json {
     independence_basis_identity: policy.independence_basis_identity,
     frozen_falsifier_binding: policy.frozen_falsifier_binding,
   }
-  return policy.replay_execution_policy_v2 === undefined ? canonical : {
+  return {
     ...canonical,
-    replay_execution_policy_v2: orderedReplayPolicyBindingV2(policy.replay_execution_policy_v2),
+    ...(policy.replay_execution_policy_v2 === undefined ? {} : {
+      replay_execution_policy_v2: orderedReplayPolicyBindingV2(policy.replay_execution_policy_v2),
+    }),
+    ...(policy.replay_policy_catalog_v3 === undefined ? {} : {
+      replay_policy_catalog_v3: orderedReplayPolicyCatalogBindingV3(policy.replay_policy_catalog_v3),
+    }),
+    ...(policy.decision_policy_v1 === undefined ? {} : {
+      decision_policy_v1: orderedDecisionPolicyBindingV1(policy.decision_policy_v1),
+    }),
   }
+}
+
+// Serialized field order of the Owner's ReplayPolicyCatalogBindingV3 and its execution-profile
+// seals; the canonical family digests hash this exact order.
+function orderedReplayPolicyCatalogBindingV3(value: Json): Json {
+  const seals = value.execution_profiles_v1 as Json
+  return {
+    schema_version: value.schema_version,
+    replay_policy_v2: orderedReplayPolicyBindingV2(value.replay_policy_v2 as Json),
+    execution_profiles_v1: {
+      economic_configuration_canonical_bytes: seals.economic_configuration_canonical_bytes,
+      economic_configuration_digest: seals.economic_configuration_digest,
+      runner_operational_profile_canonical_bytes: seals.runner_operational_profile_canonical_bytes,
+      runner_operational_profile_digest: seals.runner_operational_profile_digest,
+      catalog_record_digest: seals.catalog_record_digest,
+      binding_digest: seals.binding_digest,
+    },
+    binding_digest: value.binding_digest,
+  }
+}
+
+// Serialized field order of the Owner's IterationDecisionPolicyBindingV1.
+function orderedDecisionPolicyBindingV1(value: Json): Json {
+  return {
+    schema_version: value.schema_version,
+    policy_identity: value.policy_identity,
+    policy_version: value.policy_version,
+    policy_digest: value.policy_digest,
+    diagnostic_policy_identity: value.diagnostic_policy_identity,
+    diagnostic_policy_version: value.diagnostic_policy_version,
+    replay_catalog_record_id: value.replay_catalog_record_id,
+    replay_catalog_version: value.replay_catalog_version,
+    replay_catalog_record_digest: value.replay_catalog_record_digest,
+    information_value_threshold_identity: value.information_value_threshold_identity,
+    information_value_threshold_digest: value.information_value_threshold_digest,
+    tie_break_policy_identity: value.tie_break_policy_identity,
+    tie_break_policy_digest: value.tie_break_policy_digest,
+    binding_digest: value.binding_digest,
+  }
+}
+
+// Recomputes every digest the Owner seals into the Catalog V3 binding: the two execution
+// profiles over their canonical bytes, the profile-seal digest over both, and the V3 binding
+// digest over the V2 record digest plus that seal. The V2 record itself is verified with the
+// family policy by canonicalReplayPolicyBindingV2.
+async function canonicalReplayPolicyCatalogBindingV3(value: Json, replayPolicy: Json): Promise<boolean> {
+  if (!sameReplayPolicyBindingV2(value.replay_policy_v2, replayPolicy)) return false
+  const seals = value.execution_profiles_v1 as Json
+  const encoder = new TextEncoder()
+  const economicBytes = Uint8Array.from(seals.economic_configuration_canonical_bytes as number[])
+  const runnerBytes = Uint8Array.from(seals.runner_operational_profile_canonical_bytes as number[])
+  const recordDigest = Uint8Array.from(replayPolicy.catalog_record_digest as number[])
+  const economicDigest = await sha256Array(concatenateBytes([
+    encoder.encode("strategy-factory.replay-economic-configuration.v1\0"), economicBytes,
+  ]))
+  const runnerDigest = await sha256Array(concatenateBytes([
+    encoder.encode("strategy-factory.replay-runner-operational-profile.v1\0"), runnerBytes,
+  ]))
+  const sealDigest = await sha256Array(concatenateBytes([
+    encoder.encode("rd.replay-execution-profile-catalog-seals.v1\0"), recordDigest,
+    Uint8Array.from(economicDigest), littleEndianLength(economicBytes.length), economicBytes,
+    Uint8Array.from(runnerDigest), littleEndianLength(runnerBytes.length), runnerBytes,
+  ]))
+  const bindingDigest = await sha256Array(concatenateBytes([
+    encoder.encode("rd.replay-policy-catalog-binding.v3\0"), recordDigest, Uint8Array.from(sealDigest),
+  ]))
+  return JSON.stringify(seals.catalog_record_digest) === JSON.stringify(replayPolicy.catalog_record_digest)
+    && JSON.stringify(seals.economic_configuration_digest) === JSON.stringify(economicDigest)
+    && JSON.stringify(seals.runner_operational_profile_digest) === JSON.stringify(runnerDigest)
+    && JSON.stringify(seals.binding_digest) === JSON.stringify(sealDigest)
+    && JSON.stringify(value.binding_digest) === JSON.stringify(bindingDigest)
+}
+
+// SHA-256 of the fixed R&D decision descriptors the Owner seals by identity
+// (`rd.iteration-decision-policy.v1`, `rd.iteration-information-value-threshold.v1`,
+// `rd.iteration-candidate-tie-break.v1`).
+const decisionPolicyDigestV1 = [
+  57, 209, 113, 87, 56, 228, 247, 243, 91, 169, 136, 234, 13, 81, 13, 6,
+  226, 59, 210, 186, 41, 83, 214, 166, 253, 135, 40, 232, 215, 158, 47, 226,
+]
+const informationValueThresholdDigestV1 = [
+  122, 217, 130, 188, 156, 81, 46, 177, 8, 205, 90, 223, 104, 0, 32, 185,
+  3, 232, 83, 110, 37, 190, 105, 143, 202, 107, 76, 21, 106, 49, 202, 5,
+]
+const tieBreakPolicyDigestV1 = [
+  199, 158, 240, 225, 222, 1, 120, 3, 231, 222, 234, 71, 46, 8, 185, 74,
+  112, 243, 63, 231, 95, 115, 33, 136, 210, 143, 13, 20, 98, 172, 211, 252,
+]
+
+function littleEndianU16(value: number): Uint8Array {
+  const bytes = new Uint8Array(2)
+  new DataView(bytes.buffer).setUint16(0, value, true)
+  return bytes
+}
+
+function lengthPrefixedU64(value: Uint8Array): Uint8Array {
+  return concatenateBytes([littleEndianU64(value.length), value])
+}
+
+// Recomputes the decision binding digest exactly as IterationDecisionPolicyBindingV1 seals it and
+// pins the descriptor digests the Owner fixes for policy version 1.
+async function canonicalDecisionPolicyBindingV1(value: Json, replayPolicy: Json): Promise<boolean> {
+  const encoder = new TextEncoder()
+  const digest = await sha256Array(concatenateBytes([
+    encoder.encode("rd.iteration-decision-policy-binding.v1\0"),
+    littleEndianU16(value.schema_version as number),
+    lengthPrefixedU64(encoder.encode(value.policy_identity as string)),
+    littleEndianU64(value.policy_version as number),
+    Uint8Array.from(value.policy_digest as number[]),
+    lengthPrefixedU64(encoder.encode(value.diagnostic_policy_identity as string)),
+    lengthPrefixedU64(encoder.encode(value.diagnostic_policy_version as string)),
+    lengthPrefixedU64(encoder.encode(value.replay_catalog_record_id as string)),
+    littleEndianU64(value.replay_catalog_version as number),
+    Uint8Array.from(value.replay_catalog_record_digest as number[]),
+    lengthPrefixedU64(encoder.encode(value.information_value_threshold_identity as string)),
+    Uint8Array.from(value.information_value_threshold_digest as number[]),
+    lengthPrefixedU64(encoder.encode(value.tie_break_policy_identity as string)),
+    Uint8Array.from(value.tie_break_policy_digest as number[]),
+  ]))
+  return value.policy_version === 1
+    && JSON.stringify(value.policy_digest) === JSON.stringify(decisionPolicyDigestV1)
+    && value.information_value_threshold_identity === "rd.iteration-information-value-threshold.v1"
+    && JSON.stringify(value.information_value_threshold_digest) === JSON.stringify(informationValueThresholdDigestV1)
+    && value.tie_break_policy_identity === "rd.iteration-candidate-tie-break.v1"
+    && JSON.stringify(value.tie_break_policy_digest) === JSON.stringify(tieBreakPolicyDigestV1)
+    && value.replay_catalog_record_id === replayPolicy.catalog_record_id
+    && value.replay_catalog_version === replayPolicy.catalog_version
+    && JSON.stringify(value.replay_catalog_record_digest) === JSON.stringify(replayPolicy.catalog_record_digest)
+    && JSON.stringify(value.binding_digest) === JSON.stringify(digest)
 }
 
 async function canonicalResearchViewIdentityV2(view: Json): Promise<string> {
@@ -1146,6 +1353,12 @@ async function canonicalTrialFamilyV1(
   const policy = canonicalTrialFamilyPolicyV1(root.policy)
   const replayPolicy = policy.replay_execution_policy_v2
   if (replayPolicy !== undefined && !await canonicalReplayPolicyBindingV2(replayPolicy, policy)) return null
+  const catalog = policy.replay_policy_catalog_v3
+  if (catalog !== undefined && (replayPolicy === undefined
+    || !await canonicalReplayPolicyCatalogBindingV3(catalog, replayPolicy))) return null
+  const decision = policy.decision_policy_v1
+  if (decision !== undefined && (catalog === undefined
+    || !await canonicalDecisionPolicyBindingV1(decision, replayPolicy as Json))) return null
   const policyDigest = await canonicalDigest("rd.trial-family.policy.v1", policy)
   const familyIdentityDigest = await canonicalDigest("rd.trial-family.identity.v1", {
     intent_identity: intentIdentity,
@@ -1175,6 +1388,7 @@ async function canonicalTrialFamilyV1(
     member_digests: [memberDigest],
     consumed_trial_budget: 1,
     ...(replayPolicy === undefined ? {} : { replay_execution_policy_v2: replayPolicy }),
+    ...(catalog === undefined ? {} : { replay_policy_catalog_v3: catalog }),
   })
   const frontierIdentity = canonicalIdentity("rd-trial-family-frontier-v1", frontierDigest)
   const valid = root.policy_digest === policyDigest
@@ -1185,6 +1399,8 @@ async function canonicalTrialFamilyV1(
     && member.member_digest === memberDigest
     && membership.receipt_identity === canonicalIdentity("rd-trial-family-membership-receipt-v1", memberDigest)
     && sameReplayPolicyBindingV2(frontier.replay_execution_policy_v2, replayPolicy)
+    && sameReplayPolicyCatalogBindingV3(rootReceipt.replay_policy_catalog_v3, catalog)
+    && sameReplayPolicyCatalogBindingV3(frontier.replay_policy_catalog_v3, catalog)
     && frontier.frontier_identity === frontierIdentity && frontier.frontier_digest === frontierDigest
   return valid ? { familyIdentity, frontierIdentity, frontierDigest } : null
 }
