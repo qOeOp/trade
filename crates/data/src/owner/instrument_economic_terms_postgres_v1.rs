@@ -28,7 +28,12 @@ const ADVISORY_LOCK_KEY: i64 = 0x4945_5456_3100_0001;
 pub(super) const INSTRUMENT_OWNER_DATABASE_URL_ENV: &str = "INSTRUMENT_OWNER_DATABASE_URL";
 
 const SCHEMA: [&str; 11] = [
-    "CREATE SCHEMA IF NOT EXISTS instrument_owner_private",
+    // `CREATE SCHEMA IF NOT EXISTS` checks database `CREATE` before it checks existence, so it
+    // fails for an Owner that holds no database-level `CREATE` even when the schema is already
+    // provisioned. Under the deployed custody topology the authority migration owns this schema
+    // and the Owner has no such grant, so ask about existence first and create only what is
+    // genuinely missing.
+    "DO $instrument_owner_private_schema$ BEGIN IF pg_catalog.to_regnamespace('instrument_owner_private') IS NULL THEN EXECUTE 'CREATE SCHEMA instrument_owner_private'; END IF; END $instrument_owner_private_schema$",
     "REVOKE ALL ON SCHEMA instrument_owner_private FROM PUBLIC",
     "CREATE TABLE IF NOT EXISTS instrument_owner_private.economic_terms_facts_v1 (fact_identity BYTEA PRIMARY KEY CHECK(octet_length(fact_identity)=32), meaning_identity BYTEA UNIQUE NOT NULL CHECK(octet_length(meaning_identity)=32), fact_bytes BYTEA NOT NULL CHECK(octet_length(fact_bytes)>0 AND octet_length(fact_bytes)<=32768), custody_digest BYTEA NOT NULL CHECK(octet_length(custody_digest)=32))",
     "CREATE TABLE IF NOT EXISTS instrument_owner_private.economic_terms_receipts_v1 (receipt_identity BYTEA PRIMARY KEY CHECK(octet_length(receipt_identity)=32), fact_identity BYTEA UNIQUE NOT NULL REFERENCES instrument_owner_private.economic_terms_facts_v1(fact_identity) ON DELETE RESTRICT, receipt_bytes BYTEA NOT NULL CHECK(octet_length(receipt_bytes)=66), custody_digest BYTEA NOT NULL CHECK(octet_length(custody_digest)=32))",
