@@ -71,6 +71,42 @@ The two questions are different and both are needed:
 force-pushed - ruleset 19718837 carries `non_fast_forward`), so for a pull
 request that already has a green, only the first question adds anything.
 
+## After a merge: a finished green and a running job need opposite actions
+
+Both are invalidated by main moving, but what to do about them differs, and the
+in-flight one is time-sensitive.
+
+    a finished green      re-trigger when convenient - it is already sitting there
+                          misleading anyone who reads the panel
+    a run still in flight CANCEL, then push - it is burning concurrency right now
+                          in order to produce something already known to be void
+
+Cancelling an in-flight run early wastes only what it has burned so far; letting
+it finish wastes all of it AND leaves a green on the panel in the meantime. A
+cancelled run leaves a red, which misleads in the direction of "go look" rather
+than "safe to merge" - the same reason every criterion here fails toward refusal.
+
+## Merging one pull request invalidates every other one
+
+Measured after #685 landed: of fourteen open pull requests, ZERO had a green
+against the new main. Six carried a stale green, eight had no build at all. The
+clippy fix everyone was waiting on was among the stale ones.
+
+    merge one -> main moves -> the other N-1 greens die -> each needs a round
+    -> merge the next -> ...            N pull requests cost O(N-squared) rounds
+
+This is what a merge queue exists to prevent, and this repository cannot have one
+(personal-account owner; the API returns 422 `Invalid rule 'merge_queue'`).
+
+So batching is not a convenience. It is the only thing that brings the cost back
+to O(N): one evidence round covers the whole batch, each member's own green
+satisfies the ruleset's form, and the real evidence is the batch tree.
+
+Merging a single pull request outside a batch is sometimes still right - #685 was
+on the critical path and unblocked four others - but the price is that every
+other open pull request needs refreshing. Put that number on the table before
+deciding.
+
 ## Three arguments for acting, one for waiting, and the one wins
 
 The review session's position on their six documentation pull requests, kept here
