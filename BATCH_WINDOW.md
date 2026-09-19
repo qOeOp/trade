@@ -27,6 +27,18 @@ So main is, byte for byte, the tree the ordered chain passed on. That is the
 whole point of the exercise: not "the tests were green somewhere" but "they were
 green on this".
 
+## Reading this file correctly
+
+    git fetch origin fleet/batch-window && git show FETCH_HEAD:BATCH_WINDOW.md
+
+`FETCH_HEAD` is rewritten by every fetch, so this always reads the current file.
+
+Do NOT use `git fetch origin 'refs/heads/fleet/batch-window:refs/remotes/...'`
+without a leading `+`: when the local ref already exists, a non-forced refspec
+does not update it, and you will read a stale window indefinitely. Lane 7 read
+`closed` for some time after this file said `open` for exactly this reason.
+`git ls-remote` is also safe.
+
 ## While open
 
 Merging, `test-chain/*` pushes and draft->ready are all unconstrained. Take
