@@ -12,7 +12,7 @@
 
 use std::fmt::Debug;
 
-use vibe_execution::{
+use vibe_execution_owner::{
     adapter_binding::PaperMode,
     recovery_frontier::{
         RecoveryFrontierAvailability, RecoveryFrontierDisposition, RecoveryFrontierLocator,
