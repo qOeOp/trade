@@ -920,6 +920,7 @@ mod tests {
             absent.to_string(),
             mismatch.to_string(),
         ];
+
         for (index, left) in rendered.iter().enumerate() {
             for right in rendered.iter().skip(index + 1) {
                 assert_ne!(left, right, "two marker failures render the same sentence");
