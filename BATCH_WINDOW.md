@@ -1,17 +1,46 @@
-# batch window: CLOSED
+# batch window: CLOSED - evidence VOID, batch will be rebuilt
 
-Owner: Lane 0 (platform). Machine-readable fields below are the contract.
+Owner: Lane 0 (platform).
 
     state:         closed
     base_main:     41b6df61557ff997e38b59fb7c647f641482f1f8
     members:       680 684 688
-    evidence_sha:  43482ed5f
-    evidence_tree: fde5697e74b9e0af64e6e8452bdd910ff5d8cd87
-    chains_run:    35427329533      (owner-chains, test-chain/platform)
-    full_run:      35427331514      (build, test-ci)
-    test_ci_pin:   519e151aa        (test-ci's head when assembly started)
-    deferred:      every open PR not in members
-    opened_at:     first batch assembled under the full-evidence procedure
+    evidence:      NONE - see below. Do not cite 35427329533 or 35427331535.
+    blocked_on:    686   (a clippy error on main fails every full-route build)
+
+## The evidence this file previously advertised does not exist
+
+An earlier version of this file recorded:
+
+    chains_run:  35427329533   (owner-chains)
+    full_run:    35427331514   (build, test-ci)
+
+Both entries were wrong, and both errors are mine.
+
+**The chains run is cancelled.** I cancelled it myself, deliberately, because the
+batch was doomed - and then did not come back and update this file. For a period
+this file advertised a proof that I had personally destroyed. Lane 2 found it by
+re-reading the runs rather than trusting the record.
+
+**`35427331514` is `security-audit`, not `build`.** The build is `35427331535`.
+I read them from adjacent lines of one `gh run list` output and took the wrong
+one. So the line claiming "both rounds are on the same commit, which is
+checkable" was checkable and wrong.
+
+## Why the batch was doomed, and what has to happen first
+
+`scripts/ci/plan.sh:32` routes any non-main push to full validation, so pushing
+the assembled tree to `test-ci` runs `prek run --all-files`, which runs clippy.
+The assembled tree is `41b6df615` plus three documentation PRs - it does not
+contain #686, so it still carries the `manual_let_else` error in
+`crates/testkit/src/postgres.rs`.
+
+The batch never had a chance, and it never had a chance for a reason that has
+nothing to do with its members. **Check that the baseline is green before
+assembling a batch.** I did not.
+
+So: #686 lands first. Then the batch is rebuilt on the new main, and only then is
+there evidence to cite.
 
 ## This is the first batch with full evidence
 
