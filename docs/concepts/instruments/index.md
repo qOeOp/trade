@@ -1,5 +1,15 @@
 # Instruments
 
+:::note[Layer]
+These pages describe the inherited engine: the component model that `crates` and
+`python/vibe_trader` implement today. They are accurate about that layer, and they are kept for
+people working in it.
+
+They are not the platform's architecture of record. Where a page here and an Owner contract answer
+the same question differently, the Owner contract governs. Boundaries are set by
+`docs/architecture/`; each business fact and its single writer are set by `docs/owners/`.
+:::
+
 An instrument represents the specification for a tradable asset, contract, or local
 synthetic market. Market data, orders, positions, accounting, portfolio calculations,
 and adapter symbology all refer back to an `InstrumentId` and its instrument definition.
