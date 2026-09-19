@@ -272,19 +272,29 @@ test(testName, { skip: !url }, async () => {
       SOURCE_INTAKE_SHADOW_READ_OPERATION, fixture.environment, fixture.nowEpochMs,
     );
     assert.ok(binding);
-    await store.registerShadowWorker({
+    // A worker registration carries a 30 s lease, and a claim is refused once it lapses. This
+    // acceptance drives a browser between its claims, so how far it gets depended on how fast the
+    // machine ran: the same suite reached a later step in 28 s and was refused here at 45 s. A real
+    // worker renews its lease while it works, so renew it at each point one is needed rather than
+    // inherit one taken minutes earlier.
+    const registerWorker = async () => store.registerShadowWorker({
       workerIdentity,
       operationIds: [SOURCE_INTAKE_SHADOW_READ_OPERATION],
       workerCapability,
       workerArtifactDigest: fixture.environment.DASHBOARD_SHADOW_WORKER_ARTIFACT_DIGEST,
     });
+    const claimAsWorker = async () => {
+      await registerWorker();
+      return store.claimNextRead({ workerIdentity, workerCapability });
+    };
+    await registerWorker();
 
     const producedRuns = [];
     for (let index = 0; index < 11; index += 1) {
       const queued = await store.enqueueRead(SOURCE_INTAKE_SHADOW_READ_OPERATION, {
         request_identity: `source-request-service-log-${String(index).padStart(2, "0")}`,
       }, binding);
-      const claim = await store.claimNextRead({ workerIdentity, workerCapability });
+      const claim = await claimAsWorker();
       assert.equal(claim?.run.run_identity, queued.run_identity);
       await store.completeClaimedRead({
         runIdentity: queued.run_identity,
@@ -397,7 +407,7 @@ test(testName, { skip: !url }, async () => {
       }, binding));
     }
     for (const queued of paginationRuns) {
-      const claim = await store.claimNextRead({ workerIdentity, workerCapability });
+      const claim = await claimAsWorker();
       assert.equal(claim?.run.run_identity, queued.run_identity);
       await store.completeClaimedRead({
         runIdentity: queued.run_identity,
@@ -652,7 +662,7 @@ test(testName, { skip: !url }, async () => {
     const tailFollowRun = await store.enqueueRead(SOURCE_INTAKE_SHADOW_READ_OPERATION, {
       request_identity: "source-request-service-log-tail-follow",
     }, binding);
-    const tailFollowClaim = await store.claimNextRead({ workerIdentity, workerCapability });
+    const tailFollowClaim = await claimAsWorker();
     assert.equal(tailFollowClaim?.run.run_identity, tailFollowRun.run_identity);
     await store.completeClaimedRead({
       runIdentity: tailFollowRun.run_identity,
@@ -673,7 +683,16 @@ test(testName, { skip: !url }, async () => {
       if (!viewport || !table || !firstRow || !cut || viewport.scrollHeight <= viewport.clientHeight + 320) return null;
       const tableTop = table.getBoundingClientRect().top - viewport.getBoundingClientRect().top + viewport.scrollTop;
       viewport.scrollTop = Math.min(viewport.scrollHeight - viewport.clientHeight, tableTop + 240);
-      return { firstRow: firstRow.innerText, cut: cut.textContent, scrollTop: viewport.scrollTop };
+      // A scroll position only means something beside the box it is measured in: a refresh that
+      // shortens the content clamps scrollTop, and the clamp does not undo itself when the content
+      // comes back. Carry the geometry so a moved viewport says which of the two moved.
+      return {
+        firstRow: firstRow.innerText, cut: cut.textContent, scrollTop: viewport.scrollTop,
+        scrollHeight: viewport.scrollHeight, clientHeight: viewport.clientHeight,
+        rows: document.querySelectorAll('table[aria-label="Service log events"] tbody tr').length,
+        tableTop: Math.round(table.getBoundingClientRect().top - viewport.getBoundingClientRect().top
+          + viewport.scrollTop),
+      };
     })()`);
     assert.ok(offTailState && offTailState.scrollTop > 2);
     assert.equal(await readBrowserValue(browser, `(() => {
@@ -691,7 +710,16 @@ test(testName, { skip: !url }, async () => {
       const firstRow = document.querySelector('table[aria-label="Service log events"] tbody tr');
       const cut = document.querySelector('.bounded-log-viewport-footer .panel-info-popover code');
       return viewport && firstRow && cut
-        ? { firstRow: firstRow.innerText, cut: cut.textContent, scrollTop: viewport.scrollTop }
+        ? {
+          firstRow: firstRow.innerText, cut: cut.textContent, scrollTop: viewport.scrollTop,
+          scrollHeight: viewport.scrollHeight, clientHeight: viewport.clientHeight,
+          rows: document.querySelectorAll('table[aria-label="Service log events"] tbody tr').length,
+          tableTop: (() => {
+            const table = document.querySelector('table[aria-label="Service log events"]');
+            return Math.round(table.getBoundingClientRect().top
+              - viewport.getBoundingClientRect().top + viewport.scrollTop);
+          })(),
+        }
         : null;
     })()`), offTailState);
     assert.equal(await readBrowserValue(browser,
