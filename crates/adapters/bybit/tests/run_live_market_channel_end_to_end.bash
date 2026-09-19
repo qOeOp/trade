@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-container="vibe-md-e2e-binance-${PPID}-$$"
-database="vibe_test_market_data_e2e_binance_${PPID}_$$"
-marker="md-e2e-binance-${PPID}-$$"
+container="vibe-md-live-bybit-${PPID}-$$"
+database="vibe_test_market_data_live_bybit_${PPID}_$$"
+marker="md-live-bybit-${PPID}-$$"
 admin_password="md_d1_admin_test_only"
 owner_password="md_d1_owner_test_only"
 reader_password="md_d1_reader_test_only"
@@ -91,15 +91,14 @@ export VIBE_POSTGRES_TEST_INSTANCE_MARKER="$marker"
 # The composition roots read the deployment variable, not the harness one.
 export MARKET_DATA_OWNER_DATABASE_URL="$MARKET_DATA_OWNER_TEST_DATABASE_URL"
 
-# The venue serves this data without authentication, so there is no key to require here. That is
-# the point of this leg: the whole production path can be exercised with nothing but Docker and a
+# The venue's public stream needs no credential, so this leg needs nothing but Docker and a
 # reachable network.
 
 set +e
-cargo test --manifest-path crates/adapters/binance/Cargo.toml \
-  --test market_data_end_to_end \
+cargo test --manifest-path crates/adapters/bybit/Cargo.toml \
+  --test live_market_channel_end_to_end \
   -- --ignored --exact --nocapture \
-  market_data_answers_one_frozen_request_without_a_credential
+  a_live_channel_seals_venue_trades_and_advances_its_durable_head
 test_status=$?
 set -e
 
