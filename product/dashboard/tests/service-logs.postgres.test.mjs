@@ -189,7 +189,21 @@ async function waitForBrowserExpression(browser, expression, timeoutMs = 15_000)
     if (await readBrowserValue(browser, expression) === true) return;
     await delay(100);
   }
-  throw new Error(`service-log browser condition timed out: ${expression}`);
+  // A condition that never became true and one the page could never satisfy both end here, and a
+  // bare timeout cannot tell them apart. Carry what the page actually held into the failure.
+  const state = await browser.send("Runtime.evaluate", {
+    expression: `(() => ({
+      url: location.href,
+      readyState: document.readyState,
+      dialogs: document.querySelectorAll('dialog[open]').length,
+      reasons: [...document.querySelectorAll('details code, .unavailable-state code')]
+        .map((code) => code.textContent),
+      body: document.body?.innerText.slice(0, 1_500) ?? '',
+    }))()`,
+    returnByValue: true,
+  }).catch(() => null);
+  throw new Error(`service-log browser condition timed out: ${expression}; page: ${
+    JSON.stringify(state?.result?.value ?? "unreadable")}`);
 }
 
 async function clickButton(browser, label) {
@@ -389,6 +403,7 @@ test(testName, { skip: !url }, async () => {
       ...fixture.environment,
       DASHBOARD_DATABASE_URL: isolatedUrl.href,
       DASHBOARD_CURSOR_HMAC_KEY: cursorKey,
+      DASHBOARD_DIST_DIR: ".next-test",
       DASHBOARD_SERVER_INSTANCE_IDENTITY: serverIdentity,
     };
     const port = await freePort();

@@ -137,7 +137,21 @@ async function waitForBrowserExpression(browser, expression, timeoutMs = 15_000)
     if (result.result?.value === true) return;
     await delay(100);
   }
-  throw new Error(`calendar browser condition timed out: ${expression}`);
+  // A condition that never became true and one the page could never satisfy both end here, and a
+  // bare timeout cannot tell them apart. Carry what the page actually held into the failure.
+  const state = await browser.send("Runtime.evaluate", {
+    expression: `(() => ({
+      url: location.href,
+      readyState: document.readyState,
+      dialogs: document.querySelectorAll('dialog[open]').length,
+      reasons: [...document.querySelectorAll('details code, .unavailable-state code')]
+        .map((code) => code.textContent),
+      body: document.body?.innerText.slice(0, 1_500) ?? '',
+    }))()`,
+    returnByValue: true,
+  }).catch(() => null);
+  throw new Error(`calendar browser condition timed out: ${expression}; page: ${
+    JSON.stringify(state?.result?.value ?? "unreadable")}`);
 }
 
 async function readBrowserValue(browser, expression) {
@@ -221,6 +235,7 @@ test(testName, { skip: !url }, async () => {
       DASHBOARD_SHADOW_SCHEDULES_JSON: canonical,
       DASHBOARD_SHADOW_SCHEDULES_DIGEST: `sha256:${createHash("sha256").update(canonical).digest("hex")}`,
       DASHBOARD_DATABASE_URL: isolatedUrl.href,
+      DASHBOARD_DIST_DIR: ".next-test",
       DASHBOARD_CURSOR_HMAC_KEY: "calendar-disposable-only-cursor-key-32-bytes",
     };
     const configured = configuredShadowScheduleSetV1(environment, now);
