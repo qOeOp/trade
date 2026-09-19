@@ -199,13 +199,15 @@ impl GrantContentV1 for AutonomousPolicyAuthorizationContentV1 {
     const KIND_STEM: &'static str = "autonomous-policy-authorization";
     const TABLE_STEM: &'static str = "autonomous_policy_authorization";
     const SCHEMA_VERSION: u32 = AUTONOMOUS_POLICY_AUTHORIZATION_SCHEMA_V1;
-    // Strategy Governance is the intended reader of this kind, but the
-    // deployment topology does not define a Governance database role yet, so
-    // there is nothing to grant EXECUTE to. When
+    // Strategy Governance is the intended reader of this kind, and the
+    // deployment topology now defines its role:
     // `product/rd-workbench/postgres-init/10-migrate-authority-custody.sh`
-    // defines that role, it belongs in this list. Adding it is a shared-surface
-    // change; leaving it out keeps the lock function closed rather than open.
-    const CONSUMER_ROLES: &'static str = "product_edge_owner, operator_authorization_writer";
+    // creates `governance_writer`, gives it LOGIN and its password, and grants
+    // it `governance_owner`. Reading is all it gets here - minting and revoking
+    // stay with the issuer, and the engine revokes this function from PUBLIC,
+    // `rd_owner` and `qualification_writer` immediately before granting.
+    const CONSUMER_ROLES: &'static str =
+        "product_edge_owner, operator_authorization_writer, governance_writer";
     const MIRROR_COLUMNS: &'static [&'static str] = &[
         "principal",
         "request_scope_identity",

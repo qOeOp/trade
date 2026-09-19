@@ -441,10 +441,45 @@ legacy_data_destructive_tests = {
     "crates/data/src/owner/postgres/sample_projection_v4.rs",
     "crates/data/src/owner/postgres/tests.rs",
 }
+
+# A negative-capability proof asserts that a statement is REFUSED. It deliberately
+# holds no mutation capability - that is its subject - and vibe_testkit's
+# `assert_statement_is_refused` runs it inside a transaction it always rolls back,
+# so nothing is written even if the privilege regresses. Strip those call
+# expressions and judge what is left: the literal must sit INSIDE the call, so
+# hoisting it to a `const` loses the marker, keeps the literal, and is refused
+# here. That direction is deliberate - a guard should fail loudly rather than let
+# a file pass because it happens to contain one sanctioned call somewhere else.
+REFUSAL_HELPER = "assert_statement_is_refused("
+
+
+def strip_refusal_proofs(text: str) -> str:
+    """Remove every `assert_statement_is_refused(...)` call, matching parens."""
+    out = []
+    index = 0
+    while True:
+        found = text.find(REFUSAL_HELPER, index)
+        if found == -1:
+            out.append(text[index:])
+            return "".join(out)
+        out.append(text[index:found])
+        depth = 0
+        cursor = found + len(REFUSAL_HELPER) - 1
+        while cursor < len(text):
+            if text[cursor] == "(":
+                depth += 1
+            elif text[cursor] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            cursor += 1
+        index = cursor + 1
+
+
 for root in map(Path, sys.argv[1:]):
     for path in root.rglob("*.rs"):
         text = path.read_text(encoding="utf-8")
-        if not destructive.search(text):
+        if not destructive.search(strip_refusal_proofs(text)):
             continue
         if path.as_posix() in legacy_data_destructive_tests:
             continue

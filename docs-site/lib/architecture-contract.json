@@ -3206,6 +3206,20 @@
         "noAuthorityBasis": "Portfolio never owns venue effects capital allocation or Risk admission"
       },
       {
+        "inventoryId": "portfolio-owner",
+        "memberPaths": [
+          "crates/portfolio_owner"
+        ],
+        "disposition": "OWNER_NATIVE_IMPLEMENTATION",
+        "destinationIds": [
+          "portfolio"
+        ],
+        "capabilityPortIds": [],
+        "providerMemberPortEvidence": [],
+        "adoptionRule": "Adopt the Portfolio-owned Capacity Scope identity its append-only complete-census registry the sealed BOUND readback and the bounded Portfolio View contract as the native Portfolio Owner implementation while keeping the engine behind that Owner",
+        "noAuthorityBasis": "The custody carries no account projection capital allocation Risk commitment or remaining headroom and cannot mint a BOUND scope outside its own complete-registry resolution"
+      },
+      {
         "inventoryId": "runtime-composition",
         "memberPaths": [
           "crates/system",

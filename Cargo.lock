@@ -11013,6 +11013,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "vibe-portfolio-owner"
+version = "0.62.0"
+dependencies = [
+ "rstest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "tokio",
+ "vibe-testkit",
+]
+
+[[package]]
 name = "vibe-product-edge"
 version = "0.62.0"
 dependencies = [
