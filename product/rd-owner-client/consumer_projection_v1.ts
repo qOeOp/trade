@@ -1158,7 +1158,9 @@ async function canonicalDecisionPolicyBindingV1(value: Json, replayPolicy: Json)
     && JSON.stringify(value.binding_digest) === JSON.stringify(digest)
 }
 
-async function canonicalResearchViewIdentityV2(view: Json): Promise<string> {
+// Exported for the identity vectors alone. The vectors pin this exact computation against the
+// producing side's, so a test that reimplemented it would pin a copy against a copy.
+export async function canonicalResearchViewIdentityV2(view: Json): Promise<string> {
   const digest = await canonicalDigest("rd.research-view.identity.v2", {
     schema_version: view.schema_version,
     request_identity: view.request_identity,
