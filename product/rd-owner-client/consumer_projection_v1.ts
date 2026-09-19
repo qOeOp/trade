@@ -1183,6 +1183,61 @@ export async function canonicalResearchViewIdentityV2(view: Json): Promise<strin
   return canonicalIdentity(prefix, digest)
 }
 
+// The schema 3 identity. Its envelope names the payload `view`, where every other canonical digest
+// in this file names it `value`, so it cannot go through `canonicalDigest` - passing this meaning to
+// that helper yields a well-formed digest of the wrong thing, and neither the types nor the shape
+// checks would notice. The shared vectors carry the identity that mistake produces so the test can
+// assert this does not compute it.
+export async function canonicalResearchViewIdentityV4(view: Json): Promise<string> {
+  const composerArtifact = view.composer_artifact as Json
+  const exploration = view.exploration as Json
+  const bytes = new TextEncoder().encode(JSON.stringify({
+    domain: "rd.research-view.identity.v4",
+    view: {
+      schema_version: view.schema_version,
+      request_identity: view.request_identity,
+      trusted_principal: view.trusted_principal,
+      authorized_scope: view.authorized_scope,
+      authorization_policy_cut: view.authorization_policy_cut,
+      source_owner: view.source_owner,
+      source_cut: view.source_cut,
+      observed_at_epoch_ms: view.observed_at_epoch_ms,
+      projection_at_epoch_ms: view.projection_at_epoch_ms,
+      valid_through_epoch_ms: view.valid_through_epoch_ms,
+      availability: view.availability,
+      phase: view.phase,
+      intent_identity: view.intent_identity,
+      source_frontier: view.source_frontier.map(canonicalResearchSourceV1),
+      composer_artifact: {
+        artifact_locator: composerArtifact.artifact_locator,
+        artifact_identity_digest: composerArtifact.artifact_identity_digest,
+        composer_request_identity: composerArtifact.composer_request_identity,
+        composer_operation_receipt_digest: composerArtifact.composer_operation_receipt_digest,
+        artifact_family_binding_identity: composerArtifact.artifact_family_binding_identity,
+        artifact_family_binding_digest: composerArtifact.artifact_family_binding_digest,
+        artifact_family_binding_receipt_identity:
+          composerArtifact.artifact_family_binding_receipt_identity,
+        trial_family_identity: composerArtifact.trial_family_identity,
+        census_frontier_identity: composerArtifact.census_frontier_identity,
+        census_frontier_digest: composerArtifact.census_frontier_digest,
+      },
+      exploration: {
+        trial_family_identity: exploration.trial_family_identity,
+        census_frontier_identity: exploration.census_frontier_identity,
+        census_frontier_digest: exploration.census_frontier_digest,
+        replay_request_identity: exploration.replay_request_identity,
+        replay_request_meaning_digest: exploration.replay_request_meaning_digest,
+        replay_request_seal_digest: exploration.replay_request_seal_digest,
+        replay_receipt_identity: exploration.replay_receipt_identity,
+      },
+      next_legal_action: view.next_legal_action,
+    },
+  }))
+  const digest = await crypto.subtle.digest("SHA-256", bytes)
+  const hex = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")
+  return `rd-research-view-v4-${hex}`
+}
+
 async function sha256Text(value: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")

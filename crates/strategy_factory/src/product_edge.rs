@@ -2615,6 +2615,62 @@ mod v2_sealing_tests {
         );
     }
 
+    /// Pins the schema 3 identity's byte order against the consumer's, through one shared file.
+    ///
+    /// The envelope this identity is built from names its payload `view`, where the v2 envelope
+    /// names it `value`. Nothing in either language distinguishes a digest of the right data under
+    /// the wrong key from the right one, so the vectors carry the identity that mistake produces
+    /// and both sides assert they do not compute it.
+    #[rstest]
+    fn exploration_research_view_identity_matches_the_shared_vectors() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../product/rd-owner-client/fixtures/research_view_identity_vectors_v4.json");
+        let vectors: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(&path).expect("the shared identity vectors"),
+        )
+        .expect("the shared identity vectors parse");
+        let view: ResearchViewV1 =
+            serde_json::from_value(vectors["view"].clone()).expect("the pinned View deserializes");
+        let initial: ResearchViewV1 = serde_json::from_value(vectors["initial_view"].clone())
+            .expect("the pinned initial View deserializes");
+
+        // The vector is a View this side accepts, not merely JSON that happens to hash.
+        crate::rd_owner_postgres_custody::validate_historical_view(&view, &initial)
+            .expect("the pinned View passes the schema 3 validator");
+
+        let identity = vectors["identity"].as_str().expect("the pinned identity");
+        assert_eq!(
+            canonical_research_view_identity_v4(&view).expect("the identity derives"),
+            identity
+        );
+        assert_eq!(view.projection_identity, identity);
+
+        let variant = |name: &str| {
+            vectors[name]["canonical_bytes"]
+                .as_str()
+                .expect("the variant bytes")
+                .to_owned()
+        };
+        let variant_identity = |name: &str| {
+            vectors[name]["identity"]
+                .as_str()
+                .expect("the variant identity")
+                .to_owned()
+        };
+
+        for name in ["order_sensitivity", "envelope_key_sensitivity"] {
+            assert_ne!(variant_identity(name), identity, "{name} must differ");
+            assert_ne!(variant(name), vectors["canonical_bytes"].as_str().unwrap());
+        }
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&variant("order_sensitivity"))
+                .expect("transposed parses")["view"],
+            serde_json::from_str::<serde_json::Value>(vectors["canonical_bytes"].as_str().unwrap())
+                .expect("canonical parses")["view"],
+            "the transposed vector must carry the same data",
+        );
+    }
+
     #[rstest]
     fn owner_projection_becomes_stale_after_its_valid_through_cut() {
         let view = project_research_view_at(&research_view(1_000, 601_000), 601_001);
