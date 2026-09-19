@@ -88,7 +88,8 @@ admitted.
 - [Portfolio](./portfolio/) supplies a bounded Capacity View only where a published activation condition
   requires it. Scanner binds the candidate-neutral Capacity Scope, the exact account-fact, valuation and
   liquidity cuts, the pool methodology and assumption versions, the measurement time, and the validity deadline.
-  Only a view whose Capacity Scope, cuts, versions and freshness all match the condition may carry that strategy
+  Only an `AVAILABLE` view whose Capacity Scope, cuts, versions and freshness all match the condition may carry
+  that strategy
   to `MATCHED`; a partial, expired, unavailable, cross-scope, or methodology-, assumption-, or
   input-cut-mismatched view commits `INPUT_UNAVAILABLE`, and so does an absent answer. Where the condition does
   not require capacity, an absent view is not a defect and never changes a disposition. Scanner never accepts a
@@ -106,12 +107,13 @@ admitted.
   receipt is evidence and never authorization.
 - To Product Edge: direct read access to the Scanner-owned terminal receipt for every ScheduledScanId, keyed by
   that identity and returning the receipt's exact completion state, its mutually exclusive expected-set branch,
-  its terminal reason, and its proposal members only when `PROPOSED`. A read returns exactly one of three
-  dispositions: the receipt, `NOT_YET_TERMINAL` where the attempt exists without a terminal receipt, or
-  `UNKNOWN` where the reader cannot establish either. Only the first may be displayed as an outcome; the other
-  two are displayed as themselves. Product Edge stores no competing Scanner-owned projection, derives no status
-  of its own, and never labels an incomplete `FAILED` set as complete or renders an unresolved expected set as
-  an empty one.
+  its terminal reason, and its proposal members only when `PROPOSED`. A read either returns exactly one terminal
+  receipt bound to the requested attempt, or refuses. It refuses separately when no receipt exists for that
+  attempt, when the store returns a receipt bound to a different attempt, when the store reports a semantic
+  conflict, and when the store is unavailable; the middle two are **detected custody faults** and are never
+  displayed as an absent or unknown outcome. Product Edge stores no competing Scanner-owned projection, derives
+  no status of its own, and never labels an incomplete `FAILED` set as complete or renders an unresolved
+  expected set as an empty one.
 
 ## Rejections and prohibitions
 

@@ -70,7 +70,7 @@
   匹配。Scanner 绝不修复语义不匹配 绝不替换为相邻截面 也绝不把一个否定判定读作没有不利数据。
 - [Portfolio](./portfolio/) 只在已发布激活条件要求容量时提供有界 Capacity View。Scanner 绑定候选中立的
   Capacity Scope 准确的账户事实 估值与流动性截面 资金池方法与假设版本 测量时刻 以及有效期限。只有 Capacity
-  Scope 截面 版本与新鲜度全部与该条件匹配的视图才能把该策略带到 `MATCHED`；部分 过期 不可用 跨 scope，或
+  Scope 截面 版本与新鲜度全部与该条件匹配的 `AVAILABLE` 视图才能把该策略带到 `MATCHED`；部分 过期 不可用 跨 scope，或
   方法 假设 输入截面不匹配的视图提交 `INPUT_UNAVAILABLE`，缺失回答同样如此。条件不要求容量时，视图缺失不是
   缺陷，也绝不改变任何判定。Scanner 绝不把带策略或带 generation 的 scope 一个 Paper/Live 别名 或一处未解析的
   共享约束重叠，当作条件所指的候选中立 scope。
@@ -84,9 +84,10 @@
   在激活依赖条件时也绝不读作可以不凭 Scanner 证据继续的许可。回执是证据，绝不是授权。
 - 向 Product Edge 提供每个 ScheduledScanId 的 Scanner-owned 终态回执直接读取，以该身份为键，返回回执准确的
   完成状态 它互斥的 expected-set 分支 它的终态原因，以及只在 `PROPOSED` 时才有的 proposal members。一次读取
-  只返回三种判定之一：回执本身，尝试存在但没有终态回执时的 `NOT_YET_TERMINAL`，或读取方两者都无法确立时的
-  `UNKNOWN`。只有第一种可以作为结果展示，另外两种按它们自身展示。Product Edge 不创建第二份 Scanner-owned
-  投影，不派生自己的状态，也绝不把一个不完整的 `FAILED` 集合标为完整，或把一个未解析的期望集合渲染成空集。
+  要么返回恰好一个绑定到所请求尝试的终态回执，要么拒绝。以下四种情况分别拒绝：该尝试没有回执；存储返回了
+  绑定到别的尝试的回执；存储自述语义冲突；存储不可用。中间两种是**已检出的托管故障**，绝不得显示成缺失或
+  未知的结果。Product Edge 不创建第二份 Scanner-owned 投影，不派生自己的状态，也绝不把一个不完整的
+  `FAILED` 集合标为完整，或把一个未解析的期望集合渲染成空集。
 
 ## 拒绝和禁止事项
 
