@@ -497,6 +497,61 @@ impl DedicatedPostgresTestMutation<'_> {
     }
 }
 
+/// Proves a statement is refused, and leaves nothing behind when it is not.
+///
+/// A negative-capability proof deliberately runs WITHOUT a mutation capability: its subject is the
+/// absence of the privilege, so requiring [`DedicatedPostgresTestMutation`] would defeat it. A
+/// dedicated database can grant what the shared Owner topology denies, and then the proof would
+/// assert nothing.
+///
+/// The statement runs inside a transaction this function always rolls back. That is not belt and
+/// braces. The safety of a negative proof must not rest on the failure it asserts actually
+/// happening: if the privilege ever regresses, an unwrapped `DELETE` would really delete rows in
+/// the ordered chain's shared database, which is never reset between entries, so the first visible
+/// failure would be some later entry rather than this one. Rolling back unconditionally turns that
+/// regression from silent corruption into a failing assertion here.
+///
+/// `expected_sqlstate` is matched against the SQLSTATE rather than the message text, because the
+/// message varies with PostgreSQL version and locale while the code does not. Insufficient
+/// privilege is `42501`.
+///
+/// # Panics
+///
+/// Panics if the transaction cannot be opened, if the statement succeeds, or if it fails with a
+/// SQLSTATE other than `expected_sqlstate`.
+pub async fn assert_statement_is_refused(
+    pool: &PgPool,
+    statement: &str,
+    expected_sqlstate: &str,
+) -> String {
+    let mut transaction = pool
+        .begin()
+        .await
+        .expect("negative-capability proof could not open its transaction");
+    let outcome = sqlx::query(sqlx::AssertSqlSafe(statement.to_owned()))
+        .execute(&mut *transaction)
+        .await;
+    let Err(refused) = outcome else {
+        // Roll back before failing, so a regressed privilege still leaves no trace.
+        let _ = transaction.rollback().await;
+        panic!(
+            "statement was NOT refused, so this proves nothing: {statement}\n\
+             the transaction was rolled back, so nothing was written"
+        );
+    };
+    let _ = transaction.rollback().await;
+    let observed = refused
+        .as_database_error()
+        .and_then(sqlx::error::DatabaseError::code)
+        .map(std::borrow::Cow::into_owned)
+        .unwrap_or_default();
+    assert_eq!(
+        observed, expected_sqlstate,
+        "statement was refused with SQLSTATE {observed}, expected {expected_sqlstate}: {statement}"
+    );
+    observed
+}
+
 struct EnvironmentValues {
     test_urls: Vec<TestUrlValue>,
     production_urls: Vec<(&'static str, String)>,
