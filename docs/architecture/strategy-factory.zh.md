@@ -1152,6 +1152,38 @@ R&D、Backtest 与 Qualification 之间的阶段关系恰以下列对象跨越�
 
 Research 在提交前冻结 TrialFamily 穷尽 Census Frontier 跨 TrialFamily 前驱前沿 预提交独立性依据 PIT 规则 成本 容量假设 预算 证伪条件和停止规则。Qualification 校验这些 frontier 预注册内容 准确 `READY_FOR_SELECTION` 决定和仅选择 disposition，并拥有相关 TrialFamily 的累计 holdout 预留与处理，再请求保护重放。仅选择 disposition 缺失 证伪条件不匹配 遗漏同族试验 试验改名 预算不符 frontier 可变 祖先未解析 独立性依据过晚 反馈前沿过期或截面后新增族成员时都在保护回放前闭合为 `NOT_ADMITTED` 且不消耗 holdout；Research 终态停止永不进入 intake，后续试验需要后继 Candidate。保护结果可以更新 Eligibility State，但绝不能反馈同一研发循环。
 
+## Schema 冻结条件
+
+往目录里加一个取值是常规加法。目录条目声明载荷形状，因此 schema 不会变宽：一个有界特征节点只指名一个
+primitive 语义 ID，由目录合约固定该 primitive 接受几个绑定、各是什么类型。
+
+往 `StrategyDesignV2`、`ProposalWiringV2` 或 `BoundedFeatureProgramMeaningV1` 加字段，或往 `ValueTypeV2`、
+`LifecycleKindV2`、`InputFactClassV2` 加变体，都不是加法。每个这样的成员都必须由 lowerer、共享生命周期内核、
+Backtest 语义轨迹、Runtime 以及每条黄金向量各自承载，所以加起来便宜的成员，留着很贵。
+
+因此这类改动只有在证明该能力无法表达为下列任意一种之后才可准入：
+
+- 字段语义词表中的一个新取值；
+- 一条新的 primitive 目录条目；
+- 一条新的 action 目录条目；
+- 既有节点的一个组合。
+
+action 目录本身是 `TARGET`。在它存在之前，该替代路径解析为不可用；记录中如实写明这一点，
+而不是把它的缺席当成加宽 schema 的理由。
+
+改动本身记录排除了哪些替代路径、为什么。该记录随改动走，不进本文档：在这里维护一份已批准例外清单，
+会比它所限定的规则烂得更快。
+
+记录是否成立由评审者判断。自动检查最多只能确认记录存在并指名了那四条替代路径，判不了某条排除是否站得住，
+因此检查通过绝不构成"该能力没有目录表达"的证据。
+
+受管面是 `crates/strategy_factory/src/strategy_design_v2.rs`，它定义 `StrategyDesignV2`、
+`ProposalWiringV2`、`ValueTypeV2`、`LifecycleKindV2` 与 `InputFactClassV2`；以及
+`crates/strategy_factory/src/bounded_feature_program_derivation_v1.rs`，它定义
+`BoundedFeatureProgramMeaningV1`。
+
+可选字段不构成豁免。它承担与必需字段相同的举证义务，因为每个消费者仍然必须为它的缺席分支。
+
 ## 权威边界
 
 R&D 拥有 Intent TrialFamily Artifact Exploratory Replay Request 和 Candidate 身份。Develop 是 R&D 内部能力，不是第二 Owner。Backtest 拥有重放结果且不能替 R&D 选择下一动作，Qualification 拥有 intake 状态 holdout 状态 资格和撤销。Strategy Factory 不拥有这些事实，也没有独立存储权威。
