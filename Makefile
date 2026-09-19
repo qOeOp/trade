@@ -755,16 +755,38 @@ cargo-fetch-strategy-factory-programs:
 	cargo fetch --locked --manifest-path crates/strategy_factory/programs/channel_control/Cargo.toml
 	cargo fetch --locked --manifest-path crates/strategy_factory/programs/pilot/Cargo.toml
 
+# The workspace carries 21 adapters. Five are on the product's Rust path --
+# `vibe-strategy-factory`, `vibe-strategy-factory-rd-owner-api` and `vibe-cli` depend on
+# binance, databento, fred, scheduled-events and blockchain -- and docs/guide/market-data-intake.md
+# and docs/guide/install.md name Databento and Binance. Fifteen venues are reachable only through
+# `vibe-pyo3`, yet `--workspace` builds and runs their test binaries too. `cargo nextest list`
+# under the CI feature set counts them: 10,046 tests in 95 of the workspace's 247 test
+# binaries -- 37.9% of the tests and 38.5% of the binaries -- and `[profile.ci-pr]` records
+# that this build is dominated by test-binary size rather than by any one artifact.
+#
+# `vibe-sandbox` is deliberately not in this list. It is reachable only through `vibe-pyo3` too,
+# but it is an execution adapter rather than a venue -- paper and replay execution would run
+# through it -- so it stays tested.
+#
+# Their libraries still compile, because `vibe-pyo3` depends on them; what this drops is their
+# test binaries and the tests inside them. Nothing is deleted, and
+# `make cargo-test CARGO_TEST_EXCLUDED_PACKAGES=` runs the whole workspace again.
+CARGO_TEST_EXCLUDED_PACKAGES ?= \
+	vibe-architect-ax vibe-betfair vibe-bitmex vibe-bybit vibe-coinbase vibe-deribit \
+	vibe-derive vibe-dydx vibe-hyperliquid vibe-interactive-brokers vibe-kraken \
+	vibe-lighter vibe-okx vibe-polymarket vibe-tardis
+CARGO_TEST_EXCLUDE_FLAGS := $(addprefix --exclude ,$(CARGO_TEST_EXCLUDED_PACKAGES))
+
 .PHONY: cargo-test
 cargo-test: export RUST_BACKTRACE=1
 cargo-test: check-nextest-installed cargo-fetch-strategy-factory-programs
 cargo-test:  #-- Run all Rust tests (use EXTRA_FEATURES="feature1 feature2" or HYPERSYNC=true)
 ifeq ($(NEXTEST_VERBOSE),true)
 	$(info $(M) Running Rust tests with verbose output...)
-	cargo nextest run --workspace --lib --tests --features "$(CARGO_FEATURES)" $(FAIL_FAST_FLAG) --profile $(NEXTEST_PROFILE) --cargo-profile $(CARGO_CI_PROFILE) $(NEXTEST_OUTPUT_ARGS)
+	cargo nextest run --workspace $(CARGO_TEST_EXCLUDE_FLAGS) --lib --tests --features "$(CARGO_FEATURES)" $(FAIL_FAST_FLAG) --profile $(NEXTEST_PROFILE) --cargo-profile $(CARGO_CI_PROFILE) $(NEXTEST_OUTPUT_ARGS)
 else
 	$(info $(M) Running Rust tests (showing summary and failures only)...)
-	cargo nextest run --workspace --lib --tests --features "$(CARGO_FEATURES)" $(FAIL_FAST_FLAG) --profile $(NEXTEST_PROFILE) --cargo-profile $(CARGO_CI_PROFILE) $(NEXTEST_OUTPUT_ARGS)
+	cargo nextest run --workspace $(CARGO_TEST_EXCLUDE_FLAGS) --lib --tests --features "$(CARGO_FEATURES)" $(FAIL_FAST_FLAG) --profile $(NEXTEST_PROFILE) --cargo-profile $(CARGO_CI_PROFILE) $(NEXTEST_OUTPUT_ARGS)
 endif
 
 .PHONY: cargo-test-extras
