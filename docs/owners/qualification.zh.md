@@ -112,6 +112,16 @@ Executable provenance 是独立的效果边界。Qualification 记录实际使�
 但不声称仓库代码能够独立证明自身 executable bytes。Hub 拥有的外部 effect controller 在释放数据库能力并
 执行该 worker 前，绑定已审查的 Origin ancestry、candidate commit/tree、executable path 与 SHA-256。
 
+本节以下是实现状态记录，不是契约，上文契约不因它改变。绑定的证据 session 资源已经不存在，所以本仓库既不能
+再次执行这项重建，也不能重新证明它。两项实测让这件事是永久的而不是暂时的。该资源定位符是某个开发者主目录下的
+绝对路径，而 `verify_evidence` 拒绝任何其它路径，因此这条证明从来只能在那一台机器上跑，在 Linux CI 上从不可能
+通过。同一个函数还钉死了该文件指定行的 SHA-256，因此任何替代文件都无法满足它。而文件本身已从那台机器上消失：
+没有配置 Time Machine 目标，没有本地快照保留它，主目录与任何已挂载卷下都没有携带该 session 标识的文件，
+该产物也从未提交进仓库。于是它的证明
+`isolated_postgres_recovery_is_atomic_fail_closed_and_replay_safe` 在任何地方都无法通过。上文契约继续作为
+一次已封闭的单一事故重建的记录；它不会因为无法再被执行而扩大成通用 restore 路径，本节也不授权用夹具替代
+被封存的证据。
+
 ## 输入交接
 
 - [R&D](./rd/) 只提交拥有终态 `SELECTED_FOR_QUALIFICATION` Research Selection Disposition

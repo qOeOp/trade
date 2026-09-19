@@ -129,6 +129,19 @@ verifies database semantics; it does not claim that repository code can independ
 bytes. The Hub-owned external effect controller binds the reviewed Origin ancestry, candidate commit/tree,
 executable path, and SHA-256 before it releases the database capability and executes this worker.
 
+This section is an implementation status record, not contract. The contract above is unchanged by it. The bound
+evidence-session resource no longer exists, so this repository can neither execute this reconstruction again nor
+re-prove it. Two measured facts make that permanent rather than temporary. The resource locator is an absolute
+path under one developer home directory and `verify_evidence` rejects every other path, so the proof could only
+ever run on that one machine and never on Linux CI. The same function also pins the SHA-256 of named lines of
+that file, so no substitute file can satisfy it. The file itself is gone from that machine: no Time Machine
+destination is configured, no local snapshot holds it, nothing under the home directory or any mounted volume
+carries that session identifier, and the artifact was never committed. Its proof,
+`isolated_postgres_recovery_is_atomic_fail_closed_and_replay_safe`, therefore cannot pass anywhere. The contract
+above stays as the record of a closed one-incident reconstruction; it does not widen into a general restore path
+because it can no longer be exercised, and nothing here authorizes substituting a fixture for the sealed
+evidence.
+
 ## Input handoffs
 
 - [R&D](./rd/) submits the frozen Candidate only with a terminal `SELECTED_FOR_QUALIFICATION`
