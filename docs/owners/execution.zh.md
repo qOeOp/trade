@@ -56,13 +56,17 @@
 2026-09-18 作为有界、可单独评审的工作准入，其验收是一次性 PostgreSQL 证明、有序链路条目在 Linux 上通过，以及不依赖
 testkit 或 acceptance feature 的生产路径；其余各行不授予任何东西，扩大准入集必须先修改本文档。
 
-- **CURRENT_PARTIAL / IMPLEMENTATION_ADMITTED - `PAPER` Execution Adapter Binding 契约：** `crates/execution/src/adapter_binding.rs` 拥有不可信的
-  binding 词汇、`PAPER` 账户与效果命名空间派生、sealed 的 `AdmittedPaperAdapterBinding` 回读，以及唯一能铸造它的
-  `PaperAdapterBindingReadPort`。正向 Owner store 只在 `#[cfg(test)]` 下存在，所以生产侧没有装配根、持久 custody、
-  调用面或 credential 访问。已准入切片：基于 PostgreSQL custody 的生产 Owner store、在一个 `PAPER` Execution Scope 下
-  准入一个 `crates/adapters/sandbox` 模拟适配器 binding，以及交给 Strategy Governance 的 `ADMITTED` 回读。`LIVE`
-  binding 仍为 **TARGET / NOT_ADMITTED**。
-- **CURRENT_PARTIAL - `PAPER` recovery-frontier 读契约：** `crates/execution/src/recovery_frontier.rs` 暴露只读的
+- **CURRENT_PARTIAL / IMPLEMENTATION_ADMITTED - `PAPER` Execution Adapter Binding 契约：**
+  `crates/execution_owner/src/adapter_binding.rs` 拥有不可信的 binding 词汇、`PAPER` 账户与效果命名空间派生、唯一的
+  提交与解析规则、sealed 的 `AdmittedPaperAdapterBinding` 回读，以及唯一能铸造它的 `PaperAdapterBindingReadPort`。
+  `crates/execution_owner/src/adapter_binding_postgres.rs` 是生产 Owner store：`execution_private` 下的 PostgreSQL
+  custody，在一把逐节点 stream 锁下应用该规则，把每个事实连同 outbox 行一起记录，提交模拟账户的开仓抵押事实
+  （`crates/execution_owner/src/paper_account_opening.rs`），并向 Strategy Governance 与 Portfolio 暴露只读的
+  `execution_api` 函数。它的 `#[ignore]` 证明对着 canonical Owner PostgreSQL 拓扑运行。尚无已部署的二进制装配它，
+  所以它没有生产装配根、调用面或 credential 访问。已准入切片：经该 store 在一个 `PAPER` Execution Scope 下准入一个
+  `crates/adapters/sandbox` 模拟适配器 binding，以及交给 Strategy Governance 的 `ADMITTED` 回读。`LIVE` binding 仍为
+  **TARGET / NOT_ADMITTED**。
+- **CURRENT_PARTIAL - `PAPER` recovery-frontier 读契约：** `crates/execution_owner/src/recovery_frontier.rs` 暴露只读的
   `RecoveryFrontierReadPort` 及其 sealed `SealedRecoveryFrontier`，由 Runtime foundation 消费；其背后没有生产
   custody，也没有 Runtime application。
 - **TARGET - Order Engine、Effect Journal 与绑定许可的 adapter 准入：** 继承的 `ExecutionEngine`、order manager、

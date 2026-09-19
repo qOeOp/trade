@@ -36,17 +36,15 @@ use vibe_data::owner::{
 use vibe_indicators_kernel::PrimitiveCatalogV1;
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use crate::develop_composer_operation_v2::{DevelopComposerA0BuildPortV2, request_digest};
 use crate::develop_composer_operation_v2::{
-    DevelopComposerA0BuildPortV2, DevelopComposerReadbackOwnerErrorV2,
-    DevelopComposerReadbackOwnerPortV2, request_digest,
+    DevelopComposerReadbackOwnerErrorV2, DevelopComposerReadbackOwnerPortV2,
 };
+use crate::develop_composer_postgres_v2::PostgresDevelopComposerReadStoreV2;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::develop_composer_postgres_v2::{
-    DevelopComposerAcceptanceWriteBoundaryV2, DevelopComposerSealedReadErrorV2,
-    DevelopComposerSealedReadLocatorV2, DevelopComposerSealedReadPortV2,
-    PostgresDevelopComposerReadStoreV2, PreparedPostgresDevelopComposerRunV2,
-    SealedDevelopComposerReadbackV2, read_accepted_for_replay_in_transaction,
-    read_accepted_in_transaction, read_accepted_in_transaction_with_v3_restart,
+    DevelopComposerAcceptanceWriteBoundaryV2, PreparedPostgresDevelopComposerRunV2,
+    read_accepted_for_replay_in_transaction,
 };
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::develop_plugin_build_v2::{
@@ -68,7 +66,10 @@ use crate::{
         DevelopComposerRunRequestV2, DevelopComposerV3BuildRestartPortV2,
     },
     develop_composer_postgres_v2::{
-        PostgresDevelopComposerStoreV2, PreparedDevelopComposerRunInTransactionV2,
+        DevelopComposerSealedReadErrorV2, DevelopComposerSealedReadLocatorV2,
+        DevelopComposerSealedReadPortV2, PostgresDevelopComposerStoreV2,
+        PreparedDevelopComposerRunInTransactionV2, SealedDevelopComposerReadbackV2,
+        read_accepted_in_transaction, read_accepted_in_transaction_with_v3_restart,
     },
     develop_composer_v2::{CurrentResearchDevelopCustodyV2, DevelopComposerTerminalV2},
     develop_plugin_build_v2::{
@@ -1482,23 +1483,20 @@ pub(crate) struct PostgresSourceResearchComposerV2<B> {
 
 /// Dashboard-facing Composer read adapter. It carries only the R&D read pool and the fixed
 /// fact-Owner resolver required to revalidate existing positive custody.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 pub struct PostgresDevelopComposerReadbackOwnerV2 {
     store: PostgresDevelopComposerReadStoreV2,
-    binding_owner: SealedSourceResearchComposerBindingOwnerV2,
+    binding_owner: PostgresSourceResearchComposerBindingOwnerV2,
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 impl PostgresDevelopComposerReadbackOwnerV2 {
     pub async fn connect(rd_owner_database_url: &str) -> Result<Self, sqlx::Error> {
         Ok(Self {
             store: PostgresDevelopComposerReadStoreV2::connect(rd_owner_database_url).await?,
-            binding_owner: SealedSourceResearchComposerBindingOwnerV2,
+            binding_owner: PostgresSourceResearchComposerBindingOwnerV2,
         })
     }
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 #[async_trait::async_trait]
 impl DevelopComposerReadbackOwnerPortV2 for PostgresDevelopComposerReadbackOwnerV2 {
     async fn read_develop_composer(
@@ -2429,6 +2427,64 @@ pub struct SealedPostgresSourceResearchComposerV2 {
     inner: PostgresSourceResearchComposerV2<SealedSourceResearchComposerBindingOwnerV2>,
 }
 
+/// Reads one accepted Composer locator back against the Owner's own current evidence.
+///
+/// Both Composer compositions read through this one body, so the acceptance surface cannot prove
+/// a read path the production surface does not have. The evidence is resolved from the durable
+/// locator inside the same read transaction that loads the record, which is what keeps the record
+/// and the custody it is revalidated against on one snapshot.
+async fn read_accepted_against_owner_evidence<B>(
+    composer: &PostgresSourceResearchComposerV2<B>,
+    locator: &DevelopComposerSealedReadLocatorV2,
+) -> Result<SealedDevelopComposerReadbackV2, DevelopComposerSealedReadErrorV2>
+where
+    B: SourceResearchComposerBindingOwnerV2 + Send + Sync,
+{
+    // This first read selects immutable lookup keys only. The final sealed read below
+    // revalidates the Composer record against Owner evidence in the same transaction.
+    let durable = composer
+        .store
+        .durable_evidence_locator(&locator.request_identity)
+        .await
+        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?
+        .ok_or(DevelopComposerSealedReadErrorV2::Unavailable)?;
+    let mut transaction = composer
+        .store
+        .begin_read_transaction()
+        .await
+        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    let locked = Box::pin(composer.lock_resolve_evidence(
+        &mut transaction,
+        &durable,
+        current_read_cut_epoch_ms(),
+    ))
+    .await
+    .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    let frozen = matching_current_bfp_v3(
+        &mut transaction,
+        &locked.research,
+        &durable,
+        current_read_cut_epoch_ms(),
+    )
+    .await;
+    let readback = if let Some(frozen) = frozen {
+        read_accepted_in_transaction_with_v3_restart(
+            &mut transaction,
+            locator,
+            locked,
+            &FrozenBfpV3Restart { frozen: &frozen },
+        )
+        .await?
+    } else {
+        read_accepted_in_transaction(&mut transaction, locator, locked).await?
+    };
+    transaction
+        .commit()
+        .await
+        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    Ok(readback)
+}
+
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 #[async_trait::async_trait]
 impl DevelopComposerSealedReadPortV2 for SealedPostgresSourceResearchComposerV2 {
@@ -2436,51 +2492,7 @@ impl DevelopComposerSealedReadPortV2 for SealedPostgresSourceResearchComposerV2 
         &self,
         locator: &DevelopComposerSealedReadLocatorV2,
     ) -> Result<SealedDevelopComposerReadbackV2, DevelopComposerSealedReadErrorV2> {
-        // This first read selects immutable lookup keys only. The final sealed read below
-        // revalidates the Composer record against Owner evidence in the same transaction.
-        let durable = self
-            .inner
-            .store
-            .durable_evidence_locator(&locator.request_identity)
-            .await
-            .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?
-            .ok_or(DevelopComposerSealedReadErrorV2::Unavailable)?;
-        let mut transaction = self
-            .inner
-            .store
-            .begin_read_transaction()
-            .await
-            .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
-        let locked = Box::pin(self.inner.lock_resolve_evidence(
-            &mut transaction,
-            &durable,
-            current_read_cut_epoch_ms(),
-        ))
-        .await
-        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
-        let frozen = matching_current_bfp_v3(
-            &mut transaction,
-            &locked.research,
-            &durable,
-            current_read_cut_epoch_ms(),
-        )
-        .await;
-        let readback = if let Some(frozen) = frozen {
-            read_accepted_in_transaction_with_v3_restart(
-                &mut transaction,
-                locator,
-                locked,
-                &FrozenBfpV3Restart { frozen: &frozen },
-            )
-            .await?
-        } else {
-            read_accepted_in_transaction(&mut transaction, locator, locked).await?
-        };
-        transaction
-            .commit()
-            .await
-            .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
-        Ok(readback)
+        Box::pin(read_accepted_against_owner_evidence(&self.inner, locator)).await
     }
 }
 
@@ -2570,6 +2582,16 @@ impl PostgresSourceResearchComposerProductionV2 {
         request_identity: &str,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
         Box::pin(self.inner.resolve(request_identity)).await
+    }
+}
+
+#[async_trait::async_trait]
+impl DevelopComposerSealedReadPortV2 for PostgresSourceResearchComposerProductionV2 {
+    async fn read_accepted(
+        &self,
+        locator: &DevelopComposerSealedReadLocatorV2,
+    ) -> Result<SealedDevelopComposerReadbackV2, DevelopComposerSealedReadErrorV2> {
+        Box::pin(read_accepted_against_owner_evidence(&self.inner, locator)).await
     }
 }
 
