@@ -27,6 +27,26 @@ So main is, byte for byte, the tree the ordered chain passed on. That is the
 whole point of the exercise: not "the tests were green somewhere" but "they were
 green on this".
 
+## Before you toggle draft->ready, look for a build already running
+
+This rule does not depend on the window. It is true at all times, and it is the
+cause of a large share of the "stale reds" seen today.
+
+    no build on this head at all          -> toggling is the remedy
+    a build queued or in progress         -> do NOT toggle; it is already coming
+    a build completed                     -> read its result, do not toggle
+
+Toggling again on the SAME commit starts a second run and cancels the first, and
+a cancelled run reports `quality` as a failure. Toggle three times and the pull
+request shows a red `quality` that no code ever caused.
+
+Measured: #675's head carried three build runs - two `cancelled`, one `queued` -
+all on one commit. Control: #686's head carries exactly one.
+
+So a red on a head is worth attributing before acting on it. If the owning run is
+`cancelled` and a newer run exists on the same SHA, nothing failed: someone
+toggled. Diagnosed by Lane 3.
+
 ## Reading this file correctly
 
     git fetch origin fleet/batch-window && git show FETCH_HEAD:BATCH_WINDOW.md
