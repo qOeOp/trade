@@ -1,27 +1,22 @@
 //! Execution-owned PAPER adapter binding facts.
 //!
 //! This module deliberately stops at owner-local admission and readback. It has no adapter
-//! invocation surface and does not access credential material.
-//! The production surface is a static, fail-closed prerequisite: it exposes untrusted vocabulary
-//! and a read port, but no positive store composition or writer authority.
+//! invocation surface and does not access credential material. It owns the untrusted vocabulary,
+//! the single commit and resolution rule, and the sealed positive readback; PostgreSQL custody in
+//! [`crate::adapter_binding_postgres`] is the only production store that applies that rule.
 //!
-//! A downstream crate cannot instantiate or commit through the Owner fixture:
+//! The Owner store is never a struct literal a caller can assemble:
 //!
 //! ```compile_fail
-//! use vibe_execution::adapter_binding::{
-//!     PaperAdapterBindingDraft, PaperAdapterBindingStore,
-//! };
+//! use vibe_execution_owner::adapter_binding_postgres::PaperAdapterBindingPostgresV1;
 //!
-//! let owner = PaperAdapterBindingStore::new("caller-node")?;
-//! let proposal: PaperAdapterBindingDraft = todo!();
-//! let _ = owner.commit(proposal)?;
-//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! let _forged = PaperAdapterBindingPostgresV1 {};
 //! ```
 //!
 //! Positive readback cannot be constructed outside this module:
 //!
 //! ```compile_fail
-//! use vibe_execution::adapter_binding::AdmittedPaperAdapterBinding;
+//! use vibe_execution_owner::adapter_binding::AdmittedPaperAdapterBinding;
 //!
 //! let _forged = AdmittedPaperAdapterBinding {};
 //! ```
@@ -30,7 +25,7 @@
 //!
 //! ```compile_fail
 //! use serde::de::DeserializeOwned;
-//! use vibe_execution::adapter_binding::AdmittedPaperAdapterBinding;
+//! use vibe_execution_owner::adapter_binding::AdmittedPaperAdapterBinding;
 //!
 //! fn requires_deserialize<T: DeserializeOwned>() {}
 //! requires_deserialize::<AdmittedPaperAdapterBinding>();
@@ -39,15 +34,16 @@
 //! Implementing the read port over caller-created state cannot mint a positive readback:
 //!
 //! ```compile_fail
-//! use vibe_execution::adapter_binding::{
+//! use vibe_execution_owner::adapter_binding::{
 //!     AdapterBindingError, AdmittedPaperAdapterBinding, PaperAdapterBindingLocator,
 //!     PaperAdapterBindingReadPort, PaperAdapterCapability,
 //! };
 //!
 //! struct CallerState;
 //!
+//! #[async_trait::async_trait]
 //! impl PaperAdapterBindingReadPort for CallerState {
-//!     fn resolve_admitted(
+//!     async fn resolve_admitted(
 //!         &self,
 //!         _locator: &PaperAdapterBindingLocator,
 //!         _capabilities: &[PaperAdapterCapability],
@@ -60,16 +56,16 @@
 //! The public read port has no caller-controlled time argument:
 //!
 //! ```compile_fail
-//! use vibe_execution::adapter_binding::{
+//! use vibe_execution_owner::adapter_binding::{
 //!     PaperAdapterBindingLocator, PaperAdapterBindingReadPort, PaperAdapterCapability,
 //! };
 //!
-//! fn caller_chooses_now(
+//! async fn caller_chooses_now(
 //!     port: &dyn PaperAdapterBindingReadPort,
 //!     locator: &PaperAdapterBindingLocator,
 //!     capabilities: &[PaperAdapterCapability],
 //! ) {
-//!     let _ = port.resolve_admitted(locator, 1_200, capabilities);
+//!     let _ = port.resolve_admitted(locator, 1_200, capabilities).await;
 //! }
 //! ```
 
@@ -78,12 +74,11 @@ use std::{
     fmt::{Debug, Display},
 };
 
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::BTreeSet;
 #[cfg(test)]
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    sync::Mutex,
-};
+use std::{collections::BTreeMap, sync::Mutex};
 
 /// Canonical owner identity for all records in this module.
 pub const EXECUTION_OWNER: &str = "EXECUTION";
@@ -95,13 +90,10 @@ pub const PAPER_ADAPTER_BINDING_OUTBOX_KIND: &str = "execution-paper-adapter-bin
 pub const PAPER_ADAPTER_BINDING_SCHEMA_VERSION: u32 = 1;
 /// Honest maturity of the public production surface.
 pub const PAPER_ADAPTER_BINDING_MATURITY: &str =
-    "STATIC_LOCAL_OWNER_CONTRACT_NOT_DEPLOYMENT_ADMISSION_NOT_WORKSPACE_LOCKED";
+    "OWNER_LOCAL_POSTGRES_CUSTODY_NOT_DEPLOYMENT_ADMISSION_NOT_CONSUMED";
 
-#[cfg(test)]
 const FACT_ID_DOMAIN: &[u8] = b"vibe.execution.paper-adapter-binding.fact-id.v1\0";
-#[cfg(test)]
 const CONTENT_DIGEST_DOMAIN: &[u8] = b"vibe.execution.paper-adapter-binding.content-digest.v1\0";
-#[cfg(test)]
 const OUTBOX_ID_DOMAIN: &[u8] = b"vibe.execution.paper-adapter-binding.outbox-id.v1\0";
 const PAPER_ACCOUNT_NAMESPACE_DOMAIN: &[u8] =
     b"vibe.execution.paper-adapter-binding.account-namespace.v1\0";
@@ -111,7 +103,8 @@ const PAPER_ACCOUNT_NAMESPACE_PREFIX: &str = "paper.accounts.v1.";
 const PAPER_EFFECT_NAMESPACE_PREFIX: &str = "paper.effects.v1.";
 
 /// The only execution mode admitted by this foundation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum PaperMode {
     /// Simulated execution with no production venue effect.
     Paper,
@@ -179,7 +172,8 @@ const fn mode_tag(mode: PaperMode) -> u8 {
 }
 
 /// Immutable admission state recorded by Execution.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum AdapterBindingState {
     /// The binding may resolve while it is current and fresh.
     Admitted,
@@ -192,7 +186,8 @@ pub enum AdapterBindingState {
 }
 
 /// Capabilities fixed by an immutable binding.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum PaperAdapterCapability {
     /// Submit an order to the simulator.
     SubmitOrder,
@@ -209,14 +204,16 @@ pub enum PaperAdapterCapability {
 }
 
 /// The reduce-only enforcement policy fixed by the binding.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ReduceOnlyPolicy {
     /// The simulator must reject any action that could increase or cross exposure.
     SimulatorRejectIncreaseOrCrossZero,
 }
 
 /// Opaque identity of a least-privilege credential handle.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
 pub struct CredentialHandleIdentity(String);
 
 impl CredentialHandleIdentity {
@@ -231,8 +228,7 @@ impl CredentialHandleIdentity {
         Ok(Self(value))
     }
 
-    #[cfg(test)]
-    fn expose_to_owner(&self) -> &str {
+    pub(crate) fn expose_to_owner(&self) -> &str {
         &self.0
     }
 }
@@ -243,8 +239,23 @@ impl Debug for CredentialHandleIdentity {
     }
 }
 
+impl TryFrom<String> for CredentialHandleIdentity {
+    type Error = AdapterBindingError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::parse(value)
+    }
+}
+
+impl From<CredentialHandleIdentity> for String {
+    fn from(value: CredentialHandleIdentity) -> Self {
+        value.0
+    }
+}
+
 /// Caller-supplied proposal validated and normalized before the first owner write.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PaperAdapterBindingDraft {
     /// Schema version. Must equal [`PAPER_ADAPTER_BINDING_SCHEMA_VERSION`].
     pub schema_version: u32,
@@ -291,7 +302,8 @@ pub struct PaperAdapterBindingDraft {
 }
 
 /// Execution-native fact frontier.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct NativeBindingFrontier {
     /// Owner-native stream identity.
     pub stream_identity: String,
@@ -302,7 +314,8 @@ pub struct NativeBindingFrontier {
 }
 
 /// Untrusted locator. Positive authority exists only after exact native-store resolution.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PaperAdapterBindingLocator {
     /// Canonical owner identity.
     pub owner_identity: String,
@@ -335,9 +348,9 @@ pub struct PaperAdapterBindingLocator {
 }
 
 /// Whether a commit inserted a fact or joined an exact replay.
-#[cfg(test)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AdapterBindingCommitDisposition {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum AdapterBindingCommitDisposition {
     /// One fact and one outbox record were inserted atomically.
     Inserted,
     /// The exact earlier fact was joined with no successor write.
@@ -345,13 +358,12 @@ enum AdapterBindingCommitDisposition {
 }
 
 /// Receipt returned by the Execution owner store.
-#[cfg(test)]
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct PaperAdapterBindingCommitReceipt {
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PaperAdapterBindingCommitReceipt {
     /// Commit disposition.
-    disposition: AdapterBindingCommitDisposition,
+    pub disposition: AdapterBindingCommitDisposition,
     /// Untrusted locator for subsequent direct resolution.
-    locator: PaperAdapterBindingLocator,
+    pub locator: PaperAdapterBindingLocator,
 }
 
 /// Errors returned by the PAPER binding owner.
@@ -426,6 +438,7 @@ impl Error for AdapterBindingError {}
 ///
 /// Downstream implementations cannot mint positive results because
 /// [`AdmittedPaperAdapterBinding`] has no public constructor.
+#[async_trait::async_trait]
 pub trait PaperAdapterBindingReadPort: Send + Sync {
     /// Resolves one untrusted locator under exact capabilities and Owner-sampled time evidence.
     ///
@@ -433,74 +446,323 @@ pub trait PaperAdapterBindingReadPort: Send + Sync {
     ///
     /// Returns [`AdapterBindingError`] for every unavailable, mismatched, stale, non-current, or
     /// non-admitted representation.
-    fn resolve_admitted(
+    async fn resolve_admitted(
         &self,
         locator: &PaperAdapterBindingLocator,
         required_capabilities: &[PaperAdapterCapability],
     ) -> Result<AdmittedPaperAdapterBinding, AdapterBindingError>;
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct BindingMeaning {
-    schema_version: u32,
-    binding_version: u32,
-    generation: u64,
-    mode: PaperMode,
-    execution_scope_identity: String,
-    account_namespace: String,
-    effect_namespace: String,
-    source_account_identity: String,
-    simulator_account_identity: String,
-    simulator_endpoint_identity: String,
-    implementation_digest: String,
-    configuration_digest: String,
-    required_capabilities: Vec<PaperAdapterCapability>,
-    reduce_only_policy: ReduceOnlyPolicy,
-    credential_handle_identity: CredentialHandleIdentity,
-    trust_policy_identity: String,
-    state: AdapterBindingState,
-    effective_at_epoch_ms: u64,
-    observed_at_epoch_ms: u64,
-    exclusive_valid_through_epoch_ms: u64,
-    clock_epoch: u64,
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct BindingMeaning {
+    pub(crate) schema_version: u32,
+    pub(crate) binding_version: u32,
+    pub(crate) generation: u64,
+    pub(crate) mode: PaperMode,
+    pub(crate) execution_scope_identity: String,
+    pub(crate) account_namespace: String,
+    pub(crate) effect_namespace: String,
+    pub(crate) source_account_identity: String,
+    pub(crate) simulator_account_identity: String,
+    pub(crate) simulator_endpoint_identity: String,
+    pub(crate) implementation_digest: String,
+    pub(crate) configuration_digest: String,
+    pub(crate) required_capabilities: Vec<PaperAdapterCapability>,
+    pub(crate) reduce_only_policy: ReduceOnlyPolicy,
+    pub(crate) credential_handle_identity: CredentialHandleIdentity,
+    pub(crate) trust_policy_identity: String,
+    pub(crate) state: AdapterBindingState,
+    pub(crate) effective_at_epoch_ms: u64,
+    pub(crate) observed_at_epoch_ms: u64,
+    pub(crate) exclusive_valid_through_epoch_ms: u64,
+    pub(crate) clock_epoch: u64,
 }
 
-#[cfg(test)]
-#[derive(Debug, Clone)]
-struct BindingFactRecord {
-    meaning: BindingMeaning,
-    locator: PaperAdapterBindingLocator,
-}
-
-#[cfg(test)]
-#[derive(Debug, Clone)]
-struct BindingOutboxRecord {
-    outbox_identity: String,
-    fact_identity: String,
-    content_digest: String,
-    frontier: NativeBindingFrontier,
-}
-
-#[cfg(test)]
-#[derive(Debug, Clone, Copy)]
-struct TrustedFixtureClock {
-    now_epoch_ms: u64,
-    clock_epoch: u64,
-}
-
-#[cfg(test)]
+/// Owner-trusted time under which every commit and resolution is judged.
+///
+/// Production custody samples it from the composition-injected [`ExecutionOwnerClock`] in the
+/// PostgreSQL store; the caller never supplies it.
+///
+/// [`ExecutionOwnerClock`]: crate::adapter_binding_postgres::ExecutionOwnerClock
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum NamespaceClass {
+pub struct TrustedClock {
+    /// Owner-observed current time.
+    pub now_epoch_ms: u64,
+    /// Clock epoch the observation belongs to.
+    pub clock_epoch: u64,
+}
+
+impl TrustedClock {
+    /// Builds a trusted clock sample, rejecting zero time or epoch.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AdapterBindingError::InvalidTimeEvidence`] for a zero value.
+    pub fn new(now_epoch_ms: u64, clock_epoch: u64) -> Result<Self, AdapterBindingError> {
+        if now_epoch_ms == 0 || clock_epoch == 0 {
+            return Err(AdapterBindingError::InvalidTimeEvidence);
+        }
+        Ok(Self {
+            now_epoch_ms,
+            clock_epoch,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct BindingFactRecord {
+    pub(crate) meaning: BindingMeaning,
+    pub(crate) locator: PaperAdapterBindingLocator,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BindingOutboxRecord {
+    pub(crate) outbox_identity: String,
+    pub(crate) fact_identity: String,
+    pub(crate) content_digest: String,
+    pub(crate) frontier: NativeBindingFrontier,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum NamespaceClass {
     Account,
     Effect,
 }
 
-#[cfg(test)]
+impl NamespaceClass {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Account => "ACCOUNT",
+            Self::Effect => "EFFECT",
+        }
+    }
+
+    pub(crate) fn parse(value: &str) -> Result<Self, AdapterBindingError> {
+        match value {
+            "ACCOUNT" => Ok(Self::Account),
+            "EFFECT" => Ok(Self::Effect),
+            _ => Err(AdapterBindingError::StoreUnavailable),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct NamespaceReservation {
-    mode: PaperMode,
-    namespace_class: NamespaceClass,
-    execution_scope_identity: String,
+pub(crate) struct NamespaceReservation {
+    pub(crate) mode: PaperMode,
+    pub(crate) namespace_class: NamespaceClass,
+    pub(crate) execution_scope_identity: String,
+}
+
+/// Existing Owner state one commit is judged against, loaded under the store's exclusive lock.
+pub(crate) struct CommitContext<'a> {
+    pub(crate) node_identity: &'a str,
+    pub(crate) stream_identity: &'a str,
+    pub(crate) trusted_clock: TrustedClock,
+    pub(crate) next_sequence: u64,
+    /// Fact already occupying the exact `(scope, generation)` slot, if any.
+    pub(crate) slot_fact: Option<&'a BindingFactRecord>,
+    /// Current head fact of the scope, if any.
+    pub(crate) head_fact: Option<&'a BindingFactRecord>,
+    /// Existing reservation of the proposed account namespace, if any.
+    pub(crate) account_reservation: Option<&'a NamespaceReservation>,
+    /// Existing reservation of the proposed effect namespace, if any.
+    pub(crate) effect_reservation: Option<&'a NamespaceReservation>,
+}
+
+/// One atomic insert planned by the Owner rule.
+pub(crate) struct CommitInsert {
+    pub(crate) fact: BindingFactRecord,
+    pub(crate) outbox: BindingOutboxRecord,
+    pub(crate) reservations: [(String, NamespaceReservation); 2],
+    pub(crate) next_sequence: u64,
+}
+
+/// Outcome of the Owner commit rule before any write.
+pub(crate) enum CommitPlan {
+    ExactReplay(Box<PaperAdapterBindingLocator>),
+    Insert(Box<CommitInsert>),
+}
+
+pub(crate) fn proposed_reservations(
+    meaning: &BindingMeaning,
+) -> [(String, NamespaceReservation); 2] {
+    [
+        (
+            meaning.account_namespace.clone(),
+            NamespaceReservation {
+                mode: meaning.mode,
+                namespace_class: NamespaceClass::Account,
+                execution_scope_identity: meaning.execution_scope_identity.clone(),
+            },
+        ),
+        (
+            meaning.effect_namespace.clone(),
+            NamespaceReservation {
+                mode: meaning.mode,
+                namespace_class: NamespaceClass::Effect,
+                execution_scope_identity: meaning.execution_scope_identity.clone(),
+            },
+        ),
+    ]
+}
+
+/// The single Owner commit rule shared by every store.
+///
+/// Every validation happens before the caller writes anything. Exact replay joins the earlier
+/// record; changed meaning under the same scope and generation conflicts before any successor
+/// write; a namespace already reserved by another mode, class, or scope is refused.
+pub(crate) fn plan_commit(
+    meaning: BindingMeaning,
+    context: &CommitContext<'_>,
+) -> Result<CommitPlan, AdapterBindingError> {
+    let proposed = proposed_reservations(&meaning);
+
+    for (existing, (_, proposal)) in [
+        (context.account_reservation, &proposed[0]),
+        (context.effect_reservation, &proposed[1]),
+    ] {
+        if let Some(existing) = existing
+            && existing != proposal
+        {
+            return Err(AdapterBindingError::NamespaceAlreadyReserved);
+        }
+    }
+
+    if let Some(existing) = context.slot_fact {
+        if existing.meaning != meaning {
+            return Err(AdapterBindingError::ConflictingReplay);
+        }
+        return Ok(CommitPlan::ExactReplay(Box::new(existing.locator.clone())));
+    }
+
+    if meaning.clock_epoch != context.trusted_clock.clock_epoch
+        || meaning.observed_at_epoch_ms > context.trusted_clock.now_epoch_ms
+    {
+        return Err(AdapterBindingError::InvalidTimeEvidence);
+    }
+
+    let expected_generation = match context.head_fact {
+        Some(head) => head.meaning.generation.checked_add(1).ok_or(
+            AdapterBindingError::InvalidGeneration {
+                expected: u64::MAX,
+                actual: meaning.generation,
+            },
+        )?,
+        None => 1,
+    };
+
+    if meaning.generation != expected_generation {
+        return Err(AdapterBindingError::InvalidGeneration {
+            expected: expected_generation,
+            actual: meaning.generation,
+        });
+    }
+
+    if let Some(head) = context.head_fact
+        && (meaning.clock_epoch < head.meaning.clock_epoch
+            || meaning.effective_at_epoch_ms < head.meaning.effective_at_epoch_ms
+            || meaning.observed_at_epoch_ms <= head.meaning.observed_at_epoch_ms
+            || meaning.exclusive_valid_through_epoch_ms
+                < head.meaning.exclusive_valid_through_epoch_ms)
+    {
+        return Err(AdapterBindingError::NonMonotonicSuccessorTime);
+    }
+
+    let sequence = context.next_sequence;
+    if sequence == 0 {
+        return Err(AdapterBindingError::StoreUnavailable);
+    }
+    let next_sequence = sequence
+        .checked_add(1)
+        .ok_or(AdapterBindingError::StoreUnavailable)?;
+    let frontier = NativeBindingFrontier {
+        stream_identity: context.stream_identity.to_string(),
+        cut_identity: format!("{}:{sequence}", context.stream_identity),
+        sequence,
+    };
+    let semantic_bytes = canonical_semantic_bytes(&meaning);
+    let fact_identity = derive_digest(FACT_ID_DOMAIN, &semantic_bytes);
+    let content_digest = derive_digest(CONTENT_DIGEST_DOMAIN, &semantic_bytes);
+    let locator = PaperAdapterBindingLocator {
+        owner_identity: EXECUTION_OWNER.to_string(),
+        owner_node_identity: context.node_identity.to_string(),
+        fact_kind: PAPER_ADAPTER_BINDING_KIND.to_string(),
+        execution_scope_identity: meaning.execution_scope_identity.clone(),
+        mode: meaning.mode,
+        generation: meaning.generation,
+        state: meaning.state,
+        fact_identity: fact_identity.clone(),
+        content_digest: content_digest.clone(),
+        frontier: frontier.clone(),
+        effective_at_epoch_ms: meaning.effective_at_epoch_ms,
+        observed_at_epoch_ms: meaning.observed_at_epoch_ms,
+        exclusive_valid_through_epoch_ms: meaning.exclusive_valid_through_epoch_ms,
+        clock_epoch: meaning.clock_epoch,
+    };
+    let outbox_identity = derive_digest(
+        OUTBOX_ID_DOMAIN,
+        &canonical_outbox_bytes(&fact_identity, &content_digest, &frontier),
+    );
+    Ok(CommitPlan::Insert(Box::new(CommitInsert {
+        fact: BindingFactRecord { meaning, locator },
+        outbox: BindingOutboxRecord {
+            outbox_identity,
+            fact_identity,
+            content_digest,
+            frontier,
+        },
+        reservations: proposed,
+        next_sequence,
+    })))
+}
+
+/// The single Owner resolution rule shared by every store; the only path that mints
+/// [`AdmittedPaperAdapterBinding`].
+pub(crate) fn resolve_fact(
+    fact: &BindingFactRecord,
+    locator: &PaperAdapterBindingLocator,
+    head_fact_identity: Option<&str>,
+    required_capabilities: &[PaperAdapterCapability],
+    trusted_clock: TrustedClock,
+) -> Result<AdmittedPaperAdapterBinding, AdapterBindingError> {
+    let required = normalize_capabilities(required_capabilities)?;
+
+    if &fact.locator != locator {
+        return Err(AdapterBindingError::LocatorMismatch);
+    }
+
+    if head_fact_identity != Some(fact.locator.fact_identity.as_str()) {
+        return Err(AdapterBindingError::NotCurrentHead);
+    }
+
+    if fact.meaning.mode != PaperMode::Paper {
+        return Err(AdapterBindingError::LocatorMismatch);
+    }
+
+    if fact.meaning.state != AdapterBindingState::Admitted {
+        return Err(AdapterBindingError::NotAdmitted);
+    }
+
+    if !required
+        .iter()
+        .all(|capability| fact.meaning.required_capabilities.contains(capability))
+    {
+        return Err(AdapterBindingError::CapabilityMismatch);
+    }
+
+    if trusted_clock.clock_epoch != fact.meaning.clock_epoch
+        || trusted_clock.now_epoch_ms < fact.meaning.effective_at_epoch_ms
+        || trusted_clock.now_epoch_ms < fact.meaning.observed_at_epoch_ms
+        || trusted_clock.now_epoch_ms >= fact.meaning.exclusive_valid_through_epoch_ms
+    {
+        return Err(AdapterBindingError::TimeMismatch);
+    }
+    Ok(AdmittedPaperAdapterBinding {
+        locator: fact.locator.clone(),
+        meaning: fact.meaning.clone(),
+    })
 }
 
 #[cfg(test)]
@@ -512,10 +774,10 @@ struct BindingStoreState {
     namespace_reservations: BTreeMap<String, NamespaceReservation>,
     outbox: Vec<BindingOutboxRecord>,
     next_sequence: u64,
-    trusted_clock: TrustedFixtureClock,
+    trusted_clock: TrustedClock,
 }
 
-/// Test-only positive Owner fixture; production exposes no construction path.
+/// Test-only in-memory reference store; it applies the same Owner rules as PostgreSQL custody.
 #[cfg(test)]
 #[derive(Debug)]
 struct PaperAdapterBindingStore {
@@ -526,11 +788,6 @@ struct PaperAdapterBindingStore {
 
 #[cfg(test)]
 impl PaperAdapterBindingStore {
-    /// Creates one Execution-native store node.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`AdapterBindingError::InvalidField`] for a malformed node identity.
     fn new(
         node_identity: impl Into<String>,
         now_epoch_ms: u64,
@@ -538,11 +795,8 @@ impl PaperAdapterBindingStore {
     ) -> Result<Self, AdapterBindingError> {
         let node_identity = node_identity.into();
         validate_identifier("owner_node_identity", &node_identity)?;
-
-        if now_epoch_ms == 0 || clock_epoch == 0 {
-            return Err(AdapterBindingError::InvalidTimeEvidence);
-        }
-        let stream_identity = format!("execution.paper-adapter-binding.{node_identity}");
+        let trusted_clock = TrustedClock::new(now_epoch_ms, clock_epoch)?;
+        let stream_identity = stream_identity_for_node(&node_identity);
         Ok(Self {
             node_identity,
             stream_identity,
@@ -553,10 +807,7 @@ impl PaperAdapterBindingStore {
                 namespace_reservations: BTreeMap::new(),
                 outbox: Vec::new(),
                 next_sequence: 1,
-                trusted_clock: TrustedFixtureClock {
-                    now_epoch_ms,
-                    clock_epoch,
-                },
+                trusted_clock,
             }),
         })
     }
@@ -576,22 +827,13 @@ impl PaperAdapterBindingStore {
         {
             return Err(AdapterBindingError::InvalidTimeEvidence);
         }
-        state.trusted_clock = TrustedFixtureClock {
+        state.trusted_clock = TrustedClock {
             now_epoch_ms,
             clock_epoch,
         };
         Ok(())
     }
 
-    /// Validates, normalizes, and atomically records one fact and one outbox record.
-    ///
-    /// Exact replay joins the earlier record. Changed meaning under the same scope and generation
-    /// conflicts before any successor write.
-    ///
-    /// # Errors
-    ///
-    /// Returns an [`AdapterBindingError`] when validation, generation, replay, or store custody
-    /// fails. All validation failures occur before a write.
     fn commit(
         &self,
         draft: PaperAdapterBindingDraft,
@@ -602,168 +844,79 @@ impl PaperAdapterBindingStore {
             .state
             .lock()
             .map_err(|_| AdapterBindingError::StoreUnavailable)?;
-
-        let proposed_reservations = [
-            (
-                meaning.account_namespace.clone(),
-                NamespaceReservation {
-                    mode: meaning.mode,
-                    namespace_class: NamespaceClass::Account,
-                    execution_scope_identity: meaning.execution_scope_identity.clone(),
-                },
-            ),
-            (
-                meaning.effect_namespace.clone(),
-                NamespaceReservation {
-                    mode: meaning.mode,
-                    namespace_class: NamespaceClass::Effect,
-                    execution_scope_identity: meaning.execution_scope_identity.clone(),
-                },
-            ),
-        ];
-
-        for (namespace, proposed) in &proposed_reservations {
-            if let Some(existing) = state.namespace_reservations.get(namespace)
-                && existing != proposed
-            {
-                return Err(AdapterBindingError::NamespaceAlreadyReserved);
-            }
-        }
-
-        if let Some(existing_identity) = state.slots.get(&slot) {
-            let existing = state
-                .facts
-                .get(existing_identity)
-                .ok_or(AdapterBindingError::StoreUnavailable)?;
-            if existing.meaning != meaning {
-                return Err(AdapterBindingError::ConflictingReplay);
-            }
-            return Ok(PaperAdapterBindingCommitReceipt {
-                disposition: AdapterBindingCommitDisposition::ExactReplay,
-                locator: existing.locator.clone(),
-            });
-        }
-
-        if meaning.clock_epoch != state.trusted_clock.clock_epoch
-            || meaning.observed_at_epoch_ms > state.trusted_clock.now_epoch_ms
-        {
-            return Err(AdapterBindingError::InvalidTimeEvidence);
-        }
-
-        let current_head = state
-            .heads
-            .get(&meaning.execution_scope_identity)
-            .map(|head_identity| {
+        let slot_fact = match state.slots.get(&slot) {
+            Some(identity) => Some(
                 state
                     .facts
-                    .get(head_identity)
-                    .ok_or(AdapterBindingError::StoreUnavailable)
-            })
-            .transpose()?;
-        let expected_generation = match current_head {
-            Some(head) => head.meaning.generation.checked_add(1).ok_or(
-                AdapterBindingError::InvalidGeneration {
-                    expected: u64::MAX,
-                    actual: meaning.generation,
-                },
-            )?,
-            None => 1,
+                    .get(identity)
+                    .ok_or(AdapterBindingError::StoreUnavailable)?,
+            ),
+            None => None,
         };
+        let head_fact = match state.heads.get(&meaning.execution_scope_identity) {
+            Some(identity) => Some(
+                state
+                    .facts
+                    .get(identity)
+                    .ok_or(AdapterBindingError::StoreUnavailable)?,
+            ),
+            None => None,
+        };
+        let plan = plan_commit(
+            meaning.clone(),
+            &CommitContext {
+                node_identity: &self.node_identity,
+                stream_identity: &self.stream_identity,
+                trusted_clock: state.trusted_clock,
+                next_sequence: state.next_sequence,
+                slot_fact,
+                head_fact,
+                account_reservation: state.namespace_reservations.get(&meaning.account_namespace),
+                effect_reservation: state.namespace_reservations.get(&meaning.effect_namespace),
+            },
+        )?;
 
-        if meaning.generation != expected_generation {
-            return Err(AdapterBindingError::InvalidGeneration {
-                expected: expected_generation,
-                actual: meaning.generation,
-            });
+        match plan {
+            CommitPlan::ExactReplay(locator) => Ok(PaperAdapterBindingCommitReceipt {
+                disposition: AdapterBindingCommitDisposition::ExactReplay,
+                locator: *locator,
+            }),
+            CommitPlan::Insert(insert) => {
+                let CommitInsert {
+                    fact,
+                    outbox,
+                    reservations,
+                    next_sequence,
+                } = *insert;
+                let locator = fact.locator.clone();
+                state.facts.insert(locator.fact_identity.clone(), fact);
+                state.slots.insert(slot, locator.fact_identity.clone());
+                state.heads.insert(
+                    locator.execution_scope_identity.clone(),
+                    locator.fact_identity.clone(),
+                );
+
+                for (namespace, reservation) in reservations {
+                    state
+                        .namespace_reservations
+                        .entry(namespace)
+                        .or_insert(reservation);
+                }
+                state.outbox.push(outbox);
+                state.next_sequence = next_sequence;
+                Ok(PaperAdapterBindingCommitReceipt {
+                    disposition: AdapterBindingCommitDisposition::Inserted,
+                    locator,
+                })
+            }
         }
-
-        if let Some(head) = current_head
-            && (meaning.clock_epoch < head.meaning.clock_epoch
-                || meaning.effective_at_epoch_ms < head.meaning.effective_at_epoch_ms
-                || meaning.observed_at_epoch_ms <= head.meaning.observed_at_epoch_ms
-                || meaning.exclusive_valid_through_epoch_ms
-                    < head.meaning.exclusive_valid_through_epoch_ms)
-        {
-            return Err(AdapterBindingError::NonMonotonicSuccessorTime);
-        }
-
-        let sequence = state.next_sequence;
-        if sequence == 0 {
-            return Err(AdapterBindingError::StoreUnavailable);
-        }
-        let next_sequence = sequence
-            .checked_add(1)
-            .ok_or(AdapterBindingError::StoreUnavailable)?;
-        let frontier = NativeBindingFrontier {
-            stream_identity: self.stream_identity.clone(),
-            cut_identity: format!("{}:{sequence}", self.stream_identity),
-            sequence,
-        };
-        let semantic_bytes = canonical_semantic_bytes(&meaning);
-        let fact_identity = derive_digest(FACT_ID_DOMAIN, &semantic_bytes);
-        let content_digest = derive_digest(CONTENT_DIGEST_DOMAIN, &semantic_bytes);
-        let locator = PaperAdapterBindingLocator {
-            owner_identity: EXECUTION_OWNER.to_string(),
-            owner_node_identity: self.node_identity.clone(),
-            fact_kind: PAPER_ADAPTER_BINDING_KIND.to_string(),
-            execution_scope_identity: meaning.execution_scope_identity.clone(),
-            mode: meaning.mode,
-            generation: meaning.generation,
-            state: meaning.state,
-            fact_identity: fact_identity.clone(),
-            content_digest: content_digest.clone(),
-            frontier: frontier.clone(),
-            effective_at_epoch_ms: meaning.effective_at_epoch_ms,
-            observed_at_epoch_ms: meaning.observed_at_epoch_ms,
-            exclusive_valid_through_epoch_ms: meaning.exclusive_valid_through_epoch_ms,
-            clock_epoch: meaning.clock_epoch,
-        };
-        let outbox_identity = derive_digest(
-            OUTBOX_ID_DOMAIN,
-            &canonical_outbox_bytes(&fact_identity, &content_digest, &frontier),
-        );
-        let fact = BindingFactRecord {
-            meaning,
-            locator: locator.clone(),
-        };
-        let outbox = BindingOutboxRecord {
-            outbox_identity,
-            fact_identity: fact_identity.clone(),
-            content_digest,
-            frontier,
-        };
-        debug_assert!(!outbox.outbox_identity.is_empty());
-        debug_assert_eq!(outbox.fact_identity, fact.locator.fact_identity);
-        debug_assert_eq!(outbox.content_digest, fact.locator.content_digest);
-        debug_assert_eq!(outbox.frontier, fact.locator.frontier);
-
-        state.facts.insert(fact_identity.clone(), fact);
-        state.slots.insert(slot, fact_identity.clone());
-        state
-            .heads
-            .insert(locator.execution_scope_identity.clone(), fact_identity);
-
-        for (namespace, reservation) in proposed_reservations {
-            state
-                .namespace_reservations
-                .entry(namespace)
-                .or_insert(reservation);
-        }
-        state.outbox.push(outbox);
-        state.next_sequence = next_sequence;
-
-        Ok(PaperAdapterBindingCommitReceipt {
-            disposition: AdapterBindingCommitDisposition::Inserted,
-            locator,
-        })
     }
 
-    fn resolve_for_read_port(
+    fn resolve_admitted_sync(
         &self,
         locator: &PaperAdapterBindingLocator,
         required_capabilities: &[PaperAdapterCapability],
     ) -> Result<AdmittedPaperAdapterBinding, AdapterBindingError> {
-        let required = normalize_capabilities(required_capabilities)?;
         let state = self
             .state
             .lock()
@@ -772,50 +925,19 @@ impl PaperAdapterBindingStore {
             .facts
             .get(&locator.fact_identity)
             .ok_or(AdapterBindingError::FactNotFound)?;
-
-        if &fact.locator != locator {
-            return Err(AdapterBindingError::LocatorMismatch);
-        }
-
-        if state.heads.get(&fact.meaning.execution_scope_identity)
-            != Some(&fact.locator.fact_identity)
-        {
-            return Err(AdapterBindingError::NotCurrentHead);
-        }
-
-        if fact.meaning.mode != PaperMode::Paper {
-            return Err(AdapterBindingError::LocatorMismatch);
-        }
-
-        if fact.meaning.state != AdapterBindingState::Admitted {
-            return Err(AdapterBindingError::NotAdmitted);
-        }
-
-        if !required
-            .iter()
-            .all(|capability| fact.meaning.required_capabilities.contains(capability))
-        {
-            return Err(AdapterBindingError::CapabilityMismatch);
-        }
-
-        if state.trusted_clock.clock_epoch != fact.meaning.clock_epoch
-            || state.trusted_clock.now_epoch_ms < fact.meaning.effective_at_epoch_ms
-            || state.trusted_clock.now_epoch_ms < fact.meaning.observed_at_epoch_ms
-            || state.trusted_clock.now_epoch_ms >= fact.meaning.exclusive_valid_through_epoch_ms
-        {
-            return Err(AdapterBindingError::TimeMismatch);
-        }
-        Ok(AdmittedPaperAdapterBinding {
-            locator: fact.locator.clone(),
-            meaning: fact.meaning.clone(),
-        })
+        let head = state
+            .heads
+            .get(&fact.meaning.execution_scope_identity)
+            .map(String::as_str);
+        resolve_fact(
+            fact,
+            locator,
+            head,
+            required_capabilities,
+            state.trusted_clock,
+        )
     }
 
-    /// Returns native fact and outbox counts for owner-store auditing.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`AdapterBindingError::StoreUnavailable`] if store custody is unavailable.
     fn record_counts(&self) -> Result<(usize, usize), AdapterBindingError> {
         let state = self
             .state
@@ -834,16 +956,22 @@ impl PaperAdapterBindingStore {
 }
 
 #[cfg(test)]
+#[async_trait::async_trait]
 impl PaperAdapterBindingReadPort for PaperAdapterBindingStore {
-    fn resolve_admitted(
+    async fn resolve_admitted(
         &self,
         locator: &PaperAdapterBindingLocator,
         required_capabilities: &[PaperAdapterCapability],
     ) -> Result<AdmittedPaperAdapterBinding, AdapterBindingError> {
-        self.resolve_for_read_port(locator, required_capabilities)
+        self.resolve_admitted_sync(locator, required_capabilities)
     }
 }
 
+/// Derives the native outbox stream identity for one Execution custody node.
+#[must_use]
+pub fn stream_identity_for_node(node_identity: &str) -> String {
+    format!("execution.paper-adapter-binding.{node_identity}")
+}
 /// Sealed positive native-store readback.
 ///
 /// This type has private fields and intentionally implements neither `Deserialize` nor a public
@@ -966,8 +1094,9 @@ impl AdmittedPaperAdapterBinding {
     }
 }
 
-#[cfg(test)]
-fn normalize_draft(draft: PaperAdapterBindingDraft) -> Result<BindingMeaning, AdapterBindingError> {
+pub(crate) fn normalize_draft(
+    draft: PaperAdapterBindingDraft,
+) -> Result<BindingMeaning, AdapterBindingError> {
     if draft.schema_version != PAPER_ADAPTER_BINDING_SCHEMA_VERSION {
         return Err(AdapterBindingError::InvalidField("schema_version"));
     }
@@ -1054,7 +1183,6 @@ fn normalize_draft(draft: PaperAdapterBindingDraft) -> Result<BindingMeaning, Ad
     })
 }
 
-#[cfg(test)]
 fn normalize_capabilities(
     capabilities: &[PaperAdapterCapability],
 ) -> Result<Vec<PaperAdapterCapability>, AdapterBindingError> {
@@ -1066,6 +1194,11 @@ fn normalize_capabilities(
         return Err(AdapterBindingError::InvalidCapabilities);
     }
     Ok(set.into_iter().collect())
+}
+
+/// Validates one Execution custody node identity.
+pub(crate) fn validate_node_identity(value: &str) -> Result<(), AdapterBindingError> {
+    validate_identifier("owner_node_identity", value)
 }
 
 fn validate_identifier(field: &'static str, value: &str) -> Result<(), AdapterBindingError> {
@@ -1080,7 +1213,6 @@ fn validate_identifier(field: &'static str, value: &str) -> Result<(), AdapterBi
     Ok(())
 }
 
-#[cfg(test)]
 fn validate_digest(field: &'static str, value: &str) -> Result<(), AdapterBindingError> {
     if value.len() != 64
         || !value
@@ -1092,7 +1224,6 @@ fn validate_digest(field: &'static str, value: &str) -> Result<(), AdapterBindin
     Ok(())
 }
 
-#[cfg(test)]
 fn canonical_semantic_bytes(meaning: &BindingMeaning) -> Vec<u8> {
     let mut encoder = CanonicalEncoder::default();
     encoder.string(EXECUTION_OWNER);
@@ -1124,7 +1255,6 @@ fn canonical_semantic_bytes(meaning: &BindingMeaning) -> Vec<u8> {
     encoder.finish()
 }
 
-#[cfg(test)]
 fn canonical_outbox_bytes(
     fact_identity: &str,
     content_digest: &str,
@@ -1141,7 +1271,6 @@ fn canonical_outbox_bytes(
     encoder.finish()
 }
 
-#[cfg(test)]
 fn derive_digest(domain: &[u8], canonical: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(domain);
@@ -1149,7 +1278,6 @@ fn derive_digest(domain: &[u8], canonical: &[u8]) -> String {
     format!("sha256:{:x}", hasher.finalize())
 }
 
-#[cfg(test)]
 const fn state_tag(state: AdapterBindingState) -> u8 {
     match state {
         AdapterBindingState::Admitted => 1,
@@ -1159,7 +1287,6 @@ const fn state_tag(state: AdapterBindingState) -> u8 {
     }
 }
 
-#[cfg(test)]
 const fn capability_tag(capability: PaperAdapterCapability) -> u8 {
     match capability {
         PaperAdapterCapability::SubmitOrder => 1,
@@ -1171,20 +1298,17 @@ const fn capability_tag(capability: PaperAdapterCapability) -> u8 {
     }
 }
 
-#[cfg(test)]
 const fn reduce_only_policy_tag(policy: ReduceOnlyPolicy) -> u8 {
     match policy {
         ReduceOnlyPolicy::SimulatorRejectIncreaseOrCrossZero => 1,
     }
 }
 
-#[cfg(test)]
 #[derive(Debug, Default)]
 struct CanonicalEncoder {
     bytes: Vec<u8>,
 }
 
-#[cfg(test)]
 impl CanonicalEncoder {
     fn u8(&mut self, value: u8) {
         self.bytes.push(value);
@@ -1712,7 +1836,7 @@ mod tests {
         );
         assert_eq!(owner.record_counts().unwrap(), (1, 1));
         let resolved = owner
-            .resolve_admitted(
+            .resolve_admitted_sync(
                 &original.locator,
                 &[
                     PaperAdapterCapability::SubmitOrder,
@@ -1730,7 +1854,7 @@ mod tests {
         let owner = store();
         let receipt = owner.commit(proposal).unwrap();
         let admitted = owner
-            .resolve_admitted(&receipt.locator, &capabilities())
+            .resolve_admitted_sync(&receipt.locator, &capabilities())
             .unwrap();
 
         assert_complete_readback(&admitted, &expected);
@@ -1802,7 +1926,7 @@ mod tests {
             assert_eq!(owner.commit(mutation), Err(expected_error));
             assert_eq!(owner.record_counts().unwrap(), (1, 1));
             let admitted = owner
-                .resolve_admitted(&receipt.locator, &capabilities())
+                .resolve_admitted_sync(&receipt.locator, &capabilities())
                 .unwrap();
             assert_complete_readback(&admitted, &expected);
         }
@@ -1819,7 +1943,7 @@ mod tests {
         );
         assert_eq!(owner.record_counts().unwrap(), (1, 1));
         let admitted = owner
-            .resolve_admitted(&receipt.locator, &capabilities())
+            .resolve_admitted_sync(&receipt.locator, &capabilities())
             .unwrap();
         assert_complete_readback(&admitted, &expected);
     }
@@ -1892,7 +2016,11 @@ mod tests {
         forged!(clock_epoch, locator.clock_epoch + 1);
 
         for forged in forgeries {
-            assert!(owner.resolve_admitted(&forged, &capabilities()).is_err());
+            assert!(
+                owner
+                    .resolve_admitted_sync(&forged, &capabilities())
+                    .is_err()
+            );
         }
     }
 
@@ -1900,17 +2028,21 @@ mod tests {
     fn resolution_requires_capabilities_and_half_open_time() {
         let owner = store();
         let locator = owner.commit(draft()).unwrap().locator;
-        assert!(owner.resolve_admitted(&locator, &capabilities()).is_ok());
+        assert!(
+            owner
+                .resolve_admitted_sync(&locator, &capabilities())
+                .is_ok()
+        );
         owner.advance_trusted_clock(2_000, 7).unwrap();
         assert_eq!(
-            owner.resolve_admitted(&locator, &capabilities()),
+            owner.resolve_admitted_sync(&locator, &capabilities()),
             Err(AdapterBindingError::TimeMismatch)
         );
         let capability_owner = store();
         let capability_locator = capability_owner.commit(draft()).unwrap().locator;
         assert_eq!(
             capability_owner
-                .resolve_admitted(&capability_locator, &[PaperAdapterCapability::BatchCancel]),
+                .resolve_admitted_sync(&capability_locator, &[PaperAdapterCapability::BatchCancel]),
             Err(AdapterBindingError::CapabilityMismatch)
         );
 
@@ -1918,7 +2050,7 @@ mod tests {
         let epoch_locator = epoch_owner.commit(draft()).unwrap().locator;
         epoch_owner.advance_trusted_clock(1_200, 8).unwrap();
         assert_eq!(
-            epoch_owner.resolve_admitted(&epoch_locator, &capabilities()),
+            epoch_owner.resolve_admitted_sync(&epoch_locator, &capabilities()),
             Err(AdapterBindingError::TimeMismatch)
         );
     }
@@ -1979,7 +2111,7 @@ mod tests {
             candidate.state = state;
             let locator = owner.commit(candidate).unwrap().locator;
             assert_eq!(
-                owner.resolve_admitted(&locator, &capabilities()),
+                owner.resolve_admitted_sync(&locator, &capabilities()),
                 Err(AdapterBindingError::NotAdmitted)
             );
         }
@@ -1995,7 +2127,7 @@ mod tests {
         successor.observed_at_epoch_ms = 1_200;
         owner.commit(successor).unwrap();
         assert_eq!(
-            owner.resolve_admitted(&prior, &capabilities()),
+            owner.resolve_admitted_sync(&prior, &capabilities()),
             Err(AdapterBindingError::NotCurrentHead)
         );
         assert_eq!(owner.record_counts().unwrap(), (2, 2));
