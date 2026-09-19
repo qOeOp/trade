@@ -9669,6 +9669,7 @@ dependencies = [
  "thiserror 2.0.19",
  "tokio",
  "trybuild",
+ "vibe-backtest",
  "vibe-backtest-owner-contracts",
  "vibe-backtest-result-custody",
  "vibe-data",
