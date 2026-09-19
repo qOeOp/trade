@@ -26,6 +26,7 @@ CREATE ROLE composer_owner NOLOGIN;
 CREATE ROLE rd_exploratory_replay_api_owner NOLOGIN;
 CREATE ROLE market_data_owner NOLOGIN;
 CREATE ROLE market_data_reader NOLOGIN;
+CREATE ROLE instrument_owner NOLOGIN;
 CREATE ROLE rd_owner LOGIN PASSWORD :'rd_password';
 -- The Rust materializer creates the replay API functions before the authority
 -- migration transfers ownership and removes every cross-role membership.
@@ -33,6 +34,12 @@ GRANT rd_exploratory_replay_api_owner TO rd_owner;
 CREATE ROLE rd_fact_writer LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'fact_writer_password';
 CREATE ROLE replay_policy_catalog_admin_writer LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'catalog_admin_password';
 CREATE DATABASE :"rd_owner_database_name" OWNER rd_owner;
+-- Instrument Owner creates its own `instrument_owner_private` schema, so unlike every
+-- other Owner writer it needs CREATE on the database. This grant is database-scoped and
+-- therefore belongs here, which runs once against the Owner database: the authority
+-- migration runs per database, including the ordered chain's clones, and that chain
+-- asserts no listed role holds CREATE on a clone.
+GRANT CREATE ON DATABASE :"rd_owner_database_name" TO instrument_owner;
 CREATE ROLE operator_authorization_owner NOLOGIN;
 CREATE ROLE operator_authorization_writer LOGIN PASSWORD :'issuer_password';
 GRANT operator_authorization_owner TO operator_authorization_writer;
