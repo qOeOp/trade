@@ -648,8 +648,8 @@ fn map_product_edge_error(error: ProductEdgeError) -> IterationResultAdmissionEr
         ProductEdgeError::ConflictingReplay => IterationResultAdmissionErrorV1::Unavailable(
             "Product Edge iteration-result admission conflicts with committed meaning".to_string(),
         ),
-        ProductEdgeError::Unavailable => IterationResultAdmissionErrorV1::Unavailable(
-            "Product Edge iteration-result admission is unavailable".to_string(),
+        ProductEdgeError::Unavailable(detail) => IterationResultAdmissionErrorV1::Unavailable(
+            format!("Product Edge iteration-result admission is unavailable: {detail}"),
         ),
     }
 }
@@ -661,7 +661,9 @@ mod tests {
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
     use super::*;
-    use crate::iteration_result_admission::tests::{admission_fixture, admission_request_fixture};
+    use crate::iteration_result_admission::tests::{
+        admission_fixture, seeded_admission_fixture, seeded_admission_request_fixture,
+    };
 
     const OUTBOX_DDL: &str = "CREATE TABLE rd_owner_outbox_v1 (event_identity TEXT PRIMARY KEY, aggregate_identity TEXT NOT NULL, event_kind TEXT NOT NULL, payload_digest TEXT NOT NULL, payload_json JSONB NOT NULL, canonical_payload_bytes BYTEA, canonical_payload_storage_digest TEXT, canonical_envelope_bytes BYTEA, canonical_envelope_storage_digest TEXT, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE (aggregate_identity, event_kind))";
 
@@ -788,14 +790,32 @@ mod tests {
             .mutation()
             .pool(CanonicalOwnerTestRoleV1::RdOwner)
             .clone();
-        sqlx::query(OUTBOX_DDL)
-            .execute(&pool)
-            .await
-            .expect("R&D outbox");
-        migrate(&pool).await.expect("admission schema");
-        crate::schema_materialization::verify_materialized_public_tables(&pool, TABLES)
-            .await
-            .expect("exact admission schema");
+        // A store the deployment has already materialized carries both relations and is past the
+        // cutover, where `rd_owner` holds no CREATE on public and materialization is refused by
+        // design. Creating them again there is neither possible nor wanted; a fresh store still
+        // needs both. Either way the readback below is what decides the schema is exact.
+        let materialized: bool = sqlx::query_scalar(
+            "SELECT pg_catalog.to_regclass('public.rd_owner_outbox_v1') IS NOT NULL
+                AND pg_catalog.to_regclass('public.rd_iteration_result_admissions_v1') IS NOT NULL",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("materialization state");
+
+        if materialized {
+            crate::schema_materialization::require_existing_public_tables(&pool, TABLES)
+                .await
+                .expect("exact admission schema");
+        } else {
+            sqlx::query(OUTBOX_DDL)
+                .execute(&pool)
+                .await
+                .expect("R&D outbox");
+            migrate(&pool).await.expect("admission schema");
+            crate::schema_materialization::verify_materialized_public_tables(&pool, TABLES)
+                .await
+                .expect("exact admission schema");
+        }
         (database, pool)
     }
 
@@ -850,7 +870,9 @@ mod tests {
     #[ignore = "requires the canonical disposable R&D Owner PostgreSQL topology"]
     async fn a_committed_admission_is_read_back_by_its_locator_and_never_created_by_one() {
         let (_database, pool) = prepare_admission_custody().await;
-        let readback = admission_fixture();
+        // Each durable test carries its own locator: the chain shares one store, so an assertion
+        // about "the" admission table would be an assertion about its neighbours.
+        let readback = seeded_admission_fixture("readback");
         let locator = readback.admission().locator().clone();
 
         assert!(
@@ -859,11 +881,14 @@ mod tests {
                 .expect("absent admission resolves")
                 .is_none()
         );
-        let absent_count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM public.rd_iteration_result_admissions_v1")
-                .fetch_one(&pool)
-                .await
-                .expect("admission count");
+        let absent_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM public.rd_iteration_result_admissions_v1
+              WHERE trial_family_identity=$1",
+        )
+        .bind(&locator.trial_family_identity)
+        .fetch_one(&pool)
+        .await
+        .expect("admission count");
         assert_eq!(absent_count, 0);
 
         commit_admission(&pool, &readback).await;
@@ -876,22 +901,32 @@ mod tests {
         );
     }
 
+    /// Not selected by the ordered chain, and the reason is the Product Edge seam, not this test.
+    ///
+    /// It is the only durable admission proof that needs a Product Edge admission, and
+    /// `bootstrap_operation_admission` raises its own genesis under a fresh deployment identity.
+    /// That is right for a private store and wrong for the chain's shared one, where a genesis
+    /// already exists: the admission is written under one deployment and resolved under another, so
+    /// the Owner correctly reports it unavailable. Selecting it would report that gap as this
+    /// proof's failure. The gap is that the iteration-result operation has no Product Edge seam
+    /// yet; its `..._OPERATION_V1`, `..._MUTATION_EFFECT_V1` and `..._SCHEMA_V1` constants still
+    /// have no production consumer.
     #[tokio::test]
     #[ignore = "requires the canonical disposable R&D Owner PostgreSQL topology"]
     async fn a_retry_reads_the_committed_admission_back_and_a_changed_request_conflicts() {
         let (database, pool) = prepare_admission_custody().await;
-        let readback = admission_fixture();
+        let readback = seeded_admission_fixture("retry");
         commit_admission(&pool, &readback).await;
 
         let retried = Box::pin(admit_iteration_result_v1(
             &pool,
-            &admitted(&database, admission_request_fixture()).await,
+            &admitted(&database, seeded_admission_request_fixture("retry")).await,
         ))
         .await
         .expect("retry reads the committed admission back");
         assert_eq!(retried, readback);
 
-        let mut changed = admission_request_fixture();
+        let mut changed = seeded_admission_request_fixture("retry");
         changed.proposals.proposals.truncate(1);
         changed.proposals.expected_cardinality = 1;
         // A changed meaning needs its own admission; the committed fact still refuses it.
@@ -901,17 +936,24 @@ mod tests {
             Err(IterationResultAdmissionErrorV1::Conflict)
         ));
 
-        let admissions: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM public.rd_iteration_result_admissions_v1")
-                .fetch_one(&pool)
-                .await
-                .expect("admission count");
-        let events: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind=$1")
-                .bind(ITERATION_RESULT_ADMITTED_EVENT_V1)
-                .fetch_one(&pool)
-                .await
-                .expect("outbox count");
+        let locator = readback.admission().locator().clone();
+        let admissions: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM public.rd_iteration_result_admissions_v1
+              WHERE trial_family_identity=$1",
+        )
+        .bind(&locator.trial_family_identity)
+        .fetch_one(&pool)
+        .await
+        .expect("admission count");
+        let events: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM rd_owner_outbox_v1
+              WHERE event_kind=$1 AND aggregate_identity=$2",
+        )
+        .bind(ITERATION_RESULT_ADMITTED_EVENT_V1)
+        .bind(readback.admission().admission_identity())
+        .fetch_one(&pool)
+        .await
+        .expect("outbox count");
         assert_eq!((admissions, events), (1, 1));
     }
 
@@ -919,7 +961,7 @@ mod tests {
     #[ignore = "requires the canonical disposable R&D Owner PostgreSQL topology"]
     async fn a_locator_from_another_experiment_never_reads_this_admission_back() {
         let (_database, pool) = prepare_admission_custody().await;
-        let readback = admission_fixture();
+        let readback = seeded_admission_fixture("foreign-locator");
         commit_admission(&pool, &readback).await;
 
         let mut foreign = readback.admission().locator().clone();
@@ -943,7 +985,7 @@ mod tests {
     #[ignore = "requires the canonical disposable R&D Owner PostgreSQL topology"]
     async fn row_scalar_storage_or_outbox_tamper_closes_the_readback() {
         let (_database, pool) = prepare_admission_custody().await;
-        let readback = admission_fixture();
+        let readback = seeded_admission_fixture("tamper");
         let locator = readback.admission().locator().clone();
         commit_admission(&pool, &readback).await;
 
@@ -991,8 +1033,9 @@ mod tests {
     #[ignore = "requires the canonical disposable R&D Owner PostgreSQL topology"]
     async fn a_malformed_request_never_reaches_owner_custody() {
         let (_database, pool) = prepare_admission_custody().await;
-        let mut malformed = admission_request_fixture();
+        let mut malformed = seeded_admission_request_fixture("malformed");
         malformed.locator.result_identity = "backtest result 1".to_owned();
+        let trial_family_identity = malformed.locator.trial_family_identity.clone();
         // A malformed request cannot even become a proposal, so it never reaches an admission,
         // a transaction or the Owner.
         assert!(matches!(
@@ -1004,11 +1047,14 @@ mod tests {
             Err(IterationResultAdmissionErrorV1::InvalidLocator)
         ));
 
-        let count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM public.rd_iteration_result_admissions_v1")
-                .fetch_one(&pool)
-                .await
-                .expect("admission count");
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM public.rd_iteration_result_admissions_v1
+              WHERE trial_family_identity=$1",
+        )
+        .bind(&trial_family_identity)
+        .fetch_one(&pool)
+        .await
+        .expect("admission count");
         assert_eq!(count, 0);
     }
 }

@@ -9925,6 +9925,7 @@ dependencies = [
  "ustr",
  "vibe-common",
  "vibe-core",
+ "vibe-data",
  "vibe-live",
  "vibe-model",
  "vibe-network",
@@ -10385,13 +10386,26 @@ dependencies = [
  "rust_decimal_macros",
  "serde",
  "serde_json",
- "sha2 0.10.9",
  "smallvec",
  "ustr",
  "uuid",
  "vibe-common",
  "vibe-core",
  "vibe-model",
+]
+
+[[package]]
+name = "vibe-execution-owner"
+version = "0.62.0"
+dependencies = [
+ "async-trait",
+ "rstest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "tokio",
+ "vibe-testkit",
 ]
 
 [[package]]
@@ -10999,6 +11013,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "vibe-portfolio-owner"
+version = "0.62.0"
+dependencies = [
+ "rstest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "tokio",
+ "vibe-testkit",
+]
+
+[[package]]
 name = "vibe-product-edge"
 version = "0.62.0"
 dependencies = [
@@ -11202,7 +11229,7 @@ name = "vibe-runtime"
 version = "0.62.0"
 dependencies = [
  "rstest",
- "vibe-execution",
+ "vibe-execution-owner",
 ]
 
 [[package]]
@@ -11310,6 +11337,8 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.19",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
  "vibe-analysis",
  "vibe-backtest",
  "vibe-backtest-owner-contracts",
@@ -11348,6 +11377,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "axum",
+ "ed25519-dalek",
  "rstest",
  "serde",
  "serde_json",

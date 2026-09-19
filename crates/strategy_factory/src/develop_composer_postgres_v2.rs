@@ -28,13 +28,15 @@ use vibe_data::owner::{
 };
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use crate::develop_composer_operation_v2::prepare_develop_composer_a0_v2;
 use crate::develop_composer_operation_v2::{
     DevelopComposerV3BuildRestartPortV2, PreparedDevelopComposerA0V2,
-    finish_positive_record_from_prepared_a0_v2, prepare_develop_composer_a0_v2,
-    prepare_develop_composer_bfp_v3, resolve_positive_record_with_v3_restart_v2,
+    finish_positive_record_from_prepared_a0_v2, prepare_develop_composer_bfp_v3,
+    resolve_positive_record_with_v3_restart_v2,
 };
 #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
 use crate::plugin_wire_v2::PLUGIN_FRAME_ABI_V2;
+use crate::source_research_composer_postgres_v2::PostgresSourceResearchComposerProductionV2;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::source_research_composer_postgres_v2::SealedPostgresSourceResearchComposerV2;
 use crate::{
@@ -48,7 +50,6 @@ use crate::{
     },
     strategy_plan_v2::project_strategy_design_role_set_v1,
 };
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::{
     develop_plugin_build_v3::DevelopPluginBuildProducerV3,
     rd_bounded_feature_program_v1::FrozenResearchBoundedFeatureProgramV1,
@@ -93,7 +94,6 @@ const ACCEPTANCE_COMMIT_QUERY_V3: &str = "SELECT composer_owner_api.commit_devel
 const COMPOSER_OWNER_API_FUNCTION_COUNT_V2: i64 = 10;
 #[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
 const COMPOSER_OWNER_API_FUNCTION_COUNT_V2: i64 = 8;
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 const COMMIT_CUT_FUNCTION_V2: &str = "composer_owner_api.lock_develop_composer_commit_cut_v2(text)";
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 pub const SEALED_COMPOSER_FAIL_AFTER_GUC_V2: &str = "vibe.sealed_acceptance.composer_fail_after";
@@ -625,7 +625,6 @@ const SEALED_READ_FUNCTION_SOURCE_V2: &str = "BEGIN
     ) builds ON TRUE
    WHERE operation.request_identity=p_request_identity;
 END";
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 const COMMIT_CUT_FUNCTION_SOURCE_V2: &str = "BEGIN
   IF SESSION_USER<>'rd_owner' OR CURRENT_USER<>'composer_owner' THEN RAISE EXCEPTION 'R&D Owner required' USING ERRCODE='42501'; END IF;
   PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||p_request_identity,0));
@@ -962,6 +961,8 @@ mod sealed_read_port {
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 impl sealed_read_port::RdOwned for SealedPostgresSourceResearchComposerV2 {}
 
+impl sealed_read_port::RdOwned for PostgresSourceResearchComposerProductionV2 {}
+
 /// Query-only boundary that only an R&D-owned implementation can provide.
 #[async_trait]
 pub trait DevelopComposerSealedReadPortV2: sealed_read_port::RdOwned + Send + Sync {
@@ -970,77 +971,6 @@ pub trait DevelopComposerSealedReadPortV2: sealed_read_port::RdOwned + Send + Sy
         &self,
         locator: &DevelopComposerSealedReadLocatorV2,
     ) -> Result<SealedDevelopComposerReadbackV2, DevelopComposerSealedReadErrorV2>;
-}
-
-/// R&D composition-root implementation. Its evidence seam and constructor remain crate-private so
-/// a downstream caller cannot substitute its own current-custody authority.
-#[allow(
-    dead_code,
-    reason = "the future R&D composition root injects this port into the Backtest-owned runner"
-)]
-pub(crate) struct PostgresDevelopComposerSealedReadPortV2<E> {
-    store: PostgresDevelopComposerStoreV2,
-    evidence: E,
-    read_cut_epoch_ms: u64,
-}
-
-#[allow(
-    dead_code,
-    reason = "the future R&D composition root owns construction of the sealed read port"
-)]
-impl<E> PostgresDevelopComposerSealedReadPortV2<E> {
-    pub(crate) const fn new(
-        store: PostgresDevelopComposerStoreV2,
-        evidence: E,
-        read_cut_epoch_ms: u64,
-    ) -> Self {
-        Self {
-            store,
-            evidence,
-            read_cut_epoch_ms,
-        }
-    }
-}
-
-impl<E> sealed_read_port::RdOwned for PostgresDevelopComposerSealedReadPortV2<E> {}
-
-#[async_trait]
-impl<E> DevelopComposerSealedReadPortV2 for PostgresDevelopComposerSealedReadPortV2<E>
-where
-    E: DevelopComposerFinalEvidencePortV2 + Send + Sync,
-{
-    async fn read_accepted(
-        &self,
-        locator: &DevelopComposerSealedReadLocatorV2,
-    ) -> Result<SealedDevelopComposerReadbackV2, DevelopComposerSealedReadErrorV2> {
-        let mut transaction = self
-            .store
-            .begin_read_transaction()
-            .await
-            .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
-        let record = load_record_via_sealed_routine_in_transaction(
-            &mut transaction,
-            &locator.request_identity,
-        )
-        .await?
-        .ok_or(DevelopComposerSealedReadErrorV2::Unavailable)?;
-        if !locator_matches_record_keys(locator, &record) {
-            return Err(DevelopComposerSealedReadErrorV2::Unavailable);
-        }
-        let current = self
-            .evidence
-            .lock_and_reread_durable(
-                &DevelopComposerDurableEvidenceLocatorV2::from_record(&record),
-                self.read_cut_epoch_ms,
-            )
-            .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
-        let readback = read_accepted_in_transaction(&mut transaction, locator, current).await?;
-        transaction
-            .commit()
-            .await
-            .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
-        Ok(readback)
-    }
 }
 
 fn locator_matches_record_keys(
@@ -1485,14 +1415,14 @@ pub(crate) async fn read_accepted_for_replay_historical_in_transaction(
     {
         return Err(DevelopComposerSealedReadErrorV2::Unavailable);
     }
-    let response = crate::source_research_composer_postgres_v2::resolve_composer_record_for_historical_replay_in_transaction(
+    let response = Box::pin(crate::source_research_composer_postgres_v2::resolve_composer_record_for_historical_replay_in_transaction(
         transaction,
         &record,
         pre_transition_view,
         expected_current_view,
         expected_exploration,
         expected_binding,
-    )
+    ))
     .await?;
     seal_readback(locator, record, &response)
 }
@@ -1507,7 +1437,6 @@ fn seal_accepted_record(
     seal_readback(locator, record, &response)
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 pub(crate) async fn read_accepted_in_transaction_with_v3_restart(
     transaction: &mut Transaction<'_, Postgres>,
     locator: &DevelopComposerSealedReadLocatorV2,
@@ -1550,7 +1479,6 @@ async fn load_record_via_sealed_routine_in_transaction(
     Ok(record)
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 async fn load_record_via_commit_cut_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     request_identity: &str,
@@ -2163,7 +2091,6 @@ async fn verify_composer_acceptance_commit_authority_in_transaction(
     }
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 async fn verify_composer_commit_cut_authority_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<(), sqlx::Error> {
@@ -2225,7 +2152,7 @@ async fn verify_composer_commit_cut_authority_in_transaction(
 async fn verify_composer_writer_authority_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<(), sqlx::Error> {
-    let exact: bool = sqlx::query_scalar(
+    let row = sqlx::query(
         "WITH writer AS (
            SELECT role.oid,
                   role.rolcanlogin,
@@ -2254,23 +2181,23 @@ async fn verify_composer_writer_authority_in_transaction(
               AND NOT attribute.attisdropped
          )
          SELECT SESSION_USER='rd_fact_writer'
-            AND CURRENT_USER='rd_fact_writer'
-            AND (SELECT rolcanlogin AND rolinherit
+              , CURRENT_USER='rd_fact_writer'
+              , (SELECT rolcanlogin AND rolinherit
                         AND NOT rolsuper
                         AND NOT rolcreatedb
                         AND NOT rolcreaterole
                         AND NOT rolreplication
                         AND NOT rolbypassrls
                    FROM writer)
-            AND NOT EXISTS (
+              , NOT EXISTS (
               SELECT 1
                 FROM writer
                 JOIN pg_catalog.pg_auth_members membership
                   ON membership.member=writer.oid
                   OR membership.roleid=writer.oid
             )
-            AND (SELECT count(*)=cardinality($1) FROM private_relations)
-            AND NOT EXISTS (
+              , (SELECT count(*)=cardinality($1) FROM private_relations)
+              , NOT EXISTS (
               SELECT 1
                 FROM writer
                 CROSS JOIN private_relations relation
@@ -2280,7 +2207,7 @@ async fn verify_composer_writer_authority_in_transaction(
                  'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
                )
             )
-            AND NOT EXISTS (
+              , NOT EXISTS (
               SELECT 1
                 FROM writer
                 CROSS JOIN private_columns column_fact
@@ -2291,7 +2218,7 @@ async fn verify_composer_writer_authority_in_transaction(
                  'SELECT,INSERT,UPDATE,REFERENCES'
                )
             )
-            AND (SELECT pg_catalog.has_schema_privilege(
+              , (SELECT pg_catalog.has_schema_privilege(
                           writer.oid,
                           private_namespace.oid,
                           'USAGE'
@@ -2304,7 +2231,7 @@ async fn verify_composer_writer_authority_in_transaction(
                    FROM writer
                    JOIN pg_catalog.pg_namespace private_namespace
                      ON private_namespace.nspname='composer_private')
-            AND (SELECT pg_catalog.has_schema_privilege(
+              , (SELECT pg_catalog.has_schema_privilege(
                           writer.oid,
                           api_namespace.oid,
                           'USAGE'
@@ -2317,7 +2244,7 @@ async fn verify_composer_writer_authority_in_transaction(
                    FROM writer
                    JOIN pg_catalog.pg_namespace api_namespace
                      ON api_namespace.nspname='composer_owner_api')
-            AND (SELECT pg_catalog.has_database_privilege(
+              , (SELECT pg_catalog.has_database_privilege(
                           writer.oid,
                           database.oid,
                           'CONNECT'
@@ -2335,7 +2262,7 @@ async fn verify_composer_writer_authority_in_transaction(
                    FROM writer
                    JOIN pg_catalog.pg_database database
                      ON database.datname=pg_catalog.current_database())
-            AND (SELECT count(*)=2
+              , (SELECT count(*)=2
                         AND bool_and(procedure.oid IN (
                           pg_catalog.to_regprocedure($2),
                           pg_catalog.to_regprocedure($3)
@@ -2353,20 +2280,64 @@ async fn verify_composer_writer_authority_in_transaction(
     .fetch_one(&mut **transaction)
     .await?;
 
-    if exact {
+    refuse_unmet_authority_clauses(
+        "Composer writer authority is unavailable",
+        &[
+            "session user",
+            "current user",
+            "role attributes",
+            "role memberships",
+            "private relations",
+            "private table privilege",
+            "private column privilege",
+            "private schema privilege",
+            "api schema privilege",
+            "database privilege",
+            "executable functions",
+        ],
+        &row,
+    )
+}
+
+/// Refuses with every named clause the row does not hold as exactly `true`. A clause that
+/// evaluated to NULL is unmet, not undecided, and a row whose width differs from the clause list is
+/// refused before any clause is read.
+fn refuse_unmet_authority_clauses(
+    refusal: &str,
+    clauses: &[&str],
+    row: &sqlx::postgres::PgRow,
+) -> Result<(), sqlx::Error> {
+    if row.len() != clauses.len() {
+        return Err(sqlx::Error::Protocol(format!(
+            "{refusal}: expected {} authority clauses, found {}",
+            clauses.len(),
+            row.len()
+        )));
+    }
+    let mut unmet = Vec::new();
+
+    for (index, clause) in clauses.iter().enumerate() {
+        let held: Option<bool> = row.try_get(index)?;
+
+        if held != Some(true) {
+            unmet.push(*clause);
+        }
+    }
+
+    if unmet.is_empty() {
         Ok(())
     } else {
-        Err(sqlx::Error::Protocol(
-            "Composer writer authority is unavailable".to_owned(),
-        ))
+        Err(sqlx::Error::Protocol(format!(
+            "{refusal}: {}",
+            unmet.join(", ")
+        )))
     }
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 async fn verify_rd_owner_composer_writer_authority_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<(), sqlx::Error> {
-    let exact: bool = sqlx::query_scalar(
+    let row = sqlx::query(
         "WITH caller AS (
            SELECT role.oid,role.rolcanlogin,role.rolinherit,role.rolsuper,role.rolcreatedb,
                   role.rolcreaterole,role.rolreplication,role.rolbypassrls
@@ -2380,29 +2351,36 @@ async fn verify_rd_owner_composer_writer_authority_in_transaction(
               AND relation.relname=ANY($1)
               AND relation.relkind IN ('r','p')
          )
-         SELECT SESSION_USER='rd_owner' AND CURRENT_USER='rd_owner'
-            AND (SELECT rolcanlogin AND rolinherit AND NOT rolsuper AND NOT rolcreatedb
+         SELECT SESSION_USER='rd_owner'
+              , CURRENT_USER='rd_owner'
+              , (SELECT rolcanlogin AND rolinherit AND NOT rolsuper AND NOT rolcreatedb
                         AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls FROM caller)
-            AND NOT EXISTS (SELECT 1 FROM caller JOIN pg_catalog.pg_auth_members membership ON membership.member=caller.oid OR membership.roleid=caller.oid)
-            AND (SELECT count(*)=cardinality($1) FROM private_relations)
-            AND NOT EXISTS (
+              , NOT EXISTS (SELECT 1 FROM caller JOIN pg_catalog.pg_auth_members membership ON membership.member=caller.oid OR membership.roleid=caller.oid)
+              , (SELECT count(*)=cardinality($1) FROM private_relations)
+              , NOT EXISTS (
               SELECT 1 FROM caller CROSS JOIN private_relations relation
                WHERE pg_catalog.has_table_privilege(caller.oid,relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
             )
-            AND pg_catalog.has_function_privilege('rd_owner',$2,'EXECUTE')",
+              , pg_catalog.has_function_privilege('rd_owner',$2,'EXECUTE')",
     )
     .bind(COMPOSER_TABLES_V2.as_slice())
     .bind(COMMIT_FUNCTION_V2)
     .fetch_one(&mut **transaction)
     .await?;
 
-    if exact {
-        Ok(())
-    } else {
-        Err(sqlx::Error::Protocol(
-            "R&D Owner Composer write authority is unavailable".to_owned(),
-        ))
-    }
+    refuse_unmet_authority_clauses(
+        "R&D Owner Composer write authority is unavailable",
+        &[
+            "session user",
+            "current user",
+            "role attributes",
+            "role memberships",
+            "private relations",
+            "private table privilege",
+            "commit function",
+        ],
+        &row,
+    )
 }
 
 fn exact_ordinal_array(
@@ -2535,7 +2513,6 @@ async fn verify_transaction_database(
     }
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 async fn transaction_identity(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<String, sqlx::Error> {
@@ -2606,13 +2583,11 @@ pub struct PostgresDevelopComposerStoreV2 {
 /// Query-only Composer store used by the Dashboard read composition.
 ///
 /// This type owns no fact-writer pool and exposes no mutation method.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 pub(crate) struct PostgresDevelopComposerReadStoreV2 {
     read_pool: PgPool,
     database_fingerprint: ComposerDatabaseFingerprintV2,
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 impl PostgresDevelopComposerReadStoreV2 {
     pub(crate) async fn connect(rd_owner_database_url: &str) -> Result<Self, sqlx::Error> {
         let read_pool = sqlx::postgres::PgPoolOptions::new()
@@ -2660,13 +2635,11 @@ async fn verify_composer_read_pool(pool: &PgPool) -> Result<(), sqlx::Error> {
     transaction.rollback().await
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 pub(crate) enum PreparedDevelopComposerRunInTransactionV2 {
     Complete(Box<DevelopComposerOperationResponseV2>),
     Prepared(Box<PreparedPostgresDevelopComposerRunV2>),
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 pub(crate) struct PreparedPostgresDevelopComposerRunV2 {
     database_fingerprint: ComposerDatabaseFingerprintV2,
     transaction_identity: String,
@@ -2883,7 +2856,6 @@ impl PostgresDevelopComposerStoreV2 {
         ))
     }
 
-    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     pub(crate) async fn resolve_with_evidence_and_v3_restart(
         &self,
         request_identity: &str,
@@ -3120,7 +3092,7 @@ impl PostgresDevelopComposerStoreV2 {
         ))
     }
 
-    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn prepare_bfp_v3_run_in_transaction(
         &self,
         transaction: &mut Transaction<'_, Postgres>,
@@ -3195,7 +3167,6 @@ impl PostgresDevelopComposerStoreV2 {
         ))
     }
 
-    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     pub(crate) async fn commit_prepared_run_in_transaction(
         &self,
         transaction: &mut Transaction<'_, Postgres>,
@@ -3213,7 +3184,6 @@ impl PostgresDevelopComposerStoreV2 {
         .await
     }
 
-    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     pub(crate) async fn commit_prepared_bfp_v3_run_in_transaction(
         &self,
         transaction: &mut Transaction<'_, Postgres>,
@@ -3292,14 +3262,13 @@ impl PostgresDevelopComposerStoreV2 {
         .await
     }
 
-    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     async fn commit_prepared_run_in_transaction_with_fault_for_test(
         &self,
         transaction: &mut Transaction<'_, Postgres>,
         request: &DevelopComposerRunRequestV2,
         prepared: PreparedPostgresDevelopComposerRunV2,
         final_locked: DevelopComposerLockedEvidenceV2,
-        fail_after_boundary: Option<DevelopComposerAcceptanceWriteBoundaryV2>,
+        fail_after_boundary: Option<DevelopComposerFaultBoundaryV2>,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
         verify_transaction_database(transaction, &self.database_fingerprint).await?;
         let current_transaction_identity = transaction_identity(transaction).await?;
@@ -3729,20 +3698,15 @@ async fn persist_record(
     >,
 ) -> Result<(), sqlx::Error> {
     verify_transaction_database(transaction, database_fingerprint).await?;
-    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
-    {
-        let session_user: String = sqlx::query_scalar("SELECT SESSION_USER")
-            .fetch_one(&mut **transaction)
-            .await?;
+    let session_user: String = sqlx::query_scalar("SELECT SESSION_USER")
+        .fetch_one(&mut **transaction)
+        .await?;
 
-        if session_user == "rd_owner" {
-            verify_rd_owner_composer_writer_authority_in_transaction(transaction).await?;
-        } else {
-            verify_composer_writer_authority_in_transaction(transaction).await?;
-        }
+    if session_user == "rd_owner" {
+        verify_rd_owner_composer_writer_authority_in_transaction(transaction).await?;
+    } else {
+        verify_composer_writer_authority_in_transaction(transaction).await?;
     }
-    #[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
-    verify_composer_writer_authority_in_transaction(transaction).await?;
     verify_composer_commit_authority_in_transaction(transaction).await?;
     let plan = crate::strategy_plan_v2::StrategyPlanV2::parse_and_revalidate_durable(
         &record.plan_bytes,

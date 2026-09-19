@@ -4,6 +4,40 @@
 
 独立判断冻结候选是否满足预注册证据 holdout 成本 容量和运行条件。Qualification 拥有可部署资格证据，不拥有策略设计 激活或恢复。
 
+## Eligibility 终端状态
+
+本节是实现状态记录，不是契约。它本身不授予任何权限，列在这里的步骤也不构成建造 部署或驱动保护评估的权威。
+下文契约不因某个步骤有没有调用者而改变。
+
+**Eligibility 终端从未被驱动过。** 下列每一步都已实现且都没有调用者，因此系统从未存在过
+Protected Replay Request Set、Attempt Frontier、Robustness Assessment 或 Eligibility Fact。
+有序 PostgreSQL 门禁只走到 `ADMITTED` intake 和一条 Origin（`schema_version=1`）replay request，
+而它那两条收尾条目恰好断言 Eligibility **不存在**。
+
+| 步骤                                            | 状态     |
+| ----------------------------------------------- | -------- |
+| `submit_protected_replay_request_v2`            | 无调用者 |
+| `seal_protected_replay_request_set_v1`          | 无调用者 |
+| `produce_and_commit_protected_replay_result_v3` | 无调用者 |
+| `close_protected_replay_attempt_frontier_v1`    | 无调用者 |
+| `close_economic_pass_assessment_v1`             | 无调用者 |
+
+这些步骤严格串联，而第一步卡在**缺少 Owner 输入**而非缺少驱动。V2 请求是 V1 提案加一个
+`ClockHeadHandoff`，共享时钟 resolver 由 `DEPLOYMENT_STORE_ADMISSION_MODE` 构造，而门禁没有设置它，
+所以 resolver 返回空，V2 请求在那个环境里根本无法构造。其后 set 封存只接纳 `schema_version=2`
+成员--Origin 行的规范编码不同，读进来会让 frontier 搁浅--所以只有 Origin 行时，即便调用也只会
+封出一个空集合。
+
+因此把共享时钟证据准入到门禁环境，是终端的第一前置；在那之前写任何驱动都没有意义。
+
+**TARGET - 需要部署授权的终端，以及它在等什么：** 这条终端是 TARGET，不是未完成的工作。
+`DEPLOYMENT_STORE_ADMISSION_MODE` 保持 `disabled`，直到存在一个部署授权方能够签发 `required`
+所要求的东西：custodian 签名历史、反回滚 witness、凭据租约与直接测量。这些在本仓库都不存在，
+也未授权任何真实交易或生产写入，因此 resolver 返回空是正确的关闭状态而非缺陷。
+Qualification 的其余部分并不排在它后面：attempt frontier、候选与评估规则，
+以及上文的 protected-replay custody 都是可分离的工作；把这条终端当成它们的阻塞，
+是对依赖关系的误读，而不是依赖本身的性质。
+
 ## 拥有的权威事实
 
 - 持久 principal/scope 保护反馈历史及其不透明解析 frontier。Research 前的读取绑定一个准确 R&D
@@ -86,10 +120,31 @@ Executable provenance 是独立的效果边界。Qualification 记录实际使�
   它们还交叉绑定唯一准确预注册保护决策政策身份与版本及一个冻结 Protected Robustness Plan。
 - Product Edge 提交一个稳定评估请求，绑定来源 Research 请求 Candidate 规范类型化含义和从来源到当前的保护反馈观察前沿。
 - [Backtest](./backtest/) 返回请求的保护 Run Result 和消费输入回执，每个实际消费执行字段必须与请求字段完全相等。
+  该 Result 携带保护经济测量，它重复本 Owner 随请求集合封存的那份冻结 `ProtectedEconomicPolicyBundleV1`
+  的度量身份与摘要 单位与标度；不能逐项重复它们的测量就不是对被封存政策的测量，该次尝试因此关闭。
+- Operator Authorization 是需要部署授权的终端的上游。它必须签发什么
+  以及这条交接为何是 TARGET，在 Eligibility 终端状态一节已述一次，此处不重复。
 - 已提交证据变化可以触发重评，唤醒通道不能替代读取 Owner 事实。
+
+以下是这些交接的实现状态记录，不是契约。只有 Product Edge 这条有生产调用者：
+`resolve_or_create_for_basis` 与 `admit_in_transaction` 由 vibe-strategy-factory 的生产代码调用，
+`admit_historical_projection_in_transaction` 由它的 R&D custody 路径调用。R&D 的 Candidate 那条没有：
+本 Owner 之外每一处 `submit_candidate_intake_v1` 调用都位于一个密封验收测试模块里。
+Backtest 在生产中无法完成经济测量中属于它的那一半，因为它没有任何已准入的途径读到冻结的度量引用：
+读不到 R&D 的 plan，那条唯一的密封读返回的是原生重放源存储；也读不到
+`qualification_protected_economic_policy_bundles_v1`，它的授权已被撤销。有序门禁之所以能走到测量，
+是因为门禁步骤以本 Owner 自己的角色读取 Candidate，那是夹具发现，不是 Backtest 拥有的路径。
+补上这个缺口需要一条 Backtest 真正读得到的交接，携带冻结的度量与覆盖策略引用以及单位与标度 - 放进请求
+集合的封存里，或者作为一条密封的 `qualification_api` 读 - 而这是跨 Owner 的契约变更，不是一条证明。
 
 ## 输出交接
 
+- 向 [Backtest](./backtest/) 提交一个冻结的 Protected Replay Request，它只在写入一次的 请求相关联的
+  `ADMITTED` 回执与 holdout 预留之后创建，固定每一个定义执行的身份以及准确的 Candidate 与 Intake 保护政策对。
+  每个请求处理一个已声明的 Protected Robustness Plan 单元或那个准确的冻结有界矩阵，因此不得在观察到结果之后
+  再挑选单元。该请求集合封存冻结的 `ProtectedEconomicPolicyBundleV1`，返回的 Result 必须逐项重复它的测量。
+  不是本 Owner 创建的请求就不是一个保护请求；而 Backtest 的接入拒绝要把它闭合为一份绑定同一请求的
+  `RUN_REJECTED` Protected Run Result，而不是让它悬着。
 - 向 [Strategy Governance](./strategy-governance/) 提供包含撤销在内的分类 Eligibility State 事实，绑定
   准确 Candidate 与事实版本 经济条件版本 已评估成本容量模型版本 资格容量上限 生效时间及不可解引用证据引用。
   过期 撤销 当前事实缺失和当前状态未知都是显式下游状态，任何状态都不能让 Governance 静默保留
@@ -187,37 +242,6 @@ Governance 可在每个不同的已授权 lifecycle request evaluation 与 decis
   source-frontier freshness，保存稀缺保护证据价值。
 - **禁止** - 不向 R&D 反馈调参细节 不改写 artifact，不拥有 lifecycle 扩大资金 Runtime
   activation 订单 账户效果或保护细节 Product view。
-
-## Eligibility 终端状态
-
-**Eligibility 终端从未被驱动过。** 下列每一步都已实现且都没有调用者，因此系统从未存在过
-Protected Replay Request Set、Attempt Frontier、Robustness Assessment 或 Eligibility Fact。
-有序 PostgreSQL 门禁只走到 `ADMITTED` intake 和一条 Origin（`schema_version=1`）replay request，
-而它那两条收尾条目恰好断言 Eligibility **不存在**。
-
-| 步骤                                            | 状态     |
-| ----------------------------------------------- | -------- |
-| `submit_protected_replay_request_v2`            | 无调用者 |
-| `seal_protected_replay_request_set_v1`          | 无调用者 |
-| `produce_and_commit_protected_replay_result_v3` | 无调用者 |
-| `close_protected_replay_attempt_frontier_v1`    | 无调用者 |
-| `close_economic_pass_assessment_v1`             | 无调用者 |
-
-这些步骤严格串联，而第一步卡在**缺少 Owner 输入**而非缺少驱动。V2 请求是 V1 提案加一个
-`ClockHeadHandoff`，共享时钟 resolver 由 `DEPLOYMENT_STORE_ADMISSION_MODE` 构造，而门禁没有设置它，
-所以 resolver 返回空，V2 请求在那个环境里根本无法构造。其后 set 封存只接纳 `schema_version=2`
-成员--Origin 行的规范编码不同，读进来会让 frontier 搁浅--所以只有 Origin 行时，即便调用也只会
-封出一个空集合。
-
-因此把共享时钟证据准入到门禁环境，是终端的第一前置；在那之前写任何驱动都没有意义。
-
-**TARGET - 需要部署授权的终端，以及它在等什么：** 这条终端是 TARGET，不是未完成的工作。
-`DEPLOYMENT_STORE_ADMISSION_MODE` 保持 `disabled`，直到存在一个部署授权方能够签发 `required`
-所要求的东西：custodian 签名历史、反回滚 witness、凭据租约与直接测量。这些在本仓库都不存在，
-也未授权任何真实交易或生产写入，因此 resolver 返回空是正确的关闭状态而非缺陷。
-Qualification 的其余部分并不排在它后面：attempt frontier、候选与评估规则，
-以及上文的 protected-replay custody 都是可分离的工作；把这条终端当成它们的阻塞，
-是对依赖关系的误读，而不是依赖本身的性质。
 
 ## 后续实现验收
 

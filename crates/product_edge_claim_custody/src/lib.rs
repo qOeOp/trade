@@ -20,10 +20,125 @@ const INVOCATION_STARTED_EVENT: &str = "PRODUCT_EDGE_PROVIDER_INVOCATION_STARTED
 pub enum ProductEdgeClaimCustodyError {
     #[error("Product Edge claim custody encoding unavailable: {0}")]
     Encoding(String),
-    #[error("Product Edge claim custody unavailable")]
-    Unavailable,
+    #[error("Product Edge claim custody unavailable: {0}")]
+    Unavailable(ProductEdgeClaimCustodyUnavailableV1),
     #[error("Product Edge claim custody storage unavailable: {0}")]
     Storage(String),
+}
+
+/// Diagnostic detail behind [`ProductEdgeClaimCustodyError::Unavailable`]:
+/// why the stored claim, receipt, state, or outbox row was refused and which
+/// identity it is about. It never widens what the caller may do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProductEdgeClaimCustodyUnavailableV1 {
+    reason: ProductEdgeClaimCustodyUnavailableReasonV1,
+    subject: Option<(ProductEdgeClaimCustodySubjectKindV1, String)>,
+}
+
+impl ProductEdgeClaimCustodyUnavailableV1 {
+    pub fn reason(&self) -> ProductEdgeClaimCustodyUnavailableReasonV1 {
+        self.reason
+    }
+
+    pub fn subject(&self) -> Option<(ProductEdgeClaimCustodySubjectKindV1, &str)> {
+        self.subject
+            .as_ref()
+            .map(|(kind, identity)| (*kind, identity.as_str()))
+    }
+}
+
+impl Display for ProductEdgeClaimCustodyUnavailableV1 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.subject {
+            Some((kind, identity)) => write!(f, "{} for {kind} {identity}", self.reason),
+            None => write!(f, "{}", self.reason),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProductEdgeClaimCustodySubjectKindV1 {
+    /// A request admission, by `admission_identity`.
+    Admission,
+    /// A provider-invocation claim, by `claim_identity`.
+    Claim,
+    /// An outbox aggregate, by `aggregate_identity`.
+    Outbox,
+}
+
+impl Display for ProductEdgeClaimCustodySubjectKindV1 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Admission => "admission",
+            Self::Claim => "claim",
+            Self::Outbox => "outbox aggregate",
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProductEdgeClaimCustodyUnavailableReasonV1 {
+    /// A required claim, receipt, state, or outbox row is absent.
+    Missing,
+    /// More than one row exists where exactly one is canonical.
+    Ambiguous,
+    /// Stored bytes do not decode as the canonical shape.
+    Malformed,
+    /// Stored custody disagrees with its own canonical recomputation.
+    CustodyDrift,
+    /// The claim, its admission receipt, and its state do not describe one
+    /// lineage.
+    LineageBroken,
+    /// Start custody was requested for a claim that has not started.
+    NotStarted,
+}
+
+impl Display for ProductEdgeClaimCustodyUnavailableReasonV1 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Missing => "MISSING",
+            Self::Ambiguous => "AMBIGUOUS",
+            Self::Malformed => "MALFORMED",
+            Self::CustodyDrift => "CUSTODY_DRIFT",
+            Self::LineageBroken => "LINEAGE_BROKEN",
+            Self::NotStarted => "NOT_STARTED",
+        })
+    }
+}
+
+fn unavailable(reason: ProductEdgeClaimCustodyUnavailableReasonV1) -> ProductEdgeClaimCustodyError {
+    ProductEdgeClaimCustodyError::Unavailable(ProductEdgeClaimCustodyUnavailableV1 {
+        reason,
+        subject: None,
+    })
+}
+
+fn unavailable_for(
+    reason: ProductEdgeClaimCustodyUnavailableReasonV1,
+    kind: ProductEdgeClaimCustodySubjectKindV1,
+    identity: &str,
+) -> ProductEdgeClaimCustodyError {
+    ProductEdgeClaimCustodyError::Unavailable(ProductEdgeClaimCustodyUnavailableV1 {
+        reason,
+        subject: Some((kind, identity.to_string())),
+    })
+}
+
+/// Why `state` cannot back start custody for `claim`.
+fn start_refusal(
+    state: &StoredInvocationStateV1,
+    claim: &StoredInvocationClaimV1,
+) -> ProductEdgeClaimCustodyError {
+    let reason = if state.state == StoredInvocationStateKindV1::InvocationStarted {
+        ProductEdgeClaimCustodyUnavailableReasonV1::LineageBroken
+    } else {
+        ProductEdgeClaimCustodyUnavailableReasonV1::NotStarted
+    };
+    unavailable_for(
+        reason,
+        ProductEdgeClaimCustodySubjectKindV1::Claim,
+        &claim.claim_identity,
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -248,7 +363,11 @@ pub async fn load_invocation_admission_receipt(
         .map_err(storage)?;
 
     if rows.len() > 1 {
-        return Err(ProductEdgeClaimCustodyError::Unavailable);
+        return Err(unavailable_for(
+            ProductEdgeClaimCustodyUnavailableReasonV1::Ambiguous,
+            ProductEdgeClaimCustodySubjectKindV1::Claim,
+            claim_identity,
+        ));
     }
     let Some(row) = rows.first() else {
         return Ok(None);
@@ -295,7 +414,11 @@ pub async fn load_invocation_admission_receipt(
             stored.manifest_valid_through_epoch_ms,
         )
     {
-        return Err(ProductEdgeClaimCustodyError::Unavailable);
+        return Err(unavailable_for(
+            ProductEdgeClaimCustodyUnavailableReasonV1::CustodyDrift,
+            ProductEdgeClaimCustodySubjectKindV1::Claim,
+            claim_identity,
+        ));
     }
     verify_outbox(
         transaction,
@@ -320,7 +443,11 @@ pub async fn load_invocation_claim(
         .map_err(storage)?;
 
     if rows.len() > 1 {
-        return Err(ProductEdgeClaimCustodyError::Unavailable);
+        return Err(unavailable_for(
+            ProductEdgeClaimCustodyUnavailableReasonV1::Ambiguous,
+            ProductEdgeClaimCustodySubjectKindV1::Admission,
+            admission_identity,
+        ));
     }
     let Some(row) = rows.first() else {
         return Ok(None);
@@ -344,11 +471,21 @@ pub async fn load_invocation_claim(
             != from_i64(row.try_get("committed_at_epoch_ms").map_err(storage)?)?
         || invocation_claim_digest(&stored)? != stored.claim_digest
     {
-        return Err(ProductEdgeClaimCustodyError::Unavailable);
+        return Err(unavailable_for(
+            ProductEdgeClaimCustodyUnavailableReasonV1::CustodyDrift,
+            ProductEdgeClaimCustodySubjectKindV1::Admission,
+            admission_identity,
+        ));
     }
     let receipt = load_invocation_admission_receipt(transaction, &stored.claim_identity)
         .await?
-        .ok_or(ProductEdgeClaimCustodyError::Unavailable)?;
+        .ok_or_else(|| {
+            unavailable_for(
+                ProductEdgeClaimCustodyUnavailableReasonV1::Missing,
+                ProductEdgeClaimCustodySubjectKindV1::Claim,
+                &stored.claim_identity,
+            )
+        })?;
 
     if receipt.receipt_identity != stored.invocation_admission_receipt_identity
         || receipt.receipt_digest != stored.invocation_admission_receipt_digest
@@ -357,7 +494,11 @@ pub async fn load_invocation_claim(
         || receipt.claim_identity != stored.claim_identity
         || receipt.write_cut_epoch_ms != stored.committed_at_epoch_ms
     {
-        return Err(ProductEdgeClaimCustodyError::Unavailable);
+        return Err(unavailable_for(
+            ProductEdgeClaimCustodyUnavailableReasonV1::LineageBroken,
+            ProductEdgeClaimCustodySubjectKindV1::Claim,
+            &stored.claim_identity,
+        ));
     }
     verify_outbox(
         transaction,
@@ -382,7 +523,11 @@ pub async fn load_invocation_state(
         .map_err(storage)?;
 
     if rows.len() > 1 {
-        return Err(ProductEdgeClaimCustodyError::Unavailable);
+        return Err(unavailable_for(
+            ProductEdgeClaimCustodyUnavailableReasonV1::Ambiguous,
+            ProductEdgeClaimCustodySubjectKindV1::Claim,
+            claim_identity,
+        ));
     }
     let Some(row) = rows.first() else {
         return Ok(None);
@@ -407,7 +552,11 @@ pub async fn load_invocation_state(
             != from_i64(row.try_get("updated_at_epoch_ms").map_err(storage)?)?
         || invocation_state_digest(&stored)? != stored.state_digest
     {
-        return Err(ProductEdgeClaimCustodyError::Unavailable);
+        return Err(unavailable_for(
+            ProductEdgeClaimCustodyUnavailableReasonV1::CustodyDrift,
+            ProductEdgeClaimCustodySubjectKindV1::Claim,
+            claim_identity,
+        ));
     }
     let (event_kind, event_time) = match stored.state {
         StoredInvocationStateKindV1::Claimed => {
@@ -438,16 +587,32 @@ pub async fn resolve_invocation_claim_custody(
     };
     let receipt = load_invocation_admission_receipt(transaction, &claim.claim_identity)
         .await?
-        .ok_or(ProductEdgeClaimCustodyError::Unavailable)?;
+        .ok_or_else(|| {
+            unavailable_for(
+                ProductEdgeClaimCustodyUnavailableReasonV1::Missing,
+                ProductEdgeClaimCustodySubjectKindV1::Claim,
+                &claim.claim_identity,
+            )
+        })?;
     let state = load_invocation_state(transaction, &claim.claim_identity)
         .await?
-        .ok_or(ProductEdgeClaimCustodyError::Unavailable)?;
+        .ok_or_else(|| {
+            unavailable_for(
+                ProductEdgeClaimCustodyUnavailableReasonV1::Missing,
+                ProductEdgeClaimCustodySubjectKindV1::Claim,
+                &claim.claim_identity,
+            )
+        })?;
 
     if state.admission_identity != claim.admission_identity
         || state.attempt_identity != claim.attempt_identity
         || state.claim_digest != claim.claim_digest
     {
-        return Err(ProductEdgeClaimCustodyError::Unavailable);
+        return Err(unavailable_for(
+            ProductEdgeClaimCustodyUnavailableReasonV1::LineageBroken,
+            ProductEdgeClaimCustodySubjectKindV1::Claim,
+            &claim.claim_identity,
+        ));
     }
     let mut claimed_state = StoredInvocationStateV1 {
         schema_version: claim.schema_version,
@@ -471,7 +636,11 @@ pub async fn resolve_invocation_claim_custody(
     .await?;
 
     if state.state == StoredInvocationStateKindV1::Claimed && state != claimed_state {
-        return Err(ProductEdgeClaimCustodyError::Unavailable);
+        return Err(unavailable_for(
+            ProductEdgeClaimCustodyUnavailableReasonV1::CustodyDrift,
+            ProductEdgeClaimCustodySubjectKindV1::Claim,
+            &claim.claim_identity,
+        ));
     }
     Ok(Some(ProductEdgeInvocationClaimCustodyV1 {
         schema_version: claim.schema_version,
@@ -503,17 +672,29 @@ pub async fn resolve_invocation_start_custody(
     };
     let receipt = load_invocation_admission_receipt(transaction, &claim.claim_identity)
         .await?
-        .ok_or(ProductEdgeClaimCustodyError::Unavailable)?;
+        .ok_or_else(|| {
+            unavailable_for(
+                ProductEdgeClaimCustodyUnavailableReasonV1::Missing,
+                ProductEdgeClaimCustodySubjectKindV1::Claim,
+                &claim.claim_identity,
+            )
+        })?;
     let state = load_invocation_state(transaction, &claim.claim_identity)
         .await?
-        .ok_or(ProductEdgeClaimCustodyError::Unavailable)?;
+        .ok_or_else(|| {
+            unavailable_for(
+                ProductEdgeClaimCustodyUnavailableReasonV1::Missing,
+                ProductEdgeClaimCustodySubjectKindV1::Claim,
+                &claim.claim_identity,
+            )
+        })?;
 
     if state.state != StoredInvocationStateKindV1::InvocationStarted
         || state.admission_identity != claim.admission_identity
         || state.attempt_identity != claim.attempt_identity
         || state.claim_digest != claim.claim_digest
     {
-        return Err(ProductEdgeClaimCustodyError::Unavailable);
+        return Err(start_refusal(&state, &claim));
     }
     Ok(Some(ProductEdgeInvocationStartCustodyV1 {
         schema_version: state.schema_version,
@@ -568,7 +749,15 @@ async fn verify_outbox<T: Serialize>(
         .collect::<Vec<_>>();
 
     if matches.len() != 1 {
-        return Err(ProductEdgeClaimCustodyError::Unavailable);
+        return Err(unavailable_for(
+            if matches.is_empty() {
+                ProductEdgeClaimCustodyUnavailableReasonV1::Missing
+            } else {
+                ProductEdgeClaimCustodyUnavailableReasonV1::Ambiguous
+            },
+            ProductEdgeClaimCustodySubjectKindV1::Outbox,
+            aggregate,
+        ));
     }
     let row = matches[0];
     let record: StoredOutboxV1 = from_json(row.try_get("payload_json").map_err(storage)?)?;
@@ -597,7 +786,11 @@ async fn verify_outbox<T: Serialize>(
             != payload_digest
         || from_i64(row.try_get("committed_at_epoch_ms").map_err(storage)?)? != committed_at
     {
-        return Err(ProductEdgeClaimCustodyError::Unavailable);
+        return Err(unavailable_for(
+            ProductEdgeClaimCustodyUnavailableReasonV1::CustodyDrift,
+            ProductEdgeClaimCustodySubjectKindV1::Outbox,
+            aggregate,
+        ));
     }
     Ok(())
 }
@@ -626,11 +819,13 @@ fn identity(domain: &str, parts: &[&str]) -> String {
 fn from_json<T: for<'de> Deserialize<'de>>(
     value: serde_json::Value,
 ) -> Result<T, ProductEdgeClaimCustodyError> {
-    serde_json::from_value(value).map_err(|_| ProductEdgeClaimCustodyError::Unavailable)
+    serde_json::from_value(value)
+        .map_err(|_| unavailable(ProductEdgeClaimCustodyUnavailableReasonV1::Malformed))
 }
 
 fn from_i64(value: i64) -> Result<u64, ProductEdgeClaimCustodyError> {
-    u64::try_from(value).map_err(|_| ProductEdgeClaimCustodyError::Unavailable)
+    u64::try_from(value)
+        .map_err(|_| unavailable(ProductEdgeClaimCustodyUnavailableReasonV1::Malformed))
 }
 
 fn storage(error: impl Display) -> ProductEdgeClaimCustodyError {

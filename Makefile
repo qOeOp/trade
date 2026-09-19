@@ -222,10 +222,10 @@ endif
 
 # Core crates (excludes adapters/* and workspace members without tests)
 CORE_CRATES := vibe-analysis vibe-backtest vibe-backtest-owner vibe-backtest-owner-contracts vibe-backtest-result-custody vibe-common vibe-core \
-    vibe-cryptography vibe-data vibe-deployment-attestation vibe-event-store vibe-execution \
+    vibe-cryptography vibe-data vibe-deployment-attestation vibe-event-store vibe-execution vibe-execution-owner \
     vibe-indicators vibe-indicators-kernel vibe-infrastructure vibe-live vibe-market-data-repair-custody vibe-model vibe-scanner \
     vibe-network vibe-observability vibe-persistence vibe-persistence-macros \
-    vibe-operator-authorization vibe-plugin vibe-portfolio vibe-product-edge vibe-product-edge-admin vibe-product-edge-claim-custody vibe-product-edge-contracts vibe-qualification vibe-risk vibe-rd-artifact-invocation-custody vibe-rd-exploratory-replay-custody vibe-rd-market-data-repair-custody vibe-rd-source-intake-invocation-custody vibe-runtime vibe-serialization \
+    vibe-operator-authorization vibe-plugin vibe-portfolio vibe-portfolio-owner vibe-product-edge vibe-product-edge-admin vibe-product-edge-claim-custody vibe-product-edge-contracts vibe-qualification vibe-risk vibe-rd-artifact-invocation-custody vibe-rd-exploratory-replay-custody vibe-rd-market-data-repair-custody vibe-rd-source-intake-invocation-custody vibe-runtime vibe-serialization \
     strategy-factory-program-sdk vibe-strategy-factory vibe-strategy-factory-rd-owner-api vibe-strategy-governance vibe-system vibe-testkit vibe-trader vibe-trading
 
 # Crates tested in the workspace-compiled adapter lane
@@ -578,6 +578,10 @@ MARKDOWN_FILES = $(shell git ls-files '*.md' | grep -v '^patches/pyo3-stub-gen/'
 MARKDOWNLINT_FILES = $(shell git ls-files '*.md' | \
 	grep -vE '^patches/pyo3-stub-gen/')
 
+.PHONY: check-owner-custody-proof-selection
+check-owner-custody-proof-selection:  #-- Check every Owner custody proof is chain-selected or explained
+	bash scripts/ci/check-owner-custody-proof-selection.bash "$(CURDIR)"
+
 .PHONY: check-markdown
 check-markdown:  #-- Lint Markdown with markdownlint-cli2 and check table delimiter padding
 	$(info $(M) Checking Markdown...)
@@ -792,6 +796,11 @@ check-rd-owner-postgres-isolation:  #-- Statically verify destructive PostgreSQL
 .PHONY: cargo-test-market-data-owner-postgres-isolated
 cargo-test-market-data-owner-postgres-isolated:  #-- Run isolated Market Data PostgreSQL owner tests
 	bash crates/data/tests/run_market_data_owner_postgres.bash
+
+.PHONY: cargo-test-toolchain-proofs
+cargo-test-toolchain-proofs:  #-- Run the Owner proofs that need a real tool and no database
+	NEXTEST_PROFILE="$(NEXTEST_PROFILE)" \
+	bash scripts/ci/test-toolchain-proofs.bash
 
 # Doctests need their own target because `cargo nextest` cannot run them.
 # Sharing --features and --profile with the nextest targets lets both reuse the

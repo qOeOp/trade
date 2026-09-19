@@ -13,10 +13,16 @@ use crate::{
     OperatorAuthorizationIssuanceProposalV1, OperatorAuthorizationIssuanceReceiptV1,
     OperatorAuthorizationLocatorV1, OperatorAuthorizationReadbackV1,
     OperatorAuthorizationRevocationFrontierV1, OperatorAuthorizationRevocationProposalV1,
-    OperatorAuthorizationSuccessorIssuanceProposalV1, UntrustedCanonicalAuthorizationEvidenceV1,
-    UntrustedCanonicalPortfolioResourceGrantEvidenceV1, canonical_digest, identity,
+    OperatorAuthorizationSubjectKindV1 as Subject,
+    OperatorAuthorizationSuccessorIssuanceProposalV1,
+    OperatorAuthorizationUnavailableReasonV1 as Reason, UntrustedCanonicalAuthorizationEvidenceV1,
+    canonical_digest, identity,
 };
 
+pub use autonomous_policy_authorization::{
+    parse_untrusted_autonomous_policy_authorization_envelope_v1,
+    resolve_autonomous_policy_authorization_in_transaction,
+};
 pub use portfolio_resource_grant::{
     parse_untrusted_portfolio_resource_grant_envelope_v1,
     resolve_portfolio_resource_grant_in_transaction,
@@ -78,6 +84,48 @@ const VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA: &str = "SELECT relation.relowner 
    AND relation.relname = 'operator_authorization_expired_manifest_recoveries_v1'
    AND relation.relkind = 'r'
 ";
+
+fn unavailable(reason: Reason) -> OperatorAuthorizationError {
+    OperatorAuthorizationError::unavailable(reason)
+}
+
+fn unavailable_for(reason: Reason, kind: Subject, identity: &str) -> OperatorAuthorizationError {
+    OperatorAuthorizationError::unavailable_for(reason, kind, identity)
+}
+
+/// Why an issuance the current frontier does not admit is not current at `cut`.
+///
+/// The window is checked first; an issuance inside its window that still failed
+/// the currency check can only have been revoked.
+fn currency_refusal(
+    proposal: &OperatorAuthorizationIssuanceProposalV1,
+    cut_epoch_ms: u64,
+) -> OperatorAuthorizationError {
+    let reason = Reason::for_window(
+        cut_epoch_ms,
+        proposal.not_before_epoch_ms,
+        proposal.valid_through_epoch_ms,
+    )
+    .unwrap_or(Reason::Revoked);
+    unavailable_for(
+        reason,
+        Subject::Authorization,
+        &proposal.authorization_identity,
+    )
+}
+
+/// Why a historical frontier does not admit the issuance that names it.
+fn historical_refusal(
+    frontier: &StoredRevocationFrontierV1,
+    admitted_sequence: u64,
+) -> OperatorAuthorizationError {
+    let reason = if frontier.sequence < admitted_sequence {
+        Reason::FrontierMismatch
+    } else {
+        Reason::Revoked
+    };
+    unavailable_for(reason, Subject::Frontier, &frontier.frontier_identity)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -236,6 +284,7 @@ struct LockedAuthorizationEnvelopeV1 {
 
 #[derive(Debug)]
 struct VerifiedScopeHistoryV1 {
+    scope_digest: String,
     issuances: Vec<StoredIssuanceV1>,
     frontiers: Vec<StoredRevocationFrontierV1>,
 }
@@ -244,7 +293,7 @@ impl VerifiedScopeHistoryV1 {
     fn current(&self) -> Result<&StoredRevocationFrontierV1, OperatorAuthorizationError> {
         self.frontiers
             .last()
-            .ok_or(OperatorAuthorizationError::Unavailable)
+            .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Scope, &self.scope_digest))
     }
 
     fn issuance(
@@ -254,13 +303,19 @@ impl VerifiedScopeHistoryV1 {
         self.issuances
             .iter()
             .find(|issuance| issuance.proposal.authorization_identity == authorization_identity)
-            .ok_or(OperatorAuthorizationError::Unavailable)
+            .ok_or_else(|| {
+                unavailable_for(
+                    Reason::Missing,
+                    Subject::Authorization,
+                    authorization_identity,
+                )
+            })
     }
 
     fn issuance_head(&self) -> Result<&StoredIssuanceV1, OperatorAuthorizationError> {
         self.issuances
             .last()
-            .ok_or(OperatorAuthorizationError::Unavailable)
+            .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Scope, &self.scope_digest))
     }
 }
 
@@ -340,7 +395,7 @@ impl OperatorAuthorizationIssuerPostgresV1 {
         .map_err(storage)?;
 
         if !admitted {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable(Reason::TopologyNotAdmitted));
         }
         Ok(Self { pool })
     }
@@ -377,6 +432,7 @@ impl OperatorAuthorizationIssuerPostgresV1 {
         }
         self.prepare_expired_manifest_recovery_schema().await?;
         portfolio_resource_grant::migrate(&self.pool).await?;
+        autonomous_policy_authorization::migrate(&self.pool).await?;
         Ok(())
     }
 
@@ -398,7 +454,7 @@ impl OperatorAuthorizationIssuerPostgresV1 {
             .unwrap_or(false);
 
         if !verified {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable(Reason::TopologyNotAdmitted));
         }
         transaction.commit().await.map_err(storage)?;
         Ok(())
@@ -425,9 +481,13 @@ impl OperatorAuthorizationIssuerPostgresV1 {
             lock_current_rows_for_update(&mut transaction, &existing).await?;
             let verified = verify_scope_history(&mut transaction, &scope_digest, false, false)
                 .await?
-                .ok_or(OperatorAuthorizationError::Unavailable)?;
+                .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Scope, &scope_digest))?;
             if verified.issuance(&existing.proposal.authorization_identity)? != &existing {
-                return Err(OperatorAuthorizationError::Unavailable);
+                return Err(unavailable_for(
+                    Reason::CustodyDrift,
+                    Subject::Authorization,
+                    &existing.proposal.authorization_identity,
+                ));
             }
             let result = load_verified(
                 &mut transaction,
@@ -520,12 +580,16 @@ impl OperatorAuthorizationIssuerPostgresV1 {
 
         let verified = verify_scope_history(&mut transaction, &scope_digest, false, false)
             .await?
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+            .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Scope, &scope_digest))?;
 
         if verified.issuance(&stored.proposal.authorization_identity)? != &stored
             || verified.current()? != &frontier
         {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CustodyDrift,
+                Subject::Authorization,
+                &stored.proposal.authorization_identity,
+            ));
         }
 
         let result = load_verified(
@@ -559,18 +623,32 @@ impl OperatorAuthorizationIssuerPostgresV1 {
             CanonicalRowLockV1::Update,
         )
         .await?
-        .ok_or(OperatorAuthorizationError::Unavailable)?;
+        .ok_or_else(|| {
+            unavailable_for(
+                Reason::Missing,
+                Subject::Authorization,
+                &proposal.authorization.authorization_identity,
+            )
+        })?;
         let receipt = issuance_receipt(&issuance);
         if receipt.receipt_identity != proposal.authorization.issuance_receipt_identity {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::LocatorMismatch,
+                Subject::Authorization,
+                &proposal.authorization.authorization_identity,
+            ));
         }
         let scope_digest = issuance.proposal.scope.digest()?;
         lock_current_rows_for_update(&mut transaction, &issuance).await?;
         let history = verify_scope_history(&mut transaction, &scope_digest, false, false)
             .await?
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+            .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Scope, &scope_digest))?;
         if history.issuance(&issuance.proposal.authorization_identity)? != &issuance {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CustodyDrift,
+                Subject::Authorization,
+                &issuance.proposal.authorization_identity,
+            ));
         }
         let current = history.current()?.clone();
 
@@ -597,10 +675,13 @@ impl OperatorAuthorizationIssuerPostgresV1 {
             (&left.authorization_identity, &left.reason_code)
                 .cmp(&(&right.authorization_identity, &right.reason_code))
         });
-        let sequence = current
-            .sequence
-            .checked_add(1)
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+        let sequence = current.sequence.checked_add(1).ok_or_else(|| {
+            unavailable_for(
+                Reason::LineageBroken,
+                Subject::Frontier,
+                &current.frontier_identity,
+            )
+        })?;
         let frontier_identity = identity(
             "operator-authorization-revocation-frontier-v1",
             &[
@@ -634,7 +715,11 @@ impl OperatorAuthorizationIssuerPostgresV1 {
             .bind(to_i64(current.sequence)?).execute(&mut *transaction).await.map_err(storage)?;
 
         if updated.rows_affected() != 1 {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CompareAndSwapLost,
+                Subject::Scope,
+                &scope_digest,
+            ));
         }
         insert_outbox(
             &mut transaction,
@@ -647,12 +732,16 @@ impl OperatorAuthorizationIssuerPostgresV1 {
         .await?;
         let verified = verify_scope_history(&mut transaction, &scope_digest, false, false)
             .await?
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+            .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Scope, &scope_digest))?;
 
         if verified.issuance(&issuance.proposal.authorization_identity)? != &issuance
             || verified.current()? != &next
         {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CustodyDrift,
+                Subject::Scope,
+                &scope_digest,
+            ));
         }
         transaction.commit().await.map_err(storage)?;
         Ok(next.public())
@@ -701,9 +790,13 @@ impl OperatorAuthorizationIssuerPostgresV1 {
             lock_current_rows_for_update(&mut transaction, &existing).await?;
             let history = verify_scope_history(&mut transaction, &scope_digest, false, false)
                 .await?
-                .ok_or(OperatorAuthorizationError::Unavailable)?;
+                .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Scope, &scope_digest))?;
             if history.issuance(&existing.proposal.authorization_identity)? != &existing {
-                return Err(OperatorAuthorizationError::Unavailable);
+                return Err(unavailable_for(
+                    Reason::CustodyDrift,
+                    Subject::Authorization,
+                    &existing.proposal.authorization_identity,
+                ));
             }
             let result = load_verified(
                 &mut transaction,
@@ -725,12 +818,22 @@ impl OperatorAuthorizationIssuerPostgresV1 {
             CanonicalRowLockV1::Update,
         )
         .await?
-        .ok_or(OperatorAuthorizationError::Unavailable)?;
+        .ok_or_else(|| {
+            unavailable_for(
+                Reason::Missing,
+                Subject::Authorization,
+                &proposal.predecessor_authorization.authorization_identity,
+            )
+        })?;
 
         if issuance_receipt(&predecessor).receipt_identity
             != proposal.predecessor_authorization.issuance_receipt_identity
         {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::LocatorMismatch,
+                Subject::Authorization,
+                &proposal.predecessor_authorization.authorization_identity,
+            ));
         }
 
         if predecessor.proposal.scope.digest()? != scope_digest {
@@ -739,7 +842,7 @@ impl OperatorAuthorizationIssuerPostgresV1 {
         lock_current_rows_for_update(&mut transaction, &predecessor).await?;
         let history = verify_scope_history(&mut transaction, &scope_digest, false, false)
             .await?
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+            .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Scope, &scope_digest))?;
         let current = history.current()?.clone();
         let committed_at = now_ms()?;
 
@@ -806,9 +909,13 @@ impl OperatorAuthorizationIssuerPostgresV1 {
         .await?;
         let verified = verify_scope_history(&mut transaction, &scope_digest, false, false)
             .await?
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+            .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Scope, &scope_digest))?;
         if verified.issuance_head()? != &stored || verified.current()? != &current {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CustodyDrift,
+                Subject::Scope,
+                &scope_digest,
+            ));
         }
         let result = load_verified(
             &mut transaction,
@@ -872,16 +979,27 @@ impl OperatorAuthorizationIssuerPostgresV1 {
                 &proposal.recovery_epoch.recovery_epoch_identity,
             )
             .await?
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+            .ok_or_else(|| {
+                unavailable_for(
+                    Reason::Missing,
+                    Subject::RecoveryEpoch,
+                    &proposal.recovery_epoch.recovery_epoch_identity,
+                )
+            })?;
+
             if recovery.proposal != proposal || recovery.proposal_digest != semantic_digest {
                 return Err(OperatorAuthorizationError::ConflictingReplay);
             }
             lock_current_rows_for_update(&mut transaction, &existing).await?;
             let history = verify_scope_history(&mut transaction, &scope_digest, false, false)
                 .await?
-                .ok_or(OperatorAuthorizationError::Unavailable)?;
+                .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Scope, &scope_digest))?;
             if history.issuance(&existing.proposal.authorization_identity)? != &existing {
-                return Err(OperatorAuthorizationError::Unavailable);
+                return Err(unavailable_for(
+                    Reason::CustodyDrift,
+                    Subject::Authorization,
+                    &existing.proposal.authorization_identity,
+                ));
             }
             let result = load_verified(
                 &mut transaction,
@@ -903,12 +1021,22 @@ impl OperatorAuthorizationIssuerPostgresV1 {
             CanonicalRowLockV1::Update,
         )
         .await?
-        .ok_or(OperatorAuthorizationError::Unavailable)?;
+        .ok_or_else(|| {
+            unavailable_for(
+                Reason::Missing,
+                Subject::Authorization,
+                &proposal.predecessor_authorization.authorization_identity,
+            )
+        })?;
 
         if issuance_receipt(&predecessor).receipt_identity
             != proposal.predecessor_authorization.issuance_receipt_identity
         {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::LocatorMismatch,
+                Subject::Authorization,
+                &proposal.predecessor_authorization.authorization_identity,
+            ));
         }
 
         if predecessor.proposal.scope.digest()? != scope_digest {
@@ -917,7 +1045,7 @@ impl OperatorAuthorizationIssuerPostgresV1 {
         lock_current_rows_for_update(&mut transaction, &predecessor).await?;
         let history = verify_scope_history(&mut transaction, &scope_digest, false, false)
             .await?
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+            .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Scope, &scope_digest))?;
         let current = history.current()?.clone();
         let committed_at = now_ms()?;
 
@@ -995,9 +1123,13 @@ impl OperatorAuthorizationIssuerPostgresV1 {
         .await?;
         let verified = verify_scope_history(&mut transaction, &scope_digest, false, false)
             .await?
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+            .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Scope, &scope_digest))?;
         if verified.issuance_head()? != &stored || verified.current()? != &current {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CustodyDrift,
+                Subject::Scope,
+                &scope_digest,
+            ));
         }
         let result = load_verified(
             &mut transaction,
@@ -1026,7 +1158,7 @@ async fn lock_current_rows_for_update(
         .fetch_optional(&mut **transaction)
         .await
         .map_err(storage)?
-        .ok_or(OperatorAuthorizationError::Unavailable)?;
+        .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Scope, &scope_digest))?;
     let frontier_identity: String = head.try_get("frontier_identity").map_err(storage)?;
     let frontier =
         load_frontier_row(transaction, &frontier_identity, CanonicalRowLockV1::Update).await?;
@@ -1042,7 +1174,11 @@ async fn lock_current_rows_for_update(
         || from_i64(head.try_get("committed_at_epoch_ms").map_err(storage)?)?
             != frontier.committed_at_epoch_ms
     {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::HeadMismatch,
+            Subject::Scope,
+            &scope_digest,
+        ));
     }
     Ok(frontier)
 }
@@ -1056,7 +1192,7 @@ async fn ensure_read_committed(
         .map_err(storage)?;
 
     if isolation != "read committed" {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable(Reason::IsolationNotReadCommitted));
     }
     Ok(())
 }
@@ -1076,7 +1212,13 @@ pub async fn resolve_authorization_in_transaction(
     .await
     .map_err(storage)?;
     let evidence = parse_untrusted_authorization_envelope_v1(
-        envelope.ok_or(OperatorAuthorizationError::Unavailable)?,
+        envelope.ok_or_else(|| {
+            unavailable_for(
+                Reason::Missing,
+                Subject::Authorization,
+                &locator.authorization_identity,
+            )
+        })?,
         locator,
         mode,
     )?;
@@ -1112,7 +1254,7 @@ pub fn parse_untrusted_authorization_envelope_v1(
                     entry.authorization_identity == issuance.proposal.authorization_identity
                 })
             {
-                return Err(OperatorAuthorizationError::Unavailable);
+                return Err(currency_refusal(&issuance.proposal, read_cut_epoch_ms));
             }
             frontier
         }
@@ -1122,14 +1264,16 @@ pub fn parse_untrusted_authorization_envelope_v1(
                 .iter()
                 .find(|frontier| frontier.frontier_identity == frontier_identity)
                 .cloned()
-                .ok_or(OperatorAuthorizationError::Unavailable)?;
+                .ok_or_else(|| {
+                    unavailable_for(Reason::Missing, Subject::Frontier, &frontier_identity)
+                })?;
             let admitted_sequence = match issuance.admitted_frontier_identity.as_deref() {
                 Some(identity) => history
                     .frontiers
                     .iter()
                     .find(|candidate| candidate.frontier_identity == identity)
                     .map(|candidate| candidate.sequence)
-                    .ok_or(OperatorAuthorizationError::Unavailable)?,
+                    .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Frontier, identity))?,
                 None => 0,
             };
 
@@ -1138,7 +1282,7 @@ pub fn parse_untrusted_authorization_envelope_v1(
                     entry.authorization_identity == issuance.proposal.authorization_identity
                 })
             {
-                return Err(OperatorAuthorizationError::Unavailable);
+                return Err(historical_refusal(&frontier, admitted_sequence));
             }
             frontier
         }
@@ -1168,7 +1312,11 @@ async fn load_expired_manifest_recovery(
         .map_err(storage)?;
 
     if rows.len() > 1 {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::Ambiguous,
+            Subject::RecoveryEpoch,
+            recovery_epoch_identity,
+        ));
     }
     let Some(row) = rows.first() else {
         return Ok(None);
@@ -1201,7 +1349,11 @@ async fn load_expired_manifest_recovery(
         || from_i64(row.try_get("committed_at_epoch_ms").map_err(storage)?)?
             != stored.committed_at_epoch_ms
     {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::RecoveryEpoch,
+            recovery_epoch_identity,
+        ));
     }
     Ok(Some(stored))
 }
@@ -1221,19 +1373,29 @@ fn verify_locked_envelope(
     let issuance = issuances
         .iter()
         .find(|candidate| candidate.proposal.authorization_identity == selected_identity)
-        .ok_or(OperatorAuthorizationError::Unavailable)?;
+        .ok_or_else(|| {
+            unavailable_for(Reason::Missing, Subject::Authorization, &selected_identity)
+        })?;
     let selected = verify_locked_issuance_row(envelope.issuance)?;
     let receipt = issuance_receipt(issuance);
     if &selected != issuance
         || issuance.proposal.authorization_identity != locator.authorization_identity
         || receipt.receipt_identity != locator.issuance_receipt_identity
     {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::LocatorMismatch,
+            Subject::Authorization,
+            &locator.authorization_identity,
+        ));
     }
 
-    let genesis = issuances
-        .first()
-        .ok_or(OperatorAuthorizationError::Unavailable)?;
+    let genesis = issuances.first().ok_or_else(|| {
+        unavailable_for(
+            Reason::LineageBroken,
+            Subject::Authorization,
+            &selected_identity,
+        )
+    })?;
 
     let mut frontiers = Vec::with_capacity(envelope.frontiers.len());
     for (index, row) in envelope.frontiers.into_iter().enumerate() {
@@ -1250,15 +1412,23 @@ fn verify_locked_envelope(
                 != canonical_digest("operator-authorization.revocation-frontier.v1", &frontier)?
             || from_i64(row.committed_at_epoch_ms)? != frontier.committed_at_epoch_ms
         {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CustodyDrift,
+                Subject::Frontier,
+                &row.frontier_identity,
+            ));
         }
         frontiers.push(frontier);
     }
     verify_frontier_chain(genesis, &frontiers)?;
     verify_successor_frontiers(&issuances, &frontiers)?;
-    let current = frontiers
-        .last()
-        .ok_or(OperatorAuthorizationError::Unavailable)?;
+    let current = frontiers.last().ok_or_else(|| {
+        unavailable_for(
+            Reason::LineageBroken,
+            Subject::Scope,
+            &envelope.head.scope_digest,
+        )
+    })?;
     let current_digest =
         canonical_digest("operator-authorization.revocation-frontier.v1", current)?;
     if envelope.head.scope_digest != current.scope_digest
@@ -1270,10 +1440,15 @@ fn verify_locked_envelope(
         || envelope.current_frontier.frontier_json
             != serde_json::to_value(current).map_err(storage)?
     {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::HeadMismatch,
+            Subject::Scope,
+            &current.scope_digest,
+        ));
     }
     verify_locked_outboxes(&issuances, &frontiers, &envelope.outboxes)?;
     Ok(VerifiedScopeHistoryV1 {
+        scope_digest: envelope.head.scope_digest,
         issuances,
         frontiers,
     })
@@ -1283,10 +1458,13 @@ fn verify_locked_issuance_row(
     row: LockedIssuanceRowV1,
 ) -> Result<StoredIssuanceV1, OperatorAuthorizationError> {
     let issuance: StoredIssuanceV1 = from_json(row.issuance_json)?;
-    issuance
-        .proposal
-        .validate()
-        .map_err(|_| OperatorAuthorizationError::Unavailable)?;
+    issuance.proposal.validate().map_err(|_| {
+        unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Authorization,
+            &row.authorization_identity,
+        )
+    })?;
     let receipt: StoredIssuanceReceiptV1 = from_json(row.receipt_json)?;
     let expected_digest = stored_issuance_digest(&issuance)?;
     if row.authorization_identity != issuance.proposal.authorization_identity
@@ -1299,7 +1477,11 @@ fn verify_locked_issuance_row(
         || from_i64(row.committed_at_epoch_ms)? != issuance.committed_at_epoch_ms
         || receipt != issuance_receipt(&issuance)
     {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Authorization,
+            &row.authorization_identity,
+        ));
     }
     Ok(issuance)
 }
@@ -1309,7 +1491,11 @@ fn verify_frontier_chain(
     frontiers: &[StoredRevocationFrontierV1],
 ) -> Result<(), OperatorAuthorizationError> {
     if frontiers.first() != Some(&genesis_frontier(issuance)?) {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::LineageBroken,
+            Subject::Authorization,
+            &issuance.proposal.authorization_identity,
+        ));
     }
 
     for pair in frontiers.windows(2) {
@@ -1332,7 +1518,11 @@ fn verify_frontier_chain(
                 .any(|entry| !successor.revocations.contains(entry))
             || added != 1
         {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::LineageBroken,
+                Subject::Frontier,
+                &successor.frontier_identity,
+            ));
         }
     }
     Ok(())
@@ -1346,15 +1536,33 @@ fn verify_successor_frontiers(
         let admitted_frontier_identity = issuance
             .admitted_frontier_identity
             .as_deref()
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+            .ok_or_else(|| {
+                unavailable_for(
+                    Reason::LineageBroken,
+                    Subject::Authorization,
+                    &issuance.proposal.authorization_identity,
+                )
+            })?;
         let admitted_frontier = frontiers
             .iter()
             .find(|frontier| frontier.frontier_identity == admitted_frontier_identity)
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+            .ok_or_else(|| {
+                unavailable_for(
+                    Reason::Missing,
+                    Subject::Frontier,
+                    admitted_frontier_identity,
+                )
+            })?;
         let predecessor_identity = &issuance
             .predecessor_authorization
             .as_ref()
-            .ok_or(OperatorAuthorizationError::Unavailable)?
+            .ok_or_else(|| {
+                unavailable_for(
+                    Reason::LineageBroken,
+                    Subject::Authorization,
+                    &issuance.proposal.authorization_identity,
+                )
+            })?
             .authorization_identity;
 
         if admitted_frontier.committed_at_epoch_ms > issuance.committed_at_epoch_ms
@@ -1363,7 +1571,11 @@ fn verify_successor_frontiers(
                 .iter()
                 .any(|entry| &entry.authorization_identity == predecessor_identity)
         {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::LineageBroken,
+                Subject::Authorization,
+                &issuance.proposal.authorization_identity,
+            ));
         }
     }
     Ok(())
@@ -1375,7 +1587,7 @@ fn verify_locked_outboxes(
     rows: &[LockedOutboxRowV1],
 ) -> Result<(), OperatorAuthorizationError> {
     if rows.len() != frontiers.len().saturating_add(issuances.len()) {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable(Reason::CustodyDrift));
     }
 
     for issuance in issuances {
@@ -1428,7 +1640,15 @@ fn verify_locked_outbox_row<T: Serialize>(
         .collect();
 
     if matches.len() != 1 {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            if matches.is_empty() {
+                Reason::Missing
+            } else {
+                Reason::Ambiguous
+            },
+            Subject::Outbox,
+            aggregate,
+        ));
     }
     let row = matches[0];
     let record: StoredOutboxV1 = from_json(row.payload_json.clone())?;
@@ -1446,7 +1666,11 @@ fn verify_locked_outbox_row<T: Serialize>(
                 committed_at_epoch_ms: committed_at,
             })
     {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Outbox,
+            aggregate,
+        ));
     }
     Ok(())
 }
@@ -1467,17 +1691,31 @@ async fn load_verified(
         },
     )
     .await?
-    .ok_or(OperatorAuthorizationError::Unavailable)?;
+    .ok_or_else(|| {
+        unavailable_for(
+            Reason::Missing,
+            Subject::Authorization,
+            &locator.authorization_identity,
+        )
+    })?;
     let receipt = issuance_receipt(&issuance);
     if receipt.receipt_identity != locator.issuance_receipt_identity {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::LocatorMismatch,
+            Subject::Authorization,
+            &locator.authorization_identity,
+        ));
     }
     let scope_digest = issuance.proposal.scope.digest()?;
     let history = verify_scope_history(transaction, &scope_digest, false, lock_rows)
         .await?
-        .ok_or(OperatorAuthorizationError::Unavailable)?;
+        .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Scope, &scope_digest))?;
     if history.issuance(&locator.authorization_identity)? != &issuance {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Authorization,
+            &locator.authorization_identity,
+        ));
     }
     let frontier = match mode {
         AuthorizationReadModeV1::CurrentAtLock => history.current()?.clone(),
@@ -1490,7 +1728,7 @@ async fn load_verified(
                     entry.authorization_identity == issuance.proposal.authorization_identity
                 })
             {
-                return Err(OperatorAuthorizationError::Unavailable);
+                return Err(currency_refusal(&issuance.proposal, read_cut_epoch_ms));
             }
             frontier
         }
@@ -1500,14 +1738,16 @@ async fn load_verified(
                 .iter()
                 .find(|frontier| frontier.frontier_identity == frontier_identity)
                 .cloned()
-                .ok_or(OperatorAuthorizationError::Unavailable)?;
+                .ok_or_else(|| {
+                    unavailable_for(Reason::Missing, Subject::Frontier, &frontier_identity)
+                })?;
             let admitted_sequence = match issuance.admitted_frontier_identity.as_deref() {
                 Some(identity) => history
                     .frontiers
                     .iter()
                     .find(|candidate| candidate.frontier_identity == identity)
                     .map(|candidate| candidate.sequence)
-                    .ok_or(OperatorAuthorizationError::Unavailable)?,
+                    .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Frontier, identity))?,
                 None => 0,
             };
 
@@ -1516,14 +1756,18 @@ async fn load_verified(
                     entry.authorization_identity == issuance.proposal.authorization_identity
                 })
             {
-                return Err(OperatorAuthorizationError::Unavailable);
+                return Err(historical_refusal(&frontier, admitted_sequence));
             }
             frontier
         }
     };
 
     if frontier.scope_digest != scope_digest {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::ScopeMismatch,
+            Subject::Frontier,
+            &frontier.frontier_identity,
+        ));
     }
     Ok(OperatorAuthorizationReadbackV1 {
         issuance_receipt: receipt.into(),
@@ -1569,16 +1813,23 @@ async fn load_issuance_row(
         .map_err(storage)?;
 
     if rows.len() > 1 {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::Ambiguous,
+            Subject::Authorization,
+            identity_value,
+        ));
     }
     let Some(row) = rows.first() else {
         return Ok(None);
     };
     let stored: StoredIssuanceV1 = from_json(row.try_get("issuance_json").map_err(storage)?)?;
-    stored
-        .proposal
-        .validate()
-        .map_err(|_| OperatorAuthorizationError::Unavailable)?;
+    stored.proposal.validate().map_err(|_| {
+        unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Authorization,
+            &stored.proposal.authorization_identity,
+        )
+    })?;
     let expected_digest = stored_issuance_digest(&stored)?;
     let receipt: StoredIssuanceReceiptV1 =
         from_json(row.try_get("receipt_json").map_err(storage)?)?;
@@ -1604,7 +1855,11 @@ async fn load_issuance_row(
             != stored.committed_at_epoch_ms
         || receipt != issuance_receipt(&stored)
     {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Authorization,
+            &stored.proposal.authorization_identity,
+        ));
     }
     Ok(Some(stored))
 }
@@ -1656,11 +1911,19 @@ async fn verify_scope_history(
         if frontier_rows.is_empty() && head_rows.is_empty() {
             return Ok(None);
         }
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::LineageBroken,
+            Subject::Scope,
+            scope_digest,
+        ));
     }
 
     if frontier_rows.is_empty() || head_rows.len() != 1 {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::LineageBroken,
+            Subject::Scope,
+            scope_digest,
+        ));
     }
     let mut issuances = Vec::with_capacity(issuance_rows.len());
     for row in &issuance_rows {
@@ -1676,9 +1939,20 @@ async fn verify_scope_history(
             },
         )
         .await?
-        .ok_or(OperatorAuthorizationError::Unavailable)?;
+        .ok_or_else(|| {
+            unavailable_for(
+                Reason::Missing,
+                Subject::Authorization,
+                &authorization_identity,
+            )
+        })?;
+
         if issuance.proposal.scope.digest()? != scope_digest {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::ScopeMismatch,
+                Subject::Authorization,
+                &issuance.proposal.authorization_identity,
+            ));
         }
         let receipt = issuance_receipt(&issuance);
         verify_outbox(
@@ -1696,7 +1970,7 @@ async fn verify_scope_history(
     let issuances = order_and_verify_issuances(issuances)?;
     let genesis = issuances
         .first()
-        .ok_or(OperatorAuthorizationError::Unavailable)?;
+        .ok_or_else(|| unavailable_for(Reason::LineageBroken, Subject::Scope, scope_digest))?;
 
     let mut frontiers = Vec::with_capacity(frontier_rows.len());
     for (index, row) in frontier_rows.iter().enumerate() {
@@ -1724,7 +1998,11 @@ async fn verify_scope_history(
                 != i64::try_from(index).map_err(storage)?
             || frontier.sequence != u64::try_from(index).map_err(storage)?
         {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CustodyDrift,
+                Subject::Frontier,
+                &frontier.frontier_identity,
+            ));
         }
         verify_outbox(
             transaction,
@@ -1740,22 +2018,44 @@ async fn verify_scope_history(
     }
 
     if frontiers.first() != Some(&genesis_frontier(genesis)?) {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::LineageBroken,
+            Subject::Scope,
+            scope_digest,
+        ));
     }
 
     for issuance in issuances.iter().skip(1) {
         let admitted_frontier_identity = issuance
             .admitted_frontier_identity
             .as_deref()
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+            .ok_or_else(|| {
+                unavailable_for(
+                    Reason::LineageBroken,
+                    Subject::Authorization,
+                    &issuance.proposal.authorization_identity,
+                )
+            })?;
         let admitted_frontier = frontiers
             .iter()
             .find(|frontier| frontier.frontier_identity == admitted_frontier_identity)
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+            .ok_or_else(|| {
+                unavailable_for(
+                    Reason::Missing,
+                    Subject::Frontier,
+                    admitted_frontier_identity,
+                )
+            })?;
         let predecessor_identity = issuance
             .predecessor_authorization
             .as_ref()
-            .ok_or(OperatorAuthorizationError::Unavailable)?
+            .ok_or_else(|| {
+                unavailable_for(
+                    Reason::LineageBroken,
+                    Subject::Authorization,
+                    &issuance.proposal.authorization_identity,
+                )
+            })?
             .authorization_identity
             .as_str();
 
@@ -1765,7 +2065,11 @@ async fn verify_scope_history(
                 .iter()
                 .any(|entry| entry.authorization_identity == predecessor_identity)
         {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::LineageBroken,
+                Subject::Authorization,
+                &issuance.proposal.authorization_identity,
+            ));
         }
     }
 
@@ -1789,13 +2093,17 @@ async fn verify_scope_history(
                 .any(|entry| !successor.revocations.contains(entry))
             || added != 1
         {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::LineageBroken,
+                Subject::Frontier,
+                &successor.frontier_identity,
+            ));
         }
     }
 
     let current = frontiers
         .last()
-        .ok_or(OperatorAuthorizationError::Unavailable)?;
+        .ok_or_else(|| unavailable_for(Reason::LineageBroken, Subject::Scope, scope_digest))?;
     let head = &head_rows[0];
     let current_digest =
         canonical_digest("operator-authorization.revocation-frontier.v1", current)?;
@@ -1812,10 +2120,15 @@ async fn verify_scope_history(
         || from_i64(head.try_get("committed_at_epoch_ms").map_err(storage)?)?
             != current.committed_at_epoch_ms
     {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::HeadMismatch,
+            Subject::Scope,
+            scope_digest,
+        ));
     }
 
     Ok(Some(VerifiedScopeHistoryV1 {
+        scope_digest: scope_digest.to_string(),
         issuances,
         frontiers,
     }))
@@ -1864,7 +2177,15 @@ async fn load_frontier_row(
         .map_err(storage)?;
 
     if rows.len() != 1 {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            if rows.is_empty() {
+                Reason::Missing
+            } else {
+                Reason::Ambiguous
+            },
+            Subject::Frontier,
+            frontier_identity,
+        ));
     }
     let row = &rows[0];
     let frontier: StoredRevocationFrontierV1 =
@@ -1892,7 +2213,11 @@ async fn load_frontier_row(
             .windows(2)
             .any(|pair| pair[0].authorization_identity >= pair[1].authorization_identity)
     {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Frontier,
+            &frontier.frontier_identity,
+        ));
     }
     Ok(frontier)
 }
@@ -1939,7 +2264,11 @@ fn stored_issuance_digest(stored: &StoredIssuanceV1) -> Result<String, OperatorA
                 .semantic_digest()
             }
         }
-        _ => Err(OperatorAuthorizationError::Unavailable),
+        _ => Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Authorization,
+            &stored.proposal.authorization_identity,
+        )),
     }
 }
 
@@ -1947,7 +2276,7 @@ fn order_and_verify_issuances(
     issuances: Vec<StoredIssuanceV1>,
 ) -> Result<Vec<StoredIssuanceV1>, OperatorAuthorizationError> {
     if issuances.is_empty() {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable(Reason::LineageBroken));
     }
     let genesis_matches = issuances
         .iter()
@@ -1955,26 +2284,30 @@ fn order_and_verify_issuances(
         .count();
 
     if genesis_matches != 1 {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable(Reason::LineageBroken));
     }
     let mut remaining = issuances;
     let genesis_index = remaining
         .iter()
         .position(|issuance| issuance.predecessor_authorization.is_none())
-        .ok_or(OperatorAuthorizationError::Unavailable)?;
+        .ok_or_else(|| unavailable(Reason::LineageBroken))?;
     let genesis = remaining.remove(genesis_index);
     if genesis.admitted_frontier_identity.is_some()
         || genesis.recovery_epoch.is_some()
         || stored_issuance_digest(&genesis)? != genesis.issuance_digest
     {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Authorization,
+            &genesis.proposal.authorization_identity,
+        ));
     }
     let mut ordered = vec![genesis];
 
     while !remaining.is_empty() {
         let predecessor = ordered
             .last()
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
+            .ok_or_else(|| unavailable(Reason::LineageBroken))?;
         let predecessor_locator = OperatorAuthorizationLocatorV1 {
             authorization_identity: predecessor.proposal.authorization_identity.clone(),
             issuance_receipt_identity: issuance_receipt(predecessor).receipt_identity,
@@ -1989,7 +2322,11 @@ fn order_and_verify_issuances(
             .collect::<Vec<_>>();
 
         if matches.len() != 1 {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::LineageBroken,
+                Subject::Authorization,
+                &predecessor.proposal.authorization_identity,
+            ));
         }
         let successor = remaining.remove(matches[0]);
         let valid_manifest_transition = if let Some(epoch) = &successor.recovery_epoch {
@@ -2019,7 +2356,11 @@ fn order_and_verify_issuances(
             || successor.committed_at_epoch_ms < predecessor.committed_at_epoch_ms
             || stored_issuance_digest(&successor)? != successor.issuance_digest
         {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return Err(unavailable_for(
+                Reason::LineageBroken,
+                Subject::Authorization,
+                &successor.proposal.authorization_identity,
+            ));
         }
         ordered.push(successor);
     }
@@ -2113,7 +2454,15 @@ async fn verify_outbox<T: Serialize>(
         .map_err(storage)?;
 
     if rows.len() != 1 {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            if rows.is_empty() {
+                Reason::Missing
+            } else {
+                Reason::Ambiguous
+            },
+            Subject::Outbox,
+            aggregate,
+        ));
     }
     let row = &rows[0];
     let record: StoredOutboxV1 = from_json(row.try_get("payload_json").map_err(storage)?)?;
@@ -2141,7 +2490,11 @@ async fn verify_outbox<T: Serialize>(
             != payload_digest
         || from_i64(row.try_get("committed_at_epoch_ms").map_err(storage)?)? != committed_at
     {
-        return Err(OperatorAuthorizationError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Outbox,
+            aggregate,
+        ));
     }
     Ok(())
 }
@@ -2161,7 +2514,7 @@ fn json<T: Serialize>(value: &T) -> Result<serde_json::Value, OperatorAuthorizat
 fn from_json<T: for<'de> Deserialize<'de>>(
     value: serde_json::Value,
 ) -> Result<T, OperatorAuthorizationError> {
-    serde_json::from_value(value).map_err(|_| OperatorAuthorizationError::Unavailable)
+    serde_json::from_value(value).map_err(|_| unavailable(Reason::Malformed))
 }
 
 fn to_i64(value: u64) -> Result<i64, OperatorAuthorizationError> {
@@ -2169,1706 +2522,16 @@ fn to_i64(value: u64) -> Result<i64, OperatorAuthorizationError> {
 }
 
 fn from_i64(value: i64) -> Result<u64, OperatorAuthorizationError> {
-    u64::try_from(value).map_err(|_| OperatorAuthorizationError::Unavailable)
+    u64::try_from(value).map_err(|_| unavailable(Reason::Malformed))
 }
 
 fn storage(error: impl Display) -> OperatorAuthorizationError {
     OperatorAuthorizationError::Storage(error.to_string())
 }
 
-mod portfolio_resource_grant {
-    use super::*;
-    use crate::{
-        PORTFOLIO_RESOURCE_GRANT_SCHEMA_V1, PortfolioResourceGrantContentV1,
-        PortfolioResourceGrantIssuanceProposalV1, PortfolioResourceGrantIssuanceReceiptV1,
-        PortfolioResourceGrantLocatorV1, PortfolioResourceGrantReadRequestV1,
-        PortfolioResourceGrantReadbackV1, PortfolioResourceGrantResolutionV1,
-        PortfolioResourceGrantRevocationFrontierV1, PortfolioResourceGrantRevocationProposalV1,
-        PortfolioResourceGrantSuccessorProposalV1, PortfolioResourceGrantUnavailableReasonV1,
-        PortfolioResourceV1, ProductEdgeManifestBindingV1,
-    };
-    const GRANT_ISSUED_EVENT: &str = "PORTFOLIO_RESOURCE_GRANT_ISSUED_V1";
-    const GRANT_FRONTIER_EVENT: &str = "PORTFOLIO_RESOURCE_GRANT_REVOCATION_FRONTIER_V1";
-    const GRANT_ADVISORY_LOCK_NAMESPACE: &str =
-        "operator-authorization.portfolio-resource-grant.resource.v1";
-
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct StoredGrantOutboxV1 {
-        schema_version: u32,
-        event_identity: String,
-        aggregate_identity: String,
-        event_kind: String,
-        payload_digest: String,
-        committed_at_epoch_ms: u64,
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct StoredGrantIssuanceV1 {
-        schema_version: u32,
-        proposal: PortfolioResourceGrantIssuanceProposalV1,
-        predecessor: Option<PortfolioResourceGrantLocatorV1>,
-        issuance_digest: String,
-        committed_at_epoch_ms: u64,
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct StoredGrantReceiptV1 {
-        schema_version: u32,
-        receipt_identity: String,
-        grant_identity: String,
-        issuance_digest: String,
-        committed_at_epoch_ms: u64,
-    }
-
-    impl From<StoredGrantReceiptV1> for PortfolioResourceGrantIssuanceReceiptV1 {
-        fn from(value: StoredGrantReceiptV1) -> Self {
-            Self {
-                schema_version: value.schema_version,
-                receipt_identity: value.receipt_identity,
-                grant_identity: value.grant_identity,
-                issuance_digest: value.issuance_digest,
-                committed_at_epoch_ms: value.committed_at_epoch_ms,
-            }
-        }
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct StoredGrantRevocationV1 {
-        grant_identity: String,
-        reason_code: String,
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct StoredGrantFrontierV1 {
-        schema_version: u32,
-        frontier_identity: String,
-        resource_digest: String,
-        sequence: u64,
-        predecessor_frontier_identity: Option<String>,
-        revocations: Vec<StoredGrantRevocationV1>,
-        committed_at_epoch_ms: u64,
-    }
-
-    impl StoredGrantFrontierV1 {
-        fn public(&self) -> PortfolioResourceGrantRevocationFrontierV1 {
-            PortfolioResourceGrantRevocationFrontierV1 {
-                schema_version: self.schema_version,
-                frontier_identity: self.frontier_identity.clone(),
-                resource_digest: self.resource_digest.clone(),
-                sequence: self.sequence,
-                predecessor_frontier_identity: self.predecessor_frontier_identity.clone(),
-                revoked_grant_identities: self
-                    .revocations
-                    .iter()
-                    .map(|entry| entry.grant_identity.clone())
-                    .collect(),
-                committed_at_epoch_ms: self.committed_at_epoch_ms,
-            }
-        }
-    }
-
-    #[derive(Deserialize)]
-    #[cfg_attr(test, derive(Serialize))]
-    #[serde(deny_unknown_fields)]
-    struct LockedGrantIssuanceRowV1 {
-        grant_identity: String,
-        issuer_identity: String,
-        principal: String,
-        audience: String,
-        permission: String,
-        account_identity: String,
-        execution_scope_identity: String,
-        mode: String,
-        resource_digest: String,
-        semantic_digest: String,
-        issuance_json: serde_json::Value,
-        receipt_json: serde_json::Value,
-        committed_at_epoch_ms: i64,
-    }
-
-    #[derive(Deserialize)]
-    #[cfg_attr(test, derive(Serialize))]
-    #[serde(deny_unknown_fields)]
-    struct LockedGrantFrontierRowV1 {
-        frontier_identity: String,
-        resource_digest: String,
-        sequence: i64,
-        predecessor_frontier_identity: Option<String>,
-        frontier_digest: String,
-        frontier_json: serde_json::Value,
-        committed_at_epoch_ms: i64,
-    }
-
-    #[derive(Deserialize)]
-    #[cfg_attr(test, derive(Serialize))]
-    #[serde(deny_unknown_fields)]
-    struct LockedGrantHeadRowV1 {
-        resource_digest: String,
-        frontier_identity: String,
-        sequence: i64,
-        frontier_digest: String,
-        committed_at_epoch_ms: i64,
-    }
-
-    #[derive(Deserialize)]
-    #[cfg_attr(test, derive(Serialize))]
-    #[serde(deny_unknown_fields)]
-    struct LockedGrantOutboxRowV1 {
-        event_identity: String,
-        aggregate_identity: String,
-        event_kind: String,
-        payload_digest: String,
-        payload_json: serde_json::Value,
-        committed_at_epoch_ms: i64,
-    }
-
-    #[derive(Deserialize)]
-    #[cfg_attr(test, derive(Serialize))]
-    #[serde(deny_unknown_fields)]
-    struct LockedGrantEnvelopeV1 {
-        issuances: Vec<LockedGrantIssuanceRowV1>,
-        head: LockedGrantHeadRowV1,
-        frontiers: Vec<LockedGrantFrontierRowV1>,
-        outboxes: Vec<LockedGrantOutboxRowV1>,
-        observed_at_epoch_ms: i64,
-    }
-
-    struct VerifiedGrantHistoryV1 {
-        issuances: Vec<StoredGrantIssuanceV1>,
-        frontiers: Vec<StoredGrantFrontierV1>,
-    }
-
-    impl VerifiedGrantHistoryV1 {
-        fn current(&self) -> Result<&StoredGrantFrontierV1, OperatorAuthorizationError> {
-            self.frontiers
-                .last()
-                .ok_or(OperatorAuthorizationError::Unavailable)
-        }
-
-        fn issuance(
-            &self,
-            grant_identity: &str,
-        ) -> Result<&StoredGrantIssuanceV1, OperatorAuthorizationError> {
-            self.issuances
-                .iter()
-                .find(|item| item.proposal.grant_identity == grant_identity)
-                .ok_or(OperatorAuthorizationError::Unavailable)
-        }
-
-        fn issuance_head(&self) -> Result<&StoredGrantIssuanceV1, OperatorAuthorizationError> {
-            self.issuances
-                .last()
-                .ok_or(OperatorAuthorizationError::Unavailable)
-        }
-    }
-
-    pub(super) async fn migrate(pool: &PgPool) -> Result<(), OperatorAuthorizationError> {
-        let mut transaction = pool.begin().await.map_err(storage)?;
-        sqlx::query("SET LOCAL ROLE operator_authorization_owner")
-            .execute(&mut *transaction)
-            .await
-            .map_err(storage)?;
-
-        for statement in [
-            "CREATE TABLE IF NOT EXISTS operator_authorization_private.portfolio_resource_grant_issuances_v1 (grant_identity TEXT PRIMARY KEY, issuer_identity TEXT NOT NULL, principal TEXT NOT NULL, audience TEXT NOT NULL, permission TEXT NOT NULL, account_identity TEXT NOT NULL, execution_scope_identity TEXT NOT NULL, mode TEXT NOT NULL, resource_digest TEXT NOT NULL, semantic_digest TEXT NOT NULL, issuance_json JSONB NOT NULL, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
-            "CREATE TABLE IF NOT EXISTS operator_authorization_private.portfolio_resource_grant_revocation_frontiers_v1 (frontier_identity TEXT PRIMARY KEY, resource_digest TEXT NOT NULL, sequence BIGINT NOT NULL, predecessor_frontier_identity TEXT, frontier_digest TEXT NOT NULL, frontier_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE(resource_digest, sequence))",
-            "CREATE TABLE IF NOT EXISTS operator_authorization_private.portfolio_resource_grant_revocation_heads_v1 (resource_digest TEXT PRIMARY KEY, frontier_identity TEXT NOT NULL REFERENCES operator_authorization_private.portfolio_resource_grant_revocation_frontiers_v1(frontier_identity), sequence BIGINT NOT NULL, frontier_digest TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
-            "CREATE TABLE IF NOT EXISTS operator_authorization_private.portfolio_resource_grant_owner_outbox_v1 (event_identity TEXT PRIMARY KEY, aggregate_identity TEXT NOT NULL, event_kind TEXT NOT NULL, payload_digest TEXT NOT NULL, payload_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
-            "CREATE INDEX IF NOT EXISTS portfolio_resource_grant_issuance_resource_v1 ON operator_authorization_private.portfolio_resource_grant_issuances_v1(resource_digest, grant_identity)",
-            "CREATE INDEX IF NOT EXISTS portfolio_resource_grant_outbox_aggregate_v1 ON operator_authorization_private.portfolio_resource_grant_owner_outbox_v1(aggregate_identity)",
-            "REVOKE ALL ON TABLE operator_authorization_private.portfolio_resource_grant_issuances_v1, operator_authorization_private.portfolio_resource_grant_revocation_frontiers_v1, operator_authorization_private.portfolio_resource_grant_revocation_heads_v1, operator_authorization_private.portfolio_resource_grant_owner_outbox_v1 FROM PUBLIC, product_edge_owner, rd_owner, qualification_writer",
-            "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE operator_authorization_private.portfolio_resource_grant_issuances_v1, operator_authorization_private.portfolio_resource_grant_revocation_frontiers_v1, operator_authorization_private.portfolio_resource_grant_revocation_heads_v1, operator_authorization_private.portfolio_resource_grant_owner_outbox_v1 TO operator_authorization_writer",
-        ] {
-            sqlx::query(statement)
-                .execute(&mut *transaction)
-                .await
-                .map_err(storage)?;
-        }
-        sqlx::query(
-            "CREATE OR REPLACE FUNCTION operator_authorization_api.lock_current_portfolio_resource_grant_v1(requested_grant_identity text, requested_issuance_receipt_identity text)
-RETURNS jsonb
-LANGUAGE plpgsql
-STRICT VOLATILE PARALLEL UNSAFE
-SECURITY DEFINER
-SET search_path = pg_catalog, operator_authorization_private
-AS $function$
-DECLARE
-  hinted_resource_digest text;
-  issuance operator_authorization_private.portfolio_resource_grant_issuances_v1%ROWTYPE;
-  head operator_authorization_private.portfolio_resource_grant_revocation_heads_v1%ROWTYPE;
-BEGIN
-  SELECT item.resource_digest INTO hinted_resource_digest
-    FROM operator_authorization_private.portfolio_resource_grant_issuances_v1 item
-    WHERE item.grant_identity=requested_grant_identity;
-  IF NOT FOUND THEN RETURN NULL; END IF;
-  PERFORM pg_advisory_xact_lock_shared(hashtextextended(
-    'operator-authorization.portfolio-resource-grant.resource.v1:' || hinted_resource_digest,
-    0
-  ));
-  PERFORM 1 FROM operator_authorization_private.portfolio_resource_grant_issuances_v1
-    WHERE resource_digest=hinted_resource_digest ORDER BY grant_identity FOR SHARE;
-  SELECT * INTO issuance FROM operator_authorization_private.portfolio_resource_grant_issuances_v1
-    WHERE grant_identity=requested_grant_identity
-      AND resource_digest=hinted_resource_digest;
-  IF NOT FOUND OR issuance.receipt_json->>'receipt_identity' <> requested_issuance_receipt_identity THEN
-    RETURN NULL;
-  END IF;
-  SELECT * INTO head FROM operator_authorization_private.portfolio_resource_grant_revocation_heads_v1
-    WHERE resource_digest=issuance.resource_digest FOR SHARE;
-  IF NOT FOUND THEN RETURN NULL; END IF;
-  PERFORM 1 FROM operator_authorization_private.portfolio_resource_grant_revocation_frontiers_v1
-    WHERE resource_digest=issuance.resource_digest ORDER BY sequence, frontier_identity FOR SHARE;
-  PERFORM 1 FROM operator_authorization_private.portfolio_resource_grant_owner_outbox_v1 outbox
-    WHERE outbox.aggregate_identity IN
-      (SELECT grant_identity FROM operator_authorization_private.portfolio_resource_grant_issuances_v1 WHERE resource_digest=issuance.resource_digest)
-       OR outbox.aggregate_identity IN
-      (SELECT frontier_identity FROM operator_authorization_private.portfolio_resource_grant_revocation_frontiers_v1 WHERE resource_digest=issuance.resource_digest)
-    ORDER BY outbox.event_identity FOR SHARE;
-  RETURN jsonb_build_object(
-    'issuances', COALESCE((SELECT jsonb_agg(to_jsonb(item) ORDER BY item.grant_identity) FROM operator_authorization_private.portfolio_resource_grant_issuances_v1 item WHERE item.resource_digest=issuance.resource_digest), '[]'::jsonb),
-    'head', to_jsonb(head),
-    'frontiers', COALESCE((SELECT jsonb_agg(to_jsonb(item) ORDER BY item.sequence, item.frontier_identity) FROM operator_authorization_private.portfolio_resource_grant_revocation_frontiers_v1 item WHERE item.resource_digest=issuance.resource_digest), '[]'::jsonb),
-    'outboxes', COALESCE((SELECT jsonb_agg(to_jsonb(outbox) ORDER BY outbox.event_identity) FROM operator_authorization_private.portfolio_resource_grant_owner_outbox_v1 outbox WHERE outbox.aggregate_identity IN (SELECT grant_identity FROM operator_authorization_private.portfolio_resource_grant_issuances_v1 WHERE resource_digest=issuance.resource_digest) OR outbox.aggregate_identity IN (SELECT frontier_identity FROM operator_authorization_private.portfolio_resource_grant_revocation_frontiers_v1 WHERE resource_digest=issuance.resource_digest)), '[]'::jsonb),
-    'observed_at_epoch_ms', floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint
-  );
-END
-$function$",
-        )
-        .execute(&mut *transaction)
-        .await
-        .map_err(storage)?;
-
-        for statement in [
-            "ALTER FUNCTION operator_authorization_api.lock_current_portfolio_resource_grant_v1(text,text) OWNER TO operator_authorization_owner",
-            "REVOKE ALL ON FUNCTION operator_authorization_api.lock_current_portfolio_resource_grant_v1(text,text) FROM PUBLIC, rd_owner, qualification_writer",
-            "GRANT EXECUTE ON FUNCTION operator_authorization_api.lock_current_portfolio_resource_grant_v1(text,text) TO product_edge_owner, operator_authorization_writer",
-        ] {
-            sqlx::query(statement)
-                .execute(&mut *transaction)
-                .await
-                .map_err(storage)?;
-        }
-        transaction.commit().await.map_err(storage)
-    }
-
-    impl OperatorAuthorizationIssuerPostgresV1 {
-        pub async fn issue_portfolio_resource_grant_genesis(
-            &self,
-            proposal: PortfolioResourceGrantIssuanceProposalV1,
-        ) -> Result<PortfolioResourceGrantReadbackV1, OperatorAuthorizationError> {
-            proposal.validate()?;
-            if proposal.expected_revocation_frontier_identity != "EMPTY" {
-                return Err(OperatorAuthorizationError::InvalidProposal(
-                    "portfolio resource grant genesis frontier",
-                ));
-            }
-            let semantic_digest = proposal.semantic_digest()?;
-            let resource_digest = proposal.content.resource.digest()?;
-            let mut transaction = self.pool.begin().await.map_err(storage)?;
-            lock_grant_resource_for_write(&mut transaction, &resource_digest).await?;
-            if let Some(history) =
-                verify_grant_history(&mut transaction, &resource_digest, true).await?
-            {
-                let existing = history
-                    .issuances
-                    .iter()
-                    .find(|item| item.proposal.grant_identity == proposal.grant_identity)
-                    .ok_or(OperatorAuthorizationError::ConflictingReplay)?;
-                if existing.proposal != proposal || existing.issuance_digest != semantic_digest {
-                    return Err(OperatorAuthorizationError::ConflictingReplay);
-                }
-                let result = resolve_locked_grant_readback(
-                    &mut transaction,
-                    &history,
-                    &existing.proposal.grant_identity,
-                )
-                .await?;
-                transaction.commit().await.map_err(storage)?;
-                return Ok(result);
-            }
-
-            let committed_at = database_now(&mut transaction).await?;
-            ensure_grant_current(&proposal.content, committed_at)?;
-            let stored = StoredGrantIssuanceV1 {
-                schema_version: PORTFOLIO_RESOURCE_GRANT_SCHEMA_V1,
-                proposal,
-                predecessor: None,
-                issuance_digest: semantic_digest,
-                committed_at_epoch_ms: committed_at,
-            };
-            let receipt = grant_receipt(&stored);
-            let frontier = grant_genesis_frontier(&stored)?;
-            insert_grant_issuance(&mut transaction, &stored, &receipt).await?;
-            insert_grant_frontier(&mut transaction, &frontier).await?;
-            let frontier_digest = grant_frontier_digest(&frontier)?;
-            sqlx::query("INSERT INTO operator_authorization_private.portfolio_resource_grant_revocation_heads_v1 (resource_digest,frontier_identity,sequence,frontier_digest,committed_at_epoch_ms) VALUES ($1,$2,0,$3,$4)")
-                .bind(&resource_digest).bind(&frontier.frontier_identity).bind(&frontier_digest)
-                .bind(to_i64(committed_at)?).execute(&mut *transaction).await.map_err(storage)?;
-            insert_grant_outbox(
-                &mut transaction,
-                &receipt.receipt_identity,
-                &stored.proposal.grant_identity,
-                GRANT_ISSUED_EVENT,
-                &receipt,
-                committed_at,
-            )
-            .await?;
-            insert_grant_outbox(
-                &mut transaction,
-                &frontier.frontier_identity,
-                &frontier.frontier_identity,
-                GRANT_FRONTIER_EVENT,
-                &frontier,
-                committed_at,
-            )
-            .await?;
-            let history = verify_grant_history(&mut transaction, &resource_digest, true)
-                .await?
-                .ok_or(OperatorAuthorizationError::Unavailable)?;
-            let result = resolve_locked_grant_readback(
-                &mut transaction,
-                &history,
-                &stored.proposal.grant_identity,
-            )
-            .await?;
-            transaction.commit().await.map_err(storage)?;
-            Ok(result)
-        }
-
-        pub async fn issue_portfolio_resource_grant_successor(
-            &self,
-            proposal: PortfolioResourceGrantSuccessorProposalV1,
-        ) -> Result<PortfolioResourceGrantReadbackV1, OperatorAuthorizationError> {
-            proposal.validate()?;
-            let mut transaction = self.pool.begin().await.map_err(storage)?;
-            let resource_digest = load_grant_resource_digest_hint(
-                &mut transaction,
-                &proposal.predecessor.grant_identity,
-            )
-            .await?
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
-            lock_grant_resource_for_write(&mut transaction, &resource_digest).await?;
-            let history = verify_grant_history(&mut transaction, &resource_digest, true)
-                .await?
-                .ok_or(OperatorAuthorizationError::Unavailable)?;
-            let predecessor = history
-                .issuance(&proposal.predecessor.grant_identity)?
-                .clone();
-
-            if grant_receipt(&predecessor).receipt_identity
-                != proposal.predecessor.issuance_receipt_identity
-            {
-                return Err(OperatorAuthorizationError::Unavailable);
-            }
-            let current = history.current()?;
-            let digest = proposal.semantic_digest()?;
-
-            if let Some(existing) = history
-                .issuances
-                .iter()
-                .find(|item| item.proposal.grant_identity == proposal.successor.grant_identity)
-            {
-                if existing.predecessor.as_ref() != Some(&proposal.predecessor)
-                    || existing.proposal != proposal.successor
-                    || existing.issuance_digest != digest
-                    || history.issuance_head()? != existing
-                {
-                    return Err(OperatorAuthorizationError::ConflictingReplay);
-                }
-                let grant_identity = existing.proposal.grant_identity.clone();
-                let result =
-                    resolve_locked_grant_readback(&mut transaction, &history, &grant_identity)
-                        .await?;
-                transaction.commit().await.map_err(storage)?;
-                return Ok(result);
-            }
-
-            if history.issuance_head()? != &predecessor
-                || current.frontier_identity != proposal.expected_current_frontier_identity
-                || current
-                    .revocations
-                    .iter()
-                    .any(|item| item.grant_identity == predecessor.proposal.grant_identity)
-                || proposal.successor.content.issuer_identity
-                    != predecessor.proposal.content.issuer_identity
-                || proposal.successor.content.issuer_key_version
-                    != predecessor.proposal.content.issuer_key_version
-                || proposal.successor.content.resource != predecessor.proposal.content.resource
-                || proposal.successor.content.effective_at_epoch_ms
-                    < predecessor.proposal.content.effective_at_epoch_ms
-                || proposal.successor.content.valid_through_epoch_ms
-                    <= predecessor.proposal.content.valid_through_epoch_ms
-            {
-                return Err(OperatorAuthorizationError::ConflictingReplay);
-            }
-            let committed_at = database_now(&mut transaction).await?;
-            ensure_grant_current(&proposal.successor.content, committed_at)?;
-            let stored = StoredGrantIssuanceV1 {
-                schema_version: PORTFOLIO_RESOURCE_GRANT_SCHEMA_V1,
-                proposal: proposal.successor,
-                predecessor: Some(proposal.predecessor),
-                issuance_digest: digest,
-                committed_at_epoch_ms: committed_at,
-            };
-            let receipt = grant_receipt(&stored);
-            insert_grant_issuance(&mut transaction, &stored, &receipt).await?;
-            insert_grant_outbox(
-                &mut transaction,
-                &receipt.receipt_identity,
-                &stored.proposal.grant_identity,
-                GRANT_ISSUED_EVENT,
-                &receipt,
-                committed_at,
-            )
-            .await?;
-            let verified = verify_grant_history(&mut transaction, &resource_digest, true)
-                .await?
-                .ok_or(OperatorAuthorizationError::Unavailable)?;
-            let result = resolve_locked_grant_readback(
-                &mut transaction,
-                &verified,
-                &stored.proposal.grant_identity,
-            )
-            .await?;
-            transaction.commit().await.map_err(storage)?;
-            Ok(result)
-        }
-
-        pub async fn revoke_portfolio_resource_grant(
-            &self,
-            proposal: PortfolioResourceGrantRevocationProposalV1,
-        ) -> Result<PortfolioResourceGrantRevocationFrontierV1, OperatorAuthorizationError>
-        {
-            proposal.validate()?;
-            let mut transaction = self.pool.begin().await.map_err(storage)?;
-            let resource_digest =
-                load_grant_resource_digest_hint(&mut transaction, &proposal.grant.grant_identity)
-                    .await?
-                    .ok_or(OperatorAuthorizationError::Unavailable)?;
-            lock_grant_resource_for_write(&mut transaction, &resource_digest).await?;
-            let history = verify_grant_history(&mut transaction, &resource_digest, true)
-                .await?
-                .ok_or(OperatorAuthorizationError::Unavailable)?;
-            let issuance = history.issuance(&proposal.grant.grant_identity)?.clone();
-
-            if grant_receipt(&issuance).receipt_identity != proposal.grant.issuance_receipt_identity
-            {
-                return Err(OperatorAuthorizationError::Unavailable);
-            }
-            let current = history.current()?;
-            if let Some(existing) = current
-                .revocations
-                .iter()
-                .find(|item| item.grant_identity == proposal.grant.grant_identity)
-            {
-                if existing.reason_code == proposal.reason_code
-                    && current.predecessor_frontier_identity.as_deref()
-                        == Some(&proposal.expected_frontier_identity)
-                {
-                    transaction.commit().await.map_err(storage)?;
-                    return Ok(current.public());
-                }
-                return Err(OperatorAuthorizationError::ConflictingReplay);
-            }
-
-            if current.frontier_identity != proposal.expected_frontier_identity {
-                return Err(OperatorAuthorizationError::ConflictingReplay);
-            }
-            let committed_at = database_now(&mut transaction).await?;
-            let mut revocations = current.revocations.clone();
-            revocations.push(StoredGrantRevocationV1 {
-                grant_identity: proposal.grant.grant_identity,
-                reason_code: proposal.reason_code,
-            });
-            revocations.sort_by(|left, right| left.grant_identity.cmp(&right.grant_identity));
-            let next = StoredGrantFrontierV1 {
-                schema_version: PORTFOLIO_RESOURCE_GRANT_SCHEMA_V1,
-                frontier_identity: identity(
-                    "operator-authorization-portfolio-resource-grant-frontier-v1",
-                    &[
-                        &resource_digest,
-                        &current.frontier_identity,
-                        &canonical_digest(
-                            "operator-authorization.portfolio-resource-grant-revocations.v1",
-                            &revocations,
-                        )?,
-                        &committed_at.to_string(),
-                    ],
-                ),
-                resource_digest: resource_digest.clone(),
-                sequence: current.sequence.saturating_add(1),
-                predecessor_frontier_identity: Some(current.frontier_identity.clone()),
-                revocations,
-                committed_at_epoch_ms: committed_at,
-            };
-            insert_grant_frontier(&mut transaction, &next).await?;
-            let next_digest = grant_frontier_digest(&next)?;
-            let updated = sqlx::query("UPDATE operator_authorization_private.portfolio_resource_grant_revocation_heads_v1 SET frontier_identity=$1,sequence=$2,frontier_digest=$3,committed_at_epoch_ms=$4 WHERE resource_digest=$5 AND frontier_identity=$6 AND sequence=$7")
-                .bind(&next.frontier_identity).bind(to_i64(next.sequence)?).bind(&next_digest)
-                .bind(to_i64(committed_at)?).bind(&resource_digest).bind(&current.frontier_identity)
-                .bind(to_i64(current.sequence)?).execute(&mut *transaction).await.map_err(storage)?;
-
-            if updated.rows_affected() != 1 {
-                return Err(OperatorAuthorizationError::ConflictingReplay);
-            }
-            insert_grant_outbox(
-                &mut transaction,
-                &next.frontier_identity,
-                &next.frontier_identity,
-                GRANT_FRONTIER_EVENT,
-                &next,
-                committed_at,
-            )
-            .await?;
-            let verified = verify_grant_history(&mut transaction, &resource_digest, true)
-                .await?
-                .ok_or(OperatorAuthorizationError::Unavailable)?;
-            if verified.current()? != &next {
-                return Err(OperatorAuthorizationError::Unavailable);
-            }
-            transaction.commit().await.map_err(storage)?;
-            Ok(next.public())
-        }
-    }
-
-    pub async fn resolve_portfolio_resource_grant_in_transaction(
-        transaction: &mut Transaction<'_, Postgres>,
-        request: &PortfolioResourceGrantReadRequestV1,
-    ) -> PortfolioResourceGrantResolutionV1 {
-        let unavailable = |reason| PortfolioResourceGrantResolutionV1::Unavailable { reason };
-
-        if request.validate().is_err() {
-            return unavailable(PortfolioResourceGrantUnavailableReasonV1::InvalidRequest);
-        }
-
-        if ensure_read_committed(transaction).await.is_err() {
-            return unavailable(PortfolioResourceGrantUnavailableReasonV1::OwnerUnavailable);
-        }
-        let envelope = sqlx::query_scalar::<_, Option<serde_json::Value>>(
-            "SELECT operator_authorization_api.lock_current_portfolio_resource_grant_v1($1,$2)",
-        )
-        .bind(&request.locator.grant_identity)
-        .bind(&request.locator.issuance_receipt_identity)
-        .fetch_one(&mut **transaction)
-        .await;
-        let Ok(Some(value)) = envelope else {
-            return unavailable(PortfolioResourceGrantUnavailableReasonV1::OwnerUnavailable);
-        };
-        let observed_at = value
-            .get("observed_at_epoch_ms")
-            .and_then(serde_json::Value::as_i64)
-            .ok_or(OperatorAuthorizationError::Unavailable)
-            .and_then(from_i64);
-        let evidence = serde_json::to_vec(&value)
-            .map_err(storage)
-            .and_then(|bytes| {
-                parse_untrusted_portfolio_resource_grant_envelope_v1(&bytes, &request.locator)
-            });
-        let (Ok(observed_at), Ok(evidence)) = (observed_at, evidence) else {
-            return unavailable(PortfolioResourceGrantUnavailableReasonV1::OwnerUnavailable);
-        };
-
-        resolve_verified_grant_evidence(
-            &evidence,
-            observed_at,
-            Some((&request.expected_resource, &request.expected_manifest)),
-        )
-    }
-
-    fn ensure_grant_current(
-        content: &PortfolioResourceGrantContentV1,
-        observed_at: u64,
-    ) -> Result<(), OperatorAuthorizationError> {
-        if observed_at < content.effective_at_epoch_ms
-            || observed_at >= content.valid_through_epoch_ms
-        {
-            return Err(OperatorAuthorizationError::InvalidProposal(
-                "portfolio resource grant validity",
-            ));
-        }
-        Ok(())
-    }
-
-    fn grant_receipt(stored: &StoredGrantIssuanceV1) -> StoredGrantReceiptV1 {
-        let committed = stored.committed_at_epoch_ms.to_string();
-        StoredGrantReceiptV1 {
-            schema_version: PORTFOLIO_RESOURCE_GRANT_SCHEMA_V1,
-            receipt_identity: identity(
-                "operator-authorization-portfolio-resource-grant-receipt-v1",
-                &[
-                    &stored.proposal.grant_identity,
-                    &stored.issuance_digest,
-                    &committed,
-                ],
-            ),
-            grant_identity: stored.proposal.grant_identity.clone(),
-            issuance_digest: stored.issuance_digest.clone(),
-            committed_at_epoch_ms: stored.committed_at_epoch_ms,
-        }
-    }
-
-    fn grant_genesis_frontier(
-        stored: &StoredGrantIssuanceV1,
-    ) -> Result<StoredGrantFrontierV1, OperatorAuthorizationError> {
-        let resource_digest = stored.proposal.content.resource.digest()?;
-        Ok(StoredGrantFrontierV1 {
-            schema_version: PORTFOLIO_RESOURCE_GRANT_SCHEMA_V1,
-            frontier_identity: identity(
-                "operator-authorization-portfolio-resource-grant-frontier-v1",
-                &[
-                    &resource_digest,
-                    GENESIS_REVOCATION_FRONTIER,
-                    &stored.committed_at_epoch_ms.to_string(),
-                ],
-            ),
-            resource_digest,
-            sequence: 0,
-            predecessor_frontier_identity: None,
-            revocations: Vec::new(),
-            committed_at_epoch_ms: stored.committed_at_epoch_ms,
-        })
-    }
-
-    fn grant_frontier_digest(
-        frontier: &StoredGrantFrontierV1,
-    ) -> Result<String, OperatorAuthorizationError> {
-        canonical_digest(
-            "operator-authorization.portfolio-resource-grant-frontier.v1",
-            frontier,
-        )
-    }
-
-    fn stored_grant_digest(
-        stored: &StoredGrantIssuanceV1,
-    ) -> Result<String, OperatorAuthorizationError> {
-        match &stored.predecessor {
-            None => stored.proposal.semantic_digest(),
-            Some(predecessor) => PortfolioResourceGrantSuccessorProposalV1 {
-                predecessor: predecessor.clone(),
-                expected_current_frontier_identity: stored
-                    .proposal
-                    .expected_revocation_frontier_identity
-                    .clone(),
-                successor: stored.proposal.clone(),
-            }
-            .semantic_digest(),
-        }
-    }
-
-    fn resolve_verified_grant(
-        stored: &StoredGrantIssuanceV1,
-        frontier: &StoredGrantFrontierV1,
-        observed_at: u64,
-        expected: Option<(&PortfolioResourceV1, &ProductEdgeManifestBindingV1)>,
-    ) -> PortfolioResourceGrantResolutionV1 {
-        let evidence = UntrustedCanonicalPortfolioResourceGrantEvidenceV1 {
-            schema_version: PORTFOLIO_RESOURCE_GRANT_SCHEMA_V1,
-            issuance_receipt: grant_receipt(stored).into(),
-            frontier: frontier.public(),
-            content: stored.proposal.content.clone(),
-        };
-        resolve_verified_grant_evidence(&evidence, observed_at, expected)
-    }
-
-    fn resolve_verified_grant_evidence(
-        evidence: &UntrustedCanonicalPortfolioResourceGrantEvidenceV1,
-        observed_at: u64,
-        expected: Option<(&PortfolioResourceV1, &ProductEdgeManifestBindingV1)>,
-    ) -> PortfolioResourceGrantResolutionV1 {
-        let unavailable = |reason| PortfolioResourceGrantResolutionV1::Unavailable { reason };
-
-        if let Some((resource, manifest)) = expected {
-            if !evidence.matches_resource(resource) {
-                return unavailable(PortfolioResourceGrantUnavailableReasonV1::ResourceMismatch);
-            }
-
-            if !evidence.matches_product_edge_manifest(manifest) {
-                return unavailable(PortfolioResourceGrantUnavailableReasonV1::ManifestMismatch);
-            }
-        }
-
-        if observed_at < evidence.content.effective_at_epoch_ms {
-            return unavailable(PortfolioResourceGrantUnavailableReasonV1::NotEffective);
-        }
-
-        if observed_at >= evidence.content.valid_through_epoch_ms {
-            return unavailable(PortfolioResourceGrantUnavailableReasonV1::Expired);
-        }
-
-        if !evidence.is_current_at(observed_at) {
-            return unavailable(PortfolioResourceGrantUnavailableReasonV1::Revoked);
-        }
-        PortfolioResourceGrantResolutionV1::Available {
-            grant: Box::new(PortfolioResourceGrantReadbackV1 {
-                issuance_receipt: evidence.issuance_receipt.clone(),
-                frontier: evidence.frontier.clone(),
-                content: evidence.content.clone(),
-                observed_at_epoch_ms: observed_at,
-            }),
-        }
-    }
-
-    async fn database_now(
-        transaction: &mut Transaction<'_, Postgres>,
-    ) -> Result<u64, OperatorAuthorizationError> {
-        let observed: i64 = sqlx::query_scalar(
-            "SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint",
-        )
-        .fetch_one(&mut **transaction)
-        .await
-        .map_err(storage)?;
-        from_i64(observed)
-    }
-
-    async fn resolve_locked_grant_readback(
-        transaction: &mut Transaction<'_, Postgres>,
-        history: &VerifiedGrantHistoryV1,
-        grant_identity: &str,
-    ) -> Result<PortfolioResourceGrantReadbackV1, OperatorAuthorizationError> {
-        let observed_at = database_now(transaction).await?;
-
-        match resolve_verified_grant(
-            history.issuance(grant_identity)?,
-            history.current()?,
-            observed_at,
-            None,
-        ) {
-            PortfolioResourceGrantResolutionV1::Available { grant } => Ok(*grant),
-            PortfolioResourceGrantResolutionV1::Unavailable { .. } => {
-                Err(OperatorAuthorizationError::Unavailable)
-            }
-        }
-    }
-
-    async fn insert_grant_issuance(
-        transaction: &mut Transaction<'_, Postgres>,
-        stored: &StoredGrantIssuanceV1,
-        receipt: &StoredGrantReceiptV1,
-    ) -> Result<(), OperatorAuthorizationError> {
-        let resource = &stored.proposal.content.resource;
-        sqlx::query("INSERT INTO operator_authorization_private.portfolio_resource_grant_issuances_v1 (grant_identity,issuer_identity,principal,audience,permission,account_identity,execution_scope_identity,mode,resource_digest,semantic_digest,issuance_json,receipt_json,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)")
-            .bind(&stored.proposal.grant_identity).bind(&stored.proposal.content.issuer_identity)
-            .bind(&resource.principal).bind(&resource.audience).bind(&resource.permission)
-            .bind(&resource.account_identity).bind(&resource.execution_scope_identity)
-            .bind(mode_text(resource)).bind(resource.digest()?).bind(&stored.issuance_digest)
-            .bind(json(stored)?).bind(json(receipt)?).bind(to_i64(stored.committed_at_epoch_ms)?)
-            .execute(&mut **transaction).await.map_err(storage)?;
-        Ok(())
-    }
-
-    async fn insert_grant_frontier(
-        transaction: &mut Transaction<'_, Postgres>,
-        frontier: &StoredGrantFrontierV1,
-    ) -> Result<(), OperatorAuthorizationError> {
-        sqlx::query("INSERT INTO operator_authorization_private.portfolio_resource_grant_revocation_frontiers_v1 (frontier_identity,resource_digest,sequence,predecessor_frontier_identity,frontier_digest,frontier_json,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7)")
-            .bind(&frontier.frontier_identity).bind(&frontier.resource_digest).bind(to_i64(frontier.sequence)?)
-            .bind(&frontier.predecessor_frontier_identity).bind(grant_frontier_digest(frontier)?)
-            .bind(json(frontier)?).bind(to_i64(frontier.committed_at_epoch_ms)?)
-            .execute(&mut **transaction).await.map_err(storage)?;
-        Ok(())
-    }
-
-    pub(super) fn grant_advisory_lock_identity(resource_digest: &str) -> String {
-        format!("{GRANT_ADVISORY_LOCK_NAMESPACE}:{resource_digest}")
-    }
-
-    pub(super) async fn lock_grant_resource_for_write(
-        transaction: &mut Transaction<'_, Postgres>,
-        resource_digest: &str,
-    ) -> Result<(), OperatorAuthorizationError> {
-        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
-            .bind(grant_advisory_lock_identity(resource_digest))
-            .execute(&mut **transaction)
-            .await
-            .map_err(storage)?;
-        Ok(())
-    }
-
-    async fn load_grant_resource_digest_hint(
-        transaction: &mut Transaction<'_, Postgres>,
-        grant_identity: &str,
-    ) -> Result<Option<String>, OperatorAuthorizationError> {
-        sqlx::query_scalar(
-            "SELECT resource_digest FROM operator_authorization_private.portfolio_resource_grant_issuances_v1 WHERE grant_identity=$1",
-        )
-            .bind(grant_identity)
-            .fetch_optional(&mut **transaction)
-            .await
-            .map_err(storage)
-    }
-
-    fn verify_grant_issuance_row(
-        row: &sqlx::postgres::PgRow,
-    ) -> Result<StoredGrantIssuanceV1, OperatorAuthorizationError> {
-        verify_locked_grant_issuance_row(LockedGrantIssuanceRowV1 {
-            grant_identity: row.try_get("grant_identity").map_err(storage)?,
-            issuer_identity: row.try_get("issuer_identity").map_err(storage)?,
-            principal: row.try_get("principal").map_err(storage)?,
-            audience: row.try_get("audience").map_err(storage)?,
-            permission: row.try_get("permission").map_err(storage)?,
-            account_identity: row.try_get("account_identity").map_err(storage)?,
-            execution_scope_identity: row.try_get("execution_scope_identity").map_err(storage)?,
-            mode: row.try_get("mode").map_err(storage)?,
-            resource_digest: row.try_get("resource_digest").map_err(storage)?,
-            semantic_digest: row.try_get("semantic_digest").map_err(storage)?,
-            issuance_json: row.try_get("issuance_json").map_err(storage)?,
-            receipt_json: row.try_get("receipt_json").map_err(storage)?,
-            committed_at_epoch_ms: row.try_get("committed_at_epoch_ms").map_err(storage)?,
-        })
-    }
-
-    async fn verify_grant_history(
-        transaction: &mut Transaction<'_, Postgres>,
-        resource_digest: &str,
-        lock: bool,
-    ) -> Result<Option<VerifiedGrantHistoryV1>, OperatorAuthorizationError> {
-        let issuance_sql = if lock {
-            "SELECT grant_identity,issuer_identity,principal,audience,permission,account_identity,execution_scope_identity,mode,resource_digest,semantic_digest,issuance_json,receipt_json,committed_at_epoch_ms FROM operator_authorization_private.portfolio_resource_grant_issuances_v1 WHERE resource_digest=$1 ORDER BY grant_identity FOR UPDATE"
-        } else {
-            "SELECT grant_identity,issuer_identity,principal,audience,permission,account_identity,execution_scope_identity,mode,resource_digest,semantic_digest,issuance_json,receipt_json,committed_at_epoch_ms FROM operator_authorization_private.portfolio_resource_grant_issuances_v1 WHERE resource_digest=$1 ORDER BY grant_identity"
-        };
-        let issuance_rows = sqlx::query(issuance_sql)
-            .bind(resource_digest)
-            .fetch_all(&mut **transaction)
-            .await
-            .map_err(storage)?;
-
-        if issuance_rows.is_empty() {
-            return Ok(None);
-        }
-        let issuances = order_grant_issuances(
-            issuance_rows
-                .into_iter()
-                .map(|row| verify_grant_issuance_row(&row))
-                .collect::<Result<Vec<_>, _>>()?,
-        )?;
-        let frontier_sql = if lock {
-            "SELECT frontier_identity,resource_digest,sequence,predecessor_frontier_identity,frontier_digest,frontier_json,committed_at_epoch_ms FROM operator_authorization_private.portfolio_resource_grant_revocation_frontiers_v1 WHERE resource_digest=$1 ORDER BY sequence,frontier_identity FOR UPDATE"
-        } else {
-            "SELECT frontier_identity,resource_digest,sequence,predecessor_frontier_identity,frontier_digest,frontier_json,committed_at_epoch_ms FROM operator_authorization_private.portfolio_resource_grant_revocation_frontiers_v1 WHERE resource_digest=$1 ORDER BY sequence,frontier_identity"
-        };
-        let frontier_rows = sqlx::query(frontier_sql)
-            .bind(resource_digest)
-            .fetch_all(&mut **transaction)
-            .await
-            .map_err(storage)?;
-        let mut frontiers = Vec::new();
-        for row in frontier_rows {
-            frontiers.push(verify_locked_grant_frontier_row(
-                LockedGrantFrontierRowV1 {
-                    frontier_identity: row.try_get("frontier_identity").map_err(storage)?,
-                    resource_digest: row.try_get("resource_digest").map_err(storage)?,
-                    sequence: row.try_get("sequence").map_err(storage)?,
-                    predecessor_frontier_identity: row
-                        .try_get("predecessor_frontier_identity")
-                        .map_err(storage)?,
-                    frontier_digest: row.try_get("frontier_digest").map_err(storage)?,
-                    frontier_json: row.try_get("frontier_json").map_err(storage)?,
-                    committed_at_epoch_ms: row.try_get("committed_at_epoch_ms").map_err(storage)?,
-                },
-            )?);
-        }
-        verify_grant_frontier_chain(&issuances[0], &frontiers)?;
-        let head_sql = if lock {
-            "SELECT resource_digest,frontier_identity,sequence,frontier_digest,committed_at_epoch_ms FROM operator_authorization_private.portfolio_resource_grant_revocation_heads_v1 WHERE resource_digest=$1 FOR UPDATE"
-        } else {
-            "SELECT resource_digest,frontier_identity,sequence,frontier_digest,committed_at_epoch_ms FROM operator_authorization_private.portfolio_resource_grant_revocation_heads_v1 WHERE resource_digest=$1"
-        };
-        let head = sqlx::query(head_sql)
-            .bind(resource_digest)
-            .fetch_one(&mut **transaction)
-            .await
-            .map_err(storage)?;
-        let current = frontiers
-            .last()
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
-
-        if head
-            .try_get::<String, _>("resource_digest")
-            .map_err(storage)?
-            != resource_digest
-            || head
-                .try_get::<String, _>("frontier_identity")
-                .map_err(storage)?
-                != current.frontier_identity
-            || head.try_get::<i64, _>("sequence").map_err(storage)? != to_i64(current.sequence)?
-            || head
-                .try_get::<String, _>("frontier_digest")
-                .map_err(storage)?
-                != grant_frontier_digest(current)?
-            || from_i64(head.try_get("committed_at_epoch_ms").map_err(storage)?)?
-                != current.committed_at_epoch_ms
-        {
-            return Err(OperatorAuthorizationError::Unavailable);
-        }
-        verify_grant_outboxes(transaction, &issuances, &frontiers, lock).await?;
-        Ok(Some(VerifiedGrantHistoryV1 {
-            issuances,
-            frontiers,
-        }))
-    }
-
-    pub fn parse_untrusted_portfolio_resource_grant_envelope_v1(
-        bytes: &[u8],
-        locator: &PortfolioResourceGrantLocatorV1,
-    ) -> Result<UntrustedCanonicalPortfolioResourceGrantEvidenceV1, OperatorAuthorizationError>
-    {
-        let envelope: LockedGrantEnvelopeV1 =
-            serde_json::from_slice(bytes).map_err(|_| OperatorAuthorizationError::Unavailable)?;
-        from_i64(envelope.observed_at_epoch_ms)?;
-        if envelope
-            .issuances
-            .windows(2)
-            .any(|pair| pair[0].grant_identity >= pair[1].grant_identity)
-            || envelope.frontiers.windows(2).any(|pair| {
-                (pair[0].sequence, &pair[0].frontier_identity)
-                    >= (pair[1].sequence, &pair[1].frontier_identity)
-            })
-            || envelope
-                .outboxes
-                .windows(2)
-                .any(|pair| pair[0].event_identity >= pair[1].event_identity)
-        {
-            return Err(OperatorAuthorizationError::Unavailable);
-        }
-        let issuances = order_grant_issuances(
-            envelope
-                .issuances
-                .into_iter()
-                .map(verify_locked_grant_issuance_row)
-                .collect::<Result<Vec<_>, _>>()?,
-        )?;
-        let issuance = issuances
-            .iter()
-            .find(|item| item.proposal.grant_identity == locator.grant_identity)
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
-        if grant_receipt(issuance).receipt_identity != locator.issuance_receipt_identity {
-            return Err(OperatorAuthorizationError::Unavailable);
-        }
-        let frontiers = envelope
-            .frontiers
-            .into_iter()
-            .map(verify_locked_grant_frontier_row)
-            .collect::<Result<Vec<_>, _>>()?;
-        verify_grant_frontier_chain(&issuances[0], &frontiers)?;
-        let current = frontiers
-            .last()
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
-
-        if envelope.head.resource_digest != current.resource_digest
-            || envelope.head.frontier_identity != current.frontier_identity
-            || envelope.head.sequence != to_i64(current.sequence)?
-            || envelope.head.frontier_digest != grant_frontier_digest(current)?
-            || from_i64(envelope.head.committed_at_epoch_ms)? != current.committed_at_epoch_ms
-        {
-            return Err(OperatorAuthorizationError::Unavailable);
-        }
-        verify_locked_grant_outboxes(&issuances, &frontiers, &envelope.outboxes)?;
-        Ok(UntrustedCanonicalPortfolioResourceGrantEvidenceV1 {
-            schema_version: PORTFOLIO_RESOURCE_GRANT_SCHEMA_V1,
-            issuance_receipt: grant_receipt(issuance).into(),
-            frontier: current.public(),
-            content: issuance.proposal.content.clone(),
-        })
-    }
-
-    fn verify_locked_grant_issuance_row(
-        row: LockedGrantIssuanceRowV1,
-    ) -> Result<StoredGrantIssuanceV1, OperatorAuthorizationError> {
-        let stored: StoredGrantIssuanceV1 = from_json(row.issuance_json)?;
-        stored
-            .proposal
-            .validate()
-            .map_err(|_| OperatorAuthorizationError::Unavailable)?;
-        let receipt: StoredGrantReceiptV1 = from_json(row.receipt_json)?;
-        let resource = &stored.proposal.content.resource;
-        let expected_digest = stored_grant_digest(&stored)?;
-        if stored.schema_version != PORTFOLIO_RESOURCE_GRANT_SCHEMA_V1
-            || row.grant_identity != stored.proposal.grant_identity
-            || row.issuer_identity != stored.proposal.content.issuer_identity
-            || row.principal != resource.principal
-            || row.audience != resource.audience
-            || row.permission != resource.permission
-            || row.account_identity != resource.account_identity
-            || row.execution_scope_identity != resource.execution_scope_identity
-            || row.mode != mode_text(resource)
-            || row.resource_digest != resource.digest()?
-            || row.semantic_digest != expected_digest
-            || stored.issuance_digest != expected_digest
-            || receipt != grant_receipt(&stored)
-            || from_i64(row.committed_at_epoch_ms)? != stored.committed_at_epoch_ms
-        {
-            return Err(OperatorAuthorizationError::Unavailable);
-        }
-        Ok(stored)
-    }
-
-    fn verify_locked_grant_frontier_row(
-        row: LockedGrantFrontierRowV1,
-    ) -> Result<StoredGrantFrontierV1, OperatorAuthorizationError> {
-        let frontier: StoredGrantFrontierV1 = from_json(row.frontier_json)?;
-        if frontier.schema_version != PORTFOLIO_RESOURCE_GRANT_SCHEMA_V1
-            || row.frontier_identity != frontier.frontier_identity
-            || row.resource_digest != frontier.resource_digest
-            || row.sequence != to_i64(frontier.sequence)?
-            || row.predecessor_frontier_identity != frontier.predecessor_frontier_identity
-            || row.frontier_digest != grant_frontier_digest(&frontier)?
-            || from_i64(row.committed_at_epoch_ms)? != frontier.committed_at_epoch_ms
-        {
-            return Err(OperatorAuthorizationError::Unavailable);
-        }
-        Ok(frontier)
-    }
-
-    fn order_grant_issuances(
-        mut remaining: Vec<StoredGrantIssuanceV1>,
-    ) -> Result<Vec<StoredGrantIssuanceV1>, OperatorAuthorizationError> {
-        if remaining
-            .iter()
-            .filter(|item| item.predecessor.is_none())
-            .count()
-            != 1
-        {
-            return Err(OperatorAuthorizationError::Unavailable);
-        }
-        let genesis_index = remaining
-            .iter()
-            .position(|item| item.predecessor.is_none())
-            .ok_or(OperatorAuthorizationError::Unavailable)?;
-        let genesis = remaining.remove(genesis_index);
-        if genesis.proposal.expected_revocation_frontier_identity != "EMPTY"
-            || stored_grant_digest(&genesis)? != genesis.issuance_digest
-        {
-            return Err(OperatorAuthorizationError::Unavailable);
-        }
-        let resource = genesis.proposal.content.resource.clone();
-        let issuer = genesis.proposal.content.issuer_identity.clone();
-        let key = genesis.proposal.content.issuer_key_version.clone();
-        let mut ordered = vec![genesis];
-        while !remaining.is_empty() {
-            let predecessor = ordered
-                .last()
-                .ok_or(OperatorAuthorizationError::Unavailable)?;
-            let locator = PortfolioResourceGrantLocatorV1 {
-                grant_identity: predecessor.proposal.grant_identity.clone(),
-                issuance_receipt_identity: grant_receipt(predecessor).receipt_identity,
-            };
-            let matches = remaining
-                .iter()
-                .enumerate()
-                .filter(|(_, item)| item.predecessor.as_ref() == Some(&locator))
-                .map(|(index, _)| index)
-                .collect::<Vec<_>>();
-
-            if matches.len() != 1 {
-                return Err(OperatorAuthorizationError::Unavailable);
-            }
-            let successor = remaining.remove(matches[0]);
-            if successor.proposal.content.resource != resource
-                || successor.proposal.content.issuer_identity != issuer
-                || successor.proposal.content.issuer_key_version != key
-                || successor.proposal.content.effective_at_epoch_ms
-                    < predecessor.proposal.content.effective_at_epoch_ms
-                || successor.proposal.content.valid_through_epoch_ms
-                    <= predecessor.proposal.content.valid_through_epoch_ms
-                || successor.committed_at_epoch_ms < predecessor.committed_at_epoch_ms
-                || stored_grant_digest(&successor)? != successor.issuance_digest
-            {
-                return Err(OperatorAuthorizationError::Unavailable);
-            }
-            ordered.push(successor);
-        }
-        Ok(ordered)
-    }
-
-    fn verify_grant_frontier_chain(
-        genesis: &StoredGrantIssuanceV1,
-        frontiers: &[StoredGrantFrontierV1],
-    ) -> Result<(), OperatorAuthorizationError> {
-        if frontiers.first() != Some(&grant_genesis_frontier(genesis)?) {
-            return Err(OperatorAuthorizationError::Unavailable);
-        }
-
-        for (index, frontier) in frontiers.iter().enumerate() {
-            if frontier.sequence != u64::try_from(index).map_err(storage)?
-                || frontier
-                    .revocations
-                    .windows(2)
-                    .any(|pair| pair[0].grant_identity >= pair[1].grant_identity)
-            {
-                return Err(OperatorAuthorizationError::Unavailable);
-            }
-        }
-
-        for pair in frontiers.windows(2) {
-            let previous = &pair[0];
-            let next = &pair[1];
-            let added = next
-                .revocations
-                .iter()
-                .filter(|entry| !previous.revocations.contains(entry))
-                .count();
-
-            if next.predecessor_frontier_identity.as_deref() != Some(&previous.frontier_identity)
-                || next.sequence != previous.sequence.saturating_add(1)
-                || next.committed_at_epoch_ms < previous.committed_at_epoch_ms
-                || next.revocations.len() != previous.revocations.len().saturating_add(1)
-                || previous
-                    .revocations
-                    .iter()
-                    .any(|entry| !next.revocations.contains(entry))
-                || added != 1
-            {
-                return Err(OperatorAuthorizationError::Unavailable);
-            }
-        }
-        Ok(())
-    }
-
-    fn grant_outbox_record<T: Serialize>(
-        seed: &str,
-        aggregate: &str,
-        kind: &str,
-        payload: &T,
-        committed_at: u64,
-    ) -> Result<StoredGrantOutboxV1, OperatorAuthorizationError> {
-        let payload_digest = canonical_digest(
-            "operator-authorization.portfolio-resource-grant-outbox-payload.v1",
-            payload,
-        )?;
-        Ok(StoredGrantOutboxV1 {
-            schema_version: PORTFOLIO_RESOURCE_GRANT_SCHEMA_V1,
-            event_identity: identity(
-                "operator-authorization-portfolio-resource-grant-owner-event-v1",
-                &[
-                    seed,
-                    aggregate,
-                    kind,
-                    &payload_digest,
-                    &committed_at.to_string(),
-                ],
-            ),
-            aggregate_identity: aggregate.to_string(),
-            event_kind: kind.to_string(),
-            payload_digest,
-            committed_at_epoch_ms: committed_at,
-        })
-    }
-
-    async fn insert_grant_outbox<T: Serialize>(
-        transaction: &mut Transaction<'_, Postgres>,
-        seed: &str,
-        aggregate: &str,
-        kind: &str,
-        payload: &T,
-        committed_at: u64,
-    ) -> Result<(), OperatorAuthorizationError> {
-        let record = grant_outbox_record(seed, aggregate, kind, payload, committed_at)?;
-        sqlx::query("INSERT INTO operator_authorization_private.portfolio_resource_grant_owner_outbox_v1 (event_identity, aggregate_identity, event_kind, payload_digest, payload_json, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6)")
-            .bind(&record.event_identity).bind(&record.aggregate_identity).bind(&record.event_kind)
-            .bind(&record.payload_digest).bind(json(&record)?).bind(to_i64(committed_at)?)
-            .execute(&mut **transaction).await.map_err(storage)?;
-        Ok(())
-    }
-
-    fn verify_grant_outbox_row<T: Serialize>(
-        row: &LockedGrantOutboxRowV1,
-        seed: &str,
-        aggregate: &str,
-        kind: &str,
-        payload: &T,
-        committed_at: u64,
-    ) -> Result<(), OperatorAuthorizationError> {
-        let expected = grant_outbox_record(seed, aggregate, kind, payload, committed_at)?;
-        let stored: StoredGrantOutboxV1 = from_json(row.payload_json.clone())?;
-        if stored != expected
-            || row.event_identity != expected.event_identity
-            || row.aggregate_identity != expected.aggregate_identity
-            || row.event_kind != expected.event_kind
-            || row.payload_digest != expected.payload_digest
-            || from_i64(row.committed_at_epoch_ms)? != expected.committed_at_epoch_ms
-        {
-            return Err(OperatorAuthorizationError::Unavailable);
-        }
-        Ok(())
-    }
-
-    async fn verify_grant_outboxes(
-        transaction: &mut Transaction<'_, Postgres>,
-        issuances: &[StoredGrantIssuanceV1],
-        frontiers: &[StoredGrantFrontierV1],
-        lock: bool,
-    ) -> Result<(), OperatorAuthorizationError> {
-        for issuance in issuances {
-            let receipt = grant_receipt(issuance);
-            let rows = load_grant_outbox_rows(transaction, &issuance.proposal.grant_identity, lock)
-                .await?;
-
-            if rows.len() != 1 {
-                return Err(OperatorAuthorizationError::Unavailable);
-            }
-            verify_grant_outbox_row(
-                &rows[0],
-                &receipt.receipt_identity,
-                &issuance.proposal.grant_identity,
-                GRANT_ISSUED_EVENT,
-                &receipt,
-                issuance.committed_at_epoch_ms,
-            )?;
-        }
-
-        for frontier in frontiers {
-            let rows =
-                load_grant_outbox_rows(transaction, &frontier.frontier_identity, lock).await?;
-
-            if rows.len() != 1 {
-                return Err(OperatorAuthorizationError::Unavailable);
-            }
-            verify_grant_outbox_row(
-                &rows[0],
-                &frontier.frontier_identity,
-                &frontier.frontier_identity,
-                GRANT_FRONTIER_EVENT,
-                frontier,
-                frontier.committed_at_epoch_ms,
-            )?;
-        }
-        Ok(())
-    }
-
-    fn verify_locked_grant_outboxes(
-        issuances: &[StoredGrantIssuanceV1],
-        frontiers: &[StoredGrantFrontierV1],
-        rows: &[LockedGrantOutboxRowV1],
-    ) -> Result<(), OperatorAuthorizationError> {
-        if rows.len() != issuances.len().saturating_add(frontiers.len()) {
-            return Err(OperatorAuthorizationError::Unavailable);
-        }
-
-        for issuance in issuances {
-            let receipt = grant_receipt(issuance);
-            let matches = rows
-                .iter()
-                .filter(|row| row.aggregate_identity == issuance.proposal.grant_identity)
-                .collect::<Vec<_>>();
-
-            if matches.len() != 1 {
-                return Err(OperatorAuthorizationError::Unavailable);
-            }
-            verify_grant_outbox_row(
-                matches[0],
-                &receipt.receipt_identity,
-                &issuance.proposal.grant_identity,
-                GRANT_ISSUED_EVENT,
-                &receipt,
-                issuance.committed_at_epoch_ms,
-            )?;
-        }
-
-        for frontier in frontiers {
-            let matches = rows
-                .iter()
-                .filter(|row| row.aggregate_identity == frontier.frontier_identity)
-                .collect::<Vec<_>>();
-
-            if matches.len() != 1 {
-                return Err(OperatorAuthorizationError::Unavailable);
-            }
-            verify_grant_outbox_row(
-                matches[0],
-                &frontier.frontier_identity,
-                &frontier.frontier_identity,
-                GRANT_FRONTIER_EVENT,
-                frontier,
-                frontier.committed_at_epoch_ms,
-            )?;
-        }
-        Ok(())
-    }
-
-    async fn load_grant_outbox_rows(
-        transaction: &mut Transaction<'_, Postgres>,
-        aggregate_identity: &str,
-        lock: bool,
-    ) -> Result<Vec<LockedGrantOutboxRowV1>, OperatorAuthorizationError> {
-        let sql = if lock {
-            "SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms FROM operator_authorization_private.portfolio_resource_grant_owner_outbox_v1 WHERE aggregate_identity=$1 FOR SHARE"
-        } else {
-            "SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms FROM operator_authorization_private.portfolio_resource_grant_owner_outbox_v1 WHERE aggregate_identity=$1"
-        };
-        sqlx::query(sql)
-            .bind(aggregate_identity)
-            .fetch_all(&mut **transaction)
-            .await
-            .map_err(storage)?
-            .into_iter()
-            .map(|row| {
-                Ok(LockedGrantOutboxRowV1 {
-                    event_identity: row.try_get("event_identity").map_err(storage)?,
-                    aggregate_identity: row.try_get("aggregate_identity").map_err(storage)?,
-                    event_kind: row.try_get("event_kind").map_err(storage)?,
-                    payload_digest: row.try_get("payload_digest").map_err(storage)?,
-                    payload_json: row.try_get("payload_json").map_err(storage)?,
-                    committed_at_epoch_ms: row.try_get("committed_at_epoch_ms").map_err(storage)?,
-                })
-            })
-            .collect()
-    }
-
-    fn mode_text(resource: &PortfolioResourceV1) -> &'static str {
-        match resource.mode {
-            crate::PortfolioResourceModeV1::Paper => "PAPER",
-            crate::PortfolioResourceModeV1::Live => "LIVE",
-        }
-    }
-
-    #[cfg(test)]
-    mod parser_tests {
-        use rstest::rstest;
-
-        use super::*;
-
-        fn issuance_row(stored: &StoredGrantIssuanceV1) -> LockedGrantIssuanceRowV1 {
-            let resource = &stored.proposal.content.resource;
-            LockedGrantIssuanceRowV1 {
-                grant_identity: stored.proposal.grant_identity.clone(),
-                issuer_identity: stored.proposal.content.issuer_identity.clone(),
-                principal: resource.principal.clone(),
-                audience: resource.audience.clone(),
-                permission: resource.permission.clone(),
-                account_identity: resource.account_identity.clone(),
-                execution_scope_identity: resource.execution_scope_identity.clone(),
-                mode: mode_text(resource).into(),
-                resource_digest: resource.digest().unwrap(),
-                semantic_digest: stored_grant_digest(stored).unwrap(),
-                issuance_json: serde_json::to_value(stored).unwrap(),
-                receipt_json: serde_json::to_value(grant_receipt(stored)).unwrap(),
-                committed_at_epoch_ms: to_i64(stored.committed_at_epoch_ms).unwrap(),
-            }
-        }
-
-        fn frontier_row(frontier: &StoredGrantFrontierV1) -> LockedGrantFrontierRowV1 {
-            LockedGrantFrontierRowV1 {
-                frontier_identity: frontier.frontier_identity.clone(),
-                resource_digest: frontier.resource_digest.clone(),
-                sequence: to_i64(frontier.sequence).unwrap(),
-                predecessor_frontier_identity: frontier.predecessor_frontier_identity.clone(),
-                frontier_digest: grant_frontier_digest(frontier).unwrap(),
-                frontier_json: serde_json::to_value(frontier).unwrap(),
-                committed_at_epoch_ms: to_i64(frontier.committed_at_epoch_ms).unwrap(),
-            }
-        }
-
-        fn outbox_row(
-            seed: &str,
-            aggregate: &str,
-            kind: &str,
-            payload: &impl Serialize,
-            committed_at: u64,
-        ) -> LockedGrantOutboxRowV1 {
-            let record = grant_outbox_record(seed, aggregate, kind, payload, committed_at).unwrap();
-            LockedGrantOutboxRowV1 {
-                event_identity: record.event_identity.clone(),
-                aggregate_identity: record.aggregate_identity.clone(),
-                event_kind: record.event_kind.clone(),
-                payload_digest: record.payload_digest.clone(),
-                payload_json: serde_json::to_value(record).unwrap(),
-                committed_at_epoch_ms: to_i64(committed_at).unwrap(),
-            }
-        }
-
-        fn canonical_envelope() -> (
-            serde_json::Value,
-            PortfolioResourceGrantLocatorV1,
-            PortfolioResourceGrantLocatorV1,
-            PortfolioResourceGrantContentV1,
-            String,
-        ) {
-            let content = PortfolioResourceGrantContentV1 {
-                issuer_identity: "issuer-v1".into(),
-                issuer_key_version: "key-v1".into(),
-                resource: PortfolioResourceV1 {
-                    principal: "principal-v1".into(),
-                    audience: crate::PORTFOLIO_OWNER_AUDIENCE_V1.into(),
-                    permission: crate::PORTFOLIO_VIEW_PERMISSION_V1.into(),
-                    account_identity: "account-v1".into(),
-                    execution_scope_identity: "execution-scope-v1".into(),
-                    mode: crate::PortfolioResourceModeV1::Paper,
-                },
-                product_edge_manifest: ProductEdgeManifestBindingV1 {
-                    manifest_locator: "manifest-v1".into(),
-                    manifest_digest: format!("sha256:{}", "a".repeat(64)),
-                },
-                effective_at_epoch_ms: 10,
-                valid_through_epoch_ms: 1_000,
-            };
-            let genesis_proposal = PortfolioResourceGrantIssuanceProposalV1 {
-                grant_identity: content.grant_identity().unwrap(),
-                content: content.clone(),
-                expected_revocation_frontier_identity: "EMPTY".into(),
-            };
-            let genesis = StoredGrantIssuanceV1 {
-                schema_version: PORTFOLIO_RESOURCE_GRANT_SCHEMA_V1,
-                issuance_digest: genesis_proposal.semantic_digest().unwrap(),
-                proposal: genesis_proposal,
-                predecessor: None,
-                committed_at_epoch_ms: 100,
-            };
-            let genesis_locator = PortfolioResourceGrantLocatorV1 {
-                grant_identity: genesis.proposal.grant_identity.clone(),
-                issuance_receipt_identity: grant_receipt(&genesis).receipt_identity,
-            };
-            let genesis_frontier = grant_genesis_frontier(&genesis).unwrap();
-
-            let mut successor_content = content;
-            successor_content.valid_through_epoch_ms = 2_000;
-            successor_content.product_edge_manifest.manifest_locator = "manifest-v2".into();
-            successor_content.product_edge_manifest.manifest_digest =
-                format!("sha256:{}", "b".repeat(64));
-            let successor_proposal = PortfolioResourceGrantIssuanceProposalV1 {
-                grant_identity: successor_content.grant_identity().unwrap(),
-                content: successor_content.clone(),
-                expected_revocation_frontier_identity: genesis_frontier.frontier_identity.clone(),
-            };
-            let mut successor = StoredGrantIssuanceV1 {
-                schema_version: PORTFOLIO_RESOURCE_GRANT_SCHEMA_V1,
-                proposal: successor_proposal,
-                predecessor: Some(genesis_locator.clone()),
-                issuance_digest: String::new(),
-                committed_at_epoch_ms: 110,
-            };
-            successor.issuance_digest = stored_grant_digest(&successor).unwrap();
-            let successor_locator = PortfolioResourceGrantLocatorV1 {
-                grant_identity: successor.proposal.grant_identity.clone(),
-                issuance_receipt_identity: grant_receipt(&successor).receipt_identity,
-            };
-
-            let revocations = vec![StoredGrantRevocationV1 {
-                grant_identity: genesis_locator.grant_identity.clone(),
-                reason_code: "ADMIN_REVOKED".into(),
-            }];
-            let current_frontier = StoredGrantFrontierV1 {
-                schema_version: PORTFOLIO_RESOURCE_GRANT_SCHEMA_V1,
-                frontier_identity: identity(
-                    "operator-authorization-portfolio-resource-grant-frontier-v1",
-                    &[
-                        &genesis_frontier.resource_digest,
-                        &genesis_frontier.frontier_identity,
-                        &canonical_digest(
-                            "operator-authorization.portfolio-resource-grant-revocations.v1",
-                            &revocations,
-                        )
-                        .unwrap(),
-                        "120",
-                    ],
-                ),
-                resource_digest: genesis_frontier.resource_digest.clone(),
-                sequence: 1,
-                predecessor_frontier_identity: Some(genesis_frontier.frontier_identity.clone()),
-                revocations,
-                committed_at_epoch_ms: 120,
-            };
-
-            let mut issuances = vec![issuance_row(&genesis), issuance_row(&successor)];
-            issuances.sort_by(|left, right| left.grant_identity.cmp(&right.grant_identity));
-            let frontiers = vec![
-                frontier_row(&genesis_frontier),
-                frontier_row(&current_frontier),
-            ];
-            let mut outboxes = vec![
-                outbox_row(
-                    &genesis_locator.issuance_receipt_identity,
-                    &genesis_locator.grant_identity,
-                    GRANT_ISSUED_EVENT,
-                    &grant_receipt(&genesis),
-                    genesis.committed_at_epoch_ms,
-                ),
-                outbox_row(
-                    &successor_locator.issuance_receipt_identity,
-                    &successor_locator.grant_identity,
-                    GRANT_ISSUED_EVENT,
-                    &grant_receipt(&successor),
-                    successor.committed_at_epoch_ms,
-                ),
-                outbox_row(
-                    &genesis_frontier.frontier_identity,
-                    &genesis_frontier.frontier_identity,
-                    GRANT_FRONTIER_EVENT,
-                    &genesis_frontier,
-                    genesis_frontier.committed_at_epoch_ms,
-                ),
-                outbox_row(
-                    &current_frontier.frontier_identity,
-                    &current_frontier.frontier_identity,
-                    GRANT_FRONTIER_EVENT,
-                    &current_frontier,
-                    current_frontier.committed_at_epoch_ms,
-                ),
-            ];
-            outboxes.sort_by(|left, right| left.event_identity.cmp(&right.event_identity));
-            let current_frontier_identity = current_frontier.frontier_identity.clone();
-            let envelope = LockedGrantEnvelopeV1 {
-                issuances,
-                head: LockedGrantHeadRowV1 {
-                    resource_digest: current_frontier.resource_digest.clone(),
-                    frontier_identity: current_frontier.frontier_identity.clone(),
-                    sequence: to_i64(current_frontier.sequence).unwrap(),
-                    frontier_digest: grant_frontier_digest(&current_frontier).unwrap(),
-                    committed_at_epoch_ms: to_i64(current_frontier.committed_at_epoch_ms).unwrap(),
-                },
-                frontiers,
-                outboxes,
-                observed_at_epoch_ms: 130,
-            };
-            (
-                serde_json::to_value(envelope).unwrap(),
-                genesis_locator,
-                successor_locator,
-                successor_content,
-                current_frontier_identity,
-            )
-        }
-
-        fn parse(
-            value: &serde_json::Value,
-            locator: &PortfolioResourceGrantLocatorV1,
-        ) -> Result<UntrustedCanonicalPortfolioResourceGrantEvidenceV1, OperatorAuthorizationError>
-        {
-            parse_untrusted_portfolio_resource_grant_envelope_v1(
-                &serde_json::to_vec(value).unwrap(),
-                locator,
-            )
-        }
-
-        #[rstest]
-        fn parser_returns_non_authoritative_evidence_for_a_later_cut() {
-            let (envelope, genesis, successor, content, frontier_identity) = canonical_envelope();
-            let evidence = parse(&envelope, &successor).unwrap();
-            assert_eq!(evidence.locator(), successor);
-            assert_eq!(evidence.frontier_identity(), frontier_identity);
-            assert!(evidence.matches_resource(&content.resource));
-            assert!(evidence.matches_product_edge_manifest(&content.product_edge_manifest));
-            assert!(evidence.is_current_at(130));
-            assert!(!evidence.is_current_at(content.valid_through_epoch_ms));
-
-            let revoked = parse(&envelope, &genesis).unwrap();
-            assert!(!revoked.is_current_at(130));
-            assert!(parse(&serde_json::to_value(&evidence).unwrap(), &successor).is_err());
-        }
-
-        #[rstest]
-        fn parser_binds_every_grant_coordinate_and_complete_locked_history() {
-            let (envelope, _, successor, _, _) = canonical_envelope();
-            let selected_index = envelope["issuances"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .position(|row| row["grant_identity"] == successor.grant_identity)
-                .unwrap();
-            let current_frontier_index = envelope["frontiers"].as_array().unwrap().len() - 1;
-            let paths = [
-                format!("/issuances/{selected_index}/grant_identity"),
-                format!("/issuances/{selected_index}/issuer_identity"),
-                format!("/issuances/{selected_index}/principal"),
-                format!("/issuances/{selected_index}/audience"),
-                format!("/issuances/{selected_index}/permission"),
-                format!("/issuances/{selected_index}/account_identity"),
-                format!("/issuances/{selected_index}/execution_scope_identity"),
-                format!("/issuances/{selected_index}/mode"),
-                format!("/issuances/{selected_index}/resource_digest"),
-                format!("/issuances/{selected_index}/semantic_digest"),
-                format!(
-                    "/issuances/{selected_index}/issuance_json/proposal/content/issuer_identity"
-                ),
-                format!(
-                    "/issuances/{selected_index}/issuance_json/proposal/content/issuer_key_version"
-                ),
-                format!(
-                    "/issuances/{selected_index}/issuance_json/proposal/content/resource/principal"
-                ),
-                format!(
-                    "/issuances/{selected_index}/issuance_json/proposal/content/resource/audience"
-                ),
-                format!(
-                    "/issuances/{selected_index}/issuance_json/proposal/content/resource/permission"
-                ),
-                format!(
-                    "/issuances/{selected_index}/issuance_json/proposal/content/resource/account_identity"
-                ),
-                format!(
-                    "/issuances/{selected_index}/issuance_json/proposal/content/resource/execution_scope_identity"
-                ),
-                format!("/issuances/{selected_index}/issuance_json/proposal/content/resource/mode"),
-                format!(
-                    "/issuances/{selected_index}/issuance_json/proposal/content/product_edge_manifest/manifest_locator"
-                ),
-                format!(
-                    "/issuances/{selected_index}/issuance_json/proposal/content/product_edge_manifest/manifest_digest"
-                ),
-                format!(
-                    "/issuances/{selected_index}/issuance_json/proposal/content/effective_at_epoch_ms"
-                ),
-                format!(
-                    "/issuances/{selected_index}/issuance_json/proposal/content/valid_through_epoch_ms"
-                ),
-                format!("/issuances/{selected_index}/receipt_json/receipt_identity"),
-                format!("/issuances/{selected_index}/committed_at_epoch_ms"),
-                format!("/frontiers/{current_frontier_index}/frontier_identity"),
-                format!("/frontiers/{current_frontier_index}/resource_digest"),
-                format!("/frontiers/{current_frontier_index}/frontier_digest"),
-                format!(
-                    "/frontiers/{current_frontier_index}/frontier_json/revocations/0/reason_code"
-                ),
-                "/head/frontier_identity".into(),
-                "/head/frontier_digest".into(),
-                "/outboxes/0/payload_digest".into(),
-                "/outboxes/0/payload_json/event_kind".into(),
-            ];
-
-            for path in paths {
-                let mut changed = envelope.clone();
-                let target = changed.pointer_mut(&path).unwrap();
-                *target = match target {
-                    serde_json::Value::String(_) => serde_json::json!("tampered"),
-                    serde_json::Value::Number(number) => {
-                        serde_json::json!(number.as_i64().unwrap() + 1)
-                    }
-                    _ => unreachable!("mutation path must name a scalar"),
-                };
-                assert!(parse(&changed, &successor).is_err(), "accepted {path}");
-            }
-
-            for key in ["issuances", "frontiers", "outboxes"] {
-                let mut reordered = envelope.clone();
-                reordered[key].as_array_mut().unwrap().reverse();
-                assert!(
-                    parse(&reordered, &successor).is_err(),
-                    "accepted {key} reorder"
-                );
-
-                let mut duplicated = envelope.clone();
-                let duplicate = duplicated[key].as_array().unwrap()[0].clone();
-                duplicated[key].as_array_mut().unwrap().push(duplicate);
-                assert!(
-                    parse(&duplicated, &successor).is_err(),
-                    "accepted duplicate {key}"
-                );
-            }
-
-            let mut invalid_observation = envelope;
-            invalid_observation["observed_at_epoch_ms"] = serde_json::json!(-1);
-            assert!(parse(&invalid_observation, &successor).is_err());
-            assert!(
-                parse_untrusted_portfolio_resource_grant_envelope_v1(b"{}", &successor).is_err()
-            );
-        }
-    }
-}
+mod autonomous_policy_authorization;
+mod grant;
+mod portfolio_resource_grant;
 
 #[cfg(test)]
 mod tests {
@@ -3877,10 +2540,19 @@ mod tests {
         time::{Duration, SystemTime, UNIX_EPOCH},
     };
 
-    use super::portfolio_resource_grant::{
-        grant_advisory_lock_identity, lock_grant_resource_for_write,
-    };
+    use super::grant::{GrantSchemaV1, lock_grant_resource_for_write};
+    use super::portfolio_resource_grant::grant_advisory_lock_identity;
     use super::*;
+    use crate::{
+        AutonomousPolicyAuthorizationContentV1, AutonomousPolicyAuthorizationIssuanceProposalV1,
+        AutonomousPolicyAuthorizationLocatorV1, AutonomousPolicyAuthorizationReadRequestV1,
+        AutonomousPolicyAuthorizationReadbackV1, AutonomousPolicyAuthorizationResolutionV1,
+        AutonomousPolicyAuthorizationRevocationProposalV1,
+        AutonomousPolicyAuthorizationSuccessorProposalV1,
+        AutonomousPolicyAuthorizationUnavailableReasonV1, AutonomousPolicyV1,
+        CapitalPolicyBindingV1, ExecutionModeV1, GrantReadbackV1, STRATEGY_GOVERNANCE_AUDIENCE_V1,
+        UntrustedCanonicalAutonomousPolicyAuthorizationEvidenceV1,
+    };
     use crate::{
         OperationManifestBindingV1, OperatorAuthorizationScopeV1, PORTFOLIO_OWNER_AUDIENCE_V1,
         PORTFOLIO_VIEW_PERMISSION_V1, PortfolioResourceGrantContentV1,
@@ -3892,10 +2564,7 @@ mod tests {
         UntrustedCanonicalPortfolioResourceGrantEvidenceV1,
     };
     use rstest::rstest;
-    use vibe_testkit::postgres::{
-        CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1,
-        DedicatedPostgresTestDatabase,
-    };
+    use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
     #[rstest]
     fn expired_manifest_recovery_schema_preparation_is_exactly_bounded() {
@@ -3994,7 +2663,11 @@ mod tests {
               'resource_frontiers', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.frontier_identity) FROM operator_authorization_private.portfolio_resource_grant_revocation_frontiers_v1 row), '[]'::jsonb),
               'resource_heads', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.resource_digest) FROM operator_authorization_private.portfolio_resource_grant_revocation_heads_v1 row), '[]'::jsonb),
               'authorization_outbox', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.event_identity) FROM operator_authorization_private.operator_authorization_owner_outbox_v1 row), '[]'::jsonb),
-              'resource_outbox', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.event_identity) FROM operator_authorization_private.portfolio_resource_grant_owner_outbox_v1 row), '[]'::jsonb)
+              'resource_outbox', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.event_identity) FROM operator_authorization_private.portfolio_resource_grant_owner_outbox_v1 row), '[]'::jsonb),
+              'policy_issuances', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.grant_identity) FROM operator_authorization_private.autonomous_policy_authorization_issuances_v1 row), '[]'::jsonb),
+              'policy_frontiers', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.frontier_identity) FROM operator_authorization_private.autonomous_policy_authorization_revocation_frontiers_v1 row), '[]'::jsonb),
+              'policy_heads', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.resource_digest) FROM operator_authorization_private.autonomous_policy_authorization_revocation_heads_v1 row), '[]'::jsonb),
+              'policy_outbox', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.event_identity) FROM operator_authorization_private.autonomous_policy_authorization_owner_outbox_v1 row), '[]'::jsonb)
             )",
         )
         .fetch_one(pool)
@@ -4003,9 +2676,9 @@ mod tests {
         canonical_digest("operator-authorization.test-table-fingerprint.v1", &value).unwrap()
     }
 
-    fn assert_same_grant_authority(
-        left: &PortfolioResourceGrantReadbackV1,
-        right: &PortfolioResourceGrantReadbackV1,
+    fn assert_same_grant_authority<C: PartialEq + std::fmt::Debug>(
+        left: &GrantReadbackV1<C>,
+        right: &GrantReadbackV1<C>,
     ) {
         assert_eq!(left.locator(), right.locator());
         assert_eq!(left.content(), right.content());
@@ -4023,8 +2696,39 @@ mod tests {
         resolution
     }
 
+    /// Blocks until one of `role`'s backends is queued on a row lock whose
+    /// top-level statement matches `query_fragment`.
+    ///
+    /// Releasing a gate after `yield_now()` or a fixed sleep proves no order:
+    /// the scheduler decides whether the other party had reached its lock yet,
+    /// so the same tree passes on one machine and fails on another. This asks
+    /// the database whether the waiter is actually queued, which makes the
+    /// order a fact. A non-superuser sees `query` only for its own backends,
+    /// so `pool` must be connected as `role`.
+    async fn wait_for_row_lock(pool: &PgPool, role: &str, query_fragment: &str) {
+        tokio::time::timeout(Duration::from_secs(30), async {
+            loop {
+                let waiting: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM pg_stat_activity WHERE usename=$1 AND wait_event_type='Lock' AND query LIKE $2",
+                )
+                .bind(role)
+                .bind(query_fragment)
+                .fetch_one(pool)
+                .await
+                .unwrap();
+
+                if waiting > 0 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("no {role} backend queued on a lock matching {query_fragment}"));
+    }
+
     async fn wait_for_advisory_lock(pool: &PgPool, role: &str) {
-        tokio::time::timeout(Duration::from_secs(2), async {
+        tokio::time::timeout(Duration::from_secs(30), async {
             loop {
                 let waiting: i64 = sqlx::query_scalar(
                     "SELECT COUNT(*) FROM pg_stat_activity WHERE usename=$1 AND wait_event_type='Lock' AND wait_event='advisory'",
@@ -4059,7 +2763,7 @@ mod tests {
         .await
         .map_err(storage)?;
         let result = parse_untrusted_portfolio_resource_grant_envelope_v1(
-            &serde_json::to_vec(&envelope.ok_or(OperatorAuthorizationError::Unavailable)?)
+            &serde_json::to_vec(&envelope.ok_or_else(|| unavailable(Reason::Missing))?)
                 .map_err(storage)?,
             locator,
         );
@@ -4224,9 +2928,13 @@ mod tests {
         let reverse_request = request_for(&reverse, &reverse_proposal.content);
         let reverse_digest = reverse_proposal.content.resource.digest().unwrap();
         let mut writer_first = owner.pool().begin().await.unwrap();
-        lock_grant_resource_for_write(&mut writer_first, &reverse_digest)
-            .await
-            .unwrap();
+        lock_grant_resource_for_write(
+            &mut writer_first,
+            &GrantSchemaV1::of::<PortfolioResourceGrantContentV1>(),
+            &reverse_digest,
+        )
+        .await
+        .unwrap();
         let reverse_consumer = consumer.clone();
         let reverse_reader = tokio::spawn(async move {
             let mut transaction = reverse_consumer.begin().await.unwrap();
@@ -4641,15 +3349,12 @@ mod tests {
                 .revoke_portfolio_resource_grant(revoke_proposal)
                 .await
         });
-        tokio::time::timeout(Duration::from_secs(2), async {
-            loop {
-                let waiting: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pg_stat_activity WHERE usename='operator_authorization_writer' AND wait_event_type='Lock' AND query LIKE '%portfolio_resource_grant_issuances_v1%FOR UPDATE%'")
-                    .fetch_one(restarted.pool()).await.unwrap();
-
-                if waiting > 0 { break; }
-                tokio::task::yield_now().await;
-            }
-        }).await.unwrap();
+        wait_for_row_lock(
+            restarted.pool(),
+            "operator_authorization_writer",
+            "%portfolio_resource_grant_issuances_v1%FOR UPDATE%",
+        )
+        .await;
         let crossing_consumer = consumer.clone();
         let crossing_request = renewed_request.clone();
 
@@ -4663,7 +3368,12 @@ mod tests {
             transaction.rollback().await.unwrap();
             resolution
         });
-        tokio::task::yield_now().await;
+        wait_for_row_lock(
+            &consumer,
+            "product_edge_owner",
+            "%lock_current_portfolio_resource_grant_v1%",
+        )
+        .await;
         assert!(!revoke_task.is_finished());
         assert!(!crossing_reader.is_finished());
         revocation_gate.rollback().await.unwrap();
@@ -4696,7 +3406,7 @@ mod tests {
             restarted
                 .issue_portfolio_resource_grant_successor(successor.clone())
                 .await,
-            Err(OperatorAuthorizationError::Unavailable)
+            Err(OperatorAuthorizationError::Unavailable(_))
         ));
         let PortfolioResourceGrantResolutionV1::Unavailable { reason } =
             resolve_grant(&consumer, &renewed_request).await
@@ -4780,15 +3490,12 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        tokio::time::timeout(Duration::from_secs(2), async {
-            loop {
-                let waiting: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pg_stat_activity WHERE usename='operator_authorization_writer' AND wait_event_type='Lock' AND query LIKE '%portfolio_resource_grant_issuances_v1%FOR UPDATE%'")
-                    .fetch_one(restarted.pool()).await.unwrap();
-
-                if waiting > 0 { break; }
-                tokio::task::yield_now().await;
-            }
-        }).await.unwrap();
+        wait_for_row_lock(
+            restarted.pool(),
+            "operator_authorization_writer",
+            "%portfolio_resource_grant_issuances_v1%FOR UPDATE%",
+        )
+        .await;
 
         let expiry_reader = tokio::spawn(async move {
             let mut transaction = expiry_consumer.begin().await.unwrap();
@@ -4811,7 +3518,12 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        wait_for_row_lock(
+            &consumer,
+            "product_edge_owner",
+            "%lock_current_portfolio_resource_grant_v1%",
+        )
+        .await;
         assert!(!expiry_reader.is_finished());
         assert!(!expiry_replay.is_finished());
         let database_now: i64 = sqlx::query_scalar(
@@ -4841,7 +3553,7 @@ mod tests {
                 .await
                 .unwrap()
                 .unwrap(),
-            Err(OperatorAuthorizationError::Unavailable)
+            Err(OperatorAuthorizationError::Unavailable(_))
         ));
         let expired_evidence = parse_locked_grant_evidence(&consumer, &expiring.locator())
             .await
@@ -4853,17 +3565,958 @@ mod tests {
         );
     }
 
+    fn autonomous_policy_proposal(
+        suffix: &str,
+        now: u64,
+        generation_suffix: &str,
+        valid_for_ms: u64,
+    ) -> AutonomousPolicyAuthorizationIssuanceProposalV1 {
+        let content = AutonomousPolicyAuthorizationContentV1 {
+            issuer_identity: "operator-authorization-owner-test-v1".into(),
+            issuer_key_version: "test-key-v1".into(),
+            policy: AutonomousPolicyV1 {
+                policy_identity: format!("policy-paper-{suffix}"),
+                policy_version: "1".into(),
+            },
+            scope: OperatorAuthorizationScopeV1 {
+                principal: format!("principal-{suffix}"),
+                audience: STRATEGY_GOVERNANCE_AUDIENCE_V1.into(),
+                permissions: vec!["governance:unattended".into()],
+            },
+            request_scope_identity: format!("request-scope-{suffix}"),
+            account_identity: format!("account-{suffix}"),
+            execution_mode: ExecutionModeV1::Paper,
+            strategy_generation_identity: format!("generation-{generation_suffix}-{suffix}"),
+            execution_scope_identity: format!("sha256:{}", "e".repeat(64)),
+            permitted_actions: vec!["INITIAL_ACTIVATION".into(), "PROMOTION".into()],
+            permitted_intent_classes: vec!["ADD_RISK".into()],
+            capital_policy: CapitalPolicyBindingV1 {
+                envelope_identity: format!("envelope-{suffix}"),
+                envelope_version: "1".into(),
+                envelope_digest: format!("sha256:{}", "c".repeat(64)),
+            },
+            operation_manifest: OperationManifestBindingV1 {
+                manifest_identity: format!("governance-manifest-{suffix}"),
+                manifest_digest: format!("sha256:{}", "a".repeat(64)),
+            },
+            effective_at_epoch_ms: now.saturating_sub(1_000),
+            valid_through_epoch_ms: now.saturating_add(valid_for_ms),
+        };
+        AutonomousPolicyAuthorizationIssuanceProposalV1 {
+            grant_identity: content.grant_identity().unwrap(),
+            content,
+            expected_revocation_frontier_identity: "EMPTY".into(),
+        }
+    }
+
+    fn autonomous_policy_lock_identity(resource_digest: &str) -> String {
+        GrantSchemaV1::of::<AutonomousPolicyAuthorizationContentV1>()
+            .advisory_lock_identity(resource_digest)
+    }
+
+    async fn lock_autonomous_policy_resource_for_write(
+        transaction: &mut Transaction<'_, Postgres>,
+        resource_digest: &str,
+    ) -> Result<(), OperatorAuthorizationError> {
+        lock_grant_resource_for_write(
+            transaction,
+            &GrantSchemaV1::of::<AutonomousPolicyAuthorizationContentV1>(),
+            resource_digest,
+        )
+        .await
+    }
+
+    async fn resolve_autonomous_policy(
+        pool: &PgPool,
+        request: &AutonomousPolicyAuthorizationReadRequestV1,
+    ) -> AutonomousPolicyAuthorizationResolutionV1 {
+        let mut transaction = pool.begin().await.unwrap();
+        let resolution =
+            resolve_autonomous_policy_authorization_in_transaction(&mut transaction, request).await;
+        transaction.rollback().await.unwrap();
+        resolution
+    }
+
+    async fn parse_locked_autonomous_policy_evidence(
+        pool: &PgPool,
+        locator: &AutonomousPolicyAuthorizationLocatorV1,
+    ) -> Result<UntrustedCanonicalAutonomousPolicyAuthorizationEvidenceV1, OperatorAuthorizationError>
+    {
+        let mut transaction = pool.begin().await.unwrap();
+        let envelope: Option<serde_json::Value> = sqlx::query_scalar(
+            "SELECT operator_authorization_api.lock_current_autonomous_policy_authorization_v1($1,$2)",
+        )
+        .bind(&locator.grant_identity)
+        .bind(&locator.issuance_receipt_identity)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(storage)?;
+        let result = parse_untrusted_autonomous_policy_authorization_envelope_v1(
+            &serde_json::to_vec(&envelope.ok_or_else(|| unavailable(Reason::Missing))?)
+                .map_err(storage)?,
+            locator,
+        );
+        transaction.rollback().await.unwrap();
+        result
+    }
+
     #[tokio::test]
-    #[ignore = "requires an admitted OPERATOR_AUTHORIZATION_TEST_DATABASE_URL"]
-    async fn postgres_successor_is_append_only_replay_safe_and_preserves_history() {
-        let test_database =
-            DedicatedPostgresTestDatabase::admit("OPERATOR_AUTHORIZATION_TEST_DATABASE_URL")
-                .await
-                .unwrap();
-        let _mutation = test_database.mutation();
-        let owner = OperatorAuthorizationIssuerPostgresV1::connect(test_database.database_url())
+    #[ignore = "requires admitted OA and Product Edge PostgreSQL test URLs"]
+    async fn autonomous_policy_authorization_advisory_lock_serializes_distinct_authorizations() {
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let mutation = test_database.mutation();
+        let owner = Arc::new(
+            OperatorAuthorizationIssuerPostgresV1::connect(
+                test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+            )
+            .await
+            .unwrap(),
+        );
+        let consumer = mutation
+            .pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner)
+            .clone();
+        let suffix = format!("advisory-{}-{}", std::process::id(), now_ms().unwrap());
+        let now = now_ms().unwrap();
+        let proposal = autonomous_policy_proposal(&suffix, now, "serialization", 600_000);
+        let resource_digest = proposal.content.resource().digest().unwrap();
+        let rust_lock_identity = autonomous_policy_lock_identity(&resource_digest);
+        let mut genesis_gate = consumer.begin().await.unwrap();
+        sqlx::query("SELECT pg_advisory_xact_lock_shared(hashtextextended($1, 0))")
+            .bind(&rust_lock_identity)
+            .execute(&mut *genesis_gate)
             .await
             .unwrap();
+        let genesis_owner = Arc::clone(&owner);
+        let genesis_proposal = proposal.clone();
+
+        let genesis_task = tokio::spawn(async move {
+            genesis_owner
+                .issue_autonomous_policy_authorization_genesis(genesis_proposal)
+                .await
+        });
+        wait_for_advisory_lock(owner.pool(), "operator_authorization_writer").await;
+        assert!(!genesis_task.is_finished());
+        genesis_gate.rollback().await.unwrap();
+        let genesis = genesis_task.await.unwrap().unwrap();
+        let mut successor_content = proposal.content.clone();
+        successor_content.valid_through_epoch_ms += 600_000;
+        successor_content
+            .operation_manifest
+            .manifest_identity
+            .push_str("-successor");
+        successor_content.operation_manifest.manifest_digest = format!("sha256:{}", "b".repeat(64));
+        let successor_proposal = AutonomousPolicyAuthorizationSuccessorProposalV1 {
+            predecessor: genesis.locator(),
+            expected_current_frontier_identity: genesis.frontier().frontier_identity().into(),
+            successor: AutonomousPolicyAuthorizationIssuanceProposalV1 {
+                grant_identity: successor_content.grant_identity().unwrap(),
+                content: successor_content.clone(),
+                expected_revocation_frontier_identity: genesis
+                    .frontier()
+                    .frontier_identity()
+                    .into(),
+            },
+        };
+        let mut successor_gate = consumer.begin().await.unwrap();
+        sqlx::query("SELECT pg_advisory_xact_lock_shared(hashtextextended($1, 0))")
+            .bind(&rust_lock_identity)
+            .execute(&mut *successor_gate)
+            .await
+            .unwrap();
+        let successor_owner = Arc::clone(&owner);
+        let successor_task = tokio::spawn(async move {
+            successor_owner
+                .issue_autonomous_policy_authorization_successor(successor_proposal)
+                .await
+        });
+        wait_for_advisory_lock(owner.pool(), "operator_authorization_writer").await;
+        assert!(!successor_task.is_finished());
+        successor_gate.rollback().await.unwrap();
+        let successor = successor_task.await.unwrap().unwrap();
+        let matching_key: bool = sqlx::query_scalar(
+            "SELECT hashtextextended($1, 0) = hashtextextended('operator-authorization.autonomous-policy-authorization.resource.v1:' || $2, 0)",
+        )
+        .bind(&rust_lock_identity)
+        .bind(&resource_digest)
+        .fetch_one(owner.pool())
+        .await
+        .unwrap();
+        assert!(matching_key, "Rust and PL/pgSQL advisory keys diverged");
+
+        let function_definition: String = sqlx::query_scalar(
+            "SELECT pg_get_functiondef('operator_authorization_api.lock_current_autonomous_policy_authorization_v1(text,text)'::regprocedure)",
+        )
+        .fetch_one(owner.pool())
+        .await
+        .unwrap();
+        let advisory_position = function_definition
+            .find("pg_advisory_xact_lock_shared")
+            .unwrap();
+        let first_row_lock_position = function_definition
+            .find("ORDER BY grant_identity FOR SHARE")
+            .unwrap();
+        assert!(advisory_position < first_row_lock_position);
+
+        let request_for =
+            |grant: &AutonomousPolicyAuthorizationReadbackV1,
+             content: &AutonomousPolicyAuthorizationContentV1| {
+                AutonomousPolicyAuthorizationReadRequestV1 {
+                    locator: grant.locator(),
+                    expected_resource: content.resource(),
+                    expected_manifest: content.operation_manifest.clone(),
+                }
+            };
+        let (earlier, later_request) =
+            if genesis.locator().grant_identity < successor.locator().grant_identity {
+                (
+                    genesis.locator(),
+                    request_for(&successor, &successor_content),
+                )
+            } else {
+                (
+                    successor.locator(),
+                    request_for(&genesis, &proposal.content),
+                )
+            };
+
+        let before_schedule = oa_table_fingerprint(owner.pool()).await;
+        let mut reader_first = consumer.begin().await.unwrap();
+        assert!(matches!(
+            resolve_autonomous_policy_authorization_in_transaction(
+                &mut reader_first,
+                &later_request
+            )
+            .await,
+            AutonomousPolicyAuthorizationResolutionV1::Available { .. }
+        ));
+        let revoke_owner = Arc::clone(&owner);
+        let expected_frontier_identity = successor.frontier().frontier_identity().to_string();
+
+        let revoke_task = tokio::spawn(async move {
+            revoke_owner
+                .revoke_autonomous_policy_authorization(
+                    AutonomousPolicyAuthorizationRevocationProposalV1 {
+                        grant: earlier,
+                        expected_frontier_identity,
+                        reason_code: "SERIALIZATION_TEST".into(),
+                    },
+                )
+                .await
+        });
+        wait_for_advisory_lock(owner.pool(), "operator_authorization_writer").await;
+        assert!(!revoke_task.is_finished());
+        reader_first.rollback().await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), revoke_task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_ne!(oa_table_fingerprint(owner.pool()).await, before_schedule);
+
+        let reverse_proposal =
+            autonomous_policy_proposal(&suffix, now_ms().unwrap(), "reverse", 600_000);
+        let reverse = owner
+            .issue_autonomous_policy_authorization_genesis(reverse_proposal.clone())
+            .await
+            .unwrap();
+        let reverse_request = request_for(&reverse, &reverse_proposal.content);
+        let reverse_digest = reverse_proposal.content.resource().digest().unwrap();
+        let mut writer_first = owner.pool().begin().await.unwrap();
+        lock_autonomous_policy_resource_for_write(&mut writer_first, &reverse_digest)
+            .await
+            .unwrap();
+        let reverse_consumer = consumer.clone();
+        let reverse_reader = tokio::spawn(async move {
+            let mut transaction = reverse_consumer.begin().await.unwrap();
+            let resolution = resolve_autonomous_policy_authorization_in_transaction(
+                &mut transaction,
+                &reverse_request,
+            )
+            .await;
+            transaction.rollback().await.unwrap();
+            resolution
+        });
+        wait_for_advisory_lock(&consumer, "product_edge_owner").await;
+        assert!(!reverse_reader.is_finished());
+        writer_first.rollback().await.unwrap();
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_secs(5), reverse_reader)
+                .await
+                .unwrap()
+                .unwrap(),
+            AutonomousPolicyAuthorizationResolutionV1::Available { .. }
+        ));
+
+        let before_invalid_locator = oa_table_fingerprint(owner.pool()).await;
+        let mut invalid_request = request_for(&reverse, &reverse_proposal.content);
+        invalid_request.locator.grant_identity.push_str("-missing");
+        assert!(matches!(
+            resolve_autonomous_policy(&consumer, &invalid_request).await,
+            AutonomousPolicyAuthorizationResolutionV1::Unavailable { .. }
+        ));
+        assert_eq!(
+            oa_table_fingerprint(owner.pool()).await,
+            before_invalid_locator
+        );
+
+        sqlx::query("UPDATE operator_authorization_private.autonomous_policy_authorization_issuances_v1 SET resource_digest='sha256:invalid-hint' WHERE grant_identity=$1")
+            .bind(&reverse.locator().grant_identity)
+            .execute(owner.pool())
+            .await
+            .unwrap();
+        let invalid_hint_fingerprint = oa_table_fingerprint(owner.pool()).await;
+        assert!(matches!(
+            resolve_autonomous_policy(&consumer, &request_for(&reverse, &reverse_proposal.content))
+                .await,
+            AutonomousPolicyAuthorizationResolutionV1::Unavailable { .. }
+        ));
+        assert_eq!(
+            oa_table_fingerprint(owner.pool()).await,
+            invalid_hint_fingerprint
+        );
+        sqlx::query("UPDATE operator_authorization_private.autonomous_policy_authorization_issuances_v1 SET resource_digest=$1 WHERE grant_identity=$2")
+            .bind(&reverse_digest)
+            .bind(&reverse.locator().grant_identity)
+            .execute(owner.pool())
+            .await
+            .unwrap();
+        assert_eq!(
+            oa_table_fingerprint(owner.pool()).await,
+            before_invalid_locator
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires admitted OA and Product Edge PostgreSQL test URLs"]
+    async fn autonomous_policy_authorization_issue_read_replay_successor_revoke_restart_acl_and_expiry()
+     {
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let mutation = test_database.mutation();
+        let owner = OperatorAuthorizationIssuerPostgresV1::connect(
+            test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+        )
+        .await
+        .unwrap();
+        let consumer = mutation
+            .pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner)
+            .clone();
+        let suffix = format!("{}-{}", std::process::id(), now_ms().unwrap());
+        let now = now_ms().unwrap();
+        let proposal = autonomous_policy_proposal(&suffix, now, "primary", 600_000);
+        let issued = owner
+            .issue_autonomous_policy_authorization_genesis(proposal.clone())
+            .await
+            .unwrap();
+        let genesis_replay = owner
+            .issue_autonomous_policy_authorization_genesis(proposal.clone())
+            .await
+            .unwrap();
+        assert_same_grant_authority(&genesis_replay, &issued);
+        assert!(genesis_replay.observed_at_epoch_ms() >= issued.observed_at_epoch_ms());
+        let issued_evidence = parse_locked_autonomous_policy_evidence(&consumer, &issued.locator())
+            .await
+            .unwrap();
+        assert_eq!(issued_evidence.locator(), issued.locator());
+        assert_eq!(
+            issued_evidence.frontier_identity(),
+            issued.frontier().frontier_identity()
+        );
+        assert!(issued_evidence.matches_resource(&proposal.content.resource()));
+        assert!(issued_evidence.matches_operation_manifest(&proposal.content.operation_manifest));
+        assert!(issued_evidence.is_current_at(now));
+        let parser_fingerprint = oa_table_fingerprint(owner.pool()).await;
+        let mut parser_transaction = consumer.begin().await.unwrap();
+        let locked_envelope: serde_json::Value = sqlx::query_scalar(
+            "SELECT operator_authorization_api.lock_current_autonomous_policy_authorization_v1($1,$2)",
+        )
+        .bind(&issued.locator().grant_identity)
+        .bind(&issued.locator().issuance_receipt_identity)
+        .fetch_one(&mut *parser_transaction)
+        .await
+        .unwrap();
+
+        for path in [
+            "/issuances/0/principal",
+            "/issuances/0/account_identity",
+            "/issuances/0/execution_scope_identity",
+            "/issuances/0/semantic_digest",
+            "/frontiers/0/frontier_digest",
+            "/head/frontier_identity",
+            "/outboxes/0/payload_digest",
+        ] {
+            let mut tampered = locked_envelope.clone();
+            *tampered.pointer_mut(path).unwrap() = serde_json::json!("caller-authored");
+            assert!(
+                parse_untrusted_autonomous_policy_authorization_envelope_v1(
+                    &serde_json::to_vec(&tampered).unwrap(),
+                    &issued.locator(),
+                )
+                .is_err(),
+                "accepted tampered database envelope at {path}"
+            );
+        }
+        parser_transaction.rollback().await.unwrap();
+        assert_eq!(oa_table_fingerprint(owner.pool()).await, parser_fingerprint);
+
+        let request = AutonomousPolicyAuthorizationReadRequestV1 {
+            locator: issued.locator(),
+            expected_resource: proposal.content.resource(),
+            expected_manifest: proposal.content.operation_manifest.clone(),
+        };
+
+        let legacy_proposal = OperatorAuthorizationIssuanceProposalV1 {
+            authorization_identity: issued.locator().grant_identity,
+            issuer_identity: "operator-authorization-issuer-test-v1".into(),
+            issuer_key_version: "test-key-v1".into(),
+            scope: OperatorAuthorizationScopeV1 {
+                principal: format!("legacy-principal-{suffix}"),
+                audience: "PRODUCT_EDGE".into(),
+                permissions: vec!["provider:invoke".into()],
+            },
+            request_proof_digest: "sha256:test-proof".into(),
+            operation_manifests: vec![OperationManifestBindingV1 {
+                manifest_identity: format!("legacy-manifest-{suffix}"),
+                manifest_digest: format!("sha256:{}", "c".repeat(64)),
+            }],
+            not_before_epoch_ms: now.saturating_sub(1_000),
+            valid_through_epoch_ms: now.saturating_add(600_000),
+            expected_revocation_head: "EMPTY".into(),
+        };
+        let legacy = owner.issue_genesis(legacy_proposal.clone()).await.unwrap();
+        assert_eq!(owner.issue_genesis(legacy_proposal).await.unwrap(), legacy);
+        let collision_grant_replay = owner
+            .issue_autonomous_policy_authorization_genesis(proposal.clone())
+            .await
+            .unwrap();
+        assert_same_grant_authority(&collision_grant_replay, &issued);
+        let mut historical_transaction = owner.pool().begin().await.unwrap();
+        assert_eq!(
+            resolve_authorization_in_transaction(
+                &mut historical_transaction,
+                &legacy.locator(),
+                AuthorizationReadModeV1::Historical {
+                    frontier_identity: legacy.frontier().frontier_identity().into(),
+                },
+            )
+            .await
+            .unwrap(),
+            legacy
+        );
+        historical_transaction.rollback().await.unwrap();
+        assert!(matches!(
+            resolve_autonomous_policy(&consumer, &request).await,
+            AutonomousPolicyAuthorizationResolutionV1::Available { .. }
+        ));
+
+        let collision_baseline = oa_table_fingerprint(owner.pool()).await;
+
+        for (select_sql, corrupt_sql, restore_sql, insert_sql, delete_sql, legacy_must_fail) in [
+            (
+                "SELECT payload_digest FROM operator_authorization_private.operator_authorization_owner_outbox_v1 WHERE aggregate_identity=$1",
+                "UPDATE operator_authorization_private.operator_authorization_owner_outbox_v1 SET payload_digest='sha256:corrupt' WHERE aggregate_identity=$1",
+                "UPDATE operator_authorization_private.operator_authorization_owner_outbox_v1 SET payload_digest=$1 WHERE aggregate_identity=$2",
+                "INSERT INTO operator_authorization_private.operator_authorization_owner_outbox_v1 (event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms) VALUES ($1,$2,'UNEXPECTED_V1','sha256:corrupt','{}'::jsonb,$3)",
+                "DELETE FROM operator_authorization_private.operator_authorization_owner_outbox_v1 WHERE event_identity=$1",
+                true,
+            ),
+            (
+                "SELECT payload_digest FROM operator_authorization_private.autonomous_policy_authorization_owner_outbox_v1 WHERE aggregate_identity=$1",
+                "UPDATE operator_authorization_private.autonomous_policy_authorization_owner_outbox_v1 SET payload_digest='sha256:corrupt' WHERE aggregate_identity=$1",
+                "UPDATE operator_authorization_private.autonomous_policy_authorization_owner_outbox_v1 SET payload_digest=$1 WHERE aggregate_identity=$2",
+                "INSERT INTO operator_authorization_private.autonomous_policy_authorization_owner_outbox_v1 (event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms) VALUES ($1,$2,'UNEXPECTED_V1','sha256:corrupt','{}'::jsonb,$3)",
+                "DELETE FROM operator_authorization_private.autonomous_policy_authorization_owner_outbox_v1 WHERE event_identity=$1",
+                false,
+            ),
+        ] {
+            let original_digest: String = sqlx::query_scalar(select_sql)
+                .bind(&legacy.locator().authorization_identity)
+                .fetch_one(owner.pool())
+                .await
+                .unwrap();
+            sqlx::query(corrupt_sql)
+                .bind(&legacy.locator().authorization_identity)
+                .execute(owner.pool())
+                .await
+                .unwrap();
+            let corrupted = oa_table_fingerprint(owner.pool()).await;
+            assert_eq!(
+                resolve_current(&owner, &legacy, now_ms().unwrap())
+                    .await
+                    .is_err(),
+                legacy_must_fail
+            );
+            assert_eq!(
+                matches!(
+                    resolve_autonomous_policy(&consumer, &request).await,
+                    AutonomousPolicyAuthorizationResolutionV1::Unavailable { .. }
+                ),
+                !legacy_must_fail
+            );
+            assert_eq!(oa_table_fingerprint(owner.pool()).await, corrupted);
+            sqlx::query(restore_sql)
+                .bind(&original_digest)
+                .bind(&legacy.locator().authorization_identity)
+                .execute(owner.pool())
+                .await
+                .unwrap();
+            assert_eq!(oa_table_fingerprint(owner.pool()).await, collision_baseline);
+
+            let duplicate_identity = format!("duplicate-{legacy_must_fail}-{suffix}");
+            sqlx::query(insert_sql)
+                .bind(&duplicate_identity)
+                .bind(&legacy.locator().authorization_identity)
+                .bind(to_i64(now).unwrap())
+                .execute(owner.pool())
+                .await
+                .unwrap();
+            let duplicated = oa_table_fingerprint(owner.pool()).await;
+            assert_eq!(
+                resolve_current(&owner, &legacy, now_ms().unwrap())
+                    .await
+                    .is_err(),
+                legacy_must_fail
+            );
+            assert_eq!(
+                matches!(
+                    resolve_autonomous_policy(&consumer, &request).await,
+                    AutonomousPolicyAuthorizationResolutionV1::Unavailable { .. }
+                ),
+                !legacy_must_fail
+            );
+            assert_eq!(oa_table_fingerprint(owner.pool()).await, duplicated);
+            sqlx::query(delete_sql)
+                .bind(&duplicate_identity)
+                .execute(owner.pool())
+                .await
+                .unwrap();
+            assert_eq!(oa_table_fingerprint(owner.pool()).await, collision_baseline);
+        }
+        let before_read_cut: i64 = sqlx::query_scalar(
+            "SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint",
+        )
+        .fetch_one(&consumer)
+        .await
+        .unwrap();
+        let mut transaction = consumer.begin().await.unwrap();
+        let AutonomousPolicyAuthorizationResolutionV1::Available { grant } =
+            resolve_autonomous_policy_authorization_in_transaction(&mut transaction, &request)
+                .await
+        else {
+            panic!("expected sealed Autonomous Policy Authorization");
+        };
+        assert_eq!(grant.locator(), issued.locator());
+        let after_read_cut: i64 = sqlx::query_scalar(
+            "SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint",
+        )
+        .fetch_one(&consumer)
+        .await
+        .unwrap();
+        assert!(grant.observed_at_epoch_ms() >= u64::try_from(before_read_cut).unwrap());
+        assert!(grant.observed_at_epoch_ms() <= u64::try_from(after_read_cut).unwrap());
+        transaction.rollback().await.unwrap();
+
+        let before_negative_reads = oa_table_fingerprint(owner.pool()).await;
+
+        for index in 0..10 {
+            let mut changed = request.clone();
+            match index {
+                0 => changed.expected_resource.principal.push_str("-other"),
+                1 => changed
+                    .expected_resource
+                    .request_scope_identity
+                    .push_str("-other"),
+                2 => changed.expected_resource.audience.push_str("-other"),
+                3 => changed
+                    .expected_resource
+                    .account_identity
+                    .push_str("-other"),
+                4 => changed.expected_resource.execution_mode = ExecutionModeV1::Live,
+                5 => changed
+                    .expected_resource
+                    .strategy_generation_identity
+                    .push_str("-other"),
+                6 => changed
+                    .expected_resource
+                    .execution_scope_identity
+                    .push_str("-other"),
+                7 => changed.expected_resource.policy_identity.push_str("-other"),
+                8 => changed
+                    .expected_manifest
+                    .manifest_identity
+                    .push_str("-other"),
+                9 => changed
+                    .expected_manifest
+                    .manifest_digest
+                    .replace_range(7..8, "b"),
+                _ => unreachable!(),
+            }
+            let mut transaction = consumer.begin().await.unwrap();
+            assert!(matches!(
+                resolve_autonomous_policy_authorization_in_transaction(&mut transaction, &changed)
+                    .await,
+                AutonomousPolicyAuthorizationResolutionV1::Unavailable { .. }
+            ));
+            transaction.rollback().await.unwrap();
+        }
+        assert_eq!(
+            oa_table_fingerprint(owner.pool()).await,
+            before_negative_reads
+        );
+
+        let mut changed_validity = proposal.clone();
+        changed_validity.content.valid_through_epoch_ms += 1;
+        changed_validity.grant_identity = changed_validity.content.grant_identity().unwrap();
+        assert!(matches!(
+            owner
+                .issue_autonomous_policy_authorization_genesis(changed_validity)
+                .await,
+            Err(OperatorAuthorizationError::ConflictingReplay)
+        ));
+        assert_eq!(
+            oa_table_fingerprint(owner.pool()).await,
+            before_negative_reads
+        );
+
+        let mut successor_content = proposal.content.clone();
+        successor_content.valid_through_epoch_ms += 600_000;
+        successor_content
+            .operation_manifest
+            .manifest_identity
+            .push_str("-successor");
+        successor_content.operation_manifest.manifest_digest = format!("sha256:{}", "b".repeat(64));
+        let successor_issuance = AutonomousPolicyAuthorizationIssuanceProposalV1 {
+            grant_identity: successor_content.grant_identity().unwrap(),
+            content: successor_content.clone(),
+            expected_revocation_frontier_identity: issued.frontier().frontier_identity().into(),
+        };
+        let successor = AutonomousPolicyAuthorizationSuccessorProposalV1 {
+            predecessor: issued.locator(),
+            expected_current_frontier_identity: issued.frontier().frontier_identity().into(),
+            successor: successor_issuance,
+        };
+        let renewed = owner
+            .issue_autonomous_policy_authorization_successor(successor.clone())
+            .await
+            .unwrap();
+        let successor_replay = owner
+            .issue_autonomous_policy_authorization_successor(successor.clone())
+            .await
+            .unwrap();
+        assert_same_grant_authority(&successor_replay, &renewed);
+        assert!(successor_replay.observed_at_epoch_ms() >= renewed.observed_at_epoch_ms());
+
+        drop(owner);
+        let restarted = Arc::new(
+            OperatorAuthorizationIssuerPostgresV1::connect(
+                test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+            )
+            .await
+            .unwrap(),
+        );
+        let renewed_request = AutonomousPolicyAuthorizationReadRequestV1 {
+            locator: renewed.locator(),
+            expected_resource: successor_content.resource(),
+            expected_manifest: successor_content.operation_manifest.clone(),
+        };
+        let mut transaction = consumer.begin().await.unwrap();
+        assert!(matches!(
+            resolve_autonomous_policy_authorization_in_transaction(
+                &mut transaction,
+                &renewed_request
+            )
+            .await,
+            AutonomousPolicyAuthorizationResolutionV1::Available { .. }
+        ));
+        transaction.rollback().await.unwrap();
+        let restarted_evidence =
+            parse_locked_autonomous_policy_evidence(&consumer, &renewed.locator())
+                .await
+                .unwrap();
+        assert_eq!(restarted_evidence.locator(), renewed.locator());
+        assert!(restarted_evidence.matches_resource(&successor_content.resource()));
+        assert!(
+            restarted_evidence.matches_operation_manifest(&successor_content.operation_manifest)
+        );
+
+        let mut revocation_gate = restarted.pool().begin().await.unwrap();
+        sqlx::query("SELECT grant_identity FROM operator_authorization_private.autonomous_policy_authorization_issuances_v1 WHERE grant_identity=$1 FOR UPDATE")
+            .bind(&renewed.locator().grant_identity).fetch_one(&mut *revocation_gate).await.unwrap();
+        let revoke_owner = Arc::clone(&restarted);
+        let revoke_proposal = AutonomousPolicyAuthorizationRevocationProposalV1 {
+            grant: renewed.locator(),
+            expected_frontier_identity: renewed.frontier().frontier_identity().into(),
+            reason_code: "ADMIN_REVOKED".into(),
+        };
+
+        let revoke_task = tokio::spawn(async move {
+            revoke_owner
+                .revoke_autonomous_policy_authorization(revoke_proposal)
+                .await
+        });
+        wait_for_row_lock(
+            restarted.pool(),
+            "operator_authorization_writer",
+            "%autonomous_policy_authorization_issuances_v1%FOR UPDATE%",
+        )
+        .await;
+        let crossing_consumer = consumer.clone();
+        let crossing_request = renewed_request.clone();
+
+        let crossing_reader = tokio::spawn(async move {
+            let mut transaction = crossing_consumer.begin().await.unwrap();
+            let resolution = resolve_autonomous_policy_authorization_in_transaction(
+                &mut transaction,
+                &crossing_request,
+            )
+            .await;
+            transaction.rollback().await.unwrap();
+            resolution
+        });
+        wait_for_row_lock(
+            &consumer,
+            "product_edge_owner",
+            "%lock_current_autonomous_policy_authorization_v1%",
+        )
+        .await;
+        assert!(!revoke_task.is_finished());
+        assert!(!crossing_reader.is_finished());
+        revocation_gate.rollback().await.unwrap();
+        let revoked = tokio::time::timeout(Duration::from_secs(5), revoke_task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let after_authorized_revoke = oa_table_fingerprint(restarted.pool()).await;
+        let AutonomousPolicyAuthorizationResolutionV1::Unavailable { reason } =
+            tokio::time::timeout(Duration::from_secs(5), crossing_reader)
+                .await
+                .unwrap()
+                .unwrap()
+        else {
+            panic!("reader queued behind revocation must fail closed");
+        };
+        assert_eq!(
+            reason,
+            AutonomousPolicyAuthorizationUnavailableReasonV1::Revoked
+        );
+        assert_eq!(
+            oa_table_fingerprint(restarted.pool()).await,
+            after_authorized_revoke
+        );
+        assert!(
+            revoked
+                .revoked_grant_identities()
+                .contains(&renewed.locator().grant_identity)
+        );
+        let before_revoked_replay = oa_table_fingerprint(restarted.pool()).await;
+        assert!(matches!(
+            restarted
+                .issue_autonomous_policy_authorization_successor(successor.clone())
+                .await,
+            Err(OperatorAuthorizationError::Unavailable(_))
+        ));
+        let AutonomousPolicyAuthorizationResolutionV1::Unavailable { reason } =
+            resolve_autonomous_policy(&consumer, &renewed_request).await
+        else {
+            panic!("revoked successor replay and canonical resolve must fail closed");
+        };
+        assert_eq!(
+            reason,
+            AutonomousPolicyAuthorizationUnavailableReasonV1::Revoked
+        );
+        let revoked_evidence =
+            parse_locked_autonomous_policy_evidence(&consumer, &renewed.locator())
+                .await
+                .unwrap();
+        assert_eq!(
+            revoked_evidence.frontier_identity(),
+            revoked.frontier_identity()
+        );
+        assert!(!revoked_evidence.is_current_at(now_ms().unwrap()));
+        assert_eq!(
+            oa_table_fingerprint(restarted.pool()).await,
+            before_revoked_replay
+        );
+
+        let executable: bool = sqlx::query_scalar("SELECT has_function_privilege(current_user, 'operator_authorization_api.lock_current_autonomous_policy_authorization_v1(text,text)', 'EXECUTE')")
+            .fetch_one(&consumer).await.unwrap();
+        let private_usage: bool = sqlx::query_scalar(
+            "SELECT has_schema_privilege(current_user, 'operator_authorization_private', 'USAGE')",
+        )
+        .fetch_one(&consumer)
+        .await
+        .unwrap();
+        assert!(executable);
+
+        // Who may read this kind, stated per role rather than only for whoever
+        // this connection happens to be. `governance_writer` is the reason the
+        // kind exists: Strategy Governance binds one of these to every unattended
+        // lifecycle decision. The negative rows matter as much - a grant with no
+        // one excluded proves nothing about what the grant withholds.
+        for (role, expected) in [
+            ("product_edge_owner", true),
+            ("operator_authorization_writer", true),
+            ("governance_writer", true),
+            ("rd_owner", false),
+            ("qualification_writer", false),
+        ] {
+            let executable: bool = sqlx::query_scalar(
+                "SELECT has_function_privilege($1::name, to_regprocedure('operator_authorization_api.lock_current_autonomous_policy_authorization_v1(text,text)'), 'EXECUTE')",
+            )
+            .bind(role)
+            .fetch_one(restarted.pool())
+            .await
+            .unwrap();
+            assert_eq!(
+                executable, expected,
+                "unexpected autonomous policy authorization ACL for {role}"
+            );
+        }
+        assert!(!private_usage);
+
+        for table in [
+            "operator_authorization_private.autonomous_policy_authorization_issuances_v1",
+            "operator_authorization_private.autonomous_policy_authorization_revocation_frontiers_v1",
+            "operator_authorization_private.autonomous_policy_authorization_revocation_heads_v1",
+            "operator_authorization_private.autonomous_policy_authorization_owner_outbox_v1",
+        ] {
+            let relation_oid: i64 = sqlx::query_scalar("SELECT to_regclass($1)::oid::bigint")
+                .bind(table)
+                .fetch_one(restarted.pool())
+                .await
+                .unwrap();
+
+            for privilege in ["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE"] {
+                let granted: bool =
+                    sqlx::query_scalar("SELECT has_table_privilege(current_user, $1::oid, $2)")
+                        .bind(relation_oid)
+                        .bind(privilege)
+                        .fetch_one(&consumer)
+                        .await
+                        .unwrap();
+                assert!(!granted, "Product Edge has {privilege} on {table}");
+            }
+        }
+
+        let expiry_proposal =
+            autonomous_policy_proposal(&suffix, now_ms().unwrap(), "expiry", 2_000);
+        let expiring = restarted
+            .issue_autonomous_policy_authorization_genesis(expiry_proposal.clone())
+            .await
+            .unwrap();
+        let expiry_request = AutonomousPolicyAuthorizationReadRequestV1 {
+            locator: expiring.locator(),
+            expected_resource: expiry_proposal.content.resource(),
+            expected_manifest: expiry_proposal.content.operation_manifest.clone(),
+        };
+        let mut expiry_gate = restarted.pool().begin().await.unwrap();
+        sqlx::query("SELECT grant_identity FROM operator_authorization_private.autonomous_policy_authorization_issuances_v1 WHERE grant_identity=$1 FOR UPDATE")
+            .bind(&expiring.locator().grant_identity).fetch_one(&mut *expiry_gate).await.unwrap();
+        let expiry_consumer = consumer.clone();
+        let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
+        let expiry_replay_owner = Arc::clone(&restarted);
+        let expiry_replay_proposal = expiry_proposal.clone();
+        let (replay_started_sender, replay_started_receiver) = tokio::sync::oneshot::channel();
+        let expiry_replay = tokio::spawn(async move {
+            replay_started_sender.send(()).unwrap();
+            expiry_replay_owner
+                .issue_autonomous_policy_authorization_genesis(expiry_replay_proposal)
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(2), replay_started_receiver)
+            .await
+            .unwrap()
+            .unwrap();
+        wait_for_row_lock(
+            restarted.pool(),
+            "operator_authorization_writer",
+            "%autonomous_policy_authorization_issuances_v1%FOR UPDATE%",
+        )
+        .await;
+
+        let expiry_reader = tokio::spawn(async move {
+            let mut transaction = expiry_consumer.begin().await.unwrap();
+            let started_at: i64 = sqlx::query_scalar(
+                "SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint",
+            )
+            .fetch_one(&mut *transaction)
+            .await
+            .unwrap();
+            started_sender
+                .send(u64::try_from(started_at).unwrap())
+                .unwrap();
+            let resolution = resolve_autonomous_policy_authorization_in_transaction(
+                &mut transaction,
+                &expiry_request,
+            )
+            .await;
+            transaction.rollback().await.unwrap();
+            resolution
+        });
+        let started_at = tokio::time::timeout(Duration::from_secs(2), started_receiver)
+            .await
+            .unwrap()
+            .unwrap();
+        wait_for_row_lock(
+            &consumer,
+            "product_edge_owner",
+            "%lock_current_autonomous_policy_authorization_v1%",
+        )
+        .await;
+        assert!(!expiry_reader.is_finished());
+        assert!(!expiry_replay.is_finished());
+        let database_now: i64 = sqlx::query_scalar(
+            "SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint",
+        )
+        .fetch_one(restarted.pool())
+        .await
+        .unwrap();
+        let remaining = expiry_proposal
+            .content
+            .valid_through_epoch_ms
+            .saturating_sub(u64::try_from(database_now).unwrap());
+        tokio::time::sleep(Duration::from_millis(remaining.saturating_add(50))).await;
+        let before_expired_read = oa_table_fingerprint(restarted.pool()).await;
+        expiry_gate.rollback().await.unwrap();
+        let resolution = tokio::time::timeout(Duration::from_secs(5), expiry_reader)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(started_at < expiry_proposal.content.valid_through_epoch_ms);
+        let AutonomousPolicyAuthorizationResolutionV1::Unavailable { reason } = resolution else {
+            panic!("reader begun before expiry but released after expiry must fail closed");
+        };
+        assert_eq!(
+            reason,
+            AutonomousPolicyAuthorizationUnavailableReasonV1::Expired
+        );
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_secs(5), expiry_replay)
+                .await
+                .unwrap()
+                .unwrap(),
+            Err(OperatorAuthorizationError::Unavailable(_))
+        ));
+        let expired_evidence =
+            parse_locked_autonomous_policy_evidence(&consumer, &expiring.locator())
+                .await
+                .unwrap();
+        assert!(!expired_evidence.is_current_at(now_ms().unwrap()));
+        assert_eq!(
+            oa_table_fingerprint(restarted.pool()).await,
+            before_expired_read
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the disposable canonical OA/PE PostgreSQL topology"]
+    async fn postgres_successor_is_append_only_replay_safe_and_preserves_history() {
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let owner = OperatorAuthorizationIssuerPostgresV1::connect(
+            test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+        )
+        .await
+        .unwrap();
         let suffix = format!("{}-{}", std::process::id(), now_ms().unwrap());
         let now = now_ms().unwrap();
         let genesis_proposal = OperatorAuthorizationIssuanceProposalV1 {
@@ -4942,14 +4595,11 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires an admitted OPERATOR_AUTHORIZATION_TEST_DATABASE_URL"]
+    #[ignore = "requires the disposable canonical OA/PE PostgreSQL topology"]
     async fn postgres_history_mutations_fail_closed_and_restore_exactly() {
-        let test_database =
-            DedicatedPostgresTestDatabase::admit("OPERATOR_AUTHORIZATION_TEST_DATABASE_URL")
-                .await
-                .unwrap();
-        let _mutation = test_database.mutation();
-        let database_url = test_database.database_url();
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let database_url =
+            test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter);
         let suffix = format!(
             "{}-{}",
             std::process::id(),
@@ -5004,7 +4654,7 @@ mod tests {
                     reason_code: "ADMIN_REVOKED".to_string(),
                 })
                 .await,
-            Err(OperatorAuthorizationError::Unavailable)
+            Err(OperatorAuthorizationError::Unavailable(_))
         ));
         let after_forged: (i64, i64) = (
             sqlx::query_scalar("SELECT COUNT(*) FROM operator_authorization_private.operator_authorization_revocation_frontiers_v1 WHERE scope_digest=$1")
@@ -5026,7 +4676,7 @@ mod tests {
             .bind(&scope_digest).execute(owner.pool()).await.unwrap();
         assert!(matches!(
             resolve_current(&owner, &admitted, now).await,
-            Err(OperatorAuthorizationError::Unavailable)
+            Err(OperatorAuthorizationError::Unavailable(_))
         ));
         sqlx::query("UPDATE operator_authorization_private.operator_authorization_revocation_heads_v1 SET frontier_digest=$1 WHERE scope_digest=$2")
             .bind(&original_head_digest).bind(&scope_digest).execute(owner.pool()).await.unwrap();
@@ -5044,7 +4694,7 @@ mod tests {
             .bind(&frontier_identity).execute(owner.pool()).await.unwrap();
         assert!(matches!(
             resolve_current(&owner, &admitted, now).await,
-            Err(OperatorAuthorizationError::Unavailable)
+            Err(OperatorAuthorizationError::Unavailable(_))
         ));
         sqlx::query("UPDATE operator_authorization_private.operator_authorization_revocation_frontiers_v1 SET frontier_json=$1 WHERE frontier_identity=$2")
             .bind(&original_frontier_json).bind(&frontier_identity).execute(owner.pool()).await.unwrap();
@@ -5062,7 +4712,7 @@ mod tests {
             .bind(&authorization_identity).execute(owner.pool()).await.unwrap();
         assert!(matches!(
             resolve_current(&owner, &admitted, now).await,
-            Err(OperatorAuthorizationError::Unavailable)
+            Err(OperatorAuthorizationError::Unavailable(_))
         ));
         sqlx::query("UPDATE operator_authorization_private.operator_authorization_issuances_v1 SET semantic_digest=$1 WHERE authorization_identity=$2")
             .bind(&original_issuance_digest).bind(&authorization_identity).execute(owner.pool()).await.unwrap();
@@ -5108,7 +4758,7 @@ mod tests {
                 .unwrap();
             assert!(matches!(
                 resolve_current(&owner, &admitted, now).await,
-                Err(OperatorAuthorizationError::Unavailable)
+                Err(OperatorAuthorizationError::Unavailable(_))
             ));
             sqlx::query("UPDATE operator_authorization_private.operator_authorization_issuances_v1 SET issuer_identity=$2, principal=$3, audience=$4, scope_digest=$5, issuance_json=$6, receipt_json=$7, semantic_digest=$8, committed_at_epoch_ms=$9 WHERE authorization_identity=$1")
                 .bind(&authorization_identity)
@@ -5135,7 +4785,7 @@ mod tests {
             .execute(owner.pool()).await.unwrap();
         assert!(matches!(
             resolve_current(&owner, &admitted, now).await,
-            Err(OperatorAuthorizationError::Unavailable)
+            Err(OperatorAuthorizationError::Unavailable(_))
         ));
         sqlx::query("DELETE FROM operator_authorization_private.operator_authorization_owner_outbox_v1 WHERE event_identity=$1")
             .bind(&extra_event)
@@ -5157,14 +4807,11 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires an admitted OPERATOR_AUTHORIZATION_TEST_DATABASE_URL"]
+    #[ignore = "requires the disposable canonical OA/PE PostgreSQL topology"]
     async fn shared_resolver_blocks_revoke_update_lock() {
-        let test_database =
-            DedicatedPostgresTestDatabase::admit("OPERATOR_AUTHORIZATION_TEST_DATABASE_URL")
-                .await
-                .unwrap();
-        let _mutation = test_database.mutation();
-        let database_url = test_database.database_url();
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let database_url =
+            test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter);
         let suffix = format!("{}-{}", std::process::id(), now_ms().unwrap());
         let now = now_ms().unwrap();
         let owner = Arc::new(
@@ -5241,17 +4888,13 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires OPERATOR_AUTHORIZATION_TEST_DATABASE_URL and PRODUCT_EDGE_TEST_DATABASE_URL"]
+    #[ignore = "requires the disposable canonical OA/PE PostgreSQL topology"]
     async fn select_only_consumer_resolve_serializes_with_revoke() {
-        let test_database = DedicatedPostgresTestDatabase::admit_cross_owner(&[
-            "OPERATOR_AUTHORIZATION_TEST_DATABASE_URL",
-            "PRODUCT_EDGE_TEST_DATABASE_URL",
-        ])
-        .await
-        .unwrap();
-        let _mutation = test_database.mutation();
-        let issuer_database_url = test_database.database_url();
-        let consumer_database_url = test_database.database_url();
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let issuer_database_url =
+            test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter);
+        let consumer_database_url =
+            test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner);
         let suffix = format!("{}-{}", std::process::id(), now_ms().unwrap());
         let now = now_ms().unwrap();
         let owner = Arc::new(
@@ -5419,7 +5062,7 @@ mod tests {
                 },
             )
             .await,
-            Err(OperatorAuthorizationError::Unavailable)
+            Err(OperatorAuthorizationError::Unavailable(_))
         ));
         forged_transaction.rollback().await.unwrap();
 
@@ -5433,7 +5076,7 @@ mod tests {
                 },
             )
             .await,
-            Err(OperatorAuthorizationError::Unavailable)
+            Err(OperatorAuthorizationError::Unavailable(_))
         ));
         expired_transaction.rollback().await.unwrap();
 
@@ -5451,7 +5094,7 @@ mod tests {
                 },
             )
             .await,
-            Err(OperatorAuthorizationError::Unavailable)
+            Err(OperatorAuthorizationError::Unavailable(_))
         ));
         wrong_isolation.rollback().await.unwrap();
 
@@ -5565,7 +5208,7 @@ mod tests {
                 },
             )
             .await,
-            Err(OperatorAuthorizationError::Unavailable)
+            Err(OperatorAuthorizationError::Unavailable(_))
         ));
         after_revoke.rollback().await.unwrap();
 
@@ -5664,23 +5307,12 @@ mod tests {
             async move { revoke_first_owner.revoke(revoke_first_proposal).await };
 
         let revoke_first_task = tokio::spawn(revoke_first_future);
-        tokio::time::timeout(Duration::from_secs(2), async {
-            loop {
-                let waiting: i64 = sqlx::query_scalar(
-                    "SELECT COUNT(*) FROM pg_stat_activity WHERE usename=current_user AND wait_event_type='Lock' AND query LIKE '%operator_authorization_issuances_v1%FOR UPDATE%'",
-                )
-                .fetch_one(owner.pool())
-                .await
-                .unwrap();
-
-                if waiting > 0 {
-                    break;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .unwrap();
+        wait_for_row_lock(
+            owner.pool(),
+            "operator_authorization_writer",
+            "%operator_authorization_issuances_v1%FOR UPDATE%",
+        )
+        .await;
         let revoke_first_consumer = consumer.clone();
         let revoke_first_locator = revoke_first.locator();
 
@@ -5697,7 +5329,12 @@ mod tests {
             transaction.rollback().await.unwrap();
             result
         });
-        tokio::task::yield_now().await;
+        wait_for_row_lock(
+            &consumer,
+            "product_edge_owner",
+            "%lock_current_authorization_v1%",
+        )
+        .await;
         assert!(!revoke_first_task.is_finished());
         assert!(!waiting_resolver.is_finished());
         writer_gate.rollback().await.unwrap();
@@ -5711,7 +5348,7 @@ mod tests {
                 .await
                 .unwrap()
                 .unwrap(),
-            Err(OperatorAuthorizationError::Unavailable)
+            Err(OperatorAuthorizationError::Unavailable(_))
         ));
 
         // Repeated concurrent reader/writer starts exercise the single fixed
@@ -5769,7 +5406,7 @@ mod tests {
                 .unwrap();
             assert!(matches!(
                 resolved,
-                Ok(_) | Err(OperatorAuthorizationError::Unavailable)
+                Ok(_) | Err(OperatorAuthorizationError::Unavailable(_))
             ));
             revoked.unwrap();
         }

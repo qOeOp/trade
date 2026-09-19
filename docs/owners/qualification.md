@@ -4,6 +4,44 @@
 
 Independently decide whether a frozen candidate satisfies preregistered evidence, holdout, cost, capacity, and operational conditions. Qualification owns deployability evidence, not strategy design, activation, or recovery.
 
+## Eligibility terminal status
+
+This section is an implementation status record, not contract. It grants no permission by itself, and a step
+listed here is not authority to build, deploy, or drive a protected evaluation. The contract below is unchanged by
+whether a step has a caller.
+
+**The eligibility terminal has never been driven.** Every step below is implemented and none has a
+caller, so no Protected Replay Request Set, Attempt Frontier, Robustness Assessment or Eligibility
+Fact has ever existed. The ordered PostgreSQL gate reaches only an `ADMITTED` intake and an Origin
+(`schema_version=1`) replay request, and its two closing entries assert that Eligibility is **absent**.
+
+| Step                                            | State     |
+| ----------------------------------------------- | --------- |
+| `submit_protected_replay_request_v2`            | no caller |
+| `seal_protected_replay_request_set_v1`          | no caller |
+| `produce_and_commit_protected_replay_result_v3` | no caller |
+| `close_protected_replay_attempt_frontier_v1`    | no caller |
+| `close_economic_pass_assessment_v1`             | no caller |
+
+The steps are strictly serial, and the first one is blocked on **a missing Owner input** rather than on a
+missing driver. A V2 request is a V1 proposal plus a `ClockHeadHandoff`, the shared-time resolver is
+built from `DEPLOYMENT_STORE_ADMISSION_MODE`, and the gate does not set it, so the resolver yields
+nothing and no V2 request can be constructed there at all. Set sealing then admits only
+`schema_version=2` members - Origin rows carry a different canonical encoding and would strand the
+frontier - so an Origin-only gate seals an empty set even if it were called.
+
+Admitting shared-time evidence into the gate environment is therefore the first prerequisite for the
+terminal, before any driver is worth writing.
+
+**TARGET - the deployment-authorized terminal, and what it waits for:** this terminal is TARGET, not
+unfinished work. `DEPLOYMENT_STORE_ADMISSION_MODE` stays `disabled` until a deployment authority
+exists to issue what `required` demands: a custodian signature history, an anti-rollback witness, a
+credential lease and direct measurement. None of those exist here, and no real trading or production
+write is authorized, so a resolver that yields nothing is the correct closed state rather than a
+defect. Nothing else in Qualification waits behind it - the attempt frontier, the candidate and
+evaluation rules, and the protected-replay custody above are separable work, and treating this
+terminal as a blocker on them was a misreading of the dependency rather than a property of it.
+
 ## Authoritative facts owned
 
 - Durable principal/scope protected-feedback history and its opaque resolution frontier. A pre-Research read is
@@ -99,11 +137,37 @@ executable path, and SHA-256 before it releases the database capability and exec
   TrialFamily Census Frontier with consumed budget through the Candidate cut, plus one exact preregistered
   protected decision-policy identity and version and one frozen Protected Robustness Plan.
 - Product Edge submits one stable review request binding the originating Research request, Candidate, canonical typed meaning, and origin-to-current protected-feedback observation frontiers.
-- [Backtest](./backtest/) returns the requested protected Run Result and consumed-input receipt; every consumed execution-defining field must exactly equal its request counterpart.
+- [Backtest](./backtest/) returns the requested protected Run Result and consumed-input receipt; every consumed
+  execution-defining field must exactly equal its request counterpart. The Result carries the protected economic
+  measurement, which repeats the metric identity and digest, the unit and the scale of the frozen
+  `ProtectedEconomicPolicyBundleV1` this Owner sealed with the request set; a measurement that does not repeat
+  them exactly is not a measurement of the sealed policy and closes the attempt.
+- Operator Authorization is the upstream of the deployment-authorized terminal. What
+  it must issue, and why this handoff is TARGET, is stated once under Eligibility terminal status and is not
+  repeated here.
 - Committed evidence changes may trigger re-evaluation; wake-up channels never replace owner fact reads.
+
+Implementation status of these handoffs, which is a record and not contract. Only the Product Edge handoff has a
+production caller: `resolve_or_create_for_basis` and `admit_in_transaction` are called from production code in
+vibe-strategy-factory, and `admit_historical_projection_in_transaction` from its R&D custody path. The R&D
+Candidate handoff has none: every call of `submit_candidate_intake_v1` outside this Owner is in one sealed
+acceptance test module. Backtest cannot perform its half of the economic measurement in production, because it
+has no admitted read of the frozen metric reference: not of the R&D plan, whose only sealed read returns native
+replay source storage, and not of `qualification_protected_economic_policy_bundles_v1`, whose grant is revoked.
+The ordered gate reaches the measurement only because the gate step reads the Candidate under this Owner's own
+role, which is fixture discovery, not a path Backtest has. Closing that gap needs a handoff of the frozen metric and
+coverage-policy references, with the unit and the scale, that Backtest may actually read - inside the request set
+seal, or as a sealed `qualification_api` read - and it is a cross-Owner contract change, not a proof.
 
 ## Output handoffs
 
+- To [Backtest](./backtest/): one frozen Protected Replay Request, created only after the write-once
+  request-correlated `ADMITTED` receipt and the holdout reservation, with every execution-defining identity and
+  the exact Candidate/Intake protected policy pair fixed. Each request addresses one declared Protected Robustness
+  Plan cell or the exact frozen bounded matrix, so no cell may be chosen after a result is observed. The request
+  set seals the frozen `ProtectedEconomicPolicyBundleV1` whose measurement the returned Result must repeat
+  exactly. A request this Owner did not create is not a protected request, and a Backtest admission rejection
+  closes it as a request-bound `RUN_REJECTED` Protected Run Result rather than leaving it open.
 - To [Strategy Governance](./strategy-governance/): categorical Eligibility State facts, including revocation,
   with exact Candidate and fact versions, economic-condition version, evaluated cost/capacity-model version,
   qualified capacity ceiling, effective time, and non-dereferenceable committed evidence references only.
@@ -213,40 +277,6 @@ evaluation, and decision frontier, while duplicates inside that frontier join an
   of scarce protected evidence.
 - **Prohibitions** - no R&D tuning feedback, artifact mutation, lifecycle, capital widening, Runtime
   activation, order, account effect, or protected-detail Product view.
-
-## Eligibility terminal status
-
-**The eligibility terminal has never been driven.** Every step below is implemented and none has a
-caller, so no Protected Replay Request Set, Attempt Frontier, Robustness Assessment or Eligibility
-Fact has ever existed. The ordered PostgreSQL gate reaches only an `ADMITTED` intake and an Origin
-(`schema_version=1`) replay request, and its two closing entries assert that Eligibility is **absent**.
-
-| Step                                            | State     |
-| ----------------------------------------------- | --------- |
-| `submit_protected_replay_request_v2`            | no caller |
-| `seal_protected_replay_request_set_v1`          | no caller |
-| `produce_and_commit_protected_replay_result_v3` | no caller |
-| `close_protected_replay_attempt_frontier_v1`    | no caller |
-| `close_economic_pass_assessment_v1`             | no caller |
-
-The steps are strictly serial, and the first one is blocked on **a missing Owner input** rather than on a
-missing driver. A V2 request is a V1 proposal plus a `ClockHeadHandoff`, the shared-time resolver is
-built from `DEPLOYMENT_STORE_ADMISSION_MODE`, and the gate does not set it, so the resolver yields
-nothing and no V2 request can be constructed there at all. Set sealing then admits only
-`schema_version=2` members - Origin rows carry a different canonical encoding and would strand the
-frontier - so an Origin-only gate seals an empty set even if it were called.
-
-Admitting shared-time evidence into the gate environment is therefore the first prerequisite for the
-terminal, before any driver is worth writing.
-
-**TARGET - the deployment-authorized terminal, and what it waits for:** this terminal is TARGET, not
-unfinished work. `DEPLOYMENT_STORE_ADMISSION_MODE` stays `disabled` until a deployment authority
-exists to issue what `required` demands: a custodian signature history, an anti-rollback witness, a
-credential lease and direct measurement. None of those exist here, and no real trading or production
-write is authorized, so a resolver that yields nothing is the correct closed state rather than a
-defect. Nothing else in Qualification waits behind it - the attempt frontier, the candidate and
-evaluation rules, and the protected-replay custody above are separable work, and treating this
-terminal as a blocker on them was a misreading of the dependency rather than a property of it.
 
 ## Subsequent implementation acceptance
 

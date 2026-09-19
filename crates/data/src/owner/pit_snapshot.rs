@@ -647,6 +647,8 @@ pub enum PitSnapshotError {
     ConsumerRoleMismatch,
     /// A caller comparison binding differs from canonical native Market Data facts.
     ConsumerBindingMismatch,
+    /// No Instrument Master V1 fact of this Owner answers the request's instrument at its cut.
+    InstrumentMasterUnavailable,
 }
 
 impl Display for PitSnapshotError {

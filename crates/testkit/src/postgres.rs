@@ -34,7 +34,7 @@ const DEFAULT_DATABASE_NAMES: [&str; 8] = [
     "product_edge",
 ];
 const INSTRUMENT_OWNER_RUNTIME_URL_ENV: &str = "INSTRUMENT_OWNER_DATABASE_URL";
-const CANONICAL_OWNER_TEST_URLS: [(&str, &str); 10] = [
+const CANONICAL_OWNER_TEST_URLS: [(&str, &str); 13] = [
     (
         "OPERATOR_AUTHORIZATION_TEST_DATABASE_URL",
         "operator_authorization_writer",
@@ -54,6 +54,9 @@ const CANONICAL_OWNER_TEST_URLS: [(&str, &str); 10] = [
     ("QUALIFICATION_TEST_DATABASE_URL", "qualification_writer"),
     ("BACKTEST_TEST_DATABASE_URL", "backtest_owner"),
     ("INSTRUMENT_OWNER_TEST_DATABASE_URL", "instrument_owner"),
+    ("EXECUTION_OWNER_TEST_DATABASE_URL", "execution_writer"),
+    ("PORTFOLIO_OWNER_TEST_DATABASE_URL", "portfolio_writer"),
+    ("GOVERNANCE_OWNER_TEST_DATABASE_URL", "governance_writer"),
 ];
 
 /// A stable, credential-redacting failure from dedicated test-database admission.
@@ -158,7 +161,8 @@ pub struct DedicatedPostgresTestDatabase {
     pool: PgPool,
 }
 
-/// Canonical non-privileged roles in the disposable OA/PE/R&D/Qualification/Backtest topology.
+/// Canonical non-privileged roles in the disposable OA/PE/R&D/Qualification/Backtest and
+/// trading-side (Execution/Portfolio/Governance) Owner topology.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CanonicalOwnerTestRoleV1 {
     OperatorAuthorizationWriter,
@@ -171,6 +175,9 @@ pub enum CanonicalOwnerTestRoleV1 {
     QualificationWriter,
     BacktestOwner,
     InstrumentOwner,
+    ExecutionWriter,
+    PortfolioWriter,
+    GovernanceWriter,
 }
 
 impl CanonicalOwnerTestRoleV1 {
@@ -186,14 +193,17 @@ impl CanonicalOwnerTestRoleV1 {
             Self::QualificationWriter => 7,
             Self::BacktestOwner => 8,
             Self::InstrumentOwner => 9,
+            Self::ExecutionWriter => 10,
+            Self::PortfolioWriter => 11,
+            Self::GovernanceWriter => 12,
         }
     }
 }
 
 /// Proof that all canonical Owner roles resolve to one immutable, disposable database.
 pub struct CanonicalOwnerPostgresTestDatabaseV1 {
-    database_urls: [String; 10],
-    pools: [PgPool; 10],
+    database_urls: [String; 13],
+    pools: [PgPool; 13],
     marker_identity: String,
     owner_topology_admin_pool: PgPool,
 }
@@ -487,6 +497,61 @@ impl DedicatedPostgresTestMutation<'_> {
     }
 }
 
+/// Proves a statement is refused, and leaves nothing behind when it is not.
+///
+/// A negative-capability proof deliberately runs WITHOUT a mutation capability: its subject is the
+/// absence of the privilege, so requiring [`DedicatedPostgresTestMutation`] would defeat it. A
+/// dedicated database can grant what the shared Owner topology denies, and then the proof would
+/// assert nothing.
+///
+/// The statement runs inside a transaction this function always rolls back. That is not belt and
+/// braces. The safety of a negative proof must not rest on the failure it asserts actually
+/// happening: if the privilege ever regresses, an unwrapped `DELETE` would really delete rows in
+/// the ordered chain's shared database, which is never reset between entries, so the first visible
+/// failure would be some later entry rather than this one. Rolling back unconditionally turns that
+/// regression from silent corruption into a failing assertion here.
+///
+/// `expected_sqlstate` is matched against the SQLSTATE rather than the message text, because the
+/// message varies with PostgreSQL version and locale while the code does not. Insufficient
+/// privilege is `42501`.
+///
+/// # Panics
+///
+/// Panics if the transaction cannot be opened, if the statement succeeds, or if it fails with a
+/// SQLSTATE other than `expected_sqlstate`.
+pub async fn assert_statement_is_refused(
+    pool: &PgPool,
+    statement: &str,
+    expected_sqlstate: &str,
+) -> String {
+    let mut transaction = pool
+        .begin()
+        .await
+        .expect("negative-capability proof could not open its transaction");
+    let outcome = sqlx::query(sqlx::AssertSqlSafe(statement.to_owned()))
+        .execute(&mut *transaction)
+        .await;
+    let Err(refused) = outcome else {
+        // Roll back before failing, so a regressed privilege still leaves no trace.
+        let _ = transaction.rollback().await;
+        panic!(
+            "statement was NOT refused, so this proves nothing: {statement}\n\
+             the transaction was rolled back, so nothing was written"
+        );
+    };
+    let _ = transaction.rollback().await;
+    let observed = refused
+        .as_database_error()
+        .and_then(sqlx::error::DatabaseError::code)
+        .map(std::borrow::Cow::into_owned)
+        .unwrap_or_default();
+    assert_eq!(
+        observed, expected_sqlstate,
+        "statement was refused with SQLSTATE {observed}, expected {expected_sqlstate}: {statement}"
+    );
+    observed
+}
+
 struct EnvironmentValues {
     test_urls: Vec<TestUrlValue>,
     production_urls: Vec<(&'static str, String)>,
@@ -759,6 +824,23 @@ mod tests {
             )
         );
         assert!(PRODUCTION_DATABASE_URL_ENVS.contains(&"REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL"));
+    }
+
+    #[rstest]
+    fn canonical_trading_side_writer_bindings_are_fixed() {
+        assert_eq!(
+            CANONICAL_OWNER_TEST_URLS[CanonicalOwnerTestRoleV1::ExecutionWriter.index()],
+            ("EXECUTION_OWNER_TEST_DATABASE_URL", "execution_writer")
+        );
+        assert_eq!(
+            CANONICAL_OWNER_TEST_URLS[CanonicalOwnerTestRoleV1::PortfolioWriter.index()],
+            ("PORTFOLIO_OWNER_TEST_DATABASE_URL", "portfolio_writer")
+        );
+        assert_eq!(
+            CANONICAL_OWNER_TEST_URLS[CanonicalOwnerTestRoleV1::GovernanceWriter.index()],
+            ("GOVERNANCE_OWNER_TEST_DATABASE_URL", "governance_writer")
+        );
+        assert_eq!(CANONICAL_OWNER_TEST_URLS.len(), 13);
     }
 
     #[rstest]

@@ -17,7 +17,13 @@ use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use thiserror::Error;
 use vibe_data::owner::source_binding::BindingDigest;
+use vibe_data::owner::strategy_design_role_intent_v1::StrategyDesignRoleIntentV1;
 use vibe_indicators_kernel::PrimitiveCatalogV1;
+
+use crate::{
+    develop_composer_v2::CurrentResearchDevelopCustodyV2,
+    rd_design_role_intent_v1::derive_design_role_intent_v1,
+};
 
 use crate::{
     bounded_feature_program_derivation_v1::{
@@ -277,6 +283,114 @@ impl PostgresResearchBoundedFeatureProgramOwnerV1 {
                 Err(owner_error(&e))
             }
         }
+    }
+
+    /// Publishes what this Owner knows about a Design, so Market Data can authenticate it.
+    ///
+    /// This is the one statement about a Design that does not depend on a program, which is what
+    /// makes a first cycle possible: a program's identity folds in the binding receipts Market Data
+    /// issues, so nothing carrying a program can precede them.
+    ///
+    /// Publication is write-once per Design. Republishing the same Design returns the stored
+    /// intent, and a Design whose roles or Research custody differ from the stored one is a
+    /// conflict rather than an overwrite.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ResearchBoundedFeatureProgramOwnerErrorV1::ResearchCustody`] when the locator has
+    /// no currently accepted Research custody, [`ResearchBoundedFeatureProgramOwnerErrorV1::Design`]
+    /// when the Design does not belong to it or does not prepare,
+    /// [`ResearchBoundedFeatureProgramOwnerErrorV1::Conflict`] when this Design was already
+    /// published with different meaning, and
+    /// [`ResearchBoundedFeatureProgramOwnerErrorV1::Unavailable`] when the store does not answer.
+    pub async fn publish_design_role_intent(
+        &self,
+        research_request_locator: &str,
+        design: &StrategyDesignV2,
+    ) -> Result<StrategyDesignRoleIntentV1, ResearchBoundedFeatureProgramOwnerErrorV1> {
+        let read_cut_epoch_ms = (self.clock)();
+        let mut transaction = self.pool.begin().await?;
+        let verified = match Box::pin(
+            crate::rd_owner_postgres_custody::admit_research_v2_custody_read_only_in_transaction(
+                &mut transaction,
+                research_request_locator,
+            ),
+        )
+        .await
+        {
+            Ok(Some(verified)) => verified,
+            Ok(None) => {
+                transaction.rollback().await?;
+                return Err(ResearchBoundedFeatureProgramOwnerErrorV1::ResearchCustody);
+            }
+            Err(_) => {
+                transaction.rollback().await?;
+                return Err(ResearchBoundedFeatureProgramOwnerErrorV1::Unavailable);
+            }
+        };
+
+        let custody = match CurrentResearchDevelopCustodyV2::from_verified(
+            &verified,
+            research_request_locator,
+            read_cut_epoch_ms,
+        ) {
+            Ok(custody) => custody,
+            Err(_) => {
+                transaction.rollback().await?;
+                return Err(ResearchBoundedFeatureProgramOwnerErrorV1::ResearchCustody);
+            }
+        };
+
+        let intent = match derive_design_role_intent_v1(&custody, design) {
+            Ok(intent) => intent,
+            Err(_) => {
+                transaction.rollback().await?;
+                return Err(ResearchBoundedFeatureProgramOwnerErrorV1::Design);
+            }
+        };
+
+        // Write-once by primary key, then read back: a second publication of the same Design must
+        // return what is stored rather than what was offered, so a changed meaning cannot pass by
+        // being written after the row it disagrees with.
+        sqlx::query(
+            "INSERT INTO rd_design_role_intents_v1(
+                design_identity, research_request_identity, intent_identity,
+                research_custody_digest, design_digest, intent_digest, canonical_bytes,
+                published_at_epoch_ms
+            ) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (design_identity) DO NOTHING",
+        )
+        .bind(intent.design_identity().as_bytes().as_slice())
+        .bind(intent.research_request_identity().as_bytes().as_slice())
+        .bind(intent.intent_identity().as_bytes().as_slice())
+        .bind(intent.research_custody_digest().as_bytes().as_slice())
+        .bind(intent.design_digest().as_bytes().as_slice())
+        .bind(intent.intent_digest().as_bytes().as_slice())
+        .bind(intent.canonical_bytes())
+        .bind(i64::try_from(read_cut_epoch_ms).unwrap_or(i64::MAX))
+        .execute(&mut *transaction)
+        .await?;
+
+        let stored: (Vec<u8>, Vec<u8>) = sqlx::query_as(
+            "SELECT canonical_bytes, intent_digest FROM rd_design_role_intents_v1
+             WHERE design_identity=$1",
+        )
+        .bind(intent.design_identity().as_bytes().as_slice())
+        .fetch_one(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+
+        let stored_digest = <[u8; 32]>::try_from(stored.1.as_slice())
+            .map(BindingDigest::from_untrusted_bytes)
+            .map_err(|_| ResearchBoundedFeatureProgramOwnerErrorV1::Unavailable)?;
+        let recovered =
+            StrategyDesignRoleIntentV1::from_durable_publication(&stored.0, stored_digest)
+                .map_err(|_| ResearchBoundedFeatureProgramOwnerErrorV1::Unavailable)?;
+
+        if recovered != intent {
+            return Err(ResearchBoundedFeatureProgramOwnerErrorV1::Conflict);
+        }
+
+        Ok(recovered)
     }
 
     /// Assembles declared meaning against live Owner custody and freezes the result.

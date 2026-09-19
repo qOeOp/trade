@@ -789,7 +789,8 @@ async fn postgres_source_invocation_lifecycle_is_canonical_once_only_and_acl_sea
             valid_from_epoch_ms: now.saturating_sub(1_000),
             valid_through_epoch_ms: now.saturating_add(600_000),
             authorization: authorization.locator(),
-            manifests: vec![manifest.clone()],
+            manifests: vibe_product_edge::AgentOperationManifestSetV1::new(vec![manifest.clone()])
+                .unwrap(),
         })
         .await
         .unwrap();
@@ -1735,6 +1736,14 @@ async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_r
     )
     .await
     .unwrap();
+    // The issuer binds manifests strictly ascending by identity, and identities are content
+    // digests that carry this run's cuts; source order is a coin flip. The set owns that order,
+    // so nobody sorts a digest order by hand.
+    let bound_manifests = vibe_product_edge::AgentOperationManifestSetV1::new(vec![
+        manifest.clone(),
+        research_manifest.clone(),
+    ])
+    .unwrap();
     let authorization = issuer
         .issue_genesis(OperatorAuthorizationIssuanceProposalV1 {
             authorization_identity: format!("sealed-source-authorization-{suffix}"),
@@ -1750,16 +1759,7 @@ async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_r
                 ],
             },
             request_proof_digest: proof_digest.clone(),
-            operation_manifests: vec![
-                OperationManifestBindingV1 {
-                    manifest_identity: manifest.manifest_identity().unwrap(),
-                    manifest_digest: manifest.manifest_digest().unwrap(),
-                },
-                OperationManifestBindingV1 {
-                    manifest_identity: research_manifest.manifest_identity().unwrap(),
-                    manifest_digest: research_manifest.manifest_digest().unwrap(),
-                },
-            ],
+            operation_manifests: bound_manifests.bindings().unwrap(),
             not_before_epoch_ms: now.saturating_sub(1_000),
             valid_through_epoch_ms: now.saturating_add(600_000),
             expected_revocation_head: "EMPTY".into(),
@@ -1792,7 +1792,7 @@ async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_r
             valid_from_epoch_ms: now.saturating_sub(1_000),
             valid_through_epoch_ms: now.saturating_add(600_000),
             authorization: authorization.locator(),
-            manifests: vec![manifest, research_manifest.clone()],
+            manifests: bound_manifests.clone(),
         })
         .await
         .unwrap();
@@ -1902,10 +1902,13 @@ async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_r
         "trial_family_proposal": {
             "trial_budget": 1,
             "stop_rule": "Stop after the fixed sealed trial.",
+            // The Owner forms a TrialFamily only against the current Replay Policy Catalog V3 head
+            // whose cost, slippage and capacity model identities equal the proposal's; the head the
+            // ordered chain publishes names these.
             "pit_rule_identity": "sealed-pit-rule-v1",
-            "cost_model_identity": "sealed-cost-model-v1",
-            "slippage_model_identity": "sealed-slippage-model-v1",
-            "capacity_model_identity": "sealed-capacity-model-v1",
+            "cost_model_identity": "cost-model-v1",
+            "slippage_model_identity": "slippage-model-v1",
+            "capacity_model_identity": "capacity-model-v1",
             "independence_rationale": "Genesis has no semantic predecessor."
         }
     });
@@ -1967,9 +1970,9 @@ async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_r
             trial_budget: 1,
             stop_rule: "Stop after the fixed sealed trial.".into(),
             pit_rule_identity: "sealed-pit-rule-v1".into(),
-            cost_model_identity: "sealed-cost-model-v1".into(),
-            slippage_model_identity: "sealed-slippage-model-v1".into(),
-            capacity_model_identity: "sealed-capacity-model-v1".into(),
+            cost_model_identity: "cost-model-v1".into(),
+            slippage_model_identity: "slippage-model-v1".into(),
+            capacity_model_identity: "capacity-model-v1".into(),
             independence_rationale: "Genesis has no semantic predecessor.".into(),
         },
     };
@@ -2013,58 +2016,49 @@ async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_r
     .fetch_one(rd_owner)
     .await
     .unwrap();
-    sqlx::query(
+    // Terminal Source Intake custody is immutable at the store: the migration that materializes
+    // the receipts installs a trigger refusing every update, delete and truncate. The mismatch
+    // cannot be introduced, so the rejection is asserted where it happens.
+    let refused = sqlx::query(
         "UPDATE public.rd_source_intake_receipts_v1 SET receipt_json=jsonb_set(receipt_json,'{terminal}','\"NOT_FOUND\"'::jsonb) WHERE request_identity=$1",
     )
     .bind(&request_identity)
     .execute(rd_owner)
-    .await
-    .unwrap();
-    assert!(
-        research_owner
-            .submit_source_intake_research_v1(
-                proposal.clone(),
-                ancestry.clone(),
-                policy_query.clone(),
-            )
-            .await
-            .is_err()
-    );
-    sqlx::query(
-        "UPDATE public.rd_source_intake_receipts_v1 SET receipt_json=$2 WHERE request_identity=$1",
+    .await;
+    assert!(matches!(
+        refused,
+        Err(sqlx::Error::Database(e)) if e.message() == "immutable Source Intake terminal custody changed"
+    ));
+    let receipt_after_refusal: serde_json::Value = sqlx::query_scalar(
+        "SELECT receipt_json FROM public.rd_source_intake_receipts_v1 WHERE request_identity=$1",
     )
     .bind(&request_identity)
-    .bind(canonical_receipt_json)
-    .execute(rd_owner)
+    .fetch_one(rd_owner)
     .await
     .unwrap();
+    assert_eq!(receipt_after_refusal, canonical_receipt_json);
 
+    // Source provenance is immutable at the store as well; the validity it carries cannot be
+    // moved, so that mismatch is likewise asserted where it is refused.
     let canonical_provenance_json = stored.1.clone();
-    sqlx::query(
+    let refused = sqlx::query(
         "UPDATE public.rd_research_source_provenance_v1 SET provenance_json=jsonb_set(provenance_json,'{valid_through_epoch_ms}','1800000000002'::jsonb) WHERE receipt_identity=$1",
     )
     .bind(&terminal.receipt.receipt_identity)
     .execute(rd_owner)
-    .await
-    .unwrap();
-    assert!(
-        research_owner
-            .submit_source_intake_research_v1(
-                proposal.clone(),
-                ancestry.clone(),
-                policy_query.clone(),
-            )
-            .await
-            .is_err()
-    );
-    sqlx::query(
-        "UPDATE public.rd_research_source_provenance_v1 SET provenance_json=$2 WHERE receipt_identity=$1",
+    .await;
+    assert!(matches!(
+        refused,
+        Err(sqlx::Error::Database(e)) if e.message() == "immutable Source Intake terminal custody changed"
+    ));
+    let provenance_after_refusal: serde_json::Value = sqlx::query_scalar(
+        "SELECT provenance_json FROM public.rd_research_source_provenance_v1 WHERE receipt_identity=$1",
     )
     .bind(&terminal.receipt.receipt_identity)
-    .bind(canonical_provenance_json)
-    .execute(rd_owner)
+    .fetch_one(rd_owner)
     .await
     .unwrap();
+    assert_eq!(provenance_after_refusal, canonical_provenance_json);
     assert_eq!(
         sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM public.rd_research_request_receipts_v1 WHERE request_identity=$1",
@@ -2234,7 +2228,7 @@ async fn postgres_readback_rejects_tampered_raw_payload() {
             valid_from_epoch_ms: now.saturating_sub(1_000),
             valid_through_epoch_ms: now.saturating_add(600_000),
             authorization: authorization.locator(),
-            manifests: vec![manifest],
+            manifests: vibe_product_edge::AgentOperationManifestSetV1::new(vec![manifest]).unwrap(),
         })
         .await
         .unwrap();

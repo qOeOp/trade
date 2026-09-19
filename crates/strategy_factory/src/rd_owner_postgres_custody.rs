@@ -2799,7 +2799,7 @@ async fn resolve_research_admission_hints(
         .await
         {
             Ok(admission) => admission,
-            Err(ProductEdgeError::Unavailable) if legacy_fallback => {
+            Err(ProductEdgeError::Unavailable(_)) if legacy_fallback => {
                 if admissions
                     .insert(
                         request_identity.clone(),

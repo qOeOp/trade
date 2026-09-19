@@ -9,6 +9,13 @@
 - 不可变 Research Source Provenance Record，绑定来源身份 内容摘要 位置 检索截面 共享时间证据
   许可依据，以及形成假设时采用的有界解释身份与摘要。
 - 冻结的机制 数据范围 准确成本 滑点与容量模型身份 容量假设 永久 TrialFamily 身份 预算 证伪条件和停止规则。
+- 冻结的信息价值策略：声明的序数不确定性削减排序规则及其版本、确定性 tie-break key，以及每个候选据以比较的停止
+  阈值。由本 Owner 固定并带版本，任何提案方 调用方或配置都不能选择它们。TrialFamily 在成型时把它们封入自己的
+  decision-policy binding，而成型早于该 family 的任何 attempt；每次决策都从候选所属 family 的冻结 binding 读取。
+  因此一次决策能够证明自己是在哪条规则下比较的，而看到结果也改变不了那条规则：换一条规则就是另一个 family，
+  它的决策只引用它自己的。R&D 从不计算信息价值分数：它接纳被声明的排名，然后证明 census 完整、每个成员可准入
+  且被可比地评分、理由齐备、胜出者唯一。策略缺失 事后补写 被改动或无版本时，不准入任何后继实验，也不准入
+  `STOP_LOW_INFORMATION_VALUE`。
 - 只写一次的 Independence Basis Receipt，必须在保护反馈之前提交，并绑定有效 principal Research request scope
   不受信用户理由摘要 R&D 拥有的独立性 disposition，以及不可变 basis identity 与 digest。
 - 只能从锁定 R&D 历史解析为 `GENESIS_EMPTY` `COMPLETE_FRONTIER` 或 `UNAVAILABLE` 的自适应研究血缘，
@@ -65,6 +72,44 @@
   `D0_COMPLETED_NO_ARTIFACT` `D1_VALIDATED` `D1_VALIDATION_FAILED` `D1_BUILD_FAILED` `REJECTED_NOT_D_ONLY`
   和 `OUTCOME_UNKNOWN`。
 
+## 实现状态台账
+
+本台账只记录仓库在本截面实际到达的状态。它沿用 [Market Data](./market-data/) 台账的状态词汇，并以
+`CURRENT_PARTIAL` 表示已合并但不可触达的形态；台账本身不授予任何许可：本文档没有任何切片是
+`IMPLEMENTATION_ADMITTED`，扩大准入集必须先修改本文档。每一行都点名那个可以证伪它的符号或路径。
+
+- **CURRENT - 已部署的服务，以及它暴露面的边界：** `product/rd-workbench/Dockerfile.owner` 构建
+  `--bin strategy-factory-rd-owner-api` 时完全不带 `--features`，该文件唯一的 `--features` 属于 dashboard
+  那个二进制。所以部署镜像就是 `crates/strategy_factory_rd_owner_api/src/main.rs` 里未加门的那个 router，
+  而其后由 `#[cfg(feature = "sealed-develop-composer-acceptance")]` 与
+  `#[cfg(feature = "sealed-source-intake-composer-acceptance")]` 注册的六条路由不在其中：
+  `/v2/exploratory-replay/execution-input-bindings`、`/v3/exploratory-replay-requests/composer-backed`，
+  以及四条 `/_sealed-acceptance/v1/develop-composer/*`。一条验收路由绝不是生产能力的证据，
+  而密封 feature 的存在就是为了让这个区别是机械的而不是靠记住的。
+- **CURRENT - 其它 Owner 被授权读取的跨 Owner 读面：** `rd_owner_api` 有 35 个去重函数，
+  是本仓库唯一一个把执行权授予多于一个消费方 Owner 角色的 schema：`product_edge_owner`、
+  `qualification_writer`、`backtest_owner`、`market_data_owner` 与 `market_data_reader`，
+  `rd_owner` 是该 schema 自己的角色。同一截面上作为对照：`qualification_api` 13 个函数、
+  `market_data_rd_api` 12 个且只授 `rd_owner`、`portfolio_api` 与 `governance_api` 一个都没有。
+  这些被授权的函数是 `SECURITY DEFINER` 且函数体内不点名任何调用者，所以访问由授权决定，
+  没有授权的调用者收到的是权限错误而不是空结果。本行记录的是这个面与它的授权，
+  它不确立任何消费方在生产中读过它。
+- **CURRENT_PARTIAL - 生产 Composer 读端口：**
+  `crates/strategy_factory/src/source_research_composer_postgres_v2.rs` 为
+  `PostgresSourceResearchComposerProductionV2` 实现了 `DevelopComposerSealedReadPortV2`，其上没有任何
+  `cfg` 属性，所以部署构建携带它，解析一次已提交的 Composer 操作不需要任何 acceptance feature。
+  它证明该读取能解析同一事务提交的东西；它不证明有序链路之外存在任何消费方。
+- **TARGET - PIT 输入缝已接线但惰性：** `rd.md` 陈述 Market Data 为每个 PIT Market Snapshot Request
+  返回一份封缄的 `ResearchPitTerminal`。`crates/strategy_factory_rd_owner_api/src/main.rs` 导入了
+  `ResearchPitTerminalResolver`，声明了 `_market_data_research_pit` 并在构造时赋值，
+  然后从不读它，下划线是唯一的现场标记，而 `crates/data` 之外没有任何一处调用该解析器的 trait 方法。
+  该解析器还是可选的：`bootstrap_deployment_store_admission` 返回 `Option`，
+  所以部署中该字段可能持有 `None`。补上这条需要本 Owner 出一个消费方，不是要 Market Data 开更多读。
+- **TARGET / ISOLATED_ACCEPTANCE_ONLY - 探索重放的生产入口：** `run_exploratory_replay_v2` 在
+  `vibe-backtest-owner` 之外唯一的调用者位于 `run_native_replay` 内，而后者带
+  `#[cfg(feature = "sealed-develop-composer-acceptance")]`，且全仓没有任何 `cfg(not(...))` 孪生体。
+  在部署镜像不带 feature 的前提下，该路径在已部署产物里不可达。这测的是部署产物，不是历史。
+
 ## 模块
 
 - **Source Intake** - 把论文 观察 笔记 媒体和工具输出作为带来源与内容身份的不可信数据接纳。来源
@@ -103,8 +148,8 @@ Research identity 的不同含义以 conflict 回应。`lower` 把这份冻结�
 
 **CURRENT_PARTIAL - 降级出的源码不是可执行物：** 该降级不带 build receipt、不带 Wasm、不带 Artifact，
 也不带任何 qualification 含义。它只证明冻结 program、钉定的 `vibe-indicators-kernel` catalog
-与第一方 SDK 恰好产出那些字节，以及被篡改的存储字节会关闭该路径。V3 build、持久 Composer RUN
-及其下游一律仍为 TARGET。
+与第一方 SDK 恰好产出那些字节，以及被篡改的存储字节会关闭该路径。V3 build 与持久 Composer RUN
+现在有了下文描述的生产入口；Artifact 下游的一切仍为 TARGET。
 
 TARGET V1 catalog 是原子整体，不是 primitive name 菜单：fixed I128 scale 最大为 38，rescale 必须显式，
 rounding mode 只有 `TowardZero` 与 `NearestTiesToEven`，每项 operation 使用一个准确 I256 expression 并只做
@@ -172,6 +217,28 @@ join 推断。
 （`frozen_program_runs_the_production_composer_to_a_durable_artifact`）。该路由做不到的是发明 Design：
 下面的契约写明这份 Design 由谁撰写。它下游的一切都已存在：生产提交函数、store、写入器、两张 build-receipt
 关系，以及生产 binding 接缝。
+
+**CURRENT/PARTIAL：第一圈已有立足之处。** 封存语料 run 之后，`run_bounded_feature_program` 成为唯一的生产入口，
+而它需要一份已冻结的 joint program。冻结需要 Strategy Input declaration；Market Data 过去只从一份
+Composer attestation 注册它们，而铸造该 attestation 的正是一次 Composer 提交。此后每一圈都自洽：
+一次提交的响应恰好带着注册所需的 locator；唯独第一圈没有来源，且任何与 artifact 绑定的形状都给不出这个来源，
+因为 program 的身份恰恰折叠了该注册所签发的那些绑定回执。于是本 Owner 发布一份 Design 级 role intent：
+它只指名一个 Design、该 Design 被接纳时所依据的 Research request 与 custody，以及它所声明的角色，别无其他。
+`POST /v1/strategy-designs/publish-role-intent` 依据当前已接纳的 custody 派生它，并按 Design 一次性写入；
+`rd_owner_api.resolve_design_role_intent_for_market_data_v1` 只对 Market Data 的读取主体暴露它。
+有序 PostgreSQL 链路见证了一个在 `composer_private` 中无人指名的 Design，
+从没有任何 PIT 坐标，走到 Market Data 自行解析出的那一个，并与它必须一致的那次 attestation 准入并排。
+
+**TARGET：** 那份 Design 由谁撰写。发布陈述的是本 Owner 对收到的 Design 所知道的事实，
+它并不导出一份 Design，而这正是下面契约仍在交付的那个未决问题。
+
+这条入口的绑定那一半是 `dynamic`。隔离 R&D Owner PostgreSQL 链路会针对 Market Data Owner
+经自身验收 basis 签发的绑定，声明并冻结一个六角色 BAR program，再用 RUN 所用的同一个生产
+绑定 Owner 解析该冻结对，并要求每个已声明角色恰好对应一份回执。
+
+**CURRENT/PARTIAL：** RUN 验收本身 - 对降级源码的两次字节一致构建、带标签的 V3 回执，
+以及在单个事务内提交全部正向 Composer 事实 - 已由有序链路在托管 Linux runner 上的端到端条目承载。
+**TARGET：** 已部署 Owner 就绪度与跨进程重启恢复，尚无任何链路条目观测到它们。
 
 ### CURRENT_PARTIAL - Strategy Design 由谁撰写
 
@@ -246,7 +313,7 @@ trigger string、maximum staleness `u64BE`。不得有 trailing bytes。`receipt
 既有 Composer custody 重新 projection，并且必须返回 byte-identical canonical bytes 与 digest。caller 自建
 的 bytes 或 hash 即使 self-consistent 仍不可信，不能进入固定 resolver path。
 
-**macOS 为 CURRENT/PARTIAL；hosted Linux ARM64 为 REVALIDATION REQUIRED - 本地 bounded-plugin build
+**macOS 为 CURRENT/PARTIAL；hosted Linux ARM64 与 x86_64 为 REVALIDATION REQUIRED - 本地 bounded-plugin build
 producer：** 对准确一个当前 `PluginManifestV2`，R&D 只接纳
 固定 `rust.no_std.fixed-abi-source.v2` 语言中一份有内容上限的 `src/lib.rs`，拒绝其他路径、symlink、文件、
 dependency、build script、toolchain、target 或 command。它物化两个相互独立的私有临时 Cargo project；
@@ -255,7 +322,10 @@ dependency、build script、toolchain、target 或 command。它物化两个相�
 （`c980f486…bf5`，SHA-256 `7672ead3…bbf5`）、rustc 1.97.1（`8bab26f…452`，SHA-256
 `210df679…a4da`）、rust-lld（SHA-256 `8f5fe507…548d`）及 `aarch64-apple-darwin`。hosted Linux ARM64 A0
 候选 profile 记录了 `aarch64-unknown-linux-gnu` 的相同准确 release/commit，Cargo SHA-256 为
-`c5dcff70…1808`、rustc SHA-256 为 `a3d4dfcd…e78`、rust-lld SHA-256 为 `533dffee…eb7`。每次已接纳构建
+`c5dcff70…1808`、rustc SHA-256 为 `a3d4dfcd…e78`、rust-lld SHA-256 为 `533dffee…eb7`。hosted Linux x86_64
+候选 profile 记录了 `x86_64-unknown-linux-gnu` 的相同准确 release/commit，Cargo SHA-256 为 `82898072…1953`、
+rustc SHA-256 为 `d3a664c9…7eea`、rust-lld SHA-256 为 `38a9f284…5721`，并绑定同一个 frozen `wasm32v1-none`
+sysroot digest，该值由 hosted x86_64 测试主机实测。每次已接纳构建
 都拒绝 ambient ancestor Cargo 配置，并要求每个 tool 的 `-Vv` host 与所选 profile 一致。`RUSTUP_HOME` 或
 `HOME/.rustup` 只定位该 profile 的准确 release 候选 toolchain；路径字节不具 authority 且不进入
 semantic identity。随后执行固定的
@@ -270,11 +340,12 @@ custody、provider/API/Dashboard 执行、部署或生产 readiness。
 `sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8`、platform manifest
 `sha256:5a8cd84cb3fcfd082789a08f92bd36f8e745c6231edd78e24a3bf34fd471a823`，以及 normalized exact
 `lib/rustlib/wasm32v1-none` sysroot tar SHA-256
-`92fcee2e35330d22e879b640064e2e4b4e47157af1a7e05fc942dc6cc12b8faf`。2026-09-14，现有准确 Rust 1.97.1
-安装与使用相同 rustc/cargo commit 的全新隔离安装均产生 canonical digest
-`830cb504e83fd5cc9a5ba451b555cd3c9fb177b39647f3a775ce0d5f1d63300f`；因此 replacement freeze 拒绝已被
-替换的字节，Linux 只有经过新的 hosted A0 回读后才能恢复 CURRENT/PARTIAL。旧 BuildKit observation
-只保留为历史 pin-generation evidence；基础 Rust image 仍由 Dockerfile pin，带 created timestamp 的 local OCI manifest
+`92fcee2e35330d22e879b640064e2e4b4e47157af1a7e05fc942dc6cc12b8faf`。2026-09-14 有一次测量报出
+`830cb504e83fd5cc9a5ba451b555cd3c9fb177b39647f3a775ce0d5f1d63300f`，freeze 因此被替换为该值，
+并等待一次新的 hosted A0 回读。该回读此后已在 `refs/heads/main` 上执行，报出的是原值；hosted x86_64
+测试主机、以及钉死的基础 image 在 `linux/arm64` 与 `linux/amd64` 上同样报出原值：五个互相独立的主机、
+一个 digest，而 2026-09-14 那个值在其中任何一个上都未被复现。因此 freeze 恢复为每台可达主机实际携带的值。
+基础 Rust image 仍由 Dockerfile pin，带 created timestamp 的 local OCI manifest
 不是 registry、deployment 或 reproducible-image pin。runtime authority 现在来自 pure-Rust canonical sysroot
 verifier：它复现 frozen GNU tar normalization，把 digest 绑定进每份 Linux build receipt，并与 executable
 的 build 前后重读一起，在两个相互独立的 build 每次执行前后重读准确 sysroot。准确 workflow
@@ -501,7 +572,8 @@ dimension，并从以下九个 typed dimension 中选择：
    证据修复优先于解释，机制优先于参数细化，再检查经济与稳健性。只有冻结生成规则 candidate-set
    frontier expected cardinality observed membership 与每个候选的类型化 admissibility reason 共同证明没有
    候选缺失或未解析时，候选 census 才完整。完整有限集合按 admissibility、序数
-   uncertainty-reduction rank、确定 tie-break key、无碰撞候选身份加内容摘要作字典序比较。身份 摘要或
+   uncertainty-reduction rank、确定 tie-break key、无碰撞候选身份加内容摘要作字典序比较；这些都取自 Intent
+   冻结的信息价值策略，而不是在决策时重新计算。身份 摘要或
    完整比较 key 重复都会使集合无效，不创建后继 选择 修复效果或低信息停止。只有完整 census 中每个
    成员均可接纳、都已按预注册阈值可比打分且全部低于阈值时，才能提交
    `STOP_LOW_INFORMATION_VALUE`。集合不完整 未知 因其他理由不可接纳或不可比较时不产生 Iteration
@@ -597,6 +669,15 @@ purge 与 embargo 派生规则、TrialFamily-aware multiplicity policy、attempt
 - 向 [Runtime](./runtime/) 只在已提交 `REPAIR_INPUTS_RUNTIME_KERNEL` 决定后创建一个关联
   `native-repair-request`；只有 Runtime 能针对该准确 kernel attempt 返回 `REPAIRED` `UNAVAILABLE`
   或 `OUTCOME_UNKNOWN`。
+- 向 [Strategy Governance](./strategy-governance/) 交付 Owner admission 在一次生命周期决定之前重读的那份封存
+  Build Receipt，按该回执被封存时的准确 Artifact 身份与摘要解析，携带它绑定的 intent TrialFamily 代码字节与
+  依赖集合。R&D 只陈述自己构建了什么，不陈述该 Artifact 是否可以运行：一份 Build Receipt 绝不是一次激活，绝不是
+  一次 qualification，绝不是一次资金决定，也绝不是任何生命周期状态已达成的证据。在那个准确身份与摘要下解析不到的
+  回执是缺失而不是陈旧，而缺失的回执不准入任何生命周期转换，也不准入一个更保守的转换。
+- 向 [Portfolio](./portfolio/) 交付一次退化归因所点名的那份冻结 Research Intent，按准确的 intent 身份与摘要解析，
+  携带该 intent 冻结的预测与证伪条件，以及它们被冻结时所处的截面。R&D 只供给冻结的预测；它不观察已实现的绩效，
+  不归因，也不测量偏离。一份 Research Intent 绝不是一个绩效主张，绝不是一个容量陈述，其本身也绝不是某个机制已经
+  退化的证据 - 偏离及其被保留的替代解释属于 Portfolio，两个 Owner 都不得推导对方那一半。
 - 探索结束后只向 [Qualification](./qualification/) 交付拥有终态 `SELECTED_FOR_QUALIFICATION`
   Research Selection Disposition 的冻结 Candidate。交接交叉绑定准确 Intent 证伪条件与停止规则 完整预注册
   不可变穷尽 TrialFamily Census Frontier 探索请求结果前沿 完整跨 TrialFamily 语义前驱前沿 来源反馈前沿
@@ -613,6 +694,15 @@ purge 与 embargo 派生规则、TrialFamily-aware multiplicity policy、attempt
   `EXPLORATION_ACTIVE` 或 `SELECTION_TERMINAL`。它可以汇总 R&D 拥有的来源 意图 工件 探索和
   决定事实，但不包含保护 Qualification 细节。终态停止只能来自 Iteration Decision，只有存在仅选择
   disposition 时视图才显示 Selection。
+
+**CURRENT_PARTIAL - 有界的已验证 outcome 读面。** R&D Owner 回答两个经认证的 zero-effect read，它们都基于
+这个 Owner 自己解析出的同一个 historical custody cut：verified Research outcome 清单与 verified Build
+outcome 清单。两者都按最新在前回答，至多返回调用方请求的行数、且绝不超过这个 Owner 自己拥有的上限，并同时
+回显它解析所依据的 custody cut 与是否发生截断。Research 行携带 request 身份 提交时间 resolution 与
+question 绑定；Build 行携带 build request 身份 attempt 身份 提交时间与 disposition。调用方既不指名 cut
+也不指名超出上限的行，因此消费方无法声称一个这个 Owner 没有解析过的坐标。两个清单相互独立：其中一个回答
+unavailable 或位于不同 cut 时，只撤回它自己的行与计数。两个读都不接纳 Plan Artifact 收据字节 源码文本或
+任何 mutation，也都不是 Selection Candidate 或 Qualification 事实。
 
 ## 拒绝和禁止事项
 

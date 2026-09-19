@@ -4,6 +4,15 @@
 
 Strategy Factory 是包围 R&D、探索性 Backtest 和独立 Qualification 的价值流边界。R&D 内含 Research 与 Develop 能力；该边界让 R D Q 分离清晰可见，但不成为新的 Owner。本页凡提到规范化、绑定、验证或 lowering 一个 Design 的执行者，指的都是 R&D 的 Develop 能力；边界本身不执行任何动作。
 
+### 如何阅读本页
+
+边界契约很短：职责、正向路径、价值流交接、保护路径、权威边界、实现验收。这几节说明 R&D、Backtest 与
+Qualification 之间哪个 Owner 拥有哪项事实，以及哪些对象在它们之间跨越。
+
+共享生命周期内核一节，以及其下的 Bounded Feature Program 一节，是编译器规格：类型化 Design 形状、fail-closed
+流水线、已 pin 的 primitive catalog、图上界、ABI 与 build capsule。它们对实现编译器的人是规范性的，但理解价值流
+并不需要它们。这些节里的执行者始终是 R&D 的 Develop 能力。
+
 ## 正向路径
 
 带来源假设只是一项提案。在任何保护反馈之前，R&D 先原子预提交一个绑定 principal 与 request scope 的 Independence Basis Receipt。Qualification 直接解析该准确 R&D 回执，并在检查其完整持久 principal/scope 历史后只返回 `GENESIS_EMPTY` 当前不透明 `FRONTIER(ref, cut)` 或 `UNAVAILABLE`；只有经证明 Qualification 历史为空时 genesis 才有效。Product Edge 仅搬运绑定同 principal/scope 的不透明投影，不接收保护细节。R&D 在锁定的准入事务内把自身完整本地语义前驱血缘解析为 `GENESIS_EMPTY` `COMPLETE_FRONTIER` 或 `UNAVAILABLE`。只有两个 Owner 的准确当前规范回读都成立时，才能原子创建冻结 Research Intent 永久 TrialFamily root 初始 census member 与 head 回执和 outbox。调用方不能提供或覆盖任一 frontier 独立性 disposition 或 basis identity。
@@ -58,8 +67,8 @@ R&D 内的 Develop 能力返回内容寻址 Strategy Artifact 和 Build Receipt�
   non-default、零参数 sealed acceptance corpus 会执行真实 Market Data Owner issuance、准确 Plan 编译、单次
   guest 调用、member-causal target、malformed output 原子拒绝、replay 与 restore；这只属于有界 crate-local
   acceptance 证据。本地 bounded-plugin producer 接纳准确且 fail-closed 的 macOS arm64 host profile。
-  Linux ARM64 当前为 **REVALIDATION REQUIRED**：实现已冻结当前观测到的 canonical `wasm32v1-none` sysroot
-  digest，但只有该 digest 通过 main-bound hosted native A0 gate 后才能重新达到 CURRENT/PARTIAL。此前的证据
+  Linux ARM64 与 x86_64 当前为 **REVALIDATION REQUIRED**：实现已冻结当前观测到的 canonical `wasm32v1-none`
+  sysroot digest，但只有该 digest 在该主机上通过 main-bound hosted native gate 后才能达到 CURRENT/PARTIAL。此前的证据
   边界是准确 workflow
   [`strategy-factory-linux-a0`](https://github.com/qOeOp/trade/blob/9e5149d4293a800be3a35e6b747a9f3dba304e1f/.github/workflows/strategy-factory-linux-a0.yml)、
   head `9e5149d4293a800be3a35e6b747a9f3dba304e1f` 上的 `workflow_dispatch`
@@ -577,13 +586,20 @@ repeatable-read R&D transaction 内完成该重建，派生绑定 attempt 的 ru
 move-only bundle 与按固定顺序排列的完整 28-component observation package。Research、TrialFamily 与 Replay
 authority bytes 来自 R&D source record；Design、Plan 与 Artifact bytes 来自已接受的 Composer custody；其余
 resolved-input evidence 来自独立逐字节复现的 durable binding。现有 Backtest preparation Owner 直接接受该
-sealed resolver，并在进入 ProgramHost 前再次校验 request、component 与 execution locator。启用 sealed
-Develop composition 时，authenticated R&D API 会注册 `POST /v2/exploratory-replays`；body 只含准确 sealed
-request locator 与 attempt identity。只有 `BACKTEST_OWNER_DATABASE_URL` 准入规范 Backtest Owner principal，
+sealed resolver，并在进入 ProgramHost 前再次校验 request、component 与 execution locator。
+
+**IMPLEMENTATION_ADMITTED / NOT_CUT_OVER，生产 Native Replay 入口：** authenticated R&D API 的
+`POST /v2/exploratory-replays` 被准入为生产 route；body 只含准确 sealed request locator 与 attempt identity。
+它尚未切换。handler、它调用的 execution service 与 router 注册仍只在 sealed Develop composition feature 下
+编译，所以今天没有任何已部署镜像提供该 route，验收之外也从未有请求到达过它。切换需要 execution service 作为
+输入所要求的生产 Composer sealed read port：一个能在调用方事务内对任意 locator 锁定并重读证据的
+`DevelopComposerFinalEvidencePortV2` 实现，以及一个 R&D composition root 可构造的
+`PostgresDevelopComposerSealedReadPortV2`。在两者具备之前，feature gate 就是这条 route 与生产之间的全部距离，
+而仅仅移除它并不能编译通过。切换之后，只有 `BACKTEST_OWNER_DATABASE_URL` 准入规范 Backtest Owner principal，
 且 Market Data scheduling capability 存在时，startup 才暴露 execution capability。Coordinator 确认 Result、
 全部 28 份 evidence envelope 与 semantic trace 后，handler 只返回实际持久化的 canonical Result bytes；未获
-确认的提交保持 unavailable。尚不声称 disposable PostgreSQL acceptance、已部署或正在运行的服务、production
-invocation、Paper/Live execution 或 trading。
+确认的提交保持 unavailable。该准入不授予 disposable PostgreSQL acceptance、已部署或正在运行的服务、
+production invocation、Paper/Live execution 或 trading。
 
 **TARGET / NOT_ADMITTED，Owner 封存的双帧 Native Replay V2：** 现有
 `NativeReplayExecutionInputBindingV1`、单帧、28 项观测证据、执行 bundle、请求和 Result 的字节与身份

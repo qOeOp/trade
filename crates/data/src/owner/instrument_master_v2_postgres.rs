@@ -20,7 +20,12 @@ const GENERATION_DOMAIN: &[u8] = b"vibe.market-data.instrument-master-public-v2.
 const ADVISORY_LOCK_KEY: i64 = 0x494d_5632_0000_0001;
 
 const SCHEMA: [&str; 13] = [
-    "CREATE SCHEMA IF NOT EXISTS market_data_instrument_master_v2",
+    // `CREATE SCHEMA IF NOT EXISTS` checks database `CREATE` before it checks existence, so it
+    // fails for an Owner that holds no database-level `CREATE` even when the schema is already
+    // provisioned. Under the deployed custody topology the authority migration owns this schema
+    // and the Owner has no such grant, so ask about existence first and create only what is
+    // genuinely missing.
+    "DO $instrument_master_v2_schema$ BEGIN IF pg_catalog.to_regnamespace('market_data_instrument_master_v2') IS NULL THEN EXECUTE 'CREATE SCHEMA market_data_instrument_master_v2'; END IF; END $instrument_master_v2_schema$",
     "REVOKE ALL ON SCHEMA market_data_instrument_master_v2 FROM PUBLIC",
     "CREATE TABLE IF NOT EXISTS market_data_instrument_master_v2.state (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK(singleton),store_generation_identity BYTEA NOT NULL CHECK(octet_length(store_generation_identity)=32),append_sequence BIGINT NOT NULL CHECK(append_sequence>=0))",
     "CREATE TABLE IF NOT EXISTS market_data_instrument_master_v2.facts (fact_identity BYTEA PRIMARY KEY CHECK(octet_length(fact_identity)=32),canonical_identity TEXT NOT NULL,predecessor_fact_identity BYTEA NULL REFERENCES market_data_instrument_master_v2.facts(fact_identity) ON DELETE RESTRICT,correction_sequence BIGINT NOT NULL CHECK(correction_sequence>0),owner_observation_ns BYTEA NOT NULL CHECK(octet_length(owner_observation_ns)=16),fact_bytes BYTEA NOT NULL CHECK(octet_length(fact_bytes)>0 AND octet_length(fact_bytes)<=65536),custody_digest BYTEA NOT NULL CHECK(octet_length(custody_digest)=32),UNIQUE(canonical_identity,correction_sequence),UNIQUE(predecessor_fact_identity))",

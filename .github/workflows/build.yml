@@ -26,6 +26,18 @@ on:
       - opened
       - reopened
       - ready_for_review
+  # A merge queue asks this workflow for a verdict on a temporary
+  # `gh-readonly-queue/main/...` branch holding `main` plus the entries ahead of the candidate. The
+  # queue waits for that verdict and drops the entry when none arrives, so a queue configured while
+  # this trigger is absent would refuse every pull request in turn. `ready-gate` already answers
+  # `run-full` for any non-pull-request event and `scripts/ci/plan.sh` already routes an unknown
+  # event to full validation, so what the queue receives is the same gate a push to `main` receives.
+  # No `branches` filter: the entry ref is the queue's own branch, not the base, and a filter that
+  # failed to match would fail by never running, which is the one failure this trigger exists to
+  # prevent.
+  merge_group:
+    types:
+      - checks_requested
 
 # One run per pull request, and one per branch tip on `main`. Keying a push group on the commit
 # gave every `main` push a group of its own, so `cancel-in-progress` could never fire there: the
@@ -523,11 +535,13 @@ jobs:
       # against a 10 GB quota.
       CARGO_CI_PROFILE: >-
         ${{ (github.event_name == 'pull_request'
+        || github.event_name == 'merge_group'
         || github.ref_name == 'main' || github.ref_name == 'test-ci')
         && 'ci-pr'
         || 'nextest' }}
       CARGO_TARGET_DIR: >-
         ${{ (github.event_name == 'pull_request'
+        || github.event_name == 'merge_group'
         || github.ref_name == 'main' || github.ref_name == 'test-ci')
         && 'target/rust-tests-linux-x86'
         || '/home/runner/.cache/cargo-target/rust-tests-linux-x86' }}
@@ -642,6 +656,15 @@ jobs:
         run: >-
           make cargo-test NEXTEST_PROFILE=ci
           EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
+
+      - name: Run the toolchain proofs
+        # These are `#[ignore]`, so `make cargo-test` never selects them. They need the pinned
+        # wasm target this job already installs, or Docker, and no database.
+        #
+        # They report whether or not the step above passed. They share nothing with it, and a proof
+        # that only speaks when its neighbour succeeds is one an unrelated failure can silence.
+        if: ${{ !cancelled() }}
+        run: make cargo-test-toolchain-proofs NEXTEST_PROFILE=ci
 
       - name: Report disk space after workspace Rust tests
         if: always()
