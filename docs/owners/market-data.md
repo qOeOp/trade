@@ -93,13 +93,14 @@ never runs in CI.
   test fixture, and the PIT request's `instrument_master_digest` is now the Owner's own resolution rather than a
   caller's claim. What remains is not a writer but a run: no deployment has used them, which is the operational
   gap `B6` already names.
-- **`B8` the first live fact channel exists; nothing in Runtime consumes it.** This entry used to carry two
-  claims in one sentence, and the first live channel separated them. Every other retrieval seam this Owner has is
-  still as-of: a Data Client answers one frozen scope at one decision cut, and nothing streams. The channel
-  described under Output handoffs now streams for one bounded scope, with its durable head and its Owner-issued
-  subscription proven by the ordered chain. The second claim stands unchanged: **no live fact reaches Runtime**,
-  because no Runtime consumer of the intake exists, so a Strategy Instance still has no live input and neither
-  Paper nor Live can begin. Clearing what remains is Runtime's side, not a further slice of this Owner.
+- **`B8` no live fact reaches Runtime.** The headline is unchanged because it is still true, and what changed is
+  the clearing condition this entry used to name. It said the first live channel would clear it. The first live
+  channel now exists: it streams for one bounded scope, with its durable head and its Owner-issued subscription
+  proven by the ordered chain, and every other retrieval seam here is still as-of. That did not clear this entry,
+  because producing a fact and delivering it to a consumer are different things, and the slice admitting the
+  channel excluded the consumer half in its own words: no Runtime custody. Nothing in Runtime consumes the intake,
+  so a Strategy Instance still has no live input and neither Paper nor Live can begin. What clears this entry is a
+  Runtime-side consumer, not a further slice of this Owner.
 
 ### Per-slice ledger
 

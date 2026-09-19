@@ -78,11 +78,11 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   而 Market Semantics fact 又交叉绑定一条 R0 record。这三者各由下文对应章节描述的生产路径写入，都不经 acceptance
   feature 或测试夹具，且 PIT 请求的 `instrument_master_digest` 现在是 Owner 自己的解析结果而非调用方的声称。剩下的
   不是写入者而是一次运行：还没有任何部署用过它们，那正是 `B6` 已经点名的运维缺口。
-- **`B8` 首条实时事实通道已存在；Runtime 侧没有任何消费者。** 本条原先把两个断言写成了一句话，首条实时通道把它们分开了。
-  本 Owner 其余每条取数缝仍然是 as-of：Data Client 只回答一个冻结 scope 在一个决策切面上的结果，没有任何流。下文
-  Output handoffs 描述的那条通道现在对一个有界 scope 真的在流，其持久头部与 Owner 签发的订阅由有序链路证明。第二个断言
-  原样成立：**没有任何实时事实到达 Runtime**，因为不存在该 intake 的 Runtime 消费者，所以 Strategy Instance 仍然没有实时
-  输入，Paper 与 Live 都无从开始。余下的闭合在 Runtime 一侧，不是本 Owner 的又一个切片。
+- **`B8` 没有任何实时事实到达 Runtime。** 标题原样不动，因为它仍然为真；变的是本条原先写的解除条件。它原先说首条实时
+  通道会解除本条。首条实时通道现在已存在：它对一个有界 scope 真的在流，其持久头部与 Owner 签发的订阅由有序链路证明，
+  本 Owner 其余每条取数缝仍然是 as-of。**这并没有解除本条**，因为产出一个事实和把它交付给消费者是两件事，而准入该通道
+  的那一片自己写明排除了消费侧：no Runtime custody。不存在该 intake 的 Runtime 消费者，所以 Strategy Instance 仍然没有
+  实时输入，Paper 与 Live 都无从开始。解除本条的是 Runtime 侧的一个消费者，不是本 Owner 的又一个切片。
 
 ### 逐片台账
 
