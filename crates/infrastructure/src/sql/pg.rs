@@ -216,8 +216,15 @@ pub async fn init_postgres(
     validate_sql_identifier(&database, "database")?;
     let mut connection = pg.acquire().await?;
 
-    // Create public schema
-    match sqlx::query("CREATE SCHEMA IF NOT EXISTS public;")
+    // Create public schema.
+    //
+    // `CREATE SCHEMA IF NOT EXISTS` checks database `CREATE` before it checks existence, so it
+    // fails for a role holding no database-level `CREATE` even though `public` is present in
+    // every database created from `template1`. Ask about existence first: the statement then
+    // demands `CREATE` only in the one case where it would genuinely have to create something.
+    match sqlx::query(
+        "DO $public_schema$ BEGIN IF pg_catalog.to_regnamespace('public') IS NULL THEN EXECUTE 'CREATE SCHEMA public'; END IF; END $public_schema$",
+    )
         .execute(&mut *connection)
         .await
     {

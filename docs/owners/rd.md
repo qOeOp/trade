@@ -749,6 +749,18 @@ Decision, Selection, and Candidate. Changing one creates a successor lineage rat
 - To [Runtime](./runtime/): only a committed `REPAIR_INPUTS_RUNTIME_KERNEL` decision may create one correlated
   `native-repair-request`; Runtime alone returns `REPAIRED`, `UNAVAILABLE`, or `OUTCOME_UNKNOWN` for that exact
   kernel attempt.
+- To [Strategy Governance](./strategy-governance/): the sealed Build Receipt an Owner admission rereads before a
+  lifecycle decision, resolved at the exact Artifact identity and digest the receipt was sealed under, carrying the
+  intent, TrialFamily, code bytes and dependency set it binds. R&D states what it built and nothing about whether
+  that Artifact may run: a Build Receipt is never an activation, never a qualification, never a capital decision,
+  and never evidence that any lifecycle state was reached. A receipt that cannot be resolved at that exact identity
+  and digest is absent, not stale, and an absent receipt admits no lifecycle transition rather than a cautious one.
+- To [Portfolio](./portfolio/): the frozen Research Intent a degradation attribution names, resolved at the exact
+  intent identity and digest, carrying the prediction and falsifier that intent froze and the cut they were frozen
+  at. R&D supplies the frozen prediction only; it observes no realized performance, attributes no cause, and
+  measures no deviation. A Research Intent is never a performance claim, never a capacity statement, and never by
+  itself evidence that a mechanism degraded - the deviation and its preserved alternatives are Portfolio's, and
+  neither Owner may derive the other's half.
 - To [Qualification](./qualification/): only a R&D-owned frozen Candidate with a terminal
   `SELECTED_FOR_QUALIFICATION` Research Selection Disposition. The handoff cross-binds the exact Intent falsifier
   and stop rule, complete preregistration, immutable exhaustive TrialFamily Census Frontier, exploratory
