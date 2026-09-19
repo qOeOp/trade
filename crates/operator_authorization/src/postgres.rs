@@ -332,6 +332,31 @@ pub struct OperatorAuthorizationIssuerPostgresV1 {
     pool: PgPool,
 }
 
+/// Every private relation this Owner's custody lives in.
+///
+/// The legacy authorization tables are spelled out because the deployment
+/// creates them itself; each grant kind's four are derived from its own schema,
+/// so registering a third kind extends admission without anyone remembering to.
+/// Before this, admission proved the four legacy relations and said nothing
+/// about the grant kinds: a store carrying only the legacy tables was admitted
+/// and then failed on its first grant write with a missing relation instead of
+/// refusing as an unadmitted topology.
+fn admitted_relations() -> Vec<String> {
+    use crate::{AutonomousPolicyAuthorizationContentV1, PortfolioResourceGrantContentV1};
+
+    let mut relations = vec![
+        "operator_authorization_issuances_v1".to_string(),
+        "operator_authorization_revocation_frontiers_v1".to_string(),
+        "operator_authorization_revocation_heads_v1".to_string(),
+        "operator_authorization_owner_outbox_v1".to_string(),
+    ];
+    relations.extend(grant::relation_names_of::<PortfolioResourceGrantContentV1>());
+    relations.extend(grant::relation_names_of::<
+        AutonomousPolicyAuthorizationContentV1,
+    >());
+    relations
+}
+
 impl OperatorAuthorizationIssuerPostgresV1 {
     pub async fn connect(database_url: &str) -> Result<Self, OperatorAuthorizationError> {
         let pool = PgPool::connect(database_url).await.map_err(storage)?;
@@ -373,23 +398,19 @@ impl OperatorAuthorizationIssuerPostgresV1 {
                        WHERE membership.member = role.oid
                     )
                     AND (
-                      SELECT pg_catalog.count(*) = 4
+                      SELECT pg_catalog.count(*) = pg_catalog.array_length($1::pg_catalog.text[], 1)
                         FROM pg_catalog.pg_class relation
                         JOIN pg_catalog.pg_namespace namespace
                           ON namespace.oid = relation.relnamespace
                        WHERE namespace.nspname = 'operator_authorization_private'
-                         AND relation.relname = ANY(ARRAY[
-                           'operator_authorization_issuances_v1',
-                           'operator_authorization_revocation_frontiers_v1',
-                           'operator_authorization_revocation_heads_v1',
-                           'operator_authorization_owner_outbox_v1'
-                         ]::pg_catalog.text[])
+                         AND relation.relname = ANY($1::pg_catalog.text[])
                          AND relation.relkind = 'r'
                          AND relation.relowner = pg_catalog.to_regrole('operator_authorization_owner')::oid
                     )
                FROM pg_catalog.pg_roles role
               WHERE role.rolname = current_user",
         )
+        .bind(admitted_relations())
         .fetch_one(&pool)
         .await
         .map_err(storage)?;
