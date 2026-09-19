@@ -16,6 +16,7 @@ mod authenticated_design_registration_v1;
 pub mod bar_joined_cut_acceptance_v1;
 mod calendar;
 mod corporate_action;
+mod live_market_stream_v1;
 mod market_semantics;
 mod observation_census;
 mod pit_role_resolution_v1;
@@ -134,6 +135,12 @@ use super::{
         InstrumentMasterAdmissionErrorV1, InstrumentMasterAdmissionTerminalV1,
         InstrumentMasterAdmissionV1, InstrumentMasterFactSubmissionV1,
         sealed::Sealed as InstrumentMasterAdmissionSealed,
+    },
+    live_market_fact_v1::{LiveMarketFactSourceV1, LiveMarketFactV1, LiveMarketSubscriptionV1},
+    live_market_stream_v1::{
+        LiveMarketChannelErrorV1, LiveMarketChannelHeadV1, LiveMarketChannelRequestV1,
+        LiveMarketChannelV1, LiveMarketFactIntakeV1, derive_channel_identity_v1,
+        sealed::Sealed as LiveMarketSealed,
     },
     market_semantics_admission_v1::{
         MarketSemanticsAdmissionErrorV1, MarketSemanticsAdmissionTerminalV1,
@@ -744,6 +751,9 @@ impl MarketDataOwnerPostgres {
                 .map_err(|_| SourceBindingError::StoreUnavailable)?;
         }
         sample_projection_v4::install(&mut transaction)
+            .await
+            .map_err(|_| SourceBindingError::StoreUnavailable)?;
+        live_market_stream_v1::install(&mut transaction)
             .await
             .map_err(|_| SourceBindingError::StoreUnavailable)?;
         let history_census_installed: bool = sqlx::query_scalar(
@@ -10044,6 +10054,227 @@ impl MarketSemanticsAdmissionV1 for MarketSemanticsAdmissionPostgresV1 {
     ) -> Result<MarketSemanticsAdmissionTerminalV1, MarketSemanticsAdmissionErrorV1> {
         self.owner.admit_market_semantics_fact_v1(submission).await
     }
+}
+
+/// Issues the subscription one live channel carries, from the Owner's own Instrument Master.
+///
+/// A caller proposes canonical identities; this decides what the channel actually carries. Each
+/// candidate must have exactly one Instrument Master fact that is effective at `observation_ns`
+/// and observable under the Owner's current clock head, and that fact must state the same Market
+/// Semantics Compatibility identity the binding does. Anything else is refused rather than
+/// carried, which is what makes the later refusal of an out-of-scope venue answer mean something:
+/// the scope is the Owner's, not the caller's.
+async fn issue_live_market_subscription_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    proposed: &[String],
+    channel: crate::owner::strategy_input_binding::StrategyInputChannel,
+    field_semantic: crate::owner::strategy_input_binding::MarketDataFieldSemantic,
+    binding: crate::owner::live_market_fact_v1::LiveMarketBindingV1,
+    observation_ns: u64,
+) -> Result<LiveMarketSubscriptionV1, LiveMarketChannelErrorV1> {
+    let mut members = proposed.to_vec();
+    members.sort_unstable();
+    members.dedup();
+
+    if members.is_empty() || members.iter().any(String::is_empty) {
+        return Err(LiveMarketChannelErrorV1::InvalidRequest);
+    }
+    let observation = i128::from(observation_ns);
+    let head = load_current_clock_fact_for_update(transaction)
+        .await
+        .map_err(|_| LiveMarketChannelErrorV1::StoreUnavailable)?
+        .ok_or(LiveMarketChannelErrorV1::StoreUntrusted)?;
+    let locator = head.handoff.locator().clone();
+    let selected = async {
+        let (handoff, proof) = current_instrument_clock(transaction, &locator).await?;
+        let projection = instrument_clock_projection(&handoff, proof.as_ref())?;
+        let facts = load_instrument_facts(transaction, &members, false).await?;
+        validate_instrument_fact_graph(&facts)?;
+        // A live channel asks about now under the Owner's current head, so the effective instant
+        // and the observation instant are the same one and the cut is the head's own.
+        select_instrument_facts(
+            &facts,
+            &members,
+            observation,
+            observation,
+            projection.decision_cut,
+            &projection,
+        )
+    }
+    .await
+    .map_err(|e| {
+        super::storage_diagnostic::refused_by_store("live_market.subscription.instruments", &e);
+        LiveMarketChannelErrorV1::InstrumentUnavailable
+    })?;
+
+    // A fact under different Market Semantics measures a different thing by the same name, and the
+    // generation's Strategy Artifact was bound to the binding's identity, not to this fact's.
+    if selected
+        .iter()
+        .any(|fact| fact.proposal.market_semantics_identity != binding.market_semantics_identity)
+    {
+        return Err(LiveMarketChannelErrorV1::InstrumentUnavailable);
+    }
+    let instruments = selected
+        .iter()
+        .map(|fact| fact.canonical_identity().to_string())
+        .collect::<Vec<_>>();
+    LiveMarketSubscriptionV1::issue_v1(instruments, channel, field_semantic).map_err(Into::into)
+}
+
+pub(super) async fn live_market_fact_intake_from_environment_v1(
+    source: std::sync::Arc<dyn LiveMarketFactSourceV1>,
+) -> Result<std::sync::Arc<dyn LiveMarketFactIntakeV1>, LiveMarketChannelErrorV1> {
+    let url =
+        std::env::var(super::instrument_master_v2_postgres::MARKET_DATA_OWNER_DATABASE_URL_ENV)
+            .map_err(|_| LiveMarketChannelErrorV1::StoreUnavailable)?;
+    if url.is_empty() || url.trim() != url {
+        return Err(LiveMarketChannelErrorV1::StoreUnavailable);
+    }
+    let owner = MarketDataOwnerPostgres::connect(&url).await.map_err(|e| {
+        super::storage_diagnostic::refused_by_store("live_market_intake.environment.connect", &e);
+        LiveMarketChannelErrorV1::StoreUnavailable
+    })?;
+    Ok(std::sync::Arc::new(LiveMarketFactIntakePostgresV1 {
+        owner: std::sync::Arc::new(owner),
+        source,
+        open_channels: std::sync::Arc::new(
+            std::sync::Mutex::new(std::collections::BTreeSet::new()),
+        ),
+    }))
+}
+
+struct LiveMarketFactIntakePostgresV1 {
+    owner: std::sync::Arc<MarketDataOwnerPostgres>,
+    source: std::sync::Arc<dyn LiveMarketFactSourceV1>,
+    open_channels: OpenLiveChannels,
+}
+
+/// The channel identities this process currently has open.
+///
+/// One channel is one consumer. Two pollers on one head would each take the row lock when their
+/// own venue wait finished, so the venue's order and the Owner's sequence could disagree without
+/// either side being able to tell.
+type OpenLiveChannels = std::sync::Arc<std::sync::Mutex<std::collections::BTreeSet<BindingDigest>>>;
+
+impl Debug for LiveMarketFactIntakePostgresV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct(stringify!(LiveMarketFactIntakePostgresV1))
+            .finish_non_exhaustive()
+    }
+}
+
+impl LiveMarketSealed for LiveMarketFactIntakePostgresV1 {}
+
+#[async_trait::async_trait]
+impl LiveMarketFactIntakeV1 for LiveMarketFactIntakePostgresV1 {
+    async fn open_channel(
+        &self,
+        request: LiveMarketChannelRequestV1,
+    ) -> Result<std::sync::Arc<dyn LiveMarketChannelV1>, LiveMarketChannelErrorV1> {
+        let (binding, subscription) = self
+            .owner
+            .open_live_market_scope_v1(&request, owner_observation_now_ns_v1())
+            .await?;
+        let channel_identity =
+            derive_channel_identity_v1(binding.source_binding_identity, &subscription);
+
+        if !self
+            .open_channels
+            .lock()
+            .map_err(|_| LiveMarketChannelErrorV1::StoreUnavailable)?
+            .insert(channel_identity)
+        {
+            return Err(LiveMarketChannelErrorV1::ChannelBusy);
+        }
+        let channel = LiveMarketChannelPostgresV1 {
+            owner: std::sync::Arc::clone(&self.owner),
+            source: std::sync::Arc::clone(&self.source),
+            open_channels: std::sync::Arc::clone(&self.open_channels),
+            source_binding_identity: binding.source_binding_identity,
+            channel_identity,
+            subscription,
+            request,
+        };
+        // Opening reads the head, so a channel that cannot resume is refused here rather than at
+        // the first fact, when a consumer would already be waiting on it.
+        channel.head().await?;
+        Ok(std::sync::Arc::new(channel))
+    }
+}
+
+struct LiveMarketChannelPostgresV1 {
+    owner: std::sync::Arc<MarketDataOwnerPostgres>,
+    source: std::sync::Arc<dyn LiveMarketFactSourceV1>,
+    open_channels: OpenLiveChannels,
+    request: LiveMarketChannelRequestV1,
+    /// The scope the Data Client was opened against. It tells the client what to answer for; what
+    /// a fact may be sealed under is decided again inside the sealing transaction, so a scope that
+    /// narrowed while the channel waited costs one refused batch rather than one wrong fact.
+    subscription: LiveMarketSubscriptionV1,
+    source_binding_identity: BindingDigest,
+    channel_identity: BindingDigest,
+}
+
+impl Debug for LiveMarketChannelPostgresV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct(stringify!(LiveMarketChannelPostgresV1))
+            .field("channel_identity", &self.channel_identity)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Drop for LiveMarketChannelPostgresV1 {
+    fn drop(&mut self) {
+        if let Ok(mut open) = self.open_channels.lock() {
+            open.remove(&self.channel_identity);
+        }
+    }
+}
+
+impl LiveMarketSealed for LiveMarketChannelPostgresV1 {}
+
+#[async_trait::async_trait]
+impl LiveMarketChannelV1 for LiveMarketChannelPostgresV1 {
+    fn channel_identity(&self) -> BindingDigest {
+        self.channel_identity
+    }
+
+    async fn next_facts(&self) -> Result<Vec<LiveMarketFactV1>, LiveMarketChannelErrorV1> {
+        // The venue wait happens outside any transaction, so an idle market never holds the head
+        // lock. The scope is re-resolved inside the sealing transaction instead.
+        let observations = self.source.next_batch(&self.subscription).await?;
+        self.owner
+            .seal_live_market_batch_v1(
+                &self.request,
+                self.channel_identity,
+                &observations,
+                owner_observation_now_ns_v1(),
+            )
+            .await
+    }
+
+    async fn head(&self) -> Result<LiveMarketChannelHeadV1, LiveMarketChannelErrorV1> {
+        self.owner
+            .live_market_channel_head_v1(self.channel_identity, self.source_binding_identity)
+            .await
+    }
+}
+
+/// This Owner's own observation instant, in nanoseconds since the epoch.
+///
+/// It is the Owner's evidence about itself: when this system received something. A host clock
+/// before the epoch is reported as zero rather than guessed at, which makes every live observation
+/// ambiguous and stops the channel, because a system that cannot say when it received a fact
+/// cannot place that fact in time either.
+fn owner_observation_now_ns_v1() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|elapsed| u64::try_from(elapsed.as_nanos()).ok())
+        .unwrap_or_default()
 }
 
 pub(super) async fn instrument_master_admission_from_environment_v1()
