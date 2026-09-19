@@ -96,11 +96,17 @@ if [[ -z "${DATABENTO_API_KEY:-}" ]]; then
   exit 1
 fi
 
+# Selection runs under nextest rather than `cargo test --exact`. The two agree except on the case
+# that matters: `cargo test --exact missing_name` prints `0 passed` and exits 0, so renaming the
+# proof below would leave this script green while running nothing. nextest refuses an empty
+# selection with `error: no tests to run` and a non-zero exit.
 set +e
-cargo test --manifest-path crates/adapters/databento/Cargo.toml \
+cargo nextest run --manifest-path crates/adapters/databento/Cargo.toml \
   --test market_data_end_to_end \
-  -- --ignored --exact --nocapture \
-  market_data_answers_one_frozen_request_from_live_vendor_data
+  --cargo-profile "${CARGO_CI_PROFILE:-nextest}" \
+  --run-ignored all \
+  --no-capture \
+  -E 'test(=market_data_answers_one_frozen_request_from_live_vendor_data)'
 test_status=$?
 set -e
 
