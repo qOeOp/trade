@@ -1883,7 +1883,11 @@ async fn start_provider_invocation(
         Ok(Some(claim)) => claim,
         Ok(None) => {
             return artifact_product_edge_error(
-                &ProductEdgeError::Unavailable,
+                &ProductEdgeError::unavailable_for(
+                    vibe_product_edge::ProductEdgeUnavailableReasonV1::Missing,
+                    vibe_product_edge::ProductEdgeSubjectKindV1::Request,
+                    &build_request_identity,
+                ),
                 &build_request_identity,
                 &attempt_identity,
             );
@@ -2339,7 +2343,11 @@ where
         ) => {}
         Ok(ArtifactRequestIdentityPreflightV1::LegacyTerminalQuarantined) | Err(_) => {
             return Err((
-                ProductEdgeError::Unavailable,
+                ProductEdgeError::unavailable_for(
+                    vibe_product_edge::ProductEdgeUnavailableReasonV1::DownstreamCustodyMismatch,
+                    vibe_product_edge::ProductEdgeSubjectKindV1::Request,
+                    build_request_identity,
+                ),
                 build_request_identity.to_string(),
                 attempt_identity.to_string(),
             ));
@@ -2645,7 +2653,7 @@ fn product_edge_error(error: &ProductEdgeError, request_identity: &str, v2: bool
     let status = match error {
         ProductEdgeError::ConflictingReplay => StatusCode::CONFLICT,
         ProductEdgeError::InvalidProposal(_) => StatusCode::BAD_REQUEST,
-        ProductEdgeError::Unavailable | ProductEdgeError::Storage(_) => {
+        ProductEdgeError::Unavailable(_) | ProductEdgeError::Storage(_) => {
             StatusCode::SERVICE_UNAVAILABLE
         }
     };
@@ -2673,7 +2681,7 @@ fn artifact_product_edge_error(
             "PRODUCT_EDGE_REQUEST_REJECTED",
             ArtifactBuildResultV1::submitted_or_unknown(build_request_identity, attempt_identity),
         ),
-        ProductEdgeError::Unavailable | ProductEdgeError::Storage(_) => (
+        ProductEdgeError::Unavailable(_) | ProductEdgeError::Storage(_) => (
             StatusCode::SERVICE_UNAVAILABLE,
             "OWNER_OUTCOME_UNKNOWN",
             ArtifactBuildResultV1::submitted_or_unknown(build_request_identity, attempt_identity),
@@ -2997,7 +3005,7 @@ mod tests {
                 valid_from_epoch_ms: now.saturating_sub(1_000),
                 valid_through_epoch_ms: now.saturating_add(3_600_000),
                 authorization: authorization.locator(),
-                manifests,
+                manifests: vibe_product_edge::AgentOperationManifestSetV1::new(manifests).unwrap(),
             })
             .await
             .unwrap();
@@ -4277,8 +4285,13 @@ mod tests {
 
     #[tokio::test]
     async fn product_edge_unavailable_projects_same_attempt_resolution() {
-        let response =
-            artifact_product_edge_error(&ProductEdgeError::Unavailable, "build-1", "attempt-1");
+        let response = artifact_product_edge_error(
+            &ProductEdgeError::unavailable(
+                vibe_product_edge::ProductEdgeUnavailableReasonV1::Missing,
+            ),
+            "build-1",
+            "attempt-1",
+        );
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(
             response.headers().get("x-rd-rejection-code").unwrap(),
@@ -4406,7 +4419,10 @@ mod tests {
         )
         .await;
 
-        assert!(matches!(result, Err((ProductEdgeError::Unavailable, _, _))));
+        assert!(matches!(
+            result,
+            Err((ProductEdgeError::Unavailable(_), _, _))
+        ));
         assert_eq!(concrete.preflight_calls.load(Ordering::SeqCst), 1);
         assert_eq!(product_edge_admission_calls.load(Ordering::SeqCst), 0);
     }

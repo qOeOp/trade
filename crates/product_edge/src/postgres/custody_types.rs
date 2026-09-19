@@ -150,6 +150,34 @@ pub(super) struct SourceIntakeAdmissionPayloadV1 {
     pub(super) interpretation: SourceInterpretationPayloadV1,
 }
 
+/// The typed payload of one Strategy Governance lifecycle request admission.
+///
+/// It binds the Autonomous Policy Authorization the unattended decision will
+/// be verified against, together with the coordinates Strategy Governance
+/// compares that authorization to. Product Edge seals this tuple; it never
+/// resolves the authorization, decides the lifecycle action, or carries an
+/// effect.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct LifecycleRequestAdmissionPayloadV1 {
+    pub(super) request_identity: String,
+    pub(super) gateway: String,
+    pub(super) request_scope_identity: String,
+    pub(super) autonomous_policy: AutonomousPolicyLocatorPayloadV1,
+    pub(super) lifecycle_action: String,
+    pub(super) account_identity: String,
+    pub(super) execution_mode: String,
+    pub(super) strategy_generation_identity: String,
+    pub(super) execution_scope_identity: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct AutonomousPolicyLocatorPayloadV1 {
+    pub(super) grant_identity: String,
+    pub(super) issuance_receipt_identity: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct SourceInterpretationPayloadV1 {

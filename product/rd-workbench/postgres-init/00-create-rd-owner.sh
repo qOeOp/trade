@@ -4,6 +4,9 @@ set -eu
 : "${RD_OWNER_DATABASE_NAME:=rd_owner}"
 : "${RD_FACT_WRITER_DB_PASSWORD:?set RD_FACT_WRITER_DB_PASSWORD}"
 : "${REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD:?set REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD}"
+: "${EXECUTION_WRITER_DB_PASSWORD:?set EXECUTION_WRITER_DB_PASSWORD}"
+: "${PORTFOLIO_WRITER_DB_PASSWORD:?set PORTFOLIO_WRITER_DB_PASSWORD}"
+: "${GOVERNANCE_WRITER_DB_PASSWORD:?set GOVERNANCE_WRITER_DB_PASSWORD}"
 
 psql --set=ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
   --set=rd_owner_database_name="$RD_OWNER_DATABASE_NAME" \
@@ -13,7 +16,10 @@ psql --set=ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
   --set=issuer_password="$OPERATOR_AUTHORIZATION_DB_PASSWORD" \
   --set=edge_password="$PRODUCT_EDGE_DB_PASSWORD" \
   --set=qualification_password="$QUALIFICATION_OWNER_DB_PASSWORD" \
-  --set=backtest_password="$BACKTEST_OWNER_DB_PASSWORD" << 'SQL'
+  --set=backtest_password="$BACKTEST_OWNER_DB_PASSWORD" \
+  --set=execution_writer_password="$EXECUTION_WRITER_DB_PASSWORD" \
+  --set=portfolio_writer_password="$PORTFOLIO_WRITER_DB_PASSWORD" \
+  --set=governance_writer_password="$GOVERNANCE_WRITER_DB_PASSWORD" << 'SQL'
 CREATE ROLE rd_database_owner NOLOGIN;
 CREATE ROLE replay_policy_catalog_owner NOLOGIN;
 CREATE ROLE composer_owner NOLOGIN;
@@ -35,6 +41,16 @@ CREATE ROLE portfolio_owner NOLOGIN;
 CREATE ROLE qualification_owner NOLOGIN;
 CREATE ROLE qualification_writer LOGIN PASSWORD :'qualification_password';
 CREATE ROLE backtest_owner LOGIN PASSWORD :'backtest_password';
+-- Trading-side Owners: one NOLOGIN owner role holds each private schema; one LOGIN writer
+-- inherits it. Portfolio reuses the pre-existing portfolio_owner role.
+CREATE ROLE execution_owner NOLOGIN;
+CREATE ROLE execution_writer LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'execution_writer_password';
+GRANT execution_owner TO execution_writer;
+CREATE ROLE portfolio_writer LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'portfolio_writer_password';
+GRANT portfolio_owner TO portfolio_writer;
+CREATE ROLE governance_owner NOLOGIN;
+CREATE ROLE governance_writer LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'governance_writer_password';
+GRANT governance_owner TO governance_writer;
 SQL
 
 psql --set=ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$RD_OWNER_DATABASE_NAME" << 'SQL'
@@ -58,6 +74,13 @@ CREATE SCHEMA operator_authorization_private AUTHORIZATION operator_authorizatio
 CREATE SCHEMA operator_authorization_api AUTHORIZATION operator_authorization_owner;
 REVOKE ALL ON SCHEMA operator_authorization_private FROM PUBLIC, rd_owner, product_edge_owner;
 REVOKE ALL ON SCHEMA operator_authorization_api FROM PUBLIC, rd_owner, product_edge_owner;
+CREATE SCHEMA execution_private AUTHORIZATION execution_owner;
+CREATE SCHEMA execution_api AUTHORIZATION execution_owner;
+CREATE SCHEMA portfolio_private AUTHORIZATION portfolio_owner;
+CREATE SCHEMA portfolio_api AUTHORIZATION portfolio_owner;
+CREATE SCHEMA governance_private AUTHORIZATION governance_owner;
+CREATE SCHEMA governance_api AUTHORIZATION governance_owner;
+REVOKE ALL ON SCHEMA execution_private, execution_api, portfolio_private, portfolio_api, governance_private, governance_api FROM PUBLIC, rd_owner, product_edge_owner;
 GRANT USAGE ON SCHEMA operator_authorization_api TO product_edge_owner;
 ALTER DEFAULT PRIVILEGES FOR ROLE product_edge_owner IN SCHEMA public
   REVOKE ALL ON TABLES FROM rd_owner;

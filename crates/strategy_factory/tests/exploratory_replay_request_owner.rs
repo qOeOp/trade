@@ -3229,7 +3229,7 @@ impl TestProductEdge {
                 valid_from_epoch_ms: now - 1_000,
                 valid_through_epoch_ms: valid_through,
                 authorization: authorization.locator(),
-                manifests,
+                manifests: vibe_product_edge::AgentOperationManifestSetV1::new(manifests).unwrap(),
             })
             .await
             .unwrap();

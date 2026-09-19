@@ -2095,9 +2095,9 @@ fn map_product_edge_error(error: ProductEdgeError) -> IterationAnalysisRequestEr
         ProductEdgeError::ConflictingReplay => unavailable(
             "Product Edge iteration-analysis admission conflicts with committed meaning",
         ),
-        ProductEdgeError::Unavailable => {
-            unavailable("Product Edge iteration-analysis admission is unavailable")
-        }
+        ProductEdgeError::Unavailable(detail) => unavailable(format!(
+            "Product Edge iteration-analysis admission is unavailable: {detail}"
+        )),
     }
 }
 

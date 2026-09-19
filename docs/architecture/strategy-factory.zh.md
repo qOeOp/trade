@@ -586,13 +586,20 @@ repeatable-read R&D transaction 内完成该重建，派生绑定 attempt 的 ru
 move-only bundle 与按固定顺序排列的完整 28-component observation package。Research、TrialFamily 与 Replay
 authority bytes 来自 R&D source record；Design、Plan 与 Artifact bytes 来自已接受的 Composer custody；其余
 resolved-input evidence 来自独立逐字节复现的 durable binding。现有 Backtest preparation Owner 直接接受该
-sealed resolver，并在进入 ProgramHost 前再次校验 request、component 与 execution locator。启用 sealed
-Develop composition 时，authenticated R&D API 会注册 `POST /v2/exploratory-replays`；body 只含准确 sealed
-request locator 与 attempt identity。只有 `BACKTEST_OWNER_DATABASE_URL` 准入规范 Backtest Owner principal，
+sealed resolver，并在进入 ProgramHost 前再次校验 request、component 与 execution locator。
+
+**IMPLEMENTATION_ADMITTED / NOT_CUT_OVER，生产 Native Replay 入口：** authenticated R&D API 的
+`POST /v2/exploratory-replays` 被准入为生产 route；body 只含准确 sealed request locator 与 attempt identity。
+它尚未切换。handler、它调用的 execution service 与 router 注册仍只在 sealed Develop composition feature 下
+编译，所以今天没有任何已部署镜像提供该 route，验收之外也从未有请求到达过它。切换需要 execution service 作为
+输入所要求的生产 Composer sealed read port：一个能在调用方事务内对任意 locator 锁定并重读证据的
+`DevelopComposerFinalEvidencePortV2` 实现，以及一个 R&D composition root 可构造的
+`PostgresDevelopComposerSealedReadPortV2`。在两者具备之前，feature gate 就是这条 route 与生产之间的全部距离，
+而仅仅移除它并不能编译通过。切换之后，只有 `BACKTEST_OWNER_DATABASE_URL` 准入规范 Backtest Owner principal，
 且 Market Data scheduling capability 存在时，startup 才暴露 execution capability。Coordinator 确认 Result、
 全部 28 份 evidence envelope 与 semantic trace 后，handler 只返回实际持久化的 canonical Result bytes；未获
-确认的提交保持 unavailable。尚不声称 disposable PostgreSQL acceptance、已部署或正在运行的服务、production
-invocation、Paper/Live execution 或 trading。
+确认的提交保持 unavailable。该准入不授予 disposable PostgreSQL acceptance、已部署或正在运行的服务、
+production invocation、Paper/Live execution 或 trading。
 
 **TARGET / NOT_ADMITTED，Owner 封存的双帧 Native Replay V2：** 现有
 `NativeReplayExecutionInputBindingV1`、单帧、28 项观测证据、执行 bundle、请求和 Result 的字节与身份

@@ -721,7 +721,7 @@ pub(super) fn product_edge_error(error: &ProductEdgeError) -> SourceIntakeOwnerE
     match error {
         ProductEdgeError::ConflictingReplay => SourceIntakeOwnerErrorV1::Conflict,
         ProductEdgeError::InvalidProposal(_) => SourceIntakeOwnerErrorV1::Invalid,
-        ProductEdgeError::Unavailable | ProductEdgeError::Storage(_) => {
+        ProductEdgeError::Unavailable(_) | ProductEdgeError::Storage(_) => {
             SourceIntakeOwnerErrorV1::Unavailable
         }
     }

@@ -10,9 +10,12 @@
   许可依据，以及形成假设时采用的有界解释身份与摘要。
 - 冻结的机制 数据范围 准确成本 滑点与容量模型身份 容量假设 永久 TrialFamily 身份 预算 证伪条件和停止规则。
 - 冻结的信息价值策略：声明的序数不确定性削减排序规则及其版本、确定性 tie-break key，以及每个候选据以比较的停止
-  阈值。由 Research 提案声明，并在观察到任何结果之前由 Intent 冻结。R&D 从不计算信息价值分数：它接纳被声明的
-  排名，然后证明 census 完整、每个成员可准入且被可比地评分、理由齐备、胜出者唯一。策略缺失 事后补写 被改动或
-  无版本时，不准入任何后继实验，也不准入 `STOP_LOW_INFORMATION_VALUE`。
+  阈值。由本 Owner 固定并带版本，任何提案方 调用方或配置都不能选择它们。TrialFamily 在成型时把它们封入自己的
+  decision-policy binding，而成型早于该 family 的任何 attempt；每次决策都从候选所属 family 的冻结 binding 读取。
+  因此一次决策能够证明自己是在哪条规则下比较的，而看到结果也改变不了那条规则：换一条规则就是另一个 family，
+  它的决策只引用它自己的。R&D 从不计算信息价值分数：它接纳被声明的排名，然后证明 census 完整、每个成员可准入
+  且被可比地评分、理由齐备、胜出者唯一。策略缺失 事后补写 被改动或无版本时，不准入任何后继实验，也不准入
+  `STOP_LOW_INFORMATION_VALUE`。
 - 只写一次的 Independence Basis Receipt，必须在保护反馈之前提交，并绑定有效 principal Research request scope
   不受信用户理由摘要 R&D 拥有的独立性 disposition，以及不可变 basis identity 与 digest。
 - 只能从锁定 R&D 历史解析为 `GENESIS_EMPTY` `COMPLETE_FRONTIER` 或 `UNAVAILABLE` 的自适应研究血缘，

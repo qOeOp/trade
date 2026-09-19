@@ -1280,7 +1280,7 @@ fn product_edge_error(error: &ProductEdgeError, request_identity: &str) -> Respo
             "INVALID_EXPLORATORY_REPLAY_REQUEST",
             request_identity,
         ),
-        ProductEdgeError::Unavailable | ProductEdgeError::Storage(_) => rejection(
+        ProductEdgeError::Unavailable(_) | ProductEdgeError::Storage(_) => rejection(
             StatusCode::SERVICE_UNAVAILABLE,
             "OWNER_UNAVAILABLE",
             request_identity,
