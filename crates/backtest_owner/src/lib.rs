@@ -1468,24 +1468,22 @@ mod tests {
                 seal_digest: member.request_seal_digest.clone(),
             };
             let first = committed(
-                owner
-                    .produce_and_commit_protected_replay_result_v3(
-                        &qualification_pool,
-                        &request_locator,
-                        proposal_for(&request, ordinal, 0),
-                    )
-                    .await
-                    .expect("request-bound protected V3 Result commit"),
+                Box::pin(owner.produce_and_commit_protected_replay_result_v3(
+                    &qualification_pool,
+                    &request_locator,
+                    proposal_for(&request, ordinal, 0),
+                ))
+                .await
+                .expect("request-bound protected V3 Result commit"),
             );
             let retry = committed(
-                owner
-                    .produce_and_commit_protected_replay_result_v3(
-                        &qualification_pool,
-                        &request_locator,
-                        proposal_for(&request, ordinal, 0),
-                    )
-                    .await
-                    .expect("byte-identical protected V3 Result retry"),
+                Box::pin(owner.produce_and_commit_protected_replay_result_v3(
+                    &qualification_pool,
+                    &request_locator,
+                    proposal_for(&request, ordinal, 0),
+                ))
+                .await
+                .expect("byte-identical protected V3 Result retry"),
             );
             assert_eq!(retry, first);
             assert_eq!(first.result().schema_version, 3);
@@ -1503,13 +1501,12 @@ mod tests {
                 member.request_time_evidence_digest
             );
             assert!(matches!(
-                owner
-                    .produce_and_commit_protected_replay_result_v3(
-                        &qualification_pool,
-                        &request_locator,
-                        proposal_for(&request, ordinal, 1),
-                    )
-                    .await,
+                Box::pin(owner.produce_and_commit_protected_replay_result_v3(
+                    &qualification_pool,
+                    &request_locator,
+                    proposal_for(&request, ordinal, 1),
+                ))
+                .await,
                 Err(PostgresReplayResultOwnerErrorV2::ConflictingResult)
             ));
             let counts: (i64, i64, i64) = sqlx::query_as(
@@ -1555,13 +1552,12 @@ mod tests {
         late.attempt_identity =
             format!("protected-backtest-late-attempt-v3-{}", lineage.review_slug);
         assert!(matches!(
-            owner
-                .produce_and_commit_protected_replay_result_v3(
-                    &qualification_pool,
-                    &request_locators[0],
-                    late,
-                )
-                .await,
+            Box::pin(owner.produce_and_commit_protected_replay_result_v3(
+                &qualification_pool,
+                &request_locators[0],
+                late,
+            ))
+            .await,
             Err(PostgresReplayResultOwnerErrorV2::ConflictingResult
                 | PostgresReplayResultOwnerErrorV2::ResultNotAdmitted)
         ));
