@@ -31,10 +31,30 @@ struct BootstrapConfigV1 {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let config_path = env::args()
+    let first = env::args()
         .nth(1)
         .ok_or_else(|| anyhow::anyhow!("missing bootstrap config path"))?;
-    let config: BootstrapConfigV1 = serde_json::from_slice(&fs::read(config_path)?)?;
+
+    // Provisioning is a separate invocation from bootstrapping, and it is the
+    // only one that writes DDL. Both Owners are materialized here because this
+    // executable is the one the deployment image carries that already holds
+    // both database URLs, and because leaving one of the two to be created by
+    // whoever connects first is the defect this exists to close.
+    if first == "materialize-schema" {
+        OperatorAuthorizationIssuerPostgresV1::materialize_schema(&env::var(
+            "OPERATOR_AUTHORIZATION_DATABASE_URL",
+        )?)
+        .await?;
+        ProductEdgePostgresOwnerV1::materialize_schema(&env::var("PRODUCT_EDGE_DATABASE_URL")?)
+            .await?;
+        println!(
+            "{}",
+            serde_json::json!({"materialized": ["operator_authorization", "product_edge"]})
+        );
+        return Ok(());
+    }
+
+    let config: BootstrapConfigV1 = serde_json::from_slice(&fs::read(first)?)?;
     let issuer_url = env::var("OPERATOR_AUTHORIZATION_DATABASE_URL")?;
     let product_edge_url = env::var("PRODUCT_EDGE_DATABASE_URL")?;
     let request_proof = env::var("RD_OWNER_API_TOKEN")?;
@@ -97,7 +117,9 @@ async fn main() -> anyhow::Result<()> {
     ])?;
     let manifest_bindings = manifests.bindings()?;
 
-    let issuer = OperatorAuthorizationIssuerPostgresV1::connect(&issuer_url).await?;
+    // Issuing a genesis authorization is not provisioning. This refuses if the
+    // Operator Authorization topology has not been materialized.
+    let issuer = OperatorAuthorizationIssuerPostgresV1::connect_existing(&issuer_url).await?;
     let authorization = issuer
         .issue_genesis(OperatorAuthorizationIssuanceProposalV1 {
             authorization_identity: config.authorization_identity,
@@ -120,9 +142,14 @@ async fn main() -> anyhow::Result<()> {
             expected_revocation_head: "EMPTY".to_string(),
         })
         .await?;
-    let product_edge =
-        ProductEdgePostgresOwnerV1::connect(&product_edge_url, &config.deployment_identity, trust)
-            .await?;
+    // Bootstrapping a deployment binding is not provisioning either; this
+    // refuses if nobody materialized the Product Edge topology.
+    let product_edge = ProductEdgePostgresOwnerV1::connect_existing(
+        &product_edge_url,
+        &config.deployment_identity,
+        trust,
+    )
+    .await?;
     let binding = product_edge
         .bootstrap_genesis(ProductEdgeBootstrapProposalV1 {
             deployment_identity: config.deployment_identity,

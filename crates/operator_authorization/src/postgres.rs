@@ -432,6 +432,28 @@ impl OperatorAuthorizationIssuerPostgresV1 {
         Ok(owner)
     }
 
+    /// Creates this Owner's private relations and their grants once, then
+    /// disconnects.
+    ///
+    /// Issuing a grant is not provisioning. `connect` runs this on every call
+    /// because nothing else did: the deployment's
+    /// `10-migrate-authority-custody.sh` creates the schema and the four legacy
+    /// relations, and no step ever created the grant kinds' twelve. The result
+    /// was that whichever process connected first created them, and that every
+    /// later connection re-issued the same `GRANT`, so the honest answer to who
+    /// last changed a privilege here was "whoever last ran the tool".
+    ///
+    /// This runs after `authority-custody-migrate`, not before: `migrate`
+    /// assumes `operator_authorization_private` already exists, and that schema
+    /// is created by that step.
+    pub async fn materialize_schema(database_url: &str) -> Result<(), OperatorAuthorizationError> {
+        let pool = PgPool::connect(database_url).await.map_err(storage)?;
+        let owner = Self { pool };
+        owner.migrate().await?;
+        owner.pool.close().await;
+        Ok(())
+    }
+
     #[cfg(test)]
     pub(crate) fn pool(&self) -> &PgPool {
         &self.pool
