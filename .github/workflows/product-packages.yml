@@ -143,21 +143,20 @@ jobs:
           DASHBOARD_RUN_LIST_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_runs
           DASHBOARD_SHADOW_RUNTIME_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_shadow_runtime
           DASHBOARD_SHADOW_RUNTIME_TEST_CURSOR_HMAC_KEY: shadow-runtime-disposable-cursor-key-at-least-32-bytes
-          # Workers drives a browser here; the other two do not, and each is held back for a reason
-          # observed rather than assumed. Schedule calendar leaves an evaluation outstanding past a
-          # 60 s command budget.
+          # Workers and service logs drive a browser here. Schedule calendar does not, and is held
+          # back for a reason observed rather than assumed: it leaves an evaluation outstanding past
+          # a 60 s command budget. Its PostgreSQL body runs either way, which is the RunStore
+          # gateway coverage Operations depends on.
           #
-          # Service logs was held back for a reason that turned out to be false. It was recorded as
-          # meeting SERVICE_LOG_CURSOR_CONTINUITY_UNAVAILABLE on its first page step; the page never
-          # showed that reason at all. The wait is a conjunction and a timeout quotes only its first
-          # line, so what got written down was the first line of the expression rather than the part
-          # that was unmet. Measured, the unmet part was an assertion that every row contain
-          # `run_store`, an identifier the surface never renders. Corrected, it pages, keeps its
-          # scroll position across a refresh, and is now held back at its tail-follow step: after
-          # returning to the tail with auto-refresh on, a newly written event does not appear within
-          # 15 s. That step has not been measured yet, and this reason will be replaced by what the
-          # measurement says rather than by what its error message quotes. Their PostgreSQL bodies
-          # run either way, which is the RunStore gateway coverage Operations depends on.
+          # Service logs was held back three times over for reasons that measurement replaced, and
+          # the sequence is worth keeping. It was first recorded as meeting a cursor continuity
+          # failure, which the page never showed: the wait is a conjunction and a timeout quotes
+          # only its first line, so what was written down was the first line of the expression
+          # rather than the part that was unmet. That part required every row to contain an
+          # identifier the surface renders as a label. Past it, the acceptance surfaced a header
+          # that changed height while reading, and then a run of assertions written against the
+          # data model's identifiers rather than the page - none of which could have held on any
+          # day since they were written. It now passes in about 50 s.
           #
           # Workers stalled here twice while passing locally in 24 to 38 s, and the browser build
           # looked like the difference. It was not: pinning the build changed nothing, and the suite
@@ -169,6 +168,9 @@ jobs:
           DASHBOARD_WORKERS_BROWSER_EXECUTABLE: ${{ env.DASHBOARD_BROWSER_EXECUTABLE }}
           DASHBOARD_CALENDAR_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_calendar
           DASHBOARD_SERVICE_LOGS_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_service_logs
+          DASHBOARD_SERVICE_LOGS_BROWSER_ACCEPTANCE: "1"
+          DASHBOARD_SERVICE_LOGS_ACCEPTANCE_CANDIDATE: ${{ github.sha }}
+          DASHBOARD_SERVICE_LOGS_BROWSER_EXECUTABLE: ${{ env.DASHBOARD_BROWSER_EXECUTABLE }}
         run: >-
           node --test --test-concurrency=1 --test-timeout=600000 --test-force-exit
           tests/run-store.postgres.test.mjs
