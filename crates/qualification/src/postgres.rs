@@ -7972,7 +7972,12 @@ mod postgres_tests {
         .execute(&owner.pool)
         .await
         .expect("corrupt the head");
-        assert!(owner.resolve_for_basis(&locator).await.is_err());
+        // Capture, restore, then assert. Asserting here would skip the restoration on exactly the
+        // run that matters - a readback that wrongly succeeds is the regression this entry exists
+        // to catch, and panicking before the restore would leave the corrupted digest in a chain
+        // database that is shared and never reset, so the first failure a reader sees would be
+        // some later entry with no apparent cause.
+        let corrupted_head_readback = owner.resolve_for_basis(&locator).await;
         sqlx::query(
             "UPDATE public.qualification_protected_feedback_heads_v1 SET frontier_digest=$2 WHERE principal_scope_key=$1",
         )
@@ -7981,6 +7986,7 @@ mod postgres_tests {
         .execute(&owner.pool)
         .await
         .expect("restore the head exactly");
+        assert!(corrupted_head_readback.is_err());
         assert_eq!(
             owner
                 .resolve_for_basis(&locator)
@@ -8003,7 +8009,7 @@ mod postgres_tests {
         .execute(&owner.pool)
         .await
         .expect("corrupt the projection event");
-        assert!(owner.resolve_for_basis(&locator).await.is_err());
+        let corrupted_event_readback = owner.resolve_for_basis(&locator).await;
         sqlx::query(
             "UPDATE public.qualification_owner_outbox_v1 SET payload_digest=$2 WHERE aggregate_identity=$1",
         )
@@ -8012,6 +8018,7 @@ mod postgres_tests {
         .execute(&owner.pool)
         .await
         .expect("restore the projection event exactly");
+        assert!(corrupted_event_readback.is_err());
         assert_eq!(
             owner
                 .resolve_for_basis(&locator)
@@ -8035,7 +8042,7 @@ mod postgres_tests {
             .execute(&rd)
             .await
             .expect("corrupt the R&D source event");
-        assert!(owner.resolve_for_basis(&locator).await.is_err());
+        let corrupted_source_readback = owner.resolve_for_basis(&locator).await;
         sqlx::query(
             "UPDATE public.rd_owner_outbox_v1 SET payload_digest=$2 WHERE event_identity=$1",
         )
@@ -8044,6 +8051,7 @@ mod postgres_tests {
         .execute(&rd)
         .await
         .expect("restore the R&D source event exactly");
+        assert!(corrupted_source_readback.is_err());
         assert_eq!(
             sqlx::query_scalar::<_, String>(
                 "SELECT payload_digest FROM public.rd_owner_outbox_v1 WHERE event_identity=$1",
