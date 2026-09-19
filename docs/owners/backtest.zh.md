@@ -8,7 +8,7 @@
 
 - 重放身份 确定性时钟 冻结输入 运行与模拟版本和配置摘要。
 - 重放产生的规范订单 成交 持仓 成本和结果。
-- **TARGET：** 完整有序 shared-kernel semantic trace，把 normalized lifecycle event、checkpoint、primitive
+- **CURRENT_PARTIAL：** 完整有序 shared-kernel semantic trace，把 normalized lifecycle event、checkpoint、primitive
   与 plugin result、target/protection transition 和 fill reconciliation 绑定到规范 replay。
 - 探索运行与 Qualification 请求的保护运行之间的完整隔离。
 - Exploratory Run Result 逐项重复实际消费的 Strategy Artifact 请求 PIT 范围 PIT Market Snapshot
@@ -41,6 +41,52 @@
 - **Native Replay** - 使用确定性时间重放历史事件，并在适用处复用原生 Runtime Risk 和订单语义。
 - **Sim Exchange** - 模拟场所接纳 延迟 成交 手续费和账户效果，不产生外部写入。
 - **Run Result** - 把实际消费的数据 工件 配置 订单 成交 成本和终态结果绑定为规范回执。
+
+## 实现状态台账
+
+本台账只记录仓库在本截面实际到达的状态。它沿用 [Market Data](./market-data/) 台账的状态词汇，并以
+`CURRENT_PARTIAL` 表示已合并但不可触达的形态；台账本身不授予任何许可。下文没有任何一行标为
+`IMPLEMENTATION_ADMITTED`：各行不授予任何东西，扩大准入集必须先修改本文档。
+
+- **CURRENT_PARTIAL - 有序 shared-kernel semantic trace：** 有序词汇与其失败关闭的普查位于
+  `crates/backtest_owner_contracts/src/native_replay_trace.rs`，生产方与 Backtest Owner 双方都在封印 trace
+  字节之前施加该普查，因此跳过 checkpoint、重复一次生命周期或留下未对账原生成交的 trace 是一个 fault，
+  什么都提交不了。只有一条纵向到达它：Sim `EVENT` 消费者是该普查在自身模块之外的唯一调用方，没有第二条
+  纵向产出 trace。
+- **CURRENT_PARTIAL - 持久 Result custody 与 R&D 加锁读：** 有序链路证明了什么见同名小节。
+  `crates/backtest_owner/Cargo.toml` 与 `crates/backtest_result_custody/Cargo.toml` 都没有声明
+  `[features]` 表，因此这条 custody 路径在任何构建里都是同一份代码。
+- **CURRENT_PARTIAL - 向 Product Edge 提供的探索 Run Result 视图：** Dashboard 读 API 通过
+  `resolve_exploratory_replay_result_v2` 解析准确的规范 Result 字节，它位于
+  `crates/strategy_factory_rd_owner_api/src/bin/dashboard_read_api.rs`；`product/rd-workbench/Dockerfile.owner`
+  构建并安装该二进制；有序链路以
+  `replay_result_dashboard_read_api_returns_exact_canonical_bytes` 覆盖这道缝。这是 Backtest 唯一一条在已部署
+  产物里端到端可触达的输出交接。
+- **CURRENT_PARTIAL - 探索重放的生产入口：** 重放本身已实现并已证明，而已部署产物里没有任何东西能进入它。
+  `run_exploratory_replay_v2` 在自身 crate 之外恰有一个调用方，即
+  `crates/strategy_factory_rd_owner_api/src/exploratory_replay.rs`，而该调用方位于
+  `#[cfg(feature = "sealed-develop-composer-acceptance")]` 之下；镜像构建
+  `--bin strategy-factory-rd-owner-api` 时根本不带 `--features` 参数。这量的是部署产物，不是历史。另一条公开
+  提交路径 `commit_exploratory_replay_result_v2` 的调用方只存在于
+  `crates/backtest_owner/src/lib.rs` 的 `#[cfg(test)]` 模块内。
+- **CURRENT_PARTIAL - 保护观测：** Backtest 从它自己执行的那次运行的规范结果派生出观测，却无法得知为那次运行
+  冻结的是哪一个观测。`derive_protected_economic_measurement_v1` 从规范 Result 字节计算并封印它，其全部调用方
+  都在 `crates/backtest_owner/tests/protected_economic_measurement.rs` 内。
+  `ProtectedEconomicComputationV1::resolve` 是把冻结的 Qualification 政策束换成一个指标与一条覆盖规则的唯一
+  函数，它在任何地方都没有调用方；保护请求没有任何字段携带这两个引用之一；而
+  `product/rd-workbench/postgres-init/10-migrate-authority-custody.sh` 对
+  `public.qualification_protected_economic_policy_bundles_v1` 撤销了 `backtest_owner`。这项选择没有生产方。
+- **CURRENT_PARTIAL - 第二份 Run Result 投影：** `project_locked_exploratory_replay_result_v1` 位于
+  `crates/backtest_owner/src/result_projection/mod.rs`，它从规范 Result 字节解码回撤 Sharpe Sortino 已实现
+  PnL 手续费 滑点与收益，并且不出现在任何其他文件里。上面那条 Product Edge 交接以准确规范字节服务同一个
+  消费方。
+- **TARGET - `REPAIR_VALIDATION` 请求与结果：** 不存在任何实现。`REPAIR_VALIDATION` 与
+  `RepairValidation` 不出现在 `crates/` 或 `product/` 下的任何文件里。
+- **TARGET - `SIMULATOR` 与 `BACKTEST_OPERATIONAL` 原生 repair：** 不存在 Backtest 的 repair 面。四个 Backtest
+  crate 里 `repair` 的全部出现都是 `crates/backtest_owner/src/postgres.rs` 里记录 custody 永不被修复的注释；
+  `BACKTEST_RUNNER_SERVICE` 不出现在任何 Rust 文件里，而
+  `product/dashboard/lib/rd-iteration-timeline-client.ts` 已经把它列为合法修复目标。消费侧词汇存在，生产方
+  不存在。
 
 ## 共享策略生命周期契约
 
