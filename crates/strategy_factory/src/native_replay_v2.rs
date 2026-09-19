@@ -1555,9 +1555,9 @@ fn prepare_event_corpus_handoff_for_sealed_acceptance_window_v1(
             digest: CanonicalDigestV2::try_from(digest_text(algorithm, digest))?,
         })
     }
-    fn named_content(identity: String, digest: BindingDigest) -> anyhow::Result<ContentIdentityV2> {
+    fn named_content(identity: &str, digest: BindingDigest) -> anyhow::Result<ContentIdentityV2> {
         Ok(ContentIdentityV2 {
-            identity: opaque(&identity)?,
+            identity: opaque(identity)?,
             digest: CanonicalDigestV2::try_from(digest_text("sha256", digest))?,
         })
     }
@@ -1599,7 +1599,7 @@ fn prepare_event_corpus_handoff_for_sealed_acceptance_window_v1(
         schema_version: 2,
         request_identity: opaque("owner-event-corpus-replay-request-v2")?,
         frozen_research_intent: named_content(
-            format!(
+            &format!(
                 "rd-research-intent-v2-{}",
                 hex(plan.intent_identity().as_bytes())
             ),
@@ -1614,7 +1614,7 @@ fn prepare_event_corpus_handoff_for_sealed_acceptance_window_v1(
             plan.canonical_plan_digest(),
             plan.canonical_plan_digest(),
         )?,
-        artifact: named_content(artifact_locator, artifact.identity())?,
+        artifact: named_content(&artifact_locator, artifact.identity())?,
         resolved_owner_inputs: content("blake3", fixture_digest(5), market.frame_census_digest())?,
         pit_scope: content("blake3", fixture_digest(6), market.scope_digest())?,
         pit_snapshot: content(

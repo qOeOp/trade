@@ -3125,6 +3125,7 @@ mod postgres_tests {
         let rd_owner_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
         let topology_admin_pool = database.owner_topology_admin_pool();
         let catalog_admin_pool = admitted_catalog_admin_test_pool().await;
+        assert_catalog_is_empty_for_disposable_cleanup(topology_admin_pool).await;
         let signing_key = SigningKey::from_bytes(&[31_u8; 32]);
         let verifier_key = bytes_hex(signing_key.verifying_key().as_bytes());
         let authored = |kind: CatalogAdminCommandKindV3, command_identity: &str| {
@@ -3299,30 +3300,7 @@ mod postgres_tests {
         .unwrap();
         assert_eq!(external_write_grants, 0);
 
-        for (table, query) in [
-            (
-                "rd_replay_policy_catalog_records_v2",
-                "SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_records_v2",
-            ),
-            (
-                "rd_replay_policy_catalog_head_v2",
-                "SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_head_v2",
-            ),
-            (
-                "rd_replay_policy_catalog_revocations_v2",
-                "SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_revocations_v2",
-            ),
-            (
-                "rd_replay_policy_catalog_audit_v2",
-                "SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_audit_v2",
-            ),
-        ] {
-            let count: i64 = sqlx::query_scalar(query)
-                .fetch_one(topology_admin_pool)
-                .await
-                .unwrap();
-            assert_eq!(count, 0, "migration must not seed {table}");
-        }
+        assert_catalog_is_empty_for_disposable_cleanup(topology_admin_pool).await;
 
         let signing_key = SigningKey::from_bytes(&[11_u8; 32]);
         let bootstrap = signed_bootstrap_request(&signing_key, &replay_policy(1), 1_000);
@@ -3764,8 +3742,62 @@ mod postgres_tests {
             .unwrap()
     }
 
+    /// Every Catalog relation this module's cleanup empties, in the order the cleanup deletes them,
+    /// each with the literal count its precondition reads. The counts are written out rather than
+    /// composed, because this crate admits no dynamically built SQL.
+    const DISPOSABLE_CLEANUP_CATALOG_TABLES: [(&str, &str); 6] = [
+        (
+            "rd_replay_policy_catalog_audit_v3",
+            "SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_audit_v3",
+        ),
+        (
+            "rd_replay_policy_catalog_execution_profiles_v3",
+            "SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_execution_profiles_v3",
+        ),
+        (
+            "rd_replay_policy_catalog_revocations_v2",
+            "SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_revocations_v2",
+        ),
+        (
+            "rd_replay_policy_catalog_head_v2",
+            "SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_head_v2",
+        ),
+        (
+            "rd_replay_policy_catalog_audit_v2",
+            "SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_audit_v2",
+        ),
+        (
+            "rd_replay_policy_catalog_records_v2",
+            "SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_records_v2",
+        ),
+    ];
+
+    /// States the precondition the cleanup below depends on: this proof starts from an empty
+    /// Catalog, so emptying those relations afterwards can only remove rows this proof wrote.
+    ///
+    /// The ordered chain shares one database and never resets it. A proof that deletes a whole
+    /// relation is therefore sound only while nothing else has written to it, and today that holds
+    /// by position rather than by isolation: one such proof runs first and the other runs last.
+    /// Asserting the precondition turns a future entry writing in between into a named failure
+    /// here, instead of a silent deletion of rows that belong to someone else.
+    async fn assert_catalog_is_empty_for_disposable_cleanup(topology_admin_pool: &PgPool) {
+        for (table, count_query) in DISPOSABLE_CLEANUP_CATALOG_TABLES {
+            let count: i64 = sqlx::query_scalar(count_query)
+                .fetch_one(topology_admin_pool)
+                .await
+                .unwrap();
+            assert_eq!(
+                count, 0,
+                "{table} must be empty before a proof that empties it on the way out"
+            );
+        }
+    }
+
     /// Opens the poison capability only inside this disposable PostgreSQL test module. This is not
     /// an administration port and is absent from non-test builds.
+    ///
+    /// Only sound after `assert_catalog_is_empty_for_disposable_cleanup`: it deletes every row in
+    /// these relations, not only the rows its caller wrote.
     async fn cleanup_catalog_for_disposable_test_only(topology_admin_pool: &PgPool) {
         let mut transaction = topology_admin_pool.begin().await.unwrap();
 
