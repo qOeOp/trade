@@ -538,16 +538,47 @@ test(browserAcceptance
       });
     });
 
-    await t.test("composer readback fails closed while no composer custody exists", async () => {
+    await t.test("composer readback carries the Owner's own terminal for this research", async () => {
+      // The Owner resolves this identity against its own Strategy Input custody and answers a
+      // typed terminal. Read it first: the page must show that answer, not a transport failure
+      // standing in for a capability the deployment never composed.
+      const composer = await ownerJson(new URL(
+        `v2/develop-composer/runs/${researchRequestIdentity}/readback`, readApiUrl,
+      ), readApiToken);
+      assert.equal(composer.status, 503, JSON.stringify(composer.body));
+      const composerBody = composer.body;
+      assert.equal(composerBody.request_identity, researchRequestIdentity);
+      assert.equal(composerBody.disposition, "UNAVAILABLE", JSON.stringify(composerBody));
+      assert.equal(composerBody.receipt_identity, null);
+      assert.equal(composerBody.artifact, null);
+      // The coordinate is the Owner's collapse point and outlives any rewording of the reason, so
+      // it is pinned; the reason must be present and is then compared against what the page shows.
+      assert.equal(composerBody.coordinate, "operation", JSON.stringify(composerBody));
+      assert.match(composerBody.reason, /^\S.*$/u, JSON.stringify(composerBody));
+
       await navigate(browser, `${origin}/rd/composer/`);
       await waitForBrowserExpression(browser, hydratedExpression('input[placeholder="Request identity"]'),
         { label: "composer rail" });
       assert.equal(await readBrowserValue(browser, setInputExpression('input[placeholder="Request identity"]', researchRequestIdentity)), true);
       assert.equal(await readBrowserValue(browser, clickButtonExpression("Open readback")), true);
-      await waitForBrowserExpression(browser,
-        `document.body?.innerText.includes('Composer readback unavailable') === true`,
-        { label: "composer unavailable" });
-      assert.equal(await readBrowserValue(browser, reasonExpression()), "OWNER_TRANSPORT_UNAVAILABLE");
+      await waitForBrowserExpressionWithRefresh(browser,
+        `${factExpression("Request", "Disposition")} !== null`,
+        { label: "composer readback", endpoints: [
+          `/api/rd/composer/${encodeURIComponent(researchRequestIdentity)}/`,
+        ] });
+      assert.deepEqual(await readBrowserValue(browser, `(() => ({
+        identity: ${factExpression("Request", "Identity")}?.title,
+        disposition: ${factExpression("Request", "Disposition")}?.text,
+        receipt: ${factExpression("Custody", "Receipt")}?.text,
+        coordinate: ${factExpression("Artifact", "Coordinate")}?.text,
+        reason: ${factExpression("Artifact", "Reason")}?.text,
+      }))()`), {
+        identity: researchRequestIdentity,
+        disposition: composerBody.disposition,
+        receipt: "Not issued",
+        coordinate: composerBody.coordinate,
+        reason: composerBody.reason,
+      });
     });
 
     await t.test("exploratory replay request and historical rejection read back exactly", async () => {
