@@ -85,7 +85,11 @@ async function stopProcess(child) {
 async function openBrowser(executable) {
   const profile = await mkdtemp(join(tmpdir(), "dashboard-workers-browser-"));
   const child = spawn(executable, [
+    // The same runner runs the ordered chain's browser acceptance to green with these three flags
+    // and stalls these suites without them, on an identical pinned browser build. A container's
+    // /dev/shm is small, and Chrome falls back to it for shared memory unless told otherwise.
     "--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`,
+    "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu",
     "--disable-background-networking", "--disable-default-apps", "--disable-extensions",
     "--disable-sync", "--metrics-recording-only", "--no-default-browser-check", "--no-first-run",
     "about:blank",
