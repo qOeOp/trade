@@ -55,9 +55,15 @@ widening the admitted set requires changing this document first.
   checkpoint, and publishes no readiness: `RuntimeFoundation`'s only status stays `NotReady`. Three prerequisites
   sit outside this Owner, and the first is larger than Risk's: the live market fact lands in
   `market_data_private`, which is revoked from `PUBLIC`, and Market Data exposes no read function for it in any
-  API schema, so a read path must be built before there is anything to grant. Market Data has done this shape
-  before - `market_data_rd_api` carries eight functions granted to `rd_owner` - so the precedent exists and the
-  live channel is what has not been given one. The role pair and its schemas are then a shared-surface change
+  API schema, so a read path must be built before there is anything to grant. Market Data has built an external read schema
+  before, but that schema is not a precedent this port can copy: `market_data_rd_api` carries twelve functions,
+  eight in `crates/data/src/owner/postgres/rd_strategy_input_custody.rs` and four in
+  `crates/data/src/owner/replay_market_facts_v2/postgres.rs`, and every one of them pins `session_user` to
+  `rd_owner` inside its own `SECURITY DEFINER` body. A caller the body does not name receives an empty result
+  rather than a permission error, so a read path built to that shape would return nothing to Runtime after the
+  grant was issued, and the failure would look like an absent fact. This port therefore needs a read path whose
+  permitted callers are the grant, not a predicate; deciding that is Market Data's contract change, not a grant
+  this Owner is waiting on. The role pair and its schemas are then a shared-surface change
   under `product/rd-workbench/postgres-init/`, and once the read path exists Market Data must grant the Runtime
   role execute on it.
   Admission is permission to build and verify this one read. It authorizes no Runtime effect, no Paper or Live
