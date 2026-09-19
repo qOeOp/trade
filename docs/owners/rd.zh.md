@@ -72,6 +72,44 @@
   `D0_COMPLETED_NO_ARTIFACT` `D1_VALIDATED` `D1_VALIDATION_FAILED` `D1_BUILD_FAILED` `REJECTED_NOT_D_ONLY`
   和 `OUTCOME_UNKNOWN`。
 
+## 实现状态台账
+
+本台账只记录仓库在本截面实际到达的状态。它沿用 [Market Data](./market-data/) 台账的状态词汇，并以
+`CURRENT_PARTIAL` 表示已合并但不可触达的形态；台账本身不授予任何许可：本文档没有任何切片是
+`IMPLEMENTATION_ADMITTED`，扩大准入集必须先修改本文档。每一行都点名那个可以证伪它的符号或路径。
+
+- **CURRENT - 已部署的服务，以及它暴露面的边界：** `product/rd-workbench/Dockerfile.owner` 构建
+  `--bin strategy-factory-rd-owner-api` 时完全不带 `--features`，该文件唯一的 `--features` 属于 dashboard
+  那个二进制。所以部署镜像就是 `crates/strategy_factory_rd_owner_api/src/main.rs` 里未加门的那个 router，
+  而其后由 `#[cfg(feature = "sealed-develop-composer-acceptance")]` 与
+  `#[cfg(feature = "sealed-source-intake-composer-acceptance")]` 注册的六条路由不在其中：
+  `/v2/exploratory-replay/execution-input-bindings`、`/v3/exploratory-replay-requests/composer-backed`，
+  以及四条 `/_sealed-acceptance/v1/develop-composer/*`。一条验收路由绝不是生产能力的证据，
+  而密封 feature 的存在就是为了让这个区别是机械的而不是靠记住的。
+- **CURRENT - 其它 Owner 被授权读取的跨 Owner 读面：** `rd_owner_api` 有 35 个去重函数，
+  是本仓库唯一一个把执行权授予多于一个消费方 Owner 角色的 schema：`product_edge_owner`、
+  `qualification_writer`、`backtest_owner`、`market_data_owner` 与 `market_data_reader`，
+  `rd_owner` 是该 schema 自己的角色。同一截面上作为对照：`qualification_api` 13 个函数、
+  `market_data_rd_api` 12 个且只授 `rd_owner`、`portfolio_api` 与 `governance_api` 一个都没有。
+  这些被授权的函数是 `SECURITY DEFINER` 且函数体内不点名任何调用者，所以访问由授权决定，
+  没有授权的调用者收到的是权限错误而不是空结果。本行记录的是这个面与它的授权，
+  它不确立任何消费方在生产中读过它。
+- **CURRENT_PARTIAL - 生产 Composer 读端口：**
+  `crates/strategy_factory/src/source_research_composer_postgres_v2.rs` 为
+  `PostgresSourceResearchComposerProductionV2` 实现了 `DevelopComposerSealedReadPortV2`，其上没有任何
+  `cfg` 属性，所以部署构建携带它，解析一次已提交的 Composer 操作不需要任何 acceptance feature。
+  它证明该读取能解析同一事务提交的东西；它不证明有序链路之外存在任何消费方。
+- **TARGET - PIT 输入缝已接线但惰性：** `rd.md` 陈述 Market Data 为每个 PIT Market Snapshot Request
+  返回一份封缄的 `ResearchPitTerminal`。`crates/strategy_factory_rd_owner_api/src/main.rs` 导入了
+  `ResearchPitTerminalResolver`，声明了 `_market_data_research_pit` 并在构造时赋值，
+  然后从不读它，下划线是唯一的现场标记，而 `crates/data` 之外没有任何一处调用该解析器的 trait 方法。
+  该解析器还是可选的：`bootstrap_deployment_store_admission` 返回 `Option`，
+  所以部署中该字段可能持有 `None`。补上这条需要本 Owner 出一个消费方，不是要 Market Data 开更多读。
+- **TARGET / ISOLATED_ACCEPTANCE_ONLY - 探索重放的生产入口：** `run_exploratory_replay_v2` 在
+  `vibe-backtest-owner` 之外唯一的调用者位于 `run_native_replay` 内，而后者带
+  `#[cfg(feature = "sealed-develop-composer-acceptance")]`，且全仓没有任何 `cfg(not(...))` 孪生体。
+  在部署镜像不带 feature 的前提下，该路径在已部署产物里不可达。这测的是部署产物，不是历史。
+
 ## 模块
 
 - **Source Intake** - 把论文 观察 笔记 媒体和工具输出作为带来源与内容身份的不可信数据接纳。来源
