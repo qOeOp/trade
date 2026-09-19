@@ -50,9 +50,21 @@ Independently gate every normal Trade Intent against current policy, account exp
 
 This ledger records only what the repository has reached at this cut. It uses the status vocabulary of the
 [Market Data](./market-data/) ledger, with `CURRENT_PARTIAL` as the merged-but-unreachable form, and grants no
-permission by itself: no slice of this document is `IMPLEMENTATION_ADMITTED`, and widening the admitted set
-requires changing this document first.
+permission by itself. The one row marked `IMPLEMENTATION_ADMITTED` below is the only admitted slice, admitted on
+2026-09-19 as bounded, separately reviewable work whose acceptance is its ordered-chain entries passing on Linux
+and a production path that depends on no testkit or acceptance feature; every other row grants nothing, and
+widening the admitted set requires changing this document first.
 
+- **TARGET / IMPLEMENTATION_ADMITTED - Risk Owner capacity input read port:** the admitted slice is one
+  `risk_owner`/`risk_writer` role pair over `risk_private` and `risk_api`, and one read-only Risk custody that,
+  inside its own transaction, re-reads Portfolio's own `BOUND` Capacity Scope and current Capacity View through
+  `portfolio_api.read_bound_capacity_scope_v1` and `portfolio_api.read_current_capacity_view_v1`, and seals what
+  it read together with the evidence cut it read it at. It makes no Risk decision, commits no Reservation, writes
+  no fence, and consumes no Trade Intent, because the inputs for all four have no producer. Two prerequisites sit
+  outside this Owner: the role pair and its schemas are a shared-surface change under
+  `product/rd-workbench/postgres-init/`, and Portfolio must grant `risk_writer` execute on those two functions,
+  which today are granted only to `governance_writer`. Admission is permission to build and verify this one read.
+  It authorizes no Risk decision, no production effect, and no real trading.
 - **TARGET - Risk Engine:** the inherited `RiskEngine` in `crates/risk/src/engine/mod.rs` performs pre-trade order
   validation, `TradingState` halt and reduce switching, notional and rate limits, and the sizing in
   `crates/risk/src/sizing.rs`; it is the adoption source named by capability adoption. It returns no terminal Risk
@@ -120,6 +132,12 @@ requires changing this document first.
   QUALIFIED_ECONOMIC_BOUND_EXCEEDED > AGGREGATE_CAPACITY_EXHAUSTED`, independent of evidence or request arrival
   order. Governance-policy breach, Qualification economic-bound breach, and aggregate pool exhaustion remain
   distinct simultaneous causes rather than sharing one opaque limit category.
+
+Risk's silence is never approval. A consumer may proceed only after one terminal outcome - a rejection, an
+approved Risk Decision, or a pre-consumption `WITHDRAWN` - and a timeout is undecided, neither a rejection nor an
+approval. A consumer never reads `ADMITTED_ONCE` as proof that an effect has occurred, because it states only how
+the admission ordered against fence activation, and never reads the absence of a fence as proof that no fence
+exists.
 
 ## Rejections and prohibitions
 
