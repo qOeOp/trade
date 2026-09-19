@@ -55,8 +55,8 @@ requires changing this document first.
 ## Input handoffs
 
 Each contract below states what Scanner requires and refuses, not what an upstream returns. None of the four
-seams exists at this cut, as the `TARGET - Strategy Loader, Market Snapshot, and Capacity View input` ledger
-entry records; satisfying a contract is a condition on a future implementation and never evidence that one is
+seams exists at this cut, as the ledger entry for the `StrategyLoader`, `MarketSnapshot`, and Capacity View
+inputs records; satisfying a contract is a condition on a future implementation and never evidence that one is
 admitted.
 
 - Scheduler supplies the fixed periodic trigger and no fact; it has no deployment authority. The trigger carries

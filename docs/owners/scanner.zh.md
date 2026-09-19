@@ -47,8 +47,8 @@
 
 ## 输入交接
 
-以下每条契约陈述的是 Scanner 要求什么 拒绝什么，而不是上游返回什么。四条缝在本截面上都不存在，台账条目
-`TARGET - Strategy Loader, Market Snapshot, and Capacity View input` 已记；满足一条契约是对未来实现的条件，
+以下每条契约陈述的是 Scanner 要求什么 拒绝什么，而不是上游返回什么。四条缝在本截面上都不存在，台账中
+关于 `StrategyLoader`、`MarketSnapshot` 与 Capacity View 输入的那条已记；满足一条契约是对未来实现的条件，
 绝不是某条实现已被准入的证据。
 
 - 调度器提供固定周期触发而不提供事实，它没有部署权威。触发不携带任何 Scanner 信任的身份：尝试身份只由
