@@ -10,7 +10,10 @@ Own the deployable strategy registry, lifecycle decision, and permitted capital 
   versions, qualified capacity ceiling, ActivationConditionVersion, CapitalEnvelopeVersion, effective interval,
   and one immutable Execution Scope. That scope binds a pre-admitted candidate-neutral Capacity Scope, exact
   adapter implementation/configuration and trust-policy digest, venue or simulator endpoint, account binding,
-  capability and reduce-only policy, and opaque credential handle.
+  capability and reduce-only policy, and the Execution-owned Adapter Binding fact identity under which that
+  binding's opaque credential handle is held. Governance binds the identity, never the handle: Execution withholds
+  `credential_handle_identity` from the readback Governance admits against, and resolves the handle itself at the
+  effect moment. The identity pins the scope to one exact credential without giving a second Owner reach to it.
 - Lifecycle state, Authorized Generation Decision, effective time, active generation, exact committed fact identities, and bounded rationale category. Every generation decision cross-binds the initiating request's complete Authorization Lineage and a distinct Autonomous Policy Authorization for unattended trading. Governance never copies protected Qualification content.
 - Versioned Capital Envelope applicability chain: one `POOL_ROOT` envelope for the Portfolio-owned Capacity Scope
   plus one `STRATEGY_GENERATION` envelope for each governed generation. Both kinds bind their own
