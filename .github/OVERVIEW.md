@@ -32,8 +32,6 @@ CI/CD, testing, publishing, and automation within the NautilusTrader repository.
   wheel jobs after `pre-commit`; every publication path requires it to pass. Pull requests targeting
   `main` run on opened, synchronize, and reopened events. Retargeting a pull request's base runs the
   normal graph; other metadata edits neither cancel that graph nor publish `quality`.
-- **build-docs.yml**: builds the Python API documentation on `master` and `nightly`, then dispatches
-  the downstream documentation build after the local gate succeeds.
 - **cli-binaries.yml**: builds CLI archives for Linux x86, Linux ARM64, macOS ARM64, and Windows
   x86_64 on nightly pushes and manual dispatch. An isolated manual-only Linux x86 job in
   `qOeOp/trade` builds and attests the Strategy Factory formation binary, then uploads only that raw
@@ -68,16 +66,12 @@ CI/CD, testing, publishing, and automation within the NautilusTrader repository.
   attestations.
 - **dst.yml**: runs deterministic simulation smoke tests on `nightly` and manual dispatch.
 - **nightly-docs-features-check.yml**: nightly docs.rs build checks and crate feature compatibility verification.
-- **nightly-merge.yml**: fast-forwards `nightly` to the latest successful `develop` build.
 - **nightly-miri.yml**: runs Miri against the core, model, and plugin crates each day at 13:00 UTC.
-- **nightly-tests.yml**: runs standard-precision Clippy, extended turmoil network tests, and Cargo
-  publish-plan and dry-run checks each day at 12:00 UTC. It gives early visibility on `develop`
-  before `nightly-merge` at 14:00 UTC without repeating the platform build‑and‑test matrices.
-- **performance.yml**: Rust tests and benchmarks on `nightly`.
+- **nightly-tests.yml**: runs standard-precision Clippy, extended turmoil network tests, and
+  Cargo publish-plan and dry-run checks each day at 12:00 UTC.
+- **performance.yml**: Rust tests and `cargo-ci-benches` benchmarks, on manual dispatch.
 - **security-audit.yml**: runs change-aware and scheduled supply chain checks (cargo-audit,
   cargo-deny, cargo-vet, pip-audit, osv-scanner, and Zizmor).
-- **openssf-scorecard.yml**: runs the OpenSSF Scorecard posture scan on a weekly schedule and manual
-  dispatch. Each run publishes badge/API results and uploads SARIF to code scanning.
 
 ## Security
 
@@ -110,8 +104,6 @@ CI/CD, testing, publishing, and automation within the NautilusTrader repository.
 - **Code scanning**: CodeQL analyzes tracked Go, Python, and Rust code on pull
   requests and pushes to `main`, and on manual dispatch. Zizmor runs in `security-audit.yml` and
   uploads SARIF when token permissions allow it.
-- **OpenSSF Scorecard**: `openssf-scorecard.yml` publishes repository posture results for the public
-  badge/API and uploads SARIF to code scanning.
 
 ### Build and publish controls
 
