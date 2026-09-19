@@ -281,7 +281,7 @@ import re
 import sys
 
 source = Path(sys.argv[1]).read_text(encoding="utf-8")
-catalog_test = "catalog_admin_and_family_formation_are_atomic_and_fail_closed"
+catalog_test = "replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed"
 bootstrap_test = "replay_policy_catalog_postgres_v2::postgres_tests::catalog_v3_bootstrap_publishes_the_head_the_owner_reads_and_formation_binds"
 poison_test = "postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation"
 array_open = "readonly rd_owner_postgres_tests=(\n"
@@ -312,6 +312,14 @@ if len(entries) != 82:
 if sum(test_name == poison_test for _, _, test_name in entries) != 1:
     raise SystemExit(
         "ERROR: recovery-sidecar poison test must occur exactly once as a parsed test name."
+    )
+if sum(test_name == catalog_test for _, _, test_name in entries) != 1:
+    raise SystemExit(
+        "ERROR: catalog-admin route test must occur exactly once as a parsed test name."
+    )
+if sum(test_name == bootstrap_test for _, _, test_name in entries) != 1:
+    raise SystemExit(
+        "ERROR: catalog V3 bootstrap route test must occur exactly once as a parsed test name."
     )
 loop_open = 'for test_selection in "${rd_owner_postgres_tests[@]}"; do\n'
 loop_close = "\ndone\n\nlegacy_replay_fingerprint_after="
@@ -2961,7 +2969,7 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
   if [[ -n "$backtest_result_fault" ]]; then
     inject_backtest_result_fault "$backtest_result_fault"
   fi
-  if [[ "$test_name" == 'catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
+  if [[ "$test_name" == 'replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
     [[ "$test_name" == 'replay_policy_catalog_postgres_v2::postgres_tests::catalog_v3_bootstrap_publishes_the_head_the_owner_reads_and_formation_binds' ]] ||
     [[ "$test_name" == 'postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
     env \
