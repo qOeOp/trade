@@ -9,6 +9,7 @@ is commentary.
     evidence_tree: 721afd0dc2ac4846c918f7e1af968b95e3896040
     base_main:    0e23622ce
     members:      642 653 659 666 677 679
+    deferred:     645 681 663 682 683
     opened_at:    2026-09-19T04:53:59Z
 
 ## What closed means
@@ -32,7 +33,28 @@ tree the members produce when merged is unaffected. So these stay open:
     rebasing your own branch                    fine
     force-pushing your own branch               fine, UNLESS it is a member
     opening PRs, pushing new commits, review    fine
-    running CI on your own branches             fine
+    ordinary PR CI on your own branch           fine
+
+### Do NOT take chain evidence while closed - corrected
+
+An earlier version of this file said running CI on your own branch is
+unconstrained. That is wrong for `test-chain/*` pushes, and it is wrong in the
+expensive direction.
+
+A closed window is the WORST time to take chain evidence for a PR outside the
+batch. Your evidence would be a merge tree of `base_main + your PR`; when the
+members land, main changes and your evidence is void the moment the window opens.
+You pay a full round and throw it away.
+
+It is also the time that hurts most. Evidence rounds are what actually consume
+runners - the window's "do not merge" rule does not stop them. At the time of
+writing, the gating round for THIS window sat queued behind twelve other runs.
+An out-of-batch lane taking evidence during a closed window voids its own
+evidence AND delays the unfreeze for everyone.
+
+So: while closed, do not push `test-chain/*`. Take evidence after the batch lands
+and main is settled - then your merge tree is built on the main that will still
+be there.
 
 ### The exception, which is not obvious
 
@@ -41,6 +63,13 @@ member's head as it stood when the branch was assembled; moving that head change
 what "merge the members" produces, exactly as moving main does. Members are listed
 above. If you need to move a member's head, tell Lane 0 first - the round has to
 be rebuilt, and it is cheaper to know before it finishes than after.
+
+## deferred: PRs that are waiting on purpose
+
+Listed PRs have chosen to wait for a later window, usually because they touch the
+chain closure and would need re-proving anyway. They are NOT stalled and must not
+be nudged. Without this field a scanner sees only "not in members" and reports
+"needs a toggle" - which means chasing a lane that is correctly waiting.
 
 ## Members are being proven, not stalled
 
