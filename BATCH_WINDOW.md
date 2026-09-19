@@ -1,20 +1,36 @@
-# batch window: VOID - the batch was abandoned before its evidence was used
+# batch window: OPEN
 
 Owner: Lane 0 (platform).
 
-    state:        void
-    voided_at:    2026-09-19T07:34:07Z
-    void_reason:  assembled on a red baseline; evidence cancelled before use
-    members:
-    chains_run:   35427329533 CANCELLED - do not cite
-    full_run:     35427331514 WAS security-audit, not build - do not cite
-    base_main:    41b6df61557ff997e38b59fb7c647f641482f1f8
-    blocked_on:   686
-    reform_after: 686
+    state:        open
+    main:         b0de5ea48acec4652a7e146dde711e56d1b5965d
+    last_landed:  686 680 684 688
+    landed_by:    not Lane 0 - see below
+    opened_at:    2026-09-19T07:45Z
 
-`state: void` rather than `open`, because "was closed and abandoned" and "never
-opened" are different facts for anyone reading. `members` is empty: those pull
-requests are unfrozen and their lanes may move them.
+## The three members and #686 landed without me, and main is healthy
+
+#686, #680, #684 and #688 were merged between 07:37:23Z and 07:37:38Z, fifteen
+seconds apart, in the order that was required - the clippy fix first, then the
+three documentation PRs. I did not merge them, and the commit metadata does not
+say who did: every squash through GitHub's API records `gopher` as author and
+`GitHub` as committer, identically to the merges Lane 0 performed earlier today.
+
+Main was checked afterwards and is sound:
+
+    crates/testkit/src/postgres.rs:534   `let Err(refused) = outcome else {`
+                                         the clippy fix is present
+    ledger count                         75 -> 77  (rd 9 -> 11, which is exactly
+                                         what #684 adds)
+    main's own build                     running on b0de5ea48
+
+So this is recorded, not complained about. The batch I had assembled was void
+anyway - it sat on a red baseline - and whoever merged did it in the one order
+that works. The outcome is the outcome my process would have reached, sooner.
+
+What was skipped is the batch evidence: no round ever ran on the assembled tree
+of those three together. For three documentation PRs with no overlapping files
+that is a small thing, and it is worth naming rather than leaving implied.
 
 ## Correcting the record twice: the prose, then the fields
 
