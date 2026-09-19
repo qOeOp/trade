@@ -93,7 +93,17 @@ function validResearchView(
     "source_frontier", "next_legal_action",
   ]
   const artifact = ["attempt_identity", "artifact_identity", "build_receipt_identity", "artifact_review_identity"]
-  if (!version(value) || !exactKeys(value, phase === "ARTIFACT_AVAILABLE" ? [...base, ...artifact] : base)) return false
+  // The phase decides the field set rather than permitting extra fields: the producing side refuses
+  // an INTENT_FROZEN view that carries exploration fields as firmly as it refuses an exploration
+  // view that lacks them. Reading "whatever is present" would admit a malformed view as a valid one.
+  const exploration = ["composer_artifact", "exploration"]
+  const keys = phase === "ARTIFACT_AVAILABLE"
+    ? [...base, ...artifact]
+    : phase === "EXPLORATION_ACTIVE" ? [...base, ...exploration] : base
+  // An exploration view is schema 3, and the schema is part of what the phase decides.
+  if (!version(value, phase === "EXPLORATION_ACTIVE" ? 3 : 1) || !exactKeys(value, keys)) return false
+  if (phase === "EXPLORATION_ACTIVE"
+    && !validExplorationView(value.composer_artifact, value.exploration)) return false
   const available = value.availability === "AVAILABLE"
     && value.projection_at_epoch_ms < value.valid_through_epoch_ms
   const stale = allowStale && value.availability === "STALE"
@@ -105,6 +115,51 @@ function validResearchView(
     && epoch(value.valid_through_epoch_ms) && (available || stale) && value.phase === phase
     && Array.isArray(value.source_frontier) && value.source_frontier.every(validSource)
     && (phase !== "ARTIFACT_AVAILABLE" || artifact.every((key) => text(value[key])))
+}
+
+// The two structures a schema 3 view carries, and the three facts they must agree on. The equalities
+// are not redundant checks of one value: they are what makes "these two structures describe the same
+// family and the same census cut" decidable by the reader rather than assumed from their proximity.
+export function validExplorationView(composerArtifact: unknown, exploration: unknown): boolean {
+  if (!object(composerArtifact) || !object(exploration)) return false
+  if (!exactKeys(composerArtifact, [
+    "artifact_locator", "artifact_identity_digest", "composer_request_identity",
+    "composer_operation_receipt_digest", "artifact_family_binding_identity",
+    "artifact_family_binding_digest", "artifact_family_binding_receipt_identity",
+    "trial_family_identity", "census_frontier_identity", "census_frontier_digest",
+  ]) || !exactKeys(exploration, [
+    "trial_family_identity", "census_frontier_identity", "census_frontier_digest",
+    "replay_request_identity", "replay_request_meaning_digest", "replay_request_seal_digest",
+    "replay_receipt_identity",
+  ])) return false
+  const bare = (digest: unknown) => typeof digest === "string" ? digest.slice("sha256:".length) : ""
+  return sha256Digest(composerArtifact.artifact_identity_digest)
+    && composerArtifact.artifact_locator
+      === `rd-strategy-artifact-v2-${bare(composerArtifact.artifact_identity_digest)}`
+    && text(composerArtifact.composer_request_identity)
+    && sha256Digest(composerArtifact.composer_operation_receipt_digest)
+    && sha256Digest(composerArtifact.artifact_family_binding_digest)
+    && composerArtifact.artifact_family_binding_identity
+      === `rd-composer-artifact-family-binding-v3-${bare(composerArtifact.artifact_family_binding_digest)}`
+    && namedSha256(
+      composerArtifact.artifact_family_binding_receipt_identity,
+      "rd-composer-artifact-family-binding-receipt-v3-",
+    )
+    && text(composerArtifact.trial_family_identity)
+    && text(composerArtifact.census_frontier_identity)
+    && sha256Digest(composerArtifact.census_frontier_digest)
+    && composerArtifact.trial_family_identity === exploration.trial_family_identity
+    && composerArtifact.census_frontier_identity === exploration.census_frontier_identity
+    && composerArtifact.census_frontier_digest === exploration.census_frontier_digest
+    && text(exploration.replay_request_identity)
+    && sha256Digest(exploration.replay_request_meaning_digest)
+    && sha256Digest(exploration.replay_request_seal_digest)
+    && namedSha256(exploration.replay_receipt_identity, "rd-exploratory-replay-receipt-v2-")
+}
+
+function namedSha256(value: unknown, prefix: string): boolean {
+  return typeof value === "string" && value.startsWith(prefix)
+    && /^[0-9a-f]{64}$/u.test(value.slice(prefix.length))
 }
 
 async function validBasis(value: unknown, requestIdentity: string): Promise<boolean> {
@@ -432,11 +487,38 @@ export async function deriveResearchConsumerProjectionV1(value: unknown, request
   const researchSuffix = await sha256Text(`v2:${requestIdentity}:${raw.owner_receipt.semantic_digest}`)
   const stale = raw.research_view?.availability === "STALE"
   const artifactAvailable = raw.research_view?.phase === "ARTIFACT_AVAILABLE"
-  const viewPhase = artifactAvailable ? "ARTIFACT_AVAILABLE" : "INTENT_FROZEN"
+  const explorationActive = raw.research_view?.phase === "EXPLORATION_ACTIVE"
+  const viewPhase = artifactAvailable
+    ? "ARTIFACT_AVAILABLE"
+    : explorationActive ? "EXPLORATION_ACTIVE" : "INTENT_FROZEN"
+  // Every phase's cut is derived from something else the view carries, so none of them is a value
+  // this side has to take on trust. An exploration cut names the seal digest of the replay request
+  // the exploration ran, which the view states beside it.
   const sourceCutValid = artifactAvailable
     ? raw.research_view?.source_cut === `rd-artifact-cut-v1-${raw.research_view?.artifact_identity}`
-    : raw.research_view?.source_cut === `rd-source-cut-v2-${researchSuffix}`
-  const viewWindowValid = artifactAvailable
+    : explorationActive
+      ? raw.research_view?.source_cut === `rd-composer-exploration-cut-v3-${
+        String(raw.research_view?.exploration?.replay_request_seal_digest ?? "").slice("sha256:".length)
+      }`
+      : raw.research_view?.source_cut === `rd-source-cut-v2-${researchSuffix}`
+  const viewWindowValid = explorationActive
+    // The producing side binds this window to the INTENT_FROZEN view the exploration grew out of,
+    // which this side is never sent, so the receipt's commit instant stands in for that view's
+    // projection instant.
+    //
+    // What holds that substitution, exactly: on the producing side the two are equal by
+    // construction rather than by assertion - one clock reading fills the receipt's commit instant
+    // and the view's observed and projection instants in the same function. What asserts it is this
+    // projection, a few lines below, for INTENT_FROZEN views. So a drift would be caught, but on
+    // those requests rather than on this one: for an exploration view the substitution rests on an
+    // equality nothing checks here. The failure it would cause is a refusal of a legal view, which
+    // is loud and closed rather than quiet and open, and that is the only reason it is acceptable
+    // to leave standing rather than to pin.
+    ? raw.research_view.projection_at_epoch_ms === raw.research_view.observed_at_epoch_ms
+      && raw.research_view.projection_at_epoch_ms >= raw.owner_receipt.committed_at_epoch_ms
+      && raw.research_view.valid_through_epoch_ms
+        === raw.research_view.projection_at_epoch_ms + 600_000
+    : artifactAvailable
     ? (stale
       ? raw.research_view.projection_at_epoch_ms >= raw.research_view.observed_at_epoch_ms
       : raw.research_view.projection_at_epoch_ms === raw.research_view.observed_at_epoch_ms)
@@ -454,13 +536,20 @@ export async function deriveResearchConsumerProjectionV1(value: unknown, request
   const nextLegalActionValid = stale
     ? raw.research_view?.next_legal_action === "RESOLVE_SAME_REQUEST_IDENTITY"
       && raw.next_legal_action === "RESOLVE_SAME_REQUEST_IDENTITY"
+    : explorationActive
+      ? raw.research_view?.next_legal_action === "VIEW_EXPLORATORY_RUN"
+        && raw.next_legal_action === "VIEW_EXPLORATORY_RUN"
     : artifactAvailable
       ? raw.research_view?.next_legal_action === "REVIEW_ARTIFACT"
         && raw.next_legal_action === "REVIEW_ARTIFACT"
       : raw.research_view?.next_legal_action === "WAIT_FOR_R_AND_D_EXECUTION"
         && raw.next_legal_action === "WAIT_FOR_R_AND_D_EXECUTION"
-  if (!validResearchView(raw.research_view, requestIdentity, intent, viewPhase, true)
-    || raw.research_view.projection_identity !== await canonicalResearchViewIdentityV2(raw.research_view)
+  // An exploration view is available or it is nothing: the producing side admits no stale form of
+  // it, so this side must not accept one either.
+  if (!validResearchView(raw.research_view, requestIdentity, intent, viewPhase, !explorationActive)
+    || raw.research_view.projection_identity !== (explorationActive
+      ? await canonicalResearchViewIdentityV4(raw.research_view)
+      : await canonicalResearchViewIdentityV2(raw.research_view))
     || !sourceCutValid || !viewWindowValid || !nextLegalActionValid
     || raw.research_view.trusted_principal !== raw.independence_basis?.principal
     || JSON.stringify(raw.research_view.authorized_scope) !== JSON.stringify(raw.independence_basis?.request_scope)
@@ -472,7 +561,9 @@ export async function deriveResearchConsumerProjectionV1(value: unknown, request
     || raw.protected_feedback.receipt.committed_at_epoch_ms > raw.owner_receipt.committed_at_epoch_ms
     || raw.protected_feedback.projection_at_epoch_ms > raw.owner_receipt.committed_at_epoch_ms
     || raw.owner_receipt.committed_at_epoch_ms >= raw.protected_feedback.valid_through_epoch_ms
-    || (!artifactAvailable
+    // Only an INTENT_FROZEN window is cut against the feedback's. The later phases carry a window
+    // of their own, measured from when they were projected.
+    || (!artifactAvailable && !explorationActive
       && raw.research_view.valid_through_epoch_ms > raw.protected_feedback.valid_through_epoch_ms)
     || raw.trial_family.root.created_at_epoch_ms !== raw.owner_receipt.committed_at_epoch_ms
     || !await canonicalTrialFamilyV1(
