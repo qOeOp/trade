@@ -79,8 +79,13 @@ testkit 或 acceptance feature 的生产路径；其余各行不授予任何东�
   Attempt 与 `KNOWN_CLOSED`：** 继承的 `crates/execution/src/reconciliation` 函数把引擎状态与场所报告对齐，是迁移
   来源；不存在 drift fact、disposition、case、command 或闭合。
 - **TARGET - Execution Quality Observation 与 Effect Closure View：** 不存在类型或 custody。
-- **TARGET - 交接与持久化：** 没有通向 Runtime、Risk、Portfolio、Governance 或 R&D 的 port，也没有任何 Execution
-  事实的持久关系。
+- **CURRENT_PARTIAL - 通向 Portfolio 与 Governance 的读 port：** Owner 自己的迁移
+  `crates/execution_owner/src/adapter_binding_postgres.rs` 建出 `execution_api.read_current_paper_adapter_binding_v1`
+  与 `execution_api.read_paper_account_opening_fact_v1`，把两者从 `PUBLIC` 收回，并各自只授给读它的那一个消费方：
+  binding 授给 `governance_writer`，开仓抵押事实授给 `portfolio_writer`。两者都是 `SECURITY DEFINER`，
+  读 `execution_private`，其中持有它们背后的持久关系。
+- **TARGET - 其余交接与持久化：** 没有通向 Runtime、Risk 或 R&D 的 port；除上述 PAPER adapter binding 与开仓抵押
+  custody 之外，没有任何 Execution 事实的持久关系。
 
 ## 输入交接
 

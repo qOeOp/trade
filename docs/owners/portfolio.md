@@ -123,8 +123,13 @@ grants nothing, and widening the admitted set requires changing this document fi
   state, and incorporated settlement lineages exists, so Risk has no bundle to combine with its liabilities.
 - **TARGET - Portfolio Lifecycle Evidence Receipt, Portfolio Interaction Receipt, and degradation attribution:** no
   type or custody exists.
-- **TARGET - handoffs and persistence:** no port to Governance, Risk, Scanner, Execution, or Product Edge and no
-  durable relation for any Portfolio fact.
+- **CURRENT_PARTIAL - read port to Governance:** the Owner's own migration in
+  `crates/portfolio_owner/src/capacity_scope_postgres.rs` creates `portfolio_api.read_bound_capacity_scope_v1` and
+  `portfolio_api.read_current_capacity_view_v1` and grants both to `governance_writer`, which is also the only role
+  granted `USAGE` on the schema, in `product/rd-workbench/postgres-init/10-migrate-authority-custody.sh`. A second
+  consumer therefore needs two grants in two places, neither of which is a function that has still to be written.
+- **TARGET - remaining handoffs and persistence:** no port to Risk, Scanner, Execution, or Product Edge, and no
+  durable relation for any Portfolio fact outside the Capacity Scope registry and PAPER Capacity View custody above.
 
 ## Input handoffs
 
