@@ -751,7 +751,7 @@ test(browserAcceptance
             .some((cell) => cell.textContent === ${JSON.stringify(researchHypothesis)})`,
           { label: "recent outcome row", attemptTimeoutMs: 40_000, endpoints: [
             "/api/rd/historical-custodies/", "/api/rd/research/outcome-inventory/",
-            "/api/rd/artifacts/review-inventory/",
+            "/api/rd/research/questions/", "/api/rd/artifacts/review-inventory/",
           ] });
       } catch (error) {
         // Name this acceptance's own request in the failure: the page lists a research row once

@@ -16,12 +16,15 @@
 // number of rows it shows is missing a bounded Owner read; see the Dashboard guide's Recent
 // outcomes section.
 
-// Two, not the pool's size. The adapter behind these point reads is the same one that answers the
-// page's directory and question reads, so a fan-out allowed to fill the pool starves them: the
-// Owner then answers those single reads with a failure and the surface reports the source as
-// unavailable while every row it holds is fine. The fan-out may use part of the pool it shares,
-// never all of it.
-const OWNER_READ_FAN_OUT_LIMIT = 2;
+// One. The adapter behind these point reads also answers the page's directory and question reads,
+// and a page composes all of them at once: measured against a real Owner, a fan-out of two still
+// took every single read with it, and the surface reported its sources unavailable while every row
+// it held was fine. One row at a time costs about a second for a page's worth of candidates and
+// cannot starve the reads it shares an adapter with.
+//
+// This is a bound, not the shape. A view whose Owner reads grow with its row count needs a bounded
+// Owner read; see the Dashboard guide's Recent outcomes section.
+const OWNER_READ_FAN_OUT_LIMIT = 1;
 
 let active = 0;
 const waiting: (() => void)[] = [];
