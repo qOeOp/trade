@@ -120,7 +120,22 @@ Executable provenance 是独立的效果边界。Qualification 记录实际使�
   它们还交叉绑定唯一准确预注册保护决策政策身份与版本及一个冻结 Protected Robustness Plan。
 - Product Edge 提交一个稳定评估请求，绑定来源 Research 请求 Candidate 规范类型化含义和从来源到当前的保护反馈观察前沿。
 - [Backtest](./backtest/) 返回请求的保护 Run Result 和消费输入回执，每个实际消费执行字段必须与请求字段完全相等。
+  该 Result 携带保护经济测量，它重复本 Owner 随请求集合封存的那份冻结 `ProtectedEconomicPolicyBundleV1`
+  的度量身份与摘要 单位与标度；不能逐项重复它们的测量就不是对被封存政策的测量，该次尝试因此关闭。
+- Operator Authorization 是需要部署授权的终端的上游。它必须签发什么
+  以及这条交接为何是 TARGET，在 Eligibility 终端状态一节已述一次，此处不重复。
 - 已提交证据变化可以触发重评，唤醒通道不能替代读取 Owner 事实。
+
+以下是这些交接的实现状态记录，不是契约。只有 Product Edge 这条有生产调用者：
+`resolve_or_create_for_basis` 与 `admit_in_transaction` 由 vibe-strategy-factory 的生产代码调用，
+`admit_historical_projection_in_transaction` 由它的 R&D custody 路径调用。R&D 的 Candidate 那条没有：
+本 Owner 之外每一处 `submit_candidate_intake_v1` 调用都位于一个密封验收测试模块里。
+Backtest 在生产中无法完成经济测量中属于它的那一半，因为它没有任何已准入的途径读到冻结的度量引用：
+读不到 R&D 的 plan，那条唯一的密封读返回的是原生重放源存储；也读不到
+`qualification_protected_economic_policy_bundles_v1`，它的授权已被撤销。有序门禁之所以能走到测量，
+是因为门禁步骤以本 Owner 自己的角色读取 Candidate，那是夹具发现，不是 Backtest 拥有的路径。
+补上这个缺口需要一条 Backtest 真正读得到的冻结度量 单位与标度的交接 - 放进请求集合的封存里，
+或者作为一条密封的 `qualification_api` 读 - 而这是跨 Owner 的契约变更，不是一条证明。
 
 ## 输出交接
 

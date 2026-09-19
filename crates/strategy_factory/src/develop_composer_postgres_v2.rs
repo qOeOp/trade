@@ -36,6 +36,7 @@ use crate::develop_composer_operation_v2::{
 };
 #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
 use crate::plugin_wire_v2::PLUGIN_FRAME_ABI_V2;
+use crate::source_research_composer_postgres_v2::PostgresSourceResearchComposerProductionV2;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::source_research_composer_postgres_v2::SealedPostgresSourceResearchComposerV2;
 use crate::{
@@ -960,6 +961,8 @@ mod sealed_read_port {
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 impl sealed_read_port::RdOwned for SealedPostgresSourceResearchComposerV2 {}
 
+impl sealed_read_port::RdOwned for PostgresSourceResearchComposerProductionV2 {}
+
 /// Query-only boundary that only an R&D-owned implementation can provide.
 #[async_trait]
 pub trait DevelopComposerSealedReadPortV2: sealed_read_port::RdOwned + Send + Sync {
@@ -968,77 +971,6 @@ pub trait DevelopComposerSealedReadPortV2: sealed_read_port::RdOwned + Send + Sy
         &self,
         locator: &DevelopComposerSealedReadLocatorV2,
     ) -> Result<SealedDevelopComposerReadbackV2, DevelopComposerSealedReadErrorV2>;
-}
-
-/// R&D composition-root implementation. Its evidence seam and constructor remain crate-private so
-/// a downstream caller cannot substitute its own current-custody authority.
-#[allow(
-    dead_code,
-    reason = "the future R&D composition root injects this port into the Backtest-owned runner"
-)]
-pub(crate) struct PostgresDevelopComposerSealedReadPortV2<E> {
-    store: PostgresDevelopComposerStoreV2,
-    evidence: E,
-    read_cut_epoch_ms: u64,
-}
-
-#[allow(
-    dead_code,
-    reason = "the future R&D composition root owns construction of the sealed read port"
-)]
-impl<E> PostgresDevelopComposerSealedReadPortV2<E> {
-    pub(crate) const fn new(
-        store: PostgresDevelopComposerStoreV2,
-        evidence: E,
-        read_cut_epoch_ms: u64,
-    ) -> Self {
-        Self {
-            store,
-            evidence,
-            read_cut_epoch_ms,
-        }
-    }
-}
-
-impl<E> sealed_read_port::RdOwned for PostgresDevelopComposerSealedReadPortV2<E> {}
-
-#[async_trait]
-impl<E> DevelopComposerSealedReadPortV2 for PostgresDevelopComposerSealedReadPortV2<E>
-where
-    E: DevelopComposerFinalEvidencePortV2 + Send + Sync,
-{
-    async fn read_accepted(
-        &self,
-        locator: &DevelopComposerSealedReadLocatorV2,
-    ) -> Result<SealedDevelopComposerReadbackV2, DevelopComposerSealedReadErrorV2> {
-        let mut transaction = self
-            .store
-            .begin_read_transaction()
-            .await
-            .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
-        let record = load_record_via_sealed_routine_in_transaction(
-            &mut transaction,
-            &locator.request_identity,
-        )
-        .await?
-        .ok_or(DevelopComposerSealedReadErrorV2::Unavailable)?;
-        if !locator_matches_record_keys(locator, &record) {
-            return Err(DevelopComposerSealedReadErrorV2::Unavailable);
-        }
-        let current = self
-            .evidence
-            .lock_and_reread_durable(
-                &DevelopComposerDurableEvidenceLocatorV2::from_record(&record),
-                self.read_cut_epoch_ms,
-            )
-            .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
-        let readback = read_accepted_in_transaction(&mut transaction, locator, current).await?;
-        transaction
-            .commit()
-            .await
-            .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
-        Ok(readback)
-    }
 }
 
 fn locator_matches_record_keys(
@@ -1505,7 +1437,6 @@ fn seal_accepted_record(
     seal_readback(locator, record, &response)
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 pub(crate) async fn read_accepted_in_transaction_with_v3_restart(
     transaction: &mut Transaction<'_, Postgres>,
     locator: &DevelopComposerSealedReadLocatorV2,
@@ -2652,13 +2583,11 @@ pub struct PostgresDevelopComposerStoreV2 {
 /// Query-only Composer store used by the Dashboard read composition.
 ///
 /// This type owns no fact-writer pool and exposes no mutation method.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 pub(crate) struct PostgresDevelopComposerReadStoreV2 {
     read_pool: PgPool,
     database_fingerprint: ComposerDatabaseFingerprintV2,
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 impl PostgresDevelopComposerReadStoreV2 {
     pub(crate) async fn connect(rd_owner_database_url: &str) -> Result<Self, sqlx::Error> {
         let read_pool = sqlx::postgres::PgPoolOptions::new()

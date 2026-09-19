@@ -273,7 +273,7 @@ import re
 import sys
 
 source = Path(sys.argv[1]).read_text(encoding="utf-8")
-catalog_test = "catalog_admin_and_family_formation_are_atomic_and_fail_closed"
+catalog_test = "replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed"
 bootstrap_test = "replay_policy_catalog_postgres_v2::postgres_tests::catalog_v3_bootstrap_publishes_the_head_the_owner_reads_and_formation_binds"
 poison_test = "postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation"
 array_open = "readonly rd_owner_postgres_tests=(\n"
@@ -304,6 +304,14 @@ if len(entries) != 78:
 if sum(test_name == poison_test for _, _, test_name in entries) != 1:
     raise SystemExit(
         "ERROR: recovery-sidecar poison test must occur exactly once as a parsed test name."
+    )
+if sum(test_name == catalog_test for _, _, test_name in entries) != 1:
+    raise SystemExit(
+        "ERROR: catalog-admin route test must occur exactly once as a parsed test name."
+    )
+if sum(test_name == bootstrap_test for _, _, test_name in entries) != 1:
+    raise SystemExit(
+        "ERROR: catalog V3 bootstrap route test must occur exactly once as a parsed test name."
     )
 loop_open = 'for test_selection in "${rd_owner_postgres_tests[@]}"; do\n'
 loop_close = "\ndone\n\nlegacy_replay_fingerprint_after="
@@ -433,10 +441,45 @@ legacy_data_destructive_tests = {
     "crates/data/src/owner/postgres/sample_projection_v4.rs",
     "crates/data/src/owner/postgres/tests.rs",
 }
+
+# A negative-capability proof asserts that a statement is REFUSED. It deliberately
+# holds no mutation capability - that is its subject - and vibe_testkit's
+# `assert_statement_is_refused` runs it inside a transaction it always rolls back,
+# so nothing is written even if the privilege regresses. Strip those call
+# expressions and judge what is left: the literal must sit INSIDE the call, so
+# hoisting it to a `const` loses the marker, keeps the literal, and is refused
+# here. That direction is deliberate - a guard should fail loudly rather than let
+# a file pass because it happens to contain one sanctioned call somewhere else.
+REFUSAL_HELPER = "assert_statement_is_refused("
+
+
+def strip_refusal_proofs(text: str) -> str:
+    """Remove every `assert_statement_is_refused(...)` call, matching parens."""
+    out = []
+    index = 0
+    while True:
+        found = text.find(REFUSAL_HELPER, index)
+        if found == -1:
+            out.append(text[index:])
+            return "".join(out)
+        out.append(text[index:found])
+        depth = 0
+        cursor = found + len(REFUSAL_HELPER) - 1
+        while cursor < len(text):
+            if text[cursor] == "(":
+                depth += 1
+            elif text[cursor] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            cursor += 1
+        index = cursor + 1
+
+
 for root in map(Path, sys.argv[1:]):
     for path in root.rglob("*.rs"):
         text = path.read_text(encoding="utf-8")
-        if not destructive.search(text):
+        if not destructive.search(strip_refusal_proofs(text)):
             continue
         if path.as_posix() in legacy_data_destructive_tests:
             continue
@@ -2953,7 +2996,7 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
   if [[ -n "$backtest_result_fault" ]]; then
     inject_backtest_result_fault "$backtest_result_fault"
   fi
-  if [[ "$test_name" == 'catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
+  if [[ "$test_name" == 'replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
     [[ "$test_name" == 'replay_policy_catalog_postgres_v2::postgres_tests::catalog_v3_bootstrap_publishes_the_head_the_owner_reads_and_formation_binds' ]] ||
     [[ "$test_name" == 'postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
     env \
