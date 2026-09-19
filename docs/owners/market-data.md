@@ -1636,7 +1636,16 @@ instrument-class rejection.
 
 ## Input handoffs
 
-- Data vendors and trading venues provide raw market and reference records through Data Clients.
+- Data vendors and trading venues provide raw market and reference records through Data Clients, and every time
+  coordinate a record carries is attributed to the clock that states it. The venue states the event-effective
+  instant and the provider-available instant, and states them separately: the first is when the event happened,
+  the second is when the venue published it, and using one for the other would assert a publication the venue
+  never claimed. The source that publishes a correction states its correction-publication instant. This Owner
+  states the retrieval and Owner-observation coordinates from its own sealed clock head. Binding a coordinate to
+  that head is admission, not attribution: a venue-stated instant remains venue-stated after the head admits it,
+  and is never compared to an Owner-stated instant as though one clock produced both. A record that states no
+  coordinate of its own yields none for it, and this Owner never substitutes its retrieval time, the event
+  instant, or a neighbouring record's stamp for a coordinate the source did not state.
 - [R&D](./rd/) submits an initial frozen PIT Market Snapshot Request before exploratory consumption.
   It binds the Research Request, Intent, TrialFamily, instrument or universe scope, four-time decision cut,
   required provenance, license and correction frontier, stable correlation, and Time Evidence.

@@ -1528,7 +1528,13 @@ rejection。
 
 ## 输入交接
 
-- 数据商和交易场所通过 Data Clients 提供原始行情和参考记录。
+- 数据商和交易场所通过 Data Clients 提供原始行情和参考记录，而记录携带的每一个时间坐标都归属于陈述它的那个
+  时钟。场所陈述事件生效时刻与提供方可得时刻，并且分别陈述：前者是事件发生的时刻，后者是场所发布它的时刻，
+  拿其中一个当另一个用，等于断言了一次场所从未声称过的发布。发布更正的来源陈述它的更正发布时刻。本 Owner
+  以自己的密封时钟头陈述获取时刻与 Owner 观察时刻。把一个坐标绑定到那个头是准入，不是归属：场所陈述的时刻
+  在被该头准入之后仍然是场所陈述的，绝不能拿它与一个 Owner 陈述的时刻相比较，仿佛两者出自同一个时钟。记录
+  没有陈述某个坐标就不产生该坐标，本 Owner 绝不用自己的获取时刻 事件时刻 或相邻记录的时间戳，去顶替来源
+  没有陈述的坐标。
 - [R&D](./rd/) 在探索消费前提交初始冻结 PIT Market Snapshot Request，绑定 Research Request
   Intent TrialFamily、instrument 或 universe scope、四时间决定截面、必需 provenance license correction
   frontier、稳定 correlation 和 Time Evidence。

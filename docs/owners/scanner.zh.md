@@ -47,17 +47,46 @@
 
 ## 输入交接
 
-- 调度器提供固定周期触发，但没有部署权威。
-- [Strategy Governance](./strategy-governance/) 提供受治理 ArtifactRef 激活条件和生命周期约束。
-- [Market Data](./market-data/) 提供这些条件所需的同一时点市场和标的事实。
-- [Portfolio](./portfolio/) 可以提供有界 Capacity View 作为提案规模提示；只有已发布激活条件明确要求时才是必需输入。
+以下每条契约陈述的是 Scanner 要求什么 拒绝什么，而不是上游返回什么。四条缝在本截面上都不存在，台账条目
+`TARGET - Strategy Loader, Market Snapshot, and Capacity View input` 已记；满足一条契约是对未来实现的条件，
+绝不是某条实现已被准入的证据。
+
+- 调度器提供固定周期触发而不提供事实，它没有部署权威。触发不携带任何 Scanner 信任的身份：尝试身份只由
+  Schedule Definition 版本 准确的扫描范围身份与版本 以及规范无歧义的到期槽边界导出。重复 并发 重启或迟到的
+  触发并入同一次尝试与同一份终态回执。缺失触发根本不产生尝试，因为没有尝试的回执等于断言发生过一次扫描。
+  Scanner 绝不让触发创造定义导不出的到期槽，也绝不把触发的时钟纪元纳入稳定身份。
+- [Strategy Governance](./strategy-governance/) 为一个到期槽提供受治理策略前沿：每个成员的准确 ArtifactRef
+  Eligibility 激活条件版本 资金封套版本 声明的数据需求与生效区间，与该到期槽相关联，并携带前沿自身的身份与
+  内容摘要。Scanner 要求的回答只有两种：要么绑定一个它可以据以核算的期望成员集合，要么绑定成员无法解析的
+  权威原因；其余一律拒绝。只有前者准入期望集合，因此也只有前者能到达任何状态的完整回执。后者与缺失回答都
+  在未解析集合分支上把尝试闭合为 `INCOMPLETE_FAILED`。Scanner 绝不从先前前沿 从它碰巧观察到的策略 或从一份
+  部分回答重建成员，也绝不把更小的前沿当作完整的前沿。
+- [Market Data](./market-data/) 为每个策略及其声明的数据需求提供一份密封 PIT 回读，与准确的请求身份和内容
+  摘要相关联，携带该 Owner 已发布的六态判定 `AVAILABLE` `INSUFFICIENT` `STALE` `UNLICENSED` `AMBIGUOUS` 或
+  `UNAVAILABLE`，连同准确的 Universe Selection Record 身份与摘要 Instrument Master 日历 交易时段与时区
+  公司行动与历史成员截面 以及 Market Semantics Compatibility 身份。只有 `AVAILABLE` 能把一个策略带到
+  `MATCHED`。`INSUFFICIENT` 提交该策略的 `INSUFFICIENT_DATA`；其余四态各自提交它的 `INPUT_UNAVAILABLE`，
+  缺失回答同样如此，且都只针对该策略。这些都不是 batch 失败：一个策略缺少输入绝不能压住另一个策略的完整
+  匹配。Scanner 绝不修复语义不匹配 绝不替换为相邻截面 也绝不把一个否定判定读作没有不利数据。
+- [Portfolio](./portfolio/) 只在已发布激活条件要求容量时提供有界 Capacity View。Scanner 绑定候选中立的
+  Capacity Scope 准确的账户事实 估值与流动性截面 资金池方法与假设版本 测量时刻 以及有效期限。只有 Capacity
+  Scope 截面 版本与新鲜度全部与该条件匹配的视图才能把该策略带到 `MATCHED`；部分 过期 不可用 跨 scope，或
+  方法 假设 输入截面不匹配的视图提交 `INPUT_UNAVAILABLE`，缺失回答同样如此。条件不要求容量时，视图缺失不是
+  缺陷，也绝不改变任何判定。Scanner 绝不把带策略或带 generation 的 scope 一个 Paper/Live 别名 或一处未解析的
+  共享约束重叠，当作条件所指的候选中立 scope。
 
 ## 输出交接
 
-- 每个定时 ScanId 向 [Strategy Governance](./strategy-governance/) 提交且只提交一个终态 Scanner Receipt。
-- 向 Product Edge 提供每个 ScheduledScanId 的 Scanner-owned 终态回执直接读取。Product Edge 读取准确
-  完成状态 互斥 expected-set 分支 终态原因，且只在 `PROPOSED` 时读取 proposal members；不创建第二
-  Scanner-owned 投影。
+- 每个定时 ScanId 向 [Strategy Governance](./strategy-governance/) 提交且只提交一个终态 Scanner Receipt，
+  绑定稳定的尝试身份，并且只携带 `PROPOSED` `NO_MATCH` `INSUFFICIENT_DATA` `COMPLETED_NO_PROPOSAL` 或
+  `FAILED` 之一。只有 `PROPOSED` 携带 proposal members，而 Governance 只能考虑那些策略条目 ArtifactRef 与
+  条件版本都与其决定对象完全相等的成员。缺失回执保持未知：绝不读作 `NO_MATCH`，绝不读作一次已完成的扫描，
+  在激活依赖条件时也绝不读作可以不凭 Scanner 证据继续的许可。回执是证据，绝不是授权。
+- 向 Product Edge 提供每个 ScheduledScanId 的 Scanner-owned 终态回执直接读取，以该身份为键，返回回执准确的
+  完成状态 它互斥的 expected-set 分支 它的终态原因，以及只在 `PROPOSED` 时才有的 proposal members。一次读取
+  只返回三种判定之一：回执本身，尝试存在但没有终态回执时的 `NOT_YET_TERMINAL`，或读取方两者都无法确立时的
+  `UNKNOWN`。只有第一种可以作为结果展示，另外两种按它们自身展示。Product Edge 不创建第二份 Scanner-owned
+  投影，不派生自己的状态，也绝不把一个不完整的 `FAILED` 集合标为完整，或把一个未解析的期望集合渲染成空集。
 
 ## 拒绝和禁止事项
 
