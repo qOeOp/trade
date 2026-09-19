@@ -61,7 +61,10 @@ testkit 或 acceptance feature 的生产路径；其余各行不授予任何东�
 - **CURRENT_PARTIAL - 静态失败关闭的 Governance 核心：** `crates/strategy_governance` 拥有内存中的 `GovernanceCore`，
   其 `resolve_frontier` 按规范优先级解析一个完整冲突前沿，把只写一次的 `LifecycleRequestReceipt` 写为 `ACCEPTED`
   或 `REJECTED_NO_WRITE`，检测别名重试、重放分歧与语义变更，并提供 `GovernanceDecisionView` 与当前生命周期回执
-  回读。模型携带七个生命周期动作、`PAPER` 与 `LIVE`、两种授权模式、eligibility 与 application 状态。静态切片只校验
+  回读。模型携带七个生命周期动作、`PAPER` 与 `LIVE`、两种授权模式、eligibility 与 application 状态。这些只是消费端
+  的形状：全仓范围内 `EligibilityState::Expired` 与 `EligibilityState::Revoked` 没有任何生产者，每一个
+  `UntrustedEligibilityReadback` 都构造在本 crate 自己的测试里，而 `crates/qualification` 两个词都没有。读者不应
+  把这些类型的存在当作一条等待接线的读端口；从来没有任何一侧写过一条这样的事实。静态切片只校验
   `UNATTENDED_REQUEST_WITH_POLICY` 下单一 contender 集合的 `PAPER` `INITIAL_ACTIVATION`；其他每个动作、`LIVE`、
   `ATTENDED_REQUEST` 与条件激活分别以 `ActionNotAdmittedInStaticSlice`、`LiveNotAdmitted`、`AttendedNotAdmitted` 或
   `ConditionalScannerNotAdmitted` 拒绝。公开构造安装的是不可用的 Owner 准入，所以每个公开请求都失败关闭

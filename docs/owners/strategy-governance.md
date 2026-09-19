@@ -70,7 +70,10 @@ grants nothing, and widening the admitted set requires changing this document fi
   writes the write-once `LifecycleRequestReceipt` as `ACCEPTED` or `REJECTED_NO_WRITE`, detects alias retry, replay
   divergence, and semantic mutation, and serves a `GovernanceDecisionView` and current lifecycle receipt readback.
   The model carries the seven lifecycle actions, `PAPER` and `LIVE`, both authorization modes, eligibility and
-  application status. The static slice validates only `INITIAL_ACTIVATION` for `PAPER` under
+  application status. Those are consumer-side shapes only: repository-wide, `EligibilityState::Expired` and
+  `EligibilityState::Revoked` have no producer at all, every `UntrustedEligibilityReadback` is built inside this
+  crate's own tests, and `crates/qualification` carries neither term. A reader should not take the presence of
+  these types as a read port awaiting connection; nothing has ever written one of these facts. The static slice validates only `INITIAL_ACTIVATION` for `PAPER` under
   `UNATTENDED_REQUEST_WITH_POLICY` with a single-contender set; every other action, `LIVE`, `ATTENDED_REQUEST`, and
   condition-dependent activation reject as `ActionNotAdmittedInStaticSlice`, `LiveNotAdmitted`,
   `AttendedNotAdmitted`, or `ConditionalScannerNotAdmitted`. Public construction installs an unavailable Owner
