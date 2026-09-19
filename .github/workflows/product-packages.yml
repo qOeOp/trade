@@ -152,11 +152,12 @@ jobs:
           # showed that reason at all. The wait is a conjunction and a timeout quotes only its first
           # line, so what got written down was the first line of the expression rather than the part
           # that was unmet. Measured, the unmet part was an assertion that every row contain
-          # `run_store`, an identifier the surface never renders. With that corrected it pages
-          # correctly and is held back one step later: a refresh landing while the viewport is
-          # scrolled away from the tail moves the scroll position 15 px while the content beside it
-          # stays identical. Their PostgreSQL bodies run either way, which is the RunStore gateway
-          # coverage Operations depends on.
+          # `run_store`, an identifier the surface never renders. Corrected, it pages, keeps its
+          # scroll position across a refresh, and is now held back at its tail-follow step: after
+          # returning to the tail with auto-refresh on, a newly written event does not appear within
+          # 15 s. That step has not been measured yet, and this reason will be replaced by what the
+          # measurement says rather than by what its error message quotes. Their PostgreSQL bodies
+          # run either way, which is the RunStore gateway coverage Operations depends on.
           #
           # Workers stalled here twice while passing locally in 24 to 38 s, and the browser build
           # looked like the difference. It was not: pinning the build changed nothing, and the suite
