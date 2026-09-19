@@ -1,7 +1,13 @@
-//! Static, fail-closed Strategy Governance owner core.
+//! Strategy Governance Owner core and custody.
+//!
+//! The static core here resolves one lifecycle conflict frontier in memory and fails closed
+//! without a source-Owner admission. The [`registry_postgres`] custody adds the Owner's only
+//! durable fact that is reachable today, the immutable Execution Scope, and it mints one only
+//! after rereading Portfolio's own `BOUND` Capacity Scope and Execution's own `ADMITTED` PAPER
+//! adapter binding through those Owners' read-only APIs inside the writing transaction.
 //!
 //! This crate deliberately does not include Product Edge, Qualification,
-//! Portfolio, Execution, or Runtime adapters. Adapter payloads enter as
+//! or Runtime adapters. Adapter payloads enter as
 //! [`UntrustedDecisionEvidence`]. The public core currently has no source-Owner
 //! admission capability, so it can only fail closed; future repository-native
 //! adapters may construct the crate-private admission seam after canonical
@@ -28,8 +34,10 @@
 
 mod authority;
 mod digest;
+pub mod execution_scope;
 mod lifecycle_receipt_read;
 mod model;
+pub mod registry_postgres;
 mod store;
 
 pub use digest::Digest;

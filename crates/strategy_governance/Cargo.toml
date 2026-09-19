@@ -3,7 +3,7 @@ name = "vibe-strategy-governance"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Lower-maturity static Strategy Governance owner core"
+description = "Strategy Governance Owner core and Execution Scope PostgreSQL custody"
 repository.workspace = true
 publish = false
 
@@ -11,9 +11,15 @@ publish = false
 workspace = true
 
 [dependencies]
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
+sqlx = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
+tokio = { workspace = true }
 trybuild = { workspace = true }
+vibe-execution-owner = { workspace = true }
+vibe-portfolio-owner = { workspace = true }
+vibe-testkit = { workspace = true, features = ["postgres"] }
