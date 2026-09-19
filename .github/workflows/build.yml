@@ -13,8 +13,6 @@ on:
       - test-ci
       - test-pre-commit
       - main
-      - nightly
-      - master
   # `ready-gate` admits exactly `ready_for_review`, `opened:false` and `reopened:false`, so these
   # are the only events it can answer `run-full` for. `synchronize` is deliberately absent: a push
   # would fail the gate rather than validate, and re-validating after a push is the Draft -> Ready

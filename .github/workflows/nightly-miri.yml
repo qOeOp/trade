@@ -24,7 +24,7 @@ on:
 jobs:
   miri:
     name: miri (${{ matrix.crate }})
-    if: github.repository == 'nautechsystems/nautilus_trader'
+    if: github.repository == 'qOeOp/trade'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
