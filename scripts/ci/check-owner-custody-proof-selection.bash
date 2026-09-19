@@ -148,11 +148,20 @@ for crate in "${owner_crates[@]}"; do
   done < <(
     # Only the first `fn` after each attribute is the proof; a later one is a helper nested
     # inside its body.
+    #
+    # The character class before `fn` admits `:` and `-` as well as whitespace, because a proof
+    # declared at column 0 - one that is not nested inside a `mod` block - has no whitespace there.
+    # What precedes it is `rg`'s own prefix, `path:LINE:` on the matched line and `path-LINE-` on a
+    # context line. Requiring whitespace therefore made indentation decide whether this check could
+    # see a proof at all, and nine of the 119 ignored proofs in the Owner crates were invisible to
+    # it, including the first entry of the Market Data chain leg. None of the nine is presently
+    # unselected, so this widening keeps the check green while giving it the teeth it claims: an
+    # unselected top-level proof used to pass in silence.
     rg -n -A4 '#\[ignore' "$crate" --type rust 2> /dev/null |
       awk '
         /^--$/ { taken = 0; next }
         /#\[ignore/ { taken = 0; next }
-        !taken && /[[:space:]]fn [a-z_0-9]+/ {
+        !taken && /[[:space:]:-]fn [a-z_0-9]+/ {
           match($0, /fn [a-z_0-9]+/)
           print substr($0, RSTART + 3, RLENGTH - 3)
           taken = 1
