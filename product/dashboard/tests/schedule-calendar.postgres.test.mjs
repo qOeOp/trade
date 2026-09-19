@@ -166,7 +166,21 @@ async function waitForBrowserExpression(browser, expression, timeoutMs = 15_000)
     expression: `(() => ({
       url: location.href,
       readyState: document.readyState,
+      // A count of open dialogs says a dialog did not open; it does not say whether one exists,
+      // what it would be called, or what the page had focused when it was asked to open one.
       dialogs: document.querySelectorAll('dialog[open]').length,
+      dialogLabels: [...document.querySelectorAll('dialog')]
+        .map((node) => ({ label: node.getAttribute('aria-label'), open: node.open })),
+      active: (() => {
+        const node = document.activeElement;
+        if (!node) return null;
+        return {
+          tag: node.tagName,
+          label: node.getAttribute('aria-label'),
+          text: node.textContent?.replace(/\s+/gu, ' ').slice(0, 80) ?? null,
+          disabled: node.disabled ?? null,
+        };
+      })(),
       reasons: [...document.querySelectorAll('details code, .unavailable-state code')]
         .map((code) => code.textContent),
       body: document.body?.innerText.slice(0, 1_500) ?? '',
