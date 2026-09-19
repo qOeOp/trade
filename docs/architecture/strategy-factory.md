@@ -1287,7 +1287,7 @@ Such a change is therefore admissible only after proving the capability cannot b
 - a new action catalog entry;
 - a composition of existing nodes.
 
-The action catalog is `TARGET`. Until it exists that alternative resolves to unavailable, and the record says so
+The action catalog is `TARGET / NOT_ADMITTED`. Until it exists that alternative resolves to unavailable, and the record says so
 rather than treating the absence as a reason to widen the schema.
 
 The change records which alternatives were ruled out and why. That record belongs with the change, not in this
@@ -1301,6 +1301,10 @@ The managed surfaces are `crates/strategy_factory/src/strategy_design_v2.rs`, wh
 `ProposalWiringV2`, `ValueTypeV2`, `LifecycleKindV2`, and `InputFactClassV2`, and
 `crates/strategy_factory/src/bounded_feature_program_derivation_v1.rs`, which defines
 `BoundedFeatureProgramMeaningV1`.
+
+The rule follows the definition, not the mention. A file that only references a managed type is not a managed
+surface, so a change confined to a fixture, a lowerer, a host, or a storage adapter carries no proof burden even
+though it names those types.
 
 An optional field is not an exemption. It carries the same proof burden as a required one, because every consumer
 must still branch on its absence.

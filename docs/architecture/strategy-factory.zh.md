@@ -1168,7 +1168,7 @@ Backtest 语义轨迹、Runtime 以及每条黄金向量各自承载，所以加
 - 一条新的 action 目录条目；
 - 既有节点的一个组合。
 
-action 目录本身是 `TARGET`。在它存在之前，该替代路径解析为不可用；记录中如实写明这一点，
+action 目录本身是 `TARGET / NOT_ADMITTED`。在它存在之前，该替代路径解析为不可用；记录中如实写明这一点，
 而不是把它的缺席当成加宽 schema 的理由。
 
 改动本身记录排除了哪些替代路径、为什么。该记录随改动走，不进本文档：在这里维护一份已批准例外清单，
@@ -1181,6 +1181,9 @@ action 目录本身是 `TARGET`。在它存在之前，该替代路径解析为�
 `ProposalWiringV2`、`ValueTypeV2`、`LifecycleKindV2` 与 `InputFactClassV2`；以及
 `crates/strategy_factory/src/bounded_feature_program_derivation_v1.rs`，它定义
 `BoundedFeatureProgramMeaningV1`。
+
+规则跟随定义，不跟随提及。仅引用受管类型的文件不是受管面，因此只改夹具、lowerer、host 或存储适配层的改动，
+即使文中出现这些类型名，也不承担举证义务。
 
 可选字段不构成豁免。它承担与必需字段相同的举证义务，因为每个消费者仍然必须为它的缺席分支。
 
