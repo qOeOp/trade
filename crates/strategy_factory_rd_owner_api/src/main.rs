@@ -3205,8 +3205,14 @@ mod tests {
                         .collect(),
                     prohibited_effects: vec!["REAL_TRADING_V1".to_string()],
                     capability_policy_digest: format!("sha256:{}", "e".repeat(64)),
-                    effective_from_epoch_ms: manifest_now.saturating_sub(1_000),
-                    valid_through_epoch_ms: manifest_now.saturating_add(3_600_000),
+                    // A manifest has to cover the binding that names it, and the binding's window
+                    // is cut from a clock this function reads later. Deriving both from a reading
+                    // taken here would leave the binding ending one millisecond past the manifest
+                    // whenever anything at all happened in between, which is a coin flip on how
+                    // fast the machine is rather than a property of the Owner. This window
+                    // brackets the bootstrap's own.
+                    effective_from_epoch_ms: manifest_now.saturating_sub(60_000),
+                    valid_through_epoch_ms: manifest_now.saturating_add(7_200_000),
                 }],
                 vec!["research:source-intake".to_string()],
             )
