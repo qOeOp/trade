@@ -16,6 +16,7 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from collections.abc import Mapping
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -26,7 +27,16 @@ class Status(StrEnum):
     HEALTHY = "HEALTHY"
     FAILED = "FAILED"
     RATE_LIMITED = "RATE_LIMITED"
+    BLOCKED = "BLOCKED"
     SKIPPED = "SKIPPED"
+
+
+# An unauthenticated endpoint that refuses this runner's address tells us nothing about the
+# source: GitHub-hosted runners sit in datacenter ranges that several venues refuse outright
+# (Bybit answers 403) or are legally barred from serving (Binance answers 451). Reporting that
+# as FAILED made the whole canary permanently red and buried the one venue that does answer.
+_PUBLIC_ENDPOINT = "public endpoint"
+_ADDRESS_REFUSAL_CODES = frozenset({403, 451})
 
 
 Validator = Callable[[bytes], str]
@@ -72,7 +82,7 @@ def _request(
 
 
 def _public_request(url: str) -> RequestFactory:
-    return lambda _env: (_request(url), "public endpoint")
+    return lambda _env: (_request(url), _PUBLIC_ENDPOINT)
 
 
 def _optional_bearer_request(url: str, secret_name: str) -> RequestFactory:
@@ -120,7 +130,7 @@ def _semantic_scholar_request(
     env: Mapping[str, str],
 ) -> tuple[urllib.request.Request, str]:
     headers = {}
-    detail = "public endpoint"
+    detail = _PUBLIC_ENDPOINT
     secret = env.get("SEMANTIC_SCHOLAR_API_KEY", "").strip()
     if secret:
         headers["x-api-key"] = secret
@@ -350,6 +360,8 @@ def run_probe(
                 f"{request_detail}; {validation_detail}",
             )
         except urllib.error.HTTPError as e:
+            if e.code in _ADDRESS_REFUSAL_CODES and request_detail == _PUBLIC_ENDPOINT:
+                return Receipt(probe.name, Status.BLOCKED, f"HTTP {e.code}")
             if e.code != 429:
                 return Receipt(probe.name, Status.FAILED, f"HTTP {e.code}")
             if attempt == len(probe.rate_limit_backoff):
@@ -390,6 +402,19 @@ def _markdown(domain: str, receipts: list[Receipt]) -> str:
     return "\n".join(rows) + "\n"
 
 
+def exit_status(receipts: Sequence[Receipt]) -> int:
+    """
+    Fail the run only on FAILED.
+
+    RATE_LIMITED, BLOCKED and SKIPPED each describe a limit on this runner -- a quota, a
+    refused address, an absent secret -- and say nothing about whether the source is
+    healthy. Letting any of them fail the run turns the canary permanently red and hides
+    the sources that do answer.
+
+    """
+    return 1 if any(receipt.status is Status.FAILED for receipt in receipts) else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("domain", choices=("market-data", "research-source"))
@@ -416,7 +441,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     if args.summary:
         args.summary.write_text(_markdown(args.domain, receipts), encoding="utf-8")
-    return 1 if any(receipt.status is Status.FAILED for receipt in receipts) else 0
+    return exit_status(receipts)
 
 
 if __name__ == "__main__":

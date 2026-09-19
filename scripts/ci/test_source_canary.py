@@ -295,6 +295,58 @@ class SourceCanaryTest(unittest.TestCase):
         assert receipt.status == canary.Status.FAILED
         assert receipt.detail == "network error: IncompleteRead"
 
+    def test_public_endpoint_address_refusal_is_blocked_not_failed(self) -> None:
+        for index, code in ((0, 451), (2, 403)):
+            with self.subTest(probe=canary.MARKET_PROBES[index].name, code=code):
+
+                def opener(*_args: Any, _code: int = code, **_kwargs: Any) -> Response:
+                    raise urllib.error.HTTPError(
+                        "https://example.invalid",
+                        _code,
+                        "",
+                        {},
+                        io.BytesIO(),
+                    )
+
+                receipt = canary.run_probe(
+                    canary.MARKET_PROBES[index],
+                    {},
+                    timeout=1,
+                    opener=opener,
+                    sleeper=lambda _delay: self.fail("address refusal was retried"),
+                )
+                assert receipt.status == canary.Status.BLOCKED
+                assert receipt.detail == f"HTTP {code}"
+
+    def test_authenticated_endpoint_refusal_still_fails(self) -> None:
+        def opener(*_args: Any, **_kwargs: Any) -> Response:
+            raise urllib.error.HTTPError(
+                "https://example.invalid?secret=value",
+                403,
+                "",
+                {},
+                io.BytesIO(),
+            )
+
+        receipt = canary.run_probe(
+            canary.RESEARCH_PROBES[1],
+            {"SEMANTIC_SCHOLAR_API_KEY": "private"},
+            timeout=1,
+            opener=opener,
+        )
+        assert receipt.status == canary.Status.FAILED
+        assert receipt.detail == "HTTP 403"
+
+    def test_only_failed_receipts_fail_the_run(self) -> None:
+        healthy = canary.Receipt("ok", canary.Status.HEALTHY, "")
+        tolerated = [
+            canary.Receipt("blocked", canary.Status.BLOCKED, "HTTP 451"),
+            canary.Receipt("limited", canary.Status.RATE_LIMITED, ""),
+            canary.Receipt("skipped", canary.Status.SKIPPED, ""),
+        ]
+        assert canary.exit_status([healthy, *tolerated]) == 0
+        assert canary.exit_status([healthy, canary.Receipt("x", canary.Status.FAILED, "")]) == 1
+
 
 if __name__ == "__main__":
     unittest.main()
