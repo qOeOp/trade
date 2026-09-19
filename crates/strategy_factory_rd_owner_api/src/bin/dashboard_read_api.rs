@@ -77,16 +77,21 @@ mod tests {
             ResearchDirectoryCursorV1, ResearchDirectoryOwnerPort, ResearchReadbackOwnerPortV1,
         },
         product_edge_postgres::PostgresExploratoryReplayReadbackOwnerV2,
+        rd_historical_custody::{
+            HistoricalCustodyCompletenessV1, HistoricalCustodyErrorV1,
+            HistoricalCustodyOwnerPortV1, HistoricalCustodyQuarantineV1,
+        },
     };
     use vibe_strategy_factory_rd_owner_api::dashboard_read_api::{
         ApiState, ArtifactDirectoryQueryV1, ExploratoryReplayHistoricalRejectionOwnerPortV1,
         ExploratoryReplayHistoricalRejectionQueryV1, ExploratoryReplayReadbackOwnerPortV2,
         ExploratoryReplayReadbackQueryV2, ExploratoryReplayResultPathV2,
         ExploratoryReplayResultQueryV2, ExploratoryReplayResultReadbackOwnerPortV2,
-        ResearchDirectoryQueryV1, UnavailableDashboardJourneyReadbackV1, read_artifact,
-        read_artifact_directory, read_artifact_source, read_develop_composer,
-        read_exploratory_replay, read_exploratory_replay_historical_rejection,
-        read_exploratory_replay_result, read_formation_catalog, read_iteration_timeline,
+        ResearchDirectoryQueryV1, UnavailableDashboardJourneyReadbackV1,
+        UnavailableHistoricalCustodyV1, read_artifact, read_artifact_directory,
+        read_artifact_source, read_develop_composer, read_exploratory_replay,
+        read_exploratory_replay_historical_rejection, read_exploratory_replay_result,
+        read_formation_catalog, read_historical_custodies, read_iteration_timeline,
         read_research_directory, read_research_v2, read_source_intake,
     };
 
@@ -340,6 +345,7 @@ mod tests {
             exploratory_replay_readback: Arc::new(RecordingReplay::default()),
             exploratory_replay_result_readback: Arc::new(RecordingReplay::default()),
             exploratory_replay_historical_rejection_readback: Arc::new(RecordingReplay::default()),
+            historical_custody: Arc::new(UnavailableHistoricalCustodyV1),
             token_digest: Sha256::digest(b"test-token").into(),
         }
     }
@@ -479,6 +485,76 @@ mod tests {
         );
         assert_eq!(journey.formation_calls.load(Ordering::SeqCst), 1);
         assert_eq!(journey.iteration_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[derive(Default)]
+    struct RecordingHistoricalCustody {
+        calls: AtomicUsize,
+    }
+
+    #[async_trait::async_trait]
+    impl HistoricalCustodyOwnerPortV1 for RecordingHistoricalCustody {
+        async fn read_historical_custodies(
+            &self,
+        ) -> Result<HistoricalCustodyQuarantineV1, HistoricalCustodyErrorV1> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(HistoricalCustodyQuarantineV1 {
+                schema_version: 1,
+                operation: "rd.historical_custody_quarantine.read.v1",
+                completeness: HistoricalCustodyCompletenessV1::Complete,
+                observed_at_epoch_ms: 1_758_000_000_000,
+                research_total: 0,
+                artifact_attempt_total: 0,
+                binding_total: 0,
+                research: Vec::new(),
+                artifact_attempts: Vec::new(),
+                bindings: Vec::new(),
+            })
+        }
+    }
+
+    /// This route moved here from the write API, so the read side owns its refusal as well as its
+    /// answer: without the read API's own credential it must not reach the Owner at all.
+    #[tokio::test]
+    async fn historical_custody_answers_only_after_auth_and_dispatches_once() {
+        let custody = Arc::new(RecordingHistoricalCustody::default());
+        let mut api = state(
+            Arc::new(RecordingArtifact::default()),
+            Arc::new(RecordingResearch::default()),
+            Arc::new(RecordingSourceIntake::default()),
+        );
+        api.historical_custody = custody.clone();
+        assert_eq!(
+            read_historical_custodies(State(api.clone()), HeaderMap::new())
+                .await
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(custody.calls.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            read_historical_custodies(State(api), headers())
+                .await
+                .status(),
+            StatusCode::OK
+        );
+        assert_eq!(custody.calls.load(Ordering::SeqCst), 1);
+    }
+
+    /// A capability that cannot bind stays unavailable here rather than failing the whole API, and
+    /// unavailable has to reach the caller as 503 rather than as an empty successful page.
+    #[tokio::test]
+    async fn unbound_historical_custody_answers_unavailable() {
+        let api = state(
+            Arc::new(RecordingArtifact::default()),
+            Arc::new(RecordingResearch::default()),
+            Arc::new(RecordingSourceIntake::default()),
+        );
+        assert_eq!(
+            read_historical_custodies(State(api), headers())
+                .await
+                .status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
     }
 
     #[tokio::test]

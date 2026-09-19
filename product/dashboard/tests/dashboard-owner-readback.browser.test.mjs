@@ -145,7 +145,10 @@ test(browserAcceptance
   assert.equal(intake.body.request_identity, sourceIntakeRequestIdentity);
   assert.equal(intake.body.terminal, "RETRIEVED");
   assert.equal(intake.body.content_digest, sourceIntakeContentDigest);
-  const custody = await ownerJson(new URL("v1/historical-custodies", ownerUrl), ownerToken);
+  // Read through the read API, with the read API's own credential. This read used to go to the
+  // write API because that was the only side serving the route, which meant the acceptance proved
+  // a path the deployed composition would not take.
+  const custody = await ownerJson(new URL("v1/historical-custodies", readApiUrl), readApiToken);
   assert.equal(custody.status, 200);
 
   const port = Number(previewPort);
