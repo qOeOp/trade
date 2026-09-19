@@ -61,12 +61,17 @@ function factExpression(group, label) {
   })()`;
 }
 
+// An Owner that refuses still answers: a typed terminal arrives with an error status and its own
+// coordinate and reason, and reading the body only on success throws that away.
 async function ownerJson(url, token) {
   const response = await fetch(url, {
     headers: { authorization: `Bearer ${token}` },
     signal: AbortSignal.timeout(15_000),
   });
-  return { status: response.status, body: response.status === 200 ? await response.json() : null };
+  const text = await response.text();
+  let body = null;
+  try { body = JSON.parse(text); } catch { body = null; }
+  return { status: response.status, body, text };
 }
 
 test(browserAcceptance
@@ -740,12 +745,32 @@ test(browserAcceptance
       assert.equal(sources.acceptanceOutcome?.status, "outcome_ready",
         `${sourceReport}; owner readback: ${acceptanceReadback.status} ${JSON.stringify(acceptanceReadback.body)}`);
       assert.equal(sources.acceptanceOutcome?.resolution, "accepted", sourceReport);
-      await waitForBrowserExpressionWithRefresh(browser,
-        `[...document.querySelectorAll('table[aria-label="Recent Owner outcomes"] strong')]
-          .some((cell) => cell.textContent === ${JSON.stringify(researchHypothesis)})`,
-        { label: "recent outcome row", attemptTimeoutMs: 40_000, endpoints: [
-          "/api/rd/historical-custodies/", "/api/rd/research/outcome-inventory/", "/api/rd/artifacts/review-inventory/",
-        ] });
+      try {
+        await waitForBrowserExpressionWithRefresh(browser,
+          `[...document.querySelectorAll('table[aria-label="Recent Owner outcomes"] strong')]
+            .some((cell) => cell.textContent === ${JSON.stringify(researchHypothesis)})`,
+          { label: "recent outcome row", attemptTimeoutMs: 40_000, endpoints: [
+            "/api/rd/historical-custodies/", "/api/rd/research/outcome-inventory/",
+            "/api/rd/artifacts/review-inventory/",
+          ] });
+      } catch (error) {
+        // Name this acceptance's own request in the failure: the page lists a research row once
+        // that request's outcome read succeeded, so the question is always whether this identity
+        // was ready at the moment the page read, not what the table holds in general.
+        const mine = await readBrowserValue(browser, `(async () => {
+          const inventory = await (await fetch('/api/rd/research/outcome-inventory/', { cache: 'no-store' })).json();
+          const questions = await (await fetch('/api/rd/research/questions/', { cache: 'no-store' })).json();
+          const identity = ${JSON.stringify(researchRequestIdentity)};
+          return {
+            identity,
+            outcome: (inventory.items ?? []).find((item) => item.requestIdentity === identity) ?? null,
+            question: (questions.items ?? []).find((item) => item.requestIdentity === identity)?.question ?? null,
+            renderedTitles: [...document.querySelectorAll('table[aria-label="Recent Owner outcomes"] strong')]
+              .map((cell) => cell.textContent),
+          };
+        })()`);
+        throw new Error(`${error.message}; this acceptance's request: ${JSON.stringify(mine)}`, { cause: error });
+      }
 
       await navigate(browser, `${origin}/dashboard/evidence/`);
       await waitForBrowserExpression(browser,

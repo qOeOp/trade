@@ -274,7 +274,16 @@ export async function waitForBrowserExpressionWithRefresh(browser, expression, {
     } catch (error) {
       if (attempt >= attempts) throw error;
       console.error(`[${browser.label}] ${label}: asking the surface to read the Owner again`);
-      if (await readBrowserValue(browser, clickButtonExpression(refreshLabel)) !== true) throw error;
+      // The control carries a pending label while it reads, so a click can arrive when there is
+      // no button by that name. Wait for it to be idle, and if it never is, reload the route:
+      // both are things an operator does, and both re-read every source the surface composes.
+      const clicked = await waitForClickable(browser, refreshLabel, 10_000);
+      if (!clicked) {
+        await browser.send("Page.reload", { ignoreCache: true });
+        await waitForBrowserExpression(browser, "document.readyState === 'complete'", {
+          timeoutMs: 30_000, label: `${label} reload`,
+        });
+      }
     }
   }
 }
@@ -311,6 +320,23 @@ export function setInputExpression(selector, value) {
     input.dispatchEvent(new Event('input', { bubbles: true }));
     return input.value === ${JSON.stringify(value)};
   })()`;
+}
+
+/** Clicks a control once it is present and enabled, or answers false within the budget. */
+async function waitForClickable(browser, text, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const clicked = await readBrowserValue(browser, `(() => {
+      const button = [...document.querySelectorAll('button')]
+        .find((candidate) => candidate.textContent?.trim() === ${JSON.stringify(text)} && !candidate.disabled);
+      if (!button) return false;
+      button.click();
+      return true;
+    })()`).catch(() => false);
+    if (clicked === true) return true;
+    await delay(250);
+  }
+  return false;
 }
 
 export function clickButtonExpression(text, scope = "document") {
