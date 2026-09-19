@@ -95,6 +95,8 @@ readonly rd_owner_postgres_tests=(
   'vibe-operator-authorization|vibe_operator_authorization|postgres::tests::shared_resolver_blocks_revoke_update_lock'
   'vibe-operator-authorization|vibe_operator_authorization|postgres::tests::select_only_consumer_resolve_serializes_with_revoke'
   'vibe-product-edge|vibe_product_edge|postgres::tests::lifecycle_request_admission_is_typed_effect_free_and_replay_exact'
+  'vibe-data|vibe_data|owner::postgres::market_data_rd_api_authorization_postgres_tests::market_data_rd_api_admits_the_rd_owner_through_the_grant_layer_alone'
+  'vibe-data|vibe_data|owner::postgres::market_data_rd_api_authorization_postgres_tests::market_data_rd_api_refuses_the_backtest_owner_loudly_not_emptily'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -121,8 +123,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 78 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all seventy-eight ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 80 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all eighty ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -195,7 +197,9 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[74]}" != *'|postgres::tests::shared_resolver_blocks_revoke_update_lock' ]] ||
     [[ "${rd_owner_postgres_tests[75]}" != *'|postgres::tests::select_only_consumer_resolve_serializes_with_revoke' ]] ||
     [[ "${rd_owner_postgres_tests[76]}" != *'|postgres::tests::lifecycle_request_admission_is_typed_effect_free_and_replay_exact' ]] ||
-    [[ "${rd_owner_postgres_tests[77]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[77]}" != *'|owner::postgres::market_data_rd_api_authorization_postgres_tests::market_data_rd_api_admits_the_rd_owner_through_the_grant_layer_alone' ]] ||
+    [[ "${rd_owner_postgres_tests[78]}" != *'|owner::postgres::market_data_rd_api_authorization_postgres_tests::market_data_rd_api_refuses_the_backtest_owner_loudly_not_emptily' ]] ||
+    [[ "${rd_owner_postgres_tests[79]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -299,8 +303,8 @@ for line in array_body.splitlines():
     if len(fields) != 3 or any(not field for field in fields):
         raise SystemExit("ERROR: ordered PostgreSQL test literal must contain three fields.")
     entries.append(tuple(fields))
-if len(entries) != 78:
-    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain seventy-eight entries.")
+if len(entries) != 80:
+    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain eighty entries.")
 if sum(test_name == poison_test for _, _, test_name in entries) != 1:
     raise SystemExit(
         "ERROR: recovery-sidecar poison test must occur exactly once as a parsed test name."
@@ -454,7 +458,14 @@ REFUSAL_HELPER = "assert_statement_is_refused("
 
 
 def strip_refusal_proofs(text: str) -> str:
-    """Remove every `assert_statement_is_refused(...)` call, matching parens."""
+    """Remove every `assert_statement_is_refused(...)` call, matching parens.
+
+    The paren match is naive: it counts every parenthesis, including one inside a string
+    literal. That is tolerable only because an unbalanced count is refused rather than
+    absorbed. Absorbing it would drop the whole remainder of the file, so the destructive-SQL
+    scan below would see nothing after the first miscounted call and the file would pass for
+    the reason it should have failed.
+    """
     out = []
     index = 0
     while True:
@@ -473,6 +484,11 @@ def strip_refusal_proofs(text: str) -> str:
                 if depth == 0:
                     break
             cursor += 1
+        if cursor >= len(text) or depth != 0:
+            raise SystemExit(
+                "ERROR: an assert_statement_is_refused(...) call has unbalanced parentheses; "
+                "the destructive-SQL scan cannot read past it."
+            )
         index = cursor + 1
 
 
