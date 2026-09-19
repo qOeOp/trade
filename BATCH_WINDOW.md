@@ -27,7 +27,8 @@ does.
 
 ## What the window does NOT constrain
 
-Closed constrains two things: merging to main, and pushing `test-chain/*`.
+Closed constrains three things: merging to main, pushing `test-chain/*`, and
+starting a new full PR build (opening a non-draft PR, or toggling draft->ready).
 Everything else that cannot change the tree the members produce is unaffected.
 So these stay open:
 
@@ -59,7 +60,24 @@ So: while closed, do not push `test-chain/*`. Take evidence after the batch land
 and main is settled - then your merge tree is built on the main that will still
 be there.
 
-### draft->ready is allowed, and costs more than the thing above
+### draft->ready: do not, while closed - upgraded from "priced" to "don't"
+
+An earlier version priced this instead of forbidding it, on the grounds that
+`quality` is a required check and a PR that is never toggled stays BLOCKED
+forever. That objection is real but it does not apply to a CLOSED window, because
+a window is bounded: the toggle is not forbidden, it is postponed by roughly one
+round.
+
+The reason to postpone is not only cost. `opened:false` and `ready_for_review`
+are build.yml's only two full PR-side triggers, so a round started while closed
+proves a tree that expires the moment the members land. It does not merely
+compete with the gating round - it spends capacity producing something already
+known to be void.
+
+If a window stays closed long enough that postponing actually blocks you, say so
+to Lane 0 rather than toggling; a window that long is a problem with the window.
+
+### the measured cost, for when you do toggle
 
 Measured on a real PR build: 26 jobs created, 4 skipped, 22 actually run. An
 owner-chains round is 2 jobs. So one draft->ready costs about eleven times a
