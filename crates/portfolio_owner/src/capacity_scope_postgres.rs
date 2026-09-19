@@ -1549,6 +1549,19 @@ mod tests {
     }
 
     async fn restore_registry_head(pool: &PgPool, head: Option<(String, String, i64)>) {
+        // The head is a single global row. Deleting without a predicate is only correct while
+        // that holds, so state it rather than assume it: if this ever finds more than one, the
+        // restore below would silently destroy rows this proof never displaced.
+        let head_rows: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM portfolio_private.portfolio_capacity_scope_registry_heads_v1",
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        assert!(
+            head_rows <= 1,
+            "the Portfolio registry head must be a single global row, found {head_rows}"
+        );
         sqlx::query("DELETE FROM portfolio_private.portfolio_capacity_scope_registry_heads_v1")
             .execute(pool)
             .await

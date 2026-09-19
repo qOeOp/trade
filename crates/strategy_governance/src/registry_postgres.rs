@@ -811,6 +811,11 @@ mod postgres_proof {
 
     /// Every relation in one Owner schema with its exact row count.
     ///
+    /// This proof cannot run at the same time as any other writer to these three schemas. The
+    /// ordered chain gives it that: each entry is its own single-test `cargo nextest run`. Locally,
+    /// `cargo test -p vibe-portfolio-owner -p vibe-strategy-governance` starts both test binaries
+    /// at once and they contend, so run the Owner proofs one package at a time.
+    ///
     /// The ordered chain shares one database that never resets, and each entry runs as its own
     /// single-test `cargo nextest run`, so nothing else writes while this proof does. That makes a
     /// whole-schema snapshot the honest residue check: a hand-picked list of relations can only
@@ -866,6 +871,19 @@ mod postgres_proof {
     }
 
     async fn restore_registry_head(portfolio: &PgPool, head: Option<(String, String, i64)>) {
+        // The head is a single global row. Deleting without a predicate is only correct while
+        // that holds, so state it rather than assume it: if this ever finds more than one, the
+        // restore below would silently destroy rows this proof never displaced.
+        let head_rows: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM portfolio_private.portfolio_capacity_scope_registry_heads_v1",
+        )
+        .fetch_one(portfolio)
+        .await
+        .unwrap();
+        assert!(
+            head_rows <= 1,
+            "the Portfolio registry head must be a single global row, found {head_rows}"
+        );
         sqlx::query("DELETE FROM portfolio_private.portfolio_capacity_scope_registry_heads_v1")
             .execute(portfolio)
             .await
