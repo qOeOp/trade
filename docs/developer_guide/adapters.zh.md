@@ -27,6 +27,11 @@
 - **示例**展示一种可靠实现，但不将其规定为强制做法。
 - 当交易场所语义或协议边界有要求时，**例外**是有效的。
 
+本指南讲适配器实现，不规定准入或归属策略。凡是涉及哪个组件可以调用交易场所、
+哪个组件拥有一笔订单的问题，均以 `docs/owners/execution.md` 的 Execution Owner 契约为准。
+该契约把 `crates/adapters` 下的场所 execution client 标为 `TARGET`，
+并记载目前没有任何命令对照 Risk 许可或 fence 校验。
+
 ## 适配器结构
 
 Rust crate 是协议行为的事实来源。适配器通常会分离以下关注点：
@@ -492,7 +497,8 @@ Python 包文件位于 `python/vibe_trader/adapters/<adapter>/` 下。在当前�
   使执行引擎能够对账或创建外部订单。
 
 不要为未跟踪订单虚构策略或客户端标识。在报告中保留可用的交易场所标识，
-并让引擎应用[外部订单所有权](../concepts/execution.md#external-order-creation)。
+并让引擎应用外部订单所有权。一笔订单归谁不由适配器裁决：
+以 `docs/owners/execution.md` 的 Execution Owner 契约为准。
 适配器可以使用任何能够证明此路由决定的状态结构。
 
 #### 事件排序与去重

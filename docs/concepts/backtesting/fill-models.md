@@ -1,4 +1,7 @@
-# Fill Models
+# Fill Models (engine)
+
+This page documents the existing engine. Where it differs from the Owner contract in
+`docs/owners/backtest.md`, the Owner contract is authoritative.
 
 Historical data cannot show how a simulated order would have interacted with other market
 participants. A fill model controls the assumptions VibeTrader makes about limit-order
