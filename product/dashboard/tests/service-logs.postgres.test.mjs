@@ -32,6 +32,19 @@ const serviceLogsLogin = "service-logs-browser-acceptance-login-token-at-least-3
 const serviceLogsSessionHmac = "service-logs-browser-acceptance-session-hmac-key-at-least-32-bytes";
 const workerIdentity = "dashboard-service-log-worker-v1";
 const workerCapability = "service-log-worker-capability-that-is-at-least-thirty-two-bytes";
+
+// A source entry shows its label and carries its identity as the title on its own name.
+function sourceEntrySelector(identity) {
+  return `[aria-label="Service sources"] b[title=${JSON.stringify(identity)}]`;
+}
+
+// The surface shows a source in one of two layouts: as an entry in the sources list, which it only
+// renders when there is more than one, and as the detail card for the selected one. Asking for just
+// the list reads "absent" the moment a filter narrows the page to a single source.
+function sourceShownExpression(identity) {
+  return `(!!document.querySelector(${JSON.stringify(sourceEntrySelector(identity))})
+    || !!document.querySelector(${JSON.stringify(`[aria-label="Service instance ${identity}"]`)}))`;
+}
 const browserVersion = browserAcceptance
   ? execFileSync(browserExecutable, ["--version"], { encoding: "utf8" }).trim()
   : "";
@@ -662,6 +675,14 @@ test(testName, { skip: !url }, async () => {
     const tailFollowRun = await store.enqueueRead(SOURCE_INTAKE_SHADOW_READ_OPERATION, {
       request_identity: "source-request-service-log-tail-follow",
     }, binding);
+    // The surface never writes a run identity as text: the Related cell renders "View run" and
+    // carries the identity in the link it points at. Asserting on body text therefore says nothing
+    // about whether this run is on the page - it is absent before and after, whatever happened -
+    // so ask for the link the surface actually exposes.
+    // Anchored on the whole identity, and a prefix because this app serves trailing-slash URLs.
+    const tailFollowRunOnPage = `!!document.querySelector(${JSON.stringify(
+      `a[href^="/operations/runs/${encodeURIComponent(tailFollowRun.run_identity)}"]`,
+    )})`;
     const tailFollowClaim = await claimAsWorker();
     assert.equal(tailFollowClaim?.run.run_identity, tailFollowRun.run_identity);
     await store.completeClaimedRead({
@@ -723,11 +744,11 @@ test(testName, { skip: !url }, async () => {
         : null;
     })()`), offTailState);
     assert.equal(await readBrowserValue(browser,
-      `document.body?.innerText.includes(${JSON.stringify(tailFollowRun.run_identity)})`), false);
+      tailFollowRunOnPage), false);
     await delay(10_500);
     assert.equal(await readBrowserValue(browser, `window.__serviceLogFetchGate?.started`), 1);
     assert.equal(await readBrowserValue(browser,
-      `document.body?.innerText.includes(${JSON.stringify(tailFollowRun.run_identity)})`), false);
+      tailFollowRunOnPage), false);
 
     assert.equal(await readBrowserValue(browser, `(() => {
       const gate = window.__serviceLogFetchGate;
@@ -737,13 +758,39 @@ test(testName, { skip: !url }, async () => {
       viewport.scrollTop = 0;
       return viewport.scrollTop === 0;
     })()`), true);
-    await waitForBrowserExpression(browser,
-      `document.body?.innerText.includes(${JSON.stringify(tailFollowRun.run_identity)})`, 15_000);
+    // Following the tail depends on an interval this page owns, so a miss here has to say whether
+    // the interval ran at all, whether it was allowed to replace, and what the surface holds now.
+    try {
+      await waitForBrowserExpression(browser,
+        tailFollowRunOnPage, 15_000);
+    } catch (error) {
+      const state = await readBrowserValue(browser, `(() => {
+        const viewport = document.querySelector('.page-viewport');
+        const firstRow = document.querySelector('table[aria-label="Service log events"] tbody tr');
+        return {
+          gate: window.__serviceLogFetchGate
+            ? { enabled: window.__serviceLogFetchGate.enabled, started: window.__serviceLogFetchGate.started,
+              completed: window.__serviceLogFetchGate.completed }
+            : null,
+          autoRefresh: [...document.querySelectorAll('button')]
+            .map((button) => button.textContent?.trim()).find((text) => text?.startsWith('Auto-refresh')),
+          scrollTop: viewport?.scrollTop ?? null,
+          rows: document.querySelectorAll('table[aria-label="Service log events"] tbody tr').length,
+          firstRow: firstRow?.innerText ?? null,
+        };
+      })()`);
+      throw new Error(`tail follow: ${error.message}; state: ${JSON.stringify(state)}`, { cause: error });
+    }
     await clickButton(browser, "Auto-refresh on");
 
+    // The sources list is labelled "Service sources", and it shows each source's label rather than
+    // its identity; the identity is the title on the entry's own name. Both were asserted the other
+    // way round here, so this step selected nothing and reported it as the surface's fault.
+    // The same identity in the body is only inside an info popover, which `innerText` omits because
+    // it is hidden, so asking the body for it answers "absent" whatever the surface holds.
     const selectedWorker = await readBrowserValue(browser, `(() => {
-      const button = [...document.querySelectorAll('[aria-label="Service instances"] button')]
-        .find((candidate) => candidate.textContent?.includes(${JSON.stringify(workerIdentity)}));
+      const button = [...document.querySelectorAll('[aria-label="Service sources"] button')]
+        .find((candidate) => candidate.querySelector(${JSON.stringify(`b[title=${JSON.stringify(workerIdentity)}]`)}));
       button?.click();
       return Boolean(button);
     })()`);
@@ -752,7 +799,8 @@ test(testName, { skip: !url }, async () => {
       `Boolean(document.querySelector('[aria-label="Service instance ${workerIdentity}"]'))
         && document.querySelectorAll('table[aria-label="Service log events"] tbody tr').length > 0
         && [...document.querySelectorAll('table[aria-label="Service log events"] tbody tr')]
-          .every((row) => row.innerText.includes('shadow_worker') || row.innerText.includes('owner_gateway'))`);
+          .every((row) => row.innerText.includes(${JSON.stringify(serviceLogSourceLabel("shadow_worker"))})
+            || row.innerText.includes(${JSON.stringify(serviceLogSourceLabel("owner_gateway"))}))`);
 
     const filtered = await readBrowserValue(browser, `(() => {
       const group = document.querySelector('[aria-label="Service log filters"]');
@@ -766,8 +814,7 @@ test(testName, { skip: !url }, async () => {
     })()`);
     assert.equal(filtered, true);
     await waitForBrowserExpression(browser,
-      `document.body?.innerText.includes(${JSON.stringify(workerIdentity)})
-        && !document.querySelector('[aria-label="Service instances"]')?.innerText.includes(${JSON.stringify(serverIdentity)})`);
+      `${sourceShownExpression(workerIdentity)} && !${sourceShownExpression(serverIdentity)}`);
 
     await readBrowserValue(browser, `(() => {
       window.__serviceLogDownload = null;
@@ -793,8 +840,8 @@ test(testName, { skip: !url }, async () => {
       `document.body?.innerText.includes('Service logs unavailable')
         && [...document.querySelectorAll('.panel-info-popover code')]
           .some((code) => code.textContent === 'SERVICE_LOG_STORE_UNAVAILABLE')
-        && !document.body?.innerText.includes(${JSON.stringify(workerIdentity)})
-        && !document.body?.innerText.includes(${JSON.stringify(serverIdentity)})
+        && !${sourceShownExpression(workerIdentity)}
+        && !${sourceShownExpression(serverIdentity)}
         && document.querySelectorAll('table[aria-label="Service log events"] tbody tr').length === 0`);
     const unavailableInfo = await readBrowserValue(browser, `(() => {
       const code = [...document.querySelectorAll('.panel-info-popover code')]
