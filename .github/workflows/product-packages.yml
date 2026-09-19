@@ -64,10 +64,18 @@ jobs:
           --health-retries 30
     env:
       DASHBOARD_SUITE_POSTGRES: postgresql://postgres:dashboard@127.0.0.1:5432
-      # The browser the Dashboard acceptances drive. Pinned to the build the lane measures against
-      # locally: the same suites pass there in 24 to 38 s and stalled past a ten-minute budget on
-      # this runner's newer build, so the version is a variable this job holds fixed rather than
-      # inherits. Changing it is a deliberate act with its own evidence.
+      # The browser the Dashboard acceptances drive, held to the build the lane measures against
+      # locally rather than inherited from the image.
+      #
+      # This pin did not fix anything, and the record should not suggest it did. It was taken while
+      # the acceptances stalled here, on the theory that the runner's newer build was the cause; the
+      # run that carried it stalled exactly as before. What unblocked them was three Chrome startup
+      # flags the suites were missing, which the ordered chain's own acceptance had all along.
+      #
+      # It stays because these acceptances drive a browser directly over the DevTools protocol, so
+      # the version is a variable worth holding fixed while they are read as evidence, and because
+      # nothing has yet shown the flags alone suffice on an unpinned build. Release it by running
+      # this job once without the pin: if the acceptances stay green, the pin has no work left to do.
       CHROME_FOR_TESTING_VERSION: 144.0.7559.96
       CHROME_FOR_TESTING_SHA256: ebb811eef0a0206b6f15dbd325840e39331a132399a4e7e0770cbc1624c3bff0
       DASHBOARD_BROWSER_ROOT: /tmp/dashboard-browser-acceptance-chrome
@@ -168,11 +176,17 @@ jobs:
         env:
           DASHBOARD_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_audit
           DASHBOARD_TEST_CURSOR_HMAC_KEY: audit-disposable-cursor-key-at-least-32-bytes
-        run: node --test tests/operation-audit.postgres.test.mjs
+        run: node --test --test-timeout=300000 tests/operation-audit.postgres.test.mjs
 
+      # A suite that starts a server can fail in two ways this job has to tell apart. A test that
+      # hangs is bounded below; a process that will not exit once every test has passed is not, and
+      # `--test-force-exit` is the wrong instrument for it - it would end the process and report a
+      # pass while the leak that caused it stayed. This step lost a whole job to that second kind,
+      # and the fix is in the suite's own teardown. The job's own limit reports a recurrence as the
+      # failure it is.
       - name: Run the Dashboard local operator session HTTP suite
         working-directory: product/dashboard
-        run: node --test tests/local-operator-session.http.mjs
+        run: node --test --test-timeout=300000 tests/local-operator-session.http.mjs
 
       # The R&D Owner client has no package manifest and no dependencies; it runs on the standard
       # library alone, which is why nothing had to install it and why nothing ran it either. The
@@ -181,7 +195,7 @@ jobs:
       # test files at all.
       - name: Run R&D Owner client tests
         working-directory: product/rd-owner-client
-        run: node --test ./*.test.mjs
+        run: node --test --test-timeout=300000 ./*.test.mjs
 
       # The R&D deployment package carries manifests rather than tests. Its checks read files and
       # need no container, so the gate that already watches its path can run them.
