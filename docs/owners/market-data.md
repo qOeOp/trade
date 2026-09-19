@@ -1668,8 +1668,11 @@ instrument-class rejection.
   **CURRENT / PARTIAL, one live fact channel, built and proven:** the additive `LiveMarketFactV1` a Strategy Instance consumes,
   its Owner-sealed intake, and exactly one Data Client behind it, the venue's public WebSocket. The vendor side
   states only what a venue can know, as the PIT observation seam already requires; the Owner stamps the admitted
-  Source Binding identity and lineage, the binding's Market Semantics Compatibility identity, and the fact's own
-  time coordinates and sequence, refuses an instrument outside the subscription the Owner issued, and keeps a
+  Source Binding identity and lineage, the binding's Market Semantics Compatibility identity, and the one time
+  coordinate that is its own, the retrieval instant, together with the sequence. The venue states the
+  event-effective and provider-available instants from its own clock, and the Owner reads its retrieval instant
+  from the host process clock rather than from its sealed head, so no ordering across those clocks is provable and
+  none is asserted. The Owner refuses an instrument outside the subscription it issued, and keeps a
   durable head so a restart hands over from where it stopped rather than replaying. Nothing else is admitted here:
   no second channel, no instrument-update stream, no Runtime custody, no order path.
   **NOT_ADMITTED:** a live channel establishes no Runtime readiness, Paper, Live, real trading or other production

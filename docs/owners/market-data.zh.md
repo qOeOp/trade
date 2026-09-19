@@ -1557,8 +1557,10 @@ rejection。
   generation 的 Strategy Artifact 与历史证据必须消费该身份。
   **CURRENT / PARTIAL，一条实时事实通道，已建成并证明：** Strategy Instance 消费的增量 `LiveMarketFactV1`、它的 Owner 封缄
   intake，以及其后恰好一个 Data Client，即场所的公共 WebSocket。供应商侧只陈述场所能知道的事，与 PIT 观测缝既有的要求
-  一致；Owner 盖章已准入 Source Binding 的身份与谱系、该绑定的 Market Semantics Compatibility 身份，以及事实自身的时间
-  坐标与序号，拒绝 Owner 所签发订阅之外的标的，并保留持久头部，使重启后从停下处继续交接而不是重放。此处不准入其他任何
+  一致；Owner 盖章已准入 Source Binding 的身份与谱系、该绑定的 Market Semantics Compatibility 身份，以及唯一属于它自己的
+  那个时间坐标即 retrieval 时刻，连同序号。场所以自己的时钟陈述 event-effective 与 provider-available 两个时刻，而 Owner 的
+  retrieval 时刻取自宿主进程时钟而非其密封头，所以跨这些时钟的序都不可证，本 Owner 也不断言任何这样的序。Owner 拒绝
+  自己所签发订阅之外的标的，并保留持久头部，使重启后从停下处继续交接而不是重放。此处不准入其他任何
   事：没有第二条通道、没有标的更新流、没有 Runtime 托管、没有下单路径。
   **NOT_ADMITTED：** 一条实时通道不建立 Runtime readiness、Paper、Live、真实交易或任何其他生产写；流式事实永远不是 PIT
   快照、replay 输入，也不是回答历史问题的证据。
