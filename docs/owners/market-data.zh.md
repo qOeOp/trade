@@ -20,8 +20,8 @@ Action、Replay Market Facts V2、Instrument Master，以及策略 input-role bi
 
 ## 实现准入台账
 
-本台账是下文契约实际走到哪一步的可 grep 索引。它本身不授予任何许可：本次切面上处于
-`IMPLEMENTATION_ADMITTED` 的恰是 `B8` 点名的那一条实时事实通道，因为 `B7` 点名的三个生产写切片都已建成并证明，
+本台账是下文契约实际走到哪一步的可 grep 索引。它本身不授予任何许可：处于
+`IMPLEMENTATION_ADMITTED` 的以下文状态列所写的为准，别无其他，所以本句不点名任何切片，也不会因某一片状态变化而过期。
 扩大已准入集合必须先按 `AGENTS.md` 的架构权威规则修改本文档。已合并的 crate、被点名的
 类型、绿色的 job 或本表中的一行都不是实现权威，永远不证明存在生产消费者，也永远不授权生产副作用、部署切换或真实
 交易。
@@ -78,31 +78,33 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   而 Market Semantics fact 又交叉绑定一条 R0 record。这三者各由下文对应章节描述的生产路径写入，都不经 acceptance
   feature 或测试夹具，且 PIT 请求的 `instrument_master_digest` 现在是 Owner 自己的解析结果而非调用方的声称。剩下的
   不是写入者而是一次运行：还没有任何部署用过它们，那正是 `B6` 已经点名的运维缺口。
-- **`B8` 没有任何实时事实到达 Runtime。** 本 Owner 现有的每条取数缝都是 as-of：Data Client 只回答一个冻结 scope 在一个
-  决策切面上的结果，没有任何流。于是消费下文 Output handoffs 那条交接的 Strategy Instance 根本没有输入，Paper 与 Live
-  都无从开始。解除条件：下文作为有界切片准入的第一条实时通道。
+- **`B8` 首条实时事实通道已存在；Runtime 侧没有任何消费者。** 本条原先把两个断言写成了一句话，首条实时通道把它们分开了。
+  本 Owner 其余每条取数缝仍然是 as-of：Data Client 只回答一个冻结 scope 在一个决策切面上的结果，没有任何流。下文
+  Output handoffs 描述的那条通道现在对一个有界 scope 真的在流，其持久头部与 Owner 签发的订阅由有序链路证明。第二个断言
+  原样成立：**没有任何实时事实到达 Runtime**，因为不存在该 intake 的 Runtime 消费者，所以 Strategy Instance 仍然没有实时
+  输入，Paper 与 Live 都无从开始。余下的闭合在 Runtime 一侧，不是本 Owner 的又一个切片。
 
 ### 逐片台账
 
-| 切片                                              | 状态                                         | 实现位置                                                                                                                                                                                                        | 阻断物     |
-| ------------------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| PIT Market Snapshot 权威与 custody                | `CURRENT / PARTIAL`                          | `crates/data/src/owner/pit_snapshot.rs`、`pit_snapshot/authority.rs`、`owner/postgres.rs` 的 `pit_*` 关系                                                                                                       | `B1`       |
-| Source Binding 与 Owner 本地 clock head           | `CURRENT / PARTIAL`                          | `crates/data/src/owner/source_binding.rs`、`owner/postgres.rs`                                                                                                                                                  | `B1`       |
-| 面向 R&D 的 `ResearchPitTerminal` 输出交接        | `CURRENT / PARTIAL`                          | `crates/data/src/owner/research_pit_terminal.rs`                                                                                                                                                                | `B3`       |
-| Deployment Store Admission 私有接缝               | `CURRENT / PARTIAL`                          | `crates/data/src/owner/store_admission`                                                                                                                                                                         | `B3`       |
-| R0 观测证据与 reference‑fact 目录                 | `CURRENT / PARTIAL`，含 R0 写                | `owner/reference_fact_coordinates`、`owner/reference_fact_catalog.rs`                                                                                                                                           | `B5`、`B7` |
-| Calendar、Time Zone 与 Session 原生权威           | `CURRENT / PARTIAL`                          | `owner/calendar`、`owner/time_zone`、`owner/session`                                                                                                                                                            | `B5`       |
-| Market Semantics Owner 契约                       | `CURRENT / PARTIAL`，含 fact intake          | `owner/market_semantics`                                                                                                                                                                                        | `B5`、`B7` |
-| Correction Policy 私有 Replay projection          | `CURRENT / PARTIAL`                          | `owner/correction_policy_projection`                                                                                                                                                                            | `B5`       |
-| Corporate Action 的 Instrument Master 子权威      | `CURRENT / PARTIAL`                          | `owner/corporate_action`                                                                                                                                                                                        | `B5`       |
-| Universe Selection Record                         | `CURRENT / PARTIAL`                          | `owner/universe_selection.rs`，持久 custody 与事务内规则求值在 `owner/postgres/universe_selection.rs`（`universe_selection_records_v1`、receipts、outbox、historical‑membership frontier/facts/heads/manifest） | `B1`       |
-| Replay Market Facts V2 基础                       | `CURRENT / PARTIAL`                          | `owner/replay_market_facts_v2`                                                                                                                                                                                  | `B4`       |
-| Instrument Master V1 与 V2 及经济条款             | `CURRENT / PARTIAL`，含 V1 fact intake       | `owner/instrument_master.rs`、`owner/instrument_master_v2*.rs`、`owner/instrument_economic_terms*_v1.rs`                                                                                                        | `B4`、`B7` |
-| Strategy input‑role binding 与 Design 的 PIT 坐标 | `CURRENT / PARTIAL`                          | `owner/postgres/strategy_input_binding_registry.rs`                                                                                                                                                             | `B2`、`B4` |
-| EVENT 与 BAR Owner custody                        | `CURRENT / PARTIAL`                          | `owner/sample_fact.rs`、`owner/sample_projection*.rs`、`owner/bar_schedule.rs`                                                                                                                                  | `B4`       |
-| Shared Time clock‑head 交接                       | `TARGET`                                     | `owner/shared_time_evidence.rs`                                                                                                                                                                                 | `B3`       |
-| 供应商 Data Clients                               | `CURRENT / PARTIAL`                          | `crates/adapters/databento/src/pit_observation_source_v1.rs` 与 `crates/adapters/binance/src/pit_observation_source_v1.rs`，均已实盘验证                                                                        | `B6`       |
-| 面向 Runtime 的实时行情事实通道                   | `TARGET`，首条通道 `IMPLEMENTATION_ADMITTED` | 尚无；本行点名的是切片，不是文件                                                                                                                                                                                | `B8`       |
+| 切片                                              | 状态                                   | 实现位置                                                                                                                                                                                                        | 阻断物     |
+| ------------------------------------------------- | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| PIT Market Snapshot 权威与 custody                | `CURRENT / PARTIAL`                    | `crates/data/src/owner/pit_snapshot.rs`、`pit_snapshot/authority.rs`、`owner/postgres.rs` 的 `pit_*` 关系                                                                                                       | `B1`       |
+| Source Binding 与 Owner 本地 clock head           | `CURRENT / PARTIAL`                    | `crates/data/src/owner/source_binding.rs`、`owner/postgres.rs`                                                                                                                                                  | `B1`       |
+| 面向 R&D 的 `ResearchPitTerminal` 输出交接        | `CURRENT / PARTIAL`                    | `crates/data/src/owner/research_pit_terminal.rs`                                                                                                                                                                | `B3`       |
+| Deployment Store Admission 私有接缝               | `CURRENT / PARTIAL`                    | `crates/data/src/owner/store_admission`                                                                                                                                                                         | `B3`       |
+| R0 观测证据与 reference‑fact 目录                 | `CURRENT / PARTIAL`，含 R0 写          | `owner/reference_fact_coordinates`、`owner/reference_fact_catalog.rs`                                                                                                                                           | `B5`、`B7` |
+| Calendar、Time Zone 与 Session 原生权威           | `CURRENT / PARTIAL`                    | `owner/calendar`、`owner/time_zone`、`owner/session`                                                                                                                                                            | `B5`       |
+| Market Semantics Owner 契约                       | `CURRENT / PARTIAL`，含 fact intake    | `owner/market_semantics`                                                                                                                                                                                        | `B5`、`B7` |
+| Correction Policy 私有 Replay projection          | `CURRENT / PARTIAL`                    | `owner/correction_policy_projection`                                                                                                                                                                            | `B5`       |
+| Corporate Action 的 Instrument Master 子权威      | `CURRENT / PARTIAL`                    | `owner/corporate_action`                                                                                                                                                                                        | `B5`       |
+| Universe Selection Record                         | `CURRENT / PARTIAL`                    | `owner/universe_selection.rs`，持久 custody 与事务内规则求值在 `owner/postgres/universe_selection.rs`（`universe_selection_records_v1`、receipts、outbox、historical‑membership frontier/facts/heads/manifest） | `B1`       |
+| Replay Market Facts V2 基础                       | `CURRENT / PARTIAL`                    | `owner/replay_market_facts_v2`                                                                                                                                                                                  | `B4`       |
+| Instrument Master V1 与 V2 及经济条款             | `CURRENT / PARTIAL`，含 V1 fact intake | `owner/instrument_master.rs`、`owner/instrument_master_v2*.rs`、`owner/instrument_economic_terms*_v1.rs`                                                                                                        | `B4`、`B7` |
+| Strategy input‑role binding 与 Design 的 PIT 坐标 | `CURRENT / PARTIAL`                    | `owner/postgres/strategy_input_binding_registry.rs`                                                                                                                                                             | `B2`、`B4` |
+| EVENT 与 BAR Owner custody                        | `CURRENT / PARTIAL`                    | `owner/sample_fact.rs`、`owner/sample_projection*.rs`、`owner/bar_schedule.rs`                                                                                                                                  | `B4`       |
+| Shared Time clock‑head 交接                       | `TARGET`                               | `owner/shared_time_evidence.rs`                                                                                                                                                                                 | `B3`       |
+| 供应商 Data Clients                               | `CURRENT / PARTIAL`                    | `crates/adapters/databento/src/pit_observation_source_v1.rs` 与 `crates/adapters/binance/src/pit_observation_source_v1.rs`，均已实盘验证                                                                        | `B6`       |
+| 面向 Runtime 的实时行情事实通道                   | `CURRENT / PARTIAL`，一条通道          | `owner/live_market_fact_v1.rs`、`owner/live_market_stream_v1.rs`、`owner/postgres/live_market_stream_v1.rs`、`crates/adapters/bybit/src/live_market_fact_source_v1.rs`                                          | `B8`       |
 
 ## 拥有的权威事实
 
@@ -1553,7 +1555,7 @@ rejection。
 - 向 [Scanner](./scanner/) 提供已发布激活条件请求的准确 PIT Market Snapshot。
 - 向 [Runtime](./runtime/) 提供携带同一 Market Semantics Compatibility 身份的实时行情流和标的更新；
   generation 的 Strategy Artifact 与历史证据必须消费该身份。
-  **IMPLEMENTATION_ADMITTED，一条实时事实通道：** Strategy Instance 消费的增量 `LiveMarketFactV1`、它的 Owner 封缄
+  **CURRENT / PARTIAL，一条实时事实通道，已建成并证明：** Strategy Instance 消费的增量 `LiveMarketFactV1`、它的 Owner 封缄
   intake，以及其后恰好一个 Data Client，即场所的公共 WebSocket。供应商侧只陈述场所能知道的事，与 PIT 观测缝既有的要求
   一致；Owner 盖章已准入 Source Binding 的身份与谱系、该绑定的 Market Semantics Compatibility 身份，以及事实自身的时间
   坐标与序号，拒绝 Owner 所签发订阅之外的标的，并保留持久头部，使重启后从停下处继续交接而不是重放。此处不准入其他任何
