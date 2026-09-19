@@ -54,66 +54,17 @@ requires changing this document first.
 
 ## Input handoffs
 
-Each contract below states what Scanner requires and refuses, not what an upstream returns. None of the four
-seams exists at this cut, as the ledger entry for the `StrategyLoader`, `MarketSnapshot`, and Capacity View
-inputs records; satisfying a contract is a condition on a future implementation and never evidence that one is
-admitted.
-
-- Scheduler supplies the fixed periodic trigger and no fact; it has no deployment authority. The trigger carries
-  no identity Scanner trusts: the attempt identity derives only from the Schedule Definition version, the exact
-  scan-scope identity and version, and the canonical unambiguous due-slot boundary. A duplicate, concurrent,
-  restarted, or late trigger joins the same attempt and the same terminal receipt. An absent trigger produces no
-  attempt at all, because a receipt without an attempt would assert that a scan happened. Scanner never lets a
-  trigger create a due slot the definition does not derive, and never admits a trigger's clock epoch into the
-  stable identity.
-- [Strategy Governance](./strategy-governance/) supplies the governed strategy frontier for one due slot: for
-  every member the exact ArtifactRef, Eligibility, activation-condition version, capital-envelope version,
-  declared data needs, and effective interval, correlated to the due slot and carrying the frontier's own
-  identity and content digest. Scanner requires an answer that either binds an expected membership set it may
-  account against, or binds the authoritative reason membership cannot be resolved; it refuses everything else.
-  Only the first admits an expected set, so only the first can reach a complete receipt of any status. The
-  second, and an absent answer, both close the attempt as `INCOMPLETE_FAILED` on the unresolved-set branch.
-  Scanner never reconstructs membership from a previous frontier, from the strategies it happens to have
-  observed, or from a partial answer, and never treats a smaller frontier as a complete one.
-- [Market Data](./market-data/) supplies, for each strategy and its declared data needs, one sealed PIT readback
-  correlated to the exact request identity and content digest, carrying that Owner's published six-state
-  disposition `AVAILABLE`, `INSUFFICIENT`, `STALE`, `UNLICENSED`, `AMBIGUOUS`, or `UNAVAILABLE`, together with
-  the exact Universe Selection Record identity and digest, Instrument Master, calendar, session and time zone,
-  corporate-action and historical-membership cuts, and Market Semantics Compatibility identity. Only `AVAILABLE`
-  may carry a strategy to `MATCHED`. `INSUFFICIENT` commits that strategy's `INSUFFICIENT_DATA`; the other four
-  each commit its `INPUT_UNAVAILABLE`, and so does an absent answer, for that strategy alone. None of these is a
-  batch failure: one strategy's missing input can never suppress another strategy's complete match. Scanner
-  never repairs a semantics mismatch, never substitutes a neighbouring cut, and never reads a negative
-  disposition as an absence of adverse data.
-- [Portfolio](./portfolio/) supplies a bounded Capacity View only where a published activation condition
-  requires it. Scanner binds the candidate-neutral Capacity Scope, the exact account-fact, valuation and
-  liquidity cuts, the pool methodology and assumption versions, the measurement time, and the validity deadline.
-  Only an `AVAILABLE` view whose Capacity Scope, cuts, versions and freshness all match the condition may carry
-  that strategy
-  to `MATCHED`; a partial, expired, unavailable, cross-scope, or methodology-, assumption-, or
-  input-cut-mismatched view commits `INPUT_UNAVAILABLE`, and so does an absent answer. Where the condition does
-  not require capacity, an absent view is not a defect and never changes a disposition. Scanner never accepts a
-  strategy- or generation-bearing scope, a Paper/Live alias, or an unresolved shared-constraint overlap as the
-  candidate-neutral scope the condition names.
+- Scheduler supplies the fixed periodic trigger; it has no deployment authority.
+- [Strategy Governance](./strategy-governance/) supplies governed ArtifactRefs, activation conditions, and lifecycle constraints.
+- [Market Data](./market-data/) supplies the timestamped market and instrument facts required by those conditions.
+- [Portfolio](./portfolio/) may supply a bounded Capacity View for proposal sizing hints. It is optional unless the published activation condition explicitly requires it.
 
 ## Output handoffs
 
-- To [Strategy Governance](./strategy-governance/): exactly one terminal Scanner Receipt for every scheduled
-  ScanId, bound to the stable attempt identity and carrying exactly one of `PROPOSED`, `NO_MATCH`,
-  `INSUFFICIENT_DATA`, `COMPLETED_NO_PROPOSAL`, or `FAILED`. Only `PROPOSED` carries proposal members, and
-  Governance may consider only a member whose strategy entry, ArtifactRef and condition version exactly equal
-  its decision target. An absent receipt remains unknown: never read as `NO_MATCH`, never as a completed scan,
-  never as permission to proceed without Scanner evidence where the activation is condition-dependent. A
-  receipt is evidence and never authorization.
-- To Product Edge: direct read access to the Scanner-owned terminal receipt for every ScheduledScanId, keyed by
-  that identity and returning the receipt's exact completion state, its mutually exclusive expected-set branch,
-  its terminal reason, and its proposal members only when `PROPOSED`. A read either returns exactly one terminal
-  receipt bound to the requested attempt, or refuses. It refuses separately when no receipt exists for that
-  attempt, when the store returns a receipt bound to a different attempt, when the store reports a semantic
-  conflict, and when the store is unavailable; the middle two are **detected custody faults** and are never
-  displayed as an absent or unknown outcome. Product Edge stores no competing Scanner-owned projection, derives
-  no status of its own, and never labels an incomplete `FAILED` set as complete or renders an unresolved
-  expected set as an empty one.
+- To [Strategy Governance](./strategy-governance/): exactly one terminal Scanner Receipt for every scheduled ScanId.
+- To Product Edge: direct read access to the Scanner-owned terminal receipt for every ScheduledScanId. Product
+  Edge reads its exact completion state, mutually exclusive expected-set branch, terminal reason, and proposal
+  members only when `PROPOSED`; it stores no competing Scanner-owned projection.
 
 ## Rejections and prohibitions
 
