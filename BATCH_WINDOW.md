@@ -24,6 +24,24 @@ This is not a judgement about whether a change is important. It is tree equality
 A PR touching only .md files voids the round exactly as a PR touching the chain
 does.
 
+## What the window does NOT constrain
+
+Closed constrains exactly one thing: merging to main. Work that cannot change the
+tree the members produce when merged is unaffected. So these stay open:
+
+    rebasing your own branch                    fine
+    force-pushing your own branch               fine, UNLESS it is a member
+    opening PRs, pushing new commits, review    fine
+    running CI on your own branches             fine
+
+### The exception, which is not obvious
+
+Force-pushing a MEMBER branch voids the round. The evidence was built from each
+member's head as it stood when the branch was assembled; moving that head changes
+what "merge the members" produces, exactly as moving main does. Members are listed
+above. If you need to move a member's head, tell Lane 0 first - the round has to
+be rebuilt, and it is cheaper to know before it finishes than after.
+
 ## Members are being proven, not stalled
 
 A PR listed in members has no build on its own head only because it is being
