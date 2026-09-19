@@ -100,7 +100,10 @@ never runs in CI.
   because producing a fact and delivering it to a consumer are different things, and the slice admitting the
   channel excluded the consumer half in its own words: no Runtime custody. Nothing in Runtime consumes the intake,
   so a Strategy Instance still has no live input and neither Paper nor Live can begin. What clears this entry is a
-  Runtime-side consumer, not a further slice of this Owner.
+  Runtime-side consumer and a read surface on this side for it to consume, and this Owner has
+  neither built the second nor admitted it: no outward function serves a live fact, and the twelve
+  this Owner does expose name `rd_owner` inside their own bodies, so a grant to another caller yields
+  empty results rather than refusal.
 
 ### Per-slice ledger
 
