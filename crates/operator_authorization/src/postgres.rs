@@ -4347,6 +4347,31 @@ mod tests {
         .await
         .unwrap();
         assert!(executable);
+
+        // Who may read this kind, stated per role rather than only for whoever
+        // this connection happens to be. `governance_writer` is the reason the
+        // kind exists: Strategy Governance binds one of these to every unattended
+        // lifecycle decision. The negative rows matter as much - a grant with no
+        // one excluded proves nothing about what the grant withholds.
+        for (role, expected) in [
+            ("product_edge_owner", true),
+            ("operator_authorization_writer", true),
+            ("governance_writer", true),
+            ("rd_owner", false),
+            ("qualification_writer", false),
+        ] {
+            let executable: bool = sqlx::query_scalar(
+                "SELECT has_function_privilege($1::name, to_regprocedure('operator_authorization_api.lock_current_autonomous_policy_authorization_v1(text,text)'), 'EXECUTE')",
+            )
+            .bind(role)
+            .fetch_one(restarted.pool())
+            .await
+            .unwrap();
+            assert_eq!(
+                executable, expected,
+                "unexpected autonomous policy authorization ACL for {role}"
+            );
+        }
         assert!(!private_usage);
 
         for table in [
@@ -5232,7 +5257,12 @@ mod tests {
         let rollback_future = async move { rollback_owner.revoke(rollback_proposal).await };
 
         let rollback_revoke = tokio::spawn(rollback_future);
-        tokio::task::yield_now().await;
+        wait_for_row_lock(
+            owner.pool(),
+            "operator_authorization_writer",
+            "%operator_authorization_issuances_v1%FOR UPDATE%",
+        )
+        .await;
         assert!(!rollback_revoke.is_finished());
         rollback_holder.rollback().await.unwrap();
         tokio::time::timeout(Duration::from_secs(5), rollback_revoke)

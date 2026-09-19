@@ -1,5 +1,15 @@
 # Concepts
 
+:::note[Layer]
+These pages describe the inherited engine: the component model that `crates` and
+`python/vibe_trader` implement today. They are accurate about that layer, and they are kept for
+people working in it.
+
+They are not the platform's architecture of record. Where a page here and an Owner contract answer
+the same question differently, the Owner contract governs. Boundaries are set by
+`docs/architecture/`; each business fact and its single writer are set by `docs/owners/`.
+:::
+
 These guides explain the core components, architecture, and design of VibeTrader.
 
 ## Overview

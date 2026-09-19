@@ -87,6 +87,49 @@ Unify Research and Develop under one business-fact Owner. The Research capabilit
   Evidence. Its exhaustive states are `D0_COMPLETED_NO_ARTIFACT`, `D1_VALIDATED`,
   `D1_VALIDATION_FAILED`, `D1_BUILD_FAILED`, `REJECTED_NOT_D_ONLY`, and `OUTCOME_UNKNOWN`.
 
+## Implementation status ledger
+
+This ledger records only what the repository has reached at this cut. It uses the status vocabulary of the
+[Market Data](./market-data/) ledger, with `CURRENT_PARTIAL` as the merged-but-unreachable form, and grants no
+permission by itself: no slice of this document is `IMPLEMENTATION_ADMITTED`, and widening the admitted set
+requires changing this document first. Every row names the symbol or path that would falsify it.
+
+- **CURRENT - deployed service and the boundary of what it exposes:** `product/rd-workbench/Dockerfile.owner`
+  builds `--bin strategy-factory-rd-owner-api` with no `--features` at all; the file's only `--features` is on the
+  dashboard binary. So the deployed image is the ungated router in
+  `crates/strategy_factory_rd_owner_api/src/main.rs`, and the six routes registered after it by
+  `#[cfg(feature = "sealed-develop-composer-acceptance")]` and
+  `#[cfg(feature = "sealed-source-intake-composer-acceptance")]` are absent from it:
+  `/v2/exploratory-replay/execution-input-bindings`, `/v3/exploratory-replay-requests/composer-backed`, and the
+  four `/_sealed-acceptance/v1/develop-composer/*` routes. An acceptance route is never evidence of a production
+  capability, and the sealed features exist to keep that distinction mechanical rather than remembered.
+- **CURRENT - the cross-Owner read surface other Owners are granted:** `rd_owner_api` carries 35 distinct
+  functions and is the only schema in this repository that grants execute to more than one consuming Owner role -
+  `product_edge_owner`, `qualification_writer`, `backtest_owner`, `market_data_owner` and `market_data_reader`,
+  with `rd_owner` as the schema's own role. For contrast at the same cut, `qualification_api` carries 13
+  functions, `market_data_rd_api` 12 granted to `rd_owner` alone, and `portfolio_api` and `governance_api` carry
+  none. The granted functions are `SECURITY DEFINER` and name no caller in their bodies, so access is decided by
+  the grant and a caller without it receives a permission error rather than an empty result. This row records the
+  surface and its grants; it does not establish that any consumer reads it in production.
+- **CURRENT_PARTIAL - the production Composer read port:**
+  `crates/strategy_factory/src/source_research_composer_postgres_v2.rs` implements
+  `DevelopComposerSealedReadPortV2` for `PostgresSourceResearchComposerProductionV2` with no `cfg` attribute, so
+  the deployed build carries it and no acceptance feature is required to resolve a committed Composer operation.
+  It proves the read resolves what the same transaction committed; it proves no consumer outside the ordered
+  chain.
+- **TARGET - the PIT input seam is wired and inert:** `rd.md` states that Market Data returns one sealed
+  `ResearchPitTerminal` per PIT Market Snapshot Request. `crates/strategy_factory_rd_owner_api/src/main.rs`
+  imports `ResearchPitTerminalResolver`, declares `_market_data_research_pit` and assigns it at construction, and
+  never reads it - the underscore is the only marker, and no trait method of that resolver is called anywhere
+  outside `crates/data`. The resolver is additionally optional: `bootstrap_deployment_store_admission` returns
+  `Option`, so the field may hold `None` in a deployment. Closing this needs a consumer in this Owner, not a
+  wider read from Market Data.
+- **TARGET / ISOLATED_ACCEPTANCE_ONLY - the exploratory replay production entry:** the only caller of
+  `run_exploratory_replay_v2` outside `vibe-backtest-owner` is inside `run_native_replay`, which carries
+  `#[cfg(feature = "sealed-develop-composer-acceptance")]` with no `cfg(not(...))` twin anywhere in the
+  repository. With the deployed image built without features, that path is unreachable in what is deployed. This
+  measures the deployment artifact, not history.
+
 ## Modules
 
 - **Source Intake** - admit papers, observations, notes, media, and tool output as untrusted data with origin and
@@ -706,6 +749,18 @@ Decision, Selection, and Candidate. Changing one creates a successor lineage rat
 - To [Runtime](./runtime/): only a committed `REPAIR_INPUTS_RUNTIME_KERNEL` decision may create one correlated
   `native-repair-request`; Runtime alone returns `REPAIRED`, `UNAVAILABLE`, or `OUTCOME_UNKNOWN` for that exact
   kernel attempt.
+- To [Strategy Governance](./strategy-governance/): the sealed Build Receipt an Owner admission rereads before a
+  lifecycle decision, resolved at the exact Artifact identity and digest the receipt was sealed under, carrying the
+  intent, TrialFamily, code bytes and dependency set it binds. R&D states what it built and nothing about whether
+  that Artifact may run: a Build Receipt is never an activation, never a qualification, never a capital decision,
+  and never evidence that any lifecycle state was reached. A receipt that cannot be resolved at that exact identity
+  and digest is absent, not stale, and an absent receipt admits no lifecycle transition rather than a cautious one.
+- To [Portfolio](./portfolio/): the frozen Research Intent a degradation attribution names, resolved at the exact
+  intent identity and digest, carrying the prediction and falsifier that intent froze and the cut they were frozen
+  at. R&D supplies the frozen prediction only; it observes no realized performance, attributes no cause, and
+  measures no deviation. A Research Intent is never a performance claim, never a capacity statement, and never by
+  itself evidence that a mechanism degraded - the deviation and its preserved alternatives are Portfolio's, and
+  neither Owner may derive the other's half.
 - To [Qualification](./qualification/): only a R&D-owned frozen Candidate with a terminal
   `SELECTED_FOR_QUALIFICATION` Research Selection Disposition. The handoff cross-binds the exact Intent falsifier
   and stop rule, complete preregistration, immutable exhaustive TrialFamily Census Frontier, exploratory
