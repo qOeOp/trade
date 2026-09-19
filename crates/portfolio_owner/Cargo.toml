@@ -19,4 +19,5 @@ sqlx = { workspace = true }
 [dev-dependencies]
 rstest = { workspace = true }
 tokio = { workspace = true }
+vibe-execution-owner = { workspace = true }
 vibe-testkit = { workspace = true, features = ["postgres"] }
