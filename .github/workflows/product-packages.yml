@@ -64,6 +64,14 @@ jobs:
           --health-retries 30
     env:
       DASHBOARD_SUITE_POSTGRES: postgresql://postgres:dashboard@127.0.0.1:5432
+      # The browser the Dashboard acceptances drive. Pinned to the build the lane measures against
+      # locally: the same suites pass there in 24 to 38 s and stalled past a ten-minute budget on
+      # this runner's newer build, so the version is a variable this job holds fixed rather than
+      # inherits. Changing it is a deliberate act with its own evidence.
+      CHROME_FOR_TESTING_VERSION: 144.0.7559.96
+      CHROME_FOR_TESTING_SHA256: ebb811eef0a0206b6f15dbd325840e39331a132399a4e7e0770cbc1624c3bff0
+      DASHBOARD_BROWSER_ROOT: /tmp/dashboard-browser-acceptance-chrome
+      DASHBOARD_BROWSER_EXECUTABLE: /tmp/dashboard-browser-acceptance-chrome/chrome-linux64/chrome
     steps:
       - name: Harden runner
         # https://github.com/step-security/harden-runner
@@ -97,6 +105,19 @@ jobs:
       - name: Check Dashboard types
         run: npm run typecheck --prefix product/dashboard
 
+      - name: Install the pinned browser for the Dashboard browser acceptances
+        run: |
+          set -euo pipefail
+          mkdir -p "$DASHBOARD_BROWSER_ROOT"
+          archive="$DASHBOARD_BROWSER_ROOT/chrome-linux64.zip"
+          browser="$DASHBOARD_BROWSER_ROOT/chrome-linux64"
+          curl --fail --location --retry 3 --output "$archive" \
+            "https://storage.googleapis.com/chrome-for-testing-public/$CHROME_FOR_TESTING_VERSION/linux64/chrome-linux64.zip"
+          printf '%s  %s\n' "$CHROME_FOR_TESTING_SHA256" "$archive" | sha256sum --check --strict
+          python3 -m zipfile -e "$archive" "$DASHBOARD_BROWSER_ROOT"
+          chmod 0755 "$browser/chrome" "$browser/chrome_crashpad_handler"
+          "$browser/chrome" --version
+
       - name: Create the Dashboard suite control databases
         working-directory: product/dashboard
         run: node scripts/create-suite-databases.mjs
@@ -114,18 +135,21 @@ jobs:
           DASHBOARD_RUN_LIST_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_runs
           DASHBOARD_SHADOW_RUNTIME_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_shadow_runtime
           DASHBOARD_SHADOW_RUNTIME_TEST_CURSOR_HMAC_KEY: shadow-runtime-disposable-cursor-key-at-least-32-bytes
-          # None of the three RunStore browser acceptances runs here, and each is held back for a
-          # reason observed rather than assumed. Workers passes locally three times running in 24 to
-          # 38 s, and on this runner's Chrome it stalls past a ten-minute per-test budget and then
-          # holds the runner open until the job's wall clock, twice. Schedule calendar leaves an
-          # evaluation outstanding past a 60 s command budget. Service logs meets
-          # SERVICE_LOG_CURSOR_CONTINUITY_UNAVAILABLE on its first page step with auto-refresh off,
-          # which is a paging question for the surface's owner rather than a test detail.
+          # Workers drives a browser here; the other two do not, and each is held back for a reason
+          # observed rather than assumed. Schedule calendar leaves an evaluation outstanding past a
+          # 60 s command budget. Service logs meets SERVICE_LOG_CURSOR_CONTINUITY_UNAVAILABLE on its
+          # first page step with auto-refresh off, which is a paging question for the surface's
+          # owner rather than a test detail. Their PostgreSQL bodies run either way, which is the
+          # RunStore gateway coverage Operations depends on.
           #
-          # Their PostgreSQL bodies - the RunStore gateway coverage Operations depends on - run here
-          # either way. Re-enabling one means restoring the pinned browser download, this job's
-          # DASHBOARD_BROWSER_* variables, and that suite's own DASHBOARD_<SUITE>_BROWSER_* inputs.
+          # Workers stalled here twice on the runner's own newer browser while passing locally in 24
+          # to 38 s. The difference had two dimensions, browser build and machine; pinning the build
+          # this job installs leaves one, so a stall now says the environment and a pass says the
+          # build.
           DASHBOARD_WORKERS_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_workers
+          DASHBOARD_WORKERS_BROWSER_ACCEPTANCE: "1"
+          DASHBOARD_WORKERS_ACCEPTANCE_CANDIDATE: ${{ github.sha }}
+          DASHBOARD_WORKERS_BROWSER_EXECUTABLE: ${{ env.DASHBOARD_BROWSER_EXECUTABLE }}
           DASHBOARD_CALENDAR_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_calendar
           DASHBOARD_SERVICE_LOGS_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_service_logs
         run: >-
