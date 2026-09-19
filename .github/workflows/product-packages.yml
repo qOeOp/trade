@@ -145,10 +145,18 @@ jobs:
           DASHBOARD_SHADOW_RUNTIME_TEST_CURSOR_HMAC_KEY: shadow-runtime-disposable-cursor-key-at-least-32-bytes
           # Workers drives a browser here; the other two do not, and each is held back for a reason
           # observed rather than assumed. Schedule calendar leaves an evaluation outstanding past a
-          # 60 s command budget. Service logs meets SERVICE_LOG_CURSOR_CONTINUITY_UNAVAILABLE on its
-          # first page step with auto-refresh off, which is a paging question for the surface's
-          # owner rather than a test detail. Their PostgreSQL bodies run either way, which is the
-          # RunStore gateway coverage Operations depends on.
+          # 60 s command budget.
+          #
+          # Service logs was held back for a reason that turned out to be false. It was recorded as
+          # meeting SERVICE_LOG_CURSOR_CONTINUITY_UNAVAILABLE on its first page step; the page never
+          # showed that reason at all. The wait is a conjunction and a timeout quotes only its first
+          # line, so what got written down was the first line of the expression rather than the part
+          # that was unmet. Measured, the unmet part was an assertion that every row contain
+          # `run_store`, an identifier the surface never renders. With that corrected it pages
+          # correctly and is held back one step later: a refresh landing while the viewport is
+          # scrolled away from the tail moves the scroll position 15 px while the content beside it
+          # stays identical. Their PostgreSQL bodies run either way, which is the RunStore gateway
+          # coverage Operations depends on.
           #
           # Workers stalled here twice while passing locally in 24 to 38 s, and the browser build
           # looked like the difference. It was not: pinning the build changed nothing, and the suite
