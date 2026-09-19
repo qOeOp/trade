@@ -1636,23 +1636,7 @@ instrument-class rejection.
 
 ## Input handoffs
 
-- Data vendors and trading venues provide raw market and reference records through Data Clients, and every time
-  coordinate is attributed to the clock that states it rather than to the clock that admits it. The venue states
-  the event-effective instant and the provider-available instant, and states them separately: the first is when
-  the event happened, the second is when the venue published it, and using one for the other would assert a
-  publication the venue never claimed. Beyond that pair the same vocabulary reaches this Owner through three
-  intakes that differ in who holds the clock, and a rule learned from one of them is wrong about the other two.
-  A submitted PIT Snapshot Request carries, for every coordinate, both the value and the clock identity and epoch
-  the submitter claims; this Owner assigns none of them and admits them only by comparing each claimed clock
-  against its own sealed head, refusing on mismatch. An Instrument Master submission carries the coordinate
-  values alone and no clock at all; this Owner binds the admitted fact to its own current clock head. On the live
-  market channel this Owner states the retrieval coordinate from the host process clock rather than from the
-  sealed head, so it is comparable neither with the venue's two instants nor with a sealed-head coordinate.
-  Binding a coordinate to the sealed head is admission, not attribution: on the PIT intake a claimed instant
-  remains the submitter's claim after the head admits it, and is never compared to an Owner-stated instant as
-  though one clock produced both. A record that states no coordinate of its own yields none for it, and this
-  Owner never substitutes its own instant, the event instant, or a neighbouring record's stamp for a coordinate
-  the source did not state.
+- Data vendors and trading venues provide raw market and reference records through Data Clients.
 - [R&D](./rd/) submits an initial frozen PIT Market Snapshot Request before exploratory consumption.
   It binds the Research Request, Intent, TrialFamily, instrument or universe scope, four-time decision cut,
   required provenance, license and correction frontier, stable correlation, and Time Evidence.
