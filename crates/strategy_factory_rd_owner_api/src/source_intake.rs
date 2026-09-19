@@ -400,7 +400,7 @@ async fn inspect_source_intake_relation_family(
     connection: &mut sqlx::PgConnection,
 ) -> anyhow::Result<SourceIntakeRelationFamilyShape> {
     sqlx::query_as(
-        r#"SELECT
+        "SELECT
           ARRAY(
             SELECT relation.relname||':'||relation.relkind::pg_catalog.text||':'||
                    relation.relpersistence::pg_catalog.text||':'||
@@ -576,7 +576,7 @@ async fn inspect_source_intake_relation_family(
               JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
              WHERE namespace.nspname='public' AND relation.relname=ANY($1)
              ORDER BY relation.relname,rewrite.rulename
-          ) AS rules"#,
+          ) AS rules",
     )
     .bind(SOURCE_INTAKE_RELATIONS)
     .bind(SOURCE_INTAKE_FUNCTION_NAMES)

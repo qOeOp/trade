@@ -500,9 +500,13 @@ export function OperationsServiceLogs() {
             <FilterButton density="compact" variant="toggle" type="button" aria-pressed={autoRefresh} onClick={() => setAutoRefresh((value) => !value)}>
               <InterfaceIcons.autoRefresh aria-hidden="true" size={12} /> Auto-refresh {autoRefresh ? "on" : "off"}
             </FilterButton>
-            {page && !pending ? <FilterButton density="compact" variant="secondary" type="button" onClick={() => void download()}>
+            {/* Disabled rather than removed. This row wraps, so dropping a control while a read is
+                in flight changes the header's height and shifts everything below it - 15 px, every
+                ten seconds once auto-refresh is on. The refresh control beside it already says how
+                to express the same unavailability without moving the page. */}
+            <FilterButton density="compact" variant="secondary" type="button" disabled={!page || pending} onClick={() => void download()}>
               <InterfaceIcons.download aria-hidden="true" size={12} /> Download
-            </FilterButton> : null}
+            </FilterButton>
           </div></>}
         />
         <PanelFrameBody className="service-logs-body">

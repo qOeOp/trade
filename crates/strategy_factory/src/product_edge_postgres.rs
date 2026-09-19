@@ -171,7 +171,7 @@ async fn verify_research_readback_relation(pool: &PgPool) -> Result<(), Research
              AND relation.relpersistence='p'
              AND pg_catalog.pg_get_userbyid(relation.relowner)='rd_owner'
              AND pg_catalog.has_table_privilege(current_user, relation.oid, 'SELECT')
-             AND (SELECT pg_catalog.count(*)=11
+             AND (SELECT pg_catalog.count(*)=17
                     AND pg_catalog.bool_and(CASE attribute.attname
                       WHEN 'request_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
                       WHEN 'semantic_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
@@ -184,6 +184,12 @@ async fn verify_research_readback_relation(pool: &PgPool) -> Result<(), Research
                       WHEN 'artifact_evidence_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
                       WHEN 'source_ancestry_locator_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
                       WHEN 'source_ancestry_evidence_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'request_storage_bytes' THEN attribute.atttypid='pg_catalog.bytea'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'request_storage_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'receipt_storage_bytes' THEN attribute.atttypid='pg_catalog.bytea'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'receipt_storage_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'intent_storage_bytes' THEN attribute.atttypid='pg_catalog.bytea'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'intent_storage_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
                       ELSE false
                     END)
                     FROM pg_catalog.pg_attribute attribute
