@@ -94,7 +94,7 @@ rather than repeating it, so there is one place to keep in step.
   `sealed-develop-composer-acceptance` test module of `crates/strategy_factory/src/iteration_decision_postgres.rs`.
 - **CURRENT_PARTIAL - Protected Evaluation:** every protected terminal is driven end to end by the ordered
   PostgreSQL gate and by nothing else. The entries, the sealed evidence that admits each terminal, and the two
-  behaviours the gate cannot reach are recorded under `Eligibility terminal status` above.
+  behaviours the gate cannot reach are recorded under Eligibility terminal status above.
 - **CURRENT_PARTIAL - Pre-Research protected-feedback resolution:** this is the one capability with production
   callers. `resolve_or_create_for_basis` and `admit_in_transaction` are called from
   `crates/strategy_factory/src/product_edge_postgres.rs`, and `admit_historical_projection_in_transaction` from
@@ -108,11 +108,11 @@ rather than repeating it, so there is one place to keep in step.
   Governance and every `UntrustedEligibilityReadback` is constructed in that crate's own tests, so the shape of a
   read port is present while nothing on either side has written such a fact.
 - **TARGET - the deployment-authorized terminal:** `DEPLOYMENT_STORE_ADMISSION_MODE` stays `disabled`, and what
-  it waits for is recorded under `Eligibility terminal status` above.
+  it waits for is recorded under Eligibility terminal status above.
 - **CURRENT, and permanently unprovable - Incident-specific Owner reconstruction:** the machinery is merged -
   `crates/qualification/src/recovery.rs`, exported as `run_owner_recovery_cli` and shipped as the
   `qualification-owner-recovery` binary behind the `owner-recovery` feature - and its only proof can never pass.
-  The measurement is recorded under `Incident-specific Owner reconstruction` below.
+  The measurement is recorded under Incident-specific Owner reconstruction below.
 
 ## Pre-Research protected-feedback resolution
 
